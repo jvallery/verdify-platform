@@ -1359,7 +1359,7 @@ def test_deployed_cache_layout_is_unique_restricted_and_preserves_time_budget():
     rebuild_timeout = int(publisher_env["VERDIFY_PUBLISH_REBUILD_TIMEOUT"])
     job_deadline = cronjob["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"]
     assert step_timeout == 180
-    assert rebuild_timeout == 300
+    assert rebuild_timeout == 540
     assert job_deadline == 1500
     # A wedged run must end before the next 30-minute tick fires.
     assert job_deadline < 30 * 60
