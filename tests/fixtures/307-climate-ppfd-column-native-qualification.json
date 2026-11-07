@@ -1,11 +1,78 @@
 {
   "migration": "307-climate-ppfd-column.sql",
-  "exact_final_migration_sha256": "52d7496996441dd16faf693c4bc09ed74f1a3871c6b01d4c4a51b35e21cfa6e7",
-  "final_migration_qualification_pending": true,
+  "exact_final_migration_sha256": "8f6b6c9baaa5652d89bf6a48b3cd503df1c14d360181e0f1bfdbe0e53349d544",
+  "final_migration_qualification_pending": false,
   "projected_successor": {
+    "api": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
+    "ingestor": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
+  },
+  "projection": "2026-11-07, production at exact305 (306 merged, not yet applied). 307 adds climate.ppfd_umol_m2_s, appends it to v_runtime_climate_write and grants the ingestor duty INSERT on it. The api, ingestor and MCP duties hold table-level SELECT on climate, so any of their seals may take in the column; the projected successor literals are the predecessor's until a rolled-back --probe-only run (--apply-first 306) measures them. The full qualification (--apply-first 306, with the native fixture db/qualification/307-climate-ppfd-column-fixture.sql) must reproduce the probe.",
+  "measured_at": "2026-11-07T19:14:08Z",
+  "before": {
     "api": "42091d8bc52adfff17ef589ca7d71ac3a97fe37af4460b551a938f313635bb8c",
     "ingestor": "c7ad6a83e598b8f6da9ebd0086c008b13cfa2812647516ecdf8a7d1b32331940",
     "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
   },
-  "projection": "2026-11-07, production at exact305 (306 merged, not yet applied). 307 adds climate.ppfd_umol_m2_s, appends it to v_runtime_climate_write and grants the ingestor duty INSERT on it. The api, ingestor and MCP duties hold table-level SELECT on climate, so any of their seals may take in the column; the projected successor literals are the predecessor's until a rolled-back --probe-only run (--apply-first 306) measures them. The full qualification (--apply-first 306, with the native fixture db/qualification/307-climate-ppfd-column-fixture.sql) must reproduce the probe."
+  "qualified_successor": {
+    "api": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
+    "ingestor": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
+  },
+  "after_rollback": {
+    "api": "42091d8bc52adfff17ef589ca7d71ac3a97fe37af4460b551a938f313635bb8c",
+    "ingestor": "c7ad6a83e598b8f6da9ebd0086c008b13cfa2812647516ecdf8a7d1b32331940",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
+  },
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "7c0aa8f2b5e01c24be1e156392c9ee724236531d39b43fcac41890438dc173b0",
+  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
+  "applied_first": [
+    {
+      "migration": "306-vpd-envelope-sql-mirror.sql",
+      "seq": 306,
+      "sha256": "6d87f428b317cac9b4179f191d8342d897c29bd2b3046d6e61bb41e11bc41094"
+    }
+  ],
+  "applied_first_seals": {
+    "api": "42091d8bc52adfff17ef589ca7d71ac3a97fe37af4460b551a938f313635bb8c",
+    "ingestor": "c7ad6a83e598b8f6da9ebd0086c008b13cfa2812647516ecdf8a7d1b32331940",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
+  },
+  "prelock": [
+    [
+      "public.climate",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.mcp_runtime_boundary_receipt",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.runtime_ordinary_login_attestation_receipts",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.schema_migrations",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.v_runtime_climate_write",
+      "ACCESS EXCLUSIVE"
+    ]
+  ],
+  "native_fixture": {
+    "checks": [
+      "column_is_double_precision",
+      "facade_appends_one_column_with_217_options",
+      "ingestor_insert_only_on_the_new_column",
+      "api_and_public_denied",
+      "ingestor_login_records_ppfd_event",
+      "legacy_ppfd_still_refused",
+      "dashboard_login_reads_ppfd"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "a5150d521793d7503b63f17d0ea143e8e3de22cbe497b9dae10aaa90a5e4bcfc"
 }

@@ -408,10 +408,10 @@ SUCCESSOR_306_MCP_DIGEST = SUCCESSOR_305_MCP_DIGEST
 # facade v_runtime_climate_write with INSERT for the ingestor duty. The api, ingestor and MCP duties read climate
 # through table-level SELECT; the rolled-back native qualification measures the successor seals. It follows 306.
 SUCCESSOR_307 = "307-climate-ppfd-column.sql"
-SUCCESSOR_307_SHA256 = "52d7496996441dd16faf693c4bc09ed74f1a3871c6b01d4c4a51b35e21cfa6e7"
+SUCCESSOR_307_SHA256 = "8f6b6c9baaa5652d89bf6a48b3cd503df1c14d360181e0f1bfdbe0e53349d544"
 SUCCESSOR_307_DIGESTS = {
-    "verdify_api_runtime_login": "42091d8bc52adfff17ef589ca7d71ac3a97fe37af4460b551a938f313635bb8c",
-    "verdify_ingestor_runtime_login": "c7ad6a83e598b8f6da9ebd0086c008b13cfa2812647516ecdf8a7d1b32331940",
+    "verdify_api_runtime_login": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
+    "verdify_ingestor_runtime_login": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
 }
 SUCCESSOR_307_MCP_DIGEST = "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
