@@ -1,21 +1,31 @@
 #!/usr/bin/env bash
 # Rotate the controller's OTA password (#1009) without ever printing it.
 #
-# Jason runs this: it reads and writes Secret material, which agent sessions
-# must not. The Secret verdify-prod/verdify-firmware-ota stays out-of-band
-# (its move to the agents KSOPS lane is agents#4470); this changes only its
-# keys, through write-only patches from a private temp file.
+# The Secret verdify-prod/verdify-firmware-ota is delivered by Argo app
+# verdify-prod-secrets-local-prod (automated selfHeal, server-side apply) from the
+# KSOPS file platform/gitops/secrets-ksops/verdify-prod/secret-verdify-firmware-ota.enc.yaml
+# in jvallery/agents. A live patch is reverted within seconds: on 2026-11-07 a
+# promote was undone 9 s later, leaving the old values and an orphan
+# ota_password_previous key. So a rotation is a change to that KSOPS file, made by
+# a value-blind helper (a sops edit that never prints a value), merged and synced:
 #
-#   stage    prompt for the new password (hidden, twice) or --generate one, and
-#            add it as key ota_password_next. The device still runs ota_password.
+#   stage    add key ota_password_next with the new password. The device still
+#            runs ota_password.
 #   promote  after the rotated firmware is flashed and pinned: ota_password takes
 #            the ota_password_next value, the old value moves to
 #            ota_password_previous (a rollback to a pre-rotation image needs it
-#            for every later flash), and ota_password_next is removed, in one
-#            JSON patch.
+#            for every later flash), and ota_password_next is dropped, in one
+#            change to the file.
 #   forget   once no pre-rotation image can run again (a rotated release is
-#            last-good): remove ota_password_previous.
-#   status   key names, and whether ota_password_next differs from ota_password.
+#            last-good): drop ota_password_previous.
+#
+# This script's stage, promote and forget modes write the live Secret directly
+# with write-only patches. Before any write they read the Secret's metadata (never
+# its values) and refuse when Argo manages it: an argocd.argoproj.io/tracking-id
+# annotation, an app.kubernetes.io/instance label, or a managedFields manager
+# containing "argocd". They remain only for a Secret that is out of band again.
+#   status   key names, and whether ota_password_next differs from ota_password;
+#            works either way, and notes on stderr when Argo manages the Secret.
 #
 # Between stage and promote the build uses ota_password_next and every flash
 # Job uses the key the device runs now (docs/runbooks/firmware-signed-artifacts.md,
@@ -34,6 +44,9 @@ set -euo pipefail
 CONTEXT="${KUBE_CONTEXT:-vallery}"
 NS=verdify-prod
 SECRET=verdify-firmware-ota
+KSOPS_REPO=jvallery/agents
+KSOPS_FILE=platform/gitops/secrets-ksops/verdify-prod/secret-verdify-firmware-ota.enc.yaml
+ARGO_APP=verdify-prod-secrets-local-prod
 k() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
 
 mode="${1:-}"
@@ -65,11 +78,56 @@ print(json.dumps(out))
 PY
 }
 
+# Metadata-only check for Argo ownership: prints one marker per line. It asks
+# kubectl for .metadata alone, so the data map is never fetched.
+argo_markers() {
+    k get secret "$SECRET" --show-managed-fields -o 'jsonpath={.metadata}' > "$work/meta.json"
+    python3 - "$work/meta.json" <<'PY'
+import json, sys
+meta = json.load(open(sys.argv[1]))
+if "argocd.argoproj.io/tracking-id" in (meta.get("annotations") or {}):
+    print("annotation argocd.argoproj.io/tracking-id")
+if "app.kubernetes.io/instance" in (meta.get("labels") or {}):
+    print("label app.kubernetes.io/instance")
+for entry in meta.get("managedFields") or []:
+    manager = entry.get("manager") or ""
+    if "argocd" in manager.lower():
+        print(f"managedFields manager {manager}")
+PY
+}
+
+# Refuse a live write when Argo manages the Secret: selfHeal would revert it.
+refuse_if_argo_managed() {
+    local markers swap line
+    markers="$(argo_markers)"
+    [[ -z "$markers" ]] && return 0
+    case "$mode" in
+        stage) swap="add key ota_password_next holding the new password; leave ota_password as it is" ;;
+        promote) swap="set ota_password to the ota_password_next value and ota_password_previous to the old ota_password value, and drop ota_password_next, in one commit" ;;
+        forget) swap="drop key ota_password_previous" ;;
+    esac
+    {
+        echo "refused: Argo manages secret $NS/$SECRET (app $ARGO_APP, automated selfHeal); a live $mode would be reverted within seconds."
+        echo "Argo markers found:"
+        while IFS= read -r line; do echo "  $line"; done <<<"$markers"
+        echo "Make the change in $KSOPS_REPO, file $KSOPS_FILE:"
+        echo "  $swap."
+        echo "A value-blind helper must do the sops edit: no value printed, logged or committed in clear."
+        echo "Merge it, let Argo sync, then check with: $0 status"
+    } >&2
+    exit 3
+}
+
 case "$mode" in
 status)
     report
+    markers="$(argo_markers)"
+    if [[ -n "$markers" ]]; then
+        echo "note: Argo ($ARGO_APP) manages this Secret; rotate through $KSOPS_REPO $KSOPS_FILE, not stage/promote/forget" >&2
+    fi
     ;;
 stage)
+    refuse_if_argo_managed
     k get secret "$SECRET" -o json > "$work/live.json"
     if [[ "$replace" != 1 ]] && python3 -c 'import json,sys; sys.exit(0 if "ota_password_next" in json.load(open(sys.argv[1])).get("data", {}) else 1)' "$work/live.json"; then
         echo "ota_password_next already staged; promote it first, or re-run with --replace" >&2
@@ -105,6 +163,7 @@ sys.exit(0 if ok else 1)
 PY
     ;;
 promote)
+    refuse_if_argo_managed
     k get secret "$SECRET" -o json > "$work/live.json"
     python3 - "$work/live.json" "$work/patch.json" "$work/next.sha" <<'PY'
 import hashlib, json, sys
@@ -140,6 +199,7 @@ sys.exit(0 if ok else 1)
 PY
     ;;
 forget)
+    refuse_if_argo_managed
     k get secret "$SECRET" -o json > "$work/live.json"
     python3 - "$work/live.json" "$work/patch.json" <<'PY'
 import json, sys
@@ -154,7 +214,7 @@ PY
     report
     ;;
 *)
-    sed -n '2,25p' "$0" >&2
+    sed -n '2,41p' "$0" >&2
     exit 64
     ;;
 esac

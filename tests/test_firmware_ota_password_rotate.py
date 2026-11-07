@@ -1,7 +1,9 @@
 """#1009: the OTA password rotation helper stages, promotes and never prints a value.
 
 A stub kubectl keeps the Secret in a JSON file and applies the merge and JSON
-patches the helper sends; no cluster is touched.
+patches the helper sends; no cluster is touched. When Argo manages the Secret
+the write modes refuse after a metadata-only read (2026-11-07: selfHeal reverted
+a live promote in 9 s).
 """
 
 import base64
@@ -19,8 +21,12 @@ STUB = r"""#!/usr/bin/env python3
 import json, os, sys
 store = os.environ["STUB_SECRET"]
 args = sys.argv[1:]
+with open(store + ".calls", "a") as log:
+    log.write(" ".join(args) + "\n")
 secret = json.load(open(store))
-if "get" in args:
+if "get" in args and "jsonpath={.metadata}" in args:
+    print(json.dumps(secret.get("metadata", {})))
+elif "get" in args:
     print(json.dumps(secret))
 elif "patch" in args:
     kind = args[args.index("--type") + 1] if "--type" in args else args[[a.startswith("--type=") for a in args].index(True)].split("=", 1)[1]
@@ -100,3 +106,55 @@ def test_generate_stages_a_fresh_value(tmp_path):
     assert result.returncode == 0, result.stderr
     data = secret(tmp_path)
     assert data["ota_password"] == b64(OLD) and len(base64.b64decode(data["ota_password_next"])) >= 16
+
+
+ARGO_METADATA = {
+    "annotations": {
+        "argocd.argoproj.io/tracking-id": "verdify-prod-secrets-local-prod:/Secret:verdify-prod/verdify-firmware-ota"
+    },
+    "managedFields": [{"manager": "argocd-controller", "operation": "Apply"}],
+}
+
+
+def test_write_modes_refuse_an_argo_managed_secret_from_metadata_alone(tmp_path):
+    start = {
+        "ota_password": b64(OLD),
+        "ota_password_next": b64(NEW),
+        "ota_password_previous": b64("prev-ota-password-89ab"),
+    }
+    (tmp_path / "secret.json").write_text(json.dumps({"metadata": ARGO_METADATA, "data": start}))
+    for mode, swap in (
+        ("stage", "add key ota_password_next"),
+        ("promote", "drop ota_password_next"),
+        ("forget", "drop key ota_password_previous"),
+    ):
+        calls = tmp_path / "secret.json.calls"
+        calls.unlink(missing_ok=True)
+        result = run(tmp_path, mode, stdin=f"{NEW}\n{NEW}\n")
+        assert result.returncode == 3, (mode, result.stderr)
+        assert "refused: Argo manages" in result.stderr and swap in result.stderr
+        assert "platform/gitops/secrets-ksops/verdify-prod/secret-verdify-firmware-ota.enc.yaml" in result.stderr
+        assert "value-blind helper" in result.stderr
+        assert "managedFields manager argocd-controller" in result.stderr
+        # Only the metadata read ran: no full get, no patch.
+        assert calls.read_text().splitlines() == [
+            "--context vallery -n verdify-prod get secret verdify-firmware-ota --show-managed-fields -o jsonpath={.metadata}"
+        ]
+        assert secret(tmp_path) == start
+        for value in (OLD, NEW, b64(OLD), b64(NEW)):
+            assert value not in result.stdout + result.stderr
+
+
+def test_each_argo_marker_alone_refuses_and_status_still_reports(tmp_path):
+    for metadata in (
+        {"labels": {"app.kubernetes.io/instance": "verdify-prod-secrets-local-prod"}},
+        {"annotations": {"argocd.argoproj.io/tracking-id": "x"}},
+        {"managedFields": [{"manager": "argocd-application-controller"}]},
+    ):
+        (tmp_path / "secret.json").write_text(json.dumps({"metadata": metadata, "data": {"ota_password": b64(OLD)}}))
+        assert run(tmp_path, "stage", "--generate").returncode == 3
+        assert secret(tmp_path) == {"ota_password": b64(OLD)}
+        status = run(tmp_path, "status")
+        assert status.returncode == 0, status.stderr
+        assert json.loads(status.stdout) == {"keys": ["ota_password"]}
+        assert "Argo" in status.stderr
