@@ -268,8 +268,20 @@ and confirm no new row opens.
 
 A rotation rides an ordinary release: the candidate is built with a new OTA
 password while the flash authenticates with the one the controller runs. Secret
-`verdify-firmware-ota` carries the keys; only Jason's helper reads or writes them,
-through write-only patches, and it prints key names and booleans only.
+`verdify-prod/verdify-firmware-ota` carries the keys. Argo app
+`verdify-prod-secrets-local-prod` delivers it (automated selfHeal, server-side
+apply) from the KSOPS file
+`platform/gitops/secrets-ksops/verdify-prod/secret-verdify-firmware-ota.enc.yaml`
+in `jvallery/agents`, so every key change is a change to that file: a live patch
+is reverted within seconds. On 2026-11-07 a live `promote` was undone 9 s later,
+leaving the pre-promote values and an orphan `ota_password_previous` key. A
+value-blind helper does each sops edit (no value printed, logged or committed in
+clear); merge it and let Argo sync before the step that needs it.
+
+`scripts/firmware-ota-password-rotate.sh status` reads the live Secret and prints
+key names and booleans only. Its `stage`, `promote` and `forget` modes read the
+Secret's metadata first and refuse (exit 3, naming the file and the edit) while
+Argo manages it.
 
 | Key | Holds | Used by |
 |---|---|---|
@@ -277,10 +289,11 @@ through write-only patches, and it prints key names and booleans only.
 | `ota_password_next` | the staged new password, between stage and promote | the rotation build (`--ota-key ota_password_next`); a rollback flash while the rotated image runs |
 | `ota_password_previous` | the old password, after promote | a flash while a pre-rotation image runs (after a rollback) |
 
-1. Jason stages the new value before the build (hidden prompt twice, or
-   `--generate` for a random one):
-   `bash scripts/firmware-ota-password-rotate.sh stage`. It must print
-   `"ota_password_next_reads_back": true`.
+1. Stage, before the build: add key `ota_password_next` holding the new
+   password (at least 16 printable ASCII characters, no spaces, different from
+   `ota_password`) to the KSOPS file, merge, and let Argo sync.
+   `bash scripts/firmware-ota-password-rotate.sh status` must then list
+   `ota_password_next` with `"next_differs_from_current": true`.
 2. Build with it: `python3 scripts/firmware-release-job.py build --revision "$CAND_REV" --name JOB_NAME --ota-key ota_password_next --submit`.
    The builder's `check-credentials` proves the image carries exactly that value.
 3. Credential parity (step 2 above) runs with `--rotate-ota`:
@@ -294,20 +307,24 @@ through write-only patches, and it prints key names and booleans only.
 5. Once the device reports `$V`, it answers only to `ota_password_next`. A rollback
    from here uses `flash --revision "$RB_REV" --expected "$RB_MANIFEST" --ota-key ota_password_next`,
    and the pre-rotation image it installs answers to `ota_password` again.
-6. After the pin (step 8), Jason promotes:
-   `bash scripts/firmware-ota-password-rotate.sh promote`. `ota_password` now holds
+6. Promote, after the pin (step 8), in one commit to the KSOPS file:
+   `ota_password` takes the `ota_password_next` value, `ota_password_previous`
+   takes the old `ota_password` value, and `ota_password_next` is dropped. After
+   the sync, `status` must list exactly `ota_password` and `ota_password_previous`.
+   `ota_password` now holds
    the new value and `ota_password_previous` the old one, so every later build
    and flash uses the default key. A later rollback to a pre-rotation image
    flashes with the default key and leaves the controller on the old password:
    flash it with `--ota-key ota_password_previous` from then on.
-7. When a rotated release is last-good and no pre-rotation image can run again,
-   Jason runs `bash scripts/firmware-ota-password-rotate.sh forget`.
+7. Forget, when a rotated release is last-good and no pre-rotation image can
+   run again: drop `ota_password_previous` from the KSOPS file, merge, and let
+   Argo sync; `status` then lists `ota_password` alone.
 
 `Authentication invalid` on a rotation flash means the key does not match the
 running image: stop, re-read which version the controller reports, and pick the
-key from the table. The Secret is still applied out of band (its KSOPS custody is
-agents#4470); the rotation does not change that, and the unrendered
-`deploy/k8s/overlays/prod/firmware-ota-secret.sops.yaml` copy is stale after it.
+key from the table. The unrendered
+`deploy/k8s/overlays/prod/firmware-ota-secret.sops.yaml` copy here is not what
+Argo delivers; it is stale after any rotation.
 
 ### Rollback
 
