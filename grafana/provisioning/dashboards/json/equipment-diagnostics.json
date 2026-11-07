@@ -497,7 +497,7 @@
     {
       "id": 905,
       "type": "stat",
-      "title": "Interior DLI — Unavailable",
+      "title": "Interior DLI",
       "gridPos": {
         "h": 3,
         "w": 3,
@@ -553,12 +553,12 @@
             "uid": "verdify-tsdb",
             "type": "grafana-postgresql-datasource"
           },
-          "rawSql": "SELECT now() AS time, initcap(availability) || ' — ' || unavailable_reason AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
+          "rawSql": "SELECT now() AS time, COALESCE(round(crop_dli_mol_m2_day::numeric, 1)::text || ' mol/m²/d', initcap(availability) || ' — ' || unavailable_reason) AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
           "format": "table",
           "refId": "A"
         }
       ],
-      "description": "Interior crop DLI is unavailable because the physical sensor is broken; this stat carries the explicit reason instead of a numeric proxy."
+      "description": "Interior crop DLI in mol/m²/d from the canopy PAR quantum sensor; while it is unavailable this stat carries the explicit reason instead of a numeric proxy."
     },
     {
       "id": 906,

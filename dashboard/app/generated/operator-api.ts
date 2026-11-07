@@ -754,7 +754,7 @@ export interface paths {
         };
         /**
          * Metric registry over every numeric climate column, controller vitals and the daily scorecard keys
-         * @description Column names never come from the browser. DLI keys return with the PAR meter (Round 2
+         * @description Column names never come from the browser. Light carries the canopy PAR meter's `climate.ppfd_umol_m2_s` and `daily.dli_mol_m2_day` (#1184), which reads `v_dli_daily` and is null with its reason until a full local day of PPFD is covered.
          */
         readonly get: operations["API-03"];
         readonly put?: never;
@@ -894,7 +894,7 @@ export interface paths {
         };
         /**
          * Downsampled series for uPlot
-         * @description time_bucket_gapfill over [from, to). The bucket is the smallest of 1 min, 5 min, 15 min, 1 h, 3 h and 1 d that gives at most `points` buckets. Over 31 days, or when `from` is older than the raw retention of a requested metric that has a daily binding, the bucket is 1 d and every metric with a daily binding reads `daily_summary` (its `source` says so, and so does the chart); `daily.*` keys read `v_daily_scorecard`. Windows up to 400 days (else 422 `window_too_large`); buckets before a metric's `retained_from` are beyond its retention, not gaps. An unknown key is 422 `unknown_target`; the 10 s statement timeout is 503 `query_timeout`.
+         * @description time_bucket_gapfill over [from, to). The bucket is the smallest of 1 min, 5 min, 15 min, 1 h, 3 h and 1 d that gives at most `points` buckets. Over 31 days, or when `from` is older than the raw retention of a requested metric that has a daily binding, the bucket is 1 d and every metric with a daily binding reads `daily_summary` (its `source` says so, and so does the chart); `daily.*` keys read `v_daily_scorecard`, except `daily.dli_mol_m2_day`, which reads `v_dli_daily`. A request of `daily.*` keys alone is 1 d buckets on America/Denver days for any window. Windows up to 400 days (else 422 `window_too_large`); buckets before a metric's `retained_from` are beyond its retention, not gaps. An unknown key is 422 `unknown_target`; the 10 s statement timeout is 503 `query_timeout`.
          */
         readonly get: operations["API-04"];
         readonly put?: never;
@@ -2784,7 +2784,7 @@ export interface components {
             readonly issued_at?: string | null;
             readonly max: components["schemas"]["NullableNumbers"];
             readonly min: components["schemas"]["NullableNumbers"];
-            /** @description daily.* keys only, one per bucket: why a null bucket is null ('band grade kept 3 days', the water day's v_water_meter_daily quality, or 'no meter data'); null where the bucket has a value or no reason is known */
+            /** @description daily.* keys only, one per bucket: why a null bucket is null ('band grade kept 3 days', the water day's v_water_meter_daily quality, 'no meter data', or v_dli_daily's unavailable_reason such as 'source_coverage_low'); null where the bucket has a value or no reason is known */
             readonly reason?: readonly (string | null)[];
             /**
              * Format: date-time

@@ -1593,7 +1593,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
       },
-      "description": "Interior crop DLI is unavailable because the physical sensor is broken. No outdoor proxy or correction is presented as crop evidence.",
+      "description": "Interior crop DLI in mol/m²/d from the canopy PAR quantum sensor, or Unavailable — <reason> without full PPFD coverage. No outdoor proxy or correction is presented as crop evidence.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1740,7 +1740,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT now() AS time, initcap(availability) || ' \u2014 ' || unavailable_reason AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
+          "rawSql": "SELECT now() AS time, COALESCE(round(crop_dli_mol_m2_day::numeric, 1)::text || ' mol/m\u00b2/d', initcap(availability) || ' \u2014 ' || unavailable_reason) AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1817,7 +1817,7 @@
           }
         }
       ],
-      "title": "Interior DLI \u2014 Unavailable",
+      "title": "Interior DLI",
       "type": "timeseries",
       "transparent": true
     },

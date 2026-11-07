@@ -1,0 +1,11 @@
+{
+  "migration": "308-dli-canopy-ppfd.sql",
+  "exact_final_migration_sha256": "44de6ae887c84c8aab530fc877aeca84f913744cf3ed397f5ab093f46c924e4c",
+  "final_migration_qualification_pending": true,
+  "projected_successor": {
+    "api": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
+    "ingestor": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
+  },
+  "projection": "2026-11-07, production at exact307. 308 rebinds v_dli_current and v_dli_daily to canopy PPFD (same ten columns), drops 195's CHECK dli_validity_release_unavailable for the PAR-only dli_validity_release_par_only, closes dli-validity-v1 and opens dli-validity-v2-par in the protected ledger dli_validity_intervals, and grants the dashboard duty SELECT on both views, the ledger's eight 217 columns and EXECUTE on fn_dli_validity. The ledger and v_greenhouse_now (which reads v_dli_current) are protected relations of the ordinary boundary, so the api and ingestor seals may move; the projected successor literals are 307's until a rolled-back --probe-only run measures them. The full qualification (with the native fixture db/qualification/308-dli-canopy-ppfd-fixture.sql) must reproduce the probe."
+}

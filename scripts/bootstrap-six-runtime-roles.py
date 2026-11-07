@@ -997,6 +997,36 @@ def sealed_sql_307():
     )
 
 
+DLI_PAR_MIGRATION = (
+    308,
+    "308-dli-canopy-ppfd.sql",
+    "44de6ae887c84c8aab530fc877aeca84f913744cf3ed397f5ab093f46c924e4c",
+)
+# Interior DLI from the canopy PAR meter (#1184): v_dli_current and v_dli_daily integrate PPFD, the protected ledger
+# dli_validity_intervals opens dli-validity-v2-par, and the dashboard duty reads both views. The rolled-back native
+# qualification measures the successor seals (tests/fixtures/308-dli-canopy-ppfd-native-qualification.json).
+SUCCESSOR_308 = {
+    **SUCCESSOR_307,
+    "api": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
+    "ingestor": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245",
+}
+
+
+def sealed_sql_308():
+    # Keep every 307 predicate and bind the exact 308 runner stamp with the seals it measures.
+    predecessor = sealed_sql_307()
+    current = seal_profile_sql(307, SUCCESSOR_307)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(308, SUCCESSOR_308), 1)
+        + " AND "
+        + ledger_row_sql(*DLI_PAR_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1055,6 +1085,8 @@ def sealed_sql():
         + sealed_sql_306()
         + " OR "
         + sealed_sql_307()
+        + " OR "
+        + sealed_sql_308()
         + ")"
     )
 

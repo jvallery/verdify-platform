@@ -36,7 +36,7 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Interior DLI — Unavailable",
+      "title": "Interior DLI",
       "datasource": {
         "uid": "verdify-tsdb",
         "type": "grafana-postgresql-datasource"
@@ -53,7 +53,7 @@
             "uid": "verdify-tsdb",
             "type": "grafana-postgresql-datasource"
           },
-          "rawSql": "SELECT now() AS time, initcap(availability) || ' — ' || unavailable_reason AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
+          "rawSql": "SELECT now() AS time, COALESCE(round(crop_dli_mol_m2_day::numeric, 1)::text || ' mol/m²/d', initcap(availability) || ' — ' || unavailable_reason) AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
           "format": "time_series",
           "refId": "A"
         }
@@ -90,7 +90,7 @@
         "colorMode": "value",
         "graphMode": "none"
       },
-      "description": "Interior crop DLI is unavailable because the physical sensor is broken. Reason and provenance come from v_dli_current.",
+      "description": "Interior crop DLI in mol/m²/d from the canopy PAR quantum sensor, or Unavailable — <reason>. Reason and provenance come from v_dli_current.",
       "transparent": true
     },
     {
@@ -749,8 +749,8 @@
     {
       "id": 10,
       "type": "timeseries",
-      "title": "Interior DLI \u2014 Unavailable",
-      "description": "No numeric interior crop DLI is published while the sensor is invalid. Qualified-light-minute control remains independent.",
+      "title": "Interior DLI",
+      "description": "Interior crop DLI from the canopy PAR quantum sensor prints in mol/m²/d; without full PPFD coverage it is unavailable with its reason. Qualified-light-minute control remains independent.",
       "datasource": {
         "uid": "verdify-tsdb",
         "type": "grafana-postgresql-datasource"
@@ -763,7 +763,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT now() AS time, initcap(availability) || ' — ' || unavailable_reason AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
+          "rawSql": "SELECT now() AS time, COALESCE(round(crop_dli_mol_m2_day::numeric, 1)::text || ' mol/m²/d', initcap(availability) || ' — ' || unavailable_reason) AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
           "refId": "A",
           "format": "time_series",
           "datasource": {
@@ -2087,7 +2087,7 @@
       "id": 17,
       "type": "timeseries",
       "title": "Daily Interior DLI Availability",
-      "description": "Daily interior crop DLI remains unavailable with explicit reason/provenance; legacy daily proxy values are forensic only.",
+      "description": "Daily interior crop DLI in mol/m²/d from canopy PPFD, one value per completed local day; a day without full PPFD coverage is unavailable with its reason. Legacy daily proxy values are forensic only.",
       "datasource": {
         "uid": "verdify-tsdb",
         "type": "grafana-postgresql-datasource"
@@ -2104,7 +2104,7 @@
             "uid": "verdify-tsdb",
             "type": "grafana-postgresql-datasource"
           },
-          "rawSql": "SELECT (date + time '12:00')::timestamptz AS time, initcap(availability) || ' — ' || unavailable_reason AS \"Interior DLI\" FROM v_dli_daily WHERE $__timeFilter((date + time '12:00')::timestamptz) ORDER BY date",
+          "rawSql": "SELECT (date + time '12:00')::timestamptz AS time, COALESCE(round(crop_dli_mol_m2_day::numeric, 1)::text || ' mol/m²/d', initcap(availability) || ' — ' || unavailable_reason) AS \"Interior DLI\" FROM v_dli_daily WHERE $__timeFilter((date + time '12:00')::timestamptz) ORDER BY date",
           "format": "time_series",
           "refId": "A"
         }
@@ -2590,7 +2590,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT now() AS time, initcap(availability) || ' — ' || unavailable_reason AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
+          "rawSql": "SELECT now() AS time, COALESCE(round(crop_dli_mol_m2_day::numeric, 1)::text || ' mol/m²/d', initcap(availability) || ' — ' || unavailable_reason) AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
           "refId": "A",
           "sql": {
             "columns": [
@@ -2667,9 +2667,9 @@
           }
         }
       ],
-      "title": "Interior DLI \u2014 Unavailable",
+      "title": "Interior DLI",
       "type": "timeseries",
-      "description": "Interior crop DLI is unavailable because the physical sensor is broken. No outdoor proxy or correction is presented as crop evidence.",
+      "description": "Interior crop DLI in mol/m²/d from the canopy PAR quantum sensor, or Unavailable — <reason> without full PPFD coverage. No outdoor proxy or correction is presented as crop evidence.",
       "transparent": true
     }
   ],

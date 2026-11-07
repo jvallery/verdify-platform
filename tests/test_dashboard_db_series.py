@@ -487,7 +487,7 @@ def test_registry_columns_exist_in_the_database(db):
     async def work(conn):
         rows = await conn.fetch(
             "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' "
-            "AND table_name IN ('climate', 'diagnostics', 'daily_summary', 'v_daily_scorecard')"
+            "AND table_name IN ('climate', 'diagnostics', 'daily_summary', 'v_daily_scorecard', 'v_dli_daily')"
         )
         return {(row["table_name"], row["column_name"]) for row in rows}
 
