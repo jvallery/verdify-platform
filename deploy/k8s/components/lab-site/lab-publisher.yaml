@@ -155,10 +155,16 @@ spec:
                   value: "180"
                 # Quartz crossed the generic 180-second generator ceiling as
                 # the public tree grew. Keep generators tightly bounded while
-                # allowing only the final local rebuild up to five minutes.
-                # The Job's 1800-second deadline remains the outer hard stop.
+                # allowing only the final local rebuild a longer bound.
+                # 300 -> 540 (2026-11-07): the 18:05Z and 19:05Z runs hit
+                # "TIMEOUT after 300s" (rc=124) in rebuild-site.sh; the full
+                # rebuild now takes about 2-5 min plus emit. 540 s keeps the
+                # script's 600 s ceiling, and with the 180 s generator bound
+                # still fits twice inside the Job's 1500-second deadline, the
+                # outer hard stop that ends a wedged run before the next
+                # 30-minute tick (Forbid also prevents overlap).
                 - name: VERDIFY_PUBLISH_REBUILD_TIMEOUT
-                  value: "300"
+                  value: "540"
                 # Bound report-generation queries so a public-site refresh can
                 # never starve the control database. PGOPTIONS is consumed by
                 # the psql shim/libpq clients used by the publisher scripts.
