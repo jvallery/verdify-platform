@@ -163,6 +163,8 @@ def contract_sql():
         + _ordinary.sealed_sql_305()
         + " OR "
         + _ordinary.sealed_sql_306()
+        + " OR "
+        + _ordinary.sealed_sql_307()
         + ")"
     ]
     for duty in DUTIES:

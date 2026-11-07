@@ -178,6 +178,9 @@ ESPHOME_FEEDBACK_MAP: dict[str, str] = {
     "center_leachate_ec": "ec_runoff_center",
     "center_effluent_ec": "ec_runoff_center",
     "center_tray_ec": "ec_runoff_center",
+    # Canopy PAR meter (#1184): par_probe at address 10 on modbus_main, sensor canopy_ppfd (PR #1494). It stays here,
+    # outside CLIMATE_MAP, until the flashed firmware emits it; an absent meter sends nothing and the column stays NULL.
+    "canopy_ppfd": "ppfd_umol_m2_s",
 }
 
 FEEDBACK_VALUE_RANGES: dict[str, tuple[float | None, float | None]] = {
@@ -187,6 +190,8 @@ FEEDBACK_VALUE_RANGES: dict[str, tuple[float | None, float | None]] = {
     "moisture_center": (0.0, 100.0),
     "ph_runoff_center": (0.0, 14.0),
     "ec_runoff_center": (0.0, None),
+    # The PAR meter's 0-2500 µmol/m²/s span: a NaN or out-of-range reading drops alone, never the climate row.
+    "ppfd_umol_m2_s": (0.0, 2500.0),
 }
 
 

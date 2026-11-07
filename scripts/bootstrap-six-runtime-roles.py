@@ -967,6 +967,36 @@ def sealed_sql_306():
     )
 
 
+PAR_PPFD_MIGRATION = (
+    307,
+    "307-climate-ppfd-column.sql",
+    "8f6b6c9baaa5652d89bf6a48b3cd503df1c14d360181e0f1bfdbe0e53349d544",
+)
+# The canopy PAR meter's column (#1184): climate.ppfd_umol_m2_s, readable through the api, ingestor and MCP duties'
+# table-level SELECT, and an ingestor INSERT column on the runtime write facade. The rolled-back native qualification
+# measures the successor seals (tests/fixtures/307-climate-ppfd-column-native-qualification.json).
+SUCCESSOR_307 = {
+    **SUCCESSOR_306,
+    "api": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
+    "ingestor": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245",
+}
+
+
+def sealed_sql_307():
+    # Keep every 306 predicate and bind the exact 307 runner stamp with the seals it measures.
+    predecessor = sealed_sql_306()
+    current = seal_profile_sql(306, SUCCESSOR_306)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(307, SUCCESSOR_307), 1)
+        + " AND "
+        + ledger_row_sql(*PAR_PPFD_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1023,6 +1053,8 @@ def sealed_sql():
         + sealed_sql_305()
         + " OR "
         + sealed_sql_306()
+        + " OR "
+        + sealed_sql_307()
         + ")"
     )
 

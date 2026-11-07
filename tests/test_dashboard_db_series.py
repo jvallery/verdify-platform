@@ -95,6 +95,18 @@ def band_compliance_sql() -> str:
     return BAND_PREREQUISITES + migration.split("END $predecessor$;", 1)[1].split("DO $successor$", 1)[0]
 
 
+def climate_columns_sql() -> str:
+    """The climate columns migrations added after the db/schema.sql dump, from each migration's own text.
+
+    307 (#1184) adds ppfd_umol_m2_s; its facade view and grant need roles and objects the dump lacks, so only the
+    ALTER TABLE runs here.
+    """
+    migration = (ROOT / "db/migrations/307-climate-ppfd-column.sql").read_text()
+    statements = re.findall(r"^ALTER TABLE public\.climate ADD COLUMN [^;]*;", migration, re.M)
+    assert statements == ["ALTER TABLE public.climate ADD COLUMN ppfd_umol_m2_s double precision;"]
+    return "\n".join(statements)
+
+
 @dataclass(frozen=True)
 class Fixture:
     now: datetime
@@ -145,6 +157,7 @@ async def _fill(conn: asyncpg.Connection) -> Fixture:
         "INSERT INTO public.greenhouses (id, name) VALUES ('vallery', 'Vallery') ON CONFLICT (id) DO NOTHING"
     )
     await conn.execute(band_compliance_sql())
+    await conn.execute(climate_columns_sql())
     # 31 days at 60 s with a 30-minute outage; solar_altitude_deg set so the solar trigger stays idle.
     await conn.execute(
         """INSERT INTO public.climate (ts, greenhouse_id, temp_avg, temp_north, rh_avg, vpd_avg, co2_ppm,

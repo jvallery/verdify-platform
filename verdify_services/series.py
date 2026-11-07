@@ -449,6 +449,14 @@ _REGISTRY: tuple[MetricBinding, ...] = (
     _hydro("hydro_water_temp_f", "Hydroponic water temperature", "°F"),
     _hydro("hydro_battery_pct", "Hydroponic probe battery", "%"),
     # light
+    _climate(
+        "ppfd_umol_m2_s",
+        "PPFD (canopy)",
+        _LIGHT,
+        "µmol/m²/s",
+        zone="house",
+        note="PAR quantum sensor at canopy height (#1184); no rows until the meter is fitted",
+    ),
     _climate("outdoor_lux", "Outdoor illuminance", _LIGHT, "lx", note=_TEMPEST),
     _climate(
         "outdoor_illuminance",
@@ -608,7 +616,7 @@ _REGISTRY: tuple[MetricBinding, ...] = (
 METRICS: dict[str, MetricBinding] = {binding.key: binding for binding in _REGISTRY}
 
 # Every numeric climate column has a key or a reason here (tests/test_metric_registry_completeness.py).
-_NO_DLI = "No DLI until the PAR meter, which adds its own column (#1184; ADR-0008)"
+_NO_DLI = "Legacy or unused; measured light is ppfd_umol_m2_s from the PAR meter (#1184; ADR-0008)"
 _HA_ONLY_TEMPEST = (
     "Home Assistant-only Tempest field (_TEMPEST_MAP, no ESP32 entity); a gap once #1163 removes tempest_sync"
 )
