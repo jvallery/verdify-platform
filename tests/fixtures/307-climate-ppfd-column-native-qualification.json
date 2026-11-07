@@ -1,0 +1,11 @@
+{
+  "migration": "307-climate-ppfd-column.sql",
+  "exact_final_migration_sha256": "52d7496996441dd16faf693c4bc09ed74f1a3871c6b01d4c4a51b35e21cfa6e7",
+  "final_migration_qualification_pending": true,
+  "projected_successor": {
+    "api": "42091d8bc52adfff17ef589ca7d71ac3a97fe37af4460b551a938f313635bb8c",
+    "ingestor": "c7ad6a83e598b8f6da9ebd0086c008b13cfa2812647516ecdf8a7d1b32331940",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
+  },
+  "projection": "2026-11-07, production at exact305 (306 merged, not yet applied). 307 adds climate.ppfd_umol_m2_s, appends it to v_runtime_climate_write and grants the ingestor duty INSERT on it. The api, ingestor and MCP duties hold table-level SELECT on climate, so any of their seals may take in the column; the projected successor literals are the predecessor's until a rolled-back --probe-only run (--apply-first 306) measures them. The full qualification (--apply-first 306, with the native fixture db/qualification/307-climate-ppfd-column-fixture.sql) must reproduce the probe."
+}

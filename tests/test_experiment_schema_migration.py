@@ -377,6 +377,8 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "305-band-nightly-dryout.sql",
         # The achievable-envelope SQL mirror (pure functions) runs forward only.
         "306-vpd-envelope-sql-mirror.sql",
+        # The canopy PAR column, its facade column and the ingestor INSERT grant run forward only.
+        "307-climate-ppfd-column.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(

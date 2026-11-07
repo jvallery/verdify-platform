@@ -136,6 +136,8 @@ class ClimateRow(BaseModel):
     dli_today: float | None = None
     ppfd: float | None = None
     dli_par_today: float | None = None
+    # Canopy PAR meter (#1184, migration 307): ESPHome canopy_ppfd, absent until the meter is fitted.
+    ppfd_umol_m2_s: float | None = Field(default=None, ge=0)
 
     # Water
     flow_gpm: float | None = None
