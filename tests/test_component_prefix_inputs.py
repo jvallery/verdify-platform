@@ -202,8 +202,8 @@ def test_missing_actual_consumer_propagates_extraction_refusal(explicit_fixture,
         shutil.copyfile(ROOT / relative, target)
     controls = tmp_path / "firmware/greenhouse/controls.yaml"
     text = controls.read_text()
-    assert text.count("const bool vent_is_open = id(vent_rly)->state;") == 1
-    controls.write_text(text.replace("const bool vent_is_open = id(vent_rly)->state;", "/* unavailable readback */"))
+    assert text.count("const bool vent_is_open = relay_physical.vent;") == 1
+    controls.write_text(text.replace("const bool vent_is_open = relay_physical.vent;", "/* unavailable readback */"))
     report = prep.fog_vent_input_admission(explicit_fixture, root=tmp_path)
     assert report["scenario_inputs_admissible"] is False
     assert "actual_fog_vent_fragment_extraction_refused:ValueError" in report["scenario_blockers"]
