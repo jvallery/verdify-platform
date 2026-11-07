@@ -95,7 +95,7 @@ async def install(dsn: str) -> None:
     admin = await connect(dsn)
     try:
         if await admin.fetchval(
-            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.climate'::regclass "
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.climate') "
             "AND attname = 'ppfd_umol_m2_s')"
         ):
             pytest.fail("test_dashboard_db_dli_par_308 needs a fresh database")
