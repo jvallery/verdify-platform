@@ -1000,16 +1000,16 @@ def sealed_sql_307():
 DLI_PAR_MIGRATION = (
     308,
     "308-dli-canopy-ppfd.sql",
-    "44de6ae887c84c8aab530fc877aeca84f913744cf3ed397f5ab093f46c924e4c",
+    "564c6df281c836a19a4632caf6ed001832bbd1d5da5749b8a5d607a1bb4a752d",
 )
 # Interior DLI from the canopy PAR meter (#1184): v_dli_current and v_dli_daily integrate PPFD, the protected ledger
 # dli_validity_intervals opens dli-validity-v2-par, and the dashboard duty reads both views. The rolled-back native
 # qualification measures the successor seals (tests/fixtures/308-dli-canopy-ppfd-native-qualification.json).
 SUCCESSOR_308 = {
     **SUCCESSOR_307,
-    "api": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
-    "ingestor": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
-    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245",
+    "api": "abe5012d9c2c9a4d02049b7ab585ff883e3e855d8065fadb18f59ade662307e0",
+    "ingestor": "0d7c46acb4cd65df380602c94ff0efc9acf2dea64768c4b7dea12ed7cdf3ef2f",
+    "mcp": "5d3e5448a5f35ba198ef830fef8946df92ecbbca921e7b20a84d30ba7cbb7d49",
 }
 
 
