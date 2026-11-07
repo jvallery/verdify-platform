@@ -1577,7 +1577,7 @@ export interface components {
         readonly ExperimentDetail: {
             /** @description Per arm, over its finished days: the mean of each live value. Not the frozen analysis */
             readonly arms: readonly components["schemas"]["ArmSummary"][];
-            /** @description One cell per assigned study day, oldest first. For a run: status scheduled, active, done, void (a pair a pause or stop interrupted) or cancelled; events boundary_confirmed or boundary_unconfirmed, the deviation reasons (held_by_other, boundary_unconfirmed) and paused or stopped for a void day */
+            /** @description One cell per assigned study day, oldest first. For a run: status scheduled, active, done, void (a pair a pause or stop interrupted) or cancelled; events boundary_confirmed or boundary_unconfirmed, the deviation reasons (held_by_other, released_by_other, hold_refused, release_refused, boundary_unconfirmed) and paused or stopped for a void day */
             readonly calendar: readonly {
                 readonly arm: string | null;
                 /** Format: date */

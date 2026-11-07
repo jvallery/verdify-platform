@@ -94,6 +94,7 @@ class FakeDB:
         self.heartbeat_at: datetime | None = ago(seconds=30)
         self.climate_at: datetime | None = ago(seconds=60)
         self.armed: uuid.UUID | None = None
+        self.locks: list[tuple] = []
         self.season = "fall"
         self.desired: list[dict] = []
         self.plans: list[dict] = []
@@ -179,6 +180,13 @@ class FakeDB:
         self.sql.append(sql)
         rows = self.answer(sql, args)
         return rows[0] if rows else None
+
+    async def execute(self, sql, *args):
+        # the per-setting write lock every desired_state write takes first (#1360); only inside a transaction
+        assert sql == settings._PARAM_LOCK_SQL and self.depth > 0, sql
+        self.sql.append(sql)
+        self.locks.append(args)
+        return "SELECT 1"
 
     async def fetchval(self, sql, *args):
         self.sql.append(sql)

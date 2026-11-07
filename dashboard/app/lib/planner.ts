@@ -146,7 +146,8 @@ const PLANNER_NAMES: Readonly<Record<string, string>> = { hermes: "Hermes", cort
 export const plannerName = (planner: string) => PLANNER_NAMES[planner] ?? planner;
 /** A calendar day's events in words; boundary_confirmed is the normal case and says nothing. */
 const DAY_EVENT_WORDS: Readonly<Record<string, string | null>> = {
-  boundary_confirmed: null, boundary_unconfirmed: "boundary not confirmed", held_by_other: "a setting held by someone else", paused: "paused", stopped: "stopped",
+  boundary_confirmed: null, boundary_unconfirmed: "boundary not confirmed", held_by_other: "a setting held by someone else",
+  released_by_other: "a hold written over by someone else", hold_refused: "a hold refused", release_refused: "a release refused", paused: "paused", stopped: "stopped",
 };
 export function dayEventWords(events: readonly string[]): string[] {
   return events.map((event) => (event in DAY_EVENT_WORDS ? DAY_EVENT_WORDS[event] : event.replaceAll("_", " "))).filter((word): word is string => Boolean(word));

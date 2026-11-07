@@ -73,16 +73,50 @@ the immutable blinded `X`/`Y` assignments and the 45039c86-specific direct-launc
 - **Day:** study day D runs from 11:00 America/Denver on D to 11:00 on D+1, so each arm owns one night. The
   first 3 h are washout (scored by the analyzer, not by the runner).
 - **Start:** `first_day` must be a date whose 11:00 boundary is still ahead. Until then the run is `scheduled`
-  and nothing is held.
+  and nothing is held. Start also refuses when the baseline vector is outside the current
+  `planner_effective_bounds`, or when any of the 48 has a desired row someone else wrote, manual or not, so
+  day 1 begins from plans alone.
 - **Baseline day:** at its boundary the runner writes the 48 baseline values as manual. **AI day:** the runner
-  releases every field whose newest desired row is still its own; a field someone else wrote since stays as
-  they left it (last write wins) and is a deviation for the day.
-- **A person's write** on one of the 48 during a study day is a deviation for that day. It is never refused,
-  and the day stays in the intention-to-treat analysis (product §, D-IRP-26 as decided).
+  releases every field whose newest desired row is still its own.
+- **Guarded writes.** Every desired-state write and release takes a per-setting transaction lock
+  (`pg_advisory_xact_lock(hashtext('desired_state:<greenhouse>:<param>'))`). The runner's writes also carry the
+  newest row id the sweep read, and go in only while that row is still the newest
+  (`settings.Superseded` otherwise). A hold's request id includes that row id, so a hold someone wrote over is
+  not mistaken for a replay.
+- **Last write wins.** If a person writes or releases one of the 48 during a study day, the write stands. It
+  is never refused and never written back. It is recorded once as a deviation: `released_by_other` for a write
+  over the day's hold, or `held_by_other` for a field already held manual. The day stays in the
+  intention-to-treat analysis (product §, D-IRP-26 as decided). A hold or release the settings validator
+  refuses is a `hold_refused` or `release_refused` deviation, and the sweep moves on to the next field.
+- **Boundary.** A day's boundary is recorded once every field it is judged on reads settled. On a baseline
+  day that means `confirmed`, `no_readback` or `held`. On an AI day `released` (the study's own release) and
+  `overridden` (a plan in force) also count. Fields that are deviations are not judged. The 15 min confirm
+  window runs from the day's newest study write, not from 11:00. An unconfirmed boundary and its
+  `boundary_unconfirmed` deviation commit in one transaction.
+- **Stranded holds.** After each sweep the runner releases every field whose newest row is still a
+  `system:planner_study` hold that no study keeps by design now. A study keeps its fields only on a baseline
+  day, and only when its sweep succeeded. A study file that stops loading, a field dropped from the list, or a
+  failed sweep therefore cannot leave a manual hold in force.
 - **Pause:** holds released immediately. A pair with a day already under way is void (`paused`) and runs
   again, in its own seeded order, after the resume. **Resume:** the remaining pairs start at the next 11:00
   boundary. **Stop:** holds released; days not yet run are `cancelled`.
 - **Finished:** after the last pair's second day, the runner releases its holds and the run reads `finished`.
+
+## Emergency release
+
+1. **Normal:** press Stop on Planner → Experiments, or call API-28 `stop`. Within a minute the runner releases
+   every study hold.
+2. **Runner misbehaving:** set `PLANNER_STUDY_RUNNER_ENABLED=false` on the operator API Deployment (merge the
+   env change, or as a break-glass patch that is recorded in steer and reverted after). With the runner off it
+   neither holds nor releases anything, so release the holds by hand. List them read-only:
+
+   ```sql
+   SELECT param, value, created_at FROM v_desired_state_current
+    WHERE greenhouse_id = 'vallery' AND source = 'system' AND actor = 'planner_study' AND value IS NOT NULL;
+   ```
+
+   Then release each field from Settings (API-11, "Release"), or with MCP `set_setting(release=True)`. Release
+   is last write wins, and the runner (once back on) never writes over it that day.
 
 ## Preregistration (before Start)
 
@@ -111,3 +145,10 @@ baseline file does not hash to the committed value.
    the dashboard's API-27 instead.
 4. **#1434** (VPD scoring baseline: dry-out minutes, `night_dried_out`, kWh against the cap, scored against both
    the served band and the achievable envelope) feeds the freezer's metric list; its gate is 2026-11-13.
+5. **Writes-gate coverage (review item 6).** API-28 rides `DASHBOARD_WRITES_ENABLED` like every dashboard write,
+   but the runner does not: turning dashboard writes off does not stop a running study. Use Stop or
+   `PLANNER_STUDY_RUNNER_ENABLED`. Whether the writes gate should also pause the runner is open.
+6. **AI-day deviations and Iris holds (review item 7).** On an AI day the runner records no deviations. A
+   person's manual hold, or an Iris desired value, on one of the 48 is currently treated as part of the AI arm.
+   Decide whether Iris desired writes count as the AI arm (likely yes), and whether a person's AI-day hold should
+   be a deviation like on a baseline day.

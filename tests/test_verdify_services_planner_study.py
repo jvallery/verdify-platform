@@ -20,11 +20,13 @@ from verdify_schemas.planner_study import (
     schedule_sha256,
 )
 from verdify_services import planner_study as ps
-from verdify_services.problems import ServiceError
+from verdify_services import settings
+from verdify_services.problems import ServiceError, problem
 
 SEED = 1360
 TEXT = (STUDY_DIR / STUDY_FILES["planner-ab-winter-2026"]).read_text()
-BASELINE = {name: 1.0 for name in ps.FIELDS}
+# A baseline inside every field's current bounds (Start checks it): each field's lower bound, else 0.
+BASELINE = {name: settings.bounds(name)[0] or 0.0 for name in ps.FIELDS}
 
 
 def study(pairs: int = 30):
@@ -137,7 +139,7 @@ def desired(value, manual=True, source="system", actor="planner_study", row_id=1
 
 def test_a_baseline_day_holds_every_field_not_already_held_and_leaves_anothers_hold():
     current = {
-        "dwell_gate_ms": desired(1.0),  # already held at the baseline value
+        "dwell_gate_ms": desired(BASELINE["dwell_gate_ms"]),  # already held at the baseline value
         "mister_engage_kpa": desired(2.0, source="dashboard", actor="jason"),  # Jason holds it
         "vpd_hysteresis": desired(0.5, manual=False, source="iris", actor="iris"),  # not manual: overwritten
     }
@@ -148,7 +150,7 @@ def test_a_baseline_day_holds_every_field_not_already_held_and_leaves_anothers_h
 
 def test_an_ai_day_releases_only_the_studys_own_holds():
     current = {
-        "dwell_gate_ms": desired(1.0, row_id=7),
+        "dwell_gate_ms": desired(BASELINE["dwell_gate_ms"], row_id=7),
         "mister_engage_kpa": desired(2.0, source="dashboard", actor="jason"),
         "vpd_hysteresis": desired(None, manual=False, row_id=8),  # already released
     }
@@ -175,8 +177,9 @@ def test_the_study_actions_are_activity_actions():
 
 
 class FakeConn:
-    def __init__(self, now, rows=(), desired_rows=()):
+    def __init__(self, now, rows=(), desired_rows=(), study_writes=()):
         self.now, self.rows, self.desired_rows = now, list(rows), list(desired_rows)
+        self.study_writes = list(study_writes)
 
     async def fetchval(self, sql, *args):
         if "now()" in sql:
@@ -186,6 +189,12 @@ class FakeConn:
     async def fetch(self, sql, *args):
         if "FROM activity_log" in sql:
             return self.rows
+        if "GROUP BY param" in sql:
+            return self.study_writes
+        if "v_desired_state_current" in sql and "source = $1" in sql:
+            return [
+                row for row in self.desired_rows if (row["source"], row["actor"]) == args and row["value"] is not None
+            ]
         if "v_desired_state_current" in sql:
             return self.desired_rows
         raise AssertionError(sql)
@@ -219,7 +228,13 @@ def recorded(monkeypatch):
         calls.append((action, target, detail, reason))
         return SimpleNamespace(value=value, replayed=False)
 
+    async def append(conn, actor, *, action, target, detail=None, reason=None, **_):
+        # only ever called inside a recorded_write's perform: the same transaction as the row recorded after it
+        calls.append((action, target, {**(detail or {}), "same_transaction_as_next": True}, reason))
+        return len(calls)
+
     monkeypatch.setattr(ps.activity, "recorded_write", recorded_write)
+    monkeypatch.setattr(ps.activity, "append", append)
     monkeypatch.setattr(ps, "load_study", lambda study_id: STUDY)
     monkeypatch.setattr(ps, "load_baseline", lambda study: dict(BASELINE))
     return calls
@@ -297,10 +312,16 @@ def test_pause_resume_and_stop_follow_the_run_state(recorded):
 def writes(monkeypatch, recorded):
     calls = []
 
-    async def write(conn, actor, param, value, manual, reason, key, extra_detail=None):
-        calls.append(("hold", param, value, manual, actor.name, key))
+    refuse: dict[str, Exception] = {}
 
-    async def release(conn, actor, param, reason, key, extra_detail=None):
+    async def write(conn, actor, param, value, manual, reason, key, extra_detail=None, expected_id=None):
+        if param in refuse:
+            raise refuse[param]
+        calls.append(("hold", param, value, manual, actor.name, key, expected_id))
+
+    async def release(conn, actor, param, reason, key, extra_detail=None, expected_id=None):
+        if param in refuse:
+            raise refuse[param]
         calls.append(("release", param, key))
 
     states = {}
@@ -311,7 +332,7 @@ def writes(monkeypatch, recorded):
     monkeypatch.setattr(ps.settings, "write", write)
     monkeypatch.setattr(ps.settings, "release", release)
     monkeypatch.setattr(ps.settings, "statuses", statuses)
-    return SimpleNamespace(calls=calls, states=states, rows=recorded)
+    return SimpleNamespace(calls=calls, states=states, rows=recorded, refuse=refuse)
 
 
 def baseline_day_conn(now):
@@ -337,10 +358,11 @@ def test_an_unsettled_boundary_waits_then_records_one_deviation(writes):
     writes.states["dwell_gate_ms"] = "requested"
     early = asyncio.run(ps.sweep(baseline_day_conn(at(day, 11) + timedelta(minutes=5)), STUDY.study_id))
     assert early.boundary is None and writes.rows == []
-    late = asyncio.run(ps.sweep(baseline_day_conn(at(day, 11) + timedelta(minutes=16)), STUDY.study_id))
-    assert late.boundary == "unconfirmed"
-    assert [row[0] for row in writes.rows] == ["study.boundary", "study.deviation"]
-    assert writes.rows[1][2]["fields"] == ["dwell_gate_ms"]
+    late = held_conn(day, at(day, 11) + timedelta(minutes=16), held=at(day, 11) + timedelta(minutes=1))
+    assert asyncio.run(ps.sweep(late, STUDY.study_id)).boundary == "unconfirmed"
+    # the deviation and its boundary commit in one transaction
+    assert [row[0] for row in writes.rows] == ["study.deviation", "study.boundary"]
+    assert writes.rows[0][2]["fields"] == ["dwell_gate_ms"] and writes.rows[0][2]["same_transaction_as_next"]
 
 
 def test_a_recorded_boundary_is_not_recorded_again(writes):
@@ -390,3 +412,261 @@ def test_a_paused_run_releases_the_studys_holds(writes):
     result = asyncio.run(ps.sweep(conn, STUDY.study_id))
     assert result.arm is None and result.released == 1
     assert writes.calls == [("release", "dwell_gate_ms", ps.request_key(ps.UUID(RUN_ID), "release", 41))]
+
+
+def held_conn(day, now, *, held, extra_rows=()):
+    """A baseline day whose 48 study holds went in at ``held``."""
+    conn = baseline_day_conn(now)
+    conn.desired_rows = [
+        {
+            "id": 100 + index,
+            "param": name,
+            "value": BASELINE[name],
+            "manual": True,
+            "source": "system",
+            "actor": "planner_study",
+            "created_at": held,
+        }
+        for index, name in enumerate(ps.FIELDS)
+    ]
+    conn.desired_rows = [row for row in conn.desired_rows if row["param"] not in {r["param"] for r in extra_rows}]
+    conn.desired_rows += list(extra_rows)
+    conn.study_writes = [{"param": name, "held_at": held, "wrote_at": held} for name in ps.FIELDS]
+    return conn
+
+
+def baseline_day():
+    return 10 if arm_order(SEED, 30)[0][0] == "baseline" else 11
+
+
+def ai_day():
+    return 11 if baseline_day() == 10 else 10
+
+
+# ── review fixes (#1495) ────────────────────────────────────────────────────
+
+
+def test_the_studys_own_release_reads_released_and_settles_an_ai_day_only():
+    """No statuses stub: settings.evaluate on the study's release row, and on a plan over a desired value."""
+    spec = settings.REGISTRY["dwell_gate_ms"]
+    release_row = {"id": 1, "value": None, "manual": False, "created_at": at(10)}
+    state = settings.evaluate(spec, settings._Facts(desired=release_row), None).state
+    assert state == "released"
+    assert state in ps.settled_states("ai") and state not in ps.settled_states("baseline")
+    assert "overridden" in ps.settled_states("ai") and "overridden" not in ps.settled_states("baseline")
+
+
+def test_an_ai_day_with_its_holds_released_records_a_confirmed_boundary(writes):
+    day = ai_day()
+    conn = baseline_day_conn(at(day, 11) + timedelta(minutes=2))
+    for name in ps.FIELDS:
+        writes.states[name] = "released"
+    result = asyncio.run(ps.sweep(conn, STUDY.study_id))
+    assert result.arm == "ai" and result.boundary == "confirmed"
+    assert [row[0] for row in writes.rows] == ["study.boundary"]
+
+
+def test_a_hold_carries_the_row_it_replaces_in_its_key_and_its_guard(writes):
+    day = baseline_day()
+    conn = baseline_day_conn(at(day, 11) + timedelta(minutes=1))
+    conn.desired_rows = [
+        {
+            "id": 77,
+            "param": "dwell_gate_ms",
+            "value": None,
+            "manual": False,
+            "source": "dashboard",
+            "actor": "jason",
+            "created_at": at(day - 1),
+        }
+    ]
+    asyncio.run(ps.sweep(conn, STUDY.study_id))
+    hold = next(call for call in writes.calls if call[1] == "dwell_gate_ms")
+    assert hold[6] == 77 and hold[5] == ps.request_key(
+        ps.UUID(RUN_ID), "hold", date(2026, 11, day), "dwell_gate_ms", 77
+    )
+    other = next(call for call in writes.calls if call[1] == "vpd_hysteresis")
+    assert other[6] == settings.NO_ROW
+
+
+def test_a_write_over_the_days_hold_is_the_last_write_and_one_deviation(writes):
+    day = baseline_day()
+    held = at(day, 11) + timedelta(minutes=1)
+    jason = {
+        "id": 900,
+        "param": "dwell_gate_ms",
+        "value": None,
+        "manual": False,
+        "source": "dashboard",
+        "actor": "jason",
+        "created_at": held + timedelta(minutes=30),
+    }
+    conn = held_conn(day, at(day, 13), held=held, extra_rows=[jason])
+    result = asyncio.run(ps.sweep(conn, STUDY.study_id))
+    assert result.held == 0 and writes.calls == []
+    deviations = [row for row in writes.rows if row[0] == "study.deviation"]
+    assert [(row[2]["reason"], row[2]["field"]) for row in deviations] == [("released_by_other", "dwell_gate_ms")]
+    # the boundary is judged on the fields the study still holds
+    assert [row[0] for row in writes.rows][-1] == "study.boundary" and writes.rows[-1][2]["result"] == "confirmed"
+
+
+def test_a_refused_or_superseded_hold_is_a_deviation_and_the_sweep_goes_on(writes):
+    day = baseline_day()
+    writes.refuse["dwell_gate_ms"] = settings.Superseded("dwell_gate_ms", settings.NO_ROW, None)
+    writes.refuse["vpd_hysteresis"] = ServiceError(problem("out_of_range", "Must be 0.05 to 0.5", field="value"))
+    result = asyncio.run(ps.sweep(baseline_day_conn(at(day, 11) + timedelta(minutes=1)), STUDY.study_id))
+    assert result.held == 46 and sorted(result.refused) == ["dwell_gate_ms", "vpd_hysteresis"]
+    reasons = sorted((row[2]["reason"], row[2]["field"]) for row in writes.rows if row[0] == "study.deviation")
+    assert reasons == [("hold_refused", "dwell_gate_ms"), ("hold_refused", "vpd_hysteresis")]
+
+
+def test_a_superseded_release_is_left_to_whoever_wrote_last(writes):
+    conn = baseline_day_conn(at(12))
+    conn.log("pause", at(11, 15), {"run_id": RUN_ID})
+    conn.desired_rows = [
+        {
+            "id": 41,
+            "param": "dwell_gate_ms",
+            "value": BASELINE["dwell_gate_ms"],
+            "manual": True,
+            "source": "system",
+            "actor": "planner_study",
+            "created_at": at(10, 11),
+        }
+    ]
+    writes.refuse["dwell_gate_ms"] = settings.Superseded("dwell_gate_ms", 41, None)
+    result = asyncio.run(ps.sweep(conn, STUDY.study_id))
+    assert result.released == 0 and result.refused == [] and writes.rows == []
+
+
+def test_the_confirm_window_runs_from_the_days_newest_study_write(writes):
+    day = baseline_day()
+    start_at = at(day, 11)
+    writes.states["dwell_gate_ms"] = "requested"
+    late_hold = start_at + timedelta(minutes=10)
+    waiting = held_conn(day, start_at + timedelta(minutes=20), held=late_hold)
+    assert asyncio.run(ps.sweep(waiting, STUDY.study_id)).boundary is None and writes.rows == []
+    done = held_conn(day, start_at + timedelta(minutes=26), held=late_hold)
+    assert asyncio.run(ps.sweep(done, STUDY.study_id)).boundary == "unconfirmed"
+
+
+def test_start_refuses_a_desired_value_and_a_baseline_outside_the_bounds(recorded, monkeypatch):
+    row = {
+        "id": 3,
+        "param": "vpd_hysteresis",
+        "value": 0.2,
+        "manual": False,
+        "source": "iris",
+        "actor": "iris",
+        "created_at": at(7),
+    }
+    with pytest.raises(ServiceError) as raised:
+        asyncio.run(
+            ps.control(
+                FakeConn(at(8), desired_rows=[row]), JASON, STUDY.study_id, "start", first_day=date(2026, 11, 10)
+            )
+        )
+    assert "carry a desired value: vpd_hysteresis (iris:iris)" in raised.value.problem.detail
+    monkeypatch.setattr(ps, "load_baseline", lambda study: {**BASELINE, "vpd_hysteresis": 9.0})
+    with pytest.raises(ServiceError) as raised:
+        asyncio.run(ps.control(FakeConn(at(8)), JASON, STUDY.study_id, "start", first_day=date(2026, 11, 10)))
+    assert raised.value.problem.code == "study_state" and "vpd_hysteresis=9" in raised.value.problem.detail
+    assert recorded == []
+
+
+def test_release_stranded_releases_every_study_hold_not_kept(writes):
+    conn = FakeConn(at(12))
+    conn.desired_rows = [
+        {
+            "id": 5,
+            "param": "dwell_gate_ms",
+            "value": 1.0,
+            "manual": True,
+            "source": "system",
+            "actor": "planner_study",
+            "created_at": at(9),
+        },
+        {
+            "id": 6,
+            "param": "retired_field",
+            "value": 1.0,
+            "manual": True,
+            "source": "system",
+            "actor": "planner_study",
+            "created_at": at(9),
+        },
+        {
+            "id": 7,
+            "param": "vpd_hysteresis",
+            "value": 0.2,
+            "manual": True,
+            "source": "system",
+            "actor": "planner_study",
+            "created_at": at(9),
+        },
+        {
+            "id": 8,
+            "param": "mister_engage_kpa",
+            "value": 2.0,
+            "manual": True,
+            "source": "dashboard",
+            "actor": "jason",
+            "created_at": at(9),
+        },
+    ]
+    released = asyncio.run(ps.release_stranded(conn, {"vpd_hysteresis"}))
+    assert released == ["dwell_gate_ms", "retired_field"]
+
+
+def test_a_failed_study_sweep_keeps_nothing_so_its_holds_are_released(writes, monkeypatch):
+    def broken(study_id):
+        raise KeyError(study_id)
+
+    monkeypatch.setattr(ps, "load_study", broken)
+    conn = FakeConn(at(12))
+    conn.desired_rows = [
+        {
+            "id": 5,
+            "param": "dwell_gate_ms",
+            "value": 1.0,
+            "manual": True,
+            "source": "system",
+            "actor": "planner_study",
+            "created_at": at(9),
+        },
+    ]
+    results, stranded = asyncio.run(ps.locked_sweep_all(conn, [STUDY.study_id]))
+    assert isinstance(results[STUDY.study_id], KeyError) and stranded == ["dwell_gate_ms"]
+
+
+def test_the_runner_switch(monkeypatch):
+    from api.operator_routes import planner_study_runner as runner
+
+    monkeypatch.setenv(runner.ENABLED_ENV, "false")
+    assert not runner.enabled()
+    asyncio.run(asyncio.wait_for(runner.Runner().run(None, interval_s=0), 1))  # returns at once, sweeps nothing
+    monkeypatch.delenv(runner.ENABLED_ENV)
+    assert runner.enabled()
+
+
+class GuardTx:
+    def __init__(self, newest):
+        self.newest, self.sql = newest, []
+
+    async def execute(self, sql, *args):
+        self.sql.append(sql)
+
+    async def fetchrow(self, sql, *args):
+        return self.newest
+
+
+def test_a_guarded_desired_write_locks_the_setting_then_refuses_a_newer_row():
+    tx = GuardTx({"id": 9, "source": "dashboard", "actor": "jason"})
+    asyncio.run(settings._lock_and_guard(tx, "dwell_gate_ms", 9))
+    assert "pg_advisory_xact_lock" in tx.sql[0]
+    with pytest.raises(settings.Superseded):
+        asyncio.run(settings._lock_and_guard(tx, "dwell_gate_ms", 8))
+    asyncio.run(settings._lock_and_guard(GuardTx(None), "dwell_gate_ms", settings.NO_ROW))
+    unguarded = GuardTx(None)
+    asyncio.run(settings._lock_and_guard(unguarded, "dwell_gate_ms", None))
+    assert len(unguarded.sql) == 1

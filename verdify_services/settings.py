@@ -1282,6 +1282,33 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, param, value, manual, source, actor, reason, created_at
 """
 
+# Every desired_state write and release takes this per-setting transaction lock first, so two writers of one
+# setting never decide on the same newest row (the planner study's guarded writes rely on it, #1360).
+_PARAM_LOCK_SQL = "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('desired_state:' || $1 || ':' || $2))"
+# A guarded write's "no row yet" expectation.
+NO_ROW = 0
+
+
+class Superseded(Exception):
+    """A guarded write (``expected_id``) found a newer ``desired_state`` row than the one its caller read; nothing
+    was written."""
+
+    def __init__(self, param: str, expected: int, newest: Mapping[str, Any] | None) -> None:
+        self.param, self.expected, self.newest = param, expected, newest
+        holder = "no row" if newest is None else f"row {newest['id']} by {newest['source']}:{newest['actor']}"
+        super().__init__(f"{param}: expected newest row {expected}, found {holder}")
+
+
+async def _lock_and_guard(tx: asyncpg.Connection, param: str, expected_id: int | None) -> None:
+    """Take ``param``'s write lock; with ``expected_id`` (``NO_ROW`` for none), refuse unless the newest row is it."""
+    await tx.execute(_PARAM_LOCK_SQL, GREENHOUSE_ID, param)
+    if expected_id is None:
+        return
+    newest = await tx.fetchrow(_DESIRED_SQL, GREENHOUSE_ID, [param])
+    if (newest["id"] if newest is not None else NO_ROW) != expected_id:
+        raise Superseded(param, expected_id, newest)
+
+
 # The only crop_band_anchors columns a write sets (the runtime logins' column grants); the column is a fixed
 # name from verdify_schemas.band_rows, never request text.
 _BAND_COLUMNS = frozenset({"value", "width_below", "width_above"})
@@ -1356,9 +1383,17 @@ def _loader(param: str):
 
 
 async def write_in_transaction(
-    tx: asyncpg.Connection, actor: Actor, param: str, value: object, flag: bool, reason: str | None
+    tx: asyncpg.Connection,
+    actor: Actor,
+    param: str,
+    value: object,
+    flag: bool,
+    reason: str | None,
+    expected_id: int | None = None,
 ) -> tuple[_Checked, Mapping[str, Any], list[int], DesiredSetting]:
-    """Inside a ``recorded_write``: validate, insert the ``desired_state`` row and update its band rows."""
+    """Inside a ``recorded_write``: take the setting's lock, validate, insert the ``desired_state`` row and update
+    its band rows. With ``expected_id``, raise ``Superseded`` unless the newest row is still that one."""
+    await _lock_and_guard(tx, param, expected_id)
     checked = await _validate(tx, actor, param, value)
     row = await tx.fetchrow(
         _INSERT_DESIRED_SQL, GREENHOUSE_ID, param, checked.value, flag, actor.source, actor.name, reason
@@ -1379,8 +1414,12 @@ async def write(
     reason: str | None,
     request_id: Any,
     extra_detail: Mapping[str, Any] | None = None,
+    expected_id: int | None = None,
 ) -> WriteResult[DesiredSetting]:
     """API-10 and MCP ``set_setting``: validate (§5.3), then one ``recorded_write`` transaction.
+
+    ``expected_id`` (the planner study's runner): write only while the setting's newest row is that id
+    (``NO_ROW`` for none), else raise ``Superseded``; the check runs under the setting's write lock.
 
     It inserts the ``desired_state`` row with ``manual`` exactly as passed (no default here) and the snapped
     value. A crop-band value write (``band_<series>_<anchor>``, ``zone_vpd_target_<zone>_<anchor>``) updates
@@ -1396,7 +1435,9 @@ async def write(
     request = {"value": _hashable(value), "manual": flag, "reason": reason}
 
     async def perform(tx: asyncpg.Connection) -> tuple[DesiredSetting, dict[str, Any]]:
-        checked, row, anchor_rows, stored = await write_in_transaction(tx, actor, param, value, flag, reason)
+        checked, row, anchor_rows, stored = await write_in_transaction(
+            tx, actor, param, value, flag, reason, expected_id
+        )
         detail: dict[str, Any] = {
             **extra,
             "ref": {"table": "desired_state", "id": row["id"]},
@@ -1431,8 +1472,10 @@ async def release(
     reason: str | None,
     request_id: Any,
     extra_detail: Mapping[str, Any] | None = None,
+    expected_id: int | None = None,
 ) -> WriteResult[DesiredSetting]:
-    """API-11 and MCP ``set_setting(release=True)``: back to plan, band or default.
+    """API-11 and MCP ``set_setting(release=True)``: back to plan, band or default. ``expected_id`` as for
+    ``write``.
 
     Runs §5.3 steps 1 and 3 (so Iris cannot release a value a person holds manual), then appends
     ``value NULL, manual false`` in one ``recorded_write`` transaction with a ``setting.release`` activity row
@@ -1442,6 +1485,7 @@ async def release(
     extra = _extra(extra_detail)
 
     async def perform(tx: asyncpg.Connection) -> tuple[DesiredSetting, dict[str, Any]]:
+        await _lock_and_guard(tx, param, expected_id)
         spec, facts, _target, _ids = await _check_writable(tx, param)
         _check_manual(actor, spec, facts)
         manual_before = bool(facts.desired is not None and facts.desired["manual"])

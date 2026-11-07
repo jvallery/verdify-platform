@@ -10,11 +10,13 @@ docs/design/dashboard/planner-study.md has the design; in short:
 - **Arms through desired state.** On a baseline day the runner holds each of the 48 ``PLANNER_PUSHABLE_REG`` fields
   manual at the committed baseline vector, as ``system:planner_study``; a manual value wins over any plan, so
   Hermes's plans for that day are stored and never sent. On an AI day, while paused or stopped, and after the last
-  day, it releases every field whose newest desired row is still its own. It never overwrites a field someone else
-  holds manual: that field is a deviation for the day. The dispatcher re-sends and re-asserts on its own.
-- **Idempotent and restart-safe.** Every runner write carries a request id derived from the run, the day and the
-  field, so a repeated sweep replays instead of writing twice. ``LOCK_KEY`` (a transaction advisory lock) keeps an
-  API-28 write and a sweep from interleaving.
+  day, it releases every field whose newest desired row is still its own. Last write wins: it never overwrites a
+  field someone else holds manual or wrote over the day's hold; that field is a deviation for the day. The
+  dispatcher re-sends and re-asserts on its own.
+- **Guarded, idempotent and restart-safe.** Every runner write goes in under the setting's write lock and only while
+  the newest desired row is still the one the sweep read; its request id is derived from the run, the day, the
+  field and that row, so a repeated sweep replays instead of writing twice. ``LOCK_KEY`` keeps an API-28 write and
+  a sweep from interleaving, and ``release_stranded`` frees any study hold no study keeps by design.
 
 The pure parts (``place``, ``Run``, ``hold_plan``) take no connection and are what the tests pin.
 """
@@ -22,6 +24,7 @@ The pure parts (``place``, ``Run``, ``hold_plan``) take no connection and are wh
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -48,6 +51,8 @@ from verdify_services import activity, settings
 from verdify_services.actor import Actor
 from verdify_services.problems import ServiceError, problem
 
+logger = logging.getLogger(__name__)
+
 DENVER = ZoneInfo("America/Denver")
 RUNNER = Actor.system("planner_study")
 # The advisory lock key API-28 and the runner share (a fixed int64 no other advisory lock uses).
@@ -57,6 +62,9 @@ CONTROL_ACTIONS = ("start", "pause", "resume", "stop")
 # Readback states that mean the field holds what the arm asked for: confirmed, no readback route to check, or held at a
 # safety fence's value (a fence is the same in both arms).
 SETTLED = frozenset({"confirmed", "no_readback", "held"})
+# On an AI day the study's own release reads "released", and a plan in force over a desired row "overridden": both are
+# the AI arm in force, so they settle an AI day. Never a baseline day, whose holds must read back.
+SETTLED_AI = SETTLED | {"released", "overridden"}
 FIELDS = tuple(sorted(PLANNER_PUSHABLE_REG))
 
 RunStatus = Literal["scheduled", "running", "paused", "finished", "stopped"]
@@ -260,6 +268,16 @@ class Desired:
         """Someone else holds the field manual: the study never overwrites it."""
         return not self.ours and self.manual and self.value is not None
 
+    @property
+    def foreign_value(self) -> bool:
+        """Someone else set a desired value, not manual: Start refuses it, so day 1 begins from plans only."""
+        return not self.ours and not self.manual and self.value is not None
+
+
+def settled_states(arm: str) -> frozenset[str]:
+    """The readback states that close a study day's boundary for ``arm``."""
+    return SETTLED if arm == "baseline" else SETTLED_AI
+
 
 @dataclass
 class HoldPlan:
@@ -269,17 +287,37 @@ class HoldPlan:
     hold: dict[str, float] = field(default_factory=dict)
     release: dict[str, int] = field(default_factory=dict)  # field -> the study's desired row id
     foreign: dict[str, str] = field(default_factory=dict)  # field -> who holds it
+    released_by_other: dict[str, str] = field(default_factory=dict)  # field -> who wrote over the day's hold
 
 
-def hold_plan(arm: str | None, baseline: Mapping[str, float], current: Mapping[str, Desired]) -> HoldPlan:
+def hold_plan(
+    arm: str | None,
+    baseline: Mapping[str, float],
+    current: Mapping[str, Desired],
+    held_at: Mapping[str, datetime] | None = None,
+) -> HoldPlan:
     """The sweep's writes: ``arm`` baseline holds every field at ``baseline``; any other arm (``ai``, or None when no
-    study day is in force) releases the study's own holds. A field someone else holds manual is left alone."""
+    study day is in force) releases the study's own holds. A field someone else holds manual is left alone.
+
+    ``held_at`` is when the study last held each field this study day. Someone else's newer row over that hold (a
+    release, or a value) is last write wins: the study does not hold the field again that day (``released_by_other``).
+    """
     plan = HoldPlan()
+    held_at = held_at or {}
     for name in FIELDS:
         row = current.get(name)
         if row is not None and row.foreign_hold:
             if arm == "baseline":
                 plan.foreign[name] = f"{row.source}:{row.actor}"
+            continue
+        if (
+            arm == "baseline"
+            and row is not None
+            and not row.ours
+            and name in held_at
+            and row.created_at > held_at[name]
+        ):
+            plan.released_by_other[name] = f"{row.source}:{row.actor}"
             continue
         if arm == "baseline":
             target = baseline[name]
@@ -362,6 +400,23 @@ _DESIRED_SQL = """
 SELECT id, param, value, manual, source, actor, created_at
   FROM v_desired_state_current
  WHERE greenhouse_id = 'vallery' AND param = ANY($1::text[])
+"""
+
+# The study's own desired rows since a study day began: when it last held each field, and its newest write.
+_STUDY_WRITES_SQL = """
+SELECT param,
+       max(created_at) FILTER (WHERE manual AND value IS NOT NULL) AS held_at,
+       max(created_at) AS wrote_at
+  FROM desired_state
+ WHERE greenhouse_id = 'vallery' AND source = $1 AND actor = $2 AND created_at >= $3 AND param = ANY($4::text[])
+ GROUP BY param
+"""
+
+# Every field whose newest row is still a study hold, whatever study or field list put it there.
+_OURS_NOW_SQL = """
+SELECT id, param
+  FROM v_desired_state_current
+ WHERE greenhouse_id = 'vallery' AND source = $1 AND actor = $2 AND value IS NOT NULL
 """
 
 
@@ -523,21 +578,32 @@ async def control(
                     "the study is not pre-registered: commit its baseline file, seed and schedule hash first",
                 )
             try:
-                load_baseline(study)
+                baseline = load_baseline(study)
             except ValueError as exc:
                 raise _refuse("study_state", str(exc)) from exc
+            outside = []
+            for name, value in sorted(baseline.items()):
+                try:
+                    settings.check_range(name, value)
+                except ServiceError as exc:
+                    outside.append(f"{name}={value:g} ({exc.problem.detail})")
+            if outside:
+                raise _refuse("study_state", "the baseline is outside the current bounds: " + "; ".join(outside))
             if first_day is None:
                 raise _refuse("invalid_request", "start needs first_day", "first_day")
             if boundary(study, first_day) <= at:
                 raise _refuse("study_state", f"day 1 must start after now: {first_day} 11:00 has passed", "first_day")
-            held = sorted(
-                f"{name} ({row.source}:{row.actor})"
-                for name, row in (await desired_now(tx)).items()
-                if row.foreign_hold
-            )
+            current = await desired_now(tx)
+            held = sorted(f"{name} ({row.source}:{row.actor})" for name, row in current.items() if row.foreign_hold)
             if held:
                 raise _refuse(
                     "study_state", "release these planner settings first, they are held manual: " + ", ".join(held)
+                )
+            valued = sorted(f"{name} ({row.source}:{row.actor})" for name, row in current.items() if row.foreign_value)
+            if valued:
+                raise _refuse(
+                    "study_state",
+                    "release these planner settings first, they carry a desired value: " + ", ".join(valued),
                 )
             detail = {
                 "run_id": str(uuid.uuid4()),
@@ -597,118 +663,195 @@ class SweepResult:
     held: int = 0
     released: int = 0
     foreign: list[str] = field(default_factory=list)
+    refused: list[str] = field(default_factory=list)
     boundary: str | None = None
+    keep: frozenset[str] = frozenset()  # the fields this study holds by design now (every field on a baseline day)
+
+
+def _why(exc: BaseException) -> str:
+    if isinstance(exc, ServiceError):
+        return f"{exc.problem.code}: {exc.problem.detail}"
+    return f"{type(exc).__name__}: {exc}"
+
+
+async def _study_writes(conn: asyncpg.Connection, since: datetime) -> tuple[dict[str, datetime], datetime | None]:
+    rows = await conn.fetch(_STUDY_WRITES_SQL, RUNNER.source, RUNNER.name, since, list(FIELDS))
+    held_at = {row["param"]: row["held_at"] for row in rows if row["held_at"] is not None}
+    return held_at, max((row["wrote_at"] for row in rows), default=None)
 
 
 async def sweep(conn: asyncpg.Connection, study_id: str) -> SweepResult:
-    """One runner pass for ``study_id``: hold or release the 48 fields for the arm in force, record each field
-    someone else holds on a baseline day as a deviation, and record the day's boundary once every field it set
-    reads settled (or, after ``boundary_confirm_minutes``, as unconfirmed with a deviation). Nothing to do without
-    a started run. Call it outside a transaction; take ``LOCK_KEY`` around it (``locked_sweep``)."""
+    """One runner pass for ``study_id``: hold or release the 48 fields for the arm in force, and record the day's
+    boundary once every field it is judged on reads settled for its arm (or, ``boundary_confirm_minutes`` after the
+    day's newest study write, as unconfirmed, with its deviation in the same transaction).
+
+    Each write is guarded: it goes in only while the field's newest desired row is still the one this sweep read
+    (``settings.Superseded`` otherwise), under the field's write lock, so it never lands over a newer row. A hold's
+    request id carries that row id, so a hold someone else overwrote is not a replay. Last write wins: a field
+    someone else holds manual, or wrote over the day's hold, is a deviation, recorded once, and left alone that
+    day. A field whose write is refused is a ``hold_refused`` or ``release_refused`` deviation, and the sweep goes
+    on. Nothing to do without a started run. Call it outside a transaction, under ``LOCK_KEY``
+    (``locked_sweep_all``)."""
     study = load_study(study_id)
     at: datetime = await conn.fetchval("SELECT now()")
-    run, log = await current_run(conn, study, at)
+    run, log_ = await current_run(conn, study, at)
     result = SweepResult()
     if run is None:
         return result
     day = run.day_at(at)
     result.arm = day.arm if day else None
     current = await desired_now(conn)
+    held_at: dict[str, datetime] = {}
+    wrote_at: datetime | None = None
+    if day is not None:
+        held_at, wrote_at = await _study_writes(conn, day.starts_at)
     if day is not None and day.arm == "baseline":
         baseline = load_baseline(study)
         # Refuse to run a baseline that is not the one the run committed to.
         if baseline_sha256(baseline) != run.baseline_sha256:
             raise RuntimeError("the committed baseline file is not the run's baseline")
+        result.keep = frozenset(FIELDS)
     else:
         baseline = {}
-    plan = hold_plan(result.arm, baseline, current)
+    plan = hold_plan(result.arm, baseline, current, held_at)
     note = {"run_id": str(run.run_id), "study_id": study.study_id}
+    on_day = {} if day is None else {"date": day.date.isoformat(), "arm": day.arm}
+    skipped = set(plan.foreign) | set(plan.released_by_other)
+
+    async def deviation(reason: str, name: str, text: str, key: UUID, **more: Any) -> None:
+        await _runner_row(
+            conn, "deviation", study.study_id, {**note, **on_day, "reason": reason, "field": name, **more}, text, key
+        )
+
     for name, value in plan.hold.items():
         assert day is not None
-        await settings.write(
-            conn,
-            RUNNER,
-            name,
-            value,
-            True,
-            f"Planner study: baseline day {day.date}",
-            request_key(run.run_id, "hold", day.date, name),
-            extra_detail={"study": {**note, "date": day.date.isoformat(), "arm": day.arm}},
-        )
-        result.held += 1
+        seen = current[name].id if name in current else settings.NO_ROW
+        try:
+            await settings.write(
+                conn,
+                RUNNER,
+                name,
+                value,
+                True,
+                f"Planner study: baseline day {day.date}",
+                request_key(run.run_id, "hold", day.date, name, seen),
+                extra_detail={"study": {**note, **on_day}},
+                expected_id=seen,
+            )
+            result.held += 1
+        except Exception as exc:
+            skipped.add(name)
+            result.refused.append(name)
+            await deviation(
+                "hold_refused",
+                name,
+                f"Planner study: could not hold {name} ({_why(exc)})",
+                request_key(run.run_id, "hold_refused", day.date, name, seen),
+                error=_why(exc),
+            )
     for name, desired_id in plan.release.items():
         why = f"Planner study: AI day {day.date}" if day is not None else f"Planner study: run {run.status}"
-        await settings.release(
-            conn,
-            RUNNER,
-            name,
-            why,
-            request_key(run.run_id, "release", desired_id),
-            extra_detail={"study": {**note, "released_hold": desired_id}},
-        )
-        result.released += 1
+        try:
+            await settings.release(
+                conn,
+                RUNNER,
+                name,
+                why,
+                request_key(run.run_id, "release", desired_id),
+                extra_detail={"study": {**note, "released_hold": desired_id}},
+                expected_id=desired_id,
+            )
+            result.released += 1
+        except settings.Superseded:
+            continue  # someone wrote after the study's hold: theirs is the last write, nothing of ours to release
+        except Exception as exc:
+            skipped.add(name)
+            result.refused.append(name)
+            await deviation(
+                "release_refused",
+                name,
+                f"Planner study: could not release {name} ({_why(exc)})",
+                request_key(run.run_id, "release_refused", desired_id),
+                error=_why(exc),
+            )
     if day is None:
         return result
     for name, holder in plan.foreign.items():
-        await _runner_row(
-            conn,
-            "deviation",
-            study.study_id,
-            {
-                **note,
-                "date": day.date.isoformat(),
-                "arm": day.arm,
-                "reason": "held_by_other",
-                "field": name,
-                "holder": holder,
-            },
+        await deviation(
+            "held_by_other",
+            name,
             f"{name} is held manual by {holder} during a baseline day",
             request_key(run.run_id, "foreign", day.date, name),
+            holder=holder,
+        )
+    for name, holder in plan.released_by_other.items():
+        await deviation(
+            "released_by_other",
+            name,
+            f"{holder} wrote over the study's hold of {name}; it stays theirs for the day",
+            request_key(run.run_id, "released_by_other", day.date, name),
+            holder=holder,
         )
     result.foreign = sorted(plan.foreign)
-    if day.date in log.boundaries:
+    if day.date in log_.boundaries:
         return result
-    checked = [name for name in FIELDS if name not in plan.foreign]
+    checked = [name for name in FIELDS if name not in skipped]
     states = await settings.statuses(conn, checked)
-    unsettled = sorted(name for name in checked if name not in states or states[name].state not in SETTLED)
+    settled = settled_states(day.arm)
+    unsettled = sorted(name for name in checked if name not in states or states[name].state not in settled)
     window = timedelta(minutes=study.schedule.boundary_confirm_minutes)
-    if unsettled and at - day.starts_at < window:
+    # The window runs from the day's newest study write (a late hold restarts it), never before the day began.
+    since = at if (result.held or result.released) else max(day.starts_at, wrote_at or day.starts_at)
+    if unsettled and at - since < window:
         return result
     outcome = "unconfirmed" if unsettled else "confirmed"
+    also: list[tuple[str, dict[str, Any], str]] = []
+    if unsettled:
+        also.append(
+            (
+                "deviation",
+                {**note, **on_day, "reason": "boundary_unconfirmed", "fields": unsettled},
+                f"{len(unsettled)} planner settings did not read back within "
+                f"{study.schedule.boundary_confirm_minutes} min",
+            )
+        )
     await _runner_row(
         conn,
         "boundary",
         study.study_id,
-        {**note, "date": day.date.isoformat(), "arm": day.arm, "result": outcome, "unconfirmed": unsettled},
+        {**note, **on_day, "result": outcome, "unconfirmed": unsettled},
         f"Planner study: {day.arm} day {day.date} {outcome}",
         request_key(run.run_id, "boundary", day.date),
+        also=also,
     )
-    if unsettled:
-        await _runner_row(
-            conn,
-            "deviation",
-            study.study_id,
-            {
-                **note,
-                "date": day.date.isoformat(),
-                "arm": day.arm,
-                "reason": "boundary_unconfirmed",
-                "fields": unsettled,
-            },
-            f"{len(unsettled)} planner settings did not read back within {study.schedule.boundary_confirm_minutes} min",
-            request_key(run.run_id, "unconfirmed", day.date),
-        )
     result.boundary = outcome
     return result
 
 
 async def _runner_row(
-    conn: asyncpg.Connection, action: str, target: str, detail: dict[str, Any], reason: str, key: UUID
+    conn: asyncpg.Connection,
+    action: str,
+    target: str,
+    detail: dict[str, Any],
+    reason: str,
+    key: UUID,
+    also: Sequence[tuple[str, dict[str, Any], str]] = (),
 ) -> None:
-    """One idempotent ``study.boundary`` or ``study.deviation`` row by the runner."""
-    stored = {**detail, "ref": {"table": "activity_log", "study_id": target}}
+    """One idempotent ``study.boundary`` or ``study.deviation`` row by the runner; ``also`` rows (action, detail,
+    reason) go in the same transaction, so a boundary and its deviation commit together or not at all."""
+    ref = {"table": "activity_log", "study_id": target}
+    stored = {**detail, "ref": ref}
 
-    async def perform(_tx: asyncpg.Connection) -> tuple[dict[str, Any], dict[str, Any]]:
+    async def perform(tx: asyncpg.Connection) -> tuple[dict[str, Any], dict[str, Any]]:
+        for extra_action, extra_detail, extra_reason in also:
+            await activity.append(
+                tx,
+                RUNNER,
+                action=f"study.{extra_action}",
+                target=target,
+                detail={**extra_detail, "ref": ref},
+                reason=extra_reason,
+            )
         return stored, stored
 
     async def load(_tx: asyncpg.Connection, logged: ActivityLogRow) -> dict[str, Any]:
@@ -720,7 +863,7 @@ async def _runner_row(
         op=f"study.{action}",
         action=f"study.{action}",
         target=target,
-        request=detail,
+        request={"detail": detail, "also": [list(row) for row in also]},
         request_id=key,
         reason=reason,
         perform=perform,
@@ -728,12 +871,54 @@ async def _runner_row(
     )
 
 
-async def locked_sweep(conn: asyncpg.Connection, study_id: str) -> SweepResult | None:
-    """``sweep`` under the session advisory lock; None when another sweep or an API-28 write holds it."""
+async def release_stranded(conn: asyncpg.Connection, keep: frozenset[str] | set[str]) -> list[str]:
+    """Release every field whose newest desired row is still a study hold and that no study holds by design now
+    (``keep``): after a stop or an end the sweep has done this, but a study file that no longer loads, a field
+    dropped from the list, or a sweep that failed would otherwise strand a manual hold. Guarded like the sweep's
+    writes; a field someone wrote over since is theirs. Returns the fields released."""
+    released = []
+    for row in await conn.fetch(_OURS_NOW_SQL, RUNNER.source, RUNNER.name):
+        name, desired_id = row["param"], row["id"]
+        if name in keep:
+            continue
+        try:
+            await settings.release(
+                conn,
+                RUNNER,
+                name,
+                "Planner study: no study day holds it",
+                uuid.uuid5(NAMESPACE, f"stranded:{desired_id}"),
+                extra_detail={"study": {"released_hold": desired_id, "stranded": True}},
+                expected_id=desired_id,
+            )
+            released.append(name)
+        except settings.Superseded:
+            continue
+        except Exception as exc:
+            logger.warning("Planner study: could not release the stranded hold of %s (%s)", name, _why(exc))
+    return released
+
+
+async def locked_sweep_all(
+    conn: asyncpg.Connection, study_ids: Sequence[str]
+) -> tuple[dict[str, SweepResult | Exception], list[str]] | None:
+    """Each study's ``sweep``, then ``release_stranded`` for every field none of them holds by design, all under the
+    session advisory lock; None when another sweep or an API-28 write holds it. A study whose sweep fails keeps
+    nothing, so its holds are released rather than left behind."""
     if not await conn.fetchval(_TRY_LOCK_SQL, LOCK_KEY):
         return None
     try:
-        return await sweep(conn, study_id)
+        results: dict[str, SweepResult | Exception] = {}
+        keep: set[str] = set()
+        for study_id in study_ids:
+            try:
+                result = await sweep(conn, study_id)
+            except Exception as exc:
+                results[study_id] = exc
+                continue
+            results[study_id] = result
+            keep |= result.keep
+        return results, await release_stranded(conn, keep)
     finally:
         await conn.fetchval(_UNLOCK_SQL, LOCK_KEY)
 
@@ -950,7 +1135,8 @@ __all__ = [
     "Run",
     "StudyRun",
     "control",
-    "locked_sweep",
+    "locked_sweep_all",
+    "release_stranded",
     "place",
     "sweep",
 ]
