@@ -4,7 +4,7 @@ Rendered alone it holds one Deployment, a ClusterIP Service on 8090, the ConfigM
 admits only the dashboard web pods and one that admits Prometheus's scrape of /metrics (OPS-04, #1352): no Secret,
 no IngressRoute and no egress policy. In the prod overlay (R1's wiring
 PR, #1143), the operator API runs the verdify-api release digest, allow-db-from-app admits it and
-egress-deny-management covers it, and the overlay still renders no Secret.
+egress-local-only covers it, and the overlay still renders no Secret.
 Renders with kustomize, as tests/test_egress_deny_management.py renders the prod overlay.
 """
 
@@ -257,16 +257,18 @@ def test_in_prod_egress_local_only_covers_the_operator_api(prod):
     deny = one(prod, "NetworkPolicy", "egress-deny-management")["spec"]["podSelector"]
     labels = one(prod, "Deployment", NAME)["spec"]["template"]["metadata"]["labels"]
     component = labels["app.kubernetes.io/component"]
-    ((local_expression,), (deny_expression,)) = local["matchExpressions"], deny["matchExpressions"]
-    assert local_expression["key"] == deny_expression["key"] == "app.kubernetes.io/component"
+    (local_expression,) = local["matchExpressions"]
+    assert local_expression["key"] == "app.kubernetes.io/component"
     assert local_expression["operator"] == "NotIn" and component not in local_expression["values"]
-    assert deny_expression["operator"] == "In" and component not in deny_expression["values"]
+    # #1496: the vendored deny selects a label no pod carries.
+    assert not deny.get("matchExpressions") and not deny["matchLabels"].items() <= labels.items()
     own_egress = [
         doc["metadata"]["name"]
         for doc in prod
         if doc["kind"] == "NetworkPolicy"
         and "Egress" in doc["spec"]["policyTypes"]
-        and doc["metadata"]["name"] not in {"egress-deny-management", "egress-local-only"}
+        and doc["metadata"]["name"]
+        not in {"egress-deny-management", "egress-local-only", "egress-api-hermes-allowlist"}
         and all(labels.get(key) == value for key, value in doc["spec"]["podSelector"].get("matchLabels", {}).items())
         and not doc["spec"]["podSelector"].get("matchExpressions")
     ]

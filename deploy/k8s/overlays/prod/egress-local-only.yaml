@@ -3,8 +3,9 @@
 # public internet, and never the estate management set.
 #
 # NetworkPolicies are allow-only and additive, so this cannot narrow a pod that another policy
-# already opens. kustomization.yaml therefore narrows the vendored egress-deny-management
-# (0.0.0.0/0 minus management) to the two components that still need the public internet, and this
+# already opens. kustomization.yaml therefore points the vendored egress-deny-management
+# (0.0.0.0/0 minus management, every port) at a label no pod carries (#1496), the two components
+# that still need the public internet get egress-api-hermes-allowlist.yaml, and this
 # policy selects everything else, unlabeled pods included (NotIn matches a missing label). tests/test_egress_local_only.py keeps both selectors and the
 # management `except` list (copied from the vendored deny) in step.
 #
@@ -12,9 +13,9 @@
 # (Open-Meteo, verdify-outbound-boundary) and the firmware builder (GitHub, PlatformIO, PyPI;
 # build-time only, allow-firmware-builder-egress). experiment-v2-selector lost its 443 rule
 # (#1351, Jason 2026-11-06: local-only except the planner); its own policy allows DNS + DB only.
-# Two components stay on the vendored deny: hermes-iris (api.openai.com,
-# direct) until #1350 retires it, and api, whose contact form calls Cloudflare Turnstile siteverify
-# (challenges.cloudflare.com; Cloudflare is accepted for now on #1351 row 7).
+# Two components keep public egress through egress-api-hermes-allowlist.yaml (#1496: in-cluster,
+# Frigate and public tcp/443 only): hermes-iris (api.openai.com, direct) and api, whose contact form
+# calls Cloudflare Turnstile siteverify (challenges.cloudflare.com; accepted for now on #1351 row 7).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -42,7 +43,7 @@ spec:
           - mcp
           - outbound
           - winter-feasibility
-          # Still on the vendored deny (public egress): see the header.
+          # On egress-api-hermes-allowlist (public tcp/443): see the header.
           - api
           - hermes-iris
   policyTypes:

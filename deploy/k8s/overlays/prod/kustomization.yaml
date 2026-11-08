@@ -47,6 +47,8 @@ resources:
   # #1351/#1363: Verdify-owned private-ranges-only egress for every component without its own
   # allowlist; the vendored deny above is narrowed to the two components that still need public egress.
   - egress-local-only.yaml
+  # #1496: the explicit allowlist for api and hermes-iris (in-cluster, Frigate, public 443 only).
+  - egress-api-hermes-allowlist.yaml
   - verdify-outbound.yaml
   # #382 durable source spool: claim and sole consumer land together.
   - ingestor-state-pvc.yaml
@@ -146,7 +148,7 @@ components:
   - ../../components/mcp-observer
   # verdify-operator-api (#1148, wired by R1, #1143): the dashboard's private API, a
   # second Deployment of the verdify-api image at its release digest, on ClusterIP
-  # :8090 with no route. Only the dashboard BFF reaches it, and egress-deny-management
+  # :8090 with no route. Only the dashboard BFF reaches it, and egress-local-only
   # covers it. Its Secrets, verdify-operator-api and verdify-dashboard-runtime-db, live
   # in the agents KSOPS lane; its login's password comes from the PreSync hook in
   # runtime-role-boundary. It is not a device writer.
@@ -315,13 +317,15 @@ patches:
       version: v1
       kind: Deployment
       name: verdify-hermes-iris
-  # network-infra#839: the vendored egress-deny-management selects every pod (`{}`) and keeps
-  # public egress. #1351/#1363 (local-only): it now selects only the components that still need
-  # the public internet: hermes-iris (api.openai.com, retired by #1350) and api (Cloudflare
-  # Turnstile siteverify for the contact form, accepted for now on #1351 row 7).
+  # network-infra#839: the vendored egress-deny-management selects every pod (`{}`) and allows
+  # 0.0.0.0/0 minus the management set on every port. #1351/#1363 narrowed it to api and
+  # hermes-iris; #1496 replaces it for those two with egress-api-hermes-allowlist.yaml, so the
+  # vendored copy now selects a label no pod carries (the deploy/k8s/dashboard shape) and stays
+  # byte-identical to network-infra apart from the selector.
   # egress-local-only.yaml selects every other component without its own Egress allowlist.
-  # NetworkPolicies are additive, so the two selectors must never overlap.
-  # tests/test_egress_deny_management.py and tests/test_egress_local_only.py check the pairing.
+  # NetworkPolicies are additive, so the selectors must never overlap.
+  # tests/test_egress_deny_management.py, tests/test_egress_local_only.py and
+  # tests/test_egress_api_hermes_allowlist.py check the pairing.
   - target:
       kind: NetworkPolicy
       name: egress-deny-management
@@ -329,12 +333,8 @@ patches:
       - op: replace
         path: /spec/podSelector
         value:
-          matchExpressions:
-            - key: app.kubernetes.io/component
-              operator: In
-              values:
-                - api
-                - hermes-iris
+          matchLabels:
+            network.vallery.net/public-egress: "true"
 
 images:
   - name: ghcr.io/verdifyconsultancy/verdify-api

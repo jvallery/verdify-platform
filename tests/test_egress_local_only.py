@@ -18,8 +18,9 @@ PRIVATE = {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
 PUBLIC_BY_DECISION = {
     "verdify-outbound",  # Open-Meteo (accepted, #1351 row 6)
     "verdify-firmware-builder",  # GitHub/PlatformIO/PyPI at build time (accepted, #1351 D3)
+    # #1496: both on egress-api-hermes-allowlist, public tcp/443 only.
     "verdify-api",  # Cloudflare Turnstile siteverify (accepted for now, #1351 row 7)
-    "verdify-hermes-iris",  # api.openai.com, retired by #1350
+    "verdify-hermes-iris",  # api.openai.com (the Hermes arm of #1360)
 }
 
 
