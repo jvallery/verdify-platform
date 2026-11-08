@@ -12582,7 +12582,7 @@ data:
             "type": "grafana-postgresql-datasource",
             "uid": "verdify-tsdb"
           },
-          "description": "Interior crop DLI is unavailable because the physical sensor is broken. No outdoor proxy or correction is presented as crop evidence.",
+          "description": "Interior crop DLI in mol/m²/d from the canopy PAR quantum sensor, or Unavailable — <reason> without full PPFD coverage. No outdoor proxy or correction is presented as crop evidence.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -12729,7 +12729,7 @@ data:
               "editorMode": "code",
               "format": "time_series",
               "rawQuery": true,
-              "rawSql": "SELECT now() AS time, initcap(availability) || ' \u2014 ' || unavailable_reason AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
+              "rawSql": "SELECT now() AS time, COALESCE(round(crop_dli_mol_m2_day::numeric, 1)::text || ' mol/m\u00b2/d', initcap(availability) || ' \u2014 ' || unavailable_reason) AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
               "refId": "A",
               "sql": {
                 "columns": [
@@ -12806,7 +12806,7 @@ data:
               }
             }
           ],
-          "title": "Interior DLI \u2014 Unavailable",
+          "title": "Interior DLI",
           "type": "timeseries",
           "transparent": true
         },
@@ -19261,7 +19261,7 @@ data:
             "type": "grafana-postgresql-datasource",
             "uid": "verdify-tsdb"
           },
-          "description": "Interior DLI is unavailable while the physical sensor is broken. Solar irradiance and grow-light relay bars remain independent observational signals.",
+          "description": "Interior DLI in mol/m²/d from the canopy PAR quantum sensor, or unavailable with its reason without full PPFD coverage. Solar irradiance and grow-light relay bars remain independent observational signals.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -19538,7 +19538,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT now() AS time, initcap(availability) || ' — ' || unavailable_reason AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
+              "rawSql": "SELECT now() AS time, COALESCE(round(crop_dli_mol_m2_day::numeric, 1)::text || ' mol/m²/d', initcap(availability) || ' — ' || unavailable_reason) AS \"Interior DLI\" FROM v_dli_current WHERE greenhouse_id = 'vallery'",
               "refId": "A",
               "sql": {
                 "columns": [
@@ -19665,7 +19665,7 @@ data:
               "refId": "F"
             }
           ],
-          "title": "Light Evidence — Interior DLI Unavailable",
+          "title": "Light Evidence — Interior DLI",
           "type": "timeseries",
           "transparent": true
         },

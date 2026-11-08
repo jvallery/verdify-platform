@@ -1,0 +1,44 @@
+{
+  "migration": "308-dli-canopy-ppfd.sql",
+  "exact_final_migration_sha256": "564c6df281c836a19a4632caf6ed001832bbd1d5da5749b8a5d607a1bb4a752d",
+  "final_migration_qualification_pending": false,
+  "projected_successor": {
+    "api": "abe5012d9c2c9a4d02049b7ab585ff883e3e855d8065fadb18f59ade662307e0",
+    "ingestor": "0d7c46acb4cd65df380602c94ff0efc9acf2dea64768c4b7dea12ed7cdf3ef2f",
+    "mcp": "5d3e5448a5f35ba198ef830fef8946df92ecbbca921e7b20a84d30ba7cbb7d49"
+  },
+  "projection": "2026-11-07, production at exact307. 308 rebinds v_dli_current and v_dli_daily to canopy PPFD (same ten columns), drops 195's CHECK dli_validity_release_unavailable for the PAR-only dli_validity_release_par_only, closes dli-validity-v1 and opens dli-validity-v2-par in the protected ledger dli_validity_intervals, and grants the dashboard duty SELECT on both views, the ledger's eight 217 columns and EXECUTE on fn_dli_validity. The ledger and v_greenhouse_now (which reads v_dli_current) are protected relations of the ordinary boundary, so the api and ingestor seals may move; the projected successor literals are 307's until a rolled-back --probe-only run measures them. The full qualification (with the native fixture db/qualification/308-dli-canopy-ppfd-fixture.sql) must reproduce the probe.",
+  "measured_at": "2026-11-07T23:32:35Z",
+  "before": {
+    "api": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
+    "ingestor": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
+  },
+  "qualified_successor": {
+    "api": "abe5012d9c2c9a4d02049b7ab585ff883e3e855d8065fadb18f59ade662307e0",
+    "ingestor": "0d7c46acb4cd65df380602c94ff0efc9acf2dea64768c4b7dea12ed7cdf3ef2f",
+    "mcp": "5d3e5448a5f35ba198ef830fef8946df92ecbbca921e7b20a84d30ba7cbb7d49"
+  },
+  "after_rollback": {
+    "api": "021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac",
+    "ingestor": "95ba4bed31a9598ddbd1f2d269d1345d205496f3dcfc784b55d9905ab3128a1e",
+    "mcp": "2c6a1cbe628ea66fafe30784189f6c9ba7c33983792a46cd7383d7dae67dc245"
+  },
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "e9419baa28834ee66141b6bcba2cd35fde6463a2dc3c396c3aafcd0a79ad8bd5",
+  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
+  "native_fixture": {
+    "checks": [
+      "views_keep_ten_columns_and_read_ppfd",
+      "ledger_v1_closed_v2_par_open",
+      "par_only_check_refuses_other_sources",
+      "dashboard_grants_exact",
+      "fails_closed_without_ppfd",
+      "dashboard_login_reads_both_views",
+      "api_mcp_grafana_lab_reads_kept"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "8b91778c69d020d29049fd2d663695341f80f875dfee2fe1c81f4f20a93b9258"
+}

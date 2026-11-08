@@ -249,6 +249,37 @@ def test_scorecard_keys_carry_their_reasons_and_leave_missing_days_as_gaps():
     assert result.model_dump(mode="json", by_alias=True)["series"]["daily.water_gal"]["reason"][1] == "incomplete"
 
 
+def test_daily_dli_alone_reads_day_buckets_with_its_reasons():
+    # #1184: a request of daily keys alone is day buckets on America/Denver days, whatever the window.
+    days = [date(2026, 10, 27) + timedelta(days=n) for n in range(7)]
+    rows = [
+        {
+            "date": days[0],
+            "crop_dli_mol_m2_day": None,
+            "unavailable_reason": "interior_light_sensor_broken",
+            "stamp": None,
+        },
+        {"date": days[1], "crop_dli_mol_m2_day": 27.5, "unavailable_reason": None, "stamp": None},
+        {"date": days[2], "crop_dli_mol_m2_day": None, "unavailable_reason": "source_coverage_low", "stamp": None},
+    ]
+    conn = FakeConnection([('"v_dli_daily"', rows)])
+    from_ = s.denver_midnight(days[0])
+    to = s.denver_midnight(days[-1] + timedelta(days=1))
+    result = run(s.series(conn, ["daily.dli_mol_m2_day"], from_, to, now=NOW))
+    dli = result.series["daily.dli_mol_m2_day"]
+    assert result.bucket_s == s.DAY_S and len(result.t) == 7
+    assert dli.source == "scorecard" and dli.avg[:3] == [None, 27.5, None] and dli.count[:3] == [0, 1, 0]
+    assert dli.reason[:3] == ["interior_light_sensor_broken", None, "source_coverage_low"]
+    assert dli.avg[3:] == [None] * 4 and dli.reason[3:] == [None] * 4  # no row: a gap with no reason
+    assert result.watermark is None  # v_dli_daily has no freshness column
+    sql, args = conn.fetches[0]
+    assert sql == (
+        'SELECT date, "crop_dli_mol_m2_day", "unavailable_reason", NULL::timestamptz AS stamp FROM public."v_dli_daily" '
+        "WHERE date >= $1::date AND date <= $2::date ORDER BY date"
+    )
+    assert args == (days[0], days[-1])
+
+
 def test_raw_series_reads_one_bounded_gapfill_per_table_and_returns_the_window_outages():
     from_, to = at("2026-11-01T21:00:00+00:00"), at("2026-11-01T21:05:00+00:00")
     climate = [
@@ -341,6 +372,10 @@ def test_registry_bindings_follow_the_issue():
             assert binding.raw is None and binding.daily is None and binding.provenance == "DERIVED"
             assert binding.forecast.column == binding.key.removeprefix("forecast.")
             assert (binding.retention_days, binding.cadence_s, binding.group) == (400, 3600, "outdoor")
+        elif binding.key == "daily.dli_mol_m2_day":  # #1184: binds its own view, v_dli_daily
+            assert binding.raw is None and binding.daily.source == "scorecard"
+            assert (binding.retention_days, binding.cadence_s, binding.group) == (365, 86400, "light")
+            assert binding.daily.view == "v_dli_daily" and binding.daily.stamp is None
         else:
             assert binding.key.startswith("daily.") and binding.raw is None
             assert (binding.retention_days, binding.cadence_s, binding.group) == (400, 86400, "daily")
@@ -362,6 +397,7 @@ def test_registry_bindings_follow_the_issue():
     }
     reasons = {key: b.daily.reason for key, b in s.METRICS.items() if key.startswith("daily.")}
     assert reasons == {
+        "daily.dli_mol_m2_day": "unavailable_reason",
         "daily.temp_in_band_pct": None,
         "daily.vpd_in_band_pct": None,
         "daily.time_in_band_day_pct": "band_reason",

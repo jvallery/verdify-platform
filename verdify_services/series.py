@@ -209,7 +209,8 @@ class DailyBinding:
 
     ``daily_summary`` bindings name its avg, min and max columns where the summary has them.
     Scorecard bindings name their view, the value column (``avg``) and the column that says why
-    a day has no value (``reason``), so a later key such as #1184's DLI can bind its own view.
+    a day has no value (``reason``), so a key such as #1184's DLI binds its own view. ``stamp`` is the
+    view's freshness column for the watermark; ``None`` when the view has none (v_dli_daily).
     """
 
     view: str
@@ -218,7 +219,7 @@ class DailyBinding:
     min: str | None = None
     max: str | None = None
     reason: str | None = None
-    stamp: str = "captured_at"
+    stamp: str | None = "captured_at"
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,6 +457,23 @@ _REGISTRY: tuple[MetricBinding, ...] = (
         "µmol/m²/s",
         zone="house",
         note="PAR quantum sensor at canopy height (#1184); no rows until the meter is fitted",
+    ),
+    # Daily light integral from that PPFD (migration 308): one value per completed America/Denver day, null with
+    # v_dli_daily's reason until a whole day is covered.
+    MetricBinding(
+        key="daily.dli_mol_m2_day",
+        label="DLI",
+        group=_LIGHT,
+        unit="mol/m²/d",
+        provenance="DERIVED",
+        raw=None,
+        daily=DailyBinding(
+            "v_dli_daily", "scorecard", avg="crop_dli_mol_m2_day", reason="unavailable_reason", stamp=None
+        ),
+        cadence_s=DAY_S,
+        retention_days=RETENTION_DAYS["climate"],
+        zone="house",
+        note="Canopy PPFD integrated over the local day (#1184); a day needs 98 % PPFD coverage",
     ),
     _climate("outdoor_lux", "Outdoor illuminance", _LIGHT, "lx", note=_TEMPEST),
     _climate(
@@ -842,10 +860,11 @@ def raw_series_sql(table: str, columns: Sequence[str], *, day_buckets: bool) -> 
     )
 
 
-def daily_rows_sql(view: str, columns: Sequence[str], stamp: str) -> str:
+def daily_rows_sql(view: str, columns: Sequence[str], stamp: str | None) -> str:
     selected = ", ".join(_ident(column) for column in columns)
+    stamp_sql = "NULL::timestamptz" if stamp is None else _ident(stamp)
     return (
-        f"SELECT date, {selected}, {_ident(stamp)} AS stamp FROM public.{_ident(view)} "
+        f"SELECT date, {selected}, {stamp_sql} AS stamp FROM public.{_ident(view)} "
         "WHERE date >= $1::date AND date <= $2::date ORDER BY date"
     )
 
@@ -1016,7 +1035,7 @@ async def series(
         if forecast_reads:
             sql = forecast_rows_sql([read.binding.forecast.column for read in forecast_reads])
             columns.update(forecast_columns(axis, await conn.fetch(sql, from_, to), forecast_reads))
-        daily_reads: dict[tuple[str, str], list[KeyRead]] = {}
+        daily_reads: dict[tuple[str, str | None], list[KeyRead]] = {}
         for read in plan.reads:
             if read.source in ("daily_summary", "scorecard"):
                 daily_reads.setdefault((read.binding.daily.view, read.binding.daily.stamp), []).append(read)

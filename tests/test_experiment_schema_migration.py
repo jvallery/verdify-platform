@@ -379,6 +379,8 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "306-vpd-envelope-sql-mirror.sql",
         # The canopy PAR column, its facade column and the ingestor INSERT grant run forward only.
         "307-climate-ppfd-column.sql",
+        # The PAR DLI views, the ledger's PAR interval and the dashboard grants run forward only.
+        "308-dli-canopy-ppfd.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(
