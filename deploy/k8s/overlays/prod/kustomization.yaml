@@ -359,7 +359,7 @@ images:
   # 42349735728; rollback a02c2a36cd7c (00b53fe3, release 5).
   - name: ghcr.io/verdifyconsultancy/verdify-planner
     newName: registry.vallery.net/verdifyconsultancy/verdify-planner
-    digest: sha256:e7cc91834cd838cbbced673a193af8b37692f4864319778d138f9ae84edbe9fc
+    digest: sha256:afe4ee6f665761d74ae39556fb5d4975a5cc6f4475e5b206d46335cf28174afa
   # Hand-pinned grow-light writer: source 5ebe309308d5 (W7 release 8: #1494 relay_physical, #1495 per-setting
   # write lock), GHA build run 42415895024. Rollback: 0f40c6514b21 (source 130a954e0ce7, build run 42294583580). The #399 HA call allowlist confines
   # this prod-only writer to the declared main/grow light switches.
@@ -367,7 +367,7 @@ images:
   # @sha256 (zot custody copy, #1363) is pinned inline in the component.
   - name: ghcr.io/verdifyconsultancy/verdify-setpoint-server
     newName: registry.vallery.net/verdifyconsultancy/verdify-setpoint-server
-    digest: sha256:c0a9b9eaa1c17f87a5d57093fb1517d9e5aea170a801734110e685b05032b1c5
+    digest: sha256:66e0b8ab0a01350e309a4faa873adb1e1f5acb1064e0d2e8e82c8f4b1c02458c
   # Lab publisher: source 7cdddc3fb3be (#1451 public-output guard fix on top of #1436), GHA build run
   # 42336369914. Rollback: 822d19776c28 (source eaf572287c6a; fails the guard on /reference/ai-tunables).
   - name: ghcr.io/verdifyconsultancy/verdify-lab-publisher-k3s
