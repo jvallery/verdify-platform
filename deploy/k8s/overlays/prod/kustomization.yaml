@@ -345,7 +345,7 @@ images:
     digest: sha256:caf63860b212b1a511429e6b49ebf12a0ee3eb4e297ba69886fa776a1b1bedb2
   - name: ghcr.io/verdifyconsultancy/verdify-ingestor
     newName: registry.vallery.net/verdifyconsultancy/verdify-ingestor
-    digest: sha256:c822630a38de54f896dde0a53db73829a5d199554bfa5ef83bbabad240895325
+    digest: sha256:5d137e02fc400088a6196aedea837e62e2992483f38de2013ac03af0cab51fe7
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
     digest: sha256:48e0f0a3945dc939cc922e11716995e02d0199b947374d532ce0a9a1335b74fa
