@@ -75,23 +75,22 @@ def pod_labels(rendered):
             yield x["metadata"]["name"], x["spec"]["jobTemplate"]["spec"]["template"]["metadata"].get("labels", {})
 
 
-def test_deny_never_selects_a_pod_with_its_own_egress_allowlist(rendered):
+def test_deny_selects_no_pod_and_every_pod_has_its_own_egress_policy(rendered):
+    """#1496: the vendored deny is an allow of 0.0.0.0/0 minus management on every port, so it
+    selects no pod. Every workload is bounded by a Verdify-owned Egress policy instead
+    (egress-local-only, egress-api-hermes-allowlist or the component's own allowlist)."""
     by_name = policies(rendered)
     deny = by_name[DENY]
+    assert deny["spec"]["podSelector"] == {"matchLabels": {"network.vallery.net/public-egress": "true"}}
     own = [
         p
         for name, p in by_name.items()
         if name not in {DENY, HA_ALLOW} and "Egress" in p["spec"].get("policyTypes", [])
     ]
     assert own, "expected the existing egress allowlists in the render"
-    covered = set()
     for workload, labels in pod_labels(rendered):
-        bounded = any(selected(p["spec"]["podSelector"], labels) for p in own)
-        assert selected(deny["spec"]["podSelector"], labels) is not bounded, workload
-        if not bounded:
-            covered.add(workload)
-    # #1351/#1363: egress-local-only bounds everything else; only these two keep public egress.
-    assert covered == {"verdify-api", "verdify-hermes-iris"}
+        assert not selected(deny["spec"]["podSelector"], labels), workload
+        assert any(selected(p["spec"]["podSelector"], labels) for p in own), workload
 
 
 def test_deny_keeps_public_egress_and_refuses_the_management_set(rendered):

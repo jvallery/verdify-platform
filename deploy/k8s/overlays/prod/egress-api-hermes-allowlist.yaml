@@ -1,0 +1,67 @@
+# #1496: explicit egress allowlist for the two verdify-prod components that still need the public
+# internet. It replaces the vendored egress-deny-management for them: that policy is an allow of
+# 0.0.0.0/0 minus the management set on every port, so it opened IoT, Home, the other VLANs and the
+# whole internet to api and hermes-iris. kustomization.yaml now points the vendored copy at a label
+# no pod carries (the same shape deploy/k8s/dashboard uses), and this policy is the only Egress
+# policy that selects api and hermes-iris.
+#
+# Egress contract (code and env as of 2026-11-08; tests/test_egress_api_hermes_allowlist.py pins it):
+#   - in-cluster pod and service ranges (10.0.0.0/8): CoreDNS, verdify-db :5432, verdify-mcp :8000,
+#     the ingestor, the Grafana renderer and the setpoint server.
+#   - Frigate snapshots for api (VERDIFY_FRIGATE_PUBLIC_BASE_URL frigate.frigate.svc:8971 -> 8973).
+#     Frigate runs hostNetwork on node8 (taint dedicated=frigate), so its endpoint is a worker
+#     address, not a pod IP. The five worker addresses are listed so a Frigate reschedule keeps
+#     working, on tcp/8973 only.
+#   - public HTTPS (tcp/443), never a private, CGNAT or link-local range: api.openai.com for
+#     hermes-iris and Cloudflare Turnstile siteverify (challenges.cloudflare.com) for the api
+#     contact form (#1351 row 7). Neither publishes a stable CIDR, so the rule is port-bounded.
+#   The contact form's SMTP path (VERDIFY_CONTACT_SMTP_HOST, default port 587) is not configured
+#   in production; enabling it needs a rule here first.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-api-hermes-allowlist
+  labels:
+    app.kubernetes.io/part-of: verdify
+    network.vallery.net/policy: egress-api-hermes-allowlist
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - api
+          - hermes-iris
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+    - to:
+        - ipBlock:
+            cidr: 192.168.30.35/32
+        - ipBlock:
+            cidr: 192.168.30.36/32
+        - ipBlock:
+            cidr: 192.168.30.37/32
+        - ipBlock:
+            cidr: 192.168.30.38/32
+        - ipBlock:
+            cidr: 192.168.30.39/32
+      ports:
+        - protocol: TCP
+          port: 8973
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
