@@ -62,7 +62,7 @@ spec:
       initContainers:
         # Gate startup on the per-env DB being reachable, mirroring verdify-api.
         - name: wait-for-db
-          image: registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:05f59252c3bb8e439b0b41d62a1dea6067efab4bd6193998319fcfb561408a66
+          image: registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:e5f7512763357fe0e9d39fd96d220a0a3ea40cad3f26a2426c85849a8d54485e
           command:
             - sh
             - -c
