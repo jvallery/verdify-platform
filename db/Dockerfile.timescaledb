@@ -17,8 +17,9 @@
 #     Highs from the 2026-11-07 estate scan, #1458). PostgreSQL and TimescaleDB are
 #     built from source under /usr/local and are not apk packages, so their
 #     versions are unchanged (asserted below).
-# Built in-cluster by the repo-build-verdifyconsultancy Kaniko workflow and pinned by
-# digest in deploy/k8s/overlays/prod/kustomization.yaml.
+# Built by .github/workflows/build.yml job timescaledb (on a change to this file, or a
+# workflow_dispatch whose base predates it) and hand-pinned by digest; the pin job never
+# moves it, because repinning verdify-db restarts the database (#1458).
 FROM docker.io/timescale/timescaledb:2.25.2-pg16@sha256:5d523957b04041e1c8dc776dd086a2d68fd1ebc9d4ac3e948b65f02c88550140
 
 RUN set -eux; \

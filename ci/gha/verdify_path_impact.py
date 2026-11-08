@@ -34,6 +34,9 @@ PROFILES = {
     # #1458: the derived Hermes agent (the pinned upstream digest plus Debian's security
     # updates). It copies nothing from the repository either.
     "hermes-agent": "hermes/Dockerfile.hermes-agent",
+    # #1458: the derived TimescaleDB runtime (the pinned upstream digest without its Go
+    # binaries, plus Alpine's security updates). It copies nothing from the repository.
+    "timescaledb": "db/Dockerfile.timescaledb",
 }
 # jvallery/agents#5994: check flags beside the profile flags. They select the PR
 # checks that run on the exact checkout, not image builds; every fallback sets both.
