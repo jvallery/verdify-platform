@@ -8,9 +8,15 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 FROM python:3.13-slim@sha256:b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2 AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+# apt-get upgrade picks up Debian security fixes the pinned base predates
+# (apt 3.0.4: CVE-2026-109518). pip is build-time only; its vendored msgpack,
+# urllib3 and setuptools (pip/_vendor/vendor.txt) were this image's fixable
+# Python HIGHs in the 2026-11-08 estate scan (#1458).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall -y pip \
     && useradd --uid 10001 --create-home --shell /usr/sbin/nologin orchestrator
 
 WORKDIR /app

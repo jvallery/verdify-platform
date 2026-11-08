@@ -33,3 +33,29 @@ def _external_from_images(path: Path) -> list[str]:
 def test_release_build_closure_uses_exact_immutable_base_images():
     observed = {relative: _external_from_images(REPO_ROOT / relative) for relative in EXPECTED_EXTERNAL_FROM}
     assert observed == EXPECTED_EXTERNAL_FROM
+
+
+PIP_FREE_RUNTIME_DOCKERFILES = (
+    "api/Dockerfile",
+    "ingestor/Dockerfile",
+    "mcp/Dockerfile",
+    "scripts/Dockerfile.setpoint-server",
+    "experiment_orchestrator/Dockerfile",
+    "planner_graph/Dockerfile",
+)
+
+
+def _final_stage(path: Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    return text[text.rindex("\nFROM ") :]
+
+
+def test_runtime_stages_drop_build_only_pip():
+    # #1458: pip's vendored msgpack/urllib3/setuptools are reported as fixable
+    # HIGHs in every python-slim runtime that keeps it.
+    missing = [
+        relative
+        for relative in PIP_FREE_RUNTIME_DOCKERFILES
+        if "-m pip uninstall -y pip" not in _final_stage(REPO_ROOT / relative)
+    ]
+    assert missing == []

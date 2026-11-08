@@ -33,7 +33,10 @@
 
 FROM python:3.13-slim@sha256:b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2 AS base
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# apt-get upgrade picks up Debian security fixes the pinned base predates
+# (apt 3.0.4: CVE-2026-109518; #1458).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
         ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -97,6 +100,12 @@ COPY docs/ /app/docs/
 
 # Non-root (uid 1000). Single process — no privilege needed; it connects OUT to
 # the ESP32 / HA / MQTT / Frigate / DB and exposes no inbound port.
+# pip is build-time only. Its vendored msgpack 1.1.2, urllib3 2.7.0 and
+# setuptools 70.3.0 (pip/_vendor/vendor.txt) are the base image's only
+# fixable Python HIGHs (CVE-2026-114613, GHSA-6v7p-g79w-8964,
+# CVE-2026-97687, CVE-2026-97689, CVE-2025-47273; #1458).
+RUN python -m pip uninstall -y pip
+
 RUN useradd -m -u 1000 -s /usr/sbin/nologin appuser \
     && chown -R appuser:appuser /app
 USER appuser

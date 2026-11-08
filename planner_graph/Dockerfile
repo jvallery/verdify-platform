@@ -31,6 +31,15 @@ RUN uv sync --frozen --no-dev
 
 FROM python:3.12-slim@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54 AS runtime
 
+# apt-get upgrade picks up Debian security fixes the pinned base predates. The
+# app runs from /app/.venv, so the base pip (vendored urllib3 1.26.20, msgpack
+# 1.1.0, setuptools 70.3.0 in pip/_vendor/vendor.txt) is dead weight that the
+# estate scanner reports as fixable HIGHs (#1458).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && /usr/local/bin/python -m pip uninstall -y pip
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
