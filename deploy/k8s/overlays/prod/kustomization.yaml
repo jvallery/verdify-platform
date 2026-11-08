@@ -247,8 +247,8 @@ patches:
   # gather-script-env-configmap.yaml. (Picked up on the gated restart.)
   - path: gather-script-env-configmap.yaml
   # #211/#263 gather-path capture plus Gate-1 credential cutover: retain the
-  # proven install-psql initContainer, gather-script/pgclient mounts,
-  # PATH/LD_LIBRARY_PATH, and HERMES auth. PGPASSWORD deliberately changes from
+  # proven gather-script mounts and HERMES auth (psql ships in the ingestor
+  # image since #1458; no install-psql init). PGPASSWORD deliberately changes from
   # the database-owner key to the ingestor's least-privilege runtime key, matching
   # the component's ordinary-process credential. This causes a controlled
   # single-writer Recreate and is verified after sync. See the patch header.

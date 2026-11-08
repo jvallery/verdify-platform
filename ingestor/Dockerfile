@@ -61,6 +61,17 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 FROM base AS final
 WORKDIR /app/ingestor
 
+# psql for the planner gather path (#1458): gather-plan-context.sh (mounted from
+# ConfigMap verdify-ingestor-gather-script; GATHER_SCRIPT in iris_planner.py)
+# runs a bare `psql` against the PostgreSQL 16 server. Debian trixie ships only
+# client 17 (postgresql-client -> postgresql-client-17), which supports 16
+# servers. This replaces the prod overlay's install-psql initContainer, which
+# copied psql out of a postgres:16 mirror image carrying unfixed Critical CVEs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        postgresql-client \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /install /usr/local
 
 # The whole ingestor package (ingestor.py imports sibling modules by bare name:
