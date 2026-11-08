@@ -33,6 +33,9 @@ MODEL = "llm.primary.longctx"
 BASE_URL = "https://cortex.vallery.net/v1"
 PROMPT_VERSION = "brief-v1"
 CADENCE = timedelta(minutes=15)
+# The job runs every 5 minutes and a run can start a few seconds earlier than the one 15 minutes before it; without
+# this slack that run finds 14 min 57 s, waits, and the next write lands 20 minutes after the last (#1346).
+CADENCE_SLACK = timedelta(seconds=60)
 STALE_AFTER = 2 * CADENCE
 HIDE_AFTER = timedelta(hours=2)
 RETENTION = timedelta(days=30)
@@ -181,6 +184,9 @@ def facts_sha256(sheet: Mapping[str, Any]) -> str:
 
 _TIME = re.compile(r"\b(\d{1,2}):(\d{2})(?:\s?([AaPp])\.?\s?[Mm]\.?)?")
 _NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w])")
+# Numbers inside fact strings may carry a unit suffix ("in last 15m", "threshold 0.5h"); the model writes them out
+# ("15 minutes"), so the fact side accepts a trailing letter (#1346).
+_FACT_NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\d.])")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _ADVICE = re.compile(
     r"\b(you should|you could|you may want|you might want|we recommend|i recommend|recommend(?:ed|s)? "
@@ -220,7 +226,7 @@ def fact_numbers(sheet: Mapping[str, Any]) -> tuple[list[float], set[tuple[int, 
         text = str(value)
         for hour, minute, _ in _TIME.findall(text):
             times.add((int(hour), int(minute)))
-        for token in _NUMBER.findall(_TIME.sub(" ", text)):
+        for token in _FACT_NUMBER.findall(_TIME.sub(" ", text)):
             numbers.append(float(token))
     return numbers, times
 

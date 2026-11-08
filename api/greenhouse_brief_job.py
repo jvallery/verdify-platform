@@ -226,7 +226,7 @@ def decide(newest: brief.Newest | None, event: Mapping, trigger: Mapping, sha: s
         return "event"
     if newest.facts_sha256 == sha:
         return "unchanged"
-    if at - newest.as_of >= brief.CADENCE:
+    if at - newest.as_of >= brief.CADENCE - brief.CADENCE_SLACK:
         return "cadence"
     return "wait"
 

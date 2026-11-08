@@ -139,6 +139,24 @@ def test_decisions():
     assert job.decide(newest(), EVENT, trigger, "b" * 64, AT) == "wait"
     stale = newest(generated_at=AT - timedelta(minutes=15))
     assert job.decide(stale, EVENT, trigger, "b" * 64, AT) == "cadence"
+    # #1346: a run that starts 3 s early still writes on the 15-minute beat.
+    early = newest(generated_at=AT - timedelta(minutes=14, seconds=57))
+    assert job.decide(early, EVENT, trigger, "b" * 64, AT) == "cadence"
+    assert job.decide(newest(generated_at=AT - timedelta(minutes=10)), EVENT, trigger, "b" * 64, AT) == "wait"
+
+
+def test_a_number_with_a_unit_suffix_in_a_fact_string_is_a_fact():
+    # 2026-11-07/08: 6 briefs were rejected with "number 15 is not in the facts" for "in the last 15 minutes": the 15
+    # lived only in the alert text "64% high in last 15m". A number the model makes up is still rejected.
+    sheet = {
+        "alerts": [{"message": "VPD stress active: 2.2 hours today (threshold 0.5h), 64% high in last 15m"}],
+        "air_f": 71.8,
+    }
+    text = (
+        "The air is at 71.8 °F. A VPD stress alert notes 2.2 hours today and 64% high readings in the last 15 minutes."
+    )
+    assert brief.check_text(text, sheet) is None
+    assert brief.check_text(text.replace("15 minutes", "20 minutes"), sheet) == "number 20 is not in the facts"
 
 
 def test_the_request_is_bounded_deterministic_and_text_only():
