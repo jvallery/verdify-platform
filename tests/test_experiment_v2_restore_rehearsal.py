@@ -130,7 +130,7 @@ def test_rehearsal_is_gitops_hooked_bounded_and_non_networked():
     restore = pod["containers"][0]
     assert (
         restore["image"]
-        == "registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:05f59252c3bb8e439b0b41d62a1dea6067efab4bd6193998319fcfb561408a66"
+        == "registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:e5f7512763357fe0e9d39fd96d220a0a3ea40cad3f26a2426c85849a8d54485e"
     )
     assert restore["securityContext"]["readOnlyRootFilesystem"] is True
     assert restore["securityContext"]["allowPrivilegeEscalation"] is False
