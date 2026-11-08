@@ -339,13 +339,13 @@ patches:
 images:
   - name: ghcr.io/verdifyconsultancy/verdify-api
     newName: registry.vallery.net/verdifyconsultancy/verdify-api
-    digest: sha256:4b1b6b627bd272e1218671fcadf38004848843cb2ee699f6544f599e18b17110
+    digest: sha256:81263244522f3b765df35e103a4f45659e3b13e80631bc5ef3c4f86e44cecd68
   - name: ghcr.io/verdifyconsultancy/verdify-mcp
     newName: registry.vallery.net/verdifyconsultancy/verdify-mcp
-    digest: sha256:3587be001807d415ec0158786546912c3d386d2e4198c60d4fc0a782b32c8062
+    digest: sha256:caf63860b212b1a511429e6b49ebf12a0ee3eb4e297ba69886fa776a1b1bedb2
   - name: ghcr.io/verdifyconsultancy/verdify-ingestor
     newName: registry.vallery.net/verdifyconsultancy/verdify-ingestor
-    digest: sha256:f9a9cca1c5d3452befb7c6e3e0435782739208f0c069c0a86b5ac76b4f98e825
+    digest: sha256:c822630a38de54f896dde0a53db73829a5d199554bfa5ef83bbabad240895325
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
     digest: sha256:48e0f0a3945dc939cc922e11716995e02d0199b947374d532ce0a9a1335b74fa
@@ -354,7 +354,7 @@ images:
   # explicit GitOps feature gate.
   - name: ghcr.io/verdifyconsultancy/verdify-experiment-v2-orchestrator
     newName: registry.vallery.net/verdifyconsultancy/verdify-experiment-v2-orchestrator
-    digest: sha256:4d3d80950315ffa17e18a7cbfa7f4c592c5fb086bfc7f5c793e1e10081d91fbe
+    digest: sha256:a11ace83b5513162647d130f99589690231a78e63fb732c07f1db0951af92861
   # Hand-pinned planner: source eeeeabc1 (W6 release 6, #1458 anyio/certifi CVE lock), GHA build run
   # 42349735728; rollback a02c2a36cd7c (00b53fe3, release 5).
   - name: ghcr.io/verdifyconsultancy/verdify-planner
