@@ -75,6 +75,12 @@ COPY config/ai.yaml ./config/ai.yaml
 RUN python -c "import verdify_services.activity"
 
 # Non-root (uid 1000). Handoff §3.2: MCP runs non-root.
+# pip is build-time only. Its vendored msgpack 1.1.2, urllib3 2.7.0 and
+# setuptools 70.3.0 (pip/_vendor/vendor.txt) are the base image's only
+# fixable Python HIGHs (CVE-2026-114613, GHSA-6v7p-g79w-8964,
+# CVE-2026-97687, CVE-2026-97689, CVE-2025-47273; #1458).
+RUN python -m pip uninstall -y pip
+
 RUN useradd -m -u 1000 -s /usr/sbin/nologin appuser \
     && chown -R appuser:appuser /app
 USER appuser
