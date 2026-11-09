@@ -110,6 +110,13 @@ configMapGenerator:
         argocd.argoproj.io/hook: PreSync
         argocd.argoproj.io/sync-wave: "-1"
         argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+# verdify-prod-dark has prune off, so a superseded hash-suffixed ConfigMap stays
+# live after a content change. IgnoreExtraneous keeps that leftover from holding
+# the Application OutOfSync (the deploy/k8s/dashboard pattern, #1536); it does not
+# remove it: the leftover is deleted by name once no Job or Pod mounts it.
+generatorOptions:
+  annotations:
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
 
 components:
   # In-cluster firmware OTA capability (handoff §5.1 closed 2026-07-13):
