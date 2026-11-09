@@ -1,17 +1,22 @@
 # verdify-platform CI on the estate's self-hosted ARC runners (issue #1397).
 #
 # Every job is the estate-ci reusable checks workflow (checkout + one repository
-# script) on a jvallery/verdify-platform scale set; the scripts in ci/gha/ run
-# the same commands as the native in-cluster pipeline. Every caller job is named
-# "ci", so each check context is "ci / <check>" (for example "ci / validate").
-# No job is skipped by an `if:`: a check that its path impact does not select
-# passes as "not impacted", so every required context always reports.
+# script) on a jvallery/verdify-platform scale set; the scripts in ci/gha/ are
+# the only copy of these checks (the native in-cluster pipeline is retired).
+# Required and advisory contexts, and STD-CI-03 exceptions: docs/ci/ci-contexts.md.
+# Every caller job is named "ci", so each check context is "ci / <check>" (for
+# example "ci / validate"). No check job is skipped by an `if:`: a check that its
+# path impact does not select passes as "not impacted", so every context always
+# reports (only the PR build-check's helper jobs are conditional; "ci /
+# buildcheck" always reports).
 #
 # Scale sets (estate-ci runners.yaml, repository jvallery/verdify-platform):
 #   verdify-platform-ci            job image python:3.13-bookworm (native validate image)
 #   verdify-platform-ci-tools      job image agents-ci-tools (uv, verdify-campaign-ci)
-#   verdify-platform-ci-esphome    job image ESPHome 2026.6.5
+#   verdify-platform-ci-esphome    job image ESPHome 2026.6.5; next verdify-esphome-ci, the
+#                                  same plus the PlatformIO toolchain (ci/esphome-ci.Dockerfile)
 #   verdify-platform-ci-dashboard  job image weather-ci (node, pnpm, Playwright)
+#   verdify-platform-buildcheck    Kaniko, no push credential (PR image build-check)
 #
 # Portability (Forgejo/Gitea Actions): each job is checkout plus one `run:` of a
 # ci/gha/ script and /opt/estate-ci helpers; vendor checks.yml if the forge
@@ -27,9 +32,12 @@ on:
 permissions:
   contents: read
 
+# One group per PR (a new push supersedes the PR's older run) and one group per
+# commit on main (#1535, STD-CI-03). cancel-in-progress: false alone does not
+# protect main: GitHub keeps one pending run per group and replaces it with the
+# next one, so a shared main group left most main commits with no CI run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # Supersede stale PR runs; never cancel runs on main.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -174,6 +182,51 @@ jobs:
     with:
       name: campaign
       run: bash ci/gha/require-success.sh campaign-shards=${{ needs.campaign-shard.result }}
+      runner: verdify-platform-ci-tools
+      timeout-minutes: 5
+
+  # PR image build-check (#1534, STD-CI-12): every image whose Dockerfile inputs
+  # the PR changes is built without push on verdify-platform-buildcheck (Kaniko,
+  # no registry write credential), so a broken Dockerfile fails before merge.
+  # Off until the repository variable VERDIFY_BUILDCHECK is "true", which is set
+  # once the estate-ci buildcheck set is live; "ci / buildcheck" then reports the
+  # result and passes as "not enabled" before that.
+  buildcheck-impact:
+    if: ${{ github.event_name == 'pull_request' && vars.VERDIFY_BUILDCHECK == 'true' }}
+    runs-on: verdify-platform-ci
+    timeout-minutes: 10
+    outputs:
+      images: ${{ steps.impact.outputs.images }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - id: impact
+        shell: bash
+        run: ci/gha/buildcheck-impact.sh
+
+  buildcheck-image:
+    needs: [buildcheck-impact]
+    if: ${{ needs.buildcheck-impact.outputs.images != '' && needs.buildcheck-impact.outputs.images != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.buildcheck-impact.outputs.images) }}
+    uses: jvallery/estate-ci/.github/workflows/image-build.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
+    with:
+      image: ${{ matrix.image }}
+      dockerfile: ${{ matrix.dockerfile }}
+      build-args: ${{ matrix.build-args }}
+      push: false
+
+  buildcheck:
+    name: ci
+    needs: [buildcheck-impact, buildcheck-image]
+    if: ${{ !cancelled() }}
+    uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
+    with:
+      name: buildcheck
+      run: bash ci/gha/buildcheck-result.sh impact=${{ needs.buildcheck-impact.result }} images=${{ needs.buildcheck-image.result }}
       runner: verdify-platform-ci-tools
       timeout-minutes: 5
 

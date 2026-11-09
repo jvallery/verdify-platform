@@ -1,16 +1,18 @@
 # verdify-platform image builds and the digest pin PR on the estate's ARC
-# runners (issue #1397). The native in-cluster pipeline builds these nine images
-# today and its pin step is the only pin writer. This workflow stays dormant on
-# push until the repository variable VERDIFY_GHA_BUILD is "true", which is set in
-# the same window that removes the native build sensor and registry build rows
-# (#1397 cutover step 3), so there is never a second pin writer. A manual
+# runners (#1397). This workflow is the only image build and pin path: the native
+# in-cluster pipeline is retired, and the repository variable VERDIFY_GHA_BUILD
+# (true since 2026-11-06) gates the push trigger and the pin job. A manual
 # dispatch from main builds the impacted images and pushes them by digest
-# (tag gha-<sha12>) without opening a pin PR while the variable is unset.
+# (tag gha-<sha12>); it opens a pin PR only while VERDIFY_GHA_BUILD is true.
 #
-# impact: the native classifier (ci/gha/path-impact.sh --push) selects the images
-# whose Dockerfile inputs changed; a digest-only pin push builds nothing.
+# impact: the classifier (ci/gha/path-impact.sh --push) selects the images whose
+# Dockerfile inputs changed since the last main commit whose push build
+# succeeded (#1534), so the changes of a build GitHub displaced while it was
+# pending, or of a build that failed, are built by the next one; a digest-only
+# pin push builds nothing. The dispatch input `base` overrides the base.
 # Builds run on verdify-platform-build (Kaniko sidecar plus the repository's zot
-# writer; default-branch push/dispatch only), one at a time (set max 1).
+# writer; default-branch push/dispatch only). PRs build the same images without
+# push on verdify-platform-buildcheck (ci.yml, "ci / buildcheck").
 # pin: one estate-ci pin-bump job, the only writer. It opens one PR that moves the
 # five candidate entries in deploy/k8s/overlays/prod/kustomization.yaml (prod runs
 # release-pins.yaml, so merging it deploys nothing) and the dashboard-web digest in
@@ -35,6 +37,9 @@ on:
 permissions:
   contents: read
 
+# Serial on main, so pin PRs open in commit order. GitHub may replace a pending
+# run with a newer one; the impact base (last successful push build) makes the
+# newer run build what the displaced one would have.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: false
@@ -44,6 +49,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || vars.VERDIFY_GHA_BUILD == 'true' }}
     runs-on: verdify-platform-ci
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read   # the last successful build run on main (ci/gha/last_built_main.py)
     outputs:
       mode: ${{ steps.impact.outputs.mode }}
       api: ${{ steps.impact.outputs.api }}
@@ -58,6 +66,7 @@ jobs:
       grafana-image-renderer: ${{ steps.impact.outputs.grafana-image-renderer }}
       hermes-agent: ${{ steps.impact.outputs.hermes-agent }}
       timescaledb: ${{ steps.impact.outputs.timescaledb }}
+      esphome-ci: ${{ steps.impact.outputs.esphome-ci }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -66,6 +75,8 @@ jobs:
         shell: bash
         env:
           VERDIFY_IMPACT_BASE: ${{ github.event_name == 'workflow_dispatch' && inputs.base || '' }}
+          VERDIFY_BASE_LAST_BUILT: "true"
+          GITHUB_TOKEN: ${{ github.token }}
         run: ci/gha/path-impact.sh --push
 
   api:
@@ -184,6 +195,17 @@ jobs:
     with:
       image: verdifyconsultancy/verdify-timescaledb
       dockerfile: db/Dockerfile.timescaledb
+      push: true
+
+  # #1535: the firmware-secretless-compile job image. Not in the pin job; the
+  # ci-esphome job_image digest lives in jvallery/estate-ci runners.yaml.
+  esphome-ci:
+    needs: [impact]
+    if: ${{ needs.impact.outputs.esphome-ci == 'true' }}
+    uses: jvallery/estate-ci/.github/workflows/image-build.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
+    with:
+      image: verdifyconsultancy/verdify-esphome-ci
+      dockerfile: ci/esphome-ci.Dockerfile
       push: true
 
   pin:

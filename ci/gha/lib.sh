@@ -28,10 +28,12 @@ ci_fetch_history() {
   fi
 }
 
-# The base revision the native pipeline diffs against:
+# The base revision the classifier diffs against:
 #   pull_request: the PR's base on main (the checkout is GitHub's merge commit,
 #                 so its merge base with origin/main is the main it merges into);
-#   push to main: the previous main head (first parent);
+#   push to main: the previous main head (first parent); for build.yml
+#                 (VERDIFY_BASE_LAST_BUILT=true) the last main commit whose push
+#                 build succeeded (#1534), falling back to the first parent;
 #   dispatch (pin branches): the merge base with origin/main.
 # Prints nothing when no usable base exists; the classifier then falls back to
 # "everything impacted", as the native pipeline does.
@@ -46,7 +48,13 @@ ci_base() {
     return 0
   fi
   case "${GITHUB_EVENT_NAME:-}" in
-    push) base="$(git rev-parse --verify --quiet "HEAD^1" || true)" ;;
+    push)
+      base=""
+      if [ "${VERDIFY_BASE_LAST_BUILT:-}" = true ]; then
+        base="$(python3 ci/gha/last_built_main.py "$head" || true)"
+        [ -n "$base" ] || echo "::warning::no last successful build found; diffing against HEAD^1" >&2
+      fi
+      [ -n "$base" ] || base="$(git rev-parse --verify --quiet "HEAD^1" || true)" ;;
     *) base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
        if [ "$base" = "$head" ]; then
          base="$(git rev-parse --verify --quiet "HEAD^1" || true)"

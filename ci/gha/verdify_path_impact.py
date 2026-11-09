@@ -37,6 +37,9 @@ PROFILES = {
     # #1458: the derived TimescaleDB runtime (the pinned upstream digest without its Go
     # binaries, plus Alpine's security updates). It copies nothing from the repository.
     "timescaledb": "db/Dockerfile.timescaledb",
+    # #1535: the firmware-secretless-compile job image (the ESPHome mirror plus the
+    # PlatformIO platform and toolchain baked in). It copies nothing from the repository.
+    "esphome-ci": "ci/esphome-ci.Dockerfile",
 }
 # jvallery/agents#5994: check flags beside the profile flags. They select the PR
 # checks that run on the exact checkout, not image builds; every fallback sets both.
@@ -241,6 +244,13 @@ def classify(root, base, head):
         for name, dockerfile in PROFILES.items():
             causes = set()
             for revision in (base, head):
+                # A profile added (or removed) between base and head has no
+                # Dockerfile on one side; its Dockerfile path is then in paths.
+                if subprocess.run(
+                    ["git", "-C", str(root), "cat-file", "-e", revision + ":" + dockerfile],
+                    capture_output=True,
+                ).returncode:
+                    continue
                 inputs = copies(blob(root, revision, dockerfile))
                 ignore = blob(root, revision, ".dockerignore")
                 for path in paths:

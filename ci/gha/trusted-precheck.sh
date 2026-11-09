@@ -19,9 +19,9 @@ safe_ref() {
   case "$1" in *[!A-Za-z0-9._/-]*|""|/*|*/|*..*) return 1 ;; esac
 }
 
-# Accept both owners while the repository moves to jvallery (D19); the name is fixed.
+# The repository moved to jvallery (D19); the old VerdifyConsultancy name is refused.
 case "${GITHUB_REPOSITORY:-}" in
-  jvallery/verdify-platform|VerdifyConsultancy/verdify-platform) ;;
+  jvallery/verdify-platform) ;;
   *) fail "repository ${GITHUB_REPOSITORY:-unset}" ;;
 esac
 case "${GITHUB_EVENT_NAME:-}" in

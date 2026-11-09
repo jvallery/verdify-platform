@@ -14,6 +14,12 @@ COMPILERS = frozenset(
     for prefix in ("xtensa-esp-elf", "xtensa-esp32-elf", "xtensa-esp32s2-elf", "xtensa-esp32s3-elf")
     for suffix in ("as", "g++", "gcc", "ld")
 )
+# The verdify-esphome-ci job image (ci/esphome-ci.Dockerfile, #1535) installs the
+# platform and toolchain here at build time, so a run downloads nothing from
+# github.com. pioarduino records absolute paths, so it is used in place; each ARC
+# job has a fresh container. Without it (the plain ESPHome image) a private core
+# directory downloads them, as before.
+BAKED_CORE = Path("/opt/verdify-platformio")
 DUMMY = "wifi_ssid: CI-NONDEPLOYABLE\nwifi_password: CI-NONDEPLOYABLE-NOT-A-WLAN-PASSWORD\nota_password: CI-NONDEPLOYABLE-NOT-AN-OTA-PASSWORD\napi_encryption_key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
 
 
@@ -106,11 +112,14 @@ def main():
         work = Path(work)
         home = work / "home"
         home.mkdir()
+        baked = (BAKED_CORE / "platforms").is_dir() and (BAKED_CORE / "packages").is_dir()
+        core = BAKED_CORE if baked else work / "platformio"
+        report["platformio_core"] = "baked" if baked else "private-download"
         env = {
             "PATH": os.environ["PATH"],
             "HOME": str(home),
             "TMPDIR": str(work),
-            "PLATFORMIO_CORE_DIR": str(work / "platformio"),
+            "PLATFORMIO_CORE_DIR": str(core),
             "ESPHOME_DEFAULT_COMPILE_PROCESS_LIMIT": "2",
             "SOURCE_DATE_EPOCH": subprocess.check_output(
                 ["git", "show", "-s", "--format=%ct", "HEAD"], cwd=root, text=True
@@ -180,7 +189,7 @@ def main():
                     "result": "expected_compile_failure",
                     "exit_code": negative.returncode,
                 }
-        report["compiler_provenance"] = compiler_provenance(work / "platformio/packages")
+        report["compiler_provenance"] = compiler_provenance(core / "packages")
         report["platformio_packages"] = {p["name"]: p["version"] for p in report["compiler_provenance"]["packages"]}
         print("FIRMWARE_SECRETLESS_RECEIPT=" + json.dumps(report, sort_keys=True), flush=True)
 
