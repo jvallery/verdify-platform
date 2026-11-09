@@ -471,14 +471,14 @@ Longhorn Engine/Replica/Snapshot/Volume/VolumeAttachment objects are generated b
 | verdify-db-rehearsal | `zot-origin-cluster-pull` | reflector copy of `agent-fleet-runners/zot-origin-cluster-pull` | generated-by-owned-component |
 | verdify-descheduler | `zot-origin-cluster-pull` | reflector copy of `agent-fleet-runners/zot-origin-cluster-pull` | generated-by-owned-component |
 | verdify-prod | `ghcr-jvallery-readonly` | out-of-band kubectl (no KSOPS source) | hand-applied-adopt |
-| verdify-prod | `verdify-agent-secrets` | out-of-band kubectl (no KSOPS source) | hand-applied-adopt |
+| verdify-prod | `verdify-agent-secrets` | central KSOPS `verdify-prod-secrets-local-prod` (jvallery/estate-platform#70) | cross-lane-legit |
 | verdify-prod | `verdify-app-secrets` | agents KSOPS `verdify-prod-secrets-local-prod` | cross-lane-legit |
 | verdify-prod | `verdify-dashboard-runtime-db` | agents KSOPS lane for verdify-prod ([agents#5993](https://github.com/jvallery/agents/issues/5993)) | cross-lane-legit |
 | verdify-prod | `verdify-experiment-v2-outcome-freezer-db` | agents KSOPS `verdify-prod-secrets-local-prod` | cross-lane-legit |
 | verdify-prod | `verdify-experiment-v2-randomizer-db` | agents KSOPS `verdify-prod-secrets-local-prod` | cross-lane-legit |
 | verdify-prod | `verdify-experiment-v2-selector-provider` | agents KSOPS `verdify-prod-secrets-local-prod` | cross-lane-legit |
 | verdify-prod | `verdify-experiment-v2-shadow-scheduler-db` | agents KSOPS `verdify-prod-secrets-local-prod` | cross-lane-legit |
-| verdify-prod | `verdify-firmware-ota` | out-of-band kubectl (no KSOPS source) | hand-applied-adopt |
+| verdify-prod | `verdify-firmware-ota` | central KSOPS `verdify-prod-secrets-local-prod` (jvallery/estate-platform#70) | cross-lane-legit |
 | verdify-prod | `verdify-firmware-wifi` | agents KSOPS `verdify-prod-secrets-local-prod` | cross-lane-legit |
 | verdify-prod | `verdify-frigate-vision-auth` | agents KSOPS `verdify-prod-secrets-local-prod` | cross-lane-legit |
 | verdify-prod | `verdify-github-token` | out-of-band kubectl (no KSOPS source) | hand-applied-adopt |
@@ -766,7 +766,7 @@ The read-only ingestor consumer uses the HA-owned Shelly source contract with ex
 ### A14 Transitions tracked elsewhere
 
 - `argo-app:argocd/verdify-prod-dark` → agents local-prod catalog ([agents#4461](https://github.com/jvallery/agents/issues/4461)).
-- Out-of-band Secrets in `verdify-prod` → central KSOPS lane ([agents#4470](https://github.com/jvallery/agents/issues/4470), closed 2026-10-25 without moving all of them; the remainder is planned under `jvallery/estate-platform`): `ghcr-jvallery-readonly`, `verdify-agent-secrets`, `verdify-firmware-ota`, `verdify-github-token`, `verdify-lab-publisher-s3`, `verdify-vision-key`.
+- Out-of-band Secrets in `verdify-prod` → central KSOPS lane ([agents#4470](https://github.com/jvallery/agents/issues/4470), closed 2026-10-25 without moving all of them; the remainder is planned under `jvallery/estate-platform`): `ghcr-jvallery-readonly`, `verdify-github-token`, `verdify-lab-publisher-s3`, `verdify-vision-key` (`verdify-agent-secrets` and `verdify-firmware-ota` moved under jvallery/estate-platform#70).
 - Namespace `verdify-edge`: the Namespace object is this repo's (`retire`); its wildcard Certificate children (CertificateRequest `wildcard-verdify-ai-3`, Order `wildcard-verdify-ai-3-528873999`, Secret `wildcard-verdify-ai-tls`, jvallery/agents under [agents#4468](https://github.com/jvallery/agents/issues/4468)) were absent on 2026-11-08; delete the namespace (non-data) under [#1001](https://github.com/jvallery/verdify-platform/issues/1001).
 - zot pull credentials → jvallery/agents KSOPS lane (D-03, approved 2026-10-19); unconsumed copies deleted under SEC-02 only with Jason's go for revocation.
 - Dead `*.verdify.ai` hostnames and canaries (D-16, approved 2026-10-19) → jvallery/network-infra; domain/DNS changes need Jason's explicit go. Drop any matching entries from the tier-1 HostRegexp exclusion list here.
