@@ -2,7 +2,8 @@
 
 Owner: **Iris** (the CONTRACT — key names, per-env matrix, the two invariants, the
 sealed-artifact shape). Delivery MECHANISM is **Root** (`needs:root`): the SOPS+age
-sealing, the registry secret-meta, and the out-of-band apply step. Tracked under
+sealing and the central KSOPS Application `verdify-prod-secrets-local-prod`
+(no out-of-band apply). Tracked under
 the secrets-out-of-.env umbrella **#30**; the concrete SOPS structure + staging
 seal + named prod inventory deliverable is **#66**.
 
@@ -134,9 +135,10 @@ the public prod tree. For the current S3-compatible endpoint, set
 `LAB_S3_ENDPOINT_URL=https://s3.vallery.net` (the canonical Garage name under
 ADR-012; `s3-hdd` is its retiring alias) with the Verdify-scoped key.
 
-`verdify-grafana-secrets` is a prod-only, out-of-band prerequisite for the
-Grafana Deployment. Root must seal and deliver the two named keys before an
-ArgoCD sync; there is deliberately no in-repo placeholder, default password, or
+`verdify-grafana-secrets` is a prod-only prerequisite for the Grafana
+Deployment, delivered (immutable) by `verdify-prod-secrets-local-prod` from the
+central KSOPS lane (jvallery/estate-platform#70). Root seals and delivers the
+two named keys before an ArgoCD sync; there is deliberately no in-repo placeholder, default password, or
 default renderer token. Before any sync, verify only the Secret name and both
 required key names (never their values), then run the task-scoped
 `verdify-prod-dark` sync. A missing Secret or key leaves new pods
