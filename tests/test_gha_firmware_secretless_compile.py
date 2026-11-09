@@ -285,3 +285,9 @@ class EsphomeCiImageTest(unittest.TestCase):
         self.assertIn(MODULE.IMAGE.split("@", 1)[1], dockerfile)
         self.assertIn(f'BAKED_CORE = Path("{MODULE.BAKED_CORE}")', PROGRAM.read_text())
         self.assertIn(f"PLATFORMIO_CORE_DIR={MODULE.BAKED_CORE}", dockerfile)
+
+    def test_recovery_firmware_inherits_the_baked_esp32_block(self):
+        recovery = (ROOT / "firmware/greenhouse-recovery.yaml").read_text()
+        self.assertNotIn("\nesp32:\n", recovery)
+        self.assertRegex(recovery, r"\npackages:\n\s+base: !include greenhouse\.yaml\n")
+        self.assertIn("greenhouse-recovery", MODULE.TARGETS)

@@ -10,9 +10,14 @@
 # ESP-IDF Python environment by absolute path). Each ARC job gets a fresh
 # container, so the directory is still private to one run.
 #
-# The esp32 block below must match firmware/greenhouse.yaml and
-# firmware/greenhouse-recovery.yaml (framework type, version, platform_version);
-# tests/test_gha_firmware_secretless_compile.py fails when they drift. After a
+# The esp32 block below must match firmware/greenhouse.yaml (board, framework
+# type, version, platform_version); firmware/greenhouse-recovery.yaml has no
+# esp32 block of its own and inherits it through `packages: base: !include
+# greenhouse.yaml`. tests/test_gha_firmware_secretless_compile.py fails when
+# either drifts. Only the PlatformIO core (platform, framework and toolchain
+# packages, the github.com release assets) is baked: PlatformIO libraries and
+# ESP-IDF managed components resolve per build directory from
+# registry.platformio.org and components.espressif.com, as before. After a
 # change, build.yml builds verdifyconsultancy/verdify-esphome-ci (path impact,
 # profile esphome-ci); repin the ci-esphome job_image in estate-ci runners.yaml.
 #
