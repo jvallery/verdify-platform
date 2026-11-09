@@ -16,9 +16,8 @@
 # tests/test_ci_validate_dockerfile.py keeps the two in step.
 #
 # Build: this image is not in .github/workflows/build.yml, so a merge does not build
-# it. Submit a repo-build-verdifyconsultancy Workflow (dockerfile
-# ci/validate.Dockerfile, image verdifyconsultancy/verdify-ci-validate); see
-# docs/runbooks/prod-promotion.md. Kaniko and BuildKit read
+# it, and the in-cluster Workflow that built it is retired (#1397). Add a build.yml
+# profile before rebuilding it; see docs/runbooks/prod-promotion.md. Kaniko and BuildKit read
 # ci/validate.Dockerfile.dockerignore in place of the root .dockerignore, so
 # the build context holds only the two COPY inputs below.
 #

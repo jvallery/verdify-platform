@@ -1,5 +1,14 @@
 # Portable stateful recovery (#218)
 
+> **Node holds are not run from this lane.** Never cordon, drain or restart k3s on a
+> node from this runbook, drills included (AGENTS.md hazards; estate rule R25,
+> STD-HA-13). Any step below that needs a node made unschedulable is requested from
+> the `jvallery/proxmox-infrastructure` maintenance queue and runs there under the
+> `kube-system/k3s-planned-maintenance` Lease (`scripts/k3s-planned-maintenance.py`
+> `lease-*`/`hold-*`, [runbook](https://github.com/jvallery/proxmox-infrastructure/blob/main/config/k3s-planned-maintenance/README.md)),
+> one node at a time and CNPG-aware. This lane does only the pod-scope steps
+> while that hold is in place: Pod replacement, rollout and verification.
+
 Production keeps one TimescaleDB writer and existing Longhorn claims. DB,
 Grafana and Hermes can schedule on any Linux non-control-plane worker
 (`agentfleet.vallery.net/control-plane=false`) advertising
@@ -19,21 +28,21 @@ and change no other DB spec field. Preserve storage-template ignores. Normal
 non-pruning, selector-free Argo sync runs all hooks. Do not promote build-candidate
 images as part of this manifest-only change. Verify the complete pending diff.
 
-For the node7 exclusion drill, capture its prior schedulability; cordon only
-node7 immediately before the attended operation, without draining other tenants.
+For the node7 exclusion drill, request a hold of node7 from the maintenance queue
+(the Lease path above) for the attended window; do not cordon it from this lane.
 The first selector rollout can be the relocation proof: record the old DB UID
 and last successful read, confirm a new DB Pod on an eligible different worker,
 and measure failed-read interval and Ready/readback recovery. Do not delete a
-second healthy Pod merely to repeat that same transition. Uncordon only if this
-operation cordoned the node; preserve any pre-existing hold. Verify no ingestor
+second healthy Pod merely to repeat that same transition. The maintenance
+queue releases its own hold; preserve any pre-existing hold. Verify no ingestor
 rollout, restart or socket replacement occurred.
 
 After reattach, verify the same PVC/volume/database system identity and schema
 ledger, pre-existing immutable row witnesses, fresh telemetry, API readiness and
 public health. Record observed recovery time, not an unmeasured HA guarantee.
 Verify Grafana and Hermes ready with the same images/claims and a successful
-public Grafana response and gateway readiness. Restore any operation-owned
-cordon even on failure.
+public Grafana response and gateway readiness. On failure, tell the maintenance
+queue so it releases its hold; do not uncordon from this lane.
 
 If relocation fails, stop expansion. Preserve failed Pod/events and exact
 volume identity. Restore only the prior selector from the preimage via the
@@ -59,13 +68,13 @@ that still holds the attachment. Public serving caches retain their last
 validated generation during origin interruption; a new serving replica needs
 an origin refresh before becoming Ready.
 
-Qualify the normal template rollout first. Any further node cordon requires Jason's approval for that window. For an
-attended relocation, wait for every active publisher to finish, record the origin/claim UID and current
-node's schedulability, then cordon only that node and replace only the origin
-Pod with a UID precondition. Do not drain the node or touch another workload.
+Qualify the normal template rollout first. Any further node hold requires Jason's approval for that window and runs
+through the maintenance queue under the Lease. For an attended relocation, wait for every active publisher to
+finish, record the origin/claim UID and current node, and once the queue reports that node held, replace only the origin
+Pod with a UID precondition. Do not touch another workload.
 Require a Ready origin on another eligible worker within ten minutes, no
 attach failure lasting over two minutes, and successful serving-cache refresh.
-Restore only the cordon owned by this operation even if verification fails.
+Hand the node back to the maintenance queue even if verification fails.
 If a scheduled publisher joins the cohort, let it finish rather than force
 volume detach or interrupt its export.
 
@@ -97,7 +106,8 @@ a separately approved window tests it.
 
 The `verdify.ai/placement-verification` Pod-template annotation provides the
 reviewable origin-only template change for that final window. Complete CI and
-review the full production diff before requesting the cordon, wait for an idle
-publisher, then perform the normal selector-free non-pruning sync. Preserve
-failed attempts and restore only the operation-owned cordon. Do not restart
+review the full production diff before requesting the node hold from the
+maintenance queue, wait for an idle publisher, then perform the normal
+selector-free non-pruning sync. Preserve failed attempts and hand the node back
+to the queue. Do not restart
 the ingestor, create a controller connection or force-detach a volume.

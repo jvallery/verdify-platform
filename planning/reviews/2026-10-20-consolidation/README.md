@@ -20,6 +20,6 @@ Jason approved this estate consolidation on 2026-10-20. It removes six roll-up o
 
 ## Body drift
 
-Re-rendering changes the generated bodies of #14, #31, #359, #379, #390, #428, #430, #581, #641, #749, #750, #775, #785, #786 and #787. Publish them with `python -m planning.render --body-dir`, keeping each issue's appended `planning-status` block. Until they are published, the carry-over comments on #31, #390, #581, #641 and #785 are the readable record of the moved clauses.
+Re-rendering changes the generated bodies of #14, #31, #359, #379, #390, #428, #430, #581, #641, #749, #750, #775, #785, #786 and #787. They were to be published with the planning renderer's issue-body option (retired 2026-11-09 by #1556; publish nothing from this record), keeping each issue's appended `planning-status` block. Until they are published, the carry-over comments on #31, #390, #581, #641 and #785 are the readable record of the moved clauses.
 
 Validation: `python planning/schema.py planning/backlog.yaml`, `python -m planning.render --check` and `pytest planning/tests/test_backlog.py` all pass.

@@ -22,9 +22,9 @@ render a complete, lint-able manifest in CI.
 k3s/ArgoCD migration design **§2.4** re-scopes secrets from GCP Secret Manager to
 **in-cluster secrets** (SOPS+age source-of-truth, a SOPS→reconciler / sealed-secrets
 controller in-cluster). Do NOT invent a second secrets system — reuse the fleet
-stack Root deploys for the other agents. Until that controller is confirmed live,
-the interim is a one-time out-of-band apply per the seal list; the GitOps
-secret-delivery step is the fast-follow.
+stack Root deploys for the other agents. That stack is live: the central KSOPS
+Applications `verdify-prod-secrets-local-prod` and `verdify-dashboard-secrets`
+deliver every Secret here (live readback 2026-11-09); there is no out-of-band apply.
 
 ## The two invariants (CONTRACT, enforced by review + `kustomize build`)
 
@@ -98,6 +98,9 @@ Service → Secret → key wiring as authored in `deploy/k8s/{base,components}`:
 | `verdify-frigate-vision-auth` | `token` | Vision CronJob and public API camera reader, mounted read-only at `/vfrigate/token`; existing GET-only two-camera snapshot credential, values owned by agents KSOPS | — | — | ✓ |
 | `verdify-firmware-ota` | `ota_password`; during a rotation also `ota_password_next` / `ota_password_previous` (#1009, `scripts/firmware-ota-password-rotate.sh`) | signed builder and flasher Jobs (`scripts/firmware-release-job.py --ota-key`), `make firmware-deploy` ESPHome OTA upload + `firmware-rollback.sh`; **device-affecting** (flash gate) | — | — | ✓ |
 | `verdify-hydro-probe` | `device-id`, `local-key` | ingestor, optional volume mount (`/etc/verdify/hydro-probe`; read-only YINMIK hydro reader, VD-70) | — | — | opt |
+| `verdify-mcp-observer` | `token` | MCP `VERDIFY_MCP_TOKEN_OBSERVER` (`secretKeyRef`, `components/mcp-observer`); protocol-only observer audience, no operational tools | — | — | ✓ |
+| `verdify-firmware-wifi` | `wifi_ssid`, `wifi_password` | firmware-builder CronJob/Jobs `WIFI_SSID`/`WIFI_PASSWORD` (`secretKeyRef`, `components/firmware-builder`); compiled into the signed controller image | — | — | ✓ |
+| `verdify-experiment-v2-selector-provider` | `api-key` | none: delivered by `verdify-prod-secrets-local-prod`, but no manifest under `deploy/k8s` references it (readback 2026-11-09); retire it in the central KSOPS lane or wire a consumer | — | — | delivered, unused |
 
 ¹ dev/staging are device-dark: the ingestor runs `replicas: 0` and egress to the
 device VLAN is denied. The key may be present in the sealed secret for shape parity
@@ -211,7 +214,7 @@ reconciliation.
 | `overlays/prod/planner-cortex-secret.placeholder.yaml` | `verdify-planner-cortex` | prod |
 
 `verdify-mcp-agents` (optional volume) and
-`ghcr-jvallery-readonly` (image-pull, delivered out-of-band by Root) have no
+`ghcr-jvallery-readonly` (image-pull, delivered by central KSOPS) have no
 placeholder — the workloads reference them as `optional` / `imagePullSecrets`, so
 `kustomize build` is complete without an in-repo stand-in. The required
 `verdify-grafana-secrets` also has no placeholder: local rendering validates the

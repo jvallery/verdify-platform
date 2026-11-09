@@ -1,119 +1,69 @@
 # Prod Promotion Runbook
 
-**Status:** partly superseded as of 2026-09-23. A merge to `main` now builds
-every image in `.agent-fleet/ci.yaml` (a fleet Argo Event runs `repo-build`),
-and the `verdify-platform-ci` pin actuator commits the api, mcp, ingestor,
-migrate and experiment-v2-orchestrator digests to the prod overlay's `images:`
-block as build candidates, which do not render. For the `.agent-fleet/ci.yaml`
-images, do not submit `repo-build` Workflows, and do not hand-edit the
-actuator's candidate entries. Promotion copies candidate digests into
-`deploy/k8s/overlays/prod/release-pins.yaml`, the digests production runs, with
-`scripts/promote-release-pins.py` (#808); the planner, setpoint-server and lab-publisher-k3s release pins are
-still edited by hand. An image outside `.agent-fleet/ci.yaml` still uses the
-manual `repo-build` submission in Flow step 3, which stays current for that
-case. Today there is one such image:
+Last updated: 2026-11-09 ([#1533](https://github.com/jvallery/verdify-platform/issues/1533)).
+The model is in `ARGOCD.md` (Promotion Model). The sync mechanics are in
+`docs/runbooks/laptop-operator.md` §2, and the delivery rules are in `AGENTS.md`
+(Deliver and verify).
 
-- `verdify-ci-validate`, the in-cluster validate step's image with
-  PostgreSQL 16 preinstalled. Build it with the `repo-build-verdifyconsultancy`
-  WorkflowTemplate (dockerfile `ci/validate.Dockerfile`, image
-  `verdifyconsultancy/verdify-ci-validate`). The `jvallery/agents`
-  coordinator pins its digest in the `verdify-platform-ci` WorkflowTemplate's
-  `validate` template, not in this repository.
+## How images are built
 
-The rest of the Flow and the Promotable Images list are historical; the
-current flow is `ARGOCD.md` (Promotion Model) and
-`docs/runbooks/laptop-operator.md` §2.
+A merge to `main` runs the GitHub Actions `build` workflow
+(`.github/workflows/build.yml`) on the ARC set `verdify-platform-build`. It uses
+Kaniko and pushes each path-impacted image to the zot origin as
+`registry.vallery.net/verdifyconsultancy/<image>`, tagged `gha-<sha12>` and
+recorded by digest. Its `pin` job (estate-ci pin-bump, the only pin writer) opens
+one PR. That PR records the api, mcp, ingestor, migrate and
+experiment-v2-orchestrator digests as build candidates in the `images:` block of
+`deploy/k8s/overlays/prod/kustomization.yaml`, which do not render, and moves the
+dashboard-web digest. Do not hand-edit the candidate entries. If the push build
+missed an image, run `build.yml` by `workflow_dispatch` from `main` and set the
+`base` input to the last built commit. The in-cluster native pipeline
+(`.agent-fleet/ci.yaml` and its Argo Workflows) is retired (#1397). Do not submit
+Argo Workflows to build these images.
 
-For an immutable source-only promotion receipt, run from clean tracked source:
-`python3 scripts/promote-release-pins.py --receipt /private/path/new-promotion.json`.
-The helper refuses an existing receipt path or malformed candidate digest before
-changing release pins. It records the exact promotion-input Git SHA, candidate
-file hash, before/after release-pin hashes, selected changes and all five rollback
-pins. Preserve the receipt with the release. Its Git SHA identifies the pin
-inputs, not the images' build source; CI, build provenance and final Argo/runtime
-adoption require their separate existing receipts. The command performs no
-cluster, secret or device operation.
+`build.yml` also builds the hand-pinned images: grafana-image-renderer,
+hermes-agent and timescaledb, whose digests are edited by hand in their own
+manifests, and the CI image verdify-esphome-ci, whose `ci-esphome` job-image
+digest lives in jvallery/estate-ci `runners.yaml`. `verdify-twin` and
+`verdify-ci-validate` have no current build path. Add a `build.yml` profile
+before you promote either one.
+
+## Promotion
+
+1. Merge the candidate pin PR. This changes Git only.
+2. Copy the candidate digests into `deploy/k8s/overlays/prod/release-pins.yaml`,
+   the digests production runs, with `scripts/promote-release-pins.py` (#808).
+   It copies all five by default, because the migrate hook carries the schema
+   that the others expect. For an immutable source-only receipt, run this from
+   clean tracked source:
+   `python3 scripts/promote-release-pins.py --receipt /private/path/new-promotion.json`.
+   The helper refuses an existing receipt path or a malformed candidate digest
+   before it changes any release pin. The receipt records the exact
+   promotion-input Git SHA, the candidate file hash, the release-pin hashes
+   before and after, the selected changes and all five rollback pins. Keep the
+   receipt with the release. Its Git SHA identifies the pin inputs, not the
+   images' build source. CI, build provenance and the final Argo/runtime
+   adoption need their own receipts. The command does no cluster, secret or
+   device operation.
+3. The planner, setpoint-server and lab-publisher-k3s release pins are edited by
+   hand in `kustomization.yaml`.
+4. Commit the digest-only change, let `ci` pass, and merge it.
+5. In the same attended session, run the gated `verdify-prod-dark` sync. This is
+   the device-write gate, and nothing in GitHub Actions syncs the cluster or
+   restarts the ESP32 writer.
 
 `main` is the canonical source branch. The retired `live/platform-main`,
-`verdify-dev`, and `verdify-staging` promotion chain is not part of the deploy
-path anymore.
-
-**ZOT MIGRATION (2026-07-11, ADR-0021):** publishing moved OFF GHCR to the
-in-cluster zot origin (`registry.vallery.net`). GitHub Actions now VALIDATES
-builds only (`Container Publish` runs every Dockerfile with `push: false`).
-
-## Flow
-
-1. Merge to `main` with `make ci` green (GitHub Actions is REMOVED as of
-   2026-07-11 — `scripts/ci-local.sh` is the entire validation gate, runnable
-   on any host or in the in-cluster `verdify-platform-ci` Workflow).
-3. (Current only for an image outside `.agent-fleet/ci.yaml`, such as
-   `verdify-twin` or `verdify-ci-validate`; merges build the rest.) Publish
-   happens IN-CLUSTER: submit one `repo-build-verdifyconsultancy` Argo Workflow per
-   changed image in namespace `agent-fleet-ci` (Kaniko builds the exact main
-   revision and pushes `registry.vallery.net/verdifyconsultancy/<image>@sha256:…`
-   using the org push secret `zot-origin-verdifyconsultancy-ci-dockerconfig`):
-
-   ```sh
-   kubectl create -n agent-fleet-ci -f - <<'WF'
-   apiVersion: argoproj.io/v1alpha1
-   kind: Workflow
-   metadata:
-     generateName: verdify-platform-build-<image>-
-     labels: {agent-fleet.vallery.net/repo: verdify-platform}
-   spec:
-     workflowTemplateRef: {name: repo-build-verdifyconsultancy}
-     arguments:
-       parameters:
-         - {name: repo, value: https://github.com/jvallery/verdify-platform.git}
-         - {name: revision, value: <sha>}
-         - {name: dockerfile, value: <path/to/Dockerfile>}
-         - {name: context, value: "."}
-         - {name: image, value: verdifyconsultancy/verdify-<image>}
-   WF
-   ```
-   The generic `repo-build` template permits only the `jvallery` and `vallery`
-   image scopes. It can build a Verdify archive but refuses to publish it.
-4. Collect each workflow's `digest` output parameter and commit a digest-only
-   change to `deploy/k8s/overlays/prod/kustomization.yaml`
-   (`newName: registry.vallery.net/verdifyconsultancy/<image>` + `digest:`).
-5. Validate the digest-only commit/PR.
-6. The prod ArgoCD app remains OutOfSync until an operator performs the explicit
-   manual sync.
-
-The manual ArgoCD sync is the device-write gate. Nothing in GitHub Actions should
-sync the live cluster or restart the ESP32 writer automatically.
-
-## Promotable Images
-
-`prod-promote` manages the CI-built greenhouse service images:
-
-- `verdify-api`
-- `verdify-mcp`
-- `verdify-ingestor`
-- `verdify-migrate`
-- `verdify-planner`
-- `verdify-experiment-v2-orchestrator` (non-device lifecycle/selector/freezer;
-  build from `experiment_orchestrator/Dockerfile`)
-
-Device-affecting or external images remain hand-pinned unless a specific validated
-change says otherwise:
-
-- `verdify-setpoint-server`
-- `verdify-lab`
-- `verdify-lab-publisher-k3s`
+`verdify-dev` and `verdify-staging` promotion chain is not part of the deploy
+path.
 
 ## Operator Checks
 
-Before syncing ArgoCD, verify the gate and the in-cluster CI workflow are green:
+Before you sync, check that the promotion PR's `ci` checks passed
+(`gh pr checks <n>`) and diff the render against live (`AGENTS.md`, Deliver and
+verify).
 
-```sh
-make ci
-kubectl get workflows -n agent-fleet-ci -l agent-fleet.vallery.net/repo=verdify-platform
-```
-
-After the prod ArgoCD app is green, run read-only smoke checks from a host with a
-scoped kubeconfig:
+After the prod ArgoCD app is green, run read-only smoke checks from a host with
+a scoped kubeconfig:
 
 ```sh
 KUBECONFIG=/path/to/verdify-agent.config scripts/k3s-smoke.sh smoke \
@@ -122,8 +72,11 @@ KUBECONFIG=/path/to/verdify-agent.config scripts/k3s-smoke.sh device-monitor
 ```
 
 Set `API_BUILD_SHA` and `API_DIGEST` from the reviewed API build and Git pin
-receipt before running smoke. It checks exact API source and running digest,
-fresh climate/action data and complete cfg readbacks, authenticated MCP tools,
-DB health, and the operator API (Ready, the same digest, `/readyz` at that
-source). `device-monitor` checks that exactly one pod holds the ESP32 native API
-connection.
+receipt before you run smoke. Smoke checks the exact API source and running
+digest, fresh climate and action data, complete cfg readbacks, authenticated MCP
+tools, DB health, and the operator API (Ready, the same digest, and `/readyz` at
+that source). `device-monitor` checks that exactly one pod holds the ESP32
+native API connection.
+
+The earlier flows (GHCR until 2026-07, then the in-cluster native pipeline until
+2026-11) are in this file's Git history.

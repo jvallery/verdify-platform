@@ -1,4 +1,12 @@
-[The November 7 full triage](reviews/2026-11-07-triage/README.md) is the current plan: **77 open issues** after W6 release 4, 16 closed since November 6, tracks U0–U6 plus roll-ups, and the [open-issue graph](reviews/2026-11-07-triage/DEPENDENCIES.md). Earlier reviews below are dated history.
+# Verdify planning records (history)
+
+**The backlog is GitHub issues in [jvallery/verdify-platform](https://github.com/jvallery/verdify-platform/issues)**, with the estate milestones `W1 Convergence foundations` through `W5 BCDR`, one `sprint:` label and one domain label (`conv`, `cicd`, `obs`, `sec`, `ha`, `dr`) each, and the issue contract in each body. Nothing in this repository writes issue bodies, metadata or dependency edges ([#1556](https://github.com/jvallery/verdify-platform/issues/1556)).
+
+This directory holds dated history and no code: the reviews, evidence, execution packets and proposals below. The repo-local backlog that was rendered and published from here until 2026-11-09 is kept as a [historical snapshot](archive/2026-11-09-backlog-snapshot/README.md) that nothing generates or reads. Counts and "current" claims in the reviews below are as of their dates.
+
+## Dated reviews
+
+[The November 7 full triage](reviews/2026-11-07-triage/README.md) was the plan of record on 2026-11-07: **77 open issues** after W6 release 4, 16 closed since November 6, tracks U0–U6 plus roll-ups, and the [open-issue graph](reviews/2026-11-07-triage/DEPENDENCIES.md). Earlier reviews below are dated history.
 
 [Current October25 execution map](reviews/2026-10-25-unblocked/README.md): **41 open issues**, a canonical plan/queue reconciled with GitHub, the next private qualification packet, actual passive lighting evidence and exact remaining owner/physical/input gates. Earlier audits below are dated history.
 
@@ -12,20 +20,8 @@
 
 [The next-ready execution review](reviews/2026-10-18-execution/README.md) records the three parallel #639/#587, #368/#367 and #749/#782/#783 source/native lanes. It advances fourteen issue and roll-up contracts while preserving all47 open states, original acceptance and27 active dependency edges. No credential or message approval is pending.
 
-# Verdify planning source
-
 [The October18 full status review](reviews/2026-10-18-status/README.md) is the complete issue-register baseline: **369 total issues,47 open,322 closed**. Every open acceptance contract has a current disposition, accountable role, remaining criteria and bounded next action. No additional closure is justified in this pass. #977/#980/#802 are accepted S3 deliveries; #639/#587 have substantial scoped native proof including the delivered named alert, with full-issue residuals still open. No credential or Slack approval remains pending.
 
 [The reviewed native graph](reviews/2026-10-18-status/DEPENDENCIES.md) has27 active edges, including Home Assistant878→981, and24 closed predecessor records on open issues. Local source and native edges agree. Full completion gates remain; bounded source preparation proceeds in parallel. [The full369-issue index](reviews/2026-10-18-status/all-issue-dispositions.json), [all47 issue assessments](reviews/2026-10-18-status/issue-status.json), execution cadence and real future decisions are durable.
-
-`backlog.yaml` is the JSON-compatible YAML source for issue contracts, priorities, ownership, allocations and local dependencies. Generated views are not edited directly. `accepted` is true only for closed work with explicit scoped receipts; retired/not-planned issues remain unchecked. Parentage is ownership, not an execution blocker. Original80-hour S3 estimates are planning allocations, not measured spent or remaining hours; alternate work replaces blocked work.
-
-```sh
-python -m planning.render
-make planning-validate
-python planning/schema.py planning/backlog.yaml --published
-```
-
-Render exact bodies with `python -m planning.render --body-dir /path/to/bodies`. Compare fresh GitHub before-images, preserve concurrent edits, publish only reviewed differences and verify all bodies, metadata and native edges. A planning update does not deploy, flash firmware, draw an assignment or authorize physical activation.
 
 [The October17 full triage](reviews/2026-10-17-replan/README.md) and [incremental S3 execution evidence](reviews/2026-10-17-s3-execution/README.md) remain historical evidence, including failed attempts, scope transfers and original checkpoints. The new review supersedes stale pending-approval and build-status prose; it does not rewrite those dated records.

@@ -1,5 +1,14 @@
 # BCDR + Operations — Verdify + Iris
 
+> **Historical (VM era, last updated 2026-05-23). Do not follow it.** It describes the
+> decommissioned Iris VM deployment (`/mnt/iris` paths, `pg_dump` cron, Docker volumes).
+> Production runs on k3s in `verdify-prod`. Current recovery: database backup and paired
+> restore in [`docs/runbooks/db-backup-pair-restore.md`](runbooks/db-backup-pair-restore.md),
+> scheduling and host-loss boundaries in
+> [`docs/runbooks/portable-stateful-recovery.md`](runbooks/portable-stateful-recovery.md),
+> and estate backup policy and execution in `jvallery/storage-infra`. Listed as history
+> only in `AGENTS.md` ([#1533](https://github.com/jvallery/verdify-platform/issues/1533)).
+
 > Where the stack is safe, where it isn't, and what to do about it.
 
 Last updated: 2026-05-23

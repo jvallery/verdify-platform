@@ -1,23 +1,19 @@
-# SOPS ruleset for the Verdify repo (#66).
+# SOPS ruleset for this repository.
 #
-# Scope: SOPS-encrypted Kubernetes Secret manifests that live in-repo (the
-# digest-bump / overlay tree is in-repo per the locked Sprint-1 decisions; the
-# sealed app-secrets follow the same in-repo SOPS+age model the fleet uses for
-# the verdify-agent kubeconfig).
+# Secret values for verdify-prod and verdify-dashboard are delivered by the central
+# KSOPS lane (Applications verdify-prod-secrets-local-prod and
+# verdify-dashboard-secrets, declared in jvallery/agents today and planned for
+# jvallery/estate-platform). This repo keeps Secret names and keys only
+# (deploy/k8s/SECRETS.md); add no new SOPS files here (AGENTS.md). This rule stays
+# so that any remaining deploy/k8s/*.sops.yaml file can still be decrypted or
+# moved to the central lane.
 #
-# RECIPIENT: the fleet age public key
-#   age1jd6c7lm7vhj56gve6dvj59mepwpukhnyyh8wyca9y7mrjfeyqs8qjvqd5k
-# The matching private key lives ONLY in the fleet secret store
-# (/mnt/agents/root/secrets/age/keys.txt, root-readable) and in the GitOps
-# secret-delivery runner. It is NEVER committed to this repo.
-#
-# encrypted_regex: encrypt ONLY the secret VALUES (data / stringData), leaving
-# apiVersion/kind/metadata/type in cleartext so kustomize + kubeconform can still
-# parse the manifest shape, and so operators can see WHICH keys exist without
-# seeing their values.
-# SSH trust Stage 1 / D1 (Jason, 2026-10-24): every file is encrypted to exactly two recipients,
-# age-fleet (age1jd6c7lm…d5k, operator Mac + offline escrow) and age-cluster (age1xqatkma…0a8r,
-# held only in argocd/sops-age). Rebase before sealing so a new file picks up both.
+# encrypted_regex: encrypt only the Secret values (data / stringData), leaving
+# apiVersion/kind/metadata/type in cleartext so manifests still parse and key
+# names stay visible without their values.
+# Recipients (SSH trust Stage 1 / D1, Jason 2026-10-24): age-fleet (age1jd6c7lm…d5k,
+# operator Mac + offline escrow) and age-cluster (age1xqatkma…0a8r, held only in
+# argocd/sops-age).
 creation_rules:
   - path_regex: deploy/k8s/.*\.sops\.ya?ml$
     encrypted_regex: "^(data|stringData)$"
