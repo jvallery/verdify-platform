@@ -1,12 +1,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Instance: verdify-prod — the production k3s Verdify APP instance. This is the
-# instance whose ingestor is the ONE real single writer to the live ESP32. The
-# device-write path is enabled HERE and only here (VERDIFY_DEVICE_WRITE_ENABLED=1
-# + the allow-ingestor-device-egress NetworkPolicy). Cutting the live control
-# loop onto k3s remains a safety-checked step (handoff §6); this overlay is the
-# reviewable target shape.
+# Instance: verdify-prod — the one production k3s Verdify APP instance and the
+# only overlay. Argo CD Application verdify-prod-dark (a legacy name that means
+# production, D-277) renders this directory. Its ingestor is the ONE live writer
+# to the ESP32: the device-write path is enabled here
+# (VERDIFY_DEVICE_WRITE_ENABLED=1 + the allow-ingestor-device-egress
+# NetworkPolicy), and every sync is the attended device-write gate. There is no
+# dark or device-dark production shape.
 #
 # The namespace string is PINNED. It MUST equal:
 #   - the Namespace object in this overlay (verdify-prod)
@@ -174,12 +175,10 @@ components:
   - ../../components/lab-site
   # db-backup (M3.3; refs #84/#28/#130) — the verdify-db-dumps NFS PVC + nightly
   # pg_dump -Fc CronJob + retention + allow-db-from-backup. pg_dump is SELECT-only
-  # on the DB (NOT a second writer) and only writes the dumps PVC, so it is SAFE
-  # in the prod writer shape AND in overlays/prod-dark, and gives a fresh <26h dump
-  # before any restore. Renders into the verdify-prod namespace. Root binds
-  # verdify-db-dumps to a static NFS PV (dumps-pvc.yaml is storageClassName:"" ->
-  # waits for that PV). The cluster-scoped synology-iscsi-ssd StorageClass is NOT
-  # pulled here — Root applies it once via components/db-backup/storageclass.
+  # on the DB (NOT a second writer) and only writes the dumps PVC, and gives a
+  # fresh <26h dump before any restore. Renders into the verdify-prod namespace.
+  # verdify-db-dumps binds a static NFS PV owned by storage-infra
+  # (dumps-pvc.yaml is storageClassName:""). No StorageClass is rendered here.
   - ../../components/db-backup
   # #498 verdify-grafana — OUR OWN Grafana on graphs.verdify.ai. Independent,
   # in-cluster, reading the prod TimescaleDB (verdify-db:5432). PROD-ONLY (graphs

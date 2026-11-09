@@ -11,9 +11,8 @@ actuator's candidate entries. Promotion copies candidate digests into
 `scripts/promote-release-pins.py` (#808); the planner, setpoint-server and lab-publisher-k3s release pins are
 still edited by hand. An image outside `.agent-fleet/ci.yaml` still uses the
 manual `repo-build` submission in Flow step 3, which stays current for that
-case. Today there are two such images:
+case. Today there is one such image:
 
-- `verdify-twin` (see `deploy/k8s/components/twin-builder/`).
 - `verdify-ci-validate`, the in-cluster validate step's image with
   PostgreSQL 16 preinstalled. Build it with the `repo-build-verdifyconsultancy`
   WorkflowTemplate (dockerfile `ci/validate.Dockerfile`, image

@@ -103,7 +103,27 @@ done
 # Deterministic order + repo-relative paths inside the hashed text.
 mapfile -t inputs < <(printf '%s\n' "${inputs[@]}" | LC_ALL=C sort -u)
 
-revision="$(sha256sum "${inputs[@]}" | sha256sum | cut -c1-12)"
+# Retired inputs: the recorded sha256sum line of a verdify-config patch whose
+# overlay was deleted. Removing an overlay is not a config change, so its line
+# stays in the canonical hash and the committed revision (and every pod
+# template) is unchanged; otherwise deleting the file would Recreate the sole
+# device writer on the next sync. Canonical only; scoped --print never adds it.
+# Drop a line together with the next real verdify-config edit, which bumps the
+# revision anyway.
+RETIRED_INPUTS=(
+  # #1538: deploy/k8s/overlays/prod-dark (unreferenced device-dark overlay).
+  "bac02ea9dcab398e90d3ccc3de8c6b78405e2bf8dbed3c2be8b888e73d813ecf  deploy/k8s/overlays/prod-dark/device-write-configmap.yaml"
+)
+
+digest_lines() {
+  sha256sum "${inputs[@]}"
+  if [ "${#overlays[@]}" -eq 0 ]; then
+    printf '%s\n' "${RETIRED_INPUTS[@]}"
+  fi
+}
+
+# Order the lines by path (the second field), as sha256sum of the sorted list did.
+revision="$(digest_lines | LC_ALL=C sort -k2 | sha256sum | cut -c1-12)"
 
 if [ "$mode" = "print" ]; then
   echo "$revision"

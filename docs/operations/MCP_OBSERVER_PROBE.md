@@ -9,7 +9,7 @@ The shared `mcp-observer` Kustomize component references only
 `verdify-prod/verdify-mcp-observer`, key `token`. The active `overlays/prod`
 includes it after the Secret was reconciled by the Agents-owned, Secret-only,
 non-pruning `verdify-prod-secrets-local-prod` Application. No credential is
-stored here. `overlays/prod-dark` is not an Argo source.
+stored here. `overlays/prod` is the only overlay.
 
 Delivery order:
 

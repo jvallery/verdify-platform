@@ -20,7 +20,10 @@ one exists.
 Verdify is single-env as of 2026-06-16.
 
 - Prod namespace: `verdify-prod`.
-- Live ArgoCD app: `verdify-prod-dark` (legacy name).
+- Live ArgoCD app: `verdify-prod-dark`. The name is legacy and means production:
+  it renders `overlays/prod`, the only overlay, and there is no dark or
+  device-dark production shape. It is not renamed on its own; it takes a
+  production name only when the Application is re-homed (D-277).
 - Desired state: `deploy/k8s/overlays/prod`.
 - Sync model: manual, behind the device-write gate.
 - Canonical branch: `main`.
@@ -33,7 +36,7 @@ revive the old branch model.
 
 | App | Namespace | Source path | Sync policy | Notes |
 |---|---|---|---|---|
-| `verdify-prod-dark` | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual | Legacy live app name; currently the real production writer. Sync uses the release preflight and rollback checks. |
+| `verdify-prod-dark` | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual | Legacy name meaning production (D-277); the real production writer. Sync uses the release preflight and rollback checks. |
 | `verdify-dashboard` | `verdify-dashboard` | `deploy/k8s/dashboard` | Automated, self-heal, prune off | The dashboard web tier, declared in jvallery/agents (jvallery/agents#5994). The web ships when its digest-pin PR to `deploy/k8s/dashboard/kustomization.yaml` merges, and the app never touches `verdify-prod`. Runbook: `docs/runbooks/dashboard.md`. |
 
 The live production Application declaration is owned by [jvallery/agents](https://github.com/jvallery/agents/blob/main/platform/gitops/applications/local-prod/verdify-prod-dark.yaml) and reconciled by `agent-fleet-local-prod-apps`. Adoption preserved its UID, full spec, manual sync and storage ignores. Change its policy in that owner; this repo owns `deploy/k8s/overlays/prod` and its rendered resources. The inactive product-side declaration was removed after live parenting verification. The former

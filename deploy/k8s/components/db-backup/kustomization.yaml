@@ -3,19 +3,16 @@ kind: Component
 
 # Kustomize COMPONENT: the namespaced prod DB backup substrate (M3.3; refs
 # #84/#28/#130). An env opts in by listing ../../components/db-backup under its
-# overlay `components:` (same pattern as planner/mqtt-broker/www). Referenced by
-# NO overlay today, so it renders into nothing the live verdify-local-staging
-# ArgoCD app syncs — merging it deploys nothing. Root (or a deliberate overlay
-# opt-in) turns it on.
+# overlay `components:` (same pattern as planner/mqtt-broker/www). overlays/prod
+# lists it, so it renders into verdify-prod through verdify-prod-dark.
 #
 # Contains the NAMESPACED resources only (they inherit the overlay namespace):
 #   - dumps-pvc.yaml      verdify-db-dumps PVC (binds storage-infra's static NFS PV)
 #   - backup-cronjob.yaml nightly pg_dump -Fc + retention + db-backup->db allow
 #   - restore-networkpolicy.yaml unchanged restore-to-db ingress (#993)
 #
-# The cluster-scoped synology-iscsi-ssd StorageClass is DELIBERATELY NOT here —
-# it lives in ./storageclass as its own kustomization so it is applied once per
-# CLUSTER, not once per namespace (see that dir's header).
+# It carries no cluster-scoped object: verdify-db-dumps binds a static NFS PV
+# owned by storage-infra.
 #
 # SINGLE-WRITER SAFE: the CronJob reads the DB with pg_dump (SELECT-only) and
 # only writes the dumps PVC. It is not a second DB writer and does not touch the

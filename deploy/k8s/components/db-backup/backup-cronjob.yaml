@@ -8,10 +8,8 @@
 # exclusively. Safe to enable in ANY env (prod stays replicas:0/device-dark on
 # the ingestor regardless; a backup job is orthogonal to the device path).
 #
-# NOT AUTO-ENABLED: referenced by no overlay. Root opts an env in (or applies
-# this component standalone) once the synology-iscsi-ssd class + the NFS PV
-# behind verdify-db-dumps exist. Merging it to main and manually syncing prod schedules
-# nothing on the live staging app.
+# ENABLED in overlays/prod through the db-backup component; it writes to the
+# static NFS PV behind verdify-db-dumps.
 #
 # IMAGE: the SAME pinned timescaledb image as the DB StatefulSet + migration Job
 # (timescale/timescaledb:2.25.2-pg16). pg_dump must be >= the server version, so
