@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # ============================================================================
-# Verdify api — production image (k3s)
+# Verdify api — production image (k3s). Build-check proof (verdify-platform#1534).
 #
 # Minimal public FastAPI runtime (crop catalog + setpoints, api/main.py).
 # Deliberately EXCLUDES every agent/planner toolchain (anthropic/openai/
