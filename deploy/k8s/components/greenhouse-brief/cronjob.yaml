@@ -12,7 +12,9 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: greenhouse-brief
 spec:
-  schedule: "*/5 * * * *"
+  # Every 5 minutes, offset to minute 3 of each 5 (node6 kubelet stalled on the
+  # :x0 CronJob burst, 2026-11-10; COORD-approved spread).
+  schedule: "3-59/5 * * * *"
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 240
   successfulJobsHistoryLimit: 1

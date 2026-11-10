@@ -63,7 +63,7 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-db-backup` | `17 2 * * *` | verdify-timescaledb | Logical dumps to PVC `verdify-db-dumps`. Restore: `docs/runbooks/db-backup-pair-restore.md`. |
 | `verdify-band-curve-refresh` | `2,32 * * * *` | verdify-timescaledb | Materialized view refresh. |
 | `verdify-fixed-panel-native-freezer` | `30 0 * * *` | verdify-timescaledb | |
-| `verdify-greenhouse-brief` | `*/5 * * * *` | verdify-api | |
+| `verdify-greenhouse-brief` | `3-59/5 * * * *` | verdify-api | |
 | `verdify-lab-publisher` | `5,35 * * * *` | verdify-lab-publisher-k3s | Lab content pipeline (`docs/runbooks/lab-content-pipeline.md`). |
 | `verdify-vision` | `0 15,18,21,0 * * *` | verdify-ingestor | |
 | `verdify-winter-feasibility` | `30 0 * * *` | verdify-api | Archive PVC `verdify-winter-feasibility-archive`. |
