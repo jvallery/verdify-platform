@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # ============================================================================
-# Verdify mcp — MCP (FastMCP) tool-surface image (k3s, ClusterIP-only)
+# Verdify mcp — MCP (FastMCP) tool-surface image (k3s, ClusterIP-only). Two-push proof (verdify-platform#1534).
 #
 # Containerizes mcp/server.py WITHOUT changing any tool semantics. server.py is
 # on the firmware/safety DANGER-surface change list (CLAUDE.md guardrail 1 +
