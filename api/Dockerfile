@@ -26,7 +26,7 @@
 # and the unauth-write escape hatch is closed in the k3s ConfigMap, NOT here.
 # ============================================================================
 
-FROM python:3.13-slim@sha256:b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2 AS base
+FROM python:3.13-slim@sha256:b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2 AS base-does-not-exist-vp1534
 
 # Runtime-only system deps. curl for the healthcheck; ca-certificates for the
 # outbound contact-form SMTP / go2rtc-Frigate proxy calls. No build toolchain.
@@ -43,7 +43,7 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
 # Build stage: compile wheels with a throwaway toolchain so the final image
 # carries no compilers.
 # ----------------------------------------------------------------------------
-FROM base AS builder
+FROM base AS builder-does-not-exist-vp1534
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential gcc \
     && rm -rf /var/lib/apt/lists/*
@@ -55,7 +55,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # checks out the requested 40-hex revision detached, so .git/HEAD is the exact
 # source receipt. Local builds that pass GIT_SHA keep working even from a
 # linked worktree, where .git is a gitdir pointer file rather than a directory.
-FROM base AS source-metadata
+FROM base AS source-metadata-does-not-exist-vp1534
 ARG GIT_SHA=unknown
 COPY .git /tmp/verdify-git-metadata
 RUN set -eu; \
@@ -72,7 +72,7 @@ RUN set -eu; \
 # ----------------------------------------------------------------------------
 # Final stage
 # ----------------------------------------------------------------------------
-FROM base AS final
+FROM base AS final-does-not-exist-vp1534
 WORKDIR /app
 
 COPY --from=builder /install /usr/local
