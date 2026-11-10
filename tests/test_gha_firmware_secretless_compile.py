@@ -35,6 +35,10 @@ class FirmwareProfileTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.old = Path.cwd()
         os.chdir(self.root)
+        # No baked core unless a test provides one (the CI job image has one).
+        baked = patch.object(MODULE, "BAKED_CORE", self.root.parent / (self.root.name + "-no-baked-core"))
+        baked.start()
+        self.addCleanup(baked.stop)
         subprocess.run(["git", "init", "-q"], check=True)
         f = self.root / "firmware"
         f.mkdir()
@@ -132,6 +136,20 @@ class FirmwareProfileTest(unittest.TestCase):
         self.assertEqual(receipt["platformio_packages"], {p["name"]: p["version"] for p in packages})
         self.assertEqual(sum(len(p["compiler_binaries"]) for p in packages), 16)
         self.assertFalse(Path(self.commands[-1][1]["env"]["PLATFORMIO_CORE_DIR"]).exists())
+        self.assertEqual(receipt["platformio_core"], "private-download")
+
+    def test_baked_core_of_the_job_image_is_used_in_place(self):
+        # #1535: the verdify-esphome-ci image installs the platform and toolchain
+        # at /opt/verdify-platformio; the compile must use it, not download again.
+        with tempfile.TemporaryDirectory() as baked:
+            core = Path(baked)
+            (core / "platforms").mkdir()
+            (core / "packages").mkdir()
+            with patch.object(MODULE, "BAKED_CORE", core):
+                receipt = self.invoke()
+            self.assertEqual(receipt["platformio_core"], "baked")
+            self.assertEqual({kw["env"]["PLATFORMIO_CORE_DIR"] for _, kw in self.commands}, {str(core)})
+            self.assertEqual(sum(len(p["compiler_binaries"]) for p in receipt["compiler_provenance"]["packages"]), 16)
 
     def test_normal_compiler_failure_is_not_a_pass(self):
         def failing(cmd, **kw):
@@ -237,3 +255,39 @@ class FirmwareCompilerProvenanceTest(unittest.TestCase):
         compiler.symlink_to("/operator-private/compiler-must-not-be-read")
         with self.assertRaisesRegex(RuntimeError, "provenance path escapes private packages"):
             self.capture()
+
+
+class EsphomeCiImageTest(unittest.TestCase):
+    """#1535: the job image bakes the same esp32 platform the firmware compiles with."""
+
+    def esp32_block(self, text):
+        block = text.split("\nesp32:\n", 1)[1]
+        keys = {}
+        for line in block.splitlines():
+            if line and not line.startswith(" "):
+                break
+            key, _, value = line.strip().partition(":")
+            if key in ("board", "type", "version", "platform_version"):
+                keys.setdefault(key, value.strip().strip("'\""))
+        return keys
+
+    def test_baked_esp32_platform_matches_the_firmware(self):
+        firmware = self.esp32_block((ROOT / "firmware/greenhouse.yaml").read_text())
+        dockerfile = (ROOT / "ci/esphome-ci.Dockerfile").read_text()
+        baked_yaml = "\n".join(
+            line.strip().strip("\\").strip().strip("'")
+            for line in dockerfile.splitlines()
+            if line.strip().startswith("'") and line.strip().rstrip(" \\").endswith("'")
+        )
+        baked = self.esp32_block("\n" + baked_yaml + "\n")
+        self.assertEqual(firmware, baked)
+        self.assertEqual(set(firmware), {"board", "type", "version", "platform_version"})
+        self.assertIn(MODULE.IMAGE.split("@", 1)[1], dockerfile)
+        self.assertIn(f'BAKED_CORE = Path("{MODULE.BAKED_CORE}")', PROGRAM.read_text())
+        self.assertIn(f"PLATFORMIO_CORE_DIR={MODULE.BAKED_CORE}", dockerfile)
+
+    def test_recovery_firmware_inherits_the_baked_esp32_block(self):
+        recovery = (ROOT / "firmware/greenhouse-recovery.yaml").read_text()
+        self.assertNotIn("\nesp32:\n", recovery)
+        self.assertRegex(recovery, r"\npackages:\n\s+base: !include greenhouse\.yaml\n")
+        self.assertIn("greenhouse-recovery", MODULE.TARGETS)

@@ -4,10 +4,9 @@
 #   ci/gha/path-impact.sh          PR/dispatch classification (check flags)
 #   ci/gha/path-impact.sh --push   main-push classification (build profiles, pin-only skip)
 #
-# ci/gha/verdify_path_impact.py is a copy (ruff-formatted only) of jvallery/agents
-# platform/kubernetes/ci/agent-fleet-ci/workflows/verdify_path_impact.py (the
-# native ConfigMap's impact.py) at agents 2f2ea19bad7c436aa6bc5460d9ecc9b1cb845a57.
-# Change both together until the native pipeline is removed (#1397 step 5).
+# ci/gha/verdify_path_impact.py started as a copy of the native pipeline's
+# impact.py (jvallery/agents 2f2ea19bad7c436aa6bc5460d9ecc9b1cb845a57). The native
+# pipeline is retired (#1397), so this repository's copy is the only one.
 #
 # Prints VERDIFY_PATH_IMPACT=<receipt>. When GITHUB_OUTPUT is set, appends mode,
 # every profile flag and every check flag, so build.yml can select its builds.
