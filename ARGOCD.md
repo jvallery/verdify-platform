@@ -1,6 +1,6 @@
 # Verdify Platform ArgoCD
 
-Last updated: 2026-11-02
+Last updated: 2026-11-09
 
 Agent name: `verdify-platform`
 
@@ -38,6 +38,9 @@ revive the old branch model.
 |---|---|---|---|---|
 | `verdify-prod-dark` | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual | Legacy name meaning production (D-277); the real production writer. Sync uses the release preflight and rollback checks. |
 | `verdify-dashboard` | `verdify-dashboard` | `deploy/k8s/dashboard` | Automated, self-heal, prune off | The dashboard web tier, declared in jvallery/agents (jvallery/agents#5994). The web ships when its digest-pin PR to `deploy/k8s/dashboard/kustomization.yaml` merges, and the app never touches `verdify-prod`. Runbook: `docs/runbooks/dashboard.md`. |
+| `verdify-descheduler` | `verdify-descheduler` | `deploy/k8s/descheduler` | Manual, prune off, pinned to an exact commit | The hourly descheduler CronJob ([#802](https://github.com/jvallery/verdify-platform/issues/802)), declared in jvallery/agents under `agent-fleet-local-prod-apps`. A source change here reaches the cluster only when that pin moves and the app is synced. |
+
+These are the three Applications that sync this repository's paths (live readback 2026-11-09). The agents-owned `verdify-prod-secrets-local-prod` and `verdify-dashboard-secrets` (central KSOPS) and `verdify-tenant-bounds` also deliver into these namespaces from jvallery/agents.
 
 The live production Application declaration is owned by [jvallery/agents](https://github.com/jvallery/agents/blob/main/platform/gitops/applications/local-prod/verdify-prod-dark.yaml) and reconciled by `agent-fleet-local-prod-apps`. Adoption preserved its UID, full spec, manual sync and storage ignores. Change its policy in that owner; this repo owns `deploy/k8s/overlays/prod` and its rendered resources. The inactive product-side declaration was removed after live parenting verification. The former
 `verdify-platform-lab-stage` Application/AppProject and its source overlay were
@@ -73,12 +76,14 @@ lives in `overlays/prod` and ships with the `verdify-prod-dark` sync.
 
 ## Promotion Model
 
-GitHub Actions no longer publishes this repo. A fleet Argo Event submits the
-exact `main` revision to the `repo-build` WorkflowTemplate in
-`agent-fleet-ci`; Kaniko pushes to the in-cluster Zot origin, and the
-`verdify-platform-ci` pin actuator records the api, mcp, ingestor, migrate and
-experiment-v2-orchestrator `registry.vallery.net/...@sha256:` identities as
-build candidates in the `images:` block of `deploy/k8s/overlays/prod/kustomization.yaml`.
+A merge to `main` runs the GitHub Actions `build` workflow (`.github/workflows/build.yml`)
+on this repository's ARC runners: Kaniko builds the path-impacted images into the zot
+origin (tag `gha-<sha12>`), and its `pin` job (estate-ci pin-bump, the only pin writer)
+opens one PR that records the api, mcp, ingestor, migrate and
+experiment-v2-orchestrator `registry.vallery.net/...@sha256:` identities as build
+candidates in the `images:` block of `deploy/k8s/overlays/prod/kustomization.yaml`
+(and moves the dashboard-web digest in `deploy/k8s/dashboard/kustomization.yaml`).
+The in-cluster native pipeline that did this before is retired (#1397).
 The prod render runs the release pins instead: `release-pins.yaml`, a
 `transformers:` entry applied after `images:`, for those five images, and the
 hand-pinned `images:` entries for planner, setpoint-server and
@@ -98,10 +103,10 @@ Quartz cache PVC.
   `kustomize build deploy/k8s/overlays/prod`.
 - Render the dashboard manifests before PRs that touch them:
   `kustomize build deploy/k8s/dashboard` (checked by `tests/test_dashboard_manifests.py`).
-- CI gate: `make ci` plus the in-cluster repo-build/PR-CI render and policy
-  checks.
+- CI gate: `make ci` locally; on PRs the GitHub Actions `ci` workflow on ARC
+  (`.github/workflows/ci.yml`; required contexts in the `main` branch rule).
 - Promotion follows the Promotion Model above: a digest-only release-pin
-  commit (`release-pins.yaml` for the five actuator-built images, the
+  commit (`release-pins.yaml` for the five CI-built candidate images, the
   `images:` entries for planner, setpoint-server and lab-publisher), then the
   gated sync; commands in `docs/runbooks/laptop-operator.md` §2. Merge changes
   Git only. The manual prod sync remains safety-checked.

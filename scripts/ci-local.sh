@@ -9,8 +9,8 @@
 #   ci.yml            -> lint, format, schema/logic/contract pytest suites,
 #                        migration rollback safety, twin vendored-src compile
 #   k8s-manifests.yml -> kustomize render of the prod overlay
-#   container-publish -> image builds happen in-cluster (repo-build Kaniko
-#                        workflows -> zot origin; docs/runbooks/prod-promotion.md)
+#   container-publish -> image builds run in GitHub Actions build.yml on ARC
+#                        (Kaniko -> zot origin; docs/runbooks/prod-promotion.md)
 #
 # Gates that needed a PR event (replay-diff vs merge-base, fire-and-forget on
 # the tunables diff) run in DIFF MODE when CI_BASE_REF is set:
@@ -570,7 +570,6 @@ if in_part rest; then
   #   test_epoch_analysis.py need scikit-learn (research/planner-efficacy/pyproject.toml).
   # - tests/test_15_lab_site_followup.py reads the Iris vault site content
   #   (VERDIFY_SITE_VAULT or /mnt/iris/verdify-vault/website), which is not in this repo.
-  # - planning/tests/test_backlog.py runs under `make planning-validate`.
 
   step "migration rollback safety classification"
   $PY scripts/check_migration_rollback_safety.py
