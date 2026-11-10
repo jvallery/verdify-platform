@@ -80,10 +80,10 @@ def test_hash_input_covers_base_and_overlay_config_patches() -> None:
     each other and from the canonical value."""
     canonical = _run("--print").stdout.strip()
     prod = _run("--print", "prod").stdout.strip()
-    prod_dark = _run("--print", "prod-dark").stdout.strip()
-    assert len({canonical, prod, prod_dark}) == 3, (
-        "expected distinct canonical / prod-scoped / prod-dark-scoped hashes; "
-        "overlay verdify-config patches are not reaching the hash input"
+    base_only = _run("--print", "prod-runtime-role-boundary").stdout.strip()
+    assert len({canonical, prod, base_only}) == 3, (
+        "expected distinct canonical / prod-scoped / patch-free hashes; "
+        "overlay verdify-config patches or the retired inputs are not reaching the hash input"
     )
 
 

@@ -39,10 +39,7 @@ PLACEHOLDER = "invalid.local/"
 PENDING: dict[str, str] = {}
 # Files that no Argo source renders. Shrink only (delete the file or repin it).
 UNRENDERED = {
-    "deploy/k8s/components/umami/umami.yaml": "umami is not wired into any overlay (docs/SERVICE_MAP.md)",
-    "deploy/k8s/components/twin-builder/twin-builder.yaml": "manual verdify-twin build Job, not rendered",
     "deploy/k8s/diagnostics/device-vlan-spike.yaml": "one-off diagnostic Pod, not rendered",
-    "deploy/k8s/cnpg/dev/10-cluster.yaml": "decommissioned CNPG dev validation cluster",
 }
 POD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "ReplicaSet", "Pod"}
 DIGEST_PIN = re.compile(r"@sha256:[0-9a-f]{64}$")

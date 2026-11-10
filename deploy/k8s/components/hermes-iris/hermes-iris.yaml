@@ -2,8 +2,8 @@
 # Ported from docker-compose.yml:357 (the `hermes` profile service).
 #
 # WHY A KUSTOMIZE COMPONENT (not a base resource): components are opt-in so
-# prod/prod-dark control exactly which workloads render. Referenced by prod
-# overlays only. hermes is NOT a device writer (it reaches the MCP tool surface
+# the overlay controls exactly which workloads render. Referenced by
+# overlays/prod only. hermes is NOT a device writer (it reaches the MCP tool surface
 # in-cluster), but its run state + OpenAI key make it a prod-anchored gateway;
 # prod is its canonical home.
 #

@@ -13,10 +13,9 @@ role-complete pair and compressed ownership checks must be consumed again here.
 
 2026-10-01 read-only baseline: PostgreSQL16.11, Timescale2.25.2, vector0.8.1,
 pgcrypto1.3, database4,042,273,251 bytes. Existing CNPG and Barman controllers are
-ready. No Verdify CNPG cluster exists. The old `cnpg/dev` files use node-local
-images, node5 pinning, one instance, local-path and no WAL store; their restore
-helper suppresses `pg_restore` errors and excludes ownership. Do not execute
-those as acceptance procedures.
+ready. No Verdify CNPG cluster exists. The old `cnpg/dev` validation files
+(node-local images, node5 pinning, one instance, local-path, no WAL store) were
+removed under #1538; they were never acceptance procedures.
 
 `scripts/render-cnpg-rehearsal.py --image <qualified-origin-image>` renders an
 isolated `verdify-db-rehearsal/verdify-cnpg-rehearsal` three-instance candidate. Image must

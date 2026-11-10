@@ -12,8 +12,7 @@ but may describe services or overlays that have since moved or been retired.
 
 | Environment | ArgoCD app | Namespace | Desired state | Sync model | Device posture |
 |---|---|---|---|---|---|
-| Prod | `verdify-prod-dark` | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual, behind device-write safeguards | One ESP32 native-API climate/setpoint writer (`verdify-ingestor`, `VERDIFY_DEVICE_WRITE_ENABLED=1`). Grow-light service calls have the separate HA route below. |
-| Prod rename target | `verdify-prod` | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual | Intended replacement name for the legacy `verdify-prod-dark` app; only through a gated orphan/readopt plan. |
+| Prod | `verdify-prod-dark` (legacy name; it means production, D-277) | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual, behind device-write safeguards | One ESP32 native-API climate/setpoint writer (`verdify-ingestor`, `VERDIFY_DEVICE_WRITE_ENABLED=1`). Grow-light service calls have the separate HA route below. |
 | Dev | Historical/deleted | `verdify-dev` | removed | n/a | Decommissioned/deleted 2026-06-16; do not add new work here. |
 | Staging | Historical/deleted | `verdify-staging` | removed | n/a | Decommissioned/deleted; do not add new work here. |
 
@@ -96,7 +95,6 @@ through the ordinary telemetry view, outside the durable equipment receipts.
 | Grafana band curve refresh | `deploy/k8s/components/grafana/band-curve-refresh-cronjob.yaml` | Prod overlay (via grafana component) | LIVE — refreshes the `mv_band_curve`, `mv_equipment_runtime_daily` and `mv_daily_kpi` matviews at :02 and :32 (`2,32 * * * *`); timer-based, not anchor-change-triggered (audit D12). |
 | Lab site publisher | `deploy/k8s/components/lab-site/lab-publisher.yaml` | Prod overlay with lab site | Regenerates lab.verdify.ai content every 30 minutes (:05 and :35) from S3-backed content and TimescaleDB, then updates the lab cache PVC and S3 public/state prefixes. |
 | Firmware twin | `deploy/k8s/components/firmware-twin/` | Component only; not referenced by current prod overlay | Read-only shadow path with live-prod schema/user gates. |
-| Umami analytics | `deploy/k8s/components/umami/` | Component only; not referenced by current prod overlay | Residual analytics tier, explicitly not wired into prod yet. |
 
 ## Storage Touchpoints
 
@@ -129,7 +127,6 @@ Storage class is chosen by durability need, not convenience:
 | PVC / VCT | Mode | Class | Tier rationale |
 |---|---|---|---|
 | `verdify-db` (StatefulSet VCT) | RWO | Synology (`synology-iscsi-ssd`, prod patch) | **Database** — durable SSD. The STS was recreated 2026-06-17 onto `synology-iscsi-ssd` (reusing the existing Bound PVC — no new iSCSI target, so the target-cap below did not block it); git now equals the live STS template + nodeSelector `kubernetes.io/os: linux`. Immutable VCT — any further retier needs a gated STS delete/recreate. |
-| umami DB (StatefulSet VCT) | RWO | Synology (`synology-iscsi-ssd`) | **Database** — durable (component-only). |
 | `verdify-ingestor-state` | RWO | Synology (`synology-iscsi`) | Dispatcher/MCP **logs** + DB-outage **climate spool** — durable. |
 | `verdify-db-dumps` | RWX | static NFS PV (`""`) | **DB backups** — durable + off-cluster; RWX (writer + readers). |
 | `verdify-hermes-iris-data` | RWO | **`node-local-temp-rwo`** | Gateway run-state — regenerable, not DB/logs → node-local. |

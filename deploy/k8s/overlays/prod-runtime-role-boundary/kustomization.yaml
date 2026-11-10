@@ -1,10 +1,12 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Compatibility/review alias for migration 217's active production credential
-# cutover. The ArgoCD source remains overlays/prod, which now owns the component,
-# namespace, image transformation, and patch ordering. Keep this alias as a pure
-# parent render so review tooling cannot accidentally apply the component twice
-# or diverge from the real production target.
+# NOT AN ENVIRONMENT. A CI-only review alias (STD-IAC-18) for migration 217's
+# production credential cutover: tests/test_runtime_role_cutover_manifests.py
+# renders it and proves it is identical to overlays/prod, the only production
+# overlay and the only Argo source. It stays so review tooling has a stable
+# path; it must remain a pure parent render (resources: ../prod, nothing else)
+# so it can never apply the component twice or diverge from production. No
+# Argo Application may point here.
 resources:
   - ../prod
