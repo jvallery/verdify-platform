@@ -143,6 +143,16 @@ the current sprint's survey and release status.
       last-good once the runtime criteria and recovery qualification are met,
       with no minimum wait; no ordinary CI or signature result promotes it
       automatically.
+- [ ] After a merge that changes the content of a hash-suffixed generated
+      ConfigMap in `overlays/prod` (`verdify-firmware-release-tools`,
+      `verdify-firmware-release-trust`, `verdify-grafana-render-cache-config`,
+      `verdify-traefik-routing`), the previous-hash ConfigMap stays live:
+      `verdify-prod-dark` has prune off and the IgnoreExtraneous annotation
+      (#1536) only keeps it from holding the app OutOfSync. Once the new hash is
+      Synced and no Pod or unexpired `fw-*` Job mounts the old name, export a
+      custody copy and delete the old ConfigMap by name with a UID precondition,
+      under `inflight/NS-verdify-prod.lock`. Record the deleted name and UID in
+      the release receipt. Zero prune-pending objects is the target (STD-IAC-02).
 
 ## C. Dashboards (Grafana)
 
