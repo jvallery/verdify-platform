@@ -77,7 +77,10 @@ def test_activation_state_is_exact_and_nonactuating() -> None:
             container["image"],
         )
     else:
-        assert container["image"] == "invalid.local/replace-before-activation:never"
+        assert (
+            container["image"]
+            == "invalid.local/replace-before-activation@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        )
     command = container["args"][0]
     assert "--mode recovery" in command
     assert "--boundary gate-r" in command

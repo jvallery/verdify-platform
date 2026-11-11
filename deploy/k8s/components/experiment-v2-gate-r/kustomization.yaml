@@ -5,3 +5,11 @@ resources:
   - activation-configmap.yaml
   - gate-r-configmap.yaml
   - gate-r-job.yaml
+
+# Digest for a render that no pinning overlay wraps (STD-K8S-05, #1572): the
+# overlays/prod release pin at the time of writing. The logical name is kept
+# (no newName), so a wrapping overlay's images: entry and release-pins.yaml
+# still replace name and digest when this component is wired.
+images:
+  - name: ghcr.io/verdifyconsultancy/verdify-api
+    digest: sha256:81263244522f3b765df35e103a4f45659e3b13e80631bc5ef3c4f86e44cecd68

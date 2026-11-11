@@ -142,7 +142,10 @@ def test_proof_job_is_suspended_bounded_postsync_and_nonprivileged() -> None:
     assert "affinity" not in pod
     assert "operations.vallery.net/temporary-node-exclusion" not in annotations
     container = pod["containers"][0]
-    assert container["image"] == "invalid.local/replace-before-activation:never"
+    assert (
+        container["image"]
+        == "invalid.local/replace-before-activation@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    )
     assert container["securityContext"] == {
         "allowPrivilegeEscalation": False,
         "readOnlyRootFilesystem": True,

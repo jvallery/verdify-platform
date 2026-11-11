@@ -1,8 +1,5 @@
 # estate-ci R4 (lint-images.py) exceptions: <path glob> <image prefix> <YYYY-MM-DD expiry> <issue URL>.
 # verdify-db restore job on the TimescaleDB image.
 db/restore-job.yaml timescale/timescaledb 2027-02-08 https://github.com/jvallery/verdify-platform/issues/1544
-# Experiment-v2 components and activations, firmware twin and diagnostics.
-deploy/k8s/components/experiment-v2-* * 2027-02-08 https://github.com/jvallery/verdify-platform/issues/1572
-deploy/k8s/activations/experiment-v2-* invalid.local/ 2027-02-08 https://github.com/jvallery/verdify-platform/issues/1572
-deploy/k8s/components/firmware-twin/* registry.vallery.net/verdifyconsultancy/verdify-twin 2027-02-08 https://github.com/jvallery/verdify-platform/issues/1572
-deploy/k8s/diagnostics/* python 2027-02-08 https://github.com/jvallery/verdify-platform/issues/1572
+# Firmware twin: no verdify-twin image is built yet, so no digest exists to pin (carry from #1572).
+deploy/k8s/components/firmware-twin/* registry.vallery.net/verdifyconsultancy/verdify-twin 2027-02-08 https://github.com/jvallery/verdify-platform/issues/1579

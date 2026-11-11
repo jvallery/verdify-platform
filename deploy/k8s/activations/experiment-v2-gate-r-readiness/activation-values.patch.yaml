@@ -16,4 +16,4 @@ spec:
     spec:
       containers:
         - name: readiness
-          image: invalid.local/replace-before-activation:never
+          image: invalid.local/replace-before-activation@sha256:0000000000000000000000000000000000000000000000000000000000000000

@@ -46,4 +46,4 @@ spec:
         - name: direct-proof
           # The activation overlay wraps prod after its image transformer has
           # run, so require a deliberate current immutable pin here as well.
-          image: invalid.local/replace-before-activation:never
+          image: invalid.local/replace-before-activation@sha256:0000000000000000000000000000000000000000000000000000000000000000
