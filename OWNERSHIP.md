@@ -26,7 +26,6 @@ Three other Applications deliver into these namespaces. They are owned by jvalle
 | `verdify-prod` | running | `deploy/k8s/overlays/prod` | The only product environment. `verdify-db` is the only database, and the ingestor is the only device writer. |
 | `verdify-dashboard` | running | `deploy/k8s/dashboard` | The dashboard web tier (BFF) behind `dashboard.verdify.ai`; Pod Security restricted. |
 | `verdify-descheduler` | running | `deploy/k8s/descheduler` | Hourly descheduler (#802). |
-| `verdify-edge` | residue, retiring | Namespace object only | Held only the default ServiceAccount and `kube-root-ca.crt` on 2026-11-08. It is deleted after the AppProjects stop listing it ([#1001](https://github.com/jvallery/verdify-platform/issues/1001)). Add nothing there. |
 
 `verdify-db-rehearsal` is retired (#992); its bucket and keys are storage-infra custody. Namespace `verdify-platform` belongs to jvallery/agents.
 
@@ -146,7 +145,7 @@ The values come from the central KSOPS lane in jvallery/agents (planned for jval
 
 Each action is tracked as a GitHub issue; the issue is canonical.
 
-- Retire the `verdify-edge` namespace ([#1001](https://github.com/jvallery/verdify-platform/issues/1001)).
+- Drop the retired D-16 hosts from the tier-1 route after jvallery/network-infra#602 ([#1001](https://github.com/jvallery/verdify-platform/issues/1001)).
 - `verdify-experiment-v2-selector-provider` is delivered but referenced by no manifest. Retire it in the central lane or wire a consumer.
 - `verdify-writer-watchdog-runtime-db` outlived its CronJob. Retire it in the central lane once the monitoring-stack `verdify.writer-ownership` alerts are confirmed (R13).
 - Keep this file in step with the central record and a fresh live readback whenever an Application, workload, Secret or route is added or retired.
