@@ -11,5 +11,10 @@ resources:
 patches:
   - path: ingestor-activation.patch.yaml
 
+# Digest for a render that no pinning overlay wraps (STD-K8S-05, #1572): the
+# overlays/prod release pin at the time of writing. The logical name is kept
+# (no newName), so a wrapping overlay's images: entry and release-pins.yaml
+# still replace name and digest when this component is wired.
 images:
   - name: ghcr.io/verdifyconsultancy/verdify-experiment-v2-orchestrator
+    digest: sha256:a11ace83b5513162647d130f99589690231a78e63fb732c07f1db0951af92861

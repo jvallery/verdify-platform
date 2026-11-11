@@ -12,3 +12,11 @@ resources:
   - restore-rehearsal-script.yaml
   - restore-rehearsal-job.yaml
   - restore-rehearsal-network-policy.yaml
+
+# Digest for a render that no pinning overlay wraps (STD-K8S-05, #1572): the
+# overlays/prod release pin at the time of writing. The logical name is kept
+# (no newName), so a wrapping overlay's images: entry and release-pins.yaml
+# still replace name and digest when this component is wired.
+images:
+  - name: ghcr.io/verdifyconsultancy/verdify-migrate
+    digest: sha256:48e0f0a3945dc939cc922e11716995e02d0199b947374d532ce0a9a1335b74fa

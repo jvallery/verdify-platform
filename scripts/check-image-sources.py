@@ -38,9 +38,7 @@ PLACEHOLDER = "invalid.local/"
 # Upstream repository prefix -> the issue that removes it. Shrink only.
 PENDING: dict[str, str] = {}
 # Files that no Argo source renders. Shrink only (delete the file or repin it).
-UNRENDERED = {
-    "deploy/k8s/diagnostics/device-vlan-spike.yaml": "one-off diagnostic Pod, not rendered",
-}
+UNRENDERED: dict[str, str] = {}
 POD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "ReplicaSet", "Pod"}
 DIGEST_PIN = re.compile(r"@sha256:[0-9a-f]{64}$")
 ARG_LINE = re.compile(r"^\s*ARG\s+([A-Za-z_][A-Za-z0-9_]*)=(\S+)\s*$", re.IGNORECASE)
