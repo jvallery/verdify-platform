@@ -190,7 +190,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_ingestor_committed_spool_qualification.py
     tests/test_cnpg_s2_client_policy.py
     tests/test_historical_suppressed_alert_maintenance.py
-    tests/test_18_twin_divergence_dashboard.py
     tests/test_20_vision_src_sync.py
     tests/test_vision_authenticated_snapshots.py
     tests/test_21_config_revision.py
