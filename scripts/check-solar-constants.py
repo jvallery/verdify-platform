@@ -112,7 +112,7 @@ def _canonical(errors: list[str]) -> dict[str, Occurrence]:
 def _surface_occurrences(errors: list[str]) -> list[Occurrence]:
     occurrences: list[Occurrence] = []
 
-    # (#587: the vendored firmware-twin src copy is retired — the twin image
+    # (#587: the vendored twin src copy is retired — the twin image
     # builds from the canonical firmware/lib/greenhouse_solar.h directly.)
     header_rels = [
         "firmware/lib/greenhouse_solar.h",
