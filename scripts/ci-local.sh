@@ -223,7 +223,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_ci_validate_dockerfile.py
     tests/test_backup_role_settings_allowlist.py
     tests/test_db_backup_retry_classifier.py
-    tests/test_backup_freshness_exporter.py
     tests/test_action_log_policy_identity.py
     tests/test_moisture_state_boundary.py
     tests/test_anchor_service_sync.py

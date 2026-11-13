@@ -53,7 +53,6 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-outbound` | 2 | nginx-unprivileged mirror | Fixed-host egress relay (ConfigMap `verdify-outbound-config`). |
 | `verdify-traefik` | 2 | traefik v3.7.17 mirror | Tier-2 app Traefik, limited to `verdify-prod`. |
 | `verdify-mqtt` | 1 | eclipse-mosquitto 2 mirror | In-namespace MQTT. |
-| `verdify-db-backup-exporter` | 1 | python 3.12-alpine mirror | Backup freshness metrics. |
 | `verdify-db-exporter` | 1 | postgres-exporter v0.19.1 mirror (zot custody) | Store metrics for `verdify-db` (STD-OBS-27, [monitoring-stack#1597](https://github.com/jvallery/monitoring-stack/issues/1597)): a standalone Deployment (no DB restart) reading as user `verdify` with `verdify-app-secrets` by reference; Service `verdify-db-exporter:9187`, scraped by monitoring-stack job `app-postgres-exporter`. Declared; live after an exact-target sync of its own objects. |
 
 ### verdify-prod scheduled jobs
