@@ -58,6 +58,50 @@ spec:
         - protocol: TCP
           port: 5432
 ---
+# 2b. monitoring-stack#1597: the verdify-db store exporter reads the DB. Its own
+#     policy (not a change to allow-db-from-app) so the exporter is named exactly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-db-from-db-exporter
+  labels:
+    app.kubernetes.io/part-of: verdify
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: verdify-db-exporter
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# 2c. monitoring-stack#1597: only Prometheus (namespace observability) reads the
+#     exporter's metrics port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-db-exporter-metrics-from-observability
+  labels:
+    app.kubernetes.io/part-of: verdify
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: verdify-db-exporter
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 9187
+---
 # 3. API accepts traffic from the Traefik apps ingress namespace (Authentik-
 #    fronted, identity headers injected only at that hop and not spoofable).
 apiVersion: networking.k8s.io/v1

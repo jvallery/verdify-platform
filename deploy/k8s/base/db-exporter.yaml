@@ -1,0 +1,106 @@
+# verdify-db store exporter (jvallery/monitoring-stack#1597, STD-OBS-27).
+#
+# A standalone postgres_exporter Deployment, not a sidecar, so verdify-db does not
+# restart. It reads verdify-db over its headless Service as the existing verdify
+# user, taking the password from the existing Secret verdify-app-secrets
+# (POSTGRES_PASSWORD) by reference: no new role, Secret or value (a dedicated
+# pg_monitor role is a later hardening). monitoring-stack job app-postgres-exporter
+# scrapes pod port `metrics` (9187), selected by namespace and
+# app.kubernetes.io/name; there are no prometheus.io annotations (STD-OBS-26:
+# producers do not decide collection). NetworkPolicies: networkpolicy.yaml
+# (allow-db-from-db-exporter, allow-db-exporter-metrics-from-observability). Egress
+# falls under the overlay's egress-local-only (private ranges only), which covers
+# the DB and cluster DNS.
+#
+# Image: the zot origin custody copy of quay.io/prometheuscommunity/postgres-exporter
+# v0.19.1 (storage-infra registry-origin custody, already run by
+# observability/postgres-exporter), pulled with zot-origin-cluster-pull. It is an
+# upstream image, so the `images:` transformer does not rewrite it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-db-exporter
+  labels:
+    app.kubernetes.io/name: verdify-db-exporter
+    app.kubernetes.io/component: metrics-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: verdify-db-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: verdify-db-exporter
+        app.kubernetes.io/component: metrics-exporter
+        app.kubernetes.io/part-of: verdify
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: zot-origin-cluster-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres-exporter
+          image: registry.vallery.net/jvallery/mirror-quay-io-prometheuscommunity-postgres-exporter:v0.19.1-e96064f87622@sha256:e96064f876226d94bb6ce48a4c4b3dd76edba91168ec1ab024e5c4b959310b0f
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATA_SOURCE_URI
+              value: verdify-db:5432/verdify?sslmode=disable
+            - name: DATA_SOURCE_USER
+              value: verdify
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: verdify-app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: GOMAXPROCS
+              value: "1"
+          ports:
+            - name: metrics
+              containerPort: 9187
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: verdify-db-exporter
+  labels:
+    app.kubernetes.io/name: verdify-db-exporter
+    app.kubernetes.io/component: metrics-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: verdify-db-exporter
+  ports:
+    - name: metrics
+      port: 9187
+      targetPort: metrics

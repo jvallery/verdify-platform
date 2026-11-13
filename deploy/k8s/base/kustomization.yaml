@@ -28,6 +28,8 @@ labels:
 resources:
   - configmap.yaml
   - db-statefulset.yaml
+  # monitoring-stack#1597: standalone verdify-db store exporter (no DB restart).
+  - db-exporter.yaml
   - migration-job.yaml
   - api-deployment.yaml
   - mcp-deployment.yaml
