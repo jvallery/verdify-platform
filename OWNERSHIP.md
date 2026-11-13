@@ -146,7 +146,7 @@ The values come from the central KSOPS lane in jvallery/agents (planned for jval
 
 Each action is tracked as a GitHub issue; the issue is canonical.
 
-- Drop the retired D-16 hosts from the tier-1 route after jvallery/network-infra#602 ([#1001](https://github.com/jvallery/verdify-platform/issues/1001)).
+- Drop the retired D-16 hosts from the tier-1 route after jvallery/network-infra#602 ([#1001](https://github.com/jvallery/verdify-platform/issues/1001)): done in Git by [#1582](https://github.com/jvallery/verdify-platform/issues/1582); live once `verdify-prod-dark` syncs IngressRoute `verdify-prod/verdify-tier1-forward`.
 - `verdify-experiment-v2-selector-provider` is delivered but referenced by no manifest. Retire it in the central lane or wire a consumer.
 - `verdify-writer-watchdog-runtime-db` outlived its CronJob. Retire it in the central lane once the monitoring-stack `verdify.writer-ownership` alerts are confirmed (R13).
 - Keep this file in step with the central record and a fresh live readback whenever an Application, workload, Secret or route is added or retired.
