@@ -6,7 +6,7 @@
 # runs a thin OFFLINE driver that replays a telemetry CSV through it. Read-only
 # by construction: the image carries NO actuation credential and has NO route to
 # the ESP32; the only egress is INSERT-only into the two observability tables via
-# the twin_ro role (the prod twin runs as the firmware-twin k8s component).
+# the twin_ro role. (Its never-deployed k8s component was retired in #1579.)
 #
 # This is the LOCAL OFFLINE harness (Phase-1 deliverable). The real PROD twin
 # shadowing live telemetry needs the prod DB / applied migration 155 (Root/prod
@@ -45,7 +45,7 @@ COPY twin/offline_driver.py /usr/local/bin/offline_driver.py
 COPY twin/live_driver.py /usr/local/bin/live_driver.py
 COPY twin/report_agreement.py /usr/local/bin/report_agreement.py
 USER twin
-# TWIN_MODE (set by the firmware-twin deployment) selects the corpus replay
+# TWIN_MODE (set by the twin's k8s deployment, when one exists) selects the corpus replay
 # loop (offline_driver.py, the shadow default) or the §8.9 live follower
 # (live_driver.py — needs migration 211's view + results grants). The k8s
 # command overrides this entrypoint; it stays for bare `docker run` parity.

@@ -605,8 +605,8 @@ if in_part containment-firmware; then
   fi
 
   step "twin follower source compiles (the twin image's exact build, #587)"
-  # The firmware-twin component now runs the pre-baked twin image (twin/Dockerfile
-  # builds from these CANONICAL sources — the vendored src/ copies are gone), so
+  # The twin image (twin/Dockerfile; its k8s component was retired unbuilt, #1579)
+  # builds from these CANONICAL sources (the vendored src/ copies are gone), so
   # syntax-check the exact -DREPLAY_EMIT_STREAM compile the image performs.
   if command -v g++ >/dev/null; then
     g++ -std=c++17 -fsyntax-only -DREPLAY_EMIT_STREAM \
