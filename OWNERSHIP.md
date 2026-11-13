@@ -54,6 +54,7 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-traefik` | 2 | traefik v3.7.17 mirror | Tier-2 app Traefik, limited to `verdify-prod`. |
 | `verdify-mqtt` | 1 | eclipse-mosquitto 2 mirror | In-namespace MQTT. |
 | `verdify-db-backup-exporter` | 1 | python 3.12-alpine mirror | Backup freshness metrics. |
+| `verdify-db-exporter` | 1 | postgres-exporter v0.19.1 mirror (zot custody) | Store metrics for `verdify-db` (STD-OBS-27, [monitoring-stack#1597](https://github.com/jvallery/monitoring-stack/issues/1597)): a standalone Deployment (no DB restart) reading as user `verdify` with `verdify-app-secrets` by reference; Service `verdify-db-exporter:9187`, scraped by monitoring-stack job `app-postgres-exporter`. Declared; live after an exact-target sync of its own objects. |
 
 ### verdify-prod scheduled jobs
 
@@ -110,7 +111,7 @@ The middlewares in `verdify-prod` are `verdify-api-inflight`, `verdify-api-rate-
 
 ## Policy, RBAC and cluster-scoped objects
 
-- NetworkPolicies: 44 in `verdify-prod`, 4 in `verdify-dashboard` and 3 in `verdify-descheduler`, each delivered by that namespace's Application.
+- NetworkPolicies: 44 in `verdify-prod` (46 once `allow-db-from-db-exporter` and `allow-db-exporter-metrics-from-observability` sync, monitoring-stack#1597), 4 in `verdify-dashboard` and 3 in `verdify-descheduler`, each delivered by that namespace's Application.
 - PodDisruptionBudgets in `verdify-prod`: `verdify-api`, `verdify-grafana`, `verdify-grafana-render-cache`, `verdify-ingestor`, `verdify-lab`, `verdify-mcp`, `verdify-planner` and `verdify-traefik`.
 - ServiceAccounts: `verdify-ingestor`, `verdify-mcp`, `verdify-outbound`, `verdify-traefik`, `verdify-dashboard-web` and `descheduler`. The Role and RoleBinding `verdify-ingestor-writer-lease` and the Role and RoleBinding `descheduler` are this repo's. The `kepler-estate-operations` Role and RoleBinding in each namespace belong to jvallery/kepler.
 - PriorityClasses `verdify-batch` (1000), `verdify-serving` (100000), `verdify-data-critical` (800000000) and `verdify-device-writer` (900000000). They are cluster-scoped and owned here.
