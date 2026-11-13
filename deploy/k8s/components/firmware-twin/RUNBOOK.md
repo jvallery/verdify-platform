@@ -6,6 +6,11 @@ firmware-twin-divergence Grafana dashboard) stood up in k3s as a **read-only,
 INSERT-only SHADOW**. Design: `docs/design/firmware-digital-twin.md` §2.1, §5.3,
 §6.
 
+> **2026-11-13 (#1539):** the never-provisioned
+> `grafana/provisioning/dashboards/json/firmware-twin-divergence.json` dashboard
+> and its static test were removed (STD-OBS-15 Retires row). A future twin
+> dashboard goes in `grafana/dashboards/` and the generated ConfigMaps.
+
 > **2026-08-14 (#587, Lane F):** the component was reworked to the durable
 > Tier-1 form — the pre-baked `verdify-twin` image (twin/Dockerfile, built
 > in-cluster via `../twin-builder/twin-builder.yaml` into the zot origin)

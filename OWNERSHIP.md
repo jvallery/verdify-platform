@@ -47,7 +47,7 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-cortex-planner` | 1 | verdify-ingestor | Cortex-backed planner path. |
 | `experiment-v2-lifecycle`, `experiment-v2-selector`, `experiment-v2-freezer` | 1 each | verdify-experiment-v2-orchestrator | Experiment-v2 orchestrator; non-device. |
 | `verdify-hermes-iris` | 1 | verdify-hermes-agent | Hermes agent; hand-pinned. |
-| `verdify-grafana` | 1 | grafana 12.4.14 mirror + verdify-grafana-image-renderer | Product Grafana (`graphs.verdify.ai`); dashboards are generated from `grafana/dashboards/` (R13 product exception). |
+| `verdify-grafana` | 1 | grafana 12.4.14 mirror + verdify-grafana-image-renderer | Product Grafana (`graphs.verdify.ai`); dashboards are generated from `grafana/dashboards/` (R13 product exception). Version policy (D-325): this instance pins its own Grafana version by digest and upgrades it here on its own schedule; no version parity with the estate Grafana applies. |
 | `verdify-grafana-render-cache` | 2 | nginx-unprivileged mirror | Render cache for public panels. |
 | `verdify-lab`, `verdify-lab-cache-origin` | 2, 1 | nginx-unprivileged mirror (+ lab-publisher-k3s) | `lab.verdify.ai`/`labs.verdify.ai`; serves the validated Quartz cache PVC. |
 | `verdify-outbound` | 2 | nginx-unprivileged mirror | Fixed-host egress relay (ConfigMap `verdify-outbound-config`). |
