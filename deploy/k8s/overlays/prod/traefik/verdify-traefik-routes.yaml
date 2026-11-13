@@ -194,6 +194,8 @@ spec:
 #     services: [{ name: verdify-graphs, port: 80 }]   # NEEDS k8s Service
 #
 # DELIBERATELY EXCLUDED from the WAN/k3s edge (unchanged from the prior model):
-#   mqtt.verdify.ai (greenhouse device lane, Jason-owned), traefik.verdify.ai
-#   (ops dashboard), auth/analytics/logs/botauth (own backends / .100 lane).
+#   mqtt.verdify.ai (greenhouse device lane, Jason-owned) and auth (own backend).
+#   analytics/logs/botauth/traefik.verdify.ai retired under D-16
+#   (network-infra#602, 2026-11-11); tier-1 now forwards them here and, with no
+#   rule below, they get 404 (#1582).
 # ===========================================================================
