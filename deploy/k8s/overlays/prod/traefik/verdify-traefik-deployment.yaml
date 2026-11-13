@@ -99,6 +99,16 @@ spec:
             - "--entryPoints.verdify-tunnel.address=:8001/tcp"
             - "--entryPoints.verdify-tunnel.asDefault=false"
             - "--entryPoints.traefik.address=:8080/tcp"
+            # #1540: request metrics on a dedicated in-cluster entryPoint, scraped by
+            # the monitoring-stack job verdify-traefik (STD-OBS-26: no prometheus.io
+            # annotation). NetworkPolicy allow-verdify-traefik-metrics-scrape admits
+            # only the observability namespace to :9100; no route attaches here.
+            - "--entryPoints.metrics.address=:9100/tcp"
+            - "--entryPoints.metrics.asDefault=false"
+            - "--metrics.prometheus=true"
+            - "--metrics.prometheus.entryPoint=metrics"
+            - "--metrics.prometheus.addEntryPointsLabels=true"
+            - "--metrics.prometheus.addServicesLabels=true"
             - "--ping=true"
             - "--ping.entrypoint=traefik"
             # A missing/invalid generated file must never become Ready.
@@ -137,6 +147,9 @@ spec:
               protocol: TCP
             - name: mcp-tunnel
               containerPort: 8001
+              protocol: TCP
+            - name: metrics
+              containerPort: 9100
               protocol: TCP
           readinessProbe:
             httpGet:

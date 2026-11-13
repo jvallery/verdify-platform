@@ -95,3 +95,28 @@ spec:
           protocol: TCP
         - port: 8000
           protocol: TCP
+---
+# #1540: Prometheus (observability namespace) scrapes the tier-2 request metrics on
+# the dedicated metrics entryPoint (:9100) through the monitoring-stack job
+# verdify-traefik. Same shape as allow-operator-api-metrics-scrape.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-verdify-traefik-metrics-scrape
+  namespace: verdify-prod
+  labels:
+    app.kubernetes.io/part-of: verdify
+    app.kubernetes.io/component: edge-traefik
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: verdify-traefik
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 9100
+          protocol: TCP
