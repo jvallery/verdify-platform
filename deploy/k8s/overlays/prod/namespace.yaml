@@ -8,6 +8,7 @@ metadata:
   # not rename one place without the others.
   name: verdify-prod
   labels:
+    estate.vallery.net/owner: jvallery.verdify-platform
     app.kubernetes.io/part-of: verdify
     # PodSecurity: enforce the restricted profile. All Verdify workloads run
     # non-root with dropped capabilities, so this passes cleanly and catches any

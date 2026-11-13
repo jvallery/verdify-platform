@@ -5,6 +5,7 @@ kind: Namespace
 metadata:
   name: verdify-descheduler
   labels:
+    estate.vallery.net/owner: jvallery.verdify-platform
     agent-fleet.vallery.net/environment: prod
     agent-fleet.vallery.net/purpose: agent-deployment-namespace
     app.kubernetes.io/part-of: agent-fleet
