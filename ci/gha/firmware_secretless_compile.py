@@ -27,6 +27,18 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def selected_targets():
+    # FIRMWARE_TARGET (the ci.yml firmware-secretless-compile-target matrix, #1535)
+    # compiles one declared target per shard; unset or empty compiles both, as before.
+    # The generated-cpp negative belongs to "greenhouse", so it runs in exactly one shard.
+    target = os.environ.get("FIRMWARE_TARGET", "")
+    if not target:
+        return TARGETS
+    if target not in TARGETS:
+        raise RuntimeError(f"unknown FIRMWARE_TARGET {target!r}; expected one of {', '.join(TARGETS)}")
+    return (target,)
+
+
 def compiler_provenance(packages_dir):
     # Capture actual downloaded bytes before private scratch is removed.
     # These are the same sixteen compiler filenames qualified in the pinned
@@ -93,6 +105,7 @@ def source_files(root):
 
 def main():
     root = Path.cwd()
+    targets = selected_targets()
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     bound = os.environ.get("FLEET_CI_HEAD_REVISION")
     if bound and bound != source:
@@ -106,6 +119,7 @@ def main():
         "deployable": False,
         "physical_qualification": False,
         "credentials": "public compile-only dummy values",
+        "shard": os.environ.get("FIRMWARE_TARGET") or "all",
         "targets": [],
     }
     with tempfile.TemporaryDirectory(prefix="verdify-firmware-ci-", dir=root.parent) as work:
@@ -129,7 +143,7 @@ def main():
 
         if importlib.metadata.version("esphome") != VERSION:
             raise RuntimeError("wrong ESPHome version; no compile performed")
-        for target in TARGETS:
+        for target in targets:
             tree = work / target
             for name, content in files.items():
                 dest = tree / name

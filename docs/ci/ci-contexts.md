@@ -16,20 +16,29 @@ read from `gh api actions/runs/<id>/jobs` on 2026-11-09.
 | `ci / dashboard` | required | 0.2 / 0.4 | |
 | `ci / campaign` | required | aggregate | four shards, each p90 at most 10.7 |
 | `ci / lint` | required | 0.2 / 0.2 | |
-| `ci / platform-static` | advisory until the 30-run window, then required | 0.3 / 0.4 | |
-| `ci / platform-tests` | advisory until the 30-run window, then required | 2.2 / 2.5 | |
-| `ci / firmware-logic` | advisory until the 30-run window, then required | 0.6 / 0.9 | |
-| `ci / firmware-secretless-compile` | advisory until it passes 10 consecutive main runs on the `verdify-esphome-ci` job image, then required | 15.1 / 23.8 | p50 over 15 min while it downloads the toolchain each run; the baked image removes that download |
-| `ci / campaign-qualification` | advisory until the 30-run window, then required | 29.8 / 42.0 | STD-CI-03 exception below |
-| `ci / buildcheck` | advisory until `VERDIFY_BUILDCHECK` is on and it is stable, then required (#1534) | new | |
+| `ci / platform-static` | required (#1535 Q1 default a: added with the branch-rule write that follows the shard PR) | 0.3 / 0.4 | 12 of 12 main runs green since 2026-11-09 |
+| `ci / platform-tests` | required (#1535 Q1 default a, as above) | 2.2 / 2.5 | 12 of 12 main runs green since 2026-11-09 |
+| `ci / firmware-logic` | required (#1535 Q1 default a, as above) | 0.6 / 0.9 | 12 of 12 main runs green since 2026-11-09 |
+| `ci / firmware-secretless-compile` | advisory until it passes 10 consecutive main runs on the `verdify-esphome-ci` job image and the aggregate is green on 3 main runs, then required | aggregate | two target shards, `ci / firmware-secretless-compile-greenhouse` (also runs the generated-cpp negative) and `ci / firmware-secretless-compile-greenhouse-recovery`; unsharded baked p50 was 20.6 (2026-11-12) |
+| `ci / campaign-qualification` | advisory until the aggregate is green on 3 main runs, then required | aggregate | four shards `ci / campaign-qualification-<i>of4` of the tool's default selection; unsharded p50 was about 39.6 (2026-11-12) |
+| `ci / buildcheck` | advisory until it is green on the last 10 PR and main runs, then required (carried from #1534 to #1535; `VERDIFY_BUILDCHECK` is `true` since 2026-11-10) | new | on push it reports the skipped impact as a pass |
 
 The 30-run window is #1535's acceptance: 30 consecutive `main` runs, at least 90
-percent successful and none displaced. Required contexts are added only after it,
-so a flake cannot block merges; rollback is removing the context from the rule.
+percent successful and none displaced. `platform-static`, `platform-tests` and
+`firmware-logic` are required before the window closes (#1535 Q1, default a: each has
+a clean record on main and on PRs and its rollback is one API call). The two sharded
+aggregates and `buildcheck` follow once their own gates above hold. Required contexts
+are written as the whole `required_status_checks.checks` list, each bound to
+`app_id` 15368 (STD-CI-08), never through `POST .../contexts`; rollback is writing the
+saved previous list back.
+
+Shard rows: the shard contexts are not required themselves; their aggregate is. Re-read
+each shard's p50 after 3 main runs with the sharded jobs and remove its STD-CI-03 row
+below once that p50 is within 15 minutes.
 
 ## STD-CI-03 exceptions
 
 | Job | Recorded | Review by | Reason and exit |
 |---|---|---|---|
-| `ci / campaign-qualification` | 2026-11-09 | 2026-12-09 | One process (`verdify-campaign-ci` in the agents-ci-tools image) runs about 27 test files serially; p50 29.8 min. Exit: shard it the way `campaign` and `validate` are sharded, with an aggregate context. |
-| `ci / firmware-secretless-compile` | 2026-11-09 | 2026-11-23 | p50 15.1 min including the per-run PlatformIO download. Exit: the ci-esphome set runs the `verdify-esphome-ci` image (`ci/esphome-ci.Dockerfile`) and the p50 is re-read under 15 min; otherwise compile the two targets as two shards. |
+| `ci / campaign-qualification` | 2026-11-09 | 2026-12-09 | One process ran about 27 test files serially; p50 about 39.6 min on 2026-11-12. Sharded four ways by #1535 (`campaign-qualification-<i>of4`). Exit: each shard's p50 within 15 min over 3 main runs, then delete this row. |
+| `ci / firmware-secretless-compile` | 2026-11-09 | 2026-11-23 | p50 20.6 min on the baked image (2026-11-12), so the "re-read under 15 min" exit failed and the two targets now compile as two shards (#1535). Exit: each shard's p50 within 15 min over 3 main runs, then delete this row. |

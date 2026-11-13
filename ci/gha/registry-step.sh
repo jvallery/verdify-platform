@@ -23,7 +23,12 @@ case "$step" in
   campaign-qualification)
     # The native report path (/workspace) does not exist on ARC; keep it private.
     export CI_TEST_REPORT="${CI_TEST_REPORT:-$HOME/ci-test-report.json}"
-    export PYTHONPATH="$PWD" && uv sync --python 3.12 --extra dev --extra api --extra planner --extra planner-graph && uv pip install --python .venv/bin/python -r ingestor/requirements-image.txt && python3 /usr/local/bin/verdify-campaign-ci
+    # The tool's default qualification selection (never the campaign job's
+    # dashboard-db one), optionally one CAMPAIGN_SHARD=i/n of it: the workflow's
+    # campaign-qualification-shard matrix (#1535, STD-CI-03) runs every n-th file
+    # from i, so the n shards together run every file exactly once.
+    unset VERDIFY_CAMPAIGN_SELECT
+    export PYTHONPATH="$PWD" && uv sync --python 3.12 --extra dev --extra api --extra planner --extra planner-graph && uv pip install --python .venv/bin/python -r ingestor/requirements-image.txt && python3 ci/gha/campaign_shard.py /usr/local/bin/verdify-campaign-ci
     ;;
   firmware-logic)
     bash -lc ' set -euo pipefail; test -f firmware/test/data/replay_overrides.csv || gunzip -k firmware/test/data/replay_overrides.csv.gz; cd firmware; g++ -std=c++17 -I lib -o test/test_greenhouse test/test_greenhouse_logic.cpp; ./test/test_greenhouse; g++ -std=c++17 -O2 -I lib -o test/replay_overrides test/replay_overrides.cpp; ./test/replay_overrides test/data/replay_overrides.csv | tail -30; g++ -std=c++17 -O2 -I lib -o test/replay_invariants test/replay_invariants.cpp; set +e; ./test/replay_invariants test/data/replay_overrides.csv; rc=$?; set -e; if [ "$rc" -eq 2 ]; then
@@ -33,6 +38,7 @@ fi; exit "$rc" '
     ;;
   firmware-secretless-compile)
     # The registry's inline program in its own file (ruff-formatted only) (R2: no logic in YAML).
+    # FIRMWARE_TARGET (the workflow's per-target matrix, #1535) compiles one target; unset compiles both.
     python3 ci/gha/firmware_secretless_compile.py
     ;;
   *)

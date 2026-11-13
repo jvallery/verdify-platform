@@ -97,9 +97,10 @@ class FirmwareProfileTest(unittest.TestCase):
                     (pkg / "bin" / f"{prefix}-{suffix}").write_bytes(b"NONDEPLOYABLE compiler fixture")
         return subprocess.CompletedProcess(cmd, 0)
 
-    def invoke(self, runner=None, version="2026.6.5", bound=None):
+    def invoke(self, runner=None, version="2026.6.5", bound=None, target=""):
         env = {
             "FLEET_CI_HEAD_REVISION": bound or self.source,
+            "FIRMWARE_TARGET": target,
             "OTA_PASSWORD": "not-forwarded",
             "KUBECONFIG": "/not-forwarded",
         }
@@ -137,6 +138,29 @@ class FirmwareProfileTest(unittest.TestCase):
         self.assertEqual(sum(len(p["compiler_binaries"]) for p in packages), 16)
         self.assertFalse(Path(self.commands[-1][1]["env"]["PLATFORMIO_CORE_DIR"]).exists())
         self.assertEqual(receipt["platformio_core"], "private-download")
+        self.assertEqual(receipt["shard"], "all")
+
+    def test_greenhouse_shard_compiles_one_target_and_owns_the_negative(self):
+        # #1535: the compile runs as one matrix shard per target.
+        receipt = self.invoke(target="greenhouse")
+        self.assertEqual(receipt["shard"], "greenhouse")
+        self.assertEqual([x["target"] for x in receipt["targets"]], ["greenhouse"])
+        self.assertEqual(receipt["generated_cpp_negative"]["result"], "expected_compile_failure")
+        self.assertEqual(sum(c[-2] == "compile" for c, _ in self.commands), 2)
+        self.assertEqual(sum(len(p["compiler_binaries"]) for p in receipt["compiler_provenance"]["packages"]), 16)
+
+    def test_recovery_shard_compiles_only_recovery_without_the_negative(self):
+        receipt = self.invoke(target="greenhouse-recovery")
+        self.assertEqual(receipt["shard"], "greenhouse-recovery")
+        self.assertEqual([x["target"] for x in receipt["targets"]], ["greenhouse-recovery"])
+        self.assertNotIn("generated_cpp_negative", receipt)
+        self.assertEqual(sum(c[-2] == "compile" for c, _ in self.commands), 1)
+        self.assertTrue(all(Path(c[-1]).name == "greenhouse-recovery.yaml" for c, _ in self.commands))
+
+    def test_unknown_target_refuses_before_compilation(self):
+        with self.assertRaisesRegex(RuntimeError, "unknown FIRMWARE_TARGET"):
+            self.invoke(target="greenhouse-typo")
+        self.assertFalse(self.commands)
 
     def test_baked_core_of_the_job_image_is_used_in_place(self):
         # #1535: the verdify-esphome-ci image installs the platform and toolchain
