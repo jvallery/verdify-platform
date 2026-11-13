@@ -94,7 +94,7 @@ through the ordinary telemetry view, outside the durable equipment receipts.
 | Gather script mount | `deploy/k8s/components/ingestor-gather-script/` | Prod overlay | ConfigMap delivery for `scripts/gather-plan-context.sh` into the ingestor image. |
 | Grafana band curve refresh | `deploy/k8s/components/grafana/band-curve-refresh-cronjob.yaml` | Prod overlay (via grafana component) | LIVE — refreshes the `mv_band_curve`, `mv_equipment_runtime_daily` and `mv_daily_kpi` matviews at :02 and :32 (`2,32 * * * *`); timer-based, not anchor-change-triggered (audit D12). |
 | Lab site publisher | `deploy/k8s/components/lab-site/lab-publisher.yaml` | Prod overlay with lab site | Regenerates lab.verdify.ai content every 30 minutes (:05 and :35) from S3-backed content and TimescaleDB, then updates the lab cache PVC and S3 public/state prefixes. |
-| Firmware twin | `twin/` (source only) | Retired 2026-11 (#1579): the never-deployed `deploy/k8s/components/firmware-twin/` was removed; no image is built | Restore the component from Git history with a `verdify-twin` digest pin (add a `build.yml` profile first) when the twin is rolled out. |
+| Firmware twin | `twin/` (source only) | Retired 2026-11 (#1579): its never-deployed k8s component was removed; no image is built | Restore the component from Git history with a `verdify-twin` digest pin (add a `build.yml` profile first) when the twin is rolled out. |
 
 ## Storage Touchpoints
 
