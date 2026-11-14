@@ -27,7 +27,7 @@ spec:
 ---
 # Prometheus (namespace observability, kubernetes-pods job) scrapes /metrics (OPS-04) on 8090: the verdify_alert_open
 # gauge that pages critical alerts through Alertmanager (#1352). Every other route on that port still needs the bearer.
-# Matched by the immutable kubernetes.io/metadata.name label, as allow-backup-exporter-scrape is.
+# Matched by the immutable kubernetes.io/metadata.name label.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

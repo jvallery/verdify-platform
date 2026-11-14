@@ -21,13 +21,6 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: verdify-db-backup-exporter
-  annotations:
-    argocd.argoproj.io/sync-options: ServerSideApply=true
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: verdify-grafana
   annotations:
     argocd.argoproj.io/sync-options: ServerSideApply=true
