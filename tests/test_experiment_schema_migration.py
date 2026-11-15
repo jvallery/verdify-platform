@@ -381,6 +381,8 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "307-climate-ppfd-column.sql",
         # The PAR DLI views, the ledger's PAR interval and the dashboard grants run forward only.
         "308-dli-canopy-ppfd.sql",
+        # The one-band retirement (served-band score, planning water, retired objects and columns) runs forward only.
+        "309-one-band-retirement.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(
