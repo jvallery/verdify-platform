@@ -162,12 +162,25 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
   expect(screen.queryAllByRole("link", { name: /^History of / })).toEqual([]);
 });
 
+test("the control desk surfaces held and unconfirmed changes without claiming their requested values are applied", async () => {
+  await open("/settings", { patch: (items) => items.map((row) => row.param === "mister_engage_kpa"
+    ? { ...row, state: "held" } : row.param === "mister_pulse_gap_s" ? { ...row, state: "not_confirmed" } : row) });
+  const desk = screen.getByRole("region", { name: "Understand a change before making it." });
+  expect(within(desk).getByRole("heading", { name: "2 changes need a look" })).toBeTruthy();
+  expect(within(desk).getAllByText(/Reported:/)).toHaveLength(2);
+  fireEvent.click(screen.getByRole("link", { name: "Pending changes 2" }));
+  await settle();
+  expect(here()).toBe("/settings?filter=attention");
+  expect(shown()).toEqual(expect.arrayContaining(["mister_engage_kpa", "mister_pulse_gap_s"]));
+  expect(shown()).toHaveLength(2);
+});
+
 test("the rail's filters count and filter the rows and survive a reload of the URL; its groups count what shows; search matches the label and the key", async () => {
   await open("/settings");
   const items = unretired(served());
   const readOnly = items.filter((row) => !row.writable).length;
   expect(chips()).toEqual([
-    [`All ${items.length}`, "true"], ["Changed in the last 24 h 5", null], ["Waiting for controller 0", null], ["Not applied 0", null], ["Manual (Iris skips) 0", null],
+    [`All ${items.length}`, "true"], ["Pending changes 0", null], ["Changed in the last 24 h 5", null], ["Waiting for controller 0", null], ["Not applied 0", null], ["Manual (Iris skips) 0", null],
     ["Set by Iris or an agent 4", null], [`Read-only ${readOnly}`, null],
   ]);
   // Each filter says what it keeps (#1333): the item's title, and the legend under the rail on every width.
@@ -210,7 +223,7 @@ test("the rail's filters count and filter the rows and survive a reload of the U
   fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "pulse gap" } });
   await settle();
   expect(here()).toBe("/settings?q=pulse+gap");
-  expect(shown()).toEqual(["mister_pulse_gap_s"]);
+  expect(shown()).toContain("mister_pulse_gap_s");
   fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "engage_delay" } });
   await settle();
   expect(shown()).toEqual(["mister_engage_delay_s"]);
@@ -226,7 +239,7 @@ test("the rail's filters count and filter the rows and survive a reload of the U
   cleanup();
   stopFixtureApi();
   await open("/settings?q=pulse+gap");
-  expect(shown()).toEqual(["mister_pulse_gap_s"]);
+  expect(shown()).toContain("mister_pulse_gap_s");
   expect((screen.getByRole("searchbox", { name: "Search settings" }) as HTMLInputElement).value).toBe("pulse gap");
 });
 
@@ -248,13 +261,13 @@ test("Changed in the last 24 h counts any write in force, Iris plans too; 7 d wi
   const patch = (items: Row[]) => items.map((row) => (row.param === "mister_pulse_on_s" ? { ...row, applied_from: "desired", desired: written(row.param, 20) }
     : row.param === "mister_pulse_gap_s" ? { ...row, applied_from: "desired", desired: written(row.param, 6 * 24) } : row));
   await open("/settings?filter=recent", { patch });
-  expect(chips()[1]).toEqual(["Changed in the last 24 h 5", "true"]);
+  expect(chips()[2]).toEqual(["Changed in the last 24 h 5", "true"]);
   // Iris's plan values written today, the 20 h old write and the agent's writes; not the write 6 days old.
   expect(shown()).toEqual(["mister_engage_kpa", "mister_engage_delay_s", "mister_pulse_on_s", "fog_rh_ceiling_pct", "sw_economiser_enabled"]);
   fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "7 d" }));
   await settle();
   expect(here()).toBe("/settings?filter=recent&window=7d");
-  expect(chips()[1]).toEqual(["Changed in the last 7 d 6", "true"]);
+  expect(chips()[2]).toEqual(["Changed in the last 7 d 6", "true"]);
   expect(shown()).toEqual(["mister_engage_kpa", "mister_engage_delay_s", "mister_pulse_on_s", "mister_pulse_gap_s", "fog_rh_ceiling_pct", "sw_economiser_enabled"]);
   cleanup();
   stopFixtureApi();
@@ -304,7 +317,7 @@ test("the Manual, Requested and Not confirmed filters keep the rows the API mark
   stopFixtureApi();
   for (const [chip, filter, param] of [["Manual (Iris skips) 1", "manual", "mister_pulse_on_s"], ["Waiting for controller 1", "requested", "band_vpd_low_sm"], ["Not applied 1", "not_confirmed", "gl_main_lux_threshold"]]) {
     await open("/settings", { patch });
-    expect(chips().slice(2, 5)).toEqual([["Waiting for controller 1", null], ["Not applied 1", null], ["Manual (Iris skips) 1", null]]);
+    expect(chips().slice(3, 6)).toEqual([["Waiting for controller 1", null], ["Not applied 1", null], ["Manual (Iris skips) 1", null]]);
     fireEvent.click(screen.getByRole("link", { name: chip }));
     await settle();
     expect(here(), chip).toBe(`/settings?filter=${filter}`);
@@ -377,7 +390,7 @@ test("/settings?edit=mister_engage_kpa opens with Manual ticked; 1.53 saves as 1
   expect(linesOf("mister_engage_kpa", ".setting-value")).toEqual(["1.60 kPa"]);
   expect(rowOf("mister_engage_kpa").querySelector(".ctl-bounds-requested")).not.toBeNull();
   expect(text(rowOf("mister_engage_kpa").querySelector(".setting-next"))).toBe("Iris skips it");
-  expect(chips().slice(2, 5)).toEqual([["Waiting for controller 1", null], ["Not applied 0", null], ["Manual (Iris skips) 1", null]]);
+  expect(chips().slice(3, 6)).toEqual([["Waiting for controller 1", null], ["Not applied 0", null], ["Manual (Iris skips) 1", null]]);
   expect(status()).toBe(`${served().length} settings · 1 waiting · 0 not applied · 1 manual`);
   // REQUESTED reads API-09 every 5 s; the fixture's readback matches on the third read after the write.
   const after = sentAt("API-09").length;
@@ -390,7 +403,7 @@ test("/settings?edit=mister_engage_kpa opens with Manual ticked; 1.53 saves as 1
   // MANUAL outranks CONFIRMED for the one pill, so the new confirmation reads in words.
   expect(pillOf("mister_engage_kpa")).toEqual(["manual"]);
   expect(linesOf("mister_engage_kpa", ".setting-writer")).toEqual(["jason changed this at 10:42 · “Vandas drying” · confirmed 10:42"]);
-  expect(chips().slice(2, 5)).toEqual([["Waiting for controller 0", null], ["Not applied 0", null], ["Manual (Iris skips) 1", null]]);
+  expect(chips().slice(3, 6)).toEqual([["Waiting for controller 0", null], ["Not applied 0", null], ["Manual (Iris skips) 1", null]]);
   expect(writes(api)).toHaveLength(1);
 });
 
@@ -404,7 +417,7 @@ test("with no matching readback it reads NOT CONFIRMED with its reason; a late r
   await settle();
   expect(pillOf("mister_engage_kpa")).toEqual(["not_confirmed"]);
   expect(text(rowOf("mister_engage_kpa").querySelector(".state-reason"))).toBe("Sent 10:42; no matching readback yet");
-  expect(chips().slice(3, 4)).toEqual([["Not applied 1", null]]);
+  expect(chips().slice(4, 5)).toEqual([["Not applied 1", null]]);
   expect(screen.queryByRole("button", { name: /send again/i })).toBeNull();
   // The readback arrives late: API-09 now reports it, and the next read turns the row CONFIRMED with no new write.
   const fixtureFetch = globalThis.fetch;

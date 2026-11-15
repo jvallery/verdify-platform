@@ -23,12 +23,12 @@ export function FindSetting() {
   </form>;
 }
 
-/** Settings' own search (redesign §5.10): it filters the catalog as it is typed, by plain label or key, kept in the URL as `q`. */
+/** Search names, keys and the API's explanations; keep the question in the URL as `q`. */
 export function SettingsSearch({ value, onChange }: { value: string; onChange: (text: string) => void }) {
   const id = useId();
   return <div className="ctl-find ctl-search" role="search" aria-label="Settings">
     <label className="screen-reader" htmlFor={id}>Search settings</label>
-    <input id={id} type="search" value={value} placeholder="Search settings: name or key" autoComplete="off"
+    <input id={id} type="search" value={value} placeholder="Search by name, key or what it changes" autoComplete="off"
       onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.target.value)} />
   </div>;
 }

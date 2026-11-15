@@ -52,10 +52,16 @@ test("the story line: in band and the excursions named, each a link to its stret
   expect(links[0].getAttribute("href")).toBe("/graphs?from=2026-11-02T15:12:00Z&to=2026-11-02T16:42:00Z");
   cleanup();
   render(<MemoryRouter><StoryLine lead="Today" story={{ inBand: null, excursions: [] }} view={DEFAULT_VIEW} withDates={false} /></MemoryRouter>);
-  expect(text(document.querySelector(".gr-story"))).toBe("Today: no band to grade against in this window");
+  expect(text(document.querySelector(".gr-story"))).toBe("Today: no comparable measurements and bands in this window");
   cleanup();
   render(<MemoryRouter><StoryLine lead="Today" story={{ inBand: 100, excursions: [] }} view={DEFAULT_VIEW} withDates={false} /></MemoryRouter>);
   expect(text(document.querySelector(".gr-story"))).toBe("Today: in band 100% of points · no excursions");
+});
+
+test("phone climate summary names both dimensions and incomplete grading", () => {
+  render(<MemoryRouter><StoryLine lead="Last 24 h" story={{ inBand: 100, excursions: [] }} view={DEFAULT_VIEW} withDates={false} short
+    dimensions={[{ metric: "temp", inBand: 100, graded: 2, total: 3 }, { metric: "vpd", inBand: null, graded: 0, total: 3 }]} /></MemoryRouter>);
+  expect(text(document.querySelector(".gr-story"))).toBe("24 h · Temp 100% in band · VPD ungraded · partial coverage · no excursions");
 });
 
 test("day by day: one region holding the strips, the gallons as bars on the same cells, and dates every week back from the newest", () => {

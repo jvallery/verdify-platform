@@ -4,6 +4,7 @@
 .app-page{background:var(--field)}
 .app-page>main{padding-top:2rem;padding-bottom:3rem}
 .app-page .card{background:#fff;box-shadow:var(--shadow-xs);border-radius:1rem}
+@media(min-width:861px){.now-hero-value .hero-temp{font-size:clamp(3.5rem,5vw,5rem)}}
 .page-header{margin-bottom:2rem;grid-template-areas:"crumbs crumbs" "title actions" "description description" "status status"}
 .page-header h1{font-size:clamp(2rem,3.5vw,3rem);letter-spacing:-.045em}
 .primary-nav .nav-icon{flex:none}
@@ -55,6 +56,47 @@
 .page-tabs{border-bottom:1px solid var(--line);padding-bottom:.75rem;margin-bottom:1.5rem}
 .page-tabs .chip{border-radius:.5rem}
 .ctl-settings-main{min-width:0}
+.schedule-draft-summary{padding:1rem;margin:.75rem 0;background:var(--field);border-left:3px solid var(--forest);border-radius:.5rem}
+.schedule-draft-summary p+p{margin-top:.5rem}
+#why{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem);margin-bottom:1.5rem}
+.settings-overview{margin-bottom:2rem;border:1px solid var(--line);border-radius:1rem;background:#fff;padding:1.5rem}
+.settings-overview-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:2rem;padding-bottom:1.25rem;border-bottom:1px solid var(--line)}
+.settings-overview-heading h2{font-size:1.3rem;letter-spacing:-.025em}
+.settings-overview-heading>p{max-width:43ch;color:var(--muted);font-size:var(--fs-sm)}
+.settings-overview-columns{display:grid;grid-template-columns:1fr 2fr;gap:2rem;padding-top:1.25rem}
+.settings-overview h3{font-size:1rem;margin-bottom:.5rem}
+.settings-authority>strong{font-size:1.65rem;letter-spacing:-.035em}
+.settings-authority p,.settings-attention>p{font-size:var(--fs-sm);color:var(--muted);line-height:1.5;margin:.5rem 0}
+.settings-authority>a{display:inline-flex;min-height:44px;align-items:center;font-weight:600}
+.settings-attention ul{list-style:none;padding:0;margin:0}
+.settings-attention li{padding:.65rem 0;border-bottom:1px solid var(--line)}
+.settings-attention li>a{display:flex;justify-content:space-between;gap:1rem;min-height:44px;align-items:center;text-decoration:none}
+.settings-attention li>a:hover strong{text-decoration:underline}
+.settings-attention li>a>span{font-size:var(--fs-sm)}
+.settings-overview-quiet{display:grid;grid-template-columns:1fr 2fr;gap:2rem;padding:1rem 1.5rem}
+.settings-overview-quiet a{display:flex;align-items:center;min-height:44px;font-weight:600}
+.settings-overview-quiet h2{font-size:1rem;margin:.2rem 0 .5rem}
+.settings-overview-quiet p{margin:0}
+.crop-history-view .table-wrap{max-width:100%;overflow:auto}
+.crop-history-view table{min-width:52rem}
+.crop-history-view thead th{overflow-wrap:normal;word-break:normal}
+.planner-history .table-wrap{max-width:100%;overflow:auto}
+.planner-history table{min-width:56rem}
+.planner-history thead th{overflow-wrap:normal;word-break:normal}
+.page-stack{display:grid;gap:1.5rem;min-width:0}
+@media(max-width:860px){.settings-overview{padding:1rem}.settings-overview-heading{display:block}.settings-overview-heading>p{margin-top:.5rem}.settings-overview-columns{grid-template-columns:1fr;gap:1rem}.settings-attention li>a{flex-wrap:wrap;gap:.25rem}}
+@media(max-width:600px){.settings-overview-quiet{grid-template-columns:1fr;gap:1rem}}
+.schedule-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin:1rem 0 1.5rem}
+.schedule-overview-card{display:flex;flex-direction:column;align-items:flex-start;gap:.65rem;padding:1.25rem;border:1px solid var(--line);border-radius:1rem;background:#fff;color:var(--ink);text-decoration:none;min-width:0}
+.schedule-overview-card strong{font-size:1.45rem;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.schedule-overview-card>span:not(.eyebrow){font-size:var(--fs-sm);line-height:1.5}
+.schedule-overview-card>span:not(.eyebrow):not(.schedule-overview-action){color:var(--muted)}
+.schedule-overview-backup{border-style:dashed;background:var(--field)}
+.schedule-overview-action{margin-top:auto;padding-top:.4rem;color:var(--forest);font-weight:600}
+a.schedule-overview-card:hover{border-color:var(--forest);box-shadow:var(--shadow-sm)}
+#sch-rules-title{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem)}
+@media(max-width:860px){.schedule-overview{grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}.schedule-overview-card{padding:1rem}.schedule-overview-card:last-child{grid-column:1/-1}.schedule-overview-card strong{font-size:1.25rem}}
+@media(max-width:600px){.schedule-overview-card{gap:.4rem;padding:.8rem}.schedule-overview-card strong{font-size:1.1rem}.schedule-overview-card>span:not(.eyebrow){font-size:.8rem;line-height:1.4}}
 @media(max-width:1099px){.settings-tasks{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:480px){.settings-tasks{gap:.6rem}.settings-tasks>a{padding:.85rem;min-height:10rem}}
 
@@ -79,6 +121,7 @@
 .hydro-readings .meta{display:block;margin-top:.4rem;font-size:var(--fs-xs);font-weight:400;letter-spacing:normal}
 @media(max-width:1099px){.hydro-readings{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.hydro-readings{grid-template-columns:repeat(2,minmax(0,1fr))}.hydro-readings>div{padding:.85rem}}
+@media(max-width:600px){.hydro-intro{padding:1rem;gap:.75rem}.hydro-intro h2{font-size:1.25rem}.hydro-intro p{margin-bottom:0}.hydro-capacity{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;align-items:center;padding-top:.75rem}.hydro-capacity>.eyebrow{grid-column:1/-1}.hydro-capacity strong{font-size:1.5rem}.hydro-capacity>span:last-child{font-size:var(--fs-sm)}}
 
 /* Keep the measured state and quick controls prominent even when the AI narrative is long. */
 .now-snapshot-more{display:inline-flex;align-items:center;min-height:var(--tap)}
@@ -103,10 +146,18 @@
 /* Keep a useful portion of the first climate plot visible above phone navigation. */
 @media(max-width:600px){
  .app-page>main:has(.gr-toolbar){padding-top:.5rem}
- main:has(.gr-toolbar)>.page-header{margin-bottom:.5rem}
+ main:has(.gr-toolbar)>.page-header{margin-bottom:.25rem}
  main:has(.gr-toolbar)>.page-header h1{font-size:1.75rem}
  main:has(.gr-toolbar)>.page-header .page-description{display:none}
  main:has(.gr-toolbar)>.page-header .page-status-short{min-height:1.5em}
- main:has(.gr-toolbar)>.page-tabs{margin-bottom:.75rem;padding-bottom:.5rem}
- .gr-toolbar{margin-bottom:.5rem}
+ main:has(.gr-toolbar)>.page-tabs{margin-bottom:.25rem;padding-bottom:.25rem}
+ .gr-toolbar{margin-bottom:.25rem}
+ main:has(.gr-toolbar)>.chart-stack{margin-top:.5rem}
+}
+
+/* Put the related band inputs beside one another while keeping one atomic save. */
+@media(min-width:1100px){
+ .ctl-band-form{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:2rem;align-items:start}
+ .ctl-band-form>fieldset{min-width:0}
+ .ctl-band-form>:not(fieldset){grid-column:1/-1}
 }

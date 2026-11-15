@@ -2,7 +2,7 @@
 // The story line of Graphs → Climate (redesign §5.5): time in band over temperature and VPD together, the stretches
 // outside the band ranked by how long times how far, in words with their peaks, and the window named in words.
 import { expect, test } from "vitest";
-import { STORY_EXCURSIONS, climateStory, excursionRange, excursionWords, shareWords, windowWords } from "./graph-story";
+import { STORY_EXCURSIONS, climateDimensions, climateStory, excursionRange, excursionWords, shareWords, windowWords } from "./graph-story";
 import { graphWindow, parseGraphUrl } from "./graph-url";
 import type { BandTimeline, Series } from "./operator-api";
 
@@ -27,6 +27,14 @@ function band(): BandTimeline {
 /** Too cold 00:00–04:00 (down to 58 °F), in band after; VPD too dry 13:00–13:30 (up to 1.31 kPa). */
 const cold = series("climate.temp_avg", (index) => (index < 48 ? 58 + (index / 48) * 4 - 0.01 : 66));
 const dry = series("climate.vpd_avg", (index) => (index >= 156 && index < 162 ? 1.31 : 0.62));
+
+test("dimension grades disclose missing samples rather than hiding them behind the other metric", () => {
+  const missing = series("climate.vpd_avg", (index) => index < 144 ? null : 1.3);
+  const [temperature, vpd] = climateDimensions(series("climate.temp_avg", () => 66), missing, band(), NOW);
+  expect(temperature).toEqual({ metric: "temp", inBand: 100, graded: 288, total: 288 });
+  expect(vpd).toEqual({ metric: "vpd", inBand: 0, graded: 144, total: 288 });
+  expect(climateDimensions(cold, dry, null, NOW).every((item) => item.inBand === null && item.graded === 0)).toBe(true);
+});
 
 test("time in band counts the buckets where both are graded, in band only when both are", () => {
   const story = climateStory(cold, dry, band(), NOW);

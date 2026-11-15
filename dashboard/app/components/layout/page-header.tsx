@@ -58,7 +58,7 @@ const DESCRIPTIONS: Partial<Record<ViewId, string>> = {
   "crops-history": "Follow each planting from its first day through harvest.",
   "graphs-climate": "Explore greenhouse conditions alongside targets and controller actions.",
   "graphs-zones": "Compare growing conditions across the greenhouse.",
-  "graphs-lighting": "Understand daylight, lamp operation and daily light exposure.",
+  "graphs-lighting": "Understand daylight, lamp operation and the daily light policy.",
   "graphs-statistics": "Look beyond the latest reading to longer-term growing conditions.",
   "activity-alerts": "Review what needs attention and record your response.",
   "activity-log": "Trace changes by people, the planner and the controller.",

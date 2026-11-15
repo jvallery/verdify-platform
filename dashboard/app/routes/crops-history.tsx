@@ -52,7 +52,7 @@ export default function CropsHistory() {
   const zoneChips = [{ key: "all", label: "All zones", to: historyUrl(params, { zone: null }), current: !zone, keepScroll: true },
     ...zones.map((slug) => ({ key: slug, label: ZONE_WORDS[slug] ?? slug, to: historyUrl(params, { zone: slug }), current: zone === slug, keepScroll: true }))];
   if (active.isError && ended.isError && !active.data && !ended.data) return <PanelError thing="the planting history" onRetry={() => { void active.refetch(); void ended.refetch(); }} />;
-  const loaded = active.data && ended.data;
+  const settled = (active.data || active.isError) && (ended.data || ended.isError);
   const all = [...(active.data?.items ?? []), ...(ended.data?.items ?? [])];
   const crops = [...new Set(all.map((item) => item.crop))].sort();
   const rows = crop ? all.filter((item) => item.crop === crop) : all;
@@ -84,7 +84,9 @@ export default function CropsHistory() {
         {(crop || since) && <Link to={historyUrl(params, { crop: null, since: null })} preventScrollReset>Clear filters</Link>}
       </Form>
     </div>
-    {!loaded ? <div aria-busy="true"><div className="skeleton skeleton-md" aria-hidden="true" /><p className="screen-reader">Loading the planting history</p></div>
+    {(active.isError || ended.isError) && <PanelError thing="part of the planting history" text="Planting history is incomplete or could not be refreshed. Records below may be out of date." onRetry={() => { void active.refetch(); void ended.refetch(); }} />}
+    {settled && <p className="meta">{rows.filter((row) => row.active).length} active · {rows.filter((row) => !row.active).length} ended in these results. Open a crop to see its moves and harvests. Scroll the table sideways for every column.</p>}
+    {!settled ? <div aria-busy="true"><div className="skeleton skeleton-md" aria-hidden="true" /><p className="screen-reader">Loading the planting history</p></div>
       : <Table label="Plantings" caption={`${rows.length} planting${rows.length === 1 ? "" : "s"}`} columns={columns} rows={rows} rowKey={(row) => String(row.id)}
         empty={<p className="muted">No planting matches.</p>} />}
   </div>;

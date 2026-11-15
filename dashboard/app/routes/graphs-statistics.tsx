@@ -156,6 +156,7 @@ export default function Statistics() {
         </Card>
       </div>
       <Card title="Time in band per day" className="gr-chart-card" eyebrow="Whole day, temperature and VPD, against a 90% target">
+        <p className="meta">The dotted 90% line is this dashboard's comparison target. It does not change the controller's bands. Hatched days have no grade; today's dashed bars are still accumulating.</p>
         <InBandBars rows={inBandRows} syncKey={`verdify:graphs-statistics:${window.from}`} />
       </Card>
       <Section header={<SectionHeader title="Data" meta={`${days.length} ${days.length === 1 ? "row" : "rows"}, newest first`} />}>

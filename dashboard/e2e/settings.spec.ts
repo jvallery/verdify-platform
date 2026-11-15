@@ -50,7 +50,7 @@ test("the rail's Show filters carry counts, filter the rows and survive a reload
   await load(page, "/settings");
   const rail = page.getByRole("navigation", { name: "Settings filters and groups" });
   await expect(rail.locator(".ctl-rail-list").first().getByRole("link")).toHaveText([
-    /^All \d+$/, "Changed in the last 24 h 5", "Waiting for controller 0", "Not applied 0", "Manual (Iris skips) 0", "Set by Iris or an agent 4", /^Read-only \d+$/,
+    /^All \d+$/, "Pending changes 0", "Changed in the last 24 h 5", "Waiting for controller 0", "Not applied 0", "Manual (Iris skips) 0", "Set by Iris or an agent 4", /^Read-only \d+$/,
   ]);
   await rail.getByRole("link", { name: "Controller safety 27" }).click();
   await expect(page.locator("#group-controller_safety")).toBeInViewport();

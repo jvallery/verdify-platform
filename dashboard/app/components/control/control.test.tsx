@@ -105,7 +105,7 @@ test("the validity bar fills from written to now, marks now, and stays bare for 
 test("the Control tabs share one search: Settings' field and Find a setting's, 22rem from 861 px, Find an outline that submits the form (#1308 visual QA 28)", () => {
   const { container } = renderUi(<><SettingsSearch value="" onChange={() => {}} /><FindSetting /></>);
   const [settings, find] = [...container.querySelectorAll(".ctl-find")];
-  expect(settings.querySelector("input")?.getAttribute("placeholder")).toBe("Search settings: name or key");
+  expect(settings.querySelector("input")?.getAttribute("placeholder")).toBe("Search by name, key or what it changes");
   expect(find.querySelector("input")?.getAttribute("placeholder")).toBe("Find a setting");
   expect(find.querySelector("button")?.getAttribute("type")).toBe("submit");
   const css = readFileSync(join(process.cwd(), "app/styles/control.css"), "utf8");

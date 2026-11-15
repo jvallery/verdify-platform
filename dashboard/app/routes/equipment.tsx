@@ -30,7 +30,7 @@ export { lightsDiffer } from "../components/equipment/light-controls";
  * header states the controller (uptime, firmware, Wi-Fi, age) and holds "Find a setting". Two balanced columns from
  * 861 px: Climate, Lights (Lutron beside the controller's intent, with the light controls) and Flags on the left; the
  * water relays and the Controller card on the right. Then, full width: the bursts (the quick actions Now shares, with
- * Restart controller under More actions), Why, the equipment lanes over the last 24 h or 72 h (`?range=`) and the daily
+ * Restart controller under More actions), with Why leading the board, then the equipment lanes over the last 24 h or 72 h (`?range=`) and the daily
  * runtime of 14 days. The board and Why share one API-13 read every 15 s; the lanes read API-05 and the light switches
  * (API-17, for manual or automatic) every 60 s. A light's
  * automatic switch opens its setting drawer in place (`?edit=`). Only operators see the controls. No greenhouse data
@@ -109,6 +109,7 @@ export default function Equipment() {
   return <>
     <PageHeader view="control-equipment" status={<ControllerStatus />} statusShort={<ControllerStatus short />} actions={<FindSetting />} />
     <div className="page ctl-equipment">
+      <WhyPanel equipment={equipment.data} state={state} onRetry={retry} />
       <div className="ctl-board equipment-board">
         <div className="ctl-board-col">
           {state === "error" ? <BoardError onRetry={retry} /> : <>{board("climate")}{board("light")}</>}
@@ -121,7 +122,6 @@ export default function Equipment() {
       </div>
       <div className="ctl-equipment-more">
         <BurstPanel />
-        <WhyPanel equipment={equipment.data} state={state} onRetry={retry} />
         <LanesPanel />
         <DailyRuntime today={today} />
       </div>

@@ -19,7 +19,7 @@ import { PageHeader } from "../components/layout/page-header";
 import { EmptyState, PanelError } from "../components/panel";
 import { NO_OVERLAY, OUTDOOR_TEMP_KEY, forecastSpan, outdoorOverlay, outdoorSource, withOutdoor } from "../lib/graph-overlay";
 import { GRAPH_POLL_MS, identity, readFailure, slotRead, useGraphClock, useWindowReads, type WindowRead } from "../lib/graph-reads";
-import { climateStory, windowWords } from "../lib/graph-story";
+import { climateDimensions, climateStory, windowWords } from "../lib/graph-story";
 import {
   COMPARES, LANES_TEXT, RANGES, dayCount, graphHref, graphWindow, isoOf, lanesAllowed, panelPlans, parseGraphUrl, rangeSeconds, resolveView, seriesPoints, stepSpec, windowKey,
   withWindow, within400, zoomOutSpec, type GraphWindow, type PanelPlan, type WindowSpec,
@@ -209,6 +209,7 @@ export default function Graphs() {
   const vpdRead = panelReads[plans.findIndex((plan) => plan.id === "vpd")];
   const storyReady = now !== null && !apiDown && temperatureRead?.data && vpdRead?.data && (band.data !== null || band.error !== null);
   const story = useMemo(() => (storyReady ? climateStory(temperatureRead.data, vpdRead.data, band.data, now!) : null), [storyReady, temperatureRead?.data, vpdRead?.data, band.data, now]);
+  const dimensions = useMemo(() => (storyReady ? climateDimensions(temperatureRead.data, vpdRead.data, band.data, now!) : undefined), [storyReady, temperatureRead?.data, vpdRead?.data, band.data, now]);
   const withDates = window !== null && localDay(window.x.from) !== localDay(window.x.to - 1);
 
   const previous = window && now !== null ? stepSpec(spec, window, -1, now) : null;
@@ -217,8 +218,8 @@ export default function Graphs() {
   const long = window !== null ? !lanesAllowed(window) : spec.kind === "range" && (rangeSeconds(spec.range) ?? 0) > 31 * 86_400;
 
   return <>
-    <PageHeader view="graphs-climate" status={story ? <StoryLine lead={lead} story={story} view={view} withDates={withDates} /> : null}
-      statusShort={story ? <StoryLine lead={lead} story={story} view={view} withDates={withDates} short /> : null} />
+    <PageHeader view="graphs-climate" status={story ? <StoryLine lead={lead} story={story} view={view} withDates={withDates} dimensions={dimensions} /> : null}
+      statusShort={story ? <StoryLine lead={lead} story={story} view={view} withDates={withDates} dimensions={dimensions} short /> : null} />
     <GraphNotices notices={notices} />
     <div className="page-toolbar gr-toolbar">
       {/* On a phone (redesign §5.5) the toolbar is two rows: the presets but 90 d with Custom…, then ‹ ›, Layers and + Metric;

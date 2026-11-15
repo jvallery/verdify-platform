@@ -12,6 +12,7 @@ import {
   agendaDays, dayModel, entriesOf, fallbackCount, fallbackWindow, lineInfo, mondayOf, occurrenceKey, pauseNotes, ruleGroups, weekCells, weekdayCode, type DayBlock,
 } from "../components/schedule/model";
 import { RulesList } from "../components/schedule/rules-list";
+import { ScheduleOverview } from "../components/schedule/overview";
 import { WeekMatrix } from "../components/schedule/week-matrix";
 import { WeekStrip, weekStep } from "../components/schedule/week-strip";
 import { ScheduleEditor } from "../components/schedule-editor";
@@ -192,6 +193,7 @@ export default function WaterSchedules() {
             <ScheduleKey />
           </div>
         </div>
+        {editing === null && !agenda.isError && <ScheduleOverview agenda={agenda.data} day={shown} now={now} info={info} />}
         {view === null && <>
           <div className="sch-only-desktop">{timeline}</div>
           <div className="sch-only-phone">{agendaView}</div>

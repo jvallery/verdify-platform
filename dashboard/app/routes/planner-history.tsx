@@ -88,7 +88,7 @@ export default function PlannerHistoryPage() {
   const chips = HISTORY_DAYS.map((value) => ({ key: String(value), label: `${value} days`, to: value === 30 ? "?" : `?days=${value}`, current: value === days }));
   return <>
     <PageHeader view="planner-history" status={totals ? historySentence(totals) : null} />
-    <div className="page-stack">
+    <div className="page-stack planner-history">
       <Chips label="Window" items={chips} kind="nav" />
       <Panel title="Plans per day" thing="plan history" state={state} onRetry={retry} reserve="lg"
         foot={data && <>

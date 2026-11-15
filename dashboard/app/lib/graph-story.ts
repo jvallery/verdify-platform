@@ -55,6 +55,25 @@ function traceOf(series: Series | null | undefined, metric: StoryMetric, band: B
   return { t: series.t, values: series.t.map((_, index) => (valued(columns.avg[index]) ? columns.avg[index] : null)), bucket: series.bucket_s, runs: bandRuns(band, metric, now) };
 }
 
+export type ClimateDimension = { metric: StoryMetric; inBand: number | null; graded: number; total: number };
+/** Separate the two control objectives. Missing values or bands are ungraded, never successful samples. */
+export function climateDimensions(temperature: Series | null | undefined, vpd: Series | null | undefined, band: BandTimeline | null | undefined, now: number): ClimateDimension[] {
+  return (["temp", "vpd"] as const).map((metric) => {
+    const trace = traceOf(metric === "temp" ? temperature : vpd, metric, band, now);
+    let graded = 0, inside = 0, total = 0;
+    trace?.t.forEach((at, index) => {
+      if (at > now) return;
+      total++;
+      const value = trace.values[index];
+      const bounds = valued(value) ? bandAt(trace.runs, at) : null;
+      if (!valued(value) || !bounds) return;
+      graded++;
+      if (value >= bounds.low && value <= bounds.high) inside++;
+    });
+    return { metric, graded, total, inBand: graded ? inside / graded * 100 : null };
+  });
+}
+
 function stretchesOf(metric: StoryMetric, trace: Trace): StoryExcursion[] {
   return stretches(trace.t, trace.values, trace.runs).map((stretch) => {
     const depths = stretch.line.map(([, value], index) => Math.abs(value - stretch.edge[index][1]));

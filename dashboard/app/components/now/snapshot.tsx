@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /**
- * The greenhouse snapshot (#1346): one paragraph in the hero, under the headline and the condition line, written by the
+ * The greenhouse snapshot (#1346): one paragraph in the hero, after the measured value and its freshness, written by the
  * local Cortex model (Qwen) from the current conditions every 15 minutes or on a change (API-02 `snapshot`). Its author,
  * time and the AI text mark (D-UX-07) follow the text.
  *

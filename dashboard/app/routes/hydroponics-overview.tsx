@@ -44,7 +44,7 @@ export default function HydroponicsOverview() {
   })).map((note) => `${panel.name}: ${note}`)) : [];
   return <div className="hydro-workspace">
     <section className="hydro-intro" aria-label="System overview">
-      <div><p className="eyebrow">RESERVOIR & ROOTS</p><h2>Your hydroponic garden.</h2><p>Follow water quality, record each crop and plan the next planting.</p><p className="meta">Hand-dosed reservoir. Planting records do not change dosing or climate controls.</p></div>
+      <div><p className="eyebrow">RESERVOIR & ROOTS</p><h2>Your hydroponic garden.</h2><p className="meta">Hand-dosed reservoir. Planting records do not change dosing or climate controls.</p></div>
       <div className="hydro-capacity"><span className="eyebrow">PLANTED SPOTS</span><strong>{tally ? `${tally.planted} / ${tally.total}` : "—"}</strong><span>{tally ? `${tally.total - tally.planted} available` : "Waiting for the location map"}</span></div>
     </section>
     <nav className="workspace-jumps" aria-label="Hydroponics workspace"><a href="#hydro-planting-title">Manage planting spots ↓</a><a href="#hydro-quality-title">Water-quality trends ↓</a></nav>

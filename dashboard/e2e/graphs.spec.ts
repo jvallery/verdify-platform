@@ -79,7 +79,7 @@ test("on a phone the toolbar is two rows and the temperature plot starts above t
   expect(Math.abs(today!.y - custom!.y)).toBeLessThan(2);
   await expect(page.locator(".gr-on")).toBeHidden();
   // The story line's short wording, and the temperature plot in view above the bottom bar.
-  await expect(page.locator(".page-status-short")).toHaveText(/^72 h · in band 100% · no excursions$/);
+  await expect(page.locator(".page-status-short")).toHaveText(/^72 h · Temp 100% in band · VPD 100% in band · no excursions$/);
   const plot = await page.locator("[data-panel=temperature] .stack-plot").boundingBox();
   const navigation = await bottomBar(page).boundingBox();
   expect(plot!.y + 80).toBeLessThan(navigation!.y);
@@ -110,12 +110,12 @@ test("the cursor: hovering one panel turns every header row into its values ther
 test("the story line states time in band and the excursions, worst first; an excursion's link opens its stretch with half an hour either side", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
   await load(page, "/graphs?range=24h");
-  await expect(page.locator(".page-status")).toHaveText("Last 24 h: in band 100% of points · no excursions");
+  await expect(page.locator(".page-status")).toHaveText("Last 24 h: Temperature 100% in band · VPD 100% in band · based on graded points · no excursions");
   // The band narrowed to 64.5–68.0 °F: too cold overnight, too warm yesterday afternoon and again this morning.
   await useScreensClock(page, request, "graphs-excursions");
   await load(page, "/graphs?range=24h&set=");
   const story = page.locator(".page-status");
-  await expect(story).toHaveText(/^Last 24 h: in band \d+% of points · 3 excursions: too cold Nov 1, 2\d:\d\d–Nov 2, 0\d:\d\d \(low 63\.0\s°F\), too warm .+, too warm .+$/);
+  await expect(story).toHaveText(/^Last 24 h: Temperature \d+% in band · VPD 100% in band · based on graded points · 3 excursions: too cold Nov 1, 2\d:\d\d–Nov 2, 0\d:\d\d \(low 63\.0\s°F\), too warm .+, too warm .+$/);
   await expect(story.getByRole("link")).toHaveCount(3);
   await story.getByRole("link").first().click();
   await expect(page).toHaveURL(/\/graphs\?from=2026-11-0[12]T\d\d:\d\d:\d\dZ&to=2026-11-02T\d\d:\d\d:\d\dZ&set=$/);
