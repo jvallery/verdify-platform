@@ -62,7 +62,7 @@ test("with the controller not reporting every reason reads unknown with its age,
   await useScreensClock(page, request, ["why-reasons", "controller-not-reporting"]);
   await load(page, "/equipment");
   for (const key of ["mode_reason", "fog_block_reason", "moisture_block_reason"]) {
-    await expect(reason(page, key).locator(".why-words")).toHaveText("unknown · last report 1 min ago");
+    await expect(reason(page, key).locator(".why-words")).toHaveText("No decision report · last report 1 min ago");
     await expect(reason(page, key).getByRole("link")).toHaveCount(0);
   }
   await expect(page.locator(".why-rows")).not.toContainText(/Venting|ceiling|misting/);

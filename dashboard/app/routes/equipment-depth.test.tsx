@@ -118,7 +118,7 @@ test("a code the table lacks renders raw in mono, with its since and link; the f
 test("with the controller not reporting every reason reads unknown with its age, never its last words, and links nowhere", async () => {
   await load({ fixture: ["why-reasons", "controller-not-reporting"] });
   for (const key of ["mode_reason", "fog_block_reason", "moisture_block_reason"]) {
-    expect(words(key), key).toBe("unknown · last report 1 min ago");
+    expect(words(key), key).toBe("No decision report · last report 1 min ago");
     expect(reason(key).getAttribute("data-reason"), key).toBe(key);
     expect(link(key), key).toBeNull();
   }
@@ -324,8 +324,8 @@ test("no answer reaching the page reads the Lutron state back too, and changes s
 test("the words of a 503 follow the readback's state, and an unknown one never says OFF", () => {
   expect(unconfirmedWords("off")).toBe("Lutron hasn't confirmed: still OFF");
   expect(unconfirmedWords("on")).toBe("Lutron hasn't confirmed: still ON");
-  expect(unconfirmedWords("unknown")).toBe("Lutron hasn't confirmed: its state is unknown");
-  expect(unconfirmedWords(undefined)).toBe("Lutron hasn't confirmed: its state is unknown");
+  expect(unconfirmedWords("unknown")).toBe("Lutron hasn't reported the light state");
+  expect(unconfirmedWords(undefined)).toBe("Lutron hasn't reported the light state");
 });
 
 // ---------------------------------------------------------------------------------------------------- Back to automatic

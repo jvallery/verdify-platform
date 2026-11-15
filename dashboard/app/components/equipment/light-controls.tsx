@@ -64,7 +64,7 @@ const lutronReads = (equipment: string, state: LightState) => readback({ operati
  */
 export function unconfirmedWords(state: string | null | undefined): string {
   if (state === "on" || state === "off") return `Lutron hasn't confirmed: still ${state.toUpperCase()}`;
-  return "Lutron hasn't confirmed: its state is unknown";
+  return "Lutron hasn't reported the light state";
 }
 
 /**

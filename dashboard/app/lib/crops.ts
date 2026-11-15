@@ -156,8 +156,8 @@ export const daysIn = (since: string, now: number): number => Math.max(0, Math.f
 export const daysText = (days: number): string => `${days} d`;
 /** "Lettuce · Butterhead", or the crop alone. */
 export const cropName = (planting: Pick<Occupant, "crop" | "variety">): string => (planting.variety ? `${planting.crop} · ${planting.variety}` : planting.crop);
-/** "×10", "count unknown" when null. */
-export const countText = (count: number | null | undefined): string => (count === null || count === undefined ? "count unknown" : `×${count}`);
+/** "×10", "count not recorded" when null. */
+export const countText = (count: number | null | undefined): string => (count === null || count === undefined ? "count not recorded" : `×${count}`);
 /** A cell's accessible name: "EAST-HYDRO-12, Lettuce, Butterhead, 12 days", or "EAST-HYDRO-12, empty". */
 export function cellName(cell: Pick<CropCell, "label" | "occupant">, now: number): string {
   if (!cell.occupant) return `${cell.label}, empty`;

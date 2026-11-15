@@ -400,3 +400,8 @@ a.now-status-item:hover{color:var(--mint);text-decoration:underline}
 }
 
 .plan-setting-link{display:inline-flex;align-items:center;min-height:44px}
+@media(min-width:1200px){
+  .now-head>.reservoir-now{padding-block:0}
+  .now-head .hydro-readings>div{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:0 var(--space-3);padding:.5rem 0}
+  .now-head .hydro-readings dd{text-align:right;margin:0}
+}
