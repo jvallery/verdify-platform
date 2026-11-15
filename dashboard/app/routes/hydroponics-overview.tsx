@@ -51,8 +51,8 @@ export default function HydroponicsOverview() {
     {metrics.length > 0 && <dl className="hydro-readings" aria-label="Latest recorded interval averages">
       {metrics.map((metric) => {
         const latest = read.error === null ? latestHydroInterval(read.data, metric.key) : null;
-        return <div key={metric.key}><dt>{metric.label.replace("Hydroponic ", "")}</dt><dd>{latest ? formatValue(latest.value, metric.unit) : "—"}</dd>
-          <span className="meta">{latest ? <>Interval average · <time dateTime={new Date(latest.at * 1000).toISOString()}>{clockTime(latest.at, true)}</time></> : read.error !== null ? "Read unavailable" : read.loading ? "Loading readings" : "No samples in this window"}</span></div>;
+        return <div key={metric.key}><dt>{metric.label.replace("Hydroponic ", "")}</dt><dd>{latest ? formatValue(latest.value, metric.unit) : "—"}
+          <span className="meta">{latest ? <>Interval average · <time dateTime={new Date(latest.at * 1000).toISOString()}>{clockTime(latest.at, true)}</time></> : read.error !== null ? "Read unavailable" : read.loading ? "Loading readings" : "No samples in this window"}</span></dd></div>;
       })}
     </dl>}
     <section aria-labelledby="hydro-quality-title">

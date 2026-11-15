@@ -12,6 +12,7 @@ for (const viewport of [DESKTOP, PHONE]) {
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await expectNoHorizontalScroll(page);
       await mkdir("../artifacts/experience", { recursive: true });
+      await page.screenshot({ path: `../artifacts/experience/${name}-${viewport.width}-viewport.png` });
       await page.screenshot({ path: `../artifacts/experience/${name}-${viewport.width}.png`, fullPage: true });
     });
   }

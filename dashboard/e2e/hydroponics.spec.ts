@@ -9,6 +9,9 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Hydroponics");
     await expect(page.locator(".stack-plot canvas")).toHaveCount(5);
     await expect(page.locator('button[data-cell^="EAST-HYDRO-"]')).toHaveCount(60);
+    const spot = await page.locator('button[data-cell="EAST-HYDRO-1"]').boundingBox();
+    expect(spot!.width).toBeGreaterThanOrEqual(44);
+    expect(spot!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("link", { name: "Manage planting spots ↓" }).click();
     await expect(page.getByRole("heading", { name: "Your planting spots" })).toBeInViewport();
     await expectNoHorizontalScroll(page);
@@ -48,6 +51,6 @@ test("place selection explains a location outside the hydro workspace instead of
   await load(page, "/hydroponics");
   await page.getByLabel("Select by place").fill("west top");
   await page.getByRole("button", { name: "Select", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("Choose places in this workspace");
+  await expect(page.locator(".crop-toolbar").getByRole("alert")).toContainText("Choose places in this workspace");
   await expect(page.locator('.crop-cell[aria-pressed="true"]')).toHaveCount(0);
 });

@@ -16,13 +16,13 @@ Cards sit on a subtle field background. Page descriptions explain the task in or
 
 `/hydroponics` is the dedicated reservoir and planting workspace. It combines the platform's measured pH, electrical conductivity, water temperature, TDS and ORP series with the API-defined hydro rack. The user can select a spot, a range or a whole rail, then plant, edit, move, harvest or remove records using the existing audited forms. Viewers can inspect records without write controls.
 
-The interface uses the persisted shelf and cell layout. It never invents physical positions or treats an absent layout as an empty 60-spot system. The current layout contains 60 hydro spots. Occupancy is derived from records; three plantings occupying nineteen spots are three plantings, not nineteen.
+Each hydro rail occupies its own row, with at least 44-pixel planting targets and contained horizontal scrolling on phones. The interface uses the persisted shelf and cell layout. It never invents physical positions or treats an absent layout as an empty 60-spot system. The current layout contains 60 hydro spots. Occupancy is derived from records; three plantings occupying nineteen spots are three plantings, not nineteen.
 
 The general Crops map excludes hydro shelves. Place-text selection must explain references to the other workspace rather than silently selecting only part of the request. A persistent selection shortcut returns users to their actions after scrolling through the map. Planting history remains shared so that a planting moved between systems retains its full record.
 
 Reservoir trends offer 24-hour, 7-day and 30-day windows. They use registered metric units and the same synchronized chart, table and export components as the rest of the dashboard. Null samples remain gaps. Missing metrics, failed reads and stale records are distinct from valid zero values. Hydroponics is hand-dosed: the page does not invent automatic dosing, nutrient targets or pH setpoints.
 
-The Now overview keeps long AI narratives in an expandable preview at every screen size. Measured conditions and quick controls stay prominent; the model author, timestamp and full text remain accessible.
+On phones, the Now emergency Stop stays fixed above navigation while scrolling. Water keeps its live status and Stop ahead of explanatory copy. The Now overview keeps long AI narratives in an expandable preview at every screen size. Measured conditions and quick controls stay prominent; the model author, timestamp and full text remain accessible.
 
 ## Configuration
 

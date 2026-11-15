@@ -67,6 +67,7 @@
 .crop-selection-return{position:fixed;bottom:1.25rem;right:1.25rem;z-index:var(--z-raised);display:flex;align-items:center;min-height:44px;padding:.65rem 1rem;border:1px solid var(--forest);border-radius:.75rem;background:var(--forest);color:#fff;text-decoration:none;box-shadow:var(--shadow-sm);font-weight:600}
 .crop-selection-return:hover{color:#fff;background:var(--leaf)}
 .hydro-workspace .crop-grid-group{padding:1rem;border:1px solid var(--line);border-radius:.85rem;background:var(--field)}
+.hydro-workspace .crop-rack{display:grid;min-width:42rem;gap:1rem}
 .hydro-workspace .crop-rack .crop-cell{min-height:4rem;border-radius:.6rem;padding:.5rem}
 .hydro-workspace .crop-grid-label{font-size:var(--fs-sm);font-weight:700}
 @media(max-width:860px){.crop-selection-return{bottom:calc(var(--bar-h) + env(safe-area-inset-bottom) + .75rem);right:1rem}}
@@ -75,7 +76,7 @@
 .hydro-readings>div{padding:1.1rem;background:#fff;border:1px solid var(--line);border-radius:.85rem;min-width:0}
 .hydro-readings dt{font-size:var(--fs-sm);color:var(--muted);text-transform:capitalize}
 .hydro-readings dd{margin:.4rem 0;font-size:1.65rem;font-weight:650;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
-.hydro-readings .meta{display:block;font-size:var(--fs-xs)}
+.hydro-readings .meta{display:block;margin-top:.4rem;font-size:var(--fs-xs);font-weight:400;letter-spacing:normal}
 @media(max-width:1099px){.hydro-readings{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.hydro-readings{grid-template-columns:repeat(2,minmax(0,1fr))}.hydro-readings>div{padding:.85rem}}
 
@@ -88,4 +89,13 @@
  .now-stop{position:fixed;left:var(--gutter);right:var(--gutter);bottom:calc(var(--bar-h) + env(safe-area-inset-bottom) + .5rem);z-index:var(--z-nav);background:var(--field);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm)}
  .now-stop .meta{padding:0 .5rem .5rem;margin:0}
  .now-page{padding-bottom:4rem}
+}
+
+/* Keep live water status ahead of explanatory copy on a phone. */
+@media(max-width:600px){
+ .water-page .page-header{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"crumbs crumbs" "title actions" "status status";column-gap:.75rem;margin-bottom:.75rem}
+ .water-page .page-header h1{font-size:1.75rem}
+ .water-page .page-description{display:none}
+ .water-page .page-actions{margin-top:0}
+ .water-page .page-tabs{margin-bottom:1rem}
 }
