@@ -6,7 +6,11 @@ are advisory and why, and the dated STD-CI-03 exceptions (each job or shard with
 branch rule.
 
 Durations: p50/p90 in minutes over the last 25 completed (not cancelled) `ci` runs,
-read from `gh api actions/runs/<id>/jobs` on 2026-11-09.
+read from `gh api actions/runs/<id>/jobs` on 2026-11-09. The shard rows for
+`firmware-secretless-compile` and `campaign-qualification` were re-read on 2026-11-15
+over the 10 latest `main` runs (931dc223..18ed4f00, all sharded, all first-attempt
+green), counting only jobs that ran at least a minute (a path-skipped part reports in
+seconds).
 
 | Context | Gate | p50 / p90 | Note |
 |---|---|---|---|
@@ -16,11 +20,11 @@ read from `gh api actions/runs/<id>/jobs` on 2026-11-09.
 | `ci / dashboard` | required | 0.2 / 0.4 | |
 | `ci / campaign` | required | aggregate | four shards, each p90 at most 10.7 |
 | `ci / lint` | required | 0.2 / 0.2 | |
-| `ci / platform-static` | required (#1535 Q1 default a: added with the branch-rule write that follows the shard PR) | 0.3 / 0.4 | 12 of 12 main runs green since 2026-11-09 |
-| `ci / platform-tests` | required (#1535 Q1 default a, as above) | 2.2 / 2.5 | 12 of 12 main runs green since 2026-11-09 |
-| `ci / firmware-logic` | required (#1535 Q1 default a, as above) | 0.6 / 0.9 | 12 of 12 main runs green since 2026-11-09 |
-| `ci / firmware-secretless-compile` | advisory until it passes 10 consecutive main runs on the `verdify-esphome-ci` job image and the aggregate is green on 3 main runs, then required | aggregate | two target shards, `ci / firmware-secretless-compile-greenhouse` (also runs the generated-cpp negative) and `ci / firmware-secretless-compile-greenhouse-recovery`; unsharded baked p50 was 20.6 (2026-11-12) |
-| `ci / campaign-qualification` | advisory until the aggregate is green on 3 main runs, then required | aggregate | four shards `ci / campaign-qualification-<i>of4` of the tool's default selection; unsharded p50 was about 39.6 (2026-11-12) |
+| `ci / platform-static` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 0.3 / 0.4 | 12 of 12 main runs green since 2026-11-09 |
+| `ci / platform-tests` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 2.2 / 2.5 | 12 of 12 main runs green since 2026-11-09 |
+| `ci / firmware-logic` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 0.6 / 0.9 | 12 of 12 main runs green since 2026-11-09 |
+| `ci / firmware-secretless-compile` | advisory; both gates met 2026-11-15 (10 consecutive green main runs on the `verdify-esphome-ci` job image, 931dc223..18ed4f00, each shard log with 0 platform/tool downloads and `platformio_core: baked`; aggregate green on all of them), so it is next for the required list | aggregate | two target shards: `firmware-secretless-compile-greenhouse` 7.7 / 9.1 (also runs the generated-cpp negative) and `firmware-secretless-compile-greenhouse-recovery` 6.9 / 9.3; unsharded baked p50 was 20.6 (2026-11-12) |
+| `ci / campaign-qualification` | advisory; gate met 2026-11-15 (aggregate green on the 10 latest main runs), so it is next for the required list | aggregate | four shards `campaign-qualification-<i>of4` of the tool's default selection: 1of4 6.9 / 11.4, 2of4 6.6 / 15.3, 3of4 7.2 / 8.8, 4of4 5.0 / 7.2; unsharded p50 was about 39.6 (2026-11-12) |
 | `ci / buildcheck` | advisory until it is green on the last 10 PR and main runs, then required (carried from #1534 to #1535; `VERDIFY_BUILDCHECK` is `true` since 2026-11-10) | new | on push it reports the skipped impact as a pass |
 
 The 30-run window is #1535's acceptance: 30 consecutive `main` runs, at least 90
@@ -32,13 +36,15 @@ are written as the whole `required_status_checks.checks` list, each bound to
 `app_id` 15368 (STD-CI-08), never through `POST .../contexts`; rollback is writing the
 saved previous list back.
 
-Shard rows: the shard contexts are not required themselves; their aggregate is. Re-read
-each shard's p50 after 3 main runs with the sharded jobs and remove its STD-CI-03 row
-below once that p50 is within 15 minutes.
+Shard rows: the shard contexts are not required themselves; their aggregate is. Every
+shard's p50 is within 15 minutes (re-read 2026-11-15, above), so both STD-CI-03 rows
+were removed. Watch list, not exceptions: `validate-pure-logic-2` (p50 13.2, p90 15.6
+over the same 10 runs) and `ci / dashboard` when its path impact runs it (13.1-16.4 on
+the 3 such runs) sit near the line.
 
 ## STD-CI-03 exceptions
 
-| Job | Recorded | Review by | Reason and exit |
-|---|---|---|---|
-| `ci / campaign-qualification` | 2026-11-09 | 2026-12-09 | One process ran about 27 test files serially; p50 about 39.6 min on 2026-11-12. Sharded four ways by #1535 (`campaign-qualification-<i>of4`). Exit: each shard's p50 within 15 min over 3 main runs, then delete this row. |
-| `ci / firmware-secretless-compile` | 2026-11-09 | 2026-11-23 | p50 20.6 min on the baked image (2026-11-12), so the "re-read under 15 min" exit failed and the two targets now compile as two shards (#1535). Exit: each shard's p50 within 15 min over 3 main runs, then delete this row. |
+None. The `campaign-qualification` (recorded 2026-11-09, review 2026-12-09) and
+`firmware-secretless-compile` (recorded 2026-11-09, review 2026-11-23) rows were removed
+on 2026-11-15 after their shards' p50s came in within 15 minutes (#1535). Add a dated row
+here, with its reason and exit, if a job or shard goes over again.
