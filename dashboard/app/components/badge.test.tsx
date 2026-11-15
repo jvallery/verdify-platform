@@ -15,7 +15,7 @@ test("every badge of design system §4.1 carries its word and its class", () => 
     manual: ["Manual", "tag badge-manual"], ai: ["AI", "tag badge-ai"], planned: ["Planned", "tag badge-planned"],
     superseded: ["Superseded", "tag badge-superseded"], stale: ["Stale", "status status-stale"], clean: ["Clean", "tag tag-clean"],
     fert: ["Fert", "tag tag-fert"], running: ["Running", "tag tag-ok"], idle: ["Idle", "tag"], disabled: ["Disabled", "tag tag-muted"],
-    on: ["On", "tag tag-ok"], off: ["Off", "tag"], unknown: ["Unknown", "tag"],
+    on: ["On", "tag tag-ok"], off: ["Off", "tag"], unknown: ["Not reported", "tag"],
   };
   expect(Object.keys(BADGES).sort()).toEqual(Object.keys(expected).sort());
   for (const [kind, [word, className]] of Object.entries(expected)) {
@@ -61,7 +61,7 @@ test("CLEAN and FERT", () => {
 });
 
 test("equipment reads the state the API sends: unknown only when it says unknown, never from an age", () => {
-  for (const [state, word] of [["on", "On"], ["off", "Off"], ["unknown", "Unknown"]]) {
+  for (const [state, word] of [["on", "On"], ["off", "Off"], ["unknown", "Not reported"]]) {
     expect(text(renderUi(<EquipmentStateBadge state={state} />).container)).toBe(word);
     cleanup();
   }

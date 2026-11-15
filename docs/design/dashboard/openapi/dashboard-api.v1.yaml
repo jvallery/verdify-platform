@@ -1444,6 +1444,15 @@ components:
       required: [server_time, indoor, outdoor, band, mode, iris, alerts, running, overrides, leak, freshness, writer]
       properties:
         server_time: {type: string, format: date-time}
+        hydroponics:
+          type: [object, 'null']
+          description: Latest actual reservoir samples, independently timestamped; polled with Now, not chart averages.
+          required: [ph, ec_us_cm, water_temp_f, stale_after_s]
+          properties:
+            ph: {$ref: '#/components/schemas/Reading'}
+            ec_us_cm: {$ref: '#/components/schemas/Reading'}
+            water_temp_f: {$ref: '#/components/schemas/Reading'}
+            stale_after_s: {type: integer, minimum: 1}
         indoor:
           type: object
           required: [temp_f, rh_pct, vpd_kpa]

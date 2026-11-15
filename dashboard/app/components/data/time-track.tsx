@@ -73,6 +73,8 @@ export type TimeTrackProps = {
   night?: readonly { readonly from: number; readonly to: number }[];
   /** The tick row: every 3 h at 861 px and up, every 6 h below (both render; the stylesheet shows one). */
   axis?: boolean;
+  /** Optional time grid, in hours, aligned with axis ticks. */
+  gridHours?: number;
   state?: VizState;
 };
 
@@ -165,8 +167,8 @@ const NEAR_NOW_PERCENT = 6;
  * The tick row: each hour's words centred on a 4 px mark at its true position (anchored inside the window only within
  * `EDGE_PERCENT` of an end), and the now rule named at the top of the track, "now 10:42".
  */
-function Ticks({ scale, now }: { scale: TimeScale; now: number | null }) {
-  const wide = scale.ticks(3), narrow = new Set(scale.ticks(6).map((tick) => tick.at));
+function Ticks({ scale, now, gridHours }: { scale: TimeScale; now: number | null; gridHours?: number }) {
+  const wide = scale.ticks(gridHours ?? 3), narrow = new Set(scale.ticks(gridHours ? gridHours * 2 : 6).map((tick) => tick.at));
   const nowAt = now === null ? null : scale.pos(now);
   return <div className="tt-axis" aria-hidden="true">
     {wide.map((tick) => <span key={tick.at} ref={cssVars({ "--tt-at": tick.pos })}
@@ -187,7 +189,7 @@ function Ticks({ scale, now }: { scale: TimeScale; now: number | null }) {
  * its height with no ticks, so Now's server render, the loading track, never depends on the clock, and a browser whose
  * clock reads otherwise (a skewed phone, the browser suite's pinned clock) hydrates it unchanged.
  */
-export function TimeTrack({ label, from, to, rows, now = null, night = [], axis = true, state = "ready" }: TimeTrackProps) {
+export function TimeTrack({ label, from, to, rows, now = null, night = [], axis = true, gridHours, state = "ready" }: TimeTrackProps) {
   const apiDown = useApiDown();
   const scale = timeScale(from, to);
   const drawn = state === "ready" || state === "stale";
@@ -198,7 +200,7 @@ export function TimeTrack({ label, from, to, rows, now = null, night = [], axis 
   const open = (marker: TrackMarker, anchor: HTMLElement) => setOpened((current) => (current?.marker.key === marker.key ? null : { marker, anchor }));
   return <div className={cls("tt", withEnd && "tt-with-end", state === "stale" && "is-stale", apiDown && "is-neutral", state === "loading" && "viz-skeleton")} role="group" aria-label={label}
     tabIndex={drawn ? 0 : undefined} onKeyDown={drawn ? rovingKeys() : undefined}>
-    {axis && (drawn ? <Ticks scale={scale} now={showNow ? now : null} /> : <div className="tt-axis" aria-hidden="true" />)}
+    {axis && (drawn ? <Ticks scale={scale} now={showNow ? now : null} gridHours={gridHours} /> : <div className="tt-axis" aria-hidden="true" />)}
     {drawn
       ? <ul className="tt-rows">
         {rows.map((row) => {
@@ -207,6 +209,7 @@ export function TimeTrack({ label, from, to, rows, now = null, night = [], axis 
           return <li key={row.key} className={cls("tt-row", row.muted && "tt-row-muted", lanes && "tt-row-lanes")} {...row.data}>
           <span className="tt-label">{row.label}</span>
           <span className="tt-track">
+            {gridHours && scale.ticks(gridHours).map((tick) => <span key={tick.at} ref={cssVars({ "--tt-at": tick.pos })} className="tt-gridline" aria-hidden="true" />)}
             {night.map((span) => {
               const place = scale.span(span.from, span.to);
               return place ? <span key={span.from} ref={cssVars({ "--tt-start": place.start, "--tt-width": place.width })} className="tt-night" aria-hidden="true" /> : null;

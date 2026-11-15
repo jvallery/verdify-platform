@@ -41,7 +41,7 @@ const card = () => document.querySelector<HTMLElement>("#coming-up")!;
 
 test("in band: Running now, the next 12 h in time order with who planned each change, and the lines with no schedule under Later", async () => {
   await open("in-band");
-  expect(within(card()).getByRole("heading", { level: 2 }).textContent).toBe("Running and next");
+  expect(within(card()).getByRole("heading", { level: 2 }).textContent).toBe("Equipment & scheduled work");
   expect(text(card().querySelector(".now-next-now"))).toBe("Running nowNothing running");
   expect(coming("run")).toEqual(["11:47Center mister · 4 × 45 s · sensor-fault backup · only if VPD sensing is degraded", "13:47Center mister · 4 × 45 s · sensor-fault backup · only if VPD sensing is degraded"]);
   expect(coming("plan")).toEqual(["13:00Misting starts at VPD 1.60 → 1.70 kPa AI", "16:30Mist pulse gap 45.0 → 55.0 s AI"]);
@@ -74,17 +74,14 @@ test("the track reads API-05's last 6 h only once it nears the screen; until the
   expect(observe).toHaveBeenCalledOnce();
   expect(sentAt("API-05")).toEqual([0]);
   const track = screen.getByRole("group", { name: TRACK_LABEL });
-  expect([...track.querySelectorAll(".tt-label")].map(text)).toEqual(["Heat", "Vent, fans", "Fog, mist", "Drips", "Main light", "Grow light", "Iris plans", "Setting changes", "Sun"]);
-  // The planner's and the lights' row names are Terms: a tap opens the definition (#1339).
-  expect([...track.querySelectorAll(".tt-label button.term")].map(text)).toEqual(["Main light", "Grow light", "Iris plans", "Setting changes"]);
-  // A marker is a button: a tap opens its detail in full, whatever room its label had (#1340).
-  const marker = track.querySelector<HTMLElement>("[data-row=plan] .tt-marker-button")!;
-  fireEvent.click(marker);
-  const detail = screen.getByRole("dialog", { name: "Setting changes at 13:00" });
-  expect(plain(text(detail.querySelector(".tt-marker-detail")))).toBe("13:00 Misting starts at VPD 1.60 → 1.70 kPa · AI");
+  const labels = [...track.querySelectorAll(".tt-label")].map(text);
+  expect(labels).toContain("Heat 1 (electric)");
+  expect(labels).toContain("Fan 1");
+  expect(labels).not.toContain("Iris plans");
+  expect(track.querySelectorAll(".tt-gridline").length).toBeGreaterThan(0);
   expect(track.querySelector(".tt-now")).not.toBeNull();
-  expect(track.querySelectorAll(".tt-night")).not.toHaveLength(0);
-  expect(plain(text(track.querySelector(".tt-row:nth-child(1) .tt-span")))).toBe("Heat 1 (electric) 04:42–07:10");
+  expect(track.querySelector(".tt-planned,.tt-conditional,.tt-marker")).toBeNull();
+  expect(plain(text(track.querySelector('[data-equipment="heat1"] .tt-span')))).toBe("Heat 1 (electric) 04:42–07:10");
 });
 
 test("each read fails alone with Retry, never reading nothing planned; before the irrigation firmware the runs say when they come", async () => {

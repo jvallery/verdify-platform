@@ -325,3 +325,5 @@ button.term:hover{border-color:var(--ink)}
   .stop-all-water-compact{flex:none;padding-inline:.6rem}
   .stop-all-water-compact .stop-all-water-word{display:none}
 }
+
+.tt-gridline{position:absolute;top:0;bottom:0;left:calc(var(--tt-at) * 1%);border-left:1px solid var(--line);pointer-events:none}

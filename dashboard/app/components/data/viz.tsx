@@ -16,7 +16,7 @@ export type VizState = "ready" | "loading" | "empty" | "stale" | "unknown" | "er
 
 /** The screen-reader words for a state with no data to name. */
 export const STATE_WORDS: Readonly<Record<Exclude<VizState, "ready" | "stale">, string>> = {
-  loading: "Loading", empty: "No data", unknown: "Unknown", error: "Unavailable",
+  loading: "Loading", empty: "No data", unknown: "No current data", error: "Unavailable",
 };
 
 /** A finite number, never null, undefined or NaN. */

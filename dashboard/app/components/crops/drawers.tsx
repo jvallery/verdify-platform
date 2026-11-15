@@ -96,7 +96,7 @@ export type PlantTemplate = { readonly crop: string; readonly variety: string; r
 
 /**
  * Plant… (API-CROP-07): the crop (the catalog's names and recent crops offered), its variety (recent ones offered),
- * plants per cell, the total (blank is unknown), the planted date (today by default; backdating allowed) and notes,
+ * plants per cell, the total (blank leaves the count unrecorded), the planted date (today by default; backdating allowed) and notes,
  * with the places resolved and any planting already there shown before Save. Replace ends or trims what is there.
  * "Keep for the next selection" is re-plant mode: the crop, variety and date stay, so each next selection is
  * Plant… and Save.
@@ -126,7 +126,7 @@ export function PlantDrawer({ positions, cellCount, template, onClose, onSaved }
     const plants = wholeNumber(shownTotal);
     const problem = !crop.trim() ? { field: "crop", message: "Name the crop" }
       : cellCount > 0 && (each === null || Number.isNaN(each)) ? { field: "count_per_cell", message: "A whole number" }
-      : plants !== null && Number.isNaN(plants) ? { field: "count", message: "A whole number, or blank for unknown" }
+      : plants !== null && Number.isNaN(plants) ? { field: "count", message: "A whole number, or leave blank if not counted" }
       : day > today(now) ? { field: "planted_at", message: "Pick today or a day before" } : null;
     setTyped(problem);
     if (problem) return;
@@ -146,7 +146,7 @@ export function PlantDrawer({ positions, cellCount, template, onClose, onSaved }
     <TextField label="Variety (optional)" value={variety} onChange={setVariety} list={varieties} error={error("variety")} />
     {cellCount > 0 && <NumberField label="Plants per cell" value={perCell} onChange={setPerCell} min={0} max={1000} step={1} error={error("count_per_cell")} />}
     <NumberField label="Plants in all (optional)" value={shownTotal} onChange={setTotal} min={0} max={100000} step={1} error={error("count")}
-      hint={cellCount > 0 ? `${cellCount} cell${cellCount === 1 ? "" : "s"} × per cell, unless you change it; blank is unknown` : "Blank is unknown"} />
+      hint={cellCount > 0 ? `${cellCount} cell${cellCount === 1 ? "" : "s"} × per cell, unless you change it; blank leaves the count unrecorded` : "Leave blank if not counted"} />
     <DateField label="Planted" value={day} onChange={setDay} max={today(now)} error={error("planted_at")} />
     <Reason label="Notes (optional)" value={notes} onChange={setNotes} maxLength={2000} error={error("notes")} />
     <Switch label="Replace what is planted there" checked={replace} onChange={setReplace} />
@@ -355,7 +355,7 @@ function RemoveForm({ planting, onClose, onDone }: FormProps) {
   </EditDrawer>;
 }
 
-/** Edit… (API-CROP-11): variety, plants (blank is unknown), stage and notes; only what changed is sent. */
+/** Edit… (API-CROP-11): variety, plants (blank leaves the count unrecorded), stage and notes; only what changed is sent. */
 function EditForm({ planting, onClose, onDone }: FormProps) {
   const toast = useToast();
   const write = useCropWrite("API-CROP-11");
@@ -367,7 +367,7 @@ function EditForm({ planting, onClose, onDone }: FormProps) {
   const [typed, setTyped] = useState<string | null>(null);
   const save = async () => {
     const plants = wholeNumber(count);
-    setTyped(plants !== null && Number.isNaN(plants) ? "A whole number, or blank for unknown" : null);
+    setTyped(plants !== null && Number.isNaN(plants) ? "A whole number, or leave blank if not counted" : null);
     if (plants !== null && Number.isNaN(plants)) return;
     const body: Record<string, unknown> = {};
     if (variety.trim() !== (planting.variety ?? "")) body.variety = variety.trim() || null;
@@ -383,7 +383,7 @@ function EditForm({ planting, onClose, onDone }: FormProps) {
   return <EditDrawer open onClose={onClose} title="Edit planting" heading={planting.crop} onSave={() => void save()} saving={write.sending}
     error={formError(write.error, ["variety", "count", "stage", "notes"])}>
     <TextField label="Variety" value={variety} onChange={setVariety} error={errorFor(write.error, "variety")} />
-    <NumberField label="Plants" value={count} onChange={setCount} min={0} step={1} hint="Blank is unknown" error={typed ?? errorFor(write.error, "count")} />
+    <NumberField label="Plants" value={count} onChange={setCount} min={0} step={1} hint="Leave blank if not counted" error={typed ?? errorFor(write.error, "count")} />
     <Select label="Stage" value={stage < 0 ? null : stage} options={stages.map((item, index) => ({ value: index, label: stageText(item) }))} onChange={setStage} />
     <Reason label="Notes" value={notes} onChange={setNotes} maxLength={2000} error={errorFor(write.error, "notes")} />
   </EditDrawer>;

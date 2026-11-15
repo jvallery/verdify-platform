@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // J9, the caretaker's visit, at 360 × 740 against the fixture API (redesign §10.3, product §J9) on the five sections: an
-// operator starts Fans 15 min from Now's quick actions, runs and stops the wall drip on Water, then acknowledges the flow
+// operator starts Exchange air · 15 min from Now's quick actions, runs and stops the wall drip on Water, then acknowledges the flow
 // alert with a note on Activity; a viewer walks the same pages with no control and the spigot guidance. Every write is
 // counted in the browser with page.on('request'), across the fixture switch to flowing water, which clears the fixture
 // API's own log.
@@ -51,7 +51,7 @@ test("an operator's visit at 360 × 740: a burst from Now, a run and its stop on
   await expectMorning(page);
 
   // Now's quick actions hold the bursts (D-UX-05): no trip to Equipment.
-  await page.getByRole("button", { name: "Fans 15 min" }).click();
+  await page.getByRole("button", { name: "Exchange air · 15 min" }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/equipment/override", body: { kind: "fans", minutes: 15 } });
   await expect(page.locator("dialog[open]")).toHaveCount(0);

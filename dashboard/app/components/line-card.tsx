@@ -66,7 +66,7 @@ export function LineStateText({ line, engine, today, scheduleLabels }: { line: I
     case "paused":
       return <>{pauseWords(line, today) ?? "Paused"}</>;
     case "unknown":
-      return <>Unknown · {validTime(state.observed_at) ? <Ago at={state.observed_at} words={agoWords} /> : "no state received"}</>;
+      return <>No current valve report · {validTime(state.observed_at) ? <Ago at={state.observed_at} words={agoWords} /> : "no state received"}</>;
     case "waiting":
       return <>Waiting{state.reason && <> · {state.reason}</>}</>;
     case "blocked":

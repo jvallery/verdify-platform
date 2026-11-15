@@ -27,7 +27,7 @@ export const BADGES = {
   disabled: { className: "tag tag-muted", text: "Disabled" },
   on: { className: "tag tag-ok", text: "On", ok: true },
   off: { className: "tag", text: "Off" },
-  unknown: { className: "tag", text: "Unknown" },
+  unknown: { className: "tag", text: "Not reported" },
 } as const satisfies Record<string, { className: string; text: string; ok?: true }>;
 export type BadgeKind = keyof typeof BADGES;
 

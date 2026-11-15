@@ -77,7 +77,7 @@ SensorKind = Literal[
     "co2",
     "light",  # LDR / PAR / DLI
     "flow",  # water pulse counter
-    "hydro_quality",  # YINMIK: pH/EC/TDS/ORP/temp
+    "hydro_quality",  # YINMIK: pH/EC/water temperature
     "weather",  # Tempest
     "energy",  # Shelly EM50
     "camera",

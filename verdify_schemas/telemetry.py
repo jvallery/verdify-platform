@@ -172,9 +172,7 @@ class ClimateRow(BaseModel):
     co2_ppm: float | None = Field(default=None, ge=0)
     hydro_ph: float | None = Field(default=None, ge=0, le=14)
     hydro_ec_us_cm: float | None = Field(default=None, ge=0)
-    hydro_tds_ppm: float | None = Field(default=None, ge=0)
     hydro_water_temp_f: float | None = None
-    hydro_orp_mv: float | None = None
     hydro_battery_pct: float | None = Field(default=None, ge=0, le=100)
 
     # Nutrient runoff (fertigation)

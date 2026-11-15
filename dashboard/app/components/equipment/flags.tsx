@@ -11,7 +11,7 @@ import { Panel, type PanelState } from "../panel";
 
 /**
  * The flags (redesign §5.12): occupancy from API-IRR-01 (Frigate through Home Assistant), and the leak flag and the site
- * meter's flow from API-02 `leak`. Each says what it is in words; unknown is "Unknown", never off or 0, and while the
+ * meter's flow from API-02 `leak`. Each says what it is in words; missing reports name the unavailable signal, never off or 0, and while the
  * ingestor is not running or the API is down the API-02 flags read unknown, because their last values are old news.
  */
 export type FlagTone = "fault" | "warn" | undefined;
@@ -23,7 +23,7 @@ export function occupancyFlag(occupancy: Occupancy | null | undefined, today: st
   const seen = occupancy?.seen_at && Number.isFinite(Date.parse(occupancy.seen_at)) ? occupancy.seen_at : null;
   if (occupancy?.occupied === true) return { state: "on", text: <>Someone inside{seen && <> · seen <Ago at={seen} /></>}{hold}</> };
   if (occupancy?.occupied === false) return { state: "off", text: <>Nobody seen{seen && <> · last person <LocalTime at={seen} date={localDate(seen) !== today} /></>}{hold}</> };
-  return { state: "unknown", text: <>Unknown{hold}</> };
+  return { state: "unknown", text: <>Occupancy report unavailable{hold}</> };
 }
 
 /**
@@ -38,13 +38,13 @@ export function leakFlag(leak: Leak | null | undefined): FlagWords {
     return { state: "on", text: <>Water flowing with every valve closed{since && <> · since <LocalTime at={since} /></>}</>, tone: "fault" };
   }
   if (leak?.active === false) return { state: "off", text: "None" };
-  return { state: "unknown", text: "Unknown" };
+  return { state: "unknown", text: "Leak status unavailable" };
 }
 
 /** The site meter's flow: "1 gal/min", "No flow", or unknown. */
 export function flowFlag(leak: Leak | null | undefined): FlagWords {
   const flow = leak?.flow_gpm;
-  if (!finite(flow)) return { state: "unknown", text: "Unknown" };
+  if (!finite(flow)) return { state: "unknown", text: "No recent flow reading" };
   return flow > 0 ? { state: "on", text: <>Flowing · {formatValue(flow, "gal/min")}</> } : { state: "off", text: "No flow" };
 }
 

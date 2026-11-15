@@ -39,7 +39,7 @@ test("with the controller not reporting every state reads unknown with its age, 
   await expect(board(page)).toHaveCount(18);
   await expect(page.locator('.equipment-row:not([data-state="unknown"])')).toHaveCount(0);
   await expect(page.locator('.equipment-board [data-badge="off"], .equipment-board [data-badge="on"]')).toHaveCount(0);
-  await expect(state(page, "fan1")).toHaveText("Unknown · last report 6 d ago");
+  await expect(state(page, "fan1")).toHaveText("No current report · last report 6 d ago");
 });
 
 test("each grow light shows the controller's intent beside the Lutron readback", async ({ page, request }) => {
@@ -61,8 +61,8 @@ test("grow-lights-differ reads differ, as an amber marker with the word", async 
 test("with Home Assistant down both Lutron states read unknown with their age, never off, and the intent keeps its value", async ({ page, request }) => {
   await useScreensClock(page, request, ["grow-lights-differ", "ha-down"]);
   await load(page, "/equipment");
-  await expect(state(page, "grow_light_main")).toHaveText("Off (controller) · Lutron Unknown · 11 min ago");
-  await expect(state(page, "grow_light_grow")).toHaveText("On (controller) · Lutron Unknown · 11 min ago");
+  await expect(state(page, "grow_light_main")).toHaveText("Off (controller) · Lutron No current report · 11 min ago");
+  await expect(state(page, "grow_light_grow")).toHaveText("On (controller) · Lutron No current report · 11 min ago");
   await expect(page.locator("[data-differ]")).toHaveCount(0);
   await expect(state(page, "fan1")).toHaveText("Off");
 });

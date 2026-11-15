@@ -13,14 +13,19 @@ import { JASON, clock, iso, nextId, openAlert } from "./world.mjs";
 
 const HYDRO_METRICS = [
   ["hydro_ph", "Hydroponic pH", "pH"], ["hydro_ec_us_cm", "Hydroponic EC", "µS/cm"],
-  ["hydro_water_temp_f", "Hydroponic water temperature", "°F"], ["hydro_tds_ppm", "Hydroponic TDS", "ppm"], ["hydro_orp_mv", "Hydroponic ORP", "mV"],
+  ["hydro_water_temp_f", "Hydroponic water temperature", "°F"],
 ].map(([key, label, unit]) => ({ key: `climate.${key}`, label, unit, group: "water and soil", cadence_s: 300, retention_days: 365, provenance: "MEASURED", zone: null, daily: false, note: null }));
-const hydro = (world) => { world.metrics.push(...structuredClone(HYDRO_METRICS)); };
+const hydro = (world) => {
+  world.metrics.push(...structuredClone(HYDRO_METRICS));
+  const sample = (value) => ({ value, observed_at: iso(world.now - 180000), reason: null });
+  world.hydroponics = { ph: sample(6.4), ec_us_cm: sample(1889), water_temp_f: sample(75.4), stale_after_s: 600 };
+};
 
 export const FIXTURES = {
   "hydro-live": hydro,
   "hydro-no-data": (world) => {
     hydro(world);
+    for (const key of ["ph", "ec_us_cm", "water_temp_f"]) world.hydroponics[key] = { value: null, observed_at: null, reason: "No reservoir sample in the last 24 h" };
     world.outages.push({ keys: HYDRO_METRICS.map((metric) => metric.key), from: world.now - 31 * 86400000, to: world.now + 86400000 });
   },
   "hydro-gaps": (world) => {

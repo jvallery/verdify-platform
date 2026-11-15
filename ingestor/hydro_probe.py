@@ -14,15 +14,13 @@ Tester" (the name Home Assistant's cloud Tuya integration gives this device):
 
     DP 10  ph                  scale 2     621  -> pH 6.21
     DP 11  conductivity_value  mS/cm, scale 3, so the raw integer is µS/cm
-    DP 1   tds_in              ppm
     DP 2   temp_current        degC, scale 1 (236 -> 23.6 degC -> 74.48 degF)
     DP 7   battery_percentage  reported, but this meter is mains-powered: hydro_battery_pct is NULL
-    DP 12  orp_value           -1 on this SKU (no ORP probe): hydro_orp_mv is NULL
     DP 107 phmaxlimit          the pH alarm limit (1400 = 14.00), a setting
 
 Home Assistant's 2026-04-18 template corrections were fitted to one app
 reading with the DPs crossed: they read DP 107 as EC (x1.77, so hydro_ec_us_cm
-has been 2478 ever since), DP 11 as pH (/400) and DP 10 as TDS (x2). Decoded
+has been 2478 ever since) and DP 11 as pH (/400). Decoded
 as the meter defines them, the same raw values match that app reading (pH 6.21
 against 6.22, EC 2484 against 2.48 mS/cm).
 
@@ -55,12 +53,10 @@ SUPPORTED_VERSIONS = frozenset({"3.1", "3.3", "3.4", "3.5"})
 DP_MAP = {
     "10": ("hydro_ph", 100, 2),
     "11": ("hydro_ec_us_cm", 1, 0),
-    "1": ("hydro_tds_ppm", 1, 0),
     "2": ("hydro_water_temp_f", 10, 1),  # degC here; decode() converts to degF
 }
-# Written NULL on every row the reader updates: DP 12 reports -1 (no ORP probe), and
-# DP 7 battery_percentage is meaningless on this hardwired meter (it reports 1).
-NULL_COLUMNS = ("hydro_orp_mv", "hydro_battery_pct")
+# Written NULL on every row the reader updates: DP 7 battery_percentage is meaningless on this hardwired meter (it reports 1).
+NULL_COLUMNS = ("hydro_battery_pct",)
 
 # tinytuya logs payloads and session keys at DEBUG; never let them through.
 logging.getLogger("tinytuya").setLevel(logging.WARNING)
@@ -153,7 +149,7 @@ def read_status(config: ProbeConfig) -> dict[str, bool | int | float | str]:
 
 
 def decode(dps: Mapping[str, object]) -> dict[str, float | None]:
-    """Map a ``status()`` DP dict onto climate columns; absent DPs stay absent, ORP and battery are NULL."""
+    """Map a ``status()`` DP dict onto climate columns; absent DPs stay absent; unsupported channels are ignored."""
     columns: dict[str, float | None] = {}
     for dp, (column, divisor, places) in DP_MAP.items():
         if dp not in dps:

@@ -233,7 +233,7 @@ center_effluent_ec
 center_tray_ec
 ```
 
-`middle_substrate_vwc` and substrate-moisture aliases are accepted as center root-zone moisture aliases because they are the same 0-100% moisture signal expected by `moisture_center`. Center drain, drainage, leachate, effluent, and tray pH/EC aliases are accepted as runoff feedback equivalents. Drain/runoff TDS remains discovery-only; do not map TDS/ppm into `ec_runoff_center` without an explicit conversion/calibration step. Hydroponic/reservoir pH, EC, and TDS are also discovery-only near-misses; they describe reservoir chemistry, not center runoff.
+`middle_substrate_vwc` and substrate-moisture aliases are accepted as center root-zone moisture aliases because they are the same 0-100% moisture signal expected by `moisture_center`. Center drain, drainage, leachate, effluent, and tray pH/EC aliases are accepted as runoff feedback equivalents. Do not map a dissolved-solids estimate into `ec_runoff_center`; this field requires measured conductivity in its documented units. Hydroponic/reservoir pH and EC are also discovery-only near-misses; they describe reservoir chemistry, not center runoff.
 
 Expected outcome:
 

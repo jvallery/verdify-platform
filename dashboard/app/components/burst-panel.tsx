@@ -89,11 +89,11 @@ const burstName = (label: string) => label.replace(/\s+\d+\s*min$/, "");
  * and its length muted ("Fans 15 min"), one API-IRR-12 `{kind, minutes}` per press with no dialog, then what the command
  * says. `wide` is Equipment's full width on phones; Now sets its own layout through `className`.
  */
-export function BurstButton({ burst, wide = false, className }: { burst: (typeof BURSTS)[number]; wide?: boolean; className?: string }) {
+export function BurstButton({ burst, wide = false, className, label }: { burst: (typeof BURSTS)[number]; wide?: boolean; className?: string; label?: string }) {
   const command = useBurstCommand();
   return <>
     <Button write wide={wide} className={cls("burst-button", className)} busy={command.sending} onClick={() => void command.send({}, { kind: burst.kind, minutes: burst.minutes })}>
-      <span className="burst-name">{burstName(burst.label)}</span> <span className="burst-length">{burst.minutes} min</span>
+      {label ?? <><span className="burst-name">{burstName(burst.label)}</span> <span className="burst-length">{burst.minutes} min</span></>}
     </Button>
     <CommandNote phase={command.phase} message={command.message} error={command.error} />
   </>;
@@ -182,7 +182,7 @@ function RunningBursts() {
   const now = shell.data;
   if (shell.pending && !now) return <><div className="skeleton skeleton-chips" aria-hidden="true" /><p className="screen-reader">Loading what is running</p></>;
   const reportsNot = status.ingestorRunning === false || status.controllerReporting === false;
-  if (!now || shell.error || reportsNot) return <p className="state-note" data-bursts="unknown">Running: unknown</p>;
+  if (!now || shell.error || reportsNot) return <p className="state-note" data-bursts="unknown">Running actions unavailable: no current controller report</p>;
   const ignored = burstsIgnoredText(now.mode.code);
   return <>
     {now.overrides.length === 0 ? <p className="state-note" data-bursts="none">{NO_BURSTS_TEXT}</p> : <div className="burst-running" data-bursts="running">

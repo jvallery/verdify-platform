@@ -3992,7 +3992,7 @@ def test_irrigation_feedback_validator_covers_physical_acceptance_paths():
     assert "the generated public site is live" in runbook
     assert "Run this after merge/deploy on the production host" in runbook
     assert "it proves the deployed state, it does not deploy the state" in runbook
-    assert "Drain/runoff TDS remains discovery-only" in runbook
+    assert "Do not map a dissolved-solids estimate into `ec_runoff_center`" in runbook
 
 
 def test_irrigation_feedback_validator_discovers_esphome_entities():

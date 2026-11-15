@@ -427,3 +427,16 @@ button.sch-agenda-row:hover{border-color:var(--leaf);color:var(--ink)}
   .wat-group{position:relative}
   .sch-agenda-row{grid-template-columns:3rem minmax(0,1fr) auto;gap:var(--space-2);padding-inline:var(--space-2)}
 }
+
+/* A continuous water-control board, with comparable facts instead of nested cards. */
+.wat-group{border-top:2px solid var(--line-strong);padding-top:var(--space-4)}
+.water-line-section{border-left:0;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none;padding:var(--space-4) 0;background:transparent}
+.water-line-section .wat-zone-head{border-bottom:0;padding-bottom:var(--space-2)}
+.schedule-summary{border-block:1px solid var(--line);padding-block:var(--space-4);margin-bottom:var(--space-5)}
+.schedule-summary h2,.schedule-summary p{margin:0 0 var(--space-2)}
+.schedule-summary dl{display:flex;flex-wrap:wrap;gap:var(--space-5);margin:var(--space-4) 0}
+.schedule-summary dt,.schedule-rule-facts dt{font-size:var(--fs-xs);color:var(--muted)}
+.schedule-summary dd,.schedule-rule-facts dd{margin:0}
+.schedule-rule-facts{display:grid;grid-template-columns:1fr 1.5fr 1.5fr 1.5fr;gap:var(--space-3);margin:var(--space-2) 0}
+.sch-rule-group{border-radius:0;box-shadow:none;border-width:0 0 1px}
+@media(max-width:860px){.schedule-rule-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}

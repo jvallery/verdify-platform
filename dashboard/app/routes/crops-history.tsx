@@ -60,7 +60,7 @@ export default function CropsHistory() {
     { key: "crop", header: "Crop", rowHeader: true, cell: (row) => <Link to={href(row.id)} preventScrollReset>{row.crop}</Link> },
     { key: "variety", header: "Variety", cell: (row) => row.variety ?? "" },
     { key: "where", header: "Places", cell: (row) => row.where ?? (row.active ? "" : "Ended"), className: "crop-where" },
-    { key: "count", header: "Plants", cell: (row) => (row.count === null || row.count === undefined ? "Unknown" : String(row.count)) },
+    { key: "count", header: "Plants", cell: (row) => (row.count === null || row.count === undefined ? "Not recorded" : String(row.count)) },
     { key: "planted", header: "Planted", cell: (row) => row.planted_date },
     { key: "ended", header: "Ended", cell: (row) => (row.ended_at ? localDate(row.ended_at) : row.active ? "Active" : "") },
     { key: "reason", header: "Why", cell: (row) => endReasonText(row.end_reason) },

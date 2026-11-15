@@ -42,7 +42,7 @@ export function SettingsOverview({ rows, failed, stale, editTo }: {
           ? <p>No waiting, held or unconfirmed changes in the latest settings response. This does not grade greenhouse conditions.</p>
           : <ul>{attention.slice(0, 4).map((row) => <li key={row.param}>
             <Link to={editTo(row.param)} preventScrollReset><strong>{row.label}</strong><span>{STATE_WORDS[row.state]?.label ?? row.state}</span></Link>
-            <span className="meta">Reported: {row.readback?.value != null ? settingDisplay(row.readback.value, row) : "Unknown"}{stale ? " · stale" : ""}</span>
+            <span className="meta">Reported: {row.readback?.value != null ? settingDisplay(row.readback.value, row) : row.readback?.reason ?? "No device readback"}{stale ? " · stale" : ""}</span>
           </li>)}</ul>}
         {attention.length > 4 && <p><Link to="/settings?filter=attention">Review all {attention.length} pending changes →</Link></p>}
       </div>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // "Running now" (redesign §5.1, US-NOW-03) over the fixtures at 10:42: a row per running item with its plain name, a dot
 // in its equipment's token and "since HH:MM", wet lines with the cause and the time left, bursts from the readback;
-// "Equipment state unknown since HH:MM" while rows 1 to 3 hold, never "Nothing running".
+// "Equipment reports unavailable since HH:MM" while rows 1 to 3 hold, never "Nothing running".
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -73,14 +73,14 @@ test("in band: Nothing running; a burst's row with Clear for an operator while t
   expect(document.querySelector(".now-dot")?.className).toBe("now-dot is-neutral");
 });
 
-test("while the ingestor is not running or the controller is not reporting: Equipment state unknown since HH:MM, never Nothing running", () => {
+test("while the ingestor is not running or the controller is not reporting: Equipment reports unavailable since HH:MM, never Nothing running", () => {
   renderList("ingestor-not-running");
-  expect(shown()).toBe("Equipment state unknown since 10:38");
+  expect(shown()).toBe("Equipment reports unavailable since 10:38");
   cleanup();
   renderList("controller-not-reporting");
-  expect(shown()).toBe("Equipment state unknown since 10:36");
+  expect(shown()).toBe("Equipment reports unavailable since 10:36");
   cleanup();
   // API-02 failing: unknown since the last good answer.
   renderList("l01-running", { failed: true });
-  expect(shown()).toBe("Equipment state unknown since 10:42");
+  expect(shown()).toBe("Equipment reports unavailable since 10:42");
 });

@@ -6,7 +6,7 @@
 // strip; and each fact once. That a viewer sees no write control is roles.spec.ts.
 import type { Page } from "@playwright/test";
 import {
-  CAN_STILL_START, CAN_STILL_START_NO_ENGINE, DESKTOP, PHONE, SMALL_PHONE, STOPPED, expect, expectAboveTheFold, fixtureRequests, fixtureWrites, load, test, toastLines,
+  CAN_STILL_START, CAN_STILL_START_NO_ENGINE, DESKTOP, PHONE, SMALL_PHONE, STOPPED, expect, expectAboveTheFold, expectNoHorizontalScroll, fixtureRequests, fixtureWrites, load, test, toastLines,
   untilPolled, useFixture, useScreensClock,
 } from "./support";
 
@@ -115,9 +115,9 @@ for (const [fixture, says, missing] of [
     await load(page, "/");
     await expect(answer(page)).toHaveText(says);
     await expect(page.locator("main")).not.toContainText(VERDICTS);
-    await expect(page.locator(".now-status [data-tile=mode]")).toHaveText("Mode unknown");
+    await expect(page.locator(".now-status [data-tile=mode]")).toHaveText("Waiting for controller reports");
     await expect(page.locator("#needs-someone .panel-empty p")).toHaveText(missing);
-    await expect(page.locator(".now-next-now")).toContainText("Equipment state unknown since");
+    await expect(page.locator(".now-next-now")).toContainText("Equipment reports unavailable since");
   });
 }
 
@@ -170,7 +170,7 @@ test("Stop all water before the irrigation firmware: the same one request, the t
   await useScreensClock(page, request, ["l01-running", "before-engine"]);
   await load(page, "/");
   await expect(page.locator("[data-arrives=bursts]")).toHaveText("Bursts arrive with the irrigation firmware");
-  await expect(page.getByRole("button", { name: "Fans 15 min" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Exchange air · 15 min" })).toHaveCount(0);
   await stopAll(page).click();
   await untilPolled(page, () => expect(runningRows(page)).toHaveCount(0, { timeout: 500 }));
   await expect(toastLines(page)).toHaveText([STOPPED, CAN_STILL_START_NO_ENGINE]);
@@ -178,10 +178,10 @@ test("Stop all water before the irrigation firmware: the same one request, the t
   expect((await fixtureWrites(request)).map((row) => row.operationId)).toEqual(["API-IRR-07"]);
 });
 
-test("Fans 15 min from the quick actions: one API-IRR-12 with no dialog, and its row in Running now once the controller reads it back", async ({ page, request }) => {
+test("Exchange air · 15 min from the quick actions: one API-IRR-12 with no dialog, and its row in Running now once the controller reads it back", async ({ page, request }) => {
   await useScreensClock(page, request, "burst-readback-late");
   await load(page, "/");
-  await page.getByRole("button", { name: "Fans 15 min" }).click();
+  await page.getByRole("button", { name: "Exchange air · 15 min" }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   // A regex reads the no-break space before the unit as it is.
   await untilPolled(page, () => expect(page.locator(".now-running [data-chip=burst]")).toHaveText(/^Fans burst · \d+\smin left$/, { timeout: 500 }));
@@ -193,7 +193,7 @@ test("with changes switched off Stop stays live while the bursts and Acknowledge
   await useScreensClock(page, request, ["alerts-merged", "writes-off"]);
   await load(page, "/");
   await expect(stopAll(page)).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Fans 15 min" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Exchange air · 15 min" })).toBeDisabled();
   const acknowledge = page.locator("#needs-someone").getByRole("button", { name: /^Acknowledge/ });
   await expect(acknowledge).not.toHaveCount(0);
   for (const button of await acknowledge.all()) await expect(button).toBeDisabled();
@@ -238,7 +238,8 @@ test("Acknowledge sends one API-15 and the answer follows the one count", async 
   const needsSomeone = page.locator("#needs-someone");
   await needsSomeone.getByRole("button", { name: /^Acknowledge/ }).first().click();
   await expect(answer(page)).toHaveText("1 thing needs someone");
-  await expect(needsSomeone).toContainText("Acknowledged by Jason · 10:42");
+  await expect(needsSomeone).not.toContainText("Acknowledged by Jason");
+  await expect(needsSomeone.getByRole("button", { name: /^Acknowledge/ })).toHaveCount(1);
   expect((await fixtureRequests(request, "API-15")).map((row) => row.path)).toEqual(["/v1/alerts/101/ack"]);
 });
 
@@ -253,51 +254,35 @@ test("Water today: each zone's minutes against its cap and when it last got wate
   await expect(water.getByRole("link", { name: /^Water/ })).toHaveAttribute("href", "/water");
 });
 
-test("Running and next from 861 px: the track over the last 6 h and the next 12 h, with its rows, markers, night and the now rule", async ({ page, request }) => {
+test("equipment history has separate device rows, a time grid and no future spans", async ({ page, request }) => {
   await page.setViewportSize(DESKTOP);
   await useScreensClock(page, request, "in-band");
   await load(page, "/");
   const coming = page.locator("#coming-up");
   await coming.scrollIntoViewIfNeeded();
-  const track = coming.getByRole("group", { name: /^Running and next/ });
-  await expect(track.locator(".tt-label")).toHaveText(["Heat", "Vent, fans", "Fog, mist", "Drips", "Main light", "Grow light", "Iris plans", "Setting changes", "Sun"]);
-  // Row names read in full (#1340).
-  for (const label of await track.locator(".tt-label").all()) expect(await label.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-  await expect(track.locator(".tt-row").nth(0).locator(".tt-span").first()).toBeVisible();
-  await expect(track.locator(".tt-now").first()).toBeVisible();
-  // Iris's triggers in words (#1339), in two lanes, each opening its time and outcome on a tap (#1340).
-  await expect(track.locator("[data-row=iris] .tt-marker-label")).toHaveText(["Sunrise plan ✓", "Midday check", "Sunset plan"]);
-  await expect(track.locator("[data-row=sun] .tt-marker-label")).toHaveText(["Sunrise 06:35", "Sunset 16:58"]);
-  await test.step("a tap on Midday check opens its time and outcome", async () => {
-    await track.locator("[data-row=iris] .tt-marker-button").nth(1).click({ timeout: 10_000 });
-    await expect(page.getByRole("dialog", { name: "Iris: Midday check" })).toContainText("Midday check 12:41 · due");
-    await page.keyboard.press("Escape");
-  });
-  // The now rule is named at the top of the track, and the plan's labels stop at the next marker, so its row keeps the others' height.
+  const track = coming.getByRole("group", { name: "Equipment history: the last 6 hours" });
+  await expect(track.locator('[data-equipment="heat1"] .tt-label')).toHaveText("Heat 1 (electric)");
+  await expect(track.locator('[data-equipment="fan1"] .tt-label')).toHaveText("Fan 1");
+  await expect(track.locator(".tt-gridline").first()).toBeVisible();
   await expect(track.locator(".tt-now-label")).toHaveText("now 10:42");
-  const iris = await track.locator("[data-row=iris]").boundingBox({ timeout: 10_000 });
-  const plan = await track.locator("[data-row=plan]").boundingBox({ timeout: 10_000 });
-  expect(Math.round(plan!.height)).toBe(Math.round(iris!.height));
-  // The phone's lists are there for a narrow screen, hidden here.
-  await expect(coming.locator(".now-next")).toBeHidden();
-  await expect(coming.locator("[data-coming=later]")).toHaveText("Later No schedule: Wall drip, South mister, West mister");
+  await expect(track.locator(".tt-planned,.tt-conditional,.tt-marker")).toHaveCount(0);
+  await expect(coming.locator(".now-next")).toBeVisible();
   expect((await fixtureRequests(request, "API-05")).length).toBeGreaterThan(0);
 });
 
-test("Running and next on a phone: Running now and the Next 12 h list, with each plan change, trigger, run and the sun; no track", async ({ page, request }) => {
+test("Running and next on a phone: Running now and the Next 12 h list, with each plan change, trigger, run and the sun; history scrolls separately", async ({ page, request }) => {
   await page.setViewportSize(PHONE);
   await useScreensClock(page, request, ["plan-next", "l01-paused"]);
   await load(page, "/");
   const coming = page.locator("#coming-up");
-  await expect(coming.locator(".now-track")).toBeHidden();
+  await expect(coming.locator(".now-track")).toBeVisible();
   await expect(coming.locator("[data-coming=plan]")).toHaveText(["13:00Misting starts at VPD 1.60 → 1.70 kPa AI", "13:00Wait before misting 60.0 → 90.0 s · Forecast rule · system", "16:30Mist pulse gap 45.0 → 55.0 s AI"]);
   await expect(coming.locator("[data-coming=iris]")).toHaveText(["16:50Iris: Sunset plan"]);
   await expect(coming.locator("[data-coming=sun]")).toHaveText(["16:58Sunset"]);
   await expect(coming.locator("[data-coming=later]")).toContainText("Wall drip paused until 14:00 by Jason: rain · next Wed 07:35");
   expect((await fixtureRequests(request, "API-07")).map((row) => row.path)).toEqual(["/v1/plan?hours=24"]);
   expect((await fixtureRequests(request, "API-IRR-02")).map((row) => row.path)).toEqual(["/v1/irrigation/schedules?days=7"]);
-  // A phone never reads the track's six hours of equipment.
-  expect(await fixtureRequests(request, "API-05")).toEqual([]);
+  await expectNoHorizontalScroll(page);
 });
 
 test("the order: Needs someone and Water today, then Running and next, then the zones; the quick actions above them", async ({ page, request }) => {

@@ -26,24 +26,10 @@ export function scheduleOverview(agenda: {
 
 export function ScheduleOverview({ agenda, day, now, info }: { agenda: ScheduleAgenda; day: string; now: number; info: LineInfo }) {
   const summary = scheduleOverview(agenda, day, now);
-  return <section className="schedule-overview" aria-label="Watering plan at a glance">
-    <a href="#sch-rules-title" className="schedule-overview-card">
-      <span className="eyebrow">ROUTINE WATERING</span>
-      <strong>{summary.routine} enabled {summary.routine === 1 ? "rule" : "rules"}</strong>
-      <span>Recurring watering rules.{summary.disabled > 0 && ` ${summary.disabled} other ${summary.disabled === 1 ? "rule is" : "rules are"} off.`}</span>
-      <span className="schedule-overview-action">Saved rules ↓</span>
-    </a>
-    <a href="#sch-rules-title" className="schedule-overview-card schedule-overview-backup">
-      <span className="eyebrow">SENSOR-FAULT BACKUP</span>
-      <strong>{summary.backup} enabled {summary.backup === 1 ? "window" : "windows"}</strong>
-      <span>Misting only when VPD sensing is degraded.</span>
-      <span className="schedule-overview-action">Backup rules ↓</span>
-    </a>
-    <div className="schedule-overview-card">
-      <span className="eyebrow">NEXT ROUTINE START · SELECTED DAY</span>
-      <strong>{summary.next ? shortTime(summary.next.planned_start) : "No upcoming start"}</strong>
-      <span>{summary.next ? `${info.nameOf(summary.next.line_id)} · subject to controller and line checks.` : "None planned for this day. Sensor-driven misting is separate."}</span>
-      <Link className="schedule-overview-action" to="/water">Check live water status →</Link>
-    </div>
+  return <section className="schedule-summary" aria-label="Watering plan at a glance">
+    <div><h2>Watering program</h2><p className="meta">Recurring rules define when watering may start. Safety checks still decide whether a run proceeds.</p></div>
+    <dl><div><dt>Routine rules</dt><dd>{summary.routine} enabled</dd></div><div><dt>Sensor-fault backup</dt><dd>{summary.backup} windows</dd></div><div><dt>Switched off</dt><dd>{summary.disabled} rules</dd></div></dl>
+    <p><strong>Next routine start: </strong>{summary.next ? <>{shortTime(summary.next.planned_start)} · {info.nameOf(summary.next.line_id)}</> : "None remaining on the selected day"}. <a href="#sch-rules-title">Review saved rules ↓</a></p>
+    <Link to="/water">Live water status →</Link>
   </section>;
 }

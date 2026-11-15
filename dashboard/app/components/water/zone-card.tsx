@@ -65,7 +65,7 @@ export function ZoneCard({ summary, status, today, now, strips, schedules }: Zon
       token={tokenOf(line.kind)} axis={index === 0} next={status.engine && line.kind !== "fog" ? nextRunShort(line.next_run, today, amountOf(line)) : undefined} />;
   };
   const off = zone !== "fog" && lines.length > 0 && lines.every((line) => line.enabled === false) && !running;
-  return <section className={cls("card", "wat-zone", off && "is-off", apiDown && "is-neutral")} data-zone={zone} data-kind={zoneKind(zone)} aria-labelledby={headingId}>
+  return <section className={cls("wat-zone", "water-line-section", off && "is-off", apiDown && "is-neutral")} data-zone={zone} data-kind={zoneKind(zone)} aria-labelledby={headingId}>
     <div className="wat-zone-head">
       <h3 id={headingId} className="wat-zone-name">{name} <span className="wat-zone-kind">{off ? "off" : ZONE_KIND_WORDS[zone]}</span></h3>
       <div className="wat-zone-today" data-limit={capLine ?? undefined}>

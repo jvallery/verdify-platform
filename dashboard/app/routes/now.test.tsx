@@ -101,7 +101,7 @@ test("with the heartbeat 4 min old and with climate 6 min old: the answer names 
   expect(answer()).toBe("Ingestor not running since 10:38");
   expect(banners()[0]).toMatch(/^Ingestor not running since 10:38\. The controller keeps running on its own\./);
   expect(main()).not.toMatch(VERDICTS);
-  expect(running()).toContain("Equipment state unknown since 10:38");
+  expect(running()).toContain("Equipment reports unavailable since 10:38");
   expect(text(document.querySelector("#needs-someone .panel-empty p"))).toBe("In-app alerts may be missing: ingestor not running since 10:38");
   expect(text(document.body)).not.toContain("No open alerts");
   cleanup();
@@ -123,7 +123,7 @@ test("API-02 failing: the answer says so at once, the banner after the second fa
   expect(answer()).toBe("Can't reach the greenhouse data");
   expect(text(document.body)).not.toMatch(/All OK|in band/i);
   expect(document.querySelector(".now-bands")).toBeNull();
-  expect(running()).toContain("Equipment state unknown");
+  expect(running()).toContain("Equipment reports unavailable");
   expect(document.querySelector(".tag-ok, .status-complete, .fresh-ok")).toBeNull();
 });
 
@@ -175,7 +175,7 @@ test("Stop all water before the irrigation firmware: the same one request, the t
   const api = await open(["l01-running", "before-engine"]);
   expect(chips()[0]).toBe("Wall drip · run now · since 10:30");
   expect(text(document.querySelector("[data-arrives=bursts]"))).toBe("Bursts arrive with the irrigation firmware");
-  expect(screen.queryByRole("button", { name: "Fans 15 min" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Exchange air · 15 min" })).toBeNull();
   fireEvent.click(stopButton()!);
   await advance(6000);
   expect(writes(api).map((row) => row.operationId)).toEqual(["API-IRR-07"]);
@@ -184,9 +184,9 @@ test("Stop all water before the irrigation firmware: the same one request, the t
   expect(screen.queryByRole("button", { name: /^Disable/ })).toBeNull();
 });
 
-test("Fans 15 min from the quick actions: one API-IRR-12 with no dialog, then the burst's row once the controller reads it back, with one Clear", async () => {
+test("Exchange air · 15 min from the quick actions: one API-IRR-12 with no dialog, then the burst's row once the controller reads it back, with one Clear", async () => {
   const api = await open("in-band");
-  fireEvent.click(screen.getByRole("button", { name: "Fans 15 min" }));
+  fireEvent.click(screen.getByRole("button", { name: "Exchange air · 15 min" }));
   await advance(0);
   expect(writes(api)).toEqual([expect.objectContaining({ method: "POST", operationId: "API-IRR-12", body: { kind: "fans", minutes: 15 } })]);
   expect(document.querySelector("dialog")).toBeNull();
@@ -244,7 +244,7 @@ test("as at R1, before API-IRR-01 is served: Water status unavailable with Retry
 test("with changes switched off Stop stays live while the bursts and Acknowledge are disabled; a viewer sees no quick actions and no Acknowledge", async () => {
   await open(["alerts-merged", "writes-off"]);
   expect(stopButton()?.hasAttribute("disabled")).toBe(false);
-  expect(screen.getByRole("button", { name: "Fans 15 min" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Exchange air · 15 min" }).hasAttribute("disabled")).toBe(true);
   expect(within(document.querySelector<HTMLElement>("#needs-someone")!).getAllByRole("button", { name: /^Acknowledge/ }).every((button) => button.hasAttribute("disabled"))).toBe(true);
   cleanup();
   stopFixtureApi();
@@ -269,7 +269,8 @@ test("a missed SUNSET turns the Iris phrase amber; Acknowledge sends one API-15 
   expect(writes(api).map((row) => [row.operationId, row.path])).toEqual([["API-15", "/api/v1/alerts/101/ack"]]);
   expect(answer()).toBe("1 thing needs someone");
   // In the shell the signed-in person reads by name, as on Activity.
-  expect(text(document.querySelector("#needs-someone"))).toContain("Acknowledged by Jason · 10:42");
+  expect(document.querySelectorAll("#needs-someone li.alert-row")).toHaveLength(1);
+  expect(text(document.querySelector("#needs-someone"))).not.toContain("Acknowledged by");
 });
 
 test("the answer is never a link: a quiet link under it goes to what explains it; the ingestor banner's #data opens All readings in place", async () => {
@@ -341,7 +342,11 @@ test("no code reads on Now outside All readings, in band, stale, running, a peer
     expect(page.querySelector(".tt-rows"), fixture).not.toBeNull();
     expect(plain(page.textContent ?? ""), fixture).not.toMatch(CODES);
     // The words that replace them are there: the trigger names on the track and the list, the limit by name.
-    if (fixture === "in-band") expect(plain(page.textContent ?? "")).toMatch(/Sunrise plan ✓.*Daily mist & fog limit|Daily mist & fog limit.*Sunrise plan ✓/s);
+    if (fixture === "in-band") {
+      expect(plain(page.textContent ?? "")).toContain("Daily mist & fog limit");
+      expect(plain(page.textContent ?? "")).toContain("Observed equipment · last 6 h");
+      expect(plain(page.textContent ?? "")).toContain("Scheduled work · next 12 h");
+    }
     // Every term the page defines opens its definition from the one glossary.
     expect(page.querySelectorAll("button.term").length, fixture).toBeGreaterThan(5);
     cleanup();

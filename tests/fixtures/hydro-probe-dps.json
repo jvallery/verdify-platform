@@ -1,12 +1,24 @@
 {
-  "description": "YINMIK hydroponic meter status() data points (VD-70, #1183) and the climate columns ingestor/hydro_probe.py decodes them to. DPs per the meter's Tuya model: 1 tds_in (ppm), 2 temp_current (degC, scale 1), 7 battery_percentage (meaningless on this mains-powered meter, decoded to NULL), 10 ph (scale 2), 11 conductivity_value (mS/cm, scale 3, so raw = uS/cm), 12 orp_value (-1: no ORP probe on this SKU), 107 phmaxlimit (pH alarm limit, scale 2, a setting). Add the dict recorded from the meter at cutover as a new case.",
+  "description": "YINMIK read-only status fixtures. Only pH (DP 10), conductivity (DP 11), and water temperature (DP 2) are supported measurements; other data points must not become measurements. Battery is null for this mains-powered meter.",
   "cases": [
     {
       "name": "ha-calibration-note-2026-04-18",
       "source": "jvallery/homeassistant packages/greenhouse/hydroponic_calibration.yaml: the raw values LocalTuya showed on 2026-04-18 (DP 11 2484, DP 10 621, DP 107 1400) against the YINMIK app's pH 6.22, TDS 1240 and EC 2480. HA's template corrections read them as pH 2484/400, TDS 621x2 and EC 1400x1.77.",
-      "dps": {"10": 621, "11": 2484, "12": -1, "107": 1400},
-      "expected": {"hydro_ph": 6.21, "hydro_ec_us_cm": 2484.0, "hydro_orp_mv": null, "hydro_battery_pct": null},
-      "app_reading": {"hydro_ph": 6.22, "hydro_ec_ms_cm": 2.48}
+      "dps": {
+        "10": 621,
+        "11": 2484,
+        "12": -1,
+        "107": 1400
+      },
+      "expected": {
+        "hydro_ph": 6.21,
+        "hydro_ec_us_cm": 2484.0,
+        "hydro_battery_pct": null
+      },
+      "app_reading": {
+        "hydro_ph": 6.22,
+        "hydro_ec_ms_cm": 2.48
+      }
     },
     {
       "name": "full-model-status",
@@ -36,23 +48,51 @@
       "expected": {
         "hydro_ph": 6.21,
         "hydro_ec_us_cm": 2484.0,
-        "hydro_tds_ppm": 1240.0,
         "hydro_water_temp_f": 74.48,
-        "hydro_orp_mv": null,
         "hydro_battery_pct": null
       }
     },
     {
       "name": "partial-status",
       "source": "synthetic: a status carrying only some measurements decodes those and leaves the rest unwritten",
-      "dps": {"2": 185, "10": 587, "12": -1},
-      "expected": {"hydro_water_temp_f": 65.3, "hydro_ph": 5.87, "hydro_orp_mv": null, "hydro_battery_pct": null}
+      "dps": {
+        "2": 185,
+        "10": 587,
+        "12": -1
+      },
+      "expected": {
+        "hydro_water_temp_f": 65.3,
+        "hydro_ph": 5.87,
+        "hydro_battery_pct": null
+      }
     },
     {
       "name": "cutover-2026-11-15-probe-dry",
       "source": "live read_status() from the ingestor pod with the sealed key, Tuya protocol 3.3 (3.4 refused, tuya_err=914), 2026-11-15T00:21Z. The probe was out of water, so the meter omitted DP 1 (TDS) and DP 11 (EC) and the pH is not meaningful; DP 7 reports 1 on this mains-powered meter.",
-      "dps": {"2": 229, "7": 1, "10": 773, "12": -1, "101": "EUStandard", "102": false, "103": true, "104": true, "106": true, "107": 1400, "108": 0, "109": 200000, "110": 0, "111": 1200, "112": -1200, "114": 73, "115": 100},
-      "expected": {"hydro_ph": 7.73, "hydro_water_temp_f": 73.22, "hydro_orp_mv": null, "hydro_battery_pct": null}
+      "dps": {
+        "2": 229,
+        "7": 1,
+        "10": 773,
+        "12": -1,
+        "101": "EUStandard",
+        "102": false,
+        "103": true,
+        "104": true,
+        "106": true,
+        "107": 1400,
+        "108": 0,
+        "109": 200000,
+        "110": 0,
+        "111": 1200,
+        "112": -1200,
+        "114": 73,
+        "115": 100
+      },
+      "expected": {
+        "hydro_ph": 7.73,
+        "hydro_water_temp_f": 73.22,
+        "hydro_battery_pct": null
+      }
     }
   ]
 }

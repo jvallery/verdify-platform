@@ -125,9 +125,9 @@ def test_decode_equals_the_fixture_exactly(case):
     assert hydro_probe.decode(case["dps"]) == case["expected"]
 
 
-def test_orp_sentinel_and_alarm_limit_never_reach_a_column():
+def test_unsupported_channels_and_alarm_limit_never_reach_a_column():
     columns = hydro_probe.decode({"10": 621, "11": 2484, "12": -1, "107": 1400})
-    assert columns["hydro_orp_mv"] is None
+    assert set(columns) == {"hydro_ph", "hydro_ec_us_cm", "hydro_battery_pct"}
     assert -1 not in columns.values()
     # DP 107 is the pH alarm limit; Home Assistant's template read it as EC (1400 x 1.77 = 2478).
     assert columns["hydro_ec_us_cm"] == 2484 and 2478 not in columns.values()
@@ -311,7 +311,7 @@ def test_success_overlays_the_newest_row_with_orp_null_and_logs_values_only(monk
     assert dict(zip(assigned, args[:-1], strict=True)) == case["expected"]
     assert args[-1] == LATEST_TS
     info = [record.getMessage() for record in caplog.records if record.getMessage().startswith("hydro_probe ")]
-    assert info == ["hydro_probe source=tuya_local ph=6.21 ec=2484 tds=1240 temp_f=74.48 battery=null attempts=1"]
+    assert info == ["hydro_probe source=tuya_local ph=6.21 ec=2484 temp_f=74.48 battery=null attempts=1"]
     assert CANARY not in _all_log_text(caplog) and DEVICE_ID not in _all_log_text(caplog)
 
 

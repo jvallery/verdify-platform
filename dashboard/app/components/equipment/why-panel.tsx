@@ -27,7 +27,7 @@ export function whyGraphUrl(since: string): string | null {
 /**
  * One reason as API-13 serves it. A code reads in words, or raw in mono when the table has none (the firmware's own
  * `unknown` is a code with words), with "since HH:MM" and a link to the Graphs window where it began. A null code is the
- * API saying the controller is not reporting, or has no row: "unknown · last report 14 min ago", never its last words.
+ * API saying the controller is not reporting, or has no row: "No decision report · last report 14 min ago", never its last words.
  */
 function WhyRow({ family, label, reason }: { family: ReasonKey; label: string; reason: ReasonState | null }) {
   const code = reason?.code ?? null;
@@ -36,7 +36,7 @@ function WhyRow({ family, label, reason }: { family: ReasonKey; label: string; r
   return <li className="why-row" data-reason={family}>
     <span className="why-label">{label}</span>
     {code === null
-      ? <span className="why-words" data-unknown="true">unknown · {reason?.observed_at ? <>last report <Ago at={reason.observed_at} /></> : "no data"}</span>
+      ? <span className="why-words" data-unknown="true">No decision report · {reason?.observed_at ? <>last report <Ago at={reason.observed_at} /></> : "no data"}</span>
       : <span className="why-words">
         {hasWords(family, code) ? words(family, code) : <code className="why-raw">{code}</code>}
         {since && <span className="why-since"> · since <Since at={since} /></span>}

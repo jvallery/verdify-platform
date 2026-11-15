@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
-import { PlanLanes, type PlanRow } from "../charts/plan-lanes";
+import { planRows } from "../charts/plan-lanes";
 import { chartLinks } from "../charts/uplot-chart";
 import { Chips } from "../components/chips";
 import { LocalTime } from "../components/common";
@@ -15,6 +15,7 @@ import { PlanCard, otherDay, timeLeft } from "../components/plan-card";
 import { PlannerHealth, useIrisReliability } from "../components/planner-health";
 import type { DesiredSetting, Plan as PlanAnswer } from "../lib/operator-api";
 import { useApiRead } from "../lib/queries";
+import { settingDisplay } from "../lib/setting-values";
 import { viewMeta } from "../lib/sections";
 import { useShellNow } from "../lib/shell";
 
@@ -77,18 +78,6 @@ function LanePill({ desired }: { desired: DesiredSetting | null }) {
 }
 
 /**
- * A lane's label opens its setting drawer here, in place (redesign §5.11, D-UX-02): the link lies over the lane's head,
- * where PlanLanes prints the label, and the lane's newest write shows its one pill at the head's end. The same link
- * for every role; a viewer's drawer is read-only.
- */
-function LaneEnd({ row, to, desired }: { row: PlanRow; to: string; desired: DesiredSetting | null }) {
-  return <>
-    <Link className="ctl-lane-link" to={to} preventScrollReset><span className="screen-reader">{row.label}</span></Link>
-    <LanePill desired={desired} />
-  </>;
-}
-
-/**
  * SCR-03 Plan (redesign §5.11): what Iris will tell the controller, whether Iris is healthy and how to override it. The
  * Iris plan in force with its validity bar, planner health with the 36 h marks and the 14-day strip, then one lane per
  * planned setting for the next 24 h (72 h on a chip, `?hours=72`), all from one API-07 read. A lane's label opens the
@@ -135,12 +124,20 @@ export default function Plan() {
       <Panel title="Planned settings" thing="the planned settings" state={state} reserve="lg" onRetry={retry}
         actions={<div className="plan-lane-tools">
           {manual && <p className="plan-manual">{manual}</p>}
-          <Chips kind="nav" small label="Lane window" items={chips} />
+          <Chips kind="nav" small label="Planning window" items={chips} />
         </div>}>
-        {data && <div className="ctl-plan-lanes">
-          <PlanLanes plan={data} now={Math.floor(now / 1000)} hours={hours} takeover={TAKEOVER} stale={stale} syncKey={`verdify:plan:${hours}h`}
-            rowEnd={(row) => <LaneEnd row={row} to={editTo(row.key)} desired={desired.get(row.key) ?? null} />} />
+        <p className="meta">Compare the controller’s last reported value with upcoming changes. A planned value is not a confirmed device setting.</p>
+        {data && <div className="plan-settings-table" role="region" aria-label="Planned settings comparison" tabIndex={0}>
+          <table><caption>Next {hours} h · controller values and planned changes</caption><thead><tr><th scope="col">Setting</th><th scope="col">On the controller</th><th scope="col">Upcoming changes</th><th scope="col">Who controls it</th></tr></thead>
+            <tbody>{planRows(data, Math.floor(now / 1000), Math.floor(now / 1000) + hours * 3600, stale).map((row) => {
+              const changes = row.segments.filter((segment) => segment.kind === "planned" || segment.kind === "superseded");
+              return <tr key={row.key} data-param={row.key} className={row.muted ? "plan-row-muted" : undefined}><th scope="row"><Link className="plan-setting-link" to={editTo(row.key)} preventScrollReset>{row.label}</Link><LanePill desired={desired.get(row.key) ?? null} /></th>
+                <td data-label="On the controller"><strong className="plan-device">{row.device}</strong>{row.stale && <span className="meta">Last reported · stale</span>}{row.deviceNote && <span className="meta">{row.deviceNote}</span>}{row.deviceAt !== null && <span className="meta"><LocalTime at={new Date(row.deviceAt * 1000).toISOString()} date /></span>}</td>
+                <td data-label="Upcoming changes">{changes.length ? <ol className="plan-change-list">{changes.map((change, index) => <li key={`${change.start}:${index}`}>{change.start <= Math.floor(now / 1000) ? <span>{change.kind === "superseded" ? "Overridden plan" : "Planned now"}</span> : <LocalTime at={new Date(change.start * 1000).toISOString()} date />}<span>{settingDisplay(change.value, { unit: row.unit, param: row.key })}{change.kind === "superseded" && <span className="meta">Will not apply · overridden</span>}<span className="meta">Until <LocalTime at={new Date(change.end * 1000).toISOString()} date /></span></span></li>)}</ol> : <span className="meta">{row.muted ? "Held manually · planner skips this setting" : "No further change in this plan"}</span>}</td>
+                <td data-label="Who controls it"><span className="plan-status">{row.head === "PLANNED · AI" ? "AI plan" : row.head || "Band and defaults"}</span></td></tr>;
+            })}</tbody></table>
         </div>}
+
       </Panel>
     </div>
     <SettingDrawerHost />

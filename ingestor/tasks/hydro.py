@@ -31,7 +31,7 @@ from ._common import (
     update_latest_climate_row,
 )
 
-_LOGGED_COLUMNS = ("hydro_ph", "hydro_ec_us_cm", "hydro_tds_ppm", "hydro_water_temp_f", "hydro_battery_pct")
+_LOGGED_COLUMNS = ("hydro_ph", "hydro_ec_us_cm", "hydro_water_temp_f", "hydro_battery_pct")
 _idle_logged = False
 
 RETRY_INTERVAL_S = 30.0
@@ -81,7 +81,7 @@ async def hydro_probe_sync(pool: asyncpg.Pool) -> None:
         log.warning("hydro_probe source=tuya_local skipped: no recent climate row")
         return
     log.info(
-        "hydro_probe source=tuya_local ph=%s ec=%s tds=%s temp_f=%s battery=%s attempts=%d",
+        "hydro_probe source=tuya_local ph=%s ec=%s temp_f=%s battery=%s attempts=%d",
         *(_fmt(columns.get(column)) for column in _LOGGED_COLUMNS),
         attempts,
     )

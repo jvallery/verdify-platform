@@ -2040,6 +2040,13 @@ export interface components {
                 readonly ingestor: components["schemas"]["Freshness"];
                 readonly readback: components["schemas"]["Freshness"];
             };
+            /** @description Latest actual reservoir samples, independently timestamped; polled with Now, not chart averages. */
+            readonly hydroponics?: {
+                readonly ec_us_cm: components["schemas"]["Reading"];
+                readonly ph: components["schemas"]["Reading"];
+                readonly stale_after_s: number;
+                readonly water_temp_f: components["schemas"]["Reading"];
+            } | null;
             readonly indoor: {
                 readonly rh_pct: components["schemas"]["Reading"];
                 readonly temp_f: components["schemas"]["Reading"];

@@ -320,6 +320,25 @@ def mismatch(param, value):
 # ── API-02: the band ────────────────────────────────────────────────────────
 
 
+def test_now_reservoir_keeps_independent_sample_times_and_missing_channels(dsn):
+    async def body(conn, t0):
+        await reporting_now(conn, t0)
+        await climate(conn, t0 - 5 * MIN, hydro_ph=6.4, hydro_ec_us_cm=1889)
+        await climate(conn, t0 - 3 * MIN, hydro_water_temp_f=75.4)
+        await climate(conn, t0 - 25 * timedelta(hours=1), hydro_ph=5.0)
+        current = await as_reader(conn, reads.now)
+        assert current.hydroponics.ph == reads.Reading(value=6.4, observed_at=t0 - 5 * MIN)
+        assert current.hydroponics.ec_us_cm.value == 1889
+        assert current.hydroponics.water_temp_f.observed_at == t0 - 3 * MIN
+        assert current.hydroponics.stale_after_s == 600
+        await conn.execute("UPDATE climate SET hydro_ec_us_cm = NULL")
+        missing = (await as_reader(conn, reads.now)).hydroponics.ec_us_cm
+        assert missing.value is None and missing.observed_at is None
+        assert missing.reason == "No reservoir sample in the last 24 h"
+
+    scenario(dsn, body)
+
+
 def test_now_reports_the_house_band_not_the_legacy_limits(dsn):
     async def body(conn, t0):
         await reporting_now(conn, t0)
