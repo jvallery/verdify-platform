@@ -35,6 +35,15 @@ test("search retains consecutive keystrokes, edits and URL state across navigati
   await search.press("Backspace");
   await expect(search).toHaveValue("");
   await expect(page).toHaveURL(/\/settings$/);
+  await search.pressSequentially("unmatchedsettingzzz");
+  await expect(search).toHaveValue("unmatchedsettingzzz");
+  await expect(page).toHaveURL(/q=unmatchedsettingzzz$/);
+  await page.getByRole("link", { name: "Clear search", exact: true }).click();
+  await expect(search).toHaveValue("");
+  await page.goBack();
+  await expect(search).toHaveValue("unmatchedsettingzzz");
+  await page.goForward();
+  await expect(search).toHaveValue("");
   expect(await fixtureWrites(request)).toEqual([]);
 });
 

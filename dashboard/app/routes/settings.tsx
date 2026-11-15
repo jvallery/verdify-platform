@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-import { Link, useLocation, useSearchParams } from "react-router";
+import { useEffect, useId, useState } from "react";
+import { Link, useLocation, useNavigationType, useSearchParams } from "react-router";
 import { chartLinks } from "../charts/uplot-chart";
 import { SettingsSearch } from "../components/control/find-setting";
 import { isManual } from "../components/control/marks";
@@ -109,8 +110,17 @@ function railGroups(items: readonly Setting[] | null, shown: readonly Setting[])
 // ---------------------------------------------------------------------------------------------------- the page
 export default function Settings() {
   const [params, setParams] = useSearchParams();
-  const { pathname } = useLocation();
-  const query = params.get("q") ?? "";
+  const location = useLocation();
+  const { pathname } = location;
+  const navigationType = useNavigationType();
+  const searchOrigin = useId();
+  const urlQuery = params.get("q") ?? "";
+  const [query, setQuery] = useState(urlQuery);
+  // Typing is immediate local state. Our own deferred URL commits must not
+  // overwrite newer keystrokes; links and browser history still restore the URL.
+  useEffect(() => {
+    if (navigationType === "POP" || location.state?.settingsSearch !== searchOrigin) setQuery(urlQuery);
+  }, [urlQuery, location.key, location.state, navigationType, searchOrigin]);
   const read = useSettingsRead();
   const items = read.data?.items ?? null;
   const window: RecentWindow = params.get("window") === "7d" ? "7d" : "24h";
@@ -133,13 +143,14 @@ export default function Settings() {
     key: item.key, label: item.label, definition: item.definition, count: pool ? pool.filter((row) => item.test(row, now)).length : null, current: item.key === filter.key,
     to: withParams(pathname, params, { filter: item.key === "all" ? null : item.key, edit: null, hist: null }),
   }));
-  // This URL controls the input itself: commit each keystroke before React restores
-  // the controlled value, rather than letting a navigation transition drop it.
-  const search = (text: string) => setParams((current) => {
-    const next = new URLSearchParams(current);
-    if (text) next.set("q", text); else next.delete("q");
-    return next;
-  }, { replace: true, preventScrollReset: true, flushSync: true });
+  const search = (text: string) => {
+    setQuery(text);
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      if (text) next.set("q", text); else next.delete("q");
+      return next;
+    }, { replace: true, preventScrollReset: true, state: { settingsSearch: searchOrigin } });
+  };
   const link = (changes: Record<string, string | null>) => withParams(pathname, params, { ...changes, edit: null, hist: null });
   // An empty list is one line and one action that widens it (redesign §3.6).
   const empty = searched
