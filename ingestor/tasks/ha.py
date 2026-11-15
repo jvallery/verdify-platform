@@ -20,7 +20,6 @@ from ._common import (
     _POPULATE_SITE_CONTENT_SCRIPT,
     GREENHOUSE_ID,
     HA_TOKEN_FILE,
-    INFRA_TELEMETRY_GREENHOUSE_ID,
     LEAK_CLEAR_GPM,
     LEAK_DWELL_TICKS,
     LEAK_TRIGGER_GPM,
@@ -30,8 +29,6 @@ from ._common import (
     ClimateRow,
     EquipmentStateEvent,
     ValidationError,
-    _fetch_all_cpu_samples,
-    _fetch_all_gpu_power_samples,
     _fetch_ha_batch,
     _ha_prev_state,
     _ha_state,
@@ -355,114 +352,6 @@ async def shelly_sync(pool: asyncpg.Pool) -> None:
         sample.ch0_source_ts,
         sample.ch1_source_ts,
         sample.ts,
-    )
-
-
-async def gpu_power_sync(pool: asyncpg.Pool) -> None:
-    """Mirror inference-fleet GPU telemetry from DCGM into TimescaleDB for public charts."""
-    loop = asyncio.get_event_loop()
-    samples = await loop.run_in_executor(None, _fetch_all_gpu_power_samples)
-    if not samples:
-        log.warning("GPU power sync found no DCGM_FI_DEV_POWER_USAGE samples")
-        return
-
-    ts = datetime.now(UTC)
-    async with pool.acquire() as conn:
-        await conn.executemany(
-            """
-            INSERT INTO v_runtime_gpu_power_write (
-                ts, host, vm_name, purpose, gpu, device, model_name, watts,
-                gpu_util_pct, temperature_c, memory_used_mb, memory_free_mb, source, raw, greenhouse_id
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'dcgm', $13::jsonb, $14)
-            ON CONFLICT (greenhouse_id, ts, host, gpu) DO UPDATE SET
-                vm_name = EXCLUDED.vm_name,
-                purpose = EXCLUDED.purpose,
-                device = EXCLUDED.device,
-                model_name = EXCLUDED.model_name,
-                watts = EXCLUDED.watts,
-                gpu_util_pct = EXCLUDED.gpu_util_pct,
-                temperature_c = EXCLUDED.temperature_c,
-                memory_used_mb = EXCLUDED.memory_used_mb,
-                memory_free_mb = EXCLUDED.memory_free_mb,
-                source = EXCLUDED.source,
-                raw = EXCLUDED.raw
-            """,
-            [
-                (
-                    ts,
-                    s["host"],
-                    s.get("vm_name"),
-                    s.get("purpose"),
-                    s["gpu"],
-                    s.get("device"),
-                    s.get("model_name"),
-                    s["watts"],
-                    s.get("gpu_util_pct"),
-                    s.get("temperature_c"),
-                    s.get("memory_used_mb"),
-                    s.get("memory_free_mb"),
-                    json.dumps(s.get("raw") or {}),
-                    INFRA_TELEMETRY_GREENHOUSE_ID,
-                )
-                for s in samples
-            ],
-        )
-    log.debug(
-        "GPU power: %s",
-        ", ".join(f"{s['host']}/gpu{s['gpu']}={s['watts']:.1f}W" for s in samples),
-    )
-
-
-async def infra_cpu_sync(pool: asyncpg.Pool) -> None:
-    """Mirror public-safe CPU telemetry from node exporters into TimescaleDB."""
-    loop = asyncio.get_event_loop()
-    samples = await loop.run_in_executor(None, _fetch_all_cpu_samples)
-    if not samples:
-        log.warning("CPU telemetry sync found no node-exporter samples")
-        return
-
-    ts = datetime.now(UTC)
-    async with pool.acquire() as conn:
-        await conn.executemany(
-            """
-            INSERT INTO v_runtime_infra_cpu_write (
-                ts, host, vm_name, purpose, cpu_util_pct, load1, cores,
-                memory_used_pct, source, raw, greenhouse_id
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'node_exporter', $9::jsonb, $10)
-            ON CONFLICT (greenhouse_id, ts, host) DO UPDATE SET
-                vm_name = EXCLUDED.vm_name,
-                purpose = EXCLUDED.purpose,
-                cpu_util_pct = EXCLUDED.cpu_util_pct,
-                load1 = EXCLUDED.load1,
-                cores = EXCLUDED.cores,
-                memory_used_pct = EXCLUDED.memory_used_pct,
-                source = EXCLUDED.source,
-                raw = EXCLUDED.raw
-            """,
-            [
-                (
-                    ts,
-                    s["host"],
-                    s.get("vm_name"),
-                    s.get("purpose"),
-                    s.get("cpu_util_pct"),
-                    s.get("load1"),
-                    s.get("cores"),
-                    s.get("memory_used_pct"),
-                    json.dumps(s.get("raw") or {}),
-                    INFRA_TELEMETRY_GREENHOUSE_ID,
-                )
-                for s in samples
-            ],
-        )
-    log.debug(
-        "CPU telemetry: %s",
-        ", ".join(
-            f"{s['host']}={s['cpu_util_pct']:.1f}%" if s.get("cpu_util_pct") is not None else f"{s['host']}=n/a"
-            for s in samples
-        ),
     )
 
 

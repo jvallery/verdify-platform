@@ -100,11 +100,9 @@ from tasks import (
     forecast_action_engine,
     forecast_deviation_check,
     forecast_sync,
-    gpu_power_sync,
     grow_light_daily,
     ha_sensor_sync,
     hydro_probe_sync,
-    infra_cpu_sync,
     ingestor_heartbeat,
     irrigation_sync,
     matview_refresh,
@@ -4601,11 +4599,6 @@ async def task_loop(
         # 60s poll; guards on time-of-day (only fires in 00:05-00:10 MDT window,
         # dedup by date). Sprint 24.7 ops stopgap — retires when Sprint 25
         # alert_monitor rule 7 rewrite ships.
-        # Public inference-infra proof data. Kept after greenhouse-critical
-        # tasks and sampled at 5m cadence so exporter stalls cannot starve
-        # dispatch, alerts, or planner heartbeat.
-        ("gpu_power_sync", 300, gpu_power_sync),
-        ("infra_cpu_sync", 300, infra_cpu_sync),
         # Controlled planner experiment (#584 Lane C). All three are inert
         # (immediate return, no DB access) while VERDIFY_POLICY_VECTOR_MODE=off
         # or no VERDIFY_ACTIVE_EXPERIMENT_ID is set — the default env.
