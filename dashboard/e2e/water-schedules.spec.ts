@@ -121,7 +121,7 @@ test("the rules list: every schedule under its line, a disabled one muted, with 
   await expect(topUp).toHaveClass(/is-muted/);
   await expect(topUp.getByRole("switch")).toHaveAttribute("aria-checked", "false");
   await expect(rules.locator('[data-slot="14"] .object-row-meta')).toContainText("Iris may adjust · changed by iris (AI)");
-  await expect(rules.locator('[data-slot="11"] .object-row-state')).toHaveText(/^Mon Wed Fri · sunrise \+ 1\sh \(07:35 today\) · 12\smin$/);
+  await expect(rules.locator('[data-slot="11"] .schedule-rule-facts dd')).toHaveText(["Mon Wed Fri", /sunrise \+ 1\sh \(07:35 today\)/, /12\smin/, "Routine watering"]);
 });
 
 test("390 px: the agenda is the default, by day, with NEXT and a skipped row hatched with its reason; the week strip's days are links", async ({ page, request }) => {

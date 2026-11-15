@@ -5,7 +5,7 @@
 import type { Page } from "@playwright/test";
 import { DESKTOP, PHONE, expect, expectNoHorizontalScroll, fixtureRequests, fixtureWrites, load, test, useScreensClock } from "./support";
 
-const region = (page: Page, name: string) => page.getByRole("region", { name });
+const region = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
 const status = (page: Page, param: string) => page.locator(`[data-param=${param}] .plan-status`);
 
 for (const viewport of [DESKTOP, PHONE]) {
@@ -24,9 +24,9 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(card.locator(".plan-hypothesis")).toContainText("Hot, dry afternoon: engage misting earlier from 13:00 and widen the pulse gap at dusk.");
     await expect(card.locator(".plan-hypothesis [data-badge=ai]")).toHaveText("AI");
     await expect(status(page, "mister_engage_kpa")).toHaveText("YOUR VALUE 1.55 · jason 08:00 · holds until Iris's next plan");
-    await expect(status(page, "mister_pulse_gap_s")).toHaveText("PLANNED · AI");
+    await expect(status(page, "mister_pulse_gap_s")).toHaveText("AI plan");
     const lanes = region(page, "Planned settings");
-    const superseded = lanes.locator("table tbody tr").filter({ hasText: "SUPERSEDED" });
+    const superseded = lanes.locator("table tbody tr").filter({ hasText: "Will not apply · overridden" });
     await expect(superseded).toHaveCount(1);
     await expect(superseded).toContainText("VPD Mister Engage");
     await expect(superseded).toContainText("13:00");
@@ -95,13 +95,13 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(status(page, "mister_engage_delay_s")).toHaveText("Forecast rule · system");
     await expect(row).not.toContainText(/\bAI\b/);
     await expect(row.locator("[data-badge=ai]")).toHaveCount(0);
-    await expect(status(page, "mister_engage_kpa")).toHaveText("PLANNED · AI");
+    await expect(status(page, "mister_engage_kpa")).toHaveText("AI plan");
     const lanes = region(page, "Planned settings");
     await expect(lanes.locator("table tbody tr").filter({ hasText: "Mister Engage Delay" }).filter({ hasText: "90 s" })).toContainText("Forecast rule · system");
   });
 }
 
-test("at 390 px the card, health and lanes stack, with 6rem lane labels", async ({ page, request }) => {
+test("at 390 px the plan, health and setting details stack without page overflow", async ({ page, request }) => {
   await page.setViewportSize(PHONE);
   await useScreensClock(page, request, "superseded-lane");
   await load(page, "/plan");

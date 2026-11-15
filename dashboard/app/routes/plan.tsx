@@ -15,6 +15,7 @@ import { PlanCard, otherDay, timeLeft } from "../components/plan-card";
 import { PlannerHealth, useIrisReliability } from "../components/planner-health";
 import type { DesiredSetting, Plan as PlanAnswer } from "../lib/operator-api";
 import { useApiRead } from "../lib/queries";
+import { settingDisplay } from "../lib/setting-values";
 import { viewMeta } from "../lib/sections";
 import { useShellNow } from "../lib/shell";
 
@@ -131,9 +132,9 @@ export default function Plan() {
             <tbody>{planRows(data, Math.floor(now / 1000), Math.floor(now / 1000) + hours * 3600, stale).map((row) => {
               const changes = row.segments.filter((segment) => segment.kind === "planned" || segment.kind === "superseded");
               return <tr key={row.key} data-param={row.key} className={row.muted ? "plan-row-muted" : undefined}><th scope="row"><Link className="plan-setting-link" to={editTo(row.key)} preventScrollReset>{row.label}</Link><LanePill desired={desired.get(row.key) ?? null} /></th>
-                <td><strong className="plan-device">{row.device}</strong>{row.stale && <span className="meta">Last reported · stale</span>}{row.deviceNote && <span className="meta">{row.deviceNote}</span>}{row.deviceAt !== null && <span className="meta"><LocalTime at={new Date(row.deviceAt * 1000).toISOString()} date /></span>}</td>
-                <td>{changes.length ? <ol className="plan-change-list">{changes.map((change, index) => <li key={`${change.start}:${index}`}>{change.start <= Math.floor(now / 1000) ? <span>{change.kind === "superseded" ? "Overridden plan" : "Planned now"}</span> : <LocalTime at={new Date(change.start * 1000).toISOString()} date />}<span>{change.label || change.short}<span className="meta">{change.kind === "superseded" ? "Will not apply · overridden" : change.what}</span><span className="meta">Until <LocalTime at={new Date(change.end * 1000).toISOString()} date /></span></span></li>)}</ol> : <span className="meta">{row.muted ? "Held manually · planner skips this setting" : "No further change in this plan"}</span>}</td>
-                <td><span className="plan-status">{row.head || "Band and defaults"}</span></td></tr>;
+                <td data-label="On the controller"><strong className="plan-device">{row.device}</strong>{row.stale && <span className="meta">Last reported · stale</span>}{row.deviceNote && <span className="meta">{row.deviceNote}</span>}{row.deviceAt !== null && <span className="meta"><LocalTime at={new Date(row.deviceAt * 1000).toISOString()} date /></span>}</td>
+                <td data-label="Upcoming changes">{changes.length ? <ol className="plan-change-list">{changes.map((change, index) => <li key={`${change.start}:${index}`}>{change.start <= Math.floor(now / 1000) ? <span>{change.kind === "superseded" ? "Overridden plan" : "Planned now"}</span> : <LocalTime at={new Date(change.start * 1000).toISOString()} date />}<span>{settingDisplay(change.value, { unit: row.unit, param: row.key })}{change.kind === "superseded" && <span className="meta">Will not apply · overridden</span>}<span className="meta">Until <LocalTime at={new Date(change.end * 1000).toISOString()} date /></span></span></li>)}</ol> : <span className="meta">{row.muted ? "Held manually · planner skips this setting" : "No further change in this plan"}</span>}</td>
+                <td data-label="Who controls it"><span className="plan-status">{row.head === "PLANNED · AI" ? "AI plan" : row.head || "Band and defaults"}</span></td></tr>;
             })}</tbody></table>
         </div>}
 

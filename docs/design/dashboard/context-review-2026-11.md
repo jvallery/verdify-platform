@@ -120,3 +120,11 @@ Read-only inspection found reservoir samples roughly four to five minutes apart,
 The first native run passed platform tests and dashboard lint, then stopped at TypeScript errors in new test fixtures. Those errors were corrected in `80565644`; replacement CI is running. No production image or physical greenhouse control has been changed by this pass yet.
 
 The exact new reservoir query was executed through the existing production operator API identity in a read-only transaction with a five-second statement timeout. It returned all three samples in 16.1 ms; this verifies present access and bounded query cost, not the eventual deployed API response.
+
+### Third-pass native and visual review
+
+Head `a44929c6` passed dashboard lint, TypeScript and all 1,560 unit tests. The initial native browser collection retained 124 screenshots across 21 views at 1440, 820 and 390 pixels; two Now phone captures stopped at the horizontal-overflow assertion. This is review evidence, not a completed release.
+
+Review identified and corrected an inherited three-column air-control layout at tablet/phone widths, excessive reservoir-summary height, redundant Hydro introductory content and a self-link, repeated planned-source labels, undersized plan-setting links, and a phone plan table whose future values required sideways scrolling. The proposed correction keeps desktop comparison columns but presents labeled setting details on phones, gives setting links 44-pixel targets, makes the equipment-history scroll region keyboard focusable, and compacts the desktop climate/controls area. Corrections await native regression and fresh screenshots.
+
+Phone review also covered Water status, schedules, settings, equipment reasons, climate and zone graphs, lighting, statistics, crops and crop history, water history, Activity and its log, planner history, experiments, and the schedule/setting/Band editors. Existing source attribution, missing-data distinctions, local times, scoped controls and editor actions remain visible; no physical writes were exercised. Tablet and desktop follow-up review remains part of the final acceptance.

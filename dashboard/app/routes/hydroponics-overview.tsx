@@ -7,10 +7,8 @@ import { ReservoirReadings } from "../components/now/reservoir";
 import { hydroPlotSeries, latestHydroInterval } from "../lib/hydroponics";
 import { chartLinks } from "../charts/uplot-chart";
 import { PanelError } from "../components/panel";
-import { hydroTally } from "../lib/crops";
 import { slotRead, useGraphClock, useWindowReads } from "../lib/graph-reads";
 import { viewMeta } from "../lib/sections";
-import { useCropsOutlet } from "./crops";
 import CropsMap from "./crops-map";
 
 export const meta = () => viewMeta("hydro-overview");
@@ -21,7 +19,6 @@ const KEYS = ["climate.hydro_ph", "climate.hydro_ec_us_cm", "climate.hydro_water
 
 /** One workspace for the hand-dosed reservoir and its real, API-defined planting positions. */
 export default function HydroponicsOverview() {
-  const { locations } = useCropsOutlet();
   const [params] = useSearchParams();
   const range = RANGES.find((item) => item.id === params.get("range")) ?? RANGES[0];
   const registry = slotRead(useWindowReads("API-03", REGISTRY, null), "registry");
@@ -32,7 +29,6 @@ export default function HydroponicsOverview() {
   const read = slotRead(useWindowReads("API-04", now !== null && from !== null && metrics.length ? [{ id, params: {
     metric: metrics.map((metric) => metric.key), from: new Date(from * 1000).toISOString(), to: new Date(now * 1000).toISOString(),
   } }] : [], null), id);
-  const tally = locations.data && !locations.isError && locations.consecutiveFailures === 0 ? hydroTally(locations.data) : null;
   const panels: StackPanel[] = metrics.map((metric) => {
     const hasSamples = latestHydroInterval(read.data, metric.key) !== null;
     return { id: metric.key, name: metric.label, unit: metric.unit, metrics: [metric], series: hasSamples ? hydroPlotSeries(read.data, metric.key) : null,
@@ -42,12 +38,8 @@ export default function HydroponicsOverview() {
     series: panel.series, metrics: panel.metrics, unit: panel.unit, now, xRange: { from, to: now },
   })).map((note) => `${panel.name}: ${note}`)) : [];
   return <div className="hydro-workspace">
-    <section className="hydro-intro" aria-label="System overview">
-      <div><p className="eyebrow">RESERVOIR & ROOTS</p><h2>Your hydroponic garden.</h2><p className="meta">Hand-dosed reservoir. Planting records do not change dosing or climate controls.</p></div>
-      <div className="hydro-capacity"><span className="eyebrow">PLANTED SPOTS</span><strong>{tally ? `${tally.planted} / ${tally.total}` : "—"}</strong><span>{tally ? `${tally.total - tally.planted} available` : "Waiting for the location map"}</span></div>
-    </section>
     <nav className="workspace-jumps" aria-label="Hydroponics workspace"><a href="#hydro-planting-title">Manage planting spots ↓</a><a href="#hydro-quality-title">Water-quality trends ↓</a></nav>
-    <ReservoirReadings />
+    <ReservoirReadings link={false} />
     <section aria-labelledby="hydro-quality-title">
       <div className="workspace-heading"><div><p className="eyebrow">OBSERVE</p><h2 id="hydro-quality-title" tabIndex={-1}>Water quality</h2></div>
         <nav className="hydro-ranges" aria-label="Water quality time range">{RANGES.map((item) => <Link key={item.id} to={`?range=${item.id}`} preventScrollReset aria-current={item.id === range.id ? "page" : undefined}>{item.label}</Link>)}</nav>

@@ -335,14 +335,14 @@ a.now-status-item:hover{color:var(--mint);text-decoration:underline}
 .now-stop{grid-column:1/-1;justify-self:start}
 .now-action-group{border-top:1px solid var(--line);padding-top:var(--space-4);min-width:0}
 .now-action-group>h3{margin:0 0 var(--space-3)}
-.now-bursts{display:grid;gap:0}
+.now-bursts{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
 .now-burst{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3) 0;border-bottom:1px solid var(--line)}
 .now-burst h4,.now-burst p{margin:0}
 .now-burst .btn{flex-shrink:0;min-width:7rem}
 .now-actions-term{margin-top:var(--space-3)}
 .now-lights{display:grid;gap:var(--space-4)}
 .now-next{display:block;margin-top:var(--space-5);border-top:1px solid var(--line);padding-top:var(--space-4)}
-.now-track{min-height:0;display:block;overflow:auto}
+.now-track{min-height:0;min-width:0;max-width:100%;display:block;overflow:auto}
 .now-track .tt{min-width:35rem;--tt-label:10rem}
 @media(max-width:860px){.now-actions{grid-template-columns:minmax(0,1fr)}.now-burst-button{width:auto;flex-direction:row}.now-stop{justify-self:stretch}}
 
@@ -367,3 +367,36 @@ a.now-status-item:hover{color:var(--mint);text-decoration:underline}
   .now-head .hydro-readings{grid-template-columns:1fr;margin-block:var(--space-3)}
 }
 @media(max-width:1199px){.now-head{display:flex;flex-direction:column}.now-head>.now-actions{order:2;width:100%}.now-head>.reservoir-now{order:3;width:100%}}
+
+/* Compact measured values keep current conditions and operator actions together. */
+.reservoir-now .hydro-readings>div{background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:.65rem 0}
+.reservoir-now .hydro-readings dt{text-transform:none}
+.reservoir-now .hydro-readings dd{margin:.25rem 0;font-size:1.4rem}
+.reservoir-now .hydro-readings .meta{margin-top:.2rem}
+
+.now-actions,.now-action-group{min-width:0}
+@media(max-width:600px){.now-burst{align-items:flex-start}.now-burst>div{min-width:0}.now-burst .btn{font-size:var(--fs-sm);padding-inline:var(--space-2)}}
+
+@media(max-width:600px){
+  .plan-settings-table table{min-width:0}
+  .plan-settings-table caption{display:block;white-space:normal}
+  .plan-settings-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .plan-settings-table tbody,.plan-settings-table tr,.plan-settings-table th,.plan-settings-table td{display:block;width:100%}
+  .plan-settings-table tbody tr{padding:var(--space-3) 0;border-bottom:1px solid var(--line)}
+  .plan-settings-table tbody th,.plan-settings-table td{border:0;padding:var(--space-2) 0}
+  .plan-settings-table td::before{content:attr(data-label);display:block;color:var(--muted);font-size:var(--fs-xs);margin-bottom:var(--space-1)}
+  .plan-change-list li{grid-template-columns:7rem minmax(0,1fr)}
+}
+@media(min-width:1200px){
+  .now-head>.now-hero{padding:var(--space-4);gap:var(--space-3);grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}
+  .now-head>.now-hero .hero-temp{font-size:3.25rem}
+  .now-head .now-snapshot:not([data-open]) .now-snapshot-text{-webkit-line-clamp:2;line-clamp:2}
+  .now-head .now-snapshot-more{min-height:24px}
+  .now-actions{grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--space-3)}
+  .now-bursts{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3)}
+  .now-burst{flex-direction:column;align-items:stretch;gap:var(--space-2);padding:0;border:0}
+  .now-burst .btn{font-size:var(--fs-sm);padding-inline:var(--space-2)}
+  .now-lights{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-3)}
+}
+
+.plan-setting-link{display:inline-flex;align-items:center;min-height:44px}

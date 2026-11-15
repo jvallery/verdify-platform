@@ -85,7 +85,7 @@ export function RunningAndNext({ now, answer, irrigation }: RunningAndNextProps)
       <h3 className="now-sub">Running now</h3>
       <RunningNow now={now} answer={answer} irrigation={irrigation} />
     </div>
-    <div ref={trackRef} className="now-track">
+    <div ref={trackRef} className="now-track" tabIndex={0} role="region" aria-label="Scrollable equipment history">
       <p className="now-sub now-track-caption">Observed equipment · last {PAST_H} h</p>
       <Track window={window} near={near} /><p className="meta">Filled bars show recorded on-time. Hatched areas have no reliable state. Equipment responds to conditions; this is history, not a forecast.</p>
     </div>

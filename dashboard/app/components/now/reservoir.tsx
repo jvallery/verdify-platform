@@ -5,12 +5,12 @@ import { useShellNow } from "../../lib/shell";
 import { AgeLabel, useNow } from "../freshness";
 
 /** Shares the shell poll. Values are probe samples, independent of climate and chart averaging. */
-export function ReservoirReadings() {
+export function ReservoirReadings({ link = true }: { link?: boolean }) {
   const shell = useShellNow();
   const clock = useNow();
   const hydro = shell.error ? null : shell.data?.hydroponics;
   return <section className="reservoir-now" aria-label="Reservoir now">
-    <div className="workspace-heading"><div><p className="eyebrow">ROOT ENVIRONMENT</p><h2>Reservoir</h2></div><Link to="/hydroponics">Water quality & planting →</Link></div>
+    <div className="workspace-heading"><div><p className="eyebrow">ROOT ENVIRONMENT</p><h2>Reservoir</h2></div>{link && <Link to="/hydroponics">Water quality & planting →</Link>}</div>
     <dl className="hydro-readings">{([
       ["ph", "pH", "pH"], ["ec_us_cm", "Electrical conductivity", "µS/cm"], ["water_temp_f", "Water temperature", "°F"],
     ] as const).map(([key, label, unit]) => {

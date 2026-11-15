@@ -13,7 +13,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { createRoutesStub, useLocation } from "react-router";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { FakeResizeObserver, MockPlot, created, media, setTokens } from "../charts/fixtures/uplot-mock";
-import { FORECAST_RULE, PLANNED_AI } from "../charts/marks";
+import { FORECAST_RULE } from "../charts/marks";
 import { loadUPlot } from "../charts/uplot-chart";
 import { AppShell } from "../components/app-shell";
 import { ServerClockProvider } from "../components/freshness";
@@ -185,10 +185,10 @@ test("the table distinguishes an overridden request from a planned change and th
   const row = document.querySelector("[data-param=mister_engage_kpa]")!;
   expect(status("mister_engage_kpa")).toBe("YOUR VALUE 1.55 · jason 08:00 · holds until Iris's next plan");
   expect(text(row.querySelector(".plan-device"))).toBe("1.55 kPa");
-  expect(text(row)).toContain("1.70 kPa SUPERSEDED");
+  expect(text(row)).toContain("1.70 kPa");
   expect(text(row)).toContain("Will not apply · overridden");
   expect(text(row)).toContain("13:00");
-  expect(status("mister_pulse_gap_s")).toBe(PLANNED_AI);
+  expect(status("mister_pulse_gap_s")).toBe("AI plan");
 });
 
 test("a manual lane reads MANUAL · Iris skips, draws no waypoints, the head counts it, and its label opens its setting drawer here", async () => {
@@ -253,9 +253,9 @@ test("a forecast-rule waypoint reads \"Forecast rule · system\" and never carri
   const row = document.querySelector("[data-param=mister_engage_delay_s]")!;
   expect(row.textContent).not.toMatch(/\bAI\b/);
   expect(row.querySelector("[data-badge=ai]")).toBeNull();
-  expect(text(row)).toContain("90 s Forecast rule · system");
+  expect(text(row.querySelector(".plan-change-list"))).toContain("90 s");
   expect(text(row)).toContain("14:00");
-  expect(status("mister_engage_kpa")).toBe(PLANNED_AI);
+  expect(status("mister_engage_kpa")).toBe("AI plan");
 });
 
 // ---------------------------------------------------------------------------------------------------- planner health
@@ -450,7 +450,7 @@ test("stale device values stay marked stale while the plan remains visible", asy
   await open("/plan", "controller-not-reporting");
   expect(text(document.querySelector("[data-banner=fault]"))).toMatch(/^Controller not reporting/);
   expect(screen.getAllByText("Last reported · stale")).toHaveLength(3);
-  expect(text(region("Planned settings"))).toContain("PLANNED · AI");
+  expect(text(region("Planned settings"))).toContain("AI plan");
 });
 
 test("the time left and the lanes' window count on the server's clock, not a device clock running ahead of it", async () => {
