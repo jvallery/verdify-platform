@@ -110,7 +110,7 @@ test("each burst reads as on Now, its name bold and its length muted; Clear burs
   cleanup(); stopFixtureApi();
   // The controller not reporting: what runs is unknown, so Clear stays.
   await open({ fixture: "controller-not-reporting" });
-  expect(running()).toBe("Running: unknown");
+  expect(running()).toBe("Running actions unavailable: no current controller report");
   expect(button("Clear bursts")).not.toBeNull();
 });
 
@@ -264,8 +264,8 @@ test("until API-IRR-01 answers nothing is offered; if it fails the panel says so
 
 test("while the controller is not reporting what runs reads unknown, never none", async () => {
   await open({ fixture: "controller-not-reporting" });
-  expect(running()).toBe("Running: unknown");
+  expect(running()).toBe("Running actions unavailable: no current controller report");
   cleanup(); stopFixtureApi();
   await open({ fixture: "ingestor-not-running" });
-  expect(running()).toBe("Running: unknown");
+  expect(running()).toBe("Running actions unavailable: no current controller report");
 });

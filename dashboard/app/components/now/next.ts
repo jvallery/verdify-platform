@@ -83,7 +83,7 @@ export function pastSpans(lanes: StateLanes | null | undefined, window: NextWind
       const when = status === "running" ? `on since ${clockOf(start)}` : `${clockOf(start)}–${clockOf(end)}`;
       const span: TrackSpan = {
         key: `${lane.equipment}-${index}`, start, end, status, token: status === "unknown" ? "muted" : token,
-        name: status === "unknown" ? `${name} state unknown ${clockOf(start)}–${clockOf(end)}` : `${name} ${when}${cause}`,
+        name: status === "unknown" ? `${name} report missing ${clockOf(start)}–${clockOf(end)}` : `${name} ${when}${cause}`,
       };
       rows.set(row, [...(rows.get(row) ?? []), span]);
     });

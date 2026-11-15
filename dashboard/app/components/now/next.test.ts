@@ -45,7 +45,7 @@ test("the past from API-05: what was on is solid in its token, named in words; o
   // The controller not reporting: every relay unknown since it went quiet, hatched, never off.
   const quiet = pastSpans(lanesOf("controller-not-reporting"), WINDOW);
   expect(quiet.get("heat")?.at(-1)).toMatchObject({ status: "unknown", token: "muted", end: WINDOW.now });
-  expect(quiet.get("heat")?.filter((span) => span.status === "unknown").map((span) => plain(span.name))).toEqual(["Heat 1 (electric) state unknown 10:36–10:42", "Heat 2 (gas) state unknown 10:36–10:42"]);
+  expect(quiet.get("heat")?.filter((span) => span.status === "unknown").map((span) => plain(span.name))).toEqual(["Heat 1 (electric) report missing 10:36–10:42", "Heat 2 (gas) report missing 10:36–10:42"]);
 });
 
 test("the runs ahead: planned dashed, at their length, labelled and named; what a running line or a burst still has to go", () => {

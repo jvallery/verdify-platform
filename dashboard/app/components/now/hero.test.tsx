@@ -103,7 +103,7 @@ test("rows 2 and 3: no verdict anywhere, values STALE and muted, the mode unknow
     expect(document.querySelector(".hero-temp")?.className).toContain("value-muted");
     expect(document.querySelector(".now-hero-value [data-badge=stale]")).not.toBeNull();
     expect(document.querySelector("[data-fresh]")?.getAttribute("data-fresh")).toBe("off");
-    expect(status()[0]).toBe("Mode unknown");
+    expect(status()[0]).toBe("Waiting for controller reports");
     expect(document.querySelectorAll(".now-band svg.bb.is-stale")).toHaveLength(3);
     expect(text(document.querySelector(".now-hero-climate[data-stale] .now-bands-asof"))).toBe(asOf);
     cleanup();

@@ -207,9 +207,9 @@ test("on a phone Site today holds SAF-4, the flow and occupancy: the soft budget
   expect(text(document.querySelector('.wat-site [data-limit="budget"]'))).toContain("cap reached");
   // The stylesheet hides the quiet rows at 860 px and below only.
   const css = readFileSync(join(process.cwd(), "app/styles/water.css"), "utf8");
-  const phone = css.slice(css.lastIndexOf("@media(max-width:860px){"));
+  const phone = css.slice(css.indexOf("@media(max-width:860px){"));
   expect(phone).toContain(".wat-site-quiet{display:none}");
-  expect(css.slice(0, css.lastIndexOf("@media(max-width:860px){"))).not.toContain(".wat-site-quiet");
+  expect(css.slice(0, css.indexOf("@media(max-width:860px){"))).not.toContain(".wat-site-quiet");
 });
 
 test("before the engine: relay states, the bridge in the status line once, and no per-line REQUESTED pill", async () => {
@@ -436,11 +436,11 @@ test("the rules list: every schedule under its line with its words, who changed 
   expect(text(rules.querySelector(".sch-count-words"))).toBe("3 of 24 schedules");
   expect([...rules.querySelectorAll(".sch-rule-group")].map((group) => group.getAttribute("data-line"))).toEqual(["L01", "L02", "L04"]);
   const rule = (slot: number) => rules.querySelector<HTMLElement>(`[data-slot="${slot}"]`)!;
-  expect(text(rule(11).querySelector(".object-row-state"))).toBe("Mon Wed Fri · sunrise + 1 h (07:35 today) · 12 min");
+  expect([...rule(11).querySelectorAll(".schedule-rule-facts dd")].map(text)).toEqual(["Mon Wed Fri", "sunrise + 1 h (07:35 today)", "12 min", "Routine watering"]);
   expect(text(rule(11).querySelector(".object-row-pill"))).toBe("Manual");
   expect(text(rule(11).querySelector(".object-row-meta"))).toBe("changed by jason 2 days ago");
   expect(text(rule(13).querySelector(".object-row-meta"))).toBe("Iris may adjust · changed by steward (AI) 2 days ago");
-  expect(text(rule(12).querySelector(".object-row-state"))).toBe("Sun · sunrise + 1 h (07:35 today) · feed 5 min · prewet 2 min · flush 4 min on Wall drip");
+  expect([...rule(12).querySelectorAll(".schedule-rule-facts dd")].map(text)).toEqual(["Sun", "sunrise + 1 h (07:35 today)", "feed 5 min · prewet 2 min · flush 4 min on Wall drip", "Routine watering"]);
   fireEvent.click(within(rule(11)).getByRole("switch"));
   await advance(0);
   expect(writes(api).map((row) => [row.method, row.path, row.body])).toEqual([["PUT", "/api/v1/irrigation/schedules/11", { enabled: false, manual: true }]]);
@@ -466,7 +466,7 @@ test("a line's fallback schedules are one row, Backup misting when sensors fail 
   const each = fallback.querySelector<HTMLDetailsElement>("details.sch-fallback-each")!;
   expect(text(each.querySelector("summary"))).toBe("Each schedule · 3");
   expect([...each.querySelectorAll("[data-slot]")].map((node) => node.getAttribute("data-slot"))).toEqual(["1", "2", "3"]);
-  expect(text(each.querySelector('[data-slot="1"] .object-row-state'))).toBe("Daily · solar noon − 2 h (09:47 today) · 4 × 45 s, 60 s gap");
+  expect([...each.querySelectorAll('[data-slot="1"] .schedule-rule-facts dd')].map(text)).toEqual(["Daily", "solar noon − 2 h (09:47 today)", "4 × 45 s, 60 s gap", "Only if VPD sensing fails"]);
   const first = within(each.querySelector<HTMLElement>('[data-slot="1"]')!);
   expect(first.getByRole("link", { name: "Edit sensor-fault backup" })).toBeTruthy();
   // "Enabled" is the switch's name alone; it says ON or OFF itself.
@@ -787,7 +787,7 @@ test("a viewer sees no Stop or header action on any Water view; at phone width S
   expect(button.querySelector(".glyph-stop[aria-hidden=true]")).not.toBeNull();
   expect(headerStop()!.className).toBe("btn btn-stop stop-all-water");
   const css = readFileSync(join(process.cwd(), "app/styles/primitives.css"), "utf8");
-  const phone = css.slice(css.lastIndexOf("@media(max-width:860px){"));
+  const phone = css.slice(css.indexOf("@media(max-width:860px){"));
   expect(phone).toMatch(/\.page-tabs-sticky\{position:sticky;/);
   expect(phone).toContain(".stop-all-water-compact .stop-all-water-word{display:none}");
   // Water's stylesheet shows one of the two: the header's from 861 px, the tabs row's at 860 px and below.

@@ -25,8 +25,8 @@ test("the mode in words, but unknown while rows 1 to 3 hold: what the controller
   expect(modeText(now, nowAnswer({ now, failed: false }))).toBe("In band, holding");
   expect(modeText({ ...now, mode: { code: "VENTILATE", stage: null } }, live)).toBe("Venting to cool");
   expect(modeText({ ...now, mode: { code: "SEALED_MIST", stage: "S1" } }, live)).toBe("Sealed, misting one zone");
-  for (const row of [1, 2, 3]) expect(modeText(now, { row, muted: true, lastDataAt: null })).toBe("Mode unknown");
-  for (const name of ["ingestor-not-running", "controller-not-reporting"]) expect(modeText(nowOf(name), nowAnswer({ now: nowOf(name), failed: false }))).toBe("Mode unknown");
+  for (const row of [1, 2, 3]) expect(modeText(now, { row, muted: true, lastDataAt: null })).toBe("Waiting for controller reports");
+  for (const name of ["ingestor-not-running", "controller-not-reporting"]) expect(modeText(nowOf(name), nowAnswer({ now: nowOf(name), failed: false }))).toBe("Waiting for controller reports");
 });
 
 test("stale data (row 7): the mode as the controller last said it, dated, with no verdict: In band, holding reads holding", () => {

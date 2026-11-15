@@ -182,7 +182,7 @@ function RunningBursts() {
   const now = shell.data;
   if (shell.pending && !now) return <><div className="skeleton skeleton-chips" aria-hidden="true" /><p className="screen-reader">Loading what is running</p></>;
   const reportsNot = status.ingestorRunning === false || status.controllerReporting === false;
-  if (!now || shell.error || reportsNot) return <p className="state-note" data-bursts="unknown">Running: unknown</p>;
+  if (!now || shell.error || reportsNot) return <p className="state-note" data-bursts="unknown">Running actions unavailable: no current controller report</p>;
   const ignored = burstsIgnoredText(now.mode.code);
   return <>
     {now.overrides.length === 0 ? <p className="state-note" data-bursts="none">{NO_BURSTS_TEXT}</p> : <div className="burst-running" data-bursts="running">

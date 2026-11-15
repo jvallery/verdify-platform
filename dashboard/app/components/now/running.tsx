@@ -6,7 +6,7 @@
  * `overrides`) reads "Fans burst · 12 min left", with one Clear for operators (#1136) while the irrigation firmware runs;
  * before it a push-button burst still shows, with no Clear, since API-IRR-12 answers 503. While the answer says the
  * greenhouse data is out of reach, the ingestor is not running or the controller is not reporting (rows 1 to 3), one line
- * reads "Equipment state unknown since HH:MM" instead, never "Nothing running".
+ * reads "Equipment reports unavailable since HH:MM" instead, never "Nothing running".
  */
 import { causeWords } from "../../charts/causes";
 import { leftWords, shortTime } from "../../lib/format";
@@ -69,7 +69,7 @@ export function RunningNow({ now, answer, irrigation }: RunningNowProps) {
   if (answer.kind === "loading") return <><div className="skeleton now-skeleton-chips" aria-hidden="true" /><p className="screen-reader">Loading what is running</p></>;
   if (deviceUnknown(answer) || !now) {
     const at = answer.unknownSince;
-    return <p className="meta now-running-note" data-running="unknown">Equipment state unknown{validTime(at) ? ` since ${shortTime(at)}` : ""}</p>;
+    return <p className="meta now-running-note" data-running="unknown">Equipment reports unavailable{validTime(at) ? ` since ${shortTime(at)}` : ""}</p>;
   }
   const chips = runningChips(now, irrigation.failed ? null : irrigation.data, clock);
   if (!chips.length) return <p className="meta now-running-note" data-running="none">{NOTHING_RUNNING}</p>;

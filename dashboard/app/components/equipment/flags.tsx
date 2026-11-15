@@ -11,7 +11,7 @@ import { Panel, type PanelState } from "../panel";
 
 /**
  * The flags (redesign §5.12): occupancy from API-IRR-01 (Frigate through Home Assistant), and the leak flag and the site
- * meter's flow from API-02 `leak`. Each says what it is in words; unknown is "Unknown", never off or 0, and while the
+ * meter's flow from API-02 `leak`. Each says what it is in words; missing reports name the unavailable signal, never off or 0, and while the
  * ingestor is not running or the API is down the API-02 flags read unknown, because their last values are old news.
  */
 export type FlagTone = "fault" | "warn" | undefined;

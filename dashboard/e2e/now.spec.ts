@@ -115,9 +115,9 @@ for (const [fixture, says, missing] of [
     await load(page, "/");
     await expect(answer(page)).toHaveText(says);
     await expect(page.locator("main")).not.toContainText(VERDICTS);
-    await expect(page.locator(".now-status [data-tile=mode]")).toHaveText("Mode unknown");
+    await expect(page.locator(".now-status [data-tile=mode]")).toHaveText("Waiting for controller reports");
     await expect(page.locator("#needs-someone .panel-empty p")).toHaveText(missing);
-    await expect(page.locator(".now-next-now")).toContainText("Equipment state unknown since");
+    await expect(page.locator(".now-next-now")).toContainText("Equipment reports unavailable since");
   });
 }
 

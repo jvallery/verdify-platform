@@ -401,7 +401,7 @@ test("at 390 px the card, health and lanes stack: card and health share .l-cols-
   const grid = document.querySelector(".l-cols-2.ctl-plan-top")!;
   expect([...grid.children].map((child) => text(child.querySelector("h2")))).toEqual(["Plan in force", "Planner health"]);
   expect(grid.nextElementSibling?.querySelector("h2")?.textContent).toBe("Planned settings");
-  expect(grid.nextElementSibling?.querySelector(".lanes")?.classList.contains("lanes-plan")).toBe(true);
+  expect(grid.nextElementSibling?.querySelector(".plan-settings-table table")).not.toBeNull();
 });
 
 test("loading shows the three panels as skeletons at their reserved heights; nothing from API-07 renders on the server", async () => {
