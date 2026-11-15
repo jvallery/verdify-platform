@@ -27,7 +27,7 @@ const LAYOUT_TOKENS = [
   "--z-raised", "--z-sticky", "--z-nav", "--z-popover", "--z-toast",
 ];
 
-test("app/styles holds exactly the eight section files, and root.tsx loads them after styles.css in the fixed order", () => {
+test("app/styles holds exactly the declared section files, and root.tsx loads them after styles.css in the fixed order", () => {
   const files = readdirSync(new URL("./", import.meta.url)).filter((name) => name.endsWith(".css"));
   expect([...files].sort()).toEqual([...ORDER].sort());
   const root = read("../root.tsx");
@@ -53,10 +53,12 @@ test("tokens.css defines §3.3's layout tokens once, in the one :root of the sec
   // properties, such as the time track's --tt-label, are its own).
   const globals = [...LAYOUT_TOKENS, ...[...uncommented(styles).matchAll(/:root\{([^}]*)\}/g)].flatMap((block) => [...block[1].matchAll(/(--[a-z0-9-]+):/g)].map((match) => match[1]))];
   expect(globals.length).toBeGreaterThan(LAYOUT_TOKENS.length + 40);
-  for (const { name, text } of sections.slice(1).filter((section) => section.name !== "experience.css")) {
+  for (const { name, text } of sections.slice(1)) {
     expect(uncommented(text), name).not.toMatch(/:root\s*\{/);
     const set = [...uncommented(text).matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]);
-    expect(set.filter((property) => globals.includes(property)), name).toEqual([]);
+    expect(set.filter((property) => globals.includes(property)), name).toEqual(name === "experience.css" ? ["--bar-h"] : []);
+    // The eight-destination phone bar needs more space, scoped to the app shell only.
+    if (name === "experience.css") expect(uncommented(text)).toMatch(/@media\(max-width:860px\)\{\s*\.app-page\{--bar-h:6\.5rem\}/);
   }
   // Only lengths, sizes and stacking orders: no colour hides among them.
   expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|rgb|hsl|color/i);

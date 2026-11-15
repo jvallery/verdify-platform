@@ -115,7 +115,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-test("the routes: the seven sections' views, the scorecard's and Planner's redirects, SCR-09 through /auth/* and a catch-all; no /more or /plants", () => {
+test("the routes: the eight sections' views, the scorecard's and Planner's redirects, SCR-09 through /auth/* and a catch-all; no /more or /plants", () => {
   // A layout's own path is its index child's: Water's three views nest under routes/water.tsx.
   type Entry = { path?: string; index?: boolean; children?: Entry[] };
   const leaves = (entries: readonly Entry[], base = ""): string[] => entries.flatMap((entry) => {
@@ -170,7 +170,7 @@ test("a server render carries no greenhouse data: no banner, count, role, name o
   expect(requests).toEqual([]);
 });
 
-test("the header: lockup, the seven sections with the count, the account button; the footer names both builds", async () => {
+test("the header: lockup, the eight sections with the count, the account button; the footer names both builds", async () => {
   serve("alerts-merged");
   mount("/activity"); await advance(0);
   const brand = screen.getByRole("link", { name: "Verdify dashboard, home" });
@@ -198,7 +198,7 @@ test("the header: lockup, the seven sections with the count, the account button;
   expect(within(footer).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["https://graphs.verdify.ai/", "https://lab.verdify.ai/", "/fonts/OFL-sans.txt", "/fonts/OFL-mono.txt"]);
 });
 
-test("the phone bar holds the same seven, each an icon over its label; Control owns Settings and Equipment, Planner owns Plan", async () => {
+test("the phone bar holds the same eight, each an icon over its label; Control owns Settings and Equipment, Planner owns Plan", async () => {
   serve("alerts-merged");
   for (const [path, section] of [["/settings", "Control"], ["/equipment", "Control"], ["/plan", "Planner"], ["/planner/history", "Planner"], ["/planner/experiments", "Planner"]] as const) {
     mount(path); await advance(0);
@@ -206,7 +206,7 @@ test("the phone bar holds the same seven, each an icon over its label; Control o
     expect(tabs.map(text), path).toEqual(["Now", "Water", "Hydroponics", "Crops", "Graphs", "Activity 2 open alerts", "Control", "Planner"]);
     expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/water", "/hydroponics", "/crops", "/graphs", "/activity", "/settings", "/plan"]);
     expect(tabs.filter((tab) => tab.getAttribute("aria-current") === "page").map(text), path).toEqual([section]);
-    expect(tabs.map((tab) => tab.querySelectorAll("svg.tab-icon[aria-hidden=true]").length)).toEqual([1, 1, 1, 1, 1, 1, 1]);
+    expect(tabs.map((tab) => tab.querySelectorAll("svg.tab-icon[aria-hidden=true]").length)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
     const current = within(nav("Sections")).getAllByRole("link").filter((link) => link.getAttribute("aria-current") === "page");
     expect(current.map(text), path).toEqual([section]);
     cleanup();

@@ -2,6 +2,10 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ChartStack, type StackPanel } from "../charts/chart-stack";
+import { buildTimeSeriesModel, chartNotes } from "../charts/time-series";
+import { clockTime } from "../charts/time-axis";
+import { formatValue } from "../lib/format";
+import { latestHydroInterval } from "../lib/hydroponics";
 import { chartLinks } from "../charts/uplot-chart";
 import { PanelError } from "../components/panel";
 import { hydroTally } from "../lib/crops";
@@ -30,19 +34,33 @@ export default function HydroponicsOverview() {
     metric: metrics.map((metric) => metric.key), from: new Date(from * 1000).toISOString(), to: new Date(now * 1000).toISOString(),
   } }] : [], null), id);
   const tally = locations.data && !locations.isError && locations.consecutiveFailures === 0 ? hydroTally(locations.data) : null;
-  const panels: StackPanel[] = metrics.map((metric) => ({ id: metric.key, name: metric.label, unit: metric.unit, metrics: [metric], series: read.data,
-    message: read.error ? "Water-quality readings could not be refreshed. Retry to load this window." : undefined }));
+  const panels: StackPanel[] = metrics.map((metric) => {
+    const hasSamples = latestHydroInterval(read.data, metric.key) !== null;
+    return { id: metric.key, name: metric.label, unit: metric.unit, metrics: [metric], series: hasSamples ? read.data : null,
+      message: read.error !== null ? "Water-quality readings could not be refreshed. Retry to load this window." : read.data ? "No data in this window" : "Loading water-quality readings…" };
+  });
+  const notes = now !== null && from !== null ? panels.flatMap((panel) => chartNotes(buildTimeSeriesModel({
+    series: panel.series, metrics: panel.metrics, unit: panel.unit, now, xRange: { from, to: now },
+  })).map((note) => `${panel.name}: ${note}`)) : [];
   return <div className="hydro-workspace">
     <section className="hydro-intro" aria-label="System overview">
       <div><p className="eyebrow">RESERVOIR & ROOTS</p><h2>Your hydroponic garden.</h2><p>Follow water quality, record each crop and plan the next planting.</p><p className="meta">Hand-dosed reservoir. Planting records do not change dosing or climate controls.</p></div>
       <div className="hydro-capacity"><span className="eyebrow">PLANTED SPOTS</span><strong>{tally ? `${tally.planted} / ${tally.total}` : "—"}</strong><span>{tally ? `${tally.total - tally.planted} available` : "Waiting for the location map"}</span></div>
     </section>
     <nav className="workspace-jumps" aria-label="Hydroponics workspace"><a href="#hydro-planting-title">Manage planting spots ↓</a><a href="#hydro-quality-title">Water-quality trends ↓</a></nav>
+    {metrics.length > 0 && <dl className="hydro-readings" aria-label="Latest recorded interval averages">
+      {metrics.map((metric) => {
+        const latest = read.error === null ? latestHydroInterval(read.data, metric.key) : null;
+        return <div key={metric.key}><dt>{metric.label.replace("Hydroponic ", "")}</dt><dd>{latest ? formatValue(latest.value, metric.unit) : "—"}</dd>
+          <span className="meta">{latest ? <>Interval average · <time dateTime={new Date(latest.at * 1000).toISOString()}>{clockTime(latest.at, true)}</time></> : read.error !== null ? "Read unavailable" : read.loading ? "Loading readings" : "No samples in this window"}</span></div>;
+      })}
+    </dl>}
     <section aria-labelledby="hydro-quality-title">
       <div className="workspace-heading"><div><p className="eyebrow">OBSERVE</p><h2 id="hydro-quality-title" tabIndex={-1}>Water quality</h2></div>
         <nav className="hydro-ranges" aria-label="Water quality time range">{RANGES.map((item) => <Link key={item.id} to={`?range=${item.id}`} preventScrollReset aria-current={item.id === range.id ? "page" : undefined}>{item.label}</Link>)}</nav>
       </div>
       <p className="meta">Measured reservoir readings. Gaps mean no samples; these charts do not prescribe nutrient or pH targets.</p>
+      {notes.length > 0 && <ul className="chart-notes" aria-label="Reservoir data quality">{[...new Set(notes)].map((note) => <li key={note}>{note}</li>)}</ul>}
       {(registry.error !== null || read.error !== null) && <PanelError thing="water quality" onRetry={() => { registry.refetch(); read.refetch(); }} />}
       {registry.data && !metrics.length ? <p className="card">Water-quality metrics are not available from the platform.</p> : now !== null && from !== null && metrics.length > 0 ? <ChartStack label="Hydroponic water quality" panels={panels} now={now} xRange={{ from, to: now }} syncKey={`hydro:${id}`} csvName="hydroponics" tableName="Water quality table" /> : <p aria-busy="true">Loading water-quality charts…</p>}
     </section>

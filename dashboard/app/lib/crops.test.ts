@@ -4,7 +4,7 @@
 import { expect, test } from "vitest";
 import { fixture } from "../../e2e/fixtures/index.mjs";
 import {
-  growingLocations, allCells, cellKey, cellRange, compressLabels, hydroTally, legend, mapCards, onlyCell, rackGroups, selectedPlantings, selectionPositions, shelfKey, zoneKey,
+  workspacePlantingCount, growingLocations, allCells, cellKey, cellRange, compressLabels, hydroTally, legend, mapCards, onlyCell, rackGroups, selectedPlantings, selectionPositions, shelfKey, zoneKey,
 } from "./crops";
 import { parseLocations, type CropShelf, type Locations } from "./operator-api";
 
@@ -69,4 +69,11 @@ test("growing workspaces partition every shelf and keep all sixty hydro position
   const labels = [...allCells(hydro), ...allCells(soil)].map((cell) => cell.label).sort();
   expect(labels).toEqual(allCells(original).map((cell) => cell.label).sort());
   expect(new Set(labels).size).toBe(labels.length);
+});
+
+
+test("hydro planting totals count records once rather than counting each occupied spot", () => {
+  const locations = layout("crops-planted");
+  expect(workspacePlantingCount(growingLocations(locations, true))).toBe(3);
+  expect(workspacePlantingCount(growingLocations(locations, false))).toBe(locations.active_plantings - 3);
 });

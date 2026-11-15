@@ -46,7 +46,7 @@ test("§2.1's h1 and document title for every view; a title that names its secti
 
 test("a section owns every path under its views; the longest view path wins; nothing else is owned", () => {
   const owned: [string, string | null, ViewId | null][] = [
-    ["/", "now", "now"], ["/water", "water", "water-today"], ["/water/", "water", "water-today"], ["/water/schedules", "water", "water-schedules"],
+    ["/hydroponics", "hydro", "hydro-overview"], ["/", "now", "now"], ["/water", "water", "water-today"], ["/water/", "water", "water-today"], ["/water/schedules", "water", "water-schedules"],
     ["/water/history", "water", "water-history"], ["/crops", "crops", "crops-map"], ["/crops/history", "crops", "crops-history"], ["/graphs", "graphs", "graphs-climate"], ["/graphs/zones", "graphs", "graphs-zones"],
     ["/graphs/lighting", "graphs", "graphs-lighting"],
     ["/graphs/statistics", "graphs", "graphs-statistics"], ["/graphs/scorecard", "graphs", "graphs-climate"], ["/activity", "activity", "activity-alerts"],

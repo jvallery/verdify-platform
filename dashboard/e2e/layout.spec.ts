@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // The caretaker's phone: no page scrolls sideways at 360 or 390 px and the bottom bar holds every section tab; with reduced
-// motion emulated, nothing moves. And the shell of redesign §2 at 1440 px and on phones: the seven sections (on one row
+// motion emulated, nothing moves. And the shell of redesign §2 at 1440 px and on phones: the eight sections (on one row
 // from 880 px), Control owning its views, the account menu, the fault row that never scrolls away, the warn notices in
 // flow, the count pill's severity, the redirects and the end of /more.
 import { CARD_PAGES, REDIRECTS, ROUTES, SETTING_DRAWERS } from "./routes";
@@ -70,7 +70,7 @@ for (const path of [...ROUTES, ...CARD_PAGES.map((card) => card.path)]) {
 }
 
 // ---------------------------------------------------------------------------------------------------- the shell
-test("1440 px: the header lists the seven sections; Control opens Settings and is current on Settings and Equipment, Planner on Plan, History and Experiments", async ({ page, request }) => {
+test("1440 px: the header lists the eight sections; Control opens Settings and is current on Settings and Equipment, Planner on Plan, History and Experiments", async ({ page, request }) => {
   await useFixture(request, "alerts-merged");
   await page.setViewportSize(DESKTOP);
   await load(page, "/");
@@ -89,7 +89,7 @@ test("1440 px: the header lists the seven sections; Control opens Settings and i
 });
 
 for (const width of [880, 1100]) {
-  test(`${width} px: the seven section links fit the header's one row, clear of the lockup and the account button`, async ({ page, request }) => {
+  test(`${width} px: the eight section links fit the tablet row or desktop rail, clear of the lockup and the account button`, async ({ page, request }) => {
     await useFixture(request, "alerts-merged");
     await page.setViewportSize({ width, height: 900 });
     await load(page, "/activity");

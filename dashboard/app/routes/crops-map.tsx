@@ -27,6 +27,7 @@ const minute = (now: number) => Math.floor(now / 60_000) * 60_000;
  */
 export default function CropsMap() {
   const { hydro, locations, selected, setSelected, openPlanting, openCell } = useCropsOutlet();
+  const selectionId = useId();
   const now = useClockValue(minute);
   const operator = useRole() === "operator";
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -64,7 +65,7 @@ export default function CropsMap() {
   const single = onlyCell(selected);
   return <div className="crop-map">
     {(locations.isError || locations.consecutiveFailures > 0) && <PanelError thing="planting records" text="Showing the last available planting map. Refresh before making changes." onRetry={() => void locations.refetch()} />}
-    <div className="crop-toolbar" role="region" aria-label="Selection">
+    <div id={selectionId} tabIndex={-1} className="crop-toolbar" role="region" aria-label="Selection">
       <p className="crop-toolbar-what" aria-live="polite">
         {selected.size ? <><strong>{selected.size} selected:</strong> {positions.join(", ")}</> : "Nothing selected. Tap cells, drag across them, or use the rail and shelf buttons."}
       </p>
@@ -85,14 +86,17 @@ export default function CropsMap() {
       </div>
       {held.size > 1 && <p className="meta">The selection holds {held.size} plantings; select one planting's cells to move, harvest or remove it.</p>}
       <PlaceSelect hydro={hydro} onFound={(keys) => {
-        const allowed = new Set([...allCells(data).map((cell) => cellKey(cell.label)), ...data.zones.flatMap((zone) => [zoneKey(zone.slug), ...(zone.shelves ?? []).map((shelf) => shelfKey(shelf.slug))])]);
-        toggle(keys.filter((key) => allowed.has(key)), true);
+        const allowed = new Set([...allCells(data).map((cell) => cellKey(cell.label)), ...data.zones.flatMap((zone) => [...(hydro ? [] : [zoneKey(zone.slug)]), ...(zone.shelves ?? []).map((shelf) => shelfKey(shelf.slug))])]);
+        if (!keys.length || keys.some((key) => !allowed.has(key))) return false;
+        toggle(keys, true);
+        return true;
       }} />
     </div>
     <CropLegend items={legend(data)} />
     <div className="crop-cards">
       {cards.map((card) => <MapCardView key={card.key} card={card} tones={tones} now={now} selection={selection} />)}
     </div>
+    {selected.size > 0 && <a className="crop-selection-return" href={`#${selectionId}`}>{selected.size} selected · Open actions ↑</a>}
     {planting && <PlantDrawer positions={positions} cellCount={cellCount} template={template} onClose={() => setPlanting(false)}
       onSaved={(kept) => { setTemplate(kept); setPlanting(false); setSelected(() => new Set()); setAnchor(null); }} />}
   </div>;
@@ -102,7 +106,7 @@ export default function CropsMap() {
  * The place box: a place text ("hydro 1-30", "rail A top", "west top", "south floor") resolved by API-CROP-06 and added
  * to the selection, so a whole re-plant is typed rather than tapped. An unreadable or ambiguous text says why.
  */
-function PlaceSelect({ hydro, onFound }: { hydro: boolean; onFound: (keys: PlaceKey[]) => void }) {
+function PlaceSelect({ hydro, onFound }: { hydro: boolean; onFound: (keys: PlaceKey[]) => boolean }) {
   const id = useId();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +117,8 @@ function PlaceSelect({ hydro, onFound }: { hydro: boolean; onFound: (keys: Place
     setBusy(true);
     try {
       const found = await apiGet("API-CROP-06", { q: text.trim() });
-      onFound(found.places.map((place) => (place.cell ? cellKey(place.cell) : place.shelf ? shelfKey(place.shelf) : zoneKey(place.zone))));
+      const accepted = onFound(found.places.map((place) => (place.cell ? cellKey(place.cell) : place.shelf ? shelfKey(place.shelf) : zoneKey(place.zone))));
+      if (!accepted) { setError("Choose places in this workspace. Hydroponics holds the hydro spots; Crops holds the shelves and soil beds."); return; }
       setError(null);
       setText("");
     } catch (caught) {

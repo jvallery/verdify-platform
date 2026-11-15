@@ -41,3 +41,12 @@ test("missing samples stay empty rather than drawing a zero-value reservoir", as
   await expect(page.getByText("No data in this window", { exact: true })).toHaveCount(5);
   await expect(page.locator(".stack-plot canvas")).toHaveCount(0);
 });
+
+test("place selection explains a location outside the hydro workspace instead of silently dropping it", async ({ page, request }) => {
+  await useScreensClock(page, request, "hydro-live");
+  await load(page, "/hydroponics");
+  await page.getByLabel("Select by place").fill("west top");
+  await page.getByRole("button", { name: "Select", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Choose places in this workspace");
+  await expect(page.locator('.crop-cell[aria-pressed="true"]')).toHaveCount(0);
+});
