@@ -283,19 +283,6 @@
       128
     ]
   },
-  "site-inference-infra": {
-    "token": "d5d0d34d88cd492a91e15ec6d302e36e",
-    "panels": [
-      10,
-      11,
-      12,
-      13,
-      20,
-      21,
-      22,
-      30
-    ]
-  },
   "site-intelligence": {
     "token": "aad7fb117d994727a45dfa48f63b13f2",
     "panels": [

@@ -102,12 +102,7 @@ from verdify_schemas import (  # noqa: E402
     PublicBandTraceSummary,
     PublicDataHealthCheck,
     PublicDataHealthResponse,
-    PublicGpuPowerLatest,
-    PublicGpuPowerPoint,
-    PublicGpuPowerResponse,
     PublicHomeMetrics,
-    PublicInfraCpuLatest,
-    PublicInfraCpuPoint,
     PublicPipelineHealthSource,
     PublicPlannerDelivery,
     PublicPlannerHealthResponse,
@@ -1354,8 +1349,6 @@ PUBLIC_HOME_METRICS_CACHE_TTL_S = 30.0
 _PUBLIC_HOME_METRICS_CACHE: dict[str, tuple[float, PublicHomeMetrics]] = {}
 PUBLIC_BAND_TRACE_CACHE_TTL_S = 30.0
 _PUBLIC_BAND_TRACE_CACHE: dict[str, tuple[float, PublicBandTraceResponse]] = {}
-PUBLIC_GPU_POWER_CACHE_TTL_S = 30.0
-_PUBLIC_GPU_POWER_CACHE: dict[str, tuple[float, dict]] = {}
 CONTACT_ALLOWED_TOPICS = {"build", "control", "data", "press", "collaboration", "correction", "other"}
 CONTACT_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CONTACT_URL_RE = re.compile(r"(https?://|www\.)", re.IGNORECASE)
@@ -2042,7 +2035,6 @@ async def root():
         "public_band_trace": "/api/v1/public/band-trace",
         "public_data_health": "/api/v1/public/data-health",
         "public_planner_health": "/api/v1/public/planner-health",
-        "public_gpu_power": "/api/v1/public/gpu-power",
         "public_contact": "/api/v1/public/contact",
     }
 
@@ -3075,206 +3067,6 @@ async def public_data_health():
         pipeline_sources=pipeline_sources,
     )
     return PublicDataHealthResponse.model_validate(redact_public_data(response.model_dump()))
-
-
-@app.get("/api/v1/public/gpu-power", response_model=PublicGpuPowerResponse)
-async def public_gpu_power(
-    greenhouse_id: str = DEFAULT_GREENHOUSE,
-    hours: Annotated[int, Query(ge=1, le=168)] = 24,
-    step_minutes: Annotated[int, Query(ge=1, le=60)] = 5,
-):
-    """Public-safe inference-fleet GPU and CPU telemetry mirrored from exporters."""
-    if hours * 60 / step_minutes > 2000:
-        raise HTTPException(
-            status_code=400, detail="gpu-power request exceeds 2000 time buckets; increase step_minutes"
-        )
-    cache_key = f"{greenhouse_id}:{hours}:{step_minutes}"
-    now_mono = time.monotonic()
-    cached = _PUBLIC_GPU_POWER_CACHE.get(cache_key)
-    if cached and now_mono - cached[0] < PUBLIC_GPU_POWER_CACHE_TTL_S:
-        return cached[1]
-
-    async with pool.acquire() as conn:
-        generated_at = await conn.fetchval("SELECT now()")
-        latest_rows = await conn.fetch(
-            """
-            SELECT ts, host, vm_name, purpose, gpu, device, model_name, watts,
-                   gpu_util_pct, temperature_c, memory_used_mb, memory_free_mb, age_s
-              FROM v_gpu_power_latest
-             WHERE greenhouse_id = $1
-             ORDER BY host, gpu
-            """,
-            greenhouse_id,
-        )
-        series_rows = await conn.fetch(
-            """
-            SELECT time_bucket($2::int * interval '1 minute', ts) AS bucket_ts,
-                   host,
-                   max(vm_name) AS vm_name,
-                   gpu,
-                   avg(watts)::double precision AS watts
-              FROM gpu_power
-             WHERE ts >= now() - ($1::int * interval '1 hour')
-               AND greenhouse_id = $3
-             GROUP BY bucket_ts, host, gpu
-             ORDER BY bucket_ts, host, gpu
-            """,
-            hours,
-            step_minutes,
-            greenhouse_id,
-        )
-        summary = await conn.fetchrow(
-            """
-            WITH by_bucket AS (
-                SELECT time_bucket($2::int * interval '1 minute', ts) AS bucket_ts,
-                       host,
-                       gpu,
-                       avg(watts)::double precision AS watts
-                  FROM gpu_power
-                 WHERE ts >= now() - ($1::int * interval '1 hour')
-                   AND greenhouse_id = $3
-                 GROUP BY bucket_ts, host, gpu
-            ),
-            totals AS (
-                SELECT bucket_ts, sum(watts)::double precision AS total_watts
-                  FROM by_bucket
-                 GROUP BY bucket_ts
-            )
-            SELECT max(total_watts)::double precision AS peak_total_watts,
-                   avg(total_watts)::double precision AS avg_total_watts
-              FROM totals
-            """,
-            hours,
-            step_minutes,
-            greenhouse_id,
-        )
-        cpu_latest_rows = await conn.fetch(
-            """
-            SELECT ts, host, vm_name, purpose, cpu_util_pct, load1, cores,
-                   memory_used_pct, age_s
-              FROM v_infra_cpu_latest
-             WHERE greenhouse_id = $1
-             ORDER BY host
-            """,
-            greenhouse_id,
-        )
-        cpu_series_rows = await conn.fetch(
-            """
-            SELECT time_bucket($2::int * interval '1 minute', ts) AS bucket_ts,
-                   host,
-                   max(vm_name) AS vm_name,
-                   avg(cpu_util_pct)::double precision AS cpu_util_pct,
-                   avg(memory_used_pct)::double precision AS memory_used_pct
-              FROM infra_cpu
-             WHERE ts >= now() - ($1::int * interval '1 hour')
-               AND greenhouse_id = $3
-             GROUP BY bucket_ts, host
-             ORDER BY bucket_ts, host
-            """,
-            hours,
-            step_minutes,
-            greenhouse_id,
-        )
-        cpu_summary = await conn.fetchrow(
-            """
-            WITH by_bucket AS (
-                SELECT time_bucket($2::int * interval '1 minute', ts) AS bucket_ts,
-                       avg(cpu_util_pct)::double precision AS avg_cpu_util_pct
-                  FROM infra_cpu
-                 WHERE ts >= now() - ($1::int * interval '1 hour')
-                   AND greenhouse_id = $3
-                 GROUP BY bucket_ts
-            )
-            SELECT max(avg_cpu_util_pct)::double precision AS peak_avg_cpu_util_pct
-              FROM by_bucket
-            """,
-            hours,
-            step_minutes,
-            greenhouse_id,
-        )
-
-    latest = [
-        PublicGpuPowerLatest(
-            ts=r["ts"],
-            host=r["host"],
-            vm_name=r["vm_name"],
-            purpose=r["purpose"],
-            gpu=r["gpu"],
-            device=r["device"],
-            model_name=r["model_name"],
-            watts=round(float(r["watts"]), 1),
-            gpu_util_pct=round(float(r["gpu_util_pct"]), 1) if r["gpu_util_pct"] is not None else None,
-            temperature_c=round(float(r["temperature_c"]), 1) if r["temperature_c"] is not None else None,
-            memory_used_mb=round(float(r["memory_used_mb"]), 1) if r["memory_used_mb"] is not None else None,
-            memory_free_mb=round(float(r["memory_free_mb"]), 1) if r["memory_free_mb"] is not None else None,
-            age_s=r["age_s"],
-        )
-        for r in latest_rows
-    ]
-    series = [
-        PublicGpuPowerPoint(
-            ts=r["bucket_ts"],
-            host=r["host"],
-            vm_name=r["vm_name"],
-            gpu=r["gpu"],
-            watts=round(float(r["watts"]), 1),
-        )
-        for r in series_rows
-    ]
-    cpu_latest = [
-        PublicInfraCpuLatest(
-            ts=r["ts"],
-            host=r["host"],
-            vm_name=r["vm_name"],
-            purpose=r["purpose"],
-            cpu_util_pct=round(float(r["cpu_util_pct"]), 1) if r["cpu_util_pct"] is not None else None,
-            load1=round(float(r["load1"]), 2) if r["load1"] is not None else None,
-            cores=r["cores"],
-            memory_used_pct=round(float(r["memory_used_pct"]), 1) if r["memory_used_pct"] is not None else None,
-            age_s=r["age_s"],
-        )
-        for r in cpu_latest_rows
-    ]
-    cpu_series = [
-        PublicInfraCpuPoint(
-            ts=r["bucket_ts"],
-            host=r["host"],
-            vm_name=r["vm_name"],
-            cpu_util_pct=round(float(r["cpu_util_pct"]), 1) if r["cpu_util_pct"] is not None else None,
-            memory_used_pct=round(float(r["memory_used_pct"]), 1) if r["memory_used_pct"] is not None else None,
-        )
-        for r in cpu_series_rows
-    ]
-    latest_total = round(sum(item.watts for item in latest), 1) if latest else None
-    latest_gpu_utils = [item.gpu_util_pct for item in latest if item.gpu_util_pct is not None]
-    latest_cpu_utils = [item.cpu_util_pct for item in cpu_latest if item.cpu_util_pct is not None]
-    payload = PublicGpuPowerResponse(
-        generated_at=generated_at,
-        greenhouse_id=greenhouse_id,
-        source="Verdify mirror of Nexus-scraped DCGM and node-exporter telemetry",
-        hours=hours,
-        step_minutes=step_minutes,
-        latest_total_watts=latest_total,
-        latest_gpu_count=len(latest),
-        latest_avg_gpu_util_pct=round(sum(latest_gpu_utils) / len(latest_gpu_utils), 1) if latest_gpu_utils else None,
-        peak_total_watts=round(float(summary["peak_total_watts"]), 1)
-        if summary and summary["peak_total_watts"] is not None
-        else None,
-        avg_total_watts=round(float(summary["avg_total_watts"]), 1)
-        if summary and summary["avg_total_watts"] is not None
-        else None,
-        latest_avg_cpu_util_pct=round(sum(latest_cpu_utils) / len(latest_cpu_utils), 1) if latest_cpu_utils else None,
-        peak_avg_cpu_util_pct=round(float(cpu_summary["peak_avg_cpu_util_pct"]), 1)
-        if cpu_summary and cpu_summary["peak_avg_cpu_util_pct"] is not None
-        else None,
-        latest=latest,
-        series=series,
-        cpu_latest=cpu_latest,
-        cpu_series=cpu_series,
-    )
-    payload = PublicGpuPowerResponse.model_validate(redact_public_data(payload.model_dump()))
-    _PUBLIC_GPU_POWER_CACHE[cache_key] = (time.monotonic(), payload)
-    return payload
 
 
 def _public_planner_trigger(row) -> PublicPlannerTrigger | None:
