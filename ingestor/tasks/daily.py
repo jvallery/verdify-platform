@@ -688,7 +688,9 @@ async def _apply_resource_cost_gate(
 async def grow_light_daily(pool: asyncpg.Pool) -> None:
     """Comprehensive daily_summary backfill — runtimes, cycles, energy, costs for yesterday."""
     async with pool.acquire() as conn:
-        yesterday = await conn.fetchval("SELECT CURRENT_DATE - 1")
+        # The local day before today. The database clock is UTC, so its CURRENT_DATE minus one named the local day
+        # still in progress whenever this 24 h task fired between 17:00 and 24:00 MST.
+        yesterday = await conn.fetchval("SELECT (now() AT TIME ZONE 'America/Denver')::date - 1")
         rows = await conn.fetch(
             """
             SELECT equipment, on_minutes, cycles, is_deploy_gate_eligible
@@ -1102,6 +1104,8 @@ async def _refresh_daily_summary_for_date(
             cycles_mister_center=$39,
             cycles_drip_wall=$40,
             cycles_drip_center=$41,
+            cycles_fan1=$42, cycles_fan2=$43, cycles_heat1=$44, cycles_heat2=$45,
+            cycles_fog=$46, cycles_vent=$47, cycles_grow_light=$48,
             captured_at=now()
         WHERE date = $1
     """,
@@ -1146,6 +1150,20 @@ async def _refresh_daily_summary_for_date(
         cycles.get("mister_center", 0),
         cycles.get("drip_wall", 0),
         cycles.get("drip_center", 0),
+        # The firmware counters write_daily_summary snapshots reset at local midnight and on every
+        # reboot; the transition view is the cycle authority for every refreshed local day, as it
+        # already is for the runtimes above. A missing equipment row stays NULL, never 0.
+        cycles.get("fan1"),
+        cycles.get("fan2"),
+        cycles.get("heat1"),
+        cycles.get("heat2"),
+        cycles.get("fog"),
+        cycles.get("vent"),
+        (
+            cycles["grow_light_main"] + cycles["grow_light_grow"]
+            if "grow_light_main" in cycles and "grow_light_grow" in cycles
+            else None
+        ),
     )
     await conn.execute(
         """
