@@ -19,7 +19,7 @@ test("planting history keeps readable records and offers recovery when ended rec
   await load(page, "/crops/history");
   await expect(page.getByText("Planting history is incomplete or could not be refreshed. Records below may be out of date.")).toBeVisible();
   await expect(page.getByRole("table", { name: "Plantings" })).toBeVisible();
-  await expect(page.getByRole("rowheader", { name: "Canna Lilies" })).toBeVisible();
+  await expect(page.getByRole("rowheader", { name: "Vanda Orchids" })).toBeVisible();
   await expect(page.getByText("Loading the planting history")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
   expect(await fixtureWrites(request)).toEqual([]);
@@ -39,6 +39,11 @@ for (const viewport of [DESKTOP, PHONE]) {
     await load(page, "/crops/history");
     await expect(page.getByRole("table", { name: "Plantings" })).toBeVisible();
     await expect(page.getByRole("rowheader", { name: "Canna Lilies" })).toBeVisible();
+    await expect(page.locator(".page-status")).toHaveText("Planting records across soil and hydroponic locations");
+    if (viewport.width === PHONE.width) {
+      const region = page.getByRole("region", { name: "Plantings", exact: true });
+      expect(await region.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+    }
     await expectNoHorizontalScroll(page);
     await axe(page);
   });

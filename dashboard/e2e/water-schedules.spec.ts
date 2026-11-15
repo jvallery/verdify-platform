@@ -62,6 +62,7 @@ test("an empty slot opens a new schedule prefilled with its line, the day and th
   await useScreensClock(page, request, "l01-schedule");
   await load(page, "/water/schedules?day=2026-11-04");
   const track = timelineRow(page, "L01").locator(".sch-track");
+  await track.scrollIntoViewIfNeeded();
   const box = (await track.boundingBox())!;
   // 08:00, clear of Wall MWF's 07:35–07:47 block and 25 minutes after its start.
   await page.mouse.click(box.x + box.width * (8 / 24), box.y + box.height / 2);

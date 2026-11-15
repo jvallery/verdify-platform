@@ -16,6 +16,7 @@ export const links = () => chartLinks();
 export default function Band() {
   return <>
     <PageHeader view="control-band" status="The house band: temperature and VPD targets through the solar day" />
+    <div className="page-stack">
     <BandEditor />
     <Panel title="How the band works" thing="the explainer" state="ready">
       <div className="prose">
@@ -25,5 +26,6 @@ export default function Band() {
         <p>Save writes every changed point as one change with one reason. The controller picks it up within a couple of dispatcher cycles; Settings shows each point as REQUESTED until the controller confirms it.</p>
       </div>
     </Panel>
+    </div>
   </>;
 }

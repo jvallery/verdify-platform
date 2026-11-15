@@ -30,19 +30,19 @@ export function ScheduleOverview({ agenda, day, now, info }: { agenda: ScheduleA
     <a href="#sch-rules-title" className="schedule-overview-card">
       <span className="eyebrow">ROUTINE WATERING</span>
       <strong>{summary.routine} enabled {summary.routine === 1 ? "rule" : "rules"}</strong>
-      <span>Recurring watering you have scheduled.{summary.disabled > 0 && ` ${summary.disabled} other ${summary.disabled === 1 ? "rule is" : "rules are"} switched off.`}</span>
-      <span className="schedule-overview-action">Review saved rules ↓</span>
+      <span>Recurring watering rules.{summary.disabled > 0 && ` ${summary.disabled} other ${summary.disabled === 1 ? "rule is" : "rules are"} off.`}</span>
+      <span className="schedule-overview-action">Saved rules ↓</span>
     </a>
     <a href="#sch-rules-title" className="schedule-overview-card schedule-overview-backup">
       <span className="eyebrow">SENSOR-FAULT BACKUP</span>
       <strong>{summary.backup} enabled {summary.backup === 1 ? "window" : "windows"}</strong>
-      <span>Conditional misting when VPD sensing fails. These are not extra daily watering runs.</span>
-      <span className="schedule-overview-action">Review backup windows ↓</span>
+      <span>Misting only when VPD sensing is degraded.</span>
+      <span className="schedule-overview-action">Backup rules ↓</span>
     </a>
     <div className="schedule-overview-card">
       <span className="eyebrow">NEXT ROUTINE START · SELECTED DAY</span>
       <strong>{summary.next ? shortTime(summary.next.planned_start) : "No upcoming start"}</strong>
-      <span>{summary.next ? `${info.nameOf(summary.next.line_id)} · planned, subject to controller and line checks.` : "No future routine occurrence is planned on this day. Sensor-driven misting operates separately."}</span>
+      <span>{summary.next ? `${info.nameOf(summary.next.line_id)} · subject to controller and line checks.` : "None planned for this day. Sensor-driven misting is separate."}</span>
       <Link className="schedule-overview-action" to="/water">Check live water status →</Link>
     </div>
   </section>;

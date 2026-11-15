@@ -85,7 +85,7 @@ export default function CropsHistory() {
       </Form>
     </div>
     {(active.isError || ended.isError) && <PanelError thing="part of the planting history" text="Planting history is incomplete or could not be refreshed. Records below may be out of date." onRetry={() => { void active.refetch(); void ended.refetch(); }} />}
-    {settled && <p className="meta">{rows.filter((row) => row.active).length} active · {rows.filter((row) => !row.active).length} ended in these results. Open a crop to see its moves and harvests.</p>}
+    {settled && <p className="meta">{rows.filter((row) => row.active).length} active · {rows.filter((row) => !row.active).length} ended in these results. Open a crop to see its moves and harvests. Scroll the table sideways for every column.</p>}
     {!settled ? <div aria-busy="true"><div className="skeleton skeleton-md" aria-hidden="true" /><p className="screen-reader">Loading the planting history</p></div>
       : <Table label="Plantings" caption={`${rows.length} planting${rows.length === 1 ? "" : "s"}`} columns={columns} rows={rows} rowKey={(row) => String(row.id)}
         empty={<p className="muted">No planting matches.</p>} />}

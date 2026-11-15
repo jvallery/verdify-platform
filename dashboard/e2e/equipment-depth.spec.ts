@@ -21,7 +21,7 @@ const AUTO_MAIN = ["PUT", "/v1/settings/sw_gl_main_auto_mode", { value: 1, manua
 const AUTO_GROW = ["PUT", "/v1/settings/sw_gl_grow_auto_mode", { value: 1, manual: false, reason: "Back to automatic" }];
 
 for (const viewport of VIEWPORTS) {
-  test(`${viewport.width} px: each reason reads in words with since and the Graphs window around it, under the board and above the lanes`, async ({ page, request }) => {
+  test(`${viewport.width} px: each reason reads in words with since and the Graphs window around it, before the board and the lanes`, async ({ page, request }) => {
     await page.setViewportSize(viewport);
     await useScreensClock(page, request, "why-reasons");
     await load(page, "/equipment");
@@ -34,9 +34,9 @@ for (const viewport of VIEWPORTS) {
     await expect(reason(page, "fog_block_reason").locator("time")).toHaveAttribute("datetime", "2026-11-02T16:12:00.000Z");
     await expect(reason(page, "mode_reason").getByRole("link", { name: /^Graphs/ })).toHaveAttribute("href", "/graphs?from=2026-11-01T18:40:00Z&to=2026-11-01T22:40:00Z");
     await expect(reason(page, "fog_block_reason").getByRole("link", { name: /^Graphs/ })).toHaveAttribute("href", "/graphs?from=2026-11-02T14:12:00Z&to=2026-11-02T18:12:00Z");
-    // One card under the three groups, above the lanes, with no page scroll sideways.
+    // Controller reasons precede the groups and lanes, with no page scroll sideways.
     const [board, why, lanes] = await Promise.all([page.locator(".equipment-board").boundingBox(), page.getByRole("region", { name: "Why", exact: true }).boundingBox(), page.getByRole("heading", { level: 2, name: "Last 24 h" }).boundingBox()]);
-    expect(why!.y).toBeGreaterThanOrEqual(board!.y + board!.height);
+    expect(board!.y).toBeGreaterThanOrEqual(why!.y + why!.height);
     expect(lanes!.y).toBeGreaterThanOrEqual(why!.y + why!.height);
     await expectNoHorizontalScroll(page);
     await axe(page);

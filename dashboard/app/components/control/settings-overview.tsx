@@ -19,6 +19,10 @@ export function SettingsOverview({ rows, failed, stale, editTo }: {
   const active = rows.filter((row) => row.control_class !== "retired");
   const manual = active.filter(isManual);
   const attention = settingsAttention(active);
+  if (attention.length === 0 && !stale) return <section className="settings-overview settings-overview-quiet" aria-label="Settings at a glance">
+    <div><span className="eyebrow">MANUAL CONTROL</span><Link to="/settings?filter=manual">{manual.length} {manual.length === 1 ? "setting" : "settings"} · review →</Link><p className="meta">Iris leaves manual settings alone.</p></div>
+    <div><h2>No pending setting changes</h2><p className="meta">No waiting, held or unconfirmed requests in the latest settings response.</p></div>
+  </section>;
   return <section className="settings-overview" aria-labelledby="settings-overview-title">
     <div className="settings-overview-heading">
       <div><p className="eyebrow">CONTROL DESK</p><h2 id="settings-overview-title">Understand a change before making it.</h2></div>
