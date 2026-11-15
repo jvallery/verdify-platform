@@ -99,3 +99,14 @@
  .water-page .page-actions{margin-top:0}
  .water-page .page-tabs{margin-bottom:1rem}
 }
+
+/* Keep a useful portion of the first climate plot visible above phone navigation. */
+@media(max-width:600px){
+ .app-page>main:has(.gr-toolbar){padding-top:.5rem}
+ main:has(.gr-toolbar)>.page-header{margin-bottom:.5rem}
+ main:has(.gr-toolbar)>.page-header h1{font-size:1.75rem}
+ main:has(.gr-toolbar)>.page-header .page-description{display:none}
+ main:has(.gr-toolbar)>.page-header .page-status-short{min-height:1.5em}
+ main:has(.gr-toolbar)>.page-tabs{margin-bottom:.75rem;padding-bottom:.5rem}
+ .gr-toolbar{margin-bottom:.5rem}
+}
