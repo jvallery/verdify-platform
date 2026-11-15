@@ -1359,6 +1359,54 @@ PUBLIC_CAMERA_IDS = {"greenhouse_1", "greenhouse_2"}
 FRIGATE_BASE_URL_ENV = "VERDIFY_FRIGATE_PUBLIC_BASE_URL"
 CAMERA_MAX_JPEG_BYTES = 8 * 1024 * 1024
 _PUBLIC_CAMERA_CACHE = PublicCameraCache(frozenset(PUBLIC_CAMERA_IDS), ttl_s=20, max_bytes=CAMERA_MAX_JPEG_BYTES)
+# /health freshness read (jvallery/verdify-platform#1611). max(ts) over the whole
+# climate hypertable scans every chunk (~0.8 s on 2026-11-15, 53 chunks); with a
+# literal one-day window it is answered from the newest chunk (~4 ms). The
+# unbounded read runs only when the last day has no row, so a stale feed still
+# reports its true age. (A COALESCE of both scalar subqueries ran ~1.1 s: the
+# planner did not exclude chunks inside it.)
+CLIMATE_AGE_RECENT_SQL = (
+    "SELECT extract(epoch FROM now() - max(ts))::int FROM climate WHERE ts > now() - interval '1 day'"
+)
+CLIMATE_AGE_SQL = "SELECT extract(epoch FROM now() - max(ts))::int FROM climate"
+HEALTH_SCORECARD_SQL = "SELECT compliance_pct, planner_score FROM v_planner_performance WHERE date = CURRENT_DATE"
+# v_planner_performance aggregates the whole history (~1 s per read), and /health is
+# probed several times a minute, so its two scorecard numbers are served from a
+# per-process cache refreshed in the background once they are older than this.
+HEALTH_SCORECARD_TTL_SECONDS = 60.0
+_health_scorecard: dict = {"value": None, "at": None, "task": None}
+
+
+async def _load_health_scorecard() -> dict:
+    async with pool.acquire() as conn:
+        score_row = await conn.fetchrow(HEALTH_SCORECARD_SQL)
+    value: dict = {}
+    if score_row:
+        value["compliance_pct"] = float(score_row["compliance_pct"]) if score_row["compliance_pct"] else 0
+        value["planner_score"] = float(score_row["planner_score"]) if score_row["planner_score"] else 0
+    _health_scorecard["value"] = value
+    _health_scorecard["at"] = time.monotonic()
+    return value
+
+
+async def _refresh_health_scorecard() -> None:
+    try:
+        await _load_health_scorecard()
+    except Exception:  # keep serving the last value; the next stale read retries
+        log.warning("health scorecard refresh failed", exc_info=True)
+
+
+async def _health_scorecard_checks() -> dict:
+    """The /health scorecard numbers: read once, then stale-while-revalidate."""
+
+    if _health_scorecard["at"] is None:
+        return dict(await _load_health_scorecard())
+    task = _health_scorecard["task"]
+    if time.monotonic() - _health_scorecard["at"] > HEALTH_SCORECARD_TTL_SECONDS and (task is None or task.done()):
+        _health_scorecard["task"] = asyncio.create_task(_refresh_health_scorecard())
+    return dict(_health_scorecard["value"] or {})
+
+
 CLIMATE_ACTION_PROOF_MISSING_SQL = """
 WITH latest AS (
     SELECT climate_action,
@@ -2048,7 +2096,9 @@ async def health():
 
     async with pool.acquire() as conn:
         # Climate data freshness
-        age = await conn.fetchval("SELECT extract(epoch FROM now() - max(ts))::int FROM climate")
+        age = await conn.fetchval(CLIMATE_AGE_RECENT_SQL)
+        if age is None:
+            age = await conn.fetchval(CLIMATE_AGE_SQL)
         checks["climate_age_seconds"] = age
         if age is None or age > 300:
             overall = "degraded"
@@ -2063,14 +2113,6 @@ async def health():
         if action_proof_missing:
             overall = "degraded"
 
-        # Scorecard
-        score_row = await conn.fetchrow(
-            "SELECT compliance_pct, planner_score FROM v_planner_performance WHERE date = CURRENT_DATE"
-        )
-        if score_row:
-            checks["compliance_pct"] = float(score_row["compliance_pct"]) if score_row["compliance_pct"] else 0
-            checks["planner_score"] = float(score_row["planner_score"]) if score_row["planner_score"] else 0
-
         # Active alerts
         alert_count = await conn.fetchval("SELECT count(*) FROM alert_log WHERE ts > now() - interval '1 hour'")
         checks["active_alerts_1h"] = alert_count
@@ -2084,6 +2126,9 @@ async def health():
             "SELECT value FROM system_state WHERE entity = 'greenhouse_state' ORDER BY ts DESC LIMIT 1"
         )
         checks["greenhouse_mode"] = mode
+
+    # Scorecard (cached; see HEALTH_SCORECARD_TTL_SECONDS), read after the connection above is released.
+    checks.update(await _health_scorecard_checks())
 
     # Service health inferred from data freshness (API runs inside Docker — no systemctl/host access)
     climate_age = checks.get("climate_age_seconds", 999)
