@@ -63,6 +63,7 @@ export default function CropsMap() {
   const one = held.size === 1 ? [...held.values()][0] : null;
   const single = onlyCell(selected);
   return <div className="crop-map">
+    {(locations.isError || locations.consecutiveFailures > 0) && <PanelError thing="planting records" text="Showing the last available planting map. Refresh before making changes." onRetry={() => void locations.refetch()} />}
     <div className="crop-toolbar" role="region" aria-label="Selection">
       <p className="crop-toolbar-what" aria-live="polite">
         {selected.size ? <><strong>{selected.size} selected:</strong> {positions.join(", ")}</> : "Nothing selected. Tap cells, drag across them, or use the rail and shelf buttons."}

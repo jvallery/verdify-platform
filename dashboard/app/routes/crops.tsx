@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Outlet, useLocation, useOutletContext, useSearchParams } from "react-router";
 import { CellDrawer, PLANTING_MODES, PlantingDrawer, type PlantingMode } from "../components/crops/drawers";
 import { PageHeader } from "../components/layout/page-header";
-import { hydroTally, selectedPlantings, selectionPositions, type PlaceKey } from "../lib/crops";
+import { growingLocations, workspacePlantingCount, hydroTally, selectedPlantings, selectionPositions, type PlaceKey } from "../lib/crops";
 import type { Locations } from "../lib/operator-api";
 import { useApiRead } from "../lib/queries";
 import { viewFor, viewMeta } from "../lib/sections";
@@ -29,7 +29,8 @@ const LOCATIONS_POLL_MS = 60_000;
 function status(locations: Locations | undefined, hydro: boolean): string | null {
   if (!locations) return null;
   const tally = hydroTally(locations);
-  const plantings = `${locations.active_plantings} planting${locations.active_plantings === 1 ? "" : "s"}`;
+  const count = workspacePlantingCount(growingLocations(locations, hydro));
+  const plantings = `${count} active planting${count === 1 ? "" : "s"}`;
   return hydro && tally ? `${tally.planted} of ${tally.total} hydro cells planted · ${plantings}` : plantings;
 }
 
@@ -70,7 +71,7 @@ export default function Crops({ hydro = false }: { hydro?: boolean }) {
     return { own, other: selectionPositions(other) };
   }, [locations.data, selected, plantingId]);
   const context: CropsOutlet = { hydro, locations, selected, setSelected, openPlanting, openCell };
-  const line = status(locations.data, hydro);
+  const line = locations.isError || locations.consecutiveFailures > 0 ? "Planting records could not be refreshed" : status(locations.data, hydro);
   return <div className="crops-page">
     <PageHeader view={view} status={line} />
     <Outlet context={context} />

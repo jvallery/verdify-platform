@@ -4,7 +4,7 @@
  * a new screen cannot skip axe: an issue that adds a route adds its path here in the same PR.
  */
 export const ROUTES = [
-  "/", "/water", "/water/schedules", "/water/history", "/crops", "/crops/history", "/graphs", "/graphs/zones", "/graphs/lighting", "/graphs/statistics", "/activity", "/activity/log", "/settings", "/band",
+  "/", "/water", "/water/schedules", "/water/history", "/hydroponics", "/crops", "/crops/history", "/graphs", "/graphs/zones", "/graphs/lighting", "/graphs/statistics", "/activity", "/activity/log", "/settings", "/band",
   "/plan", "/equipment", "/planner/history", "/planner/experiments",
 ] as const;
 export type RoutePath = (typeof ROUTES)[number];

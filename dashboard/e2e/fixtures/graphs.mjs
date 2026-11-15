@@ -11,7 +11,22 @@
  */
 import { JASON, clock, iso, nextId, openAlert } from "./world.mjs";
 
+const HYDRO_METRICS = [
+  ["hydro_ph", "Hydroponic pH", "pH"], ["hydro_ec_us_cm", "Hydroponic EC", "µS/cm"],
+  ["hydro_water_temp_f", "Hydroponic water temperature", "°F"], ["hydro_tds_ppm", "Hydroponic TDS", "ppm"], ["hydro_orp_mv", "Hydroponic ORP", "mV"],
+].map(([key, label, unit]) => ({ key: `climate.${key}`, label, unit, group: "water and soil", cadence_s: 300, retention_days: 365, provenance: "MEASURED", zone: null, daily: false, note: null }));
+const hydro = (world) => { world.metrics.push(...structuredClone(HYDRO_METRICS)); };
+
 export const FIXTURES = {
+  "hydro-live": hydro,
+  "hydro-no-data": (world) => {
+    hydro(world);
+    world.outages.push({ keys: HYDRO_METRICS.map((metric) => metric.key), from: world.now - 31 * 86400000, to: world.now + 86400000 });
+  },
+  "hydro-gaps": (world) => {
+    hydro(world);
+    world.outages.push({ keys: ["climate.hydro_ph"], from: world.now - 6 * 3600000, to: world.now - 3 * 3600000 });
+  },
   // Graphs → Climate's story line and excursion shading (redesign §5.5): the band in force narrowed to 64.5–68.0 °F, so
   // the day's temperature wave (63–69 °F, coolest at 01:00, warmest at 13:00) runs too cold overnight, from about 21:00
   // to 05:00, and too warm again from about 09:50.

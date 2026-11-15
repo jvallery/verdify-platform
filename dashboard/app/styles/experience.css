@@ -56,3 +56,8 @@
 .ctl-settings-main{min-width:0}
 @media(max-width:1099px){.settings-tasks{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:480px){.settings-tasks{gap:.6rem}.settings-tasks>a{padding:.85rem;min-height:10rem}}
+
+.workspace-jumps{display:flex;flex-wrap:wrap;gap:.75rem;margin:1rem 0}
+.workspace-jumps a{display:inline-flex;align-items:center;min-height:44px;padding:.5rem 1rem;border:1px solid var(--line-strong);border-radius:.65rem;background:#fff;text-decoration:none;font-weight:600}
+.workspace-jumps a:first-child{background:var(--forest);color:#fff;border-color:var(--forest)}
+.hydro-workspace h2[id]{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem)}
