@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import Crops from "./crops";
+import { CropsWorkspace } from "./crops";
 import { viewMeta } from "../lib/sections";
 export const meta = () => viewMeta("hydro-overview");
-export default function Hydroponics() { return <Crops hydro />; }
+export default function Hydroponics() { return <CropsWorkspace hydro />; }

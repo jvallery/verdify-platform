@@ -6,6 +6,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await page.setViewportSize(viewport);
     await useScreensClock(page, request, ["hydro-live", "crops-planted"]);
     await load(page, "/hydroponics");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Hydroponics");
     await expect(page.locator(".stack-plot canvas")).toHaveCount(5);
     await expect(page.locator('button[data-cell^="EAST-HYDRO-"]')).toHaveCount(60);
     await page.getByRole("link", { name: "Manage planting spots ↓" }).click();

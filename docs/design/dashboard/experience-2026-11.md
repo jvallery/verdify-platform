@@ -22,6 +22,8 @@ The general Crops map excludes hydro shelves. Place-text selection must explain 
 
 Reservoir trends offer 24-hour, 7-day and 30-day windows. They use registered metric units and the same synchronized chart, table and export components as the rest of the dashboard. Null samples remain gaps. Missing metrics, failed reads and stale records are distinct from valid zero values. Hydroponics is hand-dosed: the page does not invent automatic dosing, nutrient targets or pH setpoints.
 
+The Now overview keeps long AI narratives in an expandable preview at every screen size. Measured conditions and quick controls stay prominent; the model author, timestamp and full text remain accessible.
+
 ## Configuration
 
 Settings opens with task shortcuts for climate bands, light windows, irrigation schedules and soil moisture targets. Each links to an existing editor or filtered catalog rather than introducing another setting writer. The full catalog, explanatory text, filters, history and readback states remain available. This avoids making low-level controller tuning the only entry point into everyday configuration.

@@ -40,7 +40,10 @@ function status(locations: Locations | undefined, hydro: boolean): string | null
  * (`?cell=<label>`). Plant-agnostic: the page records crops and implies no control target. No greenhouse data renders
  * in SSR.
  */
-export default function Crops({ hydro = false }: { hydro?: boolean }) {
+export default function Crops() { return <CropsWorkspace />; }
+
+/** Shared component, distinct from the router-wrapped default route export. */
+export function CropsWorkspace({ hydro = false }: { hydro?: boolean }) {
   const { pathname } = useLocation();
   const view = hydro ? "hydro-overview" : viewFor(pathname)?.id === "crops-history" ? "crops-history" : "crops-map";
   const locations = useApiRead("API-CROP-01", {}, { intervalMs: LOCATIONS_POLL_MS });

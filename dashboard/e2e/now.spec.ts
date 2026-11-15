@@ -38,6 +38,8 @@ for (const fixture of ["in-band", "l01-running"]) {
     const [button, actions] = await Promise.all([stopAll(page).boundingBox(), page.locator(".now-actions").boundingBox()]);
     expect(button?.width).toBeCloseTo(actions?.width ?? 0, 0);
     expect(button?.height).toBeGreaterThanOrEqual(44);
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await expectAboveTheFold(page, stopAll(page));
   });
 }
 
