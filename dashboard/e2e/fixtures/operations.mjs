@@ -146,6 +146,8 @@ function nowBody(world) {
 }
 
 const WAVES = {
+  "climate.hydro_ph": [6.1, .15], "climate.hydro_ec_us_cm": [1400, 100], "climate.hydro_water_temp_f": [68, 2],
+  "climate.hydro_tds_ppm": [700, 50], "climate.hydro_orp_mv": [230, 20],
   "climate.temp_avg": [66, 3], "climate.rh_avg": [70, -8], "climate.vpd_avg": [0.62, 0.12], "climate.temp_south": [66.6, 3.2],
   "climate.temp_north": [65.2, 2.8], "climate.temp_east": [66.3, 3.1], "climate.temp_west": [65.8, 3], "climate.rh_north": [72, -8], "climate.rh_east": [69, -8],
   "climate.rh_south": [68, -8], "climate.rh_west": [71, -8], "climate.vpd_north": [0.58, 0.11], "climate.vpd_east": [0.66, 0.12], "climate.vpd_south": [0.68, 0.13],

@@ -6,7 +6,7 @@ import { CropLegend, MapCardView, type MapSelection } from "../components/crops/
 import { useClockValue } from "../components/freshness";
 import { PanelError } from "../components/panel";
 import {
-  allCells, cellKey, cellRange, cropTones, legend, mapCards, onlyCell, selectedPlantings, selectionPositions, shelfKey, zoneKey, type PlaceKey,
+  growingLocations, allCells, cellKey, cellRange, cropTones, legend, mapCards, onlyCell, selectedPlantings, selectionPositions, shelfKey, zoneKey, type PlaceKey,
 } from "../lib/crops";
 import { ApiError, apiGet } from "../lib/operator-api";
 import { viewMeta } from "../lib/sections";
@@ -26,13 +26,14 @@ const minute = (now: number) => Math.floor(now / 60_000) * 60_000;
  * and date, so each next selection is Plant… and Save. A viewer sees the same map, the selection and Details.
  */
 export default function CropsMap() {
-  const { locations, selected, setSelected, openPlanting, openCell } = useCropsOutlet();
+  const { hydro, locations, selected, setSelected, openPlanting, openCell } = useCropsOutlet();
+  const selectionId = useId();
   const now = useClockValue(minute);
   const operator = useRole() === "operator";
   const [anchor, setAnchor] = useState<string | null>(null);
   const [planting, setPlanting] = useState(false);
   const [template, setTemplate] = useState<PlantTemplate | null>(null);
-  const data = locations.data;
+  const data = useMemo(() => locations.data ? growingLocations(locations.data, hydro) : undefined, [locations.data, hydro]);
   const cards = useMemo(() => (data ? mapCards(data) : []), [data]);
   const tones = useMemo(() => (data ? cropTones(data) : new Map<string, number>()), [data]);
   const toggle = useCallback((keys: readonly PlaceKey[], on?: boolean) => setSelected((current) => {
@@ -63,7 +64,8 @@ export default function CropsMap() {
   const one = held.size === 1 ? [...held.values()][0] : null;
   const single = onlyCell(selected);
   return <div className="crop-map">
-    <div className="crop-toolbar" role="region" aria-label="Selection">
+    {(locations.isError || locations.consecutiveFailures > 0) && <PanelError thing="planting records" text="Showing the last available planting map. Refresh before making changes." onRetry={() => void locations.refetch()} />}
+    <div id={selectionId} tabIndex={-1} className="crop-toolbar" role="region" aria-label="Selection">
       <p className="crop-toolbar-what" aria-live="polite">
         {selected.size ? <><strong>{selected.size} selected:</strong> {positions.join(", ")}</> : "Nothing selected. Tap cells, drag across them, or use the rail and shelf buttons."}
       </p>
@@ -83,12 +85,18 @@ export default function CropsMap() {
         {template && operator && <Button onClick={() => setTemplate(null)}>Stop re-planting {template.crop}</Button>}
       </div>
       {held.size > 1 && <p className="meta">The selection holds {held.size} plantings; select one planting's cells to move, harvest or remove it.</p>}
-      <PlaceSelect onFound={(keys) => toggle(keys, true)} />
+      <PlaceSelect hydro={hydro} onFound={(keys) => {
+        const allowed = new Set([...allCells(data).map((cell) => cellKey(cell.label)), ...data.zones.flatMap((zone) => [...(hydro ? [] : [zoneKey(zone.slug)]), ...(zone.shelves ?? []).map((shelf) => shelfKey(shelf.slug))])]);
+        if (!keys.length || keys.some((key) => !allowed.has(key))) return false;
+        toggle(keys, true);
+        return true;
+      }} />
     </div>
     <CropLegend items={legend(data)} />
     <div className="crop-cards">
       {cards.map((card) => <MapCardView key={card.key} card={card} tones={tones} now={now} selection={selection} />)}
     </div>
+    {selected.size > 0 && <a className="crop-selection-return" href={`#${selectionId}`}>{selected.size} selected · Open actions ↑</a>}
     {planting && <PlantDrawer positions={positions} cellCount={cellCount} template={template} onClose={() => setPlanting(false)}
       onSaved={(kept) => { setTemplate(kept); setPlanting(false); setSelected(() => new Set()); setAnchor(null); }} />}
   </div>;
@@ -98,7 +106,7 @@ export default function CropsMap() {
  * The place box: a place text ("hydro 1-30", "rail A top", "west top", "south floor") resolved by API-CROP-06 and added
  * to the selection, so a whole re-plant is typed rather than tapped. An unreadable or ambiguous text says why.
  */
-function PlaceSelect({ onFound }: { onFound: (keys: PlaceKey[]) => void }) {
+function PlaceSelect({ hydro, onFound }: { hydro: boolean; onFound: (keys: PlaceKey[]) => boolean }) {
   const id = useId();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +117,8 @@ function PlaceSelect({ onFound }: { onFound: (keys: PlaceKey[]) => void }) {
     setBusy(true);
     try {
       const found = await apiGet("API-CROP-06", { q: text.trim() });
-      onFound(found.places.map((place) => (place.cell ? cellKey(place.cell) : place.shelf ? shelfKey(place.shelf) : zoneKey(place.zone))));
+      const accepted = onFound(found.places.map((place) => (place.cell ? cellKey(place.cell) : place.shelf ? shelfKey(place.shelf) : zoneKey(place.zone))));
+      if (!accepted) { setError("Choose places in this workspace. Hydroponics holds the hydro spots; Crops holds the shelves and soil beds."); return; }
       setError(null);
       setText("");
     } catch (caught) {
@@ -121,7 +130,7 @@ function PlaceSelect({ onFound }: { onFound: (keys: PlaceKey[]) => void }) {
   return <form className="crop-place-form" onSubmit={(event) => void submit(event)} noValidate>
     <label htmlFor={id}>Select by place</label>
     <div className="field-row">
-      <input id={id} type="text" value={text} maxLength={500} autoComplete="off" placeholder="hydro 1-30, rail A top, west top" aria-invalid={error ? true : undefined}
+      <input id={id} type="text" value={text} maxLength={500} autoComplete="off" placeholder={hydro ? "hydro 1-30, rail A top" : "west top, south floor"} aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : undefined} onChange={(event) => setText(event.target.value)} />
       <Button type="submit" busy={busy}>Select</Button>
     </div>

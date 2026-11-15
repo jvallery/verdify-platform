@@ -160,6 +160,12 @@ export default function Settings() {
   const labelOf = (param: string) => items?.find((row) => row.param === param)?.label ?? param;
   return <>
     <PageHeader view="control-settings" status={settingsStatus(items)} statusShort={settingsStatus(items, true)} actions={<SettingsSearch value={query} onChange={search} />} />
+    {!query && filter.key === "all" && !glossary && <nav className="settings-tasks" aria-label="Configure a system">
+      <Link to="/band"><span className="eyebrow">CLIMATE</span><strong>Temperature & humidity</strong><span>Shape the day and night growing bands.</span></Link>
+      <Link to="/settings?q=gl_"><span className="eyebrow">LIGHTING</span><strong>Light windows & targets</strong><span>Set photoperiods and daylight thresholds.</span></Link>
+      <Link to="/water/schedules"><span className="eyebrow">IRRIGATION</span><strong>Watering schedules</strong><span>Plan runs, review limits and pause a line.</span></Link>
+      <Link to="/settings#soil-targets"><span className="eyebrow">ROOT ZONE</span><strong>Soil moisture targets</strong><span>Configure the ranges for each probe zone.</span></Link>
+    </nav>}
     <div className="l-rail ctl-settings">
       <SettingsRail filters={rail} groups={railGroups(pool, shown ?? [])} foot={foot} />
       <div className="ctl-settings-main">

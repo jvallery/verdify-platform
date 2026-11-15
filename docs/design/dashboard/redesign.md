@@ -8,6 +8,8 @@ cards, charts, statistics and schedule interface. It keeps weather.vallery.net's
 [design system](design-system.md) §2 copies it: the tokens, colours, IBM Plex type, sticky white header, ink hero,
 white cards, chips, pills and mono eyebrows. It adds no colour.
 
+The next experience revision is in progress in [the November experience design](experience-2026-11.md). Its explicit changes supersede the older navigation and presentation decisions below when delivered.
+
 Status: Built (2026-11-04): WP0 to WP5 landed together; where the build settles a detail this spec leaves open, or
 differs from it, [screens](screens.md)' "As built" tables and [design system](design-system.md) §4 to §7 say so.
 Related: [decisions](decisions.md) · [product](product.md) · [screens](screens.md) · [design system](design-system.md)

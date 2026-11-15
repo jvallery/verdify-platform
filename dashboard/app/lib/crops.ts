@@ -268,3 +268,24 @@ const EVENT_WORDS: Readonly<Record<string, string>> = {
 };
 /** A planting event's type in words; an unknown type shows raw. */
 export const eventText = (type: string): string => EVENT_WORDS[type] ?? type;
+
+/** Keep each growing workspace scoped to its own physical locations. */
+export function growingLocations(locations: Locations, hydro: boolean): Locations {
+  return { ...locations, zones: locations.zones.map((zone) => ({
+    ...zone, plantings: hydro ? [] : zone.plantings,
+    shelves: (zone.shelves ?? []).filter((shelf) => isRack(shelf) === hydro),
+  })).filter((zone) => zone.shelves.length || (!hydro && (zone.plantings ?? []).length)) };
+}
+
+/** Count distinct active planting records represented in a workspace, including shelf/zone records. */
+export function workspacePlantingCount(locations: Pick<Locations, "zones">): number {
+  const ids = new Set<number>();
+  for (const zone of locations.zones) {
+    for (const planting of zone.plantings ?? []) ids.add(planting.planting_id);
+    for (const shelf of zone.shelves ?? []) {
+      for (const planting of shelf.plantings ?? []) ids.add(planting.planting_id);
+      for (const cell of shelf.cells ?? []) if (cell.occupant) ids.add(cell.occupant.planting_id);
+    }
+  }
+  return ids.size;
+}

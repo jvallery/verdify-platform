@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Outlet, useLocation, useOutletContext, useSearchParams } from "react-router";
 import { CellDrawer, PLANTING_MODES, PlantingDrawer, type PlantingMode } from "../components/crops/drawers";
 import { PageHeader } from "../components/layout/page-header";
-import { hydroTally, selectedPlantings, selectionPositions, type PlaceKey } from "../lib/crops";
+import { growingLocations, workspacePlantingCount, hydroTally, selectedPlantings, selectionPositions, type PlaceKey } from "../lib/crops";
 import type { Locations } from "../lib/operator-api";
 import { useApiRead } from "../lib/queries";
 import { viewFor, viewMeta } from "../lib/sections";
@@ -13,6 +13,7 @@ export const meta = () => viewMeta("crops-map");
 
 /** API-CROP-01 once for both views (60 s; a write refetches it at once), and the map's selection, kept under the drawers. */
 export type CropsOutlet = {
+  readonly hydro: boolean;
   readonly locations: PolledQueryResult<Locations>;
   readonly selected: ReadonlySet<PlaceKey>;
   readonly setSelected: (update: (current: ReadonlySet<PlaceKey>) => ReadonlySet<PlaceKey>) => void;
@@ -25,11 +26,12 @@ export const useCropsOutlet = (): CropsOutlet => useOutletContext<CropsOutlet>()
 const LOCATIONS_POLL_MS = 60_000;
 
 /** The status line: "12 of 60 hydro cells planted · 3 plantings", from the map's read; null while it loads. */
-function status(locations: Locations | undefined): string | null {
+function status(locations: Locations | undefined, hydro: boolean): string | null {
   if (!locations) return null;
   const tally = hydroTally(locations);
-  const plantings = `${locations.active_plantings} planting${locations.active_plantings === 1 ? "" : "s"}`;
-  return tally ? `${tally.planted} of ${tally.total} hydro cells planted · ${plantings}` : plantings;
+  const count = workspacePlantingCount(growingLocations(locations, hydro));
+  const plantings = `${count} active planting${count === 1 ? "" : "s"}`;
+  return hydro && tally ? `${tally.planted} of ${tally.total} hydro cells planted · ${plantings}` : plantings;
 }
 
 /**
@@ -38,9 +40,12 @@ function status(locations: Locations | undefined): string | null {
  * (`?cell=<label>`). Plant-agnostic: the page records crops and implies no control target. No greenhouse data renders
  * in SSR.
  */
-export default function Crops() {
+export default function Crops() { return <CropsWorkspace />; }
+
+/** Shared component, distinct from the router-wrapped default route export. */
+export function CropsWorkspace({ hydro = false }: { hydro?: boolean }) {
   const { pathname } = useLocation();
-  const view = viewFor(pathname)?.id === "crops-history" ? "crops-history" : "crops-map";
+  const view = hydro ? "hydro-overview" : viewFor(pathname)?.id === "crops-history" ? "crops-history" : "crops-map";
   const locations = useApiRead("API-CROP-01", {}, { intervalMs: LOCATIONS_POLL_MS });
   const [selected, setSelectedState] = useState<ReadonlySet<PlaceKey>>(() => new Set());
   const setSelected = useCallback((update: (current: ReadonlySet<PlaceKey>) => ReadonlySet<PlaceKey>) => setSelectedState(update), []);
@@ -68,8 +73,8 @@ export default function Crops() {
     const other = [...selected].filter((key) => !(key.startsWith("cell:") && own.includes(key.slice(5))));
     return { own, other: selectionPositions(other) };
   }, [locations.data, selected, plantingId]);
-  const context: CropsOutlet = { locations, selected, setSelected, openPlanting, openCell };
-  const line = status(locations.data);
+  const context: CropsOutlet = { hydro, locations, selected, setSelected, openPlanting, openCell };
+  const line = locations.isError || locations.consecutiveFailures > 0 ? "Planting records could not be refreshed" : status(locations.data, hydro);
   return <div className="crops-page">
     <PageHeader view={view} status={line} />
     <Outlet context={context} />

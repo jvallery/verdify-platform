@@ -15,6 +15,7 @@ import nowActivityStyles from "./styles/now-activity.css?url";
 import primitivesStyles from "./styles/primitives.css?url";
 import shellStyles from "./styles/shell.css?url";
 import tokensStyles from "./styles/tokens.css?url";
+import experienceStyles from "./styles/experience.css?url";
 import waterStyles from "./styles/water.css?url";
 
 // viewport-fit=cover lets env(safe-area-inset-*) clear the phone bar from the home indicator.
@@ -27,7 +28,7 @@ export const BUSY_RETRY_MS = 5000;
  * WP0's primitives and shell, then one section per screen package. Each section loads after styles.css, so none may
  * redefine what the §2.2 block overrides by order (`styles/sections.test.ts`). Chart routes add `chartLinks()` after these.
  */
-export const STYLESHEETS = [styles, tokensStyles, primitivesStyles, shellStyles, nowActivityStyles, graphsStyles, waterStyles, controlStyles, cropsStyles] as const;
+export const STYLESHEETS = [styles, tokensStyles, primitivesStyles, shellStyles, nowActivityStyles, graphsStyles, waterStyles, controlStyles, cropsStyles, experienceStyles] as const;
 export const links = () => [...STYLESHEETS.map((href) => ({ rel: "stylesheet", href })), { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }];
 export const headers: HeadersFunction = ({ errorHeaders }) => {
   const headers = new Headers();

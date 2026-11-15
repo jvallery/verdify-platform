@@ -8,8 +8,8 @@
  * verdict or the alerts changed since it was written) and anything older than 2 h never show, so the deterministic
  * status line stands alone. The page's own muting (stale readings, the API down) mutes it too.
  *
- * On a phone the text is clamped to two lines with "Read all", so a long snapshot never pushes Stop all water below
- * the fold; the full text stays in the page (the clamp is visual only), and the toggle is hidden on wider screens.
+ * The text previews two lines on phones and three on wider screens, with "Read all" at every size.
+ * The full text stays in the page (the clamp is visual only), while measured state and quick controls stay prominent.
  */
 import { useId, useState } from "react";
 import type { Now } from "../../lib/operator-api";

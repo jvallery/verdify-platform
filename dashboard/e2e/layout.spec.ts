@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // The caretaker's phone: no page scrolls sideways at 360 or 390 px and the bottom bar holds every section tab; with reduced
-// motion emulated, nothing moves. And the shell of redesign §2 at 1440 px and on phones: the seven sections (on one row
+// motion emulated, nothing moves. And the shell of redesign §2 at 1440 px and on phones: the eight sections (on one row
 // from 880 px), Control owning its views, the account menu, the fault row that never scrolls away, the warn notices in
 // flow, the count pill's severity, the redirects and the end of /more.
 import { CARD_PAGES, REDIRECTS, ROUTES, SETTING_DRAWERS } from "./routes";
@@ -70,7 +70,7 @@ for (const path of [...ROUTES, ...CARD_PAGES.map((card) => card.path)]) {
 }
 
 // ---------------------------------------------------------------------------------------------------- the shell
-test("1440 px: the header lists the seven sections; Control opens Settings and is current on Settings and Equipment, Planner on Plan, History and Experiments", async ({ page, request }) => {
+test("1440 px: the header lists the eight sections; Control opens Settings and is current on Settings and Equipment, Planner on Plan, History and Experiments", async ({ page, request }) => {
   await useFixture(request, "alerts-merged");
   await page.setViewportSize(DESKTOP);
   await load(page, "/");
@@ -89,7 +89,7 @@ test("1440 px: the header lists the seven sections; Control opens Settings and i
 });
 
 for (const width of [880, 1100]) {
-  test(`${width} px: the seven section links fit the header's one row, clear of the lockup and the account button`, async ({ page, request }) => {
+  test(`${width} px: the eight section links fit the tablet row or desktop rail, clear of the lockup and the account button`, async ({ page, request }) => {
     await useFixture(request, "alerts-merged");
     await page.setViewportSize({ width, height: 900 });
     await load(page, "/activity");
@@ -99,12 +99,16 @@ for (const width of [880, 1100]) {
     const [brand] = await boxes(".site-header > .shell > .brand");
     const [account] = await boxes(".site-header > .shell > .account-menu");
     const links = await boxes(".site-header .primary-nav a");
-    expect(links).toHaveLength(7);
+    expect(links).toHaveLength(8);
     for (const link of links) {
-      // One row: every link shares the lockup's row and sits between it and the account button.
-      expect(Math.abs(link.y + link.height / 2 - (brand.y + brand.height / 2))).toBeLessThanOrEqual(2);
-      expect(link.x).toBeGreaterThanOrEqual(brand.x + brand.width);
-      expect(link.x + link.width).toBeLessThanOrEqual(account.x);
+      // Tablet navigation occupies a second header row; desktop navigation has its own rail.
+      if (width < 1100) {
+        expect(link.y).toBeGreaterThanOrEqual(brand.y + brand.height);
+        expect(link.height).toBeGreaterThanOrEqual(44);
+      } else {
+        expect(link.x + link.width).toBeLessThanOrEqual(brand.x);
+        expect(link.height).toBeGreaterThanOrEqual(44);
+      }
     }
     expect(Math.abs(account.y + account.height / 2 - (brand.y + brand.height / 2))).toBeLessThanOrEqual(2);
     const nav = await page.locator(".site-header .primary-nav").evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));

@@ -7,10 +7,10 @@ import { expect, test } from "vitest";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 /** The load order, after styles.css: tokens, WP0's primitives and shell, then WP1 to WP4, then Crops (#1330). */
-const ORDER = ["tokens.css", "primitives.css", "shell.css", "now-activity.css", "graphs.css", "water.css", "control.css", "crops.css"];
+const ORDER = ["tokens.css", "primitives.css", "shell.css", "now-activity.css", "graphs.css", "water.css", "control.css", "crops.css", "experience.css"];
 const TITLES: Readonly<Record<string, string>> = {
   "tokens.css": "Tokens", "primitives.css": "Primitives (WP0)", "shell.css": "Shell (WP0)", "now-activity.css": "Now and Activity (WP1)",
-  "graphs.css": "Graphs (WP2)", "water.css": "Water (WP3)", "control.css": "Control (WP4)", "crops.css": "Crops (#1330)",
+  "graphs.css": "Graphs (WP2)", "water.css": "Water (WP3)", "control.css": "Control (WP4)", "crops.css": "Crops (#1330)", "experience.css": "Experience",
 };
 const sections = ORDER.map((name) => ({ name, text: read(`./${name}`) }));
 const uncommented = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -27,7 +27,7 @@ const LAYOUT_TOKENS = [
   "--z-raised", "--z-sticky", "--z-nav", "--z-popover", "--z-toast",
 ];
 
-test("app/styles holds exactly the eight section files, and root.tsx loads them after styles.css in the fixed order", () => {
+test("app/styles holds exactly the declared section files, and root.tsx loads them after styles.css in the fixed order", () => {
   const files = readdirSync(new URL("./", import.meta.url)).filter((name) => name.endsWith(".css"));
   expect([...files].sort()).toEqual([...ORDER].sort());
   const root = read("../root.tsx");
@@ -56,7 +56,9 @@ test("tokens.css defines §3.3's layout tokens once, in the one :root of the sec
   for (const { name, text } of sections.slice(1)) {
     expect(uncommented(text), name).not.toMatch(/:root\s*\{/);
     const set = [...uncommented(text).matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]);
-    expect(set.filter((property) => globals.includes(property)), name).toEqual([]);
+    expect(set.filter((property) => globals.includes(property)), name).toEqual(name === "experience.css" ? ["--bar-h"] : []);
+    // The eight-destination phone bar needs more space, scoped to the app shell only.
+    if (name === "experience.css") expect(uncommented(text)).toMatch(/@media\(max-width:860px\)\{\s*\.app-page\{--bar-h:6\.5rem\}/);
   }
   // Only lengths, sizes and stacking orders: no colour hides among them.
   expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|rgb|hsl|color/i);

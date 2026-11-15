@@ -50,6 +50,26 @@ export type PageHeaderProps = {
  * default view except on that view), the one h1, the status line and the actions, then the section's tabs. The eyebrow
  * labels; it is never a heading. Now has no page header: its hero is its head.
  */
+const DESCRIPTIONS: Partial<Record<ViewId, string>> = {
+  "water-today": "See what is running and give each zone the water it needs.",
+  "water-schedules": "Plan watering by line, with today's runs and limits in view.",
+  "water-history": "Review past runs, water use and skipped irrigation.",
+  "crops-map": "Track what is growing on the greenhouse shelves and in the soil beds.",
+  "crops-history": "Follow each planting from its first day through harvest.",
+  "graphs-climate": "Explore greenhouse conditions alongside targets and controller actions.",
+  "graphs-zones": "Compare growing conditions across the greenhouse.",
+  "graphs-lighting": "Understand daylight, lamp operation and daily light exposure.",
+  "graphs-statistics": "Look beyond the latest reading to longer-term growing conditions.",
+  "activity-alerts": "Review what needs attention and record your response.",
+  "activity-log": "Trace changes by people, the planner and the controller.",
+  "control-settings": "Choose a growing system, or search the complete settings catalog.",
+  "control-band": "Set the temperature and humidity targets your greenhouse follows.",
+  "control-equipment": "Inspect device health and operate available equipment controls.",
+  "planner-plan": "Review the planner's next actions alongside the settings in force.",
+  "planner-history": "Inspect previous plans and the decisions behind them.",
+  "planner-experiments": "Compare planner runs and review the evidence from each study.",
+};
+
 export function PageHeader({ view, title, status, statusShort, actions, tabsEnd, stickyTabs = false }: PageHeaderProps) {
   const current = viewOf(view);
   const section = sectionOf(current.section);
@@ -62,6 +82,7 @@ export function PageHeader({ view, title, status, statusShort, actions, tabsEnd,
         {focused && <><span className="page-crumb-sep" aria-hidden="true"> › </span><Link to={current.path}>{current.tab}</Link></>}
       </p>
       <h1>{title ?? current.title}</h1>
+      {DESCRIPTIONS[view] && <p className="page-description">{DESCRIPTIONS[view]}</p>}
       {status !== undefined && <p className={cls("page-status meta", statusShort !== undefined && "page-status-long")}>{status}</p>}
       {status !== undefined && statusShort !== undefined && <p className="page-status-short meta">{statusShort}</p>}
       {actions && <div className="page-actions">{actions}</div>}

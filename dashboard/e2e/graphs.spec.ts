@@ -7,7 +7,7 @@
 // window is.
 import { readFile } from "node:fs/promises";
 import type { Page } from "@playwright/test";
-import { DESKTOP, PHONE, expect, fixtureRequests, load, reload, test, useScreensClock } from "./support";
+import { DESKTOP, PHONE, bottomBar, expect, fixtureRequests, load, reload, test, useScreensClock } from "./support";
 
 const stack = (page: Page) => page.locator(".chart-stack");
 const names = (page: Page) => stack(page).locator("[data-panel] .stack-name");
@@ -81,7 +81,8 @@ test("on a phone the toolbar is two rows and the temperature plot starts above t
   // The story line's short wording, and the temperature plot in view above the bottom bar.
   await expect(page.locator(".page-status-short")).toHaveText(/^72 h · in band 100% · no excursions$/);
   const plot = await page.locator("[data-panel=temperature] .stack-plot").boundingBox();
-  expect(plot!.y + 80).toBeLessThan(PHONE.height - 56);
+  const navigation = await bottomBar(page).boundingBox();
+  expect(plot!.y + 80).toBeLessThan(navigation!.y);
   await page.locator(".gr-layers > summary").click();
   await expect(page.getByRole("list", { name: "Presets, phone" })).toBeVisible();
   // No setting is drawn by default (#1354): + Setting adds one.
