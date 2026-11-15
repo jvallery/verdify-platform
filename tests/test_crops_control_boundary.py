@@ -36,7 +36,6 @@ CROPS_READERS = {
     # Control fallback only when the house crop_band_anchors are missing; it joins the orchid catalog row.
     "public.fn_center_band_setpoints": "control fallback (anchors missing)",
     # Grading and health reads; they steer nothing.
-    "public.fn_zone_band": "grading",
     "public.fn_operational_health": "health score",
     # Migration 255's fixed-panel crop-assignment lineage triggers.
     "public.fn_capture_crop_assignment_revision": "lineage",
