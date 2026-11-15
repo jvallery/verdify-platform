@@ -154,10 +154,10 @@ def render_markdown(row: dict) -> str:
     # Stress
     lines.append("## Stress Hours")
     lines.append("")
-    lines.append(f"- **Heat stress:** {fmt(row.get('stress_hours_heat'))}h (>85°F)")
-    lines.append(f"- **Cold stress:** {fmt(row.get('stress_hours_cold'))}h (<50°F)")
-    lines.append(f"- **VPD high:** {fmt(row.get('stress_hours_vpd_high'))}h (>2.0 kPa)")
-    lines.append(f"- **VPD low:** {fmt(row.get('stress_hours_vpd_low'))}h (<0.4 kPa)")
+    lines.append(f"- **Heat stress:** {fmt(row.get('stress_hours_heat'))}h (above the served band)")
+    lines.append(f"- **Cold stress:** {fmt(row.get('stress_hours_cold'))}h (below the served band)")
+    lines.append(f"- **VPD high:** {fmt(row.get('stress_hours_vpd_high'))}h (above the served band)")
+    lines.append(f"- **VPD low:** {fmt(row.get('stress_hours_vpd_low'))}h (below the served band)")
     lines.append("")
 
     # Equipment
@@ -180,12 +180,12 @@ def render_markdown(row: dict) -> str:
     # Water
     lines.append("## Water")
     lines.append("")
-    lines.append(f"- **Total:** {fmt(row.get('water_used_gal'), decimals=0)} gal")
+    lines.append(f"- **Metered total (all uses, incl. house):** {fmt(row.get('water_used_gal'), decimals=0)} gal")
     lines.append(f"- **Misters:** {fmt(row.get('mister_water_gal'), decimals=0)} gal")
     lines.append("")
 
     # Energy & Cost
-    lines.append("## Energy & Cost")
+    lines.append("## Energy & Cost (nominal-model estimates, informational)")
     lines.append("")
     lines.append(
         f"- **Electricity:** {fmt(row.get('kwh_estimated'))} kWh (${fmt(row.get('cost_electric'), decimals=2)})"
@@ -196,13 +196,6 @@ def render_markdown(row: dict) -> str:
     lines.append(f"- **Water:** ${fmt(row.get('cost_water'), decimals=2)}")
     lines.append(f"- **Total:** **${fmt(row.get('cost_total'), decimals=2)}**")
     lines.append("")
-
-    # Notes
-    if row.get("notes"):
-        lines.append("## Notes")
-        lines.append("")
-        lines.append(row["notes"])
-        lines.append("")
 
     return "\n".join(lines)
 

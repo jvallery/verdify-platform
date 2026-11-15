@@ -105,7 +105,6 @@ class TestSchemaIntegrity:
         "fn_house_vpd_control_band",
         "fn_band_trace",
         "fn_band_setpoint_provenance",
-        "fn_compliance_pct",
         "fn_solar_altitude",
         "fn_setpoint_at",
         "fn_timeline_setpoint_value",
@@ -732,10 +731,6 @@ class TestViewsCompute:
             else:
                 assert "fn_house_vpd_control_band" in automation_source
                 assert "crop profiles + zone VPD targets" in source_chain
-
-    def test_compliance_returns(self):
-        rows = db_query_rows("SELECT * FROM fn_compliance_pct('24 hours'::interval)")
-        assert len(rows) >= 1, "fn_compliance_pct returned no rows"
 
     def test_data_trust_ledger_returns(self):
         rows = db_query_rows("SELECT check_name, status FROM v_data_trust_ledger")

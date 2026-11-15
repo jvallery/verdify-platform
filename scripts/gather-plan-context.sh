@@ -488,7 +488,7 @@ echo "metric|value"
   2>/dev/null || echo "(scorecard unavailable within DB query budget; do not infer zero performance)"
 echo ""
 echo "--- PLANNER SCORE TREND (7 complete calendar days, excludes today) ---"
-echo "date|score|comp|temp%|vpd%|stress_h|heat|cold|vpd_hi|vpd_lo|kwh|therms|water_gal|cost"
+echo "date|score|comp|temp%|vpd%|stress_h|heat|cold|vpd_hi|vpd_lo|kwh_est|therms_est|planning_water_gal|cost_est"
 "${DB_OPTIONAL[@]}" -c "
 SELECT date, planner_score, compliance_pct, temp_compliance_pct, vpd_compliance_pct,
        total_stress_h, heat_stress_h, cold_stress_h, vpd_high_stress_h, vpd_low_stress_h,
@@ -498,17 +498,24 @@ WHERE date >= (now() AT TIME ZONE 'America/Denver')::date - 7
   AND date < (now() AT TIME ZONE 'America/Denver')::date
 ORDER BY date DESC;
 " 2>/dev/null || echo "(7-day KPI trend unavailable within DB query budget)"
-echo "planner_score is historical graded controller credit plus 20% cost only when resource_terms_available=1; otherwise resource weight is zero. It is not physical compliance."
-echo "Only scorecard_contract_version=2 verifies binary field semantics. Unversioned scorecards can contain graded credit under compliance_pct."
-echo "Version 2 compliance_pct = fraction of scored house-average readings with both axes in historical desired bands; temp/vpd fields are individual binary reading fractions."
-echo "Not duration-weighted, not a fixed sensor panel or confirmed firmware/crop target. Coverage is unverified; nominal stress counts assume one minute per reading. Graded fields are separate diagnostics."
+echo "One measurement basis (scorecard_contract_version=3): compliance_pct = share of 5-minute buckets with the house-average temp AND VPD inside the band the controller served (band_house_* audit rows); temp/vpd_compliance_pct grade each axis alone."
+echo "heat/cold/vpd_hi/vpd_lo = hours above/below the served band. planner_score = compliance_pct at 100% weight; resource_terms_available is always 0."
+echo "kwh/therms/cost are nominal-model estimates, informational only, never an objective. Electric heat1 is primary heat by design: never minimise its runtime or cost."
+echo "water_gal = planning water only (climate wetting + wall irrigation + wall fertigation); house/hose water is excluded and is not planning information."
 echo "Dew point margin: <5°F = condensation risk, <3°F = imminent. dp_risk_h = hours below 5°F. Target: 0h."
 echo ""
 
-# ── 6. COMPLIANCE (24h by zone) ───────────────────────────────────
-echo "--- COMPLIANCE (24h by zone) ---"
-echo "zone|in_band_pct|above_pct|below_pct|na_pct"
-"${DB[@]}" -c "SELECT * FROM fn_compliance_pct('24 hours'::interval);"
+# ── 6. SERVED-BAND COMPLIANCE (today and yesterday) ──────────────
+echo "--- SERVED-BAND COMPLIANCE (today and yesterday, local days) ---"
+echo "date|both_pct|temp_pct|vpd_pct|temp_above_h|temp_below_h|vpd_above_h|vpd_below_h"
+"${DB[@]}" -c "
+SELECT date, compliance_pct, temp_compliance_pct, vpd_compliance_pct,
+       stress_hours_heat, stress_hours_cold, stress_hours_vpd_high, stress_hours_vpd_low
+FROM daily_summary
+WHERE date >= (now() AT TIME ZONE 'America/Denver')::date - 1
+ORDER BY date DESC;
+"
+echo "Graded by the database against the served house band (5-minute buckets); today is partial."
 echo ""
 
 # ── 7. DIF (day/night temperature differential, 7 days) ──────────
@@ -842,13 +849,20 @@ else
 fi
 echo ""
 
-# ── 16. WATER USAGE TREND ─────────────────────────────────────────
-echo "--- WATER (7 days) ---"
+# ── 16. PLANNING WATER TREND ──────────────────────────────────────
+echo "--- PLANNING WATER (7 days) ---"
+echo "day|planning_gal|climate_wetting_gal|wall_irrigation_gal|wall_fertigation_gal"
 "${DB[@]}" -c "
-SELECT to_char(day, 'MM-DD') as day, used_gal FROM v_water_daily
-WHERE day >= CURRENT_DATE - 6 ORDER BY day;
+SELECT to_char(date, 'MM-DD') AS day, round(planning_water_gal::numeric, 1) AS planning_gal,
+       round(climate_wetting_gal::numeric, 1) AS climate_wetting_gal,
+       round(wall_irrigation_gal::numeric, 1) AS wall_irrigation_gal,
+       round(wall_fertigation_gal::numeric, 1) AS wall_fertigation_gal
+FROM v_water_attribution_daily
+WHERE greenhouse_id = '${GREENHOUSE_ID}'
+  AND date >= (now() AT TIME ZONE 'America/Denver')::date - 6
+ORDER BY date;
 "
-echo "NOTE: Water meter measures total downstream usage (greenhouse + sink + hose). Misting-only water is tracked separately via mister_water_today on ESP32."
+echo "Planning water = climate wetting + wall irrigation + wall fertigation. House/hose (manual or unattributed) water is excluded: it is not planning information."
 echo ""
 
 # ── 17. OCCUPANCY ─────────────────────────────────────────────────
@@ -1324,10 +1338,10 @@ WITH latest_climate AS (
   SELECT c.ts,
          c.temp_avg,
          c.vpd_avg,
-         fn_setpoint_at('temp_low', c.ts) AS sp_temp_low,
-         fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-         fn_setpoint_at('vpd_low', c.ts) AS sp_vpd_low,
-         fn_setpoint_at('vpd_high', c.ts) AS sp_vpd_high,
+         b.sp_temp_low,
+         b.sp_temp_high,
+         b.sp_vpd_low,
+         b.sp_vpd_high,
          (
            SELECT ss.value
              FROM system_state ss
@@ -1337,6 +1351,21 @@ WITH latest_climate AS (
             LIMIT 1
          ) AS greenhouse_mode
     FROM latest_climate c
+    LEFT JOIN LATERAL (
+      -- The served house band: the band_house_* audit row in force at the reading (newest at or before it,
+      -- at most 600 s old), the same basis migration 290 grades compliance on.
+      SELECT max(x.value) FILTER (WHERE x.parameter = 'band_house_temp_low') AS sp_temp_low,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_temp_high') AS sp_temp_high,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_vpd_low') AS sp_vpd_low,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_vpd_high') AS sp_vpd_high
+        FROM (SELECT DISTINCT ON (s.parameter) s.parameter, s.value
+                FROM setpoint_snapshot s
+               WHERE s.parameter IN ('band_house_temp_low', 'band_house_temp_high',
+                                     'band_house_vpd_low', 'band_house_vpd_high')
+                 AND s.zone = 'house'
+                 AND s.ts <= c.ts AND s.ts > c.ts - interval '600 seconds'
+               ORDER BY s.parameter, s.ts DESC) x
+    ) b ON true
 )
 SELECT to_char(ts AT TIME ZONE 'America/Denver', 'MM-DD HH24:MI') AS reading_mdt,
        round(temp_avg::numeric, 2) AS temp_actual_f,
@@ -1352,7 +1381,7 @@ SELECT to_char(ts AT TIME ZONE 'America/Denver', 'MM-DD HH24:MI') AS reading_mdt
        greenhouse_mode
   FROM latest;
 " 2>/dev/null || echo "(dispatcher-owned target context unavailable)"
-echo "Dispatcher/crop policy owns low/target/high. The AI planner receives these as read-only prompt context and tunes only tactical ClimateIntent fields around them."
+echo "Low/high are the served house band (band_house_* audit rows), the one band every compliance figure is graded on. The AI planner receives these as read-only prompt context and tunes only tactical ClimateIntent fields around them."
 echo ""
 
 echo "--- CLIMATE AUTHORITY MODE (current compliance priority) ---"
@@ -1372,27 +1401,44 @@ WITH latest_climate AS (
          c.temp_avg,
          c.vpd_avg,
          c.dew_point,
-         fn_setpoint_at('temp_low', c.ts) AS sp_temp_low,
-         fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-         fn_setpoint_at('vpd_low', c.ts) AS sp_vpd_low,
-         fn_setpoint_at('vpd_high', c.ts) AS sp_vpd_high,
+         b.sp_temp_low,
+         b.sp_temp_high,
+         b.sp_vpd_low,
+         b.sp_vpd_high,
          (c.temp_avg - c.dew_point) AS dew_margin_f
     FROM latest_climate c
+    LEFT JOIN LATERAL (
+      -- The served house band: the band_house_* audit row in force at the reading (newest at or before it,
+      -- at most 600 s old), the same basis migration 290 grades compliance on.
+      SELECT max(x.value) FILTER (WHERE x.parameter = 'band_house_temp_low') AS sp_temp_low,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_temp_high') AS sp_temp_high,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_vpd_low') AS sp_vpd_low,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_vpd_high') AS sp_vpd_high
+        FROM (SELECT DISTINCT ON (s.parameter) s.parameter, s.value
+                FROM setpoint_snapshot s
+               WHERE s.parameter IN ('band_house_temp_low', 'band_house_temp_high',
+                                     'band_house_vpd_low', 'band_house_vpd_high')
+                 AND s.zone = 'house'
+                 AND s.ts <= c.ts AND s.ts > c.ts - interval '600 seconds'
+               ORDER BY s.parameter, s.ts DESC) x
+    ) b ON true
 )
 SELECT to_char(ts AT TIME ZONE 'America/Denver', 'MM-DD HH24:MI') AS reading_mdt,
        round(greatest(0.0, temp_avg - sp_temp_high)::numeric, 2) AS temp_above_high_f,
        round(greatest(0.0, vpd_avg - sp_vpd_high)::numeric, 3) AS vpd_above_high_kpa,
        round(dew_margin_f::numeric, 2) AS dew_margin_f,
        CASE
+         WHEN sp_temp_low IS NULL OR sp_temp_high IS NULL OR sp_vpd_low IS NULL OR sp_vpd_high IS NULL
+           THEN 'SERVED_BAND_UNAVAILABLE'
          WHEN temp_avg > sp_temp_high AND vpd_avg > sp_vpd_high THEN 'COMPLIANCE_FIRST_TEMP_AND_VPD_HIGH'
          WHEN temp_avg > sp_temp_high THEN 'COMPLIANCE_FIRST_TEMP_HIGH'
          WHEN vpd_avg > sp_vpd_high THEN 'COMPLIANCE_FIRST_VPD_HIGH'
          WHEN temp_avg < sp_temp_low OR vpd_avg < sp_vpd_low THEN 'COMPLIANCE_FIRST_LOW_SIDE'
-         ELSE 'RESOURCE_OPTIMIZATION_ALLOWED'
+         ELSE 'IN_SERVED_BAND'
        END AS authority_mode
   FROM latest;
 " 2>/dev/null || echo "(climate authority mode unavailable)"
-echo "Priority order is safety rails, temp compliance, VPD compliance, then resource use. When VPD is above band and dew/occupancy rails are safe, resource minimization must not close wet/fog assist; use ClimateIntent to make moisture assist available near the dispatcher-owned VPD high edge."
+echo "Priority order is safety rails, temp compliance, VPD compliance. Resource use is informational, never an objective: never close wet/fog assist or cut electric heat to save water, energy or cost. When VPD is above band and dew/occupancy rails are safe, use ClimateIntent to make moisture assist available near the served VPD high edge."
 echo ""
 
 # ── 30b-4. CLIMATE ACTION PROOF ─────────────────────────────────
@@ -1528,14 +1574,14 @@ echo "Negative deltas mean the absolute band error improved after the action. Us
 echo ""
 
 # ── 30b-5. HOT/DRY VENTILATE CONTROL UTILIZATION ─────────────────
-echo "--- HOT/DRY VENTILATE UTILIZATION (last 24h, firmware band basis) ---"
+echo "--- HOT/DRY VENTILATE UTILIZATION (last 24h, served house band basis) ---"
 "${DB[@]}" -c "
 WITH samples AS (
   SELECT c.ts,
          c.temp_avg,
          c.vpd_avg,
-         fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-         fn_setpoint_at('vpd_high', c.ts) AS sp_vpd_high,
+         b.sp_temp_high,
+         b.sp_vpd_high,
          fn_equip_at('fan1', c.ts) AS fan1,
          fn_equip_at('fan2', c.ts) AS fan2,
          fn_equip_at('fog', c.ts) AS fog,
@@ -1549,6 +1595,21 @@ WITH samples AS (
             LIMIT 1
          ) AS greenhouse_mode
     FROM climate c
+    LEFT JOIN LATERAL (
+      -- The served house band: the band_house_* audit row in force at the reading (newest at or before it,
+      -- at most 600 s old), the same basis migration 290 grades compliance on.
+      SELECT max(x.value) FILTER (WHERE x.parameter = 'band_house_temp_low') AS sp_temp_low,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_temp_high') AS sp_temp_high,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_vpd_low') AS sp_vpd_low,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_vpd_high') AS sp_vpd_high
+        FROM (SELECT DISTINCT ON (s.parameter) s.parameter, s.value
+                FROM setpoint_snapshot s
+               WHERE s.parameter IN ('band_house_temp_low', 'band_house_temp_high',
+                                     'band_house_vpd_low', 'band_house_vpd_high')
+                 AND s.zone = 'house'
+                 AND s.ts <= c.ts AND s.ts > c.ts - interval '600 seconds'
+               ORDER BY s.parameter, s.ts DESC) x
+    ) b ON true
    WHERE c.ts > now() - interval '24 hours'
      AND c.temp_avg IS NOT NULL
      AND c.vpd_avg IS NOT NULL
@@ -1628,7 +1689,7 @@ else
   _check "climate telemetry fresh" fail "last climate row is ${climate_age_s:-unknown}s old; ESP32 may be offline — flag in brief"
 fi
 
-# Dispatcher target context: the planner must see controller-owned band edges
+# Served-band target context: the planner must see the served house band edges
 # and signed target deltas before it can safely tune ClimateIntent around them.
 target_context_complete=$("${DB[@]}" -c "
 WITH latest_climate AS (
@@ -1641,11 +1702,24 @@ WITH latest_climate AS (
 ), latest AS (
   SELECT c.temp_avg,
          c.vpd_avg,
-         fn_setpoint_at('temp_low', c.ts) AS sp_temp_low,
-         fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-         fn_setpoint_at('vpd_low', c.ts) AS sp_vpd_low,
-         fn_setpoint_at('vpd_high', c.ts) AS sp_vpd_high
+         b.sp_temp_low,
+         b.sp_temp_high,
+         b.sp_vpd_low,
+         b.sp_vpd_high
     FROM latest_climate c
+    LEFT JOIN LATERAL (
+      SELECT max(x.value) FILTER (WHERE x.parameter = 'band_house_temp_low') AS sp_temp_low,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_temp_high') AS sp_temp_high,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_vpd_low') AS sp_vpd_low,
+             max(x.value) FILTER (WHERE x.parameter = 'band_house_vpd_high') AS sp_vpd_high
+        FROM (SELECT DISTINCT ON (s.parameter) s.parameter, s.value
+                FROM setpoint_snapshot s
+               WHERE s.parameter IN ('band_house_temp_low', 'band_house_temp_high',
+                                     'band_house_vpd_low', 'band_house_vpd_high')
+                 AND s.zone = 'house'
+                 AND s.ts <= c.ts AND s.ts > c.ts - interval '600 seconds'
+               ORDER BY s.parameter, s.ts DESC) x
+    ) b ON true
 )
 SELECT CASE
          WHEN count(*) = 1

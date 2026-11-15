@@ -141,9 +141,7 @@ def test_high_controller_credit_does_not_mask_low_route_observation():
     assert observation.physical_proof_eligible is False
     assert observation.physical_hardware_identity_verified is False
     assert observation.per_probe_freshness_verified is False
-    card = ScorecardResponse.from_metric_rows(
-        [("scorecard_contract_version", 2), ("compliance_pct", 96), ("compliance_v2_attributable_pct", 99)]
-    )
+    card = ScorecardResponse.from_metric_rows([("scorecard_contract_version", 3), ("compliance_pct", 96)])
     card.route_only_crop_band_evidence = RouteOnlyCropBandEvidence(
         availability="observational",
         unavailable_reason=None,
@@ -155,7 +153,7 @@ def test_high_controller_credit_does_not_mask_low_route_observation():
     )
     evidence = card.climate_evidence()
     assert evidence["both_axis_compliance_pct"] == 96
-    assert evidence["graded_compliance_attributable_pct"] == 99
+    assert not any(key.startswith("graded") for key in evidence)
     assert evidence["route_only_crop_band_evidence"]["diagnostic"]["joint"]["in_band_pct"] == 0
     assert evidence["physical_crop_band_evidence"]["availability"] == "unavailable"
     assert route.build(*raw).model_dump(mode="json") == observation.model_dump(mode="json")

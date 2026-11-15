@@ -248,12 +248,6 @@ KNOWN_PRE_EXISTING_DRIFT: dict[str, set[str]] = {
         # ingestor map still references the old names. Cleanup pending.
         "center_drips_runtime__today_",
         "wall_drips_runtime__today_",
-        # Dehum cycles — firmware doesn't emit these today (no dehumidifier
-        # hardware in-greenhouse); the ingestor map preserves the column
-        # names so a future dehum addition doesn't need coordinated changes.
-        # Accepted drift; write_daily_summary defaults these to 0.
-        "de_hum_cycles__today_",
-        "safety_de_hum_cycles__today_",
     },
     "SETPOINT_MAP": {
         # firmware-v2 (firmware/v2-solar-bands) removed the legacy fog-stress-

@@ -88,20 +88,13 @@ def test_derived_history_reconcile_script_uses_canonical_daily_refresh():
     assert "--refresh-matviews" in src
     assert "pg_try_advisory_lock(hashtext($1))" in src
     assert "has_table_privilege(current_user" in src
-    assert "daily_zone_compliance" in src
+    assert "daily_zone_compliance" not in src  # retired with the crop-band grading (#1623)
     assert "INSERT INTO utility_cost" in src
-    assert "mv_zone_band_grade" in src
+    assert "mv_zone_band_grade" not in src
     assert "mv_band_curve" in src
     assert "await tx.rollback()" in src
     assert "UPDATE plan_journal" not in src
     assert "INSERT INTO climate_action_log" not in src
-
-
-def test_daily_summary_refresh_skips_incomplete_compliance_rows():
-    src = Path(INGESTOR_PATH, "tasks", "daily.py").read_text()
-    guard = 'if r["temp_avg"] is None or r["vpd_avg"] is None:\n            continue'
-    assert guard in src
-    assert src.index(guard) < src.index('vpd = float(r["vpd_avg"])')
 
 
 def test_prod_ingestor_state_is_durable_pvc():

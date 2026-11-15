@@ -15,18 +15,6 @@ DB+=(-q -v ON_ERROR_STOP=1)
 
 mkdir -p "$OUT_DIR"
 
-# Graded, controller-attributable compliance (band-compliance design §6-§7) is
-# dual-written into daily_summary.compliance_v2_attributable_pct once migration
-# 146/147 land. Probe for the column so the public dataset gains a graded column
-# automatically post-migration, and stays valid (column absent -> omitted) today.
-GRADED_COL_PRESENT=$(verdify_psql_stdin -tAc \
-  "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='daily_summary' AND column_name='compliance_v2_attributable_pct');")
-if [ "$GRADED_COL_PRESENT" = "t" ]; then
-  GRADED_SELECT="    round(ds.compliance_v2_attributable_pct::numeric, 1) AS graded_compliance_attributable_pct,"
-else
-  GRADED_SELECT="    NULL::numeric AS graded_compliance_attributable_pct,"
-fi
-
 "${DB[@]}" >"$OUT_DIR/verdify-sample-7d-climate.csv" <<'SQL'
 COPY (
   WITH climate_5m AS (
@@ -71,7 +59,7 @@ COPY (
 ) TO STDOUT WITH CSV HEADER;
 SQL
 
-"${DB[@]}" >"$OUT_DIR/verdify-sample-30d-plan-outcomes.csv" <<SQL
+"${DB[@]}" >"$OUT_DIR/verdify-sample-30d-plan-outcomes.csv" <<'SQL'
 COPY (
   SELECT
     m.date,
@@ -81,7 +69,6 @@ COPY (
     round(m.vpd_mae_kpa, 3) AS vpd_mae_kpa,
     round(m.solar_mae_w, 1) AS solar_mae_w,
     round(m.compliance_pct::numeric, 1) AS compliance_pct,
-${GRADED_SELECT}
     round(m.temp_compliance_pct::numeric, 1) AS temp_compliance_pct,
     round(m.vpd_compliance_pct::numeric, 1) AS vpd_compliance_pct,
     round(m.stress_hours_heat::numeric, 2) AS stress_hours_heat,
@@ -98,7 +85,6 @@ ${GRADED_SELECT}
     m.expected_outcome,
     m.actual_outcome
   FROM v_forecast_plan_outcome_mart m
-  LEFT JOIN daily_summary ds ON ds.date = m.date
   WHERE m.date >= current_date - interval '30 days'
   ORDER BY m.date, m.created_at
 ) TO STDOUT WITH CSV HEADER;
@@ -116,12 +102,12 @@ Files:
 - verdify-sample-30d-plan-outcomes.csv: plan/outcome scorecard rows for the most recent 30 days.
 
 Column notes:
-- compliance_pct is the binary, house-level both-axis compliance: the share of samples where house-average
-  temperature and VPD were both inside the single served control band. It is not a per-zone or per-plant
-  guarantee, and a reading just outside the band scores the same as one far outside.
-- graded_compliance_attributable_pct is the graded, per-zone, feasibility-aware controller-attributable
-  compliance (band-compliance design). It is blank until the graded compliance engine is promoted, then
-  populated automatically by this export.
+- compliance_pct, temp_compliance_pct and vpd_compliance_pct grade the house average against the band the
+  controller served, in 5-minute buckets; stress_hours_* are the hours above or below that served band. This
+  is the only temperature/VPD measurement basis. It is not a per-zone or per-plant guarantee.
+- water_used_gal is the quality-filtered meter total for every use, including house and hose water; it is a
+  reporting figure, not planning water. kwh, therms_estimated and cost_total_usd are nominal-model
+  estimates for context; they are not part of any score.
 - dli_today_mol_m2 is intentionally blank. Interior crop DLI is unavailable because the physical interior
   light sensor is broken. Reason: interior_light_sensor_broken; provenance:
   legacy_invalid_exterior_proxy_plus_fixture_estimate; validity revision:

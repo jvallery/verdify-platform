@@ -1,9 +1,9 @@
 # Physical crop-band evidence boundary (#371)
 
-`fn_planner_scorecard` and `v_daily_kpi` retain two historical measurements:
-contract-2 `compliance_pct` is a binary fraction of house-average readings
-against historical desired setpoints, while `compliance_v2_attributable_pct`
-is graded controller credit. Neither is a physical crop-band outcome.
+`fn_planner_scorecard` contract 3 (migration 309, #1623) carries one temperature/VPD
+measurement: `compliance_pct`, the share of 5-minute house-average buckets inside the
+served house band. The graded controller credit (`compliance_v2_*`) is retired. Neither
+is a physical crop-band outcome.
 
 The API and MCP scorecard now carry a **separate** typed physical crop-band
 field, also projected to the public snapshot and planning page. It always

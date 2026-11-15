@@ -141,6 +141,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_306_vpd_envelope_delivery.py
     tests/test_307_climate_ppfd_delivery.py
     tests/test_308_dli_par_delivery.py
+    tests/test_309_one_band_delivery.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py
@@ -228,7 +229,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_api_light_command_boundary.py
     tests/test_api_public_output_policy.py
     tests/test_climate_intent_replay_evaluator.py
-    tests/test_compliance_feasibility_classifier.py
     tests/test_component_experiment_api.py
     tests/test_component_experiment_contract.py
     tests/test_component_experiment_executor.py
@@ -305,7 +305,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_firmware_provisional_rollback.py
     tests/test_firmware_crop_agnostic_guard.py
     tests/test_forecast_action_engine_path.py
-    tests/test_g5_dualwrite_validation.py
     tests/test_generate_daily_plan.py
     tests/test_grafana_cm_check.py
     tests/test_grafana_manifest_security.py
@@ -455,7 +454,6 @@ if in_part rest; then
     tests/test_c0_restore_probe.py \
     tests/test_c0_successor_249.py \
     tests/test_capture_component_current_state.py \
-    tests/test_climate_minute_metrics.py \
     tests/test_cnpg_existing_target_fault.py \
     tests/test_cnpg_maintenance_276_projection.py \
     tests/test_cnpg_pitr_pair.py \
@@ -489,7 +487,6 @@ if in_part rest; then
     tests/test_forecast_verification_contract.py \
     tests/test_freeze_winter_target.py \
     tests/test_gather_configmap_generator.py \
-    tests/test_grade_credit_tent.py \
     tests/test_grafana_admin_sso.py \
     tests/test_grafana_dashboard_sync_contract.py \
     tests/test_grafana_render_cache.py \
@@ -503,7 +500,6 @@ if in_part rest; then
     tests/test_migration_rollback_safety.py \
     tests/test_native_route_grafana.py \
     tests/test_no_committed_db_password.py \
-    tests/test_observed_minute_reader.py \
     tests/test_occupancy_mqtt.py \
     tests/test_outcome_kpi_cycle_reconciliation.py \
     tests/test_physical_crop_band_evidence.py \

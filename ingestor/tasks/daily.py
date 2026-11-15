@@ -5,34 +5,19 @@ original module. The tasks package __init__ re-exports the public
 surface so every `from tasks import X` still resolves.
 """
 
-from math import isfinite
-
-from climate_minute_metrics import refresh_observed_minute_metrics
 from partial_energy import refresh_partial_energy
 
 from ._common import (
-    _GRADE_RELAYS,
-    _GRADED_ZONES,
-    COMPLIANCE_ZONE_WEIGHTS_DEFAULT,
-    DEFAULT_ZONE_BAND,
     GREENHOUSE_ID,
-    RELAY_TRUTH_START,
     SOIL_DRYOUT_MIN_DURATION_H,
     SOIL_DRYOUT_MIN_SAMPLES,
     SUPPRESSIBLE_ALERT_TYPES,
     THERM_BTU,
-    VPD_STRESS_FLOOR_H,
-    VPD_STRESS_LEGACY_THRESHOLD_H,
-    ZoneInfo,
     _td,
     asyncpg,
-    bisect_right,
     dataclass,
     log,
 )
-
-# API-06's band carry: the band_house_* audit row in force at a moment is the newest at or before it, at most this old.
-SERVED_BAND_CARRY_S = 600
 
 
 def _auto_close_disposition(
@@ -107,435 +92,6 @@ def evaluate_soil_dryout(
     if window.min_pct <= 0:
         return False
     return window.max_pct < wilt_pct
-
-
-async def _vpd_stress_alert_threshold(conn: asyncpg.Connection) -> float:
-    """Dynamic VPD-high stress threshold (hours/day), graded-history aware (G6).
-
-    Returns max(VPD_STRESS_FLOOR_H, p75 of the rolling-30d center graded vpd_high
-    deficit). Falls back to the legacy 2.0h binary threshold when the graded
-    column does not yet exist (pre-migration-146) or has no populated history, so
-    the alert never goes silently dead and never NULLs out.
-    """
-    try:
-        p75 = await conn.fetchval(
-            """
-            SELECT percentile_cont(0.75) WITHIN GROUP (ORDER BY graded_stress_hours_vpd_high)
-              FROM daily_summary
-             WHERE date >= (now() AT TIME ZONE 'America/Denver')::date - 30
-               AND graded_stress_hours_vpd_high IS NOT NULL
-            """
-        )
-    except (asyncpg.exceptions.UndefinedColumnError, asyncpg.exceptions.UndefinedTableError):
-        return VPD_STRESS_LEGACY_THRESHOLD_H
-    if p75 is None:
-        return VPD_STRESS_LEGACY_THRESHOLD_H
-    return max(VPD_STRESS_FLOOR_H, float(p75))
-
-
-def _grade_credit(
-    x: float | None,
-    stress_lo: float,
-    ideal_lo: float,
-    ideal_hi: float,
-    stress_hi: float,
-) -> float | None:
-    """Python mirror of fn_grade_credit (BC-12/ADR0003 §6.2).
-
-    TENT peaking 1.0 at the ideal MIDPOINT (the target), declining to 0.5
-    (IDEAL_EDGE_CREDIT) at each ideal edge, then to 0 at the stress edge — so
-    in-band off-target drift is penalized (kills the old flat-1.0-in-band
-    saturation). Continuous at all edges. MUST stay byte-identical to the SQL
-    mirror db/migrations/183 fn_grade_credit (parity-tested). Denominators guarded.
-    """
-    if x is None:
-        return None
-    if x < stress_lo or x > stress_hi:
-        return 0.0
-    tgt = (ideal_lo + ideal_hi) / 2.0
-    edge = 0.5  # IDEAL_EDGE_CREDIT — keep identical to mig-183 fn_grade_credit
-    half = (ideal_hi - ideal_lo) / 2.0
-    if ideal_lo <= x <= tgt:
-        return 1.0 - (1.0 - edge) * ((tgt - x) / half) if half > 0 else 1.0
-    if tgt < x <= ideal_hi:
-        return 1.0 - (1.0 - edge) * ((x - tgt) / half) if half > 0 else 1.0
-    if x < ideal_lo:
-        denom = ideal_lo - stress_lo
-        return max(0.0, edge * (x - stress_lo) / denom) if denom > 0 else 0.0
-    denom = stress_hi - ideal_hi
-    return max(0.0, edge * (stress_hi - x) / denom) if denom > 0 else 0.0
-
-
-def _zone_score(g_temp: float | None, g_vpd: float | None) -> float | None:
-    """Geometric mean sqrt(g_temp·g_vpd) (§6.1) — both axes must be good."""
-    if g_temp is None or g_vpd is None:
-        return None
-    return (g_temp * g_vpd) ** 0.5
-
-
-def _classify_hot_feasibility(
-    relay: dict[str, bool], outdoor_temp_f: float | None, served_temp_high: float | None, indoor_temp_f: float
-) -> str:
-    """HOT miss → 'unachievable' | 'controller' (§6.2).
-
-    Unachievable when the box physically cannot beat ambient: vent ON and
-    outdoor >= served target, OR the full stack (vent + both fans) is ON and
-    outdoor >= indoor (2nd fan is futile).
-    """
-    vent = relay.get("vent", False)
-    if vent and outdoor_temp_f is not None and served_temp_high is not None and outdoor_temp_f >= served_temp_high:
-        return "unachievable"
-    if (
-        vent
-        and relay.get("fan1", False)
-        and relay.get("fan2", False)
-        and outdoor_temp_f is not None
-        and outdoor_temp_f >= indoor_temp_f
-    ):
-        return "unachievable"
-    return "controller"
-
-
-def _classify_cold_feasibility(relay: dict[str, bool]) -> str:
-    """COLD miss → unachievable iff both heaters already ON (§6.2)."""
-    return "unachievable" if relay.get("heat1", False) and relay.get("heat2", False) else "controller"
-
-
-def _classify_vpd_high_feasibility(
-    relay: dict[str, bool],
-    outdoor_temp_f: float | None,
-    served_temp_high: float | None,
-    temp_band_error_f: float | None,
-) -> str:
-    """VPD-HIGH (too dry) miss → 'unachievable' | 'controller' (§6.2 TIGHTENED).
-
-    Unachievable only when venting is genuinely forced by heat
-    (temp_band_error > 0 or outdoor >= target) — vent-while-temp-OK is
-    reclassified as controller-error (the 7.9% gameable case) — OR a humidity
-    actuator is already running (fog / any mister ON).
-    """
-    if (
-        relay.get("fog", False)
-        or relay.get("mister_center", False)
-        or relay.get("mister_south", False)
-        or relay.get("mister_west", False)
-    ):
-        return "unachievable"
-    vent = relay.get("vent", False)
-    if vent and (
-        (temp_band_error_f is not None and temp_band_error_f > 0)
-        or (outdoor_temp_f is not None and served_temp_high is not None and outdoor_temp_f >= served_temp_high)
-    ):
-        return "unachievable"
-    return "controller"
-
-
-def _classify_vpd_low_feasibility(
-    relay: dict[str, bool], outdoor_rh_pct: float | None, indoor_rh_pct: float | None
-) -> str:
-    """VPD-LOW (too humid) miss → unachievable iff venting can't help (§6.2)."""
-    if (
-        relay.get("vent", False)
-        and outdoor_rh_pct is not None
-        and indoor_rh_pct is not None
-        and outdoor_rh_pct >= indoor_rh_pct
-    ):
-        return "unachievable"
-    return "controller"
-
-
-async def _build_zone_band_timeline(conn: asyncpg.Connection) -> dict[str, dict[int, dict[str, float]]]:
-    """Per-zone agronomic GRADING band keyed by (zone, hour_of_day) (§4.1).
-
-    center → orchid; north → _default; east → DEFAULT_ZONE_BAND. Reads the
-    CURRENT season. Plant-agnostic (#1327): no band follows what is planted,
-    so recording a planting never moves a grade. East used to intersect the
-    profiles of its active crops, and with none active it already fell back
-    to DEFAULT_ZONE_BAND, as it now always does. Returns {} entries fall back
-    to DEFAULT_ZONE_BAND so the grader never NULLs (pre-migration-146 safe).
-    """
-    season = await conn.fetchval("SELECT fn_current_season()")
-    bands: dict[str, dict[int, dict[str, float]]] = {z: {} for z in _GRADED_ZONES}
-
-    # center: single orchid band.
-    for row in await conn.fetch(
-        """
-        SELECT hour_of_day, temp_ideal_min, temp_ideal_max, temp_stress_low, temp_stress_high,
-               vpd_ideal_min, vpd_ideal_max, vpd_stress_low, vpd_stress_high
-          FROM crop_target_profiles
-         WHERE crop_type = 'orchid' AND season = $1
-        """,
-        season,
-    ):
-        bands["center"][int(row["hour_of_day"])] = {k: float(row[k]) for k in DEFAULT_ZONE_BAND}
-
-    # north: _default house-comfort band (if a row exists; else DEFAULT_ZONE_BAND). east stays {}: DEFAULT_ZONE_BAND.
-    for row in await conn.fetch(
-        """
-        SELECT hour_of_day, temp_ideal_min, temp_ideal_max, temp_stress_low, temp_stress_high,
-               vpd_ideal_min, vpd_ideal_max, vpd_stress_low, vpd_stress_high
-          FROM crop_target_profiles
-         WHERE crop_type = '_default' AND season = $1
-        """,
-        season,
-    ):
-        bands["north"][int(row["hour_of_day"])] = {k: float(row[k]) for k in DEFAULT_ZONE_BAND}
-    return bands
-
-
-def _zone_band_at(zone_bands: dict[str, dict[int, dict[str, float]]], zone: str, ts) -> dict[str, float]:
-    """Resolve the per-zone band for a reading's local hour, with fallback."""
-    hour = ts.astimezone(ZoneInfo("America/Denver")).hour
-    return zone_bands.get(zone, {}).get(hour) or DEFAULT_ZONE_BAND
-
-
-async def _build_relay_forward_fill(conn: asyncpg.Connection, target_day, equipment: tuple[str, ...]):
-    """Per-equipment transition timeline (seeded before day-start) for bisect.
-
-    Returns a callable relay_state_at(ts) → {equipment: bool}. Mirrors the
-    _band_at forward-fill pattern: the state at ts is the last transition at or
-    before ts (so a relay that turned ON at 13:00 reads ON for every reading
-    until it turns OFF). Reuses the same equipment_state seeding the binary
-    runtime block uses (band-compliance §6.2 / §6.6).
-    """
-    rows = await conn.fetch(
-        """
-        WITH day_bounds AS (
-            SELECT $1::date::timestamp AT TIME ZONE 'America/Denver' AS day_start,
-                   ($1::date + 1)::timestamp AT TIME ZONE 'America/Denver' AS day_end
-        ),
-        seeded AS (
-            SELECT DISTINCT ON (e.equipment) e.equipment, day_bounds.day_start AS ts, e.state
-              FROM equipment_state e CROSS JOIN day_bounds
-             WHERE e.ts < day_bounds.day_start AND e.equipment = ANY($2::text[])
-             ORDER BY e.equipment, e.ts DESC
-        ),
-        day_events AS (
-            SELECT e.equipment, e.ts, e.state
-              FROM equipment_state e CROSS JOIN day_bounds
-             WHERE e.ts >= day_bounds.day_start AND e.ts < day_bounds.day_end
-               AND e.equipment = ANY($2::text[])
-        )
-        SELECT equipment, ts, state FROM seeded
-        UNION ALL
-        SELECT equipment, ts, state FROM day_events
-        ORDER BY equipment, ts
-        """,
-        target_day,
-        list(equipment),
-    )
-    timelines: dict[str, list[tuple]] = {}
-    times: dict[str, list] = {}
-    for row in rows:
-        timelines.setdefault(row["equipment"], []).append(row["ts"])
-        times.setdefault(row["equipment"], []).append(bool(row["state"]))
-
-    def relay_state_at(ts) -> dict[str, bool]:
-        state: dict[str, bool] = {}
-        for eq in equipment:
-            ts_list = timelines.get(eq)
-            if not ts_list:
-                state[eq] = False
-                continue
-            idx = bisect_right(ts_list, ts) - 1
-            state[eq] = times[eq][idx] if idx >= 0 else False
-        return state
-
-    return relay_state_at
-
-
-class _GradedComplianceAccumulator:
-    """Accumulates graded + feasibility sums per zone over a day (§6).
-
-    One instance per daily refresh. `add_reading` is called once per scored
-    climate row; `finalize` returns the per-zone rollups + the priority-weighted
-    house raw/attributable compliance + unachievable fraction. All arithmetic
-    mirrors the DB engine; nothing here mutates the binary calc.
-    """
-
-    def __init__(self, weights: dict[str, float]):
-        self._weights = weights
-        self._interval_h = 1.0 / 60.0
-        self._zones: dict[str, dict[str, float]] = {
-            z: {
-                "n": 0.0,
-                "sum_g_temp": 0.0,
-                "sum_g_vpd": 0.0,
-                "sum_zone_score": 0.0,
-                "sum_ctrl_score": 0.0,
-                "unachievable_min": 0.0,
-                "controller_miss_min": 0.0,
-                "unknown_min": 0.0,
-                "sh_heat": 0.0,
-                "sh_cold": 0.0,
-                "sh_vpd_high": 0.0,
-                "sh_vpd_low": 0.0,
-            }
-            for z in _GRADED_ZONES
-        }
-
-    @staticmethod
-    def _zone_reading(zone: str, r) -> tuple[float | None, float | None, float | None]:
-        """(temp, vpd, rh) for a zone. center uses the avg proxy (no probe)."""
-        if zone == "center":
-            return (
-                float(r["temp_avg"]) if r["temp_avg"] is not None else None,
-                float(r["vpd_avg"]) if r["vpd_avg"] is not None else None,
-                float(r["rh_avg"]) if r["rh_avg"] is not None else None,
-            )
-        if zone == "east":
-            return (
-                float(r["temp_east"]) if r["temp_east"] is not None else None,
-                float(r["vpd_east"]) if r["vpd_east"] is not None else None,
-                None,
-            )
-        # north (and any empty graded zone) — use the per-zone probe if present.
-        return (
-            float(r["temp_north"]) if r["temp_north"] is not None else None,
-            float(r["vpd_north"]) if r["vpd_north"] is not None else None,
-            None,
-        )
-
-    def add_reading(self, r, served_temp_high, zone_bands, relay_state_at) -> None:
-        ts = r["ts"]
-        relay = relay_state_at(ts)
-        outdoor_temp_f = float(r["outdoor_temp_f"]) if r["outdoor_temp_f"] is not None else None
-        outdoor_rh_pct = float(r["outdoor_rh_pct"]) if r["outdoor_rh_pct"] is not None else None
-        feas_known = ts >= RELAY_TRUTH_START
-
-        for zone in _GRADED_ZONES:
-            temp, vpd, rh = self._zone_reading(zone, r)
-            if temp is None and vpd is None:
-                continue
-            band = _zone_band_at(zone_bands, zone, ts)
-            g_temp = _grade_credit(
-                temp,
-                band["temp_stress_low"],
-                band["temp_ideal_min"],
-                band["temp_ideal_max"],
-                band["temp_stress_high"],
-            )
-            g_vpd = _grade_credit(
-                vpd,
-                band["vpd_stress_low"],
-                band["vpd_ideal_min"],
-                band["vpd_ideal_max"],
-                band["vpd_stress_high"],
-            )
-            score = _zone_score(g_temp, g_vpd)
-            if score is None:
-                continue
-            acc = self._zones[zone]
-            acc["n"] += 1.0
-            acc["sum_g_temp"] += g_temp
-            acc["sum_g_vpd"] += g_vpd
-            acc["sum_zone_score"] += score
-
-            # Graded stress-hours = severity-weighted deficit integral (§6.5).
-            if temp is not None and g_temp < 1.0:
-                if temp > band["temp_ideal_max"]:
-                    acc["sh_heat"] += (1.0 - g_temp) * self._interval_h
-                elif temp < band["temp_ideal_min"]:
-                    acc["sh_cold"] += (1.0 - g_temp) * self._interval_h
-            if vpd is not None and g_vpd < 1.0:
-                if vpd > band["vpd_ideal_max"]:
-                    acc["sh_vpd_high"] += (1.0 - g_vpd) * self._interval_h
-                elif vpd < band["vpd_ideal_min"]:
-                    acc["sh_vpd_low"] += (1.0 - g_vpd) * self._interval_h
-
-            # Feasibility: a perfect reading has no miss; otherwise classify the
-            # dominant deficit. Controller-attributable score credits an
-            # unachievable miss as full (§6.2). The *_min accumulators are in
-            # MINUTES (one climate reading ≈ one minute) to match the
-            # daily_zone_compliance schema columns; stress-hours stay in hours.
-            if score >= 1.0:
-                acc["sum_ctrl_score"] += 1.0
-                continue
-            if not feas_known:
-                acc["unknown_min"] += 1.0
-                acc["sum_ctrl_score"] += score  # cannot attribute → score as-is
-                continue
-            feas = self._classify(zone, temp, vpd, rh, band, relay, served_temp_high, outdoor_temp_f, outdoor_rh_pct)
-            if feas == "unachievable":
-                acc["unachievable_min"] += 1.0
-                acc["sum_ctrl_score"] += 1.0
-            else:
-                acc["controller_miss_min"] += 1.0
-                acc["sum_ctrl_score"] += score
-
-    @staticmethod
-    def _classify(zone, temp, vpd, rh, band, relay, served_temp_high, outdoor_temp_f, outdoor_rh_pct) -> str:
-        """Pick the dominant miss axis and classify it (§6.2).
-
-        Unachievable wins if ANY contributing miss axis is unachievable —
-        consistent with crediting the controller only for levers it owns.
-        """
-        labels: list[str] = []
-        if temp is not None:
-            if temp > band["temp_ideal_max"]:
-                labels.append(_classify_hot_feasibility(relay, outdoor_temp_f, served_temp_high, temp))
-            elif temp < band["temp_ideal_min"]:
-                labels.append(_classify_cold_feasibility(relay))
-        if vpd is not None:
-            if vpd > band["vpd_ideal_max"]:
-                temp_band_error_f = (
-                    (temp - served_temp_high) if (temp is not None and served_temp_high is not None) else None
-                )
-                labels.append(
-                    _classify_vpd_high_feasibility(relay, outdoor_temp_f, served_temp_high, temp_band_error_f)
-                )
-            elif vpd < band["vpd_ideal_min"]:
-                labels.append(_classify_vpd_low_feasibility(relay, outdoor_rh_pct, rh))
-        if not labels:
-            return "controller"
-        return "unachievable" if "unachievable" in labels else "controller"
-
-    def finalize(self) -> dict:
-        """Per-zone rollups + priority-weighted house raw/attributable."""
-        zones: dict[str, dict] = {}
-        house_raw_num = house_ctrl_num = house_w = 0.0
-        total_unach = total_min = 0.0
-        for zone, acc in self._zones.items():
-            nz = acc["n"]
-            if nz <= 0:
-                zones[zone] = None
-                continue
-            raw_pct = 100.0 * acc["sum_zone_score"] / nz
-            ctrl_pct = 100.0 * acc["sum_ctrl_score"] / nz
-            zones[zone] = {
-                "raw_compliance_pct": round(raw_pct, 1),
-                "ctrl_compliance_pct": round(ctrl_pct, 1),
-                "graded_temp_compliance_pct": round(100.0 * acc["sum_g_temp"] / nz, 1),
-                "graded_vpd_compliance_pct": round(100.0 * acc["sum_g_vpd"] / nz, 1),
-                "graded_stress_hours_heat": round(acc["sh_heat"], 2),
-                "graded_stress_hours_cold": round(acc["sh_cold"], 2),
-                "graded_stress_hours_vpd_high": round(acc["sh_vpd_high"], 2),
-                "graded_stress_hours_vpd_low": round(acc["sh_vpd_low"], 2),
-                "unachievable_min": round(acc["unachievable_min"], 2),
-                "controller_miss_min": round(acc["controller_miss_min"], 2),
-                "feasibility_unknown_min": round(acc["unknown_min"], 2),
-                "proxy_flag": zone == "center",
-            }
-            w = self._weights.get(zone, 0.0)
-            if w > 0:
-                house_raw_num += w * raw_pct
-                house_ctrl_num += w * ctrl_pct
-                house_w += w
-            # nz counts readings (≈ minutes); unachievable_min is in minutes,
-            # so the fraction is unachievable-minutes / total-scored-minutes.
-            total_unach += acc["unachievable_min"]
-            total_min += nz
-        house_raw = round(house_raw_num / house_w, 1) if house_w > 0 else None
-        house_ctrl = round(house_ctrl_num / house_w, 1) if house_w > 0 else None
-        unach_frac = round(total_unach / total_min, 4) if total_min > 0 else None
-        unknown_min = round(sum(a["unknown_min"] for a in self._zones.values()), 2)
-        return {
-            "zones": zones,
-            "house_raw_pct": house_raw,
-            "house_ctrl_pct": house_ctrl,
-            "unachievable_frac": unach_frac,
-            "feasibility_unknown_min": unknown_min,
-        }
 
 
 _MODELED_ELECTRIC_EQUIPMENT = (
@@ -733,16 +289,19 @@ async def grow_light_daily(pool: asyncpg.Pool) -> None:
             if rh2 is not None and rt_eligible.get("heat2", False) and gas_btu_per_hour is not None
             else None
         )
+        # Water cost is planning water only (climate wetting + wall irrigation + wall fertigation, #1623).
         water_row = await conn.fetchrow(
             """
-            SELECT quality_filtered_meter_gal, available_for_scoring
+            SELECT planning_water_gal, available_for_scoring
             FROM v_water_attribution_daily
             WHERE date = $1 AND greenhouse_id = 'vallery'
             """,
             yesterday,
         )
         water_gal = (
-            float(water_row["quality_filtered_meter_gal"]) if water_row and water_row["available_for_scoring"] else None
+            float(water_row["planning_water_gal"])
+            if water_row and water_row["available_for_scoring"] and water_row["planning_water_gal"] is not None
+            else None
         )
         cg = round(therms * 0.83, 2) if therms is not None else None
 
@@ -836,7 +395,10 @@ async def grow_light_daily(pool: asyncpg.Pool) -> None:
                    ROUND(SUM(kwh_estimated) FILTER (
                        WHERE cost_electric IS NOT NULL
                    )::numeric, 2) AS kwh,
-                   ROUND(SUM(water_used_gal) FILTER (
+                   ROUND(SUM(
+                       COALESCE(mister_water_gal, 0) + COALESCE(irrigation_water_gal, 0)
+                       + COALESCE(fertigation_water_gal, 0)
+                   ) FILTER (
                        WHERE cost_water IS NOT NULL
                    )::numeric, 2) AS gal
             FROM daily_summary
@@ -909,7 +471,7 @@ async def _refresh_daily_summary_for_date(
     climate = await conn.fetchrow(
         """
         WITH day_climate AS (
-            SELECT temp_avg, vpd_avg, rh_avg, outdoor_temp_f, co2_ppm, dli_today,
+            SELECT temp_avg, vpd_avg, rh_avg, outdoor_temp_f, co2_ppm,
                    mister_water_today,
                    LAG(mister_water_today) OVER (ORDER BY ts) AS prev_mister
             FROM climate
@@ -921,7 +483,7 @@ async def _refresh_daily_summary_for_date(
                MIN(vpd_avg) AS vpd_min, MAX(vpd_avg) AS vpd_max, AVG(vpd_avg) AS vpd_avg,
                MIN(rh_avg) AS rh_min, MAX(rh_avg) AS rh_max, AVG(rh_avg) AS rh_avg,
                MIN(outdoor_temp_f) AS outdoor_temp_min, MAX(outdoor_temp_f) AS outdoor_temp_max,
-               AVG(co2_ppm) AS co2_avg, MAX(dli_today) AS dli_final,
+               AVG(co2_ppm) AS co2_avg,
                SUM(GREATEST(mister_water_today - COALESCE(prev_mister, 0), 0)) AS mister_water_gal
         FROM day_climate
     """,
@@ -931,63 +493,8 @@ async def _refresh_daily_summary_for_date(
     # Time in band, its whole-day shares and the below/above stress hours come from the database's one
     # definition (migration 290, #1358): verdify_matview_refresh_runtime.fn_refresh_band_compliance grades
     # each 5-minute bucket against the band the controller served and copies the day into daily_summary's
-    # compliance_pct, temp_/vpd_compliance_pct and stress_hours_* columns. This task no longer writes them.
-    #
-    # The graded credit below stays separate (crop_target_profiles grading, ADR-0004). Its feasibility
-    # classifier needs the served temperature high, read from the same band_house_* audit rows.
-    served_high_rows = await conn.fetch(
-        """
-        SELECT ts, value
-          FROM setpoint_snapshot
-         WHERE parameter = 'band_house_temp_high' AND zone = 'house'
-           AND ts >= ($1::date::timestamp AT TIME ZONE 'America/Denver') - make_interval(secs => $2)
-           AND ts < ($1::date + 1)::timestamp AT TIME ZONE 'America/Denver'
-         ORDER BY ts
-        """,
-        target_day,
-        SERVED_BAND_CARRY_S,
-    )
-    served_high_ts = [row["ts"] for row in served_high_rows]
-
-    def _served_temp_high_at(ts):
-        idx = bisect_right(served_high_ts, ts) - 1
-        if idx < 0 or (ts - served_high_ts[idx]).total_seconds() > SERVED_BAND_CARRY_S:
-            return None
-        return float(served_high_rows[idx]["value"])
-
-    readings = await conn.fetch(
-        """
-        SELECT ts, temp_avg, vpd_avg, rh_avg,
-               temp_east, vpd_east, temp_north, vpd_north,
-               outdoor_temp_f, outdoor_rh_pct
-          FROM climate
-        WHERE greenhouse_id = 'vallery'
-          AND ts >= $1::date::timestamp AT TIME ZONE 'America/Denver'
-          AND ts < ($1::date + 1)::timestamp AT TIME ZONE 'America/Denver'
-        ORDER BY ts
-        """,
-        target_day,
-    )
-
-    # ── Graded + feasibility dual-write setup (migration 146, §6.6) ──────
-    # Per-zone agronomic band timeline (O(24h × 3 zones)) + per-equipment relay
-    # forward-fill so the loop can grade each reading and classify each miss
-    # without a second climate scan. Built once per day; falls back gracefully
-    # when crop_target_profiles lacks the _default / east rows (pre-migration).
-    zone_bands = await _build_zone_band_timeline(conn)
-    relay_state_at = await _build_relay_forward_fill(conn, target_day, _GRADE_RELAYS)
-    grade_acc = _GradedComplianceAccumulator(COMPLIANCE_ZONE_WEIGHTS_DEFAULT)
-
-    for r in readings:
-        temp, vpd = r["temp_avg"], r["vpd_avg"]
-        if temp is None or vpd is None or not (isfinite(float(temp)) and isfinite(float(vpd))):
-            continue
-        # Graded controller credit remains separately named and accumulated.
-        grade_acc.add_reading(
-            r, served_temp_high=_served_temp_high_at(r["ts"]), zone_bands=zone_bands, relay_state_at=relay_state_at
-        )
-
-    graded = grade_acc.finalize()
+    # compliance_pct, temp_/vpd_compliance_pct and stress_hours_* columns. That served house band is the only
+    # temperature/VPD measurement basis (#1623); this task writes none of them.
 
     # Dew point margin (condensation risk)
     dp = await conn.fetchrow(
@@ -1050,6 +557,7 @@ async def _refresh_daily_summary_for_date(
                climate_wetting_gal,
                wall_irrigation_gal,
                wall_fertigation_gal,
+               planning_water_gal,
                available_for_scoring
         FROM v_water_attribution_daily
         WHERE date = $1 AND greenhouse_id = 'vallery'
@@ -1057,7 +565,14 @@ async def _refresh_daily_summary_for_date(
         target_day,
     )
     water_available = bool(water_evidence and water_evidence["available_for_scoring"])
+    # water_used_gal stays the quality-filtered meter total (reporting). Water cost is planning water only:
+    # climate wetting + wall irrigation + wall fertigation; house/hose use is never a planning input (#1623).
     water_gal = float(water_evidence["quality_filtered_meter_gal"]) if water_available else None
+    planning_water_gal = (
+        float(water_evidence["planning_water_gal"])
+        if water_available and water_evidence["planning_water_gal"] is not None
+        else None
+    )
     mister_water_gal = float(water_evidence["climate_wetting_gal"]) if water_available else None
 
     cg = round(therms * 0.83, 2) if therms is not None else None
@@ -1087,25 +602,25 @@ async def _refresh_daily_summary_for_date(
             temp_min=$2, temp_max=$3, temp_avg=$4,
             vpd_min=$5, vpd_max=$6, vpd_avg=$7,
             rh_min=$8, rh_max=$9, rh_avg=$10,
-            co2_avg=$11, dli_final=$12,
-            outdoor_temp_min=$13, outdoor_temp_max=$14,
-            runtime_fan1_min=$15, runtime_fan2_min=$16,
-            runtime_heat1_min=$17, runtime_heat2_min=$18,
-            runtime_fog_min=$19, runtime_vent_min=$20,
-            runtime_grow_light_min=$21,
-            runtime_mister_south_h=$22, runtime_mister_west_h=$23, runtime_mister_center_h=$24,
-            runtime_drip_wall_h=$25, runtime_drip_center_h=$26,
-            kwh_estimated=$27, therms_estimated=$28,
-            cost_electric=$29, cost_gas=$30, cost_water=$31, cost_total=$32,
-            water_used_gal=$33, mister_water_gal=$34,
-            min_dp_margin_f=$35, dp_risk_hours=$36,
-            cycles_mister_south=$37,
-            cycles_mister_west=$38,
-            cycles_mister_center=$39,
-            cycles_drip_wall=$40,
-            cycles_drip_center=$41,
-            cycles_fan1=$42, cycles_fan2=$43, cycles_heat1=$44, cycles_heat2=$45,
-            cycles_fog=$46, cycles_vent=$47, cycles_grow_light=$48,
+            co2_avg=$11,
+            outdoor_temp_min=$12, outdoor_temp_max=$13,
+            runtime_fan1_min=$14, runtime_fan2_min=$15,
+            runtime_heat1_min=$16, runtime_heat2_min=$17,
+            runtime_fog_min=$18, runtime_vent_min=$19,
+            runtime_grow_light_min=$20,
+            runtime_mister_south_h=$21, runtime_mister_west_h=$22, runtime_mister_center_h=$23,
+            runtime_drip_wall_h=$24, runtime_drip_center_h=$25,
+            kwh_estimated=$26, therms_estimated=$27,
+            cost_electric=$28, cost_gas=$29, cost_water=$30, cost_total=$31,
+            water_used_gal=$32, mister_water_gal=$33,
+            min_dp_margin_f=$34, dp_risk_hours=$35,
+            cycles_mister_south=$36,
+            cycles_mister_west=$37,
+            cycles_mister_center=$38,
+            cycles_drip_wall=$39,
+            cycles_drip_center=$40,
+            cycles_fan1=$41, cycles_fan2=$42, cycles_heat1=$43, cycles_heat2=$44,
+            cycles_fog=$45, cycles_vent=$46, cycles_grow_light=$47,
             captured_at=now()
         WHERE date = $1
     """,
@@ -1120,7 +635,6 @@ async def _refresh_daily_summary_for_date(
         climate["rh_max"] if climate else None,
         climate["rh_avg"] if climate else None,
         climate["co2_avg"] if climate else None,
-        climate["dli_final"] if climate else None,
         climate["outdoor_temp_min"] if climate else None,
         climate["outdoor_temp_max"] if climate else None,
         rt.get("fan1"),
@@ -1219,138 +733,16 @@ async def _refresh_daily_summary_for_date(
         target_day,
         kwh=kwh,
         therms=therms,
-        water_gal=water_gal,
+        water_gal=planning_water_gal,
     )
     # Partial-channel diagnostic only; no whole-house or model-subtraction claim.
     # A corrected NULL/no-row must clear an older unqualified summary value.
     await refresh_partial_energy(conn, target_day, GREENHOUSE_ID)
 
-    # ── Graded + feasibility dual-write (migration 146, §6.6/§6.7) ────────
-    # Writes the new *_v2 / graded columns + daily_zone_compliance rows ONLY;
-    # the binary columns above are untouched (co-existence). Guarded so a node
-    # running this code BEFORE migration 146 lands (columns/tables absent) logs
-    # once and continues rather than failing the whole daily refresh. Cannot be
-    # runtime-validated tonight (migration apply is forbidden) — logic-checked.
-    await _write_graded_compliance(conn, target_day, graded)
-
     temp_max = float(climate["temp_max"]) if climate and climate["temp_max"] else 0.0
-    # Separate versioned diagnostics: do not reinterpret or overwrite legacy
-    # binary/graded fields or the locked experiment endpoint. Migration245
-    # atomically captures this payload through the revision ledger from244.
-    minute_metrics = await refresh_observed_minute_metrics(conn, target_day)
-    if minute_metrics is None:
-        log.warning("Observed-minute metrics unavailable for %s: migration245 is absent", target_day)
     # The band refresh (migration 290) owns compliance_pct; report its latest copy.
     compliance_pct = await conn.fetchval("SELECT compliance_pct FROM daily_summary WHERE date = $1", target_day)
     return ct, temp_max, (float(compliance_pct) if compliance_pct is not None else None)
-
-
-async def _write_graded_compliance(conn: asyncpg.Connection, target_day, graded: dict) -> None:
-    """Dual-write the graded house columns + per-zone rows (§6.7).
-
-    Safe to call before migration 146: an UndefinedColumn/UndefinedTable error
-    means the schema is not yet migrated, so we skip silently (debug-log) — the
-    binary calc has already been written. Once 146 lands these writes populate.
-    """
-    try:
-        await conn.execute(
-            """
-            UPDATE daily_summary SET
-                compliance_v2_raw_pct=$2,
-                compliance_v2_attributable_pct=$3,
-                compliance_v2_unachievable_frac=$4,
-                graded_temp_compliance_pct=$5,
-                graded_vpd_compliance_pct=$6,
-                graded_stress_hours_heat=$7,
-                graded_stress_hours_cold=$8,
-                graded_stress_hours_vpd_high=$9,
-                graded_stress_hours_vpd_low=$10,
-                feasibility_unknown_min=$11,
-                captured_at=now()
-            WHERE date = $1
-            """,
-            target_day,
-            graded["house_raw_pct"],
-            graded["house_ctrl_pct"],
-            graded["unachievable_frac"],
-            _graded_house_axis(graded, "graded_temp_compliance_pct"),
-            _graded_house_axis(graded, "graded_vpd_compliance_pct"),
-            _graded_house_axis(graded, "graded_stress_hours_heat", sum_axis=True),
-            _graded_house_axis(graded, "graded_stress_hours_cold", sum_axis=True),
-            _graded_house_axis(graded, "graded_stress_hours_vpd_high", sum_axis=True),
-            _graded_house_axis(graded, "graded_stress_hours_vpd_low", sum_axis=True),
-            graded["feasibility_unknown_min"],
-        )
-        for zone, z in graded["zones"].items():
-            if z is None:
-                continue
-            await conn.execute(
-                """
-                INSERT INTO daily_zone_compliance (
-                    date, zone, raw_compliance_pct, ctrl_compliance_pct,
-                    graded_temp_compliance_pct, graded_vpd_compliance_pct,
-                    graded_stress_hours_heat, graded_stress_hours_cold,
-                    graded_stress_hours_vpd_high, graded_stress_hours_vpd_low,
-                    unachievable_min, controller_miss_min, proxy_flag, captured_at
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
-                ON CONFLICT (date, zone) DO UPDATE SET
-                    raw_compliance_pct=EXCLUDED.raw_compliance_pct,
-                    ctrl_compliance_pct=EXCLUDED.ctrl_compliance_pct,
-                    graded_temp_compliance_pct=EXCLUDED.graded_temp_compliance_pct,
-                    graded_vpd_compliance_pct=EXCLUDED.graded_vpd_compliance_pct,
-                    graded_stress_hours_heat=EXCLUDED.graded_stress_hours_heat,
-                    graded_stress_hours_cold=EXCLUDED.graded_stress_hours_cold,
-                    graded_stress_hours_vpd_high=EXCLUDED.graded_stress_hours_vpd_high,
-                    graded_stress_hours_vpd_low=EXCLUDED.graded_stress_hours_vpd_low,
-                    unachievable_min=EXCLUDED.unachievable_min,
-                    controller_miss_min=EXCLUDED.controller_miss_min,
-                    proxy_flag=EXCLUDED.proxy_flag,
-                    captured_at=now()
-                """,
-                target_day,
-                zone,
-                z["raw_compliance_pct"],
-                z["ctrl_compliance_pct"],
-                z["graded_temp_compliance_pct"],
-                z["graded_vpd_compliance_pct"],
-                z["graded_stress_hours_heat"],
-                z["graded_stress_hours_cold"],
-                z["graded_stress_hours_vpd_high"],
-                z["graded_stress_hours_vpd_low"],
-                z["unachievable_min"],
-                z["controller_miss_min"],
-                z["proxy_flag"],
-            )
-    except (
-        asyncpg.exceptions.UndefinedColumnError,
-        asyncpg.exceptions.UndefinedTableError,
-    ):
-        # Migration 146 not yet applied on this node — binary calc already
-        # persisted; graded dual-write resumes automatically post-migration.
-        log.debug("graded compliance dual-write skipped (migration 146 not applied for %s)", target_day)
-
-
-def _graded_house_axis(graded: dict, key: str, sum_axis: bool = False) -> float | None:
-    """House-level graded axis from the per-zone rollups (priority-weighted).
-
-    For compliance percents: priority-weighted mean across graded zones (same
-    weights as the house roll-up). For stress-hours: priority-weighted mean of
-    the per-zone deficit hours (so the house figure is comparable to a single
-    zone's hours, not an inflated sum). Returns None if no zone contributed.
-    """
-    weights = COMPLIANCE_ZONE_WEIGHTS_DEFAULT
-    num = den = 0.0
-    for zone, z in graded["zones"].items():
-        if z is None:
-            continue
-        w = weights.get(zone, 0.0)
-        if w <= 0:
-            continue
-        num += w * z[key]
-        den += w
-    if den <= 0:
-        return None
-    return round(num / den, 2 if sum_axis else 1)
 
 
 async def daily_summary_live(pool: asyncpg.Pool) -> None:
@@ -1359,19 +751,14 @@ async def daily_summary_live(pool: asyncpg.Pool) -> None:
     Two-writer contract (paired with ingestor.py::write_daily_summary):
       - `write_daily_summary` owns the midnight UPSERT of raw ESP32 accumulators.
       - This function owns the 30-min UPDATE of derived aggregates:
-        climate min/max/avg, stress_hours_*, compliance_pct (temp/vpd/both),
-        min_dp_margin_f, dp_risk_hours, kwh_estimated, therms_estimated,
+        climate min/max/avg, min_dp_margin_f, dp_risk_hours, kwh_estimated, therms_estimated,
         cost_electric/gas/water/total. It also rewrites cycles/runtimes
         computed from equipment_state transitions — which overrides the
         midnight ESP32-accumulator values for the current day (intentional:
         equipment-state-derived is the higher-fidelity source).
 
-      Migration-146 dual-write (band-compliance §6.6): the per-reading loop in
-      `_refresh_daily_summary_for_date` ALSO computes the graded + feasibility
-      compliance and writes the new daily_summary *_v2 columns +
-      daily_zone_compliance rows alongside the untouched binary calc. That
-      write is guarded (no-ops until migration 146 adds the columns/tables), so
-      this function is forward-safe to ship before the migration lands.
+      Temperature/VPD compliance and stress hours are the database's served-band grade (migration 290);
+      this task does not write them. Water cost uses planning water only (#1623).
     """
     async with pool.acquire() as conn:
         today = await conn.fetchval("SELECT (now() AT TIME ZONE 'America/Denver')::date")

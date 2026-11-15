@@ -210,7 +210,6 @@ def test_actual_scorecard_opt_in_is_only_new_read(requested, explicit):
         _db=db,
         _json=json.dumps,
         MCP_DB_STATEMENT_TIMEOUT_MS=15000,
-        read_observed_minute_evidence=existing,
         read_physical_crop_band_evidence=existing,
         read_route_only_crop_band_evidence=existing,
         read_native_fixed_panel_route_evidence=existing,

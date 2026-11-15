@@ -108,38 +108,6 @@ spec:
     - protocol: TCP
       port: 6443
   - to:
-    - ipBlock:
-        cidr: 192.168.30.105/32
-    - ipBlock:
-        cidr: 192.168.30.142/32
-    - ipBlock:
-        cidr: 192.168.30.108/32
-    ports:
-    - protocol: TCP
-      port: 9400
-  - to:
-    - ipBlock:
-        cidr: 192.168.30.150/32
-    - ipBlock:
-        cidr: 192.168.30.105/32
-    - ipBlock:
-        cidr: 192.168.30.142/32
-    - ipBlock:
-        cidr: 192.168.30.151/32
-    - ipBlock:
-        cidr: 192.168.30.212/32
-    - ipBlock:
-        cidr: 192.168.30.211/32
-    - ipBlock:
-        cidr: 192.168.30.213/32
-    - ipBlock:
-        cidr: 192.168.30.214/32
-    - ipBlock:
-        cidr: 192.168.30.215/32
-    ports:
-    - protocol: TCP
-      port: 9100
-  - to:
     - podSelector:
         matchLabels:
           app.kubernetes.io/component: outbound

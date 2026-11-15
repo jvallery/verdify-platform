@@ -18,7 +18,6 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from .crops import Observation
 from .fixed_panel_native_route import NativeFixedPanelRouteEvidence
-from .observed_minutes import ObservedMinuteEvidence
 from .physical_crop_band import PhysicalCropBandEvidence, RouteOnlyCropBandEvidence
 
 
@@ -156,13 +155,11 @@ class PublicHomeMetrics(BaseModel):
     last_plan_created_at: AwareDatetime | None = None
     last_plan_age_s: int | None = Field(default=None, ge=0)
     planner_score_today: float | None = None
-    planner_score_scope: Literal["climate_only_resource_excluded", "climate_plus_resource"] = (
-        "climate_only_resource_excluded"
-    )
+    # planner_score = served-band compliance_pct at 100% weight; resources never enter it (#1623).
+    planner_score_scope: Literal["climate_only_resource_excluded"] = "climate_only_resource_excluded"
     planner_score_resource_weight_pct: float = Field(default=0, ge=0, le=100)
     planner_score_resource_terms_available: bool = False
     compliance_pct_today: float | None = None
-    observed_minute_evidence: ObservedMinuteEvidence = Field(default_factory=ObservedMinuteEvidence)
     physical_crop_band_evidence: PhysicalCropBandEvidence = Field(default_factory=PhysicalCropBandEvidence)
     route_only_crop_band_evidence: RouteOnlyCropBandEvidence = Field(default_factory=RouteOnlyCropBandEvidence)
     native_fixed_panel_route_evidence: NativeFixedPanelRouteEvidence = Field(
@@ -170,8 +167,10 @@ class PublicHomeMetrics(BaseModel):
     )
     cost_today_usd: float | None = None
     cost_today_estimate_usd: float | None = None
+    # Planning water (climate wetting + wall irrigation + wall fertigation); house/hose water is separate.
     water_today_gal: float | None = None
     water_today_observed_gal: float | None = None
+    water_today_house_gal: float | None = None
     water_today_quality: str = "unavailable"
     water_today_available_for_scoring: bool = False
     runtime_modeled_kwh: float | None = None
@@ -369,89 +368,6 @@ class PublicBandTraceResponse(BaseModel):
     latest: PublicBandTraceLatest | None = None
     summary: PublicBandTraceSummary
     semantics: PublicBandTraceSemantics = Field(default_factory=PublicBandTraceSemantics)
-
-
-class PublicGpuPowerPoint(BaseModel):
-    """One bucketed GPU power sample for public inference-fleet charts."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    ts: AwareDatetime
-    host: str
-    vm_name: str | None = None
-    gpu: str
-    watts: float
-
-
-class PublicGpuPowerLatest(BaseModel):
-    """Latest mirrored GPU telemetry for one host/GPU."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    ts: AwareDatetime
-    host: str
-    vm_name: str | None = None
-    purpose: str | None = None
-    gpu: str
-    device: str | None = None
-    model_name: str | None = None
-    watts: float
-    gpu_util_pct: float | None = None
-    temperature_c: float | None = None
-    memory_used_mb: float | None = None
-    memory_free_mb: float | None = None
-    age_s: int | None = Field(default=None, ge=0)
-
-
-class PublicInfraCpuPoint(BaseModel):
-    """One bucketed CPU/memory sample for public infrastructure charts."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    ts: AwareDatetime
-    host: str
-    vm_name: str | None = None
-    cpu_util_pct: float | None = None
-    memory_used_pct: float | None = None
-
-
-class PublicInfraCpuLatest(BaseModel):
-    """Latest mirrored CPU/memory telemetry for one host."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    ts: AwareDatetime
-    host: str
-    vm_name: str | None = None
-    purpose: str | None = None
-    cpu_util_pct: float | None = None
-    load1: float | None = None
-    cores: int | None = Field(default=None, ge=0)
-    memory_used_pct: float | None = None
-    age_s: int | None = Field(default=None, ge=0)
-
-
-class PublicGpuPowerResponse(BaseModel):
-    """GET /api/v1/public/gpu-power."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    generated_at: AwareDatetime
-    greenhouse_id: str
-    source: str
-    hours: int = Field(..., ge=1, le=168)
-    step_minutes: int = Field(..., ge=1, le=60)
-    latest_total_watts: float | None = None
-    latest_gpu_count: int = Field(..., ge=0)
-    latest_avg_gpu_util_pct: float | None = Field(default=None, ge=0, le=100)
-    peak_total_watts: float | None = None
-    avg_total_watts: float | None = None
-    latest_avg_cpu_util_pct: float | None = Field(default=None, ge=0, le=100)
-    peak_avg_cpu_util_pct: float | None = Field(default=None, ge=0, le=100)
-    latest: list[PublicGpuPowerLatest] = Field(default_factory=list, max_length=32)
-    series: list[PublicGpuPowerPoint] = Field(default_factory=list, max_length=12000)
-    cpu_latest: list[PublicInfraCpuLatest] = Field(default_factory=list, max_length=32)
-    cpu_series: list[PublicInfraCpuPoint] = Field(default_factory=list, max_length=12000)
 
 
 class ZoneListItem(BaseModel):

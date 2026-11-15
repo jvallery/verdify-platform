@@ -4,8 +4,9 @@
 Default mode is a dry-run. Use --apply to persist changes.
 
 Scope:
-  - daily_summary derived fields, including graded compliance v2 fields
-  - daily_zone_compliance rows
+  - daily_summary derived fields the ingestor writes (the served-band
+    compliance and stress columns are the database's own, migration 290/309,
+    and are only compared here)
   - utility_cost monthly rollups from daily_summary
   - optional materialized-view/function refreshes
 
@@ -50,7 +51,6 @@ DERIVED_DAILY_COLUMNS = (
     "rh_max",
     "rh_avg",
     "co2_avg",
-    "dli_final",
     "outdoor_temp_min",
     "outdoor_temp_max",
     "stress_hours_heat",
@@ -111,16 +111,6 @@ DERIVED_DAILY_COLUMNS = (
     "compliance_pct",
     "temp_compliance_pct",
     "vpd_compliance_pct",
-    "compliance_v2_raw_pct",
-    "compliance_v2_attributable_pct",
-    "compliance_v2_unachievable_frac",
-    "graded_temp_compliance_pct",
-    "graded_vpd_compliance_pct",
-    "graded_stress_hours_heat",
-    "graded_stress_hours_cold",
-    "graded_stress_hours_vpd_high",
-    "graded_stress_hours_vpd_low",
-    "feasibility_unknown_min",
 )
 _REFRESH_DAILY_SUMMARY_FOR_DATE = None
 
@@ -129,13 +119,11 @@ _REFRESH_DAILY_SUMMARY_FOR_DATE = None
 class DayResult:
     day: date
     changed_columns: list[str]
-    zone_rows_before: int
-    zone_rows_after: int
     error: str | None = None
 
     @property
     def changed(self) -> bool:
-        return bool(self.changed_columns) or self.zone_rows_before != self.zone_rows_after
+        return bool(self.changed_columns)
 
 
 def parse_args() -> argparse.Namespace:
@@ -152,7 +140,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--refresh-matviews", action="store_true", help="refresh derived functions/materialized views after days"
     )
-    parser.add_argument("--skip-daily", action="store_true", help="skip daily_summary/daily_zone_compliance")
+    parser.add_argument("--skip-daily", action="store_true", help="skip daily_summary")
     parser.add_argument("--skip-utility-cost", action="store_true", help="skip utility_cost monthly rollups")
     parser.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"))
     return parser.parse_args()
@@ -212,7 +200,7 @@ async def check_permissions(conn: asyncpg.Connection, args: argparse.Namespace) 
     required = ("SELECT", "INSERT", "UPDATE") if apply else ("SELECT",)
     tables: list[str] = []
     if not args.skip_daily:
-        tables.extend(["daily_summary", "daily_zone_compliance"])
+        tables.append("daily_summary")
     if not args.skip_utility_cost:
         tables.append("utility_cost")
     missing: list[str] = []
@@ -281,13 +269,6 @@ async def daily_snapshot(conn: asyncpg.Connection, day: date) -> dict[str, Any]:
     return {key: comparable(row[key]) for key in row.keys()}
 
 
-async def zone_row_count(conn: asyncpg.Connection, day: date) -> int:
-    exists = await conn.fetchval("SELECT to_regclass('public.daily_zone_compliance')")
-    if exists is None:
-        return 0
-    return int(await conn.fetchval("SELECT count(*) FROM daily_zone_compliance WHERE date = $1", day) or 0)
-
-
 def changed_columns(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     keys = sorted(set(before) | set(after))
     changed: list[str] = []
@@ -298,20 +279,18 @@ def changed_columns(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
 
 
 async def reconcile_day(conn: asyncpg.Connection, day: date, apply: bool) -> DayResult:
-    # Match the nested observed-minute diagnostic's repeatable snapshot. Keep
-    # dry-run rollback and the entire day refresh in the same outer transaction.
+    # One repeatable snapshot for the before/after comparison. Keep dry-run
+    # rollback and the entire day refresh in the same outer transaction.
     tx = conn.transaction(isolation="repeatable_read")
     await tx.start()
     try:
         before = await daily_snapshot(conn, day)
-        zone_before = await zone_row_count(conn, day)
         await daily_refresh_func()(conn, day)
         after = await daily_snapshot(conn, day)
-        zone_after = await zone_row_count(conn, day)
-        result = DayResult(day, changed_columns(before, after), zone_before, zone_after)
+        result = DayResult(day, changed_columns(before, after))
     except Exception as exc:  # noqa: BLE001
         await tx.rollback()
-        return DayResult(day, [], 0, 0, error=f"{type(exc).__name__}: {exc}")
+        return DayResult(day, [], error=f"{type(exc).__name__}: {exc}")
     if apply:
         await tx.commit()
     else:
@@ -327,15 +306,7 @@ async def reconcile_daily(conn: asyncpg.Connection, days: list[date], apply: boo
         if result.error:
             LOG.error("%s [%d/%d] failed: %s", day, idx, len(days), result.error)
         elif result.changed:
-            LOG.info(
-                "%s [%d/%d] changed columns=%d zone_rows=%d->%d",
-                day,
-                idx,
-                len(days),
-                len(result.changed_columns),
-                result.zone_rows_before,
-                result.zone_rows_after,
-            )
+            LOG.info("%s [%d/%d] changed columns=%d", day, idx, len(days), len(result.changed_columns))
         else:
             LOG.info("%s [%d/%d] already consistent", day, idx, len(days))
     return results
@@ -463,7 +434,7 @@ async def refresh_derived_surfaces(conn: asyncpg.Connection, apply: bool) -> Non
             LOG.info("ran %s", sql)
         except asyncpg.exceptions.UndefinedFunctionError:
             LOG.info("function absent; skipping %s", sql)
-    for name in ("mv_zone_band_grade", "mv_band_curve"):
+    for name in ("mv_band_curve",):
         await refresh_matview(conn, name)
 
 
@@ -484,8 +455,6 @@ def print_summary(results: list[DayResult], mode: str) -> None:
                         "date": r.day.isoformat(),
                         "columns": r.changed_columns[:25],
                         "column_count": len(r.changed_columns),
-                        "zone_rows_before": r.zone_rows_before,
-                        "zone_rows_after": r.zone_rows_after,
                     }
                     for r in changed[:50]
                 ],

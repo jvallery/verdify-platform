@@ -1,0 +1,44 @@
+{
+  "migration": "309-one-band-retirement.sql",
+  "final_migration_qualification_pending": false,
+  "projected_successor": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "projection": "2026-11-15, production at exact308. 309 makes the served house band (290) the only temp/VPD measurement: planner_score = compliance_pct at 100 % weight in v_daily_kpi, mv_daily_kpi, v_planner_performance and fn_planner_scorecard (contract 3, no crop-band metrics); v_stress_hours_today and fn_band_timeline read the served band; capture v3. v_water_attribution_daily appends planning_water_gal and house_water_gal and the KPI water is planning water. v_runtime_energy_daily reports nominal-model energy without requiring zero-width coefficient bounds (#1623). It drops the crop-band grading objects, the inference-infra telemetry (two runtime write facades are protected relations of the ordinary boundary), retired tables and 25 daily_summary columns, and recreates 268's wrappers without them. fn_runtime_ordinary_boundary_digest is redefined without the retired facades and helpers (48 protected relations, 30 invoker helpers), so the api, ingestor and MCP seals move; the projected successor values are the rolled-back probe's.",
+  "measured_at": "2026-11-15T17:16:35Z",
+  "before": {
+    "api": "abe5012d9c2c9a4d02049b7ab585ff883e3e855d8065fadb18f59ade662307e0",
+    "ingestor": "0d7c46acb4cd65df380602c94ff0efc9acf2dea64768c4b7dea12ed7cdf3ef2f",
+    "mcp": "5d3e5448a5f35ba198ef830fef8946df92ecbbca921e7b20a84d30ba7cbb7d49"
+  },
+  "qualified_successor": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "after_rollback": {
+    "api": "abe5012d9c2c9a4d02049b7ab585ff883e3e855d8065fadb18f59ade662307e0",
+    "ingestor": "0d7c46acb4cd65df380602c94ff0efc9acf2dea64768c4b7dea12ed7cdf3ef2f",
+    "mcp": "5d3e5448a5f35ba198ef830fef8946df92ecbbca921e7b20a84d30ba7cbb7d49"
+  },
+  "exact_final_migration_sha256": "65c356059893386dd49aa2531555875f287272e33f48aba46c6d082cfd25b0d1",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "3e5e8328c2b92c2b4326250c9328b4319c837f5f7aef738c80ddc8e41ad7de0d",
+  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
+  "native_fixture": {
+    "checks": [
+      "retired_objects_and_columns_absent",
+      "planner_score_is_served_band_compliance",
+      "scorecard_contract_3_without_crop_band",
+      "planning_water_excludes_house_water",
+      "modelled_energy_reportable",
+      "served_band_readers_and_capture_v3",
+      "api_ingestor_mcp_grafana_lab_reads_kept"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "17336718aa192ab5fa98d6741070c27ffb51c6b7f0050dba19564d7cf81e85ed"
+}

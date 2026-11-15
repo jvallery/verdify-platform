@@ -4,6 +4,8 @@
 The Iris bearer stays inside each MCP pod. Outputs contain typed metric evidence
 only; no credentials, plan narratives or arbitrary database content are retained.
 Agreement validates semantics and transport, never qualifies physical sensors.
+Every temp/VPD metric is graded on the served house band (scorecard contract 3);
+planner_score equals compliance_pct and carries no resource terms.
 """
 
 from __future__ import annotations
@@ -29,11 +31,9 @@ METRICS = (
     "compliance_pct",
     "temp_compliance_pct",
     "vpd_compliance_pct",
-    "compliance_v2_raw_pct",
-    "compliance_v2_attributable_pct",
-    "compliance_v2_unachievable_frac",
-    "graded_temp_compliance_pct",
-    "graded_vpd_compliance_pct",
+    "planner_score",
+    "planner_score_resource_weight_pct",
+    "resource_terms_available",
     "total_stress_h",
     "heat_stress_h",
     "cold_stress_h",
@@ -42,7 +42,6 @@ METRICS = (
 )
 EVIDENCE = (
     "metric_semantics",
-    "observed_minute_evidence",
     "physical_crop_band_evidence",
     "route_only_crop_band_evidence",
     "native_fixed_panel_route_evidence",
@@ -50,8 +49,6 @@ EVIDENCE = (
 PUBLIC_KEYS = {
     "compliance_pct": "both_axis_compliance_pct",
     "total_stress_h": "stress_axis_hours",
-    "compliance_v2_raw_pct": "graded_compliance_raw_pct",
-    "compliance_v2_attributable_pct": "graded_compliance_attributable_pct",
 }
 POD_CODE = r"""
 import json,os,sys,urllib.request

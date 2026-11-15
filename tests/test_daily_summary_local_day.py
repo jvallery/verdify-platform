@@ -24,7 +24,7 @@ def _block(src: str, start: str, end: str) -> str:
 
 
 def test_live_refresh_rewrites_every_transition_cycle_column():
-    block = _block(DAILY, "async def _refresh_daily_summary_for_date", "async def _write_graded_compliance")
+    block = _block(DAILY, "async def _refresh_daily_summary_for_date", "async def daily_summary_live")
     for col in (
         "cycles_fan1",
         "cycles_fan2",

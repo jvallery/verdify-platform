@@ -1027,6 +1027,37 @@ def sealed_sql_308():
     )
 
 
+ONE_BAND_MIGRATION = (
+    309,
+    "309-one-band-retirement.sql",
+    "65c356059893386dd49aa2531555875f287272e33f48aba46c6d082cfd25b0d1",
+)
+# One band (#1623): the served house band is the only temp/VPD measurement, planning water excludes house water, the
+# crop-band grading, the inference-infra telemetry and never-written daily_summary columns retire, and the ordinary
+# digest drops the retired facades and helpers. The rolled-back native qualification measures the successor seals
+# (tests/fixtures/309-one-band-retirement-native-qualification.json).
+SUCCESSOR_309 = {
+    **SUCCESSOR_308,
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22",
+}
+
+
+def sealed_sql_309():
+    # Keep every 308 predicate and bind the exact 309 runner stamp with the seals it measures.
+    predecessor = sealed_sql_308()
+    current = seal_profile_sql(308, SUCCESSOR_308)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(309, SUCCESSOR_309), 1)
+        + " AND "
+        + ledger_row_sql(*ONE_BAND_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1087,6 +1118,8 @@ def sealed_sql():
         + sealed_sql_307()
         + " OR "
         + sealed_sql_308()
+        + " OR "
+        + sealed_sql_309()
         + ")"
     )
 

@@ -11,7 +11,7 @@ from verdify_public.grafana_public import CATALOG, BoundedWork, panel_metadata, 
 
 def test_exactly_approved_catalog_and_source_panels():
     root = Path(__file__).resolve().parents[1]
-    assert len(CATALOG) == 21
+    assert len(CATALOG) == 20
     assert CATALOG == json.loads((root / "site/quartz/plugins/transformers/grafana-public-shares.json").read_text())
     for uid, row in CATALOG.items():
         source = (

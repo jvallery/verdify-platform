@@ -16,12 +16,13 @@ rolls back unless `--apply` is passed.
 
 Recomputed:
 
-- `daily_summary` derived columns, including graded compliance v2 fields
-- `daily_zone_compliance` rows written by the same daily refresh path
+- `daily_summary` derived columns written by the ingestor's daily refresh (climate rollups,
+  runtimes, cycles, energy and cost estimates, water); served-band compliance and stress
+  hours are the database's own grade (migration 290) and are not rewritten here
 - `utility_cost` monthly rollups from `daily_summary`
 - optionally, refresh-function/materialized surfaces:
   `refresh_relay_stuck`, `refresh_climate_merged`,
-  `refresh_greenhouse_state`, `mv_zone_band_grade`, `mv_band_curve`
+  `refresh_greenhouse_state`, `mv_band_curve`
 
 Not recomputed:
 
@@ -78,19 +79,11 @@ DB_HOST=127.0.0.1 DB_PORT=5433 DB_NAME=verdify DB_USER=verdify \
 
 ```bash
 scripts/verdify-db.sh prod -c "
-  SELECT date, temp_avg, compliance_pct, compliance_v2_attributable_pct,
-         cost_total, updated_at
+  SELECT date, temp_avg, compliance_pct, temp_compliance_pct, vpd_compliance_pct,
+         cost_total, captured_at
     FROM daily_summary
    ORDER BY date DESC
    LIMIT 10;
-"
-
-scripts/verdify-db.sh prod -c "
-  SELECT date, count(*)
-    FROM daily_zone_compliance
-   WHERE date >= current_date - 14
-   GROUP BY date
-   ORDER BY date DESC;
 "
 
 scripts/verdify-db.sh prod -c "

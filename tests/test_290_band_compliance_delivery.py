@@ -214,7 +214,8 @@ def test_no_user_facing_number_reads_the_frozen_band():
     daily = (ROOT / "ingestor/tasks/daily.py").read_text()
     refresh = daily.split("async def _refresh_daily_summary_for_date", 1)[1].split("\nasync def ", 1)[0]
     assert "setpoint_changes" not in refresh and "HOUSE_BAND_PARAMS" not in daily
-    assert "band_house_temp_high" in refresh
+    # #1623: the refresh grades nothing itself; the retired crop-band grader is gone with its band reads.
+    assert "crop_target_profiles" not in daily and "band_house_temp_high" not in refresh
     for column in ("compliance_pct=", "temp_compliance_pct=", "vpd_compliance_pct=", "stress_hours_"):
         assert column not in refresh.split("UPDATE daily_summary SET", 1)[1].split('"""', 1)[0], column
     series = (ROOT / "verdify_services/series.py").read_text()

@@ -639,7 +639,7 @@
         "colorMode": "value",
         "graphMode": "none"
       },
-      "description": "Average water use per completed day across the last 30 days.",
+      "description": "Average planning water per completed day across the last 30 days (climate wetting + wall irrigation + wall fertigation; house and hose water excluded).",
       "transparent": true
     },
     {
@@ -4907,7 +4907,8 @@
       ],
       "title": "30-Day Total Water gal (est)",
       "type": "stat",
-      "transparent": true
+      "transparent": true,
+      "description": "Planning water over the last 30 completed days (climate wetting + wall irrigation + wall fertigation; house and hose water excluded)."
     },
     {
       "datasource": {
@@ -5010,7 +5011,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
       },
-      "description": "Rolling 30-day eligible gas cost; unavailable days remain absent, never zero-filled.",
+      "description": "Rolling 30-day water cost on planning water (house and hose water excluded); unavailable days remain absent, never zero-filled.",
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",

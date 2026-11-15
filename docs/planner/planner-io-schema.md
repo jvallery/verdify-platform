@@ -28,7 +28,7 @@ augmented on demand by MCP read tools (`climate`, `history`, `forecast`,
 | 2 | Last 72h relay / equipment runtime | gather §9 (equipment runtime 24h); full via MCP `history` / `equipment_state` | 24h in-pack; 72h on demand |
 | 3 | Forecast-vs-observed drift | gather §1 (forecast column) + the FORECAST_DEVIATION σ-watcher; `v_forecast_accuracy_daily` | drift breach is itself a trigger (see §4 triggers) |
 | 4 | Current 72h forecast | gather §1 core view; MCP `forecast(hours=72)` | Open-Meteo feed |
-| 5 | Compliance KPIs | gather §5 scorecard (today + 7-day trend) + §6 compliance (24h by zone); MCP `scorecard` | feasibility-aware grade (`fn_zone_band_grade`) |
+| 5 | Compliance KPIs | gather §5 scorecard (today + 7-day trend); MCP `scorecard` | one basis: the served house band (`band_house_*` rows, migration 290's daily grade); `planner_score` = `compliance_pct` at 100% weight, resources informational (#1623) |
 | 6 | Mechanical runtime history | gather §9 equipment + §10 energy + §11 irrigation (`python3 -m tasks.irrigation context`: each line, the next 24 h, manual items; MCP `irrigation_status`, `irrigation_schedule`, `irrigation_history`) | |
 | 7 | Greenhouse lessons | MCP `lessons` / `lessons_search`; `planner_lessons` | extracted from prior plan outcomes |
 | 8 | Current tunables | MCP `get_setpoints`; gather §1/§3 | live device-confirmed values |

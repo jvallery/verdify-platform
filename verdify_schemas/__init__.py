@@ -39,12 +39,7 @@ from .api import (
     PublicBandTraceSummary,
     PublicDataHealthCheck,
     PublicDataHealthResponse,
-    PublicGpuPowerLatest,
-    PublicGpuPowerPoint,
-    PublicGpuPowerResponse,
     PublicHomeMetrics,
-    PublicInfraCpuLatest,
-    PublicInfraCpuPoint,
     PublicPipelineHealthSource,
     PublicPlannerDelivery,
     PublicPlannerHealthResponse,
@@ -100,7 +95,7 @@ from .crops import (
     ObservationCreate,
     ObservationType,
 )
-from .daily import ComplianceZoneWeightRow, DailySummaryRow, DailyZoneComplianceRow
+from .daily import DailySummaryRow
 from .external import (
     CortexEmbeddingDatum,
     CortexEmbeddingResponse,
@@ -326,8 +321,6 @@ from .views import (
     PlannerPerformance,
     PositionCurrentEntry,
     WaterBudgetRow,
-    ZoneBandGradeRollup,
-    ZoneBandRow,
 )
 
 __all__ = [
@@ -393,7 +386,6 @@ __all__ = [
     "CropStage",
     "CropStageTarget",
     "CropUpdate",
-    "ComplianceZoneWeightRow",
     "CortexEmbeddingDatum",
     "CortexEmbeddingResponse",
     "CropVaultFrontmatter",
@@ -402,7 +394,6 @@ __all__ = [
     "DailyPlanVaultFrontmatter",
     "DailySummaryRow",
     "DailyVaultFrontmatter",
-    "DailyZoneComplianceRow",
     "DataGap",
     "DataGapStatus",
     "DesiredStateRow",
@@ -560,12 +551,7 @@ __all__ = [
     "PublicBandTraceSummary",
     "PublicDataHealthCheck",
     "PublicDataHealthResponse",
-    "PublicGpuPowerLatest",
-    "PublicGpuPowerPoint",
-    "PublicGpuPowerResponse",
     "PublicHomeMetrics",
-    "PublicInfraCpuLatest",
-    "PublicInfraCpuPoint",
     "PublicPlannerDelivery",
     "PublicPlannerHealthResponse",
     "PublicPlannerTrigger",
@@ -612,8 +598,6 @@ __all__ = [
     "UtilityCost",
     "VaultFrontmatter",
     "WaterBudgetRow",
-    "ZoneBandGradeRollup",
-    "ZoneBandRow",
     "ZoneDetail",
     "ZoneListItem",
     "ZoneObservation",

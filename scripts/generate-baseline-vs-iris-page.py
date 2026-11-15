@@ -24,22 +24,9 @@ DB = [
     "verdify",
 ]
 
-# Graded / controller-attributable compliance (band-compliance design §6-§7, migration
-# 146/147) is dual-written into daily_summary.compliance_v2_* alongside the untouched
-# binary compliance_pct. Those columns do not exist until migration 146 is applied, so
-# the page probes for them and only renders the graded section once they are present.
-# This keeps the page accurate today (binary house metric, relabelled) and auto-surfaces
-# the graded receipt after 146/147 land — no second web change required.
-GRADED_DAILY_COL = "compliance_v2_attributable_pct"
-
-GRADED_COLUMNS_PRESENT_SQL = r"""
-SELECT EXISTS (
-  SELECT 1 FROM information_schema.columns
-  WHERE table_schema = 'public'
-    AND table_name = 'daily_summary'
-    AND column_name = 'compliance_v2_attributable_pct'
-);
-"""
+# One measurement basis (#1623): every temp/VPD figure is daily_summary's served-house-band
+# grade (migration 290's fn_band_compliance_5m copied by the database), and the planner
+# score is that compliance_pct. The retired crop-band graded credit is not read.
 
 PERIOD_SQL = r"""
 WITH periods AS (
@@ -59,14 +46,11 @@ WITH periods AS (
     ds.water_used_gal,
     ds.kwh_estimated,
     ds.cost_total,
-    -- This fixed April/May receipt predates score-eligible resource provenance.
-    -- v_planner_performance therefore takes its climate-only branch for every
-    -- row: COALESCE(attributable compliance, binary compliance, 0).  Query that
-    -- branch directly instead of expanding the resource-accounting views across
-    -- the entire telemetry history; that expansion exceeds the publisher's
-    -- bounded statement timeout even though only eleven daily rows are needed.
-    COALESCE({graded_day_expr}, ds.compliance_pct, 0) AS planner_score,
-    {graded_day_expr} AS graded_attributable,
+    -- planner_score is served-band compliance_pct (no resource terms). Read it
+    -- directly instead of expanding the resource-accounting views across the
+    -- entire telemetry history; that expansion exceeds the publisher's bounded
+    -- statement timeout even though only eleven daily rows are needed.
+    COALESCE(ds.compliance_pct, 0) AS planner_score,
     (SELECT count(*) FROM plan_journal pj WHERE (pj.created_at AT TIME ZONE 'America/Denver')::date = ds.date) AS plans
   FROM periods p
   JOIN daily_summary ds ON ds.date BETWEEN p.start_date AND p.end_date
@@ -84,9 +68,7 @@ SELECT
   round(avg(water_used_gal)::numeric, 1) AS water_gal_day,
   round(avg(kwh_estimated)::numeric, 1) AS kwh_day,
   round(avg(cost_total)::numeric, 2) AS cost_day_usd,
-  round(avg(planner_score)::numeric, 1) AS planner_score,
-  CASE WHEN count(graded_attributable) = 0 THEN ''
-       ELSE round(avg(graded_attributable)::numeric, 1)::text END AS graded_attributable_pct
+  round(avg(planner_score)::numeric, 1) AS planner_score
 FROM day_metrics
 GROUP BY period, sort_order
 ORDER BY sort_order;
@@ -152,9 +134,7 @@ SELECT
   round(COALESCE(ds.stress_hours_vpd_high, 0)::numeric, 1) AS vpd_high_h,
   round(COALESCE(ds.stress_hours_heat, 0)::numeric, 1) AS heat_h,
   round(ds.cost_total::numeric, 2) AS cost_usd,
-  round(COALESCE({graded_day_expr}, ds.compliance_pct, 0)::numeric, 1) AS planner_score,
-  CASE WHEN {graded_day_expr} IS NULL THEN ''
-       ELSE round(({graded_day_expr})::numeric, 1)::text END AS graded_attributable
+  round(COALESCE(ds.compliance_pct, 0)::numeric, 1) AS planner_score
 FROM daily_summary ds
 WHERE ds.date BETWEEN DATE '2026-04-22' AND DATE '2026-05-02'
 ORDER BY ds.date;
@@ -176,7 +156,6 @@ class Period:
     kwh: str
     cost_usd: str
     score: str
-    graded_attributable: str = ""
 
 
 @dataclass(frozen=True)
@@ -201,7 +180,6 @@ class Daily:
     heat_h: str
     cost_usd: str
     score: str
-    graded_attributable: str = ""
 
 
 def psql(sql: str) -> list[list[str]]:
@@ -214,20 +192,8 @@ def psql(sql: str) -> list[list[str]]:
     return [row for row in csv.reader(proc.stdout.splitlines(), delimiter="\t") if row]
 
 
-def graded_columns_present() -> bool:
-    """True once migration 146 has added daily_summary.compliance_v2_attributable_pct."""
-    rows = psql(GRADED_COLUMNS_PRESENT_SQL)
-    return bool(rows) and rows[0][0] in ("t", "true", "True")
-
-
-def _graded_day_expr(present: bool) -> str:
-    # Real column when migration 146 is live; a typed NULL otherwise so the query
-    # parses and the graded section renders as "pending" rather than 500-ing.
-    return f"ds.{GRADED_DAILY_COL}" if present else "NULL::double precision"
-
-
-def as_periods(graded_present: bool) -> list[Period]:
-    rows = psql(PERIOD_SQL.format(graded_day_expr=_graded_day_expr(graded_present)))
+def as_periods() -> list[Period]:
+    rows = psql(PERIOD_SQL)
     if len(rows) != 2:
         raise RuntimeError(f"Expected 2 period rows, got {len(rows)}")
     return [Period(*row) for row in rows]
@@ -240,8 +206,8 @@ def as_confounders() -> list[Confounders]:
     return [Confounders(*row) for row in rows]
 
 
-def as_daily(graded_present: bool) -> list[Daily]:
-    return [Daily(*row) for row in psql(DAILY_SQL.format(graded_day_expr=_graded_day_expr(graded_present)))]
+def as_daily() -> list[Daily]:
+    return [Daily(*row) for row in psql(DAILY_SQL)]
 
 
 def fmt_delta(current: str, baseline: str, suffix: str = "") -> str:
@@ -311,7 +277,6 @@ def _lab_table(
 def render(periods: list[Period], confounders: list[Confounders], daily: list[Daily]) -> str:
     baseline, current = periods
     base_conf, current_conf = confounders
-    graded_present = bool(current.graded_attributable) or bool(baseline.graded_attributable)
     rows = [
         (
             "Average AI planning-agent plans/day",
@@ -320,7 +285,7 @@ def render(periods: list[Period], confounders: list[Confounders], daily: list[Da
             fmt_delta(current.avg_plans, baseline.avg_plans),
         ),
         (
-            "Both-axis compliance (binary, house)",
+            "Both-axis compliance (served house band)",
             f"{baseline.both_axis}%",
             f"{current.both_axis}%",
             fmt_delta(current.both_axis, baseline.both_axis, " pts"),
@@ -338,48 +303,31 @@ def render(periods: list[Period], confounders: list[Confounders], daily: list[Da
             fmt_delta(current.vpd_axis, baseline.vpd_axis, " pts"),
         ),
         (
-            "Cumulative stress-axis hours/day",
+            "Hours outside the served band/day (both axes)",
             f"{baseline.stress_h}h",
             f"{current.stress_h}h",
             fmt_reduction(current.stress_h, baseline.stress_h, "h"),
         ),
         (
-            "Water/day",
+            "Metered water/day (all uses, reporting only)",
             f"{baseline.water_gal} gal",
             f"{current.water_gal} gal",
             fmt_reduction(current.water_gal, baseline.water_gal, " gal"),
         ),
         (
-            "Runtime-modeled electric energy/day",
+            "Runtime-modeled electric energy/day (informational)",
             f"{baseline.kwh} kWh",
             f"{current.kwh} kWh",
             fmt_reduction(current.kwh, baseline.kwh, " kWh"),
         ),
         (
-            "Cost/day",
+            "Nominal-model cost/day (informational)",
             f"USD {baseline.cost_usd}",
             f"USD {current.cost_usd}",
             fmt_reduction_usd(current.cost_usd, baseline.cost_usd),
         ),
         ("Planner score", baseline.score, current.score, fmt_delta(current.score, baseline.score)),
     ]
-    if graded_present:
-        base_graded = baseline.graded_attributable or "—"
-        cur_graded = current.graded_attributable or "—"
-        change = (
-            fmt_delta(current.graded_attributable, baseline.graded_attributable, " pts")
-            if baseline.graded_attributable and current.graded_attributable
-            else "—"
-        )
-        rows.insert(
-            4,
-            (
-                "Graded compliance (controller-attributable)",
-                f"{base_graded}%" if base_graded != "—" else "—",
-                f"{cur_graded}%" if cur_graded != "—" else "—",
-                change,
-            ),
-        )
     summary_table = _lab_table(
         ["Metric", "Planner offline", "Planner online", "Change"],
         rows,
@@ -427,65 +375,27 @@ def render(periods: list[Period], confounders: list[Confounders], daily: list[Da
         ],
         nowrap_cols={1, 2},
     )
-    if graded_present:
-        daily_headers = [
-            "Date",
-            "Plans",
-            "Both-axis",
-            "Graded (attrib.)",
-            "Score",
-            "Stress",
-            "VPD-high",
-            "Heat",
-            "Cost",
-        ]
-        daily_rows = [
-            (
-                d.date,
-                d.plans,
-                f"{d.both_axis}%",
-                f"{d.graded_attributable}%" if d.graded_attributable else "—",
-                d.score,
-                f"{d.stress_h}h",
-                f"{d.vpd_high_h}h",
-                f"{d.heat_h}h",
-                f"USD {d.cost_usd}",
-            )
-            for d in daily
-        ]
-        daily_numeric = {1, 2, 3, 4, 5, 6, 7, 8}
-        daily_nowrap = {0, 1, 2, 3, 4, 5, 6, 7, 8}
-    else:
-        daily_headers = ["Date", "Plans", "Both-axis", "Score", "Stress", "VPD-high", "Heat", "Cost"]
-        daily_rows = [
-            (
-                d.date,
-                d.plans,
-                f"{d.both_axis}%",
-                d.score,
-                f"{d.stress_h}h",
-                f"{d.vpd_high_h}h",
-                f"{d.heat_h}h",
-                f"USD {d.cost_usd}",
-            )
-            for d in daily
-        ]
-        daily_numeric = {1, 2, 3, 4, 5, 6, 7}
-        daily_nowrap = {0, 1, 2, 3, 4, 5, 6, 7}
+    daily_headers = ["Date", "Plans", "Both-axis", "Score", "Stress", "VPD-high", "Heat", "Cost"]
+    daily_rows = [
+        (
+            d.date,
+            d.plans,
+            f"{d.both_axis}%",
+            d.score,
+            f"{d.stress_h}h",
+            f"{d.vpd_high_h}h",
+            f"{d.heat_h}h",
+            f"USD {d.cost_usd}",
+        )
+        for d in daily
+    ]
+    daily_numeric = {1, 2, 3, 4, 5, 6, 7}
+    daily_nowrap = {0, 1, 2, 3, 4, 5, 6, 7}
     daily_table = _lab_table(
         daily_headers,
         daily_rows,
         numeric_cols=daily_numeric,
         nowrap_cols=daily_nowrap,
-    )
-    graded_note = (
-        ""
-        if graded_present
-        else (
-            "\n_The graded, controller-attributable compliance metric (`compliance_v2_attributable_pct`) "
-            "is not yet populated in this dataset; this page surfaces it automatically once the "
-            "graded compliance engine is promoted._\n"
-        )
     )
     return f"""---
 title: "AI Greenhouse Baseline vs AI Planning Agent"
@@ -534,21 +444,21 @@ For the live rolling charts, use the [Scorecard](/data/planning-quality/).
 
 ## Resource Tradeoffs
 
-The comparison is more useful when stress is shown beside what the greenhouse spent trying to reduce it. Cost, water, and misting are not success metrics by themselves. They matter because an AI planning agent can improve the headline score only if it reduces plant stress without hiding the resource bill.
+The comparison is more useful when stress is shown beside what the greenhouse spent trying to reduce it. Cost, water, and misting are not success metrics and are not part of the planner score. They are shown so the resource bill stays visible beside the climate outcome.
 
 ## Daily Rows
 
 {daily_table}
-{graded_note}
+
 ## Definitions
 
 <div class="data-table">
-  <div class="data-row"><strong>Both-axis compliance (binary, house)</strong><span><code>daily_summary.compliance_pct</code></span><p>Percent of samples where the house-average temperature and VPD were both inside the single served control band. This is a binary, house-level pass/fail: a reading 0.1°F out of band scores the same as one 15°F out, and it grades against the served band rather than per-zone agronomic targets. It does not assert that every zone, or every plant, was inside a firmware-enforced band.</p></div>
-  <div class="data-row"><strong>Graded compliance (controller-attributable)</strong><span><code>daily_summary.compliance_v2_attributable_pct</code></span><p>A graded, per-zone, feasibility-aware compliance figure (band-compliance design §6-§7). It gives full credit inside the ideal band, linear partial credit through the stress band, and zero beyond, aggregated across occupied zones by priority weight; misses the controller could not physically prevent (for example, an exhaust-only box that cannot cool below outdoor air) are credited as controller-attributable. It is reported as context and is populated once the graded compliance engine is promoted; until then this column shows a dash.</p></div>
-  <div class="data-row"><strong>Cumulative stress-axis hours/day</strong><span>Heat + cold + VPD-high + VPD-low</span><p>Summed daily stress duration from corrected daily summary fields. This is not capped at one stress type; a hot-dry hour can count on more than one axis.</p></div>
-  <div class="data-row"><strong>Planner score</strong><span><code>daily_summary.compliance_v2_attributable_pct</code> (binary fallback)</span><p>These fixed historical rows predate score-eligible water and energy provenance, so the planner KPI gives resource terms zero weight and uses climate compliance only. It is useful as an operational KPI, not as a yield claim.</p></div>
+  <div class="data-row"><strong>Both-axis compliance (served house band)</strong><span><code>daily_summary.compliance_pct</code></span><p>Share of 5-minute buckets in which the house-average temperature and VPD were both inside the band the controller served (the <code>band_house_*</code> audit rows), graded by the database. It is a house-level pass/fail against the served band, not a per-zone or per-plant outcome.</p></div>
+  <div class="data-row"><strong>Hours outside the served band/day</strong><span>Above + below, temperature + VPD</span><p>Summed daily hours above or below the served band from the database's band grade. This is not capped at one axis; a hot-dry hour can count on both.</p></div>
+  <div class="data-row"><strong>Planner score</strong><span><code>daily_summary.compliance_pct</code></span><p>The planner score is served-band compliance at full weight. Water, energy and cost are informational and never part of the score. It is useful as an operational KPI, not as a yield claim.</p></div>
+  <div class="data-row"><strong>Metered water/day</strong><span><code>daily_summary.water_used_gal</code></span><p>Quality-filtered meter total for every use, including house and hose water. Planning water (climate wetting plus wall irrigation and fertigation) is a separate figure.</p></div>
   <div class="data-row"><strong>Runtime-modeled electric energy/day</strong><span><code>daily_summary.kwh_estimated</code></span><p>Electric energy from published equipment wattage multiplied by observed on-time; metered kWh is retained separately as diagnostic evidence.</p></div>
-  <div class="data-row"><strong>Cost/day</strong><span>Electric + gas + water</span><p>Resource spend comes from estimated daily summary fields unless marked measured. The greenhouse is solar-aligned but still uses grid electricity and gas heat.</p></div>
+  <div class="data-row"><strong>Cost/day</strong><span>Electric + gas + water</span><p>A nominal-model estimate from runtime and published rates, reported for context only. Electric heat is the primary heat source by design; its runtime is not something the planner minimises.</p></div>
 </div>
 
 ## Caveats
@@ -590,8 +500,7 @@ def main() -> int:
     parser.add_argument("--stdout", action="store_true", help="print generated Markdown instead of writing files")
     args = parser.parse_args()
 
-    graded_present = graded_columns_present()
-    markdown = render(as_periods(graded_present), as_confounders(), as_daily(graded_present))
+    markdown = render(as_periods(), as_confounders(), as_daily())
     if args.stdout:
         print(markdown)
         return 0

@@ -146,7 +146,7 @@
       "transparent": true
     },
     {
-      "description": "Eligible meter gallons partitioned into single-run attribution, ambiguous overlap, and manual/unattributed remainder. The components conserve the meter total; unavailable/degraded days are excluded and command-only relay runs are never gallons.",
+      "description": "Eligible meter gallons partitioned into single-run attribution, ambiguous overlap, and manual/unattributed remainder. The components conserve the meter total; unavailable/degraded days are excluded and command-only relay runs are never gallons. Manual / unattributed is house and hose water: reported here, never a planning input.",
       "fieldConfig": {
         "defaults": {
           "custom": {

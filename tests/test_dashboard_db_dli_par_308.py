@@ -127,7 +127,7 @@ async def install(dsn: str) -> None:
             readings(),
         )
         await owner.executemany(
-            "INSERT INTO public.daily_summary (date, greenhouse_id, dli_final) VALUES ($1, 'vallery', 12.0)",
+            "INSERT INTO public.daily_summary (date, greenhouse_id) VALUES ($1, 'vallery')",
             [(day,) for day in DAYS],
         )
     finally:

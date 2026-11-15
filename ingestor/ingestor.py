@@ -100,11 +100,9 @@ from tasks import (
     forecast_action_engine,
     forecast_deviation_check,
     forecast_sync,
-    gpu_power_sync,
     grow_light_daily,
     ha_sensor_sync,
     hydro_probe_sync,
-    infra_cpu_sync,
     ingestor_heartbeat,
     irrigation_sync,
     matview_refresh,
@@ -2866,7 +2864,7 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
     Two-writer contract for daily_summary (see tasks.py::daily_summary_live):
       - This function owns the midnight UPSERT of raw accumulators from the
         ESP32's cycle/runtime/water counters: cycles_*, runtime_*_min,
-        runtime_mister_*_h, water_used_gal, mister_water_gal, dli_final.
+        runtime_mister_*_h, water_used_gal, mister_water_gal.
       - `daily_summary_live` refreshes every 30 min with the live-computed
         climate rollups + stress_hours_* + compliance_pct + cost_* + dp_risk_*
         and also rewrites runtimes/cycles from equipment_state transitions.
@@ -2887,7 +2885,6 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
 
     water_total = state.climate.get("water_total_gal")
     mister_water = state.climate.get("mister_water_today")
-    dli = state.climate.get("dli_today")
 
     # Validate the accumulated daily row through DailySummaryRow (range +
     # non-negative stress-hour invariants). The schema has extra="ignore" so
@@ -2900,7 +2897,6 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
                 **d,
                 "water_used_gal": water_total,
                 "mister_water_gal": mister_water,
-                "dli_final": dli,
             }
         )
     except ValidationError as e:
@@ -2920,18 +2916,18 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
             """INSERT INTO daily_summary (
                 date,
                 cycles_fan1, cycles_fan2, cycles_heat1, cycles_heat2,
-                cycles_fog, cycles_vent, cycles_dehum, cycles_safety_dehum,
+                cycles_fog, cycles_vent,
                 cycles_mister_south, cycles_mister_west, cycles_mister_center,
                 cycles_drip_wall, cycles_drip_center,
                 runtime_fan1_min, runtime_fan2_min, runtime_heat1_min, runtime_heat2_min,
                 runtime_fog_min, runtime_vent_min,
                 runtime_mister_south_h, runtime_mister_west_h, runtime_mister_center_h,
-                water_used_gal, mister_water_gal, dli_final,
+                water_used_gal, mister_water_gal,
                 mister_fairness_overrides_today
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9,
-                $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                $19, $20, $21, $22, $23, $24, $25, $26, $27
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                $17, $18, $19, $20, $21, $22, $23, $24
             ) ON CONFLICT (date) DO UPDATE SET
                 cycles_fan1 = EXCLUDED.cycles_fan1,
                 cycles_fan2 = EXCLUDED.cycles_fan2,
@@ -2939,8 +2935,6 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
                 cycles_heat2 = EXCLUDED.cycles_heat2,
                 cycles_fog = EXCLUDED.cycles_fog,
                 cycles_vent = EXCLUDED.cycles_vent,
-                cycles_dehum = EXCLUDED.cycles_dehum,
-                cycles_safety_dehum = EXCLUDED.cycles_safety_dehum,
                 cycles_mister_south = EXCLUDED.cycles_mister_south,
                 cycles_mister_west = EXCLUDED.cycles_mister_west,
                 cycles_mister_center = EXCLUDED.cycles_mister_center,
@@ -2957,7 +2951,6 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
                 runtime_mister_center_h = EXCLUDED.runtime_mister_center_h,
                 water_used_gal = EXCLUDED.water_used_gal,
                 mister_water_gal = EXCLUDED.mister_water_gal,
-                dli_final = EXCLUDED.dli_final,
                 mister_fairness_overrides_today = EXCLUDED.mister_fairness_overrides_today,
                 captured_at = NOW()
             """,
@@ -2968,8 +2961,6 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
             int(d.get("cycles_heat2") or 0),
             int(d.get("cycles_fog") or 0),
             int(d.get("cycles_vent") or 0),
-            int(d.get("cycles_dehum") or 0),
-            int(d.get("cycles_safety_dehum") or 0),
             int(zone_cycles["cycles_mister_south"]) if zone_cycles["cycles_mister_south"] is not None else None,
             int(zone_cycles["cycles_mister_west"]) if zone_cycles["cycles_mister_west"] is not None else None,
             int(zone_cycles["cycles_mister_center"]) if zone_cycles["cycles_mister_center"] is not None else None,
@@ -2986,7 +2977,6 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
             d.get("runtime_mister_center_h"),
             water_total,
             mister_water,
-            dli,
             int(fairness) if fairness is not None else None,
         )
     state._daily_snapshot_date = today_str
@@ -4543,11 +4533,9 @@ async def task_loop(
         # Reconnect reconciles can push 25+ values through heap-safe ESPHome
         # pacing, which intentionally exceeds the generic 120s watchdog.
         "setpoint_dispatch": 300,
-        # 2026-07-11 audit: the graded-compliance per-reading loop over two
-        # full days (~2800 rows, migration-146 dual-write) outgrew the generic
-        # 120s watchdog — the task timed out on 100% of runs, so daily_summary
-        # derived aggregates and daily_zone_compliance silently stopped
-        # refreshing in-process. 600s stays well inside the 1800s interval.
+        # Two full local days of daily_summary refresh; 600s stays well inside
+        # the 1800s interval (the 2026-07-11 120s timeouts were the retired
+        # graded per-reading loop, #1623).
         "daily_summary_live": 600,
         # gather-plan-context.sh alone can exceed 120s; killing the heartbeat
         # mid-gather burned a required-trigger retry attempt without a single
@@ -4601,11 +4589,6 @@ async def task_loop(
         # 60s poll; guards on time-of-day (only fires in 00:05-00:10 MDT window,
         # dedup by date). Sprint 24.7 ops stopgap — retires when Sprint 25
         # alert_monitor rule 7 rewrite ships.
-        # Public inference-infra proof data. Kept after greenhouse-critical
-        # tasks and sampled at 5m cadence so exporter stalls cannot starve
-        # dispatch, alerts, or planner heartbeat.
-        ("gpu_power_sync", 300, gpu_power_sync),
-        ("infra_cpu_sync", 300, infra_cpu_sync),
         # Controlled planner experiment (#584 Lane C). All three are inert
         # (immediate return, no DB access) while VERDIFY_POLICY_VECTOR_MODE=off
         # or no VERDIFY_ACTIVE_EXPERIMENT_ID is set — the default env.
