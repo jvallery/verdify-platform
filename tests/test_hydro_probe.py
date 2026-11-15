@@ -84,14 +84,33 @@ class _Pool:
 _real_load_config = hydro_probe.load_config
 
 
-def _run_task(monkeypatch, tmp_path, pool, *, key_dir=None, polls=1):
+class _Clock:
+    """Fake monotonic clock: the retry sleeps advance it instead of waiting."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _run_task(monkeypatch, tmp_path, pool, *, key_dir=None, polls=1, clock=None):
     """Poll as the scheduler does, with the env and key files the prod patch provides."""
     key_dir = key_dir if key_dir is not None else _key_dir(tmp_path)
     env = {"VERDIFY_HYDRO_PROBE_HOST": "192.168.10.105", "VERDIFY_HYDRO_PROBE_TUYA_VERSION": "3.3"}
+    clock = clock if clock is not None else _Clock()
     monkeypatch.setattr(hydro_task, "_idle_logged", False)
+    monkeypatch.setattr(hydro_task, "_sleep", clock.sleep)
+    monkeypatch.setattr(hydro_task, "_monotonic", clock.monotonic)
     monkeypatch.setattr(hydro_probe, "load_config", lambda: _real_load_config(env, key_dir))
     for _ in range(polls):
         asyncio.run(hydro_task.hydro_probe_sync(pool))
+    return clock
 
 
 def _all_log_text(caplog) -> str:
@@ -203,25 +222,38 @@ def _fake_tinytuya(status=None, raises=None):
 
 
 @pytest.mark.parametrize(
-    "status,raises,error,code",
+    "status,raises,error,code,attempts",
     [
-        ({"Error": "Network Error: Unable to Connect", "Err": "901", "Payload": None}, None, "HydroProbeError", "901"),
-        ({"Error": "Timeout Waiting for Device", "Err": "902", "Payload": None}, None, "HydroProbeError", "902"),
+        (
+            {"Error": "Network Error: Unable to Connect", "Err": "901", "Payload": None},
+            None,
+            "HydroProbeError",
+            "901",
+            9,
+        ),
+        ({"Error": "Timeout Waiting for Device", "Err": "902", "Payload": None}, None, "HydroProbeError", "902", 9),
         (
             {"Error": "Unexpected Payload", "Err": "904", "Payload": f"{{'key': '{CANARY}'}}"},
             None,
             "HydroProbeError",
             "904",
+            9,
         ),
-        (None, ConnectionRefusedError(111, f"refused while using {CANARY}"), "ConnectionRefusedError", "None"),
-        (None, TimeoutError(f"timed out with {CANARY}"), "TimeoutError", "None"),
-        ({"devId": CANARY, "dps": {"10": "not-a-number"}}, None, "ValueError", "None"),
-        ({"devId": CANARY, "dps": {"10": [CANARY]}}, None, "ValidationError", "None"),
-        ({"dps": {"10": 1500}}, None, "ValidationError", "None"),  # pH 15.00 fails ClimateRow
+        (None, ConnectionRefusedError(111, f"refused while using {CANARY}"), "ConnectionRefusedError", "None", 9),
+        (None, TimeoutError(f"timed out with {CANARY}"), "TimeoutError", "None", 9),
+        ({"devId": CANARY, "dps": {"10": "not-a-number"}}, None, "ValueError", "None", 1),
+        (
+            {"devId": CANARY, "dps": {"10": [CANARY]}},
+            None,
+            "ValidationError",
+            "None",
+            1,
+        ),  # raised in read_status, not retried
+        ({"dps": {"10": 1500}}, None, "ValidationError", "None", 1),  # pH 15.00 fails ClimateRow
     ],
 )
 def test_failed_read_writes_nothing_and_logs_one_warning_without_the_key(
-    monkeypatch, tmp_path, caplog, status, raises, error, code
+    monkeypatch, tmp_path, caplog, status, raises, error, code, attempts
 ):
     fake, calls = _fake_tinytuya(status, raises)
     monkeypatch.setitem(sys.modules, "tinytuya", fake)
@@ -229,8 +261,9 @@ def test_failed_read_writes_nothing_and_logs_one_warning_without_the_key(
     caplog.set_level(logging.DEBUG)
     _run_task(monkeypatch, tmp_path, pool)
     warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
-    assert warnings == [f"hydro_probe source=tuya_local error={error} tuya_err={code}"]
+    assert warnings == [f"hydro_probe source=tuya_local error={error} tuya_err={code} attempts={attempts}"]
     assert pool.acquired == 0 and pool.conn.executes == []
+    assert calls.count("init") == attempts and calls.count("close") == attempts
     assert calls[-1] == "close"
     text = _all_log_text(caplog)
     assert CANARY not in text and DEVICE_ID not in text
@@ -278,8 +311,41 @@ def test_success_overlays_the_newest_row_with_orp_null_and_logs_values_only(monk
     assert dict(zip(assigned, args[:-1], strict=True)) == case["expected"]
     assert args[-1] == LATEST_TS
     info = [record.getMessage() for record in caplog.records if record.getMessage().startswith("hydro_probe ")]
-    assert info == ["hydro_probe source=tuya_local ph=6.21 ec=2484 tds=1240 temp_f=74.48 battery=null"]
+    assert info == ["hydro_probe source=tuya_local ph=6.21 ec=2484 tds=1240 temp_f=74.48 battery=null attempts=1"]
     assert CANARY not in _all_log_text(caplog) and DEVICE_ID not in _all_log_text(caplog)
+
+
+def test_unreachable_meter_is_retried_until_it_answers(monkeypatch, tmp_path, caplog):
+    answers = iter([hydro_probe.HydroProbeError("unreachable", 905)] * 3 + [{"10": 621, "2": 230}])
+
+    def read(config):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(hydro_probe, "read_status", read)
+    pool = _Pool()
+    caplog.set_level(logging.DEBUG)
+    clock = _run_task(monkeypatch, tmp_path, pool)
+    assert clock.sleeps == [hydro_task.RETRY_INTERVAL_S] * 3
+    assert len(pool.conn.executes) == 1
+    assert [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING] == []
+    info = [r.getMessage() for r in caplog.records if r.getMessage().startswith("hydro_probe ")]
+    assert len(info) == 1 and info[0].endswith(" attempts=4")
+
+
+def test_retries_stay_inside_the_task_watchdog_and_cadence(monkeypatch, tmp_path, caplog):
+    def read(config):
+        raise hydro_probe.HydroProbeError("unreachable", 905)
+
+    monkeypatch.setattr(hydro_probe, "read_status", read)
+    clock = _run_task(monkeypatch, tmp_path, _Pool())
+    # The last attempt starts no later than the window; a slow read then still ends inside the 270 s watchdog.
+    assert clock.now <= hydro_task.RETRY_WINDOW_S
+    assert hydro_task.RETRY_WINDOW_S + 2 * hydro_probe.CONNECT_TIMEOUT_S < 270 < 300
+    source = (INGESTOR / "ingestor.py").read_text()
+    assert '"hydro_probe_sync": 270,' in source and '("hydro_probe_sync", 300, hydro_probe_sync)' in source
 
 
 def test_no_recent_climate_row_writes_nothing(monkeypatch, tmp_path, caplog):

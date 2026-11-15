@@ -1,8 +1,9 @@
 """Read-only YINMIK hydroponic meter over the Tuya local protocol (VD-70, #1183).
 
 Replaces Home Assistant's LocalTuya relay of the meter. One short session per
-poll: connect to the meter's reserved address on TCP 6668 (5 s timeout, no
+read: connect to the meter's reserved address on TCP 6668 (5 s timeout, no
 retry loop, no persistent socket, tinytuya debug off), ``status()``, close.
+``tasks.hydro`` retries a failed read across its poll cycle.
 The status query (after the session-key handshake of protocol 3.4+) is the
 only command sent; no data point is ever written. tinytuya's "device22"
 auto-detection is switched off, because on a "data unvalid" answer it would
