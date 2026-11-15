@@ -8,7 +8,8 @@
 # idles, and Home Assistant's hydro read carries on. The task re-reads the files
 # every poll, so a sealed or resealed key applies without a restart.
 # VERDIFY_HYDRO_PROBE_TUYA_VERSION must equal the protocol version the meter
-# reports (tinytuya scan or wizard output); a mismatch logs tuya_err=914.
+# speaks; a mismatch logs tuya_err=914. The meter speaks 3.3: a live status()
+# with the sealed key on 2026-11-15T00:21Z answered on 3.3 and refused 3.4 (914).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,7 +23,7 @@ spec:
             - name: VERDIFY_HYDRO_PROBE_HOST
               value: "192.168.10.105"
             - name: VERDIFY_HYDRO_PROBE_TUYA_VERSION
-              value: "3.4"
+              value: "3.3"
           volumeMounts:
             - name: hydro-probe
               mountPath: /etc/verdify/hydro-probe

@@ -278,7 +278,7 @@ def test_success_overlays_the_newest_row_with_orp_null_and_logs_values_only(monk
     assert dict(zip(assigned, args[:-1], strict=True)) == case["expected"]
     assert args[-1] == LATEST_TS
     info = [record.getMessage() for record in caplog.records if record.getMessage().startswith("hydro_probe ")]
-    assert info == ["hydro_probe source=tuya_local ph=6.21 ec=2484 tds=1240 temp_f=74.48 battery=100"]
+    assert info == ["hydro_probe source=tuya_local ph=6.21 ec=2484 tds=1240 temp_f=74.48 battery=null"]
     assert CANARY not in _all_log_text(caplog) and DEVICE_ID not in _all_log_text(caplog)
 
 

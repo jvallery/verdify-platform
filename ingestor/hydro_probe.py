@@ -15,7 +15,7 @@ Tester" (the name Home Assistant's cloud Tuya integration gives this device):
     DP 11  conductivity_value  mS/cm, scale 3, so the raw integer is µS/cm
     DP 1   tds_in              ppm
     DP 2   temp_current        degC, scale 1 (236 -> 23.6 degC -> 74.48 degF)
-    DP 7   battery_percentage  %
+    DP 7   battery_percentage  reported, but this meter is mains-powered: hydro_battery_pct is NULL
     DP 12  orp_value           -1 on this SKU (no ORP probe): hydro_orp_mv is NULL
     DP 107 phmaxlimit          the pH alarm limit (1400 = 14.00), a setting
 
@@ -56,10 +56,10 @@ DP_MAP = {
     "11": ("hydro_ec_us_cm", 1, 0),
     "1": ("hydro_tds_ppm", 1, 0),
     "2": ("hydro_water_temp_f", 10, 1),  # degC here; decode() converts to degF
-    "7": ("hydro_battery_pct", 1, 0),
 }
-# Written NULL on every row the reader updates (DP 12 reports -1, no ORP probe).
-NULL_COLUMNS = ("hydro_orp_mv",)
+# Written NULL on every row the reader updates: DP 12 reports -1 (no ORP probe), and
+# DP 7 battery_percentage is meaningless on this hardwired meter (it reports 1).
+NULL_COLUMNS = ("hydro_orp_mv", "hydro_battery_pct")
 
 # tinytuya logs payloads and session keys at DEBUG; never let them through.
 logging.getLogger("tinytuya").setLevel(logging.WARNING)
@@ -152,7 +152,7 @@ def read_status(config: ProbeConfig) -> dict[str, bool | int | float | str]:
 
 
 def decode(dps: Mapping[str, object]) -> dict[str, float | None]:
-    """Map a ``status()`` DP dict onto climate columns; absent DPs stay absent, ORP is NULL."""
+    """Map a ``status()`` DP dict onto climate columns; absent DPs stay absent, ORP and battery are NULL."""
     columns: dict[str, float | None] = {}
     for dp, (column, divisor, places) in DP_MAP.items():
         if dp not in dps:
