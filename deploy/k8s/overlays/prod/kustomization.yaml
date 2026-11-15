@@ -365,7 +365,7 @@ images:
   # 42349735728; rollback a02c2a36cd7c (00b53fe3, release 5).
   - name: ghcr.io/verdifyconsultancy/verdify-planner
     newName: registry.vallery.net/verdifyconsultancy/verdify-planner
-    digest: sha256:afe4ee6f665761d74ae39556fb5d4975a5cc6f4475e5b206d46335cf28174afa
+    digest: sha256:6484bed4d5de5860c25d059af7ef99e4625554ae661e8f5cd6584ead165e1de1
   # Hand-pinned grow-light writer: source 5ebe309308d5 (W7 release 8: #1494 relay_physical, #1495 per-setting
   # write lock), GHA build run 42415895024. Rollback: 0f40c6514b21 (source 130a954e0ce7, build run 42294583580). The #399 HA call allowlist confines
   # this prod-only writer to the declared main/grow light switches.
@@ -378,7 +378,7 @@ images:
   # 42336369914. Rollback: 822d19776c28 (source eaf572287c6a; fails the guard on /reference/ai-tunables).
   - name: ghcr.io/verdifyconsultancy/verdify-lab-publisher-k3s
     newName: registry.vallery.net/verdifyconsultancy/verdify-lab-publisher-k3s
-    digest: sha256:219144b21bdafd756cc191e1b3de2c4afda2288af16f2aa521da74467289a7e2
+    digest: sha256:68b24a5f603c49f631f4a813730465b522b11ed16306eed93f0d19e96f950a45
 
 # Release pins: the digests production runs for the five actuator-managed
 # images. kustomize applies `transformers:` after `images:`, so these replace
