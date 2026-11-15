@@ -4557,6 +4557,8 @@ async def task_loop(
         # VD-42: above push_policy_transaction's 120 s budget, so a timeout never cancels a program push between
         # irr_program_begin and irr_program_commit.
         "irrigation_sync": 150,
+        # The hydro reader retries for up to 240 s inside its 300 s cadence (tasks/hydro.py).
+        "hydro_probe_sync": 270,
     }
     TASKS = [
         # (name, interval_seconds, coroutine_factory)
