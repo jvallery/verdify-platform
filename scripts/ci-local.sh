@@ -395,6 +395,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_planner_study_preregister.py
     tests/test_setpoint_server_ingress.py
     tests/test_public_api_operator_paths.py
+    tests/test_1611_health_latency.py
     tests/test_operator_api_manifests.py
     tests/test_operator_api_alert_metrics.py
     tests/test_alert_delivery_local.py
