@@ -282,25 +282,32 @@ as binary compliance. Keep physical exposure separate from controller credit.
 - Call `scorecard()` to inspect current and historical metrics and their semantics.
 
 **Utility metrics** (all in `scorecard()` output):
-- `kwh` — daily electricity usage. Covers fans, fog, grow lights. **UNRELIABLE — do
-  not use for decisions.** The Shelly `kwh_total` meter undercounts real draw by
-  ~3-6.6x (verified), so any raw `kwh`/`kwh_total` figure is a floor, not the truth.
-  The cost path below already uses a **runtime-estimate** energy model (relay-on time
-  x rated power), NOT the meter, so trust `cost_electric` / `cost_total`, not `kwh`.
-  When you need an electricity signal, reason from runtime/cost, never from `kwh`.
-- `therms` — daily gas usage. Covers gas heater (3.9x cheaper per BTU than electric).
-- `water_gal` — total water (misting + irrigation + sink).
+- `kwh` — runtime-modeled daily electricity (relay-on time x rated power for heat1,
+  fans, fog, grow lights and vent), not the Shelly meter. The electric heater heat1
+  is the primary heat source by design (solar/Powerwall, gas-outage resilience) and
+  the largest load, about two thirds of modeled kWh on a cold day; its long daily
+  runtime is intended, not waste. The partial-circuit Shelly `kwh_total` reads well
+  below the model and is a floor, never a decision signal.
+- `therms` — runtime-modeled gas for heat2, the backup stage that runs alongside heat1
+  on the coldest hours (cheaper per BTU, but secondary by design).
+- `water_gal` — total metered water (misting + irrigation + sink), null on a day the
+  water ledger cannot score (meter discontinuity, unattributed hose use).
 - `mister_water_gal` — misting-only water (subset of total).
 - `cost_electric`, `cost_gas`, `cost_water`, `cost_total` — dollar cost breakdown.
-  `cost_electric` is the runtime-estimate energy cost (reliable), not the Shelly meter.
-- 7-day averages: `7d_avg_cost`, `7d_avg_kwh`, `7d_avg_therms`, `7d_avg_water_gal`
-  (`7d_avg_kwh` inherits the same meter unreliability — prefer `7d_avg_cost`).
+- 7-day averages: `7d_avg_cost`, `7d_avg_kwh`, `7d_avg_therms`, `7d_avg_water_gal`.
+- `kwh`, `therms`, `cost_electric`, `cost_gas`, `cost_total` and their 7-day averages
+  are null whenever `resource_terms_available=0`: the ADR-0004 gate stays closed while
+  the power coefficients carry provisional bounds, which has been every day since
+  2026-07-09. Null is unknown, not zero and not cheap. Then reason about energy from
+  equipment runtime (`outcome_kpi` runtime_heat1_min, runtime_heat2_min, fans, fog)
+  instead of from cost.
 
 Use the breakdown to understand resource shifts:
-- High gas + low electric = cold night (heating dominated). Normal in winter/spring.
+- Long heat1 runtime with heat2 staging in = cold night. Normal in winter; heat2
+  running without heat1, or heating while venting outside a night dry-out, is not.
 - High electric + high water = hot dry day (cooling + misting). Check fog usage.
 - Rising water trend = misting getting more aggressive. Is VPD compliance improving?
-- Cost > $5/day = review whether stress reduction justifies the spend.
+- When cost is available, a higher cost needs a matching stress reduction to be worth it.
 
 **Compliance metrics** (all in `scorecard()` output):
 - `compliance_v2_attributable_pct` — historical graded, per-zone,

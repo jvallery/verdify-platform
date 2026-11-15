@@ -2861,7 +2861,7 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
 
 
 async def write_daily_summary(pool: asyncpg.Pool) -> None:
-    """Snapshot daily accumulator values. Called at 00:05 each day.
+    """Snapshot daily accumulator values. Called at 23:58 America/Denver each day.
 
     Two-writer contract for daily_summary (see tasks.py::daily_summary_live):
       - This function owns the midnight UPSERT of raw accumulators from the
@@ -2873,7 +2873,9 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
     Column ownership overlaps on cycles/runtimes; `daily_summary_live`'s values
     win for the current day because it runs after this snapshot.
     """
-    today = datetime.now(UTC).date()
+    # The greenhouse day is America/Denver; the container clock is UTC, so a UTC date stamped the
+    # previous local day's counters onto the next day's row.
+    today = datetime.now(COUNTER_SOURCE_TIMEZONE).date()
     today_str = str(today)
     if state._daily_snapshot_date == today_str:
         return  # already done today
@@ -4058,9 +4060,11 @@ async def flush_loop(
             except Exception as e:
                 log.error(f"esp32_logs write error: {e}")
 
-        # Daily summary: trigger at 00:05 local time
-        now_mt = datetime.now()
-        if now_mt.hour == 0 and now_mt.minute == 5:
+        # Daily summary: snapshot the firmware day counters at 23:58 local, the last minute they still
+        # hold the whole local day (they reset at local midnight). The container clock is UTC: a naive
+        # datetime.now() fired this at 17:05 MST and stamped the next day's row.
+        now_mt = datetime.now(COUNTER_SOURCE_TIMEZONE)
+        if now_mt.hour == 23 and now_mt.minute == 58:
             try:
                 await write_daily_summary(pool)
             except Exception as e:
