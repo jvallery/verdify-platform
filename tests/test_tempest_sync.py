@@ -61,3 +61,8 @@ def test_outdoor_columns_come_from_the_esp32_tempest_listener():
     assert entity_map.CLIMATE_MAP["tempest_humidity"] == "outdoor_rh_pct"
     firmware = (REPO_ROOT / "firmware" / "greenhouse" / "external_sensors.yaml").read_text()
     assert "listen_port: 50222" in firmware
+
+
+def test_vp1535_blocked_probe_deliberately_fails():
+    """Throwaway (#1535 criterion 6): proves a red ci / platform-tests blocks merge. Never merge."""
+    assert False, "deliberate failure for the #1535 BLOCKED probe"
