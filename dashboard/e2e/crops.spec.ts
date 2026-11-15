@@ -13,7 +13,7 @@ for (const viewport of [DESKTOP, PHONE]) {
   test(`${viewport.width} px: the map draws the 60-cell rack and every wall, the history lists the plantings, and both are axe clean`, async ({ page, request }) => {
     await page.setViewportSize(viewport);
     await useScreensClock(page, request, "crops-planted");
-    await load(page, "/crops");
+    await load(page, "/hydroponics");
     await expect(page.locator('button[data-cell^="EAST-HYDRO-"]')).toHaveCount(60);
     await expect(page.getByText(/19 of 60 hydro cells planted/)).toBeVisible();
     await expect(cell(page, "EAST-HYDRO-1")).toHaveAttribute("aria-label", /^EAST-HYDRO-1, Lettuce, Butterhead, /);
@@ -31,7 +31,7 @@ for (const viewport of [DESKTOP, PHONE]) {
 test("an operator selects three empty cells and plants them: one API-CROP-07 with the range, then the cells read the crop", async ({ page, request }) => {
   await page.setViewportSize(DESKTOP);
   await useScreensClock(page, request, "in-band");
-  await load(page, "/crops");
+  await load(page, "/hydroponics");
   await cell(page, "EAST-HYDRO-41").click();
   await cell(page, "EAST-HYDRO-43").click({ modifiers: ["Shift"] });
   await expect(toolbar(page)).toContainText("3 selected: EAST-HYDRO-41..43");
@@ -49,7 +49,7 @@ test("an operator selects three empty cells and plants them: one API-CROP-07 wit
 test("planting over a planted cell shows the conflict before Save, and Save gives the server's refusal and changes nothing", async ({ page, request }) => {
   await page.setViewportSize(DESKTOP);
   await useScreensClock(page, request, "crops-planted");
-  await load(page, "/crops");
+  await load(page, "/hydroponics");
   await cell(page, "EAST-HYDRO-10").click();
   await cell(page, "EAST-HYDRO-11").click();
   await toolbar(page).getByRole("button", { name: "Plant…" }).click();
@@ -64,7 +64,7 @@ test("planting over a planted cell shows the conflict before Save, and Save give
 test("an operator moves a planting from the selection, then harvests it from its drawer", async ({ page, request }) => {
   await page.setViewportSize(DESKTOP);
   await useScreensClock(page, request, "crops-planted");
-  await load(page, "/crops");
+  await load(page, "/hydroponics");
   for (const label of ["EAST-HYDRO-31", "EAST-HYDRO-32", "EAST-HYDRO-33", "EAST-HYDRO-34", "EAST-HYDRO-45"]) await cell(page, label).click();
   await toolbar(page).getByRole("button", { name: "Move…", exact: true }).click();
   await expect(dialog(page).getByRole("heading", { name: "Move planting" })).toBeVisible();
@@ -84,21 +84,31 @@ test("an operator moves a planting from the selection, then harvests it from its
   expect(harvest[0].body).toMatchObject({ count: 4 });
 });
 
-for (const path of ["/crops", "/crops/history"]) {
+for (const path of ["/hydroponics", "/crops/history"]) {
   test(`${path}: a viewer selects and reads, with no write control; an operator gets Plant…`, async ({ page, request }) => {
     await page.setViewportSize(DESKTOP);
     await useFixture(request, ["crops-planted", "viewer-session"]);
     await load(page, path);
-    if (path === "/crops") {
+    if (path === "/hydroponics") {
       await cell(page, "EAST-HYDRO-1").click();
       await expect(toolbar(page).getByRole("button", { name: "Planting details" })).toBeVisible();
     }
     await expect(page.locator("[data-write-control]")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^(Plant|Move|Harvest|Remove|Edit)( \S+)?…$/ })).toHaveCount(0);
-    if (path === "/crops") {
+    if (path === "/hydroponics") {
       await useFixture(request, "crops-planted");
       await load(page, path);
       await expect(toolbar(page).getByRole("button", { name: "Plant…" })).toBeVisible();
     }
   });
 }
+
+
+test("the soil planting map excludes hydro spots; the dedicated workspace keeps all 60", async ({ page, request }) => {
+  await useFixture(request, "crops-planted");
+  await load(page, "/crops");
+  await expect(page.locator('button[data-cell^="EAST-HYDRO-"]')).toHaveCount(0);
+  await load(page, "/hydroponics");
+  await expect(page.locator('button[data-cell^="EAST-HYDRO-"]')).toHaveCount(60);
+  await expect(page.getByRole("heading", { name: "Water quality" })).toBeVisible();
+});

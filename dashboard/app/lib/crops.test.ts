@@ -4,7 +4,7 @@
 import { expect, test } from "vitest";
 import { fixture } from "../../e2e/fixtures/index.mjs";
 import {
-  allCells, cellKey, cellRange, compressLabels, hydroTally, legend, mapCards, onlyCell, rackGroups, selectedPlantings, selectionPositions, shelfKey, zoneKey,
+  growingLocations, allCells, cellKey, cellRange, compressLabels, hydroTally, legend, mapCards, onlyCell, rackGroups, selectedPlantings, selectionPositions, shelfKey, zoneKey,
 } from "./crops";
 import { parseLocations, type CropShelf, type Locations } from "./operator-api";
 
@@ -56,4 +56,17 @@ test("the plantings a selection touches, with the selected cells of each; a shel
   const shelf = selectedPlantings(locations, new Set([shelfKey("west_shelf_top")]));
   expect([...shelf.values()].map((item) => [item.crop, item.cells])).toEqual([["Herbs", []]]);
   expect(legend(locations).map((item) => item.crop)).toEqual(expect.arrayContaining(["Lettuce", "Basil", "Vanda Orchids"]));
+});
+
+
+test("growing workspaces partition every shelf and keep all sixty hydro positions", () => {
+  const original = layout("crops-planted");
+  const hydro = growingLocations(original, true);
+  const soil = growingLocations(original, false);
+  expect(allCells(hydro)).toHaveLength(60);
+  expect(hydroTally(hydro)).toEqual({ planted: 19, total: 60 });
+  expect(hydroTally(soil)).toBeNull();
+  const labels = [...allCells(hydro), ...allCells(soil)].map((cell) => cell.label).sort();
+  expect(labels).toEqual(allCells(original).map((cell) => cell.label).sort());
+  expect(new Set(labels).size).toBe(labels.length);
 });

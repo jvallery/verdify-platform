@@ -14,6 +14,7 @@ export default [
     route("schedules", "routes/water-schedules.tsx"),
     route("history", "routes/water-history.tsx"),
   ]),
+  route("hydroponics", "routes/hydroponics.tsx", [index("routes/hydroponics-overview.tsx")]),
   route("crops", "routes/crops.tsx", [
     index("routes/crops-map.tsx"),
     route("history", "routes/crops-history.tsx"),

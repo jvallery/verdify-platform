@@ -268,3 +268,11 @@ const EVENT_WORDS: Readonly<Record<string, string>> = {
 };
 /** A planting event's type in words; an unknown type shows raw. */
 export const eventText = (type: string): string => EVENT_WORDS[type] ?? type;
+
+/** Keep each growing workspace scoped to its own physical locations. */
+export function growingLocations(locations: Locations, hydro: boolean): Locations {
+  return { ...locations, zones: locations.zones.map((zone) => ({
+    ...zone, plantings: hydro ? [] : zone.plantings,
+    shelves: (zone.shelves ?? []).filter((shelf) => isRack(shelf) === hydro),
+  })).filter((zone) => zone.shelves.length || (!hydro && (zone.plantings ?? []).length)) };
+}

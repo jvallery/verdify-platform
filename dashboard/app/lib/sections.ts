@@ -8,10 +8,11 @@
  * links and bookmarks keep working, `/planner/*`, and `/planner` itself, which redirects to Plan.
  */
 
-export type SectionId = "now" | "water" | "crops" | "graphs" | "activity" | "control" | "planner";
+export type SectionId = "now" | "water" | "hydro" | "crops" | "graphs" | "activity" | "control" | "planner";
 export type ViewId =
   | "now"
   | "water-today" | "water-schedules" | "water-history"
+  | "hydro-overview"
   | "crops-map" | "crops-history"
   | "graphs-climate" | "graphs-zones" | "graphs-lighting" | "graphs-statistics"
   | "activity-alerts" | "activity-log"
@@ -49,6 +50,7 @@ export const SECTIONS: readonly Section[] = [
       view("water", "water-history", "History", "Water history", "/water/history"),
     ],
   },
+  { id: "hydro", label: "Hydroponics", to: "/hydroponics", views: [view("hydro", "hydro-overview", "Overview", "Hydroponics", "/hydroponics")] },
   {
     id: "crops", label: "Crops", to: "/crops", views: [
       view("crops", "crops-map", "Map", "Crops", "/crops"),

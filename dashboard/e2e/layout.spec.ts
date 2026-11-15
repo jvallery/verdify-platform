@@ -99,12 +99,16 @@ for (const width of [880, 1100]) {
     const [brand] = await boxes(".site-header > .shell > .brand");
     const [account] = await boxes(".site-header > .shell > .account-menu");
     const links = await boxes(".site-header .primary-nav a");
-    expect(links).toHaveLength(7);
+    expect(links).toHaveLength(8);
     for (const link of links) {
-      // One row: every link shares the lockup's row and sits between it and the account button.
-      expect(Math.abs(link.y + link.height / 2 - (brand.y + brand.height / 2))).toBeLessThanOrEqual(2);
-      expect(link.x).toBeGreaterThanOrEqual(brand.x + brand.width);
-      expect(link.x + link.width).toBeLessThanOrEqual(account.x);
+      // Tablet navigation occupies a second header row; desktop navigation has its own rail.
+      if (width < 1100) {
+        expect(link.y).toBeGreaterThanOrEqual(brand.y + brand.height);
+        expect(link.height).toBeGreaterThanOrEqual(44);
+      } else {
+        expect(link.x + link.width).toBeLessThanOrEqual(brand.x);
+        expect(link.height).toBeGreaterThanOrEqual(44);
+      }
     }
     expect(Math.abs(account.y + account.height / 2 - (brand.y + brand.height / 2))).toBeLessThanOrEqual(2);
     const nav = await page.locator(".site-header .primary-nav").evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));

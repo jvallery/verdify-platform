@@ -80,7 +80,7 @@ export function SiteHeader() {
       <Brand />
       <nav className="primary-nav" aria-label="Sections">
         {SECTIONS.map((section) => <Link key={section.id} to={section.to} aria-current={current?.id === section.id ? "page" : undefined}>
-          {section.label}{section.id === "activity" && <CountPill count={openAlerts} severity={alertSeverity} />}
+          <SectionIcon section={section.id} className="nav-icon" /><span>{section.label}</span>{section.id === "activity" && <CountPill count={openAlerts} severity={alertSeverity} />}
         </Link>)}
       </nav>
       <AccountMenu />

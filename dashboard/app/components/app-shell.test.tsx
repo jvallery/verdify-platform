@@ -124,7 +124,7 @@ test("the routes: the seven sections' views, the scorecard's and Planner's redir
   });
   const paths = leaves(routes as Entry[]);
   expect(paths).toEqual([
-    "/", "/water", "/water/schedules", "/water/history", "/crops", "/crops/history", "/graphs", "/graphs/zones", "/graphs/lighting", "/graphs/statistics", "/graphs/scorecard", "/activity", "/activity/log",
+    "/", "/water", "/water/schedules", "/water/history", "/hydroponics", "/crops", "/crops/history", "/graphs", "/graphs/zones", "/graphs/lighting", "/graphs/statistics", "/graphs/scorecard", "/activity", "/activity/log",
     "/settings", "/band", "/equipment", "/plan", "/planner", "/planner/history", "/planner/experiments", "/auth/*", "/*",
   ]);
   expect(paths).not.toContain("/plants");
@@ -178,8 +178,8 @@ test("the header: lockup, the seven sections with the count, the account button;
   expect(brand.querySelectorAll(".brand-leaf, .brand-mark, .brand-dot")).toHaveLength(3);
   expect(text(brand)).toBe("erdify · Dashboard");
   const sections = within(nav("Sections")).getAllByRole("link");
-  expect(sections.map(text)).toEqual(["Now", "Water", "Crops", "Graphs", "Activity 2 open alerts", "Control", "Planner"]);
-  expect(sections.map((link) => link.getAttribute("href"))).toEqual(["/", "/water", "/crops", "/graphs", "/activity", "/settings", "/plan"]);
+  expect(sections.map(text)).toEqual(["Now", "Water", "Hydroponics", "Crops", "Graphs", "Activity 2 open alerts", "Control", "Planner"]);
+  expect(sections.map((link) => link.getAttribute("href"))).toEqual(["/", "/water", "/hydroponics", "/crops", "/graphs", "/activity", "/settings", "/plan"]);
   expect(sections.filter((link) => link.getAttribute("aria-current") === "page").map(text)).toEqual(["Activity 2 open alerts"]);
   // The count is a pill filled by the worst open severity; the account button holds the role pill and the name.
   expect(nav("Sections").querySelector(".nav-count")?.getAttribute("data-severity")).toBe("warning");
@@ -203,8 +203,8 @@ test("the phone bar holds the same seven, each an icon over its label; Control o
   for (const [path, section] of [["/settings", "Control"], ["/equipment", "Control"], ["/plan", "Planner"], ["/planner/history", "Planner"], ["/planner/experiments", "Planner"]] as const) {
     mount(path); await advance(0);
     const tabs = within(nav("Sections, phone")).getAllByRole("link");
-    expect(tabs.map(text), path).toEqual(["Now", "Water", "Crops", "Graphs", "Activity 2 open alerts", "Control", "Planner"]);
-    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/water", "/crops", "/graphs", "/activity", "/settings", "/plan"]);
+    expect(tabs.map(text), path).toEqual(["Now", "Water", "Hydroponics", "Crops", "Graphs", "Activity 2 open alerts", "Control", "Planner"]);
+    expect(tabs.map((tab) => tab.getAttribute("href"))).toEqual(["/", "/water", "/hydroponics", "/crops", "/graphs", "/activity", "/settings", "/plan"]);
     expect(tabs.filter((tab) => tab.getAttribute("aria-current") === "page").map(text), path).toEqual([section]);
     expect(tabs.map((tab) => tab.querySelectorAll("svg.tab-icon[aria-hidden=true]").length)).toEqual([1, 1, 1, 1, 1, 1, 1]);
     const current = within(nav("Sections")).getAllByRole("link").filter((link) => link.getAttribute("aria-current") === "page");

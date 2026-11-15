@@ -1,0 +1,46 @@
+/* SPDX-License-Identifier: MIT */
+/* Section: Experience */
+/* Greenhouse workspace: quiet surfaces, persistent orientation, generous controls. */
+.app-page{background:var(--field)}
+.app-page>main{padding-top:2rem;padding-bottom:3rem}
+.app-page .card{background:#fff;box-shadow:var(--shadow-xs);border-radius:1rem}
+.page-header{margin-bottom:2rem}
+.page-header h1{font-size:clamp(2rem,3.5vw,3rem);letter-spacing:-.045em}
+.primary-nav .nav-icon{flex:none}
+.workspace-heading{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin:2rem 0 1rem}
+.workspace-heading h2{font-size:1.4rem}
+.hydro-intro{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2rem;padding:2rem;border:1px solid var(--line-strong);border-radius:1.25rem;background:#fff}
+.hydro-intro h2{font-size:clamp(1.5rem,2.5vw,2rem);max-width:24ch}
+.hydro-intro p{max-width:60ch}
+.hydro-capacity{display:flex;flex-direction:column;justify-content:center;gap:.5rem;border-left:1px solid var(--line);padding-left:2rem}
+.hydro-capacity strong{font-size:2.5rem;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+.hydro-ranges{display:flex;gap:.25rem;flex-wrap:wrap;padding:.25rem;background:#fff;border:1px solid var(--line);border-radius:.75rem}
+.hydro-ranges a{display:flex;align-items:center;min-height:44px;padding:.5rem .9rem;text-decoration:none;border-radius:.5rem;font-size:.875rem;font-weight:600}
+.hydro-ranges a[aria-current=page]{background:var(--forest);color:#fff}
+.hydro-workspace .crop-toolbar{margin-top:1rem}
+@media(min-width:1100px){
+ .app-page{padding-left:14rem}
+ .app-page>.site-header{position:sticky;top:0;background:#fff}
+ .app-page .site-header>.shell{min-height:4.5rem}
+ .app-page .primary-nav{position:fixed;inset:0 auto 0 0;width:14rem;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.35rem;padding:7rem 1rem 2rem;background:var(--ink);border-right:1px solid var(--ink-2)}
+ .app-page .primary-nav::before{content:"GREENHOUSE";position:absolute;top:3rem;left:1.5rem;color:var(--ink-muted);font: .75rem var(--mono);letter-spacing:.15em}
+ .app-page .primary-nav a{display:flex;justify-content:flex-start;gap:.8rem;padding:.8rem 1rem;min-height:48px;border:0;border-radius:.65rem;color:var(--ink-muted);font-size:.9rem;text-decoration:none}
+ .app-page .primary-nav a:hover{color:#fff;background:var(--ink-2)}
+ .app-page .primary-nav a[aria-current=page]{background:var(--forest);color:#fff;box-shadow:inset 3px 0 0 var(--mint)}
+ .app-page>main.shell,.app-page>.site-footer .shell{width:100%;max-width:90rem}
+}
+@media(min-width:861px) and (max-width:1099px){
+ .app-page .site-header>.shell{flex-wrap:wrap}
+ .app-page .primary-nav{order:3;width:100%;justify-content:space-between}
+ .primary-nav .nav-icon{display:none}
+}
+@media(max-width:860px){
+ .app-page{--bar-h:6.5rem}
+ .bottom-nav{grid-auto-flow:row;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,3.25rem)}
+ .bottom-nav .tab{min-height:3.25rem;font-size:.75rem}
+ .bottom-nav .tab[aria-current=page]{background:var(--tint-ok);box-shadow:inset 0 2px 0 var(--forest)}
+ .app-page>main{padding-top:1.25rem}
+ .hydro-intro{grid-template-columns:1fr;padding:1.25rem;gap:1rem}
+ .hydro-capacity{border-left:0;border-top:1px solid var(--line);padding:1rem 0 0}
+ .hydro-capacity strong{font-size:2rem}
+}
