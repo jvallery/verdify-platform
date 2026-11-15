@@ -83,7 +83,7 @@ async function poll(done: () => boolean, reads = 6) {
 }
 
 // ---------------------------------------------------------------------------------------------------- the Why panel
-test("each reason reads in words with when it began and its Graphs window; the panel sits between the board and the lanes", async () => {
+test("each reason reads in words with when it began and its Graphs window; the panel leads the board and provides the Now anchor", async () => {
   await load({ fixture: "why-reasons" });
   expect([...document.querySelectorAll(".why-row")].map((node) => text(node.querySelector(".why-label")))).toEqual(["Climate mode", "Fog", "Misters (center, south, west)"]);
   // Yesterday's reads with its date, and today's with its time alone, on the America/Denver clock.
@@ -96,7 +96,8 @@ test("each reason reads in words with when it began and its Graphs window; the p
   expect(link("moisture_block_reason")).toBe("/graphs?from=2026-11-02T12:12:00Z&to=2026-11-02T16:12:00Z");
   const board = document.querySelector(".equipment-board")!, why = reason("mode_reason");
   const lanes = screen.getByRole("heading", { level: 2, name: "Last 24 h" });
-  expect(board.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(why.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(document.getElementById("why")?.contains(why)).toBe(true);
   expect(why.compareDocumentPosition(lanes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 

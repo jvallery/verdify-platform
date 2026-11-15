@@ -204,7 +204,7 @@ test("Today runs from local midnight to the next; 24 h has 24 h ahead; ‹ › s
   await open("/graphs?range=today");
   const midnight = Date.parse("2026-11-02T07:00:00Z") / 1000;
   expect(panels()[0].scales.x).toEqual({ min: midnight, max: midnight + 24 * HOUR });
-  expect(status()).toMatch(/^Today: in band/);
+  expect(status()).toMatch(/^Today: Temperature .* in band · VPD .* in band/);
   expect(screen.getByRole("link", { name: "Previous day" }).getAttribute("href")).toBe("/graphs?from=2026-11-01&to=2026-11-01");
   expect(screen.getByText("Next day: not available")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Zoom out" }).getAttribute("href")).toBe("/graphs?range=48h");
