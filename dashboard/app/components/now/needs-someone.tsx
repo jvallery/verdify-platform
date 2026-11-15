@@ -56,7 +56,7 @@ export function topAlerts(items: readonly Alert[], dismissed: ReadonlyMap<number
     if (!ack) return true;
     // Repeats merge under the original ID. A newer occurrence needs attention again.
     const seen = (row: Alert) => Date.parse(row.last_seen_at ?? row.first_seen_at);
-    return alert.count > ack.count || seen(alert) > seen(ack);
+    return (alert.count ?? 1) > (ack.count ?? 1) || seen(alert) > seen(ack);
   })())
     .map((alert, index) => ({ alert, index }))
     .sort((a, b) => rank(a.alert.severity) - rank(b.alert.severity) || a.index - b.index)

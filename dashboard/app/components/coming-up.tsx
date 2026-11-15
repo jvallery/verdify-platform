@@ -2,7 +2,7 @@
 /** Observed equipment history and a separate scheduled-work agenda. */
 import { useRef } from "react";
 import type { NowAnswer } from "../lib/now-answer";
-import type { Equipment, IrrigationStatus, Now, Plan, ScheduleAgenda, Setting } from "../lib/operator-api";
+import type { IrrigationStatus, Now } from "../lib/operator-api";
 import { READ_INTERVAL_MS, panelRead, useApiRead, useEquipmentRead, useSettingsRead, useStatesWindowRead, type PanelRead } from "../lib/queries";
 import { useMe } from "../lib/shell";
 import { Badge } from "./badge";
@@ -27,12 +27,11 @@ function Failed({ what, onRetry }: { what: string; onRetry: () => void }) {
   return <p className="fault now-next-failed">Couldn't load {what}. <Button onClick={onRetry}>Retry</Button></p>;
 }
 
-type TrackReads = { plan: Plan | null; agenda: ScheduleAgenda | null; irrigation: IrrigationStatus | null; overrides: Now["overrides"]; settings: readonly Setting[] | null; equipment: Equipment["items"] | null };
 /** The track, its six hours of API-05 read once it is near the screen. */
-function Track({ input, window, near }: { input: TrackReads; window: NextWindow; near: boolean }) {
-  return near ? <LiveTrack input={input} window={window} /> : <TimeTrack label={TRACK_LABEL} from={window.from} to={window.now} rows={[]} state="loading" />;
+function Track({ window, near }: { window: NextWindow; near: boolean }) {
+  return near ? <LiveTrack window={window} /> : <TimeTrack label={TRACK_LABEL} from={window.from} to={window.now} rows={[]} state="loading" />;
 }
-function LiveTrack({ window }: { input: TrackReads; window: NextWindow }) {
+function LiveTrack({ window }: { window: NextWindow }) {
   const lanes = panelRead(useStatesWindowRead(PAST_H * 3600));
   const historyWindow = { ...window, to: window.now };
   const rows = (lanes.data?.lanes ?? []).filter((lane) => equipmentRow(lane.equipment)).map((lane) => ({
@@ -81,7 +80,6 @@ export function RunningAndNext({ now, answer, irrigation }: RunningAndNextProps)
   const items = nextItems({ plan: plan.data, agenda: agenda.data, settings, equipment }, window).filter((item) => !(beforeEngine && item.kind === "run"));
   const later = agenda.data && status ? laterText({ agenda: agenda.data, lines: status.lines }, window, clock, me) : null;
   const waiting = plan.pending || agenda.pending;
-  const input = { plan: plan.data, agenda: agenda.data, irrigation: status, overrides: now?.overrides ?? [], settings, equipment };
   return <Panel id="coming-up" title="Equipment & scheduled work" thing="what is running and next" state="ready">
     <div className="now-next-now">
       <h3 className="now-sub">Running now</h3>
@@ -89,7 +87,7 @@ export function RunningAndNext({ now, answer, irrigation }: RunningAndNextProps)
     </div>
     <div ref={trackRef} className="now-track">
       <p className="now-sub now-track-caption">Observed equipment · last {PAST_H} h</p>
-      <Track input={input} window={window} near={near} /><p className="meta">Filled bars show recorded on-time. Hatched areas have no reliable state. Equipment responds to conditions; this is history, not a forecast.</p>
+      <Track window={window} near={near} /><p className="meta">Filled bars show recorded on-time. Hatched areas have no reliable state. Equipment responds to conditions; this is history, not a forecast.</p>
     </div>
     <div className="now-next">
       <h3 className="now-sub">Scheduled work · next {NEXT_H} h</h3>

@@ -49,7 +49,7 @@ const settingOf = (rows: readonly Setting[] | undefined, param: string) => rows?
 /** "off · Automatic", "on · Automation off", "on · by hand until 10:57 · the controller wants it off"; "—" until API-13 answers. */
 export function lightStateWords(item: { readonly state: string; readonly intent?: string | null; readonly manual_until?: string | null } | undefined, setting: Pick<Setting, "readback"> | undefined): string {
   if (!item) return "—";
-  const state = item.state === "on" || item.state === "off" ? item.state : "state unknown";
+  const state = item.state === "on" || item.state === "off" ? item.state : "no current light report";
   const differs = lightsDiffer(item.intent, item.state) ? ` · the controller wants it ${item.intent}` : "";
   // A Turn on or Turn off still running (#1377's timer) reads its end, not the automation switch, which is still on.
   const until = manualUntil({ state: item.state, intent: item.intent ?? null, manual_until: item.manual_until ?? null });

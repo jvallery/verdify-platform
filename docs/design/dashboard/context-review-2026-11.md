@@ -98,3 +98,25 @@ Actual keyboard typing exposed an issue that one-event browser `fill()` assertio
 The final image is running in a ready pod with zero restarts; Argo read back Synced/Healthy at the pin revision. Baseline smoke passed 11/11 and the read sweep passed 26/26 against expected source `26d20fd6e9b62edbb459963d19616695dfe1571e`, including 441-field MCP/API parity. Signed-in native Chrome verified full rapid queries, matching semantic results, editing/replacement, Clear search, Back and reload on the new build. The [runtime release receipt](https://github.com/jvallery/verdify-platform/pull/1607#issuecomment-6892703061) holds the exact pod, final soak window and terminal readback.
 
 Operational custody retains source and build logs, the two visual collections, predeployment metadata, smoke and sweep logs, and `STATE.json`. This is a UI delivery: physical restart readiness, existing greenhouse alerts and unavailable measurements remain separate operational concerns.
+
+## Third operator pass — in progress
+
+The preceding release remains historical evidence, not acceptance for this pass. Source PR [#1612](https://github.com/jvallery/verdify-platform/pull/1612) reworks the dashboard around the operator's immediate questions: what needs intervention, what each temporary action does, what the plants and reservoir are experiencing, and what the controller actually did. Delivery and responsive verification remain pending.
+
+| Requirement | Implementation and evidence | Remaining verification |
+|---|---|---|
+| Acknowledged alerts leave Needs someone | Remove after successful acknowledgment; suppress stale poll copies; a newer occurrence with the same merged ID reappears | Native regression and live read-only presentation |
+| Understandable Now controls | Exchange air, Add humidity and Circulate air name the physical effect and duration; light controls retain actual state, timed override and return-to-automation behavior | Responsive hierarchy, Stop reachability and guarded fixture writes |
+| Live reservoir readings on Now | Shared API-02 poll returns latest independent pH, EC and water-temperature samples; each has its own timestamp and overdue state | Private DB test, exact live query cost and deployed API/UI |
+| Remove unsupported reservoir channels | Active UI, series registry, ingestion and telemetry models contain only measured channels; historical database columns and applied migrations remain intact | Contract and ingestion tests; active-reference audit |
+| Reimagine Water schedules | Continuous water board, program summary, explicit repeat/start/amount/condition facts; routine and sensor-fault backup remain distinct | Desktop/tablet/phone review and schedule interactions |
+| Understandable planned settings | Compare last controller report, planned changes and ownership in a semantic table; overridden values cannot appear active | Dates, validity, missing/stale data, manual holds and mobile rendering |
+| Equipment history with grid | Six hours of observed states ending now, separate device rows and aligned hourly grid; actual scheduled work is a separate agenda | Recorded gaps, row attribution, phone scrolling and visual review |
+| Diagnose Unknown labels | Live API read found zero unreported equipment states. All twelve missing setting readbacks map to retired-control registries. Specific missing-report language replaces vague labels; no fabricated state | Final live audit across primary and secondary views |
+| Connect reservoir samples | Join actual neighboring samples separated by at most ten minutes, retaining explicit outages and longer gaps; no generated measurement values | Sparse-series regression and rendered charts |
+
+Read-only inspection found reservoir samples roughly four to five minutes apart, explaining empty one-minute buckets between valid readings. Each current value now comes from its own most recent non-null sample within a bounded 24-hour query, independent of the selected chart range. Historical chart values remain interval averages, with that distinction visible.
+
+The first native run passed platform tests and dashboard lint, then stopped at TypeScript errors in new test fixtures. Those errors were corrected in `80565644`; replacement CI is running. No production image or physical greenhouse control has been changed by this pass yet.
+
+The exact new reservoir query was executed through the existing production operator API identity in a read-only transaction with a five-second statement timeout. It returned all three samples in 16.1 ms; this verifies present access and bounded query cost, not the eventual deployed API response.

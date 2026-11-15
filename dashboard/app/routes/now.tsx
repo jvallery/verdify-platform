@@ -2,8 +2,8 @@
 /**
  * Now at `/` (redesign §5.1; SCR-01, #1129): five seconds to know whether everything is OK, what is running, whether
  * water is fine and what needs someone, with the caretaker's on-site actions. In order: the hero (the answer, the
- * temperature, three band bars, time in band today and the status line), the quick actions (operators), Needs someone
- * beside Water today, "Running and next", and the zone strip. Each fact shows once: the open-alert count in the answer or
+ * temperature, three band bars, time in band today and the status line), the quick actions (operators), reservoir readings, Needs someone
+ * beside Water today, equipment history and scheduled work, and the zone strip. Each fact shows once: the open-alert count in the answer or
  * Needs someone's head, Stop all water once, the next runs only in "Running and next".
  *
  * Reads, each polled through weather's `polling.ts` (paused while the tab is hidden, backing off on failures):
@@ -14,7 +14,7 @@
  *   last 24 h. Every 15 s.
  * - Every 60 s: API-04 over the last 25 h (today's range, the sparklines) and its time-in-band keys over yesterday and
  *   today; API-07 and API-IRR-02 for "Running and next"; API-03, API-04 and API-06 for the zones. API-05 for the track's
- *   last 6 h only once the track nears the screen (never on a phone, which shows lists instead).
+ *   last 6 h only once the track nears the screen, including on phones.
  *
  * Each panel fails alone, and Stop all water renders whatever the water status can or cannot show. Nothing here renders
  * greenhouse data on the server: the server render is the loading state, and the data loads in the browser.
