@@ -23,15 +23,16 @@ seconds).
 | `ci / platform-static` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 0.3 / 0.4 | 12 of 12 main runs green since 2026-11-09 |
 | `ci / platform-tests` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 2.2 / 2.5 | 12 of 12 main runs green since 2026-11-09 |
 | `ci / firmware-logic` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 0.6 / 0.9 | 12 of 12 main runs green since 2026-11-09 |
-| `ci / firmware-secretless-compile` | advisory; both gates met 2026-11-15 (10 consecutive green main runs on the `verdify-esphome-ci` job image, 931dc223..18ed4f00, each shard log with 0 platform/tool downloads and `platformio_core: baked`; aggregate green on all of them), so it is next for the required list | aggregate | two target shards: `firmware-secretless-compile-greenhouse` 7.7 / 9.1 (also runs the generated-cpp negative) and `firmware-secretless-compile-greenhouse-recovery` 6.9 / 9.3; unsharded baked p50 was 20.6 (2026-11-12) |
-| `ci / campaign-qualification` | advisory; gate met 2026-11-15 (aggregate green on the 10 latest main runs), so it is next for the required list | aggregate | four shards `campaign-qualification-<i>of4` of the tool's default selection: 1of4 6.9 / 11.4, 2of4 6.6 / 15.3, 3of4 7.2 / 8.8, 4of4 5.0 / 7.2; unsharded p50 was about 39.6 (2026-11-12) |
-| `ci / buildcheck` | advisory until it is green on the last 10 PR and main runs, then required (carried from #1534 to #1535; `VERDIFY_BUILDCHECK` is `true` since 2026-11-10) | new | on push it reports the skipped impact as a pass |
+| `ci / firmware-secretless-compile` | required since 2026-11-15T15:2xZ (#1535 step 4 part 2; gates: 10 consecutive green main runs on the `verdify-esphome-ci` job image, 931dc223..18ed4f00, each shard log with 0 platform/tool downloads and `platformio_core: baked`) | aggregate | two target shards: `firmware-secretless-compile-greenhouse` 7.7 / 9.1 (also runs the generated-cpp negative) and `firmware-secretless-compile-greenhouse-recovery` 6.9 / 9.3; unsharded baked p50 was 20.6 (2026-11-12) |
+| `ci / campaign-qualification` | required since 2026-11-15T15:2xZ (#1535 step 4 part 2; gate: aggregate green on the 10 latest main runs) | aggregate | four shards `campaign-qualification-<i>of4` of the tool's default selection: 1of4 6.9 / 11.4, 2of4 6.6 / 15.3, 3of4 7.2 / 8.8, 4of4 5.0 / 7.2; unsharded p50 was about 39.6 (2026-11-12) |
+| `ci / buildcheck` | required since 2026-11-15T15:2xZ (#1535 step 4 part 2, carried from #1534; gate: green on the 10 latest main runs and the 10 latest non-cancelled PR runs, 4 of which built images) | aggregate | on push it reports the skipped impact as a pass; `VERDIFY_BUILDCHECK` is `true` since 2026-11-10 |
 
 The 30-run window is #1535's acceptance: 30 consecutive `main` runs, at least 90
 percent successful and none displaced. `platform-static`, `platform-tests` and
 `firmware-logic` are required before the window closes (#1535 Q1, default a: each has
 a clean record on main and on PRs and its rollback is one API call). The two sharded
-aggregates and `buildcheck` follow once their own gates above hold. Required contexts
+aggregates and `buildcheck` were added on 2026-11-15 once their gates held, so every
+`ci.yml` summary context now gates `main` (12, `strict` false). Required contexts
 are written as the whole `required_status_checks.checks` list, each bound to
 `app_id` 15368 (STD-CI-08), never through `POST .../contexts`; rollback is writing the
 saved previous list back.
