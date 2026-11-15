@@ -50,8 +50,14 @@ const validTime = (value: string | null | undefined): value is string => typeof 
  * keeps that order, so its top three are the first unacknowledged rows Activity lists, and only guards the severity
  * order. The read also holds the alerts resolved in the last 24 h, which never show here.
  */
-export function topAlerts(items: readonly Alert[], dismissed: ReadonlySet<number> = new Set()): Alert[] {
-  return items.filter((alert) => alert.status === "open" && !dismissed.has(alert.id))
+export function topAlerts(items: readonly Alert[], dismissed: ReadonlyMap<number, Alert> = new Map()): Alert[] {
+  return items.filter((alert) => alert.status === "open" && (() => {
+    const ack = dismissed.get(alert.id);
+    if (!ack) return true;
+    // Repeats merge under the original ID. A newer occurrence needs attention again.
+    const seen = (row: Alert) => Date.parse(row.last_seen_at ?? row.first_seen_at);
+    return alert.count > ack.count || seen(alert) > seen(ack);
+  })())
     .map((alert, index) => ({ alert, index }))
     .sort((a, b) => rank(a.alert.severity) - rank(b.alert.severity) || a.index - b.index)
     .slice(0, TOP_ALERTS)
@@ -109,8 +115,8 @@ export type NeedsSomeoneProps = {
 export function NeedsSomeone({ alerts, now, answer, apiFailed, openCount, irrigation }: NeedsSomeoneProps) {
   const me = useMe();
   // Remove only after API-15 confirms success, including while an older poll is still in flight.
-  const [acknowledged, setAcknowledged] = useState<ReadonlySet<number>>(() => new Set());
-  const dismiss = useCallback((alert: Alert) => setAcknowledged((ids) => new Set(ids).add(alert.id)), []);
+  const [acknowledged, setAcknowledged] = useState<ReadonlyMap<number, Alert>>(() => new Map());
+  const dismiss = useCallback((alert: Alert) => setAcknowledged((rows) => new Map(rows).set(alert.id, alert)), []);
   const freshness = apiFailed || !now ? null : now.freshness;
   const items = alerts.data ? topAlerts(alerts.data.items, acknowledged) : [];
   const status = irrigation.failed ? null : irrigation.data;

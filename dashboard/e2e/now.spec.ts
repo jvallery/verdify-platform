@@ -6,7 +6,7 @@
 // strip; and each fact once. That a viewer sees no write control is roles.spec.ts.
 import type { Page } from "@playwright/test";
 import {
-  CAN_STILL_START, CAN_STILL_START_NO_ENGINE, DESKTOP, PHONE, SMALL_PHONE, STOPPED, expect, expectAboveTheFold, fixtureRequests, fixtureWrites, load, test, toastLines,
+  CAN_STILL_START, CAN_STILL_START_NO_ENGINE, DESKTOP, PHONE, SMALL_PHONE, STOPPED, expect, expectAboveTheFold, expectNoHorizontalScroll, fixtureRequests, fixtureWrites, load, test, toastLines,
   untilPolled, useFixture, useScreensClock,
 } from "./support";
 

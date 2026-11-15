@@ -14,7 +14,7 @@ Cards sit on a subtle field background. Page descriptions explain the task in or
 
 ## Hydroponics
 
-`/hydroponics` is the dedicated reservoir and planting workspace. It combines the platform's measured pH, electrical conductivity, water temperature, TDS and ORP series with the API-defined hydro rack. The user can select a spot, a range or a whole rail, then plant, edit, move, harvest or remove records using the existing audited forms. Viewers can inspect records without write controls.
+`/hydroponics` is the dedicated reservoir and planting workspace. It combines the platform's measured pH, electrical conductivity and water temperature series with the API-defined hydro rack. The user can select a spot, a range or a whole rail, then plant, edit, move, harvest or remove records using the existing audited forms. Viewers can inspect records without write controls.
 
 Each hydro rail occupies its own row, with at least 44-pixel planting targets and contained horizontal scrolling on phones. The interface uses the persisted shelf and cell layout. It never invents physical positions or treats an absent layout as an empty 60-spot system. The current layout contains 60 hydro spots. Occupancy is derived from records; three plantings occupying nineteen spots are three plantings, not nineteen.
 

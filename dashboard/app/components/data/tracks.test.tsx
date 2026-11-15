@@ -70,7 +70,7 @@ test("a strip of buttons selects a day; every state keeps the row's height; neut
     const { container } = renderUi(<StatusStrip label="Days" cells={CELLS} state={state} />);
     const drawn = state === "ready" || state === "stale";
     expect(container.querySelectorAll(".strip-cell"), state).toHaveLength(drawn ? 4 : 0);
-    if (!drawn) expect(text(container.querySelector(".strip-empty")), state).toMatch(/^(Loading|No data|Unknown|Unavailable)$/);
+    if (!drawn) expect(text(container.querySelector(".strip-empty")), state).toMatch(/^(Loading|No data|No current data|Unavailable)$/);
     expect(container.querySelector(".strip-scroll")?.className.includes("viz-skeleton"), state).toBe(state === "loading");
     expect(container.querySelector(".strip")?.className.includes("is-stale") ?? false, state).toBe(state === "stale");
     expect(markup(<StatusStrip label="Days" cells={CELLS} state={state} />), state).not.toMatch(/\sstyle=/);

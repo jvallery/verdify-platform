@@ -197,7 +197,7 @@ test("with the controller not reporting, every state reads unknown with the age 
   expect(read("vent").state).toBe("No current report · last report 2 h ago");
   expect(read("drip_wall").state).toMatch(/^No current report · last report \d+ d ago$/);
   // The controller's intent reads unknown too, and with both unknown nothing is marked as differing.
-  expect(read("grow_light_main")).toEqual({ name: "Main", state: "Unknown (controller) · Lutron No current report · 12 min ago", facts: "since — · on today — · cycles —" });
+  expect(read("grow_light_main")).toEqual({ name: "Main", state: "No current report (controller) · Lutron No current report · 12 min ago", facts: "since — · on today — · cycles —" });
   expect(document.querySelector("[data-differ]")).toBeNull();
 });
 
@@ -454,7 +454,7 @@ test("the flags: occupancy from API-IRR-01, the leak flag and the site flow from
     .map((flag, index) => <li key={index} data-state={flag.state} data-tone={flag.tone}>{flag.text}</li>)}</ul>);
   expect([...container.querySelectorAll("li[data-state]")].map((item) => [item.getAttribute("data-state"), item.getAttribute("data-tone"), text(item)])).toEqual([
     ["on", null, "Someone inside · seen 4 min ago"], ["unknown", null, "Occupancy report unavailable · mist hold off"], ["on", "fault", "Water flowing with every valve closed · since 10:32"],
-    ["unknown", null, "Unknown"], ["on", null, "Flowing · 1 gal/min"], ["unknown", null, "Unknown"],
+    ["unknown", null, "Leak status unavailable"], ["on", null, "Flowing · 1 gal/min"], ["unknown", null, "No recent flow reading"],
     ["on", "fault", "Water flowing with every valve closed"], ["off", null, "None"],
   ]);
 });

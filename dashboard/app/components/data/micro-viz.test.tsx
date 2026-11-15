@@ -185,7 +185,7 @@ test("Sparkline in every state, and neutral with the API down", () => {
       const drawn = state === "ready" || state === "stale";
       expect(container.querySelectorAll(".spark-line"), state).toHaveLength(drawn ? 1 : 0);
       expect(container.querySelector("svg")?.getAttribute("class")?.includes("is-stale"), state).toBe(state === "stale");
-      if (!drawn) expect(screen.getByRole("img").getAttribute("aria-label"), state).toMatch(/^Temperature: (No data|Unknown|Unavailable)$/);
+      if (!drawn) expect(screen.getByRole("img").getAttribute("aria-label"), state).toMatch(/^Temperature: (No data|No current data|Unavailable)$/);
     }
     expect(markup(<Sparkline values={[1, 2, 3]} state={state} />), state).not.toMatch(/\sstyle=/);
     cleanup();

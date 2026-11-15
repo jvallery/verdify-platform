@@ -4,10 +4,12 @@ import { parseSeries } from "./operator-api";
 import { hydroPlotSeries, latestHydroInterval } from "./hydroponics";
 
 function series(values: (number | null)[]) {
-  return parseSeries({ from: "2026-11-14T00:00:00Z", to: "2026-11-14T01:00:00Z", bucket_s: 300,
+  const parsed = parseSeries({ from: "2026-11-14T00:00:00Z", to: "2026-11-14T01:00:00Z", bucket_s: 300,
     t: values.map((_, i) => 1794614400 + i * 300), series: { "climate.hydro_ph": { avg: values, min: values, max: values, count: values.map((v) => v === null ? 0 : 1), source: "raw", retained_from: null } },
     watermark: null, server_time: "2026-11-14T01:00:00Z", gaps: [],
   });
+  if (!parsed) throw new Error("Invalid series fixture");
+  return parsed;
 }
 
 test("missing readings stay missing, including an entirely absent metric", () => {

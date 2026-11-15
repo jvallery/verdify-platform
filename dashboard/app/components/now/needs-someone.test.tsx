@@ -207,10 +207,12 @@ test("the top three: critical, warning, info, each in API-14's order; acknowledg
   ];
   // Within a severity the API's order stands (it sorts by last seen, newest first), never Now's own idea of age.
   expect(topAlerts(items).map((item) => item.id)).toEqual([3, 2, 4]);
-  expect(topAlerts(items, new Set([5])).map((item) => item.id)).toEqual([3, 2, 4]);
-  expect(topAlerts(items, new Set([3])).map((item) => item.id)).toEqual([2, 4, 1]);
+  expect(topAlerts(items, new Map([[5, items[4]]])).map((item) => item.id)).toEqual([3, 2, 4]);
+  expect(topAlerts(items, new Map([[3, items[2]]])).map((item) => item.id)).toEqual([2, 4, 1]);
+  const recurring = items.map((item) => item.id === 3 ? { ...item, count: 2, last_seen_at: "2026-11-02T14:05:00Z" } : item);
+  expect(topAlerts(recurring, new Map([[3, items[2]]])).map((item) => item.id)).toEqual([3, 2, 4]);
   // The read holds what was resolved in the last 24 h: none shows, not even one acknowledged here and resolved since.
   const resolved = [...items, alert(6, "critical", "2026-11-02T08:00:00Z", "resolved")];
-  expect(topAlerts(resolved, new Set([6])).map((item) => item.id)).toEqual([3, 2, 4]);
-  expect(topAlerts(items.map((item) => (item.id === 5 ? { ...item, status: "resolved" } : item)), new Set([5])).map((item) => item.id)).toEqual([3, 2, 4]);
+  expect(topAlerts(resolved, new Map([[6, resolved[5]]])).map((item) => item.id)).toEqual([3, 2, 4]);
+  expect(topAlerts(items.map((item) => (item.id === 5 ? { ...item, status: "resolved" } : item)), new Map([[5, items[4]]])).map((item) => item.id)).toEqual([3, 2, 4]);
 });
