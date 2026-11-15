@@ -3,9 +3,10 @@
 daily-summary-snapshot.py — Compute and upsert daily climate aggregates.
 
 Complements the ESP32 ingestor which writes cycle counts and runtimes via DAILY_ACCUM_MAP.
-This script adds climate min/max/avg, stress hours, peak demand, and notes.
+This script adds climate min/max/avg and peak demand.
 Resource totals/costs are owned by the provenance-gated ingestor path and are
-intentionally never written here.
+intentionally never written here. Compliance and stress hours are graded by the
+database on the served house band (migrations 290/309) and are never written here.
 
 Runs at 00:05 UTC daily via cron (captures the completed day).
 
@@ -66,7 +67,6 @@ async def snapshot_day(conn, target_date: date) -> bool:
             ROUND(AVG(co2_ppm)::numeric, 0) AS co2_avg,
             MIN(outdoor_temp_f) AS outdoor_temp_min,
             MAX(outdoor_temp_f) AS outdoor_temp_max,
-            MAX(dli_today) AS dli_final,
             MAX(mister_water_today) AS mister_water_diagnostic
         FROM climate
         WHERE ts >= $1 AND ts < $2
@@ -79,22 +79,6 @@ async def snapshot_day(conn, target_date: date) -> bool:
     if not climate or climate["temp_avg"] is None:
         log.warning("No climate data for %s", target_date)
         return False
-
-    # ── Stress hours (count rows where out of band, multiply by sample interval) ──
-    stress = await conn.fetchrow(
-        """
-        SELECT
-            ROUND(COUNT(*) FILTER (WHERE temp_avg > 85) * 2.0 / 60, 2) AS stress_heat,
-            ROUND(COUNT(*) FILTER (WHERE temp_avg < 50) * 2.0 / 60, 2) AS stress_cold,
-            ROUND(COUNT(*) FILTER (WHERE vpd_avg > 2.0) * 2.0 / 60, 2) AS stress_vpd_high,
-            ROUND(COUNT(*) FILTER (WHERE vpd_avg < 0.4) * 2.0 / 60, 2) AS stress_vpd_low
-        FROM climate
-        WHERE ts >= $1 AND ts < $2
-        AND temp_avg IS NOT NULL
-    """,
-        day_start,
-        day_end,
-    )
 
     # ── Peak demand from Shelly EM ──
     peak_row = await conn.fetchval(
@@ -114,12 +98,10 @@ async def snapshot_day(conn, target_date: date) -> bool:
             date, temp_min, temp_max, temp_avg, rh_min, rh_max, rh_avg,
             vpd_min, vpd_max, vpd_avg, co2_avg,
             outdoor_temp_min, outdoor_temp_max,
-            dli_final,
-            stress_hours_heat, stress_hours_cold, stress_hours_vpd_high, stress_hours_vpd_low,
             peak_kw, captured_at
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-            $14, $15, $16, $17, $18, $19, now()
+            $14, now()
         )
         ON CONFLICT (date) DO UPDATE SET
             temp_min = COALESCE(EXCLUDED.temp_min, daily_summary.temp_min),
@@ -134,11 +116,6 @@ async def snapshot_day(conn, target_date: date) -> bool:
             co2_avg = COALESCE(EXCLUDED.co2_avg, daily_summary.co2_avg),
             outdoor_temp_min = COALESCE(EXCLUDED.outdoor_temp_min, daily_summary.outdoor_temp_min),
             outdoor_temp_max = COALESCE(EXCLUDED.outdoor_temp_max, daily_summary.outdoor_temp_max),
-            dli_final = COALESCE(EXCLUDED.dli_final, daily_summary.dli_final),
-            stress_hours_heat = EXCLUDED.stress_hours_heat,
-            stress_hours_cold = EXCLUDED.stress_hours_cold,
-            stress_hours_vpd_high = EXCLUDED.stress_hours_vpd_high,
-            stress_hours_vpd_low = EXCLUDED.stress_hours_vpd_low,
             peak_kw = COALESCE(EXCLUDED.peak_kw, daily_summary.peak_kw),
             captured_at = now()
     """,
@@ -155,24 +132,16 @@ async def snapshot_day(conn, target_date: date) -> bool:
         float(climate["co2_avg"]) if climate["co2_avg"] else None,
         climate["outdoor_temp_min"],
         climate["outdoor_temp_max"],
-        climate["dli_final"],
-        float(stress["stress_heat"]),
-        float(stress["stress_cold"]),
-        float(stress["stress_vpd_high"]),
-        float(stress["stress_vpd_low"]),
         peak_kw,
     )
 
     log.info(
-        "%s: temp %.0f–%.0f°F, VPD %.1f–%.1f, DLI %.1f, stress: heat=%.1fh vpd_hi=%.1fh",
+        "%s: temp %.0f–%.0f°F, VPD %.1f–%.1f",
         target_date,
         climate["temp_min"] or 0,
         climate["temp_max"] or 0,
         climate["vpd_min"] or 0,
         climate["vpd_max"] or 0,
-        climate["dli_final"] or 0,
-        float(stress["stress_heat"]),
-        float(stress["stress_vpd_high"]),
     )
     return True
 

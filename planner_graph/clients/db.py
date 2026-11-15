@@ -18,32 +18,26 @@ from uuid import UUID
 
 def scorecard_context(scorecard: dict[str, Any]) -> dict[str, str | float | int | bool]:
     """Keep the standalone planner's flat contract explicit across DB rollout."""
-    verified = scorecard.get("scorecard_contract_version") == 2
+    verified = scorecard.get("scorecard_contract_version") == 3
     result: dict[str, str | float | int | bool] = {
         "binary_fields_verified": verified,
         "measurement_basis": (
             "Shares of 5-minute house-average buckets graded against the band the "
-            "controller served (migration 290); not fixed-panel crop outcomes. "
+            "controller served (migrations 290/309); not fixed-panel crop outcomes. "
             "Coverage unverified; no measured center probe."
         ),
         "score_basis": (
-            "planner_score and compliance_v2_* are historical graded controller credit, "
-            "not physical compliance. Never widen served bands to improve credit."
+            "planner_score equals served-band compliance_pct; resource cost is "
+            "informational and never a reward term. Never widen served bands to improve it."
         ),
     }
     keys = [
         "scorecard_contract_version",
-        "planner_score",
         "planner_score_resource_weight_pct",
         "resource_terms_available",
-        "compliance_v2_raw_pct",
-        "compliance_v2_attributable_pct",
-        "compliance_v2_unachievable_frac",
-        "graded_temp_compliance_pct",
-        "graded_vpd_compliance_pct",
     ]
     if verified:
-        keys.extend(["compliance_pct", "temp_compliance_pct", "vpd_compliance_pct"])
+        keys.extend(["planner_score", "compliance_pct", "temp_compliance_pct", "vpd_compliance_pct"])
     # This standalone service's flat context rejects nulls: omit unavailable
     # metrics, never replace missing evidence with zero.
     result.update({key: scorecard[key] for key in keys if scorecard.get(key) is not None})

@@ -7,10 +7,10 @@ and writes them to /var/lib/node-exporter/textfiles/verdify.prom.
 
 Metrics exposed:
   verdify_climate_age_seconds    — seconds since last climate reading
-  verdify_compliance_pct         — today's band compliance (0-100)
-  verdify_planner_score          — today's planner score (0-100)
-  verdify_stress_hours           — stress hours by type (heat/cold/vpd_high/vpd_low)
-  verdify_cost_today_dollars     — today's utility cost
+  verdify_compliance_pct         — today's served house band compliance (0-100)
+  verdify_planner_score          — today's planner score (= served-band compliance_pct)
+  verdify_stress_hours           — hours above/below the served band (heat/cold/vpd_high/vpd_low)
+  verdify_cost_today_dollars     — today's nominal-model utility cost estimate (informational)
   verdify_setpoint_changes_today — number of setpoint changes today
   verdify_active_alerts          — alerts in the last hour
   verdify_plans_today            — number of plans written today
@@ -71,7 +71,7 @@ async def collect():
             value = scorecard.get(metric)
             return fallback if value is None else value
 
-        lines.append("# HELP verdify_compliance_pct Band compliance (both temp AND VPD in band)")
+        lines.append("# HELP verdify_compliance_pct Served house band compliance (both temp AND VPD in band)")
         lines.append("# TYPE verdify_compliance_pct gauge")
         lines.append(f"verdify_compliance_pct {score_value('compliance_pct')}")
 
@@ -83,27 +83,27 @@ async def collect():
         lines.append("# TYPE verdify_vpd_compliance_pct gauge")
         lines.append(f"verdify_vpd_compliance_pct {score_value('vpd_compliance_pct')}")
 
-        lines.append("# HELP verdify_planner_score Planner score today (0-100)")
+        lines.append("# HELP verdify_planner_score Planner score today (= served-band compliance_pct)")
         lines.append("# TYPE verdify_planner_score gauge")
         lines.append(f"verdify_planner_score {score_value('planner_score')}")
 
-        lines.append("# HELP verdify_planner_score_resource_weight_pct Resource score weight in percent")
+        lines.append("# HELP verdify_planner_score_resource_weight_pct Resource score weight in percent (always 0)")
         lines.append("# TYPE verdify_planner_score_resource_weight_pct gauge")
         lines.append(f"verdify_planner_score_resource_weight_pct {score_value('planner_score_resource_weight_pct')}")
 
-        lines.append("# HELP verdify_resource_terms_available 1 when resource evidence is scoring eligible")
+        lines.append("# HELP verdify_resource_terms_available Resource terms in the planner score (always 0)")
         lines.append("# TYPE verdify_resource_terms_available gauge")
         lines.append(f"verdify_resource_terms_available {score_value('resource_terms_available')}")
 
-        # Absence is meaningful for resource evidence. Do not publish a false
-        # zero when the scorecard has deliberately gated the scalar to NULL.
+        # Informational nominal-model estimate, never a reward term. Do not
+        # publish a false zero when the day has no complete runtime evidence.
         cost_total = scorecard.get("cost_total")
         if cost_total is not None:
-            lines.append("# HELP verdify_cost_today_dollars Utility cost today")
+            lines.append("# HELP verdify_cost_today_dollars Nominal-model utility cost estimate today (informational)")
             lines.append("# TYPE verdify_cost_today_dollars gauge")
             lines.append(f"verdify_cost_today_dollars {cost_total}")
 
-        lines.append("# HELP verdify_stress_hours Stress hours by type today")
+        lines.append("# HELP verdify_stress_hours Hours above/below the served house band today, by type")
         lines.append("# TYPE verdify_stress_hours gauge")
         for stype in ["heat", "cold", "vpd_high", "vpd_low"]:
             val = score_value(f"{stype}_stress_h")

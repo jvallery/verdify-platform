@@ -41,6 +41,7 @@ from ._common import (
     SOIL_DRYOUT_MIN_DURATION_H,
     SOIL_DRYOUT_TARGETS_SQL,
     UTC,
+    VPD_STRESS_FLOOR_H,
     AlertEnvelope,
     ValidationError,
     ZoneInfo,
@@ -60,7 +61,6 @@ from ._common import (
 from .daily import (
     SoilDryoutWindow,
     _auto_close_disposition,
-    _vpd_stress_alert_threshold,
     evaluate_soil_dryout,
 )
 from .heartbeat import (
@@ -1300,15 +1300,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         # should represent a condition that is still active. Gate the daily
         # threshold by the last 15 minutes so recovered VPD auto-resolves.
         #
-        # Dual-write window (band-compliance §6.5/§7.4): migration 146 re-points
-        # v_stress_hours_today.vpd_stress_hours to a graded-deficit integral
-        # while keeping the column name, so this read stays backward-compatible.
-        # The threshold is RECALIBRATED (G6) from the broken-band 2.0h constant to
-        # max(0.5, p75 rolling-30d graded center vpd_high) so it does not go
-        # structurally unreachable once 145 raises the orchid band + 146 grades the
-        # deficit. _vpd_stress_alert_threshold falls back to the legacy 2.0h until
-        # the graded column is populated, so the alert never goes silently dead.
-        vpd_stress_threshold = await _vpd_stress_alert_threshold(conn)
+        # v_stress_hours_today.vpd_stress_hours is today's hours above the served house band (the one
+        # temp/VPD measurement basis, #1623), so the threshold is the fixed VPD_STRESS_FLOOR_H.
+        vpd_stress_threshold = VPD_STRESS_FLOOR_H
         row = await conn.fetchrow(
             """
             WITH daily AS (

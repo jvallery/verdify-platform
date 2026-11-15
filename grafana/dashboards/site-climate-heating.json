@@ -378,7 +378,7 @@
             "uid": "verdify-tsdb",
             "type": "grafana-postgresql-datasource"
           },
-          "rawSql": "SELECT (k.date + time '12:00')::timestamptz AS time, ROUND(AVG(m.outdoor_temp_f)::numeric,1) AS \"Outdoor Temp\"\nFROM mv_daily_kpi k JOIN v_climate_merged m ON m.bucket::date = k.date\nWHERE $__timeFilter((k.date + time '12:00')::timestamptz) AND k.resource_terms_available GROUP BY k.date ORDER BY k.date",
+          "rawSql": "SELECT (k.date + time '12:00')::timestamptz AS time, ROUND(AVG(m.outdoor_temp_f)::numeric,1) AS \"Outdoor Temp\"\nFROM mv_daily_kpi k JOIN v_climate_merged m ON m.bucket::date = k.date\nWHERE $__timeFilter((k.date + time '12:00')::timestamptz) GROUP BY k.date ORDER BY k.date",
           "format": "time_series",
           "refId": "B"
         }

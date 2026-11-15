@@ -1,4 +1,4 @@
-"""Consumer agreement cannot hide credit aliases, unstable rows or missing MCP."""
+"""Consumer agreement cannot hide mislabelled served-band metrics, unstable rows or missing MCP."""
 
 import importlib.util
 from pathlib import Path
@@ -10,22 +10,36 @@ SPEC.loader.exec_module(probe)
 
 
 def metrics():
-    return {"scorecard_contract_version": 2, "compliance_pct": 6.1, "compliance_v2_attributable_pct": 85.8}
+    return {
+        "scorecard_contract_version": 3,
+        "compliance_pct": 61.2,
+        "planner_score": 61.2,
+        "planner_score_resource_weight_pct": 0,
+        "resource_terms_available": 0,
+    }
 
 
-def test_transport_agreement_preserves_large_credit_small_binary_and_does_not_qualify_physical():
+def test_transport_agreement_preserves_served_band_metrics_and_does_not_qualify_physical():
     values = metrics()
     result = probe.compare(values, values, values, {"pod": values})
     assert result["agreement_proven"] is True
     assert result["physical_publication_qualified"] is False
 
 
-def test_credit_alias_cannot_pass_as_binary_compliance():
+def test_a_mislabelled_compliance_value_cannot_pass_as_agreement():
     values = metrics()
     mislabeled = {**values, "compliance_pct": 85.8}
     result = probe.compare(values, values, mislabeled, {"pod": values})
     assert result["agreement_proven"] is False
     assert result["metric_mismatches"][0]["metric"] == "compliance_pct"
+
+
+def test_resource_weight_drift_is_a_mismatch():
+    values = metrics()
+    weighted = {**values, "planner_score_resource_weight_pct": 20}
+    result = probe.compare(values, values, weighted, {"pod": values})
+    assert result["agreement_proven"] is False
+    assert result["metric_mismatches"][0]["metric"] == "planner_score_resource_weight_pct"
 
 
 def test_unstable_snapshot_or_missing_mcp_prevents_agreement_claim():

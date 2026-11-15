@@ -69,7 +69,7 @@ def test_private_sql_actual_transport_and_planner_public_render(isolated_pg):  #
     async def run():
         owner = await asyncpg.connect(user="verdify", database="postgres", host=host, port=port)
         await owner.execute(
-            "CREATE FUNCTION public.fn_planner_scorecard(date) RETURNS TABLE(metric text,value numeric) LANGUAGE sql AS $$ SELECT * FROM (VALUES ('scorecard_contract_version',2.0),('compliance_pct',6.1),('compliance_v2_attributable_pct',85.8)) x $$"
+            "CREATE FUNCTION public.fn_planner_scorecard(date) RETURNS TABLE(metric text,value numeric) LANGUAGE sql AS $$ SELECT * FROM (VALUES ('scorecard_contract_version',3.0),('compliance_pct',6.1),('planner_score',6.1)) x $$"
         )
         for user in ("verdify_api_runtime_login", "verdify_mcp_runtime_login", "unauthorized"):
             conn = await asyncpg.connect(user=user, database="postgres", host=host, port=port)
@@ -187,11 +187,6 @@ def test_private_sql_actual_transport_and_planner_public_render(isolated_pg):  #
         async def metrics(c, d):
             return await c.fetch("SELECT * FROM public.fn_planner_scorecard($1)", d)
 
-        async def observed(c, d):
-            from verdify_schemas.observed_minutes import ObservedMinuteEvidence
-
-            return ObservedMinuteEvidence(day=d)
-
         async def route(c, d):
             from verdify_schemas.physical_crop_band import RouteOnlyCropBandEvidence
 
@@ -213,7 +208,6 @@ def test_private_sql_actual_transport_and_planner_public_render(isolated_pg):  #
             _fetch_planner_scorecard=metrics,
             _db=db,
             pool=SimpleNamespace(acquire=Checkout),
-            read_observed_minute_evidence=observed,
             read_route_only_crop_band_evidence=route,
             read_native_fixed_panel_route_evidence=native,
         )
@@ -239,16 +233,16 @@ def test_private_sql_actual_transport_and_planner_public_render(isolated_pg):  #
         response = client.get("/api/v1/scorecard")
     assert response.status_code == 200
     wire = response.json()
-    assert wire["compliance_v2_attributable_pct"] == 85.8
+    assert wire["planner_score"] == wire["compliance_pct"] == 6.1
     assert wire["physical_crop_band_evidence"]["diagnostic"]["joint"]["in_band_pct"] == pytest.approx(100 * 2 / 96)
     card = ScorecardResponse.model_validate({k: v for k, v in wire.items() if k != "metric_semantics"})
     rendered = _publisher().physical_crop_band_block(wire["physical_crop_band_evidence"], DAY.isoformat())
-    assert "2.1% joint" in rendered and "2/96" in rendered and "85.8%" not in rendered
-    assert card.climate_evidence()["graded_compliance_attributable_pct"] == 85.8
+    assert "2.1% joint" in rendered and "2/96" in rendered and "6.1%" not in rendered
+    assert card.climate_evidence()["both_axis_compliance_pct"] == 6.1
     mcp_wire = asyncio.run(api_route(DAY, "mcp"))
     assert mcp_wire["physical_crop_band_evidence"]["revision_id"] == 2
     assert mcp_wire["physical_crop_band_evidence"]["diagnostic"]["joint"]["in_band_pct"] == pytest.approx(100 * 2 / 96)
-    assert mcp_wire["compliance_v2_attributable_pct"] == 85.8
+    assert mcp_wire["planner_score"] == 6.1
     # Iris receives this exact registered scorecard tool JSON; public snapshot
     # rendering receives the same shared typed climate projection.
     import yaml
@@ -261,7 +255,7 @@ def test_private_sql_actual_transport_and_planner_public_render(isolated_pg):  #
         or mcp_wire["physical_crop_band_evidence"]["diagnostic"] == wire["physical_crop_band_evidence"]["diagnostic"]
     )
     public_html = _publisher().planning_block({"planning_quality": climate, "generated_at": DAY.isoformat()})
-    assert "85.8%" in public_html and "2.1% joint" in public_html
+    assert "6.1%" in public_html and "2.1% joint" in public_html
 
 
 def test_reviewed_artifact_bytes_must_bind_all_diagnostic_hashes(tmp_path):

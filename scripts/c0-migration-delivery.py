@@ -361,6 +361,8 @@ SUCCESSOR_296_MCP_DIGEST = "984604e2c5e99ec801a752792373b53b1e817e5667b10ae35798
 # it; neither ordinary login reaches it, so the api and ingestor seals keep 296's values, and the MCP SELECT moves
 # the MCP seal, whose receipt is re-sealed. Chained from 296 (#1388); the rolled-back native qualification
 # (production at 291, 293, 294 and 296 applied first) measured the MCP seal.
+# First migration that drops the observed-minute column the 249 grant names (#1623).
+OBSERVED_MINUTE_COLUMN_DROP_SEQ = 309
 SUCCESSOR_301 = "301-greenhouse-brief.sql"
 SUCCESSOR_301_SHA256 = "24945842499e5d907d2c49ef4cbf4e57ada2f29b297c9744edd055421f7d0e1d"
 SUCCESSOR_301_DIGESTS = SUCCESSOR_296_DIGESTS
@@ -772,8 +774,11 @@ SELECT jsonb_build_object(
     'ingestor_receipt', (SELECT encode(boundary_sha256, 'hex') FROM public.runtime_ordinary_login_attestation_receipts
                          WHERE login_name='verdify_ingestor_runtime_login'),
     'receipt_count', (SELECT count(*) FROM public.runtime_ordinary_login_attestation_receipts),
-    'column_update', has_column_privilege('verdify_ingestor_runtime_login', 'public.daily_summary',
-                                          'climate_observed_minute_metrics', 'UPDATE'),
+    'column_update', (SELECT has_column_privilege('verdify_ingestor_runtime_login', 'public.daily_summary',
+                                                  a.attname::text, 'UPDATE')
+                        FROM pg_attribute a
+                       WHERE a.attrelid = 'public.daily_summary'::regclass
+                         AND a.attname = 'climate_observed_minute_metrics' AND NOT a.attisdropped),
     'table_update', has_table_privilege('verdify_ingestor_runtime_login', 'public.daily_summary', 'UPDATE'));
 COMMIT;"""
     state = json.loads(psql(sql, environment))
@@ -786,6 +791,10 @@ COMMIT;"""
         "column_update": True,
         "table_update": False,
     }
+    # Migration 309 (#1623) drops daily_summary.climate_observed_minute_metrics with the
+    # retired observed-minute diagnostic; from then on the 249 column grant has nothing to name.
+    if any(int(name[:3]) >= OBSERVED_MINUTE_COLUMN_DROP_SEQ for name in later):
+        expected["column_update"] = None
     for name, digests in (
         (SUCCESSOR_254, SUCCESSOR_254_DIGESTS),
         (SUCCESSOR_255, SUCCESSOR_255_DIGESTS),

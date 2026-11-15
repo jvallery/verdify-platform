@@ -1373,9 +1373,9 @@ def generate_daily_summary_section(
         [
             "### Stress Hours",
             "",
-            f"- **Heat stress (>85°F):** {r(summary.get('stress_hours_heat'))}h",
-            f"- **VPD stress (>2.0 kPa):** {r(summary.get('stress_hours_vpd_high'))}h",
-            f"- **Cold stress (<55°F):** {r(summary.get('stress_hours_cold'))}h",
+            f"- **Heat stress (above the served band):** {r(summary.get('stress_hours_heat'))}h",
+            f"- **VPD stress (above the served band):** {r(summary.get('stress_hours_vpd_high'))}h",
+            f"- **Cold stress (below the served band):** {r(summary.get('stress_hours_cold'))}h",
             "",
         ]
     )
