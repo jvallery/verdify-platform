@@ -23,7 +23,7 @@ export const deviceUnknown = (answer: Pick<NowAnswer, "row">): boolean => answer
  * at the time of the data still shown, or the mode's own start when that is newer.
  */
 export function modeText(now: Pick<Now, "mode" | "server_time">, answer: Pick<NowAnswer, "row" | "muted" | "lastDataAt">): string {
-  if (deviceUnknown(answer)) return "Mode unknown";
+  if (deviceUnknown(answer)) return "Waiting for controller reports";
   if (!answer.muted) return modeWords(now.mode.code, now.mode.stage);
   const last = `Last mode: ${modeWordsNoVerdict(now.mode.code, now.mode.stage)}`;
   if (!validTime(answer.lastDataAt)) return last;

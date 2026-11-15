@@ -80,7 +80,7 @@ const LINE_STATE = {
   blocked: "Can't run now",
   paused: "Paused",
   disabled: "Disabled",
-  unknown: "Unknown",
+  unknown: "Not reported",
 } as const satisfies Record<LineStateCode, string>;
 
 /**

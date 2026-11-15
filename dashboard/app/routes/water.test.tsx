@@ -242,7 +242,7 @@ test("not reporting: the status line names what the controller keeps running; wi
   open("/water", { fixture: "controller-not-reporting" });
   await load();
   expect(program()).toBe("Controller not reporting since 10:36. If it has power, it keeps running rev 42, VPD misting and caps");
-  expect(text(row("L01").querySelector(".line-state"))).toBe("Unknown · 3 days ago");
+  expect(text(row("L01").querySelector(".line-state"))).toBe("No current valve report · 3 days ago");
   cleanup(); stopFixtureApi();
   open("/water", { fixture: "ingestor-not-running" });
   await load();

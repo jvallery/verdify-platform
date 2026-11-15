@@ -60,7 +60,7 @@ export function equipmentToken(equipment: string): string | null {
 export function StateWord({ equipment, state }: { equipment: string; state: string }) {
   const apiDown = useApiDown();
   const vent = equipment === "vent";
-  const word = state === "on" ? (vent ? "Open" : "On") : state === "off" ? (vent ? "Closed" : "Off") : "Unknown";
+  const word = state === "on" ? (vent ? "Open" : "On") : state === "off" ? (vent ? "Closed" : "Off") : "No current report";
   const kind = state === "on" || state === "off" ? state : "unknown";
   return <span className={cls("ctl-state", `is-${kind}`, apiDown && "is-neutral")} data-badge={kind}>
     <span className="ctl-dot" data-token={kind === "on" ? equipmentToken(equipment) ?? undefined : undefined} aria-hidden="true" />{word}

@@ -26,8 +26,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(status(page, "mister_engage_kpa")).toHaveText("YOUR VALUE 1.55 · jason 08:00 · holds until Iris's next plan");
     await expect(status(page, "mister_pulse_gap_s")).toHaveText("PLANNED · AI");
     const lanes = region(page, "Planned settings");
-    await lanes.locator("details.chart-table summary").click();
-    const superseded = lanes.locator("details.chart-table tbody tr").filter({ hasText: "SUPERSEDED" });
+    const superseded = lanes.locator("table tbody tr").filter({ hasText: "SUPERSEDED" });
     await expect(superseded).toHaveCount(1);
     await expect(superseded).toContainText("VPD Mister Engage");
     await expect(superseded).toContainText("13:00");
@@ -43,7 +42,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     const card = region(page, "Plan in force");
     await expect(card.locator(".plan-none")).toHaveText("No plan in force: band and defaults apply since 09:30");
     await expect(card.locator("[data-badge=ai], details, .plan-facts")).toHaveCount(0);
-    await expect(page.locator(".plan-status")).toHaveCount(0);
+    await expect(page.getByText("No further change in this plan", { exact: true })).toHaveCount(3);
     await expect(page.locator(".plan-device")).toHaveText(["1.60 kPa", "45 s", "60 s"]);
     await expectNoHorizontalScroll(page);
   });
@@ -98,8 +97,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(row.locator("[data-badge=ai]")).toHaveCount(0);
     await expect(status(page, "mister_engage_kpa")).toHaveText("PLANNED · AI");
     const lanes = region(page, "Planned settings");
-    await lanes.locator("details.chart-table summary").click();
-    await expect(lanes.locator("details.chart-table tbody tr").filter({ hasText: "Mister Engage Delay" }).filter({ hasText: "90 s" })).toContainText("Forecast rule · system");
+    await expect(lanes.locator("table tbody tr").filter({ hasText: "Mister Engage Delay" }).filter({ hasText: "90 s" })).toContainText("Forecast rule · system");
   });
 }
 
@@ -112,10 +110,8 @@ test("at 390 px the card, health and lanes stack, with 6rem lane labels", async 
   expect(health.y).toBeGreaterThanOrEqual(card.y + card.height);
   expect(lanes.y).toBeGreaterThanOrEqual(health.y + health.height);
   expect(health.x).toBe(card.x);
-  // The canvas starts where the lane labels end.
-  const [frame, canvas] = await Promise.all([page.locator(".lanes-plan").boundingBox(), page.locator(".lanes-canvas").boundingBox()]);
-  if (!frame || !canvas) throw new Error("The plan lanes are not rendered");
-  expect(canvas.x - frame.x).toBeCloseTo(6 * 16, 0);
+  await expect(page.getByRole("region", { name: "Planned settings comparison" })).toBeVisible();
+  await expectNoHorizontalScroll(page);
 });
 
 test("the 72 h chip sets ?hours=72, and reloading the URL keeps it", async ({ page, request }) => {
@@ -125,9 +121,9 @@ test("the 72 h chip sets ?hours=72, and reloading the URL keeps it", async ({ pa
   await expect(lanes.getByRole("link", { name: "24 h" })).toHaveAttribute("aria-current", "page");
   await lanes.getByRole("link", { name: "72 h" }).click();
   await expect(page).toHaveURL(/\/plan\?hours=72$/);
-  await expect(lanes.locator("figcaption")).toHaveText("Next 72 h · one lane per planned setting");
+  await expect(lanes.locator("caption")).toHaveText("Next 72 h · controller values and planned changes");
   await page.reload();
-  await expect(lanes.locator("figcaption")).toHaveText("Next 72 h · one lane per planned setting");
+  await expect(lanes.locator("caption")).toHaveText("Next 72 h · controller values and planned changes");
   await expect(lanes.getByRole("link", { name: "72 h" })).toHaveAttribute("aria-current", "page");
 });
 

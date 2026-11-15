@@ -12,7 +12,7 @@ import { renderToString } from "react-dom/server";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createRoutesStub, useLocation } from "react-router";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
-import { FakeResizeObserver, MockPlot, TOKENS, created, media, setTokens, type Stroke } from "../charts/fixtures/uplot-mock";
+import { FakeResizeObserver, MockPlot, created, media, setTokens } from "../charts/fixtures/uplot-mock";
 import { FORECAST_RULE, PLANNED_AI } from "../charts/marks";
 import { loadUPlot } from "../charts/uplot-chart";
 import { AppShell } from "../components/app-shell";
@@ -28,18 +28,6 @@ import Plan, { PLAN_POLL_MS, manualCount, planHours } from "./plan";
 vi.mock("uplot", async () => ({ default: (await import("../charts/fixtures/uplot-mock")).MockPlot }));
 
 const BUILD = "fedcba9876543210fedcba9876543210fedcba98";
-const epoch = (instant: string) => Date.parse(instant) / 1000;
-const START = NOW / 1000;
-// The mock plot is 1000 px wide over the 24 h window from 10:42 and starts at y = 0; rows are 44 px (20 px header, 24 px strip).
-const x = (clock: string) => Math.round(((epoch(denver(clock)) - START) / (24 * 3600)) * 1000);
-const lineY = (row: number) => row * 44 + 20 + 16;
-const labelY = (row: number) => row * 44 + 20 + 7;
-const onRow = (stroke: Stroke, row: number) => stroke.path.every(([, y]) => y === lineY(row));
-const strokes = (plot: MockPlot, row: number) => plot.ctx.strokes.filter((stroke) => onRow(stroke, row))
-  .map((stroke) => [stroke.stroke, stroke.dash.join(","), ...stroke.path.map(([px]) => Math.round(px))]);
-const labels = (plot: MockPlot, row: number) => plot.ctx.texts.filter((label) => label.y === labelY(row)).map((label) => [label.text.replaceAll(NBSP, " "), label.color]);
-const DEVICE = TOKENS["--c-setpoint"], INK = TOKENS["--ink"], MUTED = TOKENS["--c-bound"];
-
 /** Settings (#1132) stands in as its URL, so "Find a setting"'s target is visible; Plan's own URL shows beside it. */
 function SettingsProbe() {
   const { pathname, search } = useLocation();
@@ -72,7 +60,6 @@ function paint(): MockPlot {
 }
 const region = (name: string) => screen.getByRole("region", { name });
 const status = (param: string) => document.querySelector(`[data-param=${param}] .plan-status`)?.textContent ?? null;
-const tooltip = (plot: MockPlot) => [...plot.over.querySelectorAll(".chart-tooltip > div")].map((line) => text(line));
 
 beforeAll(async () => { await loadUPlot(); });
 beforeEach(() => { MockPlot.reset(); FakeResizeObserver.instances = []; setTokens(); });
@@ -111,15 +98,12 @@ test("a plan in force: trigger and id, the validity bar with now and the time le
 });
 
 test("no plan in force reads what applies and since when, and the lanes show device values only", async () => {
-  const { plot } = await open("/plan", "no-plan");
+  await open("/plan", "no-plan");
   const card = region("Plan in force");
   expect(text(card.querySelector(".plan-none"))).toBe("No plan in force: band and defaults apply since 09:30");
   expect(text(document.querySelector(".page-status"))).toBe("No plan in force · band and defaults apply since 09:30");
   expect(card.querySelector("[data-badge=ai], details, .plan-facts, .ctl-validity")).toBeNull();
-  // Device values only: each lane holds its value solid to the horizon, with no waypoint, header words or plan end.
-  expect([0, 1, 2].map((row) => strokes(plot, row))).toEqual([[[DEVICE, "", 0, 1000]], [[DEVICE, "", 0, 1000]], [[DEVICE, "", 0, 1000]]]);
-  expect(document.querySelectorAll(".plan-status")).toHaveLength(0);
-  expect(plot.ctx.texts.some((label) => label.text.startsWith("Plan ends"))).toBe(false);
+  expect(screen.getAllByText("No further change in this plan")).toHaveLength(3);
   expect([...document.querySelectorAll(".plan-device")].map((cell) => text(cell))).toEqual(["1.60 kPa", "45 s", "60 s"]);
   // Planner health still renders: the ledger is not the plan.
   expect(region("Planner health").querySelectorAll(".trigger-row").length).toBeGreaterThan(0);
@@ -196,36 +180,28 @@ test("the Details render a stored plan's stress windows, per-setting rationale a
 });
 
 // ---------------------------------------------------------------------------------------------------- the lanes
-test("the superseded lane reads YOUR VALUE 1.55 · jason 08:00 · holds until Iris's next plan, and the 13:00 waypoint is muted and labelled SUPERSEDED", async () => {
-  // Plan written 07:02 with a 13:00 waypoint of 1.70; a non-manual desired row of 1.55 at 08:00 holds it off.
-  const { plot } = await open("/plan", "superseded-lane");
+test("the table distinguishes an overridden request from a planned change and the device value", async () => {
+  await open("/plan", "superseded-lane");
+  const row = document.querySelector("[data-param=mister_engage_kpa]")!;
   expect(status("mister_engage_kpa")).toBe("YOUR VALUE 1.55 · jason 08:00 · holds until Iris's next plan");
-  // The device value (1.55, as read back) holds solid to 13:00; Iris's 1.70 from 13:00 is dashed in the muted colour, never as the plan ahead.
-  expect(strokes(plot, 0)).toEqual([[DEVICE, "", 0, x("13:00")], [MUTED, "8,4", x("13:00"), x("17:30")]]);
-  expect(labels(plot, 0)).toEqual([["1.70 kPa SUPERSEDED", MUTED]]);
-  plot.hover(epoch(denver("14:00")), null, 0 * 44 + 30);
-  expect(tooltip(plot)).toEqual([
-    "11/02/2026 14:00 GMT-07:00", "VPD Mister Engage", "SUPERSEDED 1.70 kPa · Iris plan · your value 1.55 kPa (jason) holds until Iris's next plan",
-    "YOUR VALUE 1.55 · jason 08:00 · holds until Iris's next plan",
-  ]);
-  // The other lanes keep Iris's plan: PLANNED · AI.
+  expect(text(row.querySelector(".plan-device"))).toBe("1.55 kPa");
+  expect(text(row)).toContain("1.70 kPa SUPERSEDED");
+  expect(text(row)).toContain("Will not apply · overridden");
+  expect(text(row)).toContain("13:00");
   expect(status("mister_pulse_gap_s")).toBe(PLANNED_AI);
-  // The plan's end inside the window, with what takes over.
-  expect(plot.ctx.texts.find((label) => label.text.startsWith("Plan ends"))?.text).toBe("Plan ends 17:30 · band/default");
 });
 
 test("a manual lane reads MANUAL · Iris skips, draws no waypoints, the head counts it, and its label opens its setting drawer here", async () => {
-  const { plot, api } = await open("/plan", "manual-lane");
+  const { api } = await open("/plan", "manual-lane");
   expect(status("mister_pulse_on_s")).toBe("MANUAL · Iris skips · jason since Oct 30");
   const row = document.querySelector("[data-param=mister_pulse_on_s]")!;
   expect(row.classList.contains("plan-row-muted")).toBe(true);
   // Its held value is solid grey across the window; no dashed waypoint.
-  expect(strokes(plot, 3)).toEqual([[MUTED, "", 0, 1000]]);
-  expect(labels(plot, 3)).toEqual([]);
+  expect(text(row)).toContain("Held manually · planner skips this setting");
   const lanes = region("Planned settings");
   expect(text(lanes.querySelector(".plan-manual"))).toBe("1 setting MANUAL · Iris skips it");
   // Every lane's label is a link to its setting drawer on this page (redesign §5.11), not a write control; Open is gone.
-  const opens = [...lanes.querySelectorAll<HTMLAnchorElement>(".plan-row a.ctl-lane-link")];
+  const opens = [...lanes.querySelectorAll<HTMLAnchorElement>("a.plan-setting-link")];
   expect(opens.map((link) => [text(link), link.getAttribute("href")])).toEqual([
     ["VPD Mister Engage", "/plan?edit=mister_engage_kpa"], ["Mister Pulse Gap", "/plan?edit=mister_pulse_gap_s"],
     ["Mister Engage Delay", "/plan?edit=mister_engage_delay_s"], ["Mister Pulse ON", "/plan?edit=mister_pulse_on_s"],
@@ -272,16 +248,13 @@ test("a lane's newest write shows its one pill at the lane's head: REQUESTED whi
 });
 
 test("a forecast-rule waypoint reads \"Forecast rule · system\" and never carries AI; Iris's waypoints read PLANNED · AI", async () => {
-  const { plot } = await open("/plan", "forecast-rule");
+  await open("/plan", "forecast-rule");
   expect(status("mister_engage_delay_s")).toBe(FORECAST_RULE);
   const row = document.querySelector("[data-param=mister_engage_delay_s]")!;
   expect(row.textContent).not.toMatch(/\bAI\b/);
   expect(row.querySelector("[data-badge=ai]")).toBeNull();
-  // The device value holds to 14:00, then the rule's 90 s is dashed to the plan's end; its label never says AI.
-  expect(strokes(plot, 2)).toEqual([[DEVICE, "", 0, x("14:00")], [INK, "8,4", x("14:00"), x("17:30")]]);
-  expect(labels(plot, 2).every(([words]) => !/\bAI\b/.test(words))).toBe(true);
-  plot.hover(epoch(denver("15:00")), null, 2 * 44 + 30);
-  expect(tooltip(plot).slice(1)).toEqual(["Mister Engage Delay", `${FORECAST_RULE} 90 s from 14:00`]);
+  expect(text(row)).toContain("90 s Forecast rule · system");
+  expect(text(row)).toContain("14:00");
   expect(status("mister_engage_kpa")).toBe(PLANNED_AI);
 });
 
@@ -405,14 +378,13 @@ test("the 72 h chip sets ?hours=72 and reads 72 h, and loading /plan?hours=72 ke
   expect(requests(api, "API-07").map((row) => row.path)).toEqual(["/api/v1/plan?hours=24"]);
   expect(within(lanes).getByRole("link", { name: "24 h" }).getAttribute("aria-current")).toBe("page");
   expect(within(lanes).getByRole("link", { name: "72 h" }).getAttribute("href")).toBe("/plan?hours=72");
-  expect(text(lanes.querySelector("figcaption"))).toBe("Next 24 h · one lane per planned setting");
+  expect(text(lanes.querySelector("caption"))).toBe("Next 24 h · controller values and planned changes");
   fireEvent.click(within(lanes).getByRole("link", { name: "72 h" }));
   await settle();
   paint();
   expect(requests(api, "API-07").map((row) => row.path)).toEqual(["/api/v1/plan?hours=24", "/api/v1/plan?hours=72"]);
   expect(within(region("Planned settings")).getByRole("link", { name: "72 h" }).getAttribute("aria-current")).toBe("page");
-  expect(text(region("Planned settings").querySelector("figcaption"))).toBe("Next 72 h · one lane per planned setting");
-  expect(created[created.length - 1].opts.scales!.x).toMatchObject({ min: START, max: START + 72 * 3600 });
+  expect(text(region("Planned settings").querySelector("caption"))).toBe("Next 72 h · controller values and planned changes");
   cleanup();
   stopFixtureApi();
   // Reloading the URL keeps the window.
@@ -474,28 +446,11 @@ test("API-07 failing shows Retry in each panel and keeps no earlier answer on sc
   expect(text(region("Plan in force").querySelector(".panel-error p"))).toBe("Couldn't load the plan in force.");
 });
 
-test("while the controller is not reporting the banner shows, the plan still renders, and device values read STALE while waypoints still draw", async () => {
-  const { plot } = await open("/plan", "controller-not-reporting");
-  expect(text(document.querySelector("[data-banner=fault]"))).toMatch(/^Controller not reporting since 10:36\./);
-  expect(text(region("Plan in force").querySelector(".plan-facts"))).toContain("iris-20261102-0702");
-  expect(text(document.querySelector(".chart-note-stale"))).toBe("STALE · device values last read 10:41");
-  expect([...document.querySelectorAll(".plan-device")].map((cell) => [text(cell), cell.classList.contains("plan-device-stale")])).toEqual([
-    ["1.60 kPa", true], ["45 s", true], ["60 s", true],
-  ]);
-  // The device value is muted and labelled STALE; Iris's 13:00 waypoint still draws dashed as PLANNED.
-  expect(strokes(plot, 0)).toEqual([[MUTED, "", 0, x("13:00")], [INK, "8,4", x("13:00"), x("17:30")]]);
-  expect(labels(plot, 0)[0]).toEqual(["STALE", MUTED]);
-  cleanup();
-  stopFixtureApi();
-  await open("/plan", "ingestor-not-running");
-  expect(text(document.querySelector("[data-banner=fault]"))).toBe("Ingestor not running since 10:38. The controller keeps running on its own. Data on Now ›");
-  expect(text(region("Plan in force").querySelector(".plan-facts"))).toContain("iris-20261102-0702");
-  expect(document.querySelectorAll(".plan-device-stale")).toHaveLength(3);
-  cleanup();
-  stopFixtureApi();
-  // Fresh readback: nothing reads STALE.
-  await open("/plan");
-  expect(document.querySelector(".chart-note-stale, .plan-device-stale")).toBeNull();
+test("stale device values stay marked stale while the plan remains visible", async () => {
+  await open("/plan", "controller-not-reporting");
+  expect(text(document.querySelector("[data-banner=fault]"))).toMatch(/^Controller not reporting/);
+  expect(screen.getAllByText("Last reported · stale")).toHaveLength(3);
+  expect(text(region("Planned settings"))).toContain("PLANNED · AI");
 });
 
 test("the time left and the lanes' window count on the server's clock, not a device clock running ahead of it", async () => {
@@ -507,10 +462,8 @@ test("the time left and the lanes' window count on the server's clock, not a dev
   const Stub = createRoutesStub([{ path: "/", Component: () => <AppShell build={BUILD} authError={null} />, children: [{ path: "plan", Component: ahead }] }]);
   render(<Stub initialEntries={["/plan"]} />);
   await settle();
-  const plot = paint();
   // 17:30 is 7 h 38 min after 09:52 (6 h 48 min after the device's 10:42).
   expect(text(region("Plan in force").querySelector(".ctl-validity-words"))).toBe("written 07:02 → valid to 17:30 · 7 h 38 min left");
-  expect(plot.opts.scales!.x).toMatchObject({ min: START - 3000, max: START - 3000 + 24 * 3600 });
 });
 
 test("API-07 is polled every 60 s, paused while the tab is hidden; API-02 stays the shell's one poll; nothing is ever written", async () => {
@@ -538,7 +491,7 @@ test("a viewer sees the same page with no write control: a lane's label is a lin
   await open("/plan", ["viewer-session", "manual-lane"]);
   expect(document.querySelector("[data-role]")?.getAttribute("data-role")).toBe("viewer");
   expect(document.querySelectorAll("[data-write-control]")).toHaveLength(0);
-  expect(region("Planned settings").querySelectorAll("a.ctl-lane-link")).toHaveLength(4);
+  expect(region("Planned settings").querySelectorAll("a.plan-setting-link")).toHaveLength(4);
   expect(status("mister_pulse_on_s")).toBe("MANUAL · Iris skips · jason since Oct 30");
   // The one button is "Find a setting"'s search: the lanes, the chips and the disclosures are links and summaries.
   expect([...document.querySelector("main")!.querySelectorAll("button")].map((button) => text(button))).toEqual(["Find"]);

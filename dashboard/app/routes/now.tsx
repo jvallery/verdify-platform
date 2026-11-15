@@ -24,6 +24,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { RunningAndNext } from "../components/coming-up";
 import { useClockValue } from "../components/freshness";
 import { todayStartS } from "../components/now/climate";
+import { ReservoirReadings } from "../components/now/reservoir";
 import { NowHero } from "../components/now/hero";
 import { NeedsSomeone } from "../components/now/needs-someone";
 import { QuickActions } from "../components/now/quick-actions";
@@ -80,6 +81,7 @@ export default function Now() {
       <PanelErrorBoundary thing="the greenhouse data" onRetry={retryNow}>
         <NowHero now={shell.data} answer={answer} irrigation={irrigation} day={day} daily={daily} onRetry={retryNow} />
       </PanelErrorBoundary>
+      <ReservoirReadings />
       <QuickActions stop={stopControl} irrigation={irrigation} mode={shell.data?.mode.code ?? null} />
     </div>
     <div className="now-pair">

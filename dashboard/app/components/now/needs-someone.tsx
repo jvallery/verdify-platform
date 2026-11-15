@@ -4,8 +4,8 @@
  * first, in one list card.
  * - The top three alerts nobody has acknowledged (API-14 rows with `status` open), in API-14's order (by severity then
  *   age), each an `AlertRow` with "Details ›" into Activity and, for operators, Acknowledge with an optional note in an
- *   "Add a note" disclosure. Acknowledge sends one API-15 request with one `Idempotency-Key`; the row then reads
- *   "Acknowledged by Jason · 06:47" (the signed-in person by name) and stays in place for this visit so that answer can be read.
+ *   "Add a note" disclosure. Acknowledge sends one API-15 request with one `Idempotency-Key`; the row is
+ *   removed from this action list once the server confirms it; Activity retains the acknowledgement.
  * - A mister's watchdog back-off or latch (API-IRR-01 `lines[].fault`), with Clear fault on a latch. A latch whose
  *   `irrigation_line_faulted` alert is in the list carries its Clear fault on that alert's row instead, so it reads once.
  * - "N settings not confirmed ›" (API-02 `writer.differing`), into Settings' Not confirmed filter, unless the stuck
@@ -45,13 +45,13 @@ const rank = (severity: string) => SEVERITY_RANK[severity] ?? 3;
 const validTime = (value: string | null | undefined): value is string => typeof value === "string" && Number.isFinite(Date.parse(value));
 
 /**
- * The rows Now shows: the unacknowledged ones (`status` open), plus any acknowledged on this page (`keep`) while still
- * open, at most three. API-14 lists them by severity, then age (`verdify_services.alerts`: last seen, newest first); Now
+ * The rows Now shows: unacknowledged alerts (`status` open), excluding successful acknowledgements still present
+ * in a stale read, at most three. API-14 lists them by severity, then age (`verdify_services.alerts`: last seen, newest first); Now
  * keeps that order, so its top three are the first unacknowledged rows Activity lists, and only guards the severity
  * order. The read also holds the alerts resolved in the last 24 h, which never show here.
  */
-export function topAlerts(items: readonly Alert[], keep: ReadonlySet<number> = new Set()): Alert[] {
-  return items.filter((alert) => alert.status === "open" || (keep.has(alert.id) && !isClosed(alert)))
+export function topAlerts(items: readonly Alert[], dismissed: ReadonlySet<number> = new Set()): Alert[] {
+  return items.filter((alert) => alert.status === "open" && !dismissed.has(alert.id))
     .map((alert, index) => ({ alert, index }))
     .sort((a, b) => rank(a.alert.severity) - rank(b.alert.severity) || a.index - b.index)
     .slice(0, TOP_ALERTS)
@@ -108,9 +108,9 @@ export type NeedsSomeoneProps = {
 
 export function NeedsSomeone({ alerts, now, answer, apiFailed, openCount, irrigation }: NeedsSomeoneProps) {
   const me = useMe();
-  // Alerts acknowledged on this page stay in place, so their row can say who acknowledged them and when.
+  // Remove only after API-15 confirms success, including while an older poll is still in flight.
   const [acknowledged, setAcknowledged] = useState<ReadonlySet<number>>(() => new Set());
-  const keep = useCallback((alert: Alert) => setAcknowledged((ids) => new Set(ids).add(alert.id)), []);
+  const dismiss = useCallback((alert: Alert) => setAcknowledged((ids) => new Set(ids).add(alert.id)), []);
   const freshness = apiFailed || !now ? null : now.freshness;
   const items = alerts.data ? topAlerts(alerts.data.items, acknowledged) : [];
   const status = irrigation.failed ? null : irrigation.data;
@@ -137,7 +137,7 @@ export function NeedsSomeone({ alerts, now, answer, apiFailed, openCount, irriga
         const named = alert.acknowledged_by ? { ...alert, acknowledged_by: personName(alert.acknowledged_by, me) } : alert;
         return <AlertRow key={alert.id} alert={named} openTo={`/activity?alert=${alert.id}`}
           action={latch && status ? <ClearFaultButton line={latch} engine={status.engine} /> : undefined}
-          acknowledge={alert.status === "open" ? <Acknowledge alert={alert} onAcknowledged={keep} /> : undefined}>
+          acknowledge={alert.status === "open" ? <Acknowledge alert={alert} onAcknowledged={dismiss} /> : undefined}>
           {/* Quick actions are an operator's: a viewer is never pointed at a control that is not there. */}
           {breach && <OperatorOnly><p className="meta now-breach-note">Stop all water is in the quick actions above.</p></OperatorOnly>}
         </AlertRow>;

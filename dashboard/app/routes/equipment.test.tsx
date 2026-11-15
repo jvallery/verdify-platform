@@ -191,13 +191,13 @@ test("with the controller not reporting, every state reads unknown with the age 
   expect(rows).toHaveLength(18);
   expect(rows.every((row) => row.getAttribute("data-state") === "unknown")).toBe(true);
   expect(document.querySelectorAll('.equipment-board [data-badge="off"], .equipment-board [data-badge="on"]')).toHaveLength(0);
-  expect(read("fan1")).toEqual({ name: "Fan 1", state: "Unknown · last report 6 d ago", facts: "since — · on today — · cycles —" });
+  expect(read("fan1")).toEqual({ name: "Fan 1", state: "No current report · last report 6 d ago", facts: "since — · on today — · cycles —" });
   expect(rowOf("fan1")!.querySelector(".ctl-state")!.classList.contains("is-unknown")).toBe(true);
-  expect(read("fan2").state).toBe("Unknown · last report 2 h ago");
-  expect(read("vent").state).toBe("Unknown · last report 2 h ago");
-  expect(read("drip_wall").state).toMatch(/^Unknown · last report \d+ d ago$/);
+  expect(read("fan2").state).toBe("No current report · last report 2 h ago");
+  expect(read("vent").state).toBe("No current report · last report 2 h ago");
+  expect(read("drip_wall").state).toMatch(/^No current report · last report \d+ d ago$/);
   // The controller's intent reads unknown too, and with both unknown nothing is marked as differing.
-  expect(read("grow_light_main")).toEqual({ name: "Main", state: "Unknown (controller) · Lutron Unknown · 12 min ago", facts: "since — · on today — · cycles —" });
+  expect(read("grow_light_main")).toEqual({ name: "Main", state: "Unknown (controller) · Lutron No current report · 12 min ago", facts: "since — · on today — · cycles —" });
   expect(document.querySelector("[data-differ]")).toBeNull();
 });
 
@@ -223,8 +223,8 @@ test("grow-lights-differ (intent ON, Lutron OFF) reads differ, as an amber marke
 
 test("with Home Assistant down both Lutron states read unknown with their age, never off; the intent keeps its value and no differ shows", async () => {
   await load({ fixture: ["grow-lights-differ", "ha-down"] });
-  expect(read("grow_light_main")).toEqual({ name: "Main", state: "Off (controller) · Lutron Unknown · 11 min ago", facts: "since — · on today — · cycles —" });
-  expect(read("grow_light_grow").state).toBe("On (controller) · Lutron Unknown · 11 min ago");
+  expect(read("grow_light_main")).toEqual({ name: "Main", state: "Off (controller) · Lutron No current report · 11 min ago", facts: "since — · on today — · cycles —" });
+  expect(read("grow_light_grow").state).toBe("On (controller) · Lutron No current report · 11 min ago");
   expect(document.querySelector("[data-differ]")).toBeNull();
   expect(rowOf("grow_light_main")!.querySelector('[data-badge="off"]')).toBeTruthy();
   // The relays still report.
@@ -453,7 +453,7 @@ test("the flags: occupancy from API-IRR-01, the leak flag and the site flow from
     leakFlag({ active: false, alert_id: 7, stopped_at: null }), leakFlag({ active: false, alert_id: null, stopped_at: null })]
     .map((flag, index) => <li key={index} data-state={flag.state} data-tone={flag.tone}>{flag.text}</li>)}</ul>);
   expect([...container.querySelectorAll("li[data-state]")].map((item) => [item.getAttribute("data-state"), item.getAttribute("data-tone"), text(item)])).toEqual([
-    ["on", null, "Someone inside · seen 4 min ago"], ["unknown", null, "Unknown · mist hold off"], ["on", "fault", "Water flowing with every valve closed · since 10:32"],
+    ["on", null, "Someone inside · seen 4 min ago"], ["unknown", null, "Occupancy report unavailable · mist hold off"], ["on", "fault", "Water flowing with every valve closed · since 10:32"],
     ["unknown", null, "Unknown"], ["on", null, "Flowing · 1 gal/min"], ["unknown", null, "Unknown"],
     ["on", "fault", "Water flowing with every valve closed"], ["off", null, "None"],
   ]);

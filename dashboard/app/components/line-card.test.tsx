@@ -68,7 +68,7 @@ test("a running line: the cause's dot, Running with its cause, schedule and time
 
 test("unknown keeps its Stop (the relay may be on); a disabled line keeps Run… (#1343) and ⋯ with no Stop; L05 reads Reserved · disabled", () => {
   const unknown = row(lineOf(status("controller-not-reporting"), "L01"));
-  expect(unknown.state).toBe("Unknown · 3 days ago");
+  expect(unknown.state).toBe("No current valve report · 3 days ago");
   expect(unknown.article.querySelector(".btn-stop")).not.toBeNull();
   cleanup();
   const disabled = row(lineOf(status(), "L02"));

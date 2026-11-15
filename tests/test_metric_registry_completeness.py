@@ -111,6 +111,8 @@ def test_exclusions_are_exactly_the_written_reasons():
         "dli_par_today",
         "outdoor_ppfd",
         "hydro_tds_ppt",
+        "hydro_tds_ppm",
+        "hydro_orp_mv",
         "wind_speed_avg_mph",
         "wind_direction_avg_deg",
         "feels_like_f",
@@ -120,6 +122,6 @@ def test_exclusions_are_exactly_the_written_reasons():
         "precip_intensity_in_h",
     }
     assert "migration 027" in series.EXCLUDED_COLUMNS["outdoor_ppfd"]
-    assert "migration 017" in series.EXCLUDED_COLUMNS["hydro_tds_ppt"]
+    assert "Historical column" in series.EXCLUDED_COLUMNS["hydro_tds_ppt"]
     assert "#1184" in series.EXCLUDED_COLUMNS["ppfd"]
     assert "_TEMPEST_MAP" in series.EXCLUDED_COLUMNS["feels_like_f"]

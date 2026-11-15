@@ -206,6 +206,7 @@ const now = z.object({
   writer: z.object({ last_at: maybe(text), age_s: int.nullable(), stuck: flag, differing: int, oldest_since: maybe(text) }),
   controller: controller.optional(),
   snapshot: snapshot.nullable().optional(),
+  hydroponics: z.object({ ph: reading, ec_us_cm: reading, water_temp_f: reading, stale_after_s: int.positive() }).nullable().optional(),
 });
 
 const metricDef = z.object({

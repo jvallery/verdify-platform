@@ -175,7 +175,7 @@ function RuleRow({ schedule, group, solar, program, now, operator, editTo, copyT
   // One pill (redesign §4.4): NOT CONFIRMED, REQUESTED, then MANUAL, then CONFIRMED while it is news.
   const pill = sync === "requested" || sync === "not_confirmed" ? <ReadbackBadge state={sync} />
     : schedule.manual ? <Badge kind="manual" /> : fresh ? <Badge kind="confirmed" /> : null;
-  const facts = [daysWords(schedule.days), startWords(schedule.start, solar), amountWords(schedule, group.kind, group.partner)];
+
   const meta = [
     schedule.manual ? (sync === "requested" || sync === "not_confirmed" ? "manual" : null) : "Iris may adjust",
     schedule.degraded_only ? DEGRADED_WORDS : null,
@@ -183,7 +183,7 @@ function RuleRow({ schedule, group, solar, program, now, operator, editTo, copyT
   ].filter(Boolean);
   return <ObjectRow as="li" headingLevel={4} className={cls("sch-rule", !enabled && "is-muted")} data={{ "data-slot": String(schedule.slot_id), "data-sync": sync }}
     title={name} tag={fert ? <Badge kind="fert" /> : undefined} pill={pill}
-    state={facts.join(" · ")}
+    visual={<dl className="schedule-rule-facts"><div><dt>Repeat</dt><dd>{daysWords(schedule.days)}</dd></div><div><dt>Start</dt><dd>{startWords(schedule.start, solar)}</dd></div><div><dt>Watering</dt><dd>{amountWords(schedule, group.kind, group.partner)}</dd></div><div><dt>Condition</dt><dd>{schedule.degraded_only ? "Only if VPD sensing fails" : "Routine watering"}</dd></div></dl>}
     meta={<>{meta.length > 0 && <>{meta.join(" · ")} · </>}<ChangedBy schedule={schedule} />{syncWords && <> · <span className={cls(sync === "not_confirmed" && "fault")}>{syncWords}</span></>}{fresh && schedule.manual && <> · confirmed</>}</>}
     primary={operator ? <>
       <RuleSwitch schedule={schedule} />

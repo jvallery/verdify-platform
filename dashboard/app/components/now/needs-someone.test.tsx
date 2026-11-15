@@ -45,7 +45,7 @@ test("alerts-merged: the unacknowledged rows, warning before info, Details links
   expect(text(panel())).not.toContain("fog_rh_ceiling_pct");
 });
 
-test("Acknowledge sends one API-15 request with one key, then the row reads Acknowledged by jason · 10:42 and the count drops", async () => {
+test("Acknowledge sends one API-15 request with one key, then the row disappears and the count drops", async () => {
   const api = startFixtureApi({ fixture: "alerts-merged" });
   renderWithApi(<Harness />);
   await advance(0);
@@ -54,8 +54,9 @@ test("Acknowledge sends one API-15 request with one key, then the row reads Ackn
   const sent = writes(api);
   expect(sent).toEqual([expect.objectContaining({ method: "POST", operationId: "API-15", path: "/api/v1/alerts/101/ack", body: null })]);
   expect(sent[0].idempotency_key).toMatch(UUID);
-  expect(text(rows()[0])).toContain("Acknowledged by jason · 10:42");
-  expect(within(rows()[0]).queryByRole("button", { name: /^Acknowledge/ })).toBeNull();
+  expect(rows()).toHaveLength(1);
+  expect(text(panel())).not.toContain("Acknowledged by jason");
+  expect(within(rows()[0]).getByRole("button", { name: /^Acknowledge/ })).toBeTruthy();
   await advance(0);
   // One open now, and the answer still counts it ("1 thing needs someone").
   expect(title()).toBe("Needs someone");
@@ -194,7 +195,7 @@ test("with API-02 failing an empty list cannot vouch for itself", async () => {
   expect(text(panel().querySelector(".panel-empty p"))).toBe("In-app alerts may be missing: can't reach the greenhouse data");
 });
 
-test("the top three: critical, warning, info, each in API-14's order; acknowledged rows only when kept from this page; resolved ones never", () => {
+test("the top three: critical, warning, info, each in API-14's order; acknowledged and successfully dismissed rows never return", () => {
   const alert = (id: number, severity: string, firstSeen: string, status = "open"): Alert => ({
     id, alert_type: "relay_stuck", category: "system", severity, message: "", zone: null, metric_value: null, threshold_value: null, status,
     first_seen_at: firstSeen, last_seen_at: null, count: 1, acknowledged_at: null, acknowledged_by: null, notes: null, resolved_at: null, resolved_by: null,
@@ -206,7 +207,8 @@ test("the top three: critical, warning, info, each in API-14's order; acknowledg
   ];
   // Within a severity the API's order stands (it sorts by last seen, newest first), never Now's own idea of age.
   expect(topAlerts(items).map((item) => item.id)).toEqual([3, 2, 4]);
-  expect(topAlerts(items, new Set([5])).map((item) => item.id)).toEqual([3, 5, 2]);
+  expect(topAlerts(items, new Set([5])).map((item) => item.id)).toEqual([3, 2, 4]);
+  expect(topAlerts(items, new Set([3])).map((item) => item.id)).toEqual([2, 4, 1]);
   // The read holds what was resolved in the last 24 h: none shows, not even one acknowledged here and resolved since.
   const resolved = [...items, alert(6, "critical", "2026-11-02T08:00:00Z", "resolved")];
   expect(topAlerts(resolved, new Set([6])).map((item) => item.id)).toEqual([3, 2, 4]);

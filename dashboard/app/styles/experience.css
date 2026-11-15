@@ -114,7 +114,7 @@ a.schedule-overview-card:hover{border-color:var(--forest);box-shadow:var(--shado
 .hydro-workspace .crop-grid-label{font-size:var(--fs-sm);font-weight:700}
 @media(max-width:860px){.crop-selection-return{bottom:calc(var(--bar-h) + env(safe-area-inset-bottom) + .75rem);right:1rem}}
 
-.hydro-readings{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.75rem;margin:1.5rem 0}
+.hydro-readings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin:1.5rem 0}
 .hydro-readings>div{padding:1.1rem;background:#fff;border:1px solid var(--line);border-radius:.85rem;min-width:0}
 .hydro-readings dt{font-size:var(--fs-sm);color:var(--muted);text-transform:capitalize}
 .hydro-readings dd{margin:.4rem 0;font-size:1.65rem;font-weight:650;letter-spacing:-.04em;font-variant-numeric:tabular-nums}

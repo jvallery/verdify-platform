@@ -204,6 +204,13 @@ class Indoor(_Model):
     vpd_kpa: Reading
 
 
+class Hydroponics(_Model):
+    ph: Reading
+    ec_us_cm: Reading
+    water_temp_f: Reading
+    stale_after_s: int = 600
+
+
 class Outdoor(_Model):
     temp_f: Reading
     rh_pct: Reading
@@ -302,6 +309,7 @@ class Now(_Model):
     # #1346: the greenhouse snapshot, the newest written one with its freshness; None when there is none or it is
     # older than 2 h (verdify_services.brief).
     snapshot: brief.Snapshot | None = None
+    hydroponics: Hydroponics | None = None
 
 
 TriggerOutcome = Literal[
@@ -833,6 +841,22 @@ SELECT c.ts, c.temp_avg, c.rh_avg, c.vpd_avg,
   LEFT JOIN LATERAL (SELECT flow_gpm FROM climate
                       WHERE ts > now() - interval '10 minutes' AND flow_gpm IS NOT NULL
                       ORDER BY ts DESC LIMIT 1) AS f ON true
+"""
+
+# Each reservoir channel retains its own sample timestamp. The climate row written
+# most recently is usually an ESP32 row and must not erase the slower probe sample.
+_HYDRO_SQL = """
+SELECT 'ph' AS channel, ts, hydro_ph AS value FROM
+  (SELECT ts, hydro_ph FROM climate WHERE ts > now() - interval '24 hours'
+   AND hydro_ph IS NOT NULL ORDER BY ts DESC LIMIT 1) p
+UNION ALL
+SELECT 'ec_us_cm', ts, hydro_ec_us_cm FROM
+  (SELECT ts, hydro_ec_us_cm FROM climate WHERE ts > now() - interval '24 hours'
+   AND hydro_ec_us_cm IS NOT NULL ORDER BY ts DESC LIMIT 1) e
+UNION ALL
+SELECT 'water_temp_f', ts, hydro_water_temp_f FROM
+  (SELECT ts, hydro_water_temp_f FROM climate WHERE ts > now() - interval '24 hours'
+   AND hydro_water_temp_f IS NOT NULL ORDER BY ts DESC LIMIT 1) t
 """
 
 _DIAGNOSTICS_SQL = """
@@ -1545,6 +1569,7 @@ async def now(conn: asyncpg.Connection) -> Now:
         at: datetime = clock["at"]
         rep = reporting_from(clock["heartbeat_at"], clock["climate_at"], at)
         climate = await conn.fetchrow(_CLIMATE_SQL)
+        hydro_rows = {row["channel"]: row for row in await conn.fetch(_HYDRO_SQL)}
         diagnostics = await conn.fetchrow(_DIAGNOSTICS_SQL)
         band_rows = await conn.fetch(
             _BAND_SQL, list(HOUSE_BAND_ROLES), [f"band_house_{role}" for role in HOUSE_BAND_ROLES]
@@ -1642,6 +1667,15 @@ async def now(conn: asyncpg.Connection) -> Now:
 
     return Now(
         server_time=at,
+        hydroponics=Hydroponics(
+            **{
+                key: _reading(
+                    row["value"] if row else None, row["ts"] if row else None, "No reservoir sample in the last 24 h"
+                )
+                for key in ("ph", "ec_us_cm", "water_temp_f")
+                for row in (hydro_rows.get(key),)
+            }
+        ),
         indoor=indoor,
         outdoor=outdoor,
         band=band,

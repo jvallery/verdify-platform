@@ -797,18 +797,9 @@ _SHELLY_ENTITIES = {
 #    weather comes from the ESP32 Tempest UDP listener (entity_map.CLIMATE_MAP).
 # ═════════════════════════════════════════════════════════════════
 _HYDRO_MAP = {
-    # Stays until a direct reader with no Home Assistant replaces it (#1183,
-    # decisions Round 2 item 5).
-    # Read from HA template sensors that apply empirical scaling corrections
-    # for the YINMIK meter's non-standard Tuya DP encoding (pH × 400, TDS × ½,
-    # EC × 0.565). Corrections are defined in HA's
-    # /config/packages/greenhouse/hydroponic_calibration.yaml — see the
-    # haos agent if values drift or scaling needs adjustment. Temp + ORP +
-    # battery DPs are unaffected and still read raw.
+    # Historical HA mapping; the direct reader owns current reservoir telemetry.
     "sensor.greenhouse_hydroponic_ec_corrected": ("hydro_ec_us_cm", None),
-    "sensor.greenhouse_hydroponic_orp": ("hydro_orp_mv", None),
     "sensor.greenhouse_hydroponic_ph_corrected": ("hydro_ph", None),
-    "sensor.greenhouse_hydroponic_tds_corrected": ("hydro_tds_ppm", None),
     "sensor.greenhouse_hydroponic_water_temp": ("hydro_water_temp_f", lambda v: v * 9.0 / 5.0 + 32.0),
     "sensor.greenhouse_hydroponic_yinmik_battery": ("hydro_battery_pct", None),
 }
