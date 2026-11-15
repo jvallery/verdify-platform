@@ -133,11 +133,13 @@ export default function Settings() {
     key: item.key, label: item.label, definition: item.definition, count: pool ? pool.filter((row) => item.test(row, now)).length : null, current: item.key === filter.key,
     to: withParams(pathname, params, { filter: item.key === "all" ? null : item.key, edit: null, hist: null }),
   }));
+  // This URL controls the input itself: commit each keystroke before React restores
+  // the controlled value, rather than letting a navigation transition drop it.
   const search = (text: string) => setParams((current) => {
     const next = new URLSearchParams(current);
     if (text) next.set("q", text); else next.delete("q");
     return next;
-  }, { replace: true, preventScrollReset: true });
+  }, { replace: true, preventScrollReset: true, flushSync: true });
   const link = (changes: Record<string, string | null>) => withParams(pathname, params, { ...changes, edit: null, hist: null });
   // An empty list is one line and one action that widens it (redesign §3.6).
   const empty = searched

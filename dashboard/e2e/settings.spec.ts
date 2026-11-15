@@ -11,6 +11,33 @@ const pill = (page: Page, param: string) => row(page, param).locator(".ctl-row-p
 const drawer = (page: Page) => page.locator("dialog[open]");
 const ENGAGE = "/settings?q=mister_engage_kpa&edit=mister_engage_kpa";
 
+test("search retains consecutive keystrokes, edits and URL state across navigation", async ({ page, request }) => {
+  await useScreensClock(page, request, "in-band");
+  await load(page, "/settings");
+  const search = page.getByRole("searchbox", { name: "Search settings", exact: true });
+  // fill() delivers one input event and missed the real-browser character loss.
+  await search.pressSequentially("daylight darker");
+  await expect(search).toHaveValue("daylight darker");
+  await expect(page).toHaveURL(/q=daylight\+darker$/);
+  await expect(row(page, "gl_main_lux_threshold")).toBeVisible();
+  await search.press("Backspace");
+  await search.pressSequentially("r");
+  await expect(search).toHaveValue("daylight darker");
+  await page.getByRole("link", { name: /^Read-only / }).click();
+  await expect(page).toHaveURL(/filter=read_only/);
+  await expect(search).toHaveValue("daylight darker");
+  await page.goBack();
+  await expect(page).toHaveURL(/q=daylight\+darker$/);
+  await expect(search).toHaveValue("daylight darker");
+  await page.reload();
+  await expect(search).toHaveValue("daylight darker");
+  await search.press("ControlOrMeta+A");
+  await search.press("Backspace");
+  await expect(search).toHaveValue("");
+  await expect(page).toHaveURL(/\/settings$/);
+  expect(await fixtureWrites(request)).toEqual([]);
+});
+
 test("one row per registry row; read-only rows show why and have no Edit; the band in force is DERIVED with its age", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
   await load(page, "/settings");
