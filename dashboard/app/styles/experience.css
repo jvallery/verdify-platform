@@ -44,3 +44,15 @@
  .hydro-capacity{border-left:0;border-top:1px solid var(--line);padding:1rem 0 0}
  .hydro-capacity strong{font-size:2rem}
 }
+
+.page-description{grid-column:1;max-width:65ch;margin:.5rem 0;color:var(--muted);font-size:var(--fs-md)}
+.settings-tasks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin:0 0 2rem}
+.settings-tasks>a{display:flex;flex-direction:column;gap:.55rem;min-height:9rem;padding:1.2rem;border:1px solid var(--line);border-radius:1rem;background:#fff;color:var(--ink);text-decoration:none}
+.settings-tasks>a:hover{border-color:var(--forest);box-shadow:var(--shadow-sm)}
+.settings-tasks strong{font-size:1.05rem;line-height:1.3}
+.settings-tasks span:last-child{color:var(--muted);font-size:var(--fs-sm)}
+.page-tabs{border-bottom:1px solid var(--line);padding-bottom:.75rem;margin-bottom:1.5rem}
+.page-tabs .chip{border-radius:.5rem}
+.ctl-settings-main{min-width:0}
+@media(max-width:1099px){.settings-tasks{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.settings-tasks{gap:.6rem}.settings-tasks>a{padding:.85rem;min-height:10rem}}
