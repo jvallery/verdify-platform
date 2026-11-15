@@ -26,10 +26,6 @@ from test_public_band_lineage import baseline as band_baseline
 from test_scorecard_semantics import _baseline_sql as scorecard_baseline
 from test_scorecard_semantics import isolated_pg as isolated_pg
 
-from ingestor.climate_minute_metrics import refresh_observed_minute_metrics
-from verdify_schemas.mcp_responses import ScorecardResponse
-from verdify_schemas.observed_minute_reader import read_observed_minute_evidence
-
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = tuple(sorted((ROOT / "db/migrations").glob("24[1-6]-*.sql")))
 LEGACY_RUNNER = ROOT / "tests/fixtures/c0-legacy-apply-migrations.sh"
@@ -333,11 +329,9 @@ def test_combined_runner_plan_apply_roles_consumers_and_noop(rehearsal):
             ssl=False,
         )
         try:
+            # The observed-minute writer/reader and the graded scorecard consumers this bundle served were
+            # retired with the crop-band grading (migration 309, #1623); the SQL half still replays here.
             await conn.execute("SET ROLE verdify_api_runtime")
-            assert (await read_observed_minute_evidence(conn, DAY)).unavailable_reason == "not_computed"
-            card = ScorecardResponse.from_metric_rows(await conn.fetch("SELECT * FROM fn_planner_scorecard($1)", DAY))
-            assert card.climate_evidence()["both_axis_compliance_pct"] == 6.1
-            assert card.climate_evidence()["graded_compliance_attributable_pct"] == 85.8
             band = await conn.fetch("""SELECT * FROM fn_public_band_trace_v2(
                 '2026-09-04T21:00Z', '2026-09-04T21:04Z', 'vallery')""")
             assert len(band) == 4
@@ -349,25 +343,6 @@ def test_combined_runner_plan_apply_roles_consumers_and_noop(rehearsal):
             forecast = await conn.fetchrow("SELECT * FROM v_forecast_accuracy_lead_buckets WHERE param='vpd_kpa'")
             assert forecast["samples"] == 1 and forecast["bias"] == 0
             assert await conn.fetchval("SELECT samples FROM fn_forecast_correction('temp_f',3)") == 1
-            # The actual writer's nested transaction must also support an
-            # outer reconciliation dry run without leaving metric/capture rows.
-            rollback = conn.transaction(isolation="repeatable_read")
-            await rollback.start()
-            try:
-                await refresh_observed_minute_metrics(conn, DAY)
-                assert await conn.fetchval("SELECT count(*) FROM daily_climate_metric_revisions") == 6
-            finally:
-                await rollback.rollback()
-            assert await conn.fetchval("SELECT count(*) FROM daily_climate_metric_revisions") == 4
-            assert (
-                await conn.fetchval("SELECT climate_observed_minute_metrics FROM daily_summary WHERE date=$1", DAY)
-                is None
-            )
-            diagnostic = await refresh_observed_minute_metrics(conn, DAY)
-            assert diagnostic["expected_minutes"] == 1440
-            assert diagnostic["axes"]["temp"]["eligible_minutes"] == 2
-            assert diagnostic["axes"]["vpd"]["eligible_minutes"] == 2
-            assert diagnostic["joint"]["eligible_minutes"] == 1
             for role in ("verdify_ingestor_runtime", "verdify_api_runtime"):
                 await conn.execute(f"RESET ROLE; SET ROLE {role}")
                 for sql in (
@@ -377,21 +352,6 @@ def test_combined_runner_plan_apply_roles_consumers_and_noop(rehearsal):
                 ):
                     with pytest.raises(asyncpg.InsufficientPrivilegeError):
                         await conn.execute(sql)
-            evidence = await read_observed_minute_evidence(conn, DAY)
-            assert evidence.availability == "available"
-            assert evidence.capture_schema == "daily-summary-capture-v2"
-            assert evidence.diagnostic.axes.temp.in_band_pct == 50
-            assert evidence.diagnostic.axes.vpd.in_band_pct == 50
-            assert evidence.diagnostic.joint.in_band_pct == 100
-            assert not evidence.diagnostic.experiment_endpoint_eligible
-            assert not evidence.diagnostic.physical_proof_eligible
-            assert not evidence.diagnostic.crop_outcome_eligible
-            assert evidence.diagnostic.worst_measured_zone is None
-            card.observed_minute_evidence = evidence
-            assert card.climate_evidence()["both_axis_compliance_pct"] == 6.1
-            assert (
-                card.climate_evidence()["observed_minute_evidence"]["diagnostic"]["axes"]["temp"]["in_band_pct"] == 50
-            )
         finally:
             await conn.close()
 

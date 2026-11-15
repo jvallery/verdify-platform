@@ -111,14 +111,16 @@ def test_parallel_packet_equals_the_serial_packet_and_runs_queries_concurrently(
 
 def test_a_failing_unguarded_section_fails_the_gather_after_the_output_before_it(tmp_path):
     # Section 6 has no `|| echo` fallback, so under `set -e` its failure ends the gather in both modes.
-    fail = {"FAKE_PSQL_FAIL_ON": "fn_compliance_pct('24 hours'"}
+    fail = {"FAKE_PSQL_FAIL_ON": "stress_hours_heat, stress_hours_cold, stress_hours_vpd_high"}
     serial, _ = run_gather(tmp_path / "serial", 1, **fail)
     parallel, _ = run_gather(tmp_path / "parallel", 4, **fail)
     assert serial.returncode != 0
     assert parallel.returncode == serial.returncode
     assert packet(parallel.stdout) == packet(serial.stdout)
-    assert parallel.stdout.rstrip().endswith("zone|in_band_pct|above_pct|below_pct|na_pct")
-    assert "section '6. COMPLIANCE (24h by zone)' failed" in parallel.stderr
+    assert parallel.stdout.rstrip().endswith(
+        "date|both_pct|temp_pct|vpd_pct|temp_above_h|temp_below_h|vpd_above_h|vpd_below_h"
+    )
+    assert "section '6. SERVED-BAND COMPLIANCE (today and yesterday)' failed" in parallel.stderr
 
 
 def test_a_guarded_query_failure_keeps_its_fallback_text(tmp_path):

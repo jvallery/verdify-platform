@@ -401,8 +401,6 @@ DAILY_ACCUM_MAP: dict[str, str] = {
     "cycles___heat_2__today_": "cycles_heat2",
     "cycles___fog_fan__today_": "cycles_fog",
     "cycles___vent__today_": "cycles_vent",
-    "de_hum_cycles__today_": "cycles_dehum",
-    "safety_de_hum_cycles__today_": "cycles_safety_dehum",
     "cycles___mister_south__today_": "cycles_mister_south",
     "cycles___mister_west__today_": "cycles_mister_west",
     "cycles___mister_center__today_": "cycles_mister_center",

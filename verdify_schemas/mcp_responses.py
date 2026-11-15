@@ -25,7 +25,6 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, computed_field
 
 from .fixed_panel_native_route import NativeFixedPanelRouteEvidence
 from .lessons import LessonConfidence
-from .observed_minutes import ObservedMinuteEvidence
 from .physical_crop_band import PhysicalCropBandEvidence, RouteOnlyCropBandEvidence
 from .realized_dryout import RealizedDryoutEvidence
 from .telemetry import DliEvidence
@@ -77,6 +76,11 @@ OUTCOME_COMPOSITE_METRICS: frozenset[str] = frozenset(
 )
 
 
+# fn_planner_scorecard contract emitted by migration 309 (#1623): served band only,
+# planner_score = compliance_pct, resource terms informational.
+SCORECARD_CONTRACT_VERSION = 3
+
+
 def _scorecard_value_to_float(value: Any) -> float | None:
     """Normalize asyncpg Decimal / str / None into float | None for scorecard metrics."""
     if value is None:
@@ -101,15 +105,16 @@ class ScorecardResponse(BaseModel):
     via aliases; downstream consumers (Iris prompt, daily-plan renderer,
     Grafana panels) keep reading the same shape.
 
-    Contract 2 is defined by migration 241. Earlier functions mislabeled
-    graded controller credit as binary compliance; do not infer semantics
-    from those unversioned field names.
+    Contract 3 (migration 309, #1623): every temperature/VPD field grades the
+    dynamic served house band (band_house_* audit rows, migration 290's
+    daily_band_compliance). planner_score is compliance_pct at 100% weight;
+    kWh, therms, water and cost_* are informational nominal-model estimates,
+    never a reward term. The retired crop-band graded metrics are gone.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    # Separate typed snapshot, never a scalar scorecard metric or reward term.
-    observed_minute_evidence: ObservedMinuteEvidence = Field(default_factory=ObservedMinuteEvidence)
+    # Separate typed snapshots, never a scalar scorecard metric or reward term.
     physical_crop_band_evidence: PhysicalCropBandEvidence = Field(default_factory=PhysicalCropBandEvidence)
     route_only_crop_band_evidence: RouteOnlyCropBandEvidence = Field(default_factory=RouteOnlyCropBandEvidence)
     native_fixed_panel_route_evidence: NativeFixedPanelRouteEvidence = Field(
@@ -127,16 +132,6 @@ class ScorecardResponse(BaseModel):
     temp_compliance_pct: float | None = None
     vpd_compliance_pct: float | None = None
 
-    # ── Graded + feasibility-aware compliance (migration 146/147, §6-§7) ──
-    # Schema-first: these are modelled BEFORE fn_planner_scorecard emits them
-    # so the extra='forbid' contract does not 500 the public /api/v1/scorecard
-    # endpoint when the DB function grows the graded metrics. All optional.
-    compliance_v2_raw_pct: float | None = None
-    compliance_v2_attributable_pct: float | None = None
-    compliance_v2_unachievable_frac: float | None = None
-    graded_temp_compliance_pct: float | None = None
-    graded_vpd_compliance_pct: float | None = None
-
     # ── ADR-0004 composite outcome score (schema-first, #388) ────────────
     # Grade on outcomes, not target-distance. Modelled BEFORE the #371 DB
     # function emits them (the migration-147-header / G8 pattern) so the
@@ -152,27 +147,23 @@ class ScorecardResponse(BaseModel):
     outcome_wet_dry_completion: float | None = None
     outcome_cost_cycling_penalty: float | None = None
 
-    # ── Stress hours (four independent categories; overlap allowed so
-    #    total_stress_h can exceed 24h)
+    # ── Stress hours below/above the served house band (four independent
+    #    categories; overlap allowed so total_stress_h can exceed 24h)
     total_stress_h: float | None = None
     heat_stress_h: float | None = None
     cold_stress_h: float | None = None
     vpd_high_stress_h: float | None = None
     vpd_low_stress_h: float | None = None
 
-    # ── Graded stress hours (deficit integral; not binary duration) ─────
-    graded_heat_stress_h: float | None = None
-    graded_cold_stress_h: float | None = None
-    graded_vpd_high_stress_h: float | None = None
-    graded_vpd_low_stress_h: float | None = None
-
-    # ── Utility usage (raw)
+    # ── Utility usage: informational nominal-model estimates, never a reward term.
+    #    water_gal is planning water (climate wetting + wall irrigation + wall
+    #    fertigation); house/hose water is reported separately, never here.
     kwh: float | None = None
     therms: float | None = None
     water_gal: float | None = None
     mister_water_gal: float | None = None
 
-    # ── Utility cost (USD)
+    # ── Utility cost (USD, informational estimates)
     cost_electric: float | None = None
     cost_gas: float | None = None
     cost_water: float | None = None
@@ -202,25 +193,24 @@ class ScorecardResponse(BaseModel):
         """Explicit limitations, also serialized for API and MCP readers."""
         return {
             "contract_version": self.scorecard_contract_version,
-            "binary_fields_verified": self.scorecard_contract_version == 2,
-            "binary_basis": "legacy_house_average_scored_reading_fraction",
-            "target_basis": "historical_desired_setpoints_not_confirmed_firmware_consumption",
-            "stress_basis": "binary_nominal_one_minute_per_scored_reading_axis_sum",
-            "graded_basis": "legacy_controller_credit_not_physical_compliance",
+            "binary_fields_verified": self.scorecard_contract_version == SCORECARD_CONTRACT_VERSION,
+            "binary_basis": "served_house_band_5m_bucket_share",
+            "target_basis": "served_house_band_audit_rows",
+            "stress_basis": "served_house_band_hours_below_above_per_axis",
+            "planner_score_basis": "compliance_pct_100pct_weight",
+            "resource_basis": "informational_nominal_model_estimates_not_a_reward_term",
+            "water_basis": "planning_water_climate_wetting_wall_irrigation_wall_fertigation_house_water_excluded",
             "coverage_status": "unverified",
-            "historical_missing_evidence_may_be_zero": True,
             "fixed_sensor_panel": False,
             "center_probe_measured": False,
-            "duration_weighted": False,
             "crop_outcome_eligible": False,
         }
 
     def climate_evidence(self) -> dict[str, Any]:
         """Public projection fails closed during a mixed-version rollout."""
-        verified = self.scorecard_contract_version == 2
+        verified = self.scorecard_contract_version == SCORECARD_CONTRACT_VERSION
         return {
             "metric_semantics": self.metric_semantics,
-            "observed_minute_evidence": self.observed_minute_evidence.model_dump(mode="json"),
             "physical_crop_band_evidence": self.physical_crop_band_evidence.model_dump(mode="json"),
             "route_only_crop_band_evidence": self.route_only_crop_band_evidence.model_dump(mode="json"),
             "native_fixed_panel_route_evidence": self.native_fixed_panel_route_evidence.model_dump(mode="json"),
@@ -234,10 +224,6 @@ class ScorecardResponse(BaseModel):
                 "vpd_high_h": self.vpd_high_stress_h if verified else None,
                 "vpd_low_h": self.vpd_low_stress_h if verified else None,
             },
-            "graded_compliance_attributable_pct": self.compliance_v2_attributable_pct,
-            "graded_compliance_raw_pct": self.compliance_v2_raw_pct,
-            "graded_temp_compliance_pct": self.graded_temp_compliance_pct,
-            "graded_vpd_compliance_pct": self.graded_vpd_compliance_pct,
         }
 
     @classmethod
@@ -263,7 +249,6 @@ class ScorecardResponse(BaseModel):
         names: set[str] = set()
         for field_name, field in cls.model_fields.items():
             if field_name in {
-                "observed_minute_evidence",
                 "physical_crop_band_evidence",
                 "route_only_crop_band_evidence",
                 "native_fixed_panel_route_evidence",

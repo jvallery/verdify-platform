@@ -13,7 +13,7 @@
       "id": 2,
       "type": "stat",
       "title": "Planner Score Today",
-      "description": "Historical graded controller credit; not binary physical compliance. Resource cost contributes 20% only when resource_terms_available=1; otherwise it is excluded.",
+      "description": "Served-band compliance: the share of today's 5-minute buckets inside the house band the controller served, on both temperature and VPD, at 100% weight. Cost, kWh and therms are informational nominal estimates and never part of the score.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
@@ -140,8 +140,8 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Binary Reading Fraction Today",
-      "description": "",
+      "title": "Served-Band Compliance Today",
+      "description": "Share of today's 5-minute buckets inside the served house band on both temperature and VPD.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
@@ -204,8 +204,8 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Nominal Binary Stress Hours Today",
-      "description": "",
+      "title": "Served-Band Stress Hours Today",
+      "description": "Hours today below or above the served house band, summed over the four temperature and VPD categories (overlap allowed).",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
@@ -272,7 +272,7 @@
       "id": 6,
       "type": "stat",
       "title": "Cost Today",
-      "description": "",
+      "description": "Informational nominal-model estimate; never part of the planner score.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
@@ -336,7 +336,7 @@
       "id": 7,
       "type": "stat",
       "title": "Water Today",
-      "description": "",
+      "description": "Planning water: climate wetting + wall irrigation + wall fertigation. House and hose water (manual or unattributed meter gallons) is excluded and reported separately on the Water dashboard.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
@@ -2843,7 +2843,7 @@
       "id": 15,
       "type": "timeseries",
       "title": "Cost vs Stress Tradeoff",
-      "description": "Descriptive cost versus nominal binary stress counts only; not causal efficiency evidence. Resource costs are gated for eligibility and missing values must not be interpreted as zero.",
+      "description": "Descriptive cost versus nominal binary stress counts only; not causal efficiency evidence. Costs are informational nominal-model estimates, never part of the planner score; missing values must not be interpreted as zero.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
@@ -2996,7 +2996,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "Water and Mist Response (est)",
-      "description": "Connects water use to active misting behavior. Runtime is scaled x10 for comparison.",
+      "description": "Connects planning water (climate wetting + wall irrigation + wall fertigation; house and hose water excluded) to active misting behavior. Runtime is scaled x10 for comparison.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
@@ -3149,7 +3149,7 @@
       "id": 17,
       "type": "table",
       "title": "Latest Planner Scorecard",
-      "description": "Versioned scorecard values. Contract 2 separates binary reading fractions from graded controller credit. Partial days and missing evidence remain unavailable; inspect metric_semantics in the scorecard API.",
+      "description": "Versioned scorecard values (contract 3). planner_score equals served-band compliance_pct at 100% weight; resource terms are never part of it, and cost, kWh, therms and water are informational nominal estimates (water = planning water, house and hose water excluded). Partial days and missing evidence remain unavailable; inspect metric_semantics in the scorecard API.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"

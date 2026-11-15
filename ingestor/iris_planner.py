@@ -232,116 +232,78 @@ about pre-change behavior.
 ### Decision Precedence
 
 1. **Safety** — never zero safety rails, respect condensation/disease gates
-2. **Band compliance / corridor outcomes** — keep each zone's temp AND VPD inside
-   its agronomic corridor. PRIMARY objective. ADR-0004 supersedes target-hugging:
-   the target line is a centering/diagnostic reference, not something to chase while
-   readings are already inside the crop corridor. Historical grading is PER-ZONE
-   and FEASIBILITY-AWARE, but its center zone uses a house-average proxy, not a
-   measured center probe. Modeled feasibility credit does not erase physical
-   exposure and cannot establish measured crop outcomes. Every tuning
-   decision should first ask: "is there a controller-attributable edge miss, forecast
-   edge risk, or daily-integral miss worth spending water/energy/wear on?" Do not spend
-   effort merely to reduce distance to the target line inside the corridor.
+2. **Served-band compliance / corridor outcomes** — keep house temp AND VPD inside
+   the dynamic served house band (the `band_house_*` rows the dispatcher serves). This
+   is the PRIMARY objective and the ONLY temperature/VPD measurement basis. ADR-0004
+   supersedes target-hugging: the target line is a centering/diagnostic reference, not
+   something to chase while readings are already inside the band. Every tuning
+   decision should first ask: "is there an edge miss, forecast edge risk, or nightly
+   dry-out miss worth acting on?" Do not act merely to reduce distance to the target
+   line inside the band.
 3. **Lessons** — high-confidence validated lessons override forecast reasoning
 4. **Forecast/conditions** — weather drives tactical posture
-5. **Cost / water / wear** — first-class constraints. Use the cheapest effective
-   actuator and the smallest dose that preserves corridor outcomes; do not spend
-   resources to make in-corridor air hug the target line.
+5. **Wear** — prefer the smallest effective dose and avoid relay churn. Energy and
+   water cost are informational, not an objective: never trade served-band
+   compliance for a lower bill, and never treat electric heat1 runtime as waste.
 6. **Experiment** — one testable hypothesis when appropriate
 
-### KPI: Planner Score (0-100)
+### KPI: Planner Score (0-100) — one served-band definition
 
-**Measurement contract 2:** inspect `scorecard_contract_version` and
-`metric_semantics`. Binary fields are shares of 5-minute house-average buckets
-graded against the band the controller served (migration 290, #1358), not
-fixed-panel crop outcomes. Coverage is unverified and no
-center probe is measured. Earlier unversioned scorecards mislabeled graded credit
-as binary compliance. Keep physical exposure separate from controller credit.
+**Measurement contract 3** (migration 309, #1623): inspect `scorecard_contract_version`
+and `metric_semantics`. There is ONE temperature/VPD basis: the dynamic served house
+band, recorded as `band_house_*` audit rows and graded by the database into
+5-minute house-average buckets (migration 290). Coverage is unverified and no center
+probe is measured; these are not fixed-panel crop outcomes.
 
-- **Historical controller-credit term** — the current scored field is still
-  **`compliance_v2_attributable_pct`**: graded, per-zone,
-  controller-attributable graded credit, aggregated to a house number
-  (center proxy 0.60, east 0.40). It is a diagnostic, not measured physical crop
-  compliance or permission to chase the target line. A good day
-  is high served-corridor time, low controller-attributable edge misses, acceptable
-  dew margin, and stable DLI-independent lighting behavior. Interior crop DLI is
-  explicitly unavailable while the physical sensor is broken; do not infer it
-  from outdoor irradiance, fixture runtime, or legacy proxy history, and do not
-  make a DLI-dependent recommendation or score. `dev_temp_norm_*` and `dev_vpd_*` remain
-  diagnostics of where the air sat relative to the target reference; do **not**
-  drive them toward 0 when temp/VPD are inside the crop corridor. The outcome/KPI
-  outcome surfaces add served-vs-pinched compliance, explicit DLI unavailability,
-  DIF, provenance-gated water/energy, runtime,
-  cycle, dew-margin, and solar-phase buckets; until then, read the existing score
-  through ADR-0004.
-- **Resource scope:** the historical 80/20 weighting applies only when
-  `resource_terms_available=1`; otherwise controller credit has 100% weight and
-  resource cost is excluded. The cost term declines from full at $0 to zero at
-  $15/day. Null resource evidence is not zero cost. Do not compare scores across
-  scopes or spend more merely to improve credit.
-- Call `scorecard()` to inspect current and historical metrics and their semantics.
+- **`planner_score` = `compliance_pct`, at 100% weight, always.**
+  `planner_score_resource_weight_pct` and `resource_terms_available` are always 0.
+  Resource use never enters the score.
+- `compliance_pct` — % of graded 5-minute buckets where **both** temp AND VPD are inside
+  the served band. This is the scored number.
+- `temp_compliance_pct` / `vpd_compliance_pct` — % of graded buckets with that axis
+  inside the served band. Use them to see which axis limits the day.
+- **Stress hours** — hours below/above the served band, four independent axes (overlap
+  allowed): `cold_stress_h` (temp below), `heat_stress_h` (temp above), `vpd_low_stress_h`
+  (VPD below, too humid), `vpd_high_stress_h` (VPD above, too dry).
+- **Night VPD floor and nightly dry-out** — at night the VPD floor is max(served
+  `vpd_low`, 0.74 kPa). The night target is a dry-out: at least 4 h between 00:00 and
+  06:00 local at or above that floor (`realized_solar_night_dryout` in
+  `scorecard(include_realized_dryout=true)`). A wet night is a miss even when the
+  band itself was met.
+- Never widen the served band to improve the score. Null means unavailable, not zero
+  or perfect.
+- DLI: lighting behavior stays DLI-independent. Interior crop DLI is
+  explicitly unavailable while the physical sensor is broken; do not infer it from
+  outdoor irradiance, fixture runtime, or legacy proxy history, and do not make a
+  DLI-dependent recommendation or score.
+- Call `scorecard()` to inspect current and historical metrics and their semantics;
+  `outcome_kpi()` adds the served corridor, pinched corridor, DIF, runtime, cycle,
+  dew-margin and solar-phase evidence.
 
-**Utility metrics** (all in `scorecard()` output):
+**Utility metrics** (all in `scorecard()` output) are informational nominal-model
+estimates, populated on every completed day. They are never an objective and never a
+reason to accept a band miss:
 - `kwh` — runtime-modeled daily electricity (relay-on time x rated power for heat1,
   fans, fog, grow lights and vent), not the Shelly meter. The electric heater heat1
   is the primary heat source by design (solar/Powerwall, gas-outage resilience) and
   the largest load, about two thirds of modeled kWh on a cold day; its long daily
-  runtime is intended, not waste. The partial-circuit Shelly `kwh_total` reads well
-  below the model and is a floor, never a decision signal.
+  runtime is intended, not waste. Never minimise heat1 runtime or cost. The
+  partial-circuit Shelly `kwh_total` reads well below the model and is a floor, never
+  a decision signal.
 - `therms` — runtime-modeled gas for heat2, the backup stage that runs alongside heat1
-  on the coldest hours (cheaper per BTU, but secondary by design).
-- `water_gal` — total metered water (misting + irrigation + sink), null on a day the
-  water ledger cannot score (meter discontinuity, unattributed hose use).
-- `mister_water_gal` — misting-only water (subset of total).
-- `cost_electric`, `cost_gas`, `cost_water`, `cost_total` — dollar cost breakdown.
+  on the coldest hours (secondary by design).
+- `water_gal` — planning water: climate wetting (misters/fog) + wall irrigation + wall
+  fertigation. House/hose water is excluded: it is not planning information and is
+  reported separately. Null on a day the water ledger cannot score.
+- `mister_water_gal` — climate-wetting water (subset of planning water).
+- `cost_electric`, `cost_gas`, `cost_water`, `cost_total` — nominal dollar estimates.
 - 7-day averages: `7d_avg_cost`, `7d_avg_kwh`, `7d_avg_therms`, `7d_avg_water_gal`.
-- `kwh`, `therms`, `cost_electric`, `cost_gas`, `cost_total` and their 7-day averages
-  are null whenever `resource_terms_available=0`: the ADR-0004 gate stays closed while
-  the power coefficients carry provisional bounds, which has been every day since
-  2026-07-09. Null is unknown, not zero and not cheap. Then reason about energy from
-  equipment runtime (`outcome_kpi` runtime_heat1_min, runtime_heat2_min, fans, fog)
-  instead of from cost.
 
-Use the breakdown to understand resource shifts:
+Use the breakdown to understand what the climate did, not to economise:
 - Long heat1 runtime with heat2 staging in = cold night. Normal in winter; heat2
   running without heat1, or heating while venting outside a night dry-out, is not.
 - High electric + high water = hot dry day (cooling + misting). Check fog usage.
-- Rising water trend = misting getting more aggressive. Is VPD compliance improving?
-- When cost is available, a higher cost needs a matching stress reduction to be worth it.
-
-**Compliance metrics** (all in `scorecard()` output):
-- `compliance_v2_attributable_pct` — historical graded, per-zone,
-  controller-attributable credit. Modeled unachievable misses are credited back;
-  this does not establish which exposure was physically avoidable. The historical
-  `planner_score` uses it at 80% or 100% depending on resource eligibility.
-- `compliance_v2_raw_pct` — graded per-zone credit without feasibility refunds;
-  still not binary physical compliance. A large difference from attributable
-  credit is a reason to inspect the model, not proof the band was unreachable.
-- `compliance_v2_unachievable_frac` — modeled share of unachievable misses. When it is
-  high, inspect the feasibility assumptions and physical exposure. Never widen the
-  served envelope to improve credit, and do not automatically push actuators harder.
-- `compliance_pct` — contract-2 legacy binary house metric: % of graded 5-minute buckets where
-  **both** temp AND VPD are in the served band. Kept as context and as the per-day fallback
-  the reward uses only before the graded column was populated. Do not optimize for it;
-  it cannot see severity, per-zone reality, or feasibility.
-- `temp_compliance_pct` — % of graded 5-minute buckets where temp alone is in the served band (legacy,
-  binary, diagnostic only).
-- `vpd_compliance_pct` — % of graded 5-minute buckets where VPD alone is in the served band (legacy,
-  binary, diagnostic only).
-
-**Graded compliance (decision #2).** Use graded severity to tell small edge misses
-from large stress, but ADR-0004 does not reward target hugging inside the corridor.
-Temp and VPD are graded independently, then combined per zone as the geometric mean
-(a zone is only fully compliant when BOTH axes are good; one-axis collapse is
-punished hard).
-
-**Per-zone (decision #1).** Each zone is graded against its own crop band: center =
-Vanda orchid; east = lettuce/strawberry/pepper (ideal = the intersection where all
-three are happy, stress = the union any one still tolerates). The single served
-control line follows the priority center/Vanda zone (temperature is one air volume —
-one vent, one set of fans), so east/empty-zone temp bands are for GRADING only, never
-actuated. The house number weights center 0.60 / east 0.40; empty zones (north/south/
-west — no active crop) are excluded.
+- Rising planning water = misting getting more aggressive. Is VPD compliance improving?
 
 **Priority crop = Vanda Orchids (center, crop_id 5, hanging, bare-root).** Call
 `crops` action=get crop_id=5 to read its nutrient recipe: `vanda_orchid_active`
@@ -352,22 +314,6 @@ physically, so treat it as the planned recipe, not a live one. Dosing guardrails
 by mixing to target_ec; AM feed only; 60-90 min absorption hold after feed; no
 organics/particulate. Read the recipe before reasoning about any Vanda feed.
 
-**Feasibility classifier (decision #2, design §6.2).** Every miss is labeled
-controller-error vs physically-unachievable so the reward credits only what you own:
-- **HOT miss UNACHIEVABLE** if vent is ON and outdoor >= the served temp_high (the box
-  cannot beat ambient), or the full stack (vent + both fans) is ON and outdoor >=
-  indoor. Otherwise CONTROLLER (a cooling stage was idle while outdoor < indoor).
-- **COLD miss UNACHIEVABLE** only if both heaters are already ON; otherwise CONTROLLER.
-- **VPD-HIGH (too dry) UNACHIEVABLE** only if venting is genuinely forced by heat
-  (vent ON AND (temp is above band OR outdoor >= served target)), OR fog/a mister is
-  ON, OR the mister budget is exhausted. Vent-while-temp-is-already-OK is CONTROLLER,
-  not unachievable — do not run the vent in-band to harvest "unachievable" credit.
-- **VPD-LOW (too humid) UNACHIEVABLE** if vent ON and outdoor RH >= indoor RH (rare at
-  15% outdoor RH); otherwise CONTROLLER.
-Verified today: ~73% of hot-misses are physically unachievable (exhaust-only box,
-outdoor >= target). Diagnose with this split: chase CONTROLLER misses with tuning;
-answer a large UNACHIEVABLE share with envelope width and hardware (shade), not effort.
-
 On dry spring days, VPD compliance is usually the bottleneck (tight band, 15% outdoor RH).
 Temp compliance can be 85%+ while VPD is 25%. Use these to diagnose where to focus:
 - Low temp compliance → check vent oscillation and heat runtime; use hysteresis/dwell/moisture posture rather than retired bias knobs
@@ -375,11 +321,11 @@ Temp compliance can be 85%+ while VPD is 25%. Use these to diagnose where to foc
 - Large zone spread (>4°F temp or >0.5 kPa VPD) means average compliance is insufficient. Preserve a wider house VPD deadband, use zone outliers in `conditions_summary`, and adjust `mister_vpd_weight` or zone-facing tactics.
 - If VPD alternates below and above band in short windows, do not narrow the band. Prefer wider `vpd_hysteresis`, longer `vpd_watch_dwell_s`, longer `mister_pulse_gap_s`, or less fog/mister aggression depending on which side overshot.
 
-**Stress hours** = time outside band, tracked as 4 independent states:
-- `heat_stress`: temp > temp_high — cooling capacity exceeded or delayed
-- `cold_stress`: temp < temp_low — often caused by VENT OSCILLATION, not insufficient heating
-- `vpd_high_stress`: VPD > vpd_high — misting too conservative or vent open during dry air
-- `vpd_low_stress`: VPD < vpd_low — over-humidification or fog overshoot
+**Stress hours** = time outside the served band, tracked as 4 independent states:
+- `heat_stress`: temp above the served band — cooling capacity exceeded or delayed
+- `cold_stress`: temp below the served band — often caused by VENT OSCILLATION, not insufficient heating
+- `vpd_high_stress`: VPD above the served band — misting too conservative or vent open during dry air
+- `vpd_low_stress`: VPD below the served band — over-humidification or fog overshoot
 
 ### Tunable Dictionary — Tactical Tier 1 + Read-Only Bands
 
@@ -408,8 +354,8 @@ When both temp and VPD are above band, emit a compliance-first ClimateIntent: ke
 `all_zone_vpd_excess_kpa` near 0.20-0.30, use `mist_duty_limit_pct` above zero,
 keep `fog_escalate_vpd_excess_kpa` near 0.20 or lower for hot-dry venting when
 fog is safe, keep wet/fog latest-hour coverage through the recovery window, and
-lower `resource_sensitivity` until the actual-target deltas recover. Optimize
-water and electricity only after the band errors are back inside the
+lower `resource_sensitivity` until the actual-target deltas recover. Ease the
+moisture effort only after the band errors are back inside the
 dispatcher-owned range.
 
 **Moisture tuning ladder for VPD-high / hot-dry venting:**
@@ -718,12 +664,12 @@ cycle, VENTILATE preempts immediately and may keep vent-mist assist active.
 ### Utility Rates
 
 Electric: $0.111/kWh | Gas: $0.83/therm (100K BTU) | Water: $0.00484/gal
-Gas heating is 3.9x cheaper per BTU than electric.
+These price the informational cost estimates only; cost is never a planning objective.
 
 ### Validated Lessons
 
 1. **Misting (dry <20% RH):** engage 1.3, gap 15-25s, pulse 60s. Revert to 45s gap evening.
-2. **Gas heating:** 3.9x cheaper. Preserve the lower-quartile heat target; do not fight cold stress reactively with retired bias knobs.
+2. **Heating:** electric heat1 is the primary heat by design; gas heat2 is the backup stage. Preserve the lower-quartile heat target; do not fight cold stress reactively with retired bias knobs.
 3. **Cooling (>85F):** Engineering-limited. Pre-cool mornings, aggressive sealed-vent misting.
 4. **Hysteresis:** 0.3 standard, 0.2 mild, 0.4 extreme days.
 5. **Cold-night oscillation:** Prevent heater->vent cycling with hysteresis/dwell and conservative vent/moisture posture.
@@ -772,8 +718,8 @@ today's forecast, and set the daytime posture.
 2. **Diagnose yesterday** — from the scorecard:
    - Which compliance axis was the bottleneck (temp vs VPD)?
    - Which stress type dominated? Use the stress diagnostic flowchart in the installed greenhouse playbook reference
-   - Utility breakdown: was cost driven by gas (heating) or electric+water (cooling+misting)?
-   - Compare utility usage to 7-day averages — trending up or down?
+   - Utility breakdown (informational): which equipment ran — heating, or cooling + misting?
+   - Compare runtime and planning water to 7-day averages — context, not an objective.
 3. **Check and validate lessons** — call `lessons`. If yesterday validated a lesson, call
    `lessons_manage(action="validate", lesson_id=ID)`. If something new was learned, create it.
 4. **Check current conditions** — call `climate` and `equipment_state`.
@@ -790,7 +736,7 @@ today's forecast, and set the daytime posture.
    Include a hypothesis and experiment.
    Do not substitute `set_tunable` or a normal acknowledgement for this full plan.
 8. **Only after `set_plan` returns success, write the morning brief as your final reply** — include:
-   - Yesterday's scorecard: score, temp vs VPD compliance, stress breakdown, utility cost + trend
+   - Yesterday's scorecard: score (served-band compliance), temp vs VPD compliance, stress breakdown
    - Today's forecast summary (high/low temp, peak VPD, cloud cover)
    - Your planned posture and any tunable changes with reasoning
    - Any experiments being tested
@@ -814,8 +760,8 @@ and set the overnight posture.
 ### Your tasks:
 1. **Review today** — call `scorecard` for today. Note:
    - Temp vs VPD compliance — which was the bottleneck?
-   - What drove today's cost? (gas vs electric vs water)
-   - Compare to 7-day averages — are we trending better or worse?
+   - Which equipment and planning water carried the day (informational, never an objective)?
+   - Compare compliance to 7-day averages — are we trending better or worse?
    - Which stress type dominated? Use the diagnostic flowchart.
 2. **Check lessons** — call `lessons`. Did today validate or invalidate any?
    - If a lesson was validated: `lessons_manage(action="validate", lesson_id=ID)`
@@ -835,7 +781,7 @@ and set the overnight posture.
    use mist, fog, dwell, hysteresis, vent posture, and stage-2 cooling knobs to
    shift behavior. Follow the compact tool-call contract in Standing Directive
    12, including the bare structured hypothesis. Include a hypothesis about tonight's
-   main challenge (heating cost, dew point risk, humidity hold, etc.).
+   main challenge (cold-night heat hold, dew point risk, nightly dry-out, humidity hold, etc.).
    Key overnight tuning:
    - Heater/vent oscillation expected? Use wider temp hysteresis or dwell, not retired bias knobs
    - Cold night (<45°F forecast)? Preserve heat with conservative vent/moisture posture
@@ -843,7 +789,7 @@ and set the overnight posture.
    - Widen `mister_pulse_gap_s` overnight (humidity holds better when sealed)
    Do not substitute `set_tunable` or a normal acknowledgement for this full plan.
 7. **Only after `set_plan` returns success, write the evening brief as your final reply** — include:
-   - Today's scorecard: score, temp vs VPD compliance, stress breakdown, cost vs 7-day trend
+   - Today's scorecard: score (served-band compliance), temp vs VPD compliance, stress breakdown vs 7-day trend
    - What worked today: which tunable decisions improved compliance
    - What didn't: which stress persisted, root cause analysis
    - Overnight posture: what you're setting and why
@@ -907,8 +853,8 @@ plan.
 
 ### Your tasks:
 1. **Review the prior seven local days** — call `scorecard` for the period and
-   compare compliance, stress, equipment runtime, water, and reliable cost
-   trends. Interior crop DLI remains unavailable while its sensor is broken.
+   compare served-band compliance, stress and the nightly dry-out; equipment
+   runtime, planning water and cost estimates are informational context. Interior crop DLI remains unavailable while its sensor is broken.
 2. **Grade completed plans** — call `plan_evaluate` for completed Iris plans
    that have enough outcome data and are still missing an evaluation.
 3. **Synthesize learning** — retrieve relevant plans, observations, site docs,

@@ -290,12 +290,14 @@ class TestPlannerPrompt:
 
     def test_has_decision_precedence(self, preamble):
         assert "Safety" in preamble
-        assert "Band compliance" in preamble
-        assert "Cost" in preamble
+        assert "Served-band compliance" in preamble
+        assert "Wear" in preamble
+        assert "Cost / water / wear" not in preamble  # cost left the objective (#1623)
 
     def test_has_kpi(self, preamble):
         assert "Planner Score" in preamble
-        assert "80% Compliance" in preamble or "80%" in preamble
+        assert "`planner_score` = `compliance_pct`, at 100% weight" in preamble
+        assert "80/20" not in preamble
 
     def test_has_compliance_metrics(self, preamble):
         assert "temp_compliance_pct" in preamble
@@ -321,7 +323,8 @@ class TestPlannerPrompt:
     def test_has_utility_guidance(self, preamble):
         assert "kwh" in preamble
         assert "therms" in preamble
-        assert "3.9x" in preamble or "3.9×" in preamble
+        assert "informational" in preamble
+        assert "3.9x" not in preamble  # electric heat1 is primary heat; cost is never an objective
 
 
 class TestEvidencePipelineSources:

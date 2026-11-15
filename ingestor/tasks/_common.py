@@ -206,22 +206,8 @@ def _probe_offline_resolve_days(raw: str | None) -> int:
 PROBE_OFFLINE_RESOLVE_DAYS = _probe_offline_resolve_days(os.environ.get("VERDIFY_PROBE_OFFLINE_RESOLVE_DAYS"))
 
 
-# G6 / B19 §7.4: VPD-high stress alert threshold (hours/day).
-#
-# The legacy 2.0h threshold was calibrated against the broken 78F served band.
-# Once migration 145 raises the orchid band AND 146 re-points
-# v_stress_hours_today.vpd_stress_hours to a graded-DEFICIT integral
-# (severity-weighted, always <= the old binary count), 2.0h is structurally
-# unreachable -> a dead alert. The design recalibrates to
-#   max(VPD_STRESS_FLOOR_H, p75 of rolling-30d graded_stress_hours_vpd_high[center]).
-# That graded history only exists after 146 dual-writes it, so the threshold is
-# computed dynamically and self-recalibrates the moment the column is populated;
-# until then it falls back to the legacy binary threshold so the alert keeps
-# working byte-identically during co-existence.
+# VPD-high stress alert threshold (hours/day above the served house band, v_stress_hours_today).
 VPD_STRESS_FLOOR_H = 0.5
-
-
-VPD_STRESS_LEGACY_THRESHOLD_H = 2.0
 
 
 # ── Soil dryout (issue #40) ──────────────────────────────────────────────
@@ -326,54 +312,6 @@ VPD_HIGH_MOISTURE_GUARDRAIL_PARAMS = frozenset(
         "fog_escalation_kpa",
     }
 )
-
-
-# ── Graded + feasibility-aware compliance (migration 146 dual-write) ──────
-# Python mirror of the DB compliance engine (band-compliance-architecture §6).
-# These accumulate the new daily_summary *_v2 columns + daily_zone_compliance
-# rows ALONGSIDE the untouched binary calc during the co-existence window.
-# The DB functions (fn_grade_credit / fn_zone_band_grade / fn_compliance_v2)
-# are the canonical source once migration 146 lands; this loop is the writer
-# the design (§6.6) specifies so no extra full-climate scan is incurred.
-#
-# Graded zones: center (orchid proxy via temp_avg/vpd_avg), east (food crops,
-# intersection-ideal / union-stress band), north (_default house-comfort band).
-# House roll-up uses priority weights (center 0.60 / east 0.40); empty zones
-# (north/south/west) carry weight 0 and are excluded from the house reward
-# (§6.3). Weights mirror the compliance_zone_weights seed; if the table exists
-# at write-time the DB seed is authoritative and these are the fallback.
-COMPLIANCE_ZONE_WEIGHTS_DEFAULT = {"center": 0.60, "east": 0.40, "north": 0.0}
-
-
-# relay_truth (per-miss feasibility) only exists from this cutover; older rows
-# are labelled feasibility_unknown rather than mislabelled (§6.2).
-RELAY_TRUTH_START = datetime(2026, 5, 24, 22, 47, tzinfo=ZoneInfo("America/Denver"))
-
-
-# _default house-comfort band for empty zones (§4.1): ideal 60–80F / stress
-# 45–95F, vpd ideal 0.4–1.4 / stress 0.2–2.0. Used when crop_target_profiles
-# has no _default row yet (pre-migration-146 fallback so the grader never NULLs).
-DEFAULT_ZONE_BAND = {
-    "temp_ideal_min": 60.0,
-    "temp_ideal_max": 80.0,
-    "temp_stress_low": 45.0,
-    "temp_stress_high": 95.0,
-    "vpd_ideal_min": 0.4,
-    "vpd_ideal_max": 1.4,
-    "vpd_stress_low": 0.2,
-    "vpd_stress_high": 2.0,
-}
-
-
-# Relays whose per-timestamp state the feasibility classifier needs.
-_GRADE_RELAYS = ("fan1", "fan2", "vent", "fog", "heat1", "heat2", "mister_center", "mister_south", "mister_west")
-
-
-# Zone → profile crop_type resolution for the GRADING band (§4.1). center grades
-# against the orchid profile (temp_avg/vpd_avg proxy); east is the food-crop
-# intersection-ideal / union-stress band; north is the _default house band.
-# south/west are empty (weight 0) so they are not graded into the house roll-up.
-_GRADED_ZONES = ("center", "east", "north")
 
 
 GPU_POWER_EXPORTER_URL = os.environ.get("GPU_POWER_EXPORTER_URL", "http://192.168.30.105:9400/metrics")
@@ -1402,7 +1340,6 @@ __all__ = [
     "PROBE_OFFLINE_ALERT_TYPES",
     "PROBE_OFFLINE_RESOLVE_DAYS",
     "VPD_STRESS_FLOOR_H",
-    "VPD_STRESS_LEGACY_THRESHOLD_H",
     "SOIL_DRYOUT_MIN_DURATION_H",
     "SOIL_DRYOUT_PROBES",
     "SOIL_DRYOUT_TARGETS_SQL",
@@ -1418,11 +1355,6 @@ __all__ = [
     "VPD_VENT_MIN_FOG_OFF_S",
     "VPD_HOT_DRY_MIN_FOG_OFF_S",
     "VPD_HIGH_MOISTURE_GUARDRAIL_PARAMS",
-    "COMPLIANCE_ZONE_WEIGHTS_DEFAULT",
-    "RELAY_TRUTH_START",
-    "DEFAULT_ZONE_BAND",
-    "_GRADE_RELAYS",
-    "_GRADED_ZONES",
     "GPU_POWER_EXPORTER_URL",
     "GPU_POWER_HOST",
     "INFRA_TELEMETRY_GREENHOUSE_ID",

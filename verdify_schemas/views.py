@@ -20,8 +20,6 @@ Views covered:
 - v_override_activity_24h     → OverrideActivity24h
 - v_clamp_activity_24h        → ClampActivity24h
 - v_band_trace_recent         → BandTraceRow
-- v_zone_band                 → ZoneBandRow          (per-zone live grading band)
-- mv_zone_band_grade          → ZoneBandGradeRollup  (hourly per-zone graded rollup)
 """
 
 from __future__ import annotations
@@ -35,9 +33,10 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 class PlannerPerformance(BaseModel):
     """v_planner_performance row — the Planner Score for a given date.
 
-    planner_score uses historical controller credit and gives cost efficiency
-    20% weight only when resource terms are scoring-eligible. It is not a
-    fixed-panel physical crop outcome. Target: >70.
+    Every temperature/VPD field grades the served house band (migration 290).
+    planner_score = compliance_pct at 100% weight (migration 309, #1623); cost
+    is informational, never a reward term. It is not a fixed-panel physical
+    crop outcome. Target: >70.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -48,10 +47,7 @@ class PlannerPerformance(BaseModel):
     vpd_high_stress_h: float | None = Field(default=None, ge=0, le=24)
     vpd_low_stress_h: float | None = Field(default=None, ge=0, le=24)
     total_stress_h: float | None = Field(default=None, ge=0, le=96)  # 4 axes, max 4×24
-    # Migration 241 restored this field to the binary fraction of scored
-    # house-average readings against historical desired bands. The separate
-    # planner_score still uses graded controller credit when available. Neither
-    # is fixed-panel crop compliance or duration-weighted physical exposure.
+    # Share of 5-minute house-average buckets inside the served house band.
     compliance_pct: Decimal | None = Field(default=None, ge=0, le=100)
     temp_compliance_pct: Decimal | None = Field(default=None, ge=0, le=100)
     vpd_compliance_pct: Decimal | None = Field(default=None, ge=0, le=100)
@@ -61,12 +57,8 @@ class PlannerPerformance(BaseModel):
     cost_water: float | None = Field(default=None, ge=0)
     cost_per_stress_hour: Decimal | None = None
     planner_score: Decimal | None = Field(default=None, ge=0, le=100)
-    # Migration 147's context columns remain for compatibility. Since 241,
-    # compliance_binary_pct duplicates the binary compliance_pct; the raw
-    # graded value and modeled unachievable fraction remain distinct diagnostics.
+    # Compatibility duplicate of compliance_pct.
     compliance_binary_pct: Decimal | None = Field(default=None, ge=0, le=100)
-    compliance_raw_graded_pct: Decimal | None = Field(default=None, ge=0, le=100)
-    unachievable_frac: Decimal | None = Field(default=None, ge=0, le=1)
 
 
 class PlanAccuracy(BaseModel):
@@ -221,61 +213,6 @@ class BandTraceRow(BaseModel):
     fw_minus_crop_vpd_low_kpa: float | None = None
     fw_minus_crop_vpd_high_kpa: float | None = None
     trace_quality_flag: str
-
-
-# ── Band-compliance rearchitecture: per-zone grading views (§6.8) ───────
-
-
-class ZoneBandRow(BaseModel):
-    """v_zone_band row — per-zone live grading band (ideal + stress) at now().
-
-    One row per zone (center, east, north, south, west). Projection of
-    `fn_zone_band(zone, now())` (migration 146.8). center→orchid; east→
-    intersection(ideal)/union(stress) of its crops; empty zones→`_default`.
-    Replaces `fn_target_band_smooth` as the dashboard band surface
-    (`v_target_curve` repointed here). `is_proxy` flags zones graded against
-    a proxy reading (center vpd_avg until the vpd_center probe lands, HW-1).
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    zone: str
-    temp_low: float | None = None
-    temp_high: float | None = None
-    temp_stress_low: float | None = None
-    temp_stress_high: float | None = None
-    vpd_low: float | None = None
-    vpd_high: float | None = None
-    vpd_stress_low: float | None = None
-    vpd_stress_high: float | None = None
-    crop_basis: str | None = None
-    is_proxy: bool | None = None
-
-
-class ZoneBandGradeRollup(BaseModel):
-    """mv_zone_band_grade row — hourly per-zone graded-compliance rollup.
-
-    One row per (bucket, zone) over the trailing window. Sums of the
-    per-minute graded credit (`sum_g_temp` / `sum_g_vpd` / `sum_zone_score`)
-    plus the feasibility split (`n_unachievable` / `n_controller` / `n_unknown`
-    out of `n` total minutes). Refreshed by verdify-ingestor
-    (`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_zone_band_grade`); replaces
-    `v_setpoint_compliance`. See band-compliance §6.4/§6.6.
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    bucket: AwareDatetime
-    zone: str
-    n: int = Field(..., ge=0)
-    sum_g_temp: Decimal | None = None
-    sum_g_vpd: Decimal | None = None
-    sum_zone_score: Decimal | None = None
-    sum_score_unachievable: Decimal | None = None
-    n_unachievable: int | None = Field(default=None, ge=0)
-    n_controller: int | None = Field(default=None, ge=0)
-    n_unknown: int | None = Field(default=None, ge=0)
-    proxy_center: bool | None = None
 
 
 # ── Sprint 23: crop history views ──────────────────────────────────────

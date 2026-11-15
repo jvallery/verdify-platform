@@ -88,15 +88,14 @@ def test_physical_crop_compliance_stays_separate_from_controller_credit_and_hous
     assert physical.availability == "available"
     card = ScorecardResponse.from_metric_rows(
         [
-            ("scorecard_contract_version", 2),
+            ("scorecard_contract_version", 3),
             ("compliance_pct", 6.1),
-            ("compliance_v2_attributable_pct", 85.8),
         ]
     )
     card.physical_crop_band_evidence = physical
     evidence = card.climate_evidence()
     assert evidence["both_axis_compliance_pct"] == 6.1
-    assert evidence["graded_compliance_attributable_pct"] == 85.8
+    assert not any(key.startswith("graded") for key in evidence)
     assert evidence["physical_crop_band_evidence"]["diagnostic"]["joint"]["in_band_pct"] == pytest.approx(100 * 2 / 96)
     rendered = _publisher().physical_crop_band_block(evidence["physical_crop_band_evidence"], DAY.isoformat())
     assert "2.1% joint" in rendered

@@ -87,7 +87,6 @@ from verdify_schemas.experiment_config import (  # noqa: E402
 )
 from verdify_schemas.fixed_panel_native_route import read_native_fixed_panel_route_evidence  # noqa: E402
 from verdify_schemas.irrigation import LineId, StartKind, Weekday  # noqa: E402
-from verdify_schemas.observed_minute_reader import read_observed_minute_evidence  # noqa: E402
 from verdify_schemas.plan import (  # noqa: E402
     classify_planner_terminal_action,
     plan_current_coverage_error,
@@ -1730,36 +1729,25 @@ async def read_physical_crop_band_evidence(conn, day, greenhouse_id="vallery"):
 async def scorecard(target_date: str = "", include_realized_dryout: bool = False) -> str:
     """Get a daily scorecard; pass YYYY-MM-DD or omit for today.
 
-    Inspect scorecard_contract_version and metric_semantics first. Only contract
-    2 verifies that compliance_pct / temp_compliance_pct / vpd_compliance_pct are
-    BINARY time-in-band shares. Earlier versions mislabeled graded credit under
-    those keys. Since migration 290 (#1358) they grade each 5-minute house-average
-    bucket against the band the controller served (band_house_* audit rows; the
-    crop band where a row is missing); daily_band_compliance holds the minutes and
-    the day/night split. They are not fixed-panel crop outcomes. Coverage is
-    unverified; no center probe is measured. Binary stress hours are the minutes
-    below or above that band / 60 and axes can overlap; graded_*_stress_h are
-    separate deficit-integral diagnostics.
+    Inspect scorecard_contract_version and metric_semantics first. Contract 3
+    (migration 309, #1623) has ONE temperature/VPD measurement basis: the dynamic
+    served house band (band_house_* audit rows). compliance_pct /
+    temp_compliance_pct / vpd_compliance_pct are the shares of 5-minute
+    house-average buckets inside that band (migration 290's daily_band_compliance;
+    the database writes them). Stress hours are the hours below or above that band
+    per axis and can overlap. They are not fixed-panel crop outcomes; coverage is
+    unverified and no center probe is measured. Never widen the served band to
+    improve the score.
 
-    compliance_v2_raw_pct, compliance_v2_attributable_pct, graded axis fields and
-    compliance_v2_unachievable_frac describe the historical grading/feasibility
-    per-zone model, not measured crop compliance. Controller-attributable credit refunds
-    modeled unachievable misses; it must not hide physical exposure. The legacy
-    center zone uses a house-average proxy, not a center measurement. Never widen
-    served bands to improve credit or treat target-distance as a crop outcome.
-
-    planner_score retains historical graded credit and resource rules: cost
-    receives 20% weight only when conserved water and the whole-runtime energy
-    model are scoring-eligible. Otherwise resource weight is zero. Inspect
-    planner_score_resource_weight_pct and resource_terms_available before comparing
-    scores. Null means unavailable, not zero or perfect. Composite outcome fields
-    remain null until their physical evidence contract is implemented.
-
-    observed_minute_evidence is a separately versioned, captured house-average
-    diagnostic with per-axis/joint eligible counts, coverage and distance. Inspect
-    availability, window and revision; snapshot freshness is not assessed. It is
-    not continuous exposure, fixed-panel crop compliance, a confirmed consumed
-    target or an experiment endpoint. Never substitute it for the scalar metrics.
+    planner_score = compliance_pct at 100% weight, always:
+    planner_score_resource_weight_pct and resource_terms_available are 0. kwh,
+    therms, water_gal and cost_* are informational nominal-model estimates,
+    never an objective; electric heat1 is the primary heat by design, so its
+    runtime and cost are not something to minimise. water_gal is planning water
+    (climate wetting + wall irrigation + wall fertigation); house/hose water is
+    not planning information. Null means unavailable, not zero or perfect.
+    Composite outcome fields remain null until their physical evidence contract
+    is implemented.
 
     native_fixed_panel_route_evidence exposes actual source-route axis/joint
     eligible 15-minute bins, high/low distance and severity, worst source route
@@ -1811,7 +1799,6 @@ async def scorecard(target_date: str = "", include_realized_dryout: bool = False
                     "raw": {r["metric"]: (float(r["value"]) if r["value"] is not None else None) for r in rows},
                 }
             )
-        sc.observed_minute_evidence = await read_observed_minute_evidence(conn, d)
         sc.physical_crop_band_evidence = await read_physical_crop_band_evidence(conn, d)
         sc.route_only_crop_band_evidence = await read_route_only_crop_band_evidence(conn, d)
         sc.native_fixed_panel_route_evidence = await read_native_fixed_panel_route_evidence(conn, d)
@@ -1935,27 +1922,19 @@ async def outcome_kpi(target_date: str = "") -> str:
 
         summary_sql = """
             SELECT date, greenhouse_id,
-                   compliance_v2_attributable_pct,
-                   compliance_v2_raw_pct,
-                   compliance_v2_unachievable_frac,
                    compliance_pct,
                    temp_compliance_pct,
                    vpd_compliance_pct,
-                   graded_temp_compliance_pct,
-                   graded_vpd_compliance_pct,
-                   feasibility_unknown_min,
+                   stress_hours_heat,
+                   stress_hours_cold,
                    stress_hours_vpd_high,
                    stress_hours_vpd_low,
-                   graded_stress_hours_vpd_high,
-                   graded_stress_hours_vpd_low,
                    cycles_fan1,
                    cycles_fan2,
                    cycles_heat1,
                    cycles_heat2,
                    cycles_fog,
                    cycles_vent,
-                   cycles_dehum,
-                   cycles_safety_dehum,
                    cycles_mister_south,
                    cycles_mister_west,
                    cycles_mister_center,
@@ -2135,6 +2114,8 @@ async def outcome_kpi(target_date: str = "") -> str:
                   AND c.vpd_avg IS NOT NULL
                 GROUP BY 1
             ),
+            -- The corridor edges are the served house band (band_house_* audit rows, #1623), with the
+            -- served-band functions as the fallback for a bucket before the first audit row.
             resolved_samples AS (
                 SELECT
                     s.*,
@@ -2155,22 +2136,26 @@ async def outcome_kpi(target_date: str = "") -> str:
                 CROSS JOIN LATERAL fn_house_vpd_control_band(s.bucket) AS house
                 LEFT JOIN LATERAL (
                     SELECT value FROM setpoint_snapshot
-                    WHERE greenhouse_id = $2 AND parameter = 'temp_low' AND ts <= s.bucket
+                    WHERE greenhouse_id = $2 AND parameter = 'band_house_temp_low' AND zone = 'house'
+                      AND ts <= s.bucket
                     ORDER BY ts DESC LIMIT 1
                 ) temp_low ON true
                 LEFT JOIN LATERAL (
                     SELECT value FROM setpoint_snapshot
-                    WHERE greenhouse_id = $2 AND parameter = 'temp_high' AND ts <= s.bucket
+                    WHERE greenhouse_id = $2 AND parameter = 'band_house_temp_high' AND zone = 'house'
+                      AND ts <= s.bucket
                     ORDER BY ts DESC LIMIT 1
                 ) temp_high ON true
                 LEFT JOIN LATERAL (
                     SELECT value FROM setpoint_snapshot
-                    WHERE greenhouse_id = $2 AND parameter = 'vpd_low' AND ts <= s.bucket
+                    WHERE greenhouse_id = $2 AND parameter = 'band_house_vpd_low' AND zone = 'house'
+                      AND ts <= s.bucket
                     ORDER BY ts DESC LIMIT 1
                 ) vpd_low ON true
                 LEFT JOIN LATERAL (
                     SELECT value FROM setpoint_snapshot
-                    WHERE greenhouse_id = $2 AND parameter = 'vpd_high' AND ts <= s.bucket
+                    WHERE greenhouse_id = $2 AND parameter = 'band_house_vpd_high' AND zone = 'house'
+                      AND ts <= s.bucket
                     ORDER BY ts DESC LIMIT 1
                 ) vpd_high ON true
                 LEFT JOIN LATERAL (
@@ -2965,9 +2950,11 @@ async def outcome_kpi(target_date: str = "") -> str:
                 date=summary.get("date", d),
                 greenhouse_id=summary.get("greenhouse_id", greenhouse_id),
                 semantics=(
-                    "ADR-0004 outcome view: float inside the crop corridor and act at edges. "
-                    "Resource terms are eligible only when resource_evidence marks them "
-                    "available_for_scoring; modeled and measured scopes never collapse."
+                    "ADR-0004 outcome view: float inside the served house band and act at its edges. "
+                    "The served band (band_house_* audit rows) is the only temperature/VPD basis. "
+                    "Energy, water and cost are informational estimates, never a reward term; "
+                    "planning water is climate wetting + wall irrigation + wall fertigation, and "
+                    "house/hose water is reported separately as house_water."
                 ),
                 coverage=OutcomeKpiCoverage(
                     dli="unavailable",
@@ -2999,16 +2986,15 @@ async def outcome_kpi(target_date: str = "") -> str:
                         else "unavailable"
                     ),
                 ),
+                # The served house band (band_house_* rows, migration 290 grade) is the only basis.
                 served_corridor={
-                    "attributable_pct": summary.get("compliance_v2_attributable_pct"),
-                    "raw_pct": summary.get("compliance_v2_raw_pct"),
-                    "unachievable_frac": summary.get("compliance_v2_unachievable_frac"),
-                    "binary_both_pct": summary.get("compliance_pct"),
-                    "binary_temp_pct": summary.get("temp_compliance_pct"),
-                    "binary_vpd_pct": summary.get("vpd_compliance_pct"),
-                    "graded_temp_pct": summary.get("graded_temp_compliance_pct"),
-                    "graded_vpd_pct": summary.get("graded_vpd_compliance_pct"),
-                    "feasibility_unknown_min": summary.get("feasibility_unknown_min"),
+                    "both_pct": summary.get("compliance_pct"),
+                    "temp_pct": summary.get("temp_compliance_pct"),
+                    "vpd_pct": summary.get("vpd_compliance_pct"),
+                    "below_temp_h": summary.get("stress_hours_cold"),
+                    "above_temp_h": summary.get("stress_hours_heat"),
+                    "below_vpd_h": summary.get("stress_hours_vpd_low"),
+                    "above_vpd_h": summary.get("stress_hours_vpd_high"),
                 },
                 pinched_corridor={
                     "sample_min": pinched.get("sample_min"),
@@ -3027,12 +3013,17 @@ async def outcome_kpi(target_date: str = "") -> str:
                 vpd_misses_h={
                     "high_stress_h": summary.get("stress_hours_vpd_high"),
                     "low_stress_h": summary.get("stress_hours_vpd_low"),
-                    "graded_high_stress_h": summary.get("graded_stress_hours_vpd_high"),
-                    "graded_low_stress_h": summary.get("graded_stress_hours_vpd_low"),
                 },
                 actuator_cycles=actuator_cycles,
                 actuator_runtime=actuator_runtime,
                 water_use_gal={
+                    # Planning water excludes house/hose use (#1623); house water is reported on every day.
+                    "planning": (
+                        water_resource.get("planning_water_gal")
+                        if water_resource and water_resource.get("available_for_scoring")
+                        else None
+                    ),
+                    "house_water": (water_resource.get("house_water_gal") if water_resource else None),
                     "quality_filtered_total": (
                         water_resource.get("quality_filtered_meter_gal")
                         if water_resource and water_resource.get("available_for_scoring")

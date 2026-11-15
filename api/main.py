@@ -122,7 +122,6 @@ from verdify_schemas.experiment_config import (  # noqa: E402
 )
 from verdify_schemas.fixed_panel_native_route import read_native_fixed_panel_route_evidence  # noqa: E402
 from verdify_schemas.mcp_responses import ScorecardResponse  # noqa: E402
-from verdify_schemas.observed_minute_reader import read_observed_minute_evidence  # noqa: E402
 from verdify_schemas.route_only_crop_band_reader import read_route_only_crop_band_evidence  # noqa: E402
 from verdify_schemas.telemetry import DliEvidence  # noqa: E402
 from verdify_schemas.tunable_registry import (  # noqa: E402
@@ -324,6 +323,8 @@ PUBLIC_WATER_RESOURCE_FIELDS = (
     "unsupported_path_gal",
     "ambiguous_gal",
     "manual_or_unattributed_gal",
+    "planning_water_gal",
+    "house_water_gal",
     "command_only_runs",
     "ambiguous_runs",
     "meter_attributed_runs",
@@ -2729,7 +2730,6 @@ async def planner_scorecard(scorecard_date: Annotated[date | None, Query(alias="
         if scorecard_date is None:
             scorecard_date = await conn.fetchval("SELECT (now() AT TIME ZONE 'America/Denver')::date")
         rows = await _fetch_planner_scorecard(conn, scorecard_date)
-        observed = await read_observed_minute_evidence(conn, scorecard_date)
         physical = await read_physical_crop_band_evidence(conn, scorecard_date)
         route_only = await read_route_only_crop_band_evidence(conn, scorecard_date)
         native_route = await read_native_fixed_panel_route_evidence(conn, scorecard_date)
@@ -2737,14 +2737,13 @@ async def planner_scorecard(scorecard_date: Annotated[date | None, Query(alias="
         result = ScorecardResponse.from_metric_rows(rows)
     except ValidationError:
         # Belt-and-suspenders (band-compliance §7.1): ScorecardResponse uses
-        # extra='forbid', so a brand-new fn_planner_scorecard metric (e.g. the
-        # migration-146/147 graded keys before this schema is bumped) would
+        # extra='forbid', so a fn_planner_scorecard metric this schema does not
+        # model (a newer metric, or a retired one during a mixed rollout) would
         # otherwise 500 the public endpoint. Drop only the unmodeled keys and
         # serve the metrics we DO recognize rather than failing the request.
         known = ScorecardResponse.metric_names()
         kept = [r for r in rows if str(r["metric"]) in known]
         result = ScorecardResponse.from_metric_rows(kept)
-    result.observed_minute_evidence = observed
     result.physical_crop_band_evidence = physical
     result.route_only_crop_band_evidence = route_only
     result.native_fixed_panel_route_evidence = native_route
@@ -3760,7 +3759,6 @@ async def public_home_metrics(greenhouse_id: str = DEFAULT_GREENHOUSE):
         )
         score_day = generated_at.astimezone(ZoneInfo("America/Denver")).date()
         score_rows = await _fetch_planner_scorecard(conn, score_day)
-        observed = await read_observed_minute_evidence(conn, score_day, greenhouse_id)
         physical = await read_physical_crop_band_evidence(conn, score_day, greenhouse_id)
         route_only = await read_route_only_crop_band_evidence(conn, score_day, greenhouse_id)
         native_route = await read_native_fixed_panel_route_evidence(conn, score_day, greenhouse_id)
@@ -3768,7 +3766,6 @@ async def public_home_metrics(greenhouse_id: str = DEFAULT_GREENHOUSE):
         climate_evidence = ScorecardResponse.model_validate(
             {
                 **{k: v for k, v in scorecard.items() if k in ScorecardResponse.metric_names()},
-                "observed_minute_evidence": observed,
                 "physical_crop_band_evidence": physical,
                 "route_only_crop_band_evidence": route_only,
                 "native_fixed_panel_route_evidence": native_route,
@@ -3938,16 +3935,12 @@ async def public_home_metrics(greenhouse_id: str = DEFAULT_GREENHOUSE):
         last_plan_id=last_plan["plan_id"] if last_plan else None,
         last_plan_created_at=last_plan["created_at"] if last_plan else None,
         last_plan_age_s=last_plan["age_s"] if last_plan else None,
+        # planner_score is served-band compliance_pct at 100% weight; resources never enter it (#1623).
         planner_score_today=scorecard.get("planner_score"),
-        planner_score_scope=(
-            "climate_plus_resource"
-            if scorecard.get("resource_terms_available") == 1.0
-            else "climate_only_resource_excluded"
-        ),
-        planner_score_resource_weight_pct=scorecard.get("planner_score_resource_weight_pct") or 0,
-        planner_score_resource_terms_available=scorecard.get("resource_terms_available") == 1.0,
+        planner_score_scope="climate_only_resource_excluded",
+        planner_score_resource_weight_pct=0,
+        planner_score_resource_terms_available=False,
         compliance_pct_today=climate_evidence["both_axis_compliance_pct"],
-        observed_minute_evidence=observed,
         physical_crop_band_evidence=physical,
         route_only_crop_band_evidence=route_only,
         native_fixed_panel_route_evidence=native_route,
@@ -3960,12 +3953,14 @@ async def public_home_metrics(greenhouse_id: str = DEFAULT_GREENHOUSE):
             else None
         ),
         cost_today_estimate_usd=scorecard.get("cost_total"),
+        # Planning water: climate wetting + wall irrigation + wall fertigation; house/hose water is separate.
         water_today_gal=(
-            _to_float(water_resource["quality_filtered_meter_gal"])
+            _to_float(water_resource["planning_water_gal"])
             if water_resource and water_resource["available_for_scoring"]
             else None
         ),
         water_today_observed_gal=(_to_float(water_resource["quality_filtered_meter_gal"]) if water_resource else None),
+        water_today_house_gal=(_to_float(water_resource["house_water_gal"]) if water_resource else None),
         water_today_quality=water_resource["resource_quality"] if water_resource else "unavailable",
         water_today_available_for_scoring=bool(water_resource and water_resource["available_for_scoring"]),
         runtime_modeled_kwh=_to_float(energy_resource["kwh_estimated"]) if energy_resource else None,
@@ -4009,7 +4004,6 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
         generated_at = await conn.fetchval("SELECT now()")
         score_day = generated_at.astimezone(ZoneInfo("America/Denver")).date()
         score_rows = await _fetch_planner_scorecard(conn, score_day)
-        observed = await read_observed_minute_evidence(conn, score_day, greenhouse_id)
         physical = await read_physical_crop_band_evidence(conn, score_day, greenhouse_id)
         route_only = await read_route_only_crop_band_evidence(conn, score_day, greenhouse_id)
         native_route = await read_native_fixed_panel_route_evidence(conn, score_day, greenhouse_id)
@@ -4017,7 +4011,6 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
         climate_evidence = ScorecardResponse.model_validate(
             {
                 **{k: v for k, v in scorecard.items() if k in ScorecardResponse.metric_names()},
-                "observed_minute_evidence": observed,
                 "physical_crop_band_evidence": physical,
                 "route_only_crop_band_evidence": route_only,
                 "native_fixed_panel_route_evidence": native_route,
@@ -4203,11 +4196,13 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
     elif active_plan_id:
         active_plan_status = "active"
     active_relays_list = [r["equipment"] for r in active_relays]
+    # Planning water: climate wetting + wall irrigation + wall fertigation; house/hose water is separate (#1623).
     water_today_gal = (
-        _to_float(water_resource["quality_filtered_meter_gal"])
+        _to_float(water_resource["planning_water_gal"])
         if water_resource and water_resource["available_for_scoring"]
         else None
     )
+    water_today_house_gal = _to_float(water_resource["house_water_gal"]) if water_resource else None
     planner_health_payload = _project_planner_health(planner_health) if planner_health else None
     response = {
         "generated_at": generated_at,
@@ -4217,13 +4212,9 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
         "climate_age_seconds": latest_climate["age_s"] if latest_climate else None,
         "open_critical_high_alerts": open_critical_high or 0,
         "planner_score_today": scorecard.get("planner_score"),
-        "planner_score_scope": (
-            "climate_plus_resource"
-            if scorecard.get("resource_terms_available") == 1.0
-            else "climate_only_resource_excluded"
-        ),
-        "planner_score_resource_weight_pct": scorecard.get("planner_score_resource_weight_pct") or 0,
-        "planner_score_resource_terms_available": scorecard.get("resource_terms_available") == 1.0,
+        "planner_score_scope": "climate_only_resource_excluded",
+        "planner_score_resource_weight_pct": 0,
+        "planner_score_resource_terms_available": False,
         **climate_evidence,
         "active_plan_id": active_plan_id,
         "active_plan_status": active_plan_status,
@@ -4238,12 +4229,14 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
             else None
         ),
         "water_today_gal": water_today_gal,
+        "water_today_house_gal": water_today_house_gal,
         "resource_accounting": {
             "water": (_project_public_record(water_resource, PUBLIC_WATER_RESOURCE_FIELDS) if water_resource else None),
             "energy": _project_energy_resource(energy_resource) if energy_resource else None,
             "scalar_policy": (
-                "water_today_gal is null unless ledger conservation/coverage is scoring-eligible; "
-                "modeled and partial-measured energy remain separate"
+                "water_today_gal is planning water (climate wetting + wall irrigation + wall fertigation), "
+                "null unless ledger conservation/coverage is eligible; water_today_house_gal is house/hose "
+                "use, never planning information; modeled and partial-measured energy remain separate"
             ),
         },
         "active_relays": active_relays_list,
@@ -4255,13 +4248,9 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
         "planner_health": planner_health_payload,
         "planning_quality": {
             "planner_score_today": scorecard.get("planner_score"),
-            "planner_score_scope": (
-                "climate_plus_resource"
-                if scorecard.get("resource_terms_available") == 1.0
-                else "climate_only_resource_excluded"
-            ),
-            "planner_score_resource_weight_pct": scorecard.get("planner_score_resource_weight_pct") or 0,
-            "resource_terms_available": scorecard.get("resource_terms_available") == 1.0,
+            "planner_score_scope": "climate_only_resource_excluded",
+            "planner_score_resource_weight_pct": 0,
+            "resource_terms_available": False,
             **climate_evidence,
             "last_validated_plan": dict(last_validated_plan) if last_validated_plan else None,
             "last_plan": dict(last_plan) if last_plan else None,
@@ -4295,6 +4284,7 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
                 else None
             ),
             "water_today_gal": water_today_gal,
+            "water_today_house_gal": water_today_house_gal,
             "mister_water_today_gal": (
                 _to_float(water_resource["climate_wetting_gal"])
                 if water_resource and water_resource["available_for_scoring"]

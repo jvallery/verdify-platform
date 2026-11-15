@@ -889,7 +889,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT planned_ts AS time, CASE WHEN plan_achieved THEN 1 ELSE 0 END AS \"Compliant\" FROM v_plan_compliance WHERE planned_ts > now() - interval '14 days' AND parameter IN ('temp_high','temp_low','vpd_high','vpd_low') ORDER BY 1",
+          "rawSql": "SELECT planned_ts AS time, CASE WHEN plan_achieved THEN 1 ELSE 0 END AS \"Compliant\" FROM v_plan_compliance WHERE planned_ts > now() - interval '14 days' AND parameter = 'plan_outcome' ORDER BY 1",
           "refId": "A",
           "sql": {
             "columns": [
@@ -917,7 +917,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT planned_ts AS time, overshoot AS \"Overshoot\" FROM v_plan_compliance WHERE planned_ts > now() - interval '14 days' AND parameter IN ('temp_high','temp_low','vpd_high','vpd_low') ORDER BY 1",
+          "rawSql": "SELECT planned_ts AS time, overshoot AS \"Overshoot\" FROM v_plan_compliance WHERE planned_ts > now() - interval '14 days' AND parameter = 'plan_outcome' ORDER BY 1",
           "refId": "B",
           "sql": {
             "columns": [

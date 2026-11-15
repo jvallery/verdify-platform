@@ -1,4 +1,4 @@
-"""#371 binary/graded separation, including a disposable PostgreSQL proof.
+"""Scorecard contract 3 (#1623): one served-band basis, plus the historical #371 PostgreSQL proof.
 
 Set SCORECARD_TEST_PG_BIN to a local PostgreSQL bin directory for integration
 coverage. This starts its OWN private-socket cluster; never uses DB_DSN/PGHOST
@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "db/migrations/241-scorecard-binary-semantics.sql"
 
 
-@pytest.mark.parametrize("version", [None, 1, 3])
-def test_unverified_contract_never_publishes_grade_as_binary(version):
+@pytest.mark.parametrize("version", [None, 1, 2])
+def test_unverified_contract_never_publishes_band_metrics(version):
     card = ScorecardResponse(
         scorecard_contract_version=version,
         compliance_pct=85.8,
@@ -39,36 +39,42 @@ def test_unverified_contract_never_publishes_grade_as_binary(version):
     assert card.model_dump()["metric_semantics"]["binary_fields_verified"] is False
 
 
-def test_binary_and_graded_are_distinct_and_zero_survives():
+def test_contract_3_is_served_band_only_and_zero_survives():
     card = ScorecardResponse.from_metric_rows(
         [
-            ("scorecard_contract_version", 2),
+            ("scorecard_contract_version", 3),
+            ("planner_score", 6.1),
+            ("planner_score_resource_weight_pct", 0),
+            ("resource_terms_available", 0),
             ("compliance_pct", 6.1),
             ("temp_compliance_pct", 34.3),
             ("vpd_compliance_pct", 30.8),
-            ("compliance_v2_attributable_pct", 85.8),
-            ("graded_temp_compliance_pct", 64.1),
-            ("graded_vpd_compliance_pct", 58.4),
             ("heat_stress_h", 0),
         ]
     )
     evidence = card.climate_evidence()
-    assert evidence["both_axis_compliance_pct"] == 6.1
-    assert evidence["graded_compliance_attributable_pct"] == 85.8
+    assert evidence["both_axis_compliance_pct"] == card.planner_score == 6.1
     assert evidence["temp_compliance_pct"] == 34.3
-    assert evidence["graded_temp_compliance_pct"] == 64.1
     assert evidence["vpd_compliance_pct"] == 30.8
-    assert evidence["graded_vpd_compliance_pct"] == 58.4
     assert evidence["stress_breakdown"]["heat_h"] == 0
     assert evidence["stress_breakdown"]["cold_h"] is None
+    assert not any("graded" in key or "observed_minute" in key for key in evidence)
     semantics = json.loads(card.model_dump_json())["metric_semantics"]
     assert semantics["coverage_status"] == "unverified"
-    for key in ("fixed_sensor_panel", "center_probe_measured", "duration_weighted", "crop_outcome_eligible"):
+    assert semantics["target_basis"] == "served_house_band_audit_rows"
+    assert semantics["planner_score_basis"] == "compliance_pct_100pct_weight"
+    for key in ("fixed_sensor_panel", "center_probe_measured", "crop_outcome_eligible"):
         assert semantics[key] is False
 
 
-@pytest.mark.parametrize("version", [None, 2])
-def test_publisher_withholds_unversioned_binary_claims(version):
+def test_retired_graded_metrics_are_rejected():
+    for metric in ("compliance_v2_attributable_pct", "graded_temp_compliance_pct", "graded_vpd_high_stress_h"):
+        with pytest.raises(ValueError):
+            ScorecardResponse.from_metric_rows([("scorecard_contract_version", 3), (metric, 85.8)])
+
+
+@pytest.mark.parametrize("version", [None, 2, 3])
+def test_publisher_withholds_unversioned_band_claims(version):
     spec = importlib.util.spec_from_file_location("evidence_publisher", ROOT / "scripts/update-evidence-snapshots.py")
     publisher = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(publisher)
@@ -77,14 +83,11 @@ def test_publisher_withholds_unversioned_binary_claims(version):
             "planning_quality": {
                 "metric_semantics": {"contract_version": version},
                 "both_axis_compliance_pct": 6.1,
-                "graded_compliance_attributable_pct": 85.8,
             },
         }
     )
-    assert ("6.1%" in rendered) is (version == 2)
-    assert "85.8%" in rendered
-    assert "not binary compliance" in rendered
-    assert "Coverage is unverified" in rendered
+    assert ("6.1%" in rendered) is (version == 3)
+    assert "served" in rendered
 
 
 def test_public_consumers_use_shared_projection():
@@ -93,23 +96,24 @@ def test_public_consumers_use_shared_projection():
     assert source.count("**climate_evidence,") == 2
     assert 'compliance_pct_today=climate_evidence["both_axis_compliance_pct"]' in source
     assert '"both_axis_compliance_pct": scorecard.get(' not in source
+    assert "observed_minute" not in source
 
 
-def test_standalone_planner_keeps_grade_separate_and_missing_absent():
+def test_standalone_planner_reads_contract_3_and_missing_stays_absent():
     from planner_graph.clients.db import scorecard_context
 
     assert "compliance_pct" not in scorecard_context({"compliance_pct": 85.8})
     context = scorecard_context(
         {
-            "scorecard_contract_version": 2,
+            "scorecard_contract_version": 3,
+            "planner_score": 0,
             "compliance_pct": 0,
-            "compliance_v2_attributable_pct": 85.8,
             "vpd_compliance_pct": None,
         }
     )
-    assert context["compliance_pct"] == 0
-    assert context["compliance_v2_attributable_pct"] == 85.8
+    assert context["compliance_pct"] == 0 == context["planner_score"]
     assert "vpd_compliance_pct" not in context
+    assert not any("graded" in key or "compliance_v2" in key for key in context)
     assert "Coverage unverified" in context["measurement_basis"]
     assert "Never widen" in context["score_basis"]
 
@@ -300,7 +304,6 @@ AND c.oid = 'mv_daily_kpi'::regclass;
     assert (
         query("SELECT has_table_privilege('verdify_api_runtime', 'v_scorecard_climate_diagnostics', 'INSERT');") == "f"
     )
-    assert ScorecardResponse.from_metric_rows(list(after.items())).climate_evidence()["both_axis_compliance_pct"] == 6.1
 
 
 def test_current_binary_and_credit_share_sql_snapshot_without_materialized_refresh(isolated_pg):
@@ -328,21 +331,8 @@ def test_current_binary_and_credit_share_sql_snapshot_without_materialized_refre
             "SET ROLE verdify_api_runtime; SELECT jsonb_object_agg(metric,value) FROM fn_planner_scorecard('2026-09-04')"
         )
     )
-    card = ScorecardResponse.from_metric_rows(rows.items())
-    evidence = card.climate_evidence()
-    assert evidence["both_axis_compliance_pct"] == 0
-    assert evidence["vpd_compliance_pct"] is None
-    assert evidence["graded_compliance_attributable_pct"] == 90
+    # Migration 272's SQL snapshot; the contract-2 consumers it once fed are retired (#1623).
+    assert rows["compliance_pct"] == 0
+    assert rows["vpd_compliance_pct"] is None
+    assert rows["compliance_v2_attributable_pct"] == 90
     assert query("SELECT compliance_pct FROM mv_daily_kpi WHERE date='2026-09-04'") == "6.1"
-    spec = importlib.util.spec_from_file_location(
-        "score_snapshot_publisher", ROOT / "scripts/update-evidence-snapshots.py"
-    )
-    publisher = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(publisher)
-    rendered = publisher.planning_block({"planning_quality": evidence})
-    assert "0.0%" in rendered and "90.0%" in rendered and "not binary compliance" in rendered
-    from planner_graph.clients.db import scorecard_context
-
-    context = scorecard_context(rows)
-    assert context["compliance_pct"] == 0 and context["compliance_v2_attributable_pct"] == 90
-    assert "vpd_compliance_pct" not in context

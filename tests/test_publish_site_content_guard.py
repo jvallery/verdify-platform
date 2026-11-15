@@ -334,13 +334,12 @@ def test_fixed_baseline_queries_do_not_expand_resource_accounting_views():
 
     for query in (generator.PERIOD_SQL, generator.DAILY_SQL):
         assert "JOIN v_planner_performance" not in query
-        assert "COALESCE({graded_day_expr}, ds.compliance_pct, 0)" in query
+        assert "COALESCE(ds.compliance_pct, 0)" in query
 
 
-def test_fixed_baseline_score_remains_compatible_before_graded_columns_exist():
+def test_fixed_baseline_score_is_served_band_compliance_only():
     generator = _load_baseline_generator()
 
-    rendered = generator.DAILY_SQL.format(graded_day_expr=generator._graded_day_expr(False))
-
-    assert "COALESCE(NULL::double precision, ds.compliance_pct, 0)" in rendered
-    assert generator.GRADED_DAILY_COL not in rendered
+    for query in (generator.PERIOD_SQL, generator.DAILY_SQL):
+        assert "compliance_v2" not in query
+        assert "graded" not in query

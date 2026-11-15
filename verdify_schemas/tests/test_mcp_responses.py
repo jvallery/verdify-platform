@@ -43,9 +43,10 @@ class TestClimateSnapshot:
 
 class TestScorecard:
     FULL_METRICS = {
-        "planner_score": Decimal("72.5"),
-        "planner_score_resource_weight_pct": Decimal("20"),
-        "resource_terms_available": Decimal("1"),
+        "scorecard_contract_version": Decimal("3"),
+        "planner_score": Decimal("88.0"),
+        "planner_score_resource_weight_pct": Decimal("0"),
+        "resource_terms_available": Decimal("0"),
         "compliance_pct": Decimal("88.0"),
         "temp_compliance_pct": Decimal("92.0"),
         "vpd_compliance_pct": Decimal("85.0"),
@@ -73,13 +74,17 @@ class TestScorecard:
     }
 
     def test_full_day_roundtrip(self):
-        """All canonical metrics round-trip with resource-score scope intact."""
+        """Contract 3: planner_score is compliance_pct; resource terms are informational (#1623)."""
         rows = [{"metric": m, "value": v} for m, v in self.FULL_METRICS.items()]
         s = ScorecardResponse.from_metric_rows(rows)
-        assert s.planner_score == 72.5
+        assert s.planner_score == s.compliance_pct == 88.0
         assert s.cost_total == 6.41
-        assert s.planner_score_resource_weight_pct == 20
-        assert s.resource_terms_available == 1
+        assert s.planner_score_resource_weight_pct == 0
+        assert s.resource_terms_available == 0
+        assert s.metric_semantics["binary_fields_verified"] is True
+        evidence = s.climate_evidence()
+        assert evidence["both_axis_compliance_pct"] == 88.0
+        assert not any("graded" in key or "observed_minute" in key for key in evidence)
         # Alias field read via Python identifier
         assert s.avg_score_7d == 68.3
         # Wire format preserves the `7d_*` keys
@@ -119,17 +124,14 @@ class TestScorecard:
           the deployed function dropped `7d_avg_stress` + `7d_avg_dp_risk`.
         Schema covers both until G15 resyncs migrations with live.
 
-        Plus the 9 graded + feasibility metrics modelled schema-first for the
-        migration-146/147 compliance rearchitecture (band-compliance §6-§7):
-        compliance_v2_raw/attributable/unachievable_frac, graded temp/vpd, and
-        4 graded_*_stress_h — accepted BEFORE fn_planner_scorecard emits them so
-        the extra='forbid' contract cannot 500 the public /api/v1/scorecard.
+        The 9 graded + feasibility metrics are retired (migration 309, #1623):
+        the served house band is the only temp/VPD basis.
 
         Plus the 6 ADR-0004 composite outcome-score metrics (schema-first,
         #388): outcome_score_composite + its component sub-scores — accepted
         BEFORE the #371 DB function emits them, same 500-proofing pattern."""
         names = ScorecardResponse.metric_names()
-        assert len(names) == 27 + 9 + 2 + 6 + 1
+        assert len(names) == 27 + 2 + 6 + 1
         assert "scorecard_contract_version" in names
         assert "metric_semantics" not in names  # metadata is not a numeric SQL metric
         assert "planner_score" in names
@@ -138,9 +140,11 @@ class TestScorecard:
         assert "7d_avg_dp_risk" in names  # CI-only until G15
         assert "planner_score_resource_weight_pct" in names
         assert "resource_terms_available" in names
-        # Graded compliance metrics (schema-first, migration 146/147).
-        assert "compliance_v2_attributable_pct" in names
-        assert "graded_vpd_high_stress_h" in names
+        # The retired crop-band graded metrics are rejected (migration 309, #1623).
+        assert "compliance_v2_attributable_pct" not in names
+        assert "graded_vpd_high_stress_h" not in names
+        with pytest.raises(ValidationError):
+            ScorecardResponse.from_metric_rows([("compliance_v2_attributable_pct", 85.8)])
         # ADR-0004 composite outcome score (schema-first, #388).
         assert OUTCOME_COMPOSITE_METRICS <= names
 
@@ -216,7 +220,7 @@ class TestOutcomeKpi:
             greenhouse_id="vallery",
             semantics="ADR-0004 outcome view",
             coverage=OutcomeKpiCoverage(moisture_estimator="available", vpd_policy_sequences="available"),
-            served_corridor={"attributable_pct": 91.2, "raw_pct": 84.0},
+            served_corridor={"both_pct": 91.2, "temp_pct": 84.0},
             pinched_corridor={"both_pct": None},
             vpd_misses_h={"high_stress_h": 2.4, "low_stress_h": 0.0},
             actuator_cycles={"fan1": 14, "fog": 3},
@@ -315,7 +319,7 @@ class TestOutcomeKpi:
         assert dumped["coverage"]["dli"] == "unavailable"
         assert dumped["dli"]["value_mol_m2_day"] is None
         assert dumped["dli"]["unavailable_reason"] == "interior_light_sensor_broken"
-        assert dumped["served_corridor"]["attributable_pct"] == 91.2
+        assert dumped["served_corridor"]["both_pct"] == 91.2
         assert dumped["action_scorecard"][0]["decisions"] == 7
         assert dumped["moisture_estimator"]["sample_count"] == 7
         assert dumped["moisture_estimator"]["by_action_reason"][0]["action"] == "vent_dehum"

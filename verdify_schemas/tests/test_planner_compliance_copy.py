@@ -1,15 +1,12 @@
-"""CI gate (G9): planner prompt + MCP scorecard copy describes GRADED / PER-ZONE /
-CONTROLLER-ATTRIBUTABLE compliance, with `compliance_v2_attributable_pct` named as
-the current scored field — NOT the old binary `compliance_pct` and NOT the
-superseded ADR-0003 target-hugging objective.
+"""CI gate: planner prompt + MCP scorecard copy describe ONE served-band measurement.
 
-Background: band-compliance-architecture.md §7.1 Family-2 introduced
-`compliance_v2_attributable_pct` (graded, per-zone, controller-attributable;
-migration 147). ADR-0004 later superseded target-line chasing. This guard keeps
-the prose Iris reads from regressing back to the old binary "both in the
-firmware-enforced band / this is the currently scored number" framing or the
-ADR-0003 "drive target deviation to zero" framing once a future edit touches the
-prompt or the scorecard tool docstring.
+#1623 (Jason, 2026-11-15): the dynamic served house band (band_house_* audit rows,
+graded by migration 290 into daily_summary.compliance_pct) is the only temperature/VPD
+measurement basis. planner_score = compliance_pct at 100% weight; resource cost is
+informational and never part of the reward; planning water excludes house/hose use.
+The retired crop-band grading (compliance_v2_*, graded_*, per-zone weights, the
+feasibility classifier) must not come back into the prose Iris reads, and ADR-0003
+target-hugging stays out.
 
 Pure text parsing — no DB, no ESPHome build, no module import side effects (mirrors
 test_planner_prompt_coverage.py). Run anchored to a fixed UTC capture timestamp so
@@ -24,7 +21,7 @@ import re
 
 # UTC capture timestamp for this copy snapshot (no bare-green: the assertions below
 # describe the copy as audited at this instant; a regression flips them red).
-SNAPSHOT_TS = dt.datetime(2026, 6, 1, 0, 0, 0, tzinfo=dt.UTC)
+SNAPSHOT_TS = dt.datetime(2026, 11, 15, 0, 0, 0, tzinfo=dt.UTC)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 PLANNER_PATH = REPO_ROOT / "ingestor" / "iris_planner.py"
@@ -33,15 +30,18 @@ MCP_SERVER_PATH = REPO_ROOT / "mcp" / "server.py"
 # The assembled planner prompt is these three module-level triple-quoted constants.
 _PROMPT_CONSTANTS = ("_STANDING_DIRECTIVES", "_PLANNER_EXTENDED", "_PLANNER_CORE")
 
-# Phrases that asserted the OLD binary semantics as the scored truth. Any of these
-# back in the planner-facing copy is a regression of the G9 rewrite.
-_FORBIDDEN_BINARY_FRAMINGS = (
-    "both in firmware-enforced band",
-    "both inside the firmware-enforced band",
-    "the currently scored number",
-    "current scored number",
-    "the live score still uses the binary",
-    "still uses the binary",
+# The retired crop-band grading and resource reward. Any of these back in the
+# planner-facing copy is a regression of #1623.
+_FORBIDDEN_RETIRED_GRADING = (
+    "compliance_v2",
+    "graded_",
+    "controller-attributable",
+    "feasibility classifier",
+    "unachievable",
+    "center 0.60",
+    "80/20",
+    "dev_temp_norm",
+    "dev_vpd_norm",
 )
 
 _FORBIDDEN_TARGET_HUGGING_FRAMINGS = (
@@ -101,28 +101,29 @@ def test_snapshot_ts_is_utc() -> None:
     assert SNAPSHOT_TS.utcoffset() == dt.timedelta(0)
 
 
-def test_planner_prompt_names_graded_attributable_score() -> None:
-    """The prompt must tell Iris the scored compliance is the graded,
-    controller-attributable, per-zone metric (`compliance_v2_attributable_pct`)."""
+def test_planner_prompt_names_one_served_band_score() -> None:
+    """The prompt tells Iris the score is served-band compliance_pct at 100% weight."""
     text = _prompt_text()
-    assert "compliance_v2_attributable_pct" in text, (
-        f"Planner prompt must name compliance_v2_attributable_pct as the scored compliance metric ({PLANNER_PATH})."
-    )
     lowered = text.lower()
-    for token in ("graded", "per-zone", "controller-attributable"):
-        assert token in lowered, f"Planner prompt must describe '{token}' compliance semantics ({PLANNER_PATH})."
+    for token in ("served house band", "band_house_*", "measurement contract 3", "compliance_pct"):
+        assert token.lower() in lowered, f"Planner prompt must name {token!r} ({PLANNER_PATH})."
+    assert "`planner_score` = `compliance_pct`, at 100% weight" in text
+    assert "0.74 kpa" in lowered and "dry-out" in lowered
 
 
-def test_planner_prompt_drops_binary_scored_framing() -> None:
-    """The old binary 'currently scored / firmware-enforced band' framing must be gone
-    from the planner-facing prompt prose."""
+def test_planner_prompt_drops_retired_grading() -> None:
     lowered = _prompt_text().lower()
-    offenders = [p for p in _FORBIDDEN_BINARY_FRAMINGS if p.lower() in lowered]
-    assert not offenders, (
-        f"Planner prompt still carries old binary-as-scored framing {offenders} "
-        f"({PLANNER_PATH}). compliance_pct is legacy/diagnostic context now; the score "
-        f"is compliance_v2_attributable_pct."
-    )
+    offenders = [p for p in _FORBIDDEN_RETIRED_GRADING if p.lower() in lowered]
+    assert not offenders, f"Planner prompt still carries retired crop-band grading {offenders} ({PLANNER_PATH})."
+
+
+def test_planner_prompt_keeps_resources_informational() -> None:
+    """Cost leaves the reward; electric heat1 is primary heat, never something to minimise."""
+    lowered = _prompt_text().lower()
+    assert "informational" in lowered
+    assert "never minimise heat1 runtime or cost" in lowered
+    assert "house/hose water is excluded" in lowered
+    assert "3.9x cheaper" not in lowered
 
 
 def test_planner_prompt_drops_target_hugging_framing() -> None:
@@ -132,45 +133,26 @@ def test_planner_prompt_drops_target_hugging_framing() -> None:
     assert not offenders, (
         f"Planner prompt still carries ADR-0003 target-hugging framing {offenders} "
         f"({PLANNER_PATH}). Target-reference deviation may be diagnostic, but the "
-        "planner must optimize corridor outcomes and resource use."
+        "planner must optimize served-band outcomes."
     )
 
 
-def test_planner_prompt_keeps_binary_as_legacy_context_only() -> None:
-    """`compliance_pct` may still appear, but only flagged as legacy/transitional —
-    never as the optimization target."""
-    lowered = _prompt_text().lower()
-    if "compliance_pct" in lowered:
-        assert "legacy" in lowered, (
-            f"compliance_pct still referenced but not flagged 'legacy' in the planner prompt ({PLANNER_PATH})."
-        )
-
-
-def test_scorecard_docstring_names_graded_attributable_score() -> None:
-    """Historical graded credit stays named, separate from versioned binary data."""
+def test_scorecard_docstring_names_one_served_band_score() -> None:
     body = _scorecard_docstring()
-    assert "compliance_v2_attributable_pct" in body, (
-        "scorecard() docstring must name compliance_v2_attributable_pct as the scored "
-        f"compliance metric ({MCP_SERVER_PATH})."
-    )
     lowered = body.lower()
-    for token in ("graded", "per-zone", "controller-attributable"):
-        assert token in lowered, (
-            f"scorecard() docstring must describe '{token}' compliance semantics ({MCP_SERVER_PATH})."
-        )
-    for token in ("scorecard_contract_version", "not measured crop compliance", "never widen"):
-        assert token in lowered
-    assert "widening the served envelope" not in lowered
-
-
-def test_scorecard_docstring_drops_binary_scored_framing() -> None:
-    """The scorecard docstring must not assert the binary compliance_pct is the live
-    score (it is the transitional fallback only)."""
-    lowered = _scorecard_docstring().lower()
-    offenders = [p for p in _FORBIDDEN_BINARY_FRAMINGS if p.lower() in lowered]
-    assert not offenders, (
-        f"scorecard() docstring still carries old binary-as-scored framing {offenders} ({MCP_SERVER_PATH})."
-    )
+    for token in (
+        "scorecard_contract_version",
+        "contract 3",
+        "served house band",
+        "band_house_*",
+        "planner_score = compliance_pct",
+        "never widen",
+        "informational",
+        "house/hose water",
+    ):
+        assert token in lowered, f"scorecard() docstring must name {token!r} ({MCP_SERVER_PATH})."
+    offenders = [p for p in _FORBIDDEN_RETIRED_GRADING if p.lower() in lowered]
+    assert not offenders, f"scorecard() docstring still carries retired grading {offenders} ({MCP_SERVER_PATH})."
 
 
 def test_scorecard_docstring_drops_target_hugging_framing() -> None:
