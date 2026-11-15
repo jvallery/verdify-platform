@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import { expect, test } from "vitest";
-import type { ScheduleAgenda } from "../../lib/operator-api";
 import { scheduleOverview } from "./overview";
 
 test("routine rules, conditional windows and actual planned starts are distinct", () => {
@@ -12,7 +11,7 @@ test("routine rules, conditional windows and actual planned starts are distinct"
       { slot_id: 1, line_id: "L01", status: "blocked", planned_start: "2026-11-15T14:02:00Z" },
       { slot_id: 1, line_id: "L01", status: "planned", planned_start: "2026-11-15T15:00:00Z" },
     ],
-  } as Pick<ScheduleAgenda, "schedules" | "occurrences">;
+  } satisfies Parameters<typeof scheduleOverview>[0];
   const summary = scheduleOverview(agenda, "2026-11-15", Date.parse("2026-11-15T13:00:00Z"));
   expect(summary).toMatchObject({ routine: 1, backup: 1, disabled: 1, next: { slot_id: 1, planned_start: "2026-11-15T15:00:00Z" } });
   expect(scheduleOverview(agenda, "2026-11-16", Date.parse("2026-11-15T13:00:00Z")).next).toBeNull();

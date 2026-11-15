@@ -6,7 +6,10 @@ import type { LineInfo } from "./model";
 
 /** A saved rule is not a run. Count enabled rules separately from occurrences and never call a backup window
  * routine watering. The next start is only a plan; controller confirmation and line interlocks still apply. */
-export function scheduleOverview(agenda: Pick<ScheduleAgenda, "schedules" | "occurrences">, day: string, now: number) {
+export function scheduleOverview(agenda: {
+  schedules: readonly Pick<ScheduleAgenda["schedules"][number], "slot_id" | "enabled" | "degraded_only">[];
+  occurrences: readonly Pick<ScheduleAgenda["occurrences"][number], "slot_id" | "line_id" | "status" | "planned_start">[];
+}, day: string, now: number) {
   const enabled = agenda.schedules.filter((rule) => rule.enabled);
   const bySlot = new Map(enabled.map((rule) => [rule.slot_id, rule]));
   const occurrences = agenda.occurrences.filter((run) => localDate(run.planned_start) === day);
