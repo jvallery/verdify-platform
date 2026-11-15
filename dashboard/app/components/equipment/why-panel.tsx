@@ -47,10 +47,10 @@ function WhyRow({ family, label, reason }: { family: ReasonKey; label: string; r
 
 /**
  * Why (SCR-07, US-EQP-02): `mode_reason`, `fog_block_reason` and `moisture_block_reason` from the board's own API-13
- * read, so it refreshes with the board. A card under the three groups, one row per reason at every width.
+ * read, so it refreshes with the board. Lead with reported reasons before the equipment list, one row at every width.
  */
 export function WhyPanel({ equipment, state, onRetry }: { equipment: Equipment | null | undefined; state: PanelState; onRetry?: () => void }) {
-  return <Panel title="Why" thing="the reasons" state={state} reserve="sm" onRetry={onRetry}>
+  return <Panel id="why" title="Why" eyebrow="Controller decisions" thing="the reasons" state={state} reserve="sm" onRetry={onRetry}>
     <ul className="why-rows">
       {WHY_ROWS.map(({ key, label }) => <WhyRow key={key} family={key} label={label} reason={equipment?.[key] ?? null} />)}
     </ul>

@@ -5,7 +5,7 @@ import { lineById, lineDisplayName } from "../lib/lines";
 import { newIdempotencyKey, type IrrigationLine, type IrrigationStatus, type Schedule, type ScheduleAgenda } from "../lib/operator-api";
 import { PAST_CAP_TEXT, previewSchedule, weekdayOf, type ScheduleDraft } from "../lib/schedule-preview";
 import { outOfRange, parseWhole, rangeText } from "../lib/setting-values";
-import { PHYSICAL_LINES, SCHEDULE_LINES, physicalOf } from "../lib/water";
+import { PHYSICAL_LINES, SCHEDULE_LINES, amountWords, daysWords, physicalOf, startWords } from "../lib/water";
 import { MANUAL_DEFAULT, useProgramWrite, type WriteError } from "../lib/writes";
 import { Badge } from "./badge";
 import { Button } from "./button";
@@ -362,6 +362,12 @@ export function ScheduleEditor({ slotId, schedule, agenda, status, today, now, o
     <Reason value={form.reason} onChange={(reason) => update({ reason })} error={fieldError("reason")} />
     <section className="schedule-preview">
       <h3 className="sch-preview-title">Before you save</h3>
+      {draft && <div className="schedule-draft-summary" aria-label="Your schedule in words">
+        <p className="eyebrow">{draft.enabled ? draft.degraded_only ? "CONDITIONAL BACKUP" : "ROUTINE WATERING" : "SAVED BUT DISABLED"}</p>
+        <p><strong>{lineDisplayName(draft.line_id)}</strong> · {daysWords(draft.days)} at {startWords(draft.start, agenda.solar.find((day) => day.date === today))}</p>
+        <p>{amountWords(draft, kind, partner)}</p>
+        <p className="meta">{draft.manual ? "Iris will leave this rule unchanged." : "Iris may adjust this rule."}{draft.degraded_only ? " It runs only if VPD sensing is degraded." : ""} Saving requests a program update; controller readback confirms it.</p>
+      </div>}
       {!preview && <p className="field-hint">Enter a valid start and a whole number in each field to preview it.</p>}
       {refusals.length > 0 && <ul className="sch-checks sch-checks-refusal">{refusals.map((check) => <li key={check.code} data-check={check.code}>{check.text}</li>)}</ul>}
       {preview?.totals.map((row) => <div key={row.line_id} className="schedule-preview-line" data-line={row.line_id}>

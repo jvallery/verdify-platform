@@ -4,6 +4,7 @@
 .app-page{background:var(--field)}
 .app-page>main{padding-top:2rem;padding-bottom:3rem}
 .app-page .card{background:#fff;box-shadow:var(--shadow-xs);border-radius:1rem}
+@media(min-width:861px){.now-hero-value .hero-temp{font-size:clamp(3.5rem,5vw,5rem)}}
 .page-header{margin-bottom:2rem;grid-template-areas:"crumbs crumbs" "title actions" "description description" "status status"}
 .page-header h1{font-size:clamp(2rem,3.5vw,3rem);letter-spacing:-.045em}
 .primary-nav .nav-icon{flex:none}
@@ -55,6 +56,34 @@
 .page-tabs{border-bottom:1px solid var(--line);padding-bottom:.75rem;margin-bottom:1.5rem}
 .page-tabs .chip{border-radius:.5rem}
 .ctl-settings-main{min-width:0}
+.schedule-draft-summary{padding:1rem;margin:.75rem 0;background:var(--field);border-left:3px solid var(--forest);border-radius:.5rem}
+.schedule-draft-summary p+p{margin-top:.5rem}
+#why{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem);margin-bottom:1.5rem}
+.settings-overview{margin-bottom:2rem;border:1px solid var(--line);border-radius:1rem;background:#fff;padding:1.5rem}
+.settings-overview-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:2rem;padding-bottom:1.25rem;border-bottom:1px solid var(--line)}
+.settings-overview-heading h2{font-size:1.3rem;letter-spacing:-.025em}
+.settings-overview-heading>p{max-width:43ch;color:var(--muted);font-size:var(--fs-sm)}
+.settings-overview-columns{display:grid;grid-template-columns:1fr 2fr;gap:2rem;padding-top:1.25rem}
+.settings-overview h3{font-size:1rem;margin-bottom:.5rem}
+.settings-authority>strong{font-size:1.65rem;letter-spacing:-.035em}
+.settings-authority p,.settings-attention>p{font-size:var(--fs-sm);color:var(--muted);line-height:1.5;margin:.5rem 0}
+.settings-authority>a{display:inline-flex;min-height:44px;align-items:center;font-weight:600}
+.settings-attention ul{list-style:none;padding:0;margin:0}
+.settings-attention li{padding:.65rem 0;border-bottom:1px solid var(--line)}
+.settings-attention li>a{display:flex;justify-content:space-between;gap:1rem;min-height:44px;align-items:center;text-decoration:none}
+.settings-attention li>a:hover strong{text-decoration:underline}
+.settings-attention li>a>span{font-size:var(--fs-sm)}
+@media(max-width:860px){.settings-overview{padding:1rem}.settings-overview-heading{display:block}.settings-overview-heading>p{margin-top:.5rem}.settings-overview-columns{grid-template-columns:1fr;gap:1rem}.settings-attention li>a{flex-wrap:wrap;gap:.25rem}}
+.schedule-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin:1rem 0 1.5rem}
+.schedule-overview-card{display:flex;flex-direction:column;align-items:flex-start;gap:.65rem;padding:1.25rem;border:1px solid var(--line);border-radius:1rem;background:#fff;color:var(--ink);text-decoration:none;min-width:0}
+.schedule-overview-card strong{font-size:1.45rem;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.schedule-overview-card>span:not(.eyebrow){font-size:var(--fs-sm);line-height:1.5}
+.schedule-overview-card>span:not(.eyebrow):not(.schedule-overview-action){color:var(--muted)}
+.schedule-overview-backup{border-style:dashed;background:var(--field)}
+.schedule-overview-action{margin-top:auto;padding-top:.4rem;color:var(--forest);font-weight:600}
+a.schedule-overview-card:hover{border-color:var(--forest);box-shadow:var(--shadow-sm)}
+#sch-rules-title{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem)}
+@media(max-width:860px){.schedule-overview{grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}.schedule-overview-card{padding:1rem}.schedule-overview-card:last-child{grid-column:1/-1}.schedule-overview-card strong{font-size:1.25rem}}
 @media(max-width:1099px){.settings-tasks{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:480px){.settings-tasks{gap:.6rem}.settings-tasks>a{padding:.85rem;min-height:10rem}}
 

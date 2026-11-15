@@ -178,12 +178,12 @@ test("a cursor on one panel turns every header row into the values there, with o
 test("the story line states time in band and up to three excursions, worst first; each opens its stretch with half an hour either side", async () => {
   chartStubs();
   await open("/graphs?range=24h&set=", { fixture: "in-band" });
-  expect(status()).toBe("Last 24 h: in band 100% of points · no excursions");
+  expect(status()).toBe("Last 24 h: Temperature 100% in band · VPD 100% in band · based on graded points · no excursions");
   cleanup(); stopFixtureApi(); MockPlot.reset(); chartStubs();
   // The band narrowed to 64.5–68.0 °F: too cold overnight and too warm again from mid-morning.
   await open("/graphs?range=24h&set=&cmp=day", { fixture: "graphs-excursions" });
   // Worst first: the night's long cold stretch, yesterday's warm afternoon from the window's start, then this morning's.
-  expect(status()).toMatch(/^Last 24 h: in band \d\d% of points · 3 excursions: too cold Nov 1, 2\d:\d\d–Nov 2, 0[45]:\d\d \(low 63\.0 °F\), too warm Nov 1, 10:42–16:\d\d \(peak 69\.0 °F\), too warm Nov 2, 09:\d\d–10:4\d \(peak 68\.\d °F\)$/);
+  expect(status()).toMatch(/^Last 24 h: Temperature \d\d% in band · VPD 100% in band · based on graded points · 3 excursions: too cold Nov 1, 2\d:\d\d–Nov 2, 0[45]:\d\d \(low 63\.0 °F\), too warm Nov 1, 10:42–16:\d\d \(peak 69\.0 °F\), too warm Nov 2, 09:\d\d–10:4\d \(peak 68\.\d °F\)$/);
   const stretches = within(document.querySelector<HTMLElement>(".page-status")!).getAllByRole("link");
   expect(stretches).toHaveLength(3);
   // Each link opens the stretch ±30 min as an exact window, keeping the rest of the view.

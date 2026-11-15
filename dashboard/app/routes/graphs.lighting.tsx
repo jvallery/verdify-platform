@@ -253,6 +253,8 @@ export default function GraphsLighting() {
       lanes={<EquipmentLanes states={lanes.data} xRange={x} syncKey={`verdify:graphs-lighting:${key}`} now={now ?? undefined} message={lanesMessage} zoomControl={false} systems={["lighting", "sensors"]} open={["sensors"]} lightWrites={lightWrites.data?.items ?? null} />}
       foot={<ResolutionLine window={window} bucketSeconds={bucket} daily={daily} now={now} />} />
     <section className="card gr-light-card" aria-label="Light minutes by day">
+      <h2>Did each circuit meet its light policy?</h2>
+      <p className="meta">A minute qualifies inside the configured light window when outdoor lux is high enough or the light is on. This is the controller's light-duration policy; it does not measure light received at the plants.</p>
       <LightDays data={days.data} message={daysMessage} />
       <p className="meta">{DLI_TEXT}</p>
     </section>

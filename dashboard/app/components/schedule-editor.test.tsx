@@ -93,6 +93,12 @@ async function fillWallMwf() {
 test("creating L01 Mon, Wed, Fri at sunrise + 60 for 12 min previews against the 60 min cap, then reads REQUESTED, then CONFIRMED on the hash, and Activity lists it", async () => {
   const api = open(NEW);
   await fillWallMwf();
+  const summary = text(drawer()!.querySelector(".schedule-draft-summary"));
+  expect(summary).toContain("ROUTINE WATERING");
+  expect(summary).toContain("Wall drip");
+  expect(summary).toContain("12 min");
+  expect(summary).toContain("Iris will leave this rule unchanged.");
+  expect(summary).toContain("controller readback confirms it");
   // The draft draws dashed on the timeline of the next day it runs (today), and the drawer reads its totals; nothing sent yet.
   expect(shownDay()).toBe("Monday, Nov 2 · today");
   expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Mon 07:35, 12 min, draft, not saved, planned", draft: true, hatched: false, capped: false, conflict: false }]);

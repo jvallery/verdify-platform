@@ -7,6 +7,7 @@ import { SettingsCatalog, groupRows } from "../components/control/settings-catal
 import { SettingDrawerHost, useReadbackStale, useSettingEdit, withParams } from "../components/control/setting-drawer";
 import { STATE_WORDS, SettingsLegend } from "../components/control/setting-help";
 import { SettingsGlossary } from "../components/control/settings-glossary";
+import { SettingsOverview } from "../components/control/settings-overview";
 import { SettingsRail, type RailFilter, type RailGroup } from "../components/control/settings-rail";
 import { SoilTargetsPanel } from "../components/control/soil-targets";
 import { AgeLabel, useClockValue } from "../components/freshness";
@@ -16,6 +17,7 @@ import type { Setting } from "../lib/operator-api";
 import { useSettingsRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
 import { useShellNow } from "../lib/shell";
+import { matchesSettingSearch } from "../lib/settings-context";
 import { Panel } from "../components/panel";
 import { GlossaryList } from "../components/term";
 import { GLOSSARY } from "../lib/glossary";
@@ -45,6 +47,7 @@ export function settingFilters(window: RecentWindow = "24h"): readonly Filter[] 
   const span = RECENT_WINDOWS[window];
   return [
     { key: "all", label: "All", definition: "Every setting, retired ones only while shown.", test: () => true, empty: "No settings yet" },
+    { key: "attention", label: "Pending changes", definition: "Waiting, held or not confirmed by controller readback.", test: (row) => ["requested", "held", "not_confirmed"].includes(row.state), empty: "No pending setting changes" },
     {
       key: "recent", label: `Changed in the last ${span.label}`,
       definition: `A value in force written in the last ${span.label}: by a person, an agent or an Iris plan.`,
@@ -79,11 +82,8 @@ export function servesWriteTime(items: readonly Setting[] | null): boolean {
   return written.length === 0 || written.some((row) => Number.isFinite(Date.parse(row.desired!.created_at)));
 }
 
-/** Search matches the plain label and the key, case-insensitively. */
-export function matchesSearch(row: Pick<Setting, "label" | "param">, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  return !needle || row.label.toLowerCase().includes(needle) || row.param.toLowerCase().includes(needle);
-}
+/** Search includes the served explanation of what a setting changes, without depending on its live value. */
+export const matchesSearch = matchesSettingSearch;
 
 /**
  * The status line: "261 settings · 0 waiting · 0 not applied · 3 manual" (#1333); on a phone (`short`, redesign §5.10)
@@ -166,6 +166,7 @@ export default function Settings() {
       <Link to="/water/schedules"><span className="eyebrow">IRRIGATION</span><strong>Watering schedules</strong><span>Plan runs, review limits and pause a line.</span></Link>
       <Link to="/settings#soil-targets"><span className="eyebrow">ROOT ZONE</span><strong>Soil moisture targets</strong><span>Configure the ranges for each probe zone.</span></Link>
     </nav>}
+    {!query && filter.key === "all" && !glossary && <SettingsOverview rows={items} failed={read.isError} stale={readbackStale} editTo={editTo} />}
     <div className="l-rail ctl-settings">
       <SettingsRail filters={rail} groups={railGroups(pool, shown ?? [])} foot={foot} />
       <div className="ctl-settings-main">

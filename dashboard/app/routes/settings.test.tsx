@@ -162,12 +162,25 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
   expect(screen.queryAllByRole("link", { name: /^History of / })).toEqual([]);
 });
 
+test("the control desk surfaces held and unconfirmed changes without claiming their requested values are applied", async () => {
+  await open("/settings", { patch: (items) => items.map((row) => row.param === "mister_engage_kpa"
+    ? { ...row, state: "held" } : row.param === "mister_pulse_gap_s" ? { ...row, state: "not_confirmed" } : row) });
+  const desk = screen.getByRole("region", { name: "Understand a change before making it." });
+  expect(within(desk).getByRole("heading", { name: "2 changes need a look" })).toBeTruthy();
+  expect(within(desk).getAllByText(/Reported:/)).toHaveLength(2);
+  fireEvent.click(screen.getByRole("link", { name: "Pending changes 2" }));
+  await settle();
+  expect(here()).toBe("/settings?filter=attention");
+  expect(shown()).toEqual(expect.arrayContaining(["mister_engage_kpa", "mister_pulse_gap_s"]));
+  expect(shown()).toHaveLength(2);
+});
+
 test("the rail's filters count and filter the rows and survive a reload of the URL; its groups count what shows; search matches the label and the key", async () => {
   await open("/settings");
   const items = unretired(served());
   const readOnly = items.filter((row) => !row.writable).length;
   expect(chips()).toEqual([
-    [`All ${items.length}`, "true"], ["Changed in the last 24 h 5", null], ["Waiting for controller 0", null], ["Not applied 0", null], ["Manual (Iris skips) 0", null],
+    [`All ${items.length}`, "true"], ["Pending changes 0", null], ["Changed in the last 24 h 5", null], ["Waiting for controller 0", null], ["Not applied 0", null], ["Manual (Iris skips) 0", null],
     ["Set by Iris or an agent 4", null], [`Read-only ${readOnly}`, null],
   ]);
   // Each filter says what it keeps (#1333): the item's title, and the legend under the rail on every width.
@@ -210,7 +223,7 @@ test("the rail's filters count and filter the rows and survive a reload of the U
   fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "pulse gap" } });
   await settle();
   expect(here()).toBe("/settings?q=pulse+gap");
-  expect(shown()).toEqual(["mister_pulse_gap_s"]);
+  expect(shown()).toContain("mister_pulse_gap_s");
   fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "engage_delay" } });
   await settle();
   expect(shown()).toEqual(["mister_engage_delay_s"]);
@@ -226,7 +239,7 @@ test("the rail's filters count and filter the rows and survive a reload of the U
   cleanup();
   stopFixtureApi();
   await open("/settings?q=pulse+gap");
-  expect(shown()).toEqual(["mister_pulse_gap_s"]);
+  expect(shown()).toContain("mister_pulse_gap_s");
   expect((screen.getByRole("searchbox", { name: "Search settings" }) as HTMLInputElement).value).toBe("pulse gap");
 });
 

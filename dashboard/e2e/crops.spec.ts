@@ -9,6 +9,22 @@ const cell = (page: Page, label: string) => page.locator(`button[data-cell="${la
 const toolbar = (page: Page) => page.getByRole("region", { name: "Selection" });
 const dialog = (page: Page) => page.getByRole("dialog");
 
+test("planting history keeps readable records and offers recovery when ended records fail", async ({ page, request }) => {
+  await useScreensClock(page, request, "crops-planted");
+  await page.route("**/api/v1/crops/plantings?*", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("active") === "false") {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Unavailable" }) });
+    } else await route.continue();
+  });
+  await load(page, "/crops/history");
+  await expect(page.getByText("Planting history is incomplete or could not be refreshed. Records below may be out of date.")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Plantings" })).toBeVisible();
+  await expect(page.getByRole("rowheader", { name: "Canna Lilies" })).toBeVisible();
+  await expect(page.getByText("Loading the planting history")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  expect(await fixtureWrites(request)).toEqual([]);
+});
+
 for (const viewport of [DESKTOP, PHONE]) {
   test(`${viewport.width} px: the map draws the 60-cell rack and every wall, the history lists the plantings, and both are axe clean`, async ({ page, request }) => {
     await page.setViewportSize(viewport);

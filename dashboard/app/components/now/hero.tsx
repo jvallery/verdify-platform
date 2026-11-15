@@ -244,7 +244,6 @@ export function NowHero({ now, answer, irrigation, day, daily, onRetry }: NowHer
       <span className="eyebrow">{NOW_EYEBROW}</span>
       <h1 id={headingId} className="hero-answer"><AnswerTitle answer={answer} /></h1>
       <AnswerDetail answer={answer} />
-      <NowSnapshot snapshot={now?.snapshot} clock={clock} muted={muted || apiDown} />
       <p className="now-hero-value">
         <span className={cls("hero-temp", muted && "value-muted")} data-hero-value="">{formatValue(missing ? null : temp.value, "°F")}</span>
         {inBand && <span className="now-hero-verdict">{words("band_verdict", "in")}</span>}
@@ -258,6 +257,7 @@ export function NowHero({ now, answer, irrigation, day, daily, onRetry }: NowHer
         </Link>
         {answer.row === 1 && <Button onClick={onRetry}>Retry</Button>}
       </p>
+      <NowSnapshot snapshot={now?.snapshot} clock={clock} muted={muted || apiDown} />
     </div>
     {rows && <div className="now-hero-climate" data-stale={muted ? "" : undefined}>
       {muted && <BandsAsOf rows={rows} clock={clock} />}

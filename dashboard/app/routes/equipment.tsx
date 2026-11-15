@@ -109,6 +109,7 @@ export default function Equipment() {
   return <>
     <PageHeader view="control-equipment" status={<ControllerStatus />} statusShort={<ControllerStatus short />} actions={<FindSetting />} />
     <div className="page ctl-equipment">
+      <WhyPanel equipment={equipment.data} state={state} onRetry={retry} />
       <div className="ctl-board equipment-board">
         <div className="ctl-board-col">
           {state === "error" ? <BoardError onRetry={retry} /> : <>{board("climate")}{board("light")}</>}
@@ -121,7 +122,6 @@ export default function Equipment() {
       </div>
       <div className="ctl-equipment-more">
         <BurstPanel />
-        <WhyPanel equipment={equipment.data} state={state} onRetry={retry} />
         <LanesPanel />
         <DailyRuntime today={today} />
       </div>
