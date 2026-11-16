@@ -436,8 +436,10 @@ def reviewer_write_alert(row: Mapping | None) -> dict | None:
 
 
 # ── Gap 4: the law's state record stale while the controller is connected ────
-# Gated on the law firmware being installed (a climate_law_state row in the last 7 days), on the controller being
-# connected (a diagnostics row in 2 min) and on the 60 s boot grace being over (uptime past 240 s).
+# Gated on the law firmware being installed (a climate_law_state row in the last 7 days) and RUNNING: the firmware
+# version reported now equals the one reported when the newest law record arrived, so a rollback to a build without
+# the law is not judged (release 3 review ALERTS-4); on the controller being connected (a diagnostics row in 2 min)
+# and on the 60 s boot grace being over (uptime past 240 s).
 LAW_STALE_AFTER_S = 180.0
 LAW_STATE_SQL = """
 SELECT (SELECT EXTRACT(EPOCH FROM now() - s.ts)::double precision FROM system_state s
@@ -445,13 +447,22 @@ SELECT (SELECT EXTRACT(EPOCH FROM now() - s.ts)::double precision FROM system_st
        (SELECT EXTRACT(EPOCH FROM now() - d.ts)::double precision FROM diagnostics d
          WHERE d.ts > now() - interval '10 minutes' ORDER BY d.ts DESC LIMIT 1) AS diag_age_s,
        (SELECT d.uptime_s FROM diagnostics d
-         WHERE d.ts > now() - interval '10 minutes' AND d.uptime_s IS NOT NULL ORDER BY d.ts DESC LIMIT 1) AS uptime_s
+         WHERE d.ts > now() - interval '10 minutes' AND d.uptime_s IS NOT NULL ORDER BY d.ts DESC LIMIT 1) AS uptime_s,
+       (SELECT d.firmware_version FROM diagnostics d
+         WHERE d.ts > now() - interval '7 days' AND d.firmware_version IS NOT NULL ORDER BY d.ts DESC LIMIT 1) AS fw_now,
+       (SELECT d.firmware_version FROM diagnostics d
+         WHERE d.firmware_version IS NOT NULL AND d.ts > now() - interval '8 days'
+           AND d.ts <= (SELECT max(s.ts) FROM system_state s
+                         WHERE s.entity = 'climate_law_state' AND s.ts > now() - interval '7 days')
+         ORDER BY d.ts DESC LIMIT 1) AS fw_law
 """
 
 
 def law_state_alert(row: Mapping | None) -> dict | None:
     if not row or row["law_age_s"] is None or row["diag_age_s"] is None or row["uptime_s"] is None:
         return None
+    if row["fw_now"] is None or row["fw_now"] != row["fw_law"]:
+        return None  # not the build that published the law record (rollback, or an unknown version)
     age = float(row["law_age_s"])
     if age <= LAW_STALE_AFTER_S or float(row["diag_age_s"]) > 120 or float(row["uptime_s"]) <= 240:
         return None

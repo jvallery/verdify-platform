@@ -158,11 +158,17 @@ def test_reviewer_write_is_judged_after_the_first_counters_row_plus_the_grace_as
 
 def test_law_state_stale_needs_the_law_installed_and_the_controller_connected(dsn):
     async def body(conn, t0):
+        diag = "INSERT INTO diagnostics (ts, uptime_s, firmware_version) VALUES ($1, $2, $3)"
+        await conn.execute(diag, t0 - 30 * MIN, 1800.0, "law-1")
         await conn.execute("INSERT INTO diagnostics (ts, uptime_s) VALUES ($1, 3600)", t0 - MIN)
         assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None  # law firmware never seen
         await state(conn, t0 - 5 * MIN, "climate_law_state", '{"v":1,"l":0}')
         env = cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL))
         assert env is not None and 290 < env["details"]["age_s"] < 310
+        await conn.execute(diag, t0 - 2 * MIN, 400.0, "pre-law")  # rolled back to a build without the law
+        assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None
+        await conn.execute(diag, t0 - 90 * timedelta(seconds=1), 500.0, "law-1")
+        assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is not None  # the law build is back
         await state(conn, t0 - MIN, "climate_law_state", '{"v":1,"l":0}')
         assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None
 
