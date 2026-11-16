@@ -204,7 +204,8 @@ def desired(
     }
 
 
-# The screens' values (SCR-01, SCR-03, SCR-05): Iris's 07:02 plan, an agent's value and a forecast rule's, the L01
+# The screens' values (SCR-01, SCR-03, SCR-05): Iris's 07:02 plan, an agent's value and a forecast rule's (on rows the
+# third flash kept, RULINGS AE7a), the L01
 # bridge's duration and the site caps in program rev 42. Every other row reads its registry default, confirmed.
 SCENARIO: dict[str, dict[str, Any]] = {
     "mister_engage_kpa": {
@@ -219,12 +220,12 @@ SCENARIO: dict[str, dict[str, Any]] = {
         "applied_from": "plan",
     },
     "mister_pulse_on_s": {"readback": reading(60.0, ago(60))},
-    "fog_rh_ceiling_pct": {
-        "readback": reading(88.0, at("06:48")),
+    "mister_water_budget_gal": {
+        "readback": reading(250.0, at("06:48")),
         "desired": desired(
             41,
-            "fog_rh_ceiling_pct",
-            88.0,
+            "mister_water_budget_gal",
+            250.0,
             source="agent:steward",
             name="steward",
             manual=False,
@@ -234,7 +235,7 @@ SCENARIO: dict[str, dict[str, Any]] = {
         ),
         "applied_from": "desired",
     },
-    "sw_economiser_enabled": {
+    "sw_gl_main_solar_phasing": {
         "readback": reading(0.0, at("06:31")),
         "plan": {
             "value": 0.0,

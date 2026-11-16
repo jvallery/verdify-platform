@@ -45,7 +45,6 @@ from verdify_schemas.tunable_registry import (  # noqa: E402
 )
 
 T0 = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
-SAFETY_READBACKS = {"safety_max": 100.0, "safety_min": 40.0}
 SITE_PRESSURE = "site_pressure_hpa"
 FORECAST_PLAN = "preemptive-20261102-1159"
 
@@ -315,7 +314,7 @@ class Controller:
 
     def connect(self, values: dict[str, float], *, hold_back: frozenset[str] = frozenset()) -> None:
         """A (re)connect replays every writable value; ``hold_back`` ones arrive later."""
-        self.values = {**values, **SAFETY_READBACKS}
+        self.values = dict(values)
         self.pending.clear()
         self.generation = shared.note_transport_connected(frozenset(self.values))
         for param, value in self.values.items():
@@ -1074,10 +1073,7 @@ def test_only_values_a_dispatcher_block_resolves_count_as_dispatcher_defaults():
         assert dispatcher._dispatcher_resolves(param, lighting_circuit=False), param
         assert not dispatcher._dispatcher_resolves(param, lighting_circuit=True), param
     for param in (
-        dispatcher.LIGHTING_CIRCUIT_RESOLVED_PARAMS
-        | _common.DIRECT_WET_POLICY_PARAMS
-        | _common.SAFETY_PARAMS
-        | _common.MISTER_DEFAULTS
+        dispatcher.LIGHTING_CIRCUIT_RESOLVED_PARAMS | _common.DIRECT_WET_POLICY_PARAMS | _common.MISTER_DEFAULTS
     ):
         assert dispatcher._dispatcher_resolves(param, lighting_circuit=True), param
 

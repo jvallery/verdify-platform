@@ -16,14 +16,14 @@ _IRRIGATION_RETIRED = (
     "The controller ignores it and it stays at zero. Scheduled dawn and midday watering is retired; "
     "the center misters now follow only the normal VPD-driven misting."
 )
-_IRRIGATION_REFS = (f"{_CONTROLS}::Deliberate dawn/midday center watering is retired",)
+_IRRIGATION_REFS = (f"{_REG}::Retired irrigation compatibility readback; ignored by firmware and fixed at zero.",)
 _MICROPULSE_RETIRED = (
     "The overnight micro-pulse path was removed from the controller, so nothing reads this value. "
     "Night wetting now follows the night VPD band and the Night Stress Min Dew Margin."
 )
 _MICROPULSE_REFS = (
     "firmware/greenhouse/globals.yaml::CYC-4 overnight micro-pulse path DELETED",
-    f"{_CONTROLS}::night emergency wetting (replaces CYC-4 micropulse)",
+    f"{_REG}::the CYC-4 overnight micro-pulse path was deleted from the firmware",
 )
 
 ENTRIES: dict[str, HelpEntry] = {
@@ -151,7 +151,7 @@ ENTRIES: dict[str, HelpEntry] = {
             "The controller always forces this ON and runs the band-first controller. Turning it off has no "
             "effect; going back to the old controller would need a controller software rollback."
         ),
-        refs=(f"{_CONTROLS}::setpts.sw_fsm_controller_enabled = true;",),
+        refs=(f"{_REG}::THIRD_FLASH_RETIRED_REG",),
     ),
     "feed_start_hour": HelpEntry(
         label="Feed Start Hour",

@@ -159,7 +159,11 @@ _LEGACY_TEMP_REFS = (
     f"{_CONTROLS}::target_temp_low_f",
     f"{_DISPATCHER}::anchors_live",
 )
-_LEGACY_VPD_REFS = (f"{_CONTROLS}::sw_onchip_band_enabled", f"{_CONTROLS}::VPDhi", f"{_DISPATCHER}::anchors_live")
+_LEGACY_VPD_REFS = (
+    f"{_CONTROLS}::sw_onchip_band_enabled",
+    f"{_CONTROLS}::sv2_vpd_high  = id(target_vpd_high_kpa);",
+    f"{_DISPATCHER}::anchors_live",
+)
 
 
 def _legacy_edge(axis: str, side: str, refs: tuple[str, ...]) -> HelpEntry:
@@ -186,14 +190,11 @@ def _zone_target(zone: str, crop: str | None) -> HelpEntry:
     )
     return HelpEntry(
         summary=f"VPD target for the {zone} zone, worked out by the platform each cycle from the zone's target curve.",
-        effect=(
-            f"{use} The platform sends it each cycle from the zone's VPD target curve under Crop band, so "
-            f"this value itself is not editable."
-        ),
+        effect=(f"{use} The controller no longer has this setting, so nothing sends it and it is not editable."),
         caution="Read-only. Edit the zone's VPD target curve under Crop band to change how the zone is misted.",
         refs=(
             "firmware/lib/climate_law.h::zone = verdify_irr::irr_rank_vpd_zone(allowed, intents, rank);",
-            f"{_DISPATCHER}::fn_zone_vpd_targets",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
         ),
     )
 
@@ -255,7 +256,7 @@ ENTRIES: dict[str, HelpEntry] = {
             "misting at dusk and at night now follows the VPD band curve, whose evening edge keeps nights dry."
         ),
         caution="To keep evenings drier, raise the evening and night VPD band under Crop band instead.",
-        refs=(f"{_LOGIC}::past_wet_taper", f"{_CONTROLS}::wet_taper_before_sunset_min"),
+        refs=(f"{_LOGIC}::past_wet_taper", "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG"),
     ),
     "manual_override_timeout_min": HelpEntry(
         summary="How long a press of a panel button (fan burst, fog burst, vent bypass) lasts, in minutes.",

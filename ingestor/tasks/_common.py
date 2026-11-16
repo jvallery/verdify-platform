@@ -643,9 +643,6 @@ QUIET_STATE_ENTITIES = (
 )
 
 
-SAFETY_PARAMS = frozenset({"safety_max", "safety_min"})
-
-
 MISTER_DEFAULTS = frozenset(
     {
         "mister_engage_kpa",
@@ -893,7 +890,6 @@ __all__ = [
     "AI_MOISTURE_STRESS_POLICY_PARAMS",
     "AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS",
     "QUIET_STATE_ENTITIES",
-    "SAFETY_PARAMS",
     "MISTER_DEFAULTS",
     "_PHYSICS_INVARIANTS",
     "_DENVER",

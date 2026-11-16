@@ -3340,9 +3340,135 @@ for _name, _spec in list(REGISTRY.items()):
     elif _spec.label is None:
         REGISTRY[_name] = _spec.model_copy(update={"label": _name})
 
+# ── The third flash (#1633 package 4.3, RULINGS AD1, AE7a) ─────────────────────
+# The firmware no longer has these settings: no number or switch entity, no cfg_* readback, no global. Their rows are
+# turned off here, in the same commit as the firmware deletions, so the drift guards see one tree; host release 4
+# deletes the rows and everything that names them (help, offers, dashboard labels, SQL and Grafana readers).
+# - THIRD_FLASH_RETIRED_REG: entity-less (no esp_object_id, no readback), not planner-pushable and retired.
+# - THIRD_FLASH_INERT_WIRE_REG: the 43 policy-wire fields among them. Retiring a wire field is a wire-schema change
+#   (WIRE_SCHEMA_VERSION and the firmware's policy header), which host release 4 decides (contracts section 4), so
+#   these keep their row and wire slot as inert slots: the firmware decodes the slot and reads nothing from it,
+#   release 3's generic skip sends nothing for an entity the controller does not list, and no agent may write them
+#   (AGENT_SETTABLE_PARAMS). The drift guards skip them by this name.
+THIRD_FLASH_RETIRED_REG: frozenset[str] = frozenset(
+    {
+        "bias_cool",
+        "bias_heat",
+        "d_cool_stage_2",
+        "d_heat_stage_2",
+        "dawn_boost_offset_min",
+        "dawn_rehydrate_gap_s",
+        "dawn_rehydrate_on_s",
+        "dawn_rehydrate_window_min",
+        "dehum_aggressive_kpa",
+        "east_adjacency_factor",
+        "econ_heat_margin_f",
+        "fog_min_temp_f",
+        "fog_rh_ceiling_pct",
+        "lead_rotate_s",
+        "max_relief_cycles",
+        "midday_boost_offset_min",
+        "midday_drench_gap_s",
+        "midday_drench_on_s",
+        "midday_drench_window_min",
+        "mist_vent_close_lead_s",
+        "mist_vent_reopen_delay_s",
+        "night_dryout_dp_margin_f",
+        "night_dryout_kwh_cap",
+        "night_dryout_pulse_s",
+        "night_dryout_rest_s",
+        "night_stress_min_dew_margin_f",
+        "safety_max",
+        "safety_max_seal_margin_f",
+        "safety_min",
+        "safety_vpd_max",
+        "safety_vpd_min",
+        "summer_vent_min_runtime_s",
+        "sw_dawn_rehydrate_enabled",
+        "sw_dehum_vent_hold_enabled",
+        "sw_economiser_enabled",
+        "sw_fsm_controller_enabled",
+        "sw_midday_drench_enabled",
+        "sw_night_dryout_enabled",
+        "sw_night_econ_heat_suppress_enabled",
+        "sw_night_stress_wet_enabled",
+        "sw_wet_taper_enabled",
+        "vent_latch_timeout_ms",
+        "vpd_target_center",
+        "vpd_target_east",
+        "vpd_target_south",
+        "vpd_target_west",
+        "wet_taper_before_sunset_min",
+    }
+)
+THIRD_FLASH_INERT_WIRE_REG: frozenset[str] = frozenset(
+    {
+        "band_track_fraction",
+        "cold_vent_guard_delta_f",
+        "cool_exit_hysteresis_f",
+        "cool_stage2_exit_hysteresis_f",
+        "cool_stage2_over_high_f",
+        "direct_wet_stress_min_dew_margin_f",
+        "direct_wet_stress_vpd_margin_kpa",
+        "dwell_gate_ms",
+        "enthalpy_close",
+        "enthalpy_open",
+        "fog_escalation_kpa",
+        "heat_hysteresis",
+        "min_fan_off_s",
+        "min_fan_on_s",
+        "min_fog_off_s",
+        "min_fog_on_s",
+        "min_heat_off_s",
+        "min_heat_on_s",
+        "min_vent_off_s",
+        "min_vent_on_s",
+        "mist_backoff_s",
+        "mist_max_closed_vent_s",
+        "mist_thermal_relief_s",
+        "mister_all_delay_s",
+        "mister_all_kpa",
+        "mister_center_penalty",
+        "mister_engage_kpa",
+        "mister_pulse_gap_s",
+        "mister_pulse_on_s",
+        "mister_vpd_weight",
+        "night_vpd_bias_kpa",
+        "sw_cool_all_fans_at_high_enabled",
+        "sw_direct_wet_stress_override_enabled",
+        "sw_dwell_gate_enabled",
+        "sw_fog_closes_vent",
+        "sw_mister_closes_vent",
+        "sw_summer_vent_enabled",
+        "temp_hysteresis",
+        "vent_exchange_fraction",
+        "vent_prefer_dp_delta_f",
+        "vent_prefer_temp_delta_f",
+        "vpd_hysteresis",
+        "vpd_watch_dwell_s",
+    }
+)
+assert not THIRD_FLASH_RETIRED_REG & THIRD_FLASH_INERT_WIRE_REG
+assert all(REGISTRY[n].wire_id is not None for n in THIRD_FLASH_INERT_WIRE_REG)
+assert all(REGISTRY[n].wire_id is None for n in THIRD_FLASH_RETIRED_REG)
+for _name in THIRD_FLASH_RETIRED_REG:
+    REGISTRY[_name] = REGISTRY[_name].model_copy(
+        update={
+            "esp_object_id": None,
+            "cfg_readback_object_id": None,
+            "fw_clamp_lo": None,
+            "fw_clamp_hi": None,
+            "planner_pushable": False,
+            "tier": 2,
+        }
+    )
+
 FIRMWARE_V2_STAGED_REG: frozenset[str] = frozenset(_FW2_STAGED_DEFS)
+# The staged rows' exact readback slugs; the three window anchors the third flash deleted have none.
 FIRMWARE_V2_CFG_WIRE_IDS: dict[str, str] = {
-    name: _FW2_STAGED_DEFS[name].cfg_readback_object_id for name in sorted(FIRMWARE_V2_STAGED_REG)
+    name: REGISTRY[name].cfg_readback_object_id
+    for name in sorted(FIRMWARE_V2_STAGED_REG)
+    if REGISTRY[name].cfg_readback_object_id is not None
 }
 
 
@@ -3406,6 +3532,7 @@ RETIRED_TUNABLES_REG: frozenset[str] = frozenset(
         "summer_vent_min_runtime_s",
         *_INERT_IRRIGATION_COMPAT_TUNABLES,
         *NO_EFFECT_RETIRED_REG,
+        *THIRD_FLASH_RETIRED_REG,
     }
 )
 
@@ -3599,21 +3726,8 @@ def _cfg_readback_aliases() -> dict[str, str]:
     contract as the canonical `cfg_readback_object_id` route.
     """
     return {
-        "cfg_____cool_s2___f_": "d_cool_stage_2",
-        "cfg_____heat_s2___f_": "d_heat_stage_2",
-        "cfg_d_cool_stage_2_f": "d_cool_stage_2",
-        "cfg_d_heat_stage_2_f": "d_heat_stage_2",
-        "cfg_fog_min_temp_f": "fog_min_temp_f",
-        "cfg_fog_rh_ceiling_pct": "fog_rh_ceiling_pct",
-        "mister_center_penalty": "mister_center_penalty",
+        # The third flash deleted the other aliases' readbacks with their settings (RULINGS AE7a).
         "direct_wet_gate_enabled": "sw_direct_wet_gate_enabled",
-        "fog_closes_vent": "sw_fog_closes_vent",
-        "mister_closes_vent": "sw_mister_closes_vent",
-        "sw_mister_closes_vent": "sw_mister_closes_vent",
-        "vpd_target_center__kpa_": "vpd_target_center",
-        "vpd_target_east__kpa_": "vpd_target_east",
-        "vpd_target_south__kpa_": "vpd_target_south",
-        "vpd_target_west__kpa_": "vpd_target_west",
     }
 
 
@@ -3771,8 +3885,10 @@ READ_ONLY_REASONS: dict[str, str] = {
 assert len(LEGACY_WIDE_LIMIT_PARAMS) == 4 and all(
     REGISTRY[name].control_class == "crop_band" for name in LEGACY_WIDE_LIMIT_PARAMS
 ), "the legacy wide limits drifted"
+# The third flash deleted the four legacy zone VPD target entities (zone misting reads the zone_vpd_target_* anchors):
+# their rows are retired (THIRD_FLASH_RETIRED_REG) and keep the zone_vpd_target read-only reason until release 4.
 assert len(ZONE_VPD_TARGET_PARAMS) == 4 and all(
-    REGISTRY[name].control_class == "crop_band" for name in ZONE_VPD_TARGET_PARAMS
+    REGISTRY[name].control_class == "retired" for name in ZONE_VPD_TARGET_PARAMS
 ), "the zone VPD targets drifted"
 
 
@@ -3781,8 +3897,8 @@ assert len(ZONE_VPD_TARGET_PARAMS) == 4 and all(
 # signed-in dashboard operator (``forbidden``), so MCP set_setting, the planner study runner and any agent path are
 # refused; none of them is planner-pushable, so MCP set_tunable and set_plan refuse them too.
 # Named member by member (RULINGS G9), so the set cannot grow silently: the house band (24 anchors), the zone VPD
-# curves (16 anchors, 8 widths), the legacy band rows (8, read-only), the zone priorities, the manual override
-# timeout and the drying cost limit. The assert below holds it to every crop_band row plus the limit.
+# curves (16 anchors, 8 widths), the legacy wide limits (4, read-only; the third flash retired the 4 legacy zone VPD
+# targets), the zone priorities, the manual override timeout and the drying cost limit. The assert below holds it to every crop_band row plus the limit.
 _BAND_ANCHORS = ("sr", "sm", "ss", "mid")
 _ZONES = ("center", "south", "west", "east")
 OWNER_ONLY_PARAMS: frozenset[str] = frozenset(
@@ -3797,7 +3913,6 @@ OWNER_ONLY_PARAMS: frozenset[str] = frozenset(
     | {f"zone_vpd_width_{side}_{zone}" for side in ("below", "above") for zone in _ZONES}
     | {f"zone_priority_{zone}" for zone in ("center", "south", "west")}
     | {"temp_low", "temp_high", "vpd_low", "vpd_high"}
-    | {f"vpd_target_{zone}" for zone in _ZONES}
 )
 assert OWNER_ONLY_PARAMS == {DRY_COST_LIMIT_PARAM} | {
     name for name, spec in REGISTRY.items() if spec.control_class == "crop_band"
@@ -3868,8 +3983,6 @@ def desired_write_rule(name: str) -> tuple[bool, str | None]:
 # equal. These switches have no cfg_* sensor: their native Switch state also
 # lands in setpoint_snapshot, and equipment_state records each change.
 SWITCH_READBACK_EQUIPMENT: dict[str, str] = {
-    "sw_economiser_enabled": "economiser_enabled",
-    "sw_fog_closes_vent": "fog_closes_vent",
     "sw_occupancy_inhibit": "occupancy_inhibit",
 }
 assert all(REGISTRY[name].kind == "switch" and REGISTRY[name].esp_object_id for name in SWITCH_READBACK_EQUIPMENT), (

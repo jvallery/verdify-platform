@@ -50,8 +50,8 @@ export const FIXTURES = {
         state: "confirmed", confirmed_at: iso(at("08:43")), experiment_id: null, request_id: "6a1e7c2d-3b4f-4e5a-8c9d-0e1f2a3b4c5d",
       },
       {
-        id: id + 1, ts: iso(at("09:00")), actor: { source: "agent:steward", name: "steward" }, action: "setting.write", target: "fog_rh_ceiling_pct",
-        detail: { before: 85, value: 82 }, reason: "Night humidity", state: "confirmed", confirmed_at: iso(at("09:01")), experiment_id: null, request_id: null,
+        id: id + 1, ts: iso(at("09:00")), actor: { source: "agent:steward", name: "steward" }, action: "setting.write", target: "mister_water_budget_gal",
+        detail: { before: 300, value: 250 }, reason: "Night humidity", state: "confirmed", confirmed_at: iso(at("09:01")), experiment_id: null, request_id: null,
       },
     );
     openAlert(world, {

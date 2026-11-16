@@ -198,7 +198,7 @@ ENTRIES: dict[str, HelpEntry] = {
         lower="Misters join fog sooner and all zones run sooner: faster recovery and more water.",
         refs=(
             "firmware/lib/greenhouse_logic.h::(state.mist_stage_timer_ms >= sp.mist_s2_delay_ms || fog_gated)",
-            "firmware/greenhouse/controls.yaml::uint32_t(pol(verdify_policy::kPF_mister_all_delay_s, id(mister_all_delay_s))) * 1000UL",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",
         ),
     ),
     # controls.yaml: climate_water_budget_block; irrigation engine soft_budget_centigal.
@@ -284,7 +284,7 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="Once the fogger turns on, the controller keeps it on for at least this long unless a safety rule cuts it.",
         raise_="Longer fog bursts: fewer starts, more water per burst.",
         lower="Fog can stop sooner after starting: shorter bursts and more starts.",
-        refs=("firmware/greenhouse/controls.yaml::R[4].min_on_ms = MIN_FOG_ON_MS;",),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # Relay table R[4] min_off.
     "min_fog_off_s": HelpEntry(
@@ -292,7 +292,7 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="After the fogger turns off, the controller keeps it off for at least this long before it can restart.",
         raise_="Longer rests between fog bursts: fewer starts, slower humidifying.",
         lower="Fog can restart sooner: faster response and more cycling.",
-        refs=("firmware/greenhouse/controls.yaml::R[4].min_off_ms = MIN_FOG_OFF_MS;",),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # Relay table R[0]/R[1] min_on (both heaters).
     "min_heat_on_s": HelpEntry(
@@ -300,7 +300,7 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="Once a heater turns on, the controller keeps it on for at least this long, which protects the relays.",
         raise_="Longer minimum heater runs: fewer starts and a bit more overshoot above the heating target.",
         lower="Heaters may stop sooner: tighter temperature with more relay starts.",
-        refs=("firmware/greenhouse/controls.yaml::R[0].min_on_ms = R[1].min_on_ms = MIN_HEAT_ON_MS;",),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # Relay table R[2]/R[3] min_on (both fans).
     "min_fan_on_s": HelpEntry(
@@ -308,7 +308,7 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="Once fan 1 or fan 2 turns on, the controller keeps it on for at least this long.",
         raise_="Longer minimum fan runs: fewer starts and more cooling or air exchange per start.",
         lower="Fans may stop sooner: less run time and more starts.",
-        refs=("firmware/greenhouse/controls.yaml::R[2].min_on_ms = R[3].min_on_ms = MIN_FAN_ON_MS;",),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # Relay table R[2]/R[3] min_off.
     "min_fan_off_s": HelpEntry(
@@ -316,7 +316,7 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="After a fan turns off, the controller keeps it off for at least this long. A manual fan press skips this wait.",
         raise_="Longer rests between fan runs: fewer starts, slower response to rising heat.",
         lower="Fans can restart sooner: faster response and more cycling.",
-        refs=("firmware/greenhouse/controls.yaml::R[2].min_off_ms = R[3].min_off_ms = MIN_FAN_OFF_MS;",),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # Relay table R[5] min_on.
     "min_vent_on_s": HelpEntry(
@@ -324,7 +324,7 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="Once the vent opens, the controller keeps it open for at least this long, giving the actuator time to travel.",
         raise_="Longer minimum vent openings: fewer actuator cycles, more air exchange per opening.",
         lower="The vent may close sooner: less exchange per opening and more actuator cycles.",
-        refs=("firmware/greenhouse/controls.yaml::R[5].min_on_ms = MIN_VENT_ON_MS;",),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # Relay table R[5] min_off.
     "min_vent_off_s": HelpEntry(
@@ -332,7 +332,7 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="After the vent closes, the controller keeps it closed for at least this long before it can reopen.",
         raise_="Longer closed periods: fewer actuator cycles, slower response to heat or humidity.",
         lower="The vent may reopen sooner: faster response and more actuator cycles.",
-        refs=("firmware/greenhouse/controls.yaml::R[5].min_off_ms = MIN_VENT_OFF_MS;",),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # humidify_ready = vpd_high && vpd_watch_timer_ms >= vpd_watch_dwell_ms.
     "vpd_watch_dwell_s": HelpEntry(
@@ -415,9 +415,7 @@ ENTRIES: dict[str, HelpEntry] = {
         raise_="Outside air is allowed for drying sooner, even when it is closer in energy to indoor air.",
         lower="Outdoor air must be clearly lower in energy before it is used to dry the house.",
         caution="Keep it below Enthalpy Close, or the economiser will flip back and forth.",
-        refs=(
-            "firmware/greenhouse/controls.yaml::if(dH <= pol(verdify_policy::kPF_enthalpy_open, id(enthalpy_open_kjkg)))  econ_block = false;",
-        ),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # controls.yaml econ gate: dH >= enthalpy_close blocks.
     "enthalpy_close": HelpEntry(
@@ -430,7 +428,7 @@ ENTRIES: dict[str, HelpEntry] = {
         lower="Drying by vent is blocked sooner as outdoor air warms or moistens.",
         caution="Keep it above Enthalpy Open, or the economiser will flip back and forth.",
         refs=(
-            "firmware/greenhouse/controls.yaml::if(dH >= pol(verdify_policy::kPF_enthalpy_close, id(enthalpy_close_kjkg))) econ_block = true;",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",
             "firmware/lib/greenhouse_logic.h::&& in.vpd_kpa < vpd_low_eff && sp.econ_block",
         ),
     ),
@@ -515,7 +513,7 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="After a heater turns off, the controller keeps it off for at least this long before it can restart.",
         raise_="Longer rests between heater runs: fewer starts, more temperature dip before heat returns.",
         lower="Heaters can restart sooner: tighter temperature with more relay starts.",
-        refs=("firmware/greenhouse/controls.yaml::R[0].min_off_ms = R[1].min_off_ms = MIN_HEAT_OFF_MS;",),
+        refs=("verdify_schemas/tunable_registry.py::THIRD_FLASH_INERT_WIRE_REG",),
     ),
     # Dwell gate: hold the previous mode while in_dwell unless safety or a band error preempts.
     "sw_dwell_gate_enabled": HelpEntry(

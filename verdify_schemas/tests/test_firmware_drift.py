@@ -28,7 +28,13 @@ import pytest
 import yaml
 
 from verdify_schemas.telemetry import OVERRIDE_EVENT_TYPES
-from verdify_schemas.tunable_registry import FIRMWARE_V2_CFG_WIRE_IDS, FIRMWARE_V2_STAGED_REG, REGISTRY
+from verdify_schemas.tunable_registry import (
+    FIRMWARE_V2_CFG_WIRE_IDS,
+    FIRMWARE_V2_STAGED_REG,
+    REGISTRY,
+    THIRD_FLASH_INERT_WIRE_REG,
+    THIRD_FLASH_RETIRED_REG,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 YAML_DIRS = [
@@ -420,6 +426,16 @@ HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
     },
 }
 
+# The third flash's inert policy-wire slots (RULINGS AE7a): the firmware deleted their number or switch entity and
+# readback, but their rows keep the route until host release 4 decides the wire (contracts: inert slots or a
+# WIRE_SCHEMA_VERSION bump). Release 3's generic skip sends nothing for an entity the controller does not list.
+THIRD_FLASH_DEAD_ROUTES: dict[str, set[str]] = {
+    "SETPOINT_MAP": {REGISTRY[n].esp_object_id for n in THIRD_FLASH_INERT_WIRE_REG if REGISTRY[n].esp_object_id},
+    "CFG_READBACK_MAP": {
+        REGISTRY[n].cfg_readback_object_id for n in THIRD_FLASH_INERT_WIRE_REG if REGISTRY[n].cfg_readback_object_id
+    },
+}
+
 
 @pytest.mark.parametrize("map_name", MAP_NAMES)
 def test_entity_map_keys_exist_in_firmware(map_name, fw_ids, entity_map):
@@ -429,7 +445,11 @@ def test_entity_map_keys_exist_in_firmware(map_name, fw_ids, entity_map):
     if em_map is None:
         pytest.skip(f"{map_name} not present in entity_map")
     expected = set(em_map.keys())
-    allowed_drift = KNOWN_PRE_EXISTING_DRIFT.get(map_name, set()) | HOST_BEFORE_FIRMWARE.get(map_name, set())
+    allowed_drift = (
+        KNOWN_PRE_EXISTING_DRIFT.get(map_name, set())
+        | HOST_BEFORE_FIRMWARE.get(map_name, set())
+        | THIRD_FLASH_DEAD_ROUTES.get(map_name, set())
+    )
     new_missing = sorted((expected - fw_ids) - allowed_drift)
     assert not new_missing, (
         f"{map_name} has {len(new_missing)} NEW entity id(s) the firmware doesn't emit: "
@@ -485,7 +505,10 @@ def test_firmware_v2_cfg_fixture_matches_every_exact_wire_slug(entity_map):
     alternate candidate hid all 56 mismatches from the earlier drift guard.
     """
     firmware_wire = _firmware_cfg_sensor_wire_ids()
-    assert len(FIRMWARE_V2_CFG_WIRE_IDS) == len(FIRMWARE_V2_STAGED_REG) == 56
+    # The third flash deleted the three window anchors (dawn and midday boost offsets, wet taper) and their readbacks.
+    assert len(FIRMWARE_V2_STAGED_REG) == 56
+    assert set(FIRMWARE_V2_CFG_WIRE_IDS) == FIRMWARE_V2_STAGED_REG - THIRD_FLASH_RETIRED_REG
+    assert len(FIRMWARE_V2_CFG_WIRE_IDS) == 53
 
     missing_fixture: list[str] = []
     mismatches: dict[str, tuple[str, str]] = {}

@@ -421,7 +421,8 @@ class TestBandFirstControlDiagnostics:
         body = (REPO_ROOT / "firmware/greenhouse/controls.yaml").read_text()
         assert "ctl_state.vent_mist_assist_active" in body
         assert 'add("vent_mist_assist")' in body
-        assert 'add("fog_heat_assist")' in body
+        # C-m6 (package 4.3): the fog heat assist tag went with the old mode machine.
+        assert 'add("fog_heat_assist")' not in body
         assert "id(ctl_mist_backoff_timer_s).publish_state(" in body
         assert "id(ctl_vent_mist_assist_active).publish_state(" in body
 
@@ -446,28 +447,17 @@ class TestBandFirstControlDiagnostics:
         )
 
     def test_effective_control_diagnostic_sensor_routes(self):
+        """Package 4.3 (A3) deleted the old mode machine's four ctl_effective_* sensors; their routes go with them."""
         body = (REPO_ROOT / "firmware/greenhouse/sensors.yaml").read_text()
         entity_map = _repo_entity_map()
-        ingestor = (REPO_ROOT / "ingestor/ingestor.py").read_text()
-        expected = {
-            "ctl_effective_heat_target_f": ("effective_heat_target___f_", "effective_heat_target_f"),
-            "ctl_effective_cool_stage2_delta_f": (
-                "effective_cool_stage_2_delta___f_",
-                "effective_cool_stage2_delta_f",
-            ),
-            "ctl_effective_vpd_hysteresis_kpa": (
-                "effective_vpd_hysteresis__kpa_",
-                "effective_vpd_hysteresis_kpa",
-            ),
-            "ctl_effective_dehum_aggressive_kpa": (
-                "effective_dehum_aggressive__kpa_",
-                "effective_dehum_aggressive_kpa",
-            ),
-        }
-        for sensor_id, (object_id, column) in expected.items():
-            assert f"id: {sensor_id}" in body
-            assert entity_map.DIAGNOSTIC_MAP[object_id] == column
-            assert column in ingestor
+        for sensor_id, object_id in {
+            "ctl_effective_heat_target_f": "effective_heat_target___f_",
+            "ctl_effective_cool_stage2_delta_f": "effective_cool_stage_2_delta___f_",
+            "ctl_effective_vpd_hysteresis_kpa": "effective_vpd_hysteresis__kpa_",
+            "ctl_effective_dehum_aggressive_kpa": "effective_dehum_aggressive__kpa_",
+        }.items():
+            assert f"id: {sensor_id}" not in body
+            assert object_id not in entity_map.DIAGNOSTIC_MAP
 
 
 class TestContractDriftGuardrails:
@@ -508,23 +498,16 @@ class TestContractDriftGuardrails:
         assert "pending-fw-version.txt" in makefile
 
     def test_sw_mister_closes_vent_routes_end_to_end(self):
+        """AD1 (g): the third flash deleted the switch and its readback. The firmware names it nowhere, so no
+        equipment or readback route may claim it; its wire slot stays inert until host release 4 (RULINGS AE7a)."""
+        from verdify_schemas.tunable_registry import THIRD_FLASH_INERT_WIRE_REG
+
         entity_map = _repo_entity_map()
-        assert entity_map.SETPOINT_MAP["mister_closes_vent"] == "sw_mister_closes_vent"
-        assert entity_map.CFG_READBACK_MAP["sw_mister_closes_vent"] == "sw_mister_closes_vent"
-        assert entity_map.SWITCH_TO_ENTITY["sw_mister_closes_vent"] == "mister_closes_vent"
-
-        from verdify_schemas.tunables import ALL_TUNABLES, SWITCH_TUNABLES
-
-        assert "sw_mister_closes_vent" in SWITCH_TUNABLES
-        assert "sw_mister_closes_vent" in ALL_TUNABLES
-
-        tier1 = _assigned_frozenset(REPO_ROOT / "mcp" / "server.py", "TIER1_TUNABLES")
-        assert "sw_mister_closes_vent" in tier1
-
-        tunables_source = (REPO_ROOT / "firmware" / "greenhouse" / "tunables.yaml").read_text()
-        assert "id: sw_mister_closes_vent" in tunables_source
-        assert "id(mister_closes_vent) = true;" in tunables_source
-        assert "id(mister_closes_vent) = false;" in tunables_source
+        assert "sw_mister_closes_vent" in THIRD_FLASH_INERT_WIRE_REG
+        assert "mister_closes_vent" not in entity_map.EQUIPMENT_SWITCH_MAP
+        assert "sw_mister_closes_vent" not in entity_map.CFG_READBACK_MAP
+        for name in ("tunables.yaml", "sensors.yaml", "controls.yaml", "globals.yaml"):
+            assert "mister_closes_vent" not in (REPO_ROOT / "firmware" / "greenhouse" / name).read_text(), name
 
     def test_firmware_holds_vent_open_while_fan_dwell_clears(self):
         controls_source = (REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text()
@@ -578,11 +561,9 @@ class TestContractDriftGuardrails:
         assert "for param in RECONNECT_UNOBSERVED_RESTORE_PARAMS:" in tasks_source
         assert "def _readback_drift(param: str, desired: float) -> bool:" in tasks_source
         assert 'for param in ("temp_low", "temp_high", "vpd_low", "vpd_high"):' in tasks_source
-        assert (
-            'for param in ("vpd_target_south", "vpd_target_west", "vpd_target_east", "vpd_target_center"):'
-            in tasks_source
-        )
-        assert "for param, val in safety_defaults.items():" in tasks_source
+        # The zone VPD targets and the safety limits are no longer dispatched (the third flash deleted their
+        # entities, RULINGS AE7a).
+        assert "safety_defaults" not in tasks_source
         assert "for param, val in mister_defaults.items():" in tasks_source
         assert "readback_drift = _readback_drift(param, planned_val)" in tasks_source
         assert "Dispatcher readback drift" in tasks_source
@@ -987,8 +968,10 @@ class TestOverrideEventsWiring:
 
     def test_controls_publishes_override_state(self):
         body = self._read(self.CONTROLS_PATH)
-        assert "evaluate_overrides(" in body, "controls.yaml must call evaluate_overrides() each cycle"
+        # C-m6 (package 4.3): Active Overrides publishes only the tags that act under the law.
+        assert "evaluate_overrides(" not in body
         assert "id(gh_overrides).publish_state(" in body, "controls.yaml must publish to gh_overrides text_sensor"
+        assert 'add("occupancy_blocks_equipment")' in body and 'add("vent_mist_assist")' in body
 
     def test_entity_map_routes_active_overrides(self):
         body = self._read(self.ENTITY_MAP_PATH)
@@ -1077,17 +1060,14 @@ class TestSetpointConfirmation:
     def test_late_phase_tunables_have_cfg_readbacks(self):
         entity_map = _repo_entity_map()
         sensors_source = (REPO_ROOT / "firmware" / "greenhouse" / "sensors.yaml").read_text()
-        expected = {
-            "mister_engage_delay_s",
-            "mister_all_delay_s",
-            "min_fog_on_s",
-            "min_fog_off_s",
-            "sw_dwell_gate_enabled",
-            "dwell_gate_ms",
-        }
+        # Package 4.3 (A3) deleted the dwell gate, the all-zone delay and the fog minimum times (the relay layer's
+        # compiled constants now); the engage delay keeps its readback.
+        expected = {"mister_engage_delay_s"}
         assert expected <= set(entity_map.CFG_READBACK_MAP.values())
         for param in expected:
             assert param in sensors_source
+        for param in ("mister_all_delay_s", "min_fog_on_s", "min_fog_off_s", "sw_dwell_gate_enabled", "dwell_gate_ms"):
+            assert f"id: cfg_{param}" not in sensors_source, param
 
     def test_outdoor_cfg_readbacks_use_tempest_primary_inputs(self):
         sensors_source = (REPO_ROOT / "firmware" / "greenhouse" / "sensors.yaml").read_text()
@@ -1178,14 +1158,8 @@ class TestEntityMapCoverage:
             "temp_high",
             "vpd_low",
             "vpd_high",
-            # Per-zone VPD (from crop band)
-            "vpd_target_south",
-            "vpd_target_west",
-            "vpd_target_east",
-            "vpd_target_center",
-            # Safety rails
-            "safety_min",
-            "safety_max",
+            # (The per-zone VPD targets and the safety rails are no longer dispatched: the third flash deleted their
+            # entities, RULINGS AE7a.)
             # Mister defaults
             "mister_engage_kpa",
             "mister_all_kpa",

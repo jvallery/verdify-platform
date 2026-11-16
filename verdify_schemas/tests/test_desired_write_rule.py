@@ -130,7 +130,11 @@ def test_every_named_read_only_row_is_registered_and_of_a_writable_class() -> No
     assert BAND_OWNER_SWITCH in REGISTRY  # readback_context today; refused by name all the same
     for name in LEGACY_WIDE_LIMIT_PARAMS | ZONE_VPD_TARGET_PARAMS:
         assert name in REGISTRY, name
+    for name in LEGACY_WIDE_LIMIT_PARAMS:
         assert REGISTRY[name].control_class in WRITABLE_CONTROL_CLASSES, name
+    # The third flash deleted the legacy zone VPD target entities: retired, still refused by name until release 4.
+    for name in ZONE_VPD_TARGET_PARAMS:
+        assert REGISTRY[name].control_class == "retired", name
 
 
 def test_the_rule_matches_the_class_split_for_every_row() -> None:

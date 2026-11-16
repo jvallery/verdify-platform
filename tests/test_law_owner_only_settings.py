@@ -54,6 +54,8 @@ def test_the_row_takes_its_numbers_from_the_constants_module():
 
 
 # RULINGS G9: the owner-only set as built, member by member; a change here is a decision, not a side effect.
+# RULINGS AE7a: the third flash deleted the four legacy zone VPD target entities, so their rows are retired and leave
+# the set (57 from 61).
 OWNER_ONLY = (
     "band_temp_high_mid",
     "band_temp_high_sm",
@@ -85,10 +87,6 @@ OWNER_ONLY = (
     "temp_low",
     "vpd_high",
     "vpd_low",
-    "vpd_target_center",
-    "vpd_target_east",
-    "vpd_target_south",
-    "vpd_target_west",
     "zone_priority_center",
     "zone_priority_south",
     "zone_priority_west",
@@ -120,7 +118,7 @@ OWNER_ONLY = (
 
 
 def test_the_owner_only_set_is_exactly_the_named_list_and_none_is_planner_pushable():
-    assert sorted(OWNER_ONLY_PARAMS) == list(OWNER_ONLY) and len(OWNER_ONLY) == 61
+    assert sorted(OWNER_ONLY_PARAMS) == list(OWNER_ONLY) and len(OWNER_ONLY) == 57
     band = {name for name, spec in REGISTRY.items() if spec.control_class == "crop_band"}
     assert OWNER_ONLY_PARAMS == band | {LIMIT}
     assert not OWNER_ONLY_PARAMS & PLANNER_PUSHABLE_REG

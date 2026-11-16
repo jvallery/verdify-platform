@@ -1367,7 +1367,6 @@ def test_climate_action_log_persists_moisture_exchange_telemetry():
     hardware = (REPO_ROOT / "firmware" / "greenhouse" / "hardware.yaml").read_text()
     ingestor_src = (REPO_ROOT / "ingestor" / "ingestor.py").read_text()
     entity_map = (REPO_ROOT / "ingestor" / "entity_map.py").read_text()
-    logic = (REPO_ROOT / "firmware" / "lib" / "greenhouse_logic.h").read_text()
     types = (REPO_ROOT / "firmware" / "lib" / "greenhouse_types.h").read_text()
 
     assert "id: gh_climate_moisture_exchange" in hardware
@@ -1390,23 +1389,22 @@ def test_climate_action_log_persists_moisture_exchange_telemetry():
         assert token in types
 
     # Phase 3 (RULINGS T3, declared change 10): the action is the law's drying run and the reason its refusal;
-    # the mode machine's projections publish their neutral values. describe_law_decision() (lib/climate_law_glue.h,
-    # native test law_decision_telemetry) overwrites what greenhouse_logic.h's describe_climate_decision_for_action()
-    # derived, so the published fields are asserted there, not in the mode machine's code.
-    assert "inline ClimateActionDecision describe_climate_decision_for_action(" in logic
+    # the mode machine's projections publish their neutral values. Package 4.3: describe_law_decision()
+    # (lib/climate_law_glue.h, native test law_decision_telemetry) builds the record from the law alone, the other
+    # fields value-initialised (false, zero), with nothing from the mode machine's describe_climate_decision_for_action().
     decide = _inline_fn(
         Path("firmware/lib/climate_law_glue.h").read_text(), "inline ClimateActionDecision describe_law_decision("
     )
     for token in (
-        "describe_climate_decision_for_action(label.action, label.axis, in, sp, neutral);",
+        "ClimateActionDecision d{};",
         'd.moisture_exchange_action = law.drying ? "vent_dehum" : "none";',
         "DRY_REFUSAL_NAMES[dr]",
         "d.moisture_outdoor_fresh = out_ok;",
-        "d.moisture_vent_overcools = false;",
-        "d.moisture_heat_assist_active = false;",
-        "d.moisture_heat_assist_timer_ms = 0;",
     ):
         assert token in decide, token
+    assert "describe_climate_decision_for_action" not in decide
+    for field in ("moisture_vent_overcools", "moisture_heat_assist_active", "moisture_heat_assist_timer_ms"):
+        assert field not in decide, field
     assert "ClimateActionDecision climate_decision = climate_law::describe_law_decision(" in controls
     assert "describe_effective_climate_decision(" not in controls
 
@@ -1748,9 +1746,10 @@ def test_center_mist_has_no_deliberate_dawn_or_midday_watering_surface():
         "dawn_rehydrate_window_min",
         "midday_drench_window_min",
     ):
+        # Package 4.3 (A3) deleted the inert globals; one that is still declared must stay off.
         block = re.search(rf"- id: {global_id}\n(?P<body>.*?)(?=\n  - id:|\Z)", globals_yaml, re.S)
-        assert block
-        assert "initial_value: 'false'" in block.group("body") or "initial_value: '0'" in block.group("body")
+        if block:
+            assert "initial_value: 'false'" in block.group("body") or "initial_value: '0'" in block.group("body")
 
 
 def test_irrigation_engine_holds_the_water_for_its_drip_runs():
@@ -1827,7 +1826,7 @@ def test_leak_detected_locks_water_actuators():
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
     # Phase 3: the fog relay's force-off is the relay layer's fog hold, the same rails (no leak term).
     assert "law_relay_in.fog_hold = fog_hold;" in relay_apply
-    assert "set_relay(R[4], ov_out.fog, true, true);" in relay_apply
+    assert "set_relay(R[4], ov_out.fog);" in relay_apply
     assert "leak" not in relay_apply
     assert "const bool fog_hold = fog_forced_off(mode, fog_rails);" in controls
 

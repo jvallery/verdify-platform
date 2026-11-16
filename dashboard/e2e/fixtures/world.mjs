@@ -496,8 +496,8 @@ export const FIXTURES = {
       details: { sensor: "soil_moisture_south_1" }, first_seen_at: iso(at("02:10", -3)), last_seen_at: iso(world.now - 20 * MINUTE), count: 12,
     });
     openAlert(world, {
-      id: 103, alert_type: "setpoint_unconfirmed", category: "system", severity: "warning", message: "fog_rh_ceiling_pct not confirmed by the controller",
-      details: { param: "fog_rh_ceiling_pct" }, first_seen_at: iso(at("06:20")), status: "acknowledged", acknowledged_at: iso(at("06:47")),
+      id: 103, alert_type: "setpoint_unconfirmed", category: "system", severity: "warning", message: "mister_water_budget_gal not confirmed by the controller",
+      details: { param: "mister_water_budget_gal" }, first_seen_at: iso(at("06:20")), status: "acknowledged", acknowledged_at: iso(at("06:47")),
       acknowledged_by: "jason", notes: "breaker reset",
     });
   },

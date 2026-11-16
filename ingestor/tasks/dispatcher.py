@@ -78,7 +78,6 @@ from ._common import (
     QUIET_STATE_ENTITIES,
     QUIET_UNTIL_ENTITY,
     RETIRED_UNROUTABLE_PARAMS,
-    SAFETY_PARAMS,
     SECOND_READBACK_ABS_TOLERANCE_PARAMS,
     STATE_DIR,
     SWITCH_CONFIRM_EQUIPMENT,
@@ -148,8 +147,8 @@ LIGHTING_CIRCUIT_RESOLVED_PARAMS = frozenset(
     )
 )
 # The values the dispatcher's own blocks resolve each pass: the band, the
-# per-circuit lighting policy, the direct-wet gate defaults, the safety limits
-# and the mister defaults. _dispatch_source() labels each of them band. A released
+# per-circuit lighting policy, the direct-wet gate defaults and the mister
+# defaults. _dispatch_source() labels each of them band. A released
 # parameter none of them resolves, and with no plan, returns to its registry
 # default (architecture §5.2 Release, API-11).
 DISPATCHER_DEFAULT_PARAMS = frozenset(
@@ -157,7 +156,6 @@ DISPATCHER_DEFAULT_PARAMS = frozenset(
     | LIGHTING_POLICY_PARAMS
     | LIGHTING_CIRCUIT_RESOLVED_PARAMS
     | DIRECT_WET_POLICY_PARAMS
-    | SAFETY_PARAMS
     | MISTER_DEFAULTS
 )
 # (parameter, reason) pairs already logged, so a skipped row logs once.
@@ -418,8 +416,6 @@ def _dispatch_source(
     if param in LIGHTING_CIRCUIT_DEFAULT_PARAMS:
         return "band"
     if param in DIRECT_WET_POLICY_PARAMS:
-        return "band"
-    if param in SAFETY_PARAMS:
         return "band"
     if param in MISTER_DEFAULTS:
         return "band"
@@ -861,7 +857,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         # Compute crop-science band, per-zone VPD targets, the DB-owned house
         # VPD control band, and crop-driven lighting policy used by firmware.
         band_row = await conn.fetchrow("SELECT * FROM fn_band_setpoints(now())")
-        zone_row = await conn.fetchrow("SELECT * FROM fn_zone_vpd_targets(now())")
         house_row = await conn.fetchrow("SELECT * FROM fn_house_vpd_control_band(now())")
         lighting_row = await conn.fetchrow("SELECT * FROM fn_lighting_policy(now())")
         lighting_circuit_rows = await conn.fetch("SELECT * FROM fn_lighting_minutes_policy(now()) ORDER BY light_key")
@@ -953,16 +948,8 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                     continue
                 changes.append((param, val))
 
-        # Per-zone VPD targets (from crop data per zone). Pushed in both
-        # band-source modes. Firmware v2 draws its zone bands from the anchor
-        # curves, but controls.yaml still reads these for the mister gate, zone
-        # stress scores, the fairness pick and S2 pulse lengthening.
-        if zone_row:
-            for param in ("vpd_target_south", "vpd_target_west", "vpd_target_east", "vpd_target_center"):
-                val = round(float(zone_row[param]), 2)
-                if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
-                    continue
-                changes.append((param, val))
+        # The per-zone VPD targets are no longer pushed: the controller draws its zone bands from the anchor curves,
+        # and the third flash deleted the four number entities (RULINGS AE7a).
 
         # Anchor-table sync (contract B7): push the 56 anchor/width/priority/
         # window tunables only when a value differs from the last confirmed
@@ -1057,15 +1044,8 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                     continue
                 changes.append((param, val))
 
-        # Safety limits: always dispatched from firmware/operator defaults.
-        safety_defaults = {
-            "safety_max": 100.0,
-            "safety_min": 40.0,
-        }
-        for param, val in safety_defaults.items():
-            if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
-                continue
-            changes.append((param, val))
+        # The safety limits are not dispatched: the controller compiles 40 F and 100 F, and the third flash deleted
+        # their number entities (RULINGS AE7a).
 
         # Mister tuning defaults: band-derived fallbacks (left to package 4.3, which retires these settings).
         mister_defaults = {}
