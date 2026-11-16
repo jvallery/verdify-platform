@@ -277,6 +277,11 @@ class Diagnostics(BaseModel):
     nvs_write_worst_ms: float | None = Field(default=None, ge=0)
     gap_log_state: str | None = Field(default=None, max_length=64)
     sensor_degraded_active: int | None = Field(default=None, ge=0, le=1)
+    # RULINGS AF9(b) (#1633 release 4, migration 315): main-loop stack high-water (bytes never used), WiFi
+    # disconnects since boot (resets at reboot) and connected API clients. NULL = not published.
+    loop_stack_high_water_b: int | None = Field(default=None, ge=0)
+    wifi_disconnect_count: int | None = Field(default=None, ge=0)
+    api_client_count: int | None = Field(default=None, ge=0)
 
 
 # Every equipment_state row asserts one of these. Must cover every value in

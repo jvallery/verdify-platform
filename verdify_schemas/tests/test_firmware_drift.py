@@ -423,6 +423,10 @@ HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
         "nvs_free_entries",
         "nvs_write_worst_minute",
         "gap_log_state",
+        # RULINGS AF9(b), third flash (#1633 release 4, migration 315).
+        "loop_stack_high_water",
+        "wifi_disconnect_count",
+        "api_client_count",
     },
 }
 

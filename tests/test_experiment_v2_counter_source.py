@@ -955,3 +955,25 @@ def test_controller_health_readings_store_null_for_an_unusable_value(monkeypatch
     assert ingestor.state.diagnostics == {"gap_log_state": "off: nvs_slow"}
     row = ingestor.Diagnostics.model_validate({"ts": datetime.now(UTC), **ingestor.state.diagnostics})
     assert row.nvs_used_entries is None and row.gap_log_state == "off: nvs_slow"
+
+
+def test_af9b_health_counters_reach_their_columns_as_integers_and_nan_as_null(monkeypatch):
+    """RULINGS AF9(b): the third flash's three read-only counters (contracts/metrics-coverage 2.1a names)."""
+    monkeypatch.setattr(ingestor.state, "diagnostics", {})
+    assert ingestor.DIAGNOSTIC_MAP["loop_stack_high_water"] == "loop_stack_high_water_b"
+    assert ingestor._record_diagnostic("loop_stack_high_water", 1840.0)
+    assert ingestor._record_diagnostic("wifi_disconnect_count", 3.0)
+    assert ingestor._record_diagnostic("api_client_count", 2.0)
+    assert ingestor.state.diagnostics == {
+        "loop_stack_high_water_b": 1840,
+        "wifi_disconnect_count": 3,
+        "api_client_count": 2,
+    }
+    row = ingestor.Diagnostics.model_validate({"ts": datetime.now(UTC), **ingestor.state.diagnostics})
+    assert (row.loop_stack_high_water_b, row.wifi_disconnect_count, row.api_client_count) == (1840, 3, 2)
+    for obj_id in ("loop_stack_high_water", "wifi_disconnect_count", "api_client_count"):
+        assert ingestor._record_diagnostic(obj_id, float("nan"))
+    assert ingestor.state.diagnostics == {}
+    assert not (
+        {"loop_stack_high_water_b", "wifi_disconnect_count", "api_client_count"} & ingestor.CARRIED_DIAGNOSTIC_COLUMNS
+    )

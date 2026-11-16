@@ -2491,11 +2491,12 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
                    controller_time_epoch, controller_local_hour, sntp_valid, sntp_miss_count,
                    last_sntp_sync_age_s, band_source, zone_wet_granted,
                    heap_min_free_minute_kb, heap_largest_block_minute_low_kb, loop_worst_ms, restart_count,
-                   nvs_used_entries, nvs_free_entries, nvs_write_worst_ms, gap_log_state, sensor_degraded_active
+                   nvs_used_entries, nvs_free_entries, nvs_write_worst_ms, gap_log_state, sensor_degraded_active,
+                   loop_stack_high_water_b, wifi_disconnect_count, api_client_count
                )
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                        $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
-                       $28, $29, $30, $31, $32, $33, $34, $35, $36)""",
+                       $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)""",
             ts,
             diag.wifi_rssi,
             diag.heap_bytes,
@@ -2532,6 +2533,9 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
             diag.nvs_write_worst_ms,
             diag.gap_log_state,
             diag.sensor_degraded_active,
+            diag.loop_stack_high_water_b,
+            diag.wifi_disconnect_count,
+            diag.api_client_count,
         )
     log.debug("diagnostics row written")
     # #113: fan-out the diagnostics row. Use the explicit column list above so the
@@ -2925,6 +2929,9 @@ INTEGER_DIAGNOSTIC_COLUMNS = {
     "nvs_used_entries",
     "nvs_free_entries",
     "sensor_degraded_active",
+    "loop_stack_high_water_b",
+    "wifi_disconnect_count",
+    "api_client_count",
 }
 
 # Diagnostics the controller publishes on change, not every minute (#1633 release 3): each row carries the last value
@@ -2945,6 +2952,9 @@ HEALTH_DIAGNOSTIC_NUMERIC_COLUMNS = frozenset(
         "nvs_free_entries",
         "nvs_write_worst_ms",
         "sensor_degraded_active",
+        "loop_stack_high_water_b",
+        "wifi_disconnect_count",
+        "api_client_count",
     }
 )
 
