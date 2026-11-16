@@ -5,14 +5,9 @@ original module. The tasks package __init__ re-exports the public
 surface so every `from tasks import X` still resolves.
 """
 
-import argparse
-import re
-import sys
-
 from ._common import (
     _READBACKABLE_PARAMS,
     FIRMWARE_HAS_PER_CIRCUIT_LIGHTING,
-    LIGHTING_POLICY_PARAMS,
     SWITCH_CONFIRM_EQUIPMENT,
     AlertEnvelope,
     asyncpg,
@@ -23,120 +18,11 @@ from ._common import (
 # Legacy source-contract phrase retained as an explicit migration note:
 # COALESCE(sc.delivery_status, 'pending') IN ('pending', 'deferred_heap_pressure')
 # now expands to truthful requested/queued/retrying/sent states where relevant.
-# Keep shared.recently_pushed out of heap-deferred handling. The listener now
-# atomically claims only legacy ``pending`` rows; explicit dispatcher
+# Keep shared.recently_pushed out of heap-deferred handling. Only the dispatcher
+# pushes a row (the NOTIFY push handler is retired, #1656), so explicit
 # ``requested``/``deferred_heap_pressure`` rows cannot be double-delivered.
-
-_WRITER_FIELD_RE = re.compile(
-    r"\b(action|reason|status|phase|generation|count|command_count|anchor_count|unchanged_anchor_count|failed_count)=([^\s]+)"
-)
-_LEGACY_DIRECT_PUSH_RE = re.compile(r"direct-pushed\s+(\d+)/(\d+)")
-
-
-def classify_writer_log_line(line: str) -> dict[str, str | int] | None:
-    """Parse one reason-classified writer line without inspecting secrets."""
-    if "writer_" in line:
-        event = next(
-            (name for name in ("writer_reconcile", "writer_dispatch", "writer_delivery") if name in line),
-            "writer_unknown",
-        )
-        parsed: dict[str, str | int] = {"event": event}
-        for key, raw_value in _WRITER_FIELD_RE.findall(line):
-            parsed[key] = int(raw_value) if raw_value.isdigit() else raw_value
-        return parsed
-    if "Dispatcher: reconnect reconcile" in line:
-        return {"event": "legacy_reconnect_reconcile"}
-    if match := _LEGACY_DIRECT_PUSH_RE.search(line):
-        return {
-            "event": "legacy_direct_push",
-            "sent": int(match.group(1)),
-            "requested": int(match.group(2)),
-        }
-    return None
-
-
-def summarize_writer_log_lines(lines) -> dict[str, int]:
-    """Return deterministic post-deploy counts for the #433 two-hour probe.
-
-    Since plain convergence (VD-62) the dispatcher logs no ``blocked_stage``
-    or ``blocked_broad_restore`` line; both counters stay as the live check
-    that they read zero, and ``paced_passes`` counts paced ordinary passes.
-    """
-    summary = {
-        "classified_lines": 0,
-        "transport_reconnects": 0,
-        "blocked_broad_restores": 0,
-        "blocked_stages": 0,
-        "paced_passes": 0,
-        "cfg_drifts": 0,
-        "desired_dispatches": 0,
-        "retry_batches": 0,
-        "dispatch_commands": 0,
-        "anchor_commands": 0,
-        "broad_anchor_batches": 0,
-        "unchanged_broad_anchor_batches": 0,
-        "delivery_sent": 0,
-        "delivery_failed": 0,
-        "delivery_cancelled": 0,
-        "delivery_superseded": 0,
-        "legacy_reconnect_reconciles": 0,
-        "legacy_direct_push_batches": 0,
-    }
-    for line in lines:
-        parsed = classify_writer_log_line(line)
-        if parsed is None:
-            continue
-        summary["classified_lines"] += 1
-        event = parsed["event"]
-        reason = parsed.get("reason")
-        action = parsed.get("action")
-        if event == "writer_reconcile" and action == "blocked_broad_restore":
-            summary["blocked_broad_restores"] += 1
-        elif event == "writer_reconcile" and action == "blocked_stage":
-            summary["blocked_stages"] += 1
-        elif event == "writer_reconcile" and reason == "paced":
-            if action == "paced":
-                summary["paced_passes"] += 1
-        elif event == "writer_reconcile" and reason == "transport_reconnect":
-            # A failed generation retries on the ordinary dispatcher cadence.
-            # Count the actual new socket, not each attempt to reconcile it.
-            if action == "awaiting_readbacks":
-                summary["transport_reconnects"] += 1
-        elif event == "writer_reconcile" and reason == "cfg_drift":
-            summary["cfg_drifts"] += 1
-        elif event == "writer_dispatch":
-            if reason == "desired_change":
-                summary["desired_dispatches"] += 1
-            elif reason == "retry":
-                summary["retry_batches"] += 1
-            command_count = int(parsed.get("command_count", 0))
-            anchor_count = int(parsed.get("anchor_count", 0))
-            unchanged_anchor_count = int(parsed.get("unchanged_anchor_count", 0))
-            summary["dispatch_commands"] += command_count
-            summary["anchor_commands"] += anchor_count
-            if anchor_count >= 10:
-                summary["broad_anchor_batches"] += 1
-            if unchanged_anchor_count >= 10:
-                summary["unchanged_broad_anchor_batches"] += 1
-        elif event == "writer_delivery":
-            status = parsed.get("status")
-            if parsed.get("phase") == "persisted" and status in {"sent", "failed", "cancelled", "superseded"}:
-                summary[f"delivery_{status}"] += int(parsed.get("count", 1))
-        elif event == "legacy_reconnect_reconcile":
-            summary["legacy_reconnect_reconciles"] += 1
-        elif event == "legacy_direct_push":
-            summary["legacy_direct_push_batches"] += 1
-    return summary
-
-
-def _writer_probe_main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Classify redacted Verdify writer logs from stdin")
-    parser.add_argument("--writer-log-summary", action="store_true")
-    args = parser.parse_args(argv)
-    if not args.writer_log_summary:
-        parser.error("--writer-log-summary is required")
-    print(json.dumps(summarize_writer_log_lines(sys.stdin), sort_keys=True))
-    return 0
+# #1656 also retired the writer-log probe (classify_writer_log_line) that only a
+# test used.
 
 
 async def setpoint_confirmation_monitor(pool: asyncpg.Pool) -> None:
@@ -309,29 +195,6 @@ async def setpoint_confirmation_monitor(pool: asyncpg.Pool) -> None:
                 log.info(
                     "setpoint_unconfirmed: marked %d stale lighting row(s) superseded by current cfg policy",
                     len(stale_lighting_rows),
-                )
-
-            legacy_lighting_rows = await conn.fetch(
-                """
-                UPDATE v_runtime_setpoint_changes_write sc
-                   SET delivery_status = 'superseded',
-                       superseded_by_ts = COALESCE(sc.superseded_by_ts, now()),
-                       expired_at = COALESCE(sc.expired_at, now())
-                 WHERE sc.parameter = ANY($1::text[])
-                   AND sc.confirmed_at IS NULL
-                   AND COALESCE(sc.source, '') <> 'esp32'
-                   AND COALESCE(sc.delivery_status, 'pending') IN (
-                       'pending', 'requested', 'queued', 'retrying', 'sent', 'deferred_heap_pressure'
-                   )
-                   AND sc.ts > now() - interval '1 day'
-                RETURNING sc.parameter
-                """,
-                list(LIGHTING_POLICY_PARAMS),
-            )
-            if legacy_lighting_rows:
-                log.info(
-                    "setpoint_unconfirmed: marked %d legacy shared lighting row(s) superseded",
-                    len(legacy_lighting_rows),
                 )
 
         if SWITCH_CONFIRM_EQUIPMENT:
@@ -513,7 +376,3 @@ async def setpoint_confirmation_monitor(pool: asyncpg.Pool) -> None:
             )
 
         log.info("Setpoint confirmation monitor: %d unconfirmed row(s)", len(rows))
-
-
-if __name__ == "__main__":
-    raise SystemExit(_writer_probe_main())

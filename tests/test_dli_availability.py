@@ -107,10 +107,6 @@ def test_broken_dli_sensor_is_not_active_or_required_metadata():
     assert "v_sensor_staleness already filters active=true" in sql
 
 
-
-
-
-
 def test_mcp_and_api_use_typed_unavailable_contract():
     mcp = (ROOT / "mcp/server.py").read_text()
     outcome = mcp.split("async def outcome_kpi", 1)[1].split("async def equipment_state", 1)[0]

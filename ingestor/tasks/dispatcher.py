@@ -1317,8 +1317,8 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 continue
             if heap_defer_active:
                 # A deferred row is truthful request evidence, not sent state.
-                # The LISTEN/NOTIFY real-time listener atomically claims only
-                # legacy pending rows, so this explicit deferred state cannot
+                # No other path pushes a setpoint_changes row (the NOTIFY push
+                # handler is retired, #1656), so this deferred state cannot
                 # bypass the heap hold; no recently_pushed cache moves. This is the lifecycle
                 # equivalent of the legacy UPDATE clause
                 # delivery_status = 'deferred_heap_pressure', now set at INSERT.

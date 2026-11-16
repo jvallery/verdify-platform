@@ -57,14 +57,6 @@ from entity_map import (
     STATE_MAP,
     normalize_feedback_value,
 )
-from esp32_push import (
-    DeviceCommandOutcome,
-    LifecyclePersistenceError,
-    delivery_failure_retryable,
-    delivery_transition_prior_statuses,
-    preserved_terminal_status,
-    push_to_esp32_detailed,
-)
 from fixed_panel_source import NativeProbeTracker
 from mqtt_fanout import (
     FanoutPublisher,
@@ -4310,282 +4302,16 @@ async def mqtt_subscribe_loop(pool: asyncpg.Pool) -> None:
 
 
 # ──────────────────────────────────────────────────────────────
-# Real-time setpoint listener (LISTEN/NOTIFY → ESP32 push)
+# Wake listener (LISTEN/NOTIFY → wake the dispatcher and irrigation_sync)
 # ──────────────────────────────────────────────────────────────
-_SETPOINT_ALIASES = {
-    "set_vpd_high_kpa": "vpd_high",
-    "set_vpd_low_kpa": "vpd_low",
-    "set_temp_low__f": "temp_low",
-    "set_temp_high__f": "temp_high",
-    "vpd_mister_engage_kpa": "mister_engage_kpa",
-    "vpd_mister_all_kpa": "mister_all_kpa",
-}
-
-
-def _parse_setpoint_notification(payload: str) -> tuple[str, float, str] | None:
-    """Parse JSON/legacy NOTIFY payloads without dropping numeric zero."""
-    source = ""
-    if payload.startswith("{"):
-        try:
-            event = json.loads(payload)
-            raw_param = event.get("parameter")
-            raw_value = event.get("value")
-            if raw_param is None or raw_value is None:
-                return None
-            param = str(raw_param)
-            val = float(raw_value)
-            source = str(event.get("source") or "")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-    else:
-        if "=" not in payload:
-            return None
-        param, raw_value = payload.split("=", 1)
-        try:
-            val = float(raw_value)
-        except ValueError:
-            return None
-    return _SETPOINT_ALIASES.get(param, param), val, source
-
-
-async def _cas_notify_delivery_state(
-    pool: asyncpg.Pool,
-    requested_at: datetime,
-    param: str,
-    status: str,
-) -> str:
-    """Persist one legal transition; reject a delayed state regression."""
-    allowed = list(delivery_transition_prior_statuses(status))
-    async with pool.acquire() as state_conn:
-        persisted = await state_conn.fetchval(
-            """
-            UPDATE v_runtime_setpoint_changes_write
-               SET delivery_status = $1,
-                   expired_at = CASE
-                       WHEN $1 IN ('failed', 'cancelled', 'superseded')
-                       THEN COALESCE(expired_at, now())
-                       ELSE expired_at
-                   END
-             WHERE ts = $2
-               AND parameter = $3
-               AND confirmed_at IS NULL
-               AND COALESCE(delivery_status, 'pending') = ANY($4::text[])
-            RETURNING delivery_status
-            """,
-            status,
-            requested_at,
-            param,
-            allowed,
-        )
-        if persisted is not None:
-            return str(persisted)
-        current = await state_conn.fetchval(
-            "SELECT delivery_status FROM setpoint_changes WHERE ts = $1 AND parameter = $2",
-            requested_at,
-            param,
-        )
-    if current == status:
-        return status
-    if preserved := preserved_terminal_status(current, status):
-        return preserved
-    raise RuntimeError(f"illegal delivery transition {current!r} -> {status!r} for {param}")
-
-
-async def _open_rt_delivery_failure_alert(
-    pool: asyncpg.Pool,
-    param: str,
-    reason: str,
-    requested_at: datetime,
-) -> None:
-    details = json.dumps(
-        {
-            "parameter": param,
-            "failure_reason": reason,
-            "requested_at": requested_at.isoformat(),
-            "path": "setpoint_listener",
-        }
-    )
-    async with pool.acquire() as alert_conn:
-        await alert_conn.execute(
-            """
-            INSERT INTO alert_log
-              (alert_type, severity, category, message, details, source, sensor_id)
-            SELECT 'esp32_push_failed', 'warning', 'system', $1, $2::jsonb,
-                   'setpoint_listener', 'setpoint.' || $3
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM alert_log
-                  WHERE alert_type = 'esp32_push_failed'
-                    AND disposition = 'open'
-                    AND sensor_id = 'setpoint.' || $3
-             )
-            """,
-            f"ESP32 real-time delivery failed for {param}",
-            details,
-            param,
-        )
-
-
-async def _handle_setpoint_notification(pool: asyncpg.Pool, payload: str) -> None:
-    """Atomically claim and deliver one DB-origin request from NOTIFY."""
-    import time as _time
-
-    from entity_map import PARAM_TO_ENTITY, SWITCH_TO_ENTITY
-
-    parsed = _parse_setpoint_notification(payload)
-    if parsed is None:
-        return
-    param, val, source = parsed
-    if source == "esp32":
-        log.debug("RT push suppressed for ESP32 echo %s", param)
-        return
-
-    async with pool.acquire() as state_conn:
-        requested_at = await state_conn.fetchval(
-            """
-            WITH candidate AS (
-                SELECT ts
-                  FROM v_runtime_setpoint_changes_write
-                 WHERE parameter = $1
-                   AND abs(value - $2::double precision)
-                         / greatest(abs($2::double precision), 1e-3) < 0.01
-                   AND COALESCE(source, '') = COALESCE($3, '')
-                   AND confirmed_at IS NULL
-                   AND COALESCE(delivery_status, 'pending') = 'pending'
-                 ORDER BY ts ASC
-                 FOR UPDATE SKIP LOCKED
-                 LIMIT 1
-            )
-            UPDATE v_runtime_setpoint_changes_write sc
-               SET delivery_status = 'requested'
-              FROM candidate
-             WHERE sc.ts = candidate.ts AND sc.parameter = $1
-            RETURNING sc.ts
-            """,
-            param,
-            val,
-            source,
-        )
-    if requested_at is None:
-        # Dispatcher-owned and heap-deferred rows have explicit non-pending
-        # states, so they are deterministically ignored without an in-memory
-        # param/value suppression marker.
-        log.debug("RT push ignored: no unclaimed pending row for %s", param)
-        return
-
-    if not _accept_outbound_setpoint(param, val):
-        await _cas_notify_delivery_state(pool, requested_at, param, "failed")
-        await _open_rt_delivery_failure_alert(pool, param, "outbound_rejected", requested_at)
-        return
-
-    if param.startswith("sw_"):
-        eid = SWITCH_TO_ENTITY.get(param)
-        etype = "switch"
-    else:
-        eid = PARAM_TO_ENTITY.get(param)
-        etype = "number"
-    if not eid:
-        await _cas_notify_delivery_state(pool, requested_at, param, "failed")
-        log.error(
-            "writer_delivery phase=persisted status=failed reason=unroutable param=%s source=notify",
-            param,
-        )
-        await _open_rt_delivery_failure_alert(pool, param, "unroutable", requested_at)
-        return
-
-    pushed_at = shared.recently_pushed.get(param, 0)
-    if _time.time() - pushed_at < _PUSH_ECHO_SUPPRESS_S and _same_pushed_value(param, val):
-        log.debug("RT push suppressed for recently pushed %s; terminalizing duplicate request", param)
-        await _cas_notify_delivery_state(pool, requested_at, param, "superseded")
-        log.info(
-            "writer_delivery phase=persisted status=superseded reason=duplicate_recent_delivery param=%s source=notify",
-            param,
-        )
-        return
-
-    async def persist_notify_state(
-        outcomes: tuple[DeviceCommandOutcome, ...],
-        *,
-        final_attempt: bool,
-    ) -> None:
-        if not outcomes:
-            return
-        outcome = outcomes[0]
-        status = (
-            "retrying"
-            if outcome.status == "failed" and not final_attempt and delivery_failure_retryable(outcome)
-            else outcome.status
-        )
-        persisted_status = await _cas_notify_delivery_state(pool, requested_at, param, status)
-        log.info(
-            "writer_delivery phase=persisted status=%s reason=%s param=%s generation=%d attempt=%d source=notify",
-            persisted_status,
-            outcome.reason,
-            param,
-            outcome.connection_generation,
-            outcome.attempt,
-        )
-
-    terminal_failure_reason: str | None = None
-    for attempt in (1, 2, 3):
-        if attempt > 1:
-            async with pool.acquire() as state_conn:
-                newer_ts = await state_conn.fetchval(
-                    """
-                    SELECT min(ts) FROM setpoint_changes
-                     WHERE parameter = $1
-                       AND COALESCE(source, '') <> 'esp32'
-                       AND ts > $2
-                    """,
-                    param,
-                    requested_at,
-                )
-            if newer_ts is not None:
-                await _cas_notify_delivery_state(pool, requested_at, param, "superseded")
-                log.info(
-                    "writer_delivery phase=persisted status=superseded reason=newer_db_request param=%s source=notify",
-                    param,
-                )
-                return
-
-        async def on_state(
-            outcomes: tuple[DeviceCommandOutcome, ...],
-            is_final: bool = attempt == 3,
-        ) -> None:
-            await persist_notify_state(outcomes, final_attempt=is_final)
-
-        result = await push_to_esp32_detailed(
-            [(eid, val, etype)],
-            attempt=attempt,
-            on_state=on_state,
-            command_versions=[requested_at.timestamp()],
-        )
-        if result.fatal_error:
-            raise LifecyclePersistenceError(result.fatal_error)
-        if result.sent_count:
-            log.info("RT push: %s=%s → ESP32 (<1s)", param, val)
-            return
-        failed = next((outcome for outcome in result.outcomes if outcome.status == "failed"), None)
-        if failed is None:
-            return
-        terminal_failure_reason = failed.reason
-        if not delivery_failure_retryable(failed) or attempt == 3:
-            break
-        log.warning(
-            "writer_dispatch reason=retry generation=%d attempt=%d failed_count=1 source=notify",
-            shared.transport_generation,
-            attempt + 1,
-        )
-        await asyncio.sleep(0.5 * attempt)
-
-    if terminal_failure_reason is not None:
-        await _open_rt_delivery_failure_alert(pool, param, terminal_failure_reason, requested_at)
+# #1656: the setpoint_changed handler that pushed a pending setpoint_changes row
+# outside the dispatcher pass is retired (its last producer, the forecast engine,
+# went with climate refactor 4.2). Every device write goes through the fenced
+# dispatcher; this listener only wakes it.
 
 
 async def setpoint_listener(pool: asyncpg.Pool) -> None:
     """Keep LISTEN alive across DB recovery without replacing the ESP32 client."""
-
-    async def _on_notify(_conn, _pid, _channel, payload):
-        await _handle_setpoint_notification(pool, payload)
 
     def _on_irrigation_notify(_conn, _pid, _channel, _payload):
         # VD-64: an irrigation write committed; wake irrigation_sync. The payload is empty by design.
@@ -4610,19 +4336,15 @@ async def setpoint_listener(pool: asyncpg.Pool) -> None:
             # LISTEN needs a dedicated connection, not a pooled connection.
             conn = await asyncpg.connect(DB_DSN, timeout=10)
             conn.add_termination_listener(_on_disconnect)
-            await conn.add_listener("setpoint_changed", _on_notify)
             await conn.add_listener("irrigation_changed", _on_irrigation_notify)
             await conn.add_listener("desired_state_changed", _on_desired_state_changed)
             if connected_once:
-                # NOTIFY is not durable. Reuse the normal fenced dispatcher to
-                # reconcile eligible pending rows after the subscription returns,
-                # and wake both tasks for any desired_state or irrigation write the gap hid.
+                # NOTIFY is not durable. Wake both tasks for any desired_state or
+                # irrigation write the gap hid.
                 shared.setpoint_dispatch_requested.set()
                 shared.irrigation_sync_requested.set()
             connected_once = True
-            log.info(
-                "Setpoint listener: LISTEN on setpoint_changed, irrigation_changed and desired_state_changed channels"
-            )
+            log.info("Setpoint listener: LISTEN on irrigation_changed and desired_state_changed channels")
             if conn.is_closed():
                 disconnected.set()
             await disconnected.wait()

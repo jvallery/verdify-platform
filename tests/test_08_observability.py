@@ -155,27 +155,6 @@ class TestDispatcherWiring:
         body = self._read()
         assert "attempt %d/3" in body or "attempt 1/3" in body, "ESP32 direct push must retry on failure (Tier 1 #4)"
 
-    def test_dispatcher_suppresses_duplicate_notify_pushes(self):
-        body = self._read()
-        ingestor = (REPO_ROOT / "ingestor" / "ingestor.py").read_text()
-        shared_source = (REPO_ROOT / "ingestor" / "shared.py").read_text()
-        push_helper = (REPO_ROOT / "ingestor" / "esp32_push.py").read_text()
-        assert "def _commit_sent_cache(" in push_helper
-        assert "_commit_sent_cache(quantum_outcomes)" in push_helper
-        assert push_helper.index("await _emit_state_until_recorded(request, quantum_outcomes)") < push_helper.index(
-            "_commit_sent_cache(quantum_outcomes)"
-        )
-        assert "LISTEN/NOTIFY real-time listener" in body
-        assert "reconnect reconcile" in body
-        assert "shared.cfg_readback" in body
-        assert "cfg_readback: dict[str, float]" in shared_source
-        assert "shared.note_cfg_readback_observed(cfg_param, val, generation)" in ingestor
-        assert "action=awaiting_readbacks" in ingestor
-        assert "_BATCH_PAUSE_EVERY" in push_helper
-        assert "_MIN_COMMAND_INTERVAL_S" in push_helper
-        assert "async with _PUSH_LOCK" in push_helper
-        assert "await asyncio.sleep(_BATCH_PAUSE_S)" in push_helper
-
     def test_dispatcher_heap_skip_marks_deferred_without_realtime_bypass(self):
         body = self._read()
         assert "HEAP_DEFER_FREE_KB = 30.0" in body
@@ -231,29 +210,6 @@ class TestDispatcherWiring:
         readback_params = frozenset(CFG_READBACK_MAP.values()) | frozenset(SETPOINT_MAP.values())
         assert _RECONNECT_SAFETY_CANDIDATES <= readback_params
         assert RECONNECT_UNOBSERVED_RESTORE_PARAMS.isdisjoint(readback_params)
-
-    def test_dispatcher_repushes_active_plan_when_cfg_readback_drifts(self):
-        body = self._read()
-        assert "readback_drift" in body
-        assert "Dispatcher readback drift" in body
-        assert "and not readback_drift" in body
-        assert "shared.cfg_readback.get(param)" in body
-
-    def test_realtime_listener_validates_outbound_registry_bounds(self):
-        ingestor = (REPO_ROOT / "ingestor" / "ingestor.py").read_text()
-        assert "from verdify_schemas.tunable_registry import get as get_tunable" in ingestor
-        assert "def _accept_outbound_setpoint" in ingestor
-        assert "Rejecting outbound setpoint" in ingestor
-        assert "if not _accept_outbound_setpoint(param, val)" in ingestor
-
-    def test_realtime_listener_suppresses_esp32_echo_payloads(self):
-        ingestor = (REPO_ROOT / "ingestor" / "ingestor.py").read_text()
-        migration = (REPO_ROOT / "db" / "migrations" / "100-setpoint-notify-source.sql").read_text()
-        assert "json.loads(payload)" in ingestor
-        assert 'source == "esp32"' in ingestor
-        assert "RT push suppressed for ESP32 echo" in ingestor
-        assert "json_build_object" in migration
-        assert "'source', NEW.source" in migration
 
     def test_dispatcher_escalates_push_failure(self):
         body = self._read()

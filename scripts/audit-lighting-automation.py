@@ -395,7 +395,8 @@ def static_checks(audit: Audit) -> None:
         "Lutron control/sync path is missing switch.greenhouse_* mappings or still references stale light.* wrappers",
     )
 
-    for relpath in ("ingestor/tasks.py", "api/main.py", "scripts/setpoint-server.py"):
+    # #1656: the setpoint server serves no policy values any more (its /setpoints route is retired).
+    for relpath in ("ingestor/tasks.py", "api/main.py"):
         src = read(REPO_ROOT / relpath)
         audit.check(
             "fn_lighting_minutes_policy" in src,
@@ -1013,26 +1014,14 @@ def live_checks(audit: Audit, require_ota: bool) -> None:
         state_detail = "both Lutron circuits have fresh post-OTA switch-state evidence matching firmware telemetry"
     audit.add("post-OTA Lutron state evidence", state_status, state_detail)
 
-    setpoint_text = parse_setpoint_text(fetch_text("http://127.0.0.1:8200/setpoints"))
-    audit.check(
-        all(param in setpoint_text for param in PER_CIRCUIT_PARAMS),
-        "setpoint server per-circuit values",
-        "local setpoint server exposes all per-circuit lighting values",
-        "setpoint server is missing per-circuit values",
-    )
+    # #1656 retired the setpoint server's /setpoints route; the API /setpoints check below covers the values.
     # #1477: the legacy shared gl_* lighting values left the firmware and the
-    # registry, so neither compatibility endpoint serves them any more.
+    # registry, so the API does not serve them any more.
     retired_shared = ("gl_lux_threshold", "gl_lux_hysteresis", "gl_dli_target", "gl_sunrise_hour", "gl_sunset_hour")
 
     def retired_values_absent(values: dict[str, str]) -> bool:
         return not any(param in values for param in retired_shared)
 
-    audit.check(
-        retired_values_absent(setpoint_text),
-        "setpoint server retired shared lighting values",
-        "local setpoint server no longer serves the retired shared gl_* values",
-        f"setpoint server still serves retired shared gl_* values: {setpoint_text}",
-    )
     api_proc = run(
         [
             "docker",

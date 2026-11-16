@@ -6,7 +6,6 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -28,7 +27,6 @@ for key, value in {
 import esp32_push  # noqa: E402
 import shared  # noqa: E402
 import tasks as ingestor_tasks  # noqa: E402
-from esp32_push import DeviceCommandOutcome, PushBatchResult  # noqa: E402
 
 import ingestor  # noqa: E402
 
@@ -194,160 +192,6 @@ def test_dynamic_readback_only_context_never_wakes_writer_dispatch():
     assert not shared.setpoint_dispatch_requested.is_set()
 
 
-def test_json_notify_parser_preserves_numeric_zero():
-    assert ingestor._parse_setpoint_notification(
-        '{"parameter":"sw_fsm_controller_enabled","value":0,"source":"operator"}'
-    ) == ("sw_fsm_controller_enabled", 0.0, "operator")
-
-
-@pytest.mark.asyncio
-async def test_notify_unknown_timeout_is_not_retried_and_opens_alert(monkeypatch):
-    requested_at = datetime(2026, 7, 9, 20, 0, tzinfo=UTC)
-
-    class Connection:
-        def __init__(self):
-            self.statuses: list[str] = []
-            self.alerts: list[tuple] = []
-            self.claim_query = ""
-            self.state_update_queries: list[str] = []
-
-        async def fetchval(self, query, *args):
-            if "WITH candidate AS" in query:
-                self.claim_query = query
-                return requested_at
-            if "UPDATE v_runtime_setpoint_changes_write" in query:
-                self.state_update_queries.append(query)
-                self.statuses.append(args[0])
-                return args[0]
-            if "SELECT min(ts)" in query:
-                raise AssertionError("non-retryable timeout must not query/retry")
-            if "SELECT delivery_status" in query:
-                return self.statuses[-1] if self.statuses else "requested"
-            return None
-
-        async def execute(self, query, *args):
-            if "INSERT INTO alert_log" in query:
-                self.alerts.append(args)
-            return "INSERT 0 1"
-
-    class Acquire:
-        def __init__(self, connection):
-            self.connection = connection
-
-        async def __aenter__(self):
-            return self.connection
-
-        async def __aexit__(self, *_exc):
-            return False
-
-    connection = Connection()
-    pool = MagicMock()
-    pool.acquire.return_value = Acquire(connection)
-    push_calls = 0
-
-    async def failed_push(_changes, *, attempt, on_state, command_versions):
-        nonlocal push_calls
-        push_calls += 1
-        queued = DeviceCommandOutcome(
-            0,
-            "vpd_mister_weight",
-            0.75,
-            "number",
-            "mister_vpd_weight",
-            "queued",
-            "bounded_queue_accepted",
-            attempt,
-            4,
-            command_versions[0],
-        )
-        failed = DeviceCommandOutcome(
-            0,
-            "vpd_mister_weight",
-            0.75,
-            "number",
-            "mister_vpd_weight",
-            "failed",
-            "command_timeout_outcome_unknown",
-            attempt,
-            4,
-            command_versions[0],
-        )
-        await on_state((queued,))
-        await on_state((failed,))
-        return PushBatchResult((failed,))
-
-    monkeypatch.setattr(ingestor, "push_to_esp32_detailed", failed_push)
-    monkeypatch.setattr(shared, "recently_pushed", {})
-    monkeypatch.setattr(shared, "recently_pushed_values", {})
-    await ingestor._handle_setpoint_notification(
-        pool,
-        '{"parameter":"mister_vpd_weight","value":0.75,"source":"operator"}',
-    )
-
-    assert push_calls == 1
-    assert connection.statuses == ["queued", "failed"]
-    assert len(connection.alerts) == 1
-    assert "FOR UPDATE SKIP LOCKED" in connection.claim_query
-    assert "COALESCE(delivery_status, 'pending') = 'pending'" in connection.claim_query
-    assert "FROM v_runtime_setpoint_changes_write" in connection.claim_query
-    assert connection.state_update_queries
-    assert all("UPDATE v_runtime_setpoint_changes_write" in query for query in connection.state_update_queries)
-    assert all("UPDATE setpoint_changes" not in query for query in connection.state_update_queries)
-
-
-@pytest.mark.asyncio
-async def test_notify_cas_rejects_delayed_regression_from_superseded():
-    requested_at = datetime(2026, 7, 9, 20, 0, tzinfo=UTC)
-
-    class Connection:
-        async def fetchval(self, query, *_args):
-            if "UPDATE v_runtime_setpoint_changes_write" in query:
-                return None
-            if "SELECT delivery_status" in query:
-                return "superseded"
-            return None
-
-    class Acquire:
-        async def __aenter__(self):
-            return Connection()
-
-        async def __aexit__(self, *_exc):
-            return False
-
-    pool = MagicMock()
-    pool.acquire.return_value = Acquire()
-
-    with pytest.raises(RuntimeError, match="superseded.*queued"):
-        await ingestor._cas_notify_delivery_state(pool, requested_at, "mister_vpd_weight", "queued")
-
-
-@pytest.mark.asyncio
-async def test_notify_cas_preserves_superseded_when_inflight_send_returns():
-    requested_at = datetime(2026, 7, 9, 20, 0, tzinfo=UTC)
-
-    class Connection:
-        async def fetchval(self, query, *_args):
-            if "UPDATE v_runtime_setpoint_changes_write" in query:
-                return None
-            if "SELECT delivery_status" in query:
-                return "superseded"
-            return None
-
-    class Acquire:
-        async def __aenter__(self):
-            return Connection()
-
-        async def __aexit__(self, *_exc):
-            return False
-
-    pool = MagicMock()
-    pool.acquire.return_value = Acquire()
-
-    persisted = await ingestor._cas_notify_delivery_state(pool, requested_at, "mister_vpd_weight", "sent")
-
-    assert persisted == "superseded"
-
-
 @pytest.mark.asyncio
 async def test_writer_fatal_monitor_forces_supervised_process_failure():
     shared.note_writer_fatal("lifecycle_persistence_unavailable")
@@ -457,136 +301,6 @@ def test_native_number_readback_completes_replay_for_field_without_cfg_sensor():
 
     assert shared.transport_readbacks_ready(generation)
     assert shared.current_cfg_readbacks() == {"mister_on_s": 300.0}
-
-
-@pytest.mark.asyncio
-async def test_long_writer_does_not_delay_short_periodic_task_past_cadence():
-    writer_started = asyncio.Event()
-    release_writer = asyncio.Event()
-    heartbeat_starts: list[float] = []
-
-    async def long_writer(_pool):
-        writer_started.set()
-        await release_writer.wait()
-
-    async def heartbeat(_pool):
-        heartbeat_starts.append(asyncio.get_running_loop().time())
-
-    tasks = [
-        ("setpoint_dispatch", 300.0, long_writer),
-        ("planning_heartbeat", 1.0, heartbeat),
-    ]
-    last_run = {name: 0.0 for name, _interval, _fn in tasks}
-    running: dict[str, asyncio.Task[None]] = {}
-    pool = MagicMock()
-
-    started = ingestor._launch_due_tasks(pool, tasks, last_run, running, 400.0, {"setpoint_dispatch": 300.0})
-    assert started == ["setpoint_dispatch", "planning_heartbeat"]
-    await asyncio.wait_for(writer_started.wait(), timeout=0.2)
-    await asyncio.sleep(0)
-    assert len(heartbeat_starts) == 1
-    assert not running["setpoint_dispatch"].done()
-
-    # Reap the first heartbeat and launch its next cadence while the writer is
-    # still deliberately blocked.  The simulated start is only 0.1s late,
-    # comfortably below the 2x cadence (2.0s) acceptance bound.
-    await asyncio.sleep(0)
-    first_heartbeat = running["planning_heartbeat"]
-    await first_heartbeat
-    started = ingestor._launch_due_tasks(pool, tasks, last_run, running, 401.1, {"setpoint_dispatch": 300.0})
-    assert started == ["planning_heartbeat"]
-    await asyncio.sleep(0)
-    assert len(heartbeat_starts) == 2
-    assert 401.1 - 401.0 <= 1.0
-
-    release_writer.set()
-    await asyncio.gather(*running.values())
-
-
-@pytest.mark.asyncio
-async def test_real_writer_queue_contention_does_not_starve_periodic_confirmation(monkeypatch):
-    first_command_entered = asyncio.Event()
-    release_first_command = asyncio.Event()
-    urgent_queued = asyncio.Event()
-    physical_calls: list[int] = []
-    confirmation_starts: list[float] = []
-    heartbeat_starts: list[float] = []
-    cadence = 1.0
-
-    async def command(key, _value):
-        physical_calls.append(key)
-        if key == 1:
-            first_command_entered.set()
-            await release_first_command.wait()
-
-    client = MagicMock()
-    client.number_command = command
-    monkeypatch.setenv("VERDIFY_DEVICE_WRITE_ENABLED", "1")
-    monkeypatch.setattr(shared, "is_shadow_mode", lambda: False)
-    monkeypatch.setattr(shared, "writer_lease_held", lambda: True)
-    monkeypatch.setattr(shared, "transport_generation", 4)
-    monkeypatch.setattr(
-        shared, "esp32", {"client": client, "keys": {f"cmd_{i}": i for i in range(1, 7)} | {"urgent": 999}}
-    )
-    monkeypatch.setattr(esp32_push, "_MIN_COMMAND_INTERVAL_S", 0.0)
-    monkeypatch.setattr(esp32_push, "_BATCH_PAUSE_S", 0.0)
-
-    async def dispatcher(_pool):
-        return await esp32_push.push_to_esp32_detailed([(f"cmd_{i}", float(i), "number") for i in range(1, 7)])
-
-    async def confirmation(_pool):
-        confirmation_starts.append(last_run["setpoint_confirmation"])
-
-    async def heartbeat(_pool):
-        heartbeat_starts.append(last_run["planning_heartbeat"])
-
-    tasks = [
-        ("setpoint_dispatch", 300.0, dispatcher),
-        ("setpoint_confirmation", cadence, confirmation),
-        ("planning_heartbeat", cadence, heartbeat),
-    ]
-    last_run = {name: 0.0 for name, _interval, _fn in tasks}
-    running: dict[str, asyncio.Task[None]] = {}
-    pool = MagicMock()
-
-    try:
-        assert ingestor._launch_due_tasks(pool, tasks, last_run, running, 400.0, {}) == [
-            "setpoint_dispatch",
-            "setpoint_confirmation",
-            "planning_heartbeat",
-        ]
-        await asyncio.wait_for(first_command_entered.wait(), timeout=0.2)
-
-        async def on_urgent_state(outcomes):
-            if all(outcome.status == "queued" for outcome in outcomes):
-                urgent_queued.set()
-
-        urgent = asyncio.create_task(
-            esp32_push.push_to_esp32_detailed([("urgent", 1.0, "number")], on_state=on_urgent_state)
-        )
-        await asyncio.wait_for(urgent_queued.wait(), timeout=0.2)
-
-        for tick in (401.1, 402.2, 403.3):
-            await asyncio.gather(running["setpoint_confirmation"], running["planning_heartbeat"])
-            assert ingestor._launch_due_tasks(pool, tasks, last_run, running, tick, {}) == [
-                "setpoint_confirmation",
-                "planning_heartbeat",
-            ]
-            await asyncio.sleep(0)
-            assert not running["setpoint_dispatch"].done()
-            assert not urgent.done()
-
-        await asyncio.gather(running["setpoint_confirmation"], running["planning_heartbeat"])
-        for starts in (confirmation_starts, heartbeat_starts):
-            assert starts == [400.0, 401.1, 402.2, 403.3]
-            assert max(later - earlier for earlier, later in zip(starts, starts[1:], strict=False)) < cadence * 2
-    finally:
-        release_first_command.set()
-        await asyncio.gather(*running.values(), return_exceptions=True)
-        if "urgent" in locals():
-            await asyncio.gather(urgent, return_exceptions=True)
-
-    assert physical_calls == [1, 2, 999, 3, 4, 5, 6]
 
 
 @pytest.mark.asyncio
@@ -748,3 +462,133 @@ def test_native_mirror_rejects_nonfinite_and_out_of_range_before_replay(value):
     ingestor._mirror_irrigation_number_readback("safety_max", value)
     assert not shared.transport_readbacks_ready(generation)
     assert shared.current_cfg_readbacks() == {}
+
+
+@pytest.mark.asyncio
+async def test_long_writer_does_not_delay_short_periodic_task_past_cadence():
+    writer_started = asyncio.Event()
+    release_writer = asyncio.Event()
+    heartbeat_starts: list[float] = []
+
+    async def long_writer(_pool):
+        writer_started.set()
+        await release_writer.wait()
+
+    async def heartbeat(_pool):
+        heartbeat_starts.append(asyncio.get_running_loop().time())
+
+    tasks = [
+        ("setpoint_dispatch", 300.0, long_writer),
+        ("planning_heartbeat", 1.0, heartbeat),
+    ]
+    last_run = {name: 0.0 for name, _interval, _fn in tasks}
+    running: dict[str, asyncio.Task[None]] = {}
+    pool = MagicMock()
+
+    started = ingestor._launch_due_tasks(pool, tasks, last_run, running, 400.0, {"setpoint_dispatch": 300.0})
+    assert started == ["setpoint_dispatch", "planning_heartbeat"]
+    await asyncio.wait_for(writer_started.wait(), timeout=0.2)
+    await asyncio.sleep(0)
+    assert len(heartbeat_starts) == 1
+    assert not running["setpoint_dispatch"].done()
+
+    # Reap the first heartbeat and launch its next cadence while the writer is
+    # still deliberately blocked.  The simulated start is only 0.1s late,
+    # comfortably below the 2x cadence (2.0s) acceptance bound.
+    await asyncio.sleep(0)
+    first_heartbeat = running["planning_heartbeat"]
+    await first_heartbeat
+    started = ingestor._launch_due_tasks(pool, tasks, last_run, running, 401.1, {"setpoint_dispatch": 300.0})
+    assert started == ["planning_heartbeat"]
+    await asyncio.sleep(0)
+    assert len(heartbeat_starts) == 2
+    assert 401.1 - 401.0 <= 1.0
+
+    release_writer.set()
+    await asyncio.gather(*running.values())
+
+
+@pytest.mark.asyncio
+async def test_real_writer_queue_contention_does_not_starve_periodic_confirmation(monkeypatch):
+    first_command_entered = asyncio.Event()
+    release_first_command = asyncio.Event()
+    urgent_queued = asyncio.Event()
+    physical_calls: list[int] = []
+    confirmation_starts: list[float] = []
+    heartbeat_starts: list[float] = []
+    cadence = 1.0
+
+    async def command(key, _value):
+        physical_calls.append(key)
+        if key == 1:
+            first_command_entered.set()
+            await release_first_command.wait()
+
+    client = MagicMock()
+    client.number_command = command
+    monkeypatch.setenv("VERDIFY_DEVICE_WRITE_ENABLED", "1")
+    monkeypatch.setattr(shared, "is_shadow_mode", lambda: False)
+    monkeypatch.setattr(shared, "writer_lease_held", lambda: True)
+    monkeypatch.setattr(shared, "transport_generation", 4)
+    monkeypatch.setattr(
+        shared, "esp32", {"client": client, "keys": {f"cmd_{i}": i for i in range(1, 7)} | {"urgent": 999}}
+    )
+    monkeypatch.setattr(esp32_push, "_MIN_COMMAND_INTERVAL_S", 0.0)
+    monkeypatch.setattr(esp32_push, "_BATCH_PAUSE_S", 0.0)
+
+    async def dispatcher(_pool):
+        return await esp32_push.push_to_esp32_detailed([(f"cmd_{i}", float(i), "number") for i in range(1, 7)])
+
+    async def confirmation(_pool):
+        confirmation_starts.append(last_run["setpoint_confirmation"])
+
+    async def heartbeat(_pool):
+        heartbeat_starts.append(last_run["planning_heartbeat"])
+
+    tasks = [
+        ("setpoint_dispatch", 300.0, dispatcher),
+        ("setpoint_confirmation", cadence, confirmation),
+        ("planning_heartbeat", cadence, heartbeat),
+    ]
+    last_run = {name: 0.0 for name, _interval, _fn in tasks}
+    running: dict[str, asyncio.Task[None]] = {}
+    pool = MagicMock()
+
+    try:
+        assert ingestor._launch_due_tasks(pool, tasks, last_run, running, 400.0, {}) == [
+            "setpoint_dispatch",
+            "setpoint_confirmation",
+            "planning_heartbeat",
+        ]
+        await asyncio.wait_for(first_command_entered.wait(), timeout=0.2)
+
+        async def on_urgent_state(outcomes):
+            if all(outcome.status == "queued" for outcome in outcomes):
+                urgent_queued.set()
+
+        urgent = asyncio.create_task(
+            esp32_push.push_to_esp32_detailed([("urgent", 1.0, "number")], on_state=on_urgent_state)
+        )
+        await asyncio.wait_for(urgent_queued.wait(), timeout=0.2)
+
+        for tick in (401.1, 402.2, 403.3):
+            await asyncio.gather(running["setpoint_confirmation"], running["planning_heartbeat"])
+            assert ingestor._launch_due_tasks(pool, tasks, last_run, running, tick, {}) == [
+                "setpoint_confirmation",
+                "planning_heartbeat",
+            ]
+            await asyncio.sleep(0)
+            assert not running["setpoint_dispatch"].done()
+            assert not urgent.done()
+
+        await asyncio.gather(running["setpoint_confirmation"], running["planning_heartbeat"])
+        for starts in (confirmation_starts, heartbeat_starts):
+            assert starts == [400.0, 401.1, 402.2, 403.3]
+            assert max(later - earlier for earlier, later in zip(starts, starts[1:], strict=False)) < cadence * 2
+    finally:
+        release_first_command.set()
+        await asyncio.gather(*running.values(), return_exceptions=True)
+        if "urgent" in locals():
+            await asyncio.gather(urgent, return_exceptions=True)
+
+    assert physical_calls == [1, 2, 999, 3, 4, 5, 6]

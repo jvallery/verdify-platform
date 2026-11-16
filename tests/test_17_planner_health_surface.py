@@ -1162,8 +1162,6 @@ def test_prod_source_cannot_recreate_retired_hermes_claim():
     # control-plane/agent-fleet-control/scripts/test_render_sync_classification.py with the owned declaration.
 
 
-
-
 def _schema_max_length(schema: dict[str, object]) -> int:
     if "maxLength" in schema:
         return int(schema["maxLength"])
@@ -1171,14 +1169,6 @@ def _schema_max_length(schema: dict[str, object]) -> int:
         if "maxLength" in branch:
             return int(branch["maxLength"])
     raise AssertionError(f"schema does not advertise maxLength: {schema}")
-
-
-
-
-
-
-
-
 
 
 @pytest.mark.asyncio
@@ -1244,27 +1234,3 @@ async def test_mcp_db_connections_enforce_server_side_query_budget(mcp_server, m
         "statement_timeout": f"{mcp_server.MCP_DB_STATEMENT_TIMEOUT_MS}ms",
     }
     assert mcp_server.MCP_DB_STATEMENT_TIMEOUT_MS == 15000
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

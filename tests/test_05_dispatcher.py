@@ -15,7 +15,7 @@ if INGESTOR_PATH not in sys.path:
 
 import shared  # noqa: E402
 from esp32_push import DeviceCommandOutcome  # noqa: E402
-from tasks import confirmation, dispatcher  # noqa: E402
+from tasks import dispatcher  # noqa: E402
 
 
 @pytest.mark.parametrize(
@@ -80,44 +80,6 @@ def test_reconnect_reconcile_is_generation_gated_and_cfg_drift_is_separate():
     assert "shared.transport_readbacks_ready(reconnect_generation)" in source
     assert "action=blocked_readbacks_incomplete" in source
     assert "expected_connection_generation=reconnect_generation" in source
-
-
-def test_runtime_probe_classifies_reconnect_drift_retry_and_broad_batches():
-    # VD-62: the dispatcher no longer logs blocked_* lines; the summary keeps
-    # counting them (from older pods) as the live check that they read zero.
-    summary = confirmation.summarize_writer_log_lines(
-        [
-            "writer_reconcile reason=transport_reconnect generation=8 action=awaiting_readbacks",
-            "writer_reconcile reason=transport_reconnect generation=8 action=blocked_broad_restore command_count=40 limit=12",
-            "writer_reconcile reason=cfg_drift generation=8 action=blocked_broad_restore command_count=39 limit=12",
-            "writer_reconcile reason=desired_change generation=8 action=blocked_stage reason=approval removed during run",
-            "writer_reconcile reason=paced generation=9 action=paced trigger=transport_reconnect "
-            "command_count=12 pending=20 awaiting_readback=0 limit=12",
-            "writer_reconcile reason=paced generation=9 action=wake remaining=8",
-            "writer_reconcile reason=cfg_drift param=x generation=8 drift_version=2",
-            "writer_dispatch reason=cfg_drift generation=8 command_count=1 anchor_count=0 "
-            "unchanged_anchor_count=0 comparison=desired_vs_observed",
-            "writer_dispatch reason=retry generation=8 attempt=2 failed_count=1",
-            "writer_dispatch reason=transport_reconnect generation=9 command_count=56 anchor_count=56 "
-            "unchanged_anchor_count=0 comparison=desired_vs_observed",
-            "writer_delivery phase=transport status=sent reason=api_command_returned param=x generation=8 attempt=1",
-            "writer_delivery phase=persisted status=sent reason=api_command_returned param=x generation=8 attempt=1",
-            "writer_delivery phase=persisted status=failed reason=transport_disconnected param=y generation=8 attempt=3",
-        ]
-    )
-
-    assert summary["transport_reconnects"] == 1
-    assert summary["blocked_broad_restores"] == 2
-    assert summary["blocked_stages"] == 1
-    assert summary["paced_passes"] == 1
-    assert summary["cfg_drifts"] == 1
-    assert summary["retry_batches"] == 1
-    assert summary["dispatch_commands"] == 57
-    assert summary["anchor_commands"] == 56
-    assert summary["broad_anchor_batches"] == 1
-    assert summary["unchanged_broad_anchor_batches"] == 0
-    assert summary["delivery_sent"] == 1
-    assert summary["delivery_failed"] == 1
 
 
 def test_unchanged_anchor_probe_uses_observed_readback_not_constant(monkeypatch):

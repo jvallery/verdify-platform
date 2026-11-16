@@ -88,7 +88,7 @@ else
 fi
 
 # 5. Setpoint-server responding
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8200/setpoints 2>/dev/null)
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8200/health 2>/dev/null)
 check "setpoint-server" "$([ "$HTTP" = "200" ] && echo ok || echo "http $HTTP")"
 
 # 6. Grafana responding

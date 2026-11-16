@@ -50,8 +50,6 @@ os.environ.setdefault("DB_NAME", "test")
 
 import ingestor  # noqa: E402
 from verdify_schemas.tunable_registry import (  # noqa: E402
-    BAND_OWNED_REG,
-    CROP_BAND_REG,
     PLANNER_PUSHABLE_REG,
     REGISTRY,
     SCHEDULED_POLICY_REG,
@@ -358,61 +356,6 @@ def test_api_setpoint_fallback_uses_computed_band_not_planner_band_rows():
     assert "if param not in plan_params" in body
 
 
-def test_setpoint_server_fallback_does_not_overlay_band_owned_plan_rows():
-    """The legacy ESP32 pull server should keep crop-band params on the
-    dispatcher-pushed or DB-computed values.
-    """
-    script = Path("scripts/setpoint-server.py").read_text()
-
-    expected_band_params = {
-        "temp_low",
-        "temp_high",
-        "vpd_low",
-        "vpd_high",
-        "vpd_target_south",
-        "vpd_target_west",
-        "vpd_target_east",
-        "vpd_target_center",
-    }
-    assert expected_band_params <= set(CROP_BAND_REG)
-    assert "LIGHTING_POLICY_PARAMS" not in script
-    assert "fn_band_setpoints(now())" in script
-    assert "fn_house_vpd_control_band(now())" in script
-    assert "fn_zone_vpd_targets(now())" in script
-    module = runpy.run_path(str(REPO_ROOT / "scripts" / "setpoint-server.py"), run_name="_test_setpoint_server")
-    assert set(module["BAND_OWNED_PARAMS"]) == set(CROP_BAND_REG)
-    assert "PLAN_EXCLUDED_PARAMS_SQL" in script
-    for param in BAND_OWNED_REG:
-        assert f"'{param}'" in module["PLAN_EXCLUDED_PARAMS_SQL"]
-    assert "fn_lighting_policy(now(), 'vallery')" not in script
-    assert "fn_lighting_minutes_policy(now(), 'vallery')" in script
-    assert "if k.strip() not in plan_params" in script
-    assert "_overlay_activity_direct_wet_defaults(params, plan_params)" in script
-    assert "_overlay_dispatcher_owned_defaults(params, plan_params)" in script
-
-    # #1477: the activity mirror is retired with its entities; only the direct-wet defaults remain.
-    params = {"gl_grow_sunrise_hour": "7", "gl_grow_target_light_minutes": "780"}
-    module["_overlay_activity_direct_wet_defaults"](params, set())
-    module["_overlay_dispatcher_owned_defaults"](params, set())
-    for retired in ("activity_start_hour", "activity_start_minute", "activity_duration_min"):
-        assert retired not in params
-    assert "direct_wet_wall_start_offset_min" not in params  # #369: retired with its entity
-    assert params["irrig_center_fert_days_mask"] == "127"
-    assert params["sw_direct_wet_gate_enabled"] == "1"
-    assert params["safety_min"] == "40"
-    assert params["safety_max"] == "100"
-
-    legacy_params = {
-        "gl_main_lux_threshold": "40000",
-        "gl_main_lux_hysteresis": "8000",
-        "gl_grow_lux_threshold": "40000",
-        "gl_grow_lux_hysteresis": "8000",
-    }
-    module["_overlay_dispatcher_owned_defaults"](legacy_params, set())
-    # #1477: no shared gl_lux_* value is derived from the main circuit any more.
-    assert "gl_lux_threshold" not in legacy_params and "gl_lux_hysteresis" not in legacy_params
-
-
 def test_setpoint_server_controls_real_lutron_switch_entities_and_confirms_state():
     """The Lutron proxy must command the real switch entities and confirm HA
     state before recording success. The light.* wrappers accept service calls
@@ -529,18 +472,6 @@ def test_alert_monitor_avoids_greenhouse_state_hot_path_scans():
     # went with the retired vpd_* checks (RULINGS Q4).
     assert "fn_band_setpoints(c.ts)" in body
     assert "fn_setpoint_at(" not in body
-
-
-def test_setpoint_server_firmware_allowlist_comes_from_registry_routes():
-    """The fallback pull endpoint should not carry a hand-maintained firmware
-    parameter allowlist that can drift from the dispatchable registry routes.
-    """
-    path = Path(__file__).resolve().parent.parent / "scripts" / "setpoint-server.py"
-    src = path.read_text()
-    module = runpy.run_path(str(path), run_name="_test_setpoint_server")
-
-    assert "SETPOINT_MAP_REG" in src
-    assert set(module["FIRMWARE_SETPOINT_PARAMS"]) == set(SETPOINT_MAP_REG.values())
 
 
 def test_per_circuit_lighting_thresholds_are_schedule_owned_scheduled_policy():
@@ -854,7 +785,7 @@ def test_lighting_automation_audit_checks_live_public_site():
     assert "live public home page" in src
     assert "live public lighting page" in src
     assert "live public tunables page" in src
-    assert "setpoint server retired shared lighting values" in src
+    assert "setpoint server retired shared lighting values" not in src  # #1656: the route is retired
     assert "api retired shared lighting values" in src
     assert "Circuit Policy And Forecast Bands" in src
     assert "Firmware state and reason fields appear after the next ESP32 OTA" in src

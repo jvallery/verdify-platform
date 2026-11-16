@@ -134,8 +134,6 @@ INSERT INTO weather_forecast SELECT date_bin(interval '1 hour', now(), timestamp
     assert prior["corrected_prior"] is None
 
 
-
-
 def test_instant_weather_and_preceding_hour_solar_are_not_shifted(isolated_pg):
     query = isolated_pg
     query(_baseline())

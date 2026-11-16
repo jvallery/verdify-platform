@@ -1,6 +1,7 @@
 """Execute the actual listener with DB doubles; never create a device client.
 
-The listener LISTENs on setpoint_changed, on irrigation_changed (VD-64) and on desired_state_changed (VD-33). An
+The listener LISTENs on irrigation_changed (VD-64) and on desired_state_changed (VD-33) only: the setpoint_changed
+push handler is retired (#1656), so every device write goes through the fenced dispatcher. An
 irrigation write's NOTIFY sets shared.irrigation_sync_requested, which the next irrigation_sync pass reads;
 a desired_state write's wake sets that and shared.setpoint_dispatch_requested.
 """
@@ -11,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-CHANNELS = {"setpoint_changed", "irrigation_changed", "desired_state_changed"}
+CHANNELS = {"irrigation_changed", "desired_state_changed"}
 
 
 def listener_function() -> ast.AsyncFunctionDef:
