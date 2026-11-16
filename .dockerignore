@@ -157,8 +157,6 @@ db/ledger/*
 !docs
 !docs/**
 !verdify_schemas/README.md
-# The Cortex planner's static pack sections (#1350) are Markdown read at runtime.
-!cortex_planner/static/*.md
 README.md
 GOAL.md
 CONTEXT.md
@@ -170,5 +168,5 @@ AGENTS.md
 venv
 
 # NOTE: deliberately NOT ignored (the images COPY these):
-#   api/  mcp/  ingestor/  cortex_planner/  verdify_schemas/  verdify_services/
+#   api/  mcp/  ingestor/  verdify_schemas/  verdify_services/
 # Candidate rebuild marker: any .dockerignore change rebuilds every image profile (path-impact). 2026-11-06 recovery after unpublished main builds b880c41..c50bb2a7.

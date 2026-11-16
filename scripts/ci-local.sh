@@ -53,14 +53,14 @@ in_part() { [ "$VALIDATE_PART" = all ] || [[ " $* " == *" $VALIDATE_PART "* ]]; 
 
 if in_part rest; then
   step "ruff lint"
-  $RUFF check cortex_planner/ ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
+  $RUFF check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
     research/planner-efficacy/generate_v2_artifacts.py \
     research/planner-efficacy/switchback/v2_*.py \
     research/planner-efficacy/tests/test_protocol_template_contract.py \
     research/planner-efficacy/tests/test_switchback_v2_*.py
 
   step "ruff format"
-  $RUFF format --check cortex_planner/ ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
+  $RUFF format --check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
     research/planner-efficacy/generate_v2_artifacts.py \
     research/planner-efficacy/switchback/v2_*.py \
     research/planner-efficacy/tests/test_protocol_template_contract.py \
@@ -314,9 +314,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_knowledge_embeddings_contract.py
     tests/test_mqtt_fanout.py
     tests/test_no_hosted_runner_workflows.py
-    tests/test_cortex_planner_pack.py
-    tests/test_cortex_planner_run.py
-    tests/test_planner_proposal_schema.py
     tests/test_six_runtime_role_bootstrap.py
     tests/test_maintenance_runtime_boundaries.py
     tests/test_policy_arbiter_migration.py

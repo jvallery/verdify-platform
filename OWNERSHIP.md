@@ -43,7 +43,6 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-api` | 2 | verdify-api | Public and write API (`api.verdify.ai`). |
 | `verdify-operator-api` | 1 | verdify-api | Operator API for the dashboard BFF. |
 | `verdify-mcp` | 2 | verdify-mcp | MCP (`mcp.verdify.ai`). Uses the tokenless ServiceAccount `verdify-mcp` and NetworkPolicy `verdify-mcp-egress`. |
-| `verdify-cortex-planner` | 1 | verdify-ingestor | Cortex-backed planner path. |
 | `verdify-hermes-iris` | 1 | verdify-hermes-agent | Hermes agent; hand-pinned. |
 | `verdify-grafana` | 1 | grafana 12.4.14 mirror + verdify-grafana-image-renderer | Product Grafana (`graphs.verdify.ai`); dashboards are generated from `grafana/dashboards/` (R13 product exception). Version policy (D-325): this instance pins its own Grafana version by digest and upgrades it here on its own schedule; no version parity with the estate Grafana applies. |
 | `verdify-grafana-render-cache` | 2 | nginx-unprivileged mirror | Render cache for public panels. |
