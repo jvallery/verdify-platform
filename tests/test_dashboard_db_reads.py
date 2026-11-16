@@ -616,8 +616,7 @@ def test_writer_differing_counts_from_the_first_row_after_the_last_match_with_ke
     async def restarted(conn, t0):
         await reporting_now(conn, t0)
         took = t0 - 3 * H
-        await plan_in_force(conn, "iris-1662-keyframe", took, t0 + 2 * D)
-        await waypoints(conn, "iris-1662-keyframe", took, t0 + 2 * D, [(took, params[0], 1.0)])
+        await desired_rows(conn, took, params[:1])  # the value in force is a desired row (climate refactor 4.2)
         await snapshot(conn, t0 - 110 * MIN, params[0], 1.0)
         await snapshot(conn, t0 - 50 * MIN, params[0], 1.0)
         await snapshot(conn, t0 - 1 * MIN, params[0], mismatch(params[0], 1.0))
@@ -627,8 +626,7 @@ def test_writer_differing_counts_from_the_first_row_after_the_last_match_with_ke
     async def lost(conn, t0):
         await reporting_now(conn, t0)
         took = t0 - 3 * H
-        await plan_in_force(conn, "iris-1662-lost", took, t0 + 2 * D)
-        await waypoints(conn, "iris-1662-lost", took, t0 + 2 * D, [(took, params[0], 1.0)])
+        await desired_rows(conn, took, params[:1])  # the value in force is a desired row (climate refactor 4.2)
         await snapshot(conn, t0 - 50 * MIN, params[0], 1.0)
         await snapshot(conn, t0 - 20 * MIN, params[0], mismatch(params[0], 1.0))
         await snapshot(conn, t0 - 2 * MIN, params[0], mismatch(params[0], 1.0))  # its keyframe
