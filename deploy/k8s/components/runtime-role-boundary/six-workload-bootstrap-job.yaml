@@ -79,11 +79,6 @@ spec:
             secretKeyRef:
               name: verdify-setpoint-server-runtime-db
               key: password
-        - name: HA_BACKFILL_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: verdify-ha-backfill-runtime-db
-              key: password
         - name: LAB_PUBLISHER_DB_PASSWORD
           valueFrom:
             secretKeyRef:

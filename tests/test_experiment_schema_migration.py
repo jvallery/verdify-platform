@@ -387,6 +387,12 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "310-daily-record.sql",
         # One compliance definition: the August backfill and the capacity minutes run forward only.
         "311-one-compliance-definition.sql",
+        # The operator API's metric reads (two grants and the energy projection) run forward only.
+        "312-operator-metrics-reads.sql",
+        # The daily review table and its grants run forward only.
+        "313-planner-review.sql",
+        # The controller health columns and the gap-replay ledger run forward only.
+        "314-controller-health-and-gap-ledger.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(

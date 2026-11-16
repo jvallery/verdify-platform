@@ -1,4 +1,4 @@
-"""The MCP set_setting, settings, activity, alerts, set_plan and set_tunable tools on a private PostgreSQL (VD-58, #1171).
+"""The MCP set_setting, settings, activity and alerts tools on a private PostgreSQL (VD-58, #1171).
 
 jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. As tests/test_dashboard_db_settings_reads.py does, it builds in
@@ -7,9 +7,9 @@ that fresh database db/schema.sql's own DDL for the tables, views, keys and trig
 only the MCP login's production grants on those relations (migrations 259, 261 and 280, checked here), so a statement
 production would refuse fails here too.
 
-Covers the acceptance that needs PostgreSQL: an agent's write and its Activity row, the manual rule, replay and
-request_id_reused, one plan.write row for each of set_plan and set_tunable, the one-shot and its 6 h expiry on a manual
-setting, the SUNRISE delivery set_setting leaves alone, and the merged alert list against the one count.
+Covers the acceptance that needs PostgreSQL: an agent's write of an operator switch and its Activity row, the refusal
+of an agent's climate write (climate refactor 4.2: no agent writes a climate value; set_plan and set_tunable are
+retired), the manual rule, replay and request_id_reused, and the merged alert list against the one count.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from test_dashboard_db_settings_reads import (
 )
 from test_dashboard_db_settings_reads import ROOT as REPO_ROOT
 from test_dashboard_db_settings_reads import SCHEMA_DDL as READS_SCHEMA_DDL
-from test_mcp_settings_tools import TUNABLE_KEYS, body, iris, run_as, server, steward, transitions  # noqa: F401
+from test_mcp_settings_tools import body, iris, run_as, server, steward  # noqa: F401
 
 from verdify_schemas.tunable_registry import REGISTRY
 from verdify_services import alerts as alerts_service
@@ -49,7 +49,8 @@ pytestmark = pytest.mark.skipif(
 
 MCP_ROLE = "vd58_mcp_tools"
 INGESTOR_ROLE = "vd58_ingestor_context"
-PARAM = "mister_engage_kpa"
+PARAM = "mister_engage_kpa"  # a climate setting: an agent may not write it (climate refactor 4.2)
+SWITCH = "sw_occupancy_inhibit"  # an operator switch: the only settings an agent writes
 PERSON = Actor.person("jason", "operator")
 # set_plan, set_tunable and the delivery rows they fence, on top of what the settings and activity reads need.
 SCHEMA_DDL = (
@@ -122,24 +123,6 @@ TABLES = (
     "setpoint_plan",
     "setpoint_snapshot",
     "system_state",
-)
-SUNRISE_HYPOTHESIS = json.dumps(
-    {
-        "conditions": {
-            "outdoor_temp_peak_f": 75.0,
-            "outdoor_rh_min_pct": 25.0,
-            "solar_peak_w_m2": 900,
-            "cloud_cover_avg_pct": 30,
-        },
-        "rationale": [
-            {
-                "parameter": PARAM,
-                "new_value": 1.6,
-                "forecast_anchor": "RH under 25% at noon",
-                "expected_effect": "VPD stays in band",
-            }
-        ],
-    }
 )
 
 
@@ -266,34 +249,9 @@ def tools(server, dsn, monkeypatch):  # noqa: F811
     owner(dsn, empty)
 
 
-def pending_delivery(dsn_value, event_type: str, expected_action: str) -> str:
-    """A delivered planning trigger: a pending plan_delivery_log row and its delivered ledger row."""
-    trigger_id = str(uuid.uuid4())
-
-    async def insert(conn):
-        delivery_id = await conn.fetchval(
-            "INSERT INTO plan_delivery_log (event_type, event_label, status, instance, trigger_id) "
-            "VALUES ($1, 'fixture', 'pending', 'local', $2::uuid) RETURNING id",
-            event_type,
-            trigger_id,
-        )
-        await conn.execute(
-            "INSERT INTO planner_trigger_ledger (event_type, instance, expected_at, due_at, delivered_at, status, "
-            "expected_action, plan_delivery_log_id, trigger_id) "
-            "VALUES ($1, 'local', now(), now() + interval '1 hour', now(), 'delivered', $2, $3, $4::uuid)",
-            event_type,
-            expected_action,
-            delivery_id,
-            trigger_id,
-        )
-
-    owner(dsn_value, insert)
-    return trigger_id
-
-
-def person_holds_manual(dsn_value, value: float = 1.7) -> None:
+def person_holds_manual(dsn_value, value: float = 1.7, param: str = PARAM) -> None:
     async def write(conn):
-        await settings.write(conn, PERSON, PARAM, value, True, "holding for the vanda", None)
+        await settings.write(conn, PERSON, param, value, True, "holding for the vanda", None)
 
     owner(dsn_value, write)
 
@@ -311,58 +269,21 @@ def activity_rows(dsn_value) -> list[dict]:
     return [{**row, "detail": json.loads(row["detail"])} for row in fetched]
 
 
-def set_tunable(server, actor, trigger_id, value=1.5, parameter=PARAM):  # noqa: F811
-    return json.loads(
-        run_as(
-            server,
-            actor,
-            server.set_tunable(
-                parameter=parameter,
-                value=value,
-                reason="engage earlier",
-                trigger_id=trigger_id,
-                planner_instance="local",
-            ),
-        )
-    )
-
-
-def set_plan(server, actor, trigger_id, plan_id="iris-20261102-0600", hypothesis=SUNRISE_HYPOTHESIS):  # noqa: F811
-    return json.loads(
-        run_as(
-            server,
-            actor,
-            server.set_plan(
-                plan_id=plan_id,
-                hypothesis=hypothesis,
-                transitions=transitions(server),
-                trigger_id=trigger_id,
-                planner_instance="local",
-            ),
-        )
-    )
-
-
 # ── An agent's write ────────────────────────────────────────────────────────
 
 
-def test_an_agents_write_snaps_is_attributed_and_shows_in_activity(server, dsn):  # noqa: F811
-    result = run_as(server, steward(server), server.set_setting(PARAM, 1.53, reason="drier afternoon"))
-    assert result.isError is False
+def test_an_agents_switch_write_is_attributed_and_shows_in_activity(server, dsn):  # noqa: F811
+    result = run_as(server, steward(server), server.set_setting(SWITCH, 0.0, reason="people in the house"))
+    assert result.isError is False, body(result)
     stored = body(result)
-    assert (stored["value"], stored["snapped_from"], stored["manual"], stored["state"]) == (
-        1.55,
-        1.53,
-        False,
-        "requested",
-    )
+    assert (stored["value"], stored["manual"], stored["state"]) == (0.0, False, "requested")
     assert stored["actor"] == {"source": "agent:steward", "name": "steward"}
     assert "replayed" not in stored
-    assert desired_rows(dsn) == [{"value": 1.55, "manual": False, "source": "agent:steward", "actor": "steward"}]
-    # Desired state only: never the fast path, and never Iris's plan.
+    assert desired_rows(dsn) == [{"value": 0.0, "manual": False, "source": "agent:steward", "actor": "steward"}]
+    # Desired state only: never the fast path, and never a plan.
     assert rows(dsn, "SELECT 1 FROM setpoint_changes UNION ALL SELECT 1 FROM setpoint_plan") == []
 
-    page = body(asyncio.run(server.activity(source="agent", target=PARAM)))
+    page = body(asyncio.run(server.activity(source="agent", target=SWITCH)))
     ((entry),) = page["items"]
     assert (entry["action"], entry["actor"]["source"], entry["state"]) == (
         "setting.write",
@@ -370,7 +291,7 @@ def test_an_agents_write_snaps_is_attributed_and_shows_in_activity(server, dsn):
         "requested",
     )
     assert entry["detail"]["manual"] == {"before": False, "after": False}
-    assert entry["reason"] == "drier afternoon"
+    assert entry["reason"] == "people in the house"
 
     # API-17 is the same function over the same row.
     async def api_17(conn):
@@ -379,8 +300,19 @@ def test_an_agents_write_snaps_is_attributed_and_shows_in_activity(server, dsn):
     assert owner(dsn, api_17).model_dump(mode="json")["items"] == page["items"]
 
 
+@pytest.mark.parametrize("arguments", [{"value": 1.5}, {"release": True}], ids=["write", "release"])
+@pytest.mark.parametrize("who", ["steward", "iris"])
+def test_an_agents_climate_write_or_release_is_forbidden_and_stores_nothing(server, dsn, arguments, who):  # noqa: F811
+    person_holds_manual(dsn)
+    before = (desired_rows(dsn), activity_rows(dsn))
+    actor = steward(server) if who == "steward" else iris(server)
+    result = run_as(server, actor, server.set_setting(PARAM, **arguments))
+    assert result.isError is True and body(result)["code"] == "forbidden"
+    assert (desired_rows(dsn), activity_rows(dsn)) == before
+
+
 def test_settings_reads_the_catalog_and_history_as_the_mcp_login(server, dsn):  # noqa: F811
-    run_as(server, steward(server), server.set_setting(PARAM, 1.5, manual=True))
+    person_holds_manual(dsn, 1.5)
     answer = body(asyncio.run(server.settings(param=PARAM)))
     ((row),) = answer["items"]
     assert (row["applied_from"], row["min"], row["max"], row["step"]) == ("manual", 0.5, 2.5, 0.05)
@@ -399,18 +331,20 @@ def test_settings_reads_the_catalog_and_history_as_the_mcp_login(server, dsn):  
     assert bad.isError is True and body(bad)["code"] == "not_found"
 
 
-def test_every_irrigation_site_value_is_writable_with_no_trigger(server, dsn):  # noqa: F811
+def test_an_irrigation_site_value_is_the_owners_from_the_dashboard(server, dsn):  # noqa: F811
+    """Climate refactor 4.2: an agent's set_setting reaches only the operator switches, so the irrigation site values
+    (set from the dashboard) refuse it; the irrigation tools themselves are unchanged."""
     site_rows = [spec for spec in REGISTRY.values() if spec.control_class == "irrigation_site"]
     assert site_rows
     for spec in site_rows:
         result = run_as(server, steward(server), server.set_setting(spec.name, float(spec.default)))
-        assert result.isError is False, body(result)
-        assert (body(result)["param"], body(result)["state"]) == (spec.name, "requested")
+        assert result.isError is True and body(result)["code"] == "forbidden", spec.name
+    assert desired_rows(dsn) == [] and activity_rows(dsn) == []
 
 
 @pytest.mark.parametrize(
     ("param", "value", "code"),
-    [("not_a_setting", 1.0, "unknown_target"), ("temp_low", 60.0, "read_only"), (PARAM, 9.0, "out_of_range")],
+    [("not_a_setting", 1.0, "unknown_target"), ("temp_low", 60.0, "read_only"), (SWITCH, 2.0, "out_of_range")],
 )
 def test_a_refusal_stores_nothing(server, dsn, param, value, code):  # noqa: F811
     result = run_as(server, steward(server), server.set_setting(param, value))
@@ -419,44 +353,30 @@ def test_a_refusal_stores_nothing(server, dsn, param, value, code):  # noqa: F81
 
 
 def test_a_reason_postgresql_cannot_store_is_refused_and_stores_nothing(server, dsn):  # noqa: F811
-    result = run_as(server, steward(server), server.set_setting(PARAM, 1.5, reason="a\x00b"))
+    result = run_as(server, steward(server), server.set_setting(SWITCH, 0.0, reason="a\x00b"))
     assert result.isError is True
     assert (body(result)["code"], body(result)["field"]) == ("invalid_request", "reason")
     assert desired_rows(dsn) == [] and activity_rows(dsn) == []
 
 
-def test_out_of_range_says_min_max_and_current(server, dsn):  # noqa: F811
-    person_holds_manual(dsn, 1.7)
-    answer = body(run_as(server, steward(server), server.set_setting(PARAM, 9.0)))
-    assert (answer["min"], answer["max"], answer["current"], answer["retryable"]) == (0.5, 2.5, 1.7, False)
+def test_out_of_range_says_min_and_max(server, dsn):  # noqa: F811
+    answer = body(run_as(server, steward(server), server.set_setting(SWITCH, 9.0)))
+    assert (answer["code"], answer["min"], answer["max"], answer["retryable"]) == ("out_of_range", 0, 1, False)
 
 
 # ── The manual rule ─────────────────────────────────────────────────────────
 
 
 def test_an_agents_write_clears_a_persons_manual_and_activity_says_so(server, dsn):  # noqa: F811
-    person_holds_manual(dsn)
-    stored = body(run_as(server, steward(server), server.set_setting(PARAM, 1.5)))
+    person_holds_manual(dsn, 1.0, SWITCH)
+    stored = body(run_as(server, steward(server), server.set_setting(SWITCH, 0.0)))
     assert (stored["manual"], stored["manual_before"]) == (False, True)
     assert activity_rows(dsn)[-1]["detail"]["manual"] == {"before": True, "after": False}
 
 
-@pytest.mark.parametrize("arguments", [{"value": 1.5}, {"release": True}], ids=["write", "release"])
-def test_iris_set_setting_on_a_manual_setting_is_refused_and_stores_nothing(server, dsn, arguments):  # noqa: F811
-    person_holds_manual(dsn)
-    before = (desired_rows(dsn), activity_rows(dsn))
-    result = run_as(server, iris(server), server.set_setting(PARAM, **arguments))
-    assert result.isError is True
-    answer = body(result)
-    assert (answer["code"], answer["status"], answer["retryable"]) == ("manual", 422, False)
-    assert (desired_rows(dsn), activity_rows(dsn)) == before
-
-
-def test_iris_writes_a_setting_nobody_holds_and_an_agent_releases_a_manual_one(server, dsn):  # noqa: F811
-    stored = body(run_as(server, iris(server), server.set_setting(PARAM, 1.5)))
-    assert (stored["actor"], stored["manual"]) == ({"source": "iris", "name": "iris"}, False)
-    person_holds_manual(dsn)
-    released = body(run_as(server, steward(server), server.set_setting(PARAM, release=True, reason="thanks")))
+def test_an_agent_releases_a_switch_a_person_holds(server, dsn):  # noqa: F811
+    person_holds_manual(dsn, 1.0, SWITCH)
+    released = body(run_as(server, steward(server), server.set_setting(SWITCH, release=True, reason="thanks")))
     assert (released["value"], released["state"], released["manual"], released["manual_before"]) == (
         None,
         "released",
@@ -476,195 +396,17 @@ def test_iris_writes_a_setting_nobody_holds_and_an_agent_releases_a_manual_one(s
 
 def test_a_repeat_returns_the_stored_json_and_appends_nothing(server, dsn):  # noqa: F811
     request_id = str(uuid.uuid4())
-    first = body(run_as(server, steward(server), server.set_setting(PARAM, 1.53, request_id=request_id)))
-    again = run_as(server, steward(server), server.set_setting(PARAM, 1.53, request_id=request_id))
+    first = body(run_as(server, steward(server), server.set_setting(SWITCH, 0.0, request_id=request_id)))
+    again = run_as(server, steward(server), server.set_setting(SWITCH, 0.0, request_id=request_id))
     assert again.isError is False
     answer = body(again)
     assert answer.pop("replayed") is True
     assert answer == first
     assert len(desired_rows(dsn)) == len(activity_rows(dsn)) == 1
 
-    other = run_as(server, steward(server), server.set_setting(PARAM, 1.6, request_id=request_id))
+    other = run_as(server, steward(server), server.set_setting(SWITCH, 1.0, request_id=request_id))
     assert other.isError is True and body(other)["code"] == "request_id_reused"
     assert len(desired_rows(dsn)) == len(activity_rows(dsn)) == 1
-
-
-# ── Iris's planner path ─────────────────────────────────────────────────────
-
-
-def test_set_tunable_on_a_manual_setting_keeps_its_one_shot_and_its_reply(server, dsn):  # noqa: F811
-    person_holds_manual(dsn)
-    trigger_id = pending_delivery(dsn, "TRANSITION", "any")
-    reply = set_tunable(server, iris(server), trigger_id)
-    assert set(reply) == TUNABLE_KEYS
-    assert (reply["ok"], reply["delivery_status"], reply["terminal_action"]) == (
-        True,
-        "action_completed",
-        "set_tunable",
-    )
-
-    ((plan_row),) = rows(
-        dsn,
-        "SELECT plan_id, parameter, value, source, is_active, expires_at - ts AS lifetime, trigger_id::text AS trigger "
-        "FROM setpoint_plan",
-    )
-    assert plan_row["plan_id"] == reply["plan_id"] and plan_row["plan_id"].startswith("iris-oneshot-")
-    assert (plan_row["parameter"], plan_row["value"], plan_row["source"], plan_row["is_active"]) == (
-        PARAM,
-        1.5,
-        "iris",
-        True,
-    )
-    assert plan_row["lifetime"] == timedelta(hours=6)
-    assert plan_row["trigger"] == trigger_id
-
-    logged = [row for row in activity_rows(dsn) if row["action"] == "plan.write"]
-    ((row),) = logged
-    assert (row["source"], row["actor"], row["target"], row["reason"]) == (
-        "iris",
-        "iris",
-        reply["plan_id"],
-        "engage earlier",
-    )
-    ((change),) = row["detail"]["changes"]
-    assert (change["param"], change["value"]) == (PARAM, 1.5)
-    assert (row["detail"]["trigger_id"], row["detail"]["planner_instance"]) == (trigger_id, "local")
-
-
-def test_set_plan_writes_one_plan_write_row_listing_every_row_it_wrote(server, dsn):  # noqa: F811
-    trigger_id = pending_delivery(dsn, "SUNRISE", "set_plan")
-    reply = set_plan(server, iris(server), trigger_id)
-    assert reply.get("ok") is True, reply
-    assert "skipped_manual" not in reply
-    assert reply["delivery_status"] == "plan_written"
-
-    ((row),) = activity_rows(dsn)
-    assert (row["action"], row["source"], row["actor"], row["target"]) == (
-        "plan.write",
-        "iris",
-        "iris",
-        reply["plan_id"],
-    )
-    written = rows(dsn, "SELECT ts, parameter, value FROM setpoint_plan WHERE plan_id = $1", reply["plan_id"])
-    assert reply["rows_written"] == len(written) == len(row["detail"]["changes"]) > 0
-    assert sorted(
-        (datetime.fromisoformat(c["ts"]), c["param"], c["value"]) for c in row["detail"]["changes"]
-    ) == sorted((item["ts"], item["parameter"], item["value"]) for item in written)
-    assert (row["detail"]["trigger_id"], row["detail"]["planner_instance"]) == (trigger_id, "local")
-    assert rows(dsn, "SELECT status FROM plan_delivery_log") == [{"status": "plan_written"}]
-
-
-def test_a_full_plan_on_a_manual_setting_is_not_refused(server, dsn):  # noqa: F811
-    person_holds_manual(dsn)
-    reply = set_plan(server, iris(server), pending_delivery(dsn, "SUNRISE", "set_plan"))
-    assert reply.get("ok") is True, reply
-    assert "skipped_manual" not in reply
-    assert rows(dsn, "SELECT DISTINCT parameter FROM setpoint_plan WHERE parameter = $1", PARAM) == [
-        {"parameter": PARAM}
-    ]
-    assert desired_rows(dsn) == [{"value": 1.7, "manual": True, "source": "dashboard", "actor": "jason"}]
-
-
-@pytest.mark.parametrize(
-    ("actor", "source", "name"),
-    [(None, "iris", "iris"), (("agent:admin", "admin"), "agent:admin", "admin")],
-    ids=["no-actor", "admin-token"],
-)
-def test_the_plan_row_records_the_request_actor_and_never_refuses_without_one(server, dsn, actor, source, name):  # noqa: F811
-    mcp_actor = None if actor is None else server.McpActor(source=actor[0], name=actor[1])
-    reply = set_tunable(server, mcp_actor, pending_delivery(dsn, "TRANSITION", "any"))
-    assert reply["ok"] is True
-    # Its setpoint_plan row stays iris's, as today.
-    assert rows(dsn, "SELECT source FROM setpoint_plan") == [{"source": "iris"}]
-    ((row),) = activity_rows(dsn)
-    assert (row["source"], row["actor"]) == (source, name)
-
-
-def test_a_plan_written_while_an_experiment_is_armed_carries_its_id(server, dsn):  # noqa: F811
-    experiment_id = uuid.uuid4()
-
-    async def arm(conn):
-        await conn.execute(
-            "INSERT INTO control_experiments (experiment_id, status, armed_at) VALUES ($1, 'armed', now())",
-            experiment_id,
-        )
-
-    owner(dsn, arm)
-    reply = set_tunable(server, iris(server), pending_delivery(dsn, "TRANSITION", "any"))
-    assert reply["ok"] is True
-    ((row),) = activity_rows(dsn)
-    assert row["experiment_id"] == experiment_id
-
-
-def test_a_refused_planner_call_appends_nothing(server, dsn):  # noqa: F811
-    required = pending_delivery(dsn, "SUNRISE", "set_plan")
-    wrong_action = set_tunable(server, iris(server), required)
-    assert wrong_action["status"] == "wrong_action"
-    bounds = set_tunable(server, iris(server), pending_delivery(dsn, "TRANSITION", "any"), value=9.0)
-    assert bounds["error"] == "Tunable value outside registry bounds"
-    unknown_trigger = set_plan(server, iris(server), str(uuid.uuid4()))
-    assert unknown_trigger["error"] == "trigger_id not found in plan_delivery_log"
-    assert activity_rows(dsn) == []
-    assert rows(dsn, "SELECT 1 FROM setpoint_plan") == []
-
-
-# ── Triggers: set_setting never touches one ─────────────────────────────────
-
-
-def test_set_setting_with_a_trigger_leaves_a_pending_sunrise_delivery_alone(server, dsn):  # noqa: F811
-    trigger_id = pending_delivery(dsn, "SUNRISE", "set_plan")
-    result = run_as(
-        server, iris(server), server.set_setting(PARAM, 1.5, trigger_id=trigger_id, planner_instance="local")
-    )
-    assert result.isError is False
-
-    assert rows(dsn, "SELECT status, terminal_action, resulting_plan_id FROM plan_delivery_log") == [
-        {"status": "pending", "terminal_action": None, "resulting_plan_id": None}
-    ]
-    assert rows(dsn, "SELECT status, terminal_action, resulting_plan_id FROM planner_trigger_ledger") == [
-        {"status": "delivered", "terminal_action": None, "resulting_plan_id": None}
-    ]
-    ((row),) = activity_rows(dsn)
-    assert (row["detail"]["trigger_id"], row["detail"]["planner_instance"]) == (trigger_id, "local")
-
-    # The trigger is still Iris's to end with its plan.
-    reply = set_plan(server, iris(server), trigger_id)
-    assert reply.get("ok") is True, reply
-    assert rows(dsn, "SELECT status FROM plan_delivery_log") == [{"status": "plan_written"}]
-
-
-# ── MANUAL SETTINGS: the context block's own query ──────────────────────────
-
-
-def test_the_context_query_lists_only_values_a_person_holds_as_the_ingestor_login_reads_them(server, dsn):  # noqa: F811
-    script = (REPO_ROOT / "scripts/gather-plan-context.sh").read_text()
-    block = script[script.index("# ── 1b. MANUAL SETTINGS") :]
-    sql = block[block.index('-c "') + len('-c "') : block.index('" 2>/dev/null')]
-    sql = sql.replace("${GREENHOUSE_ID}", "vallery")
-
-    async def context_rows():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute(f"SET ROLE {INGESTOR_ROLE}")
-            return [row[0] for row in await conn.fetch(sql)]
-        finally:
-            await conn.close()
-
-    assert asyncio.run(context_rows()) == []
-
-    person_holds_manual(dsn, 1.7)
-    # Not held: an agent's plain write, and a manual value since released.
-    run_as(server, steward(server), server.set_setting("mister_all_kpa", 1.9))
-    run_as(server, steward(server), server.set_setting("vpd_hysteresis", 0.3, manual=True))
-    run_as(server, steward(server), server.set_setting("vpd_hysteresis", release=True))
-
-    ((held),) = rows(
-        dsn,
-        "SELECT to_char(created_at AT TIME ZONE 'America/Denver', 'YYYY-MM-DD HH24:MI') AS since "
-        "FROM desired_state WHERE param = $1",
-        PARAM,
-    )
-    assert asyncio.run(context_rows()) == [f"{PARAM}|1.7|jason (dashboard)|{held['since']}"]
 
 
 # ── alerts: one merged list and one count ───────────────────────────────────

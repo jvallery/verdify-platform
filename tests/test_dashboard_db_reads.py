@@ -308,7 +308,7 @@ def candidate_params(count):
         and spec.esp_object_id
         and spec.push_owner != "dispatcher_default"
         and name not in BAND_OWNED_REG
-        and name not in reads._LIGHTING_LUX_PARAMS
+        and not name.endswith(("_lux_threshold", "_lux_hysteresis"))
     ]
     return names[:count]
 
@@ -556,6 +556,14 @@ def test_a_stale_heartbeat_or_climate_reads_unknown_with_ages(dsn):
 # ── API-02: the writer ──────────────────────────────────────────────────────
 
 
+async def desired_rows(conn, took, params, value=1.0):
+    await conn.executemany(
+        "INSERT INTO desired_state (param, value, manual, source, actor, reason, created_at) "
+        "VALUES ($1, $2, false, 'dashboard', 'jason', NULL, $3)",
+        [(param, value, took) for param in params],
+    )
+
+
 def test_writer_counts_differing_settings_and_leaves_clamped_ones_out(dsn):
     params = candidate_params(26)
     assert len(params) == 26
@@ -563,8 +571,10 @@ def test_writer_counts_differing_settings_and_leaves_clamped_ones_out(dsn):
     async def stuck(conn, t0):
         await reporting_now(conn, t0)
         took = t0 - 2 * H
+        # Since climate refactor 4.2 the values in force are desired rows; a plan in force counts for nothing.
         await plan_in_force(conn, "iris-vd54-writer", took, t0 + 2 * D)
-        await waypoints(conn, "iris-vd54-writer", took, t0 + 2 * D, [(took, param, 1.0) for param in params[:19]])
+        await waypoints(conn, "iris-vd54-writer", took, t0 + 2 * D, [(took, param, 1.0) for param in params[19:]])
+        await desired_rows(conn, took, params[:19])
         for param in params[:19]:
             await snapshot(conn, t0 - 90 * MIN, param, mismatch(param, 1.0))
             await snapshot(conn, t0 - 60 * S, param, mismatch(param, 1.0))
@@ -581,8 +591,7 @@ def test_writer_counts_differing_settings_and_leaves_clamped_ones_out(dsn):
     async def clamped(conn, t0):
         await reporting_now(conn, t0)
         took = t0 - 2 * H
-        await plan_in_force(conn, "iris-vd54-clamped", took, t0 + 2 * D)
-        await waypoints(conn, "iris-vd54-clamped", took, t0 + 2 * D, [(took, param, 1.0) for param in params[19:]])
+        await desired_rows(conn, took, params[19:])
         for param in params[19:]:
             await snapshot(conn, t0 - 60 * S, param, mismatch(param, 1.0))
             await conn.execute(
@@ -597,6 +606,35 @@ def test_writer_counts_differing_settings_and_leaves_clamped_ones_out(dsn):
 
     scenario(dsn, stuck)
     scenario(dsn, clamped)
+
+
+def test_writer_differing_counts_from_the_first_row_after_the_last_match_with_keyframe_only_history(dsn):
+    # Readbacks are stored on change with an hourly keyframe (#1662). The last matching row is a keyframe 50 min
+    # old; a controller restart to a boot default was stored 1 min ago. Rule K1: a restart does not count yet.
+    params = candidate_params(1)
+
+    async def restarted(conn, t0):
+        await reporting_now(conn, t0)
+        took = t0 - 3 * H
+        await desired_rows(conn, took, params[:1])  # the value in force is a desired row (climate refactor 4.2)
+        await snapshot(conn, t0 - 110 * MIN, params[0], 1.0)
+        await snapshot(conn, t0 - 50 * MIN, params[0], 1.0)
+        await snapshot(conn, t0 - 1 * MIN, params[0], mismatch(params[0], 1.0))
+        writer = (await as_reader(conn, reads.now)).writer
+        assert (writer.differing, writer.oldest_since) == (0, None)
+
+    async def lost(conn, t0):
+        await reporting_now(conn, t0)
+        took = t0 - 3 * H
+        await desired_rows(conn, took, params[:1])  # the value in force is a desired row (climate refactor 4.2)
+        await snapshot(conn, t0 - 50 * MIN, params[0], 1.0)
+        await snapshot(conn, t0 - 20 * MIN, params[0], mismatch(params[0], 1.0))
+        await snapshot(conn, t0 - 2 * MIN, params[0], mismatch(params[0], 1.0))  # its keyframe
+        writer = (await as_reader(conn, reads.now)).writer
+        assert (writer.differing, writer.oldest_since) == (1, t0 - 20 * MIN)
+
+    scenario(dsn, restarted)
+    scenario(dsn, lost)
 
 
 # ── API-07: the plan, lanes and planner health ──────────────────────────────
@@ -664,45 +702,15 @@ def test_plan_lanes_waypoints_and_planner_health(dsn):
             ledger,
         )
 
+        # Since climate refactor 4.2 no plan is in force: the plan rows stay, but API-07 shows none of them, and a
+        # lane only for what a person holds manual.
         result = await as_reader(conn, reads.plan, hours=24)
-        record = result.plan
-        assert (record.plan_id, record.trigger, record.written_at, record.valid_until) == (
-            "iris-20261101-0702",
-            "SUNRISE",
-            written,
-            expires,
-        )
-        assert (record.status, record.hypothesis) == ("effective", "Hot, dry afternoon")
-        assert record.detail == {
-            "hypothesis_structured": {"stress_windows": ["13:00-17:30"]},
-            "climate_intents": intents,
-        }
-        assert result.no_plan_since is None
+        assert (result.plan, result.no_plan_since) == (None, written)
         lanes = {lane.param: lane for lane in result.lanes}
-        assert set(lanes) == {
-            "mister_engage_kpa",
-            "mister_all_kpa",
-            "mister_pulse_on_s",
-            "vpd_hysteresis",
-            "sw_economiser_enabled",
-        }
-        engage = lanes["mister_engage_kpa"]
-        assert engage.applied_from == "desired"
-        assert engage.waypoints == [reads.PlanWaypoint(at=t0 + 4 * H, value=1.70, source="iris", effective=False)]
-        assert (engage.desired.value, engage.desired.manual, engage.desired.state) == (1.55, False, "confirmed")
-        assert engage.desired.confirmed_at == t0 - 4 * H
-        assert engage.desired.actor == reads.ActorRef(source="dashboard", name="jason")
-        assert engage.device == reads.Reading(value=1.5499999523162842, observed_at=t0 - 60 * S)
-        assert engage.label == REGISTRY["mister_engage_kpa"].label and engage.unit == REGISTRY["mister_engage_kpa"].unit
-        everyday = lanes["mister_all_kpa"]
-        assert everyday.applied_from == "plan" and everyday.desired is None
-        assert everyday.waypoints == [reads.PlanWaypoint(at=t0 + 4 * H, value=1.80, source="iris", effective=True)]
+        assert set(lanes) == {"mister_pulse_on_s"}
         manual = lanes["mister_pulse_on_s"]
         assert (manual.applied_from, manual.waypoints, manual.desired.manual) == ("manual", [], True)
         assert result.manual_count == 1
-        assert (lanes["vpd_hysteresis"].applied_from, lanes["vpd_hysteresis"].waypoints) == ("plan", [])
-        forecast = lanes["sw_economiser_enabled"]
-        assert forecast.waypoints == [reads.PlanWaypoint(at=t0 + 2 * H, value=0.0, source="preemptive", effective=True)]
 
         assert [row.trigger for row in result.health] == ["SUNSET", "SUNRISE", "SOLAR_MAX", "SUNSET"]
         missed = result.health[0]
@@ -710,14 +718,14 @@ def test_plan_lanes_waypoints_and_planner_health(dsn):
         assert all(row.due_at == row.expected_at + timedelta(seconds=1800) for row in result.health)
         assert result.health[2].required is False and result.health[3].outcome == "expected"
 
-        longer = {lane.param: lane for lane in (await as_reader(conn, reads.plan, hours=72)).lanes}
-        assert [waypoint.at for waypoint in longer["mister_engage_kpa"].waypoints] == [t0 + 4 * H, t0 + 30 * H]
+        longer = await as_reader(conn, reads.plan, hours=72)
+        assert [lane.waypoints for lane in longer.lanes] == [[]]
 
+        # The Iris tile reads the daily review (5.1): ok with no open daily_review_missed alert, missed with one.
         iris = (await as_reader(conn, reads.now)).iris
-        # The newest required trigger that fired is the SUNRISE plan: the day's SUNSET ahead says nothing yet.
-        assert iris == reads.Iris(
-            plan_id="iris-20261101-0702", trigger="SUNRISE", valid_until=expires, required_trigger="ok"
-        )
+        assert iris == reads.Iris(plan_id=None, trigger=None, valid_until=None, required_trigger="ok")
+        await alert(conn, t0 - 10 * MIN, "daily_review_missed", "warning")
+        assert (await as_reader(conn, reads.now)).iris.required_trigger == "missed"
 
     async def no_plan(conn, t0):
         await reporting_now(conn, t0)
@@ -732,9 +740,13 @@ def test_plan_lanes_waypoints_and_planner_health(dsn):
             t0 - 2 * H,
         )
         result = await as_reader(conn, reads.plan)
-        assert (result.plan, result.no_plan_since, result.lanes) == (None, t0 - 1 * H, [])
+        assert (result.plan, result.no_plan_since, result.lanes) == (None, t0 - 20 * H, [])  # the newest written
         iris = (await as_reader(conn, reads.now)).iris
-        assert (iris.plan_id, iris.trigger, iris.required_trigger) == (None, None, "missed")
+        assert (iris.plan_id, iris.trigger, iris.required_trigger) == (
+            None,
+            None,
+            "ok",
+        )  # a missed SUNSET no longer counts
 
     scenario(dsn, body)
     scenario(dsn, no_plan)

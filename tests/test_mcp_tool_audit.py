@@ -36,7 +36,7 @@ def events(caplog):
 
 @pytest.mark.parametrize(
     "tool,capability",
-    [("climate", "read"), ("set_plan", "write_capable"), ("crops", "write_capable"), ("alerts", "write_capable")],
+    [("climate", "read"), ("review_write", "write_capable"), ("crops", "write_capable"), ("alerts", "write_capable")],
 )
 def test_one_completed_event_without_arguments_credentials_or_forged_ip(
     mcp_server, monkeypatch, caplog, tool, capability
@@ -87,7 +87,7 @@ def test_denied_dispatch_has_no_allowed_call_event(mcp_server, monkeypatch, capl
     setup(monkeypatch, mcp_server)
     monkeypatch.setattr(mcp_server, "_request_bearer_token", lambda _: "unknown-fixture")
     with pytest.raises(mcp_server.ToolAccessDenied):
-        asyncio.run(mcp_server.mcp.call_tool("set_plan", {}))
+        asyncio.run(mcp_server.mcp.call_tool("set_setting", {}))
     assert not events(caplog)
 
 

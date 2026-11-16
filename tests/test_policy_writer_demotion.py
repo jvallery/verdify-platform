@@ -12,8 +12,6 @@ experiment generation 1 (#1649).
 from __future__ import annotations
 
 import asyncio
-import importlib.util
-import json
 import sys
 import uuid
 from pathlib import Path
@@ -168,54 +166,3 @@ class TestGate:
         conn = FakeConn([("FROM public.fn_mcp_armed_assignment_context()", None)])
         gate = _run(experiment_config.demoted_policy_write_gate(conn))
         assert gate is not None and gate["assignment_id"] is None
-
-
-# ── Forecast engine ─────────────────────────────────────────────────────────
-
-
-@pytest.fixture(scope="module")
-def forecast_engine():
-    path = REPO_ROOT / "scripts" / "forecast-action-engine.py"
-    spec = importlib.util.spec_from_file_location("forecast_action_engine_demotion_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-class TestForecastEngineDemotion:
-    def test_demoted_proposal_carries_wire_components(self, forecast_engine):
-        recorded = FakeConn([("fn_submit_policy_proposal", str(uuid.uuid4()))])
-        proposal_id = _run(
-            forecast_engine.submit_demoted_proposal(
-                recorded,
-                "heat_wave",
-                {"cool_stage2_over_high_f": 0.0, "sw_cool_all_fans_at_high_enabled": 1.0},
-                {"metric": "temp_f", "threshold": 95},
-            )
-        )
-        assert proposal_id is not None
-        submits = recorded.sql_calls("fn_submit_policy_proposal")
-        assert len(submits) == 1
-        components = json.loads(submits[0][2][3])
-        assert {c["field_name"] for c in components} == {
-            "cool_stage2_over_high_f",
-            "sw_cool_all_fans_at_high_enabled",
-        }
-        assert submits[0][2][0] == "forecast"
-
-    def test_non_wire_params_record_nothing(self, forecast_engine):
-        conn = FakeConn([])
-        proposal_id = _run(forecast_engine.submit_demoted_proposal(conn, "rule", {"temp_low": 60.0}, {}))
-        assert proposal_id is None
-        assert conn.sql_calls("fn_submit_policy_proposal") == []
-
-    def test_direct_writes_are_gated_on_demotion(self, forecast_engine):
-        source = (REPO_ROOT / "scripts" / "forecast-action-engine.py").read_text()
-        assert "if not DRY_RUN and demotion is None:" in source
-        assert "demotion = await demoted_policy_write_gate(conn)" in source
-        assert "INSERT INTO v_runtime_setpoint_plan_write" in source
-        assert "v_runtime_setpoint_changes_write" not in source  # VD-65: off the NOTIFY fast path
-        assert "INSERT INTO setpoint_plan" not in source
-        assert "INSERT INTO setpoint_changes" not in source
-        # Both write branches resolve action_taken through the demotion state.
-        assert source.count('action_taken = "proposal_recorded"') == 2

@@ -50,7 +50,7 @@ test("dry equipment reads its name and since; bursts read their time left, since
     ],
   };
   expect(chips(busy, statusOf("in-band"))).toEqual([
-    "Heat 1 (electric) · since 07:40", "Center mister · VPD · since 10:38", "Fans burst · 12 min left", "Humidify burst · held: Someone inside · since 10:41",
+    "Heat 1 (electric) · since 07:40", "Center mister · VPD · since 10:38", "Fans, vent open · 12 min left", "Fogger · held: Someone inside · since 10:41",
   ]);
   expect(runningChips(busy, null, NOW).map((chip) => chip.token)).toEqual(["eq-heat1", "eq-mister", "eq-fan1", "eq-fog"]);
 });
@@ -61,9 +61,9 @@ test("in band: Nothing running; a burst's row with Clear for an operator while t
   expect(document.querySelector("[data-running=none]")).not.toBeNull();
   cleanup();
   renderList("fans-burst");
-  expect([...document.querySelectorAll(".now-running [data-chip]")].map((chip) => [chip.getAttribute("data-chip"), plain(text(chip))])).toEqual([["burst", "Fans burst · 12 min left"]]);
+  expect([...document.querySelectorAll(".now-running [data-chip]")].map((chip) => [chip.getAttribute("data-chip"), plain(text(chip))])).toEqual([["burst", "Fans, vent open · 12 min left"]]);
   expect(document.querySelector(".now-dot")?.getAttribute("data-token")).toBe("eq-fan1");
-  expect(document.querySelector("button")?.textContent).toBe("Clear bursts");
+  expect(document.querySelector("button")?.textContent).toBe("Stop manual runs");
   cleanup();
   renderList("fans-burst", { role: "viewer" });
   expect(document.querySelector("button")).toBeNull();

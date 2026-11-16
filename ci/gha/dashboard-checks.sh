@@ -11,8 +11,20 @@ echo "dashboard toolchain: node ${node_version}, pnpm ${pnpm_version}, @playwrig
 [ "$playwright_version" = 1.64.1 ] || { echo "dashboard CI image: @playwright/test ${playwright_version}, expected 1.64.1" >&2; exit 1; }
 cd dashboard
 pnpm install --frozen-lockfile
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm run --if-present contract:check
-pnpm run --if-present test:browser
+# Setup stops at its first failure (above); every check below runs even when an
+# earlier one failed, each failure prints under its name, and the job exits 1 at the end.
+failed=()
+check() {
+  echo "== dashboard: $* =="
+  "$@" || { echo "::error::dashboard: $* failed"; failed+=("$*"); }
+}
+check pnpm lint
+check pnpm typecheck
+check pnpm test
+check pnpm run --if-present contract:check
+check pnpm run --if-present test:browser
+if [ "${#failed[@]}" -gt 0 ]; then
+  printf '== dashboard FAILED: %s check(s) ==\n' "${#failed[@]}"
+  printf '  %s\n' "${failed[@]}"
+  exit 1
+fi

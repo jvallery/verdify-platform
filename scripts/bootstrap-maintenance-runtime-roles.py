@@ -18,6 +18,10 @@ _spec.loader.exec_module(_ordinary)
 BootstrapError = _ordinary.BootstrapError
 psql = _ordinary.psql
 DUTIES = ("writer_watchdog", "matview_refresh")
+# The writer watchdog retired (#998) and its login has no consumer (RULINGS R2): the contract still covers it
+# unchanged, but the hook no longer receives, installs or attests its credential.
+RETIRED_DUTIES = ("writer_watchdog",)
+ACTIVE_DUTIES = tuple(d for d in DUTIES if d not in RETIRED_DUTIES)
 # Exact bodies are bound from migration276. No arbitrary role/function argument.
 FUNCTIONS = {
     "verdify_writer_watchdog_runtime.fn_attest_login()": (
@@ -173,6 +177,12 @@ def contract_sql():
         + _ordinary.sealed_sql_310()
         + " OR "
         + _ordinary.sealed_sql_311()
+        + " OR "
+        + _ordinary.sealed_sql_312()
+        + " OR "
+        + _ordinary.sealed_sql_313()
+        + " OR "
+        + _ordinary.sealed_sql_314()
         + ")"
     ]
     for duty in DUTIES:
@@ -214,7 +224,7 @@ def bootstrap():
     admin = os.environ.get("DB_ADMIN_PASSWORD", "")
     if os.environ.get("DB_ADMIN_USER") != "verdify" or not os.environ.get("DB_NAME") or not admin:
         raise BootstrapError("owner/configured database custody required")
-    credentials = {d: os.environ.get(d.upper() + "_DB_PASSWORD", "") for d in DUTIES}
+    credentials = {d: os.environ.get(d.upper() + "_DB_PASSWORD", "") for d in ACTIVE_DUTIES}
     dashboard = os.environ.get(DASHBOARD_DUTY.upper() + "_DB_PASSWORD", "")
     if dashboard:
         credentials[DASHBOARD_DUTY] = dashboard
@@ -290,8 +300,8 @@ def bootstrap():
         attest(duty)
     if psql("verdify", admin, ["SELECT " + guard]) != "t":
         raise BootstrapError("ending maintenance contract changed")
-    count = "three" if dashboard else "two"
-    print(f"[maintenance-runtime-bootstrap] {count} exact logins attested; initial-only custody; prior seals unchanged")
+    count = "two exact logins" if dashboard else "one exact login"
+    print(f"[maintenance-runtime-bootstrap] {count} attested; initial-only custody; prior seals unchanged")
     if not dashboard:
         print("[maintenance-runtime-bootstrap] dashboard duty skipped: no DASHBOARD_DB_PASSWORD value")
 

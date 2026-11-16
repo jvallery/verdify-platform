@@ -55,6 +55,19 @@ def test_every_anchor_param_is_band_owned_and_synced():
     assert "zone_vpd_target_center_mid" in band_anchors.ANCHOR_SYNC_PARAMS
 
 
+def test_the_three_retired_anchor_keys_are_not_pushed_and_not_awaited():
+    """#1633 phase 4: the band push stops sending the three set_band_anchor keys the third flash removes; the
+    staged list keeps them (their registry rows leave with the firmware deletions)."""
+    retired = {"wet_taper_before_sunset_min", "dawn_boost_offset_min", "midday_boost_offset_min"}
+    assert band_anchors.ANCHOR_KEYS_NOT_SENT == retired
+    assert retired <= set(band_anchors.ANCHOR_SYNC_PARAMS)
+    pushes = band_anchors.desired_anchor_pushes(band_anchors.registry_default_anchor_values())
+    assert not retired & set(pushes)
+    assert set(pushes) == set(band_anchors.ANCHOR_SYNC_PARAMS) - retired
+    shared.cfg_readback.update(pushes)
+    assert band_anchors.anchors_confirmed(pushes)  # no readback is awaited for a key that is not sent
+
+
 @pytest.mark.asyncio
 async def test_push_to_esp32_routes_service_via_execute_service(monkeypatch):
     monkeypatch.setenv("VERDIFY_DEVICE_WRITE_ENABLED", "1")

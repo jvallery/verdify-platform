@@ -25,7 +25,6 @@ import GraphZones from "../routes/graphs.zones";
 import GraphsLighting from "../routes/graphs.lighting";
 import Now from "../routes/now";
 import Plan from "../routes/plan";
-import PlannerExperiments from "../routes/planner-experiments";
 import PlannerHistory from "../routes/planner-history";
 import Settings from "../routes/settings";
 import Band from "../routes/band";
@@ -52,7 +51,7 @@ const SCREENS = [
   ["/", Now], ["/water", WaterBoard], ["/water/schedules", WaterSchedules], ["/water/history", WaterHistory], ["/crops", CropsMap], ["/crops/history", CropsHistory],
   ["/graphs", Graphs], ["/graphs/zones", GraphZones],
   ["/graphs/lighting", GraphsLighting], ["/graphs/statistics", Statistics], ["/activity", Activity], ["/activity/log", ActivityLog], ["/settings", Settings], ["/band", Band], ["/plan", Plan], ["/equipment", Equipment],
-  ["/planner/history", PlannerHistory], ["/planner/experiments", PlannerExperiments],
+  ["/planner/history", PlannerHistory],
 ] as const;
 const WATER_VIEWS: readonly string[] = ["/water", "/water/schedules", "/water/history"];
 const CROPS_VIEWS: readonly string[] = ["/crops", "/crops/history"];
@@ -125,7 +124,7 @@ test("the routes: the eight sections' views, the scorecard's and Planner's redir
   const paths = leaves(routes as Entry[]);
   expect(paths).toEqual([
     "/", "/water", "/water/schedules", "/water/history", "/hydroponics", "/crops", "/crops/history", "/graphs", "/graphs/zones", "/graphs/lighting", "/graphs/statistics", "/graphs/scorecard", "/activity", "/activity/log",
-    "/settings", "/band", "/equipment", "/plan", "/planner", "/planner/history", "/planner/experiments", "/auth/*", "/*",
+    "/settings", "/band", "/equipment", "/plan", "/planner", "/planner/history", "/auth/*", "/*",
   ]);
   expect(paths).not.toContain("/plants");
   expect(paths).not.toContain("/more");
@@ -200,7 +199,7 @@ test("the header: lockup, the eight sections with the count, the account button;
 
 test("the phone bar holds the same eight, each an icon over its label; Control owns Settings and Equipment, Planner owns Plan", async () => {
   serve("alerts-merged");
-  for (const [path, section] of [["/settings", "Control"], ["/equipment", "Control"], ["/plan", "Planner"], ["/planner/history", "Planner"], ["/planner/experiments", "Planner"]] as const) {
+  for (const [path, section] of [["/settings", "Control"], ["/equipment", "Control"], ["/plan", "Planner"], ["/planner/history", "Planner"]] as const) {
     mount(path); await advance(0);
     const tabs = within(nav("Sections, phone")).getAllByRole("link");
     expect(tabs.map(text), path).toEqual(["Now", "Water", "Hydroponics", "Crops", "Graphs", "Activity 2 open alerts", "Control", "Planner"]);
@@ -236,8 +235,7 @@ test("every page has a page header: the eyebrow names the section, the h1 the vi
     "/activity": ["Activity", "Alerts", ["Alerts", "Log"]], "/activity/log": ["Activity", "Activity log", ["Alerts", "Log"]],
     "/settings": ["Control", "Settings", ["Settings", "Band", "Equipment"]], "/equipment": ["Control", "Equipment", ["Settings", "Band", "Equipment"]],
     "/band": ["Control", "Band", ["Settings", "Band", "Equipment"]],
-    "/plan": ["Planner", "Plan", ["Plan", "History", "Experiments"]], "/planner/history": ["Planner", "Plan history", ["Plan", "History", "Experiments"]],
-    "/planner/experiments": ["Planner", "Experiments", ["Plan", "History", "Experiments"]],
+    "/plan": ["Planner", "Plan", ["Plan", "History"]], "/planner/history": ["Planner", "Plan history", ["Plan", "History"]],
   };
   for (const [path, [eyebrow, h1, tabs]] of Object.entries(expected)) {
     mount(path); await advance(0);

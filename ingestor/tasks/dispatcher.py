@@ -22,6 +22,7 @@ from esp32_push import (
     LifecyclePersistenceError,
     _experiment_hold_failure,
     component_bundle_hold,
+    controller_omits_setting,
     delivery_failure_retryable,
     delivery_transition_prior_statuses,
     experiment_policy_hold,
@@ -73,7 +74,6 @@ from ._common import (
     LIGHTING_TARGET_MINUTE_PARAMS,
     MISTER_DEFAULTS,
     PARAM_TO_ENTITY,
-    PLANNER_PUSHABLE_REG,
     QUIET_MODE_ENTITY,
     QUIET_STATE_ENTITIES,
     QUIET_UNTIL_ENTITY,
@@ -84,15 +84,6 @@ from ._common import (
     SWITCH_CONFIRM_EQUIPMENT,
     SWITCH_TO_ENTITY,
     UTC,
-    VPD_DRY_AIR_OUTDOOR_RH_PCT,
-    VPD_HIGH_GUARD_MARGIN_KPA,
-    VPD_HOT_DRY_FOG_ESCALATION_KPA,
-    VPD_HOT_DRY_MIN_FOG_OFF_S,
-    VPD_MOISTURE_DEW_MARGIN_F,
-    VPD_MOISTURE_RECOVERY_FRACTION,
-    VPD_MOISTURE_RECOVERY_WINDOW_MIN,
-    VPD_VENT_FOG_ESCALATION_KPA,
-    VPD_VENT_MIN_FOG_OFF_S,
     AlertEnvelope,
     SetpointChange,
     ValidationError,
@@ -133,8 +124,6 @@ DISPATCHER_STAGE_ENTITY = "dispatcher_stage"
 HELD_READBACKS_STAGE = "held:readbacks"
 # Stands in the stuck-delivery alert's params for a connection that enumerated no writable value.
 NO_READBACK_INVENTORY = "no_cfg_readbacks_enumerated"
-# The plan_id of a forecast-rule plan row (VD-65). v_active_plan carries no source column.
-FORECAST_RULE_PLAN_PREFIX = "preemptive-"
 # Desired state (VD-33). crop_band values reach the controller through
 # crop_band_anchors and the anchor sync, irrigation_site values through
 # irrigation_sync: the dispatcher sends nothing for their desired rows.
@@ -406,7 +395,6 @@ def _direct_wet_defaults(lighting_row, lighting_circuit_rows) -> dict[str, float
 
 def _dispatch_source(
     param: str,
-    planner_params: dict[str, float],
     quiet_params: set[str],
     desired_params: frozenset[str] | set[str] = frozenset(),
     released_params: frozenset[str] | set[str] = frozenset(),
@@ -415,7 +403,11 @@ def _dispatch_source(
 
     A desired-state value in force (``desired_params``, VD-33) is ``manual``;
     a release returned to its registry default (``released_params``) is
-    ``band``, like the dispatcher's own defaults.
+    ``band``, like the dispatcher's own defaults. Since climate refactor 4.2 no
+    plan reaches the dispatcher, so every other push (the anchor sync's
+    dawn/midday boost offsets included) is ``band``: the dispatcher never
+    writes ``plan`` or ``iris`` (lane MONITORING pages on either after the
+    cutover).
     """
     if param in quiet_params or param in desired_params:
         return "manual"
@@ -423,34 +415,17 @@ def _dispatch_source(
         return "band"
     if param in BAND_DRIVEN_PARAMS:
         return "band"
-    if param in LIGHTING_CIRCUIT_DEFAULT_PARAMS and param not in planner_params:
+    if param in LIGHTING_CIRCUIT_DEFAULT_PARAMS:
         return "band"
-    if param in DIRECT_WET_POLICY_PARAMS and param not in planner_params:
+    if param in DIRECT_WET_POLICY_PARAMS:
         return "band"
-    if param in SAFETY_PARAMS and param not in planner_params:
+    if param in SAFETY_PARAMS:
         return "band"
-    if param in MISTER_DEFAULTS and param not in planner_params:
+    if param in MISTER_DEFAULTS:
         return "band"
     if param in FORCED_ON_SWITCH_PARAMS:
         return "manual"
-    return "plan"
-
-
-def _is_forecast_rule_plan(plan_id: object) -> bool:
-    """Whether a plan row is the forecast action engine's (scripts/forecast-action-engine.py)."""
-    return str(plan_id).startswith(FORECAST_RULE_PLAN_PREFIX)
-
-
-def _plan_row_admitted(param: str, plan_id: object) -> bool:
-    """Whether a v_active_plan row reaches the fences and ``planner_params``.
-
-    Iris's row needs a planner-pushable parameter. A forecast rule's row needs a
-    writable one (VD-65, architecture §5.3 step 1), so a rule can still reach a
-    switch like ``sw_economiser_enabled``, through the same fences as any plan value.
-    """
-    if param in PLANNER_PUSHABLE_REG:
-        return True
-    return _is_forecast_rule_plan(plan_id) and desired_write_rule(param)[0]
+    return "band"
 
 
 def _log_desired_skip_once(param: str, reason: str, *, warning: bool = False) -> None:
@@ -540,11 +515,11 @@ def _desired_skip_reason(
     return None
 
 
-def _fenced_desired_value(param: str, requested: float, moisture_guardrails: dict[str, float], audit) -> float:
-    """A desired value through the fences a plan value passes (architecture §5.2).
+def _fenced_desired_value(param: str, requested: float, audit) -> float:
+    """A desired value through the fences (architecture §5.2).
 
-    The physics invariants, the forced-on guardrail and the VPD-high moisture
-    guardrails; each clamp is recorded through ``audit`` (``add_clamp_audit``),
+    The physics invariants and the forced-on guardrail (the VPD-high moisture
+    guardrail is retired, climate refactor 4.2); each clamp is recorded through ``audit`` (``add_clamp_audit``),
     so ``setpoint_clamps`` shows the value held. The registry clamp
     (``_coerce_registry_value``) runs at push time, as for every change.
     """
@@ -555,19 +530,6 @@ def _fenced_desired_value(param: str, requested: float, moisture_guardrails: dic
     if param in FORCED_ON_SWITCH_PARAMS and value < 0.5:
         audit(param, requested, 1.0, 1.0, 1.0, "forced_on_guardrail", from_plan=False)
         value = 1.0
-    guardrail_max = moisture_guardrails.get(param)
-    if guardrail_max is not None and value > guardrail_max:
-        audit(
-            param,
-            requested,
-            float(guardrail_max),
-            0.0,
-            float(guardrail_max),
-            "vpd_high_moisture_guardrail",
-            from_plan=False,
-        )
-        log.warning("VPD-high moisture guardrail: desired %s=%s clamped to %s", param, requested, guardrail_max)
-        value = float(guardrail_max)
     if param.startswith("sw_"):
         value = 1.0 if value > 0.5 else 0.0
     return float(value)
@@ -825,124 +787,6 @@ def _control_band_from_house_row(house_row) -> dict[str, float] | None:
     }
 
 
-async def _fetch_moisture_guard_context(conn) -> dict[str, float | str | None] | None:
-    row = await conn.fetchrow(
-        """
-        WITH latest_climate AS (
-            SELECT ts,
-                   temp_avg,
-                   vpd_avg,
-                   dew_point,
-                   outdoor_temp_f,
-                   outdoor_rh_pct
-              FROM climate
-             WHERE temp_avg IS NOT NULL
-               AND vpd_avg IS NOT NULL
-             ORDER BY ts DESC
-             LIMIT 1
-        ),
-        latest AS (
-            SELECT c.temp_avg,
-                   fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-                   c.vpd_avg,
-                   c.dew_point,
-                   (
-                       SELECT ss.value
-                         FROM system_state ss
-                        WHERE ss.entity = 'greenhouse_state'
-                          AND ss.ts <= c.ts
-                        ORDER BY ss.ts DESC
-                        LIMIT 1
-                   ) AS greenhouse_mode,
-                   c.outdoor_temp_f,
-                   c.outdoor_rh_pct
-              FROM latest_climate c
-        ),
-        recent AS (
-            SELECT count(*)::int AS recent_samples,
-                   count(*) FILTER (
-                       WHERE vpd_avg >= fn_setpoint_at('vpd_high', ts) - 0.05
-                   )::int AS recent_near_high_samples,
-                   avg(vpd_avg)::float AS recent_avg_vpd
-              FROM climate
-             WHERE ts >= now() - ($1::int * interval '1 minute')
-               AND vpd_avg IS NOT NULL
-        )
-        SELECT latest.*,
-               recent.recent_samples,
-               recent.recent_near_high_samples,
-               recent.recent_avg_vpd,
-               CASE WHEN recent.recent_samples > 0
-                    THEN recent.recent_near_high_samples::float / recent.recent_samples
-                    ELSE 0.0
-               END AS recent_near_high_fraction
-          FROM latest CROSS JOIN recent
-        """,
-        VPD_MOISTURE_RECOVERY_WINDOW_MIN,
-    )
-    return dict(row) if row else None
-
-
-def _vpd_high_moisture_guardrails(
-    control_band: dict[str, float] | None,
-    context: dict[str, float | str | None] | None,
-) -> dict[str, float]:
-    """Clamp conservative moisture thresholds during live dry-side stress.
-
-    Firmware already supports VENTILATE mist assist. This guard keeps planner
-    policy from setting physical mist/fog thresholds far above the active house
-    VPD band when the latest state is above band and dew margin is healthy.
-    """
-    if not control_band or not context:
-        return {}
-
-    vpd_high = _finite_positive(control_band.get("vpd_high"))
-    vpd_avg = _finite_positive(context.get("vpd_avg"))
-    if vpd_high is None or vpd_avg is None:
-        return {}
-    mode = str(context.get("greenhouse_mode") or "")
-    recent_samples = int(context.get("recent_samples") or 0)
-    recent_fraction = float(context.get("recent_near_high_fraction") or 0.0)
-    recent_avg_vpd = _finite_positive(context.get("recent_avg_vpd"))
-    vent_near_high = mode == "VENTILATE" and vpd_avg >= (vpd_high - 0.10)
-    above_high = vpd_avg > vpd_high + VPD_HIGH_GUARD_MARGIN_KPA
-    recovery_not_sustained = (
-        mode == "VENTILATE"
-        and recent_samples >= 5
-        and recent_fraction >= VPD_MOISTURE_RECOVERY_FRACTION
-        and recent_avg_vpd is not None
-        and recent_avg_vpd >= vpd_high - 0.05
-    )
-    if not above_high and not vent_near_high and not recovery_not_sustained:
-        return {}
-
-    temp_avg = _finite_positive(context.get("temp_avg"))
-    temp_high = _finite_positive(context.get("sp_temp_high"))
-    dew_point = _finite_positive(context.get("dew_point"))
-    if temp_avg is not None and dew_point is not None:
-        dew_margin = temp_avg - dew_point
-        if dew_margin < VPD_MOISTURE_DEW_MARGIN_F:
-            return {}
-
-    outdoor_rh = _finite_positive(context.get("outdoor_rh_pct"))
-    temp_hot = temp_avg is not None and temp_high is not None and temp_avg > temp_high + 0.5
-    outdoor_dry = outdoor_rh is not None and outdoor_rh <= VPD_DRY_AIR_OUTDOOR_RH_PCT
-    hot_dry_vent = mode == "VENTILATE" and temp_hot and outdoor_dry
-    vent_stress = mode == "VENTILATE" and (above_high or vent_near_high or recovery_not_sustained)
-    fog_escalation = VPD_HOT_DRY_FOG_ESCALATION_KPA if hot_dry_vent else VPD_VENT_FOG_ESCALATION_KPA
-    min_fog_off = VPD_HOT_DRY_MIN_FOG_OFF_S if hot_dry_vent else VPD_VENT_MIN_FOG_OFF_S
-
-    return {
-        "mister_engage_kpa": round(max(0.5, vpd_high + 0.05), 2),
-        "mister_all_kpa": round(max(1.0, vpd_high + 0.25), 2),
-        "mister_engage_delay_s": 45.0,
-        "mister_all_delay_s": 90.0,
-        "mister_pulse_gap_s": 30.0,
-        "min_fog_off_s": min_fog_off,
-        "fog_escalation_kpa": fog_escalation if vent_stress else 0.30,
-    }
-
-
 async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
     global _last_pushed
     reconnect_generation = int(shared.transport_generation)
@@ -1022,10 +866,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         lighting_row = await conn.fetchrow("SELECT * FROM fn_lighting_policy(now())")
         lighting_circuit_rows = await conn.fetch("SELECT * FROM fn_lighting_minutes_policy(now()) ORDER BY light_key")
         control_band = _control_band_from_house_row(house_row)
-        moisture_guardrails = _vpd_high_moisture_guardrails(
-            control_band,
-            await _fetch_moisture_guard_context(conn) if control_band else None,
-        )
 
         # Firmware-v2 deterministic band (contract B2/B6/B7). The solar context
         # and the per-zone band-audit emission are unconditional (compliance
@@ -1048,11 +888,8 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 solar_ctx.phase,
             )
 
-        # created_at decides last write wins against desired state (VD-33).
-        planned = await conn.fetch(
-            "SELECT parameter, value, ts, plan_id, reason, created_at, trigger_id, planner_instance FROM v_active_plan"
-        )
-        raw_planner_params = {r["parameter"]: r["value"] for r in (planned or [])}
+        # Climate refactor 4.2: no plan is read. The planner writes no climate value; what goes to the
+        # controller is the band, the dispatcher's defaults and desired_state (the dashboard and named agents).
         lighting_circuit_supported = FIRMWARE_HAS_PER_CIRCUIT_LIGHTING or any(
             param in shared.cfg_readback or param in _last_pushed for param in LIGHTING_CIRCUIT_SUPPORT_SENTINELS
         )
@@ -1062,15 +899,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         direct_wet_supported = _direct_wet_policy_supported()
         ai_moisture_stress_supported = _ai_moisture_stress_policy_supported()
         dry_cost_limit_supported = _dry_cost_limit_supported()
-        planner_meta = {
-            r["parameter"]: {
-                "trigger_id": str(r["trigger_id"]) if r["trigger_id"] else None,
-                "planner_instance": r["planner_instance"],
-                "plan_id": r["plan_id"],
-                "plan_ts": r["ts"],
-            }
-            for r in (planned or [])
-        }
         quiet_state = await _fetch_quiet_state(conn)
         quiet_mode = quiet_state.get(QUIET_MODE_ENTITY)
         quiet_until = quiet_state.get(QUIET_UNTIL_ENTITY)
@@ -1078,9 +906,8 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         quiet_restore_due = quiet_expired_needs_restore(quiet_mode, quiet_until)
         quiet_params: set[str] = set()
 
-        # FW-3 (Sprint 18): enforce physics invariants BEFORE any downstream
-        # use. Clamped values replace the planner's originals; violations
-        # get logged alongside band-clamps in setpoint_clamps for audit.
+        # FW-3 (Sprint 18): desired values pass the physics invariants below;
+        # violations are logged in setpoint_clamps for audit.
         changes = []
         clamps_to_log: list[dict[str, object]] = []
 
@@ -1092,10 +919,10 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             band_hi: float,
             reason: str,
             *,
-            from_plan: bool = True,
+            from_plan: bool = False,
         ) -> None:
-            # A desired-state value's clamp names no plan (VD-33).
-            meta = planner_meta.get(param, {}) if from_plan else {}
+            # No clamp names a plan any more (climate refactor 4.2).
+            meta: dict[str, object] = {}
             clamps_to_log.append(
                 {
                     "parameter": param,
@@ -1111,57 +938,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        planner_params: dict[str, float] = {}
-        for param, raw_val in raw_planner_params.items():
-            if not _plan_row_admitted(param, planner_meta[param]["plan_id"]):
-                add_clamp_audit(
-                    param,
-                    float(raw_val),
-                    float(raw_val),
-                    0.0,
-                    0.0,
-                    "planner_param_not_pushable",
-                )
-                log.warning("Dispatcher: ignoring non-planner-pushable active plan param %s", param)
-                continue
-            clean_val, violation = _validate_physics(param, float(raw_val))
-            if violation is not None:
-                add_clamp_audit(param, float(raw_val), clean_val, 0.0, 0.0, violation)
-                log.warning(
-                    "FW-3 invariant: %s=%s clamped to %s (%s)",
-                    param,
-                    raw_val,
-                    clean_val,
-                    violation,
-                )
-            if param in FORCED_ON_SWITCH_PARAMS and clean_val < 0.5:
-                add_clamp_audit(param, float(raw_val), 1.0, 1.0, 1.0, "forced_on_guardrail")
-                log.warning(
-                    "Controller guardrail: ignoring OFF request %s=%s; unified band-first controller remains locked ON",
-                    param,
-                    raw_val,
-                )
-                clean_val = 1.0
-            guardrail_max = moisture_guardrails.get(param)
-            if guardrail_max is not None and clean_val > guardrail_max:
-                add_clamp_audit(
-                    param,
-                    float(raw_val),
-                    float(guardrail_max),
-                    0.0,
-                    float(guardrail_max),
-                    "vpd_high_moisture_guardrail",
-                )
-                log.warning(
-                    "VPD-high moisture guardrail: %s=%s clamped to %s while live VPD is above band",
-                    param,
-                    raw_val,
-                    guardrail_max,
-                )
-                clean_val = guardrail_max
-            planner_params[param] = clean_val
-
-        # Band-driven params: planner can tighten within band, clamped to edges.
+        # Band-driven params: the band's own values.
         # Once VERDIFY_BAND_SOURCE=anchors AND every anchor tunable is confirmed
         # by its cfg_* readback (anchors_live), the on-chip curve owns these four
         # values and the dispatcher stops pushing them (contract B2 — they become
@@ -1170,24 +947,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         if band_row and control_band and not anchors_live:
             for param in ("temp_low", "temp_high", "vpd_low", "vpd_high"):
                 source_row = band_row if param.startswith("temp") else control_band
-                band_lo = float(source_row["temp_low" if param.startswith("temp") else "vpd_low"])
-                band_hi = float(source_row["temp_high" if param.startswith("temp") else "vpd_high"])
-                planner_val = planner_params.get(param)
-                if planner_val is not None:
-                    planner_f = float(planner_val)
-                    val = max(band_lo, min(band_hi, planner_f))
-                    # Tier 1 #2: audit clamp when planner request was modified
-                    if abs(val - planner_f) > 1e-6:
-                        add_clamp_audit(
-                            param,
-                            planner_f,
-                            val,
-                            band_lo,
-                            band_hi,
-                            "band_lo" if planner_f < band_lo else "band_hi",
-                        )
-                else:
-                    val = float(source_row[param])
+                val = float(source_row[param])
                 val = round(val, 1 if param.startswith("temp") else 2)
                 if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
                     continue
@@ -1250,14 +1010,13 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         # and the registry; the per-circuit block below is the lighting delivery.
 
         # Per-circuit lighting state machines: crop policy + Tempest history
-        # seed both circuits, but active planner rows are allowed to diverge
-        # circuit targets, thresholds, windows, dwell, and auto enable.
+        # seed both circuits (no plan row diverges them since climate refactor 4.2;
+        # a desired_state row still does, below).
         # Under VERDIFY_BAND_SOURCE=anchors the per-circuit photoperiod minutes +
         # DLI come from the DB lighting policy (fn_lighting_minutes_policy — the
         # single AI-tunable source; gl_main and gl_grow are differentiated there),
         # and ONLY the start/cutoff windows are sunrise-anchored from the
-        # ephemeris instead of the policy table's fixed hours. Planner rows still
-        # win below.
+        # ephemeris instead of the policy table's fixed hours.
         anchor_lighting: dict[str, float] = {}
         circuit_minutes: dict[str, float] = {}
         if anchors_mode and lighting_circuit_rows:
@@ -1285,8 +1044,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             for param, val in circuit_defaults.items():
                 if param in LIGHTING_TARGET_MINUTE_PARAMS and not lighting_target_minutes_supported:
                     continue
-                if param in planner_params:
-                    continue
                 if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
                     continue
                 changes.append((param, val))
@@ -1296,28 +1053,21 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         if direct_wet_supported:
             direct_wet_defaults = _direct_wet_defaults(lighting_row, lighting_circuit_rows)
             for param, val in direct_wet_defaults.items():
-                if param in planner_params:
-                    continue
                 if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
                     continue
                 changes.append((param, val))
 
         # Safety limits: always dispatched from firmware/operator defaults.
-        # Planner safety-rail rows are filtered above by PLANNER_PUSHABLE_REG.
         safety_defaults = {
             "safety_max": 100.0,
             "safety_min": 40.0,
         }
         for param, val in safety_defaults.items():
-            planner_val = planner_params.get(param)
-            if planner_val is not None:
-                val = float(planner_val)
             if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
                 continue
             changes.append((param, val))
 
-        # Mister tuning defaults: band-derived fallbacks, planner can override
-        # engage/all_kpa default to band ceiling; planner may set different values
+        # Mister tuning defaults: band-derived fallbacks (left to package 4.3, which retires these settings).
         mister_defaults = {}
         if band_row and control_band:
             vpd_hi = float(control_band["vpd_high"])
@@ -1328,55 +1078,10 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 "mister_all_delay_s": 60,
                 "mister_center_penalty": 0.5,
             }
-            # Only set defaults if planner hasn't specified a value
             for param, val in mister_defaults.items():
-                if param in planner_params:
-                    continue  # Planner owns this — don't override
                 if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
                     continue
                 changes.append((param, val))
-
-        # Process planner setpoints (tactical knobs — skip band params already handled)
-        for row in planned or []:
-            param = row["parameter"]
-            if param in RETIRED_UNROUTABLE_PARAMS:
-                log.info("Dispatcher skipping retired unroutable param from plan row: %s", param)
-                continue
-            if param not in planner_params and _is_forecast_rule_plan(row["plan_id"]):
-                continue  # read-only: a forecast rule never reaches the controller around the fences
-            planned_val = planner_params.get(param, row["value"])
-            if param in LIGHTING_CIRCUIT_DEFAULT_PARAMS and not lighting_circuit_supported:
-                continue
-            if param in LIGHTING_TARGET_MINUTE_PARAMS and not lighting_target_minutes_supported:
-                continue
-            if param in DIRECT_WET_POLICY_PARAMS and not direct_wet_supported:
-                continue
-            if param in AI_MOISTURE_STRESS_POLICY_PARAMS and not ai_moisture_stress_supported:
-                continue
-            if param.startswith("plan_") or param in BAND_DRIVEN_PARAMS:
-                continue
-
-            if param in FORCED_ON_SWITCH_PARAMS:
-                planned_val = 1.0
-            readback = shared.cfg_readback.get(param)
-            readback_drift = _readback_drift(param, planned_val)
-            if readback_drift:
-                log.warning(
-                    "Dispatcher readback drift: %s active plan=%s cfg_readback=%s; re-pushing",
-                    param,
-                    planned_val,
-                    readback,
-                )
-            last = _last_pushed.get(param)
-            if param.startswith("sw_"):
-                planned_bool = planned_val > 0.5
-                if last is not None and ((last > 0.5) == planned_bool) and not readback_drift:
-                    continue
-                changes.append((param, 1.0 if planned_bool else 0.0))
-            else:
-                if _should_skip(last, planned_val) and not readback_drift:
-                    continue
-                changes.append((param, planned_val))
 
         for param in FORCED_ON_SWITCH_PARAMS:
             readback = shared.current_cfg_readbacks().get(param)
@@ -1399,14 +1104,11 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             log.info("Dispatcher: recording quiet mode expired; no restore overlay applied")
 
         # Desired state (VD-33, architecture §5.2). A person's or an agent's
-        # value replaces what the plan, band and default blocks above put in
-        # changes for its parameter, through the same fences, before the dedupe
-        # and the 12-command limit. resolve_effective() is
-        # the one control rule: a manual row beats Iris's plan, a newer plan
-        # beats a non-manual row, NULL releases. Only a plan row the dispatcher
-        # admits (planner_params) counts as the plan.
+        # value replaces what the band and default blocks above put in changes
+        # for its parameter, through the same fences, before the dedupe and the
+        # 12-command limit. resolve_effective() with no plan row: a value is in
+        # force, NULL releases (climate refactor 4.2: no plan competes).
         desired_rows = await _fetch_desired_state(conn)
-        plan_rows = {str(row["parameter"]): row for row in planned or []}
         desired_readbacks = shared.current_cfg_readbacks(reconnect_generation)
         policy_hold_active, policy_hold_params = experiment_policy_hold()
         bundle_hold_active, bundle_hold_params = component_bundle_hold()
@@ -1429,22 +1131,17 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             if skip is not None:
                 _log_desired_skip_once(param, skip)
                 continue
-            plan_row = plan_rows.get(param) if param in planner_params else None
-            resolved = resolve_effective(desired, plan_row)
+            resolved = resolve_effective(desired, None)
             if resolved is None:
-                # Released: the plan, band or dispatcher default above applies.
-                # With none of them the setting returns to its registry default.
-                if plan_row is not None or _dispatcher_resolves(param, lighting_circuit=lighting_circuit_supported):
+                # Released: the band or dispatcher default above applies.
+                # With neither the setting returns to its registry default.
+                if _dispatcher_resolves(param, lighting_circuit=lighting_circuit_supported):
                     continue
                 released = True
                 requested = float(get_tunable(param).default)
-            elif resolved.applied_from == "plan":
-                continue  # a newer plan wins (last write wins): today's behaviour
             else:
                 released = False
                 requested = resolved.value
-                # Iris's value for this parameter is not applied, nor its clamps.
-                clamps_to_log[:] = [row for row in clamps_to_log if row["parameter"] != param]
             changes = [(name, change) for name, change in changes if name != param]
             if (policy_hold_active and param in policy_hold_params) or (
                 bundle_hold_active and param in bundle_hold_params
@@ -1454,7 +1151,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 # fenced, so no clamp row claims a guardrail held it.
                 desired_held.append(param)
                 continue
-            value = _fenced_desired_value(param, requested, moisture_guardrails, add_clamp_audit)
+            value = _fenced_desired_value(param, requested, add_clamp_audit)
             if not _desired_differs(param, value, _last_pushed.get(param), desired_readbacks.get(param)):
                 continue
             changes.append((param, value))
@@ -1469,6 +1166,20 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         for param, value in changes:
             deduped_changes[param] = float(value)
         changes = list(deduped_changes.items())
+
+        # DISPATCHER-02: a setting the connected controller does not list (#1633 phase 4) or a set_band_anchor key
+        # no longer sent never gets a readback. Left in, it would keep the oldest difference, sort first and fill
+        # every paced batch, so band, anchor and lighting changes would never go out. Drop them before the
+        # difference bookkeeping and pacing; the skip in the send loop below stays as a backstop.
+        kept_changes: list[tuple[str, float]] = []
+        for param, value in changes:
+            if controller_omits_setting(param):
+                _log_desired_skip_once(param, "controller lists no setting entity")
+            elif param in band_anchors.ANCHOR_KEYS_NOT_SENT:
+                _log_desired_skip_once(param, "set_band_anchor key no longer sent")
+            else:
+                kept_changes.append((param, value))
+        changes = kept_changes
 
         # Only current-generation cfg values may suppress an equivalent
         # duration. Apply this before pacing.
@@ -1567,9 +1278,16 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         prequeue_failures: list[tuple[str, str]] = []
         skipped_heap_deferred = 0
         for param, val in changes:
-            source = _dispatch_source(param, planner_params, quiet_params, outgoing_desired, outgoing_released)
-            # A desired-state value or a release carries no plan's trigger (VD-33).
-            plan_owned = param not in outgoing_desired and param not in outgoing_released
+            if controller_omits_setting(param):
+                # The connected controller has no entity for this setting (#1633 phase 4): no request row, no
+                # delivery failure. A controller that lists it again (a rollback) receives it on the next pass.
+                _log_desired_skip_once(param, "controller lists no setting entity")
+                continue
+            if param in band_anchors.ANCHOR_KEYS_NOT_SENT:
+                _log_desired_skip_once(param, "set_band_anchor key no longer sent")
+                continue
+            source = _dispatch_source(param, quiet_params, outgoing_desired, outgoing_released)
+            plan_owned = False  # no plan writes a setting (climate refactor 4.2)
 
             requested_val = float(val)
             registry_val, registry_violation = _coerce_registry_value(param, requested_val)
@@ -1603,9 +1321,8 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             # cheap (one row at a time) vs. downstream where it blows up a
             # grafana panel or planner scorecard.
             try:
-                meta = planner_meta.get(param, {}) if plan_owned else {}
-                change_trigger_id = meta.get("trigger_id")
-                change_planner_instance = meta.get("planner_instance")
+                change_trigger_id = None
+                change_planner_instance = None
                 SetpointChange(
                     ts=(requested_at := datetime.now(UTC)),
                     parameter=param,
@@ -1627,8 +1344,8 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 continue
             if heap_defer_active:
                 # A deferred row is truthful request evidence, not sent state.
-                # The LISTEN/NOTIFY real-time listener atomically claims only
-                # legacy pending rows, so this explicit deferred state cannot
+                # No other path pushes a setpoint_changes row (the NOTIFY push
+                # handler is retired, #1656), so this deferred state cannot
                 # bypass the heap hold; no recently_pushed cache moves. This is the lifecycle
                 # equivalent of the legacy UPDATE clause
                 # delivery_status = 'deferred_heap_pressure', now set at INSERT.

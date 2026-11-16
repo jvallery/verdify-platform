@@ -1,0 +1,19 @@
+# The ingestor's daily review (climate refactor 5.1, tasks/heartbeat.py) posts each review to the in-cluster
+# hermes-iris gateway (HERMES_URL in verdify-config) with this key, as the retired plan cycle did. This patch replaces
+# ingestor-gather-mount.patch.yaml: the context-gather script, its ConfigMap mount, its psql PGPASSWORD and the
+# pre-VD-62 VERDIFY_AUTONOMOUS_POLICY_STAGING flag (#1656) are gone; only the Hermes key stays.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-ingestor
+spec:
+  template:
+    spec:
+      containers:
+        - name: ingestor
+          env:
+            - name: HERMES_IRIS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: verdify-hermes
+                  key: HERMES_IRIS_API_KEY

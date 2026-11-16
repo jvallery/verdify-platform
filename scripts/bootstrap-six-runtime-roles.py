@@ -10,6 +10,10 @@ import subprocess
 import tempfile
 
 DUTIES = ("grafana", "planner", "setpoint_server", "ha_backfill", "lab_publisher", "vision")
+# Duties whose login has no consumer (RULINGS R2): the role contract and seals still cover them unchanged, but the
+# hook no longer receives, installs or attests their credential, so their Secret can be removed after this sync.
+RETIRED_DUTIES = ("ha_backfill",)
+ACTIVE_DUTIES = tuple(d for d in DUTIES if d not in RETIRED_DUTIES)
 PREDECESSORS = {
     "api": "ad619765f93959500d7ed438f90000ceaf614b2f744553d4a4e269a7b15103d3",
     "ingestor": "8bf588e5381e236f68aabc6672f61d982321a444f418973089d6a10a5a1efcf6",
@@ -1108,6 +1112,95 @@ def sealed_sql_311():
     )
 
 
+OPERATOR_METRICS_READS_MIGRATION = (
+    312,
+    "312-operator-metrics-reads.sql",
+    "66e6bfe12302b2d2756514a2c9903f05e728b1326d6c21aee07362baeca7afa2",
+)
+# The operator API's metric reads (#1633, package 6): SELECT for the dashboard duty on daily_band_compliance,
+# daily_record and the new v_dashboard_energy projection. energy's own ACL is unchanged and no relation gains an api,
+# ingestor, MCP or PUBLIC entry, so every seal keeps 311's value
+# (tests/fixtures/312-operator-metrics-reads-native-qualification.json).
+SUCCESSOR_312 = dict(SUCCESSOR_311)
+
+
+def sealed_sql_312():
+    # Keep every 311 predicate and bind the exact 312 runner stamp with the unchanged seals.
+    predecessor = sealed_sql_311()
+    current = seal_profile_sql(311, SUCCESSOR_311)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(312, SUCCESSOR_312), 1)
+        + " AND "
+        + ledger_row_sql(*OPERATOR_METRICS_READS_MIGRATION)
+        + ")"
+    )
+
+
+PLANNER_REVIEW_MIGRATION = (
+    313,
+    "313-planner-review.sql",
+    "933d856e07503d36115b744eea09b4208e688ad2bbec06f48692e2a850d58e0b",
+)
+# The daily review (#1659, climate refactor 5.1): planner_review with ingestor and MCP duty grants and the ingestor's
+# SELECT on v_daily_record move all three seals; the literals are the rolled-back production probe's
+# (tests/fixtures/313-planner-review-native-qualification.json).
+SUCCESSOR_313 = {
+    **SUCCESSOR_312,
+    "api": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
+    "ingestor": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc",
+}
+
+
+def sealed_sql_313():
+    # Keep every 312 predicate and bind the exact 313 runner stamp with its successor seals.
+    predecessor = sealed_sql_312()
+    current = seal_profile_sql(312, SUCCESSOR_312)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(313, SUCCESSOR_313), 1)
+        + " AND "
+        + ledger_row_sql(*PLANNER_REVIEW_MIGRATION)
+        + ")"
+    )
+
+
+CONTROLLER_HEALTH_GAP_LEDGER_MIGRATION = (
+    314,
+    "314-controller-health-and-gap-ledger.sql",
+    "568e0f739d735693c019c7e0bd673820ca5a1eff318e57cc23e6d409c5be680f",
+)
+# The controller health columns and the gap-replay ledger (#1633, host release 3; RULINGS AE1, AE3, AE8): nine
+# nullable diagnostics columns appended to the ingestor's write facade with INSERT for the ingestor duty, and
+# gap_replay_quarters with SELECT and a column INSERT for it, so the ingestor seal moves and the api and MCP seals are
+# measured again. Measured by the native probe of 2026-11-16 (record:
+# tests/fixtures/314-controller-health-and-gap-ledger-native-qualification.json): the api and ingestor seals move,
+# the MCP seal is 313's.
+SUCCESSOR_314 = {
+    **SUCCESSOR_313,
+    "api": "e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373",
+    "ingestor": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc",
+}
+
+
+def sealed_sql_314():
+    # Keep every 313 predicate and bind the exact 314 runner stamp with its successor seals.
+    predecessor = sealed_sql_313()
+    current = seal_profile_sql(313, SUCCESSOR_313)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(314, SUCCESSOR_314), 1)
+        + " AND "
+        + ledger_row_sql(*CONTROLLER_HEALTH_GAP_LEDGER_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1174,6 +1267,12 @@ def sealed_sql():
         + sealed_sql_310()
         + " OR "
         + sealed_sql_311()
+        + " OR "
+        + sealed_sql_312()
+        + " OR "
+        + sealed_sql_313()
+        + " OR "
+        + sealed_sql_314()
         + ")"
     )
 
@@ -1214,10 +1313,10 @@ def admin_role_contract_sql():
 def bootstrap():
     if os.environ.get("DB_ADMIN_USER") != "verdify" or not os.environ.get("DB_ADMIN_PASSWORD"):
         raise BootstrapError("owner credential contract mismatch")
-    credentials = {d: os.environ.get(d.upper() + "_DB_PASSWORD", "") for d in DUTIES}
+    credentials = {d: os.environ.get(d.upper() + "_DB_PASSWORD", "") for d in ACTIVE_DUTIES}
     if any(not re.fullmatch("[A-Za-z0-9_-]{64}", value) for value in credentials.values()):
         raise BootstrapError("runtime credential shape mismatch")
-    if len(set(credentials.values())) != 6 or os.environ["DB_ADMIN_PASSWORD"] in credentials.values():
+    if len(set(credentials.values())) != len(ACTIVE_DUTIES) or os.environ["DB_ADMIN_PASSWORD"] in credentials.values():
         raise BootstrapError("runtime credentials must be distinct from each other and owner")
     admin = os.environ["DB_ADMIN_PASSWORD"]
     if psql("verdify", admin, ["SELECT " + sealed_sql() + " AND " + admin_role_contract_sql()]) != "t":
@@ -1243,10 +1342,10 @@ def bootstrap():
         if psql(login, credentials[duty], [query]) != "t":
             raise BootstrapError("actual runtime login/duty attestation refused")
 
-    for duty in DUTIES:
+    for duty in ACTIVE_DUTIES:
         if not state["verdify_" + duty + "_runtime_login"]:
             attest(duty)
-    missing = [d for d in DUTIES if state["verdify_" + d + "_runtime_login"]]
+    missing = [d for d in ACTIVE_DUTIES if state["verdify_" + d + "_runtime_login"]]
     if missing:
         # Lock the shared role catalog before rechecking state. Any competing
         # verifier installation stops this transaction rather than rotating it.
@@ -1266,12 +1365,12 @@ def bootstrap():
         commands = [guard] + ["\\password verdify_" + d + "_runtime_login" for d in missing]
         secret_input = "".join(credentials[d] + "\n" + credentials[d] + "\n" for d in missing)
         psql("verdify", admin, commands, password_input=secret_input, transactional=True)
-    for duty in DUTIES:
+    for duty in ACTIVE_DUTIES:
         attest(duty)
     if psql("verdify", admin, ["SELECT " + sealed_sql() + " AND " + admin_role_contract_sql()]) != "t":
         raise BootstrapError("existing ordinary seals changed")
     print(
-        "[six-runtime-role-bootstrap] six actual logins attested; initial-only verifiers; existing ordinary seals unchanged"
+        "[six-runtime-role-bootstrap] active logins attested; initial-only verifiers; existing ordinary seals unchanged"
     )
 
 

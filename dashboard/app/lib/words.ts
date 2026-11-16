@@ -191,9 +191,9 @@ const EQUIPMENT = {
 } as const;
 
 /** API-02 `overrides[].kind`: a burst the controller reads back as running. */
-const BURST = { fans: "Fans burst", humidify: "Humidify burst", vent_bypass: "Vent bypass" } as const satisfies Record<BurstKind, string>;
+const BURST = { fans: "Fans, vent open", humidify: "Fogger", vent_bypass: "Fans, vent closed" } as const satisfies Record<BurstKind, string>;
 
-/** API-02 `iris.required_trigger`: the newest required MIDNIGHT, SUNRISE or SUNSET trigger, as Now's Iris tile reads it. */
+/** API-02 `iris.required_trigger`: the daily review (climate refactor 5.1), as Now's Iris tile reads it. */
 const REQUIRED_TRIGGER = { ok: "OK", late: "Late", missed: "Missed", failed: "Failed" } as const satisfies Record<RequiredTrigger, string>;
 
 /** `BandPosition.verdict`: a reading against the band in force. */
@@ -364,12 +364,25 @@ const ALERT_TYPE = {
   daily_record_missing: "Daily record not written",
   house_temp_band_drift: "House temperature outside its band",
   relay_starts_high: "Relay starting too often",
+  reviewer_wrote_climate: "The reviewer wrote a climate setting",
+  law_state_stale: "Climate law not reporting",
+  wetting_below_vpd_band: "Fog or misters running in wet air",
+  drying_meter_fault: "Drying meter not counting",
+  relay_counters_backstep: "Relay counters went backwards",
+  utility_out_of_baseline: "Yesterday's utility use out of the ordinary",
+  drying_refused_all_day: "Drying refused all day for cost",
+  probes_disagree: "Wall temperature probes disagree",
+  owner_value_changed: "A held setting was changed on the controller",
+  outdoor_none_indoor_degraded: "No outdoor reading and indoor probes degraded",
+  outdoor_intake_only: "Weather station missing: outdoor from the intake probe only",
+  furnace_saturated: "Gas furnace cannot hold the band",
   heat_staging_inversion: "Gas heat on while electric heat is off",
   house_band_drift: "The greenhouse is outside its band",
   irrigation_feedback_gap: "Watering feedback missing",
   leak_detected: "Water flowing with every Verdify valve closed",
   law_constants_mismatch: "The controller runs other climate-law numbers than this release",
   payload_rejected: "The controller sends a status record this release cannot read",
+  daily_review_missed: "Iris did not write yesterday's review",
   lighting_cfg_threshold_drift: "Grow light thresholds drifted on the controller",
   climate_action_proof_stale: "Climate control evidence is out of date",
   clock_unconfirmed: "The controller's clock is wrong or not synced",

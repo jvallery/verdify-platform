@@ -17,9 +17,11 @@
 #
 # Then the daily record (migration 310, plan section 10, #1668): relay starts and
 # run time with lost OFF events repaired, metered kWh, furnace therms, metered
-# gallons and drying time, for today and yesterday plus up to 3 missing days
-# back to 2026-10-17 per run (the baseline before the climate law; ~15 s a day,
-# so a backfill run adds ~75 s to the ~60 s job, inside the 300 s deadline).
+# gallons and drying time, for today and the two days before (migration 314,
+# RULINGS AF10: a gap replay just after local midnight is stored again) plus up
+# to 3 missing days back to 2026-10-17 per run (the baseline before the climate
+# law; ~15 s a day, so a backfill run adds ~90 s to the ~60 s job, inside the
+# 300 s deadline).
 apiVersion: batch/v1
 kind: CronJob
 metadata:

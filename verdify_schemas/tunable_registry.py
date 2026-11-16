@@ -3804,6 +3804,17 @@ assert OWNER_ONLY_PARAMS == {DRY_COST_LIMIT_PARAM} | {
 }, "the owner-only set and the crop_band rows differ: name the change in OWNER_ONLY_PARAMS"
 assert not OWNER_ONLY_PARAMS & PLANNER_PUSHABLE_REG, "an owner-only setting is planner-pushable"
 
+# The settings an agent may write (climate refactor 4.2, plan section 7): the operator switches only. Iris, named MCP
+# agents and the admin token write no climate value; every other setting, the band and the drying cost limit
+# included, is refused by verdify_services.settings with ``forbidden``. A signed-in dashboard operator is not limited.
+AGENT_SETTABLE_PARAMS: frozenset[str] = frozenset(
+    {"sw_occupancy_inhibit", "sw_gl_main_out_of_service", "sw_gl_grow_out_of_service"}
+)
+assert all(
+    REGISTRY[name].kind == "switch" and REGISTRY[name].push_owner == "operator" for name in AGENT_SETTABLE_PARAMS
+), "an agent-settable setting is not an operator switch"
+assert not AGENT_SETTABLE_PARAMS & OWNER_ONLY_PARAMS, "an owner-only setting is agent-settable"
+
 
 def desired_write_kind(name: str) -> str | None:
     """The ``READ_ONLY_REASONS`` key that refuses a write to ``name``, or None when it is writable (#1333).

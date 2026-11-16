@@ -16,7 +16,6 @@ import inspect
 import json
 import re
 import sys
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -321,18 +320,13 @@ def test_the_actor_comes_from_the_caller(server, writes, opened, monkeypatch, au
     assert (actor.source, actor.name, actor.role) == (source, name, None)
 
 
-def test_the_planning_prompt_lists_exactly_irises_tools(server):
-    source = (REPO_ROOT / "ingestor" / "iris_planner.py").read_text()
-    listed = source[source.index("Hermes exposes 33 production tools:") : source.index("NEVER run psql")]
-    names = re.findall(r"`([a-z_]+)`", listed)
-    assert len(names) == 33
-    assert set(names) == server.HERMES_REQUIRED_TOOLS
-
-
 def test_every_audience_of_the_three_tools(server):
-    for tool in ("set_setting", "settings", "activity"):
+    for tool in ("settings", "activity"):
         assert server.TOOL_AUDIENCES[tool] == {"iris", "agent", "admin"}
         assert tool in server.HERMES_REQUIRED_TOOLS
+    # Climate refactor 4.2: Iris writes no setting.
+    assert server.TOOL_AUDIENCES["set_setting"] == {"agent", "admin"}
+    assert "set_setting" not in server.HERMES_REQUIRED_TOOLS
     assert {"settings", "activity"} <= server._TOOL_READ_ONLY
     assert "set_setting" not in server._TOOL_READ_ONLY
 
@@ -674,7 +668,7 @@ def test_the_set_setting_description_names_its_twins_the_default_and_the_codes(s
         "DELETE /v1/settings/{param}",
         "manual defaults to false here; a write stores the flag it carries, "
         "so writing a manual setting without manual=true clears it",
-        "it does not count as your plan for a trigger",
+        "an agent writes no climate value",
         "replayed: true",
     ):
         assert text in description, text
@@ -703,13 +697,19 @@ def test_a_description_never_carries_a_literal_uuid(server, tool):
 def test_the_server_instructions_gain_the_sentence(server):
     instructions = " ".join(server.SERVER_INSTRUCTIONS.split())
     assert (
-        "`set_setting` changes any writable setting within registry min/max and stores the `manual` flag it carries "
-        "(default false); `settings` and `activity` read the catalog, history and every write; Iris's `set_setting` "
-        "on a manual setting is refused with `manual`." in instructions
+        "`set_setting` changes an operator switch (occupancy, a light circuit out of service) within the registry and "
+        "stores the `manual` flag it carries (default false); any other setting is refused with `forbidden`"
+        in instructions
     )
     assert "instructions=SERVER_INSTRUCTIONS" in (REPO_ROOT / "mcp" / "server.py").read_text()
     admin = server.audience_allowlist("admin")
-    named = set(re.findall(r"`([a-z_]+)`", instructions)) - {"manual", "check_required", "request_id", "retryable"}
+    named = set(re.findall(r"`([a-z_]+)`", instructions)) - {
+        "manual",
+        "check_required",
+        "request_id",
+        "retryable",
+        "forbidden",
+    }
     assert named <= admin
 
 
@@ -867,274 +867,3 @@ def test_alerts_keeps_its_name_arguments_and_text_replies(server, alert_rows):
     assert list(inspect.signature(server.alerts).parameters) == ["action", "alert_id", "data"]
     reply = json.loads(asyncio.run(server.alerts("nope")))
     assert reply == {"error": "Unknown action 'nope'. Use: list, acknowledge, resolve"}
-
-
-# ── set_tunable and set_plan: one activity row, the contract unchanged ──────
-
-
-class Tx:
-    def __init__(self, conn):
-        self.conn = conn
-
-    async def __aenter__(self):
-        self.conn.depth += 1
-        return self
-
-    async def __aexit__(self, *exc):
-        self.conn.depth -= 1
-        return False
-
-
-class PlannerConnection:
-    """The statements set_tunable and set_plan send, in order, each with the transaction depth it ran at."""
-
-    def __init__(self, *, event_type="TRANSITION", expected_action="any"):
-        self.event_type = event_type
-        self.expected_action = expected_action
-        self.statements: list[tuple[str, tuple, int]] = []
-        self.depth = 0
-        self.closed = False
-
-    def transaction(self):
-        return Tx(self)
-
-    def activity_rows(self):
-        return [(args, depth) for sql, args, depth in self.statements if "INTO public.activity_log" in sql]
-
-    def plan_rows(self):
-        return [(args, depth) for sql, args, depth in self.statements if "INSERT INTO setpoint_plan" in sql]
-
-    async def fetch(self, sql, *args):
-        self.statements.append((sql, args, self.depth))
-        return []
-
-    async def fetchrow(self, sql, *args):
-        self.statements.append((sql, args, self.depth))
-        if "FROM plan_delivery_log" in sql:
-            return {
-                "id": 1,
-                "trigger_id": TRIGGER_ID,
-                "event_type": self.event_type,
-                "event_label": "fixture",
-                "status": "pending",
-                "instance": "local",
-            }
-        if "FROM planner_trigger_ledger" in sql:
-            return {
-                "id": 2,
-                "trigger_id": TRIGGER_ID,
-                "plan_delivery_log_id": 1,
-                "event_type": self.event_type,
-                "status": "delivered",
-                "expected_action": self.expected_action,
-            }
-        return None
-
-    async def fetchval(self, sql, *args):
-        self.statements.append((sql, args, self.depth))
-        if "SELECT now()" in sql:
-            return datetime.now(UTC)
-        if "SELECT 1 FROM plan_journal" in sql:
-            return None
-        if "RETURNING ts" in sql or "RETURNING created_at" in sql:
-            return CREATED
-        if "UPDATE plan_delivery_log" in sql:
-            return 1
-        if "UPDATE planner_trigger_ledger" in sql:
-            return 2
-        if "fn_mcp_armed_assignment_context" in sql:
-            return None
-        if "INTO public.activity_log" in sql:
-            return 77
-        raise AssertionError(f"unexpected statement: {sql}")
-
-    async def execute(self, sql, *args):
-        self.statements.append((sql, args, self.depth))
-
-    async def close(self):
-        self.closed = True
-
-
-def activity_row(args) -> dict:
-    greenhouse, source, actor, action, target, detail, reason, request_id, digest, experiment_id = args
-    return {
-        "source": source,
-        "actor": actor,
-        "action": action,
-        "target": target,
-        "detail": json.loads(detail),
-        "reason": reason,
-        "request_id": request_id,
-        "experiment_id": experiment_id,
-    }
-
-
-@pytest.fixture()
-def planner_conn(server, monkeypatch):
-    for name in (
-        "VERDIFY_POLICY_VECTOR_MODE",
-        "VERDIFY_COMPONENT_EXPERIMENT_ENABLED",
-        "VERDIFY_ACTIVE_EXPERIMENT_ID",
-        "VERDIFY_LEGACY_DIRECT_POLICY_WRITES_ENABLED",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(server, "SITE_PUBLISH_TRIGGER_PATH", "")
-    connection = PlannerConnection()
-
-    async def db():
-        return connection
-
-    monkeypatch.setattr(server, "_db", db)
-    return connection
-
-
-TUNABLE_KEYS = {
-    "ok",
-    "parameter",
-    "value",
-    "reason",
-    "plan_id",
-    "trigger_id",
-    "planner_instance",
-    "delivery_status",
-    "terminal_action",
-    "note",
-}
-
-
-def call_set_tunable(server, actor, **overrides):
-    arguments = {
-        "parameter": "mister_vpd_weight",
-        "value": 1.5,
-        "reason": "fog is more effective",
-        "trigger_id": TRIGGER_ID,
-        "planner_instance": "local",
-    }
-    return json.loads(run_as(server, actor, server.set_tunable(**{**arguments, **overrides})))
-
-
-def test_set_tunable_appends_one_plan_write_in_its_transaction_and_keeps_its_reply(server, planner_conn):
-    reply = call_set_tunable(server, iris(server))
-    assert set(reply) == TUNABLE_KEYS
-    assert reply["plan_id"].startswith("iris-oneshot-") and reply["delivery_status"] == "action_completed"
-    ((args, depth),) = planner_conn.activity_rows()
-    row = activity_row(args)
-    assert depth == 1 and planner_conn.plan_rows()[0][1] == 1
-    assert row == {
-        "source": "iris",
-        "actor": "iris",
-        "action": "plan.write",
-        "target": reply["plan_id"],
-        "detail": {
-            "changes": [{"ts": "2026-11-02T18:00:00Z", "param": "mister_vpd_weight", "value": 1.5}],
-            "trigger_id": TRIGGER_ID,
-            "planner_instance": "local",
-        },
-        "reason": "fog is more effective",
-        "request_id": None,
-        "experiment_id": None,
-    }
-
-
-@pytest.mark.parametrize(
-    ("actor", "source", "name"),
-    [
-        (None, "iris", "iris"),
-        (("agent:admin", "admin"), "agent:admin", "admin"),
-        (("iris", "iris"), "iris", "iris"),
-    ],
-    ids=["no-actor", "admin", "iris"],
-)
-def test_the_plan_row_actor_and_no_refusal_for_a_missing_one(server, planner_conn, actor, source, name):
-    mcp_actor = None if actor is None else server.McpActor(source=actor[0], name=actor[1])
-    reply = call_set_tunable(server, mcp_actor)
-    assert reply["ok"] is True
-    ((args, _depth),) = planner_conn.activity_rows()
-    assert (activity_row(args)["source"], activity_row(args)["actor"]) == (source, name)
-
-
-def test_the_plan_row_carries_the_armed_experiment(server, planner_conn, monkeypatch):
-    armed = uuid.uuid4()
-    original = planner_conn.fetchval
-
-    async def fetchval(sql, *args):
-        if "fn_mcp_armed_assignment_context" in sql:
-            return armed
-        return await original(sql, *args)
-
-    monkeypatch.setattr(planner_conn, "fetchval", fetchval)
-    call_set_tunable(server, iris(server))
-    ((args, _depth),) = planner_conn.activity_rows()
-    assert activity_row(args)["experiment_id"] == armed
-
-
-def test_a_refused_set_tunable_appends_nothing(server, planner_conn):
-    planner_conn.expected_action = "set_plan"
-    planner_conn.event_type = "SUNRISE"
-    reply = call_set_tunable(server, iris(server))
-    assert reply["status"] == "wrong_action"
-    assert planner_conn.activity_rows() == [] and planner_conn.plan_rows() == []
-
-    out_of_bounds = call_set_tunable(server, iris(server), value=999.0)
-    assert out_of_bounds["error"] == "Tunable value outside registry bounds"
-    assert planner_conn.activity_rows() == []
-
-
-@pytest.mark.parametrize("parameter", ["dry_cost_limit_kwh_per_kg", "band_temp_low_sr", "band_vpd_low_mid"])
-def test_set_tunable_refuses_the_owner_only_settings(server, planner_conn, parameter):
-    """Climate refactor 1.5b: an agent's set_tunable to the drying cost limit or a band row writes nothing."""
-    for actor in (iris(server), steward(server)):
-        reply = call_set_tunable(server, actor, parameter=parameter, value=0.7 if "cost" in parameter else 1.0)
-        assert reply["error"] == f"'{parameter}' is not planner-pushable in the tunable registry"
-        assert parameter not in reply["allowed"]
-    assert planner_conn.activity_rows() == [] and planner_conn.plan_rows() == []
-
-
-def transitions(server) -> str:
-    intent = server.ClimateIntent().model_dump(mode="json")
-    start = datetime.now(UTC) - timedelta(minutes=1)
-    return json.dumps(
-        [
-            {"ts": (start + timedelta(hours=6 * index)).isoformat(), "climate_intent": intent, "reason": "fixture"}
-            for index in range(3)
-        ]
-    )
-
-
-def call_set_plan(server, actor, **overrides):
-    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
-    arguments = {
-        "plan_id": f"iris-{stamp}",
-        "hypothesis": "fixture hypothesis",
-        "transitions": transitions(server),
-        "trigger_id": TRIGGER_ID,
-        "planner_instance": "local",
-    }
-    return json.loads(run_as(server, actor, server.set_plan(**{**arguments, **overrides})))
-
-
-def test_set_plan_appends_one_plan_write_listing_the_rows_it_wrote(server, planner_conn):
-    reply = call_set_plan(server, iris(server))
-    assert reply.get("ok") is True, reply
-    assert "skipped_manual" not in reply
-    ((args, depth),) = planner_conn.activity_rows()
-    row = activity_row(args)
-    assert depth == 1
-    assert (row["source"], row["actor"], row["action"], row["target"]) == (
-        "iris",
-        "iris",
-        "plan.write",
-        reply["plan_id"],
-    )
-    written = planner_conn.plan_rows()
-    assert reply["rows_written"] == len(written) == len(row["detail"]["changes"]) > 0
-    assert {(change["param"], change["value"]) for change in row["detail"]["changes"]} == {
-        (args[1], args[2]) for args, _depth in written
-    }
-    assert (row["detail"]["trigger_id"], row["detail"]["planner_instance"]) == (TRIGGER_ID, "local")
-
-
-def test_a_refused_set_plan_appends_nothing(server, planner_conn):
-    reply = call_set_plan(server, iris(server), transitions="[]")
-    assert "error" in reply
-    assert planner_conn.activity_rows() == [] and planner_conn.plan_rows() == []

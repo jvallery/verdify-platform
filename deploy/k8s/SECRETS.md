@@ -256,7 +256,7 @@ do not rotate or reuse existing API, ingestor, MCP, agent-ro or owner credential
 | verdify-grafana-runtime-db | password | verdify_grafana_runtime_login |
 | verdify-planner-runtime-db | password | verdify_planner_runtime_login |
 | verdify-setpoint-server-runtime-db | password | verdify_setpoint_server_runtime_login |
-| verdify-ha-backfill-runtime-db | password | verdify_ha_backfill_runtime_login |
+| verdify-ha-backfill-runtime-db | retired | verdify_ha_backfill_runtime_login (no consumer; the bootstrap no longer reads this Secret, so the central lane may remove it after the sync that ships this; the role stays for the drops release) |
 | verdify-lab-publisher-runtime-db | password | verdify_lab_publisher_runtime_login |
 | verdify-vision-runtime-db | password | verdify_vision_runtime_login |
 
@@ -299,7 +299,7 @@ to the `jvallery/agents` central KSOPS lane; this repository declares names/keys
 
 | Secret | Key | Fixed LOGIN | Ordinary consumer |
 |---|---|---|---|
-| `verdify-writer-watchdog-runtime-db` | `password` | `verdify_writer_watchdog_runtime_login` | `verdify-writer-watchdog` |
+| `verdify-writer-watchdog-runtime-db` | retired | `verdify_writer_watchdog_runtime_login` | none since #998; the bootstrap no longer reads this Secret, so the central lane may remove it after the sync that ships this |
 | `verdify-matview-refresh-runtime-db` | `password` | `verdify_matview_refresh_runtime_login` | `verdify-band-curve-refresh` |
 
 The prepared wave4 bootstrap receives these two keys and the existing owner key

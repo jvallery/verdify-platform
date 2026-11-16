@@ -396,7 +396,7 @@ def test_api09_lists_every_registry_row_with_its_label_and_unit_and_the_band_in_
     scenario(dsn, body)
 
 
-def test_iris_48_75_shows_as_stored_and_confirms_from_the_readback(dsn):
+def test_a_plan_in_force_is_never_shown_or_applied_since_climate_refactor_4_2(dsn):
     async def body(conn, t0):
         await reporting_now(conn, t0)
         written = t0 - 2 * H
@@ -419,30 +419,10 @@ def test_iris_48_75_shows_as_stored_and_confirms_from_the_readback(dsn):
 
         rows = {item.param: item for item in (await as_role(conn, MCP_ROLE, reads.settings_rows)).items}
         delay = rows["mister_engage_delay_s"]
-        # The plan-only case: no desired row, so applied_from is plan (resolve_effective returns None).
-        assert (delay.desired, delay.applied_from, delay.state) == (None, "plan", "confirmed")
-        assert delay.plan.model_dump() == {
-            "value": 48.75,  # as stored, never snapped to the 30 s step
-            "plan_id": "iris-vd55-48",
-            "source": "iris",
-            "written_at": written,
-            "next": {"at": t0 + 3 * H, "value": 60.0, "source": "iris", "effective": True},
-        }
-        forecast = rows["sw_economiser_enabled"].plan
-        assert (forecast.source, forecast.plan_id, forecast.value, forecast.next) == (
-            "preemptive",
-            "preemptive-vd55",
-            1.0,
-            None,
-        )
+        # The plan rows stay, but no plan applies: no plan block, and the source is never plan.
+        assert (delay.desired, delay.plan) == (None, None) and delay.applied_from != "plan"
+        assert rows["sw_economiser_enabled"].plan is None and rows["sw_economiser_enabled"].applied_from != "plan"
         assert rows["mister_engage_kpa"].plan is None
-
-        await snapshot(conn, t0 - 20 * S, "mister_engage_delay_s", 42.0)  # the device reports something else
-        rows = {item.param: item for item in (await as_role(conn, MCP_ROLE, reads.settings_rows)).items}
-        assert (rows["mister_engage_delay_s"].state, rows["mister_engage_delay_s"].plan.value) == (
-            "not_confirmed",
-            48.75,
-        )
 
     scenario(dsn, body)
 
@@ -503,12 +483,13 @@ def test_api02_counts_exactly_the_open_rows_api14_returns(dsn):
 def test_activity_by_agent_steward_is_that_agent_only_newest_first_and_paged(dsn):
     async def body(conn, t0):
         await reporting_now(conn, t0)
-        first = (await settings.write(conn, STEWARD, "mister_engage_kpa", 1.5, False, "dry", None)).value
-        await snapshot(conn, await conn.fetchval("SELECT now()"), "mister_engage_kpa", 1.5)  # confirms the first
-        await settings.write(conn, PERSON, "fog_rh_ceiling_pct", 90, True, None, None)
-        await settings.write(conn, OTHER_AGENT, "site_pressure_hpa", 845, False, None, None)
-        second = (await settings.write(conn, STEWARD, "mister_engage_kpa", 1.6, False, "drier", None)).value
-        await settings.release(conn, STEWARD, "fog_rh_ceiling_pct", "back to auto", None)
+        # Climate refactor 4.2: an agent writes and releases only the operator switches.
+        first = (await settings.write(conn, STEWARD, "sw_occupancy_inhibit", 0, False, "people in", None)).value
+        await snapshot(conn, await conn.fetchval("SELECT now()"), "sw_occupancy_inhibit", 0)  # confirms the first
+        await settings.write(conn, PERSON, "sw_gl_main_out_of_service", 1, True, None, None)
+        await settings.write(conn, OTHER_AGENT, "sw_gl_grow_out_of_service", 0, False, None, None)
+        second = (await settings.write(conn, STEWARD, "sw_occupancy_inhibit", 1, False, "people out", None)).value
+        await settings.release(conn, STEWARD, "sw_gl_main_out_of_service", "back to auto", None)
 
         async def pages(**filters):
             out, cursor = [], None
@@ -534,7 +515,9 @@ def test_activity_by_agent_steward_is_that_agent_only_newest_first_and_paged(dsn
 
         agents = [entry for items in await pages(source="agent") for entry in items]
         assert {entry.actor.source for entry in agents} == {"agent:steward", "agent:pathfinder"} and len(agents) == 4
-        everyone = await as_role(conn, MCP_ROLE, reads.activity_page, action="setting.", target="fog_rh_ceiling_pct")
+        everyone = await as_role(
+            conn, MCP_ROLE, reads.activity_page, action="setting.", target="sw_gl_main_out_of_service"
+        )
         assert [(entry.actor.source, entry.action) for entry in everyone.items] == [
             ("agent:steward", "setting.release"),
             ("dashboard", "setting.write"),

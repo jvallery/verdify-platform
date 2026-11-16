@@ -416,6 +416,11 @@ def _check_schedule_current(direct_db: bool) -> Check:
     return Check("current schedule view", status, detail)
 
 
+# Readbacks are stored on change with an hourly keyframe (#1662): freshness is the pass marker (system_state
+# setpoint_snapshot_pass, or the newest readback) within 300 s, and each parameter needs a row within 2 hours.
+READBACK_PASS_MAX_AGE_S = 300
+
+
 def _check_schedule_cfg_readbacks(direct_db: bool) -> Check:
     values_sql = ",".join(f"('{param}')" for param in IRRIGATION_SCHEDULE_PARAMS)
     row = _psql(
@@ -424,26 +429,42 @@ def _check_schedule_cfg_readbacks(direct_db: bool) -> Check:
         latest AS (
             SELECT DISTINCT ON (parameter) parameter, value, ts
               FROM setpoint_snapshot
-             WHERE parameter IN (SELECT parameter FROM params)
+             WHERE parameter IN (SELECT parameter FROM params) AND band_role IS NULL
              ORDER BY parameter, ts DESC
+        ),
+        pass AS (
+            SELECT GREATEST(
+                (SELECT max(ts) FROM setpoint_snapshot WHERE band_role IS NULL AND ts > now() - interval '1 day'),
+                (SELECT max(ts) FROM system_state
+                  WHERE entity = 'setpoint_snapshot_pass' AND ts > now() - interval '1 day')) AS ts
         )
         SELECT count(l.parameter)::text,
-               count(l.parameter) FILTER (WHERE l.ts >= now() - interval '15 minutes')::text,
+               count(l.parameter) FILTER (WHERE l.ts >= now() - interval '2 hours')::text,
                COALESCE(min(l.ts)::text, '-'),
                COALESCE(max(l.ts)::text, '-'),
-               COALESCE(string_agg(p.parameter, ',' ORDER BY p.parameter) FILTER (WHERE l.parameter IS NULL), '-')
+               COALESCE(string_agg(p.parameter, ',' ORDER BY p.parameter) FILTER (WHERE l.parameter IS NULL), '-'),
+               COALESCE((SELECT extract(epoch FROM now() - ts)::int FROM pass)::text, '-')
           FROM params p
           LEFT JOIN latest l USING (parameter)
         """,
         direct_db=direct_db,
     )[0]
-    present, fresh, min_ts, max_ts, missing = row
+    return _schedule_cfg_readbacks_verdict(*row)
+
+
+def _schedule_cfg_readbacks_verdict(
+    present: str, within_2h: str, min_ts: str, max_ts: str, missing: str, pass_age_s: str
+) -> Check:
     expected = len(IRRIGATION_SCHEDULE_PARAMS)
-    status = "pass" if int(present) == expected and int(fresh) == expected and missing == "-" else "fail"
+    pass_fresh = pass_age_s.isdigit() and int(pass_age_s) <= READBACK_PASS_MAX_AGE_S
+    status = (
+        "pass" if int(present) == expected and int(within_2h) == expected and missing == "-" and pass_fresh else "fail"
+    )
     return Check(
         "irrigation cfg readbacks",
         status,
-        f"present={present}/{expected} fresh_15m={fresh}/{expected} range={min_ts}..{max_ts} missing={missing}",
+        f"present={present}/{expected} within_2h={within_2h}/{expected} pass_age_s={pass_age_s} "
+        f"range={min_ts}..{max_ts} missing={missing}",
     )
 
 
@@ -562,14 +583,15 @@ def _check_schedule_setpoint_confirmations(direct_db: bool) -> Check:
 
 
 def _check_planner_context_uses_canonical_irrigation() -> Check:
-    script_path = REPO_ROOT / "scripts" / "gather-plan-context.sh"
+    # Climate refactor 4.2: the plan-context gather is retired. The daily review reads water through Iris's
+    # irrigation tools (M3's line state, VD-60); its prompt and context builder name none of the retired sources.
+    paths = (REPO_ROOT / "ingestor" / "review_prompt.py", REPO_ROOT / "ingestor" / "tasks" / "heartbeat.py")
     try:
-        script = script_path.read_text()
+        sources = [path.read_text() for path in paths]
     except OSError as exc:
         return Check("planner context canonical irrigation source", "fail", str(exc))
 
-    # Section 11 is the ingestor's entry point over M3's line state (VD-60); these views and tables are retired.
-    required = ("-m tasks.irrigation context --hours 24",)
+    required = ("irrigation_status", "irrigation_history")
     forbidden = (
         "FROM irrigation_schedule",
         "FROM irrigation_log",
@@ -577,8 +599,8 @@ def _check_planner_context_uses_canonical_irrigation() -> Check:
         "v_irrigation_schedule_current",
         "v_irrigation_fertigation_runs",
     )
-    missing = [token for token in required if token not in script]
-    legacy = [token for token in forbidden if token in script]
+    missing = [token for token in required if token not in sources[0]]
+    legacy = [token for token in forbidden if any(token in source for source in sources)]
     status = "pass" if not missing and not legacy else "fail"
     return Check(
         "planner context canonical irrigation source",

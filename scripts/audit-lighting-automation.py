@@ -10,8 +10,6 @@ the ESP32 OTA lands, the live audit should report BLOCKED rather than COMPLETE.
 from __future__ import annotations
 
 import argparse
-import asyncio
-import importlib.util
 import json
 import subprocess
 import sys
@@ -22,7 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
-from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -131,6 +128,25 @@ def run(cmd: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
 
 
+# Readbacks are stored on change with an hourly keyframe (#1662): a per-circuit readback the firmware supports has a
+# row within two hours (the longest gap is one hour plus a pass), not within 15 minutes.
+CFG_READBACK_WINDOW = "2 hours"
+
+
+def live_cfg_readback_params() -> set[str]:
+    """The per-circuit cfg readbacks the controller reports: a row within CFG_READBACK_WINDOW."""
+    rows = psql_json(
+        f"""
+        SELECT DISTINCT parameter
+          FROM setpoint_snapshot
+         WHERE parameter = ANY(ARRAY{list(CFG_READBACK_PARAMS)!r}::text[])
+           AND band_role IS NULL
+           AND ts > now() - interval '{CFG_READBACK_WINDOW}'
+        """
+    )
+    return {row["parameter"] for row in rows}
+
+
 def psql_json(sql: str, timeout: int = 30) -> list[dict[str, Any]]:
     wrapped = f"SELECT COALESCE(json_agg(row_to_json(q)), '[]'::json) FROM ({sql}) q"
     proc = run(
@@ -186,80 +202,6 @@ def grafana_dashboard(uid: str) -> dict[str, Any]:
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
     return json.loads(proc.stdout)["dashboard"]
-
-
-def mcp_set_tunable_dry_run() -> tuple[bool, str]:
-    """Prove the MCP allowlist without writing a setpoint.
-
-    A random trigger_id that is not in plan_delivery_log makes allowed params
-    reach the trigger ledger check and return "trigger_id not found" before any
-    INSERT. Disallowed params return at the registry gate before opening DB.
-    """
-    spec = importlib.util.spec_from_file_location("verdify_mcp_server_audit", REPO_ROOT / "mcp" / "server.py")
-    if spec is None or spec.loader is None:
-        return False, "could not load mcp/server.py"
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    fake_trigger = str(uuid4())
-
-    async def _calls() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
-        minutes = json.loads(
-            await module.set_tunable(
-                "gl_main_target_light_minutes",
-                960,
-                "lighting audit dry-run",
-                trigger_id=fake_trigger,
-                planner_instance="local",
-            )
-        )
-        main = json.loads(
-            await module.set_tunable(
-                "gl_main_lux_threshold",
-                41000,
-                "lighting audit dry-run",
-                trigger_id=fake_trigger,
-                planner_instance="local",
-            )
-        )
-        auto = json.loads(
-            await module.set_tunable(
-                "sw_gl_main_auto_mode",
-                1,
-                "lighting audit dry-run",
-                trigger_id=fake_trigger,
-                planner_instance="local",
-            )
-        )
-        legacy = json.loads(
-            await module.set_tunable(
-                "gl_lux_threshold",
-                41000,
-                "lighting audit dry-run",
-                trigger_id=fake_trigger,
-                planner_instance="local",
-            )
-        )
-        return minutes, main, auto, legacy
-
-    minutes, main, auto, legacy = asyncio.run(_calls())
-    allowed = set(legacy.get("allowed", []))
-    ok = (
-        minutes.get("error") == "trigger_id not found in plan_delivery_log"
-        and main.get("error") == "trigger_id not found in plan_delivery_log"
-        and auto.get("error") == "trigger_id not found in plan_delivery_log"
-        and legacy.get("error")  # #1477: gl_lux_threshold is retired, so MCP refuses it
-        and "gl_main_target_light_minutes" in allowed
-        and "gl_main_lux_threshold" in allowed
-        and "sw_gl_main_auto_mode" in allowed
-        and "gl_lux_threshold" not in allowed
-    )
-    detail = (
-        f"gl_main_target_light_minutes={minutes.get('error')}; "
-        f"gl_main_lux_threshold={main.get('error')}; "
-        f"sw_gl_main_auto_mode={auto.get('error')}; "
-        f"gl_lux_threshold={legacy.get('error')}"
-    )
-    return ok, detail
 
 
 def render_panel(uid: str, panel_id: int, width: int, height: int, timeout: int = 45) -> tuple[bool, str]:
@@ -472,7 +414,8 @@ def static_checks(audit: Audit) -> None:
         "Lutron control/sync path is missing switch.greenhouse_* mappings or still references stale light.* wrappers",
     )
 
-    for relpath in ("ingestor/tasks.py", "api/main.py", "scripts/setpoint-server.py", "scripts/gather-plan-context.sh"):
+    # #1656: the setpoint server serves no policy values any more (its /setpoints route is retired).
+    for relpath in ("ingestor/tasks.py", "api/main.py"):
         src = read(REPO_ROOT / relpath)
         audit.check(
             "fn_lighting_minutes_policy" in src,
@@ -780,39 +723,7 @@ def live_checks(audit: Audit, require_ota: bool) -> None:
         else "firmware state/reason or decision timestamp blank until OTA or stale after rollback",
     )
 
-    try:
-        planner_context = run(["bash", "scripts/gather-plan-context.sh"], timeout=90)
-        context_text = planner_context.stdout
-        required_context_tokens = (
-            "QUALIFIED LIGHT MINUTES + GROW LIGHTS",
-            "grow|grow_light_grow",
-            "main|grow_light_main",
-            "target_light_minutes",
-            "QUALIFIED LIGHT MINUTES TODAY",
-            "TEMPEST LUX THRESHOLD RECOMMENDATION",
-            "confirmed ESP32 cfg readbacks remain the controller-state source of truth",
-            "Use Tempest outdoor illuminance as the lighting trigger",
-            "Set gl_main_target_light_minutes/gl_grow_target_light_minutes",
-            "Per-circuit gl_main_target_light_minutes/gl_grow_target_light_minutes",
-        )
-        audit.check(
-            planner_context.returncode == 0 and all(token in context_text for token in required_context_tokens),
-            "live planner lighting context",
-            "planner context includes per-circuit policy rows, Tempest threshold evidence, and per-circuit tunable guidance",
-            planner_context.stderr.strip() or "planner context missing lighting policy/evidence tokens",
-        )
-    except subprocess.TimeoutExpired as exc:
-        audit.add("live planner lighting context", "FAIL", f"timed out after {exc.timeout}s")
-
-    try:
-        ok, detail = mcp_set_tunable_dry_run()
-        audit.add(
-            "MCP lighting set_tunable gate",
-            "PASS" if ok else "FAIL",
-            detail,
-        )
-    except Exception as exc:
-        audit.add("MCP lighting set_tunable gate", "FAIL", str(exc))
+    # The planner context and MCP set_tunable checks retired with the plan cycle (climate refactor 4.2).
 
     timeline = psql_json(
         """
@@ -855,15 +766,7 @@ def live_checks(audit: Audit, require_ota: bool) -> None:
         f"timeline incomplete: {timeline}",
     )
 
-    support_rows = psql_json(
-        f"""
-        SELECT DISTINCT parameter
-          FROM setpoint_snapshot
-         WHERE parameter = ANY(ARRAY{list(CFG_READBACK_PARAMS)!r}::text[])
-           AND ts > now() - interval '15 minutes'
-        """
-    )
-    supported_params = {row["parameter"] for row in support_rows}
+    supported_params = live_cfg_readback_params()
     missing_support = sorted(set(CFG_READBACK_PARAMS) - supported_params)
     if not missing_support:
         audit.add(
@@ -978,16 +881,7 @@ def live_checks(audit: Audit, require_ota: bool) -> None:
     except (TimeoutError, UnicodeDecodeError, urllib.error.URLError) as exc:
         audit.add("live public website pages", "FAIL", str(exc))
 
-    readbacks = psql_json(
-        f"""
-        SELECT parameter, max(ts) AS latest_ts
-          FROM setpoint_snapshot
-         WHERE parameter = ANY(ARRAY{list(CFG_READBACK_PARAMS)!r}::text[])
-           AND ts > now() - interval '15 minutes'
-         GROUP BY parameter
-        """
-    )
-    readback_params = {row["parameter"] for row in readbacks}
+    readback_params = live_cfg_readback_params()
     missing = sorted(set(CFG_READBACK_PARAMS) - readback_params)
     firmware_support_live = not missing
     audit.add(
@@ -1122,26 +1016,14 @@ def live_checks(audit: Audit, require_ota: bool) -> None:
         state_detail = "both Lutron circuits have fresh post-OTA switch-state evidence matching firmware telemetry"
     audit.add("post-OTA Lutron state evidence", state_status, state_detail)
 
-    setpoint_text = parse_setpoint_text(fetch_text("http://127.0.0.1:8200/setpoints"))
-    audit.check(
-        all(param in setpoint_text for param in PER_CIRCUIT_PARAMS),
-        "setpoint server per-circuit values",
-        "local setpoint server exposes all per-circuit lighting values",
-        "setpoint server is missing per-circuit values",
-    )
+    # #1656 retired the setpoint server's /setpoints route; the API /setpoints check below covers the values.
     # #1477: the legacy shared gl_* lighting values left the firmware and the
-    # registry, so neither compatibility endpoint serves them any more.
+    # registry, so the API does not serve them any more.
     retired_shared = ("gl_lux_threshold", "gl_lux_hysteresis", "gl_dli_target", "gl_sunrise_hour", "gl_sunset_hour")
 
     def retired_values_absent(values: dict[str, str]) -> bool:
         return not any(param in values for param in retired_shared)
 
-    audit.check(
-        retired_values_absent(setpoint_text),
-        "setpoint server retired shared lighting values",
-        "local setpoint server no longer serves the retired shared gl_* values",
-        f"setpoint server still serves retired shared gl_* values: {setpoint_text}",
-    )
     api_proc = run(
         [
             "docker",

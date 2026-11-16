@@ -101,6 +101,11 @@ resources:
 # Argo creates this ConfigMap before the PreSync migrate Job; Kustomize rewrites
 # the Job volume reference to its content-hashed name.
 configMapGenerator:
+  # Package 6: the operator API's verdify_release_pin_info reads this copy of release-pins.yaml. Its content hash
+  # changes only with a promotion, which rolls the operator API to the new verdify-api digest anyway.
+  - name: verdify-release-pins
+    files:
+      - release-pins.yaml=release-pins.yaml
   - name: verdify-c0-boundary-contract-240-248
     files:
       - contract.json=c0-boundary-contract-240-248.json
@@ -171,12 +176,6 @@ components:
   # Host(graphs.verdify.ai) -> verdify-grafana:3000 through the verdify-traefik
   # tier-2 (verdify-web entryPoint). NOT a device writer.
   - ../../components/grafana
-  # #211 ingestor-gather-script — the planner context-gather ConfigMap
-  # (gather-plan-context.sh + lib/psql-verdify.sh) the ingestor mounts at
-  # /srv/verdify/scripts/. prod-only (only prod runs the planner). Adding the
-  # ConfigMap does NOT touch the running ingestor; the mount + psql initContainer
-  # ship in the gated ingestor patch (see PR / ingestor-gather-mount.patch.yaml).
-  - ../../components/ingestor-gather-script
   # #1351 row 2: suspended re-embed of the knowledge corpus into knowledge_embeddings
   # (Cortex embed.main, migration 296). Argo never starts a run; see the component.
   - ../../components/knowledge-embed
@@ -216,7 +215,7 @@ patches:
   # #113 publish-all: prod re-emits every flushed telemetry row onto the fan-out
   # bus (verdify-mqtt) so dev/stage subscribers mirror it. prod-only env.
   - path: publish-all-configmap.yaml
-  # #212 HERMES_URL: repoint the ingestor's iris_planner gateway POST off the
+  # #212 HERMES_URL: repoint the ingestor's Hermes gateway POST (the daily review) off the
   # VM-era loopback default (127.0.0.1:8642) onto the in-cluster hermes-iris
   # ClusterIP Service. Env-only override; no ingestor rebuild. See
   # hermes-url-configmap.yaml. (Restart to apply is a gated step — see PR.)
@@ -226,13 +225,8 @@ patches:
   # subprocess (not the ingestor app / device path). See
   # gather-script-env-configmap.yaml. (Picked up on the gated restart.)
   - path: gather-script-env-configmap.yaml
-  # #211/#263 gather-path capture plus Gate-1 credential cutover: retain the
-  # proven gather-script mounts and HERMES auth (psql ships in the ingestor
-  # image since #1458; no install-psql init). PGPASSWORD deliberately changes from
-  # the database-owner key to the ingestor's least-privilege runtime key, matching
-  # the component's ordinary-process credential. This causes a controlled
-  # single-writer Recreate and is verified after sync. See the patch header.
-  - path: ingestor-gather-mount.patch.yaml
+  # The daily review's Hermes key (climate refactor 5.1; replaces the gather-script mount patch).
+  - path: ingestor-hermes-key.patch.yaml
   # #130 ingestor state volume: durable RWO PVC at /srv/verdify/state for
   # dispatcher/MCP bookkeeping and DB-outage telemetry spooling.
   - path: ingestor-state-volume.yaml

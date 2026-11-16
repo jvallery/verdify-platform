@@ -407,6 +407,17 @@ HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
     # The drying cost limit (phase 3): the registry row routes its number entity and readback.
     "SETPOINT_MAP": {"dry_cost_limit_kwh_per_kg"},
     "CFG_READBACK_MAP": {"cfg_dry_cost_limit_kwh_per_kg"},
+    # The controller's own health (third flash; migration 314, contracts/metrics-coverage 2.1a, gap-log 9.1).
+    "DIAGNOSTIC_MAP": {
+        "free_heap_minute_low",
+        "largest_heap_block_minute_low",
+        "control_loop_worst_minute",
+        "restart_count",
+        "nvs_used_entries",
+        "nvs_free_entries",
+        "nvs_write_worst_minute",
+        "gap_log_state",
+    },
 }
 
 

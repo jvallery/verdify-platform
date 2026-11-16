@@ -5,7 +5,8 @@ Service with no route: api.verdify.ai forwards every path to the public app on :
 there. Only the dashboard BFF's pods reach it (NetworkPolicy allow-operator-api-from-dashboard-web), and every call
 except ``/healthz``, ``/readyz`` and ``/metrics`` carries the shared bearer token. Prometheus scrapes ``/metrics``
 (NetworkPolicy allow-operator-api-metrics-scrape): the ``verdify_alert_open`` gauge that pages critical alerts
-through Alertmanager (#1352), with no session, token or alert text in it.
+through Alertmanager (#1352) and the product metrics of ``product_metrics`` (package 6), with no session, token or
+alert text in them. A background timer refreshes them; a scrape renders the cache and never queries.
 
 - Sessions. The BFF verifies the Authentik ID token and creates a session with INT-01; ``dashboard_session`` keeps
   only the token's SHA-256, for 12 hours. Every ``/v1`` call resolves ``X-Dashboard-Session`` (cached 30 s) and
@@ -60,20 +61,19 @@ for _path in (str(_HERE.parent), str(_HERE)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+import product_metrics  # noqa: E402
 from operator_routes import (  # noqa: E402
     crops,
     irrigation_reads,
     irrigation_writes,
     light_resync,
     light_timer,
-    planner_study_runner,
     reads,
     writes,
 )
 
 from verdify_public.build_provenance import SOURCE_REVISION_PATH, image_git_sha  # noqa: E402
 from verdify_schemas.activity import ACTOR_NAME_MAX_LENGTH  # noqa: E402
-from verdify_services import alerts  # noqa: E402
 from verdify_services.actor import Actor, Role  # noqa: E402
 from verdify_services.problems import Problem, ServiceError, problem  # noqa: E402
 
@@ -458,14 +458,11 @@ def render_alert_metrics(open_by_type: Mapping[tuple[str, str], int] | None) -> 
 
 @ops.get(METRICS_PATH, operation_id="OPS-04", response_class=PlainTextResponse)
 async def metrics(request: Request) -> PlainTextResponse:
-    """The open-alert gauge for Prometheus (#1352); a failed read answers 200 with ``verdify_alert_metrics_up 0``."""
-    try:
-        async with request.app.state.pool.acquire() as conn:
-            tally: dict[tuple[str, str], int] | None = await alerts.open_by_type(conn)
-    except Exception as failure:
-        emit({"service": SERVICE, "event": "metrics_read_failed", "error": type(failure).__name__})
-        tally = None
-    return PlainTextResponse(render_alert_metrics(tally), media_type=METRICS_MEDIA_TYPE)
+    """The open-alert gauge for Prometheus (#1352) and the product metrics, both from the timer's cache: a scrape never
+    queries. A failed or stale alert read answers 200 with ``verdify_alert_metrics_up 0``."""
+    cache: product_metrics.ProductMetrics = request.app.state.product_metrics
+    body = render_alert_metrics(cache.alert_tally()) + cache.render()
+    return PlainTextResponse(body, media_type=METRICS_MEDIA_TYPE)
 
 
 @internal.post(
@@ -536,7 +533,7 @@ def log_resyncs() -> None:
     """light_resync logs one INFO line per resync (light_timer one per timer), but uvicorn configures only its own loggers and Python's last-resort
     handler drops anything below WARNING, so that logger writes JSON log lines here. Once per process, however many
     apps a test makes."""
-    for name in (light_resync.__name__, light_timer.__name__, planner_study_runner.__name__):
+    for name in (light_resync.__name__, light_timer.__name__):
         resync_log = logging.getLogger(name)
         if not any(isinstance(handler, LogLines) for handler in resync_log.handlers):
             resync_log.addHandler(LogLines())
@@ -690,16 +687,19 @@ def _lifespan(settings: Settings | None, pool: Any | None) -> Callable[[FastAPI]
         # Timed manual lights (operator_routes.light_timer, #1335): a sweep that sends the controller's intent once a
         # manual switch's minutes are up. The timer is the API-20 row, so a restart loses none.
         app.state.light_timers = light_timer.Timers(app.state.resyncs)
-        # The planner study's boundaries (operator_routes.planner_study_runner, #1360): a sweep that holds or releases
-        # the 48 planner settings for the arm in force. The run is its activity rows, so a restart loses nothing.
-        app.state.study_runner = planner_study_runner.Runner()
+        # Package 6: the product metrics' timer. /metrics renders its cache; the groups run one at a time on the pool.
+        app.state.product_metrics = product_metrics.ProductMetrics(
+            on_failure=lambda group, error: emit(
+                {"service": SERVICE, "event": "metrics_group_failed", "group": group, "error": error}
+            )
+        )
         purge = asyncio.create_task(purge_expired_sessions(database))
+        metrics_timer = asyncio.create_task(app.state.product_metrics.run(database))
         timers = asyncio.create_task(app.state.light_timers.run(database, config.setpoint_server_url))
-        study = asyncio.create_task(app.state.study_runner.run(database))
         try:
             yield
         finally:
-            for task in (purge, timers, study):
+            for task in (purge, timers, metrics_timer):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task

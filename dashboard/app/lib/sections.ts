@@ -17,7 +17,7 @@ export type ViewId =
   | "graphs-climate" | "graphs-zones" | "graphs-lighting" | "graphs-statistics"
   | "activity-alerts" | "activity-log"
   | "control-settings" | "control-band" | "control-equipment"
-  | "planner-plan" | "planner-history" | "planner-experiments";
+  | "planner-plan" | "planner-history";
 
 export type View = {
   readonly id: ViewId;
@@ -82,7 +82,6 @@ export const SECTIONS: readonly Section[] = [
     id: "planner", label: "Planner", to: "/plan", aliases: ["/planner"], views: [
       view("planner", "planner-plan", "Plan", "Plan", "/plan"),
       view("planner", "planner-history", "History", "Plan history", "/planner/history"),
-      view("planner", "planner-experiments", "Experiments", "Experiments", "/planner/experiments"),
     ],
   },
 ];

@@ -43,21 +43,19 @@ data:
     from pathlib import Path
 
     REQUIRED = {
-        "acknowledge_trigger", "activity", "alerts", "climate", "crop_history",
-        "crop_lifecycle", "crops", "equipment_state", "forecast",
-        "get_setpoints", "history", "irrigation_clear_fault", "irrigation_history",
-        "irrigation_line_set", "irrigation_run", "irrigation_schedule", "irrigation_schedule_set",
-        "irrigation_status", "irrigation_stop", "knowledge_search", "lessons",
-        "lessons_manage", "lessons_search", "observations", "plan_evaluate",
-        "plan_status", "position_current", "scorecard", "set_plan",
-        "set_setting", "set_tunable", "settings", "topology",
+        "activity", "alerts", "climate", "crop_history", "crop_lifecycle", "crops",
+        "equipment_state", "forecast", "get_setpoints", "history", "irrigation_clear_fault",
+        "irrigation_history", "irrigation_line_set", "irrigation_run", "irrigation_schedule",
+        "irrigation_schedule_set", "irrigation_status", "irrigation_stop", "knowledge_search",
+        "lessons", "lessons_manage", "lessons_search", "observations", "position_current",
+        "review_write", "scorecard", "settings", "topology",
     }
-    # Iris ends every trigger without these. The config moves at any sync and the MCP image at its promotion, so an
-    # image from before them must not take the planner out of service. A newer image's own /readyz still fails if it
-    # stops registering one.
+    # Iris ends a review without these. The config moves at any sync and the MCP image at its promotion, so an image
+    # from before them (review_write arrives with the daily review) must not take Iris out of service. A newer image's
+    # own /readyz still fails if it stops registering one.
     PLAN_OPTIONAL = {
         "activity", "irrigation_clear_fault", "irrigation_history", "irrigation_line_set", "irrigation_run",
-        "irrigation_schedule", "irrigation_schedule_set", "irrigation_status", "irrigation_stop", "set_setting",
+        "irrigation_schedule", "irrigation_schedule_set", "irrigation_status", "irrigation_stop", "review_write",
         "settings",
     }
     PROBE_STATE_SCHEMA = 1
@@ -419,9 +417,8 @@ data:
       # Hermes reads reasoning effort from agent.reasoning_effort. Placing it
       # under model is silently ignored and falls back to medium.
       reasoning_effort: xhigh
-      # Iris's longest cycles (SUNRISE/SUNSET) read ~6-10 MCP tools in sequence
-      # plus write a plan. 30 turns is generous; over that, suspect a tool-call
-      # loop and surface as a Hermes alert instead of letting the cycle run away.
+      # A daily review reads a few MCP tools and writes one review. 30 turns is
+      # generous; over that, suspect a tool-call loop.
       max_turns: 30
       # Hermes-side capabilities Verdify doesn't want in the production planner.
       # Memory: Verdify already has TimescaleDB-backed plan_journal + planner_lessons.
@@ -450,7 +447,6 @@ data:
             - equipment_state
             - forecast
             - get_setpoints
-            - plan_status
             - history
             - alerts
             - irrigation_status
@@ -469,14 +465,10 @@ data:
             - position_current
             - crop_history
             - crop_lifecycle
-            # Writes — all carry trigger_id + planner_instance audit
-            - set_plan
-            - set_tunable
-            - set_setting          # desired_state; never satisfies a trigger
-            - acknowledge_trigger
-            - plan_evaluate
+            # Writes (climate refactor 5.1: the daily reviewer writes no climate value)
+            - review_write         # the one review per wake-up, in planner_review
             - lessons_manage
-            # Water writes — change watering only; never count as a plan for a trigger
+            # Water writes — change watering only; the review passes its run id as trigger_id
             - irrigation_schedule_set
             - irrigation_line_set
             - irrigation_run
@@ -488,9 +480,9 @@ data:
           prompts: false
 
     skills:
-      # Hermes own skill system is dormant for Verdify — Iris's identity + tactics
-      # come from gather-plan-context.sh + _STANDING_DIRECTIVES + _PLANNER_CORE
-      # in ingestor/iris_planner.py. Guarding new skills protects against drift.
+      # Hermes own skill system is dormant for Verdify — Iris's identity comes from
+      # SOUL.md and each wake-up's record (ingestor/review_prompt.py). Guarding new
+      # skills protects against drift.
       guard_agent_created: true
 
     # API server: loopback only. The ingestor calls /v1/runs from the same host.

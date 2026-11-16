@@ -107,56 +107,6 @@ def test_broken_dli_sensor_is_not_active_or_required_metadata():
     assert "v_sensor_staleness already filters active=true" in sql
 
 
-def test_planner_context_contains_only_availability_bearing_dli():
-    gather = (ROOT / "scripts/gather-plan-context.sh").read_text()
-    assert "FROM v_dli_current" in gather
-    assert "interior_light_sensor_broken" in gather
-    assert "No correction factor or outdoor proxy" in gather
-    for forbidden in (
-        "max(dli_today)",
-        "estimated_actual_dli",
-        "estimated_total_plant_dli",
-        "s*3.5",
-        "Sensor DLI of 5-7",
-    ):
-        assert forbidden not in gather
-
-    migration = MIGRATION.read_text()
-    planner_view = migration.split("CREATE OR REPLACE VIEW public.v_iris_planning_context", 1)[1].split(
-        "CREATE OR REPLACE VIEW public.v_water_efficiency", 1
-    )[0]
-    assert "'availability', 'unavailable'" in planner_view
-    assert "outdoor_forecast_is_not_interior_crop_dli" in planner_view
-    assert "max(c.dli_today)" not in planner_view
-    assert "daily_summary.dli_final" not in planner_view
-
-    planner = (ROOT / "ingestor/iris_planner.py").read_text()
-    assert "Interior crop DLI is\n  explicitly unavailable" in planner
-    assert "do not infer it" in planner
-    assert "DLI-independent photoperiod/runtime lever" in planner
-
-
-def test_deployed_planner_context_mirror_has_byte_parity_and_no_legacy_dli():
-    generated = (ROOT / "deploy/k8s/components/ingestor-gather-script/gather-script-configmap.yaml").read_text()
-
-    def literal_block(key: str, source: Path) -> str:
-        body = "".join(
-            line if not line.strip("\r\n") else f"    {line}" for line in source.read_text().splitlines(keepends=True)
-        )
-        return f"  {key}: |\n{body}"
-
-    assert literal_block("gather-plan-context.sh", ROOT / "scripts/gather-plan-context.sh") in generated
-    assert literal_block("psql-verdify.sh", ROOT / "scripts/lib/psql-verdify.sh") in generated
-    for forbidden in (
-        "max(dli_today)",
-        "estimated_actual_dli",
-        "estimated_total_plant_dli",
-        "s*3.5",
-        "Sensor DLI of 5-7",
-    ):
-        assert forbidden not in generated
-
-
 def test_mcp_and_api_use_typed_unavailable_contract():
     mcp = (ROOT / "mcp/server.py").read_text()
     outcome = mcp.split("async def outcome_kpi", 1)[1].split("async def equipment_state", 1)[0]

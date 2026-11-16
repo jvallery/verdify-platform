@@ -1,141 +1,73 @@
-"""tasks.heartbeat — split from the monolithic tasks.py (issue #46).
+"""tasks.heartbeat — the daily review (climate refactor packages 4.2 and 5.1) and the MCP health probe.
 
-Behaviour-preserving extraction; bodies are byte-identical to the
-original module. The tasks package __init__ re-exports the public
-surface so every `from tasks import X` still resolves.
+The planner is a daily reviewer (plan section 7). Every 60 s this task:
+
+1. at or after 07:00 America/Denver, inserts the ``kind = 'daily'`` planner_review row for yesterday when none
+   exists (the partial unique index makes the insert idempotent across restarts: the table is the state);
+2. delivers each ``requested`` row (daily, or manual from MCP review_run) to Hermes ``POST /v1/runs`` with the
+   review prompt built from the record (``review_prompt``), retrying every 10 minutes, at most 6 attempts;
+3. polls Hermes for each delivered run and records its end and token usage (#1661); a run that ends before
+   review_write is a failed review with a fixed class;
+4. raises ``daily_review_missed`` at or after 10:00 local while yesterday's daily review is not written, and
+   resolves it once it is; resolves the retired planner alert kinds once;
+5. probes the MCP Service (``mcp_unreachable``).
+
+The trigger matrix, the solar milestones, the plan ledger, the delivery log, the forecast-deviation trigger and the
+context-gather script are retired; nothing here writes plan_journal, setpoint_plan, plan_delivery_log or
+planner_trigger_ledger.
 """
 
-from planner_local_fallback import LOCAL_FALLBACK_FAILURE_CLASS, record_required_local_fallback
-from planner_routing import required_trigger_disposition
+from datetime import date
+from datetime import time as dtime
 
-from config import HERMES_API_KEY, HERMES_URL
+from review_prompt import REVIEW_EVENT_TYPES, build_review_prompt
+
+from config import HERMES_API_KEY, HERMES_SESSION_PREFIX, HERMES_URL
 
 from ._common import (
     _DENVER,
-    _LOCATION,
-    _MILESTONE_STATE_FILE,
-    CONTEXT_GATHER_FAILED_SENTINEL,
     GREENHOUSE_ID,
-    PLANNER_TRIGGER_MATRIX,
-    STATE_DIR,
-    UTC,
     AlertEnvelope,
-    PlanDeliveryLogRow,
-    PlannerTriggerSpec,
-    SeverityContext,
-    ValidationError,
-    _milestones_cache,
-    _milestones_date,
-    _milestones_fired,
-    _sun,
     _td,
     asyncio,
     asyncpg,
-    classify_severity,
     datetime,
-    gather_context,
     json,
     log,
     os,
-    pick_instance,
-    prepare_delivery_result,
     re,
-    send_to_iris,
-    sla_for,
     urllib,
     uuid,
 )
-from .forecast import (
-    _pending_forecast_deviation_alert,
-    _resolve_forecast_deviation_alert,
+
+REVIEW_LOCAL_TIME = dtime(7, 0)  # the record of yesterday is final after 00:32 local (the daily-record refresh)
+REVIEW_MISSED_LOCAL_TIME = dtime(10, 0)
+REVIEW_RETRY_MINUTES = 10
+REVIEW_MAX_ATTEMPTS = 6
+REVIEW_RUN_DEADLINE_MINUTES = 60  # a delivered run with no terminal status by then is lost (Hermes keeps 1 h)
+REVIEW_DELIVERY_TIMEOUT_SECONDS = 30
+REVIEW_RECORD_DAYS = 8
+DAILY_REVIEW_SENSOR = "system.daily_review"
+# The planner alert kinds the plan cycle raised (contracts/reviewer.md). Nothing raises them now; an open row is
+# resolved by the first pass after the release.
+RETIRED_PLANNER_ALERT_TYPES = (
+    "planner_stale",
+    "planner_evaluation_missed",
+    "planner_gateway_delivery_failed",
+    "planner_trigger_sla_timeout",
+    "planner_required_plan_missed",
+    "planner_band_ownership_drift",
+    "planner_tunable_range_drift",
+    "planner_plan_horizon_missing",
+    "plan_context_failed",
+    "plan_context_slow",
+    "forecast_deviation",
+    "forecast_action_alert",
+    "plan_not_delivered",
 )
+_retired_alerts_resolved = False
+_SESSION_ID = re.compile(r"[A-Za-z0-9:_\-.]+")
 
-
-def _trigger_spec_for_event(event_type: str, label: str | None = None) -> PlannerTriggerSpec | None:
-    if event_type in ("DEVIATION", "FORECAST"):
-        event_type = "FORECAST_DEVIATION"
-    normalized_label = (label or "").lower()
-    matches = [spec for spec in PLANNER_TRIGGER_MATRIX.values() if spec.event_type == event_type]
-    if len(matches) <= 1 or not normalized_label:
-        return matches[0] if matches else None
-    for spec in matches:
-        if normalized_label.startswith(spec.event_label.lower()):
-            return spec
-    return matches[0] if matches else None
-
-
-# Weekly deep-review cadence (L4 #346 AC6). The milestone cache is rebuilt
-# per-day, so the WEEKLY trigger is materialized only when today.weekday()
-# matches this weekday (0 = Monday) — see _compute_milestones — and fires once
-# at the quiet review hour with a generous catch-up so a brief restart does not
-# skip the week. Monday review looks back over the just-finished week.
-_WEEKLY_REVIEW_WEEKDAY = 0  # Monday
-_WEEKLY_REVIEW_HOUR = 2  # 02:00 local — after the midnight review, before sunrise
-
-
-def _milestone_due_at(key: str, solar: dict[str, datetime], today) -> datetime:
-    spec = PLANNER_TRIGGER_MATRIX[key]
-    if spec.due_source == "local.midnight_review":
-        return datetime(today.year, today.month, today.day, 0, 15, tzinfo=_DENVER)
-    if spec.due_source == "local.weekly_review":
-        return datetime(today.year, today.month, today.day, _WEEKLY_REVIEW_HOUR, 0, tzinfo=_DENVER)
-    if spec.due_source == "solar.sunrise":
-        return solar["sunrise"]
-    if spec.due_source == "solar.noon":
-        return solar["noon"]
-    if spec.due_source == "solar.noon+2h":
-        return solar["noon"] + _td(hours=2)
-    if spec.due_source == "solar.sunset-1h":
-        return solar["sunset"] - _td(hours=1)
-    if spec.due_source == "solar.sunset":
-        return solar["sunset"]
-    raise ValueError(f"planner trigger {key!r} has no scheduled due time")
-
-
-def _load_milestone_state():
-    """Load fired milestones from disk (survives restarts)."""
-    global _milestones_fired, _milestones_date
-    try:
-        if _MILESTONE_STATE_FILE.exists():
-            data = json.loads(_MILESTONE_STATE_FILE.read_text())
-            if data.get("date") == datetime.now(_DENVER).strftime("%Y-%m-%d"):
-                _milestones_fired = data.get("fired", {})
-                _milestones_date = data["date"]
-                _trigger_attempts.clear()
-                _trigger_attempts.update(data.get("attempts", {}))
-                log.info("Loaded milestone state: %d fired today", len(_milestones_fired))
-    except Exception as e:
-        log.warning("Could not load milestone state: %s", e)
-
-
-def _save_milestone_state():
-    """Save fired milestones (and per-trigger attempt counts) to disk."""
-    try:
-        data = {"date": _milestones_date, "fired": _milestones_fired, "attempts": _trigger_attempts}
-        _MILESTONE_STATE_FILE.write_text(json.dumps(data))
-    except Exception as e:
-        log.warning("Could not save milestone state: %s", e)
-
-
-# ── Required-trigger retry bounds (2026-07-11 audit) ─────────────────────────
-# Before these bounds a failing required trigger retried on every heartbeat
-# for the whole local day with no cap (7/8: 12 stuck Hermes runs) and a
-# trigger missed across local midnight was permanently unrecoverable (the
-# 2026-07-10→11 SUNSET miss during the DB outage). Hermes has no run-cancel
-# API (DELETE /v1/runs/{id} → 405, probed 2026-07-11), so the attempt cap is
-# the only bound on gateway/LLM resource burn.
-#
-# Attempts are counted per planner_trigger_ledger id and persisted in the
-# milestone state file (ingestor-state PVC), so a process restart does not
-# reset the budget. When the cap is reached the trigger stops retrying and the
-# SLA expiry + planner_required_plan_missed critical own the escalation.
-MAX_REQUIRED_TRIGGER_ATTEMPTS = 6
-# A missed required trigger is carried across the local-midnight cache rebuild
-# and retried for up to this long after its expected time — bounded so a stale
-# plan request from many hours ago is never delivered as if current.
-CARRYOVER_MAX_AGE_H = 8.0
-
-_trigger_attempts: dict[str, int] = {}
 
 # Consecutive failed MCP Service probes (see heartbeat section 6).
 _mcp_unreachable_streak = 0
@@ -147,10 +79,11 @@ MCP_UNREACHABLE_SENSOR = "system.mcp"
 
 
 def mcp_unreachable_alert(url: str, streak: int) -> dict:
-    """The mcp_unreachable alert_log payload (#1352): critical, so it pages through Alertmanager."""
+    """The mcp_unreachable alert_log payload (#1352). A warning since H3 (RULINGS Q4): MCP serves only the daily review
+    and the irrigation tools, and daily_review_missed is the signal that matters."""
     return {
         "alert_type": "mcp_unreachable",
-        "severity": "critical",
+        "severity": "warning",
         "category": "system",
         "sensor_id": MCP_UNREACHABLE_SENSOR,
         "zone": None,
@@ -217,8 +150,9 @@ _HERMES_RUN_LAST_EVENTS = {
     "cancelled": "run.cancelled",
 }
 _HERMES_RUN_USAGE_FIELDS = ("input_tokens", "output_tokens", "total_tokens")
+# A delivered review whose Hermes run ended before review_write: the planner_review.failure class.
 _HERMES_RUN_FAILURE_CLASSES = {
-    "completed": "hermes_run_completed_without_planner_action",
+    "completed": "completed_without_review",
     "failed": "hermes_run_failed",
     "cancelled": "hermes_run_cancelled",
 }
@@ -314,7 +248,7 @@ def _normalize_hermes_run_status(payload: object, expected_run_id: str) -> dict[
 def _fetch_hermes_run_status(run_id: str) -> dict[str, object] | None:
     """Fetch and sanitize one pollable Hermes run status (blocking helper)."""
     if not _valid_hermes_run_id(run_id):
-        log.warning("Skipping malformed Hermes run id in delivery log")
+        log.warning("Skipping malformed Hermes run id on a review row")
         return None
 
     headers = {"Accept": "application/json"}
@@ -330,7 +264,7 @@ def _fetch_hermes_run_status(run_id: str) -> dict[str, object] | None:
             raw = response.read(_HERMES_RUN_STATUS_MAX_BYTES + 1)
     except urllib.error.HTTPError as exc:
         # A restarted Hermes process loses its in-memory run registry and
-        # returns 404. The existing planner SLA owns that unresolved case.
+        # returns 404; a delivered review then fails at its deadline.
         if exc.code != 404:
             log.warning("Hermes run status fetch failed for %s: HTTP %d", run_id, exc.code)
         return None
@@ -349,1173 +283,392 @@ def _fetch_hermes_run_status(run_id: str) -> dict[str, object] | None:
     return _normalize_hermes_run_status(payload, run_id)
 
 
-def _hermes_terminal_audit_body(status: dict[str, object]) -> str:
-    """Build the bounded, arbitrary-text-free terminal audit summary."""
-    summary: dict[str, object] = {"hermes_run_status": status["status"]}
-    if "last_event" in status:
-        summary["last_event"] = status["last_event"]
-    if "error_class" in status:
-        summary["error_class"] = status["error_class"]
-    if "usage" in status:
-        summary["usage"] = status["usage"]
-    return json.dumps(summary, sort_keys=True, separators=(",", ":"))
+# ── The review's context: the record, read in the ingestor (gather-plan-context.sh is retired) ──
 
 
-async def _reconcile_hermes_run_terminals(pool: asyncpg.Pool) -> int:
-    """Fail pending deliveries whose Hermes run ended without an MCP action.
+async def gather_review_context(conn: asyncpg.Connection, review_date: date) -> dict:
+    """The record a review reads (contracts/reviewer.md). Each part degrades to "not available" on its own."""
+    from .band_anchors import crop_band_anchor_values
 
-    A valid ``set_plan``, ``set_tunable`` or ``acknowledge_trigger`` commits to
-    plan_delivery_log before Hermes can publish a terminal run status. The
-    conditional UPDATE is still the final ownership fence: if an MCP writer
-    already terminalized the row, reconciliation cannot overwrite it.
-    """
-    async with pool.acquire() as conn:
+    context: dict = {}
+    try:
+        rows = await conn.fetch(
+            "SELECT * FROM v_daily_record WHERE date <= $1 AND date > $1 - $2::int ORDER BY date DESC LIMIT $2",
+            review_date,
+            REVIEW_RECORD_DAYS,
+        )
+        context["record"] = [dict(row) for row in rows]
+    except asyncpg.PostgresError as exc:
+        log.warning("review context: daily record read failed: %s", type(exc).__name__)
+    try:
+        band, _origin = await crop_band_anchor_values(conn)
+        context["band"] = band
+    except Exception as exc:  # the band reader degrades on its own; a failure here only drops the section
+        log.warning("review context: band read failed: %s", type(exc).__name__)
+    day_start = datetime.combine(review_date, dtime(0), tzinfo=_DENVER)
+    day_end = day_start + _td(days=1)
+    try:
         rows = await conn.fetch(
             """
-            SELECT id, hermes_run_id
-              FROM plan_delivery_log
-             WHERE status = 'pending'
-               AND terminal_action IS NULL
-               AND resulting_plan_id IS NULL
-               AND plan_written_at IS NULL
-               AND acked_at IS NULL
-               AND hermes_run_id IS NOT NULL
-               AND gateway_status BETWEEN 200 AND 299
-               AND delivered_at >= now() - ($2::int * interval '1 minute')
+            WITH s AS (
+                SELECT ts, value::jsonb AS v, lead(ts) OVER (ORDER BY ts) AS next_ts
+                  FROM system_state
+                 WHERE entity = 'climate_law_state' AND ts >= $1 AND ts < $2
+            )
+            SELECT v->>'dr' AS dr,
+                   round(sum(LEAST(EXTRACT(epoch FROM (COALESCE(next_ts, $2) - ts)), 120)) / 60.0) AS minutes
+              FROM s
+             WHERE ((v->>'l')::int & 64) <> 0
+             GROUP BY 1
+            """,
+            day_start,
+            day_end,
+        )
+        reported = await conn.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM system_state WHERE entity = 'climate_law_state' AND ts >= $1 AND ts < $2)",
+            day_start,
+            day_end,
+        )
+        context["drying"] = {str(row["dr"]): float(row["minutes"]) for row in rows} if reported else None
+        context["drying_meter"] = await conn.fetchval(
+            "SELECT value FROM system_state WHERE entity = 'climate_drying_meter' AND ts < $1 ORDER BY ts DESC LIMIT 1",
+            day_end,
+        )
+    except (asyncpg.PostgresError, ValueError) as exc:
+        log.warning("review context: law state read failed: %s", type(exc).__name__)
+        context["drying"] = None
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT alert_type, severity, count(*) AS opened,
+                   count(*) FILTER (WHERE resolved_at IS NULL) AS still_open
+              FROM alert_log
+             WHERE ts > now() - interval '24 hours'
+             GROUP BY alert_type, severity
+             ORDER BY opened DESC
+             LIMIT 30
+            """
+        )
+        context["alerts"] = [tuple(row.values()) for row in rows]
+    except asyncpg.PostgresError as exc:
+        log.warning("review context: alert read failed: %s", type(exc).__name__)
+    try:
+        rows = await conn.fetch(
+            """
+            WITH latest AS (SELECT max(fetched_at) AS f FROM weather_forecast WHERE fetched_at > now() - interval '1 day')
+            SELECT (w.ts AT TIME ZONE 'America/Denver')::date AS day,
+                   round(min(w.temp_f)::numeric, 1) AS min_f, round(max(w.temp_f)::numeric, 1) AS max_f,
+                   round(min(w.rh_pct)::numeric) AS min_rh
+              FROM weather_forecast w, latest
+             WHERE w.fetched_at = latest.f AND w.ts >= now() AND w.ts < now() + interval '72 hours'
+             GROUP BY 1 ORDER BY 1
+             LIMIT 4
+            """
+        )
+        context["forecast"] = [tuple(row.values()) for row in rows]
+    except asyncpg.PostgresError as exc:
+        log.warning("review context: forecast read failed: %s", type(exc).__name__)
+    return context
+
+
+# ── Delivery to Hermes ──
+
+
+def _post_review(run_id: str, kind: str, message: str) -> tuple[int, str | None]:
+    """POST one review to Hermes (blocking). Returns (HTTP status or 0 when unreachable, Hermes run id)."""
+    session_id = f"{HERMES_SESSION_PREFIX}:review:{run_id}"
+    if not _SESSION_ID.fullmatch(session_id):
+        log.error("review %s: malformed session id; not sent", run_id)
+        return 0, None
+    payload = {
+        "input": message,
+        "session_id": session_id,
+        "metadata": {
+            "trigger_id": run_id,
+            "planner_instance": "local",
+            "event_type": REVIEW_EVENT_TYPES[kind],
+            "event_label": f"{kind} review",
+        },
+    }
+    request = urllib.request.Request(
+        f"{HERMES_URL.rstrip('/')}/v1/runs",
+        data=json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {HERMES_API_KEY}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=REVIEW_DELIVERY_TIMEOUT_SECONDS) as response:
+            status = response.getcode()
+            raw = response.read(_HERMES_RUN_STATUS_MAX_BYTES)
+    except urllib.error.HTTPError as exc:
+        return exc.code, None
+    except Exception as exc:
+        log.warning("review %s: Hermes unreachable: %s", run_id, type(exc).__name__)
+        return 0, None
+    hermes_run_id = None
+    try:
+        parsed = json.loads(raw)
+        candidate = parsed.get("run_id") if isinstance(parsed, dict) else None
+        hermes_run_id = candidate if _valid_hermes_run_id(candidate) else None
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return status, hermes_run_id
+
+
+async def _ensure_daily_row(conn: asyncpg.Connection, now_local: datetime) -> None:
+    if now_local.time() < REVIEW_LOCAL_TIME:
+        return
+    review_date = now_local.date() - _td(days=1)
+    # Look first, so the minute loop does not spend an identity value on every conflict (review m7).
+    if await conn.fetchval("SELECT 1 FROM planner_review WHERE kind = 'daily' AND review_date = $1", review_date):
+        return
+    await conn.execute(
+        """
+        INSERT INTO planner_review (run_id, kind, review_date, requested_by)
+        VALUES ($1::uuid, 'daily', $2, 'ingestor')
+        ON CONFLICT (review_date) WHERE kind = 'daily' DO NOTHING
+        """,
+        str(uuid.uuid4()),
+        review_date,
+    )
+
+
+async def _deliver_due(pool: asyncpg.Pool) -> None:
+    async with pool.acquire() as conn:
+        due = await conn.fetch(
+            """
+            SELECT run_id::text AS run_id, kind, review_date, attempts
+              FROM planner_review
+             WHERE status = 'requested'
+               AND requested_at + attempts * ($1::int * interval '1 minute') <= now()
+             ORDER BY requested_at
+             LIMIT 2
+            """,
+            REVIEW_RETRY_MINUTES,
+        )
+    loop = asyncio.get_running_loop()
+    for row in due:
+        async with pool.acquire() as conn:
+            # Claim the attempt before the POST (review m1): a pass cut off by its timeout, or an ingestor restart,
+            # after Hermes accepted the POST but before the delivered UPDATE, then waits the full retry interval
+            # instead of posting the same review again the next minute. A row another pass claimed is skipped.
+            attempts = await conn.fetchval(
+                """
+                UPDATE planner_review SET attempts = attempts + 1
+                 WHERE run_id = $1::uuid AND status = 'requested' AND attempts = $2
+                RETURNING attempts
+                """,
+                row["run_id"],
+                row["attempts"],
+            )
+            if attempts is None:
+                continue
+            context = await gather_review_context(conn, row["review_date"])
+        message = build_review_prompt(
+            run_id=row["run_id"], kind=row["kind"], review_date=row["review_date"], context=context
+        )
+        status, hermes_run_id = await loop.run_in_executor(None, _post_review, row["run_id"], row["kind"], message)
+        async with pool.acquire() as conn:
+            if 200 <= status < 300:
+                await conn.execute(
+                    """
+                    UPDATE planner_review
+                       SET status = 'delivered', attempts = $2, delivered_at = now(), hermes_run_id = $3,
+                           gateway_status = $4, failure = NULL
+                     WHERE run_id = $1::uuid AND status = 'requested'
+                    """,
+                    row["run_id"],
+                    attempts,
+                    hermes_run_id,
+                    status,
+                )
+                log.info(
+                    "review %s (%s %s) delivered as %s", row["run_id"], row["kind"], row["review_date"], hermes_run_id
+                )
+                continue
+            failure = "gateway_unreachable" if status == 0 else "gateway_rejected"
+            exhausted = attempts >= REVIEW_MAX_ATTEMPTS
+            await conn.execute(
+                """
+                UPDATE planner_review
+                   SET attempts = $2, gateway_status = $3, failure = $4,
+                       status = CASE WHEN $5 THEN 'failed' ELSE status END
+                 WHERE run_id = $1::uuid AND status = 'requested'
+                """,
+                row["run_id"],
+                attempts,
+                status,
+                "attempts_exhausted" if exhausted else failure,
+                exhausted,
+            )
+            log.warning("review %s delivery attempt %d failed (%s, HTTP %d)", row["run_id"], attempts, failure, status)
+
+
+async def _poll_runs(pool: asyncpg.Pool) -> None:
+    """Record each delivered run's end and usage; fail a review whose run ended (or was lost) before review_write."""
+    async with pool.acquire() as conn:
+        # The deadline runs on its own, with no poll window (review m2): a row delivered while the ingestor was
+        # down for more than the window still fails instead of staying delivered.
+        lost = await conn.fetch(
+            """
+            UPDATE planner_review SET status = 'failed', failure = 'hermes_run_failed'
+             WHERE status = 'delivered' AND delivered_at < now() - ($1::int * interval '1 minute')
+            RETURNING run_id::text AS run_id
+            """,
+            REVIEW_RUN_DEADLINE_MINUTES,
+        )
+        for row in lost:
+            log.warning(
+                "review %s: no terminal Hermes status within %d min", row["run_id"], REVIEW_RUN_DEADLINE_MINUTES
+            )
+        rows = await conn.fetch(
+            """
+            SELECT run_id::text AS run_id, hermes_run_id, status, delivered_at
+              FROM planner_review
+             WHERE status IN ('delivered', 'written') AND run_finished_at IS NULL AND delivered_at IS NOT NULL
+               AND delivered_at > now() - interval '2 hours'
              ORDER BY delivered_at DESC
              LIMIT $1
             """,
             _HERMES_RUN_STATUS_LIMIT,
-            _HERMES_RUN_STATUS_LOOKBACK_MINUTES,
         )
     if not rows:
-        return 0
-
+        return
     loop = asyncio.get_running_loop()
     statuses = await asyncio.gather(
-        *(loop.run_in_executor(None, _fetch_hermes_run_status, str(row["hermes_run_id"])) for row in rows)
+        *(
+            loop.run_in_executor(None, _fetch_hermes_run_status, row["hermes_run_id"])
+            if row["hermes_run_id"]
+            else asyncio.sleep(0, result=None)
+            for row in rows
+        )
     )
-    terminal_rows = [
-        (row, status)
-        for row, status in zip(rows, statuses, strict=True)
-        if status is not None and status.get("status") in _HERMES_RUN_TERMINAL_STATUSES
-    ]
-    if not terminal_rows:
-        return 0
-
-    reconciled = 0
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            for row, status in terminal_rows:
-                terminal_status = str(status["status"])
-                updated_id = await conn.fetchval(
-                    """
-                    UPDATE plan_delivery_log
-                       SET status = 'delivery_failed',
-                           terminal_action = 'delivery_failed',
-                           terminal_at = now(),
-                           failure_class = $3,
-                           gateway_body = left(
-                               concat_ws(E'\n', NULLIF(gateway_body, ''), $4::text),
-                               2000
-                           )
-                     WHERE id = $1
-                       AND hermes_run_id = $2
-                       AND status = 'pending'
-                       AND terminal_action IS NULL
-                       AND resulting_plan_id IS NULL
-                       AND plan_written_at IS NULL
-                       AND acked_at IS NULL
-                    RETURNING id
-                    """,
-                    row["id"],
-                    row["hermes_run_id"],
-                    _HERMES_RUN_FAILURE_CLASSES[terminal_status],
-                    _hermes_terminal_audit_body(status),
-                )
-                if updated_id is not None:
-                    reconciled += 1
-                    log.warning(
-                        "Planner delivery %s failed after Hermes run %s terminalized as %s without an MCP action",
-                        row["id"],
-                        row["hermes_run_id"],
-                        terminal_status,
-                    )
-            if reconciled:
-                await _sync_planner_trigger_ledger(conn)
-    return reconciled
-
-
-def _attempts_for(expected_trigger_id: int | None) -> int:
-    if expected_trigger_id is None:
-        return 0
-    return _trigger_attempts.get(str(expected_trigger_id), 0)
-
-
-def _record_attempt(expected_trigger_id: int | None) -> None:
-    if expected_trigger_id is None:
-        return
-    key = str(expected_trigger_id)
-    _trigger_attempts[key] = _trigger_attempts.get(key, 0) + 1
-    _save_milestone_state()
-
-
-def _compute_milestones() -> dict[str, datetime]:
-    """Compute today's planning milestones from solar ephemeris. Cached per day."""
-    global _milestones_cache, _milestones_fired, _milestones_date
-
-    today_str = datetime.now(_DENVER).strftime("%Y-%m-%d")
-    if _milestones_date == today_str:
-        return _milestones_cache
-
-    # New day — reset state
-    _milestones_date = today_str
-    _milestones_fired = {}
-
-    today = datetime.now(_DENVER).date()
-    s = _sun(_LOCATION.observer, date=today, tzinfo=_DENVER)
-
-    # The scheduled subset is derived from PLANNER_TRIGGER_MATRIX so the
-    # trigger contract, ledger expectations, labels, and catch-up behavior do
-    # not drift apart. Phase 4 retired PRE_DAWN/MORNING/MIDDAY/AFTERNOON/
-    # EVENING fixed boundaries and the raw FORECAST poll because they produced
-    # low-signal cycles. MIDNIGHT remains a short-window required assessment.
-    now_local = datetime.now(_DENVER)
-    _milestones_cache = {}
-    for key, spec in PLANNER_TRIGGER_MATRIX.items():
-        if not spec.materialize_expected or key == "MIDNIGHT":
-            continue
-        # WEEKLY deep review is materialized only on the review weekday; the
-        # per-day cache rebuild means an unconditional entry would fire daily.
-        if spec.due_source == "local.weekly_review" and today.weekday() != _WEEKLY_REVIEW_WEEKDAY:
-            continue
-        _milestones_cache[key] = _milestone_due_at(key, s, today)
-
-    # Include the midnight review only during its catch-up window so a midday
-    # process restart does not create a stale missed trigger for 00:15.
-    midnight_review = _milestone_due_at("MIDNIGHT", s, today)
-    midnight_catchup_s = PLANNER_TRIGGER_MATRIX["MIDNIGHT"].catchup_seconds or 0
-    if now_local <= midnight_review + _td(seconds=midnight_catchup_s):
-        _milestones_cache = {"MIDNIGHT": midnight_review, **_milestones_cache}
-
-    # Load any previously fired milestones from disk (in case of restart)
-    _load_milestone_state()
-
-    return _milestones_cache
-
-
-def _milestone_event(key: str, *, catchup: bool = False) -> tuple[str, str]:
-    """Return the planner event_type/label for a scheduled milestone key."""
-    spec = PLANNER_TRIGGER_MATRIX[key]
-    catchup_tag = " (catch-up)" if catchup else ""
-    return spec.event_type, f"{spec.event_label}{catchup_tag}"
-
-
-def _expected_action_for_event(event_type: str, label: str | None = None) -> str:
-    """Planner action expected to close the trigger SLA."""
-    normalized = (label or "").lower()
-    if normalized.startswith("validation") and "ack-only" in normalized:
-        return "acknowledge_trigger"
-    spec = _trigger_spec_for_event(event_type, label)
-    return spec.expected_action if spec else "any"
-
-
-def _sla_seconds(event_type: str, instance: str | None) -> int | None:
-    if not instance:
-        return None
-    try:
-        sla = sla_for(event_type, instance)  # type: ignore[arg-type]
-    except Exception:
-        return None
-    if sla is None:
-        return None
-    return int(sla.total_seconds())
-
-
-async def _ensure_expected_planner_triggers(
-    conn: asyncpg.Connection,
-    milestones: dict[str, datetime],
-) -> dict[str, int]:
-    """Materialize today's expected trigger ledger before delivery happens.
-
-    plan_delivery_log only exists after a Hermes POST returns. This ledger is
-    written first so a missed SUNRISE/SUNSET is visible even if the POST path
-    never runs.
-    """
-    ledger_ids: dict[str, int] = {}
-    for key, expected_at in milestones.items():
-        event_type, label = _milestone_event(key, catchup=False)
-        severity = classify_severity(event_type, SeverityContext())
-        instance = pick_instance(event_type, severity)
-        sla_s = _sla_seconds(event_type, instance)
-        due_at = expected_at + _td(seconds=sla_s or 7200)
-        expected_action = _expected_action_for_event(event_type, label)
-        ledger_id = await conn.fetchval(
-            """
-            INSERT INTO planner_trigger_ledger
-              (greenhouse_id, event_type, event_label, instance, expected_at,
-               due_at, expected_action, sla_seconds)
-            VALUES ('vallery', $1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (greenhouse_id, event_type, expected_at) DO UPDATE
-               SET event_label     = EXCLUDED.event_label,
-                   instance        = EXCLUDED.instance,
-                   due_at          = EXCLUDED.due_at,
-                   expected_action = EXCLUDED.expected_action,
-                   sla_seconds     = EXCLUDED.sla_seconds,
-                   updated_at      = now()
-             WHERE planner_trigger_ledger.status = 'expected'
-            RETURNING id
-            """,
-            event_type,
-            label,
-            instance,
-            expected_at,
-            due_at,
-            expected_action,
-            sla_s,
-        )
-        if ledger_id is None:
-            ledger_id = await conn.fetchval(
-                """
-                SELECT id
-                  FROM planner_trigger_ledger
-                 WHERE greenhouse_id = 'vallery'
-                   AND event_type = $1
-                   AND expected_at = $2
-                """,
-                event_type,
-                expected_at,
-            )
-        if ledger_id is not None:
-            await conn.execute(
-                """
-                WITH matched_delivery AS (
-                    SELECT id, delivered_at, trigger_id, resulting_plan_id, status,
-                           terminal_action, terminal_at, failure_class, gateway_body
-                     FROM plan_delivery_log
-                     WHERE event_type = $2
-                       AND delivered_at BETWEEN $3::timestamptz - interval '5 minutes'
-                                            AND $3::timestamptz + interval '2 hours'
-                       AND ($4::text IS NULL OR event_label ILIKE $4::text || '%')
-                     ORDER BY
-                       CASE status
-                         WHEN 'plan_written' THEN 0
-                         WHEN 'neutral_fallback' THEN 1
-                         WHEN 'wrong_action' THEN 2
-                         WHEN 'action_completed' THEN 3
-                         WHEN 'acked' THEN 4
-                         WHEN 'pending' THEN 5
-                         WHEN 'delivery_failed' THEN 6
-                         WHEN 'timed_out' THEN 7
-                         ELSE 8
-                       END,
-                       delivered_at ASC
-                     LIMIT 1
-                )
-                UPDATE planner_trigger_ledger ptl
-                   SET delivered_at         = md.delivered_at,
-                       plan_delivery_log_id = md.id,
-                       trigger_id           = md.trigger_id,
-                       resulting_plan_id    = md.resulting_plan_id,
-                       status               = CASE
-                                                WHEN md.status IN (
-                                                    'acked', 'plan_written', 'action_completed',
-                                                    'neutral_fallback', 'wrong_action',
-                                                    'timed_out', 'delivery_failed'
-                                                )
-                                                THEN md.status
-                                                ELSE 'delivered'
-                                              END,
-                       terminal_action      = md.terminal_action,
-                       terminal_at          = md.terminal_at,
-                       failure_class        = md.failure_class,
-                       resolved_at          = CASE
-                                                WHEN md.status IN (
-                                                    'acked', 'plan_written', 'action_completed',
-                                                    'neutral_fallback', 'wrong_action',
-                                                    'timed_out', 'delivery_failed'
-                                                )
-                                                THEN COALESCE(ptl.resolved_at, now())
-                                                ELSE ptl.resolved_at
-                                              END,
-                       notes                = COALESCE(ptl.notes, md.gateway_body),
-                       updated_at           = now()
-                  FROM matched_delivery md
-                 WHERE ptl.id = $1
-                   AND ptl.plan_delivery_log_id IS NULL
-                """,
-                int(ledger_id),
-                event_type,
-                expected_at,
-                label,
-            )
-            ledger_ids[key] = int(ledger_id)
-    return ledger_ids
-
-
-def _deviation_expected_at(trigger_data: dict[str, object] | None) -> datetime:
-    """Resolve the deviation event's expected_at for the ledger unique key.
-
-    Uses the trigger payload's `ts` (the alert/queue time) so re-deliveries of
-    the same alert collapse onto one ledger row. Falls back to now() if the ts
-    is missing or unparseable (legacy replan-needed.json without a stamp)."""
-    raw_ts = trigger_data.get("ts") if trigger_data else None
-    if raw_ts:
-        try:
-            parsed = datetime.fromisoformat(str(raw_ts))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=UTC)
-            return parsed
-        except (ValueError, TypeError):
-            pass
-    return datetime.now(UTC)
-
-
-async def _ensure_deviation_trigger_ledger(
-    conn: asyncpg.Connection,
-    *,
-    instance: str,
-    trigger_data: dict[str, object] | None,
-) -> int | None:
-    """Materialize a FORECAST_DEVIATION row in planner_trigger_ledger.
-
-    Scheduled milestones get their ledger rows from
-    _ensure_expected_planner_triggers, but the σ-gated deviation path fired
-    through the alert_log queue and never wrote a ledger row — so ~50
-    deviation-driven set_tunable deliveries/14d were invisible to the SLA/
-    trigger-health surface (0 FORECAST_DEVIATION rows despite live deliveries).
-
-    The row is keyed on (greenhouse_id, event_type, expected_at) like the
-    milestone path, with expected_at = the deviation's queue time, so a
-    re-delivered alert upserts the same row rather than duplicating it. SLA
-    fields (due_at, sla_seconds, expected_action) match the FORECAST_DEVIATION
-    spec so _expire_planner_trigger_slas can time it out like any other
-    trigger. Returns the ledger id to thread into _deliver_and_log, or None on
-    failure (delivery still proceeds — the ledger is observability, not a
-    gate)."""
-    spec = PLANNER_TRIGGER_MATRIX["FORECAST_DEVIATION"]
-    event_type = spec.event_type
-    label = spec.event_label
-    expected_at = _deviation_expected_at(trigger_data)
-    sla_s = _sla_seconds(event_type, instance)
-    # The SLA clock starts when the planner is woken (now), not at the alert's
-    # queue time: the deviation alert may have waited up to one heartbeat in
-    # alert_log before this delivery, and expected_at is only the dedup key.
-    # Basing due_at on expected_at would risk _expire_planner_trigger_slas
-    # marking a freshly delivered row 'timed_out' on the same cycle.
-    due_at = datetime.now(UTC) + _td(seconds=sla_s or spec.catchup_seconds or 300)
-    expected_action = _expected_action_for_event(event_type, label)
-    try:
-        ledger_id = await conn.fetchval(
-            """
-            INSERT INTO planner_trigger_ledger
-              (greenhouse_id, event_type, event_label, instance, expected_at,
-               due_at, expected_action, sla_seconds)
-            VALUES ('vallery', $1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (greenhouse_id, event_type, expected_at) DO UPDATE
-               SET event_label     = EXCLUDED.event_label,
-                   instance        = EXCLUDED.instance,
-                   due_at          = EXCLUDED.due_at,
-                   expected_action = EXCLUDED.expected_action,
-                   sla_seconds     = EXCLUDED.sla_seconds,
-                   updated_at      = now()
-             WHERE planner_trigger_ledger.status = 'expected'
-            RETURNING id
-            """,
-            event_type,
-            label,
-            instance,
-            expected_at,
-            due_at,
-            expected_action,
-            sla_s,
-        )
-        if ledger_id is None:
-            ledger_id = await conn.fetchval(
-                """
-                SELECT id
-                  FROM planner_trigger_ledger
-                 WHERE greenhouse_id = 'vallery'
-                   AND event_type = $1
-                   AND expected_at = $2
-                """,
-                event_type,
-                expected_at,
-            )
-    except Exception as e:
-        log.warning("deviation trigger ledger materialization failed: %s", e)
-        return None
-    return int(ledger_id) if ledger_id is not None else None
-
-
-async def _mark_expected_trigger_delivered(
-    pool: asyncpg.Pool,
-    *,
-    expected_trigger_id: int | None,
-    delivery_log_id: int | None,
-    result: dict,
-    catchup: bool,
-) -> None:
-    if expected_trigger_id is None:
-        return
-    status = "delivered"
-    if result.get("status") == "delivery_failed" or result.get("delivered") is False:
-        status = "delivery_failed"
-    retry_sla_seconds = _sla_seconds(str(result.get("event_type") or ""), result.get("instance")) or 7200
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            UPDATE planner_trigger_ledger
-               SET delivered_at         = COALESCE($2, now()),
-                   status               = $3,
-                   due_at               = CASE
-                                            WHEN $3 = 'delivered'
-                                            THEN now() + ($9::int * interval '1 second')
-                                            ELSE due_at
-                                          END,
-                   resolved_at          = CASE
-                                            WHEN $3 = 'delivered' THEN NULL
-                                            ELSE COALESCE(resolved_at, now())
-                                          END,
-                   catchup              = $4,
-                   plan_delivery_log_id = $5,
-                   trigger_id           = $6::uuid,
-                   notes                = $7,
-                   terminal_action      = CASE
-                                            WHEN $3 = 'delivery_failed' THEN 'delivery_failed'
-                                            WHEN $3 = 'delivered' THEN NULL
-                                            ELSE terminal_action
-                                          END,
-                   terminal_at          = CASE
-                                            WHEN $3 = 'delivery_failed' THEN now()
-                                            WHEN $3 = 'delivered' THEN NULL
-                                            ELSE terminal_at
-                                          END,
-                   failure_class        = CASE
-                                            WHEN $3 = 'delivery_failed' THEN $8
-                                            WHEN $3 = 'delivered' THEN NULL
-                                            ELSE failure_class
-                                          END,
-                   updated_at           = now()
-             WHERE id = $1
-               AND status IN (
-                   'expected', 'missed', 'delivery_failed', 'delivered',
-                   'wrong_action', 'neutral_fallback', 'timed_out', 'acked',
-                   'action_completed'
-               )
-            """,
-            expected_trigger_id,
-            datetime.now(UTC),
-            status,
-            catchup,
-            delivery_log_id,
-            result.get("trigger_id"),
-            (result.get("gateway_body") or "")[:1000],
-            result.get("failure_class") or "gateway_delivery_failed",
-            retry_sla_seconds,
-        )
-
-
-async def _sync_planner_trigger_ledger(conn: asyncpg.Connection) -> None:
-    """Copy delivery-log terminal state onto the expected-trigger ledger."""
-    await conn.execute(
-        """
-        UPDATE planner_trigger_ledger ptl
-           SET status            = pdl.status,
-               terminal_action   = pdl.terminal_action,
-               terminal_at       = pdl.terminal_at,
-               failure_class     = pdl.failure_class,
-               resolved_at       = CASE
-                                      WHEN pdl.status IN (
-                                          'plan_written', 'acked', 'action_completed',
-                                          'neutral_fallback', 'wrong_action', 'timed_out', 'delivery_failed'
-                                      )
-                                      THEN COALESCE(ptl.resolved_at, now())
-                                      ELSE ptl.resolved_at
-                                    END,
-               delivered_at      = COALESCE(ptl.delivered_at, pdl.delivered_at),
-               resulting_plan_id = pdl.resulting_plan_id,
-               trigger_id        = COALESCE(ptl.trigger_id, pdl.trigger_id),
-               updated_at        = now()
-          FROM plan_delivery_log pdl
-         WHERE ptl.plan_delivery_log_id = pdl.id
-           AND NOT (
-               ptl.status = 'neutral_fallback'
-               AND ptl.failure_class = 'ingestor_local_fallback_after_required_failure'
-           )
-           AND pdl.status IN (
-               'acked', 'plan_written', 'action_completed', 'neutral_fallback',
-               'wrong_action', 'timed_out', 'delivery_failed'
-           )
-           AND (
-               ptl.status IS DISTINCT FROM pdl.status
-               OR ptl.terminal_action IS DISTINCT FROM pdl.terminal_action
-               OR ptl.terminal_at IS DISTINCT FROM pdl.terminal_at
-               OR ptl.failure_class IS DISTINCT FROM pdl.failure_class
-           )
-        """
-    )
-
-
-async def _expire_planner_trigger_slas(pool: asyncpg.Pool) -> None:
-    """Advance planner trigger lifecycle states based on per-trigger SLAs."""
-    async with pool.acquire() as conn:
-        pending = await conn.fetch(
-            """
-            SELECT id, event_type, instance, delivered_at
-              FROM plan_delivery_log
-             WHERE status = 'pending'
-               AND delivered_at > now() - interval '48 hours'
-            """
-        )
-        now_utc = datetime.now(UTC)
-        for row in pending:
-            sla_s = _sla_seconds(row["event_type"], row["instance"])
-            if sla_s is None:
-                continue
-            if row["delivered_at"] + _td(seconds=sla_s) <= now_utc:
+        for row, status in zip(rows, statuses, strict=True):
+            terminal = status is not None and status.get("status") in _HERMES_RUN_TERMINAL_STATUSES
+            if terminal:
+                usage = status.get("usage") or {}
                 await conn.execute(
                     """
-                    UPDATE plan_delivery_log
-                       SET status = 'timed_out',
-                           terminal_action = 'timeout',
-                           terminal_at = now(),
-                           failure_class = 'planner_trigger_sla_timeout',
-                           gateway_body = concat_ws(E'\n', NULLIF(gateway_body, ''), $2::text)
-                     WHERE id = $1
-                       AND status = 'pending'
+                    UPDATE planner_review
+                       SET run_finished_at = now(), input_tokens = $2, output_tokens = $3, total_tokens = $4,
+                           status = CASE WHEN status = 'delivered' THEN 'failed' ELSE status END,
+                           failure = CASE WHEN status = 'delivered' THEN $5 ELSE failure END
+                     WHERE run_id = $1::uuid AND run_finished_at IS NULL
                     """,
-                    row["id"],
-                    f"SLA timed out after {sla_s}s",
+                    row["run_id"],
+                    usage.get("input_tokens"),
+                    usage.get("output_tokens"),
+                    usage.get("total_tokens"),
+                    _HERMES_RUN_FAILURE_CLASSES[str(status["status"])],
                 )
 
-        await conn.execute(
-            """
-            UPDATE planner_trigger_ledger
-               SET status      = 'missed',
-                   terminal_action = 'timeout',
-                   terminal_at = now(),
-                   failure_class = 'expected_trigger_not_delivered',
-                   resolved_at = now(),
-                   notes       = concat_ws(E'\n', NULLIF(notes, ''), 'expected trigger was not delivered before due_at'),
-                   updated_at  = now()
-             WHERE status = 'expected'
-               AND delivered_at IS NULL
-               AND due_at < now()
-            """
-        )
-        await conn.execute(
-            """
-            UPDATE planner_trigger_ledger
-               SET status      = 'timed_out',
-                   terminal_action = 'timeout',
-                   terminal_at = now(),
-                   failure_class = 'delivered_trigger_sla_timeout',
-                   resolved_at = now(),
-                   notes       = concat_ws(E'\n', NULLIF(notes, ''), 'delivered trigger did not resolve before due_at'),
-                   updated_at  = now()
-             WHERE status = 'delivered'
-               AND due_at < now()
-            """
-        )
-        await _sync_planner_trigger_ledger(conn)
+
+# ── The one planner alert left: the daily review did not run ──
 
 
-async def _log_plan_delivery(pool: asyncpg.Pool, result: dict) -> int | None:
-    """F14 (Sprint 24.6): persist a send_to_iris result to plan_delivery_log
-    for later delivery→plan correlation. Validated through PlanDeliveryLogRow
-    before INSERT/UPSERT; a ValidationError here means an unexpected event_type
-    (not in the Literal) or wake_mode — safer to drop than bleed bad data.
-
-    Sprint 24.9 (G-7): honor an explicit `status` in the result dict when
-    present (e.g., 'delivery_failed' from the context-gather stub path).
-    When absent, the DB default 'pending' applies — unchanged from before.
-    """
-    row = {
-        "event_type": result["event_type"],
-        "event_label": result.get("event_label"),
-        "session_key": result.get("session_key"),
-        "wake_mode": result.get("wake_mode"),
-        "gateway_status": result.get("gateway_status"),
-        "gateway_body": result.get("gateway_body"),
+def daily_review_missed_alert(review_date: date, row: dict | None) -> dict:
+    """The daily_review_missed alert_log payload (contracts/reviewer.md)."""
+    status = row["status"] if row else None
+    return {
+        "alert_type": "daily_review_missed",
+        "severity": "warning",
+        "category": "system",
+        "sensor_id": DAILY_REVIEW_SENSOR,
+        "zone": None,
+        "message": f"The daily review of {review_date.isoformat()} was not written by 10:00 ({status or 'no request'})",
+        "details": {
+            "review_date": review_date.isoformat(),
+            "status": status,
+            "attempts": int(row["attempts"]) if row else 0,
+            "failure": row["failure"] if row else None,
+        },
+        "metric_value": None,
+        "threshold_value": None,
     }
-    try:
-        PlanDeliveryLogRow.model_validate(row)
-    except ValidationError as e:
-        log.error("plan_delivery_log skipped (validation failed: %s): %r", e, row)
+
+
+async def _daily_review_alert(conn: asyncpg.Connection, now_local: datetime) -> None:
+    review_date = now_local.date() - _td(days=1)
+    row = await conn.fetchrow(
+        "SELECT status, attempts, failure FROM planner_review WHERE kind = 'daily' AND review_date = $1",
+        review_date,
+    )
+    # A manual review of the same day, written after a failed daily one, also resolves the alert (review m3).
+    written = (row is not None and row["status"] == "written") or bool(
+        await conn.fetchval(
+            "SELECT 1 FROM planner_review WHERE kind = 'manual' AND review_date = $1 AND status = 'written' LIMIT 1",
+            review_date,
+        )
+    )
+    if written:
+        await conn.execute(
+            """
+            UPDATE alert_log
+               SET disposition = 'resolved', resolved_at = now(), resolved_by = 'system',
+                   resolution = 'auto-resolved: the daily review was written'
+             WHERE alert_type = 'daily_review_missed' AND sensor_id = $1 AND resolved_at IS NULL
+            """,
+            DAILY_REVIEW_SENSOR,
+        )
         return
-    explicit_status = result.get("status")
-    if explicit_status is None and result.get("delivered") is False and result.get("gateway_status") is not None:
-        explicit_status = "delivery_failed"
-    terminal_action = result.get("terminal_action")
-    failure_class = result.get("failure_class")
-    if explicit_status == "delivery_failed":
-        terminal_action = terminal_action or "delivery_failed"
-        failure_class = failure_class or "gateway_delivery_failed"
-    # Contract v1.4 §2.D — both columns now populated on every INSERT so
-    # correlation queries can match deliveries to plans by uuid (not
-    # just the 2h time-window fallback in _resolve_delivery_log).
-    trigger_id = result.get("trigger_id")
-    instance = result.get("instance")
-    # send_to_iris returns Hermes's /v1/runs run_id alongside the existing
-    # gateway_status / gateway_body; stamped to plan_delivery_log.hermes_run_id
-    # (migration 114) for downstream Hermes-telemetry joins.
-    hermes_run_id = result.get("hermes_run_id")
-    async with pool.acquire() as conn:
-        return await conn.fetchval(
-            """
-            INSERT INTO plan_delivery_log AS pdl
-              (event_type, event_label, session_key, wake_mode, gateway_status, gateway_body,
-               status, trigger_id, instance, hermes_run_id,
-               terminal_action, terminal_at, failure_class)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'pending'), $8::uuid, $9, $10,
-                    $11, CASE WHEN $11::text IS NULL THEN NULL ELSE now() END, $12)
-            ON CONFLICT (trigger_id) DO UPDATE
-              SET event_type     = EXCLUDED.event_type,
-                  event_label    = EXCLUDED.event_label,
-                  session_key    = COALESCE(EXCLUDED.session_key, pdl.session_key),
-                  wake_mode      = COALESCE(EXCLUDED.wake_mode, pdl.wake_mode),
-                  gateway_status = EXCLUDED.gateway_status,
-                  gateway_body   = COALESCE(EXCLUDED.gateway_body, pdl.gateway_body),
-                  instance       = COALESCE(EXCLUDED.instance, pdl.instance),
-                  hermes_run_id  = COALESCE(EXCLUDED.hermes_run_id, pdl.hermes_run_id),
-                  terminal_action = COALESCE(pdl.terminal_action, $11::text),
-                  terminal_at     = CASE
-                                      WHEN pdl.terminal_at IS NOT NULL THEN pdl.terminal_at
-                                      WHEN $11::text IS NOT NULL THEN now()
-                                      ELSE NULL
-                                    END,
-                  failure_class   = COALESCE(pdl.failure_class, $12::text),
-                  status         = CASE
-                                     WHEN pdl.status IN (
-                                         'acked', 'plan_written', 'action_completed',
-                                         'neutral_fallback', 'wrong_action'
-                                     ) THEN pdl.status
-                                     ELSE EXCLUDED.status
-                                   END
-            RETURNING id
-            """,
-            row["event_type"],
-            row["event_label"],
-            row["session_key"],
-            row["wake_mode"],
-            row["gateway_status"],
-            row["gateway_body"],
-            explicit_status,
-            trigger_id,
-            instance,
-            hermes_run_id,
-            terminal_action,
-            failure_class,
-        )
-
-
-async def _deliver_and_log(
-    pool: asyncpg.Pool,
-    event_type: str,
-    label: str,
-    context: str,
-    instance: str = "opus",
-    expected_trigger_id: int | None = None,
-    catchup: bool = False,
-) -> bool:
-    """Call send_to_iris in the executor and persist the outcome to
-    plan_delivery_log. Called from every milestone/forecast/deviation path
-    so F14 correlation is complete regardless of trigger source.
-
-    Sprint 24.9 (G-7): if context gathering failed upstream, skip the POST
-    entirely and log a plan_delivery_log row with status='delivery_failed'.
-    Previously the failure string was spliced into the prompt and Iris
-    received gibberish context — the 2026-04-19 incident had gather failures
-    that still produced 200 OK dispatches but no useful plan.
-    """
-    if context == CONTEXT_GATHER_FAILED_SENTINEL:
-        log.warning(
-            "Skipping %s/%s dispatch: context gathering failed (see alert_log plan_context_failed)",
-            event_type,
-            label,
-        )
-        # Write a stub plan_delivery_log row so the outage is visible in
-        # operational queries alongside successful deliveries. Generate a
-        # trigger_id even for the sentinel path so context-gather failures
-        # are countable and individually traceable.
-        stub_result = {
-            "delivered": False,
-            "event_type": event_type,
-            "event_label": label,
-            "session_key": None,
-            "wake_mode": None,
-            "gateway_status": None,
-            "gateway_body": "context_gather_failed",
-            "status": "delivery_failed",
-            "trigger_id": str(uuid.uuid4()),
-            "instance": instance,
-        }
-        delivery_id = await _log_plan_delivery(pool, stub_result)
-        await _mark_expected_trigger_delivered(
-            pool,
-            expected_trigger_id=expected_trigger_id,
-            delivery_log_id=delivery_id,
-            result=stub_result,
-            catchup=catchup,
-        )
-        return False
-
-    pre_result = prepare_delivery_result(event_type, label, instance=instance)
-    delivery_id = await _log_plan_delivery(pool, pre_result)
-    if delivery_id is None:
-        log.error("Skipping %s/%s dispatch: failed to pre-create plan_delivery_log row", event_type, label)
-        return False
-    if pre_result.get("status") == "delivery_failed":
-        await _mark_expected_trigger_delivered(
-            pool,
-            expected_trigger_id=expected_trigger_id,
-            delivery_log_id=delivery_id,
-            result=pre_result,
-            catchup=catchup,
-        )
-        return False
-
-    loop = asyncio.get_event_loop()
-    # Threaded executor + kwargs: use a lambda so `instance` and the pre-created
-    # trigger_id propagate to send_to_iris cleanly (run_in_executor doesn't
-    # accept kwargs directly).
-    result = await loop.run_in_executor(
-        None,
-        lambda: send_to_iris(
-            event_type,
-            label,
-            context,
-            instance=instance,
-            trigger_id=pre_result["trigger_id"],
-        ),
+    if now_local.time() < REVIEW_MISSED_LOCAL_TIME:
+        return
+    env = AlertEnvelope.model_validate(daily_review_missed_alert(review_date, dict(row) if row else None))
+    await conn.execute(
+        """
+        INSERT INTO alert_log
+          (alert_type, severity, category, sensor_id, zone, message, details, source, greenhouse_id)
+        SELECT $1, $2, $3, $4, $5, $6, $7::jsonb, 'ingestor', $8
+         WHERE NOT EXISTS (
+               SELECT 1 FROM alert_log
+                WHERE alert_type = $1 AND sensor_id = $4 AND resolved_at IS NULL
+                  AND disposition IN ('open', 'acknowledged'))
+        """,
+        env.alert_type,
+        env.severity,
+        env.category,
+        env.sensor_id,
+        env.zone,
+        env.message,
+        json.dumps(env.details),
+        GREENHOUSE_ID,
     )
-    delivery_id = await _log_plan_delivery(pool, result) or delivery_id
-    await _mark_expected_trigger_delivered(
-        pool,
-        expected_trigger_id=expected_trigger_id,
-        delivery_log_id=delivery_id,
-        result=result,
-        catchup=catchup,
+
+
+async def _resolve_retired_planner_alerts(conn: asyncpg.Connection) -> None:
+    await conn.execute(
+        """
+        UPDATE alert_log
+           SET disposition = 'resolved', resolved_at = now(), resolved_by = 'system',
+               resolution = 'auto-resolved: the plan cycle is retired (climate refactor 4.2)'
+         WHERE alert_type = ANY($1::text[]) AND resolved_at IS NULL
+        """,
+        list(RETIRED_PLANNER_ALERT_TYPES),
     )
-    return bool(result.get("delivered"))
 
 
-async def _resolve_delivery_log(pool: asyncpg.Pool) -> None:
-    """F14 (Sprint 24.6): for each unresolved plan_delivery_log row, look for
-    a plan_journal entry created after it and within a 2-hour window. Updates
-    `resulting_plan_id` + `plan_written_at`. Bounded to the last 6 hours and
-    events that can produce plans (SUNRISE/SUNSET/DEVIATION always do;
-    TRANSITION/FORECAST only when Iris chooses to update).
-
-    Sprint 24.9 (G-3): also set status='plan_written' so consumers querying
-    `SELECT status, count(*)` see consistent state. Contract v1.4 §2.D
-    defines status as the authoritative lifecycle column; resulting_plan_id
-    is the join key. Keep them in sync.
-    """
-    async with pool.acquire() as conn:
-        # Contract v1.4 primary path: exact UUID correlation. This remains the
-        # only reliable join across legacy audit labels and Hermes run IDs
-        # inside the old 2h fallback window.
-        await conn.execute(
-            """
-            UPDATE plan_delivery_log pdl
-               SET resulting_plan_id = pj.plan_id,
-                   plan_written_at   = pj.created_at,
-                   status            = 'plan_written',
-                   terminal_action   = 'set_plan',
-                   terminal_at       = COALESCE(pdl.terminal_at, pj.created_at),
-                   failure_class     = NULL,
-                   result_payload    = jsonb_build_object('plan_id', pj.plan_id)
-              FROM plan_journal pj
-             WHERE pdl.resulting_plan_id IS NULL
-               AND pdl.status = 'pending'
-               AND pdl.gateway_status BETWEEN 200 AND 299
-               AND pdl.trigger_id IS NOT NULL
-               AND pj.trigger_id = pdl.trigger_id
-            """,
-        )
-        # Legacy fallback for pre-v1.4 rows only. If either side has a UUID,
-        # exact trigger_id correlation above is authoritative; do not attach
-        # a later unrelated plan by time window.
-        await conn.execute(
-            """
-            UPDATE plan_delivery_log pdl
-               SET resulting_plan_id = pj.plan_id,
-                   plan_written_at   = pj.created_at,
-                   status            = 'plan_written',
-                   terminal_action   = 'set_plan',
-                   terminal_at       = COALESCE(pdl.terminal_at, pj.created_at),
-                   failure_class     = NULL,
-                   result_payload    = jsonb_build_object('plan_id', pj.plan_id)
-              FROM plan_journal pj
-             WHERE pdl.resulting_plan_id IS NULL
-               AND pdl.status = 'pending'
-               AND pdl.gateway_status BETWEEN 200 AND 299
-               AND pdl.trigger_id IS NULL
-               AND pj.trigger_id IS NULL
-               AND pdl.delivered_at > now() - interval '6 hours'
-               AND pj.created_at BETWEEN pdl.delivered_at AND pdl.delivered_at + interval '2 hours'
-               AND pj.created_at = (
-                   SELECT MIN(p2.created_at) FROM plan_journal p2
-                    WHERE p2.created_at BETWEEN pdl.delivered_at AND pdl.delivered_at + interval '2 hours'
-               )
-            """,
-        )
-
-
-async def _retry_missed_required_triggers(pool: asyncpg.Pool) -> None:
-    """Retry required (set_plan) ledger rows that missed across the local-day boundary.
-
-    _compute_milestones rebuilds the milestone cache per local day, so a
-    required trigger that was still unresolved when the date flipped simply
-    vanished from the retry loop (2026-07-10→11: SUNSET expected 02:30Z missed
-    during the DB outage, resolved 'missed', never retried, and the miss alert
-    was schema-dropped — two silent failures stacked). This sweep re-delivers
-    such rows, bounded three ways:
-
-    * age: expected_at within CARRYOVER_MAX_AGE_H — a many-hours-stale plan
-      request must not be delivered as if current;
-    * supersession: skipped once ANY newer required trigger has produced a
-      valid set_plan (the greenhouse already has a fresher plan);
-    * budget: the same persisted MAX_REQUIRED_TRIGGER_ATTEMPTS counter as the
-      in-day retry loop.
-    """
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT p.id, p.event_type, p.event_label, p.expected_at
-              FROM planner_trigger_ledger p
-             WHERE p.greenhouse_id = $1
-               AND p.expected_action = 'set_plan'
-               AND p.status IN ('missed', 'timed_out')
-               AND COALESCE(p.terminal_action, '') <> 'set_plan'
-               AND p.expected_at >= now() - ($2::float8 * interval '1 hour')
-               AND NOT EXISTS (
-                       SELECT 1 FROM planner_trigger_ledger n
-                        WHERE n.greenhouse_id = p.greenhouse_id
-                          AND n.expected_action = 'set_plan'
-                          AND n.terminal_action = 'set_plan'
-                          AND n.expected_at > p.expected_at
-                   )
-             ORDER BY p.expected_at
-            """,
-            GREENHOUSE_ID,
-            CARRYOVER_MAX_AGE_H,
-        )
-    # Today's milestones are owned by the main loop; this sweep only handles
-    # rows that fell out of the per-day cache (yesterday's tail). Local-date
-    # comparison is deliberate — exact timestamp matching would be fragile.
-    today_local = datetime.now(_DENVER).date()
-    for row in rows:
-        if row["expected_at"].astimezone(_DENVER).date() == today_local:
-            continue
-        if _attempts_for(row["id"]) >= MAX_REQUIRED_TRIGGER_ATTEMPTS:
-            try:
-                if await record_required_local_fallback(pool, row["id"]):
-                    log.error(
-                        "Carried required planner trigger %s entered local neutral fallback after %d attempts; "
-                        "no plan or device write",
-                        row["id"],
-                        MAX_REQUIRED_TRIGGER_ATTEMPTS,
-                    )
-            except Exception as e:
-                log.warning("Carried required planner trigger %s local fallback write failed: %s", row["id"], e)
-            continue
-        event_type = str(row["event_type"])
-        label = f"{row['event_label'] or event_type} (cross-midnight catch-up)"
-        log.warning(
-            "Carrying over missed required trigger %s (%s expected %s); re-delivering",
-            row["id"],
-            event_type,
-            row["expected_at"],
-        )
-        loop = asyncio.get_event_loop()
-        context = await loop.run_in_executor(None, gather_context)
-        severity = classify_severity(event_type, SeverityContext())
-        instance = pick_instance(event_type, severity)
-        _record_attempt(row["id"])
-        await _deliver_and_log(
-            pool,
-            event_type,
-            label,
-            context,
-            instance=instance,
-            expected_trigger_id=row["id"],
-            catchup=True,
-        )
-        # One carry-over delivery per heartbeat: the ledger row's extended
-        # due_at now owns pacing, exactly like the in-day retry path.
-        break
-
-
-async def planning_heartbeat(pool: asyncpg.Pool) -> None:
-    """Check if a planning event should fire. Triggers Iris planner session."""
-    now = datetime.now(_DENVER)
-
-    # ── 1. Compute/cache today's milestones ──
-    all_milestones = _compute_milestones()
-    if not _milestones_fired:
-        log.info("Planning milestones: %s", ", ".join(f"{k}={v.strftime('%H:%M')}" for k, v in all_milestones.items()))
-    expected_trigger_ids: dict[str, int] = {}
+async def daily_review(pool: asyncpg.Pool) -> None:
+    """The daily review task (every 60 s): request, deliver, poll, alert; then the MCP probe."""
+    global _retired_alerts_resolved
+    now_local = datetime.now(_DENVER)
     try:
         async with pool.acquire() as conn:
-            expected_trigger_ids = await _ensure_expected_planner_triggers(conn, all_milestones)
-        await _reconcile_hermes_run_terminals(pool)
-        await _expire_planner_trigger_slas(pool)
-    except Exception as e:
-        log.warning("planner expected-trigger ledger refresh failed: %s", e)
+            if not _retired_alerts_resolved:
+                await _resolve_retired_planner_alerts(conn)
+                _retired_alerts_resolved = True
+            await _ensure_daily_row(conn, now_local)
+        await _deliver_due(pool)
+        await _poll_runs(pool)
+        async with pool.acquire() as conn:
+            await _daily_review_alert(conn, now_local)
+    except Exception as exc:
+        log.warning("daily review pass failed: %s: %s", type(exc).__name__, exc)
+    await _mcp_health_check(pool)
 
-    # ── 2. Check each milestone ──
-    for key, milestone_time in all_milestones.items():
-        if key in _milestones_fired:
-            continue
-        spec = PLANNER_TRIGGER_MATRIX[key]
 
-        # Fire if we're within the window after the milestone
-        # Normal and catch-up windows are defined by PLANNER_TRIGGER_MATRIX.
-        delta = (now - milestone_time).total_seconds()
-        normal_window_s = spec.normal_window_seconds or 0
-        catchup_window_s = spec.catchup_seconds or 0
-        is_catchup = normal_window_s <= delta < catchup_window_s
-        required_retry_window = spec.expected_action == "set_plan" and delta >= 0
-        if 0 <= delta < normal_window_s or is_catchup or required_retry_window:
-            event_type, label = _milestone_event(key, catchup=is_catchup)
-            required_full_plan = spec.expected_action == "set_plan"
-            expected_trigger_id = expected_trigger_ids.get(key)
-            if required_full_plan:
-                if expected_trigger_id is None:
-                    log.warning("Required planner trigger %s has no expected ledger row; deferring delivery", key)
-                    continue
-                try:
-                    async with pool.acquire() as conn:
-                        terminal = await conn.fetchrow(
-                            """
-                            SELECT status, terminal_action, due_at
-                              FROM planner_trigger_ledger
-                             WHERE id = $1
-                            """,
-                            expected_trigger_id,
-                        )
-                except Exception as e:
-                    log.warning("Required planner trigger %s ledger read failed; deferring delivery: %s", key, e)
-                    continue
-                disposition = required_trigger_disposition(
-                    status=terminal["status"] if terminal else "expected",
-                    terminal_action=terminal["terminal_action"] if terminal else None,
-                    due_at=terminal["due_at"] if terminal else None,
-                    now=now,
-                )
-                if disposition == "complete":
-                    _milestones_fired[key] = True
-                    _save_milestone_state()
-                    log.info("Required planner trigger %s completed with a valid set_plan", key)
-                    continue
-                if disposition == "wait":
-                    log.info("Required planner trigger %s remains in-flight until %s", key, terminal["due_at"])
-                    continue
-                if _attempts_for(expected_trigger_id) >= MAX_REQUIRED_TRIGGER_ATTEMPTS:
-                    if not _milestones_fired.get(f"{key}:fallback_recorded"):
-                        try:
-                            if await record_required_local_fallback(pool, expected_trigger_id):
-                                _milestones_fired[f"{key}:fallback_recorded"] = True
-                                _save_milestone_state()
-                                log.error(
-                                    "Required planner trigger %s entered local neutral fallback after "
-                                    "%d attempts (%s); no plan or device write",
-                                    key,
-                                    MAX_REQUIRED_TRIGGER_ATTEMPTS,
-                                    LOCAL_FALLBACK_FAILURE_CLASS,
-                                )
-                        except Exception as e:
-                            log.warning("Required planner trigger %s local fallback write failed: %s", key, e)
-                    if not _milestones_fired.get(f"{key}:attempts_exhausted"):
-                        _milestones_fired[f"{key}:attempts_exhausted"] = True
-                        _save_milestone_state()
-                        log.error(
-                            "Required planner trigger %s exhausted %d delivery attempts; "
-                            "stopping retries — SLA expiry / planner_required_plan_missed owns escalation",
-                            key,
-                            MAX_REQUIRED_TRIGGER_ATTEMPTS,
-                        )
-                    continue
-
-            log.info("Planning milestone fired: %s (%s)%s", key, label, " [CATCH-UP]" if is_catchup else "")
-
-            # Gather context and send to Iris (blocking — runs in executor).
-            # Hermes routes normal solar/fixed-boundary transitions through
-            # the single audited planner gateway; legacy local/opus labels are
-            # audit metadata only.
-            loop = asyncio.get_event_loop()
-            context = await loop.run_in_executor(None, gather_context)
-            severity_event_type = spec.severity_event_type or event_type
-            severity = classify_severity(severity_event_type, SeverityContext())
-            instance = pick_instance(severity_event_type, severity)
-            _record_attempt(expected_trigger_id)
-            delivered = await _deliver_and_log(
-                pool,
-                event_type,
-                label,
-                context,
-                instance=instance,
-                expected_trigger_id=expected_trigger_id,
-                catchup=is_catchup,
-            )
-            if delivered and not required_full_plan:
-                _milestones_fired[key] = True
-                _save_milestone_state()
-            elif not delivered:
-                log.warning(
-                    "Planner delivery for %s remains retryable; next heartbeat will retry with the same expected ledger row",
-                    key,
-                )
-            else:
-                log.info(
-                    "Required planner delivery for %s is accepted but not complete; fired-state waits for set_plan",
-                    key,
-                )
-
-    # ── 2b. Carry missed required triggers across the local-midnight boundary ──
-    try:
-        await _retry_missed_required_triggers(pool)
-    except Exception as e:
-        log.warning("missed required-trigger carry-over failed: %s", e)
-
-    # ── 3. FORECAST poll RETIRED (Phase 4, 2026-05-10) ──
-    # The "new forecast fetched" event was the highest-volume / lowest-signal
-    # planner trigger — it fired every time the Open-Meteo fetcher landed a
-    # row, regardless of whether anything in the forecast had actually
-    # changed materially. Baseline showed 238 FORECAST timeouts in the
-    # ledger and most plans produced a bare acknowledge_trigger. Forecast
-    # awareness now ships through the FORECAST_DEVIATION σ-gated path below
-    # (Iris is told material forecast changes through the deviation watcher)
-    # and through the FORECAST CALIBRATION section of gather-plan-context.sh.
-    # _last_forecast_fetch is preserved as a no-op slot for backward-compat
-    # of any external readers that import it; do not re-enable the emission
-    # without first writing a σ-gated threshold so we don't regress.
-    global _last_forecast_fetch
-    async with pool.acquire() as conn:
-        latest_fetch = await conn.fetchval(
-            "SELECT MAX(fetched_at)::text FROM weather_forecast WHERE fetched_at > now() - interval '2 hours'"
-        )
-        if latest_fetch:
-            _last_forecast_fetch = latest_fetch
-
-    # ── 4. Check for FORECAST_DEVIATION (route to Iris through alert_log) ──
-    # Was 'DEVIATION'; renamed in Phase 4 so the event_type vocabulary matches
-    # the new closed set {SUNRISE, SUNSET, SOLAR_MAX, TRANSITION, FORECAST_DEVIATION, MANUAL}.
-    forecast_alert_id: int | None = None
-    forecast_trigger_data: dict[str, object] | None = None
-    legacy_trigger_file = False
-    async with pool.acquire() as conn:
-        pending_forecast_alert = await _pending_forecast_deviation_alert(conn)
-    if pending_forecast_alert is not None:
-        forecast_alert_id, forecast_trigger_data = pending_forecast_alert
-    else:
-        trigger_file = STATE_DIR / "replan-needed.json"
-        import time as _t
-
-        if trigger_file.exists():
-            age_s = _t.time() - trigger_file.stat().st_mtime
-            if age_s < 300:
-                forecast_trigger_data = json.loads(trigger_file.read_text())
-                legacy_trigger_file = True
-
-    if forecast_trigger_data is not None:
-        try:
-            deviations_str = json.dumps(forecast_trigger_data.get("deviations", []), indent=2)
-            reason = forecast_trigger_data.get("reason", "Unknown deviation")
-
-            log.info("FORECAST_DEVIATION trigger found, routing to Iris: %s", reason)
-            loop = asyncio.get_event_loop()
-            context = await loop.run_in_executor(None, gather_context)
-            # Pull severity hints from the trigger payload if present.
-            # max_abs_deviation is stamped by forecast_deviation_check's
-            # AlertEnvelope row when a material miss exceeds its threshold.
-            # Both severities route local unless explicitly escalated.
-            severity_ctx = SeverityContext(
-                max_abs_deviation=forecast_trigger_data.get("max_abs_deviation"),
-                consecutive_deviation_cycles=forecast_trigger_data.get("consecutive_cycles"),
-            )
-            # planner_routing still uses "DEVIATION" internally for the
-            # severity/SLA table key; the event_type emitted to Iris
-            # and stored in plan_delivery_log / planner_trigger_ledger
-            # is "FORECAST_DEVIATION".
-            spec = PLANNER_TRIGGER_MATRIX["FORECAST_DEVIATION"]
-            severity_event_type = spec.severity_event_type or spec.event_type
-            severity = classify_severity(severity_event_type, severity_ctx)
-            instance = pick_instance(severity_event_type, severity)
-            # Materialize the deviation in planner_trigger_ledger before
-            # delivery so the SLA clock and trigger-health surface see it the
-            # same way they see scheduled milestones. _deliver_and_log then
-            # links the delivery row and marks it delivered/failed.
-            deviation_ledger_id: int | None = None
-            try:
-                async with pool.acquire() as conn:
-                    deviation_ledger_id = await _ensure_deviation_trigger_ledger(
-                        conn,
-                        instance=instance,
-                        trigger_data=forecast_trigger_data,
-                    )
-            except Exception as e:
-                log.warning("deviation ledger pre-delivery write failed (proceeding): %s", e)
-            delivered = await _deliver_and_log(
-                pool,
-                spec.event_type,
-                deviations_str,
-                context,
-                instance=instance,
-                expected_trigger_id=deviation_ledger_id,
-            )
-            # Failed delivery keeps the source trigger pending for retry.
-            # HTTP acceptance still does not imply a terminal planner action.
-            if delivered and forecast_alert_id is not None:
-                async with pool.acquire() as conn:
-                    await _resolve_forecast_deviation_alert(conn, forecast_alert_id)
-            if delivered and legacy_trigger_file:
-                trigger_file = STATE_DIR / "replan-needed.json"
-                trigger_file.unlink(missing_ok=True)
-        except Exception as e:
-            log.error("Failed to process FORECAST_DEVIATION trigger: %s", e)
-
-    # ── 4b. Resolve plan_delivery_log entries (F14): update any unresolved
-    # rows where a plan landed within 2h of delivery. Runs every heartbeat
-    # so the correlation updates in near-real-time, not just at the 30-min
-    # verify check below.
-    try:
-        await _resolve_delivery_log(pool)
-        await _expire_planner_trigger_slas(pool)
-    except Exception as e:
-        log.warning("plan_delivery_log/planner_trigger_ledger resolve failed: %s", e)
-
-    # ── 5. Verify plan delivery (30 min after SUNRISE/SUNSET) ──
-    for key in ("SUNRISE", "SUNSET"):
-        if key not in _milestones_fired:
-            continue
-        milestone_time = all_milestones.get(key)
-        if not milestone_time:
-            continue
-        mins_since = (now - milestone_time).total_seconds() / 60
-        verify_key = f"_verified_{key}"
-        if 30 <= mins_since < 35 and verify_key not in _milestones_fired:
-            _milestones_fired[verify_key] = True
-            _save_milestone_state()
-            # Check if a plan was written after the milestone
-            async with pool.acquire() as conn:
-                plan_count = await conn.fetchval(
-                    "SELECT count(*) FROM plan_journal WHERE created_at > $1",
-                    milestone_time,
-                )
-            if plan_count == 0:
-                # Log only: the alert monitor's planner_required_plan_missed (critical) is the
-                # alert_log row for a required trigger without a plan (#1352).
-                log.warning(
-                    "PLAN DELIVERY FAILED: No plan_journal entry after %s (fired %s ago)", key, f"{mins_since:.0f}m"
-                )
-            else:
-                log.info("Plan delivery verified: %d plan(s) written after %s", plan_count, key)
-
-    # ── 6. MCP server health check (every heartbeat = 60s) ──
+async def _mcp_health_check(pool: asyncpg.Pool) -> None:
+    # MCP server health check (every pass = 60s)
     # 2026-07-11 audit: the legacy single-host watchdog probed 127.0.0.1:8000
     # (always dead in k3s — MCP is a separate Deployment), logged an ERROR,
     # Popen'd a doomed in-container mcp/server.py, and attempted a chat post

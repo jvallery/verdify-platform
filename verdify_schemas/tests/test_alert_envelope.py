@@ -22,7 +22,10 @@ from verdify_schemas.alerts import (
     ClockUnconfirmedAlert,
     ComponentExperimentIntegrityAlert,
     DailyRecordMissingAlert,
+    DailyReviewMissedAlert,
     DeployOverrideAlert,
+    DryingMeterFaultAlert,
+    DryingRefusedAllDayAlert,
     ESP32PushFailedAlert,
     ESP32RebootAlert,
     FirmwareReliefCeilingAlert,
@@ -30,6 +33,7 @@ from verdify_schemas.alerts import (
     FirmwareVersionMismatchAlert,
     ForecastActionAlert,
     ForecastDeviationAlert,
+    FurnaceSaturatedAlert,
     HeapPressureCriticalAlert,
     HeapPressureWarningAlert,
     HeatManualOverrideAlert,
@@ -42,10 +46,14 @@ from verdify_schemas.alerts import (
     IrrigationLineFaultedAlert,
     IrrigationRunMissedAlert,
     LawConstantsMismatchAlert,
+    LawStateStaleAlert,
     LeakDetectedAlert,
     LightingCfgThresholdDriftAlert,
     McpUnreachableAlert,
+    OutdoorIntakeOnlyAlert,
+    OutdoorNoneIndoorDegradedAlert,
     OutdoorSourceNoneAlert,
+    OwnerValueChangedAlert,
     PayloadRejectedAlert,
     PlanContextFailedAlert,
     PlannerBandOwnershipDriftAlert,
@@ -59,9 +67,12 @@ from verdify_schemas.alerts import (
     PlannerTunableRangeDriftAlert,
     PlanNotDeliveredAlert,
     PowerMeterStaleAlert,
+    ProbesDisagreeAlert,
+    RelayCountersBackstepAlert,
     RelayPairForbiddenAlert,
     RelayStartsHighAlert,
     RelayStuckAlert,
+    ReviewerWroteClimateAlert,
     SafetyInvalidAlert,
     SensorFaultAlert,
     SensorOfflineAlert,
@@ -73,10 +84,12 @@ from verdify_schemas.alerts import (
     TelemetryStallAlert,
     TempSafetyAlert,
     TunableZeroVarianceAlert,
+    UtilityOutOfBaselineAlert,
     VentMoistureCapacityLimitAlert,
     VentVpdMoistureGapAlert,
     VpdExtremeAlert,
     VpdStressAlert,
+    WettingBelowVpdBandAlert,
     WriterAbsentAlert,
 )
 
@@ -198,7 +211,7 @@ CASES = {
     # no `error`) is round-tripped in test_alert_producer_payloads.py.
     "esp32_reboot": (
         ESP32RebootAlert,
-        {"uptime_s": 42.0, "reset_reason": "poweron"},
+        {"uptime_s": 42.0, "reset_reason": "Task WDT", "restarts_60m": 1, "firmware_version": "2026.11.16.a"},
     ),
     "firmware_relief_ceiling": (
         FirmwareReliefCeilingAlert,
@@ -296,6 +309,33 @@ CASES = {
         {"side": "cold", "fraction": 0.95, "band_low": 70.0, "band_high": 83.0},
     ),
     "relay_starts_high": (RelayStartsHighAlert, {"starts": {"heat1": 14}}),
+    "reviewer_wrote_climate": (
+        ReviewerWroteClimateAlert,
+        {"rows": 1, "sources": ["iris"], "parameters": ["vpd_high"], "newest": NOW, "cutover": NOW},
+    ),
+    "law_state_stale": (LawStateStaleAlert, {"age_s": 240.0, "uptime_s": 3600.0}),
+    "wetting_below_vpd_band": (
+        WettingBelowVpdBandAlert,
+        {"relays": ["fog"], "vpd_max": 0.5, "vpd_low": 0.6},
+    ),
+    "drying_meter_fault": (DryingMeterFaultAlert, {"backsteps": {"s": [100, 40]}, "stalled_s": None}),
+    "relay_counters_backstep": (RelayCountersBackstepAlert, {"backsteps": {"h1": [12, 3]}}),
+    "utility_out_of_baseline": (
+        UtilityOutOfBaselineAlert,
+        {"day": "2026-11-15", "over": {"gas_therm": [9.0, 3.2]}, "meter_coverage_pct": 95.0},
+    ),
+    "drying_refused_all_day": (DryingRefusedAllDayAlert, {"day": "2026-11-15", "wanted": 300, "cost": 300}),
+    "probes_disagree": (
+        ProbesDisagreeAlert,
+        {"rows": 30, "disagreeing": 29, "max_spread_f": 7.5, "off_median": ["temp_west"]},
+    ),
+    "owner_value_changed": (OwnerValueChangedAlert, {"changed": {"mister_engage_delay_s": [30.0, 45.0]}}),
+    "outdoor_none_indoor_degraded": (
+        OutdoorNoneIndoorDegradedAlert,
+        {"none_s": 720.0, "fewest_wall_probes": 3, "case_only": False},
+    ),
+    "outdoor_intake_only": (OutdoorIntakeOnlyAlert, {"intake_s": 1900.0}),
+    "furnace_saturated": (FurnaceSaturatedAlert, {"on_fraction": 0.95, "house_f": 55.2, "band_low_f": 58.0}),
     "plan_not_delivered": (
         PlanNotDeliveredAlert,
         {"plan_created_at": NOW, "last_confirmed_at": None},
@@ -444,6 +484,10 @@ CASES = {
     "payload_rejected": (
         PayloadRejectedAlert,
         {"entity": "climate_law_state", "since": "2026-11-16T05:00:00+00:00", "rejections": 11},
+    ),
+    "daily_review_missed": (
+        DailyReviewMissedAlert,
+        {"review_date": "2026-11-16", "status": "failed", "attempts": 6, "failure": "attempts_exhausted"},
     ),
     "law_constants_mismatch": (
         LawConstantsMismatchAlert,
@@ -648,9 +692,7 @@ def test_schema_covers_alert_types_in_write_paths():
     tasks_sources = sorted(tasks_pkg.glob("*.py")) if tasks_pkg.is_dir() else [root / "ingestor" / "tasks.py"]
     sources = [
         *tasks_sources,
-        root / "ingestor" / "iris_planner.py",
         root / "api" / "main.py",
-        root / "scripts" / "forecast-action-engine.py",
     ]
     found: set[str] = set()
     patterns = [

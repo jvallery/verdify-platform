@@ -85,6 +85,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # Package 6: verdify_release_pin_info reads the release pins the prod overlay generates into this
+            # ConfigMap (api/product_metrics.py). Optional, so the component renders and starts without it.
+            - name: release-pins
+              mountPath: /etc/verdify/release-pins
+              readOnly: true
           # Endpoint drain before uvicorn stops accepting, as verdify-api does: the BFF retries a GET once but never
           # resends a write.
           lifecycle:
@@ -106,3 +111,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: release-pins
+          configMap:
+            name: verdify-release-pins
+            optional: true

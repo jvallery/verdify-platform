@@ -48,7 +48,6 @@ VD59_AGENT_TOOLS = frozenset(
         "forecast",
         "equipment_state",
         "history",
-        "plan_status",
         "get_setpoints",
         "scorecard",
         "topology",
@@ -399,14 +398,14 @@ class TestTransportAndDispatch:
     def test_out_of_audience_denial_names_the_agent_never_the_token(self, server, two_agents, caplog):
         with caplog.at_level(logging.WARNING, logger="verdify.mcp.auth"):
             with pytest.raises(server.ToolAccessDenied, match="audience: agent") as excinfo:
-                server.authorize_tool_call("set_plan", STEWARD_TOKEN)
+                server.authorize_tool_call("review_write", STEWARD_TOKEN)
         records = [json.loads(record.getMessage()) for record in caplog.records]
         assert records == [
             {
                 "event": "mcp_tool_authz_denial",
                 "mode": "enforce",
                 "enforced": True,
-                "tool": "set_plan",
+                "tool": "review_write",
                 "audience": "agent",
                 "agent": "steward",
                 "reason": "tool_not_in_audience",

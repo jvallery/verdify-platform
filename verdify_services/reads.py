@@ -19,8 +19,8 @@ dashboard login has a 10 s ``statement_timeout``.
 Helpers other reads share: ``reporting()``, the one §7 test (#1155 and #1180
 use it too); ``collapse()``, which merges repeated state rows into runs;
 ``equipment_tracks()`` and ``leak_block()``, which API-IRR-01 (#1155) reuses; and
-``plan_waypoints()`` and ``plan_history()``, the plan values with their
-``effective`` flag. API-02's alert count is ``alerts.open_count``, the one
+``plan_history()``, the past plan values with their ``effective`` flag (no plan
+applies since climate refactor 4.2, so no read treats one as in force). API-02's alert count is ``alerts.open_count``, the one
 count API-14 and every other surface show (Round 2b C), and API-07's lanes
 take their state from ``settings.statuses``, so Plan and Settings agree.
 
@@ -30,7 +30,6 @@ and the leak is an alert only (Q-05).
 
 from __future__ import annotations
 
-import json
 import math
 from bisect import bisect_right
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
@@ -52,7 +51,7 @@ from verdify_schemas.policy_vector import wire_fields
 from verdify_schemas.setting_help import band_in_force_help, band_in_force_sources, setting_label
 from verdify_schemas.setting_values import readback_matches, readback_tolerance, resolve_effective
 from verdify_schemas.telemetry import ClimateLawState
-from verdify_schemas.tunable_registry import BAND_OWNED_REG, LIGHTING_CIRCUIT_DEFAULT_REG, desired_write_rule
+from verdify_schemas.tunable_registry import desired_write_rule
 from verdify_schemas.tunable_registry import get as registry_get
 from verdify_services import activity, alerts, brief, settings
 from verdify_services.actor import ActorRef as ActorRef  # re-exported: the OpenAPI Actor of DesiredSetting
@@ -70,8 +69,10 @@ HEARTBEAT_STALE_S = 180
 # The controller reports while the heartbeat is fresh and the newest climate row
 # is at most this old (the GET /health threshold in api/main.py).
 CLIMATE_REPORTING_S = 300
-# Climate, diagnostics and the cfg_* readback snapshot arrive every 60 s; a
-# reading older than twice that is stale and gets no band verdict.
+# Climate, diagnostics and the cfg_* readback pass arrive every 60 s; a
+# reading older than twice that is stale and gets no band verdict. Readbacks are
+# stored on change (#1662), so their freshness is the newest pass marker
+# (system_state setpoint_snapshot_pass) or the newest readback, whichever is later.
 SENSOR_CADENCE_S = 60
 SENSOR_STALE_S = 120
 # Home Assistant polls the Lutron readback every 300 s: two missed polls is unknown.
@@ -132,13 +133,8 @@ MIST_STAGES = ("WATCH", "FOG", "S1", "S2")
 _FOG_NOT_HELD = frozenset({"", "none", "served"})
 
 # writer.differing judges the values the dispatcher delivers: the writable
-# classes it pushes from desired rows and plans. A plan value it never sends is
-# left out: the band, the legacy shared lighting values, the per-circuit lux
-# rows (band-driven) and the values the dispatcher derives itself.
+# classes it pushes from desired rows (no plan reaches it since climate refactor 4.2).
 _DISPATCHED_CLASSES = frozenset({"planner_policy", "scheduled_policy", "controller_safety"})
-_LIGHTING_LUX_PARAMS = frozenset(
-    name for name in LIGHTING_CIRCUIT_DEFAULT_REG if name.endswith(("_lux_threshold", "_lux_hysteresis"))
-)
 _POLICY_WIRE_FIELDS = frozenset(spec.name for spec in wire_fields())
 _IRRIGATION_COMMAND_COLUMNS = ("kind", "args", "status", "sent_at")
 
@@ -149,9 +145,6 @@ BAND_ROLES = HOUSE_SERIES
 BAND_IN_FORCE_WINDOW = timedelta(hours=1)
 BAND_IN_FORCE_REASON = "derived by the dispatcher from the crop band anchors"
 NO_BAND_ROW = "No band row in the last hour"
-# Setting.plan.next: the first waypoint after now. A plan row expires 78 h after it
-# is written (setpoint_plan.expires_at), so none applies past this horizon.
-NEXT_WAYPOINT_HORIZON = timedelta(days=4)
 PLAN_SOURCES = ("iris", "preemptive")
 SETTING_WRITE_ACTIONS = frozenset({"setting.write", "setting.release"})
 
@@ -654,21 +647,13 @@ def humidify_held_reason(fog_block_reason: str | None, fog_on: bool) -> str | No
     return fog_block_reason
 
 
-def required_trigger_state(status: str | None, due_at: datetime | None, at: datetime) -> RequiredTrigger:
-    """Map the newest required trigger's ledger status (migration 218: only plan_written recovers it).
-
-    ``status`` None means no required trigger fired in the last 36 h, which
-    reads ``missed``: the planner has no required plan to show.
-    """
-    if status == "plan_written":
+def review_state(missed_status: str | None) -> RequiredTrigger:
+    """Now's Iris tile since climate refactor 5.1: the daily review, read from its open ``daily_review_missed``
+    alert (``details.status``). No open alert reads ``ok``; a review that failed reads ``failed``; one that was not
+    requested, delivered or written by 10:00 reads ``missed``. ``late`` no longer occurs."""
+    if missed_status is None:
         return "ok"
-    if status in ("expected", "delivered"):
-        return "ok" if due_at is None or at < due_at else "late"
-    if status == "missed" or status is None:
-        return "missed"
-    # timed_out, delivery_failed, wrong_action, neutral_fallback, and acked or
-    # action_completed: Iris answered a required trigger without a plan.
-    return "failed"
+    return "failed" if missed_status == "failed" else "missed"
 
 
 def waypoint_effective(param: str, desired: Any | None, plan_row: Any, *, superseded: bool = False) -> bool:
@@ -689,12 +674,13 @@ def waypoint_effective(param: str, desired: Any | None, plan_row: Any, *, supers
 
 @dataclass(frozen=True)
 class ReadbackFacts:
-    """Readbacks of one value since a time: the newest, and the last that matches it."""
+    """Readbacks of one value since a time: the newest, the last that matches it, and the first after that one."""
 
     newest_value: float | None
     newest_at: datetime | None
     last_match_at: datetime | None
     clamped: bool
+    first_differ_at: datetime | None = None
 
 
 def superseded_at(plan_row: Mapping[str, Any], full_plans: Sequence[tuple[datetime, str]]) -> bool:
@@ -754,22 +740,6 @@ def band_in_force_row(zone: str, role: str, value: object, observed_at: datetime
     )
 
 
-def setting_plan(plan_row: Mapping[str, Any], upcoming: Sequence[PlanWaypoint]) -> settings.SettingPlan | None:
-    """API-09's ``plan`` block: the value in force as stored (Iris's 48.75 stays 48.75), its plan, its source and
-    when it was written, and ``next``, the first waypoint after now with its ``effective``. None for a row whose
-    source is not ``iris`` or ``preemptive``."""
-    source = plan_row["source"]
-    if source not in PLAN_SOURCES:
-        return None
-    return settings.SettingPlan(
-        value=_finite(plan_row["value"]),
-        plan_id=plan_row["plan_id"],
-        source=source,
-        written_at=plan_row["created_at"],
-        next=upcoming[0] if upcoming else None,
-    )
-
-
 @dataclass(frozen=True)
 class InForce:
     """A setting's value in force and when it took force."""
@@ -779,49 +749,31 @@ class InForce:
     since: datetime
 
 
-def _plan_took_force(plan_row: Mapping[str, Any]) -> datetime:
-    return max(plan_row["ts"], plan_row["created_at"])
-
-
-def _dispatched(param: str, source: str) -> bool:
+def _dispatched(param: str) -> bool:
     spec = registry_get(param)
-    if spec is None or spec.control_class not in _DISPATCHED_CLASSES:
-        return False
-    if source == "plan" and (
-        param in BAND_OWNED_REG or param in _LIGHTING_LUX_PARAMS or spec.push_owner == "dispatcher_default"
-    ):
-        return False
-    return True
+    return spec is not None and spec.control_class in _DISPATCHED_CLASSES
 
 
 def values_in_force(
     desired: Mapping[str, Mapping[str, Any]],
-    active_plan: Mapping[str, Mapping[str, Any]],
     *,
     experiment_armed: bool,
 ) -> list[InForce]:
-    """The values writer.differing judges: ``resolve_effective()``, else the ``v_active_plan`` row.
+    """The values writer.differing judges: the desired row each setting resolves to (``resolve_effective()`` with
+    no plan, as the dispatcher resolves since climate refactor 4.2), from its write.
 
-    A value comes from the desired row it resolves to, or from the plan row
-    (when it took force: its waypoint time, or its write if later). The 48
-    policy fields are left out while an experiment is armed: the firmware
-    serves the armed vector on purpose.
+    A release (value NULL) is left out: the dispatcher sends the default it returns to. The 48 policy fields are
+    left out while an experiment is armed: the firmware serves the armed vector on purpose.
     """
     out: list[InForce] = []
-    for param in sorted(set(desired) | set(active_plan)):
+    for param in sorted(desired):
         if experiment_armed and param in _POLICY_WIRE_FIELDS:
             continue
-        desired_row, plan_row = desired.get(param), active_plan.get(param)
-        resolved = resolve_effective(desired_row, plan_row)
-        if resolved is not None and resolved.applied_from == "desired" and desired_row is not None:
-            value, since, source = resolved.value, desired_row["created_at"], "desired"
-        elif plan_row is not None:
-            value, since, source = _finite(plan_row["value"]), _plan_took_force(plan_row), "plan"
-        else:
+        desired_row = desired[param]
+        resolved = resolve_effective(desired_row, None)
+        if resolved is None or not _dispatched(param):
             continue
-        if value is None or not _dispatched(param, source):
-            continue
-        out.append(InForce(param=param, value=value, since=since))
+        out.append(InForce(param=param, value=resolved.value, since=desired_row["created_at"]))
     return out
 
 
@@ -832,9 +784,12 @@ def count_differing(
 
     A value differs while its newest readback since it took force does not
     match (``readback_matches``; none at all counts as not matching). It has
-    differed since its last matching readback, or since it took force when
-    none matched. A value the dispatcher clamped after it took force (a
-    ``setpoint_clamps`` row) is held on purpose and left out.
+    differed since the first readback after its last matching one, or since it
+    took force when none matched. Readbacks are stored on change with an hourly
+    keyframe (#1662), so the last match can be an hour old while the value
+    changed a minute ago; the first row after it is when the difference began.
+    A value the dispatcher clamped after it took force (a ``setpoint_clamps``
+    row) is held on purpose and left out.
     """
     count = 0
     oldest: datetime | None = None
@@ -846,7 +801,7 @@ def count_differing(
             continue
         since = item.since
         if fact is not None and fact.last_match_at is not None:
-            since = max(since, fact.last_match_at)
+            since = max(since, fact.first_differ_at or fact.last_match_at)
         if at - since > DIFFERING_AFTER:
             count += 1
             oldest = since if oldest is None else min(oldest, since)
@@ -858,12 +813,6 @@ def _tolerance(param: str, value: float) -> float:
         return readback_tolerance(param, value)
     except ValueError:  # a value binary32 cannot hold never matches
         return -1.0
-
-
-def _json_object(value: object) -> Any:
-    if isinstance(value, str | bytes):
-        return json.loads(value)
-    return value
 
 
 # ── SQL (bounded; parameters only, never text from a request) ───────────────
@@ -879,8 +828,10 @@ SELECT now() AS at,
        (SELECT max(ts) FROM system_state WHERE entity = $1 AND ts > now() - interval '1 day') AS heartbeat_at,
        (SELECT max(ts) FROM climate WHERE ts > now() - interval '1 day') AS climate_at,
        (SELECT max(ts) FROM diagnostics WHERE ts > now() - interval '1 day') AS diagnostics_at,
-       (SELECT max(ts) FROM setpoint_snapshot
-         WHERE ts > now() - interval '1 day' AND band_role IS NULL) AS readback_at,
+       GREATEST((SELECT max(ts) FROM setpoint_snapshot
+                  WHERE ts > now() - interval '1 day' AND band_role IS NULL),
+                (SELECT max(ts) FROM system_state
+                  WHERE entity = 'setpoint_snapshot_pass' AND ts > now() - interval '1 day')) AS readback_at,
        (SELECT ts FROM setpoint_changes ORDER BY ts DESC LIMIT 1) AS writer_at,
        (SELECT round(sum(delta_gal))::int FROM water_meter_events
          WHERE ts > now() - interval '10 minutes' AND event_type = 'delta' AND quality_flag = 'ok') AS gal_10min,
@@ -1034,31 +985,9 @@ SELECT local_day, line_id, cause, gal
  WHERE greenhouse_id = $1
 """
 
-_PLAN_IN_FORCE_SQL = """
-SELECT pj.plan_id, pj.created_at, pj.valid_from, pj.expires_at, pj.lifecycle_status, pj.hypothesis,
-       pj.experiment, pj.expected_outcome, pj.conditions_summary, pj.outcome_score, pj.lesson_extracted,
-       pj.hypothesis_structured, pj.climate_intents, t.event_type AS trigger
-  FROM plan_journal AS pj
-  LEFT JOIN LATERAL (SELECT l.event_type FROM planner_trigger_ledger AS l
-                      WHERE l.trigger_id = pj.trigger_id
-                      ORDER BY l.expected_at DESC LIMIT 1) AS t ON true
- WHERE pj.lifecycle_status = 'effective' AND pj.valid_from <= now() AND pj.expires_at > now()
- ORDER BY pj.created_at DESC
- LIMIT 1
-"""
-
+# No plan applies since climate refactor 4.2: API-07 names when the newest one was written.
 _NO_PLAN_SINCE_SQL = """
-SELECT max(expires_at) FROM plan_journal
- WHERE lifecycle_status IN ('effective', 'expired') AND expires_at <= now()
-"""
-
-# The newest required trigger that has fired. The ledger also holds the day's
-# expected rows ahead, which say nothing yet about Iris.
-_REQUIRED_TRIGGER_SQL = """
-SELECT status, due_at FROM planner_trigger_ledger
- WHERE event_type = ANY($1::text[]) AND expected_at >= now() - interval '36 hours' AND expected_at <= now()
- ORDER BY expected_at DESC
- LIMIT 1
+SELECT max(created_at) FROM plan_journal
 """
 
 _HEALTH_SQL = """
@@ -1077,7 +1006,10 @@ SELECT (SELECT id FROM alert_log WHERE ({alerts.OPEN_PREDICATE}) AND alert_type 
        (SELECT max(ts) FROM alert_log
          WHERE ({alerts.OPEN_PREDICATE}) AND alert_type = 'leak_detected') AS leak_open_since,
        EXISTS (SELECT 1 FROM alert_log
-                WHERE ({alerts.OPEN_PREDICATE}) AND alert_type = 'setpoint_delivery_stuck') AS stuck
+                WHERE ({alerts.OPEN_PREDICATE}) AND alert_type = 'setpoint_delivery_stuck') AS stuck,
+       (SELECT coalesce(details->>'status', 'none') FROM alert_log
+         WHERE ({alerts.OPEN_PREDICATE}) AND alert_type = 'daily_review_missed'
+         ORDER BY ts DESC, id DESC LIMIT 1) AS review_missed
 """
 
 # The trailing quiet run of the site meter since the open leak row (as the
@@ -1096,12 +1028,19 @@ SELECT id, param, value, manual, source, actor, reason, created_at
  WHERE greenhouse_id = $1 AND ($2::text[] IS NULL OR param = ANY($2::text[]))
 """
 
-_ACTIVE_PLAN_SQL = "SELECT parameter, value, ts, plan_id, created_at FROM v_active_plan"
 
 # Readbacks of each value since it took force. The last match is the newest
-# readback when that matches, and is only searched for when it does not. (A
-# desired row's confirmed_at is settings.status's, VD-55.)
+# readback when that matches, and is only searched for when it does not; the
+# first readback after it is when the difference began (rows are stored on
+# change, #1662, as _SETPOINT_DELIVERY_SQL measures it). (A desired row's
+# confirmed_at is settings.status's, VD-55.)
 _READBACK_FACTS_SQL = """
+SELECT f.param, f.newest_value, f.newest_at, f.last_match_at, f.clamped,
+       CASE WHEN f.last_match_at IS NOT NULL AND f.last_match_at < f.newest_at THEN
+           (SELECT min(s.ts) FROM setpoint_snapshot AS s
+             WHERE s.parameter = f.param AND s.band_role IS NULL AND s.ts > f.last_match_at)
+       END AS first_differ_at
+  FROM (
 SELECT c.param, newest.value AS newest_value, newest.ts AS newest_at,
        CASE WHEN abs(newest.value - c.value) <= c.tol THEN newest.ts ELSE
            (SELECT s.ts FROM setpoint_snapshot AS s
@@ -1114,6 +1053,7 @@ SELECT c.param, newest.value AS newest_value, newest.ts AS newest_at,
   LEFT JOIN LATERAL (SELECT s.value, s.ts FROM setpoint_snapshot AS s
                       WHERE s.parameter = c.param AND s.band_role IS NULL AND s.ts >= c.since
                       ORDER BY s.ts DESC LIMIT 1) AS newest ON true
+  ) AS f
 """
 
 _DEVICE_READBACKS_SQL = """
@@ -1122,22 +1062,6 @@ SELECT p.param, s.value, s.ts
   LEFT JOIN LATERAL (SELECT value, ts FROM setpoint_snapshot
                       WHERE parameter = p.param AND band_role IS NULL AND ts > now() - interval '24 hours'
                       ORDER BY ts DESC LIMIT 1) AS s ON true
-"""
-
-# The waypoints that can apply: the plan in force's rows, active Iris one-shots
-# and active forecast-rule rows (source preemptive).
-_PLAN_WAYPOINTS_SQL = """
-SELECT sp.parameter, sp.ts, sp.value, sp.source, sp.created_at
-  FROM setpoint_plan AS sp
- WHERE sp.ts >= $1 AND sp.ts < $2
-   AND ($3::text[] IS NULL OR sp.parameter = ANY($3::text[]))
-   AND sp.is_active AND sp.expires_at > now()
-   AND ((sp.source = 'iris' AND (sp.plan_id LIKE 'iris-oneshot-%' OR sp.plan_id = (
-            SELECT pj.plan_id FROM plan_journal AS pj
-             WHERE pj.lifecycle_status = 'effective' AND pj.valid_from <= now() AND pj.expires_at > now()
-             ORDER BY pj.created_at DESC LIMIT 1)))
-        OR sp.source = 'preemptive')
- ORDER BY sp.parameter, sp.ts, sp.created_at
 """
 
 # API-12's plan values: every row of the setting in the window, past and superseded
@@ -1154,16 +1078,6 @@ _FULL_PLANS_SQL = """
 SELECT created_at, plan_id FROM plan_journal
  WHERE plan_id NOT LIKE 'iris-oneshot-%' AND created_at > $1 AND created_at <= $2
  ORDER BY created_at
-"""
-
-# API-09's plan block: the v_active_plan row of each setting with its setpoint_plan
-# source (iris, or preemptive for the forecast engine).
-_SETTING_PLANS_SQL = """
-SELECT a.parameter, a.value, a.ts, a.plan_id, a.created_at, s.source
-  FROM v_active_plan AS a
-  JOIN LATERAL (SELECT sp.source FROM setpoint_plan AS sp
-                 WHERE sp.ts = a.ts AND sp.ts <= now() AND sp.parameter = a.parameter AND sp.plan_id = a.plan_id
-                 LIMIT 1) AS s ON true
 """
 
 # API-09's Band in force rows: each zone and role's newest band row in the window.
@@ -1246,10 +1160,6 @@ async def _desired_rows(conn: asyncpg.Connection, params: Sequence[str] | None =
     return {row["param"]: row for row in rows}
 
 
-async def _active_plan_rows(conn: asyncpg.Connection) -> dict[str, asyncpg.Record]:
-    return {row["parameter"]: row for row in await conn.fetch(_ACTIVE_PLAN_SQL)}
-
-
 async def _readback_facts(
     conn: asyncpg.Connection, items: Sequence[tuple[str, datetime, float]]
 ) -> dict[str, ReadbackFacts]:
@@ -1269,41 +1179,10 @@ async def _readback_facts(
             newest_at=row["newest_at"],
             last_match_at=row["last_match_at"],
             clamped=row["clamped"],
+            first_differ_at=row["first_differ_at"],
         )
         for row in rows
     }
-
-
-async def plan_waypoints(
-    conn: asyncpg.Connection,
-    params: Sequence[str] | None,
-    from_: datetime,
-    to: datetime,
-    *,
-    desired: Mapping[str, Mapping[str, Any]] | None = None,
-) -> dict[str, list[PlanWaypoint]]:
-    """Plan values with ``from_ <= ts < to``, by param (every param when ``params`` is None).
-
-    The rows of the plan in force, active Iris one-shots and active
-    forecast-rule rows. ``effective`` is ``waypoint_effective()`` against the
-    param's newest desired row: false under a manual row, or a non-manual row
-    newer than the plan row's ``created_at``. ``desired`` (the
-    ``v_desired_state_current`` rows by param) is read when not given.
-    """
-    rows = await conn.fetch(_PLAN_WAYPOINTS_SQL, from_, to, list(params) if params is not None else None)
-    if desired is None:
-        desired = await _desired_rows(conn, sorted({row["parameter"] for row in rows}))
-    out: dict[str, list[PlanWaypoint]] = {}
-    for row in rows:
-        out.setdefault(row["parameter"], []).append(
-            PlanWaypoint(
-                at=row["ts"],
-                value=_finite(row["value"]),
-                source=row["source"],
-                effective=waypoint_effective(row["parameter"], desired.get(row["parameter"]), row),
-            )
-        )
-    return out
 
 
 async def plan_history(
@@ -1350,27 +1229,6 @@ async def plan_history(
 def _reading(value: object, observed_at: datetime | None, missing: str) -> Reading:
     number = _finite(value)
     return Reading(value=number, observed_at=observed_at, reason=None if number is not None else missing)
-
-
-def _plan_record(row: Mapping[str, Any]) -> PlanRecord:
-    return PlanRecord(
-        plan_id=row["plan_id"],
-        trigger=row["trigger"] or "UNKNOWN",
-        written_at=row["created_at"],
-        valid_from=row["valid_from"],
-        valid_until=row["expires_at"],
-        status=row["lifecycle_status"],
-        hypothesis=row["hypothesis"],
-        experiment=row["experiment"],
-        expected_outcome=row["expected_outcome"],
-        conditions_summary=row["conditions_summary"],
-        outcome_score=_finite(row["outcome_score"]),
-        lesson=row["lesson_extracted"],
-        detail={
-            "hypothesis_structured": _json_object(row["hypothesis_structured"]),
-            "climate_intents": _json_object(row["climate_intents"]),
-        },
-    )
 
 
 def _equipment_items(
@@ -1642,16 +1500,12 @@ async def now(conn: asyncpg.Connection) -> Now:
         }
         texts = {entity: row["value"] for entity, row in newest_texts.items()}
         tracks = await _tracks(conn, _EQUIPMENT_TRACKS_SQL, _NOW_EQUIPMENT_KEYS)
-        plan_row = await conn.fetchrow(_PLAN_IN_FORCE_SQL)
-        required = await conn.fetchrow(_REQUIRED_TRIGGER_SQL, list(REQUIRED_TRIGGERS))
         alert_counts = await alerts.open_count(conn)
         alert_facts = await conn.fetchrow(_ALERT_FACTS_SQL)
         flow_gpm = _finite(climate["flow_gpm"])
         leak = await leak_block(conn, tracks[LEAK_FLAG], alert_facts, flow_gpm, clock["gal_10min"], rep)
         overrides = await _overrides(conn, tracks, texts.get("fog_block_reason"), rep)
-        values = values_in_force(
-            await _desired_rows(conn), await _active_plan_rows(conn), experiment_armed=clock["experiment_armed"]
-        )
+        values = values_in_force(await _desired_rows(conn), experiment_armed=clock["experiment_armed"])
         due = [item for item in values if at - item.since > DIFFERING_AFTER]
         facts = await _readback_facts(conn, [(item.param, item.since, item.value) for item in due])
         causes = await _running_causes(conn, tracks, rep)
@@ -1692,13 +1546,12 @@ async def now(conn: asyncpg.Connection) -> Now:
     code, stage = mode_code_and_stage(_newest_text(mode_track), texts.get("mister_state"))
     mode = Mode(code=code, stage=stage, reason=texts.get("mode_reason"), since=run_since(mode_track.spans))
 
+    # No plan applies since climate refactor 4.2; the tile reads the daily review (5.1).
     iris = Iris(
-        plan_id=plan_row["plan_id"] if plan_row else None,
-        trigger=plan_row["trigger"] if plan_row else None,
-        valid_until=plan_row["expires_at"] if plan_row else None,
-        required_trigger=required_trigger_state(
-            required["status"] if required else None, required["due_at"] if required else None, at
-        ),
+        plan_id=None,
+        trigger=None,
+        valid_until=None,
+        required_trigger=review_state(alert_facts["review_missed"] if alert_facts else None),
     )
 
     items = _equipment_items(tracks, rep)
@@ -1773,23 +1626,21 @@ async def now(conn: asyncpg.Connection) -> Now:
 
 
 async def plan(conn: asyncpg.Connection, hours: int = 24) -> Plan:
-    """API-07 ``GET /v1/plan``: the plan in force, one lane per planned setting, and planner health.
+    """API-07 ``GET /v1/plan``: since climate refactor 4.2 no plan is in force, so ``plan`` is null,
+    ``no_plan_since`` is when the newest plan was written, and there is one lane (with no waypoints) per setting a
+    person holds manual, and the planner trigger health of the last 36 h.
 
     Each lane's ``applied_from`` and ``desired`` (with its state and reason) are ``settings.statuses``, so Plan
-    and Settings show the same state. A lane for a setting outside ``REGISTRY`` has no desired row and reads
-    ``plan`` while a plan value is in force, else ``default``.
+    and Settings show the same state; a lane outside ``REGISTRY`` reads ``default``.
     """
     if hours not in (24, 72):
         raise ValueError("hours must be 24 or 72")
     async with _snapshot(conn):
-        at: datetime = await conn.fetchval("SELECT now()")
-        plan_row = await conn.fetchrow(_PLAN_IN_FORCE_SQL)
-        no_plan_since = None if plan_row is not None else await conn.fetchval(_NO_PLAN_SINCE_SQL)
-        active = await _active_plan_rows(conn)
+        # No plan applies since climate refactor 4.2: no plan in force, no waypoints, a lane per manual setting.
+        no_plan_since = await conn.fetchval(_NO_PLAN_SINCE_SQL)
         desired = await _desired_rows(conn)
-        waypoints = await plan_waypoints(conn, None, at, at + timedelta(hours=hours), desired=desired)
         manual = {param for param, row in desired.items() if row["manual"] and row["value"] is not None}
-        params = sorted(set(active) | set(waypoints) | manual)
+        params = sorted(manual)
         device = {row["param"]: row for row in await conn.fetch(_DEVICE_READBACKS_SQL, params)}
         statuses = await settings.statuses(conn, params)
         health_rows = await conn.fetch(_HEALTH_SQL)
@@ -1798,10 +1649,7 @@ async def plan(conn: asyncpg.Connection, hours: int = 24) -> Plan:
     for param in params:
         spec = registry_get(param)
         status = statuses.get(param)
-        if status is not None:
-            source = status.applied_from
-        else:
-            source = "plan" if param in active else "default"
+        source = status.applied_from if status is not None else "default"
         readback = device.get(param)
         lanes.append(
             PlanLane(
@@ -1813,13 +1661,13 @@ async def plan(conn: asyncpg.Connection, hours: int = 24) -> Plan:
                     readback["ts"] if readback is not None else None,
                     "No readback in the last 24 h",
                 ),
-                waypoints=[] if source == "manual" else waypoints.get(param, []),
+                waypoints=[],
                 desired=status.desired if status is not None else None,
                 applied_from=source,
             )
         )
     return Plan(
-        plan=_plan_record(plan_row) if plan_row is not None else None,
+        plan=None,
         no_plan_since=no_plan_since,
         lanes=lanes,
         manual_count=sum(1 for lane in lanes if lane.applied_from == "manual"),
@@ -1890,17 +1738,13 @@ async def settings_rows(conn: asyncpg.Connection) -> SettingRows:
     """API-09 ``GET /v1/settings`` and the MCP ``settings`` tool: every setting, then the Band in force rows.
 
     The registry rows are ``settings.catalog`` (``REGISTRY`` order, each with ``TunableDef``'s label and unit,
-    its readback, desired row, ``applied_from`` and state), each given its ``plan`` block while a
-    ``v_active_plan`` value is in force (``setting_plan()``: the value as stored, unsnapped, its plan, source,
-    when it was written and ``next``, the first ``plan_waypoints()`` waypoint after now with its ``effective``).
-    Then one read-only row per zone (house, center, south, west, east) and band role from the dispatcher's newest
+    its readback, desired row, ``applied_from`` and state; ``plan`` stays null: no plan applies since climate
+    refactor 4.2). Then one read-only row per zone (house, center, south, west, east) and band role from the dispatcher's newest
     band row in the last hour (``band_in_force_row()``). One snapshot; ``server_time`` is its ``now()``.
     """
     async with _snapshot(conn):
         at: datetime = await conn.fetchval("SELECT now()")
         rows = await settings.catalog(conn)
-        plans = {row["parameter"]: row for row in await conn.fetch(_SETTING_PLANS_SQL)}
-        upcoming = await plan_waypoints(conn, sorted(plans), at, at + NEXT_WAYPOINT_HORIZON) if plans else {}
         keys = [(zone, role) for zone in BAND_ZONES for role in BAND_ROLES]
         band = await conn.fetch(
             _BAND_IN_FORCE_SQL,
@@ -1909,13 +1753,7 @@ async def settings_rows(conn: asyncpg.Connection) -> SettingRows:
             [f"band_{zone}_{role}" for zone, role in keys],
             BAND_IN_FORCE_WINDOW,
         )
-    items: list[settings.Setting] = []
-    for setting in rows:
-        plan_row = plans.get(setting.param)
-        if plan_row is not None:
-            later = [waypoint for waypoint in upcoming.get(setting.param, []) if waypoint.at > at]
-            setting = setting.model_copy(update={"plan": setting_plan(plan_row, later)})
-        items.append(setting)
+    items: list[settings.Setting] = list(rows)
     newest = {(row["zone"], row["role"]): row for row in band}
     for zone, role in keys:
         found = newest.get((zone, role))

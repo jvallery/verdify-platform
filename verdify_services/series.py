@@ -427,10 +427,6 @@ _REGISTRY: tuple[MetricBinding, ...] = (
         _climate(f"vpd_{zone}", f"{zone.capitalize()} VPD", _ZONES, "kPa", provenance="DERIVED", zone=zone)
         for zone in ("north", "south", "east", "west")
     ),
-    _climate("leaf_temp_north", "North leaf temperature", _ZONES, "°F", zone="north"),
-    _climate("leaf_temp_south", "South leaf temperature", _ZONES, "°F", zone="south"),
-    _climate("leaf_wetness_north", "North leaf wetness", _ZONES, "%", zone="north"),
-    _climate("leaf_wetness_south", "South leaf wetness", _ZONES, "%", zone="south"),
     # water and soil
     _climate("flow_gpm", "Water flow", _WATER, "gal/min", note="Main meter; whole gallons, one pulse per gallon"),
     _climate("water_total_gal", "Water meter total", _WATER, "gal", note="Main meter running total"),
@@ -442,15 +438,6 @@ _REGISTRY: tuple[MetricBinding, ...] = (
     _climate("soil_temp_south_2", "South 2 soil temperature", _WATER, "°F", zone="south"),
     _climate("soil_moisture_west", "West soil moisture", _WATER, "%", zone="west"),
     _climate("soil_temp_west", "West soil temperature", _WATER, "°F", zone="west"),
-    _climate("moisture_north", "North substrate moisture", _WATER, "%", zone="north"),
-    _climate("moisture_south", "South substrate moisture", _WATER, "%", zone="south"),
-    _climate("moisture_center", "Center substrate moisture", _WATER, "%", zone="center"),
-    _climate("ph_input", "Input pH", _WATER, "pH"),
-    _climate("ec_input", "Input EC", _WATER, "µS/cm"),
-    _climate("ph_runoff_wall", "Wall runoff pH", _WATER, "pH"),
-    _climate("ec_runoff_wall", "Wall runoff EC", _WATER, "µS/cm"),
-    _climate("ph_runoff_center", "Center runoff pH", _WATER, "pH", zone="center"),
-    _climate("ec_runoff_center", "Center runoff EC", _WATER, "µS/cm", zone="center"),
     _hydro("hydro_ph", "Hydroponic pH", "pH"),
     _hydro("hydro_ec_us_cm", "Hydroponic EC", "µS/cm"),
     _hydro("hydro_water_temp_f", "Hydroponic water temperature", "°F"),
@@ -656,6 +643,9 @@ _NO_DLI = "Legacy or unused; measured light is ppfd_umol_m2_s from the PAR meter
 _HA_ONLY_TEMPEST = (
     "Home Assistant-only Tempest field (_TEMPEST_MAP, no ESP32 entity); a gap once #1163 removes tempest_sync"
 )
+# TEL-F6 (RULINGS AF11): no value in 90 days and no probe planned, so the catalog does not offer an always-empty
+# series. The soil_* columns stay offered: new soil probes are on order (AB3).
+_NO_SOURCE = "No source in 90 days and no probe planned (TEL-F6, RULINGS AF11)"
 EXCLUDED_COLUMNS: dict[str, str] = {
     "lux": _NO_DLI,
     "dli_today": _NO_DLI,
@@ -672,6 +662,19 @@ EXCLUDED_COLUMNS: dict[str, str] = {
     "vapor_pressure_inhg": _HA_ONLY_TEMPEST,
     "air_density_kg_m3": _HA_ONLY_TEMPEST,
     "precip_intensity_in_h": _HA_ONLY_TEMPEST,
+    "leaf_temp_north": _NO_SOURCE,
+    "leaf_temp_south": _NO_SOURCE,
+    "leaf_wetness_north": _NO_SOURCE,
+    "leaf_wetness_south": _NO_SOURCE,
+    "moisture_north": _NO_SOURCE,
+    "moisture_south": _NO_SOURCE,
+    "moisture_center": _NO_SOURCE,
+    "ph_input": _NO_SOURCE,
+    "ec_input": _NO_SOURCE,
+    "ph_runoff_wall": _NO_SOURCE,
+    "ec_runoff_wall": _NO_SOURCE,
+    "ph_runoff_center": _NO_SOURCE,
+    "ec_runoff_center": _NO_SOURCE,
 }
 
 
@@ -898,8 +901,9 @@ def forecast_rows_sql(columns: Sequence[str]) -> str:
     )
 
 
+# Outages without the minutes the controller's gap log replayed afterwards (migration 314, #1633 release 3).
 GAPS_SQL = (
-    "SELECT start_ts, end_ts, reason FROM public.data_gaps "
+    "SELECT start_ts, end_ts, reason FROM public.v_data_gaps_unreplayed "
     "WHERE start_ts < $2::timestamptz AND end_ts > $1::timestamptz ORDER BY start_ts, id"
 )
 

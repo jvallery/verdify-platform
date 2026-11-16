@@ -105,6 +105,41 @@ _MODELED_ELECTRIC_EQUIPMENT = (
 )
 
 
+# One definition of starts, run time and therms (RULINGS AF4, TEL-F1): for the six climate relays daily_summary takes
+# the daily record's figures (migration 310: lost OFFs repaired, the same hours daily_record.therms_est uses). The
+# record is stored by the band-curve refresh job (fn_refresh_daily_record, :02/:32, today and the two days before);
+# it never reads daily_summary, so there is no circular read. A day the record does not cover (no daily_record row,
+# a relay without a daily_relay_record row, or the record unreadable) keeps the equipment-state view's figures.
+DAILY_RECORD_RELAYS = ("heat1", "heat2", "fan1", "fan2", "vent", "fog")
+
+
+@dataclass(frozen=True)
+class DailyRecordDay:
+    relays: dict[str, tuple[float, int]]  # equipment -> (run minutes, starts)
+    therms: float | None
+
+
+async def _daily_record_day(conn: asyncpg.Connection, target_day) -> DailyRecordDay | None:
+    """The day's stored daily record, or None when it does not cover the day or cannot be read."""
+    try:
+        record = await conn.fetchrow("SELECT therms_est FROM daily_record WHERE date = $1", target_day)
+        if record is None:
+            return None
+        rows = await conn.fetch(
+            "SELECT equipment, run_s, starts FROM daily_relay_record WHERE date = $1 AND equipment = ANY($2::text[])",
+            target_day,
+            list(DAILY_RECORD_RELAYS),
+        )
+    except asyncpg.PostgresError as error:
+        log.warning("daily record for %s unreadable (%s): equipment-state figures kept", target_day, error)
+        return None
+    therms = record["therms_est"]
+    return DailyRecordDay(
+        relays={row["equipment"]: (float(row["run_s"]) / 60.0, int(row["starts"])) for row in rows},
+        therms=float(therms) if therms is not None else None,
+    )
+
+
 async def _electric_wattages(conn: asyncpg.Connection, target_day) -> dict[str, float | None]:
     """Return the coefficient revision valid at the start of ``target_day``.
 
@@ -257,6 +292,9 @@ async def grow_light_daily(pool: asyncpg.Pool) -> None:
         )
         rt = {r["equipment"]: (float(r["on_minutes"] or 0), int(r["cycles"] or 0)) for r in rows}
         rt_eligible = {r["equipment"]: bool(r["is_deploy_gate_eligible"]) for r in rows}
+        record = await _daily_record_day(conn, yesterday)
+        if record is not None:
+            rt.update(record.relays)
 
         # Runtimes
         rf1 = rt.get("fan1", (None, 0))[0]
@@ -285,9 +323,13 @@ async def grow_light_daily(pool: asyncpg.Pool) -> None:
         kwh = _runtime_kwh_from_minutes(electric_minutes, wattages)
         gas_btu_per_hour = await _gas_btu_per_hour(conn, yesterday)
         therms = (
-            rh2 / 60.0 * gas_btu_per_hour / THERM_BTU
-            if rh2 is not None and rt_eligible.get("heat2", False) and gas_btu_per_hour is not None
-            else None
+            record.therms
+            if record is not None
+            else (
+                rh2 / 60.0 * gas_btu_per_hour / THERM_BTU
+                if rh2 is not None and rt_eligible.get("heat2", False) and gas_btu_per_hour is not None
+                else None
+            )
         )
         # Water cost is planning water only (climate wetting + wall irrigation + wall fertigation, #1623).
         water_row = await conn.fetchrow(
@@ -538,6 +580,11 @@ async def _refresh_daily_summary_for_date(
     rt = {r["equipment"]: float(r["on_minutes"] or 0) for r in rt_rows}
     cycles = {r["equipment"]: int(r["cycles"] or 0) for r in rt_rows}
     rt_eligible = {r["equipment"]: bool(r["is_deploy_gate_eligible"]) for r in rt_rows}
+    record = await _daily_record_day(conn, target_day)
+    if record is not None:
+        for equipment, (minutes, starts) in record.relays.items():
+            rt[equipment] = minutes
+            cycles[equipment] = starts
 
     wattages = await _electric_wattages(conn, target_day)
     electric_minutes = {
@@ -546,9 +593,13 @@ async def _refresh_daily_summary_for_date(
     kwh = _runtime_kwh_from_minutes(electric_minutes, wattages)
     gas_btu_per_hour = await _gas_btu_per_hour(conn, target_day)
     therms = (
-        rt["heat2"] / 60.0 * gas_btu_per_hour / THERM_BTU
-        if "heat2" in rt and rt_eligible.get("heat2", False) and gas_btu_per_hour is not None
-        else None
+        record.therms
+        if record is not None
+        else (
+            rt["heat2"] / 60.0 * gas_btu_per_hour / THERM_BTU
+            if "heat2" in rt and rt_eligible.get("heat2", False) and gas_btu_per_hour is not None
+            else None
+        )
     )
 
     water_evidence = await conn.fetchrow(
@@ -763,7 +814,9 @@ async def daily_summary_live(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
         today = await conn.fetchval("SELECT (now() AT TIME ZONE 'America/Denver')::date")
         refreshed = []
-        for offset in (0, 1):
+        # Today, yesterday and the day before: a gap-log replay landing just after local midnight can carry minutes
+        # of the day before yesterday (RULINGS AF10).
+        for offset in (0, 1, 2):
             day = today - _td(days=offset)
             ct, temp_max, compliance_pct = await _refresh_daily_summary_for_date(conn, day)
             refreshed.append((day, ct, temp_max, compliance_pct))

@@ -82,44 +82,6 @@ def test_reconnect_reconcile_is_generation_gated_and_cfg_drift_is_separate():
     assert "expected_connection_generation=reconnect_generation" in source
 
 
-def test_runtime_probe_classifies_reconnect_drift_retry_and_broad_batches():
-    # VD-62: the dispatcher no longer logs blocked_* lines; the summary keeps
-    # counting them (from older pods) as the live check that they read zero.
-    summary = confirmation.summarize_writer_log_lines(
-        [
-            "writer_reconcile reason=transport_reconnect generation=8 action=awaiting_readbacks",
-            "writer_reconcile reason=transport_reconnect generation=8 action=blocked_broad_restore command_count=40 limit=12",
-            "writer_reconcile reason=cfg_drift generation=8 action=blocked_broad_restore command_count=39 limit=12",
-            "writer_reconcile reason=desired_change generation=8 action=blocked_stage reason=approval removed during run",
-            "writer_reconcile reason=paced generation=9 action=paced trigger=transport_reconnect "
-            "command_count=12 pending=20 awaiting_readback=0 limit=12",
-            "writer_reconcile reason=paced generation=9 action=wake remaining=8",
-            "writer_reconcile reason=cfg_drift param=x generation=8 drift_version=2",
-            "writer_dispatch reason=cfg_drift generation=8 command_count=1 anchor_count=0 "
-            "unchanged_anchor_count=0 comparison=desired_vs_observed",
-            "writer_dispatch reason=retry generation=8 attempt=2 failed_count=1",
-            "writer_dispatch reason=transport_reconnect generation=9 command_count=56 anchor_count=56 "
-            "unchanged_anchor_count=0 comparison=desired_vs_observed",
-            "writer_delivery phase=transport status=sent reason=api_command_returned param=x generation=8 attempt=1",
-            "writer_delivery phase=persisted status=sent reason=api_command_returned param=x generation=8 attempt=1",
-            "writer_delivery phase=persisted status=failed reason=transport_disconnected param=y generation=8 attempt=3",
-        ]
-    )
-
-    assert summary["transport_reconnects"] == 1
-    assert summary["blocked_broad_restores"] == 2
-    assert summary["blocked_stages"] == 1
-    assert summary["paced_passes"] == 1
-    assert summary["cfg_drifts"] == 1
-    assert summary["retry_batches"] == 1
-    assert summary["dispatch_commands"] == 57
-    assert summary["anchor_commands"] == 56
-    assert summary["broad_anchor_batches"] == 1
-    assert summary["unchanged_broad_anchor_batches"] == 0
-    assert summary["delivery_sent"] == 1
-    assert summary["delivery_failed"] == 1
-
-
 def test_unchanged_anchor_probe_uses_observed_readback_not_constant(monkeypatch):
     anchor = next(iter(dispatcher.band_anchors.ANCHOR_SYNC_PARAMS))
     monkeypatch.setattr(shared, "cfg_readback", {anchor: 1.25})
@@ -217,3 +179,41 @@ def test_expected_lifecycle_consumers_cover_full_state_vocabulary():
 def test_failed_reconcile_never_marks_transport_or_drift_trigger_complete():
     assert dispatcher._dispatch_trigger_completed([]) is True
     assert dispatcher._dispatch_trigger_completed([("mister_vpd_weight", "transport_disconnected")]) is False
+
+
+@pytest.mark.asyncio
+async def test_confirmation_awaits_no_readback_for_a_setting_the_controller_does_not_list(monkeypatch):
+    """#1633 phase 4 generic skip: the unconfirmed scan leaves out a parameter whose setting entity the connected
+    controller does not list, and keeps it while the controller lists it."""
+    from entity_map import PARAM_TO_ENTITY
+
+    param = "mister_vpd_weight"
+    scanned: list[list[str]] = []
+
+    class Connection:
+        async def fetch(self, query, *args):
+            if "sc.parameter = ANY($1::text[])" in query and "interval '1 hour'" in query:
+                scanned.append(list(args[0]))
+            return []
+
+        async def fetchval(self, *_args):
+            return None
+
+        async def execute(self, *_args):
+            return "UPDATE 0"
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    pool = MagicMock()
+    pool.acquire.side_effect = lambda: Acquire()
+    monkeypatch.setattr(shared, "esp32", {"client": object(), "keys": {"some_other_entity": 1}, "services": {}})
+    await confirmation.setpoint_confirmation_monitor(pool)
+    monkeypatch.setattr(shared, "esp32", {"client": object(), "keys": {PARAM_TO_ENTITY[param]: 1}, "services": {}})
+    await confirmation.setpoint_confirmation_monitor(pool)
+    assert len(scanned) == 2
+    assert param not in scanned[0] and param in scanned[1]

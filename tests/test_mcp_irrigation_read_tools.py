@@ -479,7 +479,10 @@ def test_the_instructions_check_fails_on_a_tool_that_is_not_registered_yet(mcp_s
 def test_the_instructions_are_the_constant_and_say_what_the_design_gives(mcp_server):  # noqa: F811
     text = mcp_server.SERVER_INSTRUCTIONS
     assert mcp_server.mcp._init_kwargs["instructions"] == text
-    assert "Band params (temp_low, temp_high, vpd_low, vpd_high) are dispatcher-owned" in text
+    assert (
+        "no tool writes a\n    climate value" in text
+        and "The house band is operator-owned and has no write tool" in text
+    )
     assert "run works on L01 only" in text and "irrigation_stop always works" in text
     assert "`request_id`" in text and "`replayed: true`" in text
     assert "ProblemCode" in text and "`retryable` is true only where waiting helps" in text

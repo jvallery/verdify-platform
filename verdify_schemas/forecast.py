@@ -1,8 +1,8 @@
 """ForecastHour — 1:1 onto the weather_forecast DB row.
 
 25-field Open-Meteo hourly forecast (16-day horizon). Shared by forecast-sync.py
-(writer), gather-plan-context.sh (reader), and the new generate-forecast-page.py
-renderer.
+(writer), the daily review's context (reader) and generate-forecast-page.py
+(renderer).
 """
 
 from __future__ import annotations

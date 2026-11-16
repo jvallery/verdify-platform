@@ -2,7 +2,7 @@
 
 - No runtime sender is left: no code posts to chat.postMessage, and the ingestor no longer imports the Slack config
   or the operator-brief, policy and runbook helpers.
-- The two former Slack-only pages are alert_log rows: ``mcp_unreachable`` (planning heartbeat, critical, opened once
+- The two former Slack-only pages are alert_log rows: ``mcp_unreachable`` (planning heartbeat, warning since H3, opened once
   per outage and auto-resolved) and ``forecast_action_alert`` (forecast-action engine, warning). Both validate as
   ``AlertEnvelope`` and are written with a source other than ``system``, so the alert monitor never auto-resolves
   them as its own.
@@ -13,11 +13,9 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import importlib.util
 import json
 import re
 import subprocess
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -27,7 +25,6 @@ from verdify_schemas.alerts import AlertEnvelope
 
 ROOT = Path(__file__).resolve().parents[1]
 HEARTBEAT = ROOT / "ingestor/tasks/heartbeat.py"
-ENGINE = ROOT / "scripts/forecast-action-engine.py"
 RUNTIME_SOURCES = [
     *sorted((ROOT / "ingestor").rglob("*.py")),
     *sorted((ROOT / "api").rglob("*.py")),
@@ -86,13 +83,13 @@ class Recorder:
         return "OK"
 
 
-def test_mcp_unreachable_is_a_critical_alert_log_row_opened_once_per_outage():
+def test_mcp_unreachable_is_a_warning_alert_log_row_opened_once_per_outage():
     ns = heartbeat_functions()
     payload = ns["mcp_unreachable_alert"]("http://verdify-mcp:8000/mcp", 3)
     env = AlertEnvelope.model_validate(payload)
     assert (env.alert_type, env.severity, env.category, env.sensor_id) == (
         "mcp_unreachable",
-        "critical",
+        "warning",  # RULINGS Q4: demoted at H3; daily_review_missed is the signal
         "system",
         "system.mcp",
     )
@@ -118,82 +115,8 @@ def test_the_heartbeat_opens_at_the_streak_and_resolves_on_recovery():
     assert "elif _mcp_unreachable_streak >= MCP_UNREACHABLE_STREAK:" in source
     assert "await _open_mcp_unreachable_alert(conn, mcp_url, _mcp_unreachable_streak)" in source
     assert "await _resolve_mcp_unreachable_alert(conn)" in source
-    # PLAN DELIVERY FAILED is logged only: planner_required_plan_missed is its alert_log row.
-    assert "planner_required_plan_missed" in (ROOT / "ingestor/tasks/alerts.py").read_text(encoding="utf-8")
-
-
-# ── forecast_action_alert (forecast-action engine) ──────────────────────────
-
-
-@pytest.fixture(scope="module")
-def engine():
-    spec = importlib.util.spec_from_file_location("forecast_action_engine_local_alerts", ENGINE)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_a_fired_alert_rule_is_a_warning_alert_log_payload(engine):
-    at = datetime(2026, 11, 6, 11, 0, tzinfo=UTC)
-    payload = engine.forecast_alert_payload(
-        rule_id=7,
-        name="frost_warning",
-        metric="temp_f",
-        op="<",
-        threshold=35.0,
-        value=31.5,
-        forecast_at=at,
-        window="24 hours",
-    )
-    env = AlertEnvelope.model_validate(payload)
-    assert (env.alert_type, env.severity, env.category, env.sensor_id) == (
-        "forecast_action_alert",
-        "warning",  # dashboard only: warnings never page (#1352)
-        "climate",
-        "forecast.rule.frost_warning",
-    )
-    assert datetime.fromisoformat(env.details["forecast_at"]) == at and env.metric_value == 31.5
-    assert engine.FORECAST_ALERT_SOURCE != "system"
-
-
-class EngineConn:
-    def __init__(self, open_id=None):
-        self.open_id, self.calls = open_id, []
-
-    async def fetchval(self, sql, *args):
-        self.calls.append((" ".join(sql.split()), args))
-        if sql.lstrip().startswith("UPDATE"):
-            return self.open_id
-        return 41
-
-
-def test_the_rule_refreshes_its_open_row_else_inserts_one(engine):
-    payload = engine.forecast_alert_payload(
-        rule_id=7,
-        name="frost_warning",
-        metric="temp_f",
-        op="<",
-        threshold=35.0,
-        value=31.5,
-        forecast_at=datetime.now(UTC) + timedelta(hours=5),
-        window="24 hours",
-    )
-    refreshed = EngineConn(open_id=12)
-    assert asyncio.run(engine.record_forecast_alert(refreshed, payload)) == 12
-    assert len(refreshed.calls) == 1 and refreshed.calls[0][0].startswith("UPDATE alert_log")
-    inserted = EngineConn()
-    assert asyncio.run(engine.record_forecast_alert(inserted, payload)) == 41
-    assert [sql.split()[0] for sql, _ in inserted.calls] == ["UPDATE", "INSERT"]
-    assert inserted.calls[1][1][7] == "forecast_engine"
-
-
-def test_the_engine_resolves_alerts_whose_forecast_hour_passed(engine):
-    source = ENGINE.read_text(encoding="utf-8")
-    assert re.search(r"if not DRY_RUN:\s+await resolve_passed_forecast_alerts\(conn\)", source)
-    assert "(details->>'forecast_at')::timestamptz < now()" in source
-
-
-# ── the prod render ─────────────────────────────────────────────────────────
+    # A review that is not written is the daily_review_missed alert_log row (climate refactor 5.1).
+    assert '"alert_type": "daily_review_missed"' in source
 
 
 @pytest.fixture(scope="module")
@@ -229,7 +152,7 @@ def test_hermes_cannot_send_a_message_and_iris_is_never_told_to():
         assert "messaging" in profile["agent"]["disabled_toolsets"]
         assert "slack" not in json.dumps(profile.get("platforms", {})).lower()
     for name in (
-        "ingestor/iris_planner.py",
+        "ingestor/review_prompt.py",
         "docs/planner/greenhouse-playbook.md",
         "hermes/iris/SOUL.md",
         "hermes/iris/SKILL.md",

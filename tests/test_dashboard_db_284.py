@@ -532,5 +532,6 @@ def test_the_operator_api_reads_run_as_the_login(before):
     now, plan, equipment = run(check())
     assert now.indoor.temp_f.value == 75 and now.writer.last_at is not None and now.freshness.ingestor.age_s is not None
     assert now.alerts.critical >= 1 and now.leak.active is True and now.leak.alert_id is not None
-    assert plan.plan is not None and plan.plan.plan_id == "vd74-plan" and plan.lanes and plan.health
+    # No plan is in force since climate refactor 4.2; the login still reads plan_journal and the ledger.
+    assert plan.plan is None and plan.no_plan_since is not None and plan.health
     assert any(item.equipment == "fan1" and item.state == "off" for item in equipment.items)

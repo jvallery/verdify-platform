@@ -199,92 +199,6 @@ def test_fetch_run_status_404_and_malformed_id_are_non_terminal(monkeypatch):
     assert calls == 1
 
 
-@pytest.mark.asyncio
-async def test_reconcile_terminal_runs_fails_every_no_action_outcome_and_syncs_ledger(monkeypatch):
-    rows = [
-        {"id": 11, "hermes_run_id": RUN_COMPLETED},
-        {"id": 12, "hermes_run_id": RUN_FAILED},
-        {"id": 13, "hermes_run_id": RUN_CANCELLED},
-        {"id": 14, "hermes_run_id": RUN_RUNNING},
-    ]
-    conn = _Connection(rows, [11, 12, 13])
-    statuses = {
-        RUN_COMPLETED: {
-            "status": "completed",
-            "last_event": "run.completed",
-            "usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
-        },
-        RUN_FAILED: {"status": "failed", "last_event": "run.failed"},
-        RUN_CANCELLED: {"status": "cancelled", "last_event": "run.cancelled"},
-        RUN_RUNNING: {"status": "running"},
-    }
-    monkeypatch.setattr(heartbeat, "_fetch_hermes_run_status", statuses.__getitem__)
-
-    reconciled = await heartbeat._reconcile_hermes_run_terminals(_Pool(conn))
-
-    assert reconciled == 3
-    select_sql, select_args = conn.fetch_calls[0]
-    assert "status = 'pending'" in select_sql
-    assert "terminal_action IS NULL" in select_sql
-    assert "resulting_plan_id IS NULL" in select_sql
-    assert "hermes_run_id IS NOT NULL" in select_sql
-    assert select_args == (
-        heartbeat._HERMES_RUN_STATUS_LIMIT,
-        heartbeat._HERMES_RUN_STATUS_LOOKBACK_MINUTES,
-    )
-
-    assert len(conn.fetchval_calls) == 3
-    expected_classes = [
-        "hermes_run_completed_without_planner_action",
-        "hermes_run_failed",
-        "hermes_run_cancelled",
-    ]
-    for (sql, args), expected_class in zip(conn.fetchval_calls, expected_classes, strict=True):
-        assert "status = 'delivery_failed'" in sql
-        assert "AND status = 'pending'" in sql
-        assert "AND terminal_action IS NULL" in sql
-        assert "AND resulting_plan_id IS NULL" in sql
-        assert args[2] == expected_class
-        audit = json.loads(args[3])
-        assert set(audit) <= {"hermes_run_status", "last_event", "error_class", "usage"}
-
-    assert len(conn.execute_calls) == 1
-    assert "UPDATE planner_trigger_ledger" in conn.execute_calls[0][0]
-
-
-@pytest.mark.asyncio
-async def test_reconcile_atomic_fence_preserves_concurrent_mcp_success(monkeypatch):
-    conn = _Connection([{"id": 21, "hermes_run_id": RUN_COMPLETED}], [None])
-    monkeypatch.setattr(
-        heartbeat,
-        "_fetch_hermes_run_status",
-        lambda _run_id: {"status": "completed", "last_event": "run.completed"},
-    )
-
-    reconciled = await heartbeat._reconcile_hermes_run_terminals(_Pool(conn))
-
-    assert reconciled == 0
-    assert len(conn.fetchval_calls) == 1
-    assert conn.execute_calls == []
-
-
-@pytest.mark.asyncio
-async def test_reconcile_active_or_unavailable_runs_do_not_mutate(monkeypatch):
-    rows = [
-        {"id": 31, "hermes_run_id": RUN_RUNNING},
-        {"id": 32, "hermes_run_id": RUN_FAILED},
-    ]
-    conn = _Connection(rows, [])
-    statuses = {RUN_RUNNING: {"status": "running"}, RUN_FAILED: None}
-    monkeypatch.setattr(heartbeat, "_fetch_hermes_run_status", statuses.__getitem__)
-
-    reconciled = await heartbeat._reconcile_hermes_run_terminals(_Pool(conn))
-
-    assert reconciled == 0
-    assert conn.fetchval_calls == []
-    assert conn.execute_calls == []
-
-
 OPENAI_OUT_OF_CREDITS = (
     "Error code: 429 - {'error': {'message': 'You exceeded your current quota, please check your plan and billing "
     "details.', 'type': 'insufficient_quota', 'param': None, 'code': 'insufficient_quota'}}"
@@ -311,10 +225,8 @@ def test_failed_run_error_is_classified_never_retained(error, expected):
         payload["error"] = error
     normalized = heartbeat._normalize_hermes_run_status(payload, RUN_FAILED)
     assert normalized.get("error_class") == expected
-    body = heartbeat._hermes_terminal_audit_body(normalized)
-    assert "quota" not in body and "API key" not in body
-    if expected:
-        assert f'"error_class":"{expected}"' in body
+    retained = json.dumps(normalized)
+    assert "quota" not in retained and "API key" not in retained
 
 
 def test_completed_run_never_carries_an_error_class():

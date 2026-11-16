@@ -1,6 +1,7 @@
 """Execute the actual listener with DB doubles; never create a device client.
 
-The listener LISTENs on setpoint_changed, on irrigation_changed (VD-64) and on desired_state_changed (VD-33). An
+The listener LISTENs on irrigation_changed (VD-64) and on desired_state_changed (VD-33) only: the setpoint_changed
+push handler is retired (#1656), so every device write goes through the fenced dispatcher. An
 irrigation write's NOTIFY sets shared.irrigation_sync_requested, which the next irrigation_sync pass reads;
 a desired_state write's wake sets that and shared.setpoint_dispatch_requested.
 """
@@ -11,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-CHANNELS = {"setpoint_changed", "irrigation_changed", "desired_state_changed"}
+CHANNELS = {"irrigation_changed", "desired_state_changed"}
 
 
 def listener_function() -> ast.AsyncFunctionDef:
@@ -21,7 +22,7 @@ def listener_function() -> ast.AsyncFunctionDef:
     )
 
 
-def listener(connect, reconcile, irrigation=None, handler=None):
+def listener(connect, reconcile, irrigation=None):
     namespace = {
         "asyncio": asyncio,
         "asyncpg": SimpleNamespace(connect=connect, Pool=object),
@@ -31,7 +32,6 @@ def listener(connect, reconcile, irrigation=None, handler=None):
             irrigation_sync_requested=irrigation if irrigation is not None else asyncio.Event(),
         ),
         "log": Mock(),
-        "_handle_setpoint_notification": handler if handler is not None else Mock(),
     }
     # Execute only this repository-owned function with isolated DB doubles.
     module = ast.Module(body=[listener_function()], type_ignores=[])
@@ -173,12 +173,11 @@ def test_desired_state_wake_only_sets_the_two_flags_and_never_reads_or_pushes():
     async def run():
         connection = Connection()
         reconcile, irrigation = asyncio.Event(), asyncio.Event()
-        handler = Mock()
 
         async def connect(dsn, timeout):
             return connection
 
-        task = asyncio.create_task(listener(connect, reconcile, irrigation, handler)(None))
+        task = asyncio.create_task(listener(connect, reconcile, irrigation)(None))
         try:
             await asyncio.wait_for(connection.listening.wait(), 1)
             assert not reconcile.is_set() and not irrigation.is_set()
@@ -186,8 +185,6 @@ def test_desired_state_wake_only_sets_the_two_flags_and_never_reads_or_pushes():
             assert not asyncio.iscoroutinefunction(wake)  # runs to completion inside the callback
             assert wake(None, 4242, "desired_state_changed", Untouchable()) is None
             assert reconcile.is_set() and irrigation.is_set()
-            # The setpoint fast path is the other channel's job; the wake never pushes.
-            handler.assert_not_called()
         finally:
             await stop(task)
 

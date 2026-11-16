@@ -151,14 +151,6 @@ def test_an_acknowledged_warning_that_turns_critical_opens_again_so_it_pages():
     assert row["resolved_at"] is None and len(log.of("setpoint_delivery_stuck", "dispatcher")) == 1
 
 
-def test_a_plan_with_no_confirmed_write_after_it_raises_plan_not_delivered():
-    created = T0 - timedelta(minutes=31)
-    env = valid(alerts._plan_not_delivered_alert({"plan_created_at": created, "last_confirmed_at": None}))
-    assert (env.alert_type, env.severity) == ("plan_not_delivered", "warning")
-    assert env.message.startswith("Iris's plan of 2026-11-16 11:29 UTC is not reaching the controller")
-    assert alerts._plan_not_delivered_alert(None) is None
-
-
 # ── #1638: the controller's clock ─────────────────────────────────────────
 
 
@@ -260,7 +252,7 @@ def test_every_new_read_in_the_monitor_is_guarded_and_its_type_kept_open():
     import inspect
 
     monitor = inspect.getsource(alerts.alert_monitor)
-    for read in ("_CLOCK_SQL", "_HEAT_SQL", "_PLAN_NOT_DELIVERED_SQL", "FROM v_band_device_divergence"):
+    for read in ("_CLOCK_SQL", "_HEAT_SQL", "FROM v_band_device_divergence"):
         before = monitor[: monitor.index(read)]
         assert "_guarded_fetchrow(" in before[-500:], read
     assert "preserve_open_types=delivery_preserved | read_preserved | irrigation_preserved" in monitor

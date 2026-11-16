@@ -182,7 +182,7 @@ test("every band verdict, required-trigger state and burst kind in the OpenAPI f
   expect([...BURST_KINDS].sort()).toEqual([...bursts].sort());
   expect(BAND_VERDICTS.map((verdict) => words("band_verdict", verdict))).toEqual(["in band", "above band", "below band", "band unavailable"]);
   expect(REQUIRED_TRIGGERS.map((state) => words("required_trigger", state))).toEqual(["OK", "Late", "Missed", "Failed"]);
-  expect(words("burst", "fans")).toBe("Fans burst");
+  expect(words("burst", "fans")).toBe("Fans, vent open");
   expect(words("mode", "UNKNOWN")).toBe("Mode unknown");
 });
 
@@ -214,8 +214,11 @@ test("the table has words for every code gh_moisture_block_reason publishes, in 
   expect(MOISTURE_BLOCK_REASONS).toHaveLength(18);
   expectWorded("moisture_block_reason", MOISTURE_BLOCK_REASONS);
   expect(Object.keys(WORDS.moisture_block_reason).sort()).toEqual([...MOISTURE_BLOCK_REASONS].sort());
+  // The law firmware (#1722) publishes 8 codes. The table keeps the words for the codes only the phase 2 rollback
+  // firmware still publishes (below_threshold, direct_wet_temp, direct_wet_window, engage_delay, no_humidity_demand,
+  // vent_interlock, wet_taper).
   const published = snprintfCodes("moisture_block_reason");
-  expect(published.length).toBeGreaterThanOrEqual(15);
+  expect(published.length).toBeGreaterThanOrEqual(8);
   expect(published.filter((code) => !hasWords("moisture_block_reason", code))).toEqual([]);
   expect(words("moisture_block_reason", "no_vpd_demand")).toBe("VPD in band: no misting needed");
   expect(words("moisture_block_reason", "water_budget")).toBe("Misting held: today's soft water budget is used");

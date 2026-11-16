@@ -29,10 +29,8 @@ from ._common import (
     _FORECAST_STALE_SENSOR_ID,
     _FORECAST_STALE_THRESHOLD_S,
     AIR_EXCHANGE_RELAY_STUCK_MODES,
-    BAND_DRIVEN_PARAMS,
     EXPECTED_FIRMWARE_VERSION,
     EXPECTED_FIRMWARE_VERSION_FILE,
-    FORCED_ON_SWITCH_PARAMS,
     HEAP_CRITICAL_RECOVERY_FREE_KB,
     HEAP_CRITICAL_RECOVERY_LARGEST_BLOCK_KB,
     HEAP_CRITICAL_RECOVERY_SAMPLES,
@@ -44,7 +42,6 @@ from ._common import (
     SOIL_DRYOUT_MIN_DURATION_H,
     SOIL_DRYOUT_TARGETS_SQL,
     UTC,
-    VPD_STRESS_FLOOR_H,
     AlertEnvelope,
     ValidationError,
     ZoneInfo,
@@ -56,14 +53,15 @@ from ._common import (
     flow_stopped_at,
     json,
     log,
-    re,
-    registry_value_error,
     shared,
     soil_dryout_probes,
 )
 from .coverage_alerts import (
+    LAW_BAND_SQL,
     SOIL_OPEN_ROWS_SQL,
     coverage_cycle,
+    law_band_alert,
+    reboot_check,
     soil_dryout_hold,
     soil_probe_offline,
 )
@@ -71,9 +69,6 @@ from .daily import (
     SoilDryoutWindow,
     _auto_close_disposition,
     evaluate_soil_dryout,
-)
-from .heartbeat import (
-    _expire_planner_trigger_slas,
 )
 from .irrigation import LINE_RELAYS, _schedule_specs, read_program
 
@@ -249,56 +244,6 @@ async def _setpoint_delivery_cycle(conn) -> tuple[dict | None, frozenset[str]]:
         log.warning("setpoint delivery check failed: %s", e)
         return None, keep
     return envelope, frozenset()
-
-
-# Plans written but not delivered (#1636, interim warning): with a plan in the last week, a plan or band request
-# made after the newest plan is still unconfirmed after 30 minutes ($1), or no plan or band request was confirmed
-# for 90 minutes ($2; band rows naturally pause up to 71 minutes). A plan that changed nothing deliverable raises
-# nothing. Removed in the release that ends plan writing (packages 4.2 and 5.1).
-PLAN_NOT_DELIVERED_AFTER_S = 1800
-PLAN_NO_CONFIRMED_DELIVERY_S = 5400
-_PLAN_NOT_DELIVERED_SQL = """
-WITH p AS (
-    SELECT max(created_at) AS created_at FROM setpoint_plan
-     WHERE ts > now() - interval '8 days' AND created_at > now() - interval '7 days'
-), c AS (
-    SELECT max(confirmed_at) AS last_confirmed_at FROM setpoint_changes
-     WHERE source IN ('plan', 'band') AND ts > now() - interval '7 days'
-)
-SELECT p.created_at AS plan_created_at, c.last_confirmed_at
-  FROM p, c
- WHERE p.created_at IS NOT NULL
-   AND (EXISTS (
-           SELECT 1 FROM setpoint_changes sc
-            WHERE sc.source IN ('plan', 'band') AND sc.ts > p.created_at
-              AND sc.ts < now() - make_interval(secs => $1) AND sc.confirmed_at IS NULL
-              AND COALESCE(sc.delivery_status, '') NOT IN ('superseded', 'cancelled'))
-        OR (p.created_at < now() - make_interval(secs => $1)
-            AND COALESCE(c.last_confirmed_at, '-infinity') < now() - make_interval(secs => $2)))
-"""
-
-
-def _plan_not_delivered_alert(row: Mapping | None) -> dict | None:
-    """The plan_not_delivered warning for ``_PLAN_NOT_DELIVERED_SQL``'s row, None without one."""
-    if row is None:
-        return None
-    created = row["plan_created_at"]
-    confirmed = row["last_confirmed_at"]
-    return {
-        "alert_type": "plan_not_delivered",
-        "severity": "warning",
-        "category": "system",
-        "sensor_id": "planner",
-        "zone": None,
-        "message": f"Iris's plan of {created.astimezone(UTC):%Y-%m-%d %H:%M} UTC is not reaching the controller: "
-        "a plan or band setting is unconfirmed after 30 minutes, or none confirmed for 90",
-        "details": {
-            "plan_created_at": created.isoformat(),
-            "last_confirmed_at": confirmed.isoformat() if confirmed is not None else None,
-        },
-        "metric_value": None,
-        "threshold_value": float(PLAN_NOT_DELIVERED_AFTER_S),
-    }
 
 
 # The controller's clock (#1638): the band runs on it. Raised when the median offset from the row time over the
@@ -999,21 +944,6 @@ SELECT (SELECT array_agg(ts ORDER BY ts) FROM climate WHERE ts >= $1 AND ts <= $
 """
 
 
-# #1351: the Hermes run-failure classes (tasks.heartbeat._classify_hermes_run_error) that mean planning cannot
-# happen until a person acts, with the cause the dashboard alert names. Any of them makes the alert critical.
-PLANNER_PROVIDER_OUTAGE_CLASSES = {
-    "provider_billing": "the OpenAI account is out of credits or its billing failed (add credits to the project)",
-    "provider_auth": "OpenAI rejected the planner's API key",
-}
-_PLANNER_RUN_ERROR_CLASS = re.compile(r'"error_class":"([a-z_]{1,40})"')
-
-
-def _planner_run_error_class(gateway_body: str | None) -> str | None:
-    """The error_class the heartbeat appended to a failed delivery's gateway_body, if any."""
-    found = _PLANNER_RUN_ERROR_CLASS.search(gateway_body or "")
-    return found.group(1) if found else None
-
-
 @dataclass(frozen=True)
 class _IrrigationView:
     """What the controller runs, from its newest rows. ``applied`` is the newest push of the ``irr_program_id`` hash;
@@ -1342,11 +1272,6 @@ async def _irrigation_engine_alerts(conn, view: _IrrigationView, now: datetime) 
 
 
 async def alert_monitor(pool: asyncpg.Pool) -> None:
-    try:
-        await _expire_planner_trigger_slas(pool)
-    except Exception as e:
-        log.warning("planner trigger SLA lifecycle refresh failed: %s", e)
-
     async with pool.acquire() as conn:
         alerts = []
 
@@ -1495,8 +1420,21 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         )
         if bdd is _READ_FAILED:
             bdd = None
-        target_alert = _band_target_alert(bdd)
-        if target_alert is not None:
+        # The law-record branch (OBS-46): with a fresh climate_law_state record it alone judges the band;
+        # without one (before the law flash) it is silent and the target and edge branches below judge.
+        try:
+            law_rows = await conn.fetch(LAW_BAND_SQL)
+        except Exception as e:
+            log.warning("alert read for band_device_db_divergence (law record) failed: %s", e)
+            law_rows = None
+            read_preserved |= frozenset({"band_device_db_divergence"})
+        law_alert, law_present = law_band_alert(law_rows or [])
+        target_alert = None if law_present else _band_target_alert(bdd)
+        if law_alert is not None:
+            alerts.append(law_alert)
+        elif law_present:
+            pass
+        elif target_alert is not None:
             alerts.append(target_alert)
         elif bdd and bdd["max_temp_abs_diff"] is not None:
             temp_d = float(bdd["max_temp_abs_diff"])
@@ -1542,7 +1480,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         # v_relay_stuck is derived from commanded switch state, not independent
         # relay feedback. Treat long heater runtime as normal when current
         # climate still demands heat; only alert when heat remains commanded
-        # above the active band where it is physically contradictory.
+        # above the active band where it is physically contradictory. The band is the served one,
+        # fn_band_setpoints (RULINGS AF2): fn_setpoint_at is a settings-ledger read whose stale temp_high
+        # (72.4 F against a served 87.7 F) made heat1's daily reheat to target fire this (RLY-F7).
         relay_context = await conn.fetchrow(
             """
             WITH latest_climate AS (
@@ -1556,9 +1496,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
             )
             SELECT c.temp_avg,
                    c.vpd_avg,
-                   fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-                   fn_setpoint_at('vpd_low', c.ts) AS sp_vpd_low,
-                   fn_setpoint_at('vpd_high', c.ts) AS sp_vpd_high,
+                   b.temp_high AS sp_temp_high,
+                   b.vpd_low AS sp_vpd_low,
+                   b.vpd_high AS sp_vpd_high,
                    fn_equip_at('heat1', c.ts) AS heat1,
                    fn_equip_at('heat2', c.ts) AS heat2,
                    fn_equip_at('vent', c.ts) AS vent,
@@ -1574,6 +1514,7 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                    ) AS greenhouse_mode,
                    c.ts
               FROM latest_climate c
+              LEFT JOIN LATERAL fn_band_setpoints(c.ts) b ON true
             """
         )
         for r in await conn.fetch(
@@ -1717,276 +1658,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        # 3. VPD stress
-        # Daily cumulative stress belongs in the scorecard; an open alert
-        # should represent a condition that is still active. Gate the daily
-        # threshold by the last 15 minutes so recovered VPD auto-resolves.
-        #
-        # v_stress_hours_today.vpd_stress_hours is today's hours above the served house band (the one
-        # temp/VPD measurement basis, #1623), so the threshold is the fixed VPD_STRESS_FLOOR_H.
-        vpd_stress_threshold = VPD_STRESS_FLOOR_H
-        row = await conn.fetchrow(
-            """
-            WITH daily AS (
-                SELECT vpd_stress_hours::float AS vpd_stress_hours
-                  FROM v_stress_hours_today
-                 WHERE date >= date_trunc('day', now() AT TIME ZONE 'America/Denver')
-                 ORDER BY date DESC
-                 LIMIT 1
-            ),
-            recent AS (
-                SELECT count(*)::int AS samples,
-                       count(*) FILTER (WHERE vpd_avg > fn_setpoint_at('vpd_high', ts))::int AS high_samples,
-                       avg(vpd_avg)::float AS avg_vpd,
-                       avg(fn_setpoint_at('vpd_high', ts))::float AS avg_vpd_high
-                  FROM climate
-                 WHERE ts >= now() - interval '15 minutes'
-                   AND vpd_avg IS NOT NULL
-            )
-            SELECT daily.vpd_stress_hours,
-                   recent.samples,
-                   recent.high_samples,
-                   recent.avg_vpd,
-                   recent.avg_vpd_high,
-                   CASE WHEN recent.samples > 0
-                        THEN recent.high_samples::float / recent.samples
-                        ELSE 0.0
-                   END AS recent_high_fraction
-              FROM daily CROSS JOIN recent
-            """
-        )
-        if (
-            row
-            and row["vpd_stress_hours"]
-            and float(row["vpd_stress_hours"]) > vpd_stress_threshold
-            and int(row["samples"] or 0) >= 3
-            and float(row["recent_high_fraction"] or 0.0) >= 0.5
-        ):
-            hrs = float(row["vpd_stress_hours"])
-            high_fraction = float(row["recent_high_fraction"] or 0.0)
-            alerts.append(
-                {
-                    "alert_type": "vpd_stress",
-                    "severity": "warning",
-                    "category": "climate",
-                    "sensor_id": "climate.vpd_avg",
-                    "zone": None,
-                    "message": (
-                        f"VPD stress active: {hrs:.1f} hours today "
-                        f"(threshold {vpd_stress_threshold:.1f}h), {high_fraction:.0%} high in last 15m"
-                    ),
-                    "details": {
-                        "vpd_stress_hours": hrs,
-                        "recent_samples": int(row["samples"] or 0),
-                        "recent_high_samples": int(row["high_samples"] or 0),
-                        "recent_high_fraction": high_fraction,
-                        "avg_vpd_15m": float(row["avg_vpd"]) if row["avg_vpd"] is not None else None,
-                        "avg_vpd_high_15m": float(row["avg_vpd_high"]) if row["avg_vpd_high"] is not None else None,
-                    },
-                    "metric_value": hrs,
-                    "threshold_value": vpd_stress_threshold,
-                }
-            )
-
-        # 3b. VPD-high while ventilating but moisture is not active. This is a
-        # control-path alert: VPD demand exists, the firmware is in the mode that
-        # should allow vent mist assist, and the relay surface is not carrying it.
-        row = await conn.fetchrow(
-            """
-            WITH recent AS (
-                SELECT c.ts,
-                       c.temp_avg,
-                       c.vpd_avg,
-                       c.outdoor_temp_f,
-                       c.outdoor_rh_pct,
-                       fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-                       fn_setpoint_at('vpd_high', c.ts) AS sp_vpd_high,
-                       fn_equip_at('fog', c.ts) AS fog,
-                       fn_equip_at('mister_south', c.ts) AS mist_south,
-                       fn_equip_at('mister_west', c.ts) AS mist_west,
-                       fn_equip_at('mister_center', c.ts) AS mist_center,
-                       (
-                           SELECT ss.value
-                             FROM system_state ss
-                            WHERE ss.entity = 'greenhouse_state'
-                              AND ss.ts <= c.ts
-                            ORDER BY ss.ts DESC
-                            LIMIT 1
-                       ) AS greenhouse_mode
-                  FROM climate c
-                 WHERE c.ts >= now() - interval '15 minutes'
-                   AND c.temp_avg IS NOT NULL
-                   AND c.vpd_avg IS NOT NULL
-            ),
-            agg AS (
-                SELECT count(*)::int AS samples,
-                       count(*) FILTER (WHERE greenhouse_mode = 'VENTILATE')::int AS vent_samples,
-                       count(*) FILTER (
-                           WHERE greenhouse_mode = 'VENTILATE'
-                             AND vpd_avg > sp_vpd_high
-                             AND NOT (fog OR mist_south OR mist_west OR mist_center)
-                       )::int AS high_no_moisture_samples,
-                       avg(vpd_avg)::float AS avg_vpd,
-                       avg(sp_vpd_high)::float AS avg_vpd_high,
-                       avg(temp_avg)::float AS avg_temp,
-                       avg(sp_temp_high)::float AS avg_temp_high,
-                       avg(outdoor_temp_f)::float AS avg_outdoor_temp_f,
-                       avg(outdoor_rh_pct)::float AS avg_outdoor_rh_pct,
-                       count(*) FILTER (WHERE fog OR mist_south OR mist_west OR mist_center)::int
-                           AS moisture_samples
-                  FROM recent
-            )
-            SELECT *,
-                   CASE WHEN samples > 0 THEN high_no_moisture_samples::float / samples ELSE 0.0 END
-                       AS high_no_moisture_fraction,
-                   CASE WHEN samples > 0 THEN moisture_samples::float / samples ELSE 0.0 END
-                       AS moisture_fraction
-              FROM agg
-            """
-        )
-        if (
-            row
-            and int(row["samples"] or 0) >= 10
-            and int(row["high_no_moisture_samples"] or 0) >= 10
-            and float(row["high_no_moisture_fraction"] or 0.0) >= 0.60
-        ):
-            fraction = float(row["high_no_moisture_fraction"] or 0.0)
-            alerts.append(
-                {
-                    "alert_type": "vent_vpd_moisture_gap",
-                    "severity": "warning",
-                    "category": "climate",
-                    "sensor_id": "climate.vent_vpd_moisture",
-                    "zone": None,
-                    "message": f"VENTILATE VPD-high with no moisture assist in {fraction:.0%} of last 15m",
-                    "details": {
-                        "recent_minutes": 15,
-                        "samples": int(row["samples"] or 0),
-                        "vent_samples": int(row["vent_samples"] or 0),
-                        "high_no_moisture_samples": int(row["high_no_moisture_samples"] or 0),
-                        "high_no_moisture_fraction": fraction,
-                        "moisture_fraction": float(row["moisture_fraction"] or 0.0),
-                        "avg_vpd": float(row["avg_vpd"]) if row["avg_vpd"] is not None else None,
-                        "avg_vpd_high": float(row["avg_vpd_high"]) if row["avg_vpd_high"] is not None else None,
-                        "avg_temp": float(row["avg_temp"]) if row["avg_temp"] is not None else None,
-                        "avg_temp_high": float(row["avg_temp_high"]) if row["avg_temp_high"] is not None else None,
-                        "avg_outdoor_temp_f": float(row["avg_outdoor_temp_f"])
-                        if row["avg_outdoor_temp_f"] is not None
-                        else None,
-                        "avg_outdoor_rh_pct": float(row["avg_outdoor_rh_pct"])
-                        if row["avg_outdoor_rh_pct"] is not None
-                        else None,
-                    },
-                    "metric_value": fraction,
-                    "threshold_value": 0.60,
-                }
-            )
-
-        # 3c. Moisture is active but the hot/dry air mass is still outside both
-        # bands. This separates actuator timing bugs from physical capacity gaps.
-        row = await conn.fetchrow(
-            """
-            WITH recent AS (
-                SELECT c.ts,
-                       c.temp_avg,
-                       c.vpd_avg,
-                       c.outdoor_temp_f,
-                       c.outdoor_rh_pct,
-                       c.solar_irradiance_w_m2,
-                       fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-                       fn_setpoint_at('vpd_high', c.ts) AS sp_vpd_high,
-                       fn_equip_at('fog', c.ts) AS fog,
-                       fn_equip_at('mister_south', c.ts) AS mist_south,
-                       fn_equip_at('mister_west', c.ts) AS mist_west,
-                       fn_equip_at('mister_center', c.ts) AS mist_center,
-                       (
-                           SELECT ss.value
-                             FROM system_state ss
-                            WHERE ss.entity = 'greenhouse_state'
-                              AND ss.ts <= c.ts
-                            ORDER BY ss.ts DESC
-                            LIMIT 1
-                       ) AS greenhouse_mode
-                  FROM climate c
-                 WHERE c.ts >= now() - interval '30 minutes'
-                   AND c.temp_avg IS NOT NULL
-                   AND c.vpd_avg IS NOT NULL
-            ),
-            agg AS (
-                SELECT count(*)::int AS samples,
-                       count(*) FILTER (WHERE greenhouse_mode = 'VENTILATE')::int AS vent_samples,
-                       count(*) FILTER (WHERE fog OR mist_south OR mist_west OR mist_center)::int
-                           AS moisture_samples,
-                       count(*) FILTER (
-                           WHERE greenhouse_mode = 'VENTILATE'
-                             AND (fog OR mist_south OR mist_west OR mist_center)
-                             AND temp_avg > sp_temp_high
-                             AND vpd_avg > sp_vpd_high
-                       )::int AS capacity_limited_samples,
-                       avg(temp_avg - sp_temp_high)::float AS avg_temp_excess_f,
-                       max(temp_avg - sp_temp_high)::float AS max_temp_excess_f,
-                       avg(vpd_avg - sp_vpd_high)::float AS avg_vpd_excess_kpa,
-                       max(vpd_avg - sp_vpd_high)::float AS max_vpd_excess_kpa,
-                       avg(outdoor_temp_f)::float AS avg_outdoor_temp_f,
-                       avg(outdoor_rh_pct)::float AS avg_outdoor_rh_pct,
-                       avg(solar_irradiance_w_m2)::float AS avg_solar_w_m2
-                  FROM recent
-            )
-            SELECT *,
-                   CASE WHEN samples > 0 THEN moisture_samples::float / samples ELSE 0.0 END
-                       AS moisture_fraction,
-                   CASE WHEN samples > 0 THEN capacity_limited_samples::float / samples ELSE 0.0 END
-                       AS capacity_limited_fraction
-              FROM agg
-            """
-        )
-        if (
-            row
-            and int(row["samples"] or 0) >= 20
-            and int(row["capacity_limited_samples"] or 0) >= 20
-            and float(row["capacity_limited_fraction"] or 0.0) >= 0.67
-        ):
-            fraction = float(row["capacity_limited_fraction"] or 0.0)
-            alerts.append(
-                {
-                    "alert_type": "vent_moisture_capacity_limit",
-                    "severity": "warning",
-                    "category": "climate",
-                    "sensor_id": "climate.vent_moisture_capacity",
-                    "zone": None,
-                    "message": f"VENTILATE moisture assist active but temp+VPD remain high in {fraction:.0%} of last 30m",
-                    "details": {
-                        "recent_minutes": 30,
-                        "samples": int(row["samples"] or 0),
-                        "vent_samples": int(row["vent_samples"] or 0),
-                        "moisture_samples": int(row["moisture_samples"] or 0),
-                        "capacity_limited_samples": int(row["capacity_limited_samples"] or 0),
-                        "capacity_limited_fraction": fraction,
-                        "moisture_fraction": float(row["moisture_fraction"] or 0.0),
-                        "avg_temp_excess_f": float(row["avg_temp_excess_f"])
-                        if row["avg_temp_excess_f"] is not None
-                        else None,
-                        "max_temp_excess_f": float(row["max_temp_excess_f"])
-                        if row["max_temp_excess_f"] is not None
-                        else None,
-                        "avg_vpd_excess_kpa": float(row["avg_vpd_excess_kpa"])
-                        if row["avg_vpd_excess_kpa"] is not None
-                        else None,
-                        "max_vpd_excess_kpa": float(row["max_vpd_excess_kpa"])
-                        if row["max_vpd_excess_kpa"] is not None
-                        else None,
-                        "avg_outdoor_temp_f": float(row["avg_outdoor_temp_f"])
-                        if row["avg_outdoor_temp_f"] is not None
-                        else None,
-                        "avg_outdoor_rh_pct": float(row["avg_outdoor_rh_pct"])
-                        if row["avg_outdoor_rh_pct"] is not None
-                        else None,
-                        "avg_solar_w_m2": float(row["avg_solar_w_m2"]) if row["avg_solar_w_m2"] is not None else None,
-                    },
-                    "metric_value": fraction,
-                    "threshold_value": 0.67,
-                }
-            )
+        # 3. vpd_stress, vent_vpd_moisture_gap and vent_moisture_capacity_limit retired with the climate law
+        # (RULINGS Q4, contracts/alert-coverage.md): they judged the retired engine's choices; band compliance is the
+        # daily record's job now. Their open rows resolve on the next pass (no producer).
 
         # 4. Temp safety
         row = await conn.fetchrow(
@@ -2064,33 +1738,12 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         if leak is not None:
             alerts.append(leak)
 
-        # 6. ESP32 reboot
-        # Sprint 19 followup: suppress the alert when uptime_s < 600 s because
-        # an OTA is the expected reboot path and the alert auto-resolves anyway.
-        # Only fires for unexpected reboots where the ESP32 is still rebooting
-        # frequently (uptime < 300 s, which means a crash-loop scenario).
-        row = await conn.fetchrow(
-            "SELECT uptime_s, reset_reason FROM diagnostics WHERE ts >= now() - interval '10 minutes' AND uptime_s IS NOT NULL ORDER BY ts DESC LIMIT 1"
-        )
-        if row and row["uptime_s"] < 300:
-            # Check if this is likely an OTA-induced reboot (reset_reason or recent deploy)
-            reason = (row["reset_reason"] or "").lower()
-            if "ota" in reason or "software" in reason:
-                pass  # expected post-OTA reboot — no alert
-            else:
-                alerts.append(
-                    {
-                        "alert_type": "esp32_reboot",
-                        "severity": "info",
-                        "category": "system",
-                        "sensor_id": "diag.uptime_s",
-                        "zone": None,
-                        "message": f"ESP32 rebooted — uptime {row['uptime_s']:.0f}s (reset_reason={reason or 'unknown'})",
-                        "details": {"uptime_s": row["uptime_s"], "reset_reason": reason},
-                        "metric_value": None,
-                        "threshold_value": None,
-                    }
-                )
+        # 6. ESP32 reboot (RULINGS AF8): an uptime reset on an unchanged firmware version warns with its reset
+        # reason, three in 60 minutes page; a flash (version changed) stays quiet. coverage_alerts.reboot_check.
+        reboot, failed = await reboot_check(conn)
+        if reboot is not None:
+            alerts.append(reboot)
+        read_preserved |= failed
 
         # 6b. Climate action proof stale/incomplete. This is the controller
         # graph/OTA-readiness surface: fresh climate rows alone do not prove
@@ -2204,420 +1857,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        # 7. Planner stale. Threshold 14h = SUNSET→SUNRISE gap (~12.7h) + 1.3h margin.
-        # Iris emits full plans at SUNRISE and SUNSET only; interim TRANSITION /
-        # FORECAST / DEVIATION events adjust tunables or trigger replans. An 8h
-        # threshold (pre-sprint-2) guaranteed a daily false-positive mid-afternoon;
-        # 14h fires only when a SUNRISE has genuinely missed. F14's severity
-        # ladder (≥12h critical, else warning) is kept for AlertEnvelope dedup
-        # structure but degenerates to always-critical at this threshold. This
-        # rule will be superseded by contract v1.4's per-(type,instance) SLAs
-        # in ingestor sprint-25; treat as an interim fix.
-        plan_age = await conn.fetchval("SELECT EXTRACT(EPOCH FROM now() - MAX(created_at))::int FROM setpoint_plan")
-        if plan_age and plan_age > 50400:
-            age_h = plan_age / 3600.0
-            severity = "critical" if age_h >= 12 else "warning"
-            alerts.append(
-                {
-                    "alert_type": "planner_stale",
-                    "severity": severity,
-                    "category": "system",
-                    "sensor_id": "system.planner",
-                    "zone": None,
-                    "message": f"No plan in {plan_age // 3600}h",
-                    "details": {"age_s": plan_age, "age_h": round(age_h, 1)},
-                    "metric_value": round(age_h, 1),
-                    "threshold_value": 14.0,
-                }
-            )
-
-        # 7b. planner_evaluation_missed — Phase 2 of Iris loop overhaul.
-        # SUNRISE plans older than 26h with no validated_at. The SUNRISE
-        # prompt declares plan_evaluate MANDATORY but the 2026-05-10 baseline
-        # showed only 41.5% of SUNRISE plans get evaluated within 25h.
-        # Warning at 26h, critical at 48h. This rule was originally drafted
-        # in scripts/alert-monitor.py (Phase 2 PR) but the live alert engine
-        # is this file — the rule lives here so it actually fires.
-        eval_missed = await conn.fetch(
-            """
-            SELECT plan_id,
-                   EXTRACT(EPOCH FROM (now() - created_at))::int AS age_seconds
-              FROM plan_journal
-             WHERE plan_id LIKE 'iris-%'
-               AND validated_at IS NULL
-               AND created_at < now() - interval '26 hours'
-               AND EXTRACT(hour FROM created_at AT TIME ZONE 'America/Denver') BETWEEN 5 AND 9
-             ORDER BY created_at
-            """
-        )
-        for row in eval_missed:
-            age_h = row["age_seconds"] // 3600
-            severity = "critical" if row["age_seconds"] > 48 * 3600 else "warning"
-            alerts.append(
-                {
-                    "alert_type": "planner_evaluation_missed",
-                    "severity": severity,
-                    "category": "system",
-                    "sensor_id": "system.planner.evaluation",
-                    "zone": None,
-                    "message": (
-                        f"SUNRISE plan {row['plan_id']} not evaluated ({age_h}h since created); "
-                        f"plan_evaluate is MANDATORY per the SUNRISE prompt contract"
-                    ),
-                    "details": {"plan_id": row["plan_id"], "age_hours": age_h},
-                    "metric_value": float(age_h),
-                    "threshold_value": 26.0,
-                }
-            )
-
-        # 7a. Planner gateway delivery failures. A failed Hermes POST, or a
-        # Hermes run that failed after its 202 (the model provider refused:
-        # billing, key, rate limit), is a first-class planning outage, not a
-        # pending planner action (#1351). Recovery is the newest delivery that
-        # reached a terminal success, not a 2xx gateway status: Hermes answers
-        # 202 before the run fails. Keep the lookback short so transient
-        # restarts auto-resolve once deliveries recover.
-        gateway_failures = await conn.fetch(
-            """
-            WITH last_success AS (
-                SELECT max(delivered_at) AS ts
-                  FROM plan_delivery_log
-                 WHERE delivered_at > now() - interval '2 hours'
-                   AND status IN ('plan_written', 'action_completed', 'acked')
-            )
-            SELECT id, event_type, event_label, instance, gateway_status, delivered_at, gateway_body
-              FROM plan_delivery_log, last_success
-             WHERE delivered_at > now() - interval '2 hours'
-               AND (last_success.ts IS NULL OR delivered_at > last_success.ts)
-               AND (
-                    status = 'delivery_failed'
-                    OR gateway_status = 0
-                    OR gateway_status >= 400
-               )
-             ORDER BY delivered_at DESC
-             LIMIT 10
-            """
-        )
-        if gateway_failures:
-            failures = [
-                {
-                    "id": int(r["id"]),
-                    "event_type": r["event_type"],
-                    "event_label": r["event_label"],
-                    "instance": r["instance"],
-                    "gateway_status": int(r["gateway_status"]) if r["gateway_status"] is not None else None,
-                    "delivered_at": r["delivered_at"].isoformat(),
-                    "gateway_body": (r["gateway_body"] or "")[:300],
-                    "error_class": _planner_run_error_class(r["gateway_body"]),
-                }
-                for r in gateway_failures
-            ]
-            required_failed = any(
-                f["event_type"] in ("SUNRISE", "SUNSET", "MIDNIGHT", "FORECAST_DEVIATION", "DEVIATION", "FORECAST")
-                for f in failures
-            )
-            host_down = any(f["gateway_status"] == 0 for f in failures)
-            error_classes = sorted({f["error_class"] for f in failures if f["error_class"]})
-            provider_down = any(c in PLANNER_PROVIDER_OUTAGE_CLASSES for c in error_classes)
-            severity = "critical" if required_failed or host_down or provider_down or len(failures) >= 3 else "warning"
-            first = failures[0]
-            cause = next(
-                (PLANNER_PROVIDER_OUTAGE_CLASSES[c] for c in error_classes if c in PLANNER_PROVIDER_OUTAGE_CLASSES),
-                None,
-            )
-            alerts.append(
-                {
-                    "alert_type": "planner_gateway_delivery_failed",
-                    "severity": severity,
-                    "category": "system",
-                    "sensor_id": "system.hermes",
-                    "zone": None,
-                    "message": (
-                        (f"Planning failed: {cause}. " if cause else "")
-                        + f"{len(failures)} planner gateway delivery failure(s) in 2h; "
-                        f"latest {first['event_type']}/{first['event_label']} "
-                        f"status={first['gateway_status']}"
-                    ),
-                    "details": {"failures": failures, "error_classes": error_classes},
-                    "metric_value": float(len(failures)),
-                    "threshold_value": 0.0,
-                }
-            )
-
-        # 7a.1. Per-trigger SLA timeouts. Gateway delivery may succeed but
-        # never resolve to ack/plan_written; surface those rows with their
-        # trigger id and gateway context instead of relying on flat
-        # planner_stale.
-        timed_out_deliveries = await conn.fetch(
-            """
-            WITH recent AS (
-                SELECT id, event_type, expected_at, status, terminal_action, plan_delivery_log_id
-                  FROM planner_trigger_ledger
-                 WHERE expected_at > now() - interval '36 hours'
-            ),
-            last_required_recovery AS (
-                SELECT max(expected_at) AS expected_at
-                  FROM recent
-                 WHERE event_type IN ('SUNRISE', 'SUNSET', 'MIDNIGHT', 'FORECAST_DEVIATION', 'DEVIATION', 'FORECAST')
-                   AND status = 'plan_written'
-                   AND terminal_action = 'set_plan'
-            )
-            SELECT pdl.id, pdl.event_type, pdl.event_label, pdl.instance,
-                   pdl.gateway_status, pdl.delivered_at, pdl.gateway_body,
-                   pdl.trigger_id, pdl.hermes_run_id,
-                   EXTRACT(EPOCH FROM (now() - delivered_at))::int AS elapsed_seconds
-              FROM plan_delivery_log pdl
-              LEFT JOIN recent r ON r.plan_delivery_log_id = pdl.id
-              CROSS JOIN last_required_recovery lrr
-             WHERE pdl.status = 'timed_out'
-               AND pdl.delivered_at > now() - interval '6 hours'
-               AND (
-                     pdl.event_type NOT IN ('SUNRISE', 'SUNSET', 'MIDNIGHT', 'FORECAST_DEVIATION', 'DEVIATION', 'FORECAST')
-                     OR lrr.expected_at IS NULL
-                     OR COALESCE(r.expected_at, pdl.delivered_at) > lrr.expected_at
-                   )
-             ORDER BY pdl.delivered_at DESC
-             LIMIT 10
-            """
-        )
-        if timed_out_deliveries:
-            timeouts = [
-                {
-                    "id": int(r["id"]),
-                    "event_type": r["event_type"],
-                    "event_label": r["event_label"],
-                    "instance": r["instance"],
-                    "gateway_status": int(r["gateway_status"]) if r["gateway_status"] is not None else None,
-                    "delivered_at": r["delivered_at"].isoformat() if r["delivered_at"] else None,
-                    "gateway_body": (r["gateway_body"] or "")[:300],
-                    "trigger_id": str(r["trigger_id"]) if r["trigger_id"] else None,
-                    "elapsed_seconds": int(r["elapsed_seconds"] or 0),
-                    "hermes_run_id": r["hermes_run_id"],
-                }
-                for r in timed_out_deliveries
-            ]
-            required_timed_out = any(
-                t["event_type"] in ("SUNRISE", "SUNSET", "MIDNIGHT", "FORECAST_DEVIATION", "DEVIATION", "FORECAST")
-                for t in timeouts
-            )
-            severity = "critical" if required_timed_out else "warning"
-            latest = timeouts[0]
-            alerts.append(
-                {
-                    "alert_type": "planner_trigger_sla_timeout",
-                    "severity": severity,
-                    "category": "system",
-                    "sensor_id": "system.planner_trigger_sla",
-                    "zone": None,
-                    "message": (
-                        f"{len(timeouts)} planner trigger SLA timeout(s) in 6h; "
-                        f"latest {latest['event_type']}/{latest['event_label']} "
-                        f"trigger_id={latest['trigger_id']} elapsed={latest['elapsed_seconds']}s "
-                        f"gateway_status={latest['gateway_status']}"
-                    ),
-                    "details": {"timeouts": timeouts},
-                    "metric_value": float(len(timeouts)),
-                    "threshold_value": 0.0,
-                }
-            )
-
-        # 7b. Required SUNRISE/SUNSET/MIDNIGHT/FORECAST_DEVIATION plans. planner_trigger_ledger is
-        # materialized before delivery, so this catches both failure modes:
-        # delivered-but-no-plan and no delivery row at all.
-        required_misses = await conn.fetch(
-            """
-            WITH recent AS (
-                SELECT id, event_type, event_label, instance, status, expected_at,
-                       due_at, delivered_at, plan_delivery_log_id, trigger_id,
-                       resulting_plan_id, terminal_action, failure_class, notes,
-                       expected_action, had_required_failure
-                 FROM planner_trigger_ledger
-                 WHERE event_type IN ('SUNRISE', 'SUNSET', 'MIDNIGHT', 'FORECAST_DEVIATION', 'DEVIATION', 'FORECAST')
-                   AND expected_at > now() - interval '36 hours'
-            ),
-            last_required_recovery AS (
-                SELECT max(expected_at) AS expected_at
-                 FROM recent
-                 WHERE status = 'plan_written'
-                   AND terminal_action = 'set_plan'
-                   AND expected_action = 'set_plan'
-            ),
-            unrecovered_required_misses AS (
-                SELECT r.*
-                  FROM recent r
-                  CROSS JOIN last_required_recovery lrr
-                 WHERE (
-                         r.had_required_failure
-                         OR (
-                           r.expected_action = 'set_plan'
-                           AND (
-                             (
-                               r.due_at < now()
-                               AND r.status IN ('missed', 'timed_out', 'delivery_failed', 'expected', 'delivered')
-                             )
-                             OR r.status IN ('action_completed', 'neutral_fallback', 'wrong_action', 'acked')
-                           )
-                         )
-                       )
-                   AND (
-                         lrr.expected_at IS NULL
-                         OR r.expected_at > lrr.expected_at
-                       )
-            )
-            SELECT id, event_type, event_label, instance, status, expected_at, due_at,
-                   delivered_at, plan_delivery_log_id, trigger_id, resulting_plan_id,
-                   terminal_action, failure_class, notes, had_required_failure
-              FROM unrecovered_required_misses
-             ORDER BY expected_at DESC
-            """
-        )
-        if required_misses:
-            misses = [
-                {
-                    "id": int(r["id"]),
-                    "event_type": r["event_type"],
-                    "event_label": r["event_label"],
-                    "instance": r["instance"],
-                    "status": r["status"],
-                    "gateway_status": None,
-                    "expected_at": r["expected_at"].isoformat(),
-                    "due_at": r["due_at"].isoformat(),
-                    "delivered_at": r["delivered_at"].isoformat() if r["delivered_at"] else None,
-                    "gateway_body": (r["notes"] or "")[:300],
-                    "plan_delivery_log_id": int(r["plan_delivery_log_id"])
-                    if r["plan_delivery_log_id"] is not None
-                    else None,
-                    "trigger_id": str(r["trigger_id"]) if r["trigger_id"] else None,
-                    "resulting_plan_id": r["resulting_plan_id"],
-                    "terminal_action": r["terminal_action"],
-                    "failure_class": r["failure_class"],
-                    "had_required_failure": bool(r["had_required_failure"]),
-                }
-                for r in required_misses
-            ]
-            latest = misses[0]
-            alerts.append(
-                {
-                    "alert_type": "planner_required_plan_missed",
-                    "severity": "critical",
-                    "category": "system",
-                    "sensor_id": "system.planner_required_plan",
-                    "zone": None,
-                    "message": (
-                        f"{latest['event_type']} did not produce a plan by SLA "
-                        f"(status={latest['status']}, due={latest['due_at']})"
-                    ),
-                    "details": {"misses": misses},
-                    "metric_value": float(len(misses)),
-                    "threshold_value": 0.0,
-                }
-            )
-
-        # 7c. Planner ownership drift. Crop-band and lighting-policy params
-        # are dispatcher-owned read-only context; active rows in setpoint_plan
-        # can outrank the DB policy functions and create repeated clamp storms.
-        band_owned_rows = await conn.fetch(
-            """
-            SELECT parameter,
-                   coalesce(plan_id, '<null>') AS plan_id,
-                   coalesce(source, '<null>') AS source,
-                   count(*)::int AS rows
-              FROM setpoint_plan
-             WHERE is_active = true
-               AND parameter = ANY($1::text[])
-             GROUP BY parameter, coalesce(plan_id, '<null>'), coalesce(source, '<null>')
-             ORDER BY parameter, plan_id, source
-            """,
-            sorted(BAND_DRIVEN_PARAMS),
-        )
-        if band_owned_rows:
-            offenders = [
-                {
-                    "parameter": r["parameter"],
-                    "plan_id": r["plan_id"],
-                    "source": r["source"],
-                    "rows": int(r["rows"]),
-                }
-                for r in band_owned_rows
-            ]
-            total_rows = sum(r["rows"] for r in offenders)
-            sample = ", ".join(f"{r['parameter']}:{r['plan_id']}({r['rows']})" for r in offenders[:4])
-            alerts.append(
-                {
-                    "alert_type": "planner_band_ownership_drift",
-                    "severity": "critical",
-                    "category": "system",
-                    "sensor_id": "system.planner_band_ownership",
-                    "zone": None,
-                    "message": (f"{total_rows} active planner row(s) contain dispatcher-owned policy params: {sample}"),
-                    "details": {
-                        "band_owned_params": [
-                            "temp_low",
-                            "temp_high",
-                            "vpd_low",
-                            "vpd_high",
-                            "vpd_target_south",
-                            "vpd_target_west",
-                            "vpd_target_east",
-                            "vpd_target_center",
-                        ],
-                        "offenders": offenders,
-                    },
-                    "metric_value": float(total_rows),
-                    "threshold_value": 0.0,
-                }
-            )
-
-        # 7d. Active/future tunable range drift. MCP validates writes before
-        # insertion, but this guard checks the live schedule the dispatcher will
-        # actually read. It catches direct SQL/manual rows, stale pre-registry
-        # plans, and forced-on switches that would otherwise revive legacy
-        # controller behavior.
-        candidate_rows = await conn.fetch(
-            """
-            SELECT ts, parameter, value, plan_id, source, reason
-              FROM setpoint_plan
-             WHERE is_active = true
-               AND source IN ('iris', 'plan')
-             ORDER BY ts, parameter
-             LIMIT 10000
-            """
-        )
-        tunable_violations = []
-        for r in candidate_rows:
-            parameter = r["parameter"]
-            value = float(r["value"])
-            error = registry_value_error(parameter, value)
-            if parameter in FORCED_ON_SWITCH_PARAMS and value < 0.5:
-                error = "controller_locked_on: unified controller rollback requires firmware/config rollback"
-            if not error:
-                continue
-            tunable_violations.append(
-                {
-                    "parameter": parameter,
-                    "value": value,
-                    "plan_id": r["plan_id"],
-                    "source": r["source"],
-                    "ts": r["ts"].isoformat(),
-                    "reason": (r["reason"] or "")[:200],
-                    "error": error,
-                }
-            )
-        if tunable_violations:
-            sample = ", ".join(f"{v['parameter']}={v['value']:g} ({v['plan_id']})" for v in tunable_violations[:4])
-            alerts.append(
-                {
-                    "alert_type": "planner_tunable_range_drift",
-                    "severity": "critical",
-                    "category": "system",
-                    "sensor_id": "system.planner_tunable_range",
-                    "zone": None,
-                    "message": f"{len(tunable_violations)} active/future planner tunable violation(s): {sample}",
-                    "details": {"violations": tunable_violations[:20]},
-                    "metric_value": float(len(tunable_violations)),
-                    "threshold_value": 0.0,
-                }
-            )
+        # 7. The planner alerts (planner_stale, the trigger SLA, required plans, band ownership, tunable range and
+        # plan horizon) are retired with the plan cycle (climate refactor 4.2). The one left, daily_review_missed,
+        # is raised by the daily review task (tasks/heartbeat.py).
 
         # 7f. Device lighting threshold drift. The per-circuit grow-light lux
         # ON/OFF thresholds are dispatcher-owned but firmware-persisted, and a
@@ -2690,82 +1932,14 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        # 7e. Future plan horizon guard. Validation smoke must never leave the
-        # production planner with only a current-past waypoint surface; SUNRISE /
-        # SUNSET/MIDNIGHT are expected to maintain future non-oneshot waypoints.
-        horizon = await conn.fetchrow(
-            """
-            WITH future AS (
-                SELECT count(*)::int AS future_waypoints
-                  FROM setpoint_plan
-                 WHERE is_active = true
-                   AND ts > now()
-                   AND source IN ('iris', 'plan')
-                   AND plan_id NOT LIKE 'iris-oneshot-%'
-            ),
-            latest AS (
-                SELECT plan_id, max(created_at) AS created_at, max(ts) AS latest_waypoint_ts
-                  FROM setpoint_plan
-                 WHERE is_active = true
-                   AND source IN ('iris', 'plan')
-                   AND plan_id NOT LIKE 'iris-oneshot-%'
-                 GROUP BY plan_id
-                 ORDER BY max(created_at) DESC NULLS LAST
-                 LIMIT 1
-            ),
-            next_required AS (
-                SELECT event_type, due_at
-                  FROM planner_trigger_ledger
-                 WHERE event_type IN ('SUNRISE', 'SUNSET', 'MIDNIGHT', 'FORECAST_DEVIATION', 'DEVIATION', 'FORECAST')
-                   AND status IN ('expected', 'delivered')
-                   AND due_at >= now() - interval '2 hours'
-                 ORDER BY due_at
-                 LIMIT 1
-            )
-            SELECT future.future_waypoints,
-                   latest.plan_id,
-                   latest.created_at,
-                   latest.latest_waypoint_ts,
-                   next_required.event_type AS next_required_event_type,
-                   next_required.due_at AS next_required_due_at
-              FROM future
-              LEFT JOIN latest ON true
-              LEFT JOIN next_required ON true
-            """
-        )
-        if horizon and int(horizon["future_waypoints"] or 0) == 0:
-            next_due = horizon["next_required_due_at"]
-            severity = "critical" if next_due and next_due < datetime.now(UTC) else "warning"
-            alerts.append(
-                {
-                    "alert_type": "planner_plan_horizon_missing",
-                    "severity": severity,
-                    "category": "system",
-                    "sensor_id": "system.planner_plan_horizon",
-                    "zone": None,
-                    "message": "Planner has no active future non-oneshot setpoint_plan waypoints",
-                    "details": {
-                        "active_plan_id": horizon["plan_id"],
-                        "active_plan_created_at": horizon["created_at"].isoformat() if horizon["created_at"] else None,
-                        "latest_waypoint_ts": horizon["latest_waypoint_ts"].isoformat()
-                        if horizon["latest_waypoint_ts"]
-                        else None,
-                        "future_waypoints": 0,
-                        "next_required_event_type": horizon["next_required_event_type"],
-                        "next_required_due_at": next_due.isoformat() if next_due else None,
-                    },
-                    "metric_value": 0.0,
-                    "threshold_value": 1.0,
-                }
-            )
-
-        # 8. Safety value sanity check — catch zeroed/invalid safety rails
+        # 8. Safety value sanity check — catch zeroed/invalid safety rails. Readbacks are stored on change with an
+        # hourly keyframe (#1662): a new value is stored at once, and two keyframes keep the current one in reach.
         for r in await conn.fetch(
             """
             SELECT DISTINCT ON (parameter) parameter, value
             FROM setpoint_snapshot
             WHERE parameter = ANY($1::text[])
-              AND ts > now() - interval '5 minutes'
+              AND ts > now() - interval '2 hours'
             ORDER BY parameter, ts DESC
         """,
             sorted(SAFETY_RAIL_PARAMS),
@@ -2983,7 +2157,13 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                     "message": (
                         f"STAGING INVERSION: heat2 (gas) ON for {dur:.0f}s while heat1 (electric) OFF. "
                         f"Temp={staging_row['temp_avg']:.1f}°F, "
-                        f"Tlow={staging_row['temp_low']:.1f}°F"
+                        # fn_heat_staging_inversion reads temp_low from a 10-minute readback window; readbacks are
+                        # stored on change (#1662), so it is often NULL there and the alert still stands.
+                        + (
+                            f"Tlow={staging_row['temp_low']:.1f}°F"
+                            if staging_row["temp_low"] is not None
+                            else "Tlow=n/a"
+                        )
                     ),
                     "details": {
                         "heat2_on_since": staging_row["heat2_on_since"].isoformat(),
@@ -3465,12 +2645,20 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
             """
             SELECT parameter, count(*) AS n, stddev(value) AS sd, avg(value) AS mean
               FROM setpoint_snapshot
-             WHERE parameter = ANY($1::text[])
+             WHERE parameter = ANY($1::text[]) AND band_role IS NULL
                AND ts > now() - interval '7 days'
+               -- K1: the legacy band scalars sit on boot values while the controller runs its own band.
+               AND NOT (parameter = ANY($2::text[]) AND COALESCE((
+                   SELECT d.band_source FROM diagnostics d
+                    WHERE d.band_source IS NOT NULL AND d.ts > now() - interval '1 day'
+                    ORDER BY d.ts DESC LIMIT 1), '') = ANY($3::text[]))
              GROUP BY parameter
-            HAVING count(*) > 100 AND (stddev(value) IS NULL OR stddev(value) = 0)
+            HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24
+               AND (stddev(value) IS NULL OR stddev(value) = 0)
             """,
             list(zero_var_params),
+            list(LEGACY_BAND_SCALARS),
+            list(ONCHIP_BAND_SOURCES),
         ):
             alerts.append(
                 {
@@ -3501,18 +2689,6 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         stuck_alert, delivery_preserved = await _setpoint_delivery_cycle(conn)
         if stuck_alert is not None:
             alerts.append(stuck_alert)
-        # 15a. Plans written but nothing delivered (#1636, interim until plans end).
-        plan_row, failed = await _guarded_fetchrow(
-            conn,
-            frozenset({"plan_not_delivered"}),
-            _PLAN_NOT_DELIVERED_SQL,
-            PLAN_NOT_DELIVERED_AFTER_S,
-            PLAN_NO_CONFIRMED_DELIVERY_S,
-        )
-        read_preserved |= failed
-        plan_alert = None if plan_row is _READ_FAILED else _plan_not_delivered_alert(plan_row)
-        if plan_alert is not None:
-            alerts.append(plan_alert)
         # 15c. Alert coverage, host release 2 (contracts/alert-coverage.md): all warnings, each read guarded.
         coverage_alerts, failed = await coverage_cycle(conn)
         alerts.extend(coverage_alerts)
@@ -3741,7 +2917,7 @@ async def _sync_monitor_alerts(
     # Sprint 25-omnibus (setpoint_unconfirmed lifecycle fix): only
     # consider alerts THIS monitor owns (source='system') for auto-resolve.
     # Alerts inserted by other monitors (setpoint_confirmation_monitor
-    # writes source='ingestor'; iris_planner writes source='iris_planner';
+    # writes source='ingestor'; the retired iris_planner wrote source='iris_planner';
     # dispatcher writes source='dispatcher') have their own lifecycle
     # — auto-resolving them here caused setpoint_unconfirmed to flap
     # open↔resolved every alert_monitor cycle.

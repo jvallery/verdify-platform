@@ -69,6 +69,11 @@ class Connection:
         self.fail_confirmation = False
         self.after_insert = None
         self.during_fetch = None
+        self.writes = []  # (parameter, at) rows the write lookup returns
+        self.passes = []  # (ts, entity, value) pass markers
+        self.fail_writes = False
+        self.newest_rows = []  # what CONFIRMED_NOW_SQL returns
+        self.restored = []
 
     def is_in_transaction(self):
         return self.active
@@ -93,6 +98,10 @@ class Connection:
         return Transaction()
 
     async def executemany(self, query, rows):
+        if "VALUES (now(), $1, $2, 'esp32', now(), 'observed')" in query:
+            assert self.active, "the restored row commits with the confirmation"
+            self.restored = list(rows)
+            return
         if "INSERT INTO v_runtime_setpoint_snapshot_write" in query:
             self.events.append("insert")
             self.rows = list(rows)
@@ -107,7 +116,20 @@ class Connection:
                 raise RuntimeError("in-memory confirmation failure")
             self.confirmations = list(rows)
 
+    async def execute(self, query, *args):
+        assert "INSERT INTO v_runtime_system_state_write (ts, entity, value)" in query
+        self.events.append("pass")
+        self.passes.append(args)
+
     async def fetch(self, query, *_args):
+        if query == ingestor._READBACK_WRITES_SQL:
+            assert not self.active  # read before the publication transaction
+            if self.fail_writes:
+                raise RuntimeError("in-memory write lookup failure")
+            return [{"parameter": name, "at": at} for name, at in self.writes]
+        if query == ingestor.CONFIRMED_NOW_SQL:
+            assert self.active
+            return self.newest_rows
         assert "FROM setpoint_snapshot" in query
         if self.during_fetch:
             self.during_fetch()
@@ -151,6 +173,7 @@ def context(monkeypatch):
     monkeypatch.setattr(shared, "writer_lease_strictly_held", lambda: True)
     monkeypatch.setattr(shared, "is_shadow_mode", lambda: False)
     monkeypatch.setenv("VERDIFY_DEVICE_WRITE_ENABLED", "1")
+    monkeypatch.setattr(ingestor, "_readback_store", ingestor.ReadbackStore())
     connection = Connection()
 
     def fanout(_table, _row):
@@ -179,8 +202,8 @@ async def test_snapshot_confirmation_and_fanout_use_one_committed_immutable_map(
     assert snapshot == confirmed and snapshot["mister_all_kpa"] == 1.25
     assert snapshot["safety_max"] == 100.0
     assert len({ts for ts, _name, _value in connection.rows}) == 1
-    assert connection.events[:4] == ["begin", "insert", "confirm", "commit"]
-    assert connection.events[4:] == ["fanout"] * len(snapshot)
+    assert connection.events[:5] == ["begin", "insert", "confirm", "pass", "commit"]
+    assert connection.events[5:] == ["fanout"] * len(snapshot)
     assert not shared.setpoint_snapshot_is_current(3)  # Live values advanced during INSERT.
 
 
@@ -350,3 +373,30 @@ async def test_flush_loop_confirmation_matches_snapshot_when_callback_arrives_du
     confirmed = {param: value for param, value, _tolerance in connection.confirmations}
     assert snapshots["mister_all_kpa"] == 1.25
     assert confirmed["mister_all_kpa"] == snapshots["mister_all_kpa"]
+
+
+@pytest.mark.asyncio
+async def test_af1_a_confirmation_after_a_later_boot_observation_restores_the_held_value_as_newest(context):
+    """RULINGS AF1, today's sequence: night_dryout_pulse_s 600 pushed 19:50:00, the rebooted controller reported its
+    stored 120 at 19:50:26, the push was confirmed 19:50:35. The newest row must then say 600 again."""
+    _values, connection, pool = context
+    day = datetime(2026, 11, 16, tzinfo=UTC)
+    pushed, observed = day.replace(hour=19, minute=50), day.replace(hour=19, minute=50, second=26)
+    connection.newest_rows = [
+        {
+            "parameter": "night_dryout_pulse_s",
+            "confirmed_ts": pushed,
+            "confirmed_value": 600.0,
+            "newest_ts": observed,
+            "newest_value": 120.0,
+            "newest_source": "esp32",
+        }
+    ]
+    shared.register_setpoint_snapshot_publisher()
+    await ingestor._publish_setpoint_snapshot(pool, day.replace(hour=19, minute=50, second=35))
+    assert connection.restored == [("night_dryout_pulse_s", 600.0)]
+    # Nothing to restore when the newest row already holds the value, is the push itself, or predates it.
+    same = dict(connection.newest_rows[0], newest_value=600.0)
+    own = dict(connection.newest_rows[0], newest_ts=pushed, newest_source="dispatcher")
+    older = dict(connection.newest_rows[0], newest_ts=pushed - timedelta(seconds=5))
+    assert ingestor.observed_rows_to_restore([same, own, older]) == []

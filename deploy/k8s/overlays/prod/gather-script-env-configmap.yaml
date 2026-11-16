@@ -1,7 +1,10 @@
 # GATHER-SCRIPT RUNTIME ENV (#211) — prod ONLY.
 #
-# Three env keys consumed ONLY by the mounted gather-plan-context.sh +
-# lib/psql-verdify.sh subprocess (NOT by the ingestor app, which talks to
+# Climate refactor 4.2 retired the mounted gather-plan-context.sh that first
+# needed these keys. They stay because they ride the shared verdify-config every
+# envFrom consumer reads (scripts run on the ingestor image use
+# lib/psql-verdify.sh and PYTHONPATH); removing them is a separate change.
+# As written for the gather subprocess (NOT the ingestor app, which talks to
 # Postgres via asyncpg directly):
 #
 #   VERDIFY_DB_BACKEND=dsn  — flips lib/psql-verdify.sh (#24) from its VM-era

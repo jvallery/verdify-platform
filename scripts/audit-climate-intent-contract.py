@@ -132,30 +132,18 @@ def main() -> None:
     if policy_hits:
         _fail("single-path policy files must not reintroduce alternate rollout language: " + ", ".join(policy_hits))
 
+    # Climate refactor 4.2: no agent writes a climate value. set_plan, its ClimateIntent materializer, the plan
+    # prompt and the plan-context gather are retired; the review prompt names none of them.
     server = (REPO_ROOT / "mcp" / "server.py").read_text()
-    if "set_plan requires climate_intent on every transition" not in server:
-        _fail("MCP set_plan must require ClimateIntent on every transition")
-    if "raw params are not accepted in set_plan" not in server:
-        _fail("MCP set_plan must reject raw params in full-plan transitions")
-    if "climate_intent must explicitly set every field" not in server:
-        _fail("MCP set_plan must require explicit ClimateIntent fields")
-    sys.path.insert(0, str(REPO_ROOT / "ingestor"))
-    import iris_planner  # noqa: PLC0415
-
-    for field in CLIMATE_INTENT_FIELDS:
-        if f"`{field}`" not in iris_planner._PLANNER_CORE:
-            _fail(f"Hermes prompt missing ClimateIntent field: {field}")
-    for old_field in ("temp_target_f", "temp_band_f", "vpd_target_kpa", "vpd_band_kpa"):
-        if old_field in iris_planner._PLANNER_CORE:
-            _fail(f"Hermes prompt still teaches AI-owned target/band field: {old_field}")
-    if "dispatcher-owned read-only targets" not in iris_planner._PLANNER_CORE:
-        _fail("Hermes prompt must identify dispatcher-owned targets as read-only context")
-    if "resource minimization is not allowed to close the wet-assist surface" not in iris_planner._PLANNER_CORE:
-        _fail("Hermes prompt must preserve compliance-first wet-assist authority guidance")
-    gather = (REPO_ROOT / "scripts" / "gather-plan-context.sh").read_text()
-    for marker in ("DISPATCHER-OWNED CLIMATE TARGETS", "temp_target_delta_f", "vpd_target_delta_kpa"):
-        if marker not in gather:
-            _fail(f"planner context gather missing target marker: {marker}")
+    for retired in ("async def set_plan(", "async def set_tunable(", "INSERT INTO setpoint_plan"):
+        if retired in server:
+            _fail(f"MCP still carries the retired plan write path: {retired}")
+    review_prompt = (REPO_ROOT / "ingestor" / "review_prompt.py").read_text()
+    if "No agent writes a climate value" not in review_prompt:
+        _fail("the review prompt must say no agent writes a climate value")
+    for retired in ("set_plan", "set_tunable", "climate_intent"):
+        if retired in review_prompt:
+            _fail(f"the review prompt names a retired plan surface: {retired}")
     generator = (REPO_ROOT / "scripts" / "generate-ai-tunables-page.py").read_text()
     for marker in (
         "## ClimateIntent AI Surface",

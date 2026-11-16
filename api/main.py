@@ -1631,17 +1631,9 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
                 status_code=503,
                 detail="policy setpoint computation unavailable — check band and lighting policy functions",
             )
-        plan_rows = await conn.fetch(
-            "SELECT parameter, value FROM v_active_plan WHERE parameter = ANY($1::text[])",
-            sorted(FIRMWARE_SETPOINT_PARAMS),
-        )
+        # Climate refactor 4.2: no plan reaches the controller, so none is overlaid
+        # here; band params are overwritten below by the dispatcher's functions.
         params = {r["parameter"]: r["value"] for r in rows}
-        plan_values = {r["parameter"]: r["value"] for r in plan_rows}
-        plan_params = set(plan_values)
-        # Planner overrides for all params. Band params are overwritten below by
-        # the same crop/house-band functions used by the dispatcher.
-        for r in plan_rows:
-            params[r["parameter"]] = r["value"]
         # Band-driven params: use the same source as the live dispatcher so the
         # compatibility endpoint cannot diverge from direct pushes.
         if band_row and house_row:
@@ -1670,21 +1662,15 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
                 f"gl_{key}_min_off_s": int(row["min_off_s"]),
                 f"sw_gl_{key}_auto_mode": 1 if row["auto_enabled"] else 0,
             }
-            for param, value in lighting_values.items():
-                if param not in plan_params:
-                    params[param] = value
-        for param, value in _direct_wet_policy_values(lighting_row, lighting_circuit_rows).items():
-            if param not in plan_params:
-                params[param] = value
+            params.update(lighting_values)
+        params.update(_direct_wet_policy_values(lighting_row, lighting_circuit_rows))
         # Per-zone VPD targets (from crop data per zone)
         if zone_row:
             for param in ZONE_VPD_TARGET_PARAMS:
                 params[param] = _round_half_up(float(zone_row[param]), 2)
-        # Mister tuning: band provides defaults, planner can override.
-        # Set band-derived values first, then planner values overwrite if present.
+        # Mister tuning: the last delivered value (setpoint_changes), else the band default.
         if house_row:
             vpd_hi = float(house_row["house_vpd_high"])
-            # Band defaults — will be overwritten by planner values from setpoint_changes if present
             params.setdefault("mister_engage_kpa", _round_half_up(vpd_hi + 0.05, 2))
             params.setdefault("mister_all_kpa", _round_half_up(vpd_hi + 0.25, 2))
         outdoor = await conn.fetchrow(
@@ -1826,7 +1812,7 @@ async def health():
         "ok" if isinstance(action_age, (int, float)) and action_age < 300 and not action_proof_missing else "stale"
     )
     checks["service_controller"] = "ok" if checks.get("control_proof") in ("law", "action_log") else "stale"
-    # MCP server health is monitored by the ingestor (planning_heartbeat), not the API.
+    # MCP server health is monitored by the ingestor (the daily_review task), not the API.
     # The API can't reach localhost:8000 from inside Docker (MCP binds to 127.0.0.1 on host).
 
     return redact_public_data({"status": overall, "checks": checks})

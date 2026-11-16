@@ -56,7 +56,7 @@ test("the runs ahead: planned dashed, at their length, labelled and named; what 
   expect(plain(future.get("mist")?.[0].name)).toBe("Center mister, 11:47, 4 × 45 s, planned, only if VPD sensing is degraded");
   const running = futureSpans({ agenda: null, irrigation: statusOf("l01-running"), overrides: parseNow(fixture("fans-burst", { now: NOW })["API-02"])!.overrides }, WINDOW);
   expect(running.get("drip")).toEqual([expect.objectContaining({ status: "planned", start: WINDOW.now, end: at("10:45"), token: "eq-water" })]);
-  expect(running.get("air")).toEqual([expect.objectContaining({ status: "planned", end: at("10:54"), label: "Fans burst", token: "eq-fan1" })]);
+  expect(running.get("air")).toEqual([expect.objectContaining({ status: "planned", end: at("10:54"), label: "Fans, vent open", token: "eq-fan1" })]);
   const drip = runLength({ on_s: 720, count: 1, gap_s: 0, prewet_s: 0, flush_s: 0 }, "L01");
   expect([drip.seconds, plain(drip.words)]).toEqual([720, "12 min"]);
   expect(plain(runLength({ on_s: 30, count: 1, gap_s: 0, prewet_s: 0, flush_s: 0 }, "L01").words)).toBe("30 s");

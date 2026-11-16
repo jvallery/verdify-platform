@@ -120,8 +120,24 @@ def test_exclusions_are_exactly_the_written_reasons():
         "vapor_pressure_inhg",
         "air_density_kg_m3",
         "precip_intensity_in_h",
+        "leaf_temp_north",
+        "leaf_temp_south",
+        "leaf_wetness_north",
+        "leaf_wetness_south",
+        "moisture_north",
+        "moisture_south",
+        "moisture_center",
+        "ph_input",
+        "ec_input",
+        "ph_runoff_wall",
+        "ec_runoff_wall",
+        "ph_runoff_center",
+        "ec_runoff_center",
     }
     assert "migration 027" in series.EXCLUDED_COLUMNS["outdoor_ppfd"]
+    # TEL-F6: always-empty series leave the catalog; the soil probes stay offered (AB3).
+    assert "TEL-F6" in series.EXCLUDED_COLUMNS["ph_input"]
+    assert "climate.soil_moisture_south_1" in series.METRICS
     assert "Historical column" in series.EXCLUDED_COLUMNS["hydro_tds_ppt"]
     assert "#1184" in series.EXCLUDED_COLUMNS["ppfd"]
     assert "_TEMPEST_MAP" in series.EXCLUDED_COLUMNS["feels_like_f"]

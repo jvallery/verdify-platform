@@ -1,12 +1,12 @@
 ---
 name: greenhouse-planning-mcp
-description: Verdify Iris planning with audited MCP tools and current-first full-plan validation
+description: Verdify Iris daily review with audited MCP tools (the planner writes no climate value)
 ---
 
-Use the bare skill name `greenhouse-planning-mcp` with `skill_view`. Read the event's assembled context first. Device-affecting operations use the configured Verdify MCP allowlist only; never use a terminal, raw SQL or arbitrary filesystem access.
+Use the bare skill name `greenhouse-planning-mcp` with `skill_view`. Read the wake-up's record first. Use the configured Verdify MCP allowlist only; never use a terminal, raw SQL or arbitrary filesystem access.
 
 Required references:
-- references/greenhouse-playbook.md
-- references/full-plan-payload-preflight.md
+- references/greenhouse-playbook.md (horticulture and greenhouse physics; its tuning workflows are retired with the plan cycle)
+- references/full-plan-payload-preflight.md (the review checklist)
 
-Existing validated planner lessons and event contracts take precedence over historical examples. A valid plan requires its exact audit identifiers, schema-valid current coverage and confirmed persistence; worker readiness alone is not plan success.
+A review is done when `review_write` accepted it once for the wake-up's run id.

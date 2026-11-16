@@ -9,7 +9,7 @@ feasibility classifier) must not come back into the prose Iris reads, and ADR-00
 target-hugging stays out.
 
 Pure text parsing — no DB, no ESPHome build, no module import side effects (mirrors
-test_planner_prompt_coverage.py). Run anchored to a fixed UTC capture timestamp so
+the other copy gates). Run anchored to a fixed UTC capture timestamp so
 the assertion set is a snapshot, not a moving target.
 """
 
@@ -24,11 +24,9 @@ import re
 SNAPSHOT_TS = dt.datetime(2026, 11, 15, 0, 0, 0, tzinfo=dt.UTC)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-PLANNER_PATH = REPO_ROOT / "ingestor" / "iris_planner.py"
+PLANNER_PATH = REPO_ROOT / "ingestor" / "review_prompt.py"
 MCP_SERVER_PATH = REPO_ROOT / "mcp" / "server.py"
 
-# The assembled planner prompt is these three module-level triple-quoted constants.
-_PROMPT_CONSTANTS = ("_STANDING_DIRECTIVES", "_PLANNER_EXTENDED", "_PLANNER_CORE")
 
 # The retired crop-band grading and resource reward. Any of these back in the
 # planner-facing copy is a regression of #1623.
@@ -55,15 +53,9 @@ _FORBIDDEN_TARGET_HUGGING_FRAMINGS = (
 
 
 def _prompt_text() -> str:
-    """Concatenate the bodies of the three triple-quoted prompt constants."""
-    src = PLANNER_PATH.read_text()
-    bodies: list[str] = []
-    for const in _PROMPT_CONSTANTS:
-        m = re.search(rf'{const}\s*=\s*"""(?P<body>.*?)"""', src, re.DOTALL)
-        assert m, f"Could not locate prompt constant {const} in {PLANNER_PATH}"
-        bodies.append(m.group("body"))
-    text = "\n".join(bodies)
-    assert text.strip(), "Assembled planner prompt text is empty"
+    """The review prompt module's source: its role text and price list are literal strings."""
+    text = PLANNER_PATH.read_text()
+    assert text.strip(), "Review prompt source is empty"
     return text
 
 
@@ -101,40 +93,14 @@ def test_snapshot_ts_is_utc() -> None:
     assert SNAPSHOT_TS.utcoffset() == dt.timedelta(0)
 
 
-def test_planner_prompt_names_one_served_band_score() -> None:
-    """The prompt tells Iris the score is served-band compliance_pct at 100% weight."""
-    text = _prompt_text()
-    lowered = text.lower()
-    for token in ("served house band", "band_house_*", "measurement contract 3", "compliance_pct"):
-        assert token.lower() in lowered, f"Planner prompt must name {token!r} ({PLANNER_PATH})."
-    assert "`planner_score` = `compliance_pct`, at 100% weight" in text
-    assert "0.74 kpa" in lowered and "dry-out" in lowered
-
-
-def test_planner_prompt_drops_retired_grading() -> None:
+def test_review_prompt_drops_retired_grading_and_target_hugging() -> None:
+    """Climate refactor 4.2: the planner prompt is the daily review prompt (ingestor/review_prompt.py)."""
     lowered = _prompt_text().lower()
-    offenders = [p for p in _FORBIDDEN_RETIRED_GRADING if p.lower() in lowered]
-    assert not offenders, f"Planner prompt still carries retired crop-band grading {offenders} ({PLANNER_PATH})."
-
-
-def test_planner_prompt_keeps_resources_informational() -> None:
-    """Cost leaves the reward; electric heat1 is primary heat, never something to minimise."""
-    lowered = _prompt_text().lower()
-    assert "informational" in lowered
-    assert "never minimise heat1 runtime or cost" in lowered
-    assert "house/hose water is excluded" in lowered
-    assert "3.9x cheaper" not in lowered
-
-
-def test_planner_prompt_drops_target_hugging_framing() -> None:
-    """ADR-0004 says target-distance is diagnostic, not the control objective."""
-    lowered = _prompt_text().lower()
-    offenders = [p for p in _FORBIDDEN_TARGET_HUGGING_FRAMINGS if p.lower() in lowered]
+    offenders = [p for p in (*_FORBIDDEN_RETIRED_GRADING, *_FORBIDDEN_TARGET_HUGGING_FRAMINGS) if p.lower() in lowered]
     assert not offenders, (
-        f"Planner prompt still carries ADR-0003 target-hugging framing {offenders} "
-        f"({PLANNER_PATH}). Target-reference deviation may be diagnostic, but the "
-        "planner must optimize served-band outcomes."
+        f"Review prompt carries retired grading or target-hugging framing {offenders} ({PLANNER_PATH})."
     )
+    assert "3.9x cheaper" not in lowered
 
 
 def test_scorecard_docstring_names_one_served_band_score() -> None:

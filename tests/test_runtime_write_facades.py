@@ -35,7 +35,15 @@ BASE_TO_FACADE = {
 # writers (gpu_power, infra_cpu) were retired from runtime code and migration
 # 309 drops those relations. They stay in BASE_TO_FACADE because the applied
 # migration 217 is immutable; runtime-code checks use RUNTIME_FACADES.
-RETIRED_FACADES = {"v_runtime_gpu_power_write", "v_runtime_infra_cpu_write"}
+# The plan cycle's writers (the forecast engine's setpoint_plan rows and the
+# forecast-deviation trigger's log) retired with climate refactor 4.2; their
+# facades stay in the database (no drop in that release) with no runtime writer.
+RETIRED_FACADES = {
+    "v_runtime_gpu_power_write",
+    "v_runtime_infra_cpu_write",
+    "v_runtime_forecast_deviation_log_write",
+    "v_runtime_setpoint_plan_write",
+}
 RUNTIME_FACADES = set(BASE_TO_FACADE.values()) - RETIRED_FACADES
 
 INVOKER_HELPER_CLOSURE = {
@@ -98,7 +106,6 @@ def _enabled_runtime_sources() -> dict[Path, str]:
     paths.extend(
         ROOT / "scripts" / name
         for name in (
-            "forecast-action-engine.py",
             "greenhouse-quiet-mode.py",
             "setpoint-server.py",
         )
@@ -209,8 +216,8 @@ def test_enabled_runtime_code_has_zero_direct_dml_on_facade_bases():
             combined,
             re.IGNORECASE,
         ), facade
-    assert "FROM v_runtime_setpoint_changes_write" in combined
-    assert "FOR UPDATE SKIP LOCKED" in combined
+    # The setpoint NOTIFY delivery CAS (the only locked read of the setpoint_changes facade) retired with #1656.
+    assert "FROM v_runtime_setpoint_changes_write" not in combined
 
 
 def test_every_runtime_view_dml_target_is_in_the_closed_contract():
@@ -348,7 +355,8 @@ def test_conflict_predicates_and_target_side_columns_stay_projected():
             f"'{column}'"
             in sql[sql.index("('setpoint_changes'") : sql.index("('setpoint_clamps'", sql.index("('setpoint_changes'"))]
         )
-    assert "INSERT INTO v_runtime_setpoint_plan_write" in sources
+    # Climate refactor 4.2: the forecast engine, the last setpoint_plan writer, is retired.
+    assert "INSERT INTO v_runtime_setpoint_plan_write" not in sources
 
 
 def test_exact_engine_fixture_is_durable_and_rollback_only():

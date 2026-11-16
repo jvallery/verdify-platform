@@ -195,10 +195,10 @@ COPY (
 ) TO STDOUT WITH (FORMAT csv, DELIMITER E'\t', HEADER, NULL '')
 " > "$TMP_ROOT/climate.tsv"
 
-echo "  reading complete setpoint batches..."
-# A bounded replay needs the last complete batch at/before its first actual
-# climate row plus subsequent batches. Retain that seed so sparse snapshots do
-# not erase the starting policy; avoid aggregating every historical batch.
+echo "  reading setpoint readback batches..."
+# A bounded replay needs every parameter's newest readback at/before its first
+# actual climate row (the seed) plus the batches after it. Readbacks are stored
+# on change (#1662), so each batch is merged into the configuration in force.
 SETPOINT_ARGS=(--climate "$TMP_ROOT/climate.tsv")
 if [ "$DAYS" -eq 0 ]; then SETPOINT_ARGS+=(--all-history); fi
 SETPOINT_SQL=$(python3 "$SCRIPT_DIR/replay_setpoint_export.py" "${SETPOINT_ARGS[@]}")
@@ -448,7 +448,8 @@ try:
             ts = climate["ts"]
 
             while current_sp is not None and current_sp["ts"] <= ts:
-                config = json.loads(current_sp["config_payload"])
+                # Readbacks are stored on change (#1662): each batch updates the parameters it holds.
+                config.update(json.loads(current_sp["config_payload"]))
                 current_sp = next_or_none(sp_rows)
 
             while current_sys is not None and current_sys["ts"] <= ts:

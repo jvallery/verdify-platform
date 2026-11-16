@@ -118,8 +118,12 @@ def test_the_deployment_keeps_the_verdify_api_security_context_with_a_writable_t
         "readOnlyRootFilesystem": True,
         "capabilities": {"drop": ["ALL"]},
     }
-    assert container["volumeMounts"] == [{"name": "tmp", "mountPath": "/tmp"}]  # noqa: S108
-    assert pod["volumes"] == [{"name": "tmp", "emptyDir": {}}]
+    assert container["volumeMounts"] == [
+        {"name": "tmp", "mountPath": "/tmp"},  # noqa: S108
+        {"name": "release-pins", "mountPath": "/etc/verdify/release-pins", "readOnly": True},
+    ]
+    assert pod["volumes"][0] == {"name": "tmp", "emptyDir": {}}
+    assert pod["volumes"][1]["configMap"]["optional"] is True
 
 
 def test_the_configmap_names_the_dashboard_login(rendered):
@@ -193,7 +197,11 @@ def test_the_dashboard_web_pods_carry_the_labels_the_policy_admits():
 
 def test_the_api_image_carries_the_operator_api_and_every_route_module():
     lines = (ROOT / "api/Dockerfile").read_text().splitlines()
-    copies = ["COPY api/operator_api.py ./operator_api.py", "COPY api/operator_routes/ ./operator_routes/"]
+    copies = [
+        "COPY api/operator_api.py ./operator_api.py",
+        "COPY api/product_metrics.py ./product_metrics.py",
+        "COPY api/operator_routes/ ./operator_routes/",
+    ]
     check = 'RUN python -c "import operator_api"'  # every included route module imports at build
     for line in (*copies, check):
         assert lines.count(line) == 1, line
@@ -238,6 +246,18 @@ def test_in_prod_the_operator_api_syncs_after_everything_else_with_no_pod_templa
     ]
     assert int(operator["metadata"]["annotations"][annotation]) > max(others)
     assert annotation not in (operator["spec"]["template"]["metadata"].get("annotations") or {})
+
+
+def test_in_prod_the_release_pins_reach_the_operator_api(prod):
+    # Package 6: verdify_release_pin_info reads exactly the file kustomize applies as the release-pin transformer.
+    pod = one(prod, "Deployment", NAME)["spec"]["template"]["spec"]
+    (volume,) = [v for v in pod["volumes"] if v["name"] == "release-pins"]
+    generated = one(prod, "ConfigMap", volume["configMap"]["name"])
+    assert generated["metadata"]["name"].startswith("verdify-release-pins-")
+    assert generated["data"]["release-pins.yaml"] == (PROD / "release-pins.yaml").read_text()
+    (mount,) = [m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "release-pins"]
+    source = (ROOT / "api/product_metrics.py").read_text()
+    assert f'RELEASE_PINS_PATH = Path("{mount["mountPath"]}/release-pins.yaml")' in source
 
 
 def test_in_prod_allow_db_from_app_admits_the_operator_api(prod):

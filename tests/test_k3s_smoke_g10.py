@@ -168,7 +168,7 @@ def test_g10_smoke_fails_closed(tmp_path, case, expected_code, expected_text):
             MOCK_PODS=str(pod_file),
             MOCK_MCP_OK="0" if case == "missing_tools" else "1",
             MOCK_MCP_STALL="1" if case == "stalled_tools" else "0",
-            MOCK_SNAPSHOT="900|0" if case == "stale_readbacks" else "10|1",
+            MOCK_SNAPSHOT="900|47" if case == "stale_readbacks" else "10|48",
             MOCK_OPERATOR_READY="0" if case == "operator_unready" else "1",
             MOCK_OPERATOR_IMAGE={
                 "operator_wrong_digest": IMAGE.replace("b" * 64, "e" * 64),
@@ -295,6 +295,8 @@ def test_dashboard_smoke_prints_only_check_lines_and_fails_closed(tmp_path, mock
         ["--agent-write", "Bad Name"],
         ["--agent-write", "orbit", "--role", "operator"],
         ["--agent-write", "orbit", "--lights"],
+        ["--agent-write", "orbit", "--param", "mister_engage_kpa"],  # an agent sets only an operator switch (4.2)
+        ["--agent-write", "orbit", "--param", "sw_occupancy_inhibit"],  # its one step lets the misters run on a person
         ["--role", "operator", "--lights", "--revert"],
         ["--role", "operator", "--lights", "--param", "mister_engage_kpa"],
         ["--role", "operator", "--param", "Bad-Param"],
@@ -771,8 +773,6 @@ SWEEP_IDS = [
     "API-17",
     "API-21",
     "API-25",
-    "API-26",
-    "API-27",
     "API-IRR-01",
     "API-IRR-02",
     "API-IRR-10 with minutes on all 30 days, not no_data",
@@ -1154,7 +1154,7 @@ def test_agent_leg_without_a_key_fails_clearly_and_creates_nothing(tmp_path):
 
 MCP_IMAGE = "registry.vallery.net/verdifyconsultancy/verdify-mcp@" + DIGEST
 JOB_LOGS = (
-    "PASS mister_engage_kpa can take the check: its newest desired row is absent or released\n"
+    "PASS sw_gl_grow_out_of_service can take the check: its newest desired row is absent or released\n"
     "WRITING\n"
     "token=KEY-VALUE\n"
     "PASS set_setting answers state requested\n"
@@ -1167,8 +1167,8 @@ def test_agent_leg_creates_the_labelled_job_deletes_it_and_reads_api_17(tmp_path
     world = FakeDashboard()
     agent = {"source": "agent:orbit", "name": "orbit"}
     world.activity = [
-        {"action": "setting.release", "target": "mister_engage_kpa", "request_id": "b", "actor": agent},
-        {"action": "setting.write", "target": "mister_engage_kpa", "request_id": "a", "actor": agent},
+        {"action": "setting.release", "target": "sw_gl_grow_out_of_service", "request_id": "b", "actor": agent},
+        {"action": "setting.write", "target": "sw_gl_grow_out_of_service", "request_id": "a", "actor": agent},
     ]
     result, kube_calls, manifest = run_leg(
         tmp_path,
@@ -1210,7 +1210,7 @@ def test_agent_leg_creates_the_labelled_job_deletes_it_and_reads_api_17(tmp_path
     }
     env = {item["name"]: item for item in container["env"]}
     assert env["MCP_URL"]["value"] == "http://verdify-mcp.verdify-prod.svc:8000/mcp"
-    assert env["SMOKE_PARAM"]["value"] == "mister_engage_kpa"
+    assert env["SMOKE_PARAM"]["value"] == "sw_gl_grow_out_of_service"
     assert env["SMOKE_AGENT"]["value"] == "orbit"
     assert env["MCP_AGENT_KEY"]["valueFrom"]["secretKeyRef"] == {"name": "verdify-mcp-agents", "key": "orbit"}
 
@@ -1220,7 +1220,7 @@ def test_agent_leg_creates_the_labelled_job_deletes_it_and_reads_api_17(tmp_path
     assert not [call for call in kube_calls if "secret" in call and "describe" not in call]
     reads = [call for call in world.calls if call["path"] == "/api/v1/activity"]
     assert reads and reads[0]["role"] == "viewer"
-    assert "source=agent:orbit&target=mister_engage_kpa&from=2026-11-03T21:00:00Z" in reads[0]["target"]
+    assert "source=agent:orbit&target=sw_gl_grow_out_of_service&from=2026-11-03T21:00:00Z" in reads[0]["target"]
     assert world.calls_writing() == []
 
 
@@ -1230,7 +1230,7 @@ def test_agent_leg_fails_when_api_17_lacks_a_write(tmp_path):
     world.activity = [
         {
             "action": "setting.write",
-            "target": "mister_engage_kpa",
+            "target": "sw_gl_grow_out_of_service",
             "request_id": "a",
             "actor": {"source": "agent:orbit", "name": "orbit"},
         },
@@ -1258,10 +1258,10 @@ def test_agent_leg_reads_no_activity_when_the_job_wrote_nothing(tmp_path):
         MOCK_SECRET=SECRET_NAMES.format(key="orbit"),
         MOCK_MCP_IMAGE=MCP_IMAGE,
         MOCK_JOB_CONDITIONS="Failed",
-        MOCK_JOB_LOGS="FAIL mister_engage_kpa refused: its newest desired row is neither absent nor released, so it stays\n",
+        MOCK_JOB_LOGS="FAIL sw_gl_grow_out_of_service refused: its newest desired row is neither absent nor released, so it stays\n",
     )
     assert result.returncode == 1
-    assert "FAIL  agent Job: mister_engage_kpa refused" in result.stdout
+    assert "FAIL  agent Job: sw_gl_grow_out_of_service refused" in result.stdout
     assert "FAIL  the agent Job ended Failed" in result.stdout
     assert [call for call in kube_calls if "delete" in call]
     assert not world.calls
@@ -1300,13 +1300,13 @@ def test_agent_leg_needs_a_pinned_mcp_image(tmp_path):
 # ── The agent Job's program, under this Python against a fake MCP ──────────
 
 AGENT_ROW = {
-    "param": "mister_engage_kpa",
-    "kind": "numeric",
-    "control_class": "planner_policy",
+    "param": "sw_gl_grow_out_of_service",
+    "kind": "switch",
+    "control_class": "controller_safety",
     "writable": True,
-    "step": 0.05,
-    "max": 2.5,
-    "readback": {"value": 1.600000023841858},
+    "step": 1.0,
+    "max": 1.0,
+    "readback": {"value": 0.0},
     "desired": None,
 }
 
@@ -1320,7 +1320,9 @@ def agent_program():
 
 def agent_env(url):
     env = dict(os.environ)
-    env.update(MCP_URL=f"{url}/mcp", MCP_AGENT_KEY="KEY-VALUE", SMOKE_PARAM="mister_engage_kpa", SMOKE_AGENT="orbit")
+    env.update(
+        MCP_URL=f"{url}/mcp", MCP_AGENT_KEY="KEY-VALUE", SMOKE_PARAM="sw_gl_grow_out_of_service", SMOKE_AGENT="orbit"
+    )
     return env
 
 
@@ -1337,7 +1339,7 @@ def test_agent_program_writes_one_step_releases_and_prints_only_states_and_codes
     result = run_agent_program(fake_mcp(calls, row=AGENT_ROW, stream=stream))
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.splitlines() == [
-        "PASS mister_engage_kpa can take the check: its newest desired row is absent or released",
+        "PASS sw_gl_grow_out_of_service can take the check: its newest desired row is absent or released",
         "WRITING",
         "PASS set_setting answers state requested",
         "PASS set_setting(release=true) answers state released",
@@ -1346,7 +1348,7 @@ def test_agent_program_writes_one_step_releases_and_prints_only_states_and_codes
     # The second settings read is the check before the release.
     assert [tool["name"] for tool in tools] == ["settings", "set_setting", "settings", "set_setting"]
     write, release = tools[1]["arguments"], tools[3]["arguments"]
-    assert (write["param"], write["value"], write["reason"]) == ("mister_engage_kpa", 1.65, "R2 live check")
+    assert (write["param"], write["value"], write["reason"]) == ("sw_gl_grow_out_of_service", 1.0, "R2 live check")
     assert "manual" not in write
     assert release["release"] is True and "value" not in release
     assert write["request_id"] != release["request_id"]
@@ -1355,7 +1357,7 @@ def test_agent_program_writes_one_step_releases_and_prints_only_states_and_codes
 
 def test_agent_program_refuses_a_row_it_did_not_write_before_any_write():
     calls = []
-    held = {**AGENT_ROW, "desired": {"id": 1, "value": 1.2, "manual": True}}
+    held = {**AGENT_ROW, "desired": {"id": 1, "value": 1.0, "manual": True}}
     result = run_agent_program(fake_mcp(calls, row=held))
     assert result.returncode == 1
     assert "refused: its newest desired row is neither absent nor released" in result.stdout
@@ -1363,17 +1365,22 @@ def test_agent_program_refuses_a_row_it_did_not_write_before_any_write():
     assert [call["params"]["name"] for call in calls if call["method"] == "tools/call"] == ["settings"]
 
 
-def test_agent_program_steps_from_a_plan_value_off_the_grid():
+@pytest.mark.parametrize(
+    ("row", "why"),
+    [
+        ({**AGENT_ROW, "readback": {"value": 1.0}}, "the light is already out of service, and only 0 to 1 is safe"),
+        (
+            {**AGENT_ROW, "kind": "numeric", "control_class": "planner_policy"},
+            "only an operator switch is an agent's to write",
+        ),
+    ],
+)
+def test_agent_program_writes_only_an_out_of_service_switch_from_0_to_1(row, why):
     calls = []
-    row = {**AGENT_ROW, "readback": {"value": 0.9580000042915344}}
     result = run_agent_program(fake_mcp(calls, row=row))
-    assert result.returncode == 0, result.stdout + result.stderr
-    writes = [
-        call["params"]["arguments"]
-        for call in calls
-        if call["method"] == "tools/call" and "value" in call["params"]["arguments"]
-    ]
-    assert [write["value"] for write in writes] == [1.0]
+    assert result.returncode == 1
+    assert why in result.stdout and "WRITING" not in result.stdout
+    assert [call["params"]["name"] for call in calls if call["method"] == "tools/call"] == ["settings"]
 
 
 def agent_released(calls):
@@ -1382,16 +1389,16 @@ def agent_released(calls):
 
 def test_agent_program_leaves_a_row_another_writer_wrote_after_its_own():
     calls = []
-    person = {"id": 5, "value": 1.2, "manual": True, "actor": {"source": "dashboard", "name": "jason"}}
+    person = {"id": 5, "value": 1.0, "manual": True, "actor": {"source": "dashboard", "name": "jason"}}
     result = run_agent_program(fake_mcp(calls, row=AGENT_ROW, row_after_write={**AGENT_ROW, "desired": person}))
     assert result.returncode == 1
-    assert "FAIL mister_engage_kpa's newest desired row is another writer's, so it stays" in result.stdout
+    assert "FAIL sw_gl_grow_out_of_service's newest desired row is another writer's, so it stays" in result.stdout
     assert agent_released(calls) == []
 
 
 def test_agent_program_releases_its_own_row():
     calls = []
-    own = {"id": 1, "value": 1.65, "manual": False, "actor": {"source": "agent:orbit", "name": "orbit"}}
+    own = {"id": 1, "value": 1.0, "manual": False, "actor": {"source": "agent:orbit", "name": "orbit"}}
     result = run_agent_program(fake_mcp(calls, row=AGENT_ROW, row_after_write={**AGENT_ROW, "desired": own}))
     assert result.returncode == 0, result.stdout + result.stderr
     assert len(agent_released(calls)) == 1

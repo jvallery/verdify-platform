@@ -59,33 +59,14 @@ from verdify_schemas import (  # noqa: E402
     OutcomeKpiActionRow,
     OutcomeKpiCoverage,
     OutcomeKpiResponse,
-    Plan,
-    PlanDeliveryLogRow,
-    PlanEvaluation,
-    PlanHypothesisStructured,
-    PlanRunResponse,
-    PlanStatusJournal,
-    PlanStatusResponse,
-    PlanStatusWaypoint,
     ScorecardResponse,
     SetpointSummary,
     TreatmentCreate,
     derive_lesson_state,
     is_legal_lesson_transition,
 )
-from verdify_schemas.climate_intent import (  # noqa: E402
-    CLIMATE_INTENT_CONTRACT_VERSION,
-    CLIMATE_INTENT_FIELDS,
-    ClimateIntent,
-    climate_intent_materialization_guardrails,
-    materialize_climate_intent_tier1,
-)
 from verdify_schemas.fixed_panel_native_route import read_native_fixed_panel_route_evidence  # noqa: E402
 from verdify_schemas.irrigation import LineId, StartKind, Weekday  # noqa: E402
-from verdify_schemas.plan import (  # noqa: E402
-    classify_planner_terminal_action,
-    plan_current_coverage_error,
-)
 from verdify_schemas.realized_dryout import (  # noqa: E402
     RealizedDryoutEvidence,
     project_realized_solar_night_dryout,
@@ -94,12 +75,7 @@ from verdify_schemas.realized_dryout import (  # noqa: E402
 from verdify_schemas.route_only_crop_band_reader import read_route_only_crop_band_evidence  # noqa: E402
 from verdify_schemas.telemetry import DliEvidence  # noqa: E402
 from verdify_schemas.tunable_registry import (  # noqa: E402
-    BAND_OWNED_REG,
-    CROP_BAND_REG,
-    PLANNER_PUSHABLE_REG,
     TIER1_REG,
-    normalize_planner_value,
-    registry_value_error,
 )
 from verdify_services import activity as activity_service  # noqa: E402
 from verdify_services import alerts as alerts_service  # noqa: E402
@@ -175,201 +151,9 @@ MCP_DB_STATEMENT_TIMEOUT_MS = max(
 # The single-day action scorecard performs four historical setpoint lookups per
 # decision. Keep its read bounded without widening every MCP query's DB budget.
 KPI_ACTION_SCORECARD_TIMEOUT_MS = 30_000
-# Legacy planner.py removed — planning runs via iris_planner.py → Hermes /v1/runs
-BAND_OWNED_PARAMS = BAND_OWNED_REG
-# P1a (B6): the crop temp/VPD band targets (temp_low/high, vpd_low/high, per-zone
-# vpd targets). These are dispatcher/curve-owned and MUST NOT be written to
-# setpoint_plan (that caused clamp storms), but the planner's INTENDED band is
-# worth recording in the plan_journal audit so v_plan_accuracy / v_plan_compliance
-# can grade planned-vs-served band against the new (migration-145) curve. We
-# capture them into hypothesis_structured.planned_band WITHOUT actuating them.
-CROP_BAND_PARAMS = CROP_BAND_REG
+# The planner writes no setting (climate refactor 4.2). PLAN_REQUIRED_PARAMS stays assigned because the public
+# site's AI tunables generator parses it from this file (plan section 8.10).
 PLAN_REQUIRED_PARAMS = TIER1_REG
-TIER1_TUNABLES = TIER1_REG
-
-# A required plan with eight complete ClimateIntent waypoints serializes to
-# roughly 5K decoded characters. Keep the advertised MCP argument surface well
-# below Hermes's 16K final continuation ceiling so a valid tool call can close
-# its JSON before the completion cap. These are transport bounds only:
-# registry, materialization, coverage and write-fence validation below remain
-# authoritative.
-SET_PLAN_HYPOTHESIS_MAX_CHARS = 2200
-SET_PLAN_TRANSITIONS_MAX_CHARS = 6000
-SET_PLAN_EXPERIMENT_MAX_CHARS = 240
-SET_PLAN_EXPECTED_OUTCOME_MAX_CHARS = 320
-SET_PLAN_ARGUMENTS_MAX_CHARS = 10000
-SET_PLAN_TRANSITIONS_MIN = 3
-SET_PLAN_TRANSITIONS_MAX = 8
-SET_PLAN_REASON_MAX_CHARS = 120
-
-FORCED_ON_SWITCH_PARAMS = frozenset({"sw_fsm_controller_enabled"})
-CLIMATE_TARGET_PARAM_ALIASES = {
-    "temp_low_f": "temp_low",
-    "temp_high_f": "temp_high",
-    "vpd_low_kpa": "vpd_low",
-    "vpd_high_kpa": "vpd_high",
-}
-
-
-def _climate_intent_waypoint_errors(waypoints: object) -> list[dict[str, object]]:
-    if not isinstance(waypoints, list):
-        return [{"transition_index": -1, "error": "transitions must be a JSON array"}]
-    errors: list[dict[str, object]] = []
-    if not SET_PLAN_TRANSITIONS_MIN <= len(waypoints) <= SET_PLAN_TRANSITIONS_MAX:
-        errors.append(
-            {
-                "transition_index": -1,
-                "error": (f"set_plan requires {SET_PLAN_TRANSITIONS_MIN}-{SET_PLAN_TRANSITIONS_MAX} transitions"),
-                "transition_count": len(waypoints),
-            }
-        )
-    for idx, wp in enumerate(waypoints):
-        if not isinstance(wp, dict):
-            errors.append({"transition_index": idx, "error": "transition must be an object"})
-            continue
-        if "climate_intent" not in wp:
-            errors.append({"transition_index": idx, "error": "missing climate_intent"})
-        elif isinstance(wp["climate_intent"], dict):
-            provided = set(wp["climate_intent"])
-            missing = sorted(set(CLIMATE_INTENT_FIELDS) - provided)
-            if missing:
-                errors.append(
-                    {
-                        "transition_index": idx,
-                        "error": "climate_intent must explicitly set every field",
-                        "missing_fields": missing,
-                    }
-                )
-        if "params" in wp and wp.get("params") not in ({}, None):
-            errors.append({"transition_index": idx, "error": "raw params are not accepted in set_plan"})
-        reason = wp.get("reason")
-        if isinstance(reason, str) and len(reason) > SET_PLAN_REASON_MAX_CHARS:
-            errors.append(
-                {
-                    "transition_index": idx,
-                    "error": f"reason must be at most {SET_PLAN_REASON_MAX_CHARS} characters",
-                    "reason_chars": len(reason),
-                }
-            )
-    return errors
-
-
-def _set_plan_decoded_argument_chars(
-    *,
-    plan_id: str,
-    hypothesis: str,
-    transitions: str,
-    experiment: str,
-    expected_outcome: str,
-    trigger_id: str | None,
-    planner_instance: str | None,
-    valid_from: str | None,
-    expires_at: str | None,
-) -> int:
-    """Count decoded argument text, independent of transport JSON escaping."""
-    return sum(
-        len(value)
-        for value in (
-            plan_id,
-            hypothesis,
-            transitions,
-            experiment,
-            expected_outcome,
-            trigger_id,
-            planner_instance,
-            valid_from,
-            expires_at,
-        )
-        if value is not None
-    )
-
-
-async def _fetch_active_tier1_params(conn: asyncpg.Connection) -> dict[str, float]:
-    rows = await conn.fetch(
-        """
-        SELECT parameter, value
-          FROM v_active_plan
-         WHERE parameter = ANY($1::text[])
-        """,
-        sorted(set(TIER1_REG) | set(BAND_OWNED_REG)),
-    )
-    params = {str(row["parameter"]): float(row["value"]) for row in rows}
-    target_row = await conn.fetchrow(
-        """
-        WITH latest_climate AS (
-          SELECT ts,
-                 temp_avg,
-                 vpd_avg,
-                 dew_point
-            FROM climate
-           WHERE temp_avg IS NOT NULL
-             AND vpd_avg IS NOT NULL
-           ORDER BY ts DESC
-           LIMIT 1
-        ), target AS (
-          SELECT ts,
-                 temp_avg,
-                 vpd_avg,
-                 dew_point,
-                 fn_setpoint_at('temp_low', ts) AS temp_low_f,
-                 fn_setpoint_at('temp_high', ts) AS temp_high_f,
-                 fn_setpoint_at('vpd_low', ts) AS vpd_low_kpa,
-                 fn_setpoint_at('vpd_high', ts) AS vpd_high_kpa
-            FROM latest_climate
-        )
-        SELECT temp_avg AS temp_actual_f,
-               vpd_avg AS vpd_actual_kpa,
-               temp_low_f,
-               temp_high_f,
-               vpd_low_kpa,
-               vpd_high_kpa,
-               CASE WHEN dew_point IS NULL THEN NULL ELSE temp_avg - dew_point END AS dew_margin_f,
-               greatest(0.0, temp_avg - temp_high_f) AS temp_above_high_f,
-               greatest(0.0, vpd_avg - vpd_high_kpa) AS vpd_above_high_kpa,
-               (temp_avg - ((temp_low_f + temp_high_f) / 2.0)) AS temp_target_delta_f,
-               (vpd_avg - ((vpd_low_kpa + vpd_high_kpa) / 2.0)) AS vpd_target_delta_kpa
-          FROM target
-        """
-    )
-    if target_row:
-        for key, value in dict(target_row).items():
-            if value is not None:
-                numeric = float(value)
-                params[key] = numeric
-                if alias := CLIMATE_TARGET_PARAM_ALIASES.get(key):
-                    params[alias] = numeric
-    return params
-
-
-def _materialize_climate_intent_waypoints(
-    waypoints: list[object],
-    active_tier1_params: dict[str, float],
-) -> tuple[list[object], list[dict[str, object]]]:
-    expanded: list[object] = []
-    intent_records: list[dict[str, object]] = []
-    for wp in waypoints:
-        if not isinstance(wp, dict) or "climate_intent" not in wp:
-            expanded.append(wp)
-            continue
-        intent = ClimateIntent.model_validate(wp["climate_intent"])
-        raw_materialized = materialize_climate_intent_tier1(intent, active_tier1_params)
-        # One final normalization boundary intersects the planner-facing and
-        # firmware/dispatcher bounds.  No later persistence path clamps again.
-        materialized = {name: normalize_planner_value(name, value) for name, value in raw_materialized.items()}
-        guardrails = climate_intent_materialization_guardrails(intent, active_tier1_params, materialized)
-        expanded_wp = dict(wp)
-        expanded_wp["params"] = materialized
-        expanded.append(expanded_wp)
-        record = {
-            "ts": wp.get("ts"),
-            "reason": wp.get("reason"),
-            "climate_intent": intent.model_dump(mode="json"),
-            "materialized_params": materialized,
-        }
-        if guardrails:
-            record["guardrails"] = guardrails
-        intent_records.append(record)
-    return expanded, intent_records
 
 
 def _json(obj):
@@ -712,8 +496,7 @@ def current_actor() -> McpActor | None:
 
     The only way a tool learns who called: no tool argument sets a source, an
     actor or a *_by column. A write that records an actor refuses with
-    `forbidden` when this is None (Iris's unchanged set_plan and set_tunable
-    excepted).
+    `forbidden` when this is None.
     """
     return _REQUEST_ACTOR.get()
 
@@ -904,7 +687,6 @@ _TOOL_READ_ONLY = frozenset(
         "equipment_state",
         "forecast",
         "get_setpoints",
-        "plan_status",
         "history",
         "lessons",
         "lessons_search",
@@ -1048,18 +830,15 @@ class AudienceAuthorizedFastMCP(FastMCP):
 
 # Every backticked tool name here must be registered: tests/test_mcp_irrigation_read_tools.py fails on one that
 # tools/list for admin does not return, so the paragraph grows with each tool.
-SERVER_INSTRUCTIONS = """Verdify greenhouse control tools. Use these to monitor climate,
-    manage setpoints, run the AI planner, and review performance.
-    The greenhouse has temp/VPD bands, misters, fog, fans, heaters, and a vent.
-    The planner emits bounded ClimateIntent in set_plan transitions; MCP
-    materializes it into registry-valid tunables that shape how the controller responds.
-    Band params (temp_low, temp_high, vpd_low, vpd_high) are dispatcher-owned
-    read-only context in routine plans. Temp comes from crop policy; house VPD is
-    derived from crop + zone policy. Use direct tunable pushes only for explicit overrides.
+SERVER_INSTRUCTIONS = """Verdify greenhouse tools. Use these to read the climate, the record and the
+    forecast, and to run the water program. The controller runs the climate law on its own: no tool writes a
+    climate value. Iris is the daily reviewer: once a day and on a manual request it reads the record and stores
+    one review with `review_write` (its run id is the trigger_id of the wake-up). A review may propose a band edit;
+    only the owner applies it, in the dashboard's band editor.
 
-    `set_setting` changes any writable setting within registry min/max and stores the
-    `manual` flag it carries (default false); `settings` and `activity` read the catalog,
-    history and every write; Iris's `set_setting` on a manual setting is refused with `manual`.
+    `set_setting` changes an operator switch (occupancy, a light circuit out of service) within the registry and
+    stores the `manual` flag it carries (default false); any other setting is refused with `forbidden`, the band
+    rows and the drying cost limit included. `settings` and `activity` read the catalog, history and every write.
 
     The house band is operator-owned and has no write tool: `band_profile` reads its profile,
     anchors and day curve with the last 24 h measured, and `band_profile_preview` evaluates a
@@ -1077,8 +856,7 @@ SERVER_INSTRUCTIONS = """Verdify greenhouse control tools. Use these to monitor 
     a write safe to retry: the same id and payload returns the stored result with `replayed: true`.
     A refusal is the Problem JSON with isError: its code is from the OpenAPI ProblemCode list, and
     `retryable` is true only where waiting helps. A value outside a tool's schema is refused before
-    the tool runs, with isError and a plain message. Each write says the same: Changes watering
-    only; it does not count as your plan for this trigger. The reads do not count either."""
+    the tool runs, with isError and a plain message. Each irrigation write changes watering only."""
 
 mcp = AudienceAuthorizedFastMCP(
     "verdify",
@@ -1100,7 +878,6 @@ mcp = AudienceAuthorizedFastMCP(
 
 HERMES_REQUIRED_TOOLS = frozenset(
     {
-        "acknowledge_trigger",
         "activity",
         "alerts",
         "climate",
@@ -1124,13 +901,9 @@ HERMES_REQUIRED_TOOLS = frozenset(
         "lessons_manage",
         "lessons_search",
         "observations",
-        "plan_evaluate",
-        "plan_status",
         "position_current",
+        "review_write",
         "scorecard",
-        "set_plan",
-        "set_setting",
-        "set_tunable",
         "settings",
         "topology",
     }
@@ -1142,14 +915,15 @@ HERMES_REQUIRED_TOOLS = frozenset(
 # drift, so a new tool cannot silently skip authorization.
 #
 # Audiences:
-#   iris       — the current Hermes Iris profile. Exactly the 33 tools of
+#   iris       — the Hermes Iris profile, the daily reviewer. Exactly the 28 tools of
 #                hermes-config.yaml tools.include (== HERMES_REQUIRED_TOOLS);
 #                tests/test_mcp_audience_auth.py holds the three surfaces in
-#                lockstep. Current behavior is preserved.
+#                lockstep. Reads, its irrigation tools, lessons and review_write;
+#                no setting, plan or band write.
 #   experiment — the blinded experiment planner arm (audit §8.8): qualified
-#                climate/forecast/crop/topology READS plus trigger
-#                acknowledgement only. Treatment-revealing reads
-#                (get_setpoints, plan_status, history, scorecard, outcome_kpi,
+#                climate/forecast/crop/topology READS only (trigger
+#                acknowledgement retired with the plan cycle). Treatment-revealing reads
+#                (get_setpoints, history, scorecard, outcome_kpi,
 #                lessons*) and all ordinary writes are denied. Wired but
 #                unused until Lane C/D tranche 2 issues its credential.
 #   agent      — named in-cluster agents (VD-59, architecture §5.6), one key
@@ -1169,7 +943,6 @@ TOOL_AUDIENCES: dict[str, frozenset[str]] = {
     "equipment_state": frozenset({"iris", "agent", "admin"}),
     "forecast": frozenset({"iris", "experiment", "agent", "admin"}),
     "get_setpoints": frozenset({"iris", "agent", "admin"}),
-    "plan_status": frozenset({"iris", "agent", "admin"}),
     "history": frozenset({"iris", "agent", "admin"}),
     "alerts": frozenset({"iris", "agent", "admin"}),
     "settings": frozenset({"iris", "agent", "admin"}),
@@ -1193,18 +966,17 @@ TOOL_AUDIENCES: dict[str, frozenset[str]] = {
     "position_current": frozenset({"iris", "experiment", "agent", "admin"}),
     "crop_history": frozenset({"iris", "experiment", "admin"}),
     "crop_lifecycle": frozenset({"iris", "experiment", "admin"}),
-    # Writes
-    "set_plan": frozenset({"iris", "admin"}),
-    "set_tunable": frozenset({"iris", "admin"}),
-    "set_setting": frozenset({"iris", "agent", "admin"}),
-    "acknowledge_trigger": frozenset({"iris", "experiment", "admin"}),
-    "plan_evaluate": frozenset({"iris", "admin"}),
+    # Writes. The planner writes no setting (climate refactor 4.2): set_setting is for named agents and admin, and
+    # the service refuses an agent anything but an operator switch.
+    "set_setting": frozenset({"agent", "admin"}),
+    # The daily review (5.1): Iris stores its review; admin requests a manual one.
+    "review_write": frozenset({"iris", "admin"}),
     "lessons_manage": frozenset({"iris", "admin"}),
     # Operator-only surfaces (never in the Hermes include list)
-    "plan_run": frozenset({"admin"}),
+    "review_run": frozenset({"admin"}),
     "query": frozenset({"admin"}),
     # Irrigation writes (VD-64, #1177; VD-61, #1174): one surface for every agent, Iris included (D-IRP-21).
-    # They never touch a trigger, so Iris still ends each one with set_plan or acknowledge_trigger.
+    # trigger_id only annotates the activity log; the review passes its own run id.
     "irrigation_schedule_set": frozenset({"iris", "agent", "admin"}),
     "irrigation_line_set": frozenset({"iris", "agent", "admin"}),
     "irrigation_run": frozenset({"iris", "agent", "admin"}),
@@ -1356,40 +1128,6 @@ def _time_argument(name: str, value: str | None) -> datetime | None:
     return parsed
 
 
-async def _append_plan_activity(
-    conn: asyncpg.Connection,
-    *,
-    plan_id: str,
-    changes: list[dict[str, Any]],
-    reason: str | None,
-    trigger_id: str | None,
-    planner_instance: str | None,
-) -> None:
-    """The one ``plan.write`` activity row of a set_plan or set_tunable, in its setpoint_plan transaction.
-
-    Their contract is unchanged, so neither refuses for a missing actor: with none (auth mode off, a direct call)
-    the row records (iris, iris), as their setpoint_plan rows do.
-    """
-    await activity_service.append(
-        conn,
-        _service_actor() or ServiceActor.iris(),
-        action="plan.write",
-        target=plan_id,
-        detail={"changes": changes, "trigger_id": trigger_id, "planner_instance": planner_instance},
-        reason=reason,
-        experiment_id=await conn.fetchval(activity_service.ARMED_EXPERIMENT_SQL),
-    )
-
-
-# #387: outcome_kpi() fans its independent section fetches out concurrently,
-# and asyncpg connections cannot multiplex queries — concurrency needs more
-# connections. There is deliberately NO per-call connection burst: the extra
-# connections come from this small shared pool, so the global fan-out is
-# capped at max_size regardless of how hard a looping LLM caller hammers the
-# tool (excess acquires queue instead of stacking DB backends). min_size=0
-# plus a short inactive lifetime keeps the idle footprint at zero between
-# bursts. Every pooled connection carries the same statement-timeout fence as
-# _db().
 _KPI_FANOUT_POOL_MAX_SIZE = 4
 # Annotations quoted: schema-only CI imports this module with a lightweight
 # asyncpg stub that has no Pool attribute (see _install_mcp_runtime_import_stubs).
@@ -1494,78 +1232,6 @@ async def mcp_ready(_request):
         },
         status_code=200 if ready else 503,
     )
-
-
-async def _insert_plan_delivery_log(conn: asyncpg.Connection, result: dict) -> str | None:
-    """Persist or refresh a send_to_iris result from MCP-triggered manual planning."""
-    row = {
-        "event_type": result["event_type"],
-        "event_label": result.get("event_label"),
-        "session_key": result.get("session_key"),
-        "wake_mode": result.get("wake_mode"),
-        "gateway_status": result.get("gateway_status"),
-        "gateway_body": result.get("gateway_body"),
-        "trigger_id": result.get("trigger_id"),
-        "instance": result.get("instance"),
-        "hermes_run_id": result.get("hermes_run_id"),
-    }
-    explicit_status = result.get("status")
-    if explicit_status is None and result.get("delivered") is False and result.get("gateway_status") is not None:
-        explicit_status = "delivery_failed"
-    terminal_action = result.get("terminal_action")
-    failure_class = result.get("failure_class")
-    if explicit_status == "delivery_failed":
-        terminal_action = terminal_action or "delivery_failed"
-        failure_class = failure_class or "gateway_delivery_failed"
-    if explicit_status is not None:
-        row["status"] = explicit_status
-    if terminal_action is not None:
-        row["terminal_action"] = terminal_action
-        row["failure_class"] = failure_class
-    PlanDeliveryLogRow.model_validate(row)
-
-    await conn.execute(
-        """
-        INSERT INTO plan_delivery_log AS pdl
-          (event_type, event_label, session_key, wake_mode, gateway_status,
-           gateway_body, trigger_id, instance, status, hermes_run_id,
-           terminal_action, terminal_at, failure_class)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::uuid, $8, COALESCE($9, 'pending'), $10,
-                $11, CASE WHEN $11::text IS NULL THEN NULL ELSE now() END, $12)
-        ON CONFLICT (trigger_id) DO UPDATE
-          SET event_type     = EXCLUDED.event_type,
-              event_label    = EXCLUDED.event_label,
-              session_key    = COALESCE(EXCLUDED.session_key, pdl.session_key),
-              wake_mode      = COALESCE(EXCLUDED.wake_mode, pdl.wake_mode),
-              gateway_status = EXCLUDED.gateway_status,
-              gateway_body   = COALESCE(EXCLUDED.gateway_body, pdl.gateway_body),
-              instance       = COALESCE(EXCLUDED.instance, pdl.instance),
-              hermes_run_id  = COALESCE(EXCLUDED.hermes_run_id, pdl.hermes_run_id),
-              terminal_action = COALESCE(pdl.terminal_action, EXCLUDED.terminal_action),
-              terminal_at     = COALESCE(pdl.terminal_at, EXCLUDED.terminal_at),
-              failure_class   = COALESCE(pdl.failure_class, EXCLUDED.failure_class),
-              status         = CASE
-                                 WHEN pdl.status IN (
-                                     'acked', 'plan_written', 'action_completed',
-                                     'neutral_fallback', 'wrong_action'
-                                 ) THEN pdl.status
-                                 ELSE EXCLUDED.status
-                               END
-        """,
-        row["event_type"],
-        row["event_label"],
-        row["session_key"],
-        row["wake_mode"],
-        row["gateway_status"],
-        row["gateway_body"],
-        row["trigger_id"],
-        row["instance"],
-        explicit_status,
-        row["hermes_run_id"],
-        terminal_action,
-        failure_class,
-    )
-    return explicit_status
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -3117,21 +2783,37 @@ async def forecast(hours: int = 72) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 
+_SERVED_BAND_PARAMETERS = ("temp_low", "temp_high", "vpd_low", "vpd_high", "temp_target", "vpd_target")
+
+
 @mcp.tool()
 async def get_setpoints() -> str:
-    """Get all current active setpoints (firmware band values + planner tunables)."""
+    """Get all current active setpoints: the served band now (source band) and each other setting's newest value."""
     conn = await _db()
     try:
+        # The band has one source, fn_band_setpoints (RULINGS AF2): the settings ledger's band rows are not it.
         rows = await conn.fetch(
             """
+            WITH band AS (
+                SELECT p.parameter, p.value, 'band'::text AS source, now() AS ts
+                  FROM fn_band_setpoints(now()) b,
+                       LATERAL (VALUES ('temp_low', b.temp_low), ('temp_high', b.temp_high),
+                                       ('vpd_low', b.vpd_low), ('vpd_high', b.vpd_high),
+                                       ('temp_target', b.temp_target), ('vpd_target', b.vpd_target)) p(parameter, value)
+            ), ledger AS (
+                SELECT DISTINCT ON (parameter) parameter, value, source, ts
+                  FROM setpoint_changes
+                 WHERE parameter <> ALL($2::text[])
+                 ORDER BY parameter, ts DESC
+            )
             SELECT parameter, round(value::numeric,3) as value, source,
                    to_char(ts AT TIME ZONE 'America/Denver', 'HH24:MI') as updated
-            FROM (SELECT DISTINCT ON (parameter) parameter, value, source, ts
-                  FROM setpoint_changes ORDER BY parameter, ts DESC) sub
+            FROM (SELECT * FROM band WHERE value IS NOT NULL UNION ALL SELECT * FROM ledger) sub
             WHERE parameter = ANY($1::text[])
             ORDER BY parameter
             """,
             sorted(ALL_TUNABLES),
+            list(_SERVED_BAND_PARAMETERS),
         )
         validated = [SetpointSummary.model_validate(dict(r)).model_dump(mode="json") for r in rows]
         return json.dumps(validated)
@@ -3139,394 +2821,50 @@ async def get_setpoints() -> str:
         await conn.close()
 
 
-@mcp.tool()
-async def set_tunable(
-    parameter: str = "",
-    value: float | None = None,
-    reason: str = "iris-manual",
-    trigger_id: str | None = None,
-    planner_instance: str | None = None,
-) -> str:
-    """Push a single registry-valid tunable to the ESP32 immediately.
-    The dispatcher will apply it within 5 minutes.
-    Example: set_tunable('fog_escalation_kpa', 0.15, 'fog is 7x more effective than misters')
-
-    trigger_id, planner_instance: required contract v1.5 audit fields for MCP writes.
-    Pass through from the trigger banner shown at the bottom of every
-    planning event prompt (`trigger_id=<uuid>`, `planner_instance='opus'|'local'`).
-    Stamped onto the one-shot setpoint_plan reason and plan_delivery_log so
-    SLA monitors can correlate by uuid."""
-    normalized_trigger_id: str | None = None
-    if not trigger_id:
-        return json.dumps(
-            {
-                "error": "trigger_id is required for set_tunable MCP writes",
-                "hint": "Copy trigger_id exactly from the planning prompt audit headers into set_tunable.",
-            }
-        )
-    try:
-        normalized_trigger_id = str(UUID(trigger_id))
-    except (TypeError, ValueError):
-        return json.dumps({"error": "trigger_id must be a valid UUID"})
-    if not parameter:
-        return json.dumps({"error": "parameter is required"})
-    if value is None:
-        return json.dumps({"error": "value is required"})
-
-    # Schema-level gate first rejects typos; the registry then blocks
-    # operator-only safety rails and readback-only diagnostics.
-    if parameter not in ALL_TUNABLES:
-        return json.dumps({"error": f"'{parameter}' is not a known tunable — not in verdify_schemas.ALL_TUNABLES"})
-    if parameter not in PLANNER_PUSHABLE_REG:
-        return json.dumps(
-            {
-                "error": f"'{parameter}' is not planner-pushable in the tunable registry",
-                "allowed": sorted(PLANNER_PUSHABLE_REG),
-            }
-        )
-    if bounds_error := registry_value_error(parameter, value):
-        return json.dumps(
-            {
-                "error": "Tunable value outside registry bounds",
-                "parameter": parameter,
-                "value": value,
-                "details": bounds_error,
-            }
-        )
-    try:
-        normalized_value = normalize_planner_value(parameter, value)
-    except ValueError as exc:
-        return json.dumps(
-            {
-                "error": "Tunable value cannot be normalized against planner/firmware bounds",
-                "parameter": parameter,
-                "value": value,
-                "details": str(exc),
-            }
-        )
-    if normalized_value != float(value):
-        return json.dumps(
-            {
-                "error": "Tunable value outside strict planner/firmware bounds",
-                "parameter": parameter,
-                "value": value,
-                "nearest_safe": normalized_value,
-            }
-        )
-    value = normalized_value
-    if parameter in FORCED_ON_SWITCH_PARAMS and value < 0.5:
-        return json.dumps(
-            {
-                "error": "controller_locked_on",
-                "parameter": parameter,
-                "value": value,
-                "hint": "The unified band-first controller is locked ON; rollback requires an explicit firmware/config rollback outside the planner surface.",
-            }
-        )
-
-    # Phase-1b: set_tunable writes to setpoint_plan (one-shot waypoint at
-    # ts=now()) so the dispatcher's plan-reading cycle doesn't overwrite
-    # the iris push within 5 minutes. Observed live 2026-04-21:
-    # min_heat_off_s=180 pushed at 11:36, overwritten to 300 from the
-    # prior sunrise plan within 4 minutes. setpoint_plan is the dispatcher's
-    # actual source of truth; writing there makes iris pushes durable until
-    # the next plan supersedes.
-    #
-    # plan_id format `iris-oneshot-<YYYYMMDD-HHMM>` lets the next set_plan
-    # call (which deactivates older plans) distinguish iris tactical pushes
-    # from automatic SUNRISE/SUNSET plans and preserve them across boundaries.
-    # Contract v1.5 — stamp audit metadata into dedicated setpoint_plan
-    # columns for dispatcher propagation; keep the suffix in reason for
-    # operator-readable compatibility with older queries.
-    audit_suffix_parts = []
-    if normalized_trigger_id:
-        audit_suffix_parts.append(f"trigger={normalized_trigger_id}")
-    if planner_instance:
-        audit_suffix_parts.append(f"instance={planner_instance}")
-    if audit_suffix_parts:
-        reason_with_audit = f"{reason} [{' '.join(audit_suffix_parts)}]"
-    else:
-        reason_with_audit = reason
-
-    conn = await _db()
-    try:
-        now_mdt = datetime.now(ZoneInfo("America/Denver"))
-        plan_id = f"iris-oneshot-{now_mdt.strftime('%Y%m%d-%H%M')}"
-        async with conn.transaction():
-            delivery, ledger, attempt_error = await _lock_current_planner_attempt(
-                conn,
-                normalized_trigger_id,
-                planner_instance,
-            )
-            if attempt_error:
-                return json.dumps(attempt_error)
-            assert delivery is not None
-            expected_action = ledger["expected_action"] if ledger is not None else "any"
-            if expected_action == "set_plan":
-                terminal = classify_planner_terminal_action(
-                    expected_action="set_plan",
-                    actual_action="set_tunable",
-                )
-                updated_delivery_id = await conn.fetchval(
-                    """
-                    UPDATE plan_delivery_log
-                       SET status = 'wrong_action',
-                           terminal_action = 'wrong_action',
-                           terminal_at = now(),
-                           failure_class = $3,
-                           result_payload = jsonb_build_object(
-                               'attempted_action', 'set_tunable',
-                               'parameter', $2::text
-                           )
-                     WHERE id = $4
-                       AND trigger_id = $1::uuid
-                       AND status = 'pending'
-                     RETURNING id
-                    """,
-                    normalized_trigger_id,
-                    parameter,
-                    terminal.failure_class,
-                    delivery["id"],
-                )
-                if updated_delivery_id != delivery["id"]:
-                    raise RuntimeError("plan delivery attempt lost its set_tunable wrong-action fence")
-                if ledger is not None:
-                    updated_ledger_id = await conn.fetchval(
-                        """
-                        UPDATE planner_trigger_ledger
-                           SET status = 'wrong_action',
-                               terminal_action = 'wrong_action',
-                               terminal_at = now(),
-                               failure_class = $2,
-                               resolved_at = now(),
-                               updated_at = now()
-                         WHERE id = $3
-                           AND trigger_id = $1::uuid
-                           AND plan_delivery_log_id = $4
-                           AND status = 'delivered'
-                         RETURNING id
-                        """,
-                        normalized_trigger_id,
-                        terminal.failure_class,
-                        ledger["id"],
-                        delivery["id"],
-                    )
-                    if updated_ledger_id != ledger["id"]:
-                        raise RuntimeError("planner ledger attempt lost its set_tunable wrong-action fence")
-                return json.dumps(
-                    {
-                        "error": "required set_plan trigger cannot be satisfied by set_tunable",
-                        "trigger_id": normalized_trigger_id,
-                        "status": "wrong_action",
-                        "terminal_action": "wrong_action",
-                    }
-                )
-            wrote_at = await conn.fetchval(
-                """
-                INSERT INTO setpoint_plan
-                  (ts, parameter, value, plan_id, source, reason, trigger_id, planner_instance, expires_at)
-                VALUES (now(), $1, $2, $3, 'iris', $4, $5::uuid, $6, now() + interval '6 hours')
-                ON CONFLICT (ts, parameter, plan_id) DO UPDATE
-                  SET value = EXCLUDED.value,
-                      reason = EXCLUDED.reason,
-                      trigger_id = EXCLUDED.trigger_id,
-                      planner_instance = EXCLUDED.planner_instance,
-                      expires_at = EXCLUDED.expires_at
-                RETURNING ts
-                """,
-                parameter,
-                value,
-                plan_id,
-                reason_with_audit,
-                normalized_trigger_id,
-                planner_instance,
-            )
-            if normalized_trigger_id:
-                updated_delivery_id = await conn.fetchval(
-                    """
-                    UPDATE plan_delivery_log
-                       SET resulting_plan_id = $2,
-                           plan_written_at   = $3,
-                           status            = 'action_completed',
-                           terminal_action   = 'set_tunable',
-                           terminal_at       = now(),
-                           failure_class     = NULL,
-                           result_payload    = jsonb_build_object(
-                               'parameter', $4::text,
-                               'value', $5::double precision
-                           )
-                     WHERE id = $6
-                       AND trigger_id = $1::uuid
-                       AND status = 'pending'
-                     RETURNING id
-                    """,
-                    normalized_trigger_id,
-                    plan_id,
-                    wrote_at,
-                    parameter,
-                    value,
-                    delivery["id"],
-                )
-                if updated_delivery_id != delivery["id"]:
-                    raise RuntimeError("plan delivery attempt lost its set_tunable completion fence")
-                if ledger is not None:
-                    updated_ledger_id = await conn.fetchval(
-                        """
-                        UPDATE planner_trigger_ledger
-                           SET status = 'action_completed',
-                               terminal_action = 'set_tunable',
-                               terminal_at = now(),
-                               failure_class = NULL,
-                               resulting_plan_id = $2,
-                               resolved_at = now(),
-                               updated_at = now()
-                         WHERE id = $3
-                           AND trigger_id = $1::uuid
-                           AND plan_delivery_log_id = $4
-                           AND status = 'delivered'
-                         RETURNING id
-                        """,
-                        normalized_trigger_id,
-                        plan_id,
-                        ledger["id"],
-                        delivery["id"],
-                    )
-                    if updated_ledger_id != ledger["id"]:
-                        raise RuntimeError("planner ledger attempt lost its set_tunable completion fence")
-            await _append_plan_activity(
-                conn,
-                plan_id=plan_id,
-                changes=[{"ts": wrote_at, "param": parameter, "value": value}],
-                reason=reason,
-                trigger_id=normalized_trigger_id,
-                planner_instance=planner_instance,
-            )
-        return json.dumps(
-            {
-                "ok": True,
-                "parameter": parameter,
-                "value": value,
-                "reason": reason_with_audit,
-                "plan_id": plan_id,
-                "trigger_id": normalized_trigger_id,
-                "planner_instance": planner_instance,
-                "delivery_status": "action_completed" if normalized_trigger_id else None,
-                "terminal_action": "set_tunable",
-                "note": (
-                    "Written to setpoint_plan as a one-shot waypoint at now(). "
-                    "Dispatcher pushes to ESP32 within 5 minutes and this value "
-                    "persists until the next set_plan or set_tunable supersedes."
-                ),
-            }
-        )
-    finally:
-        await conn.close()
-
-
 # ═══════════════════════════════════════════════════════════════
-# PLANNER TOOLS
+# REVIEW REQUEST AND MEMORY
 # ═══════════════════════════════════════════════════════════════
 
 
+_DENVER_TZ = ZoneInfo("America/Denver")
+
+
 @mcp.tool()
-async def plan_run(mode: str = "normal") -> str:
-    """Trigger an ad-hoc MANUAL planning cycle through the same audited path as scheduled triggers."""
-    sys.path.insert(0, str(REPO_ROOT / "ingestor"))
-    try:
-        from iris_planner import CONTEXT_GATHER_FAILED_SENTINEL, gather_context, prepare_delivery_result, send_to_iris
+async def review_run(
+    review_date: Annotated[
+        str,
+        Field(description="America/Denver day to review, YYYY-MM-DD; default yesterday. Today or earlier."),
+    ] = "",
+):
+    """Request a manual review (the manual trigger). The ingestor delivers it to Iris within a minute; Iris reads
+    the record of that day and writes one review with review_write. Returns the review's run_id."""
+    from verdify_schemas.review import ReviewRequested
 
-        mode_clean = (mode or "normal").strip().lower()
-        context = gather_context()
-        label = f"Ad-hoc planning cycle via MCP plan_run(mode={mode_clean})"
-        if context == CONTEXT_GATHER_FAILED_SENTINEL:
-            result = {
-                "delivered": False,
-                "event_type": "MANUAL",
-                "event_label": label,
-                "session_key": None,
-                "wake_mode": None,
-                "gateway_status": None,
-                "gateway_body": "context_gather_failed",
-                "status": "delivery_failed",
-                "trigger_id": str(uuid4()),
-                "instance": "local",
-            }
-        else:
-            if mode_clean in {"ack", "ack_only", "ack-only", "smoke", "validation"}:
-                label = f"validation ack-only: {label}"
-                context = (
-                    "VALIDATION MODE: acknowledge-only smoke. Do not call set_plan or set_tunable. "
-                    "Call acknowledge_trigger with the audit trigger_id and planner_instance, "
-                    "then stop.\n\n"
-                ) + context
-
-            pre_result = prepare_delivery_result("MANUAL", label, instance="local")
-            conn = await _db()
-            try:
-                await _insert_plan_delivery_log(conn, pre_result)
-            finally:
-                await conn.close()
-            result = send_to_iris(
-                "MANUAL",
-                label,
-                context=context,
-                instance="local",
-                trigger_id=pre_result["trigger_id"],
-            )
-
-        conn = await _db()
+    caller = current_actor()
+    if caller is None:
+        return _tool_problem(problem("forbidden", "A review request needs a resolved caller"))
+    today = datetime.now(_DENVER_TZ).date()
+    if review_date:
         try:
-            explicit_status = await _insert_plan_delivery_log(conn, result)
-        finally:
-            await conn.close()
-
-        status = explicit_status or "pending"
-        resp = PlanRunResponse(
-            ok=bool(result.get("delivered")),
-            note="MANUAL event sent to Hermes. Check plan_delivery_log for ack/plan correlation.",
-            error=None if result.get("delivered") else result.get("gateway_body"),
-            trigger_id=result.get("trigger_id"),
-            event_type=result.get("event_type"),
-            planner_instance=result.get("instance"),
-            session_key=result.get("session_key"),
-            status=status,
-            hermes_run_id=result.get("hermes_run_id"),
-        )
-        return resp.model_dump_json(exclude_none=True)
-    except Exception as e:
-        return PlanRunResponse(ok=False, error=str(e)).model_dump_json(exclude_none=True)
-
-
-@mcp.tool()
-async def plan_status() -> str:
-    """Get the current active plan — waypoints, plan_id, hypothesis, compliance."""
+            day = date.fromisoformat(review_date)
+        except ValueError:
+            return _tool_problem(problem("invalid_request", "review_date must be YYYY-MM-DD", field="review_date"))
+        if day > today:
+            return _tool_problem(problem("invalid_request", "review_date is in the future", field="review_date"))
+    else:
+        day = today - timedelta(days=1)
+    run_id = str(uuid4())
     conn = await _db()
     try:
-        journal = await conn.fetchrow("""
-            SELECT plan_id, to_char(created_at AT TIME ZONE 'America/Denver', 'MM-DD HH24:MI') as created,
-                   hypothesis, experiment, expected_outcome
-            FROM plan_journal
-            WHERE plan_id NOT LIKE 'iris-reactive%'
-              AND lifecycle_status = 'effective'
-              AND valid_from <= now()
-              AND expires_at > now()
-            ORDER BY created_at DESC LIMIT 1
-        """)
-        waypoints = await conn.fetch("""
-            SELECT to_char(ts AT TIME ZONE 'America/Denver', 'Dy HH24:MI') as time, count(*) as params
-            FROM setpoint_plan
-            WHERE is_active = true
-              AND ts > now()
-              AND expires_at > now()
-            GROUP BY ts ORDER BY ts LIMIT 15
-        """)
-        resp = PlanStatusResponse(
-            plan=PlanStatusJournal.model_validate(dict(journal)) if journal else None,
-            future_waypoints=[PlanStatusWaypoint.model_validate(dict(w)) for w in waypoints],
+        await conn.execute(
+            "INSERT INTO planner_review (run_id, kind, review_date, requested_by) VALUES ($1::uuid, 'manual', $2, $3)",
+            run_id,
+            day,
+            caller.source,
         )
-        return resp.model_dump_json(exclude_none=True)
     finally:
         await conn.close()
+    return _tool_ok(ReviewRequested(run_id=run_id, review_date=day))
 
 
 @mcp.tool()
@@ -3579,1015 +2917,57 @@ async def query(sql: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════
-# PLANNING TOOLS
+# REVIEW TOOL (climate refactor 5.1: the planner is a daily reviewer)
 # ═══════════════════════════════════════════════════════════════
 
-_REQUIRED_FULL_PLAN_EVENTS = frozenset({"SUNRISE", "SUNSET", "MIDNIGHT", "FORECAST_DEVIATION", "DEVIATION", "FORECAST"})
-_LEDGER_BACKED_EVENTS = frozenset(
-    {
-        "SUNRISE",
-        "SUNSET",
-        "MIDNIGHT",
-        "WEEKLY",
-        "SOLAR_MAX",
-        "TRANSITION",
-        "FORECAST_DEVIATION",
-        "FORECAST",
-        "DEVIATION",
-        "HEARTBEAT",
-    }
-)
-
-
-async def _lock_current_planner_attempt(
-    conn: asyncpg.Connection,
-    trigger_id: str,
-    planner_instance: str | None,
-) -> tuple[asyncpg.Record | None, asyncpg.Record | None, dict[str, object] | None]:
-    """Lock and validate the delivery/ledger attempt that may replace a plan."""
-    delivery = await conn.fetchrow(
-        """
-        SELECT id, trigger_id, event_type, event_label, status, instance
-          FROM plan_delivery_log
-         WHERE trigger_id = $1::uuid
-         FOR UPDATE
-        """,
-        trigger_id,
-    )
-    if delivery is None:
-        return (
-            None,
-            None,
-            {
-                "error": "trigger_id not found in plan_delivery_log",
-                "trigger_id": trigger_id,
-            },
-        )
-    if delivery["status"] != "pending":
-        return (
-            delivery,
-            None,
-            {
-                "error": "trigger_id is not the current writable attempt",
-                "trigger_id": trigger_id,
-                "status": delivery["status"],
-            },
-        )
-    if planner_instance and delivery["instance"] and planner_instance != delivery["instance"]:
-        return (
-            delivery,
-            None,
-            {
-                "error": "planner_instance does not match plan_delivery_log",
-                "trigger_id": trigger_id,
-                "planner_instance": planner_instance,
-                "delivery_instance": delivery["instance"],
-            },
-        )
-
-    ledger = await conn.fetchrow(
-        """
-        SELECT id, trigger_id, plan_delivery_log_id, event_type, expected_action, status
-          FROM planner_trigger_ledger
-         WHERE trigger_id = $1::uuid
-           AND plan_delivery_log_id = $2
-         FOR UPDATE
-        """,
-        trigger_id,
-        delivery["id"],
-    )
-    validation_ack = (delivery["event_label"] or "").lower().startswith("validation") and "ack-only" in (
-        delivery["event_label"] or ""
-    ).lower()
-    ledger_backed_event = delivery["event_type"] in _LEDGER_BACKED_EVENTS
-    required_event = delivery["event_type"] in _REQUIRED_FULL_PLAN_EVENTS and not validation_ack
-    if ledger_backed_event and ledger is None:
-        return (
-            delivery,
-            None,
-            {
-                "error": "scheduled trigger attempt is stale or superseded",
-                "trigger_id": trigger_id,
-            },
-        )
-    if ledger is not None and ledger["status"] != "delivered":
-        return (
-            delivery,
-            ledger,
-            {
-                "error": "planner trigger ledger attempt is not currently delivered",
-                "trigger_id": trigger_id,
-                "ledger_status": ledger["status"],
-            },
-        )
-    if required_event and ledger is not None and ledger["expected_action"] != "set_plan":
-        return (
-            delivery,
-            ledger,
-            {
-                "error": "required trigger ledger does not expect set_plan",
-                "trigger_id": trigger_id,
-                "expected_action": ledger["expected_action"],
-            },
-        )
-    return delivery, ledger, None
-
 
 @mcp.tool()
-async def set_plan(
-    plan_id: Annotated[
-        str,
+async def review_write(
+    trigger_id: Annotated[str, Field(description="The review's run id, from the audit header of the wake-up")],
+    summary: Annotated[str, Field(min_length=1, max_length=4000, description="The review, plain text")],
+    band_proposal: Annotated[
+        dict[str, Any] | None,
         Field(
-            min_length=1,
-            max_length=18,
-            pattern=r"^iris-\d{8}-\d{4}$",
-            description="Unique plan ID in iris-YYYYMMDD-HHMM format.",
-        ),
-    ] = "",
-    hypothesis: Annotated[
-        str,
-        Field(
-            min_length=1,
-            max_length=SET_PLAN_HYPOTHESIS_MAX_CHARS,
             description=(
-                "Compact hypothesis. SUNRISE/SUNSET require one bare "
-                "PlanHypothesisStructured JSON object with at most 2 stress windows and 3 rationales."
-            ),
+                "Optional band edit proposal: {anchors: {band row: value}, price: the price-list rows you quote, "
+                "reason}. A proposal only: the owner applies it in the band editor or does not."
+            )
         ),
-    ] = "",
-    transitions: Annotated[
-        str,
-        Field(
-            min_length=2,
-            max_length=SET_PLAN_TRANSITIONS_MAX_CHARS,
-            description=(
-                "JSON array of 3-8 time-ordered waypoints. Every waypoint must include all "
-                "ClimateIntent fields and an optional reason of at most 120 characters."
-            ),
-        ),
-    ] = "",
-    experiment: Annotated[
-        str,
-        Field(
-            max_length=SET_PLAN_EXPERIMENT_MAX_CHARS,
-            description="Optional one-line experiment description (240 characters maximum).",
-        ),
-    ] = "",
-    expected_outcome: Annotated[
-        str,
-        Field(
-            max_length=SET_PLAN_EXPECTED_OUTCOME_MAX_CHARS,
-            description="Optional measurable prediction (320 characters maximum).",
-        ),
-    ] = "",
-    trigger_id: Annotated[
-        str | None,
-        Field(max_length=36, description="Audit trigger UUID copied exactly from the planning prompt."),
     ] = None,
-    planner_instance: Annotated[
-        str | None,
-        Field(max_length=5, description="Audit planner instance: local or opus."),
-    ] = None,
-    valid_from: Annotated[
-        str | None,
-        Field(max_length=40, description="Optional ISO-8601 plan validity start."),
-    ] = None,
-    expires_at: Annotated[
-        str | None,
-        Field(max_length=40, description="Optional ISO-8601 plan expiry."),
-    ] = None,
-) -> str:
-    """Write a 72-hour setpoint plan with multiple time-based waypoints.
-    Deactivates all existing future waypoints, writes new ones, and logs a plan journal entry.
-    The dispatcher executes these on schedule — the greenhouse follows the plan even if the planner goes offline.
+):
+    """Store the review for this wake-up (once). It writes no setting, no band and no plan."""
+    from verdify_schemas.review import ReviewWrite, ReviewWritten
 
-    plan_id: unique ID like 'iris-YYYYMMDD-HHMM'
-    hypothesis: compact statement of what this plan should achieve, at most
-        2,200 characters. SUNRISE/SUNSET require a bare
-        PlanHypothesisStructured JSON object (conditions + no more than two
-        stress_windows + no more than three rationales). Do not repeat the
-        assembled context.
-    transitions: JSON array of 3-8 objects: [{"ts": "ISO8601-with-TZ",
-        "climate_intent": {...}, "reason": "..."}]. Every ClimateIntent field
-        is required; keep each reason at or below 120 characters.
-    experiment: optional one-line description, at most 240 characters
-    expected_outcome: optional measurable prediction, at most 320 characters
-    valid_from, expires_at: optional ISO-8601 validity bounds. When omitted,
-        validity starts at the first transition and expires six hours after the
-        final transition; the total envelope cannot exceed 78 hours.
-    trigger_id, planner_instance: required contract v1.5 audit fields. Pass
-        through from the audit-headers banner shown at the bottom of every
-        planning event prompt (`trigger_id=<uuid>`, `planner_instance='opus'|'local'`).
-        Stamped onto plan_journal so SLA monitors and audit queries can
-        correlate plans to deliveries by uuid (not 2h time-window fallback).
-
-    Keep all decoded string arguments below 9,000 characters total. The MCP
-    boundary rejects totals above 10,000 before opening a database connection."""
-    # Sprint 20: validate the whole envelope through Plan schema before any DB writes.
-    # This rejects unknown tunables, inverted temp/VPD bands, non-monotonic transitions,
-    # bad plan_id format, timezone-naive timestamps, etc. — at the MCP boundary, so
-    # partial plans never land in setpoint_plan.
-    decoded_argument_chars = _set_plan_decoded_argument_chars(
-        plan_id=plan_id,
-        hypothesis=hypothesis,
-        transitions=transitions,
-        experiment=experiment,
-        expected_outcome=expected_outcome,
-        trigger_id=trigger_id,
-        planner_instance=planner_instance,
-        valid_from=valid_from,
-        expires_at=expires_at,
-    )
-    if decoded_argument_chars > SET_PLAN_ARGUMENTS_MAX_CHARS:
-        return json.dumps(
-            {
-                "error": "set_plan decoded arguments exceed the compact tool-call contract",
-                "decoded_argument_chars": decoded_argument_chars,
-                "max_decoded_argument_chars": SET_PLAN_ARGUMENTS_MAX_CHARS,
-                "hint": (
-                    "Keep the whole decoded argument object under 9,000 characters: use 3-8 "
-                    "compact transitions, reasons <=120 characters, and do not repeat context."
-                ),
-            }
-        )
-
-    normalized_trigger_id: str | None = None
-    if not trigger_id:
-        return json.dumps(
-            {
-                "error": "trigger_id is required for set_plan MCP writes",
-                "hint": "Copy trigger_id exactly from the planning prompt audit headers into set_plan.",
-            }
-        )
+    if current_actor() is None:
+        return _tool_problem(problem("forbidden", "A review needs a resolved caller"))
     try:
-        normalized_trigger_id = str(UUID(trigger_id))
+        run_id = str(UUID(trigger_id))
     except (TypeError, ValueError):
-        return json.dumps({"error": "trigger_id must be a valid UUID"})
-    if not plan_id:
-        return json.dumps({"error": "plan_id is required"})
-    if not transitions:
-        return json.dumps({"error": "transitions is required"})
-
+        return _tool_problem(problem("invalid_request", "trigger_id must be the review's run id", field="trigger_id"))
     try:
-        waypoints_raw = json.loads(transitions)
-    except json.JSONDecodeError as e:
-        return json.dumps({"error": f"Invalid JSON in transitions: {e}"})
-
-    climate_intent_errors = _climate_intent_waypoint_errors(waypoints_raw)
-    if climate_intent_errors:
-        return json.dumps(
-            {
-                "error": "set_plan requires climate_intent on every transition",
-                "details": climate_intent_errors[:10],
-            }
-        )
-    conn_for_intent = await _db()
-    try:
-        active_tier1_params = await _fetch_active_tier1_params(conn_for_intent)
-    finally:
-        await conn_for_intent.close()
-    try:
-        waypoints_raw, climate_intent_records = _materialize_climate_intent_waypoints(
-            waypoints_raw,
-            active_tier1_params,
-        )
-    except ValidationError as e:
-        return json.dumps(
-            {
-                "error": "ClimateIntent validation failed",
-                "details": json.loads(e.json(include_input=False))[:10],
-            }
-        )
-    except ValueError as e:
-        return json.dumps({"error": "ClimateIntent materialization failed", "detail": str(e)})
-
-    try:
-        plan = Plan.model_validate(
-            {
-                "plan_id": plan_id,
-                "hypothesis": hypothesis,
-                "experiment": experiment or None,
-                "expected_outcome": expected_outcome or None,
-                "transitions": waypoints_raw,
-                "valid_from": valid_from,
-                "expires_at": expires_at,
-            }
-        )
-    except ValidationError as e:
-        return json.dumps({"error": "Plan validation failed", "details": json.loads(e.json(include_input=False))[:10]})
-
-    writable_params = [param for wp in plan.transitions for param in wp.params if param not in BAND_OWNED_PARAMS]
-    if not writable_params:
-        return json.dumps(
-            {
-                "error": "Plan contains only dispatcher-owned policy params; these are read-only context",
-                "band_owned_params": sorted(BAND_OWNED_PARAMS),
-            }
-        )
-    missing_required = []
-    for idx, wp in enumerate(plan.transitions):
-        missing = sorted(PLAN_REQUIRED_PARAMS - set(wp.params))
-        if missing:
-            missing_required.append({"transition_index": idx, "ts": wp.ts.isoformat(), "missing": missing})
-    if missing_required:
-        return json.dumps(
-            {
-                "error": f"Plan transitions must include all {len(PLAN_REQUIRED_PARAMS)} tactical Tier 1 params",
-                "missing_required_params": missing_required,
-                "required_params": sorted(PLAN_REQUIRED_PARAMS),
-                "band_owned_params": sorted(BAND_OWNED_PARAMS),
-            }
-        )
-    non_policy_params = sorted(
-        {
-            param
-            for wp in plan.transitions
-            for param in wp.params
-            if param not in BAND_OWNED_PARAMS and param not in PLANNER_PUSHABLE_REG
-        }
-    )
-    if non_policy_params:
-        return json.dumps(
-            {
-                "error": "Plan contains non-policy tunables; MCP only persists planner-policy params",
-                "non_policy_params": non_policy_params,
-                "allowed_params": sorted(PLANNER_PUSHABLE_REG),
-                "band_owned_params": sorted(BAND_OWNED_PARAMS),
-            }
-        )
-
-    # Phase 2b (Iris loop overhaul): extract structured hypothesis and enforce
-    # presence for SUNRISE/SUNSET. Two parser paths:
-    #   1. Fenced ```json …``` block anywhere in the hypothesis (original)
-    #   2. Bare top-level JSON when the hypothesis field is entirely JSON
-    #      (common GPT-5.5 output mode — flagged by Codex audit 2026-05-10)
-    structured_payload: str | None = None
-    structured_warning: str | None = None
-    import re as _re
-
-    def _try_parse_structured(blob: str) -> tuple[str | None, str | None]:
-        try:
-            ps = PlanHypothesisStructured.model_validate_json(blob)
-            return ps.model_dump_json(), None
-        except ValidationError as ee:
-            return None, f"structured hypothesis present but invalid: {ee.errors()[:3]}"
-
-    # Path 1: fenced ```json block
-    m = _re.search(r"```json\s*(\{.*?\})\s*```", hypothesis, _re.DOTALL)
-    if m:
-        structured_payload, structured_warning = _try_parse_structured(m.group(1))
-
-    # Path 2: bare top-level JSON (GPT-5.5 often omits the fence)
-    if structured_payload is None:
-        stripped = (hypothesis or "").strip()
-        if stripped.startswith("{") and stripped.endswith("}"):
-            sp, sw = _try_parse_structured(stripped)
-            if sp is not None:
-                structured_payload = sp
-            elif structured_warning is None:
-                structured_warning = sw
-
-    # P1a (B6): the planner's crop-band targets (temp_low/high, vpd_low/high,
-    # per-zone vpd targets) are dropped from setpoint_plan below (clamp-safe — the
-    # dispatcher/curve owns the served band), but they were ALSO silently excluded
-    # from the plan_journal audit, so plan-accuracy had no record of what band the
-    # planner intended. Restore band-param *recording* (NOT actuation): include the
-    # crop-band param NAMES the planner touched in params_changed so v_plan_accuracy
-    # / v_plan_compliance can grade planned-vs-served band against the new curve.
-    # Lighting band-owned params (gl_*) stay excluded — they are not the crop band.
-    planned_band: list[dict] = []
-    for wp in plan.transitions:
-        band_targets = {p: float(v) for p, v in wp.params.items() if p in CROP_BAND_PARAMS}
-        if band_targets:
-            planned_band.append(
-                {"ts": wp.ts.isoformat() if hasattr(wp.ts, "isoformat") else str(wp.ts), **band_targets}
-            )
-
-    params_seen = sorted(
-        {
-            param
-            for wp in plan.transitions
-            for param in wp.params
-            if param not in BAND_OWNED_PARAMS or param in CROP_BAND_PARAMS
-        }
-    )
-
-    conditions_summary: str | None = None
-    if structured_payload:
-        try:
-            structured = json.loads(structured_payload)
-            conditions = structured.get("conditions") or {}
-            stress_windows = structured.get("stress_windows") or []
-            parts: list[str] = []
-            if conditions.get("notes"):
-                parts.append(str(conditions["notes"]))
-            weather_bits = []
-            for key, label in (
-                ("outdoor_temp_peak_f", "outdoor peak"),
-                ("outdoor_rh_min_pct", "RH min"),
-                ("solar_peak_w_m2", "solar peak"),
-                ("cloud_cover_avg_pct", "cloud cover"),
-            ):
-                if conditions.get(key) is not None:
-                    weather_bits.append(f"{label}: {conditions[key]}")
-            if weather_bits:
-                parts.append(", ".join(weather_bits))
-            if stress_windows:
-                labels = []
-                for window in stress_windows[:4]:
-                    labels.append(
-                        "{kind} {start}-{end} {severity}".format(
-                            kind=window.get("kind", "stress"),
-                            start=window.get("start", "?"),
-                            end=window.get("end", "?"),
-                            severity=window.get("severity", "?"),
-                        )
-                    )
-                parts.append("stress windows: " + "; ".join(labels))
-            conditions_summary = " | ".join(parts)[:2000] if parts else None
-        except (TypeError, ValueError):
-            conditions_summary = None
-
+        review = ReviewWrite.model_validate({"summary": summary, "band_proposal": band_proposal})
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        return _tool_problem(problem("invalid_request", str(first.get("msg"))[:300], field="band_proposal"))
+    proposal = review.band_proposal.model_dump(mode="json") if review.band_proposal else None
     conn = await _db()
     try:
-        async with conn.transaction():
-            db_now = await conn.fetchval("SELECT now()")
-            coverage_error = plan_current_coverage_error(plan, db_now)
-            if coverage_error:
-                return json.dumps(
-                    {
-                        "error": "Plan does not provide current required coverage",
-                        "detail": coverage_error,
-                    }
-                )
-            delivery, ledger, attempt_error = await _lock_current_planner_attempt(
-                conn,
-                normalized_trigger_id,
-                planner_instance,
-            )
-            if attempt_error:
-                return json.dumps(attempt_error)
-            assert delivery is not None
-
-            existing = await conn.fetchval("SELECT 1 FROM plan_journal WHERE plan_id = $1", plan.plan_id)
-            if existing:
-                return json.dumps({"error": f"plan_id {plan.plan_id!r} already exists; generate a new plan_id"})
-
-            # Phase 2b: SUNRISE/SUNSET MUST carry a valid hypothesis_structured.
-            # Look up the trigger's event_type from planner_trigger_ledger and
-            # reject if the structured block is missing or invalid.
-            event_type = ledger["event_type"] if ledger is not None else delivery["event_type"]
-            if event_type in ("SUNRISE", "SUNSET") and structured_payload is None:
-                return json.dumps(
-                    {
-                        "error": f"{event_type} plans require a valid PlanHypothesisStructured block",
-                        "detail": structured_warning or "no JSON block found in hypothesis",
-                        "required_top_level_keys": ["conditions", "stress_windows", "rationale"],
-                        "accepted_formats": [
-                            "fenced ```json {...} ``` block in the hypothesis prose",
-                            "bare top-level JSON (the entire hypothesis field is one JSON object)",
-                        ],
-                        "example_template": {
-                            "conditions": {
-                                "outdoor_temp_peak_f": 75.0,
-                                "outdoor_rh_min_pct": 25.0,
-                                "solar_peak_w_m2": 900,
-                                "cloud_cover_avg_pct": 30,
-                                "notes": "describe the dominant weather drivers and any unusual conditions",
-                            },
-                            "stress_windows": [
-                                {
-                                    "kind": "vpd_high",
-                                    "start": "2026-05-10T11:00:00-06:00",
-                                    "end": "2026-05-10T17:00:00-06:00",
-                                    "severity": "medium",
-                                    "mitigation": "engage 1.3, gap 25s, fog_escalation 0.30",
-                                }
-                            ],
-                            "rationale": [
-                                {
-                                    "parameter": "mister_engage_kpa",
-                                    "old_value": 1.6,
-                                    "new_value": 1.3,
-                                    "forecast_anchor": "RH < 15% from 11:00-17:00",
-                                    "expected_effect": "drop VPD-high stress hours from 4.5 to under 2.0",
-                                }
-                            ],
-                        },
-                    }
-                )
-
-            # One full plan is effective per greenhouse. Expire or supersede the
-            # prior journal row before inserting the replacement so the partial
-            # unique index is a database-level race guard, not an application
-            # convention. A full plan also supersedes prior Iris one-shots.
-            await conn.execute(
-                """
-                UPDATE plan_journal
-                   SET lifecycle_status = CASE WHEN expires_at <= now() THEN 'expired' ELSE 'superseded' END
-                 WHERE greenhouse_id = 'vallery'
-                   AND lifecycle_status = 'effective'
-                """
-            )
-            await conn.execute(
-                """UPDATE setpoint_plan SET is_active = false
-                   WHERE is_active = true
-                     AND source = 'iris'"""
-            )
-
-            # Write new waypoints. Crop-band and lighting-policy params are
-            # read-only planner context, owned by DB policy functions +
-            # dispatcher; dropping them here prevents future clamp storms from
-            # semantically valid but owner-misaligned plans.
-            rows_written = 0
-            band_params_dropped = 0
-            forced_on_params = 0
-            changes: list[dict[str, Any]] = []
-            for wp in plan.transitions:
-                for param, value in wp.params.items():
-                    if param in BAND_OWNED_PARAMS:
-                        band_params_dropped += 1
-                        continue
-                    if param in FORCED_ON_SWITCH_PARAMS and float(value) < 0.5:
-                        value = 1.0
-                        forced_on_params += 1
-                    await conn.execute(
-                        """INSERT INTO setpoint_plan
-                             (ts, parameter, value, plan_id, source, reason, created_at,
-                              is_active, greenhouse_id, trigger_id, planner_instance, expires_at)
-                           VALUES ($1, $2, $3, $4, 'iris', $5, now(), true, 'vallery', $6::uuid, $7, $8)""",
-                        wp.ts,
-                        param,
-                        float(value),
-                        plan.plan_id,
-                        wp.reason or "",
-                        normalized_trigger_id,
-                        planner_instance,
-                        plan.expires_at,
-                    )
-                    rows_written += 1
-                    changes.append({"ts": wp.ts, "param": param, "value": float(value)})
-
-            # Write journal entry — structured JSONB column populated only if
-            # the PlanHypothesisStructured block was present AND valid.
-            # Contract v1.4 §2.C — stamp planner_instance + trigger_id when the
-            # caller passed them through from the prompt's audit-headers banner.
-            # Both columns nullable; NULL means "pre-v1.4 path or operator
-            # injection that didn't carry headers."
-            journal_created_at = await conn.fetchval(
-                """INSERT INTO plan_journal
-                     (plan_id, created_at, hypothesis, experiment, expected_outcome,
-                      hypothesis_structured, greenhouse_id, planner_instance, trigger_id,
-                      conditions_summary, params_changed, climate_intents,
-                      climate_intent_version, valid_from, expires_at, lifecycle_status)
-                   VALUES ($1, now(), $2, $3, $4, $5::jsonb, 'vallery', $6, $7::uuid,
-                           $8, $9::text[], $10::jsonb, $11, $12, $13, 'effective')
-                   RETURNING created_at""",
-                plan.plan_id,
-                plan.hypothesis,
-                plan.experiment,
-                plan.expected_outcome,
-                structured_payload,
-                planner_instance,
-                normalized_trigger_id,
-                conditions_summary,
-                params_seen,
-                json.dumps(climate_intent_records) if climate_intent_records else None,
-                CLIMATE_INTENT_CONTRACT_VERSION if climate_intent_records else None,
-                plan.valid_from,
-                plan.expires_at,
-            )
-            if normalized_trigger_id:
-                updated_delivery_id = await conn.fetchval(
-                    """
-                    UPDATE plan_delivery_log
-                       SET resulting_plan_id = $2,
-                           plan_written_at   = $3,
-                           status            = 'plan_written',
-                           terminal_action   = 'set_plan',
-                           terminal_at       = now(),
-                           failure_class     = NULL,
-                           result_payload    = jsonb_build_object(
-                               'plan_id', $2::text,
-                               'valid_from', $4::timestamptz,
-                               'expires_at', $5::timestamptz
-                           )
-                     WHERE id = $6
-                       AND trigger_id = $1::uuid
-                       AND status = 'pending'
-                     RETURNING id
-                    """,
-                    normalized_trigger_id,
-                    plan.plan_id,
-                    journal_created_at,
-                    plan.valid_from,
-                    plan.expires_at,
-                    delivery["id"],
-                )
-                if updated_delivery_id != delivery["id"]:
-                    raise RuntimeError("plan delivery attempt lost its write fence")
-                if ledger is not None:
-                    updated_ledger_id = await conn.fetchval(
-                        """
-                    UPDATE planner_trigger_ledger
-                       SET status = 'plan_written',
-                           terminal_action = 'set_plan',
-                           terminal_at = now(),
-                           failure_class = NULL,
-                           resulting_plan_id = $2,
-                           resolved_at = now(),
-                           updated_at = now()
-                     WHERE id = $3
-                       AND trigger_id = $1::uuid
-                       AND plan_delivery_log_id = $4
-                       AND status = 'delivered'
-                     RETURNING id
-                    """,
-                        normalized_trigger_id,
-                        plan.plan_id,
-                        ledger["id"],
-                        delivery["id"],
-                    )
-                    if updated_ledger_id != ledger["id"]:
-                        raise RuntimeError("planner trigger ledger attempt lost its write fence")
-            await _append_plan_activity(
-                conn,
-                plan_id=plan.plan_id,
-                changes=changes,
-                reason=None,
-                trigger_id=normalized_trigger_id,
-                planner_instance=planner_instance,
-            )
-
-        # Sprint 20 Phase 6: drop a trigger file so verdify-plan-publish.path
-        # fires and regenerates the daily plan page. Local-SSD location so
-        # inotify actually works (NFS path units don't fire reliably).
-        try:
-            from datetime import UTC
-            from datetime import datetime as _dt
-
-            if SITE_PUBLISH_TRIGGER_PATH:
-                trigger_path = Path(SITE_PUBLISH_TRIGGER_PATH)
-                trigger_path.parent.mkdir(parents=True, exist_ok=True)
-                trigger_path.write_text(f"{plan.plan_id}\n{_dt.now(UTC).isoformat()}\n")
-        except Exception as e:  # never block plan persistence on trigger failures
-            log_msg = f"plan-publish trigger write failed (non-fatal): {e}"
-            print(log_msg)
-
-        result = {
-            "ok": True,
-            "plan_id": plan.plan_id,
-            "transitions": len(plan.transitions),
-            "rows_written": rows_written,
-            "band_params_dropped": band_params_dropped,
-            "planned_band_recorded": len(planned_band),
-            "forced_on_params": forced_on_params,
-            "climate_intent_segments": len(climate_intent_records),
-            "climate_intent_version": CLIMATE_INTENT_CONTRACT_VERSION if climate_intent_records else None,
-            "climate_intent_guardrails": sum(len(record.get("guardrails", ())) for record in climate_intent_records),
-            "structured_hypothesis": structured_payload is not None,
-            "trigger_id": normalized_trigger_id,
-            "planner_instance": planner_instance,
-            "delivery_status": "plan_written" if normalized_trigger_id else None,
-            "terminal_action": "set_plan",
-            "valid_from": plan.valid_from.isoformat() if plan.valid_from else None,
-            "expires_at": plan.expires_at.isoformat() if plan.expires_at else None,
-            "note": "Dispatcher will execute waypoints on schedule. Old future waypoints deactivated.",
-        }
-        if structured_warning:
-            result["structured_warning"] = structured_warning
-        return json.dumps(result)
-    finally:
-        await conn.close()
-
-
-@mcp.tool()
-async def acknowledge_trigger(
-    trigger_id: str,
-    reason: str,
-    planner_instance: str | None = None,
-    neutral_fallback: bool = False,
-) -> str:
-    """Record that Iris read a planning trigger and intentionally wrote no plan.
-
-    Use this only when a TRANSITION/HEARTBEAT cycle needs no setpoint
-    change. It turns the matching plan_delivery_log row from pending -> acked,
-    so SLA monitors can distinguish "read/no action" from "silent drop"."""
-    try:
-        tid = UUID(trigger_id)
-    except (TypeError, ValueError):
-        return json.dumps({"error": "trigger_id must be a valid UUID"})
-
-    reason = (reason or "").strip()
-    if not reason:
-        return json.dumps({"error": "reason is required"})
-    if len(reason) > 1000:
-        return json.dumps({"error": "reason must be <= 1000 characters"})
-
-    conn = await _db()
-    try:
-        async with conn.transaction():
-            existing, ledger, attempt_error = await _lock_current_planner_attempt(
-                conn,
-                str(tid),
-                planner_instance,
-            )
-            if attempt_error:
-                return _json(attempt_error)
-            assert existing is not None
-            expected_action = ledger["expected_action"] if ledger is not None else "any"
-            event_label = (existing["event_label"] or "").lower()
-            is_validation_ack = event_label.startswith("validation") and "ack-only" in event_label
-            required_full_plan = expected_action == "set_plan" and not is_validation_ack
-            if required_full_plan and not neutral_fallback:
-                terminal = classify_planner_terminal_action(
-                    expected_action="set_plan",
-                    actual_action="acknowledge_trigger",
-                )
-                updated_delivery_id = await conn.fetchval(
-                    """
-                    UPDATE plan_delivery_log
-                       SET status = 'wrong_action',
-                           terminal_action = 'wrong_action',
-                           terminal_at = now(),
-                           failure_class = $2,
-                           result_payload = jsonb_build_object('attempted_action', 'acknowledge_trigger')
-                     WHERE id = $3
-                       AND trigger_id = $1::uuid
-                       AND status = 'pending'
-                     RETURNING id
-                    """,
-                    str(tid),
-                    terminal.failure_class,
-                    existing["id"],
-                )
-                if updated_delivery_id != existing["id"]:
-                    raise RuntimeError("plan delivery attempt lost its acknowledge wrong-action fence")
-                if ledger is not None:
-                    updated_ledger_id = await conn.fetchval(
-                        """
-                        UPDATE planner_trigger_ledger
-                           SET status = 'wrong_action',
-                               terminal_action = 'wrong_action',
-                               terminal_at = now(),
-                               failure_class = $2,
-                               resolved_at = now(),
-                               updated_at = now()
-                         WHERE id = $3
-                           AND trigger_id = $1::uuid
-                           AND plan_delivery_log_id = $4
-                           AND status = 'delivered'
-                         RETURNING id
-                        """,
-                        str(tid),
-                        terminal.failure_class,
-                        ledger["id"],
-                        existing["id"],
-                    )
-                    if updated_ledger_id != ledger["id"]:
-                        raise RuntimeError("planner ledger attempt lost its acknowledge wrong-action fence")
-                return _json(
-                    {
-                        "error": "required set_plan trigger received the wrong terminal action",
-                        "trigger_id": str(tid),
-                        "event_type": existing["event_type"],
-                        "event_label": existing["event_label"],
-                        "status": "wrong_action",
-                        "terminal_action": "wrong_action",
-                    }
-                )
-
-            terminal = classify_planner_terminal_action(
-                expected_action=expected_action,
-                actual_action="acknowledge_trigger",
-                explicit_neutral=neutral_fallback,
-            )
-            target_status = terminal.status
-            terminal_action = terminal.terminal_action
-            failure_class = terminal.failure_class
-            row = await conn.fetchrow(
-                """
-                UPDATE plan_delivery_log
-                   SET status = $3,
-                       acked_at = now(),
-                       terminal_action = $4,
-                       terminal_at = now(),
-                       failure_class = $5,
-                       result_payload = jsonb_build_object('reason', $2::text),
-                       gateway_body = concat_ws(E'\n', NULLIF(gateway_body, ''), $2::text)
-                 WHERE id = $6
-                   AND trigger_id = $1::uuid
-                   AND status = 'pending'
-                 RETURNING id, event_type, instance, delivered_at, status
-                """,
-                str(tid),
-                f"acknowledged by {planner_instance or 'iris'}: {reason}",
-                target_status,
-                terminal_action,
-                failure_class,
-                existing["id"],
-            )
-            if row is None:
-                raise RuntimeError("plan delivery attempt lost its acknowledge completion fence")
-            if ledger is not None:
-                updated_ledger_id = await conn.fetchval(
-                    """
-                    UPDATE planner_trigger_ledger
-                       SET status = $2,
-                           terminal_action = $3,
-                           terminal_at = now(),
-                           failure_class = $4,
-                           resolved_at = now(),
-                           updated_at = now()
-                     WHERE id = $5
-                       AND trigger_id = $1::uuid
-                       AND plan_delivery_log_id = $6
-                       AND status = 'delivered'
-                     RETURNING id
-                    """,
-                    str(tid),
-                    target_status,
-                    terminal_action,
-                    failure_class,
-                    ledger["id"],
-                    existing["id"],
-                )
-                if updated_ledger_id != ledger["id"]:
-                    raise RuntimeError("planner ledger attempt lost its acknowledge completion fence")
-            return _json(
-                {
-                    "ok": True,
-                    "trigger_id": str(tid),
-                    "event_type": row["event_type"],
-                    "instance": row["instance"],
-                    "planner_instance": planner_instance,
-                    "status": row["status"],
-                    "terminal_action": terminal_action,
-                    "neutral": neutral_fallback,
-                }
-            )
-    finally:
-        await conn.close()
-
-
-@mcp.tool()
-async def plan_evaluate(plan_id: str, outcome_score: int, actual_outcome: str, lesson_extracted: str = "") -> str:
-    """Write the evaluation results for a completed plan back to plan_journal.
-    This CLOSES the learning loop: Plan → Execute → Measure → Evaluate → Learn.
-
-    plan_id: the plan to evaluate (e.g. 'iris-20260411-1346')
-    outcome_score: 1-10 score for how well the plan achieved its hypothesis
-    actual_outcome: what actually happened (stress hours, compliance, key observations)
-    lesson_extracted: new lesson learned, or empty if none
-
-    Side effects (loop-closure repair, see migration 111):
-      - Computes fn_plan_anchor_score(plan_id), stores it in plan_journal.anchor_score.
-      - If |outcome_score - anchor_score| > 2, returns a deviation warning so Iris
-        can explain the gap on her next cycle.
-      - If lesson_extracted is non-empty, INSERTs a low-confidence planner_lessons
-        row in the same transaction (proposed; Iris validates later via lessons_manage).
-    """
-    try:
-        ev = PlanEvaluation.model_validate(
-            {
-                "plan_id": plan_id,
-                "outcome_score": outcome_score,
-                "actual_outcome": actual_outcome,
-                "lesson_extracted": lesson_extracted or None,
-            }
-        )
-    except ValidationError as e:
-        return json.dumps({"error": "PlanEvaluation validation failed", "details": json.loads(e.json())})
-
-    conn = await _db()
-    try:
-        existing = await conn.fetchrow(
-            "SELECT plan_id, hypothesis_structured FROM plan_journal WHERE plan_id = $1",
-            ev.plan_id,
-        )
-        if not existing:
-            return json.dumps({"error": f"Plan '{ev.plan_id}' not found in plan_journal"})
-
-        async with conn.transaction():
-            anchor_row = await conn.fetchrow("SELECT fn_plan_anchor_score($1) AS anchor", ev.plan_id)
-            anchor_score = anchor_row["anchor"] if anchor_row else None
-            guardrail_row = await conn.fetchrow(
-                """
-                SELECT guardrail_events, held_guardrail_events,
-                       dispatched_guardrail_events, vpd_high_guardrail_events,
-                       guardrail_penalty
-                  FROM v_plan_guardrail_scorecard
-                 WHERE plan_id = $1
-                """,
-                ev.plan_id,
-            )
-            # Persist the guardrail penalty alongside the outcome/anchor scores.
-            # It was fetched (and surfaced in the return payload) but never
-            # written back, so v_plan_guardrail_scorecard's signal could not
-            # feed the reward swap (migration 147) or any downstream learning
-            # query reading plan_journal directly. Default to 0 (no clamps in
-            # the governed interval) when the scorecard has no row yet.
-            guardrail_penalty = guardrail_row["guardrail_penalty"] if guardrail_row else 0
-
-            await conn.execute(
-                """UPDATE plan_journal SET
-                    outcome_score = $2, actual_outcome = $3, lesson_extracted = $4,
-                    anchor_score  = $5, guardrail_penalty = $6, validated_at = now()
-                   WHERE plan_id = $1""",
-                ev.plan_id,
-                ev.outcome_score,
-                ev.actual_outcome,
-                ev.lesson_extracted,
-                anchor_score,
-                guardrail_penalty,
-            )
-
-            lesson_row_id = None
-            if ev.lesson_extracted:
-                # Lessonization (Phase 2a): convert lesson_extracted text into a
-                # queryable planner_lessons row. Category derived from the plan's
-                # dominant stress type during its governed interval; condition
-                # derived from hypothesis_structured.conditions when present,
-                # else a templated description.
-                cat_row = await conn.fetchrow(
-                    """
-                    SELECT CASE
-                             WHEN heat_stress_h     >= GREATEST(cold_stress_h, vpd_high_stress_h, vpd_low_stress_h)
-                               THEN 'cooling'
-                             WHEN cold_stress_h     >= GREATEST(heat_stress_h, vpd_high_stress_h, vpd_low_stress_h)
-                               THEN 'heating'
-                             WHEN vpd_high_stress_h >= GREATEST(heat_stress_h, cold_stress_h, vpd_low_stress_h)
-                               THEN 'misting'
-                             WHEN vpd_low_stress_h  >= GREATEST(heat_stress_h, cold_stress_h, vpd_high_stress_h)
-                               THEN 'humidity'
-                             ELSE 'planning'
-                           END AS category
-                      FROM v_plan_window_scorecard WHERE plan_id = $1
-                    """,
-                    ev.plan_id,
-                )
-                category = (cat_row["category"] if cat_row else None) or "planning"
-
-                hs = existing["hypothesis_structured"]
-                if hs and isinstance(hs, dict) and hs.get("conditions"):
-                    c = hs["conditions"]
-                    condition = (
-                        f"outdoor_high={c.get('outdoor_temp_peak_f', '?')}F, "
-                        f"outdoor_rh_min={c.get('outdoor_rh_min_pct', '?')}%, "
-                        f"solar_peak={c.get('solar_peak_w_m2', '?')} W/m^2"
-                    )
-                else:
-                    condition = f"auto-extracted from {ev.plan_id}"
-
-                lesson_row = await conn.fetchrow(
-                    """
-                    INSERT INTO planner_lessons
-                      (category, condition, lesson, confidence, times_validated,
-                       source_plan_ids, is_active, greenhouse_id)
-                    VALUES ($1, $2, $3, 'low', 1, ARRAY[$4]::text[], true, 'vallery')
-                    RETURNING id
-                    """,
-                    category,
-                    condition,
-                    ev.lesson_extracted,
-                    ev.plan_id,
-                )
-                lesson_row_id = lesson_row["id"] if lesson_row else None
-
-        deviation = abs(ev.outcome_score - anchor_score) if anchor_score is not None else None
-        warning = None
-        if deviation is not None and deviation > 2:
-            direction = "high" if ev.outcome_score > anchor_score else "low"
-            warning = (
-                f"Self-score {ev.outcome_score} deviates from deterministic anchor "
-                f"{anchor_score} by {deviation} ({direction}). Explain the gap on "
-                f"the next cycle, or revise your grade."
-            )
-
-        site_publish_triggered = False
-        try:
-            if SITE_PUBLISH_TRIGGER_PATH:
-                trigger_path = Path(SITE_PUBLISH_TRIGGER_PATH)
-                trigger_path.parent.mkdir(parents=True, exist_ok=True)
-                trigger_path.write_text(f"evaluation:{ev.plan_id}\n{datetime.now(ZoneInfo('UTC')).isoformat()}\n")
-                site_publish_triggered = True
-        except Exception as e:  # never block evaluation persistence on publish trigger failures
-            print(f"plan-evaluate publish trigger write failed (non-fatal): {e}")
-
-        return json.dumps(
-            {
-                "ok": True,
-                "plan_id": ev.plan_id,
-                "outcome_score": ev.outcome_score,
-                "anchor_score": anchor_score,
-                "guardrail_scorecard": dict(guardrail_row) if guardrail_row else None,
-                "deviation_warning": warning,
-                "lesson_row_id": lesson_row_id,
-                "site_publish_triggered": site_publish_triggered,
-            }
+        row = await conn.fetchrow(
+            """
+            UPDATE planner_review
+               SET status = 'written', written_at = now(), summary = $2, band_proposal = $3::jsonb
+             WHERE run_id = $1::uuid AND status IN ('requested', 'delivered') AND written_at IS NULL
+            RETURNING kind, review_date
+            """,
+            run_id,
+            review.summary,
+            json.dumps(proposal) if proposal is not None else None,
         )
     finally:
         await conn.close()
+    if row is None:
+        return _tool_problem(problem("not_found", "No open review has this run id (already written or unknown)"))
+    return _tool_ok(ReviewWritten(run_id=run_id, kind=row["kind"], review_date=row["review_date"]))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -5198,24 +3578,20 @@ async def set_setting(
     value: Annotated[
         float | None, Field(description="The value to store, in the setting's unit. Omit it with release=true.")
     ] = None,
-    release: Annotated[
-        bool, Field(description="True, with no value: release the setting to its plan, band or default.")
-    ] = False,
-    manual: Annotated[
-        bool, Field(description="Hold the value manual: Iris's plan values for it lose. Stored as passed.")
-    ] = False,
+    release: Annotated[bool, Field(description="True, with no value: release the setting to its default.")] = False,
+    manual: Annotated[bool, Field(description="Hold the value manual. Stored as passed.")] = False,
     reason: Annotated[str | None, Field(description="Why, at most 500 characters.")] = None,
     request_id: Annotated[
         str | None, Field(description="A UUID you generate; a retry with the same one and payload changes nothing.")
     ] = None,
     trigger_id: Annotated[
-        str | None, Field(description="Optional planning trigger UUID, kept only in the activity log.")
+        str | None, Field(description="Optional review run id (UUID), kept only in the activity log.")
     ] = None,
     planner_instance: Annotated[
         Literal["local", "opus"] | None, Field(description="Optional planner instance, kept only in the activity log.")
     ] = None,
 ):
-    """Change any writable setting within registry min/max, or release it. No trigger is needed.
+    """Change an operator switch within the registry, or release it. Any other setting is refused (`forbidden`).
 
     REST twins: API-10 `PUT /v1/settings/{param}` (a write: pass value) and API-11
     `DELETE /v1/settings/{param}` (a release: release=true and no value). Any other combination is
@@ -5232,12 +3608,11 @@ async def set_setting(
     max and current; `manual` when Iris writes or releases a setting whose newest row is manual (a person's value
     stays; other agents' writes win); `request_id_reused` when the same request_id carries another payload;
     `invalid_request` when request_id or trigger_id is not a UUID; `forbidden` when the call has no resolved caller,
-    and for an owner-only setting, which only the owner sets from the dashboard: the band rows, the zone VPD curves,
-    the zone priorities, the manual override timeout and the drying cost limit (get_settings still lists them as
-    writable, because the owner can write them).
+    for an owner-only setting, which only the owner sets from the dashboard (the band rows, the zone VPD curves,
+    the zone priorities, the manual override timeout and the drying cost limit), and for every setting that is not
+    an operator switch: an agent writes no climate value.
 
-    trigger_id and planner_instance only annotate the activity log; it does not count as your plan for a trigger:
-    Iris still ends every trigger with set_plan or acknowledge_trigger."""
+    trigger_id and planner_instance only annotate the activity log."""
     actor = _service_actor()
     if actor is None:
         raise ServiceError(problem("forbidden", "set_setting needs a resolved caller"))
@@ -6132,7 +4507,7 @@ async def irrigation_schedule_set(
     trigger_id: _WaterTriggerId = None,
     planner_instance: _WaterPlannerInstance = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Create, edit or delete a schedule. REST twins: API-IRR-03 (POST /v1/irrigation/schedules), API-IRR-04 (PUT
     /v1/irrigation/schedules/{slot_id}) and API-IRR-05 (DELETE /v1/irrigation/schedules/{slot_id}). Returns the Schedule
@@ -6247,7 +4622,7 @@ async def irrigation_line_set(
     trigger_id: _WaterTriggerId = None,
     planner_instance: _WaterPlannerInstance = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Change one line, or pause or resume every line. REST twin: API-IRR-08 (PUT /v1/irrigation/lines/{line_id}). Returns
     {"lines": [...]}: each changed line as irrigation_status shows it, with manual_before. Only the fields you send
@@ -6347,7 +4722,7 @@ async def irrigation_run(
     trigger_id: _WaterTriggerId = None,
     planner_instance: _WaterPlannerInstance = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Run one line now, or be refused; nothing is queued. REST twin: API-IRR-06 (POST /v1/irrigation/lines/{line_id}/run).
     Returns the Command JSON: status pending, then sent, or failed (not sent within 2 min, ended by a Stop, or the line
@@ -6407,7 +4782,7 @@ async def irrigation_stop(
     reason: _WaterReason = None,
     request_id: _WaterRequestId = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Stop one line, or every wet line when line_id is left out. REST twin: API-IRR-07 (POST /v1/irrigation/stop). Returns
     the Command JSON (kind stop; line_id null for every line). Whether water stopped shows on the relays in
@@ -6438,7 +4813,7 @@ async def irrigation_clear_fault(
     reason: _WaterReason = None,
     request_id: _WaterRequestId = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Clear a mister's watchdog latch, or every mister's when line_id is left out; harmless with nothing latched. REST
     twin: API-IRR-13 (POST /v1/irrigation/clear-fault). Returns the Command JSON (kind clear_fault; line_id null for every

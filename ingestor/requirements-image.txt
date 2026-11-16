@@ -5,13 +5,12 @@
 # INCOMPLETE for a from-scratch image. The container has no shared /srv venv to
 # fall back on, so every module imported at load time must be installable here.
 #
-# Import-closure reconstructed from the live process (ingestor.py -> tasks.py ->
-# iris_planner / planner_routing, verified against the live
-# /srv/greenhouse/.venv on python3.13):
+# Import-closure reconstructed from the live process (ingestor.py -> tasks.py,
+# verified against the live /srv/greenhouse/.venv on python3.13; iris_planner and
+# planner_routing retired with the plan cycle, climate refactor 4.2):
 #
 #   ingestor.py            : aioesphomeapi, asyncpg, paho.mqtt, dotenv, pydantic, httpx (urllib stdlib)
-#   tasks.py  (top-level)  : astral, jinja2, pyyaml  + iris_planner/planner_routing
-#   iris_planner.py (lazy) : anthropic, openai, google-genai  (called by the planner path)
+#   tasks.py  (top-level)  : pyyaml (astral and jinja2 stay pinned; see below)
 #
 # paho-mqtt is NOT in pyproject.toml nor ingestor/requirements.txt today — it
 # lives ambiently in the shared venv. Declaring it here is REQUIRED or the
@@ -39,7 +38,8 @@ astral>=3.2,<4
 tinytuya==1.20.0
 
 # --- planner extra (pyproject [project.optional-dependencies].planner) ---
-# Pulled in transitively because tasks.py imports iris_planner at module load.
+# No ingestor module imports these since climate refactor 4.2; dropping them is a
+# separate image change (other workloads run on this image).
 anthropic>=0.90,<1
 google-genai>=0.5,<2
 openai>=1.50,<3

@@ -379,6 +379,9 @@ PY
 
   # 3. Setpoint readbacks must keep advancing. This is observation, not a
   #    synthetic setpoint write or confirmation claim for a particular plan.
+  #    Readbacks are stored on change with an hourly keyframe (#1662): the pass
+  #    (its system_state marker, or the newest readback) must be under 300 s old
+  #    and each of the 48 canonical fields must have a row in the last 2 hours.
   echo "[3] setpoint observation — fresh snapshot"
   local snapshot fields snapshot_age snapshot_count
   fields="$(PYTHONPATH="${REPO_ROOT}" "${PY}" -c '
@@ -389,17 +392,17 @@ print("ARRAY[" + ",".join("\x27" + name + "\x27" for name in CANONICAL_FIELD_ORD
 ' 2>/dev/null || true)"
   if [ -n "${fields}" ]; then
     snapshot="$(bounded_kubectl exec verdify-db-0 -c postgres -- psql -U verdify -d verdify -At \
-      -c "WITH complete AS (SELECT ts FROM setpoint_snapshot WHERE greenhouse_id='vallery' AND zone IS NULL AND band_role IS NULL AND parameter=ANY(${fields}) AND ts>now()-interval '5 minutes' GROUP BY ts HAVING count(DISTINCT parameter)=48 ORDER BY ts DESC LIMIT 1) SELECT coalesce(extract(epoch from now()-max(ts))::int,999999),count(*) FROM complete" \
+      -c "WITH newest AS (SELECT DISTINCT ON (parameter) parameter FROM setpoint_snapshot WHERE greenhouse_id='vallery' AND zone IS NULL AND band_role IS NULL AND parameter=ANY(${fields}) AND ts>now()-interval '2 hours' ORDER BY parameter, ts DESC), pass AS (SELECT GREATEST((SELECT max(ts) FROM setpoint_snapshot WHERE greenhouse_id='vallery' AND band_role IS NULL AND ts>now()-interval '1 day'), (SELECT max(ts) FROM system_state WHERE entity='setpoint_snapshot_pass' AND ts>now()-interval '1 day')) AS ts) SELECT coalesce(extract(epoch from now()-(SELECT ts FROM pass))::int,999999),(SELECT count(*) FROM newest)" \
       2>/dev/null || true)"
   else
     snapshot=""
   fi
   IFS='|' read -r snapshot_age snapshot_count <<< "${snapshot}"
-  if [[ "${snapshot_age}" =~ ^[0-9]+$ ]] && [ "${snapshot_count}" = "1" ] &&
+  if [[ "${snapshot_age}" =~ ^[0-9]+$ ]] && [ "${snapshot_count}" = "48" ] &&
      [ "${snapshot_age}" -le 300 ]; then
-    pass "setpoint snapshot fresh (${snapshot_age}s; complete canonical 48-field batch)"
+    pass "setpoint snapshot fresh (pass ${snapshot_age}s; all 48 canonical fields within 2 h)"
   else
-    fail "setpoint snapshot stale/incomplete/unavailable (age=${snapshot_age:-?}s; complete batches=${snapshot_count:-?})"
+    fail "setpoint snapshot stale/incomplete/unavailable (pass age=${snapshot_age:-?}s; canonical fields=${snapshot_count:-?}/48)"
   fi
   echo ""
 

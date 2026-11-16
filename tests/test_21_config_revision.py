@@ -5,14 +5,12 @@ workload, so a ConfigMap edit alone does NOT restart any pod. The
 ``verdify.io/config-revision`` pod-template annotation (maintained by
 ``scripts/gen-config-revision.sh``) is the deterministic rollout trigger:
 this suite fails CI whenever a runtime ConfigMap source (base ConfigMap,
-overlay verdify-config patch, or mounted planner
-gather-script ConfigMap) changes without the annotation bump.
+or overlay verdify-config patch) changes without the annotation bump.
 """
 
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -83,41 +81,6 @@ def test_hash_input_covers_base_and_overlay_config_patches() -> None:
         "expected distinct canonical / prod-scoped / patch-free hashes; "
         "overlay verdify-config patches or the retired inputs are not reaching the hash input"
     )
-
-
-def test_hash_input_covers_the_mounted_gather_script_config(tmp_path) -> None:
-    """A subPath-mounted gather script needs an explicit ingestor rollout."""
-    checkout = tmp_path / "checkout"
-    copied_script = checkout / "scripts/gen-config-revision.sh"
-    copied_script.parent.mkdir(parents=True)
-    shutil.copy2(SCRIPT, copied_script)
-    for source in (
-        "deploy/k8s/base/configmap.yaml",
-        "deploy/k8s/components/ingestor-gather-script/gather-script-configmap.yaml",
-    ):
-        destination = checkout / source
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPO / source, destination)
-    shutil.copytree(REPO / "deploy/k8s/overlays", checkout / "deploy/k8s/overlays")
-
-    before = subprocess.run(
-        ["bash", str(copied_script), "--print"],
-        cwd=checkout,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    gather = checkout / "deploy/k8s/components/ingestor-gather-script/gather-script-configmap.yaml"
-    gather.write_text(gather.read_text() + "\n# rollout-probe\n")
-    after = subprocess.run(
-        ["bash", str(copied_script), "--print"],
-        cwd=checkout,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-    assert before != after
 
 
 def test_overlay_scoped_invocation_never_rewrites() -> None:

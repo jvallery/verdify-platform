@@ -399,6 +399,18 @@ DIAGNOSTIC_MAP: dict[str, str] = {
     # "band_source"). Columns added in migration 166.
     "zone_wet_granted": "zone_wet_granted",  # TextSensorInfo
     "band_source": "band_source",  # TextSensorInfo
+    # The controller's own health (#1633 host release 3, migration 314). The third flash publishes all but
+    # sensor_degraded_active, which today's firmware already publishes on change. A non-finite reading is stored as
+    # NULL (ingestor HEALTH_DIAGNOSTIC_COLUMNS).
+    "free_heap_minute_low": "heap_min_free_minute_kb",  # SensorInfo, kB
+    "largest_heap_block_minute_low": "heap_largest_block_minute_low_kb",  # SensorInfo, kB
+    "control_loop_worst_minute": "loop_worst_ms",  # SensorInfo, ms
+    "restart_count": "restart_count",  # SensorInfo, persisted count
+    "nvs_used_entries": "nvs_used_entries",  # SensorInfo, 32 B entries
+    "nvs_free_entries": "nvs_free_entries",  # SensorInfo, 32 B entries
+    "nvs_write_worst_minute": "nvs_write_worst_ms",  # SensorInfo, ms, 0 = no write that minute
+    "gap_log_state": "gap_log_state",  # TextSensorInfo
+    "sensor_degraded_active": "sensor_degraded_active",  # SensorInfo, 0 or 1
 }
 
 # ──────────────────────────────────────────────────────────────

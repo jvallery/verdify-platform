@@ -50,22 +50,6 @@ def _norm(sql: str) -> str:
     return re.sub(r"\s+", " ", sql).strip()
 
 
-def test_stale_forecast_deviation_rows_expire_before_the_pending_read():
-    ns = _load(FORECAST, {"_expire_stale_forecast_deviation_alerts", "_pending_forecast_deviation_alert"})
-    conn = Recorder()
-    assert asyncio.run(ns["_pending_forecast_deviation_alert"](conn)) is None
-    (kind1, expire), (kind2, pending) = conn.calls
-    assert (kind1, kind2) == ("execute", "fetchrow")
-    expire, pending = _norm(expire), _norm(pending)
-    # The expiry closes exactly what the pending read can no longer see.
-    assert "created_at <= now() - interval '5 minutes'" in expire
-    assert "created_at > now() - interval '5 minutes'" in pending
-    assert "alert_type = 'forecast_deviation'" in expire
-    assert "disposition IN ('open', 'acknowledged')" in expire
-    assert "resolved_at IS NULL" in expire
-    assert "SET disposition = 'resolved'" in expire
-
-
 def test_push_failures_resolve_only_when_every_parameter_was_confirmed_since():
     ns = _load(ALERTS, {"_RESOLVE_RECOVERED_PUSH_FAILURES_SQL", "_resolve_recovered_push_failures"})
     conn = Recorder()

@@ -7,10 +7,9 @@
 # a small stdlib HTTP server on :8200 that:
 #   - toggles the greenhouse grow lights via the Home Assistant REST API
 #     (switch.greenhouse_{main,grow}) — this is a DEVICE-AFFECTING write path, and
-#   - serves GET /setpoints (current+next planned setpoints) for diagnostics +
-#     recovery tooling (NOT the ESP32 control loop; the ESP32 is a passive ESPHome
-#     device that the ingestor pushes to over aioesphomeapi — see the migration
-#     doc §0.1).
+#   - serves GET /lights and GET /health. (#1656 retired GET /setpoints, the
+#     planned-setpoint diagnostics route; the ESP32 is a passive ESPHome device
+#     that the ingestor pushes to over aioesphomeapi — see the migration doc §0.1.)
 #
 # PROD-ONLY: because it writes the live grow lights, the workload built from this
 # image is referenced ONLY by overlays/prod (alongside the prod device-egress

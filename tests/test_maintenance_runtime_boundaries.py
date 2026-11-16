@@ -36,7 +36,7 @@ def configured(monkeypatch):
     monkeypatch.setenv("DB_ADMIN_USER", "verdify")
     monkeypatch.setenv("DB_ADMIN_PASSWORD", "private-owner-fixture")
     monkeypatch.setenv("DB_NAME", "verdify")
-    for i, duty in enumerate(module.DUTIES):
+    for i, duty in enumerate(module.ACTIVE_DUTIES):
         monkeypatch.setenv(duty.upper() + "_DB_PASSWORD", ("fixture_" + str(i)).ljust(64, "z"))
     monkeypatch.delenv("DASHBOARD_DB_PASSWORD", raising=False)
     return monkeypatch
@@ -44,7 +44,7 @@ def configured(monkeypatch):
 
 def fake_psql(monkeypatch, *, nulls=None, refused=None):
     calls = []
-    state = {"verdify_" + d + "_runtime_login": True for d in module.DUTIES} if nulls is None else nulls
+    state = {"verdify_" + d + "_runtime_login": True for d in module.ACTIVE_DUTIES} if nulls is None else nulls
 
     def run(user, password, commands, **kwargs):
         calls.append((user, commands, kwargs))
@@ -63,7 +63,7 @@ def test_initial_install_is_atomic_fixed_two_and_private(configured):
     module.bootstrap()
     [(user, commands, kwargs)] = [c for c in calls if c[2].get("transactional")]
     assert user == "verdify"
-    assert commands[1:] == ["\\password verdify_" + d + "_runtime_login" for d in module.DUTIES]
+    assert commands[1:] == ["\\password verdify_" + d + "_runtime_login" for d in module.ACTIVE_DUTIES]
     assert "LOCK TABLE pg_catalog.pg_authid" in commands[0]
     assert "IS DISTINCT FROM TRUE" in commands[0]
     for protection in [
@@ -74,7 +74,7 @@ def test_initial_install_is_atomic_fixed_two_and_private(configured):
         "password_encryption='scram-sha-256'",
     ]:
         assert protection in commands[0]
-    for duty in module.DUTIES:
+    for duty in module.ACTIVE_DUTIES:
         value = os.environ[duty.upper() + "_DB_PASSWORD"]
         assert value not in str(commands)
         assert kwargs["password_input"].count(value) == 2
@@ -82,7 +82,7 @@ def test_initial_install_is_atomic_fixed_two_and_private(configured):
 
 
 def test_matching_existing_verifiers_are_never_reinstalled(configured):
-    state = {"verdify_" + d + "_runtime_login": False for d in module.DUTIES}
+    state = {"verdify_" + d + "_runtime_login": False for d in module.ACTIVE_DUTIES}
     calls = fake_psql(configured, nulls=state)
     module.bootstrap()
     assert not any(c[2].get("transactional") for c in calls)
@@ -90,15 +90,16 @@ def test_matching_existing_verifiers_are_never_reinstalled(configured):
 
 
 def test_wrong_existing_credential_blocks_missing_peer_install(configured):
-    state = {"verdify_writer_watchdog_runtime_login": False, "verdify_matview_refresh_runtime_login": True}
-    calls = fake_psql(configured, nulls=state, refused="verdify_writer_watchdog_runtime_login")
+    configured.setenv("DASHBOARD_DB_PASSWORD", DASHBOARD_VALUE)
+    state = {"verdify_matview_refresh_runtime_login": False, DASHBOARD_LOGIN: True}
+    calls = fake_psql(configured, nulls=state, refused="verdify_matview_refresh_runtime_login")
     with pytest.raises(module.BootstrapError):
         module.bootstrap()
     assert not any(c[2].get("transactional") for c in calls)
 
 
 def test_duplicate_credentials_have_no_database_effect(configured):
-    configured.setenv("WRITER_WATCHDOG_DB_PASSWORD", os.environ["MATVIEW_REFRESH_DB_PASSWORD"])
+    configured.setenv("DASHBOARD_DB_PASSWORD", os.environ["MATVIEW_REFRESH_DB_PASSWORD"])
     calls = fake_psql(configured)
     with pytest.raises(module.BootstrapError):
         module.bootstrap()
@@ -136,7 +137,7 @@ def test_unknown_contract_cannot_reach_password_or_auth(configured, answer):
 
 @pytest.mark.parametrize("bad", ["", "x" * 63, "x" * 65, "'" * 64, "\\" * 64])
 def test_bad_custody_has_no_database_effect(configured, bad):
-    configured.setenv("WRITER_WATCHDOG_DB_PASSWORD", bad)
+    configured.setenv("MATVIEW_REFRESH_DB_PASSWORD", bad)
     calls = fake_psql(configured)
     with pytest.raises(module.BootstrapError):
         module.bootstrap()
@@ -147,8 +148,8 @@ def test_bad_custody_has_no_database_effect(configured, bad):
     "state",
     [
         {},
-        {"verdify_writer_watchdog_runtime_login": None},
-        {"verdify_writer_watchdog_runtime_login": 1, "verdify_matview_refresh_runtime_login": True},
+        {"verdify_matview_refresh_runtime_login": None},
+        {"verdify_matview_refresh_runtime_login": 1, "verdify_writer_watchdog_runtime_login": True},
     ],
 )
 def test_missing_null_or_nonboolean_metadata_never_grants_install(configured, state):
@@ -159,7 +160,7 @@ def test_missing_null_or_nonboolean_metadata_never_grants_install(configured, st
 
 
 def maintenance_states(value=False):
-    return {"verdify_" + d + "_runtime_login": value for d in module.DUTIES}
+    return {"verdify_" + d + "_runtime_login": value for d in module.ACTIVE_DUTIES}
 
 
 @pytest.mark.parametrize("value", [None, ""])
@@ -171,9 +172,9 @@ def test_a_missing_or_empty_dashboard_value_skips_only_that_duty(configured, cap
     assert DASHBOARD_LOGIN not in str(calls) and "verdify_dashboard_runtime" not in str(calls)
     assert calls[0][1] == ["SELECT " + module.contract_sql()]
     [(_, commands, _)] = [c for c in calls if c[2].get("transactional")]
-    assert commands[1:] == ["\\password verdify_" + d + "_runtime_login" for d in module.DUTIES]
+    assert commands[1:] == ["\\password verdify_" + d + "_runtime_login" for d in module.ACTIVE_DUTIES]
     out = capsys.readouterr().out
-    assert "two exact logins attested" in out and "dashboard duty skipped" in out
+    assert "one exact login attested" in out and "dashboard duty skipped" in out
 
 
 def test_a_dashboard_value_is_set_only_while_null_then_attested_as_the_login(configured, capsys):
@@ -192,7 +193,7 @@ def test_a_dashboard_value_is_set_only_while_null_then_attested_as_the_login(con
     assert calls[attested[0]][1] == ["SELECT verdify_dashboard_runtime.fn_attest_login()"]
     assert DASHBOARD_VALUE not in str([c[1] for c in calls])
     out = capsys.readouterr().out
-    assert "three exact logins attested" in out and "skipped" not in out and DASHBOARD_VALUE not in out
+    assert "two exact logins attested" in out and "skipped" not in out and DASHBOARD_VALUE not in out
 
 
 def test_a_dashboard_value_with_a_set_password_is_attested_and_never_reinstalled(configured):
@@ -342,9 +343,9 @@ def test_only_two_callers_and_initial_hook_receive_new_custody():
         for e in pod["containers"][0]["env"]
         if "secretKeyRef" in e.get("valueFrom", {})
     }
+    # The retired writer watchdog login (RULINGS R2) receives no custody any more.
     assert set(refs) == {
         "DB_ADMIN_PASSWORD",
-        "WRITER_WATCHDOG_DB_PASSWORD",
         "MATVIEW_REFRESH_DB_PASSWORD",
         "DASHBOARD_DB_PASSWORD",
     }
@@ -444,3 +445,13 @@ def test_retired_product_watchdog_objects_cannot_reenter_the_production_render()
     assert not objects & retired
     assert ("StatefulSet", "verdify-db") in objects
     assert ("PersistentVolumeClaim", "db-data-verdify-db-0") in objects
+
+
+def test_retired_watchdog_duty_stays_in_the_contract_without_custody(configured):
+    assert module.RETIRED_DUTIES == ("writer_watchdog",) and module.ACTIVE_DUTIES == ("matview_refresh",)
+    assert "verdify_writer_watchdog_runtime_login" in module.contract_sql()  # sealed contract unchanged
+    configured.setenv("WRITER_WATCHDOG_DB_PASSWORD", "retired_fixture_".ljust(64, "w"))
+    calls = fake_psql(configured)
+    module.bootstrap()
+    assert not any(c[0] == "verdify_writer_watchdog_runtime_login" for c in calls)
+    assert "\\password verdify_writer_watchdog_runtime_login" not in str(calls)

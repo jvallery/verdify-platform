@@ -16,7 +16,10 @@
 # the tunables diff) run in DIFF MODE when CI_BASE_REF is set:
 #   CI_BASE_REF=<sha|ref> scripts/ci-local.sh
 #
-# Exit nonzero on the first failing gate. Keep this script dependency-light:
+# Setup stops at its first failure; after it, every gate runs even when an
+# earlier one failed, each failure is printed under its step's name, and the
+# script exits nonzero at the end with the list (one run shows every failure).
+# Keep this script dependency-light:
 # python3.12+ with the repo's [dev] extras, g++, kubectl/kustomize.
 
 set -euo pipefail
@@ -31,7 +34,19 @@ if [ ! -x "$RUFF" ]; then RUFF="$PY -m ruff"; fi
 # environment so their imports match pytest, including native CI's fresh venv.
 export PATH="$("$PY" -c 'import pathlib, sys; print(pathlib.Path(sys.executable).parent)'):$PATH"
 
-step() { printf '\n== %s ==\n' "$1"; }
+CURRENT_STEP=setup
+FAILED_STEPS=()
+step() {
+  CURRENT_STEP="$1"
+  printf '\n== %s ==\n' "$1"
+}
+# Keep going (set -E: the trap also fires inside functions and subshells): a
+# failing command marks its step failed and the next command runs.
+record_failure() {
+  local rc=$?
+  FAILED_STEPS+=("${CURRENT_STEP} (exit ${rc}): ${BASH_COMMAND}")
+  printf '\n::error::FAILED in step "%s" (exit %s): %s\n' "$CURRENT_STEP" "$rc" "$BASH_COMMAND"
+}
 
 # VALIDATE_PART splits this gate across parallel CI jobs (#1459): ci / validate
 # is their aggregate. Unset or "all" runs every step in one process, as
@@ -50,6 +65,12 @@ case "$VALIDATE_PART" in
   *) echo "unknown VALIDATE_PART=$VALIDATE_PART" >&2; exit 2 ;;
 esac
 in_part() { [ "$VALIDATE_PART" = all ] || [[ " $* " == *" $VALIDATE_PART "* ]]; }
+
+# Setup is done: from here on, keep going.
+set +e -E
+trap record_failure ERR
+# A collection error in one file must not abort the rest of its pytest invocation.
+export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }--continue-on-collection-errors"
 
 if in_part rest; then
   step "ruff lint"
@@ -140,6 +161,11 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_309_one_band_delivery.py
     tests/test_310_daily_record_delivery.py
     tests/test_311_one_compliance_definition_delivery.py
+    tests/test_312_operator_metrics_reads_delivery.py
+    tests/test_313_planner_review_delivery.py
+    tests/test_daily_review_task.py
+    tests/test_314_controller_health_and_gap_ledger_delivery.py
+    tests/test_observation_spool_projection.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py
@@ -163,10 +189,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_dashboard_db_irrigation_ledger.py
     tests/test_irrigation_writes_rest.py
     tests/test_dashboard_db_irrigation_writes.py
-    tests/test_dashboard_db_forecast_engine.py
     tests/test_dashboard_db_next_reads.py
-    tests/test_10_planner_routing.py
-    tests/test_11_planner_milestones.py
     tests/test_13_grafana_band_traceability.py
     tests/test_14_shadow_mode.py
     tests/test_14_site_doctor.py
@@ -191,11 +214,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_20_vision_src_sync.py
     tests/test_vision_authenticated_snapshots.py
     tests/test_21_config_revision.py
-    tests/test_component_grid_capture.py
     tests/test_c1_grid_projection.py
-    tests/test_control_band_wire.py
-    tests/test_component_prefix_replay.py
-    tests/test_component_prefix_inputs.py
     tests/test_fog_vent_consumer.py
     tests/test_cnpg_rehearsal.py
     tests/test_cnpg_runtime_client_qualification.py
@@ -222,6 +241,8 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_action_log_policy_identity.py
     tests/test_moisture_state_boundary.py
     tests/test_anchor_service_sync.py
+    tests/test_gap_replay.py
+    tests/test_relay_boot_edges.py
     tests/test_api_light_command_boundary.py
     tests/test_api_public_output_policy.py
     tests/test_climate_intent_replay_evaluator.py
@@ -238,7 +259,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_component_grid_qualification.py
     tests/test_qualify_component_containment.py
     tests/test_esp32_policy_transaction.py
-    tests/test_experiment_gather_mode.py
     tests/test_experiment_qualification_regimes.py
     tests/test_experiment_qualification_settling.py
     tests/test_experiment_qualification_spec.py
@@ -272,7 +292,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_growlight_boundary_episodes.py
     tests/test_firmware_provisional_rollback.py
     tests/test_firmware_crop_agnostic_guard.py
-    tests/test_forecast_action_engine_path.py
     tests/test_generate_daily_plan.py
     tests/test_grafana_cm_check.py
     tests/test_grafana_manifest_security.py
@@ -292,6 +311,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_lab_serving_cache.py
     tests/test_lab_publish_k3s_guard.py
     tests/test_mcp_audience_auth.py
+    tests/test_mcp_band_source.py
     tests/test_mcp_named_agents.py
     tests/test_mcp_irrigation_read_tools.py
     tests/test_mcp_irrigation_write_tools.py
@@ -299,12 +319,9 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_dashboard_db_crops_writes.py
     tests/test_irrigation_context.py
     tests/test_dashboard_db_irrigation_context.py
-    tests/test_gather_no_home_assistant.py
     tests/test_mcp_settings_tools.py
     tests/test_dashboard_db_mcp_settings.py
     tests/test_dashboard_db_settings_parity.py
-    tests/test_gather_manual_settings.py
-    tests/test_gather_parallel_driver.py
     tests/test_mcp_transport_runtime.py
     tests/test_outcome_kpi_dryout_projection.py
     tests/test_scorecard_realized_dryout.py
@@ -318,7 +335,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_policy_arbiter_migration.py
     tests/test_prometheus_rule_source_guard.py
     tests/test_policy_writer_demotion.py
-    tests/test_prepare_component_prefix_replay.py
     tests/test_prod_release_pins.py
     tests/test_psql_verdify_backend.py
     tests/test_publish_site_content_guard.py
@@ -347,9 +363,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_operator_api_auth.py
     tests/test_operator_writes.py
     tests/test_operator_lights.py
-    tests/test_verdify_services_planner.py
-    tests/test_verdify_services_planner_study.py
-    tests/test_planner_study_preregister.py
     tests/test_setpoint_server_ingress.py
     tests/test_public_api_operator_paths.py
     tests/test_1611_health_latency.py
@@ -411,7 +424,6 @@ if in_part rest; then
     tests/test_build_provenance.py \
     tests/test_c0_restore_probe.py \
     tests/test_c0_successor_249.py \
-    tests/test_capture_component_current_state.py \
     tests/test_cnpg_existing_target_fault.py \
     tests/test_cnpg_maintenance_276_projection.py \
     tests/test_cnpg_pitr_pair.py \
@@ -434,11 +446,9 @@ if in_part rest; then
     tests/test_fixed_panel_native_route.py \
     tests/test_fixed_panel_native_source.py \
     tests/test_event_alert_auto_resolve.py \
-    tests/test_forecast_deviation_delivery_retry.py \
     tests/test_forecast_replay.py \
     tests/test_forecast_verification_contract.py \
     tests/test_freeze_winter_target.py \
-    tests/test_gather_configmap_generator.py \
     tests/test_grafana_admin_sso.py \
     tests/test_grafana_dashboard_sync_contract.py \
     tests/test_grafana_render_cache.py \
@@ -446,6 +456,7 @@ if in_part rest; then
     tests/test_irrigation_run_any_mister.py \
     tests/test_lessons_state_machine.py \
     tests/test_mcp_band_tools.py \
+    tests/test_mcp_review_tools.py \
     tests/test_mcp_security_acceptance.py \
     tests/test_mcp_client_attribution.py \
     tests/test_mcp_tool_audit.py \
@@ -458,7 +469,6 @@ if in_part rest; then
     tests/test_physical_crop_band_sql_reader.py \
     tests/test_post253_ordinary_attestation.py \
     tests/test_pretrial_provenance.py \
-    tests/test_prompt_variants.py \
     tests/test_public_band_lineage.py \
     tests/test_qualify_migration_successor_prelock.py \
     tests/test_replay_outdoor_coverage.py \
@@ -468,6 +478,8 @@ if in_part rest; then
     tests/test_scorecard_consumer_acceptance.py \
     tests/test_selector_context_bounded_migration.py \
     tests/test_setpoint_snapshot_coherence.py \
+    tests/test_setpoint_snapshot_on_change.py \
+    tests/test_daily_summary_daily_record.py \
     tests/test_sops_secret_metadata_receipt.py \
     tests/test_verdify_services_lighting.py \
     tests/test_wetting_incident.py \
@@ -481,14 +493,14 @@ if in_part rest; then
   # Intentionally NOT collected by this gate:
   # - Live stack / production (curl through Traefik, kubectl exec into
   #   verdify-db-0, docker exec): tests/test_02_database.py, test_03_api.py,
-  #   test_04_planner.py, test_05_ingestor.py, test_06_website.py,
-  #   test_07_cron_replan.py, test_08_observability.py, test_09_api_responses.py,
+  #   test_05_ingestor.py, test_06_website.py,
+  #   test_08_observability.py, test_09_api_responses.py,
   #   test_13_operational_recovery.py. Several mix in offline classes; split
   #   those out before adding them here.
   # - Private database fixtures run by other CI steps: tests/test_dashboard_db_*.py
   #   (verdify-platform-ci campaign step, private TimescaleDB).
   # - Private PostgreSQL only, every test skips without a *_TEST_PG_BIN / DSN:
-  #   tests/test_427_local_fallback.py, test_c0_release_rehearsal.py,
+  #   tests/test_c0_release_rehearsal.py,
   #   test_daily_climate_metric_revisions.py.
   # - Own environment: research/planner-efficacy/tests/test_audit.py and
   #   test_epoch_analysis.py need scikit-learn (research/planner-efficacy/pyproject.toml).
@@ -503,9 +515,6 @@ if in_part rest; then
 
   step "solar site constants SSOT guard (#393)"
   $PY scripts/check-solar-constants.py
-
-  step "gather ConfigMap matches its source scripts"
-  $PY scripts/gen-gather-configmap.py --check
 
   step "config-revision annotations match verdify-config sources (#587)"
   bash scripts/gen-config-revision.sh --check
@@ -579,7 +588,7 @@ if in_part containment-firmware && [ -n "${CI_BASE_REF:-}" ]; then
   for id in $NEW_IDS; do
     grep -qE "id: cfg_(sw_)?${id}\b" firmware/greenhouse/sensors.yaml || MISSING="$MISSING $id"
   done
-  [ -z "$MISSING" ] || { echo "New tunables without cfg_* readback:$MISSING" >&2; exit 1; }
+  [ -z "$MISSING" ] || { echo "New tunables without cfg_* readback:$MISSING" >&2; false; }
 
   step "service-restart drift guard (rule 7, schema -> runtime) vs ${BASE}"
   # #391: the retired ci.yml job grepped the bare word 'service' and
@@ -604,6 +613,12 @@ if in_part containment-firmware && [ -n "${CI_BASE_REF:-}" ]; then
   fi
 fi
 
+trap - ERR
+if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
+  printf '\n== FAILED (part: %s): %s step command(s) ==\n' "$VALIDATE_PART" "${#FAILED_STEPS[@]}"
+  printf '  %s\n' "${FAILED_STEPS[@]}"
+  exit 1
+fi
 if [ "$(uname -s)" = Linux ]; then
   printf '\nALL GATES GREEN (part: %s)\n' "$VALIDATE_PART"
 else

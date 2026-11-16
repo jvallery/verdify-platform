@@ -19,6 +19,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import asyncpg
+import irrigation_db_support as support
 import pytest
 
 from verdify_services import series as s
@@ -164,6 +165,7 @@ async def _fill(conn: asyncpg.Connection) -> Fixture:
     )
     await conn.execute(band_compliance_sql())
     await conn.execute(climate_columns_sql())
+    await conn.execute(support.gap_ledger_sql(grants=False))  # 314: GAPS_SQL reads v_data_gaps_unreplayed
     # 31 days at 60 s with a 30-minute outage; solar_altitude_deg set so the solar trigger stays idle.
     await conn.execute(
         """INSERT INTO public.climate (ts, greenhouse_id, temp_avg, temp_north, rh_avg, vpd_avg, co2_ppm,

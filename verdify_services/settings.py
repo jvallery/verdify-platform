@@ -50,6 +50,7 @@ from verdify_schemas.setting_values import (
     snap_setting,
 )
 from verdify_schemas.tunable_registry import (
+    AGENT_SETTABLE_PARAMS,
     OWNER_ONLY_PARAMS,
     REGISTRY,
     SWITCH_READBACK_EQUIPMENT,
@@ -70,8 +71,8 @@ if TYPE_CHECKING:  # reads imports this module; _shared() imports reads when it 
 GREENHOUSE_ID = "vallery"
 # A stored write reads requested this long before it reads not_confirmed (§5.5).
 REQUESTED_FOR = timedelta(minutes=5)
-# setpoint_snapshot holds every cfg_* sensor and native Number/Switch state each 60 s, so a readback older than
-# this is no readback now. equipment_state records changes only, so its window is the readback retention.
+# setpoint_snapshot holds every cfg_* sensor and native Number/Switch state on change, after each write, desired row
+# or plan waypoint, and at least hourly (#1662), so a readback older than this is no readback now. equipment_state records changes only, so its window is the readback retention.
 READBACK_WINDOW = timedelta(hours=24)
 EQUIPMENT_WINDOW = timedelta(days=90)
 # A band or default setting with no desired row and no plan is judged against the dispatcher's newest push.
@@ -310,7 +311,7 @@ class _Facts:
     """What one setting's state is computed from (architecture §7 Settings)."""
 
     desired: Mapping[str, Any] | None = None  # the v_desired_state_current row
-    plan: Mapping[str, Any] | None = None  # the v_active_plan row
+    plan: Mapping[str, Any] | None = None  # a plan row; never read since climate refactor 4.2, so always None
     readback: _Readback | None = None  # the newest readback (setpoint_snapshot, or the equipment mirror)
     last_push: Mapping[str, Any] | None = None  # the newest dispatcher push, for band and default rows
     push: _Push | None = None  # the newest push at or after the request
@@ -391,9 +392,9 @@ def _writable_desired(param: str, desired: Mapping[str, Any] | None) -> Mapping[
 
 
 def applied_from(spec: TunableDef, desired: Mapping[str, Any] | None, plan: Mapping[str, Any] | None) -> AppliedFrom:
-    """Whose value the dispatcher applies (§5.2): manual, desired or plan by ``resolve_effective()``; with no
-    desired row (or a released one), plan when a ``v_active_plan`` row exists, else band for a band or
-    schedule setting, else default."""
+    """Whose value the dispatcher applies (§5.2): manual or desired by ``resolve_effective()``; with no desired
+    row (or a released one), band for a band or schedule setting, else default. ``plan`` is always None since
+    climate refactor 4.2 (no plan row is read), so ``plan`` is never the answer."""
     desired = _writable_desired(spec.name, desired)
     resolved = resolve_effective(desired, plan)
     if resolved is not None:
@@ -560,10 +561,6 @@ SELECT id, param, value, manual, source, actor, reason, created_at
 _DESIRED_BY_ID_SQL = """
 SELECT id, param, value, manual, source, actor, reason, created_at FROM desired_state WHERE id = $1
 """
-
-_ACTIVE_PLAN_SQL = (
-    "SELECT parameter, value, ts, plan_id, created_at FROM v_active_plan WHERE parameter = ANY($1::text[])"
-)
 
 # The newest readback of each setting: cfg_* sensors and native Number/Switch states (not the band audit rows).
 _SNAPSHOT_SQL = """
@@ -738,12 +735,10 @@ async def _gather(
     shared = await _shared(conn, site=bool(site_specs))
     if desired_rows is None:
         desired_rows = {row["param"]: row for row in await conn.fetch(_DESIRED_SQL, GREENHOUSE_ID, names)}
-    plans = {row["parameter"]: row for row in await conn.fetch(_ACTIVE_PLAN_SQL, names)}
     readbacks = await _readbacks(conn, names)
-    facts = {
-        name: _Facts(desired=desired_rows.get(name), plan=plans.get(name), readback=readbacks.get(name))
-        for name in names
-    }
+    # Climate refactor 4.2: no plan reaches the controller, so no plan row is read (the dispatcher resolves with
+    # none); _Facts.plan stays None.
+    facts = {name: _Facts(desired=desired_rows.get(name), readback=readbacks.get(name)) for name in names}
     # A band or default setting with no desired row and no plan is judged against the newest push.
     unrequested = [
         name for name in names if _writable_desired(name, facts[name].desired) is None and facts[name].plan is None
@@ -1146,9 +1141,8 @@ def _refuse(code: str, detail: str, spec: TunableDef | None, current: float | No
 
 async def _validation_facts(conn: asyncpg.Connection, spec: TunableDef) -> _Facts:
     desired = await conn.fetchrow(_DESIRED_SQL, GREENHOUSE_ID, [spec.name])
-    plan = await conn.fetchrow(_ACTIVE_PLAN_SQL, [spec.name])
     readback = (await _readbacks(conn, [spec.name])).get(spec.name)
-    return _Facts(desired=desired, plan=plan, readback=readback)
+    return _Facts(desired=desired, readback=readback)
 
 
 async def _check_writable(
@@ -1181,6 +1175,19 @@ def check_owner(actor: Actor, param: str) -> None:
             problem(
                 "forbidden",
                 f"Only the owner sets {setting_label(param)}, from the dashboard; {actor.source} may not",
+                field="param",
+            )
+        )
+
+
+def check_agent_scope(actor: Actor, param: str) -> None:
+    """An agent writes no climate value (climate refactor 4.2): Iris and any MCP agent, the admin token included, may
+    write or release only ``AGENT_SETTABLE_PARAMS`` (the operator switches); anything else is ``forbidden``."""
+    if (actor.source == "iris" or actor.source.startswith("agent:")) and param not in AGENT_SETTABLE_PARAMS:
+        raise ServiceError(
+            problem(
+                "forbidden",
+                f"An agent may change only an operator switch; {setting_label(param)} is set from the dashboard",
                 field="param",
             )
         )
@@ -1235,7 +1242,7 @@ def check_range(param: str, value: float) -> float:
 
 def _snap(spec: TunableDef, number: float, facts: _Facts) -> float:
     """§5.3 step 4: the registry step, half to even; a value equal (within its binary32 ULP) to the value in
-    force or the device value is stored as is, so taking Iris's 48.75 manual keeps 48.75."""
+    force or the device value is stored as is. No plan row is in force since climate refactor 4.2."""
     in_force = resolve_effective(_writable_desired(spec.name, facts.desired), facts.plan)
     candidates = [
         in_force.value if in_force is not None else (_finite(facts.plan["value"]) if facts.plan is not None else None),
@@ -1250,6 +1257,7 @@ def _snap(spec: TunableDef, number: float, facts: _Facts) -> float:
 async def _validate(conn: asyncpg.Connection, actor: Actor, param: str, value: object) -> _Checked:
     spec, facts, target, anchor_ids = await _check_writable(conn, param)
     check_owner(actor, param)
+    check_agent_scope(actor, param)
     current = _current(spec, facts)
     number = _check_value(spec, value, current)
     _check_manual(actor, spec, facts)
@@ -1272,6 +1280,7 @@ async def validate(conn: asyncpg.Connection, actor: Actor, param: str, value: fl
     1. Known and writable (``unknown_target``; ``read_only`` with the reason, a crop-band setting included
        while ``crop_band_anchors`` holds none of its rows).
     1a. Owner only: a band row or the drying cost limit from anyone but a dashboard operator (``forbidden``).
+    1b. Agents: Iris or an MCP agent may write only an operator switch (``forbidden``).
     2. Type and range (``out_of_range`` with ``min`` and ``max``).
     3. Manual: an ``iris`` write to a setting whose newest row is manual (``manual``).
     4. Snap to the registry step, half to even, unless the value equals the value in force or the device
@@ -1517,6 +1526,7 @@ async def release(
         await _lock_and_guard(tx, param, expected_id)
         spec, facts, _target, _ids = await _check_writable(tx, param)
         check_owner(actor, param)
+        check_agent_scope(actor, param)
         _check_manual(actor, spec, facts)
         manual_before = bool(facts.desired is not None and facts.desired["manual"])
         current = _current(spec, facts)

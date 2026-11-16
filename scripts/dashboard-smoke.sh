@@ -9,13 +9,14 @@
 # USAGE
 #   scripts/dashboard-smoke.sh [--expected-web-sha <40 hex>]
 #   scripts/dashboard-smoke.sh --sweep [--expected-web-sha <40 hex>]
-#   scripts/dashboard-smoke.sh --agent-write <name> [--param <setting>] [--expected-web-sha <40 hex>]
+#   scripts/dashboard-smoke.sh --agent-write <name> [--param <switch>] [--expected-web-sha <40 hex>]
 #   scripts/dashboard-smoke.sh --role operator [--param <setting>] [--expected-web-sha <40 hex>]
 #   scripts/dashboard-smoke.sh --role operator --revert [--param <setting>] [--expected-web-sha <40 hex>]
 #   scripts/dashboard-smoke.sh --role operator --lights [--expected-web-sha <40 hex>]
 #
 # Every run in the web pod starts with /readyz: status ready at --expected-web-sha, or at any full SHA without it;
-# --agent-write reads it after the Job, for API-17. <setting> defaults to mister_engage_kpa.
+# --agent-write reads it after the Job, for API-17. <setting> defaults to mister_engage_kpa; --agent-write's <switch>
+# defaults to sw_gl_grow_out_of_service.
 #
 # BASELINE (no flag). Inside the web pod:
 #   - INT-01 mints a viewer session named dashboard-smoke (201), which proves the token the web pod
@@ -41,7 +42,7 @@
 # --sweep (#1181 step 4, #1186 step 1): reads only, as the viewer, so it runs at any time.
 #   - GET each served read through the BFF and expect 200: API-01 to API-07 (API-06 also with zone=south), API-09,
 #     API-12, API-13 (with its three reasons present), API-14, API-17, API-19 (zone_vpd_target_center_sm at the
-#     midpoint of its API-09 min and max), API-21, API-25 to API-27, API-IRR-01, API-IRR-02, API-IRR-10 and API-IRR-11. A failure prints
+#     midpoint of its API-09 min and max), API-21, API-25, API-IRR-01, API-IRR-02, API-IRR-10 and API-IRR-11. A failure prints
 #     the id and the status, so a read the dashboard login was never granted fails here as a 500, not on a screen.
 #   - API-IRR-10 reads 2025-08-05 to 2025-09-03, the first 30 days of wet-relay rows (irrigation §6.2), and each of
 #     those days must carry minutes, not no_data. The minutes begin there, so an earlier window reads no_data for good.
@@ -57,10 +58,13 @@
 #   - A one-shot Job in verdify-prod, label verdify.ai/mcp-agent "true", the live verdify-mcp digest, no ServiceAccount
 #     token, restricted, backoffLimit 0, activeDeadlineSeconds 120, with that key as an env var. It retries its first
 #     connect for up to 30 s, reads the setting through MCP settings, refuses unless the newest desired row is absent or
-#     released, then calls set_setting with the device value plus one step (minus at the max) and set_setting(release=
-#     true), and prints only the returned state and codes (held under an armed experiment, which is not a failure here:
+#     released, then calls set_setting and set_setting(release=true), and prints only the returned state and codes (held under an armed experiment, which is not a failure here:
 #     this leg waits for no readback). A SIGTERM still runs the release. A Job that ended Complete with no write in its
 #     log is a FAIL, because nothing then shows what it did.
+#   - Since climate refactor 4.2 an agent may write only the three operator switches. The leg writes only
+#     sw_gl_grow_out_of_service (default) or sw_gl_main_out_of_service, and only from 0 to 1: that light is out of
+#     service for the seconds until the release returns it to 0, and the light only stays off. sw_occupancy_inhibit
+#     is never written here: it rests at 1, and its one step, to 0, lets the misters run with a person inside.
 #   - This host deletes the Job, and a viewer session reads API-17 ?source=agent:<name>&target=<setting>: both writes
 #     with actor source agent:<name> and name <name>, which Activity shows as "<name> · agent".
 #
@@ -106,6 +110,10 @@ LAN_ANSWER="192.168.7.10"
 PUBLIC_RESOLVER="https://cloudflare-dns.com/dns-query"
 AUTHORIZE_URL="https://auth.vallery.net/application/o/authorize/"
 DEFAULT_PARAM="mister_engage_kpa"
+# An agent may write only the operator switches (climate refactor 4.2); of those only the two out-of-service switches
+# have a safe step (0 to 1: the light stays off), so --agent-write takes one of them.
+AGENT_DEFAULT_PARAM="sw_gl_grow_out_of_service"
+AGENT_SAFE_PARAMS="sw_gl_grow_out_of_service sw_gl_main_out_of_service"
 # How long the MCP Job may take: its own activeDeadlineSeconds and a margin for the Job to read Failed.
 AGENT_JOB_WAIT_S=150
 # Parity: the seconds both reads wait so that they start together, and how often a difference is read.
@@ -172,6 +180,11 @@ elif [ "${AGENT_GIVEN}" -eq 1 ]; then
   if ! [[ "${AGENT}" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || [ "${AGENT}" = "admin" ]; then
     usage_error "--agent-write takes an agent's name as Secret verdify-mcp-agents keys it: ^[a-z0-9][a-z0-9_-]{0,62}$, never admin."
   fi
+  PARAM="${PARAM:-${AGENT_DEFAULT_PARAM}}"
+  case " ${AGENT_SAFE_PARAMS} " in
+    *" ${PARAM} "*) ;;
+    *) usage_error "--agent-write writes only ${AGENT_SAFE_PARAMS// / or }: an agent sets no other setting." ;;
+  esac
 elif [ -n "${ROLE}" ]; then
   if [ "${LIGHTS}${REVERT}" = "11" ]; then usage_error "--lights and --revert are two runs."; fi
   if [ "${LIGHTS}" -eq 1 ] && [ -n "${PARAM}" ]; then usage_error "--lights writes sw_gl_main_auto_mode; it takes no --param."; fi
@@ -366,8 +379,6 @@ async function sweep(bff) {
     ["API-17", "/api/v1/activity?limit=50"],
     ["API-21", "/api/v1/water/daily?days=90"],
     ["API-25", "/api/v1/planner/history?days=30"],
-    ["API-26", "/api/v1/planner/experiments"],
-    ["API-27", "/api/v1/planner/experiments/planner-ab-winter-2026"],
     ["API-IRR-01", "/api/v1/irrigation"],
     ["API-IRR-02", "/api/v1/irrigation/schedules?days=7&past_days=7"],
     [`API-IRR-10 with minutes on all ${MINUTES_DAYS} days, not no_data`, MINUTES_PATH, carriesMinutes],
@@ -979,27 +990,27 @@ def read_row():
 
 
 def why_not_checkable(row):
+    """The host admits only an out-of-service switch; it is written only from 0 to 1 (the light stays off)."""
     if not row:
         return "not in the settings tool"
     if not row.get("writable"):
         return "not writable"
-    if row.get("kind") != "numeric" or row.get("control_class") in NOT_CHECKABLE:
-        return "one step of it cannot be undone or confirmed"
+    if row.get("kind") != "switch" or row.get("control_class") in NOT_CHECKABLE:
+        return "only an operator switch is an agent's to write"
     desired = row.get("desired")
     if desired and desired.get("value") is not None:
         return "its newest desired row is neither absent nor released, so it stays"
-    if not isinstance((row.get("readback") or {}).get("value"), (int, float)):
+    device = (row.get("readback") or {}).get("value")
+    if not isinstance(device, (int, float)):
         return "no device value"
-    if not (row.get("step") or 0) > 0:
-        return "no step"
+    if device != 0:
+        return "the light is already out of service, and only 0 to 1 is safe"
     return None
 
 
 def one_step(row):
-    """The device value plus one grid step, minus at the max. The server snaps it again."""
-    device, step, top = row["readback"]["value"], row["step"], row.get("max")
-    up = round(round((device + step) / step) * step, 9)
-    return up if top is None or up <= top else round(round((device - step) / step) * step, 9)
+    """An out-of-service switch from 0 to 1."""
+    return 1.0
 
 
 def with_tries(arguments):

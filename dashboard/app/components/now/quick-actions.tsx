@@ -13,7 +13,7 @@ import { Term } from "../term";
 
 const BURST_PURPOSE = {
   fans: { title: "Exchange air", detail: "Both fans on, vent open. Runs for 15 minutes." },
-  humidify: { title: "Add humidity", detail: "Fog on for 5 minutes. Occupancy and water safeguards still apply." },
+  humidify: { title: "Run the fogger", detail: "Fog on for 5 minutes. Water safeguards still apply." },
   vent_bypass: { title: "Circulate air", detail: "Both fans on, vent closed. Runs for 10 minutes." },
 } as const;
 
