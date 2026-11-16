@@ -395,6 +395,8 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "314-controller-health-and-gap-ledger.sql",
         # The replay-aware gap readers, the relay counter check and three health columns run forward only.
         "315-replayed-gaps-counter-check-and-health.sql",
+        # The first drops (experiment v2, policy twin, planner pack) run forward only; the tables are archived first.
+        "316-experiment-v2-and-shadow-drops.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(

@@ -1234,6 +1234,35 @@ def sealed_sql_315():
     )
 
 
+EXPERIMENT_V2_SHADOW_DROPS_MIGRATION = (
+    316,
+    "316-experiment-v2-and-shadow-drops.sql",
+    "0bb13b701cbf79b8441fa0004da0c73145f3459a2f44753728ff636628cda271",
+)
+# The first drops of the climate refactor (#1633, host release 4; contracts phase4-drops): the confirmed-component
+# experiment v2, the policy twin, the planner graph and memory tables, planner_pack, forecast_deviation_thresholds, the
+# retired planner experiment views and thirteen retired roles. The dropped grants move the api, ingestor and MCP seals
+# (record: tests/fixtures/316-experiment-v2-and-shadow-drops-native-qualification.json). Until the probe measures
+# them, the literals are 315's (fail closed).
+SUCCESSOR_316 = {
+    **SUCCESSOR_315,
+}
+
+
+def sealed_sql_316():
+    # Keep every 315 predicate and bind the exact 316 runner stamp with its successor seals.
+    predecessor = sealed_sql_315()
+    current = seal_profile_sql(315, SUCCESSOR_315)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(316, SUCCESSOR_316), 1)
+        + " AND "
+        + ledger_row_sql(*EXPERIMENT_V2_SHADOW_DROPS_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1308,6 +1337,8 @@ def sealed_sql():
         + sealed_sql_314()
         + " OR "
         + sealed_sql_315()
+        + " OR "
+        + sealed_sql_316()
         + ")"
     )
 
