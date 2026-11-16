@@ -29,8 +29,8 @@ test("an operator: Stop all water first, then the three bursts, each a name over
   expect(screen.getByRole("region", { name: "Quick actions" })).toBeTruthy();
   expect(names()).toEqual(["Stop all water", "Exchange air · 15 min", "Run the fogger · 5 min", "Circulate air · 10 min"]);
   expect(screen.getByRole("button", { name: "Stop all water" }).className).toContain("btn-stop");
-  expect(screen.getByText("Both fans on, vent open; both heaters stay off. Runs for 15 minutes.")).toBeTruthy();
-  expect(screen.getByText("Both fans on, vent closed (house air); both heaters stay off. Runs for 10 minutes.")).toBeTruthy();
+  expect(screen.getByText("Both fans on, vent open. Runs for 15 minutes.")).toBeTruthy();
+  expect(screen.getByText("Both fans on, vent closed. Runs for 10 minutes.")).toBeTruthy();
 });
 
 test("a burst is one API-IRR-12 with its kind and minutes and no dialog; Stop all water calls the route's Stop", async () => {

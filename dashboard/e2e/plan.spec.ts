@@ -150,6 +150,7 @@ test("Find a setting lands on Settings filtered by its words", async ({ page, re
   await page.getByRole("searchbox", { name: "Find a setting" }).fill("pulse gap");
   await page.getByRole("button", { name: "Find" }).click();
   await expect(page).toHaveURL(/\/settings\?q=pulse\+gap$/);
-  await expect(page.locator("tr.setting-row")).toHaveCount(11);
+  // Ten rows name both words; since the climate law, Mister Pulse ON's help no longer names Mister Pulse Gap.
+  await expect(page.locator("tr.setting-row")).toHaveCount(10);
   await expect(page.locator('tr.setting-row[data-param="mister_pulse_gap_s"]')).toBeVisible();
 });

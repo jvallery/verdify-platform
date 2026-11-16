@@ -12,9 +12,9 @@ import { StopAllWater, type StopAllControl } from "../stop-all-water";
 import { Term } from "../term";
 
 const BURST_PURPOSE = {
-  fans: { title: "Exchange air", detail: "Both fans on, vent open; both heaters stay off. Runs for 15 minutes." },
+  fans: { title: "Exchange air", detail: "Both fans on, vent open. Runs for 15 minutes." },
   humidify: { title: "Run the fogger", detail: "Fog on for 5 minutes. Water safeguards still apply." },
-  vent_bypass: { title: "Circulate air", detail: "Both fans on, vent closed (house air); both heaters stay off. Runs for 10 minutes." },
+  vent_bypass: { title: "Circulate air", detail: "Both fans on, vent closed. Runs for 10 minutes." },
 } as const;
 
 /** The shared burst button (Equipment's too): its name over its length on a phone, so three fit side by side. */
