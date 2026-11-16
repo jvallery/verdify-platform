@@ -148,3 +148,18 @@ def test_fallback_logs_once_across_ticks(monkeypatch, caplog):
         _run(ingestor.write_climate_action_log(FakePool(conn), datetime.now(UTC)))
     fallback_warnings = [r for r in caplog.records if "falling back to the legacy insert" in r.getMessage()]
     assert len(fallback_warnings) == 1
+
+
+def test_af2a_the_action_log_band_edges_come_from_the_band_source():
+    """RULINGS AF2(a): fn_setpoint_at is a settings ledger read; the four edges come from fn_band_setpoints."""
+    template = ingestor._CLIMATE_ACTION_LOG_INSERT_TEMPLATE
+    band = template.split("band AS (", 1)[1].split("plan_context AS (", 1)[0]
+    assert "fn_setpoint_at" not in template
+    for edge, column in (
+        ("temp_low", "temp_low_f"),
+        ("temp_high", "temp_high_f"),
+        ("vpd_low", "vpd_low_kpa"),
+        ("vpd_high", "vpd_high_kpa"),
+    ):
+        assert f"bs.{edge}" in band and column in band
+    assert "FROM fn_band_setpoints(" in band

@@ -2052,10 +2052,12 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
             ),
             band AS (
                 SELECT
-                    fn_setpoint_at($1, 'temp_low', COALESCE((SELECT ts FROM latest_climate), $2)) AS temp_low_f,
-                    fn_setpoint_at($1, 'temp_high', COALESCE((SELECT ts FROM latest_climate), $2)) AS temp_high_f,
-                    fn_setpoint_at($1, 'vpd_low', COALESCE((SELECT ts FROM latest_climate), $2)) AS vpd_low_kpa,
-                    fn_setpoint_at($1, 'vpd_high', COALESCE((SELECT ts FROM latest_climate), $2)) AS vpd_high_kpa,
+                    -- RULINGS AF2(a): the four edges come from the one band source, fn_band_setpoints, as the
+                    -- targets do; the settings ledger read is never a band source.
+                    bs.temp_low  AS temp_low_f,
+                    bs.temp_high AS temp_high_f,
+                    bs.vpd_low   AS vpd_low_kpa,
+                    bs.vpd_high  AS vpd_high_kpa,
                     -- ADR0003 §6.3 (BC-9): the band TARGET is the served device-truth curve
                     -- (fn_band_setpoints, mig 181) — NOT the (low+high)/2 midpoint, which is
                     -- wrong on the asymmetric house band (temp_target sm=84 vs midpoint 81).
