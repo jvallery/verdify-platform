@@ -182,19 +182,23 @@ def test_iris_s_plan_value_taken_manual_and_the_manual_rule(dsn):
         status = await settings.status(mcp, "mister_engage_delay_s")
         assert (status.applied_from, status.desired.id) == ("manual", taken.id)
 
-        problem = await refused(settings.write(mcp, IRIS, "mister_engage_delay_s", 60, False, None, None))
-        assert (problem.code, problem.current) == ("manual", 48.75)
-        problem = await refused(settings.release(mcp, IRIS, "mister_engage_delay_s", None, None))
-        assert problem.code == "manual"
-
-        cleared = (await settings.write(mcp, AGENT, "mister_engage_delay_s", 60, False, "agent", None)).value
-        assert (cleared.manual, cleared.manual_before) == (False, True)
-        assert await mcp.fetchval("SELECT manual FROM public.desired_state WHERE id = $1", cleared.id) is False
-        _, detail = await activity_detail(mcp, cleared.id)
-        assert detail["manual"] == {"before": True, "after": False}
+        # Climate refactor 4.2: no agent writes a climate value, so Iris and any other agent are refused before the
+        # manual rule is reached, and the person's row stays in force (an agent clears a manual operator switch:
+        # tests/test_dashboard_db_mcp_settings.py).
+        for actor in (IRIS, AGENT):
+            problem = await refused(settings.write(mcp, actor, "mister_engage_delay_s", 60, False, None, None))
+            assert problem.code == "forbidden"
+            problem = await refused(settings.release(mcp, actor, "mister_engage_delay_s", None, None))
+            assert problem.code == "forbidden"
+        assert (await settings.status(mcp, "mister_engage_delay_s")).desired.id == taken.id
 
         released = (await settings.release(mcp, PERSON, "mister_engage_delay_s", "back to Iris", None)).value
-        assert (released.value, released.manual, released.state) == (None, False, "released")
+        assert (released.value, released.manual, released.manual_before, released.state) == (
+            None,
+            False,
+            True,
+            "released",
+        )
         assert (await settings.status(mcp, "mister_engage_delay_s")).applied_from == "plan"
 
     run(as_mcp(dsn, check))

@@ -6,7 +6,8 @@ are tests/test_dashboard_db_irrigation_writes.py's: M3's lines and three vanda-d
 ``irrig_wall_duration_min`` 12. The tools run through mcp/server.py under the FastMCP stub, each on a connection as the
 MCP login, with the caller set as ``call_tool`` sets it. VD-41's test proves the services; this one proves what the tools
 add: the manual default, the pause that carries no flag, the engine answers passed through, and that a water write leaves
-a planning trigger alone. For that the ``plan_tables`` fixture adds set_plan's tables with 259's grants (checked).
+every plan table alone (climate refactor 4.2 retired set_plan; the plan tables stay, and the ``plan_tables`` fixture adds
+them with 259's grants, checked).
 
 The ingestor's ``CommandStore`` runs from ``ingestor/tasks/irrigation.py``'s own source, as the bridge's database test
 loads it. Its device call for ``clear_fault`` is VD-42's (#1157; tests/test_irrigation_sync.py proves the service call).
@@ -56,7 +57,8 @@ ADMIN = ("agent:admin", "admin")
 NO_ENGINE = "arrives with the irrigation firmware"
 PLANNER = "local"
 
-# What set_plan writes beyond the writes test's subset, from db/schema.sql in dependency order.
+# The plan tables (kept, written by nothing since climate refactor 4.2) beyond the writes test's subset, from
+# db/schema.sql in dependency order.
 PLAN_OBJECTS = (
     ("plan_delivery_log", "TABLE"),
     ("plan_delivery_log_id_seq", "SEQUENCE"),
@@ -79,32 +81,14 @@ PLAN_OBJECTS = (
     ("planner_trigger_ledger trg_normalize_planner_trigger_terminal_state", "TRIGGER"),
     ("setpoint_plan trg_normalize_plan_param", "TRIGGER"),
 )
-# set_plan's context read plans fn_setpoint_at over the newest climate row. climate stays empty here, so it never runs,
-# and db/schema.sql's body would pull in the whole band function chain.
+# A stand-in for fn_setpoint_at, which 259's grants name; db/schema.sql's body would pull in the whole band function
+# chain.
 FN_SETPOINT_AT = """
 CREATE FUNCTION public.fn_setpoint_at(p_param text, p_ts timestamptz) RETURNS double precision
     LANGUAGE sql STABLE AS $$ SELECT NULL::double precision $$;
 GRANT EXECUTE ON FUNCTION public.fn_setpoint_at(text, timestamptz) TO verdify_mcp_runtime;
 """
 PLAN_RELATIONS = ("plan_delivery_log", "plan_journal", "planner_trigger_ledger", "setpoint_plan")
-SUNRISE_HYPOTHESIS = json.dumps(
-    {
-        "conditions": {
-            "outdoor_temp_peak_f": 92.0,
-            "outdoor_rh_min_pct": 25.0,
-            "solar_peak_w_m2": 900,
-            "cloud_cover_avg_pct": 30,
-        },
-        "rationale": [
-            {
-                "parameter": "mister_engage_kpa",
-                "new_value": 1.6,
-                "forecast_anchor": "RH under 25% at noon",
-                "expected_effect": "VPD stays in band",
-            }
-        ],
-    }
-)
 
 
 @pytest.fixture()
@@ -752,7 +736,7 @@ def test_a_request_id_that_is_not_a_uuid_is_invalid_request(tools):
 
 @pytest.fixture()
 def plan_tables(seeds, monkeypatch):  # noqa: F811
-    """set_plan's tables on top of the writes test's database; the MCP login holds what 259 gives it."""
+    """The plan tables on top of the writes test's database; the MCP login holds what 259 gives it."""
     boundary = support.MCP_BOUNDARY_MIGRATION.read_text()
     reads_block = re.search(r"GRANT SELECT ON\s+(public\.alert_log.*?)\s+TO verdify_mcp_runtime;", boundary, re.S)
     writes_block = re.search(
@@ -817,18 +801,7 @@ def trigger_state() -> tuple[list[dict], list[dict]]:
     return [dict(row) for row in delivery], [dict(row) for row in ledger]
 
 
-def transitions(server) -> str:
-    intent = server.ClimateIntent().model_dump(mode="json")
-    start = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)
-    return json.dumps(
-        [
-            {"ts": (start + dt.timedelta(hours=6 * index)).isoformat(), "climate_intent": intent, "reason": "fixture"}
-            for index in range(3)
-        ]
-    )
-
-
-def test_a_sunrise_delivery_in_which_iris_only_changes_water_stays_pending_until_set_plan(tools, plan_tables):
+def test_iris_water_writes_with_a_run_id_leave_a_pending_delivery_and_every_plan_table_alone(tools, plan_tables):
     trigger_id = pending_sunrise()
     pending = trigger_state()
     assert pending == (
@@ -862,26 +835,8 @@ def test_a_sunrise_delivery_in_which_iris_only_changes_water_stays_pending_until
         if entry["action"] != "irrigation.stop":
             assert (entry["detail"]["trigger_id"], entry["detail"]["planner_instance"]) == (trigger_id, PLANNER)
 
-    stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d-%H%M")
-    reply = json.loads(
-        as_caller(
-            tools,
-            IRIS,
-            tools.set_plan(
-                plan_id=f"iris-{stamp}",
-                hypothesis=SUNRISE_HYPOTHESIS,
-                transitions=transitions(tools),
-                trigger_id=trigger_id,
-                planner_instance=PLANNER,
-            ),
-        )
-    )
-    assert reply.get("ok") is True, reply
-    assert reply["delivery_status"] == "plan_written"
-    delivery, ledger = trigger_state()
-    assert [row["status"] for row in delivery] == ["plan_written"]
-    assert [row["resulting_plan_id"] for row in delivery] == [reply["plan_id"]]
-    assert [row["resulting_plan_id"] for row in ledger] == [reply["plan_id"]]
+    counted = sql("SELECT count(*) AS n FROM public.setpoint_plan UNION ALL SELECT count(*) FROM public.plan_journal")
+    assert [row["n"] for row in counted] == [0, 0]
 
 
 def test_a_water_write_does_not_look_its_trigger_up(tools, plan_tables):

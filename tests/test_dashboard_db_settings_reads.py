@@ -503,12 +503,13 @@ def test_api02_counts_exactly_the_open_rows_api14_returns(dsn):
 def test_activity_by_agent_steward_is_that_agent_only_newest_first_and_paged(dsn):
     async def body(conn, t0):
         await reporting_now(conn, t0)
-        first = (await settings.write(conn, STEWARD, "mister_engage_kpa", 1.5, False, "dry", None)).value
-        await snapshot(conn, await conn.fetchval("SELECT now()"), "mister_engage_kpa", 1.5)  # confirms the first
-        await settings.write(conn, PERSON, "fog_rh_ceiling_pct", 90, True, None, None)
-        await settings.write(conn, OTHER_AGENT, "site_pressure_hpa", 845, False, None, None)
-        second = (await settings.write(conn, STEWARD, "mister_engage_kpa", 1.6, False, "drier", None)).value
-        await settings.release(conn, STEWARD, "fog_rh_ceiling_pct", "back to auto", None)
+        # Climate refactor 4.2: an agent writes and releases only the operator switches.
+        first = (await settings.write(conn, STEWARD, "sw_occupancy_inhibit", 0, False, "people in", None)).value
+        await snapshot(conn, await conn.fetchval("SELECT now()"), "sw_occupancy_inhibit", 0)  # confirms the first
+        await settings.write(conn, PERSON, "sw_gl_main_out_of_service", 1, True, None, None)
+        await settings.write(conn, OTHER_AGENT, "sw_gl_grow_out_of_service", 0, False, None, None)
+        second = (await settings.write(conn, STEWARD, "sw_occupancy_inhibit", 1, False, "people out", None)).value
+        await settings.release(conn, STEWARD, "sw_gl_main_out_of_service", "back to auto", None)
 
         async def pages(**filters):
             out, cursor = [], None
@@ -534,7 +535,9 @@ def test_activity_by_agent_steward_is_that_agent_only_newest_first_and_paged(dsn
 
         agents = [entry for items in await pages(source="agent") for entry in items]
         assert {entry.actor.source for entry in agents} == {"agent:steward", "agent:pathfinder"} and len(agents) == 4
-        everyone = await as_role(conn, MCP_ROLE, reads.activity_page, action="setting.", target="fog_rh_ceiling_pct")
+        everyone = await as_role(
+            conn, MCP_ROLE, reads.activity_page, action="setting.", target="sw_gl_main_out_of_service"
+        )
         assert [(entry.actor.source, entry.action) for entry in everyone.items] == [
             ("agent:steward", "setting.release"),
             ("dashboard", "setting.write"),

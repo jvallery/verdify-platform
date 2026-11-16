@@ -21,8 +21,6 @@ import pytest
 from test_dashboard_db_282 import OWNER, connect
 from test_dashboard_db_services import owner_execute
 from test_dashboard_db_writes import (  # noqa: F401
-    KPA,
-    SETTING,
     client,
     dsn,
     empty_tables,
@@ -33,7 +31,11 @@ from test_dashboard_db_writes import (  # noqa: F401
 )
 from test_mcp_settings_tools import body, run_as, server, steward  # noqa: F401
 
-REASON = "drier afternoon"
+REASON = "people in the house"
+# Climate refactor 4.2: an agent's set_setting reaches only the operator switches, so the two surfaces are compared on
+# one of them.
+SWITCH = "sw_occupancy_inhibit"
+SETTING = f"/v1/settings/{SWITCH}"
 IGNORED_DESIRED = {"id", "created_at", "source", "actor"}
 IGNORED_ACTIVITY = {"id", "ts", "source", "actor", "request_id"}
 IGNORED_DETAIL = {"ref", "desired_id"}
@@ -50,7 +52,7 @@ def compared(row: dict, ignored: set[str]) -> dict:
     return {column: value for column, value in row.items() if column not in ignored}
 
 
-@pytest.mark.parametrize("held", [None, 1.7], ids=["nothing_held", "a_person_holds_it"])
+@pytest.mark.parametrize("held", [None, 1.0], ids=["nothing_held", "a_person_holds_it"])
 def test_set_setting_and_api_10_store_the_same_rows(client, dsn, operator, server, monkeypatch, held):  # noqa: F811
     async def db():
         return await connect(dsn, OWNER)
@@ -69,13 +71,13 @@ def test_set_setting_and_api_10_store_the_same_rows(client, dsn, operator, serve
     tool = run_as(
         server,
         steward(server),
-        server.set_setting(KPA, 1.53, manual=True, reason=REASON, request_id=str(uuid.uuid4())),
+        server.set_setting(SWITCH, 0.0, manual=True, reason=REASON, request_id=str(uuid.uuid4())),
     )
-    assert tool.isError is False and body(tool)["value"] == 1.55
+    assert tool.isError is False and body(tool)["value"] == 0.0
     mcp_desired, mcp_logged = stored(dsn)
 
     same_start()
-    rest = client.put(SETTING, headers=keyed(operator), json={"value": 1.53, "manual": True, "reason": REASON})
+    rest = client.put(SETTING, headers=keyed(operator), json={"value": 0.0, "manual": True, "reason": REASON})
     assert rest.status_code == 200, rest.text
     rest_desired, rest_logged = stored(dsn)
 
@@ -89,11 +91,11 @@ def test_set_setting_and_api_10_store_the_same_rows(client, dsn, operator, serve
     assert rest_logged["detail"]["desired_id"] == rest_desired["id"]
 
     # The state each started from reached the rows, so the comparison below holds real values.
-    assert mcp_desired["value"] == 1.55 and mcp_desired["manual"] is True and mcp_desired["reason"] == REASON
+    assert mcp_desired["value"] == 0.0 and mcp_desired["manual"] is True and mcp_desired["reason"] == REASON
     detail = mcp_logged["detail"]
-    assert (detail["before"], detail["value"], detail["requested"]) == (held, 1.55, 1.53)
+    assert (detail["before"], detail["value"], detail["requested"]) == (held, 0.0, 0.0)
     assert detail["manual"] == {"before": held is not None, "after": True}
-    assert mcp_logged["action"] == "setting.write" and mcp_logged["target"] == KPA
+    assert mcp_logged["action"] == "setting.write" and mcp_logged["target"] == SWITCH
     assert len(mcp_logged["request_sha256"]) == 32
 
     assert compared(mcp_desired, IGNORED_DESIRED) == compared(rest_desired, IGNORED_DESIRED)
