@@ -61,6 +61,12 @@ from ._common import (
     shared,
     soil_dryout_probes,
 )
+from .coverage_alerts import (
+    SOIL_OPEN_ROWS_SQL,
+    coverage_cycle,
+    soil_dryout_hold,
+    soil_probe_offline,
+)
 from .daily import (
     SoilDryoutWindow,
     _auto_close_disposition,
@@ -462,6 +468,9 @@ _SOIL_SENSOR_IDS = frozenset(
     f"climate.{column}" for _probe, _zone, columns in _SOIL_OFFLINE_PROBES for column in columns
 )
 _STALE_EXCLUDE = frozenset({"state.mister_state", "state.mister_zone"})  # legacy firmware entities
+# Change-only entities: a relay or state that does not change writes no row, so age is not silence (gap 10).
+# The controller's silence is the diagnostics device row and VerdifyControllerDark.
+_CHANGE_ONLY_PREFIXES = ("equipment.", "state.")
 
 
 def _offline_device(sensor_id: str) -> str | None:
@@ -474,7 +483,7 @@ def _sensor_offline_alerts(rows: Sequence[Mapping]) -> list[dict]:
     devices: dict[str, list[Mapping]] = {}
     for r in rows:
         sensor_id = r["sensor_id"]
-        if sensor_id in _STALE_EXCLUDE or sensor_id in _SOIL_SENSOR_IDS:
+        if sensor_id in _STALE_EXCLUDE or sensor_id in _SOIL_SENSOR_IDS or sensor_id.startswith(_CHANGE_ONLY_PREFIXES):
             continue
         device = _offline_device(sensor_id)
         if device is not None:
@@ -2808,6 +2817,7 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         soil_alerts, soil_keep_open_keys, soil_unpotted_keys = await _soil_probe_offline_cycle(
             conn, soil_active_zones, local_hour
         )
+        soil_keep_open_keys = set(soil_keep_open_keys)
         alerts.extend(soil_alerts)
         if 6 <= local_hour < 22:
             # 9a. Soil dryout (issue #40): a LIVE root-zone probe reading
@@ -2823,6 +2833,11 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
             # key drops out of active_keys and the alert closes 'resolved'.
             # The probe map and each zone's wilt are soil_moisture_targets rows (303, #1345), editable by operators.
             probes = soil_dryout_probes(await conn.fetch(SOIL_DRYOUT_TARGETS_SQL))
+            try:
+                soil_open = await conn.fetch(SOIL_OPEN_ROWS_SQL)
+            except Exception as e:  # noqa: BLE001 - judge as before; nothing held, nothing skipped
+                log.warning("soil open-row read failed: %s", e)
+                soil_open = []
             lookback_interval = f"{SOIL_DRYOUT_MIN_DURATION_H + 0.5} hours"
             for col, sensor_id, zone, _target_zone, wilt_pct in probes:
                 stats = await conn.fetchrow(
@@ -2851,7 +2866,11 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                     else None,
                 )
                 zone_occupied = zone in soil_active_zones
+                if soil_probe_offline(soil_open, sensor_id, col):
+                    continue  # an offline probe is not judged dry (its offline row speaks for it)
                 if not evaluate_soil_dryout(window, wilt_pct, zone_occupied):
+                    if soil_dryout_hold(soil_open, f"{sensor_id}.{col}", window.latest_pct, wilt_pct):
+                        soil_keep_open_keys.add(("soil_dryout", f"{sensor_id}.{col}"))
                     continue
                 alerts.append(
                     {
@@ -2882,6 +2901,17 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                         "threshold_value": wilt_pct,
                     }
                 )
+        else:
+            # Not judged at night: an open dryout row stays open instead of resolving at 22:00 and paging again
+            # the next morning (the 2026-11-02 to 11-04 south_1 flaps).
+            try:
+                soil_keep_open_keys.update(
+                    ("soil_dryout", r["sensor_id"])
+                    for r in await conn.fetch(SOIL_OPEN_ROWS_SQL)
+                    if r["alert_type"] == "soil_dryout"
+                )
+            except Exception as e:  # noqa: BLE001 - the row may resolve tonight; nothing else depends on it
+                log.warning("soil open-row read failed: %s", e)
 
         # 9b. Irrigation feedback gaps: south probe stuck-zero and center
         # root-zone/runoff feedback missing/stale. The status view owns the
@@ -3483,6 +3513,10 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         plan_alert = None if plan_row is _READ_FAILED else _plan_not_delivered_alert(plan_row)
         if plan_alert is not None:
             alerts.append(plan_alert)
+        # 15c. Alert coverage, host release 2 (contracts/alert-coverage.md): all warnings, each read guarded.
+        coverage_alerts, failed = await coverage_cycle(conn)
+        alerts.extend(coverage_alerts)
+        read_preserved |= failed
 
         # 15b. ESP32 push failures are one-shot event rows (dispatcher and
         # setpoint listener); nothing else closes them. Close each once every

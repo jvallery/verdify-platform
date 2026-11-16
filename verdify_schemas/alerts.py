@@ -63,6 +63,14 @@ AlertType = Literal[
     "heap_pressure_warning",
     "heat_manual_override",
     "heat_no_power",
+    "relay_pair_forbidden",
+    "outdoor_source_none",
+    "case_sensor_only",
+    "boot_stuck",
+    "power_meter_stale",
+    "daily_record_missing",
+    "house_temp_band_drift",
+    "relay_starts_high",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
@@ -124,6 +132,14 @@ ALERT_TYPES: tuple[str, ...] = (
     "heap_pressure_warning",
     "heat_manual_override",
     "heat_no_power",
+    "relay_pair_forbidden",
+    "outdoor_source_none",
+    "case_sensor_only",
+    "boot_stuck",
+    "power_meter_stale",
+    "daily_record_missing",
+    "house_temp_band_drift",
+    "relay_starts_high",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
@@ -735,6 +751,96 @@ class PayloadRejectedAlert(_AlertBase):
     details: PayloadRejectedDetails
 
 
+# ── Alert coverage, host release 2 (contracts/alert-coverage.md; all warnings) ──
+
+
+class RelayPairForbiddenDetails(_DetailsBase):
+    # The furnace with the vent open, or an exhaust fan with the vent closed, held for ``held_s`` seconds.
+    pairs: list[str] = Field(..., min_length=1)
+    held_s: float = Field(..., ge=0)
+
+
+class OutdoorSourceNoneDetails(_DetailsBase):
+    # The controller has reported outdoor_source 'none' (no station, no intake) for ``none_s`` seconds.
+    none_s: float = Field(..., ge=0)
+
+
+class CaseSensorOnlyDetails(_DetailsBase):
+    # No wall probe temperature in the last 10 minutes of climate rows while the case sensor still reports.
+    rows: int = Field(..., ge=0)
+    case_rows: int = Field(..., ge=0)
+
+
+class BootStuckDetails(_DetailsBase):
+    # mode_reason still 'init' (boot grace or furnace wait) while uptime is past 300 s.
+    uptime_s: float = Field(..., ge=0)
+
+
+class PowerMeterStaleDetails(_DetailsBase):
+    # Greenhouse meter channels without any sample (quality not 'unavailable') for 30 minutes; None = none in 6 h.
+    channels: list[str] = Field(..., min_length=1)
+    age_s: dict[str, float | None]
+
+
+class DailyRecordMissingDetails(_DetailsBase):
+    # After 06:00 America/Denver, yesterday's daily_record and/or daily_band_compliance row is absent.
+    day: str
+    missing: list[Literal["record", "compliance"]] = Field(..., min_length=1)
+
+
+class HouseTempBandDriftDetails(_DetailsBase):
+    # At least 90 % of the last hour's rows more than 3 F outside the served temperature band.
+    side: Literal["cold", "hot"]
+    fraction: float = Field(..., ge=0, le=1)
+    band_low: float
+    band_high: float
+
+
+class RelayStartsHighDetails(_DetailsBase):
+    # ON edges in the last 60 minutes per relay above the rollback criteria (12; fog 15).
+    starts: dict[str, int]
+
+
+class RelayPairForbiddenAlert(_AlertBase):
+    alert_type: Literal["relay_pair_forbidden"]
+    details: RelayPairForbiddenDetails
+
+
+class OutdoorSourceNoneAlert(_AlertBase):
+    alert_type: Literal["outdoor_source_none"]
+    details: OutdoorSourceNoneDetails
+
+
+class CaseSensorOnlyAlert(_AlertBase):
+    alert_type: Literal["case_sensor_only"]
+    details: CaseSensorOnlyDetails
+
+
+class BootStuckAlert(_AlertBase):
+    alert_type: Literal["boot_stuck"]
+    details: BootStuckDetails
+
+
+class PowerMeterStaleAlert(_AlertBase):
+    alert_type: Literal["power_meter_stale"]
+    details: PowerMeterStaleDetails
+
+
+class DailyRecordMissingAlert(_AlertBase):
+    alert_type: Literal["daily_record_missing"]
+    details: DailyRecordMissingDetails
+
+
+class HouseTempBandDriftAlert(_AlertBase):
+    alert_type: Literal["house_temp_band_drift"]
+    details: HouseTempBandDriftDetails
+
+
+class RelayStartsHighAlert(_AlertBase):
+    alert_type: Literal["relay_starts_high"]
+    details: RelayStartsHighDetails
+
+
 class LawConstantsMismatchAlert(_AlertBase):
     alert_type: Literal["law_constants_mismatch"]
     details: LawConstantsMismatchDetails
@@ -1108,6 +1214,14 @@ AlertEnvelopeUnion = Annotated[
     | IrrigationFeedbackGapAlert
     | LawConstantsMismatchAlert
     | PayloadRejectedAlert
+    | RelayPairForbiddenAlert
+    | OutdoorSourceNoneAlert
+    | CaseSensorOnlyAlert
+    | BootStuckAlert
+    | PowerMeterStaleAlert
+    | DailyRecordMissingAlert
+    | HouseTempBandDriftAlert
+    | RelayStartsHighAlert
     | LeakDetectedAlert
     | LightingCfgThresholdDriftAlert
     | ClimateActionProofStaleAlert
