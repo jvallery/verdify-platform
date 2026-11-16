@@ -103,9 +103,6 @@ esphome:
           if(id(target_temp_high_f) < 60 || id(target_temp_high_f) > 100){ id(target_temp_high_f) = 82; fixes++; }
           if(id(target_vpd_high_kpa) < 0.5 || id(target_vpd_high_kpa) > 4){ id(target_vpd_high_kpa) = 2.0; fixes++; }
           if(id(target_vpd_low_kpa) < 0.1 || id(target_vpd_low_kpa) > 2){ id(target_vpd_low_kpa) = 0.5; fixes++; }
-          // VPD-primary state machine globals
-          if(id(fog_rh_ceiling_pct) < 50 || id(fog_rh_ceiling_pct) > 100){ id(fog_rh_ceiling_pct) = 90; fixes++; }
-          if(id(fog_min_temp_f) < 30 || id(fog_min_temp_f) > 70){ id(fog_min_temp_f) = 55; fixes++; }
           // Additional VPD-primary globals
           if(id(mister_water_budget_gal) < 100 || id(mister_water_budget_gal) > 300){ id(mister_water_budget_gal) = 300; fixes++; }
           // State machine corruption protection
@@ -410,11 +407,12 @@ binary_sensor:
     lambda: "return id(fog_rly).state;"
     device_class: running
 
-  # Physical push buttons (irrigation F12, VD-47). Each press toggles its
-  # deadline latch in its own handler: a running burst clears, otherwise it
-  # runs for manual_override_timeout_min minutes (manual_latch_toggle(),
-  # greenhouse_logic.h). The manual_override service (irrigation_engine.yaml)
-  # sets and clears the same latches; controls.yaml's override layer reads
+  # Physical push buttons (irrigation F12, VD-47; the manual runs, RULINGS AB12,
+  # AD1). Fan and Vent share one fan latch with a vent flag (manual_fan_press():
+  # the button of the running state ends the run, the other switches it to its
+  # vent state); Fog toggles the fogger latch (manual_latch_toggle()). A run lasts
+  # manual_override_timeout_min minutes. The manual_override service
+  # (irrigation_engine.yaml) sets and clears the same latches; controls.yaml reads
   # them. A press never touches occupancy.
   - platform: gpio
     id: fans_switch
@@ -429,8 +427,8 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
-            id(manual_fans_until_ms) = manual_latch_toggle(id(manual_fans_until_ms), millis(), id(manual_override_timeout_min));
-            ESP_LOGW("manual", "PB fan burst %s", id(manual_fans_until_ms) != 0 ? "latched" : "cleared");
+            manual_fan_press(id(manual_fans_until_ms), id(manual_fans_vent_closed), false, millis(), id(manual_override_timeout_min));
+            ESP_LOGW("manual", "PB fans, vent open %s", id(manual_fans_until_ms) != 0 ? "latched" : "cleared");
 
   - platform: gpio
     id: vent_bypass_switch
@@ -445,8 +443,8 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
-            id(vent_bypass_until_ms) = manual_latch_toggle(id(vent_bypass_until_ms), millis(), id(manual_override_timeout_min));
-            ESP_LOGW("manual", "PB vent bypass %s", id(vent_bypass_until_ms) != 0 ? "latched" : "cleared");
+            manual_fan_press(id(manual_fans_until_ms), id(manual_fans_vent_closed), true, millis(), id(manual_override_timeout_min));
+            ESP_LOGW("manual", "PB fans, vent closed %s", id(manual_fans_until_ms) != 0 ? "latched" : "cleared");
 
   - platform: gpio
     id: fog_switch
@@ -462,21 +460,22 @@ binary_sensor:
       then:
         - lambda: |-
             id(manual_fog_until_ms) = manual_latch_toggle(id(manual_fog_until_ms), millis(), id(manual_override_timeout_min));
-            ESP_LOGW("manual", "PB fog burst %s", id(manual_fog_until_ms) != 0 ? "latched" : "cleared");
+            ESP_LOGW("manual", "PB fogger %s", id(manual_fog_until_ms) != 0 ? "latched" : "cleared");
 
-  # Manual-override state indicators: true while the deadline latch is set and
-  # still ahead. Their object ids are the fan_burst_active, vent_bypass_active
-  # and fog_burst_active routes (EQUIPMENT_BINARY_MAP), which confirm a burst.
+  # Manual-run indicators: true while the latch is set and still ahead. Their
+  # object ids are the fan_burst_active, vent_bypass_active and fog_burst_active
+  # routes (EQUIPMENT_BINARY_MAP), which confirm a burst: the fan latch reads as
+  # Fan Burst Active with the vent open and Vent Bypass Active with it closed.
   - platform: template
     id: bs_manual_fan
     name: "Fan Burst Active"
-    lambda: "return manual_latch_active(id(manual_fans_until_ms), millis());"
+    lambda: "return manual_latch_active(id(manual_fans_until_ms), millis()) && !id(manual_fans_vent_closed);"
     device_class: running
 
   - platform: template
     id: bs_vent_lock
     name: "Vent Bypass Active"
-    lambda: "return manual_latch_active(id(vent_bypass_until_ms), millis());"
+    lambda: "return manual_latch_active(id(manual_fans_until_ms), millis()) && id(manual_fans_vent_closed);"
     device_class: running
 
   - platform: template

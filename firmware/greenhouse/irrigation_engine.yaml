@@ -68,10 +68,11 @@ api:
             irr_esp_command(cmd, line, on_s, count, gap_s, prewet_s, flush_s);
 
     # The replacement for the Home Assistant burst and restart buttons (irrigation F12, HA-02,
-    # HA-03; VD-47). fans, humidify and vent_bypass set manual_fans_until_ms, manual_fog_until_ms
-    # or vent_bypass_until_ms to now + minutes (clamped to 1-120, as OverrideRequest bounds it;
-    # a deadline that wraps to 0 is stored as 1, because 0 means no burst); clear zeroes all
-    # three; restart reboots. light_<main|grow>_<on|off> sets that circuit's hold deadline the
+    # HA-03; VD-47; the manual runs, RULINGS AB12/AD1). fans and vent_bypass set the one fan latch,
+    # manual_fans_until_ms, with the vent open or closed (manual_fans_vent_closed); humidify sets
+    # the fogger latch, manual_fog_until_ms; each to now + minutes (clamped to 1-120, as
+    # OverrideRequest bounds it; a deadline that wraps to 0 is stored as 1, because 0 means no
+    # burst); clear zeroes both; restart reboots. light_<main|grow>_<on|off> sets that circuit's hold deadline the
     # same way and the state it holds; light_<main|grow>_auto zeroes the deadline (#1335); clear
     # leaves the light holds alone. Nothing else is written: no relay (controls.yaml's override layer
     # reads the latches, below the safety rails) and never occupancy, so a burst leaves mist and
@@ -83,12 +84,11 @@ api:
       then:
         - lambda: |-
             const uint32_t now_ms = millis();
-            if (kind == "fans") {
+            if (kind == "fans" || kind == "vent_bypass") {
               id(manual_fans_until_ms) = manual_override_deadline_ms(now_ms, minutes);
+              id(manual_fans_vent_closed) = kind == "vent_bypass";
             } else if (kind == "humidify") {
               id(manual_fog_until_ms) = manual_override_deadline_ms(now_ms, minutes);
-            } else if (kind == "vent_bypass") {
-              id(vent_bypass_until_ms) = manual_override_deadline_ms(now_ms, minutes);
             } else if (kind == "light_main_on" || kind == "light_main_off") {
               id(gl_main_hold_until_ms) = manual_override_deadline_ms(now_ms, minutes);
               id(gl_main_hold_on) = kind == "light_main_on";
@@ -106,7 +106,6 @@ api:
             } else if (kind == "clear") {
               id(manual_fans_until_ms) = 0;
               id(manual_fog_until_ms) = 0;
-              id(vent_bypass_until_ms) = 0;
               ESP_LOGW("manual", "manual_override clear: every burst latch cleared");
               return;
             } else if (kind == "restart") {

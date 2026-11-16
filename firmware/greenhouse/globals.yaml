@@ -394,11 +394,6 @@ globals:
     restore_value: no
     initial_value: 'true'
 
-  - id: direct_wet_stress_min_dew_margin_f
-    type: float
-    restore_value: no
-    initial_value: '8.0'
-
   # Retired compatibility state. The commissioned wall sequence never arms a
   # global post-feed hold: fertilizer turns off and wall-local clean flush starts
   # immediately. Kept at zero so older readback consumers remain harmless.
@@ -722,10 +717,13 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
-  - id: vent_bypass_until_ms
-    type: uint32_t
+  # AB12/AD1: the fan latch's vent flag: true runs the fans with the vent
+  # closed (house air), false with it open. Read only while manual_fans_until_ms
+  # is set.
+  - id: manual_fans_vent_closed
+    type: bool
     restore_value: no
-    initial_value: '0'
+    initial_value: 'false'
   # #1335: the per-circuit manual light holds. API-20's timed switch sends
   # manual_override light_<main|grow>_<on|off> with its minutes, which sets the
   # deadline and the held state; light_<main|grow>_auto (Back to automatic)
@@ -828,13 +826,6 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
-
-  # fog_closes_vent: when true, the vent damper is forced closed during active
-  # fog pulses to prevent dry outside air from negating humidity gains.
-  - id: fog_closes_vent
-    type: bool
-    restore_value: no
-    initial_value: 'true'
 
     # ─── Mister state machine (HUMID_S2/S3) ───
   - id: mister_state
@@ -1039,30 +1030,6 @@ globals:
     type: int
     restore_value: no
     initial_value: '45'
-
-  # Item-4 night-dry lever: planner-pushable VPD bias added to the overnight band
-  # (clamped 0..0.25 kPa, smooth sin^2 weight peaking at solar midnight). Lets the
-  # AI pre-empt a humid night without touching the crop_band_anchors curve.
-  - id: night_vpd_bias_kpa
-    type: float
-    restore_value: no
-    initial_value: '0.0'
-
-  # Fog safety gates
-  - id: fog_rh_ceiling_pct
-    type: int
-    restore_value: no
-    initial_value: '90'
-
-  - id: fog_min_temp_f
-    type: int
-    restore_value: no
-    initial_value: '55'
-
-  - id: mister_closes_vent
-    type: bool
-    restore_value: no
-    initial_value: 'false'
 
   - id: mister_vpd_at_start
     type: float

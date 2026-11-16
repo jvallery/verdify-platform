@@ -511,7 +511,7 @@ inline bool fog_permitted(const SensorInputs& in, const Setpoints& sp) noexcept 
 // drip relay reads ON). leak_detected is not an input: it raises the leak
 // alert and nothing else (Q-05). The fog RH ceiling stays in fog_permitted().
 struct FogForceOffInputs {
-    bool sensor_fault_relay_lock;     // mode == SENSOR_FAULT (a HUMID press is exempt, RULINGS B1)
+    bool sensor_fault_relay_lock;     // mode == SENSOR_FAULT (not a hold for a manual press: manual_fog_hold_reason())
     bool occupancy_block;             // occupancy_moisture_block: Frigate confirms someone inside
     bool fert_master_on;              // L03 open, or the engine's l03_hold (SAF-5)
     bool drip_relay_open;             // a drip relay (L01, L02, L05, L06) reads ON
@@ -2851,76 +2851,68 @@ inline RelayOutputs resolve_equipment(
     return out;
 }
 
-// ── Manual button-override layer (FANS / HUMID / VENT-BYPASS) ────────────
-// Applies the absolute-priority manual override on top of the resolved relay
-// table. PRECEDENCE: the hard safety rails win — SAFETY_COOL / SAFETY_HEAT
-// are never overridden (a FANS press during a cold-rail SAFETY_HEAT
-// must NOT throw both fans + the vent open and dump the heat). In every other
-// mode the override SUPERSEDES climate automation:
-//   FANS        → both fans ON, vent OPEN.
-//   VENT-BYPASS → both fans ON, vent CLOSED (winter house-air pull). It implies
-//                 fans, so the button alone produces the documented behavior.
-//   HUMID       → fogger ON, unless a genuine fog safety block (dew margin / RH
-//                 ceiling / temp floor / time window) is active; the fog
-//                 force-off (fog_force_off_reason()) still holds it OFF.
-// Returns the ManualForce flags identifying which relays are force-applied so
-// the caller passes force_on= and the press engages within one loop tick,
-// bypassing relay min-off dwell (the #289 root-cause fix: a FANS press was
-// applied with force_on=false and got stuck behind the fan min-off timer).
+// ── Manual runs (RULINGS AB12, AD1) ──────────────────────────────────────
+// The owner: "a way to manually run the fogger, fans, and toggle the use of the
+// vent for manual ventilation with a timeout". Applied on top of the relay
+// layer's result; while a latch runs it SUPERSEDES climate automation:
+//   fans, vent open   → both fans ON, vent OPEN (outdoor air).
+//   fans, vent closed → both fans ON, vent CLOSED (house air).
+//   fogger            → fogger ON unless a hold above a press is up
+//                       (manual_fog_hold_reason()).
+// A press is never refused on the band, humidity, dew point, the clock or the
+// fog hours, and works without an indoor reading (SENSOR_FAULT). At the
+// protection limits (SAFETY_COOL / SAFETY_HEAT, 100 F and 40 F) every latch has
+// been cleared (X4) and this is a no-op, so the law's protection runs. The
+// furnace interlock over a press is the caller's (climate_law::relay_pass()).
+// ManualForce names the relays a press forces: they start this pass, past their
+// minimum off times (the #289 fix; no lockout against repeated pressing).
 inline ManualForce apply_manual_overrides(RelayOutputs& out,
                                           const ManualOverrides& ov,
                                           Mode mode) noexcept {
     ManualForce f = {false, false, false};
-    // The temperature rails are absolute: no manual override. With no valid indoor
-    // reading (SENSOR_FAULT, the state of decision 7) the overrides stay effective,
-    // because the controller acts on the outdoor reading only (RULINGS B1).
     if (mode == SAFETY_COOL || mode == SAFETY_HEAT) {
         return f;
     }
-    const bool fans_requested = ov.fans_active || ov.vent_bypass_active;
-    if (fans_requested) {
+    if (ov.fans) {
         out.fan1 = true;
         out.fan2 = true;
+        out.vent = !ov.vent_closed;
         f.fans = true;
-        if (ov.vent_bypass_active) {
-            out.vent = false;            // VENT-BYPASS: vent CLOSED, fans pull house air
-        } else {
-            out.vent = true;             // FANS: vent OPEN
-            f.vent_open = true;
-        }
+        f.vent_open = !ov.vent_closed;
     }
-    if (ov.humid_active && !ov.fog_safety_blocked) {
-        out.fog = true;
+    if (ov.fog) {
         f.fog = true;
+        if (!ov.fog_held) out.fog = true;
     }
     return f;
 }
 
-// The fog safety block a HUMID press must respect (the YAML's
-// fog_safety_block_reason, moved here so the host tests run the same check). A test
-// that cannot be evaluated is skipped, not failed: without a humidity reading (RULINGS
-// G2) or without any indoor reading (the state of decision 7, G7) the dew-point margin
-// and the RH ceiling cannot be computed, so the press stays effective there; the
-// solar time window and, with a temperature, the temperature floor still apply.
-inline const char* manual_fog_safety_block_reason(const SensorInputs& in, const Setpoints& sp) noexcept {
-    const bool humidity_known = std::isfinite(in.rh_pct) && std::isfinite(in.dew_point_f);
-    if (humidity_known && dew_margin_f(in) < sp.direct_wet_stress_min_dew_margin_f) return "dew_margin";
-    if (!fog_hour_permitted(in, sp)) return "time_window";
-    if (humidity_known && in.rh_pct > sp.fog_rh_ceiling) return "rh_ceiling";
-    if (std::isfinite(in.temp_f) && in.temp_f < sp.fog_min_temp) return "temp_low";
+// The holds above a manual fogger press, in one place (RULINGS AD1 (e)): they
+// protect equipment and the water, not the climate. SAF-5: never with the
+// fertilizer master valve (or the engine's l03_hold); never while a drip relay
+// reads ON or an engine drip run holds the shared supply; never past SAF-4, the
+// hard daily volume ceiling. The words are fog_force_off_reason()'s.
+// Not holds for a press, each by the owner's "no conditional refusals" (RULINGS
+// AD1 (f), the coordinator's call, shown to the owner); to restore one, add its
+// line back here:
+//   occupancy (D-IRP-10):      if (in.occupancy_block) return "occupancy";
+//   the soft water budget:     if (in.climate_water_budget_block) return "resource_budget";
+// Nor SENSOR_FAULT's fog lock (a press acts on no indoor reading), and nor the
+// band's low edge: plan decision 20 (no fog or mist below the band's low edge)
+// binds the law's own fog and the misters (climate_law.h wet_ok); a manual press
+// is exempt by the owner's later word, and this is the one place that exemption
+// lives.
+inline const char* manual_fog_hold_reason(const FogForceOffInputs& in) noexcept {
+    if (in.fert_master_on) return "fert_master";
+    if (in.drip_relay_open) return "irrigation";
+    if (in.irrigation_water_conflict) return "irrigation";
+    if (in.mister_volume_hard_block) return "water_ceiling";
     return "";
 }
 
-// SENSOR_FAULT's fog lock (FogForceOffInputs.sensor_fault_relay_lock). Only an
-// operator's HUMID latch is exempt (RULINGS G7); an engine run-once is not an
-// override and stays refused by the engine's own sensor-fault hold.
-inline bool sensor_fault_fog_lock(Mode mode, bool humid_latched) noexcept {
-    return mode == SENSOR_FAULT && !humid_latched;
-}
-
 // ── Manual override deadline latches (irrigation F12, VD-47) ─────────────
-// manual_fans_until_ms / manual_fog_until_ms / vent_bypass_until_ms hold a
-// millis() deadline; 0 means no burst. The manual_override service
+// manual_fans_until_ms / manual_fog_until_ms hold a millis() deadline; 0 means
+// no burst. manual_fans_vent_closed is the fan latch's vent flag (AB12). The manual_override service
 // (irrigation_engine.yaml) and the panel push buttons (greenhouse.yaml) are
 // their only writers besides the override layer's expiry in controls.yaml.
 // Minutes are clamped to 1-120, the bounds OverrideRequest (API-IRR-12) and
@@ -2948,6 +2940,20 @@ inline bool manual_latch_active(uint32_t until_ms, uint32_t now_ms) noexcept {
 // it runs for timeout_min minutes (manual_override_timeout_min).
 inline uint32_t manual_latch_toggle(uint32_t until_ms, uint32_t now_ms, int timeout_min) noexcept {
     return manual_latch_active(until_ms, now_ms) ? 0u : manual_override_deadline_ms(now_ms, timeout_min);
+}
+
+// AB12/AD1: the Fan and Vent panel buttons share one fan latch with a vent flag.
+// Pressing the button of the running state ends the run; pressing the other
+// button switches a running latch to that vent state for a fresh timeout; from
+// idle a press starts that state.
+inline void manual_fan_press(uint32_t& until_ms, bool& vent_closed, bool press_vent_closed, uint32_t now_ms,
+                             int timeout_min) noexcept {
+    if (manual_latch_active(until_ms, now_ms) && vent_closed == press_vent_closed) {
+        until_ms = 0u;
+        return;
+    }
+    until_ms = manual_override_deadline_ms(now_ms, timeout_min);
+    vent_closed = press_vent_closed;
 }
 
 // #1335: a timed manual light switch. API-20 switches the light through Lutron

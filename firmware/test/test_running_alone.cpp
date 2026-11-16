@@ -84,7 +84,6 @@ struct Tick {
     bool boot_wait;
     Mode mode;
     RelayOutputs out;  // after the decision-7 table, the overrides, arbitration and the fog rails
-    const char* manual_fog_block;
     const char* fog_force_off;
     NoIndoorBranch branch;
 };
@@ -128,14 +127,16 @@ struct Controller {
             out = no_indoor_relays(t.branch, true);
             no_indoor_last = t.branch;
         }
-        const bool manual_fog_eff = humid_latched || engine_fog_run;
-        const bool lock = sensor_fault_fog_lock(t.mode, humid_latched);
-        t.manual_fog_block = manual_fog_safety_block_reason(in, s);
-        apply_manual_overrides(out, {fans_latched, false, manual_fog_eff, t.manual_fog_block[0] != '\0'}, t.mode);
+        // AB12/AD1: a fogger press is held only by its own holds; a run-once is apart from the
+        // latches, under the law's rails (SENSOR_FAULT's lock among them).
+        const FogForceOffInputs rails{t.mode == SENSOR_FAULT, false, false, false, false, false, false};
+        const char* press_hold = manual_fog_hold_reason(rails);
+        const ManualForce mf =
+            apply_manual_overrides(out, {fans_latched, false, humid_latched, press_hold[0] != '\0', false, false}, t.mode);
+        if (engine_fog_run && t.mode != SAFETY_COOL && t.mode != SAFETY_HEAT) out.fog = true;
         const RelayArbitration arb = arbitrate_relay_conflicts(t.mode, out, physical, true, true, false);
         out = arb.out;
-        const FogForceOffInputs rails{lock, false, false, false, false, false, false};
-        t.fog_force_off = fog_force_off_reason(t.mode, rails);
+        t.fog_force_off = mf.fog ? press_hold : fog_force_off_reason(t.mode, rails);
         if (t.fog_force_off[0] != '\0') out.fog = false;
         t.out = out;
         return t;
@@ -286,15 +287,16 @@ TEST(valid_temperature_without_humidity_keeps_temperature_control) {
     ASSERT_EQ(t.mode, SAFETY_COOL);
     ASSERT_TRUE(t.out.vent && t.out.fan1 && t.out.fan2);
     ASSERT_FALSE(t.out.fog || t.out.heat1 || t.out.heat2);
-    // The humidify override stays effective: no dew margin or RH ceiling to test. The
-    // temperature floor still applies, since the temperature is known.
+    // A fogger press stays effective (AD1: no conditional refusals): no humidity reading,
+    // and a cold house under the band's low edge.
     Controller cold_press;
     t = cold_press.tick(100000u, r, outdoor_at(20.0f), sp, 60.7f, /*humid_latched=*/true);
-    ASSERT_EQ(std::string(t.manual_fog_block), std::string("temp_low"));
+    ASSERT_EQ(std::string(t.fog_force_off), std::string(""));
+    ASSERT_TRUE(t.out.fog);
     Controller press;
     t = press.tick(100000u, select_indoor_reading(75.0f, NAN, NAN, NAN, false, NAN, NAN), outdoor_at(70.0f), sp,
                    60.7f, /*humid_latched=*/true);
-    ASSERT_EQ(std::string(t.manual_fog_block), std::string(""));
+    ASSERT_EQ(std::string(t.fog_force_off), std::string(""));
     ASSERT_TRUE(t.out.fog);
     PASS();
 }
@@ -337,7 +339,7 @@ TEST(case_sensor_alone_fogs_at_the_100_f_limit_and_accepts_a_humid_press) {
     Controller p;
     t = p.tick(100000u, select_indoor_reading(NAN, NAN, NAN, NAN, true, 86.6f, 25.0f), outdoor_at(80.0f, 20.0f), sp,
                60.7f, /*humid_latched=*/true);
-    ASSERT_EQ(std::string(t.manual_fog_block), std::string(""));
+    ASSERT_EQ(std::string(t.fog_force_off), std::string(""));
     ASSERT_TRUE(t.out.fog);
     PASS();
 }
@@ -443,12 +445,11 @@ TEST(no_indoor_rule_has_one_degree_of_hysteresis) {
 }
 
 TEST(no_indoor_temperature_humid_press_is_effective_and_engine_run_once_is_not) {
-    // RULINGS G7 (review-1703 M2), through the YAML's own checks: the HUMID latch fogs
-    // without the dew-point margin; an engine run-once stays refused by SENSOR_FAULT's lock.
+    // RULINGS G7 (review-1703 M2), AD1, through the YAML's own checks: the fogger latch
+    // fogs with no indoor reading; an engine run-once stays refused by SENSOR_FAULT's lock.
     Controller c;
     Tick t = c.tick(120000u, no_indoor(), outdoor_at(85.0f), band(), 60.7f, /*humid_latched=*/true);
     ASSERT_EQ(t.mode, SENSOR_FAULT);
-    ASSERT_EQ(std::string(t.manual_fog_block), std::string(""));
     ASSERT_EQ(std::string(t.fog_force_off), std::string(""));
     ASSERT_TRUE(t.out.fog);
     Controller e;
@@ -466,7 +467,7 @@ TEST(no_indoor_temperature_humid_press_is_effective_and_engine_run_once_is_not) 
     ASSERT_TRUE(t.out.fan1 && t.out.fan2 && t.out.vent && !t.out.heat1);
     // The temperature rails stay absolute.
     RelayOutputs out = no_indoor_relays(NoIndoorBranch::kOff, true);
-    const ManualForce mf = apply_manual_overrides(out, {true, true, true, false}, SAFETY_HEAT);
+    const ManualForce mf = apply_manual_overrides(out, {true, true, true, false, false, false}, SAFETY_HEAT);
     ASSERT_FALSE(mf.fans || mf.fog || mf.vent_open);
     PASS();
 }

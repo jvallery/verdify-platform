@@ -404,10 +404,6 @@ interval:
             }
           }
 
-          // RULINGS T2 (F2): night_vpd_bias_kpa no longer reaches the band the law, the
-          // zone gate and mister_step receive. The setting still takes pushes and reads
-          // back (cfg_night_vpd_bias_kpa), inert until package 4.3 removes it.
-
           // Phase 2: one outdoor reading for every outdoor-dependent decision: the
           // weather station (Tempest UDP) first, the wired exterior intake probe
           // second, each with its own age stamp and the same 600 s maximum age
@@ -482,15 +478,9 @@ interval:
               id(feed_hold_until_ms) != 0
               && (int32_t)(id(feed_hold_until_ms) - now_ms) > 0;
 
-          // Package 4.3: Setpoints carries only what its readers still take: the
-          // manual fog safety block (manual_fog_safety_block_reason(): the HUMID
-          // press's dew margin, RH ceiling and minimum temperature) and, below, the
-          // band the law used and the served targets for the published telemetry.
+          // Package 4.3, AD1: Setpoints carries only the band the law used and the
+          // served targets for the published telemetry (below).
           Setpoints setpts = default_setpoints();
-          setpts.direct_wet_stress_min_dew_margin_f =
-              pol(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f));
-          setpts.fog_rh_ceiling = (float)id(fog_rh_ceiling_pct);
-          setpts.fog_min_temp = (float)id(fog_min_temp_f);
           setpts.temp_target = id(sw_onchip_band_enabled) ? sv2_temp_tgt : (sv2_temp_low + sv2_temp_high) * 0.5f;
           setpts.vpd_target = id(sw_onchip_band_enabled) ? sv2_vpd_tgt : (sv2_vpd_low + sv2_vpd_high) * 0.5f;
           validate_setpoints(setpts);
@@ -541,13 +531,13 @@ interval:
           // RULINGS Q2: the doubly blind judgement for the bus watchdog below.
           id(doubly_blind_state) = boot_wait ? int8_t(-1)
               : int8_t(mode == SENSOR_FAULT && outdoor.source == OutdoorSource::kNone);
-          // RULINGS T1: at a protection limit (100 F, 40 F) the FANS and VENT-BYPASS
-          // latches are cleared, before the latch booleans below, so the override and
-          // the protection never fight at a limit crossing. Logged once per clear.
-          // X4: the clear is climate_law::clear_latches_at_protection() (lib/climate_law_glue.h),
-          // the function the host tests drive.
-          if (climate_law::clear_latches_at_protection(law, id(manual_fans_until_ms), id(vent_bypass_until_ms))) {
-            ESP_LOGW("manual", "Protection limit %s: FANS / VENT-BYPASS latch cleared", law.hot ? "hot" : "cold");
+          // RULINGS T1, AD1: at a protection limit (100 F, 40 F) every manual latch (the
+          // fans, either vent state, and the fogger) is cleared, before the latch booleans
+          // below, so a press and the protection never fight at a limit crossing. Logged
+          // once per clear. X4: the clear is climate_law::clear_latches_at_protection()
+          // (lib/climate_law_glue.h), the function the host tests drive.
+          if (climate_law::clear_latches_at_protection(law, id(manual_fans_until_ms), id(manual_fog_until_ms))) {
+            ESP_LOGW("manual", "Protection limit %s: manual runs cleared", law.hot ? "hot" : "cold");
           }
           climate_law::Output law_request = law;
 
@@ -578,15 +568,14 @@ interval:
             no_indoor_last = no_indoor;
           }
 
-          // ── Firmware-v2 BUTTON OVERRIDE LAYER (deadline latches) ──────────
-          // FANS / HUMID / VENT-BYPASS are LATCHES with a deadline
-          // (manual_*_until_ms): the momentary panel push buttons toggle them
-          // (greenhouse.yaml) and the manual_override service sets or clears
-          // them (irrigation_engine.yaml, VD-47). While latched the relays are
-          // FORCED and SUPERSEDE all climate automation — only a re-press, a
-          // clear, the timeout, or a true safety rail interrupts them. This is
-          // the absolute-priority override layer; it sits ABOVE the mode table
-          // and below only safety.
+          // ── MANUAL RUNS (RULINGS AB12, AD1): three timed latches ───────────
+          // The fans with the vent open or closed (one deadline, manual_fans_until_ms,
+          // with its vent flag manual_fans_vent_closed) and the fogger
+          // (manual_fog_until_ms). The momentary panel push buttons toggle them
+          // (greenhouse.yaml) and the manual_override service sets or clears them
+          // (irrigation_engine.yaml, VD-47). While latched the relays are FORCED and
+          // SUPERSEDE all climate automation; no climate check refuses a press. A latch
+          // ends at its timeout, a second press, a clear, or a protection limit (above).
           // Deadlines are wrap-safe signed-difference tests (millis wraps).
           const bool manual_fans_latched =
               id(manual_fans_until_ms) != 0
@@ -594,39 +583,18 @@ interval:
           const bool manual_fog_latched =
               id(manual_fog_until_ms) != 0
               && (int32_t)(id(manual_fog_until_ms) - now_ms) > 0;
-          const bool vent_bypass_latched =
-              id(vent_bypass_until_ms) != 0
-              && (int32_t)(id(vent_bypass_until_ms) - now_ms) > 0;
           // Expire latches: clear the deadline once elapsed so telemetry/UI
           // reflect the real state and the next press re-arms cleanly.
           if (id(manual_fans_until_ms) != 0 && !manual_fans_latched) id(manual_fans_until_ms) = 0;
           if (id(manual_fog_until_ms)  != 0 && !manual_fog_latched)  id(manual_fog_until_ms)  = 0;
-          if (id(vent_bypass_until_ms) != 0 && !vent_bypass_latched) id(vent_bypass_until_ms) = 0;
-          // EFFECTIVE manual state = the deadline latches only. The legacy
-          // script flags and their Home Assistant buttons are gone (VD-47), so
-          // the push buttons and manual_override are the only ways in.
-          const bool manual_fans_eff   = manual_fans_latched;
-          // #1343 follow-up: a fog run-once from the irrigation engine asks for fog
-          // the way the HUMID latch does, below the same safety rails.
-          const bool manual_fog_eff    = manual_fog_latched || irr_fog_run();
-          const bool vent_bypass_eff   = vent_bypass_latched;
-          const bool manual_fog_requested = manual_fog_eff;
-          // SENSOR_FAULT locks the fogger off unless an operator latched HUMID
-          // (RULINGS G7; an engine run-once is refused by the engine's own hold).
-          // The HUMID press's safety block skips the tests it cannot evaluate: no
-          // dew-point margin or RH ceiling without a humidity reading (G2, G7). No
-          // clock term (phase 2: fog follows the corridor without a trusted clock).
-          const bool sensor_fault_relay_lock = sensor_fault_fog_lock(mode, manual_fog_latched);
-          // Phase 3 (wiring note 4): the HUMID press's safety block reads no climate
-          // setting: the compiled wetting dew margin (skipped with no humidity reading, G7)
-          // and the law's cold-house guard (below the band's low edge).
-          // AG1: the press keeps the case dew point (indoor.humidity_valid, G2), not the law's
-          // wall-only humidity validity (climate_law::humid_press_block(), native-tested).
-          const char* manual_fog_safety_block =
-              climate_law::humid_press_block(law_temp_valid, indoor, law_band.low);
+          // The pass a latch ends, however it ended, stops what it ran at once
+          // (climate_law::relay_pass()). Not restored: no latch survives a reboot.
+          static bool manual_fans_prev = false, manual_fog_prev = false;
+          const bool manual_fans_ended = manual_fans_prev && !manual_fans_latched;
+          const bool manual_fog_ended = manual_fog_prev && !manual_fog_latched;
+          manual_fans_prev = manual_fans_latched;
+          manual_fog_prev = manual_fog_latched;
 
-          // Phase 3: sw_fog_closes_vent and sw_mister_closes_vent are inert; the law
-          // decides fog and mist with the vent.
           // F7 (#1161): one occupancy rule for every kind of mist and fog. True only while a
           // detection the ingestor pushed holds (1b's 60 min fail-safe ends it); unknown or
           // missing occupancy leaves it false, so mist runs (D-IRP-10). VPD mist and fog read it
@@ -680,7 +648,7 @@ interval:
           // SEALED_MIST/fog path under the solar night band — when VPD exceeds
           // the LOW night band edge + stress margin the header's stress-wet rule
           // permits fog, bounded by the standard relay min-on/off + duty caps.
-          // The HUMID button (manual_fog_force, above) is the operator path.)
+          // The fogger button (the manual runs, above) is the operator path.)
 
           // SAF-5: the AquaFog is clean-water-only by plumbing (there is no
           // fog_fert relay). Positive interlock: fog NEVER co-fires with the
@@ -696,8 +664,12 @@ interval:
           // confirmed occupancy, SAF-5 and a drip relay reading OFF; outside
           // SAFETY_COOL an engine drip, the soft budget and SAF-4 also hold fog, while
           // survival fog runs past them (D-IRP-03, D-IRP-04).
+          // SENSOR_FAULT locks the law's fog and a fog run-once off (an engine run-once is
+          // also refused by the engine's own hold); a manual press is not held by it
+          // (manual_fog_hold_reason()). No clock term (phase 2: fog follows the corridor
+          // without a trusted clock).
           const FogForceOffInputs fog_rails{
-              sensor_fault_relay_lock,
+              mode == SENSOR_FAULT,
               occupancy_moisture_block,
               fert_master_on,
               drip_relay_open,
@@ -710,8 +682,10 @@ interval:
           FogForceOffInputs fog_rails_but_drips = fog_rails;
           fog_rails_but_drips.drip_relay_open = false;
           fog_rails_but_drips.irrigation_water_conflict = false;
-          fog_rails_but_drips.sensor_fault_relay_lock = mode == SENSOR_FAULT;  // C2: today's term
           const bool fog_hold = fog_forced_off(mode, fog_rails);
+          // AD1: the holds above a manual fogger press (SAF-5, the drips, SAF-4), in one
+          // library function; occupancy, the soft budget and the climate are not holds for a press.
+          const char* manual_fog_hold = manual_fog_hold_reason(fog_rails);
           if (occupancy_moisture_block != occupancy_water_interlock_prev) {
               if (occupancy_moisture_block) {
                   ESP_LOGW("interlock","Occupancy confirmed: holding fog and every mist (drips run)");
@@ -720,7 +694,6 @@ interval:
               }
               occupancy_water_interlock_prev = occupancy_moisture_block;
           }
-          // sw_fog_closes_vent is inert in phase 3: the law decides fog with the vent.
 
           /**************** 11a — RELAY LAYER, THEN THE OVERRIDES (phase 3) ********/
           // climate_law::relay_step() owns the minimum times, the interlocks (a fan
@@ -740,31 +713,33 @@ interval:
           // stretched). Only the old dwell gates needed the 5 s clamp of dt_ms.
           law_relay_in.dt_ms = raw_dt_ms;
           law_relay_in.cut_unwanted = no_indoor_entry;
-          // The manual override layer on the relay layer's result, exactly as phase 2
-          // (B1, G7): FANS forces both fans with the vent open, VENT-BYPASS both fans
-          // with the vent closed, HUMID the fogger unless a fog safety block is up; a
-          // no-op at the protection limits (mode SAFETY_COOL / SAFETY_HEAT, and T1 has
-          // cleared FANS and VENT-BYPASS there); effective in SENSOR_FAULT. A press acts
-          // this pass, past minimum off times. climate_law::relay_pass()
+          // The manual runs on the relay layer's result (AB12, AD1): the fan latch forces
+          // both fans with the vent open or closed, the fogger latch the fogger unless a
+          // hold above a press is up; a no-op at the protection limits (mode
+          // SAFETY_COOL / SAFETY_HEAT, where T1 has cleared every latch); effective in
+          // SENSOR_FAULT. A press acts this pass, past minimum off times, and the pass a
+          // latch ends stops what it ran. A fog run-once of the irrigation engine is
+          // apart from the latches, under the law's fog holds. climate_law::relay_pass()
           // (lib/climate_law_glue.h) first syncs the relay layer to the physical relays
-          // (T6 S2), runs relay_step(), the overrides, and the interlocks over the result
-          // (AE10, AG3: no heater with a manual fan run; the electric heater never with the
-          // air except the law's drying and 40 F; the furnace never with the air; the fog
-          // holds win).
+          // (T6 S2), runs relay_step(), the manual runs, the run-once, and the
+          // interlocks over the result (AE10, AG3: no heater with a manual fan run, vent
+          // open or closed; the electric heater never with the air except the law's drying
+          // and 40 F; the furnace never with the air; the fog holds).
           const ManualOverrides manual_ov = {
-              manual_fans_eff,                     // fans_active
-              vent_bypass_eff,                     // vent_bypass_active
-              manual_fog_eff,                      // humid_active
-              manual_fog_safety_block[0] != '\0'   // fog_safety_blocked
+              manual_fans_latched,                 // fans
+              id(manual_fans_vent_closed),         // vent_closed
+              manual_fog_latched,                  // fog
+              manual_fog_hold[0] != '\0',          // fog_held
+              manual_fans_ended,                   // fans_ended
+              manual_fog_ended                     // fog_ended
           };
           const climate_law::RelayPass pass_out = climate_law::relay_pass(
               law_relays, law_request, law_relay_in,
               RelayOutputs{id(heat1_rly)->state, id(heat2_rly)->state, id(fan1_rly)->state,
                            id(fan2_rly)->state, id(fog_rly)->state, id(vent_rly)->state},
-              manual_ov, mode);
+              manual_ov, irr_fog_run(), mode);
           const RelayOutputs ov_out = pass_out.out;
           const ManualForce manual_force = pass_out.force;
-          const bool manual_fog_force = manual_force.fog;
           // T6 S3/F4/E-m1: one lead-fan chooser, the relay layer's; the published lead
           // is the fan that runs first.
           if (law_relays.lead_fan1 != id(fan_lead_is_fan1)) {
@@ -773,11 +748,12 @@ interval:
                      static_cast<unsigned long>(relay_counters.fan_run_s[0]),
                      static_cast<unsigned long>(relay_counters.fan_run_s[1]));
           }
-          // RULINGS T4 (C2): the engine's climate fog demand keeps today's terms: the
-          // law's fog OR a HUMID press / run-once the override layer forced, after the
-          // override layer, with the rails but the drips and today's clock term.
+          // RULINGS T4 (C2), AD1: the engine's climate fog demand: the law's fog or a
+          // run-once under the law's rails but the drips, or a fogger press under its own
+          // holds but the drips, and today's clock term.
           const bool climate_fog_wanted = climate_law::climate_fog_wanted(
-              law_request, manual_force, fog_forced_off(mode, fog_rails_but_drips), wall_clock_valid);
+              law_request.fog || pass_out.run_once, fog_forced_off(mode, fog_rails_but_drips),
+              manual_force.fog, manual_fog_hold_reason(fog_rails_but_drips)[0] != '\0', wall_clock_valid);
 
           /**************** 10 — CYCLE COUNTERS ***********************************/
           // #367: count accepted relay edges after dwell and overrides apply
@@ -873,7 +849,7 @@ interval:
             // climate_law::mister_step(): one pulse at a time, compiled length and gap
             // (B3), the fairness rule, the engine's rank on the house band, the mister
             // line minimum off time as a fence. The S1/S2 stage machine, its engage delays,
-            // the per-zone crop VPD targets and sw_mister_closes_vent are not read.
+            // and the per-zone crop VPD targets are not read.
             const float wet_dew_margin_f = (!isnan(Tin) && !isnan(indoor.dew_point_f))
               ? Tin - indoor.dew_point_f
               : -999.0f;
@@ -1129,11 +1105,11 @@ interval:
           // (OBS-1e) read the one ladder.
           char fog_block_reason[64];
           {
-            const char* fog_forced_reason = fog_force_off_reason(mode, fog_rails);
+            // AD1: while a fogger press is latched its own holds name the word (a press
+            // fogs past occupancy, the soft budget and SENSOR_FAULT's lock).
+            const char* fog_forced_reason = manual_force.fog ? manual_fog_hold : fog_force_off_reason(mode, fog_rails);
             if(fog_forced_reason[0] != '\0') {
               snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", fog_forced_reason);
-            } else if(manual_fog_requested && manual_fog_safety_block[0] != '\0') {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", manual_fog_safety_block);
             } else if(id(fog_rly)->state) {
               snprintf(fog_block_reason, sizeof(fog_block_reason), "served");
             } else {

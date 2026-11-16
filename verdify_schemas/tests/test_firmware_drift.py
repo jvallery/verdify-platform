@@ -538,7 +538,9 @@ HA_BUTTON_IDS = (
     "btn_manual_humidify",
     "btn_vent_bypass",
 )
-MANUAL_LATCHES = ("manual_fans_until_ms", "manual_fog_until_ms", "vent_bypass_until_ms")
+# AB12/AD1: one fan latch with its vent flag, and the fogger latch.
+MANUAL_LATCHES = ("manual_fans_until_ms", "manual_fog_until_ms")
+MANUAL_FAN_VENT_FLAG = "manual_fans_vent_closed"
 # #1335: the per-circuit manual light holds manual_override also sets (API-20's timed switch).
 LIGHT_HOLDS = ("gl_main_hold_until_ms", "gl_main_hold_on", "gl_grow_hold_until_ms", "gl_grow_hold_on")
 _ID_WRITE_RE = re.compile(
@@ -570,8 +572,9 @@ def _firmware_yaml_docs() -> dict[str, dict]:
 def test_home_assistant_buttons_and_the_quiet_override_are_gone():
     """F12 and HA-01 to HA-03 (VD-47, #1162): no Home Assistant button, no burst script and no
     occupancy quiet override is left, and manual_override is the only remote way to a burst: its
-    lambda writes only the three deadline latches (restart only reboots), never a relay and never
-    occupancy, so a burst leaves mist and fog held while someone is inside."""
+    lambda writes only the manual latches and the fan latch's vent flag (restart only reboots),
+    never a relay and never occupancy. (RULINGS AD1: a fogger press is not held by occupancy; the
+    law's fog, the misters and a run-once still are.)"""
     sources = _firmware_sources()
     assert any(path.name == "irrigation_engine.yaml" for path in sources), "firmware sources not found"
     entity_map_source = (REPO_ROOT / "ingestor" / "entity_map.py").read_text()
@@ -601,11 +604,13 @@ def test_home_assistant_buttons_and_the_quiet_override_are_gone():
     assert override["variables"] == {"kind": "string", "minutes": "int"}
     (step,) = override["then"]
     code = _code_only(step["lambda"])
-    assert _id_writes(code) == set(MANUAL_LATCHES) | set(LIGHT_HOLDS), _id_writes(code)
-    for latch, kind in zip(MANUAL_LATCHES, ("fans", "humidify", "vent_bypass"), strict=True):
-        assert f'kind == "{kind}"' in code
+    assert _id_writes(code) == set(MANUAL_LATCHES) | {MANUAL_FAN_VENT_FLAG} | set(LIGHT_HOLDS), _id_writes(code)
+    assert 'kind == "fans" || kind == "vent_bypass"' in code
+    assert f'id({MANUAL_FAN_VENT_FLAG}) = kind == "vent_bypass";' in code
+    assert 'kind == "humidify"' in code
+    for latch in MANUAL_LATCHES:
         assert f"id({latch}) = manual_override_deadline_ms(now_ms, minutes);" in code
-        assert f"id({latch}) = 0;" in code  # clear zeroes all three
+        assert f"id({latch}) = 0;" in code  # clear zeroes both
     # #1335: light_<circuit>_<on|off> sets that circuit's hold, light_<circuit>_auto releases it, and clear
     # (the bursts' Clear) leaves the light holds alone.
     for circuit in ("main", "grow"):
@@ -628,33 +633,42 @@ def test_home_assistant_buttons_and_the_quiet_override_are_gone():
 
 
 def test_push_buttons_toggle_the_burst_latches_and_the_indicators_read_them():
-    """F12 (VD-47): each panel push button toggles its own latch in its own handler, and the three
-    burst indicators (fan_burst_active, vent_bypass_active, fog_burst_active) read the latches."""
+    """F12 (VD-47), AB12/AD1: Fan and Vent press the one fan latch with their vent state, Fog toggles
+    the fogger latch, each in its own handler; the three burst indicators (fan_burst_active,
+    vent_bypass_active, fog_burst_active) read the latches and the vent flag."""
     root = yaml.safe_load((REPO_ROOT / "firmware" / "greenhouse.yaml").read_text())
     sensors = {entry["id"]: entry for entry in root["binary_sensor"] if "id" in entry}
-    for button, latch in (
-        ("fans_switch", "manual_fans_until_ms"),
-        ("fog_switch", "manual_fog_until_ms"),
-        ("vent_bypass_switch", "vent_bypass_until_ms"),
-    ):
+    for button, vent_closed in (("fans_switch", "false"), ("vent_bypass_switch", "true")):
         (action,) = sensors[button]["on_press"]["then"]
         code = _code_only(action["lambda"])
-        assert _id_writes(code) == {latch}, (button, _id_writes(code))
-        assert f"id({latch}) = manual_latch_toggle(id({latch}), millis(), id(manual_override_timeout_min));" in code
+        assert (
+            f"manual_fan_press(id(manual_fans_until_ms), id({MANUAL_FAN_VENT_FLAG}), {vent_closed}, millis(), "
+            "id(manual_override_timeout_min));" in code
+        ), button
         assert "occupan" not in code, button
-    for indicator, name, latch in (
-        ("bs_manual_fan", "Fan Burst Active", "manual_fans_until_ms"),
-        ("bs_manual_fog", "Fog Burst Active", "manual_fog_until_ms"),
-        ("bs_vent_lock", "Vent Bypass Active", "vent_bypass_until_ms"),
+    (action,) = sensors["fog_switch"]["on_press"]["then"]
+    code = _code_only(action["lambda"])
+    assert _id_writes(code) == {"manual_fog_until_ms"}, _id_writes(code)
+    assert (
+        "id(manual_fog_until_ms) = manual_latch_toggle(id(manual_fog_until_ms), millis(), "
+        "id(manual_override_timeout_min));" in code
+    )
+    assert "occupan" not in code
+    fans_on = "manual_latch_active(id(manual_fans_until_ms), millis())"
+    for indicator, name, body in (
+        ("bs_manual_fan", "Fan Burst Active", f"{fans_on} && !id({MANUAL_FAN_VENT_FLAG})"),
+        ("bs_manual_fog", "Fog Burst Active", "manual_latch_active(id(manual_fog_until_ms), millis())"),
+        ("bs_vent_lock", "Vent Bypass Active", f"{fans_on} && id({MANUAL_FAN_VENT_FLAG})"),
     ):
         assert sensors[indicator]["name"] == name
-        assert sensors[indicator]["lambda"] == f"return manual_latch_active(id({latch}), millis());"
-    # The override layer reads only the latches, and fog also the engine's fog run-once (#1343 follow-up).
+        assert sensors[indicator]["lambda"] == f"return {body};"
+    # The manual runs read only the latches and the vent flag; the engine's fog run-once is apart from them.
     controls = (REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text()
     for line in (
-        "const bool manual_fans_eff   = manual_fans_latched;",
-        "const bool manual_fog_eff    = manual_fog_latched || irr_fog_run();",
-        "const bool vent_bypass_eff   = vent_bypass_latched;",
+        "manual_fans_latched,                 // fans",
+        f"id({MANUAL_FAN_VENT_FLAG}),         // vent_closed",
+        "manual_fog_latched,                  // fog",
+        "manual_ov, irr_fog_run(), mode);",
     ):
         assert line in controls, line
 

@@ -113,19 +113,6 @@ number:
           id(mister_min_off_s) = (int)x;
           id(num_mister_min_off).publish_state(x);
 
-  - platform: template
-    id: num_night_vpd_bias_kpa
-    name: "Night VPD Bias kPa"
-    min_value: 0.0
-    max_value: 0.25
-    step: 0.01
-    lambda: "return verdify_policy::policy_read(verdify_policy::kPF_night_vpd_bias_kpa, id(night_vpd_bias_kpa));"
-    set_action:
-      - lambda: |
-          float c = x < 0.0f ? 0.0f : (x > 0.25f ? 0.25f : x);
-          id(night_vpd_bias_kpa) = c;
-          id(num_night_vpd_bias_kpa).publish_state(c);
-
   # Phase 3 (#1671): the drying cost limit (contract phase3-entities; owner-only).
   - platform: template
     id: num_dry_cost_limit_kwh_per_kg
@@ -154,30 +141,6 @@ number:
           int v = (int)x; if(v < 120) v = 120; if(v > 1800) v = 1800;
           id(outdoor_staleness_max_s) = v;
           id(num_outdoor_staleness_max).publish_state(v);
-
-  - platform: template
-    id: num_fog_rh_ceiling
-    name: "Fog RH Ceiling (%)"
-    min_value: 75
-    max_value: 98
-    step: 1
-    lambda: "return id(fog_rh_ceiling_pct);"
-    set_action:
-      - lambda: |
-          id(fog_rh_ceiling_pct) = x;
-          id(num_fog_rh_ceiling).publish_state(x);
-
-  - platform: template
-    id: num_fog_min_temp
-    name: "Fog Min Temp (F)"
-    min_value: 40
-    max_value: 65
-    step: 5
-    lambda: "return id(fog_min_temp_f);"
-    set_action:
-      - lambda: |
-          id(fog_min_temp_f) = x;
-          id(num_fog_min_temp).publish_state(x);
 
   - platform: template
     id: num_mister_on
@@ -510,19 +473,6 @@ number:
           id(direct_wet_min_temp_f) = x;
           id(num_direct_wet_min_temp_f).publish_state(x);
 
-  - platform: template
-    id: num_direct_wet_stress_min_dew_margin_f
-    name: "Direct Wet Stress Min Dew Margin F"
-    min_value: 3
-    max_value: 15
-    step: 0.5
-    lambda: "return verdify_policy::policy_read(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f));"
-    set_action:
-      - lambda: |
-          id(cfg_first_pull_ok) = true;
-          id(direct_wet_stress_min_dew_margin_f) = x;
-          id(num_direct_wet_stress_min_dew_margin_f).publish_state(x);
-
   # ─── Vanda band-compliance OTA tunables (cfg_* readbacks, CLAUDE.md rule 6) ───
   # (firmware-v2: dusk_cutoff_hour, night_start/end_hour, direct_wet_stress_*
   # and fog_stress_window_* clock tunables retired — replaced by the solar
@@ -758,36 +708,6 @@ switch:
           id(cfg_first_pull_ok) = true;
           id(gl_grow_out_of_service) = false;
           id(sw_gl_grow_out_of_service).publish_state(false);
-
-  # Close vent during fog pulses to prevent dry air infiltration
-  - platform: template
-    id: sw_fog_closes_vent
-    name: "Fog Closes Vent"
-    restore_mode: RESTORE_DEFAULT_OFF
-    lambda: 'return verdify_policy::policy_read_b(verdify_policy::kPF_sw_fog_closes_vent, id(fog_closes_vent));'
-    turn_on_action:
-      - lambda: |
-          id(fog_closes_vent) = true;
-          id(sw_fog_closes_vent).publish_state(true);
-    turn_off_action:
-      - lambda: |
-          id(fog_closes_vent) = false;
-          id(sw_fog_closes_vent).publish_state(false);
-
-  # Close vent during mister pulses to trap humidity
-  - platform: template
-    id: sw_mister_closes_vent
-    name: "Mister Closes Vent"
-    restore_mode: RESTORE_DEFAULT_OFF
-    lambda: 'return verdify_policy::policy_read_b(verdify_policy::kPF_sw_mister_closes_vent, id(mister_closes_vent));'
-    turn_on_action:
-      - lambda: |
-          id(mister_closes_vent) = true;
-          id(sw_mister_closes_vent).publish_state(true);
-    turn_off_action:
-      - lambda: |
-          id(mister_closes_vent) = false;
-          id(sw_mister_closes_vent).publish_state(false);
 
   # Occupancy quiet inhibit — blocks routine fans plus misters/fogger when occupied
   # Name retained for API compatibility with the existing entity_map route.

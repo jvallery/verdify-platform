@@ -1411,31 +1411,6 @@ sensor:
       if (!id(cfg_first_pull_ok) && !verdify_policy::policy_experiment_active()) return NAN;
       return (float)verdify_policy::policy_read(verdify_policy::kPF_mister_engage_delay_s, id(mister_engage_delay_s));
 
-  - platform: template
-    id: cfg_fog_rh_ceiling_pct
-    name: "Cfg • Fog RH Ceiling (%)"
-    unit_of_measurement: "%"
-    state_class: measurement
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    update_interval: 30s
-    lambda: |-
-      if (!id(cfg_first_pull_ok)) return NAN;
-      return (float)id(fog_rh_ceiling_pct);
-
-  - platform: template
-    id: cfg_fog_min_temp_f
-    name: "Cfg • Fog Min Temp (°F)"
-    device_class: temperature
-    unit_of_measurement: "°F"
-    state_class: measurement
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    update_interval: 30s
-    lambda: |-
-      if (!id(cfg_first_pull_ok)) return NAN;
-      return (float)id(fog_min_temp_f);
-
   # ─── Sprint-15: summer thermal-driven vent gate readbacks ─────────
   # 5 tunable readbacks + 2 live outdoor readings firmware compares
   # against. Names slugify to slugs declared in the coordinator
@@ -1465,28 +1440,6 @@ sensor:
     lambda: |-
       if (!id(cfg_first_pull_ok) && !verdify_policy::policy_experiment_active()) return NAN;
       return verdify_policy::policy_read_b(verdify_policy::kPF_sw_direct_wet_gate_enabled, id(direct_wet_gate_enabled)) ? 1.0f : 0.0f;
-
-  - platform: template
-    id: cfg_fog_closes_vent
-    name: "Cfg Fog Closes Vent"
-    state_class: measurement
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    update_interval: 30s
-    lambda: |-
-      if (!id(cfg_first_pull_ok) && !verdify_policy::policy_experiment_active()) return NAN;
-      return verdify_policy::policy_read_b(verdify_policy::kPF_sw_fog_closes_vent, id(fog_closes_vent)) ? 1.0f : 0.0f;
-
-  - platform: template
-    id: cfg_mister_closes_vent
-    name: "Cfg Mister Closes Vent"
-    state_class: measurement
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    update_interval: 30s
-    lambda: |-
-      if (!id(cfg_first_pull_ok) && !verdify_policy::policy_experiment_active()) return NAN;
-      return verdify_policy::policy_read_b(verdify_policy::kPF_sw_mister_closes_vent, id(mister_closes_vent)) ? 1.0f : 0.0f;
 
   # Live outdoor readings (firmware exposes the values it's actually
   # comparing). Useful for Iris to see whether the gate is data-poor
@@ -1554,17 +1507,6 @@ sensor:
     lambda: |-
       if (!id(cfg_first_pull_ok) && !verdify_policy::policy_experiment_active()) return NAN;
       return verdify_policy::policy_read(verdify_policy::kPF_mister_water_budget_gal, id(mister_water_budget_gal));
-
-  - platform: template
-    id: cfg_night_vpd_bias_kpa
-    name: "Cfg Night VPD Bias kPa"
-    state_class: measurement
-    accuracy_decimals: 2
-    entity_category: diagnostic
-    update_interval: 30s
-    lambda: |-
-      if (!id(cfg_first_pull_ok) && !verdify_policy::policy_experiment_active()) return NAN;
-      return verdify_policy::policy_read(verdify_policy::kPF_night_vpd_bias_kpa, id(night_vpd_bias_kpa));
 
   - platform: template
     id: cfg_gl_main_target_light_minutes
@@ -1635,18 +1577,6 @@ sensor:
     lambda: |-
       if (!id(cfg_first_pull_ok)) return NAN;
       return id(direct_wet_min_temp_f);
-
-  - platform: template
-    id: cfg_direct_wet_stress_min_dew_margin_f
-    name: "Cfg Direct Wet Stress Min Dew Margin F"
-    unit_of_measurement: "°F"
-    state_class: measurement
-    accuracy_decimals: 1
-    entity_category: diagnostic
-    update_interval: 30s
-    lambda: |-
-      if (!id(cfg_first_pull_ok) && !verdify_policy::policy_experiment_active()) return NAN;
-      return verdify_policy::policy_read(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f));
 
   - platform: template
     id: cfg_gl_main_min_on_s

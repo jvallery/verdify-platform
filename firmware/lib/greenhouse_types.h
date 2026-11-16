@@ -385,18 +385,22 @@ struct RelayArbitration {
     const char* block_reason;  // first rule that changed the request, "" if none
 };
 
-// ── Manual button-override layer (FANS / HUMID / VENT-BYPASS) ────────────
-// Three deadline latches, toggled by the momentary panel push buttons and set
-// or cleared by the manual_override service (VD-47); controls.yaml reads them.
-// ManualOverrides is the per-cycle EFFECTIVE latch state + whether a genuine
-// fog safety block is active; apply_manual_overrides() turns it into forced
-// relay outputs. The pure function makes the override precedence unit-testable
-// (the replay corpus never exercises button presses).
+// ── Manual runs (RULINGS AB12, AD1) ──────────────────────────────────────
+// Three timed manual actions: the fans with the vent open, the fans with the
+// vent closed (house air), and the fogger. The fans are one deadline latch with
+// a vent flag; the fogger is its own latch. The momentary panel push buttons
+// toggle them and the manual_override service sets or clears them (VD-47);
+// controls.yaml reads them. A press is a deliberate act: no climate check
+// refuses it. apply_manual_overrides() turns the per-pass state into forced
+// relay outputs (the replay corpus never presses a button, so the native tests
+// are the evidence).
 struct ManualOverrides {
-    bool fans_active;        // FANS latch (manual_fans_until_ms)
-    bool vent_bypass_active; // VENT-BYPASS latch (vent_bypass_until_ms)
-    bool humid_active;       // HUMID latch (manual_fog_until_ms)
-    bool fog_safety_blocked; // a real fog safety block (dew/RH/temp/time) is up
+    bool fans;         // the fan latch runs (manual_fans_until_ms)
+    bool vent_closed;  // ... with the vent closed, house air (manual_fans_vent_closed); else vent open
+    bool fog;          // the fogger latch runs (manual_fog_until_ms)
+    bool fog_held;     // a hold above a fogger press is up (manual_fog_hold_reason())
+    bool fans_ended;   // the fan latch ended this pass (timeout, second press, clear, a limit)
+    bool fog_ended;    // the fogger latch ended this pass
 };
 
 // Which relays the override FORCE-applies (force_on bypasses relay min-off dwell
@@ -404,8 +408,8 @@ struct ManualOverrides {
 // apply_manual_overrides() so the caller wires force_on= on exactly those relays.
 struct ManualForce {
     bool fans;       // force both fans on
-    bool fog;        // force fogger on
-    bool vent_open;  // force vent open (normal FANS); NOT set during VENT-BYPASS
+    bool fog;        // a fogger press asks for fog (before its holds: the engine's yield input reads it)
+    bool vent_open;  // force vent open (fans with the vent open); NOT set with the vent closed
 };
 
 // ── ClimateIntent candidate-action controller contract ────────────────

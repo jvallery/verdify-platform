@@ -5223,18 +5223,22 @@ TEST(reboot_persisted_anchors_reproduce_identical_band) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// #289 / #290 — MANUAL BUTTON OVERRIDE LAYER (FANS / HUMID / VENT-BYPASS)
+// #289 / #290, AB12/AD1 — MANUAL RUNS (fans vent open / vent closed, fogger)
 // ═══════════════════════════════════════════════════════════════
-// The override layer lives in controls.yaml and the replay corpus NEVER presses
-// a button, so a replay-diff is trivially clean — these native tests are the
-// REQUIRED positive evidence (#289). They pin apply_manual_overrides() +
-// fan_requires_open_vent() (greenhouse_logic.h).
+// The manual runs live in controls.yaml and the replay corpus NEVER presses a
+// button, so a replay-diff is trivially clean — these native tests are the
+// REQUIRED positive evidence (#289). They pin apply_manual_overrides() and
+// manual_fog_hold_reason() (greenhouse_logic.h); test_climate_law.cpp runs the
+// glue pass by pass.
 static RelayOutputs relays_off() { return RelayOutputs{false, false, false, false, false, false}; }
+// {fans, vent_closed, fog, fog_held, fans_ended, fog_ended}
+static ManualOverrides manual(bool fans, bool vent_closed, bool fog, bool fog_held = false) {
+    return ManualOverrides{fans, vent_closed, fog, fog_held, false, false};
+}
 
 TEST(manual_fans_forces_both_fans_and_opens_vent) {
     RelayOutputs out = relays_off();
-    ManualOverrides ov = {true, false, false, false};  // FANS only
-    ManualForce f = apply_manual_overrides(out, ov, IDLE);
+    ManualForce f = apply_manual_overrides(out, manual(true, false, false), IDLE);
     ASSERT_TRUE(out.fan1 && out.fan2);
     ASSERT_TRUE(out.vent);
     ASSERT_TRUE(f.fans && f.vent_open);
@@ -5242,46 +5246,50 @@ TEST(manual_fans_forces_both_fans_and_opens_vent) {
     PASS();
 }
 
-TEST(manual_humid_forces_fogger_only) {
+TEST(manual_fogger_forces_fogger_only) {
     RelayOutputs out = relays_off();
-    ManualOverrides ov = {false, false, true, false};  // HUMID only, no safety block
-    ManualForce f = apply_manual_overrides(out, ov, IDLE);
+    ManualForce f = apply_manual_overrides(out, manual(false, false, true), IDLE);
     ASSERT_TRUE(out.fog && f.fog);
     ASSERT_FALSE(out.fan1 || out.fan2 || out.vent);   // fogger ONLY (R1/R2 fix)
     ASSERT_FALSE(f.fans || f.vent_open);
     PASS();
 }
 
-TEST(manual_humid_blocked_by_real_fog_safety) {
+TEST(manual_fogger_held_asks_but_does_not_fog) {
     RelayOutputs out = relays_off();
-    ManualOverrides ov = {false, false, true, true};   // HUMID, but a real fog safety block
-    ManualForce f = apply_manual_overrides(out, ov, IDLE);
-    ASSERT_FALSE(out.fog || f.fog);   // physical safety (dew/RH/temp) beats the button
+    ManualForce f = apply_manual_overrides(out, manual(false, false, true, /*fog_held=*/true), IDLE);
+    ASSERT_FALSE(out.fog);   // SAF-5, a drip or SAF-4 holds it
+    ASSERT_TRUE(f.fog);      // still the engine's demand: a drip yields to a press
     PASS();
 }
 
-TEST(vent_bypass_runs_fans_with_vent_closed) {
+TEST(manual_fans_vent_closed_runs_fans_with_vent_closed) {
     RelayOutputs out = relays_off();
     out.vent = true;                                   // pretend climate wanted the vent open
-    ManualOverrides ov = {false, true, false, false};  // VENT-BYPASS only (implies fans)
-    ManualForce f = apply_manual_overrides(out, ov, VENTILATE);
-    ASSERT_TRUE(out.fan1 && out.fan2);    // fans ON — bypass implies fans (#290)
+    ManualForce f = apply_manual_overrides(out, manual(true, true, false), IDLE);
+    ASSERT_TRUE(out.fan1 && out.fan2);    // fans ON
     ASSERT_FALSE(out.vent);               // vent CLOSED — the winter house-air pull
     ASSERT_TRUE(f.fans);
-    ASSERT_FALSE(f.vent_open);            // vent is NOT force-opened under bypass
+    ASSERT_FALSE(f.vent_open);            // vent is NOT force-opened with the vent closed
+    PASS();
+}
+
+TEST(manual_runs_are_effective_without_an_indoor_reading) {
+    RelayOutputs out = relays_off();
+    ManualForce f = apply_manual_overrides(out, manual(true, false, true), SENSOR_FAULT);
+    ASSERT_TRUE(out.fan1 && out.fan2 && out.vent && out.fog);
+    ASSERT_TRUE(f.fans && f.fog && f.vent_open);
     PASS();
 }
 
 TEST(manual_overrides_never_fight_safety_rails) {
-    // All buttons pressed; in both temperature rails the relay table is untouched
-    // and no force is asserted (a FANS press must not throw the vent open and dump
-    // heat during a cold-rail SAFETY_HEAT). SENSOR_FAULT is no longer a rail for
-    // the overrides (decision 7, RULINGS B1): test_running_alone.cpp covers it.
+    // Every latch set; at both protection limits the relay table is untouched and no
+    // force is asserted (a fan press must not throw the vent open and dump heat at 40 F).
+    // The latches are also cleared there (X4: test_climate_law.cpp).
     for (Mode m : {SAFETY_COOL, SAFETY_HEAT}) {
         RelayOutputs out = {true, true, false, false, false, false};  // heaters on
         const RelayOutputs before = out;
-        ManualOverrides ov = {true, true, true, false};
-        ManualForce f = apply_manual_overrides(out, ov, m);
+        ManualForce f = apply_manual_overrides(out, manual(true, true, true), m);
         ASSERT_TRUE(out.heat1 == before.heat1 && out.heat2 == before.heat2);
         ASSERT_TRUE(out.fan1 == before.fan1 && out.fan2 == before.fan2);
         ASSERT_TRUE(out.fog == before.fog && out.vent == before.vent);
@@ -5293,20 +5301,77 @@ TEST(manual_overrides_never_fight_safety_rails) {
 TEST(no_buttons_pressed_is_a_no_op) {
     RelayOutputs out = {false, true, true, false, false, true};
     const RelayOutputs before = out;
-    ManualOverrides ov = {false, false, false, false};
-    ManualForce f = apply_manual_overrides(out, ov, VENTILATE);
+    ManualForce f = apply_manual_overrides(out, manual(false, true, false), VENTILATE);
     ASSERT_TRUE(out.heat1 == before.heat1 && out.heat2 == before.heat2 && out.fan1 == before.fan1
                 && out.fan2 == before.fan2 && out.fog == before.fog && out.vent == before.vent);
     ASSERT_FALSE(f.fans || f.fog || f.vent_open);
     PASS();
 }
 
-TEST(manual_fans_plus_humid_force_fans_vent_and_fog) {
+TEST(manual_fans_plus_fogger_force_fans_vent_and_fog) {
     RelayOutputs out = relays_off();
-    ManualOverrides ov = {true, false, true, false};   // FANS + HUMID together
-    ManualForce f = apply_manual_overrides(out, ov, IDLE);
+    ManualForce f = apply_manual_overrides(out, manual(true, false, true), IDLE);
     ASSERT_TRUE(out.fan1 && out.fan2 && out.vent && out.fog);
     ASSERT_TRUE(f.fans && f.vent_open && f.fog);
+    PASS();
+}
+
+// AD1 (e)/(f): the holds above a fogger press are SAF-5, the drips and SAF-4 only.
+// Occupancy, the soft budget and SENSOR_FAULT's lock hold the law's fog and a run-once,
+// never a press.
+TEST(manual_fog_holds_are_equipment_and_water_only) {
+    const FogForceOffInputs none{false, false, false, false, false, false, false};
+    ASSERT_EQ(std::string(manual_fog_hold_reason(none)), std::string(""));
+    FogForceOffInputs in = none;
+    in.occupancy_block = true;
+    ASSERT_EQ(std::string(manual_fog_hold_reason(in)), std::string(""));            // a press while occupied fogs
+    ASSERT_EQ(std::string(fog_force_off_reason(IDLE, in)), std::string("occupancy"));  // the law's fog does not
+    in = none;
+    in.climate_water_budget_block = true;
+    ASSERT_EQ(std::string(manual_fog_hold_reason(in)), std::string(""));            // past the soft budget
+    ASSERT_EQ(std::string(fog_force_off_reason(IDLE, in)), std::string("resource_budget"));
+    in = none;
+    in.sensor_fault_relay_lock = true;
+    ASSERT_EQ(std::string(manual_fog_hold_reason(in)), std::string(""));
+    ASSERT_EQ(std::string(fog_force_off_reason(SENSOR_FAULT, in)), std::string("sensor_fault"));
+    in = none;
+    in.fert_master_on = true;
+    ASSERT_EQ(std::string(manual_fog_hold_reason(in)), std::string("fert_master"));  // SAF-5
+    in = none;
+    in.drip_relay_open = true;
+    ASSERT_EQ(std::string(manual_fog_hold_reason(in)), std::string("irrigation"));
+    in = none;
+    in.irrigation_water_conflict = true;
+    ASSERT_EQ(std::string(manual_fog_hold_reason(in)), std::string("irrigation"));
+    in = none;
+    in.mister_volume_hard_block = true;
+    ASSERT_EQ(std::string(manual_fog_hold_reason(in)), std::string("water_ceiling"));  // SAF-4
+    PASS();
+}
+
+// AB12/AD1: Fan and Vent share one fan latch with a vent flag.
+TEST(fan_and_vent_buttons_share_one_latch) {
+    uint32_t until = 0u;
+    bool closed = false;
+    manual_fan_press(until, closed, false, 1000u, 10);    // Fan from idle: vent open
+    ASSERT_EQ(until, 601000u);
+    ASSERT_FALSE(closed);
+    manual_fan_press(until, closed, true, 2000u, 10);     // Vent while running: switch to vent closed, fresh timeout
+    ASSERT_EQ(until, 602000u);
+    ASSERT_TRUE(closed);
+    manual_fan_press(until, closed, false, 3000u, 10);    // Fan: back to vent open
+    ASSERT_EQ(until, 603000u);
+    ASSERT_FALSE(closed);
+    manual_fan_press(until, closed, false, 4000u, 10);    // Fan again: the running state's button ends it
+    ASSERT_EQ(until, 0u);
+    manual_fan_press(until, closed, true, 5000u, 10);     // Vent from idle: vent closed
+    ASSERT_EQ(until, 605000u);
+    ASSERT_TRUE(closed);
+    manual_fan_press(until, closed, true, 6000u, 10);     // Vent again: ends it
+    ASSERT_EQ(until, 0u);
+    manual_fan_press(until, closed, true, 7000u, 10);
+    manual_fan_press(until, closed, true, 607000u, 10);   // expired but not yet zeroed: a press re-arms
+    ASSERT_EQ(until, 1207000u);
     PASS();
 }
 
