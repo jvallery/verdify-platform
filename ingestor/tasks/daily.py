@@ -814,7 +814,9 @@ async def daily_summary_live(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
         today = await conn.fetchval("SELECT (now() AT TIME ZONE 'America/Denver')::date")
         refreshed = []
-        for offset in (0, 1):
+        # Today, yesterday and the day before: a gap-log replay landing just after local midnight can carry minutes
+        # of the day before yesterday (RULINGS AF10).
+        for offset in (0, 1, 2):
             day = today - _td(days=offset)
             ct, temp_max, compliance_pct = await _refresh_daily_summary_for_date(conn, day)
             refreshed.append((day, ct, temp_max, compliance_pct))
