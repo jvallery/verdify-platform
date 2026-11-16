@@ -4,7 +4,7 @@ Generated from `verdify_schemas/climate_law.yaml` by `scripts/gen-climate-law-co
 change the YAML and regenerate. The firmware compiles these values and reports the hash below; changing one
 is a firmware release. Design: `docs/design/climate-refactor-plan-2026-11-15.md`, sections 4.4 and 9.
 
-Constants hash (SHA-256): `32a5433df8588caabb543c84722f9ed4d71d5e2bfe5c8365a09ce61ebb92fb0d`
+Constants hash (SHA-256): `4250fb1da7d5460388c144f8124dfcc736e0e49077a5cb34496eff3a17120be6`
 
 | Name | Value | Unit | Group | Meaning |
 |---|---:|---|---|---|
@@ -38,6 +38,15 @@ Constants hash (SHA-256): `32a5433df8588caabb543c84722f9ed4d71d5e2bfe5c8365a09ce
 | `F_PER_K` | 1.8 | F/K | physics | Degrees F per kelvin of temperature difference |
 | `KJ_PER_KWH` | 3600.0 | kJ/kWh | physics | Kilojoules per kilowatt-hour |
 | `G_PER_KG` | 1000.0 | g/kg | physics | Grams per kilogram |
+| `MS_PER_S` | 1000 | ms/s | physics | Milliseconds per second |
+| `WH_PER_KWH` | 1000.0 | Wh/kWh | physics | Watt-hours per kilowatt-hour |
+| `F_AT_ZERO_C` | 32.0 | F | physics | Degrees F at 0 C (dew point F to C for the humidity ratio) |
+| `SAT_VP_A_KPA` | 0.6108 | kPa | physics | Magnus saturation vapour pressure at 0 C, as the device's VPD (the humidity ratio from the dew point) |
+| `SAT_VP_B` | 17.27 | ratio | physics | Magnus coefficient b, as the device's VPD |
+| `SAT_VP_C_C` | 237.3 | C | physics | Magnus coefficient c, as the device's VPD (not the 237.7 of the dew point inversion) |
+| `WATER_AIR_G_PER_KG` | 621.97 | g/kg | physics | Molar mass ratio of water to dry air, times 1000 (humidity ratio = this * e / (P - e)) |
+| `DRY_METER_VENT_KG_PER_S` | 0.005 | kg/s | drying | Drying meter: air exchange with the vent open and no fan. The vent has no rated flow (passive); this is the control review's fitted MV_VENT (params_W2, W1 and S1), the simulator's meter |
+| `DRY_METER_FAN_KG_PER_S` | 0.25 | kg/s | drying | Drying meter: additional exchange with the lead fan; the control review's fitted MV_FAN1 (the same in W2, W1 and S1), the simulator's meter. The fans' rating is 2,450 CFM each (about 1.1 kg/s at the site's air density); the house is intake-limited, so the fitted exchange is used. A drying run uses one fan |
 | `SAFETY_MAX_F` | 100.0 | F | protection | At or above: vent open, both fans on, both heaters off |
 | `SAFETY_MIN_F` | 40.0 | F | protection | At or below: both heaters on, vent closed, fans, fogger and misters off |
 | `HEAT_MIN_ON_S` | 300 | s | relay | Electric heater and furnace: minimum on time |

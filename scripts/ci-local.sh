@@ -600,7 +600,21 @@ if in_part containment-firmware; then
   # replay-corpus invariants run here and gate every firmware PR. Later suites
   # append their make targets to this list.
   if command -v g++ >/dev/null; then
-    make test-policy-engine test-policy-recovery test-zone-vpd test-greenhouse-logic test-running-alone firmware-invariants test-irrigation-program
+    make test-policy-engine test-policy-recovery test-zone-vpd test-greenhouse-logic test-running-alone firmware-invariants test-irrigation-program test-climate-law
+  else
+    echo "SKIP: g++ not available on this host (required in the CI image)"
+  fi
+
+  step "climate law closed-loop simulation: the firmware's law reproduces the reference over the weather year (#1671)"
+  # The full weather year (about 80 simulated years, 3 to 6 minutes of one core) runs only when the caller asks
+  # for it with CLIMATE_LAW_SIM=full (ci/gha/validate.sh does, and checks the receipt); a workstation `make ci`
+  # runs the two-week smoke of the same comparison. The mode is never inferred from the environment (G10).
+  if command -v g++ >/dev/null; then
+    if [ "${CLIMATE_LAW_SIM:-quick}" = full ]; then
+      $PY firmware/test/climate_law_sim.py --full ${CLIMATE_LAW_SIM_RECEIPT:+--receipt "$CLIMATE_LAW_SIM_RECEIPT"}
+    else
+      $PY firmware/test/climate_law_sim.py --quick
+    fi
   else
     echo "SKIP: g++ not available on this host (required in the CI image)"
   fi

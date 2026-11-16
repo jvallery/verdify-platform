@@ -119,7 +119,7 @@ Humidity:
 
    Neither the fogger nor the misters run while the house is below the band's low temperature edge. A cold, dry house, which is what a heating failure in winter gives, is not wetted: the request waits and acts when the house is back at the edge (decision 20).
 7. **Drying with outdoor air** (vent open, lead fan) is wanted below `vpd_low + 0.05` until above `vpd_low + 0.20`. It runs only while all three hold:
-   - outdoor data is fresh and the outdoor air is drier: its dew point is at least 3 F below the indoor dew point (it stops when less than 1 F below), and it holds at least 0.1 g/kg less water;
+   - outdoor data is fresh and the outdoor air is drier: its dew point is at least 3 F below the indoor dew point (it stops when less than 1 F below), and it holds more than 0.1 g/kg less water;
    - the price is right: a run starts only while the house is at or above `low + 1.5` and the cost of drying, in heat carried out per kilogram of water carried out, is within the owner's limit of section 4.5; it stops below `low + 0.75`;
    - the house is not cooling and the furnace is off.
 
@@ -157,7 +157,7 @@ A minimum time is cut short only in these cases:
 | The irrigation engine's drip in progress, the soft water budget (not during a VPD emergency), the daily water safety cap | Fogger and misters off at once, except at the 100 F limit, where fog is counted and not capped | As today |
 | Manual overrides | Force a relay on or off | As today |
 
-The first row is in the simulated layer. The others are holds that the simulator does not model (section 14). At the 40 F limit nothing is cut short: a vent or fan still inside its minimum on time finishes it, and the furnace starts once the vent has closed. With a valid band the vent cannot be open at 40 F, so this matters only for a corrupt band.
+The first row is in the simulated layer. The others are holds that the simulator does not model (section 14). At a protection limit no minimum on or off time applies to the heaters, the vent and the fans, and the interlocks still do (rulings G1, G1a, 2026-11-16); the fogger keeps its minimum times at every temperature. At 100 F both heaters stop, the vent opens and both fans start at once; at 40 F the fans stop and the vent closes at once, the electric heater starts, and the furnace starts on the next one-second pass, once the air reads off (ruling G1c: the same wait as today's heat/vent hold; today's firmware has no actuator travel wait). Every relay is available at boot except the furnace, which waits one minimum off time after any boot, so a restart loop cannot cycle it (ruling G4), except at or below 40 F, where it starts at once (ruling G1b).
 
 ### 4.4 The constants
 
@@ -199,7 +199,7 @@ Bringing in outdoor air to dry the house carries heat out with the water. Per ki
 
 `e = 1.006 x max(0, (T_in - T_out) / 1.8) / (w_in - w_out) / 3.6`    kWh per kg
 
-with temperatures in F and `w` the humidity ratio in g/kg. The air flow cancels, so `e` depends only on the indoor and outdoor air, both of which the controller measures. Outdoor air warmer than the house gives `e = 0`. When the outdoor air holds less than 0.1 g/kg less water than the indoor air there is no drying at all.
+with temperatures in F and `w` the humidity ratio in g/kg. The air flow cancels, so `e` depends only on the indoor and outdoor air, both of which the controller measures. Outdoor air warmer than the house gives `e = 0`. When the outdoor air does not hold more than 0.1 g/kg less water than the indoor air there is no drying at all.
 
 The table gives `e` for a house at 62 F and 0.79 kPa, about where a winter night sits. It is computed from the formula with the firmware's vapour-pressure function at the site's 85 kPa, not simulated.
 
@@ -1416,7 +1416,7 @@ Simulation and heavy test runs belong on the cluster's CI runners, not on a work
 
 **Phase 3.**
 
-- Native tests of the law's invariants: the furnace never requested with the vent open; no fan without the vent; minimum times honoured outside the cases of section 4.3; the electric heater requested whenever the furnace is; no fog or mist while drying; no fog or mist below the band's low edge (decision 20); no mister valve without a grant; the two protection states; no change of request while the house is inside every inner line; the same inputs give the same outputs at any clock time; every relay available at boot; a band narrower than the two widths is widened and an inverted one repaired; and the four irrigation tests of section 8.7 (a VPD pulse without a grant never opens a valve; occupancy with the rule 6 latch set gives `climate_demand` false; protection fog runs past a drip in progress and stops for a drip relay that reads on; the soft budget holds the fogger and misters and a VPD emergency lifts the hold).
+- Native tests of the law's invariants: the furnace never requested with the vent open; no fan without the vent; minimum times honoured outside the cases of section 4.3; the electric heater requested whenever the furnace is; no fog or mist while drying; no fog or mist below the band's low edge (decision 20); no mister valve without a grant; the two protection states; no change of request while the house is inside every inner line; the same inputs give the same outputs at any clock time; every relay but the furnace available at boot; a band narrower than the two widths is widened and an inverted one repaired; and the four irrigation tests of section 8.7 (a VPD pulse without a grant never opens a valve; occupancy with the rule 6 latch set gives `climate_demand` false; protection fog runs past a drip in progress and stops for a drip relay that reads on; the soft budget holds the fogger and misters and a VPD emergency lifts the hold).
 - A noise test: the law is run on recorded probe readings, which carry the real sensor noise, around each pair of lines. No latch may change more often than its relay's minimum times allow, and the start and stop of a drying run (`low + 1.5` and `low + 0.75`) are one of the pairs. If that pair chatters, the start line is raised (section 4.5).
 - The closed-loop simulation in CI, built with the product header instead of the reference, reproduces the reference results (both in band within 0.5 point, starts within 5 %).
 - The existing replay gate compares old and new decisions on recorded data and will show total divergence on this release by design. It is replaced in the same change by the comparison of the firmware's law with the reference and by the invariant tests on the same recorded data (section 8.1).

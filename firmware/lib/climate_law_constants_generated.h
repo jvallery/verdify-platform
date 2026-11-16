@@ -7,7 +7,7 @@
 
 namespace climate_law_k {
 
-constexpr const char* CONSTANTS_SHA256 = "32a5433df8588caabb543c84722f9ed4d71d5e2bfe5c8365a09ce61ebb92fb0d";
+constexpr const char* CONSTANTS_SHA256 = "4250fb1da7d5460388c144f8124dfcc736e0e49077a5cb34496eff3a17120be6";
 
 // ---- temperature
 // Electric heater on below low + this [F]
@@ -73,6 +73,25 @@ constexpr double F_PER_K = 1.8;
 constexpr double KJ_PER_KWH = 3600.0;
 // Grams per kilogram [g/kg]
 constexpr double G_PER_KG = 1000.0;
+// Milliseconds per second [ms/s]
+constexpr uint32_t MS_PER_S = 1000u;
+// Watt-hours per kilowatt-hour [Wh/kWh]
+constexpr double WH_PER_KWH = 1000.0;
+// Degrees F at 0 C (dew point F to C for the humidity ratio) [F]
+constexpr double F_AT_ZERO_C = 32.0;
+// Magnus saturation vapour pressure at 0 C, as the device's VPD (the humidity ratio from the dew point) [kPa]
+constexpr double SAT_VP_A_KPA = 0.6108;
+// Magnus coefficient b, as the device's VPD [ratio]
+constexpr double SAT_VP_B = 17.27;
+// Magnus coefficient c, as the device's VPD (not the 237.7 of the dew point inversion) [C]
+constexpr double SAT_VP_C_C = 237.3;
+// Molar mass ratio of water to dry air, times 1000 (humidity ratio = this * e / (P - e)) [g/kg]
+constexpr double WATER_AIR_G_PER_KG = 621.97;
+// ---- drying
+// Drying meter: air exchange with the vent open and no fan. The vent has no rated flow (passive); this is the control review's fitted MV_VENT (params_W2, W1 and S1), the simulator's meter [kg/s]
+constexpr double DRY_METER_VENT_KG_PER_S = 0.005;
+// Drying meter: additional exchange with the lead fan; the control review's fitted MV_FAN1 (the same in W2, W1 and S1), the simulator's meter. The fans' rating is 2,450 CFM each (about 1.1 kg/s at the site's air density); the house is intake-limited, so the fitted exchange is used. A drying run uses one fan [kg/s]
+constexpr double DRY_METER_FAN_KG_PER_S = 0.25;
 // ---- protection
 // At or above: vent open, both fans on, both heaters off [F]
 constexpr double SAFETY_MAX_F = 100.0;
