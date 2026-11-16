@@ -8,6 +8,7 @@
 #include "greenhouse_logic.h"
 #include "sntp_acquisition.h"
 #include "probe_validity.h"
+#include "heap_diagnostics.h"
 
 #include <cmath>
 #include <cstdio>
@@ -736,6 +737,37 @@ TEST(humidity_reading_range) {
     ASSERT_TRUE(std::isnan(humidity_reading_pct(NAN)));
     ASSERT_TRUE(std::isnan(humidity_reading_pct(INFINITY, WALL_RH_SATURATION_MAX_PCT)));
     ASSERT_TRUE(indoor_temp_valid(-19.9f) && !indoor_temp_valid(-20.0f) && !indoor_temp_valid(140.0f));
+    PASS();
+}
+
+// Package 2.4 health readings: per-minute windows, each taken (read and reset) by its own sensor.
+TEST(health_minute_low_window) {
+    GhMinuteLow w;
+    ASSERT_EQ(w.take(40000u), 40000u);  // empty window: the publish-time sample
+    w.note(30000u);
+    w.note(12000u);
+    w.note(35000u);
+    ASSERT_EQ(w.take(38000u), 12000u);  // the dip between publishes
+    ASSERT_EQ(w.take(38000u), 38000u);  // the next window starts fresh
+    w.note(50000u);
+    ASSERT_EQ(w.take(20000u), 20000u);  // a lower publish-time sample counts too
+    PASS();
+}
+
+TEST(health_loop_worst_minute_is_its_own_window) {
+    gh_take_control_loop_max_us();
+    gh_take_control_loop_minute_max_us();
+    gh_take_control_loop_overrun_count();
+    gh_record_control_loop_duration_us(9000u);
+    gh_record_control_loop_duration_us(260000u);
+    gh_record_control_loop_duration_us(12000u);
+    ASSERT_EQ(gh_take_control_loop_minute_max_us(), 260000u);
+    ASSERT_EQ(gh_take_control_loop_minute_max_us(), 0u);  // reset by the take
+    gh_record_control_loop_duration_us(15000u);
+    ASSERT_EQ(gh_take_control_loop_minute_max_us(), 15000u);
+    ASSERT_EQ(gh_take_control_loop_max_us(), 260000u);  // the 15-minute log window is untouched
+    ASSERT_EQ(gh_control_loop_last_us(), 15000u);
+    ASSERT_EQ(gh_take_control_loop_overrun_count(), 1u);
     PASS();
 }
 

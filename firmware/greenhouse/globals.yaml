@@ -79,6 +79,12 @@ globals:
     type: bool
     restore_value: yes
     initial_value: 'false'
+  # Package 2.4: restarts since this global first existed (+1 in on_boot; one NVS write per boot). Published as
+  # Restart Count; a step without a flash is a restart the host alerts on.
+  - id: restart_count
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
 
   # ─── Per-probe health timestamps (ms, A2) ───
   - id: last_north_ms

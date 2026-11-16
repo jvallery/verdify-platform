@@ -92,7 +92,7 @@
         },
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1596,
+          "line": 1649,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -346,7 +346,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1359,
+          "line": 1412,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -391,7 +391,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1491,
+          "line": 1544,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -472,7 +472,7 @@
         },
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1503,
+          "line": 1556,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -494,7 +494,7 @@
         },
         {
           "file": "firmware/greenhouse.yaml",
-          "line": 109,
+          "line": 110,
           "category": "boot_or_diag",
           "access": "read",
           "migrated_to_snapshot": false,
@@ -502,7 +502,7 @@
         },
         {
           "file": "firmware/greenhouse.yaml",
-          "line": 109,
+          "line": 110,
           "category": "boot_or_diag",
           "access": "read",
           "migrated_to_snapshot": false,
@@ -510,7 +510,7 @@
         },
         {
           "file": "firmware/greenhouse.yaml",
-          "line": 109,
+          "line": 110,
           "category": "boot_or_diag",
           "access": "write",
           "migrated_to_snapshot": false,
@@ -518,7 +518,7 @@
         },
         {
           "file": "firmware/greenhouse.yaml",
-          "line": 504,
+          "line": 505,
           "category": "boot_or_diag",
           "access": "read",
           "migrated_to_snapshot": true
@@ -537,7 +537,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1514,
+          "line": 1567,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -578,7 +578,7 @@
         },
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1402,
+          "line": 1455,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -623,7 +623,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1414,
+          "line": 1467,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -687,7 +687,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1425,
+          "line": 1478,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -729,7 +729,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1436,
+          "line": 1489,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true

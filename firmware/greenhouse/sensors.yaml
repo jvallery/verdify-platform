@@ -60,6 +60,59 @@ sensor:
     update_interval: 60s
     lambda: 'return gh_largest_free_heap_block_kb();'
 
+  # Package 2.4 health readings (contracts/controller-hardware-budget.md 5b; names agreed in
+  # contracts/metrics-coverage.md section 2.1). Each takes its own one-minute window.
+  - platform: template
+    id: heap_free_minute_low
+    name: "Free Heap Minute Low"
+    unit_of_measurement: "kB"
+    entity_category: diagnostic
+    accuracy_decimals: 1
+    update_interval: 60s
+    lambda: 'return gh_take_heap_free_minute_low_kb();'
+
+  - platform: template
+    id: heap_block_minute_low
+    name: "Largest Heap Block Minute Low"
+    unit_of_measurement: "kB"
+    entity_category: diagnostic
+    accuracy_decimals: 1
+    update_interval: 60s
+    lambda: 'return gh_take_heap_block_minute_low_kb();'
+
+  - platform: template
+    id: loop_worst_minute
+    name: "Control Loop Worst Minute"
+    unit_of_measurement: "ms"
+    entity_category: diagnostic
+    accuracy_decimals: 1
+    update_interval: 60s
+    lambda: 'return gh_take_control_loop_minute_max_us() / 1000.0f;'
+
+  - platform: template
+    id: restart_count_sensor
+    name: "Restart Count"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: 'return float(id(restart_count));'
+
+  - platform: template
+    id: nvs_used_entries
+    name: "NVS Used Entries"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: 'return gh_nvs_entries(true);'
+
+  - platform: template
+    id: nvs_free_entries
+    name: "NVS Free Entries"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: 'return gh_nvs_entries(false);'
+
   # --------------------------------------------------------------------------
   # 1‑B Analog – CO₂ & Light
   # --------------------------------------------------------------------------

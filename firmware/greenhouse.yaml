@@ -95,6 +95,7 @@ esphome:
       - switch.turn_off: fertilizer_master_valve
       # Boot-time validation: catch corrupted restore_value globals
       - lambda: |-
+          id(restart_count) += 1;  // package 2.4
           ESP_LOGI("boot","Validating restored globals...");
           int fixes = 0;
           // Setpoint sanity

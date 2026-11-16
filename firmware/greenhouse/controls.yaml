@@ -1750,6 +1750,7 @@ interval:
               id(runtime_fog_ms)   = R[4].runtime_ms;
               id(runtime_vent_ms)  = R[5].runtime_ms;
           gh_record_control_loop_duration_us(micros() - control_loop_started_us);
+          gh_note_heap_sample();
           App.feed_wdt();
   ################################################################################
   # Sensor-bus watchdog (phase 2): one restart rule, independent of the clock.
