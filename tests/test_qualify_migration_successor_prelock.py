@@ -148,7 +148,11 @@ def test_an_unknown_lock_mode_is_refused():
 def test_prelock_sql_locks_in_plan_order_under_a_short_timeout_then_restores_the_bounds():
     plan = [("public.a", "SHARE ROW EXCLUSIVE"), ('Odd.Na"me', AE), ("public.z", AE)]
     sql = qualifier.prelock_sql(plan)
-    assert sql.startswith("SET LOCAL lock_timeout = '5s';\n") and sql.endswith(qualifier.BOUNDS)
+    assert sql.startswith(f"SET LOCAL lock_timeout = '{qualifier.PRELOCK_TIMEOUT}';\n") and sql.endswith(
+        qualifier.BOUNDS
+    )
+    # Longer than the API's 6 s reads of v_data_trust_ledger, shorter than the 10 s session bound.
+    assert qualifier.PRELOCK_TIMEOUT == "8s"
     rows = [sql.index(text) for text in ('(1, \'"public"."a"\'', '(2, \'"Odd"."Na""me"\'', '(3, \'"public"."z"\'')]
     assert rows == sorted(rows)
     assert "ORDER BY want.ord" in sql and "IN %s MODE" in sql

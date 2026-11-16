@@ -142,7 +142,10 @@ OPTION_EVIDENCE = ("applied_first", "applied_first_seals", "native_fixture", "na
 
 # Up-front locks for a chain: each waits at most PRELOCK_TIMEOUT, then BOUNDS
 # applies again. A session that fails on a lock is retried, LOCK_ATTEMPTS in all.
-PRELOCK_TIMEOUT = "5s"
+# 8 s, not 5: LOCK TABLE on a view also locks its base relations, and the API's two reads of
+# v_data_trust_ledger hold those for up to their 6 s statement timeout. A wait shorter than the longest
+# routine reader loses every attempt that starts behind one (315, 2026-11-16).
+PRELOCK_TIMEOUT = "8s"
 LOCK_ATTEMPTS = 3
 LOCK_BACKOFF_SECONDS = 5.0
 # SQLSTATE 55P03 (lock_not_available, lock_timeout) and 40P01 (deadlock_detected).
