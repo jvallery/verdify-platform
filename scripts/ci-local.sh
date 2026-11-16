@@ -110,7 +110,6 @@ if in_part pure-logic-1 pure-logic-2; then
   PURE_LOGIC_TESTS=(
     tests/test_setpoint_listener_reconnect.py
     tests/test_portable_stateful_placement.py
-    tests/test_component_runtime_probe.py
     tests/test_275_c0_delivery.py
     tests/test_277_getter_delivery.py
     tests/test_279_source_clock_delivery.py

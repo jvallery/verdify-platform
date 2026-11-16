@@ -226,18 +226,17 @@ def test_migration_is_append_only_function_bounded_and_never_backfills():
     assert "verdify-equipment-state-receipt-chain-v1" in sql
 
 
-def test_ingestor_manifest_uses_existing_optional_secret_for_both_exact_logins():
+def test_ingestor_manifest_uses_existing_optional_secret_for_the_collector_login():
     manifest = INGESTOR_MANIFEST.read_text()
     documentation = SECRETS_DOC.read_text()
     for key in (
-        "VERDIFY_EXPERIMENT_COMPONENT_DB_USER",
-        "VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD",
         "VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER",
         "VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD",
     ):
         assert f"- name: {key}" in manifest
         assert f"key: {key}" in manifest
         assert key in documentation
+    assert "VERDIFY_EXPERIMENT_COMPONENT_DB_" not in manifest
     source_section = manifest.split(
         "- name: VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER",
         1,
@@ -245,7 +244,6 @@ def test_ingestor_manifest_uses_existing_optional_secret_for_both_exact_logins()
     assert source_section.count("name: verdify-app-secrets") == 2
     assert source_section.count("optional: true") == 2
     assert "verdify_experiment_v2_equipment_source_collector_login" in manifest
-    assert "verdify_experiment_v2_component_executor_login" in manifest
 
 
 def test_source_unit_map_preserves_mister_hours_and_normal_relay_minutes():

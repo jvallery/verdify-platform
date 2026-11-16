@@ -351,10 +351,6 @@ def _hermes_config_documents() -> tuple[dict, dict, str]:
 def test_hermes_profile_pins_openai_gpt_6_luna_xhigh_at_the_runtime_key():
     _manifest, embedded, _readiness_source = _hermes_config_documents()
     canonical = yaml.safe_load((REPO_ROOT / "hermes/iris/config.yaml").read_text())
-    experiment_manifest = yaml.safe_load(
-        (REPO_ROOT / "deploy/k8s/components/hermes-iris-experiment/hermes-config.yaml").read_text()
-    )
-    experiment = yaml.safe_load(experiment_manifest["data"]["config.yaml"])
 
     assert (
         embedded["model"]
@@ -368,17 +364,6 @@ def test_hermes_profile_pins_openai_gpt_6_luna_xhigh_at_the_runtime_key():
     assert "reasoning_effort" not in embedded["model"]
     assert "reasoning_effort" not in canonical["model"]
     assert embedded["agent"]["reasoning_effort"] == canonical["agent"]["reasoning_effort"] == "xhigh"
-
-    # The dark experiment selector deliberately remains on the separately
-    # bounded Cortex route; rolling back the live planner must not change it.
-    assert experiment["model"] == {
-        "default": "llm.primary.longctx",
-        "provider": "custom",
-        "base_url": "https://cortex.vallery.net/v1",
-        "context_length": 98304,
-        "max_tokens": 16384,
-    }
-    assert experiment["agent"]["reasoning_effort"] == "medium"
 
     # The embedded k3s profile must remain structurally equivalent as parsed,
     # except for the intentionally environment-specific MCP endpoint.

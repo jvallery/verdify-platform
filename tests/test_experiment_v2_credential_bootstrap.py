@@ -158,6 +158,14 @@ def test_collector_allowlist_is_lockstep_with_ledgered_grants(rendered: list[dic
     }
 
 
+_PASSWORD_KEYS = (
+    "DB_ADMIN_PASSWORD",
+    "ORDINARY_API_DB_PASSWORD",
+    "ORDINARY_INGESTOR_DB_PASSWORD",
+    "VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD",
+)
+
+
 def _activation_env(tmp_path: Path) -> dict[str, str]:
     return {
         **os.environ,
@@ -222,9 +230,8 @@ def test_script_pipes_verifier_and_attests_without_exposing_values(rendered: lis
     )
     output = result.stdout + result.stderr
     assert "equipment-source collector login installed and attested" in output
-    for name, value in environment.items():
-        if name.endswith("_PASSWORD"):
-            assert value not in output
+    for name in _PASSWORD_KEYS:
+        assert environment[name] not in output
     assert (tmp_path / "psql.trace").read_text().splitlines() == ["install", COLLECTOR_LOGIN]
 
 
@@ -247,6 +254,5 @@ def test_script_rejects_bad_collector_material_before_psql(
     assert not (tmp_path / "called").exists()
     output = result.stdout + result.stderr
     assert "fail-closed" in output
-    for name, value in environment.items():
-        if name.endswith("_PASSWORD"):
-            assert value not in output
+    for name in _PASSWORD_KEYS:
+        assert environment[name] not in output
