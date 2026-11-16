@@ -36,7 +36,7 @@ for _key, _value in (
 ):
     os.environ.setdefault(_key, _value)
 
-from test_experiment_workers import FakeConn, FakePool  # noqa: E402
+from scripted_db import FakeConn, FakePool  # noqa: E402
 
 import ingestor  # noqa: E402
 

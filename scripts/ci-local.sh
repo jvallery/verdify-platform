@@ -37,9 +37,10 @@ step() { printf '\n== %s ==\n' "$1"; }
 # is their aggregate. Unset or "all" runs every step in one process, as
 # `make ci` does. Steps stay serial inside each part, so wall-clock assertions
 # keep their own CPU (pytest-xdist broke them, #1448).
-#   containment-firmware  private component containment, firmware native tests,
-#                         and the diff-scoped gates (rules 6, 7, firmware
-#                         replay diff)
+#   containment-firmware  firmware native tests and the diff-scoped gates
+#                         (rules 6, 7, firmware replay diff); the private
+#                         component containment proof retired with experiment
+#                         generation 2 (#1649)
 #   pure-logic-1/2        the pure-logic / contract pytest list, files dealt
 #                         round-robin across the two parts
 #   rest                  every other step
@@ -64,12 +65,6 @@ if in_part rest; then
     research/planner-efficacy/switchback/v2_*.py \
     research/planner-efficacy/tests/test_protocol_template_contract.py \
     research/planner-efficacy/tests/test_switchback_v2_*.py
-fi
-
-# The private PostgreSQL proof is cluster-only; no local fallback or ambient DB.
-if in_part containment-firmware && [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
-  step "private component containment (synthetic only)"
-  $PY scripts/qualify-component-containment.py
 fi
 
 if in_part rest; then
@@ -170,7 +165,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_dashboard_db_irrigation_writes.py
     tests/test_dashboard_db_forecast_engine.py
     tests/test_dashboard_db_next_reads.py
-    tests/test_bounded_reconcile.py
     tests/test_10_planner_routing.py
     tests/test_11_planner_milestones.py
     tests/test_13_grafana_band_traceability.py
@@ -199,8 +193,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_21_config_revision.py
     tests/test_component_grid_capture.py
     tests/test_c1_grid_projection.py
-    tests/test_c1_qualification_overlay.py
-    tests/test_c1_native_capture.py
     tests/test_control_band_wire.py
     tests/test_component_prefix_replay.py
     tests/test_component_prefix_inputs.py
@@ -232,28 +224,21 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_api_light_command_boundary.py
     tests/test_api_public_output_policy.py
     tests/test_climate_intent_replay_evaluator.py
-    tests/test_component_experiment_api.py
     tests/test_component_experiment_contract.py
-    tests/test_component_experiment_executor.py
     tests/test_component_experiment_observability.py
-    tests/test_component_alert_scope.py
     tests/test_alert_probe_offline_lifecycle.py
     tests/test_alert_leak_lifecycle.py
     tests/test_alert_silences.py
     tests/test_264_facility_safe_closure_delivery.py
-    tests/test_component_experiment_source.py
     tests/test_native_transport_liveness.py
     tests/test_k3s_smoke_device_monitor.py
     tests/test_k3s_smoke_g10.py
-    tests/test_component_experiment_store.py
     tests/test_component_experiment_writer.py
     tests/test_component_grid_qualification.py
     tests/test_qualify_component_containment.py
     tests/test_esp32_policy_transaction.py
-    tests/test_experiment_api.py
     tests/test_experiment_gather_mode.py
     tests/test_experiment_qualification_regimes.py
-    tests/test_experiment_qualification_scheduler.py
     tests/test_experiment_qualification_settling.py
     tests/test_experiment_qualification_spec.py
     tests/test_experiment_schema_migration.py
@@ -269,14 +254,10 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_experiment_v2_direct_proof_attempt_status.py
     tests/test_experiment_v2_direct_proof_recovery_range_rollover.py
     tests/test_experiment_v2_direct_proof_retry.py
-    tests/test_experiment_v2_proof_packet.py
-    tests/test_experiment_v2_wetting_disposition.py
-    tests/test_experiment_v2_readiness_guard.py
     tests/test_experiment_v2_emergency_recovery_retry.py
     tests/test_experiment_v2_recovery_generation_guard.py
     tests/test_experiment_v2_recovery_failure_boundary.py
     tests/test_experiment_verify.py
-    tests/test_experiment_workers.py
     tests/test_api_deferred_batch_patch.py
     tests/test_api_overflow_patch.py
     tests/test_api_heap_owner_counters.py
@@ -343,8 +324,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_six_runtime_role_bootstrap.py
     tests/test_maintenance_runtime_boundaries.py
     tests/test_policy_arbiter_migration.py
-    tests/test_policy_arbiter_worker.py
-    tests/test_policy_delivery_worker.py
     tests/test_prometheus_rule_source_guard.py
     tests/test_policy_writer_demotion.py
     tests/test_prepare_component_prefix_replay.py
@@ -359,6 +338,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_release_dockerfile_base_pins.py
     tests/test_route_only_crop_band.py
     tests/test_route_only_crop_band_reader.py
+    tests/test_evidence_snapshot_reader_unavailable.py
     tests/test_runtime_role_cutover_manifests.py
     tests/test_service_restart_drift_guard.py
     tests/test_setpoint_server_db_backend.py
@@ -490,7 +470,6 @@ if in_part rest; then
     tests/test_prompt_variants.py \
     tests/test_public_band_lineage.py \
     tests/test_qualify_migration_successor_prelock.py \
-    tests/test_recovery_only_soil_alerts.py \
     tests/test_replay_outdoor_coverage.py \
     tests/test_resource_endpoint.py \
     tests/test_resource_ledger.py \
@@ -503,7 +482,6 @@ if in_part rest; then
     tests/test_wetting_incident.py \
     tests/test_wetting_incident_join.py \
     tests/test_winter_feasibility.py \
-    tests/test_writer_drift_probe.py \
     --deselect tests/test_winter_feasibility.py::test_source_candidates_bind_current_bytes_without_false_qualification
 
   step "planner_graph offline suite + planner scorecard context"
@@ -533,11 +511,10 @@ if in_part rest; then
   #   test_13_operational_recovery.py. Several mix in offline classes; split
   #   those out before adding them here.
   # - Private database fixtures run by other CI steps: tests/test_dashboard_db_*.py
-  #   (verdify-platform-ci campaign step, private TimescaleDB) and
-  #   tests/test_component_containment_postgres.py (qualify-component-containment.py).
+  #   (verdify-platform-ci campaign step, private TimescaleDB).
   # - Private PostgreSQL only, every test skips without a *_TEST_PG_BIN / DSN:
   #   tests/test_427_local_fallback.py, test_c0_release_rehearsal.py,
-  #   test_collector_lineage_sql.py, test_daily_climate_metric_revisions.py.
+  #   test_daily_climate_metric_revisions.py.
   # - Docker Postgres: planner_graph/tests/test_memory_postgres.py,
   #   planner_graph/tests/test_store_postgres.py.
   # - Own environment: research/planner-efficacy/tests/test_audit.py and

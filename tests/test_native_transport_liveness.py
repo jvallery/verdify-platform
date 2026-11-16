@@ -41,7 +41,7 @@ def monitor_fixture(wait_for, lease):
         return None
 
     event.wait = wait
-    callbacks, revoked, gaps = [], [], []
+    callbacks, gaps = [], []
     # A DeviceInfo RPC must never run in the liveness monitor; its response may
     # be delayed even while real protobuf callbacks remain live.
     client = SimpleNamespace(device_info=Mock(side_effect=AssertionError("redundant RPC")))
@@ -49,7 +49,6 @@ def monitor_fixture(wait_for, lease):
         asyncio=SimpleNamespace(wait_for=wait_for),
         _writer_lease=lease,
         connection_lost=event,
-        clear_component_entity_inventory=lambda **kw: revoked.append(kw),
         _mark_equipment_source_gap=gaps.append,
         log=Mock(),
         datetime=datetime,
@@ -59,7 +58,7 @@ def monitor_fixture(wait_for, lease):
     )
     module = ast.fix_missing_locations(ast.Module(body=[wrapper], type_ignores=[]))
     exec(compile(module, str(SOURCE), "exec"), ns)  # noqa: S102 — execute only checked-in monitor AST
-    return ns["run"], callbacks, event, revoked, gaps, client
+    return ns["run"], callbacks, event, gaps, client
 
 
 @pytest.mark.asyncio
@@ -70,16 +69,13 @@ async def test_live_callbacks_past_sixty_seconds_do_not_trigger_device_info_disc
         coro.close()
         ticks.append(timeout)
         if len(ticks) <= 35:
-            assert not revoked  # live stream retains generation authority
+            assert not event.is_set()  # live stream keeps the connection
             raise TimeoutError
         await callbacks[0](False)  # native library eventually signals true loss
 
-    run, callbacks, event, revoked, gaps, client = monitor_fixture(
-        wait_for, SimpleNamespace(enabled=True, is_held=lambda: True)
-    )
+    run, callbacks, event, gaps, client = monitor_fixture(wait_for, SimpleNamespace(enabled=True, is_held=lambda: True))
     assert await run() is not None
     assert ticks == [2.0] * 36
-    assert revoked == [{"connection_generation": 3}]
     assert gaps == ["transport_connection_stopped"]
     assert event.is_set()
     client.device_info.assert_not_called()
@@ -87,15 +83,14 @@ async def test_live_callbacks_past_sixty_seconds_do_not_trigger_device_info_disc
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fenced", [True, False])
-async def test_native_dead_connection_revokes_before_event_wakes_monitor(fenced):
+async def test_native_dead_connection_stops_through_on_stop(fenced):
     async def wait_for(coro, timeout):
         coro.close()
         assert timeout == (2.0 if fenced else 60.0)
         await callbacks[0](False)  # native PingFailed/socket failure uses on_stop
-        assert revoked == [{"connection_generation": 3}]
         assert event.is_set()
 
-    run, callbacks, event, revoked, gaps, client = monitor_fixture(
+    run, callbacks, event, gaps, client = monitor_fixture(
         wait_for, SimpleNamespace(enabled=fenced, is_held=lambda: True)
     )
     assert await run() is not None
@@ -114,9 +109,8 @@ async def test_lease_loss_still_self_fences_after_at_most_two_seconds():
         lease.held = False
         raise TimeoutError
 
-    run, _, event, revoked, gaps, client = monitor_fixture(wait_for, lease)
+    run, _, event, gaps, client = monitor_fixture(wait_for, lease)
     assert await run() is not None
-    assert revoked == [{"connection_generation": 3}]
     assert event.is_set()
     assert gaps == []  # lease revocation is independent of native stop
     client.device_info.assert_not_called()

@@ -111,8 +111,6 @@ async def soil_cycle(ns, conn, when, *, silent=(), zones=("south", "west"), extr
         ns["_sync_monitor_alerts"](
             conn,
             [*alerts, *extra],
-            component_status_available=True,
-            component_closure_resolutions={},
             keep_open_keys=keep_open,
             unpotted_keys=unpotted,
             now=when,
@@ -126,8 +124,6 @@ async def leak_cycle(ns, conn):
         return await ns["_sync_monitor_alerts"](
             conn,
             [leak] if leak else [],
-            component_status_available=True,
-            component_closure_resolutions={},
             refresh_only_keys=refresh_only,
         )
 

@@ -73,8 +73,6 @@ def sync(ns, log, when, alerts, *, silences=SEEDS, silent=(), keep_scan=False):
         ns["_sync_monitor_alerts"](
             log,
             alerts,
-            component_status_available=True,
-            component_closure_resolutions={},
             keep_open_keys=keep_open,
             unpotted_keys=unpotted,
             silences=silences,
@@ -256,22 +254,6 @@ def test_a_long_offline_mark_stays_while_the_probe_is_silenced():
     assert log.of("soil_sensor_offline", "soil.west") == [marked] and marked["resolved_at"] is not None
     sync(ns, log, after + timedelta(minutes=5), [])  # the probe returns: the mark clears as before
     assert marked["details"]["long_offline"] is False
-
-
-def test_a_scoped_component_cycle_refuses_silences():
-    ns = load_alert_lifecycle()
-    with pytest.raises(ValueError, match="lifecycle_keys_require_unscoped_monitor"):
-        asyncio.run(
-            ns["_sync_monitor_alerts"](
-                AlertLog(UNTIL),
-                [],
-                component_status_available=True,
-                component_closure_resolutions={},
-                scope=("component_experiment_integrity", "experiment.v2.x"),
-                scope_greenhouse_id="synthetic-test",
-                silences=SEEDS,
-            )
-        )
 
 
 # ── The read and its wiring ─────────────────────────────────────────────────

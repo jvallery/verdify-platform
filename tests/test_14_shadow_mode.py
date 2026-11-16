@@ -227,11 +227,6 @@ def test_shadow_mode_refuses_valid_dedicated_mutation_pool_credentials(monkeypat
 
     monkeypatch.setattr(config, "SHADOW_MODE", True)
     monkeypatch.setenv(
-        "VERDIFY_EXPERIMENT_COMPONENT_DB_USER",
-        "verdify_experiment_v2_component_executor_login",
-    )
-    monkeypatch.setenv("VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD", "test-placeholder")
-    monkeypatch.setenv(
         "VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER",
         "verdify_experiment_v2_equipment_source_collector_login",
     )
@@ -242,80 +237,16 @@ def test_shadow_mode_refuses_valid_dedicated_mutation_pool_credentials(monkeypat
 
     calls: list[str] = []
 
-    async def component_factory():
-        calls.append("component_factory")
-        return object()
-
-    async def component_attestation(_pool):
-        calls.append("component_attestation")
-
     async def source_factory():
         calls.append("source_factory")
         return object()
 
-    monkeypatch.setattr(ingestor, "create_component_experiment_pool", component_factory)
-    monkeypatch.setattr(ingestor, "attest_component_safe_startup", component_attestation)
     monkeypatch.setattr(ingestor, "create_equipment_source_pool", source_factory)
-    monkeypatch.setattr(ingestor, "prime_component_startup_hold", lambda: calls.append("startup_hold"))
 
-    pools = asyncio.run(ingestor.create_dedicated_mutation_pools())
+    pool = asyncio.run(ingestor.create_dedicated_mutation_pools())
 
-    assert pools == (None, None)
-    assert calls == ["startup_hold"]
-
-
-def test_shadow_mode_never_invokes_dedicated_mutation_workers(monkeypatch):
-    import config
-    import ingestor
-
-    monkeypatch.setattr(config, "SHADOW_MODE", True)
-    calls: list[str] = []
-
-    async def component_worker(_pool):
-        calls.append("component_worker")
-
-    async def source_worker(_ordinary_pool, _source_pool):
-        calls.append("source_worker")
-
-    monkeypatch.setattr(ingestor, "component_experiment_worker", component_worker)
-    monkeypatch.setattr(ingestor, "restricted_equipment_direct_state_snapshot_source", source_worker)
-
-    async def run_workers():
-        await ingestor._run_restricted_component_worker(object())
-        await ingestor._run_restricted_direct_snapshot_worker(object(), object())
-
-    asyncio.run(run_workers())
+    assert pool is None
     assert calls == []
-
-
-def test_default_off_still_invokes_dedicated_mutation_workers(monkeypatch):
-    import config
-    import ingestor
-
-    monkeypatch.setattr(config, "SHADOW_MODE", False)
-    calls: list[tuple] = []
-    component_pool = object()
-    ordinary_pool = object()
-    source_pool = object()
-
-    async def component_worker(pool):
-        calls.append(("component_worker", pool))
-
-    async def source_worker(ordinary, source):
-        calls.append(("source_worker", ordinary, source))
-
-    monkeypatch.setattr(ingestor, "component_experiment_worker", component_worker)
-    monkeypatch.setattr(ingestor, "restricted_equipment_direct_state_snapshot_source", source_worker)
-
-    async def run_workers():
-        await ingestor._run_restricted_component_worker(component_pool)
-        await ingestor._run_restricted_direct_snapshot_worker(ordinary_pool, source_pool)
-
-    asyncio.run(run_workers())
-    assert calls == [
-        ("component_worker", component_pool),
-        ("source_worker", ordinary_pool, source_pool),
-    ]
 
 
 @pytest.mark.asyncio

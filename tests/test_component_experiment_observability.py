@@ -13,7 +13,6 @@ from typing import get_args
 import pytest
 
 from verdify_schemas.alerts import (
-    AlertEnvelope,
     ComponentExperimentIntegrityReason,
     ComponentExperimentObservationTruth,
 )
@@ -172,37 +171,6 @@ def _load_rollback_classifier():
     return module
 
 
-def _load_alert_helper():
-    ingestor = str(ROOT / "ingestor")
-    if ingestor not in sys.path:
-        sys.path.insert(0, ingestor)
-    from tasks.alerts import _component_experiment_integrity_alert
-
-    return _component_experiment_integrity_alert
-
-
-def _ops_row(**overrides: object) -> dict[str, object]:
-    row: dict[str, object] = {
-        "experiment_id": "11111111-1111-4111-8111-111111111111",
-        "lifecycle_status": "running",
-        "execution_phase": "randomized",
-        "admission_state": "baseline_recovery",
-        "operation_kind": "baseline_recovery",
-        "observation_age_seconds": 12,
-        "observation_truth": "exact",
-        "open_exposure_count": 0,
-        "writer_generation": 4,
-        "connection_generation": 8,
-        "safety_state": "baseline_recovery",
-        "outcomes_complete": False,
-        "rollback_ready": True,
-        "alert_severity": "warning",
-        "alert_reason": "baseline_recovery_in_progress",
-    }
-    row.update(overrides)
-    return row
-
-
 def test_ops_migration_is_additive_rollback_safe_and_function_only():
     sql = MIGRATION.read_text()
     result = _load_rollback_classifier().classify(MIGRATION)
@@ -275,14 +243,6 @@ def test_migration_observation_truth_and_typed_producer_stay_reconciled():
     assert get_args(ComponentExperimentObservationTruth) == _db_observation_truth_values(EFFECTIVE_OPS_BODY)
 
 
-@pytest.mark.parametrize("observation_truth", get_args(ComponentExperimentObservationTruth))
-def test_every_db_observation_truth_round_trips_the_typed_alert(observation_truth: str):
-    payload = _load_alert_helper()(_ops_row(observation_truth=observation_truth))
-    assert payload is not None
-    envelope = AlertEnvelope.model_validate(payload)
-    assert envelope.details["observation_truth"] == observation_truth
-
-
 def test_alert_contract_comes_from_the_latest_ordered_migration_definition():
     definitions = [
         (migration, body)
@@ -327,34 +287,6 @@ def test_dashboard_uses_only_the_blinded_safe_function():
         "experiment_v2_randomization",
     ):
         assert forbidden not in combined
-
-
-def test_actionable_ops_row_round_trips_the_typed_alert_envelope():
-    payload = _load_alert_helper()(_ops_row())
-    assert payload is not None
-    envelope = AlertEnvelope.model_validate(payload)
-    assert envelope.alert_type == "component_experiment_integrity"
-    assert envelope.severity == "warning"
-    assert envelope.details["reason"] == "baseline_recovery_in_progress"
-
-
-@pytest.mark.parametrize(
-    ("reason", "severity"),
-    DB_INTEGRITY_BRANCHES,
-    ids=[f"branch-{index}-{reason}-{severity}" for index, (reason, severity) in enumerate(DB_INTEGRITY_BRANCHES)],
-)
-def test_every_db_integrity_branch_round_trips_instead_of_falling_back(reason: str, severity: str):
-    payload = _load_alert_helper()(_ops_row(alert_reason=reason, alert_severity=severity))
-    assert payload is not None
-    envelope = AlertEnvelope.model_validate(payload)
-    assert envelope.alert_type == "component_experiment_integrity"
-    assert envelope.severity == severity
-    assert envelope.details["reason"] == reason
-
-
-def test_nominal_ops_row_does_not_page():
-    payload = _load_alert_helper()(_ops_row(alert_severity=None, alert_reason=None, admission_state="closed"))
-    assert payload is None
 
 
 def _evaluate_facility_closure_predicate(**overrides):
@@ -463,33 +395,3 @@ def test_old_failed_work_and_fault_new_current_lease_facility_closure_qualify():
 )
 def test_facility_closure_fails_closed(changes):
     assert not _evaluate_facility_closure_predicate(**changes)
-
-
-def test_canonical_alert_closure_does_not_claim_confirmed_baseline_recovery():
-    _load_alert_helper()
-    from tasks.alerts import _component_experiment_closure_resolution
-
-    row = _ops_row(
-        safety_state="facility_safe_closed",
-        execution_phase="shadow",
-        admission_state="closed",
-        operation_kind=None,
-        alert_severity=None,
-        alert_reason=None,
-        rollback_ready=False,
-    )
-    assert _load_alert_helper()(row) is None
-    assert _component_experiment_closure_resolution(row) == (
-        "facility-safe authority closure; historical runtime faults retained; no confirmed baseline recovery claimed"
-    )
-    assert row["rollback_ready"] is False
-    for changes in (
-        {"safety_state": "runtime_fault"},
-        {"alert_severity": "warning"},
-        {"alert_reason": "runtime_fault_requires_recovery"},
-        {"operation_kind": "baseline_recovery"},
-        {"open_exposure_count": 1},
-        {"admission_state": "open"},
-        {"execution_phase": "commissioning"},
-    ):
-        assert _component_experiment_closure_resolution({**row, **changes}) is None

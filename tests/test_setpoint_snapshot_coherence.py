@@ -26,7 +26,6 @@ for name, value in {
     os.environ.setdefault(name, value)
 
 import shared  # noqa: E402
-from tasks import bounded_reconcile as bounded  # noqa: E402
 
 import ingestor  # noqa: E402
 from verdify_schemas.policy_vector import wire_fields  # noqa: E402
@@ -249,32 +248,6 @@ async def test_missing_canonical_field_never_acknowledges_even_if_other_rows_com
     values.pop("mister_all_kpa")
     await ingestor._publish_setpoint_snapshot(pool, datetime.now(UTC))
     assert shared._setpoint_snapshot_publication is None
-
-
-@pytest.mark.asyncio
-async def test_readonly_snapshot_uses_post_sql_current_values_and_no_publisher(context):
-    values, connection, _pool = context
-    now = datetime.now(UTC)
-    connection.rows = [(now, name, value) for name, value in values.items()]
-
-    def update_during_query():
-        values["mister_all_kpa"] = 1.5
-        connection.rows = [(now, name, value) for name, value in values.items()]
-
-    connection.during_fetch = update_during_query
-    result = await bounded._fresh_readbacks(connection, 3)
-    assert result["mister_all_kpa"] == 1.5
-    assert not shared.setpoint_snapshot_requested.is_set() and connection.events == []
-
-
-@pytest.mark.asyncio
-async def test_readonly_snapshot_denies_generation_change_during_query(context):
-    values, connection, _pool = context
-    connection.rows = [(datetime.now(UTC), name, value) for name, value in values.items()]
-    connection.during_fetch = lambda: setattr(shared, "transport_generation", 4)
-    with pytest.raises(ValueError, match="replay changed"):
-        await bounded._fresh_readbacks(connection, 3)
-    assert not shared.setpoint_snapshot_requested.is_set()
 
 
 @pytest.mark.asyncio

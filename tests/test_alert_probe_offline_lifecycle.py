@@ -36,8 +36,6 @@ def cycle(ns, log, when, *, silent=(), zones=("south", "west"), extra=()):
         ns["_sync_monitor_alerts"](
             log,
             [*alerts, *extra],
-            component_status_available=True,
-            component_closure_resolutions={},
             keep_open_keys=keep_open,
             unpotted_keys=unpotted,
             now=when,
@@ -307,25 +305,6 @@ def test_reopen_writes_stay_inside_the_ingestor_grants():
     cycle(ns, log, local(0, 10), silent=WEST)
     reopen = [sql for sql, _ in log.writes if "resolved_at = NULL" in sql]
     assert len(reopen) == 1  # AlertLog asserted every SET column against migration 217
-
-
-@pytest.mark.parametrize("lifecycle", ["keep_open_keys", "unpotted_keys", "refresh_only_keys"])
-def test_a_scoped_component_call_refuses_lifecycle_keys_before_any_read(lifecycle):
-    ns = load_alert_lifecycle()
-    log = AlertLog(local(0, 8))
-    with pytest.raises(ValueError, match="lifecycle_keys_require_unscoped_monitor"):
-        asyncio.run(
-            ns["_sync_monitor_alerts"](
-                log,
-                [],
-                component_status_available=True,
-                component_closure_resolutions={},
-                scope=("component_experiment_integrity", "experiment.v2.test"),
-                scope_greenhouse_id="synthetic-test",
-                **{lifecycle: {PROBE}},
-            )
-        )
-    assert log.reads == [] and log.writes == []
 
 
 @pytest.mark.parametrize(

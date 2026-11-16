@@ -8,12 +8,9 @@ Covers, with no live DB:
   sections (omission assertions on setpoint/plan/lesson/scorecard markers),
   echoes the mode-acknowledgement marker, freezes a snapshot, and exits
   before ANY general-packet section; freeze/row failures exit nonzero;
-- iris_planner fail-closed behavior: missing receipt aborts before the
-  subprocess, an unacknowledged gather (stale script) returns the sentinel
-  instead of the general packet, feature-off argv/env are byte-identical;
-- the experiment template-selection prompt: byte-stable, requests
-  policy_template_propose, quarantines plan_evaluate/lessons_manage with a
-  structured skip log;
+- iris_planner: the experiment gather mode and its template-selection
+  prompt retired with experiment generation 2 (#1649), so the planner always
+  runs the plain gather, whatever the experiment environment says;
 - heartbeat quarantine: planner_memory_ingest_sync skips (structured log,
   zero pool access) while experiment mode is armed.
 """
@@ -41,10 +38,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import iris_planner  # noqa: E402
-import shared  # noqa: E402
 
 GATHER_SCRIPT = REPO_ROOT / "scripts" / "gather-plan-context.sh"
 MIGRATION_210 = REPO_ROOT / "db" / "migrations" / "210-iris-experiment-context.sql"
+EXPERIMENT_MODE_ACK_MARKER = "=== EXPERIMENT CONTEXT MODE ACK v1 ==="
 
 EXPERIMENT_ID = str(uuid.uuid4())
 RECEIPT = str(uuid.uuid4())
@@ -135,17 +132,11 @@ def test_gather_materializes_direct_pg_env_before_process_substitution():
 def _clean_experiment_env(monkeypatch):
     monkeypatch.delenv("VERDIFY_POLICY_VECTOR_MODE", raising=False)
     monkeypatch.delenv("VERDIFY_ACTIVE_EXPERIMENT_ID", raising=False)
-    shared.experiment_assignment.clear()
-    yield
-    shared.experiment_assignment.clear()
 
 
-def _arm(monkeypatch, mode: str = "shadow", receipt: str | None = RECEIPT):
+def _arm(monkeypatch, mode: str = "shadow"):
     monkeypatch.setenv("VERDIFY_POLICY_VECTOR_MODE", mode)
     monkeypatch.setenv("VERDIFY_ACTIVE_EXPERIMENT_ID", EXPERIMENT_ID)
-    shared.experiment_assignment.clear()
-    if receipt:
-        shared.experiment_assignment["assignment_id"] = receipt
 
 
 # ─── gather-plan-context.sh --experiment-mode runtime behavior ────────────
@@ -157,7 +148,7 @@ class TestGatherScriptExperimentMode:
         assert result.returncode == 0, result.stderr
         packet = result.stdout
         # Mode acknowledgement + §8.8-allowed sections.
-        assert iris_planner.EXPERIMENT_MODE_ACK_MARKER in packet
+        assert EXPERIMENT_MODE_ACK_MARKER in packet
         assert f"experiment_id={EXPERIMENT_ID}" in packet
         assert f"assignment_receipt={RECEIPT}" in packet
         assert "--- CURRENT SENSORS (latest climate row) ---" in packet
@@ -217,23 +208,22 @@ class TestGatherScriptExperimentMode:
             assert forbidden_sql not in block
 
     def test_ack_marker_constants_match(self):
-        assert iris_planner.EXPERIMENT_MODE_ACK_MARKER in GATHER_SCRIPT.read_text()
+        assert EXPERIMENT_MODE_ACK_MARKER in GATHER_SCRIPT.read_text()
         # And the deployed ConfigMap mirror carries the same acknowledged mode
         # (byte-parity with the source is separately enforced by
         # tests/test_dli_availability.py).
         configmap = (
             REPO_ROOT / "deploy" / "k8s" / "components" / "ingestor-gather-script" / "gather-script-configmap.yaml"
         ).read_text()
-        assert iris_planner.EXPERIMENT_MODE_ACK_MARKER in configmap
+        assert EXPERIMENT_MODE_ACK_MARKER in configmap
 
 
-# ─── iris_planner fail-closed gather ──────────────────────────────────────
+# ─── iris_planner plain gather ──────────────────────────────────────
 
 
-class TestIrisPlannerFailClosed:
-    def test_feature_off_with_active_experiment_argv_and_env_are_byte_identical(self, monkeypatch):
-        monkeypatch.setenv("VERDIFY_POLICY_VECTOR_MODE", "off")
-        monkeypatch.setenv("VERDIFY_ACTIVE_EXPERIMENT_ID", EXPERIMENT_ID)
+class TestIrisPlannerPlainGather:
+    def test_armed_experiment_env_still_runs_the_plain_gather(self, monkeypatch):
+        _arm(monkeypatch)
         fake_result = MagicMock(returncode=0, stdout="=== CONTEXT ===\n", stderr="")
         with (
             patch("iris_planner.subprocess.run", return_value=fake_result) as run,
@@ -244,144 +234,7 @@ class TestIrisPlannerFailClosed:
         args, kwargs = run.call_args
         assert args[0] == ["/bin/bash", iris_planner.GATHER_SCRIPT]
         assert kwargs.get("env") is None
-
-    def test_missing_receipt_aborts_before_subprocess(self, monkeypatch):
-        _arm(monkeypatch, receipt=None)
-        with (
-            patch("iris_planner.subprocess.run") as run,
-            patch("iris_planner._record_plan_context_failure") as record,
-        ):
-            out = iris_planner.gather_context()
-        assert out == iris_planner.CONTEXT_GATHER_FAILED_SENTINEL
-        run.assert_not_called()
-        assert record.call_args[0][0] == "experiment_mode_no_receipt"
-
-    def test_unacknowledged_gather_fails_closed(self, monkeypatch):
-        """A stale mounted script emits the GENERAL packet; it must never be
-        returned in experiment mode."""
-        _arm(monkeypatch)
-        general_packet = "=== GREENHOUSE PLANNING CONTEXT ===\n--- CURRENT ACTIVE SETPOINTS ---\n"
-        fake_result = MagicMock(returncode=0, stdout=general_packet, stderr="")
-        with (
-            patch("iris_planner.subprocess.run", return_value=fake_result),
-            patch("iris_planner._record_plan_context_failure") as record,
-        ):
-            out = iris_planner.gather_context()
-        assert out == iris_planner.CONTEXT_GATHER_FAILED_SENTINEL
-        assert record.call_args[0][0] == "experiment_mode_not_acknowledged"
-
-    def test_acknowledged_gather_passes_flag_receipt_and_identity_env(self, monkeypatch):
-        _arm(monkeypatch)
-        packet = f"{iris_planner.EXPERIMENT_MODE_ACK_MARKER}\nexperiment stuff\n"
-        fake_result = MagicMock(returncode=0, stdout=packet, stderr="")
-        with (
-            patch("iris_planner.subprocess.run", return_value=fake_result) as run,
-            patch("iris_planner._resolve_plan_context_failures"),
-        ):
-            out = iris_planner.gather_context()
-        assert out == packet
-        args, kwargs = run.call_args
-        assert args[0] == [
-            "/bin/bash",
-            iris_planner.GATHER_SCRIPT,
-            "--experiment-mode",
-            EXPERIMENT_ID,
-            RECEIPT,
-        ]
-        env = kwargs["env"]
-        assert env["VERDIFY_EXPERIMENT_PROMPT_SHA256"] == iris_planner._EXPERIMENT_PROMPT_TEMPLATE_SHA256
-        assert env["VERDIFY_EXPERIMENT_TOOL_MANIFEST_SHA256"] == iris_planner._EXPERIMENT_TOOL_MANIFEST_SHA256
-
-    def test_nonzero_exit_still_fails_closed_in_experiment_mode(self, monkeypatch):
-        _arm(monkeypatch)
-        fake_result = MagicMock(returncode=3, stdout="", stderr="EXPERIMENT CONTEXT FREEZE FAILED")
-        with (
-            patch("iris_planner.subprocess.run", return_value=fake_result),
-            patch("iris_planner._record_plan_context_failure") as record,
-        ):
-            out = iris_planner.gather_context()
-        assert out == iris_planner.CONTEXT_GATHER_FAILED_SENTINEL
-        assert record.call_args[0][0] == "nonzero_exit"
-
-
-# ─── experiment prompt + quarantine ───────────────────────────────────────
-
-
-class _FakeResponse:
-    def __init__(self):
-        self._body = json.dumps({"run_id": "run-1"}).encode()
-
-    def getcode(self):
-        return 200
-
-    def read(self):
-        return self._body
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-
-class TestExperimentPromptAndQuarantine:
-    def _send(self, event_type="SUNRISE"):
-        captured = {}
-
-        def fake_urlopen(req, timeout=None):
-            captured["payload"] = json.loads(req.data.decode())
-            return _FakeResponse()
-
-        context = f"{iris_planner.EXPERIMENT_MODE_ACK_MARKER}\nassignment_receipt={RECEIPT}\n"
-        with patch("iris_planner.urllib.request.urlopen", side_effect=fake_urlopen):
-            result = iris_planner.send_to_iris(event_type, "morning", context=context)
-        return result, captured["payload"]
-
-    def test_every_event_type_collapses_to_the_template_selection_prompt(self, monkeypatch, caplog):
-        _arm(monkeypatch)
-        with caplog.at_level(logging.INFO, logger="iris_planner"):
-            result, payload = self._send("SUNRISE")
-        assert result["delivered"] is True
-        prompt = payload["input"]
-        assert prompt.startswith("## Planning Event: EXPERIMENT TEMPLATE SELECTION")
-        assert "policy_template_propose" in prompt
-        assert "assignment_receipt" in prompt
-        # None of the general planner knowledge/prompt phases leak in.
-        assert "## Greenhouse Planner Knowledge" not in prompt
-        assert "Standing Directives" not in prompt
-        assert "## Planning Event: SUNRISE" not in prompt
-        # Quarantined phases are named as forbidden, and the structured skip
-        # log records them.
-        quarantine = [json.loads(r.message) for r in caplog.records if "experiment_quarantine_skip" in r.message]
-        assert quarantine and quarantine[0]["phases"] == ["plan_evaluate", "lessons_manage"]
-        assert quarantine[0]["experiment_id"] == EXPERIMENT_ID
-
-    def test_prompt_is_identical_across_event_types_and_arms(self, monkeypatch):
-        """The template-selection request must not vary by trigger flavor —
-        the same bytes (modulo per-trigger audit ids) go out on both arms."""
-        _arm(monkeypatch)
-        _, sunrise = self._send("SUNRISE")
-        _, transition = self._send("TRANSITION")
-
-        def _strip_audit(prompt: str) -> str:
-            return prompt.split("**Audit headers**")[0]
-
-        assert _strip_audit(sunrise["input"]) == _strip_audit(transition["input"])
-
-    def test_feature_off_prompt_is_unchanged(self):
-        result, payload = self._send("SUNRISE")
-        assert result["delivered"] is True
-        assert "## Greenhouse Planner Knowledge" in payload["input"]
-        assert "EXPERIMENT TEMPLATE SELECTION" not in payload["input"]
-
-    def test_template_hash_is_stable_and_covers_the_static_template(self):
-        import hashlib
-
-        assert (
-            iris_planner._EXPERIMENT_PROMPT_TEMPLATE_SHA256
-            == hashlib.sha256(iris_planner._EXPERIMENT_PROMPT_TEMPLATE.encode("utf-8")).hexdigest()
-        )
-        assert "{context}" in iris_planner._EXPERIMENT_PROMPT_TEMPLATE
+        assert not hasattr(iris_planner, "EXPERIMENT_MODE_ACK_MARKER")
 
 
 class TestHeartbeatQuarantine:

@@ -30,11 +30,7 @@ from tasks import (  # noqa: E402
     _common,
     alerts,
     band_anchors,
-    bounded_reconcile,
-    c1_overlay,
-    component_experiment,
     dispatcher,
-    drift_probe,
 )
 
 from verdify_schemas.alerts import AlertEnvelope  # noqa: E402
@@ -65,7 +61,6 @@ def _plain_planner_params() -> list[tuple[str, float, float]]:
         | _common.MISTER_DEFAULTS
         | _common.SECOND_READBACK_ABS_TOLERANCE_PARAMS
         | frozenset(band_anchors.ANCHOR_SYNC_PARAMS)
-        | frozenset({drift_probe.PARAMETER})
     )
     selected = []
     for param in sorted(PLANNER_PUSHABLE_REG):
@@ -314,7 +309,6 @@ def plain(monkeypatch, tmp_path):
         "_COMPONENT_AUTHORITY_HOLD_ACTIVE": False,
     }.items():
         monkeypatch.setattr(esp32_push, name, value)
-    monkeypatch.setattr(component_experiment, "_component_grid_attestation", None)
     monkeypatch.setattr(dispatcher, "_last_pushed", {})
     monkeypatch.setattr(dispatcher, "_last_sent_at", {})
     monkeypatch.setattr(dispatcher, "STATE_DIR", tmp_path)
@@ -410,51 +404,6 @@ async def test_new_plan_value_mid_convergence_goes_out_in_the_next_pass(plain):
 
 
 @pytest.mark.asyncio
-async def test_a_halting_drift_probe_holds_one_pass_and_never_later_passes(plain):
-    plan = _load(plain, PARAMS[:3])
-    # A probe awaiting confirmation whose approval disappeared halts on this pass.
-    bounded_reconcile._write(
-        plain.state_dir / drift_probe.STATE_NAME,
-        {
-            "version": 1,
-            "run_id": "probe-run",
-            "status": "probe_awaiting",
-            "phase_started_at": datetime.now(UTC).isoformat(),
-        },
-    )
-    await plain.run_pass()
-    assert plain.controller.sent == [] and plain.db.stage_rows == ["held:drift_probe"]
-    assert bounded_reconcile._read(plain.state_dir / drift_probe.STATE_NAME)["status"] == "halted"
-
-    plain.clock.advance(300)
-    await plain.run_pass()
-    assert sorted(plain.controller.sent_params()) == sorted(plan)
-    assert plain.db.stage_rows == ["held:drift_probe", "ordinary"]
-    plain.controller.publish(plain.db)
-    plain.clock.advance(300)
-    await plain.run_pass()  # the retained halted receipt keeps holding nothing
-    assert plain.db.stage_rows == ["held:drift_probe", "ordinary"] and len(plain.controller.sent) == 3
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("phase", ["probe_inflight", "restore_awaiting"])
-async def test_a_probe_phase_past_its_deadline_never_holds_the_pass(plain, phase):
-    plan = _load(plain, PARAMS[:3])
-    # A phase a crash or a cancelled pass left behind holds for at most the
-    # probe's four-minute confirmation deadline; after it the pass dispatches.
-    started = datetime.now(UTC) - drift_probe.CONFIRM_DEADLINE - timedelta(seconds=1)
-    bounded_reconcile._write(
-        plain.state_dir / drift_probe.STATE_NAME,
-        {"version": 1, "run_id": "probe-run", "status": phase, "phase_started_at": started.isoformat()},
-    )
-    await plain.run_pass()
-    assert sorted(plain.controller.sent_params()) == sorted(plan)
-    assert plain.db.stage_rows == ["ordinary"]
-    state = bounded_reconcile._read(plain.state_dir / drift_probe.STATE_NAME)
-    assert state["status"] == "halted" and "deadline" in state["halt_reason"]
-
-
-@pytest.mark.asyncio
 async def test_thirteen_values_never_taken_go_out_once_per_90_s_without_self_wake(plain):
     plan = _load(plain, PARAMS[:13])
     plain.controller.refuses = set(plan)
@@ -503,8 +452,9 @@ async def test_refused_values_wake_only_until_each_was_sent_once(plain, caplog, 
     rest on every pass, so the dispatcher would wake itself forever.
     """
     caplog.set_level(logging.INFO)
-    plan = _load(plain, PARAMS)
-    assert len(plan) > dispatcher.MAX_RECONNECT_COMMANDS
+    # Whole batches only: a last partial batch would be topped up with resends.
+    plan = _load(plain, PARAMS[: 2 * dispatcher.MAX_RECONNECT_COMMANDS])
+    assert len(plan) == 2 * dispatcher.MAX_RECONNECT_COMMANDS
     plain.controller.refuses = set(plan)
 
     woken = 0
@@ -570,8 +520,6 @@ async def _sync(log: AlertLog, stuck: dict | None, **kwargs) -> None:
     await alerts._sync_monitor_alerts(
         log,
         [stuck] if stuck else [],
-        component_status_available=True,
-        component_closure_resolutions={},
         **kwargs,
     )
 
@@ -640,71 +588,7 @@ async def test_clamped_and_experiment_held_settings_alone_raise_nothing(plain, m
 
 
 @pytest.mark.asyncio
-async def test_startup_archive_renames_halted_runs_and_the_next_pass_dispatches(plain, caplog):
-    caplog.set_level(logging.INFO)
-    state_dir = plain.state_dir
-    retired = {
-        "writer-stage-state.json": {"status": "halted", "run_id": "old-run"},
-        "writer-stage-approval.json": {"run_id": "old-run"},
-        "writer-stage-preview.json": {"fingerprint": "f" * 64},
-        "writer-stage-recovery.json": {"source_run_id": "old-run"},
-        "writer-stage-confirmed-halt-0123.json": {"schema": "history"},
-        "writer-policy-hold.json": {"disposition": "bounded_hold_no_dispatch"},
-        drift_probe.STATE_NAME: {"status": "halted", "run_id": "probe-run"},
-        drift_probe.APPROVAL_NAME: {"run_id": "probe-run"},
-    }
-    kept = {
-        "c1-qualification-state.json": {"status": "yielded"},
-        drift_probe.PREVIEW_NAME: {"version": 1},
-        "setpoint-dispatcher.log": None,
-    }
-    before = {}
-    for name, value in {**retired, **kept}.items():
-        path = state_dir / name
-        path.write_text(json.dumps(value) if value is not None else "")
-        before[name] = (path.stat().st_ino, path.read_bytes())
-
-    moved = bounded_reconcile.archive_halted_runs(state_dir, now=T0)
-
-    target = state_dir / "archived" / "20261102T120000Z"
-    assert sorted(path.name for path in moved) == sorted(retired)
-    for name in retired:
-        assert not (state_dir / name).exists()
-        assert ((target / name).stat().st_ino, (target / name).read_bytes()) == before[name]  # renamed, not copied
-    for name in kept:
-        assert ((state_dir / name).stat().st_ino, (state_dir / name).read_bytes()) == before[name]
-    archived_lines = [r.getMessage() for r in caplog.records if "halted_run_archive status=archived" in r.getMessage()]
-    assert len(archived_lines) == len(retired)
-
-    plan = _load(plain, PARAMS[:3])
-    await plain.run_pass()
-    assert sorted(plain.controller.sent_params()) == sorted(plan)
-    assert plain.db.stage_rows == ["ordinary"]
-
-
-def test_archive_keeps_a_complete_probe_and_never_reuses_an_archive_directory(tmp_path):
-    assert bounded_reconcile.archive_halted_runs(tmp_path, now=T0) == []
-    assert not (tmp_path / "archived").exists()
-
-    (tmp_path / drift_probe.STATE_NAME).write_text(json.dumps({"status": "complete"}))
-    (tmp_path / drift_probe.APPROVAL_NAME).write_text("{}")
-    (tmp_path / "writer-stage-state.json").write_text("{}")
-    first = bounded_reconcile.archive_halted_runs(tmp_path, now=T0)
-    assert [path.name for path in first] == ["writer-stage-state.json"]
-    assert (tmp_path / drift_probe.STATE_NAME).exists() and (tmp_path / drift_probe.APPROVAL_NAME).exists()
-
-    (tmp_path / "writer-stage-state.json").write_text('{"second": true}')
-    (tmp_path / drift_probe.STATE_NAME).write_text("not json")  # unreadable is not provably complete
-    second = bounded_reconcile.archive_halted_runs(tmp_path, now=T0)
-    assert {path.parent.name for path in second} == {"20261102T120000Z-1"}
-    assert sorted(path.name for path in second) == sorted(
-        ["writer-stage-state.json", drift_probe.STATE_NAME, drift_probe.APPROVAL_NAME]
-    )
-    assert json.loads((tmp_path / "archived" / "20261102T120000Z" / "writer-stage-state.json").read_text()) == {}
-
-
-@pytest.mark.asyncio
-async def test_stage_records_heap_lease_and_c1_holds_and_writes_only_on_change(plain, monkeypatch):
+async def test_stage_records_heap_and_lease_holds_and_writes_only_on_change(plain, monkeypatch):
     plan = _load(plain, PARAMS[:2])
     plain.db.heap_alert_open = True
     await plain.run_pass()
@@ -720,26 +604,13 @@ async def test_stage_records_heap_lease_and_c1_holds_and_writes_only_on_change(p
     assert "esp32_push_failed" in plain.db.alert_types
 
     monkeypatch.setattr(shared, "writer_lease_held", lambda: True)
-
-    async def c1_holds(*_args, **_kwargs):
-        return c1_overlay.Selection("hold", reason="qualification overlay owns the pass")
-
-    real_choose = dispatcher.c1_overlay.choose
-    monkeypatch.setattr(dispatcher.c1_overlay, "choose", c1_holds)
-    plain.clock.advance(300)
-    await plain.run_pass()
-    assert plain.controller.sent == [] and plain.db.stage_rows[-1] == "held:c1"
-    old = {param: plain.clock.now - timedelta(hours=1) for param in plan}
-    assert alerts._setpoint_delivery_stuck_alert(old, "held:c1", plain.clock.now) is None
-
-    monkeypatch.setattr(dispatcher.c1_overlay, "choose", real_choose)
     plain.clock.advance(300)
     await plain.run_pass()
     assert sorted(plain.controller.sent_params()) == sorted(plan)
-    assert plain.db.stage_rows == ["held:heap", "held:lease", "held:c1", "ordinary"]
+    assert plain.db.stage_rows == ["held:heap", "held:lease", "ordinary"]
     plain.clock.advance(300)
     await plain.run_pass()
-    assert plain.db.stage_rows == ["held:heap", "held:lease", "held:c1", "ordinary"]  # on change only
+    assert plain.db.stage_rows == ["held:heap", "held:lease", "ordinary"]  # on change only
 
 
 @pytest.mark.asyncio
@@ -752,21 +623,6 @@ async def test_a_restart_writes_the_stage_once(plain):
     shared.dispatcher_stage = None  # a new ingestor process
     await plain.run_pass()
     assert plain.db.stage_rows == ["ordinary", "ordinary"]
-
-
-@pytest.mark.asyncio
-async def test_no_path_enqueues_more_than_twelve_commands(plain, monkeypatch, caplog):
-    caplog.set_level(logging.INFO)
-    _load(plain, PARAMS[:2])
-    selection = tuple((param, plan) for param, _device, plan in PARAMS[:13])
-
-    async def oversized(*_args, **_kwargs):
-        return c1_overlay.Selection("send", selection, "worksheet", override_fields=())
-
-    monkeypatch.setattr(dispatcher.c1_overlay, "choose", oversized)
-    await plain.run_pass()
-    assert plain.controller.sent == [] and plain.db.changes == []
-    assert any("action=cap_exceeded" in record.getMessage() for record in caplog.records)
 
 
 # VD-47 (#1162, irrigation F12 and F13): the parameters whose registry rows and
@@ -936,9 +792,6 @@ async def test_stuck_alert_stays_open_across_a_restart_until_none_differ(plain, 
     await plain.run_pass()
     await monitor_cycle()  # stuck again in this process: refreshed in place
     assert log.inserts == 1 and log.rows[0]["resolved_at"] is None
-
-    # The C1 overlay holding the pass on purpose resolves it.
-    assert alerts._setpoint_delivery_stuck_preserved(shared.delivery_differing_since, "held:c1") == frozenset()
 
     plain.controller.refuses.clear()
     plain.clock.advance(300)
