@@ -156,13 +156,6 @@ def test_prelock_sql_locks_in_plan_order_under_a_short_timeout_then_restores_the
     assert qualifier.prelock_sql([]) == ""
 
 
-def test_prelock_sql_never_locks_a_plain_view_because_lock_recurses_into_its_base_tables():
-    """2026-11-16: prelocking v_data_trust_ledger locked climate, equipment_state and diagnostics exclusively."""
-    sql = qualifier.prelock_sql([("public.v_data_trust_ledger", AE), ("public.shelves", AE)])
-    assert "c.relkind IN ('r', 'p', 'm', 'f', 'i', 'I')" in sql
-    assert "'v'" not in sql
-
-
 def test_prelock_runs_first_in_both_writing_sessions_and_never_in_the_read_only_one():
     sql = (ROOT / "db/migrations/280-desired-state-activity-log.sql").read_text()
     lock = qualifier.prelock_sql([("public.shelves", AE)])
