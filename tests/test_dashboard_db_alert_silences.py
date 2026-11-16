@@ -161,8 +161,6 @@ async def silenced_dryout(ns, conn) -> None:
         return await ns["_sync_monitor_alerts"](
             conn,
             [dryout_alert()],
-            component_status_available=True,
-            component_closure_resolutions={},
             silences=silences,
             now=when,
         )

@@ -20,21 +20,15 @@ from . import (  # noqa: F401
     _common,
     alerts,
     band_anchors,
-    component_experiment,
     confirmation,
     daily,
     dispatcher,
-    drift_probe,
-    experiment_assignments,
-    experiment_qualification,
     forecast,
     ha,
     heartbeat,
     hydro,
     irrigation,
     liveness,
-    policy_arbiter,
-    policy_delivery,
 )
 from ._common import *  # noqa: F401,F403
 from ._common import (  # noqa: F401
@@ -76,18 +70,6 @@ from ._common import (  # noqa: F401
     _td,
 )
 from .alerts import *  # noqa: F401,F403
-from .component_experiment import (  # noqa: F401
-    attest_component_safe_startup,
-    clear_component_entity_inventory,
-    component_entity_grid_attestation,
-    component_experiment_worker,
-    create_component_experiment_pool,
-    prime_component_startup_hold,
-    record_component_cfg_readback,
-    record_component_device_uptime,
-    record_component_entity_inventory,
-    record_component_grid_firmware_revision,
-)
 from .confirmation import *  # noqa: F401,F403
 from .daily import *  # noqa: F401,F403
 from .daily import (  # noqa: F401
@@ -119,15 +101,6 @@ from .dispatcher import (  # noqa: F401
     _vpd_high_moisture_guardrails,
     _write_clamp_audit_rows,
 )
-
-# Lane C (#584): coroutine names differ from their module names on purpose so
-# the submodule attributes bound above survive (see the rebinding note in the
-# module docstring); import them explicitly instead of star-importing.
-from .experiment_assignments import (  # noqa: F401
-    EXPERIMENT_OWNED_PARAMS,
-    experiment_assignment_scheduler,
-)
-from .experiment_qualification import experiment_qualification_scheduler  # noqa: F401
 from .forecast import *  # noqa: F401,F403
 from .forecast import (  # noqa: F401
     _cloud_cover_proxy_pct,
@@ -172,8 +145,3 @@ from .heartbeat import (  # noqa: F401
 from .hydro import hydro_probe_sync  # noqa: F401
 from .irrigation import irrigation_sync, record_engine_capability  # noqa: F401
 from .liveness import ingestor_heartbeat  # noqa: F401
-from .policy_arbiter import (  # noqa: F401
-    policy_arbiter_admissions,
-    treatment_bytes_for_assignment,
-)
-from .policy_delivery import policy_delivery_worker  # noqa: F401

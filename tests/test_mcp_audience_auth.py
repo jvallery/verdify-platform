@@ -38,9 +38,6 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HERMES_CONFIG_PATH = REPO_ROOT / "deploy" / "k8s" / "components" / "hermes-iris" / "hermes-config.yaml"
-HERMES_EXPERIMENT_CONFIG_PATH = (
-    REPO_ROOT / "deploy" / "k8s" / "components" / "hermes-iris-experiment" / "hermes-config.yaml"
-)
 MCP_DEPLOYMENT_PATH = REPO_ROOT / "deploy" / "k8s" / "base" / "mcp-deployment.yaml"
 BASE_CONFIG_PATH = REPO_ROOT / "deploy" / "k8s" / "base" / "configmap.yaml"
 PROD_OVERLAY_PATH = REPO_ROOT / "deploy" / "k8s" / "overlays" / "prod"
@@ -101,7 +98,6 @@ AGENT_NEVER_TOOLS = frozenset(
         "set_tunable",
         "acknowledge_trigger",
         "plan_evaluate",
-        "policy_template_propose",
         "lessons",
         "lessons_search",
         "lessons_manage",
@@ -124,7 +120,6 @@ EXPERIMENT_TOOLS = frozenset(
         "crop_history",
         "crop_lifecycle",
         "acknowledge_trigger",
-        "policy_template_propose",
     }
 )
 ADMIN_ONLY_TOOLS = frozenset({"plan_run", "query", "outcome_kpi"})
@@ -471,7 +466,6 @@ class TestAudienceMatrix:
                 "outcome_kpi",
                 "plan_run",
                 "query",
-                "policy_template_propose",
                 "band_profile",
                 "band_profile_preview",
                 # #1346: Iris never reads the greenhouse snapshot (it is never an input to a plan).
@@ -491,8 +485,8 @@ class TestAudienceMatrix:
     def test_experiment_matrix(self, mcp_server, monkeypatch):
         _configure(monkeypatch, mode="enforce", experiment="tok-exp")
         allowed = mcp_server.audience_allowlist("experiment")
-        # Audit §8.8: qualified reads + trigger acknowledgement + the ONE
-        # actuation-eligible output (opaque template selection, Lane C #584).
+        # Audit §8.8: qualified reads + trigger acknowledgement. The one
+        # actuation-eligible output, policy_template_propose, retired (#1649).
         assert allowed == {
             "climate",
             "forecast",
@@ -501,7 +495,6 @@ class TestAudienceMatrix:
             "crop_history",
             "crop_lifecycle",
             "acknowledge_trigger",
-            "policy_template_propose",
         }
         # Treatment-revealing reads and ordinary writes are denied.
         for tool in (
@@ -531,9 +524,9 @@ class TestAudienceMatrix:
         for tool in mcp_server.TOOL_AUDIENCES:
             mcp_server.authorize_tool_call(tool, "tok-admin")
 
-    def test_policy_template_propose_is_registered_experiment_and_admin_only(self, mcp_server):
-        # Lane C tranche 2 (#584): moved out of PENDING into the live registry.
-        assert mcp_server.TOOL_AUDIENCES["policy_template_propose"] == frozenset({"experiment", "admin"})
+    def test_policy_template_propose_is_retired(self, mcp_server):
+        # Experiment generation 1 retired (#1649): the tool is gone from both registries.
+        assert "policy_template_propose" not in mcp_server.TOOL_AUDIENCES
         assert "policy_template_propose" not in mcp_server.PENDING_TOOL_AUDIENCES
         assert not set(mcp_server.PENDING_TOOL_AUDIENCES) & set(mcp_server.TOOL_AUDIENCES)
 
@@ -619,68 +612,6 @@ class TestInventoryAndDriftGuards:
         assert set(include) == mcp_server.audience_allowlist("iris")
         assert set(include) == mcp_server.HERMES_REQUIRED_TOOLS
 
-    def test_experiment_audience_matches_hermes_experiment_config_include_list(self, mcp_server):
-        """Drift guard (#585 tranche 2): the DARK experiment profile's client
-        include list == the server `experiment` audience, exactly.
-
-        deploy/k8s/components/hermes-iris-experiment/hermes-config.yaml is the
-        Lane F flip target; its include list must carry the qualified reads +
-        acknowledge_trigger + policy_template_propose surface and NOTHING
-        else — a treatment-revealing tool added to either side fails here
-        before it can ship.
-        """
-        configmap = yaml.safe_load(HERMES_EXPERIMENT_CONFIG_PATH.read_text())
-        hermes_config = yaml.safe_load(configmap["data"]["config.yaml"])
-        server = hermes_config["mcp_servers"]["verdify_greenhouse"]
-        include = server["tools"]["include"]
-        assert len(include) == len(set(include)), "duplicate entries in hermes experiment include list"
-        assert set(include) == mcp_server.audience_allowlist("experiment")
-        assert "policy_template_propose" in include
-        # The experiment profile must present the EXPERIMENT audience
-        # credential, not the iris one, at the same in-cluster MCP endpoint.
-        assert server["headers"]["Authorization"] == "Bearer ${VERDIFY_MCP_TOKEN_EXPERIMENT}"
-        live_configmap = yaml.safe_load(HERMES_CONFIG_PATH.read_text())
-        live_config = yaml.safe_load(live_configmap["data"]["config.yaml"])
-        assert server["url"] == live_config["mcp_servers"]["verdify_greenhouse"]["url"]
-        # Provider/model selection is intentionally independent: the dark
-        # experiment keeps its bounded Cortex route while live Iris uses the
-        # OpenAI rollback profile. Audience/tool drift is the shared contract.
-        assert hermes_config["model"]["default"] == "llm.primary.longctx"
-        assert hermes_config["agent"]["reasoning_effort"] == "medium"
-        assert live_config["model"]["default"] == "gpt-6-luna"
-        assert live_config["agent"]["reasoning_effort"] == "xhigh"
-        assert hermes_config["agent"]["max_turns"] == live_config["agent"]["max_turns"] == 30
-        assert hermes_config["agent"]["disabled_toolsets"] == live_config["agent"]["disabled_toolsets"]
-        # Treatment-revealing reads and quarantined writes can never appear.
-        forbidden = {
-            "get_setpoints",
-            "plan_status",
-            "history",
-            "scorecard",
-            "outcome_kpi",
-            "lessons",
-            "lessons_search",
-            "knowledge_search",
-            "set_plan",
-            "set_tunable",
-            "plan_evaluate",
-            "lessons_manage",
-            "query",
-            "plan_run",
-        }
-        assert not set(include) & forbidden
-
-    def test_iris_planner_experiment_tools_match_server_experiment_audience(self, mcp_server):
-        """The planner-side EXPERIMENT_MODE_TOOLS tuple (prompt + frozen tool
-        manifest hash) is bound to the server audience registry."""
-        planner_path = REPO_ROOT / "ingestor" / "iris_planner.py"
-        spec = importlib.util.spec_from_file_location("iris_planner_experiment_tools_test", planner_path)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        assert set(module.EXPERIMENT_MODE_TOOLS) == mcp_server.audience_allowlist("experiment")
-        assert tuple(sorted(module.EXPERIMENT_MODE_TOOLS)) == module.EXPERIMENT_MODE_TOOLS
-
 
 # ─── call_tool dispatch wiring ───────────────────────────────────────────
 
@@ -737,7 +668,7 @@ class TestListToolsAudienceFiltering:
     @pytest.mark.parametrize("mode", ["log", "enforce"])
     @pytest.mark.parametrize(
         ("audience", "token", "expected_count"),
-        [("iris", "tok-iris", 33), ("experiment", "tok-exp", 8), ("admin", "tok-admin", 51)],
+        [("iris", "tok-iris", 33), ("experiment", "tok-exp", 7), ("admin", "tok-admin", 50)],
     )
     def test_protocol_inventory_matches_exact_audience_allowlist(
         self, mcp_server, monkeypatch, mode, audience, token, expected_count

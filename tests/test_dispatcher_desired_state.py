@@ -31,9 +31,9 @@ if INGESTOR_PATH not in sys.path:
 import esp32_push  # noqa: E402
 import shared  # noqa: E402
 from esp32_push import DeviceCommandOutcome, PushBatchResult  # noqa: E402
-from tasks import _common, band_anchors, c1_overlay, component_experiment, dispatcher, drift_probe  # noqa: E402
-from tasks.experiment_assignments import EXPERIMENT_OWNED_PARAMS  # noqa: E402
+from tasks import _common, band_anchors, dispatcher  # noqa: E402
 
+from verdify_schemas.policy_vector import wire_fields  # noqa: E402
 from verdify_schemas.setting_values import readback_matches, snap_setting  # noqa: E402
 from verdify_schemas.tunable_registry import (  # noqa: E402
     DRY_COST_LIMIT_PARAM,
@@ -72,7 +72,7 @@ def _knobs() -> list[Knob]:
         | _common.RETIRED_UNROUTABLE_PARAMS
         | _common.SECOND_READBACK_ABS_TOLERANCE_PARAMS
         | frozenset(band_anchors.ANCHOR_SYNC_PARAMS)
-        | frozenset({drift_probe.PARAMETER, SITE_PRESSURE})
+        | frozenset({SITE_PRESSURE})
         | frozenset({DRY_COST_LIMIT_PARAM})  # gated on the phase 3 entity
     )
     selected = []
@@ -107,7 +107,8 @@ def _knobs() -> list[Knob]:
 
 KNOBS = _knobs()
 PLANNED = [knob for knob in KNOBS if knob.param in PLANNER_PUSHABLE_REG]
-HELD = next(knob for knob in PLANNED if knob.param in EXPERIMENT_OWNED_PARAMS)
+# A policy-vector wire field: the fields experiment_policy_hold could own.
+HELD = next(knob for knob in PLANNED if knob.param in {defn.name for defn in wire_fields()})
 
 
 def lighting_rows() -> list[dict]:
@@ -415,7 +416,6 @@ def env(monkeypatch, tmp_path):
         "_COMPONENT_AUTHORITY_HOLD_PARAMS": frozenset(),
     }.items():
         monkeypatch.setattr(esp32_push, name, value)
-    monkeypatch.setattr(component_experiment, "_component_grid_attestation", None)
     monkeypatch.setattr(dispatcher, "_last_pushed", {})
     monkeypatch.setattr(dispatcher, "_last_sent_at", {})
     monkeypatch.setattr(dispatcher, "_DESIRED_SKIPS_LOGGED", set())
@@ -952,27 +952,6 @@ async def test_the_resolved_lighting_set_is_what_the_circuit_block_sends(env):
     assert {sent.param for sent in env.controller.sent} == dispatcher.LIGHTING_CIRCUIT_RESOLVED_PARAMS
     assert {(row["parameter"], row["value"]) for row in env.db.changes} == set(policy.items())
     assert {row["source"] for row in env.db.changes} == {"band"}
-
-
-@pytest.mark.asyncio
-async def test_a_c1_restore_of_a_desired_field_is_not_a_desired_value(env, monkeypatch):
-    """Only the very value the desired-state block resolved is a desired value: a C1 restore
-    of the same field carries the ordinary source and does not pass component_authority_hold."""
-    knob = KNOBS[0]
-    connect(env, [knob])
-    env.db.write(knob.param, knob.desired, at=T0 - timedelta(minutes=1))
-    env.hold("COMPONENT_AUTHORITY", {knob.param})
-    restore = c1_overlay.Selection("yield", ((knob.param, knob.plan),), str(uuid.uuid4()), "worksheet expired")
-
-    async def c1_yields(*_args, **_kwargs):
-        return restore
-
-    monkeypatch.setattr(dispatcher.c1_overlay, "choose", c1_yields)
-    monkeypatch.setattr(dispatcher.c1_overlay, "finish", lambda *_args: None)
-    await env.run_pass()
-    assert env.controller.sent == []
-    assert {reason for _param, reason in env.controller.refused} == {"component_authority_hold"}
-    assert [(row["value"], row["source"]) for row in env.db.rows_for(knob.param)] == [(knob.plan, "plan")]
 
 
 @pytest.mark.asyncio

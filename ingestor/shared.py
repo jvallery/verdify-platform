@@ -233,7 +233,7 @@ cfg_readback_generation: dict[str, int] = {}
 # keyed by verdify_schemas.policy_transport.POLICY_IDENTITY_SENSOR — the ONE
 # aggregated text sensor payload ("schema|generation|assignment|activation|
 # apply_state"). Populated by the esp32 ingest loop; empty until the firmware
-# echoes, which the delivery worker treats as "no echo yet".
+# echoes.
 policy_readback: dict[str, str] = {}
 
 # Monotonic transport generation.  Only a successful API connect may advance
@@ -568,7 +568,7 @@ delivery_differing_since: dict[str, datetime] = {}
 # DEBUG; it leaves on the next accepted payload. alert_monitor raises payload_rejected after 10 minutes.
 payload_rejected_since: dict[str, tuple[datetime, int]] = {}
 # Last dispatcher stage written to system_state (entity dispatcher_stage):
-# "ordinary", "paced <sent>/<pending>" or "held:<c1|heap|lease|drift_probe|readbacks>".
+# "ordinary", "paced <sent>/<pending>" or "held:<heap|lease|readbacks>".
 # None until the first pass of this process records one.
 dispatcher_stage: str | None = None
 
@@ -584,32 +584,6 @@ def note_writer_fatal(reason: str) -> None:
     global writer_fatal_reason
     writer_fatal_reason = reason
     writer_fatal_event.set()
-
-
-# Lane D (#585, audit §8.8): the current experiment assignment receipt cache,
-# refreshed by tasks.experiment_assignments each scheduler cycle (same pattern
-# as the esp32_push experiment policy hold). Keys when populated:
-#   assignment_id — the opaque receipt iris_planner passes to the fail-closed
-#                   experiment gather mode (it does not identify the arm)
-#   experiment_id — the owning experiment
-#   boundary      — ISO upper boundary of the assignment's valid_range
-# Empty when feature-off, the experiment is idle, or no active assignment
-# covers now() — iris_planner then FAILS CLOSED instead of gathering the
-# general context packet.
-experiment_assignment: dict[str, str] = {}
-
-
-def set_experiment_assignment_receipt(
-    assignment_id: str | None, experiment_id: str | None = None, boundary=None
-) -> None:
-    """Replace (or clear, with assignment_id=None) the cached receipt."""
-    experiment_assignment.clear()
-    if assignment_id:
-        experiment_assignment["assignment_id"] = str(assignment_id)
-        if experiment_id:
-            experiment_assignment["experiment_id"] = str(experiment_id)
-        if boundary is not None:
-            experiment_assignment["boundary"] = str(boundary)
 
 
 # Timestamp of last ESP32 connect (used for boot-window gating)

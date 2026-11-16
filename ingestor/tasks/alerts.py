@@ -444,61 +444,6 @@ def _band_target_alert(bdd: Mapping | None) -> dict | None:
     }
 
 
-def _component_experiment_integrity_alert(
-    row: Mapping[str, object],
-) -> dict[str, object] | None:
-    """Translate the blinded-safe v2 ops row into one typed pager envelope."""
-    severity = row["alert_severity"]
-    reason = row["alert_reason"]
-    if severity not in ("warning", "critical") or not isinstance(reason, str):
-        return None
-    experiment_id = str(row["experiment_id"])
-    observation_age = row["observation_age_seconds"]
-    writer_generation = row["writer_generation"]
-    connection_generation = row["connection_generation"]
-    return {
-        "alert_type": "component_experiment_integrity",
-        "severity": severity,
-        "category": "system",
-        "sensor_id": f"experiment.v2.{experiment_id}",
-        "zone": None,
-        "message": (f"Confirmed-component experiment `{experiment_id}` requires action: {reason.replace('_', ' ')}"),
-        "details": {
-            "experiment_id": experiment_id,
-            "lifecycle_status": str(row["lifecycle_status"]),
-            "execution_phase": str(row["execution_phase"]),
-            "admission_state": str(row["admission_state"]),
-            "safety_state": str(row["safety_state"]),
-            "reason": reason,
-            "operation_kind": row["operation_kind"],
-            "observation_truth": str(row["observation_truth"]),
-            "observation_age_seconds": None if observation_age is None else int(observation_age),
-            "open_exposure_count": int(row["open_exposure_count"]),
-            "writer_generation": None if writer_generation is None else int(writer_generation),
-            "connection_generation": None if connection_generation is None else int(connection_generation),
-            "outcomes_complete": bool(row["outcomes_complete"]),
-            "rollback_ready": bool(row["rollback_ready"]),
-        },
-        "metric_value": float(row["open_exposure_count"]),
-        "threshold_value": 1.0,
-    }
-
-
-def _component_experiment_closure_resolution(row: Mapping[str, object]) -> str | None:
-    """Name a database-attested authority handoff without claiming baseline recovery."""
-    if (
-        row.get("safety_state") == "facility_safe_closed"
-        and row.get("execution_phase") == "shadow"
-        and row.get("admission_state") == "closed"
-        and row.get("operation_kind") is None
-        and row.get("open_exposure_count") == 0
-        and row.get("alert_severity") is None
-        and row.get("alert_reason") is None
-    ):
-        return "facility-safe authority closure; historical runtime faults retained; no confirmed baseline recovery claimed"
-    return None
-
-
 # VD-72: the soil probes and the climate columns each one reports (section 9).
 _SOIL_OFFLINE_PROBES = (
     ("soil.south_1", "south", ("soil_moisture_south_1", "soil_temp_south_1", "soil_ec_south_1")),
@@ -1395,40 +1340,6 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
 
     async with pool.acquire() as conn:
         alerts = []
-
-        # V2 safety/integrity paging consumes one least-information,
-        # SECURITY DEFINER projection.  The ordinary ingestor login has no v2
-        # base-table access, and future randomized identity is already masked
-        # by the database clock before this process can see the row.
-        try:
-            component_rows = await conn.fetch(
-                """
-                SELECT experiment_id, lifecycle_status, execution_phase,
-                       admission_state, operation_kind, observation_age_seconds,
-                       observation_truth, open_exposure_count,
-                       writer_generation, connection_generation, safety_state,
-                       outcomes_complete, rollback_ready, alert_severity,
-                       alert_reason
-                  FROM public.fn_experiment_v2_ops_status()
-                """
-            )
-            component_status_available = True
-        except Exception as e:
-            # Migration and workload roll independently during the OFF-gated
-            # release.  Do not abort every pre-existing greenhouse alert while
-            # the read-only surface is absent; make the observability failure
-            # explicit in application logs and retry on the next monitor tick.
-            log.warning("component experiment ops status unavailable: %s", type(e).__name__)
-            component_rows = []
-            component_status_available = False
-        component_closure_resolutions = {}
-        for component_row in component_rows:
-            closure_resolution = _component_experiment_closure_resolution(component_row)
-            if closure_resolution is not None:
-                component_closure_resolutions[f"experiment.v2.{component_row['experiment_id']}"] = closure_resolution
-            component_alert = _component_experiment_integrity_alert(component_row)
-            if component_alert is not None:
-                alerts.append(component_alert)
 
         # 1. sensor_offline: one row per silent device, one per other sensor (#1664)
         alerts.extend(
@@ -3588,8 +3499,6 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         await _sync_monitor_alerts(
             conn,
             alerts,
-            component_status_available=component_status_available,
-            component_closure_resolutions=component_closure_resolutions,
             keep_open_keys=soil_keep_open_keys,
             unpotted_keys=soil_unpotted_keys,
             refresh_only_keys=leak_refresh_only_keys,
@@ -3758,10 +3667,6 @@ async def _sync_monitor_alerts(
     conn,
     alerts,
     *,
-    component_status_available,
-    component_closure_resolutions,
-    scope=None,
-    scope_greenhouse_id=None,
     keep_open_keys=frozenset(),
     unpotted_keys=frozenset(),
     refresh_only_keys=frozenset(),
@@ -3773,12 +3678,11 @@ async def _sync_monitor_alerts(
 
     ``alert_log`` is the only delivery: the dashboard lists every open row and the
     operator API's ``verdify_alert_open`` gauge pages the critical ones through
-    Alertmanager (#1352). The monitor posts nowhere. A supplied scope restricts both
-    input envelopes and existing open rows to one synthetic component key.
+    Alertmanager (#1352). The monitor posts nowhere.
     Open alerts whose type is in ``preserve_open_types`` stay open when their
     producer's state is unknown this cycle; they are neither refreshed nor resolved.
 
-    The unscoped monitor call also runs the probe-offline lifecycle (VD-72,
+    The monitor also runs the probe-offline lifecycle (VD-72,
     Round 2b C): every soil_sensor_offline key and every sensor_offline key but
     the forecast feed keeps one row. ``keep_open_keys`` stay open although not
     raised this cycle (a silent soil probe at night); an open row of an
@@ -3788,21 +3692,11 @@ async def _sync_monitor_alerts(
     A ``refresh_only_keys`` envelope (the leak alert after its flag cleared)
     only refreshes its open row and is never inserted.
 
-    ``silences`` (the unscoped monitor's alert_silence rows, migration 289): a key
+    ``silences`` (the monitor's alert_silence rows, migration 289): a key
     one holds at ``now`` is not raised, its open row closes as suppressed with a
     resolution naming the silence and its expiry, and a long-offline mark stays.
     After the silence's ``until`` the rules apply again. leak_detected is never held.
     """
-    # Validate the complete scope before the first database mutation.
-    if scope is not None:
-        if not isinstance(scope_greenhouse_id, str) or not scope_greenhouse_id.startswith("synthetic-"):
-            raise ValueError("explicit_synthetic_greenhouse_required")
-        if len(alerts) > 1 or any((a["alert_type"], a["sensor_id"]) != scope for a in alerts):
-            raise ValueError("component_alert_scope_mismatch")
-        if keep_open_keys or unpotted_keys or refresh_only_keys or silences:
-            raise ValueError("lifecycle_keys_require_unscoped_monitor")
-    elif scope_greenhouse_id is not None:
-        raise ValueError("synthetic_greenhouse_requires_exact_alert_scope")
     if silences:
         # A silenced key is not raised this cycle (migration 289).
         now = now or datetime.now(UTC)
@@ -3817,30 +3711,12 @@ async def _sync_monitor_alerts(
     # dispatcher writes source='dispatcher') have their own lifecycle
     # — auto-resolving them here caused setpoint_unconfirmed to flap
     # open↔resolved every alert_monitor cycle.
-    # Only the unscoped monitor's probe-offline lifecycle (VD-72) also reads ts,
-    # category, message and details. A scoped component cycle keeps its exact
-    # column read: the containment qualification stores its alerts in an
-    # exact-column facade that has no ts.
-    open_columns = (
-        "id, ts, alert_type, severity, category, sensor_id, message, details, disposition"
-        if scope is None
-        else "id, alert_type, severity, sensor_id, disposition"
-    )
-    open_query = (
-        f"SELECT {open_columns} FROM alert_log "
+    # The probe-offline lifecycle (VD-72) also reads ts, category, message and details.
+    open_rows = await conn.fetch(
+        "SELECT id, ts, alert_type, severity, category, sensor_id, message, details, disposition FROM alert_log "
         "WHERE disposition IN ('open', 'acknowledged') AND resolved_at IS NULL AND source = 'system'"
     )
-    if scope is None:
-        open_rows = await conn.fetch(open_query)
-    else:
-        open_rows = await conn.fetch(open_query + " AND alert_type=$1 AND sensor_id=$2", *scope)
-        if len(open_rows) > 1 or any((r["alert_type"], r["sensor_id"]) != scope for r in open_rows):
-            raise ValueError("component_open_alert_scope_mismatch")
     open_keys = {(r["alert_type"], r["sensor_id"]): r for r in open_rows}
-    if not component_status_available:
-        # A missing/denied status function is unknown state, never evidence
-        # that a previously actionable experiment condition recovered.
-        active_keys.update(key for key in open_keys if key[0] == "component_experiment_integrity")
     active_keys.update(key for key in open_keys if key[0] in preserve_open_types)
 
     new_count = 0
@@ -3881,61 +3757,57 @@ async def _sync_monitor_alerts(
                 await close(row, "suppressed", _silence_resolution(silence))
                 del open_keys[key]
 
-    # VD-72 probe-offline lifecycle, unscoped monitor only: a scoped component
-    # cycle keeps its exact path and issues no extra alert_log read.
+    # VD-72 probe-offline lifecycle.
     long_offline_keys = set()
     newest_probe_rows = {}
-    if scope is None:
-        now = now or datetime.now(UTC)
-        cutoff = now - _td(days=PROBE_OFFLINE_RESOLVE_DAYS)
-        # 1. Long offline: a probe still offline (raised, or kept open at
-        # night) whose row was last raised before the period resolves, marked
-        # long_offline so the failure it keeps reporting writes nothing.
-        for key, row in list(open_keys.items()):
-            if not _probe_offline_key(key) or _legacy_soil_column_key(key):
-                continue
-            if key in unpotted_keys or (key not in active_keys and key not in kept_keys):
-                continue
-            if _probe_last_seen(row) >= cutoff:
-                continue
-            disposition, resolution = _auto_close_disposition(
-                row["alert_type"],
-                row["disposition"],
-                f"auto-resolved: probe offline longer than {PROBE_OFFLINE_RESOLVE_DAYS} days",
-            )
-            await close(row, disposition, resolution, _probe_row_details(row, long_offline=True))
-            del open_keys[key]
-            long_offline_keys.add(key)
-        # 3. (read) The newest row of every raised probe key without an open row.
-        lookup = sorted(
-            key
-            for key in active_keys
-            if _probe_offline_key(key) and key not in open_keys and key not in long_offline_keys
+    now = now or datetime.now(UTC)
+    cutoff = now - _td(days=PROBE_OFFLINE_RESOLVE_DAYS)
+    # 1. Long offline: a probe still offline (raised, or kept open at
+    # night) whose row was last raised before the period resolves, marked
+    # long_offline so the failure it keeps reporting writes nothing.
+    for key, row in list(open_keys.items()):
+        if not _probe_offline_key(key) or _legacy_soil_column_key(key):
+            continue
+        if key in unpotted_keys or (key not in active_keys and key not in kept_keys):
+            continue
+        if _probe_last_seen(row) >= cutoff:
+            continue
+        disposition, resolution = _auto_close_disposition(
+            row["alert_type"],
+            row["disposition"],
+            f"auto-resolved: probe offline longer than {PROBE_OFFLINE_RESOLVE_DAYS} days",
         )
-        if lookup:
-            for r in await conn.fetch(
-                """
-                SELECT k.alert_type, k.sensor_id, r.id, r.details, r.acknowledged_at,
-                       r.resolved_at, r.resolved_by
-                  FROM unnest($1::text[], $2::text[]) AS k(alert_type, sensor_id)
-                 CROSS JOIN LATERAL (
-                       SELECT a.id, a.details, a.acknowledged_at, a.resolved_at, a.resolved_by
-                         FROM alert_log a
-                        WHERE a.source = 'system'
-                          AND a.alert_type = k.alert_type
-                          AND a.sensor_id = k.sensor_id
-                        ORDER BY a.ts DESC, a.id DESC
-                        LIMIT 1
-                 ) r
-                """,
-                [key[0] for key in lookup],
-                [key[1] for key in lookup],
-            ):
-                newest_probe_rows[(r["alert_type"], r["sensor_id"])] = r
+        await close(row, disposition, resolution, _probe_row_details(row, long_offline=True))
+        del open_keys[key]
+        long_offline_keys.add(key)
+    # 3. (read) The newest row of every raised probe key without an open row.
+    lookup = sorted(
+        key for key in active_keys if _probe_offline_key(key) and key not in open_keys and key not in long_offline_keys
+    )
+    if lookup:
+        for r in await conn.fetch(
+            """
+            SELECT k.alert_type, k.sensor_id, r.id, r.details, r.acknowledged_at,
+                   r.resolved_at, r.resolved_by
+              FROM unnest($1::text[], $2::text[]) AS k(alert_type, sensor_id)
+             CROSS JOIN LATERAL (
+                   SELECT a.id, a.details, a.acknowledged_at, a.resolved_at, a.resolved_by
+                     FROM alert_log a
+                    WHERE a.source = 'system'
+                      AND a.alert_type = k.alert_type
+                      AND a.sensor_id = k.sensor_id
+                    ORDER BY a.ts DESC, a.id DESC
+                    LIMIT 1
+             ) r
+            """,
+            [key[0] for key in lookup],
+            [key[1] for key in lookup],
+        ):
+            newest_probe_rows[(r["alert_type"], r["sensor_id"])] = r
 
     for a in alerts:
         key = (a["alert_type"], a["sensor_id"])
-        probe = scope is None and _probe_offline_key(key)
+        probe = _probe_offline_key(key)
         if key in open_keys:
             existing = open_keys[key]
             if probe:
@@ -3948,8 +3820,6 @@ async def _sync_monitor_alerts(
             try:
                 env = AlertEnvelope.model_validate(a)
             except ValidationError as e:
-                if scope is not None:
-                    raise ValueError("component_alert_validation_failed") from e
                 # Fail LOUD (2026-07-11 audit): schema drift froze open-alert
                 # context silently. Refresh with a fallback envelope that
                 # preserves the original severity so drift is visible.
@@ -3977,7 +3847,7 @@ async def _sync_monitor_alerts(
             # reaches the dashboard and the verdify_alert_open gauge directly.
             if is_escalation:
                 escalated_count += 1
-                if scope is None and existing["disposition"] == "acknowledged":
+                if existing["disposition"] == "acknowledged":
                     # The gauge pages only rows with disposition open: an acknowledged warning that turns
                     # critical opens again, so it pages (#1636). acknowledged_at stays as the record.
                     await conn.execute("UPDATE alert_log SET disposition = $2 WHERE id = $1", existing["id"], "open")
@@ -4005,8 +3875,6 @@ async def _sync_monitor_alerts(
         try:
             env = AlertEnvelope.model_validate(a)
         except ValidationError as e:
-            if scope is not None:
-                raise ValueError("component_alert_validation_failed") from e
             # Fail LOUD (2026-07-11 audit): the planner_required_plan_missed
             # CRITICALs of 2026-07-10/11 were dropped here as log lines. A
             # fallback row with the ORIGINAL severity still lands and pages.
@@ -4036,13 +3904,8 @@ async def _sync_monitor_alerts(
             )
             reopened += 1
             continue
-        insert_sql = "INSERT INTO alert_log (alert_type, severity, category, sensor_id, zone, message, details, source, metric_value, threshold_value) VALUES ($1,$2,$3,$4,$5,$6,$7,'system',$8,$9)"
-        extra_values = ()
-        if scope is not None:
-            insert_sql = "INSERT INTO alert_log (alert_type, severity, category, sensor_id, zone, message, details, source, metric_value, threshold_value, greenhouse_id) VALUES ($1,$2,$3,$4,$5,$6,$7,'system',$8,$9,$10)"
-            extra_values = (scope_greenhouse_id,)
         await conn.execute(
-            insert_sql,
+            "INSERT INTO alert_log (alert_type, severity, category, sensor_id, zone, message, details, source, metric_value, threshold_value) VALUES ($1,$2,$3,$4,$5,$6,$7,'system',$8,$9)",
             env.alert_type,
             env.severity,
             env.category,
@@ -4052,7 +3915,6 @@ async def _sync_monitor_alerts(
             json.dumps(env.details) if env.details else None,
             env.metric_value,
             env.threshold_value,
-            *extra_values,
         )
         new_count += 1
 
@@ -4064,7 +3926,7 @@ async def _sync_monitor_alerts(
             # Only a person or agent resolve closes the leak alert (US-WAT-18, J6).
             continue
         resolution = "auto-resolved"
-        if scope is None and _probe_offline_key(key):
+        if _probe_offline_key(key):
             if key in kept_keys:
                 continue
             # 4. Open but neither raised nor kept open.
@@ -4077,28 +3939,25 @@ async def _sync_monitor_alerts(
             else:
                 resolution = "auto-resolved: probe reporting again"
         disposition, resolution = _auto_close_disposition(row["alert_type"], row["disposition"], resolution)
-        if key[0] == "component_experiment_integrity" and key[1] in component_closure_resolutions:
-            disposition, resolution = "resolved", component_closure_resolutions[key[1]]
         await close(row, disposition, resolution)
 
-    if scope is None:
-        # 5. Return: a long-offline row whose probe reports again loses the
-        # mark, so the probe's next failure re-opens that row (step 3).
-        for row in await conn.fetch(
-            "SELECT id, alert_type, severity, category, sensor_id, message, details FROM alert_log "
-            "WHERE source = 'system' AND alert_type = ANY($1::text[]) AND resolved_at IS NOT NULL "
-            "AND details @> '{\"long_offline\": true}'::jsonb",
-            sorted(PROBE_OFFLINE_ALERT_TYPES),
-        ):
-            key = (row["alert_type"], row["sensor_id"])
-            if not _probe_offline_key(key) or key in active_keys or key in kept_keys:
-                continue
-            if silences and _alert_silence(silences, key, now) is not None:
-                # Held back, not reporting again: the mark stays until the silence ends.
-                continue
-            details = _probe_row_details(row, long_offline=False)
-            if details is not None:
-                await conn.execute("UPDATE alert_log SET details = $2::jsonb WHERE id = $1", row["id"], details)
+    # 5. Return: a long-offline row whose probe reports again loses the
+    # mark, so the probe's next failure re-opens that row (step 3).
+    for row in await conn.fetch(
+        "SELECT id, alert_type, severity, category, sensor_id, message, details FROM alert_log "
+        "WHERE source = 'system' AND alert_type = ANY($1::text[]) AND resolved_at IS NOT NULL "
+        "AND details @> '{\"long_offline\": true}'::jsonb",
+        sorted(PROBE_OFFLINE_ALERT_TYPES),
+    ):
+        key = (row["alert_type"], row["sensor_id"])
+        if not _probe_offline_key(key) or key in active_keys or key in kept_keys:
+            continue
+        if silences and _alert_silence(silences, key, now) is not None:
+            # Held back, not reporting again: the mark stays until the silence ends.
+            continue
+        details = _probe_row_details(row, long_offline=False)
+        if details is not None:
+            await conn.execute("UPDATE alert_log SET details = $2::jsonb WHERE id = $1", row["id"], details)
 
     if new_count or resolved or suppressed or escalated_count or reopened:
         log.info(
@@ -4109,41 +3968,5 @@ async def _sync_monitor_alerts(
             escalated_count,
             reopened,
         )
-    # The component qualification compares this exact shape; re-opens are logged only.
+    # Re-opens are logged only.
     return {"new": new_count, "escalated": escalated_count, "resolved": resolved, "suppressed": suppressed}
-
-
-async def component_experiment_alert_cycle(conn, experiment_id, *, greenhouse_id):
-    """One component-only cycle using the production producer and sync path.
-
-    The caller owns native target/role admission and transaction lifetime.
-    No ordinary greenhouse evaluator or planner SLA refresh runs here. The
-    only delivery is the scoped alert_log row; nothing is posted anywhere.
-    """
-    from uuid import UUID
-
-    experiment_id = str(UUID(str(experiment_id)))
-    if not isinstance(greenhouse_id, str) or not greenhouse_id.startswith("synthetic-"):
-        raise ValueError("explicit_synthetic_greenhouse_required")
-    rows = await conn.fetch(
-        "SELECT experiment_id, lifecycle_status, execution_phase, admission_state, "
-        "operation_kind, observation_age_seconds, observation_truth, open_exposure_count, "
-        "writer_generation, connection_generation, safety_state, outcomes_complete, "
-        "rollback_ready, alert_severity, alert_reason "
-        "FROM public.fn_experiment_v2_ops_status() WHERE experiment_id=$1::uuid",
-        experiment_id,
-    )
-    if len(rows) != 1 or str(rows[0]["experiment_id"]) != experiment_id:
-        raise ValueError("component_status_scope_mismatch")
-    row = rows[0]
-    envelope = _component_experiment_integrity_alert(row)
-    sensor = f"experiment.v2.{experiment_id}"
-    closure = _component_experiment_closure_resolution(row)
-    return await _sync_monitor_alerts(
-        conn,
-        [envelope] if envelope is not None else [],
-        component_status_available=True,
-        component_closure_resolutions={sensor: closure} if closure else {},
-        scope=("component_experiment_integrity", sensor),
-        scope_greenhouse_id=greenhouse_id,
-    )
