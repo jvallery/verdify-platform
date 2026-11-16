@@ -46,7 +46,7 @@ nothing below runs unless it is named. All of them take `--expected-web-sha`.
 | Run | As | What it writes | Needs | Release |
 |---|---|---|---|---|
 | `scripts/dashboard-smoke.sh --sweep` | viewer | its session rows, deleted | | #1181, #1186 |
-| `scripts/dashboard-smoke.sh --agent-write <name> [--param <setting>]` | agent `<name>` | one grid step, released at once; one Job, deleted | key `<name>` in Secret `verdify-mcp-agents` | #1144 |
+| `scripts/dashboard-smoke.sh --agent-write <name> [--param <switch>]` | agent `<name>` | `sw_gl_grow_out_of_service` (default) or `sw_gl_main_out_of_service` from 0 to 1 only (an agent sets only operator switches), released at once; one Job, deleted | key `<name>` in Secret `verdify-mcp-agents` | #1144 |
 | `scripts/dashboard-smoke.sh --role operator [--param <setting>]` | `dashboard-smoke` operator | one grid step, manual, released | `writes_enabled: true` | #1144 |
 | `scripts/dashboard-smoke.sh --role operator --revert [--param <setting>]` | `dashboard-smoke` operator | three writes within one grid step, manual, released | `writes_enabled: true` | #1186 |
 | `scripts/dashboard-smoke.sh --role operator --lights` | `dashboard-smoke` operator | **switches the main light once each way**; `sw_gl_main_auto_mode` 1, released | `writes_enabled: true` | #1186 |
