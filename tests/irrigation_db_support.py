@@ -103,6 +103,19 @@ def base_schema_sql() -> str:
     return "\n".join(sections[(name, kind, "public")] for name, kind in BASE_OBJECTS)
 
 
+GAP_LEDGER_MIGRATION = REPO_ROOT / "db" / "migrations" / "314-controller-health-and-gap-ledger.sql"
+
+
+def gap_ledger_sql(*, grants: bool = True) -> str:
+    """314's gap-replay ledger and v_data_gaps_unreplayed, taken from the delivered file (verdify_services.series.
+    GAPS_SQL reads the view). Needs public.data_gaps; with ``grants`` also the ingestor and dashboard duties."""
+    body = migration_body(GAP_LEDGER_MIGRATION)
+    start = body.index("CREATE TABLE public.gap_replay_quarters (")
+    last = "GRANT SELECT ON public.v_data_gaps_unreplayed TO verdify_dashboard_runtime;"
+    sql = body[start : body.index(last) + len(last)]
+    return sql if grants else re.sub(r"^GRANT [^;]*;\n?", "", sql, flags=re.M)
+
+
 def migration_body(path: Path = MINUTES_MIGRATION) -> str:
     """The statements between a delivered file's predecessor and successor blocks."""
     text = path.read_text()

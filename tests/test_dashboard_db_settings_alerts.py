@@ -177,8 +177,10 @@ def test_iris_s_plan_value_taken_manual_and_the_manual_rule(dsn):
             "VALUES (now() - interval '1 hour', 'mister_engage_delay_s', 48.75, 'iris-oneshot-vd67', 'iris', "
             "now() - interval '1 hour')",
         )
+        # Climate refactor 4.2 (#1692): no plan row is in force, so a leftover plan value is no reason to keep an
+        # off-grid write; 48.75 snaps to the 30 s grid like any other value.
         taken = (await settings.write(mcp, PERSON, "mister_engage_delay_s", 48.75, True, None, None)).value
-        assert (taken.value, taken.snapped_from, taken.manual) == (48.75, None, True)
+        assert (taken.value, taken.snapped_from, taken.manual) == (60.0, 48.75, True)
         status = await settings.status(mcp, "mister_engage_delay_s")
         assert (status.applied_from, status.desired.id) == ("manual", taken.id)
 

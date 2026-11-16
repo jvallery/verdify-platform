@@ -1242,7 +1242,7 @@ def check_range(param: str, value: float) -> float:
 
 def _snap(spec: TunableDef, number: float, facts: _Facts) -> float:
     """§5.3 step 4: the registry step, half to even; a value equal (within its binary32 ULP) to the value in
-    force or the device value is stored as is, so taking Iris's 48.75 manual keeps 48.75."""
+    force or the device value is stored as is. No plan row is in force since climate refactor 4.2."""
     in_force = resolve_effective(_writable_desired(spec.name, facts.desired), facts.plan)
     candidates = [
         in_force.value if in_force is not None else (_finite(facts.plan["value"]) if facts.plan is not None else None),

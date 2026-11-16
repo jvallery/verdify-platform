@@ -16,6 +16,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
+import irrigation_db_support as support
 import pytest
 from test_dashboard_db_284 import DSN, LOGIN, connect, install, run
 
@@ -178,6 +179,13 @@ async def _prepare() -> World:
     await install()
     conn = await connect()
     try:
+        # 314's ledger and view, which the series reads use for outages (after 284, which test_dashboard_db_284
+        # checks grant by grant; this adds only the view's SELECT for the dashboard).
+        await conn.execute("SET ROLE verdify")
+        try:
+            await conn.execute(support.gap_ledger_sql())
+        finally:
+            await conn.execute("RESET ROLE")
         for table in CLEARED:
             await conn.execute(f"DELETE FROM {table}")
         now = await conn.fetchval("SELECT now()")
