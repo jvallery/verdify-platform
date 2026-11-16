@@ -142,10 +142,9 @@ globals:
     restore_value: no
     initial_value: '0.30'
 
-  # Dispatcher legacy fallback band fields. controls.yaml references
-  # id(target_vpd_low)/id(target_vpd_high) directly (alongside the _kpa
-  # twins) as the SV2 VPD band inputs. restore_value: no — the on-chip band
-  # curve / dispatcher reasserts them every cycle.
+  # Legacy fallback band fields: unread since phase 3 (RULINGS T6 F1, X5 P9);
+  # the pushed-scalar band reads the _kpa twins. Nothing writes them either;
+  # package 4.3 removes them.
   - id: target_vpd_low
     type: float
     restore_value: no

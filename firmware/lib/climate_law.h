@@ -536,7 +536,7 @@ inline LegacyState legacy_state(const LegacyInputs& in) noexcept {
     if (in.heat1_on || in.heat2_on) return {IDLE, MIST_WATCH, CLIMATE_HEAT, CLIMATE_PRIORITY_TEMP};
     const Band& b = in.band;
     const bool temp_out = !(in.T >= b.low && in.T <= b.high);
-    const bool vpd_out = !(in.vpd >= b.vpd_low && in.vpd <= b.vpd_high);
+    const bool vpd_out = std::isfinite(in.vpd) && !(in.vpd >= b.vpd_low && in.vpd <= b.vpd_high);  // X5 P4
     return {IDLE, MIST_WATCH, CLIMATE_IDLE,
             temp_out ? CLIMATE_PRIORITY_TEMP : (vpd_out ? CLIMATE_PRIORITY_VPD : CLIMATE_PRIORITY_RESOURCE)};
 }

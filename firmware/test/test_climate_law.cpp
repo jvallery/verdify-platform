@@ -610,14 +610,14 @@ struct GluePass {
   L::State s;
   L::RelayState r = after_boot_wait();
   RelayOutputs phys{false, false, false, false, false, false};
-  bool fans_latched = false, bypass_latched = false;
+  uint32_t fans_until_ms = 0, bypass_until_ms = 0;  // the controller's latch deadlines (0 = not latched)
   int vent_edges = 0;
   void run(double T) {
     L::Inputs u = base_inputs(T, 1.0);
     const L::Output law = L::step_checked(s, u, nullptr);
-    if (L::protection_clears_latches(law)) fans_latched = bypass_latched = false;
+    L::clear_latches_at_protection(law, fans_until_ms, bypass_until_ms);  // X4: the controller's own call
     const Mode mode = law.hot ? SAFETY_COOL : law.cold ? SAFETY_HEAT : IDLE;
-    const ManualOverrides ov{fans_latched, bypass_latched, false, false};
+    const ManualOverrides ov{fans_until_ms != 0, bypass_until_ms != 0, false, false};
     const L::RelayPass p = L::relay_pass(r, law, L::RelayInputs{0, 0, false, 1000}, phys, ov, mode);
     if (p.out.vent != phys.vent) ++vent_edges;
     phys = p.out;
@@ -628,7 +628,7 @@ struct GluePass {
 static void protection_clears_overrides() {
   {
     GluePass g;
-    g.fans_latched = true;
+    g.fans_until_ms = 600000;
     for (int i = 0; i < 30; ++i) g.run(41.0);  // FANS latched in a cold house: vent and both fans forced
     CHECK(g.phys.vent && g.phys.fan1 && g.phys.fan2 && !g.phys.heat2, "T1 setup: FANS forces the air at 41 F");
     g.vent_edges = 0;
@@ -639,18 +639,18 @@ static void protection_clears_overrides() {
       else if (furnace_started) furnace_dropped = true;
       CHECK(!(g.phys.heat2 && (g.phys.vent || g.phys.fan1 || g.phys.fan2)), "T1: furnace never with the air");
     }
-    CHECK(!g.fans_latched, "T1: the FANS latch is cleared at 40 F");
+    CHECK(g.fans_until_ms == 0, "T1: the FANS latch is cleared at 40 F");
     CHECK(g.vent_edges <= 1, "T1: at most one vent edge across a 40.0/40.1 dither with FANS latched");
     CHECK(furnace_started && !furnace_dropped, "T1: the furnace starts and stays on");
   }
   {
     GluePass g;
-    g.bypass_latched = true;
+    g.bypass_until_ms = 600000;
     for (int i = 0; i < 30; ++i) g.run(SAFETY_MAX_F - 1.0);  // VENT-BYPASS: fans with the vent closed
     CHECK(!g.phys.vent && g.phys.fan1 && g.phys.fan2, "T1 setup: VENT-BYPASS runs the fans with the vent closed");
     g.vent_edges = 0;
     for (int i = 0; i < 600; ++i) g.run(i % 2 ? SAFETY_MAX_F : SAFETY_MAX_F - 0.1);
-    CHECK(!g.bypass_latched, "T1: the VENT-BYPASS latch is cleared at 100 F");
+    CHECK(g.bypass_until_ms == 0, "T1: the VENT-BYPASS latch is cleared at 100 F");
     CHECK(g.vent_edges <= 1, "T1: at most one vent edge across a 99.9/100.0 dither with VENT-BYPASS latched");
     CHECK(g.phys.vent && g.phys.fan1 && g.phys.fan2, "T1: vent open and both fans on after the clear");
   }
@@ -702,12 +702,11 @@ static void law_decision_telemetry() {
   in.vpd_kpa = 1.6f;
   Setpoints sp{};
   sp.temp_low = 65.0f; sp.temp_high = 80.0f; sp.vpd_low = 0.8f; sp.vpd_high = 1.25f;
-  const ControlState st = initial_state();
   L::LegacyInputs li{};
   li.T = 75.0; li.vpd = 1.6; li.band = kBand;
   L::Output law{};
   auto decide = [&](const L::LegacyInputs& x, bool boot) {
-    return L::describe_law_decision(L::published_label(L::legacy_state(x), boot), in, sp, st, law, kBand, true,
+    return L::describe_law_decision(L::published_label(L::legacy_state(x), boot), in, sp, law, kBand, true,
                                     "served");
   };
   li.vent_on = true; li.fog_on = true;
@@ -731,11 +730,65 @@ static void law_decision_telemetry() {
   CHECK(std::strcmp(d.moisture_exchange_action, "vent_dehum") == 0, "T3: moisture exchange = the drying run");
   CHECK(d.moisture_outdoor_fresh, "T3: of = the law's outdoor validity");
   law = L::Output{}; law.dry_refusal = L::DRY_NO_OUTDOOR;
-  d = L::describe_law_decision(L::LegacyState{IDLE, MIST_WATCH, CLIMATE_IDLE, CLIMATE_PRIORITY_VPD}, in, sp, st, law,
+  d = L::describe_law_decision(L::LegacyState{IDLE, MIST_WATCH, CLIMATE_IDLE, CLIMATE_PRIORITY_VPD}, in, sp, law,
                                kBand, false, "relay_min_off");
   CHECK(std::strcmp(d.moisture_exchange_action, "none") == 0 && std::strcmp(d.moisture_exchange_reason, "no_outdoor") == 0,
         "T3: no run: a = none, r = the law's refusal");
   CHECK(std::strcmp(d.fog_block_reason, "relay_min_off") == 0, "T3: the ladder's other words pass through");
+  // X4: the clear reports whether it cleared, so the controller logs once
+  {
+    uint32_t f = 5000, b = 0;
+    L::Output hot{};
+    hot.hot = true;
+    CHECK(L::clear_latches_at_protection(hot, f, b) && f == 0, "X4: clears a set latch and says so");
+    CHECK(!L::clear_latches_at_protection(hot, f, b), "X4: nothing to clear, nothing to log");
+    f = 5000;
+    CHECK(!L::clear_latches_at_protection(L::Output{}, f, b) && f == 5000, "X4: inside the limits the latch stays");
+  }
+  // X1: the moisture assist state from the law and mister_step (four states)
+  {
+    L::MisterState m{};
+    L::MoistureAssist a = L::moisture_assist(true, true, "west", m);
+    CHECK(std::strcmp(a.state, "pulse_on") == 0 && std::strcmp(a.zone, "west") == 0 && a.next_mist_s == 0.0f,
+          "X1: a mister relay on is pulse_on in its zone, next 0");
+    m.phase = L::MISTER_GAP;
+    m.timer_ms = 42000;
+    a = L::moisture_assist(true, false, "none", m);
+    CHECK(std::strcmp(a.state, "pulse_gap") == 0 && std::strcmp(a.zone, "none") == 0 && a.next_mist_s == 42.0f,
+          "X1: the law misting in the gap is pulse_gap, next = the gap left");
+    m.phase = L::MISTER_IDLE;
+    a = L::moisture_assist(true, false, "none", m);
+    CHECK(std::strcmp(a.state, "blocked") == 0 && a.next_mist_s == -1.0f, "X1: the law misting, nothing open: blocked");
+    a = L::moisture_assist(false, false, "none", m);
+    CHECK(std::strcmp(a.state, "inactive") == 0 && std::strcmp(a.zone, "none") == 0 && a.next_mist_s == -1.0f,
+          "X1: no mist request: inactive");
+  }
+  // X6: vent_mist_assist_status keyed on the label
+  {
+    L::LegacyInputs x{};
+    x.T = 75.0; x.vpd = 1.6; x.band = kBand; x.vent_on = true; x.fog_on = true;
+    L::Output q{};
+    q.fog = true;
+    CHECK(L::vent_assist_status(L::legacy_state(x), true, q, true) == L::VentAssistStatus::kServed, "X6: served");
+    x.fog_on = false;
+    CHECK(L::vent_assist_status(L::legacy_state(x), true, q, false) == L::VentAssistStatus::kBlocked,
+          "X6: vent open, wet request, nothing wet on: blocked");
+    CHECK(L::vent_assist_status(L::legacy_state(x), true, L::Output{}, false) == L::VentAssistStatus::kInactive,
+          "X6: no wet request: inactive");
+  }
+  // P8: the state record's publish decision
+  CHECK(!L::law_record_due(true, false, true, 100000, 0), "P8: nothing in the boot grace");
+  CHECK(L::law_record_due(false, false, false, 100000, 0), "P8: the first record");
+  CHECK(!L::law_record_due(false, true, true, 104999, 100000), "P8: a change waits 5 s");
+  CHECK(L::law_record_due(false, true, true, 105000, 100000), "P8: a change after 5 s");
+  CHECK(!L::law_record_due(false, true, false, 159999, 100000), "P8: unchanged waits the heartbeat");
+  CHECK(L::law_record_due(false, true, false, 160000, 100000), "P8: the 60 s heartbeat");
+  // X5 P4: no vpd axis without a finite VPD
+  {
+    L::LegacyInputs x{};
+    x.T = 70.0; x.vpd = NAN; x.band = kBand;
+    CHECK(L::legacy_state(x).axis == CLIMATE_PRIORITY_RESOURCE, "P4: no 'vpd' axis when the VPD is not finite");
+  }
 }
 
 static void band_check() {

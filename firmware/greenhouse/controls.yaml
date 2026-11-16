@@ -708,6 +708,15 @@ interval:
           // T6 S4/F6/I4/E-m3: every consumer of the band reads the band the law acted on
           // (check_band() repaired), not the raw edges.
           const climate_law::Band law_band = climate_law::check_band(law_in.band).band;
+          // X5 (P2): the published consumed band, targets, deltas and climate errors are the
+          // band the law used: its edges into setpts (telemetry only from here on), targets
+          // kept inside them.
+          setpts.temp_low = float(law_band.low);
+          setpts.temp_high = float(law_band.high);
+          setpts.vpd_low = float(law_band.vpd_low);
+          setpts.vpd_high = float(law_band.vpd_high);
+          setpts.temp_target = std::min(std::max(setpts.temp_target, setpts.temp_low), setpts.temp_high);
+          setpts.vpd_target = std::min(std::max(setpts.vpd_target, setpts.vpd_low), setpts.vpd_high);
           Mode mode = boot_wait ? IDLE
               : !law_temp_valid ? SENSOR_FAULT
               : law.hot ? SAFETY_COOL
@@ -719,11 +728,10 @@ interval:
           // RULINGS T1: at a protection limit (100 F, 40 F) the FANS and VENT-BYPASS
           // latches are cleared, before the latch booleans below, so the override and
           // the protection never fight at a limit crossing. Logged once per clear.
-          if (climate_law::protection_clears_latches(law)
-              && (id(manual_fans_until_ms) != 0 || id(vent_bypass_until_ms) != 0)) {
+          // X4: the clear is climate_law::clear_latches_at_protection() (lib/climate_law_glue.h),
+          // the function the host tests drive.
+          if (climate_law::clear_latches_at_protection(law, id(manual_fans_until_ms), id(vent_bypass_until_ms))) {
             ESP_LOGW("manual", "Protection limit %s: FANS / VENT-BYPASS latch cleared", law.hot ? "hot" : "cold");
-            id(manual_fans_until_ms) = 0;
-            id(vent_bypass_until_ms) = 0;
           }
           climate_law::Output law_request = law;
           // The request as a relay table (lead fan first), for the consumers that read one.
@@ -1032,6 +1040,8 @@ interval:
           // Stages: S1 (single zone) → S2 (all zones rotating) → FOG (escalation)
           char moisture_block_reason[96] = "none";
           char direct_wet_zone_mask[48] = "unknown";
+          // X1: the mister train as mister_step() left it this pass, for the assist telemetry (section 14).
+          climate_law::MisterState mister_law_now{};
           {
             // F8: zone choice takes each zone's VPD from these locals (own → peers →
             // house), never a stale held VPD; *_temp below still reads the raw probe.
@@ -1188,6 +1198,7 @@ interval:
                 ESP_LOGI("mister", "MANIFOLD-HOLD zone=%d", legacy_zone);
               }
             }
+            mister_law_now = mister_law;
             // Telemetry globals: 1 while a pulse train runs (pulse or gap), else 0.
             id(mister_state) = mister_law.phase == climate_law::MISTER_IDLE ? 0 : 1;
             id(mister_pulse_timer_ms) = mister_law.timer_ms;
@@ -1331,10 +1342,8 @@ interval:
                                              law_band_repaired, law_band);
             // T6 F8/C-m1: nothing during the boot grace (the law has no temperature yet).
             // T6 C-m7: on a change at most every 5 s, and the 60 s heartbeat; never every second.
-            const bool record_changed = strcmp(key, law_record_key) != 0;
-            if (!boot_wait
-                && (!law_record_sent || (record_changed && now_ms - law_record_ms >= 5000UL)
-                    || now_ms - law_record_ms >= 60000UL)) {
+            if (climate_law::law_record_due(boot_wait, law_record_sent, strcmp(key, law_record_key) != 0, now_ms,
+                                            law_record_ms)) {
               climate_law::format_state_record(law_record, sizeof(law_record), law_state, law,
                                                law_in.dry_cost_limit, law_band_repaired, law_band);
               id(gh_climate_law_state).publish_state(law_record);
@@ -1377,62 +1386,24 @@ interval:
             // T3: the law's label, drying run and fog threshold (climate_law_glue.h), not the
             // mode machine's never-stepped ctl_state.
             ClimateActionDecision climate_decision = climate_law::describe_law_decision(
-                legacy, sensor_in, setpts, ctl_state, law, law_band, law_in.out_ok, fog_block_reason);
+                legacy, sensor_in, setpts, law, law_band, law_in.out_ok, fog_block_reason);
             const char* climate_action = CLIMATE_ACTION_NAMES[climate_decision.climate_action];
             const char* priority_axis = CLIMATE_PRIORITY_AXIS_NAMES[climate_decision.priority_axis];
-            const char* moisture_state = CLIMATE_MOISTURE_ASSIST_STATE_NAMES[climate_decision.moisture_assist_state];
-            const char* moisture_zone = CLIMATE_MOISTURE_ZONE_NAMES[climate_decision.moisture_zone];
-            const bool selected_wet_action =
-              climate_decision.climate_action == CLIMATE_VENT_COOL_MIST_ASSIST
-              || climate_decision.climate_action == CLIMATE_VENT_COOL_FOG_ASSIST
-              || climate_decision.climate_action == CLIMATE_SEALED_HUMIDIFY
-              || climate_decision.climate_action == CLIMATE_SEALED_FOG;
+            // X1 (P1): the assist state, zone and next mist come from the law and mister_step
+            // (climate_law::moisture_assist()), not the mode machine's state.
             const bool mister_relay_on =
               id(south_wall_mister).state
               || id(west_wall_mister).state
               || id(center_mister).state;
-            auto climate_zone_name = [](int zone) -> const char* {
-              if(zone == 1) return "south";
-              if(zone == 2) return "west";
-              if(zone == 3) return "center";
-              return "none";
-            };
-            const char* effective_moisture_state = moisture_state;
-            const char* effective_moisture_zone = moisture_zone;
-            float effective_next_mist_s = climate_decision.next_mist_eligible_s;
-
-            if(!selected_wet_action && VPD <= VPDhi) {
-              effective_moisture_state = "inactive";
-              effective_moisture_zone = "none";
-              effective_next_mist_s = -1.0f;
-            } else if(selected_wet_action && mister_relay_on && id(mister_pulse_zone) > 0) {
-              effective_moisture_state = "pulse_on";
-              effective_moisture_zone = climate_zone_name(id(mister_pulse_zone));
-              effective_next_mist_s = 0.0f;
-            } else if(selected_wet_action && id(mister_state) > 0 && id(mister_pulse_zone) == 0 && id(mister_pulse_timer_ms) > 0) {
-              effective_moisture_state = "pulse_gap";
-              effective_moisture_zone = "none";
-              effective_next_mist_s = float(id(mister_pulse_timer_ms)) / 1000.0f;
-            } else if(selected_wet_action && strcmp(moisture_block_reason, "served") == 0) {
-              effective_moisture_state = "pulse_on";
-              effective_moisture_zone = climate_zone_name(id(mister_pulse_zone));
-              effective_next_mist_s = 0.0f;
-            } else if(selected_wet_action && strcmp(moisture_block_reason, "pulse_gap") == 0) {
-              effective_moisture_state = "pulse_gap";
-              effective_moisture_zone = "none";
-              effective_next_mist_s = float(id(mister_pulse_timer_ms)) / 1000.0f;
-            } else if(selected_wet_action && strcmp(moisture_block_reason, "engage_delay") == 0) {
-              effective_moisture_state = "engage_delay";
-              effective_moisture_zone = "none";
-            } else if(selected_wet_action
-                      && strcmp(moisture_block_reason, "none") != 0
-                      && strcmp(moisture_block_reason, "no_vpd_demand") != 0) {
-              effective_moisture_state = "blocked";
-              effective_moisture_zone = "none";
-              effective_next_mist_s = -1.0f;
-            } else if(!mister_relay_on && id(mister_pulse_zone) == 0) {
-              effective_moisture_zone = "none";
-            }
+            const int pulse_zone = id(mister_pulse_zone);
+            const climate_law::MoistureAssist assist = climate_law::moisture_assist(
+                law.mist, mister_relay_on,
+                pulse_zone == 1 ? "south" : pulse_zone == 2 ? "west" : pulse_zone == 3 ? "center" : "none",
+                mister_law_now);
+            const char* effective_moisture_state = assist.state;
+            const char* effective_moisture_zone = assist.zone;
+            const float effective_next_mist_s = assist.next_mist_s;
+            climate_decision.next_mist_eligible_s = assist.next_mist_s;
             char temp_error[24];
             char vpd_error[24];
             char fog_margin[24];
@@ -1697,19 +1668,19 @@ interval:
 
           /*** AI-control diagnostics — requested vs served actuator paths ***/
           {
-            const bool vent_mist_served =
-                ctl_state.vent_mist_assist_active
-                && (id(fog_rly)->state
-                    || id(south_wall_mister).state
-                    || id(west_wall_mister).state
-                    || id(center_mister).state);
+            // X6 (P3): keyed on the published label and the law's wet request.
+            const bool wet_on = id(fog_rly)->state || id(south_wall_mister).state
+                || id(west_wall_mister).state || id(center_mister).state;
+            const climate_law::VentAssistStatus vent_assist =
+                climate_law::vent_assist_status(legacy, id(vent_rly)->state, law, wet_on);
             char vent_status[128];
-            if(!ctl_state.vent_mist_assist_active) {
-              snprintf(vent_status, sizeof(vent_status), "inactive");
-            } else if(vent_mist_served) {
+            if(vent_assist == climate_law::VentAssistStatus::kServed) {
               snprintf(vent_status, sizeof(vent_status), "served");
+            } else if(vent_assist == climate_law::VentAssistStatus::kBlocked) {
+              snprintf(vent_status, sizeof(vent_status), "blocked:%s",
+                       law.fog && !law.mist ? fog_block_reason : moisture_block_reason);
             } else {
-              snprintf(vent_status, sizeof(vent_status), "blocked:%s", moisture_block_reason);
+              snprintf(vent_status, sizeof(vent_status), "inactive");
             }
 
             static char last_moisture_block_reason[96] = "";
@@ -1989,8 +1960,10 @@ interval:
   # controller restarts, so at most once an hour (sensor_bus_restart_due(),
   # lib/running_alone.h; unsigned millisecond arithmetic, wrap-safe).
   # Doubly blind (no valid indoor temperature and no outdoor reading; RULINGS
-  # Q2): restart after 10 minutes the first time, then every 60 minutes while
-  # it lasts (doubly_blind_restart_step()). Every relay is already off then.
+  # Q2, U1): restart after 10 minutes the first time, then every 60 minutes while
+  # it lasts (doubly_blind_restart_step()); the 10-minute window comes back only
+  # after 60 minutes of readings (X2), and never while water runs (X3). Every
+  # climate relay is already off then.
   # Both restarts go through App.safe_reboot() (RULINGS Q1), which runs
   # on_shutdown and saves the relay counters; esp_restart() skipped it.
   ################################################################################
@@ -2001,7 +1974,17 @@ interval:
           const int8_t blind = id(doubly_blind_state);
           const uint32_t blind_window_ms =
               id(doubly_blind_restarted) ? DOUBLY_BLIND_REPEAT_RESTART_MS : DOUBLY_BLIND_FIRST_RESTART_MS;
-          if (doubly_blind_restart_step(blind_restart, id(doubly_blind_restarted), blind >= 0, blind == 1, millis())) {
+          // X3: never while water runs: a wet relay open, or an irrigation run active
+          // (the engine's grants, a drip, a fog run-once); retried at the next tick.
+          const bool water_busy = id(fog_rly)->state || id(center_mister).state
+              || id(south_wall_mister).state || id(south_wall_mister_fertilized).state
+              || id(west_wall_mister).state || id(west_wall_mister_fertilized).state
+              || id(wall_drips).state || id(wall_drips_fertilized).state
+              || id(center_drips).state || id(center_drips_fertilized).state
+              || id(fertilizer_master_valve).state
+              || id(irr_grant_mask) != 0 || irr_drip_active() || irr_fog_run();
+          if (doubly_blind_restart_step(blind_restart, id(doubly_blind_restarted), blind >= 0, blind == 1, millis(),
+                                        water_busy)) {
             ESP_LOGE("watchdog", "No indoor temperature and no outdoor reading for more than %u s - restarting",
                      unsigned(blind_window_ms / 1000u));
             App.safe_reboot();

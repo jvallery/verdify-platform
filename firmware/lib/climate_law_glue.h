@@ -18,6 +18,15 @@ namespace climate_law {
 // the protection never fight at a limit crossing (the override is cleared at the limits, not merely ignored).
 inline bool protection_clears_latches(const Output& law) noexcept { return law.hot || law.cold; }
 
+// X4: the clear itself, on the controller's latch deadlines (millis() stamps, 0 = not latched). Returns true when it
+// cleared a latch that was set, so the caller logs once per clear.
+inline bool clear_latches_at_protection(const Output& law, uint32_t& fans_until_ms, uint32_t& bypass_until_ms) noexcept {
+    if (!protection_clears_latches(law) || (fans_until_ms == 0 && bypass_until_ms == 0)) return false;
+    fans_until_ms = 0;
+    bypass_until_ms = 0;
+    return true;
+}
+
 struct RelayPass {
     RelayOutputs out;   // what the drivers switch to this pass
     ManualForce force;  // what the override layer forced
@@ -69,9 +78,12 @@ inline const char* climate_fog_block_word(const char* ladder) noexcept {
 // exchange from the law's drying run (a = vent_dehum while it runs, r = its refusal, of = the law's outdoor
 // validity; the mode machine's projections publish their neutral values).
 inline ClimateActionDecision describe_law_decision(const LegacyState& label, const SensorInputs& in, const Setpoints& sp,
-                                                   const ControlState& state, const Output& law, const Band& band,
-                                                   bool out_ok, const char* fog_ladder_word) noexcept {
-    ClimateActionDecision d = describe_climate_decision_for_action(label.action, label.axis, in, sp, state);
+                                                   const Output& law, const Band& band, bool out_ok,
+                                                   const char* fog_ladder_word) noexcept {
+    // X1: no mode-machine state: the fields it fed (assist state, next mist, heat assist) are the law's below or
+    // published by the caller from moisture_assist().
+    const ControlState neutral = initial_state();  // on the stack: no static RAM (U3)
+    ClimateActionDecision d = describe_climate_decision_for_action(label.action, label.axis, in, sp, neutral);
     d.fog_margin_kpa = std::isfinite(in.vpd_kpa) ? float(in.vpd_kpa - (band.vpd_high + FOG_ON_ABOVE_VPD_HIGH_KPA))
                                                  : 0.0f;
     d.fog_block_reason = climate_fog_block_word(fog_ladder_word);
@@ -89,6 +101,45 @@ inline ClimateActionDecision describe_law_decision(const LegacyState& label, con
     d.moisture_heat_assist_active = false;
     d.moisture_heat_assist_timer_ms = 0;
     return d;
+}
+
+// X1 (P1): climate_moisture_assist_state, climate_moisture_zone and climate_next_mist_eligible_s from the law and
+// mister_step: a mister relay on is pulse_on in its zone, next 0; the law misting with the train in its gap is
+// pulse_gap, next = the gap left; the law misting otherwise (a hold, no grant, a minimum off time) is blocked; no
+// mist request is inactive. `zone` is the phase 2 telemetry name of the open line.
+struct MoistureAssist {
+    const char* state;
+    const char* zone;
+    float next_mist_s;  // -1 = none
+};
+inline MoistureAssist moisture_assist(bool law_mist, bool mister_on, const char* zone, const MisterState& m) noexcept {
+    if (mister_on) return {"pulse_on", zone, 0.0f};
+    if (law_mist && m.phase == MISTER_GAP) return {"pulse_gap", "none", float(m.timer_ms) / float(MS_PER_S)};
+    if (law_mist) return {"blocked", "none", -1.0f};
+    return {"inactive", "none", -1.0f};
+}
+
+// X6 (P3): vent_mist_assist_status keyed on the published label: an assist label (vent with fog or a mister on) is
+// served; the vent open with a wet request and nothing wet on is blocked (the caller appends the reason); else
+// inactive.
+enum class VentAssistStatus : uint8_t { kInactive, kServed, kBlocked };
+inline VentAssistStatus vent_assist_status(const LegacyState& label, bool vent_on, const Output& law,
+                                           bool wet_on) noexcept {
+    if (label.action == CLIMATE_VENT_COOL_FOG_ASSIST || label.action == CLIMATE_VENT_COOL_MIST_ASSIST)
+        return VentAssistStatus::kServed;
+    if (vent_on && (law.mist || law.fog) && !wet_on) return VentAssistStatus::kBlocked;
+    return VentAssistStatus::kInactive;
+}
+
+// X8/P8: the climate_law_state publish decision: nothing during the boot grace; the first record; a changed record
+// at most every 5 s; the 60 s heartbeat (an unchanged record still reaches the host).
+constexpr uint32_t LAW_RECORD_MIN_CHANGE_MS = 5000;
+constexpr uint32_t LAW_RECORD_HEARTBEAT_MS = 60000;
+inline bool law_record_due(bool boot_wait, bool sent, bool changed, uint32_t now_ms, uint32_t last_ms) noexcept {
+    if (boot_wait) return false;
+    if (!sent) return true;
+    const uint32_t age = now_ms - last_ms;
+    return (changed && age >= LAW_RECORD_MIN_CHANGE_MS) || age >= LAW_RECORD_HEARTBEAT_MS;
 }
 
 }  // namespace climate_law

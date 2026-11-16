@@ -1667,14 +1667,14 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 836,
+          "line": 844,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
         },
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 1266,
+          "line": 1277,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1787,7 +1787,7 @@
         },
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 1835,
+          "line": 1806,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
