@@ -335,7 +335,7 @@ SENS = [
     ("s_mist_at0.40", "Misters join at vpd_high+0.40, leave at +0.15"),
     ("law_mist0", "No misters"),
     ("law_mist1", "Centre mister only (today's membership)"),
-    ("s_no_fog_below_low", "No fog or mist below the low temperature edge"),
+    ("s_fog_below_low", "Fog and mist allowed below the low temperature edge (the guard removed)"),
     ("s_dry_exit0.15", "Drying exit 0.15 kPa above the low edge"),
     ("s_dry_on0.10", "Drying starts 0.10 kPa above the low edge"),
     ("s_dry_on0.00", "Drying starts at the low edge"),

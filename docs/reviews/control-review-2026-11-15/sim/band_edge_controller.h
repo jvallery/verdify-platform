@@ -35,6 +35,7 @@ struct EdgeConst {
   // ---- humidity axis, kPa relative to the band's VPD low and high edge
   double w_on = 0.0, w_off = 0.15;    // fog: on above vpd_high+w_on, off below vpd_high-w_off
   double m_on = 0.30, m_off = 0.05;   // misters join above vpd_high+m_on, leave below vpd_high+m_off
+  double wet_tmin = 0.0;              // no fog or mist while the house is below low+wet_tmin (a cold house is not wetted)
   double d_on = 0.05, d_off = 0.20;   // drying (vent + lead fan): on below vpd_low+d_on, off above vpd_low+d_off
   // ---- drying with outdoor air: where a run may start and where it stops
   double dt_start_gas = 1.5;          // a run may start at or above low+dt_start_gas while its cost is within e_max
@@ -55,7 +56,6 @@ struct EdgeConst {
   bool effect_check = false;          // without outdoor data: open the vent, and judge by the indoor dew point whether to go on
   double probe_s = 240, probe_dp_f = 0.5, probe_rest_s = 3600;
   bool hot_forces_fog = false;        // fogger and misters on at the 100 F limit whatever the VPD
-  double wet_tmin = -99.0;            // no fog or mist below low+wet_tmin
   double d2_on = 0.05;                // second fan while drying: on below vpd_low-d2_on, off at vpd_low+d_on
   bool dry_two_fans = false;
   double ec_on = 99.0, ec_off = 0.0;  // fog as a cooling stage above high+ec_on; 99 = never

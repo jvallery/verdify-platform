@@ -116,7 +116,7 @@ GROUPS["law"] = [
     E("s_dry_two_fans", edge__dry_two_fans=1),
     E("s_evap_cool1.5", edge__ec_on=1.5),
     E("s_evap_cool0.5", edge__ec_on=0.5),
-    E("s_no_fog_below_low", edge__wet_tmin=0.0),
+    E("s_fog_below_low", edge__wet_tmin=-99.0),  # the cold-house guard on fog and mist removed
 ]
 # ---- degraded modes held for the whole year: no outdoor data, a wrong clock, no clock (today's firmware beside the law)
 GROUPS["ldeg"] = [
