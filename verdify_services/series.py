@@ -394,7 +394,15 @@ _REGISTRY: tuple[MetricBinding, ...] = (
         zone="house",
         note="What the controller regulates on: the house average, or the case probe when the average is invalid",
     ),
-    _climate("vpd_control", "Control VPD", _HOUSE, "kPa", provenance="DERIVED", zone="house"),
+    _climate(
+        "vpd_control",
+        "VPD of the mean air",
+        _HOUSE,
+        "kPa",
+        provenance="DERIVED",
+        zone="house",
+        note="From the mean temperature and humidity; the controller and the grade use the house VPD (#1667)",
+    ),
     _climate("dew_point", "Dew point", _HOUSE, "°F", provenance="DERIVED", zone="house"),
     _climate("abs_humidity", "Absolute humidity", _HOUSE, "g/m³", provenance="DERIVED", zone="house"),
     _climate(
@@ -616,6 +624,18 @@ _REGISTRY: tuple[MetricBinding, ...] = (
     _scorecard("vpd_below_band_pct", "VPD below band, whole day", "%", note=_SERVED_BAND),
     _scorecard("vpd_in_band_day_pct", "VPD time in band, day", "%", note=_SERVED_BAND + ", sunrise to sunset"),
     _scorecard("vpd_in_band_night_pct", "VPD time in band, night", "%", note=_SERVED_BAND + ", sunset to sunrise"),
+    _scorecard(
+        "night_dryout_min",
+        "Night dry-out minutes",
+        "min",
+        note="00:00 to 06:00 local with house VPD at or above max(served vpd_low, 0.74 kPa); the goal is 240 (305)",
+    ),
+    _scorecard(
+        "temp_above_full_cooling_min",
+        "Too hot with full cooling",
+        "min",
+        note="Minutes above the served band with the vent and both fans on: a count beside the grade, not a score",
+    ),
     _scorecard("water_gal", "Water used", "gal", reason="water_reason", provenance="MEASURED"),
     _scorecard("iris_required_written", "Iris required plans written", "count", note="MIDNIGHT, SUNRISE and SUNSET"),
     _scorecard(

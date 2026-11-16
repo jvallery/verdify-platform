@@ -1058,6 +1058,56 @@ def sealed_sql_309():
     )
 
 
+DAILY_RECORD_MIGRATION = (
+    310,
+    "310-daily-record.sql",
+    "2f0aa50d6ff2401cc08e734214ca73fdac0ea279a495b1846f2b37fdabe3acd1",
+)
+# The daily record (#1668, plan section 10): relay starts and run time with lost OFF events repaired, and the day's
+# utilities, in two verdify tables with no ACL entry and functions whose PUBLIC EXECUTE is revoked, so every seal keeps
+# 309's value (tests/fixtures/310-daily-record-native-qualification.json).
+SUCCESSOR_310 = dict(SUCCESSOR_309)
+
+
+def sealed_sql_310():
+    # Keep every 309 predicate and bind the exact 310 runner stamp with the unchanged seals.
+    predecessor = sealed_sql_309()
+    current = seal_profile_sql(309, SUCCESSOR_309)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(310, SUCCESSOR_310), 1)
+        + " AND "
+        + ledger_row_sql(*DAILY_RECORD_MIGRATION)
+        + ")"
+    )
+
+
+COMPLIANCE_DEFINITION_MIGRATION = (
+    311,
+    "311-one-compliance-definition.sql",
+    "b53904cde320fc4a2543017c4d5733bc31528fd4a4c57e8c68e940b394c935f7",
+)
+# One compliance definition (#1667): August stored on the served band, capacity-limited minutes and the scorecard's
+# two appended columns, on a table with no ACL entry and a view that keeps its dashboard grant, so every seal keeps
+# 310's value (tests/fixtures/311-one-compliance-definition-native-qualification.json).
+SUCCESSOR_311 = dict(SUCCESSOR_310)
+
+
+def sealed_sql_311():
+    # Keep every 310 predicate and bind the exact 311 runner stamp with the unchanged seals.
+    predecessor = sealed_sql_310()
+    current = seal_profile_sql(310, SUCCESSOR_310)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(311, SUCCESSOR_311), 1)
+        + " AND "
+        + ledger_row_sql(*COMPLIANCE_DEFINITION_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1120,6 +1170,10 @@ def sealed_sql():
         + sealed_sql_308()
         + " OR "
         + sealed_sql_309()
+        + " OR "
+        + sealed_sql_310()
+        + " OR "
+        + sealed_sql_311()
         + ")"
     )
 
