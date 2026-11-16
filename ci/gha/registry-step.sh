@@ -19,13 +19,27 @@ case "${VERDIFY_IMPACTED:-true}" in
   false) echo "path impact: ${step} not required for this change"; exit 0 ;;
   *) echo "VERDIFY_IMPACTED must be true or false" >&2; exit 2 ;;
 esac
+# A collection error in one file must not abort the rest of its pytest invocation
+# (campaign-qualification's tool inherits this); the failure still fails the step.
+export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }--continue-on-collection-errors"
 case "$step" in
   platform-static)
-    uv sync --python 3.12 --extra dev --extra api --extra planner && uv run ruff check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_schemas/ && uv run ruff format --check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_schemas/
+    uv sync --python 3.12 --extra dev --extra api --extra planner || exit 1
+    # Both ruff passes run; the step fails at the end if either failed.
+    rc=0
+    uv run ruff check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_schemas/ || rc=1
+    uv run ruff format --check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_schemas/ || rc=1
+    exit "$rc"
     ;;
   platform-tests)
     ci_require_runner_tools  # two tests run `kustomize build`
-    export PYTHONPATH="$PWD" && uv sync --python 3.12 --extra dev --extra api --extra planner && uv pip install --python .venv/bin/python -r ingestor/requirements-image.txt && uv run pytest -q verdify_schemas/tests/ --ignore=verdify_schemas/tests/test_climate_intent.py --ignore=verdify_schemas/tests/test_drift_guards.py --ignore=verdify_schemas/tests/test_mcp_responses.py --ignore=verdify_schemas/tests/test_relationships.py --ignore=verdify_schemas/tests/test_tunables.py --ignore=verdify_schemas/tests/test_vault_writers.py --ignore=verdify_schemas/tests/test_views.py && uv run pytest -q tests/test_device_write_gate.py tests/test_migration_rollback_safety.py tests/test_14_site_doctor.py tests/test_climate_intent_replay_evaluator.py tests/test_generate_daily_plan.py tests/test_lab_generator_standardization.py tests/test_lab_publish_k3s_guard.py tests/test_mqtt_fanout.py tests/test_site_content_refresh.py tests/test_alert_delivery_local.py tests/test_soil_dryout_alert.py tests/test_tempest_sync.py tests/test_writer_lease_fence.py tests/test_gha_firmware_secretless_compile.py
+    export PYTHONPATH="$PWD" && uv sync --python 3.12 --extra dev --extra api --extra planner && uv pip install --python .venv/bin/python -r ingestor/requirements-image.txt || exit 1
+    # Setup stops at its first failure; both pytest invocations then run, and the
+    # step fails at the end if either failed (one run shows every failure).
+    rc=0
+    uv run pytest -q verdify_schemas/tests/ --ignore=verdify_schemas/tests/test_climate_intent.py --ignore=verdify_schemas/tests/test_drift_guards.py --ignore=verdify_schemas/tests/test_mcp_responses.py --ignore=verdify_schemas/tests/test_relationships.py --ignore=verdify_schemas/tests/test_tunables.py --ignore=verdify_schemas/tests/test_vault_writers.py --ignore=verdify_schemas/tests/test_views.py || { echo "::error::platform-tests: the verdify_schemas invocation failed"; rc=1; }
+    uv run pytest -q tests/test_device_write_gate.py tests/test_migration_rollback_safety.py tests/test_14_site_doctor.py tests/test_climate_intent_replay_evaluator.py tests/test_generate_daily_plan.py tests/test_lab_generator_standardization.py tests/test_lab_publish_k3s_guard.py tests/test_mqtt_fanout.py tests/test_site_content_refresh.py tests/test_alert_delivery_local.py tests/test_soil_dryout_alert.py tests/test_tempest_sync.py tests/test_writer_lease_fence.py tests/test_gha_firmware_secretless_compile.py || { echo "::error::platform-tests: the tests/ invocation failed"; rc=1; }
+    exit "$rc"
     ;;
   campaign-qualification)
     # The native report path (/workspace) does not exist on ARC; keep it private.
@@ -38,10 +52,42 @@ case "$step" in
     export PYTHONPATH="$PWD" && uv sync --python 3.12 --extra dev --extra api --extra planner && uv pip install --python .venv/bin/python -r ingestor/requirements-image.txt && python3 ci/gha/campaign_shard.py /usr/local/bin/verdify-campaign-ci
     ;;
   firmware-logic)
-    bash -lc ' set -euo pipefail; test -f firmware/test/data/replay_overrides.csv || gunzip -k firmware/test/data/replay_overrides.csv.gz; cd firmware; g++ -std=c++17 -I lib -o test/test_greenhouse test/test_greenhouse_logic.cpp; ./test/test_greenhouse; g++ -std=c++17 -I lib -o test/test_running_alone test/test_running_alone.cpp; ./test/test_running_alone; g++ -std=c++17 -I lib -I ../docs/reviews/control-review-2026-11-15/sim -o test/test_climate_law test/test_climate_law.cpp; ./test/test_climate_law; g++ -std=c++17 -O2 -I lib -o test/replay_overrides test/replay_overrides.cpp; ./test/replay_overrides test/data/replay_overrides.csv | tail -30; g++ -std=c++17 -O2 -I lib -o test/replay_invariants test/replay_invariants.cpp; set +e; ./test/replay_invariants test/data/replay_overrides.csv; rc=$?; set -e; if [ "$rc" -eq 2 ]; then
-  echo "replay corpus predates invariant schema; accepted legacy corpus";
-  exit 0;
-fi; exit "$rc" '
+    # Setup stops at its first failure; then every test program builds and runs,
+    # each failure prints under its name, and the step fails at the end if any failed.
+    bash -lc '
+      set -uo pipefail
+      test -f firmware/test/data/replay_overrides.csv || gunzip -k firmware/test/data/replay_overrides.csv.gz || exit 1
+      cd firmware || exit 1
+      failed=""
+      check() {
+        local name="$1"; shift
+        echo "== firmware-logic: ${name} =="
+        "$@" || { echo "::error::firmware-logic: ${name} failed"; failed="${failed} ${name}"; }
+      }
+      greenhouse() { g++ -std=c++17 -I lib -o test/test_greenhouse test/test_greenhouse_logic.cpp && ./test/test_greenhouse; }
+      running_alone() { g++ -std=c++17 -I lib -o test/test_running_alone test/test_running_alone.cpp && ./test/test_running_alone; }
+      climate_law() { g++ -std=c++17 -I lib -I ../docs/reviews/control-review-2026-11-15/sim -o test/test_climate_law test/test_climate_law.cpp && ./test/test_climate_law; }
+      replay_overrides() { g++ -std=c++17 -O2 -I lib -o test/replay_overrides test/replay_overrides.cpp && ./test/replay_overrides test/data/replay_overrides.csv | tail -30; }
+      replay_invariants() {
+        g++ -std=c++17 -O2 -I lib -o test/replay_invariants test/replay_invariants.cpp || return 1
+        local rc=0
+        ./test/replay_invariants test/data/replay_overrides.csv || rc=$?
+        if [ "$rc" -eq 2 ]; then
+          echo "replay corpus predates invariant schema; accepted legacy corpus"
+          return 0
+        fi
+        return "$rc"
+      }
+      check test_greenhouse_logic greenhouse
+      check test_running_alone running_alone
+      check test_climate_law climate_law
+      check replay_overrides replay_overrides
+      check replay_invariants replay_invariants
+      if [ -n "$failed" ]; then
+        echo "== firmware-logic FAILED:${failed} =="
+        exit 1
+      fi
+    '
     ;;
   firmware-secretless-compile)
     # The registry's inline program in its own file (ruff-formatted only) (R2: no logic in YAML).

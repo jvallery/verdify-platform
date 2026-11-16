@@ -16,7 +16,10 @@
 # the tunables diff) run in DIFF MODE when CI_BASE_REF is set:
 #   CI_BASE_REF=<sha|ref> scripts/ci-local.sh
 #
-# Exit nonzero on the first failing gate. Keep this script dependency-light:
+# Setup stops at its first failure; after it, every gate runs even when an
+# earlier one failed, each failure is printed under its step's name, and the
+# script exits nonzero at the end with the list (one run shows every failure).
+# Keep this script dependency-light:
 # python3.12+ with the repo's [dev] extras, g++, kubectl/kustomize.
 
 set -euo pipefail
@@ -31,7 +34,19 @@ if [ ! -x "$RUFF" ]; then RUFF="$PY -m ruff"; fi
 # environment so their imports match pytest, including native CI's fresh venv.
 export PATH="$("$PY" -c 'import pathlib, sys; print(pathlib.Path(sys.executable).parent)'):$PATH"
 
-step() { printf '\n== %s ==\n' "$1"; }
+CURRENT_STEP=setup
+FAILED_STEPS=()
+step() {
+  CURRENT_STEP="$1"
+  printf '\n== %s ==\n' "$1"
+}
+# Keep going (set -E: the trap also fires inside functions and subshells): a
+# failing command marks its step failed and the next command runs.
+record_failure() {
+  local rc=$?
+  FAILED_STEPS+=("${CURRENT_STEP} (exit ${rc}): ${BASH_COMMAND}")
+  printf '\n::error::FAILED in step "%s" (exit %s): %s\n' "$CURRENT_STEP" "$rc" "$BASH_COMMAND"
+}
 
 # VALIDATE_PART splits this gate across parallel CI jobs (#1459): ci / validate
 # is their aggregate. Unset or "all" runs every step in one process, as
@@ -50,6 +65,12 @@ case "$VALIDATE_PART" in
   *) echo "unknown VALIDATE_PART=$VALIDATE_PART" >&2; exit 2 ;;
 esac
 in_part() { [ "$VALIDATE_PART" = all ] || [[ " $* " == *" $VALIDATE_PART "* ]]; }
+
+# Setup is done: from here on, keep going.
+set +e -E
+trap record_failure ERR
+# A collection error in one file must not abort the rest of its pytest invocation.
+export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }--continue-on-collection-errors"
 
 if in_part rest; then
   step "ruff lint"
@@ -566,7 +587,7 @@ if in_part containment-firmware && [ -n "${CI_BASE_REF:-}" ]; then
   for id in $NEW_IDS; do
     grep -qE "id: cfg_(sw_)?${id}\b" firmware/greenhouse/sensors.yaml || MISSING="$MISSING $id"
   done
-  [ -z "$MISSING" ] || { echo "New tunables without cfg_* readback:$MISSING" >&2; exit 1; }
+  [ -z "$MISSING" ] || { echo "New tunables without cfg_* readback:$MISSING" >&2; false; }
 
   step "service-restart drift guard (rule 7, schema -> runtime) vs ${BASE}"
   # #391: the retired ci.yml job grepped the bare word 'service' and
@@ -591,6 +612,12 @@ if in_part containment-firmware && [ -n "${CI_BASE_REF:-}" ]; then
   fi
 fi
 
+trap - ERR
+if [ "${#FAILED_STEPS[@]}" -gt 0 ]; then
+  printf '\n== FAILED (part: %s): %s step command(s) ==\n' "$VALIDATE_PART" "${#FAILED_STEPS[@]}"
+  printf '  %s\n' "${FAILED_STEPS[@]}"
+  exit 1
+fi
 if [ "$(uname -s)" = Linux ]; then
   printf '\nALL GATES GREEN (part: %s)\n' "$VALIDATE_PART"
 else
