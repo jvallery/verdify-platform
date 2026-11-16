@@ -3562,12 +3562,8 @@ async def set_setting(
     value: Annotated[
         float | None, Field(description="The value to store, in the setting's unit. Omit it with release=true.")
     ] = None,
-    release: Annotated[
-        bool, Field(description="True, with no value: release the setting to its default.")
-    ] = False,
-    manual: Annotated[
-        bool, Field(description="Hold the value manual. Stored as passed.")
-    ] = False,
+    release: Annotated[bool, Field(description="True, with no value: release the setting to its default.")] = False,
+    manual: Annotated[bool, Field(description="Hold the value manual. Stored as passed.")] = False,
     reason: Annotated[str | None, Field(description="Why, at most 500 characters.")] = None,
     request_id: Annotated[
         str | None, Field(description="A UUID you generate; a retry with the same one and payload changes nothing.")

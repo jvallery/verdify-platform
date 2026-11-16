@@ -32,10 +32,7 @@ import runpy
 import sys
 import zlib
 from datetime import date
-from datetime import datetime as _dt
 from pathlib import Path
-from typing import get_args
-from unittest.mock import MagicMock, patch
 
 import pytest  # noqa: F401  (used by @pytest.fixture in some runs)
 
@@ -51,21 +48,7 @@ os.environ.setdefault("DB_HOST", "127.0.0.1")
 os.environ.setdefault("DB_PORT", "5432")
 os.environ.setdefault("DB_NAME", "test")
 
-import iris_planner  # noqa: E402
-from planner_routing import (  # noqa: E402
-    TriggerType,
-)
-from planner_routing import (
-    classify_planner_terminal_action as classify_routing_terminal_action,
-)
-
 import ingestor  # noqa: E402
-from verdify_schemas.plan import (  # noqa: E402
-    PlanDeliveryLogRow,
-)
-from verdify_schemas.plan import (
-    classify_planner_terminal_action as classify_schema_terminal_action,
-)
 from verdify_schemas.tunable_registry import (  # noqa: E402
     BAND_OWNED_REG,
     CROP_BAND_REG,
@@ -78,55 +61,8 @@ from verdify_schemas.tunable_registry import (  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_weekly_planner_delivery_is_a_valid_nonrequired_wire_event():
-    row = PlanDeliveryLogRow.model_validate({"event_type": "WEEKLY", "status": "pending"})
-    prompt = iris_planner._PROMPT_BUILDERS["WEEKLY"]("context", "weekly review", "local")
-
-    assert row.event_type == "WEEKLY"
-    assert "WEEKLY" in get_args(TriggerType)
-    assert "## Planning Event: WEEKLY" in prompt
-    assert "set_plan(plan_id=" in prompt
-    assert "Interior crop DLI remains unavailable" in prompt
 
 
-@pytest.mark.parametrize(
-    "expected_action,actual_action,valid_full_plan,explicit_neutral",
-    [
-        ("set_plan", "set_plan", True, False),
-        ("set_plan", "set_plan", False, False),
-        ("set_plan", "set_tunable", False, False),
-        ("set_plan", "acknowledge_trigger", False, False),
-        ("set_plan", "acknowledge_trigger", False, True),
-        ("any", "set_plan", True, False),
-        ("any", "set_plan", False, False),
-        ("any", "set_tunable", False, False),
-        ("any", "acknowledge_trigger", False, False),
-        ("any", "acknowledge_trigger", False, True),
-    ],
-)
-def test_routing_and_schema_terminal_classifiers_remain_in_parity(
-    expected_action, actual_action, valid_full_plan, explicit_neutral
-):
-    kwargs = {
-        "expected_action": expected_action,
-        "actual_action": actual_action,
-        "valid_full_plan": valid_full_plan,
-        "explicit_neutral": explicit_neutral,
-    }
-    routing = classify_routing_terminal_action(**kwargs)
-    schema = classify_schema_terminal_action(**kwargs)
-
-    assert (
-        routing.status,
-        routing.terminal_action,
-        routing.failure_class,
-        routing.satisfies_required_plan,
-    ) == (
-        schema.status,
-        schema.terminal_action,
-        schema.failure_class,
-        schema.satisfies_required_plan,
-    )
 
 
 def _tasks_src() -> str:
@@ -241,89 +177,18 @@ def test_setpoint_ranges_accepts_realistic_values():
 # ── S24.9.4 — context-gather failure sentinel ──────────────────────
 
 
-def test_context_gather_sentinel_defined():
-    """The sentinel must exist and be a non-empty, non-whitespace string
-    that can't collide with real context output."""
-    s = iris_planner.CONTEXT_GATHER_FAILED_SENTINEL
-    assert isinstance(s, str)
-    assert s.strip() == s  # no leading/trailing whitespace
-    assert len(s) >= 10
-    # Sentinel should be structurally distinct — contains underscores, no spaces
-    assert "_" in s
-    assert " " not in s
 
 
-def test_gather_context_returns_sentinel_on_nonzero_exit():
-    """Subprocess exits non-zero → gather_context returns the sentinel,
-    NOT the old '(context gathering failed: ...)' string that got spliced
-    into the prompt pre-24.9."""
-    fake_result = MagicMock(returncode=1, stdout="", stderr="boom")
-    with (
-        patch("iris_planner.subprocess.run", return_value=fake_result),
-        patch("iris_planner._record_plan_context_failure"),
-    ):
-        result = iris_planner.gather_context()
-    assert result == iris_planner.CONTEXT_GATHER_FAILED_SENTINEL
 
 
-def test_gather_context_returns_sentinel_on_timeout():
-    """TimeoutExpired → same sentinel path."""
-    import subprocess
-
-    def raise_timeout(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd="gather", timeout=60)
-
-    with (
-        patch("iris_planner.subprocess.run", side_effect=raise_timeout),
-        patch("iris_planner._record_plan_context_failure"),
-    ):
-        result = iris_planner.gather_context()
-    assert result == iris_planner.CONTEXT_GATHER_FAILED_SENTINEL
 
 
-def test_gather_context_returns_stdout_on_success():
-    """Happy path still returns real context stdout, not the sentinel."""
-    fake_result = MagicMock(returncode=0, stdout="=== CONTEXT ===\nTemp: 75F\n", stderr="")
-    with (
-        patch("iris_planner.subprocess.run", return_value=fake_result),
-        patch("iris_planner._resolve_plan_context_failures") as resolve,
-    ):
-        result = iris_planner.gather_context()
-    assert result == "=== CONTEXT ===\nTemp: 75F\n"
-    assert result != iris_planner.CONTEXT_GATHER_FAILED_SENTINEL
-    resolve.assert_called_once_with()
 
 
-def test_record_plan_context_failure_dedupes_open_alerts():
-    with patch("iris_planner._run_alert_sql") as run_sql:
-        iris_planner._record_plan_context_failure("nonzero_exit", "boom", 1)
-
-    sql = run_sql.call_args.args[0]
-    assert "WITH updated AS" in sql
-    assert "WHERE NOT EXISTS (SELECT 1 FROM updated)" in sql
-    assert "plan_context_failed" in sql
 
 
-@pytest.mark.parametrize("backend", ["docker", "kube"])
-def test_alert_sql_argv_uses_the_configured_runtime_identity(monkeypatch, backend):
-    monkeypatch.setenv("VERDIFY_DB_BACKEND", backend)
-    monkeypatch.setenv("DB_USER", "verdify_ingestor_runtime_login")
-    monkeypatch.setenv("DB_NAME", "verdify_runtime_test")
-
-    argv = iris_planner._alert_sql_argv("SELECT 1")
-
-    assert argv[argv.index("-U") + 1] == "verdify_ingestor_runtime_login"
-    assert argv[argv.index("-d") + 1] == "verdify_runtime_test"
 
 
-def test_resolve_plan_context_failures_marks_open_alerts_resolved():
-    with patch("iris_planner._run_alert_sql") as run_sql:
-        iris_planner._resolve_plan_context_failures()
-
-    sql = run_sql.call_args.args[0]
-    assert "disposition = 'resolved'" in sql
-    assert "auto-resolved: context gather succeeded" in sql
-    assert "source = 'iris_planner'" in sql
 
 
 def test_mcp_alert_ack_does_not_unresolve_resolved_alerts():
@@ -338,12 +203,6 @@ def test_mcp_alert_ack_does_not_unresolve_resolved_alerts():
     assert "already_resolved" in block
 
 
-def test_forecast_action_engine_completes_due_outcomes():
-    src = Path("scripts/forecast-action-engine.py").read_text()
-    assert "async def evaluate_due_outcomes" in src
-    assert "fl.triggered_at <= now() - interval '6 hours'" in src
-    assert "'no_action_required'" in src
-    assert "'pending'" in src
 
 
 def test_public_health_forecast_outcomes_ignore_evaluated_ok_noops():
@@ -433,45 +292,8 @@ def test_zero_variance_rule_also_covers_band_params():
         assert f'"{param}"' in src
 
 
-def test_alert_monitor_detects_band_owned_plan_rows():
-    """Future dispatcher-owned policy rows in setpoint_plan must open an alert."""
-    import tasks
-
-    src = _tasks_src()
-    assert "planner_band_ownership_drift" in src
-    assert "system.planner_band_ownership" in src
-    assert "setpoint_plan" in src
-    assert "is_active = true" in src
-    assert {
-        "temp_low",
-        "temp_high",
-        "vpd_low",
-        "vpd_high",
-    } <= set(tasks.BAND_DRIVEN_PARAMS)
-    assert "parameter = ANY($1::text[])" in src
 
 
-def test_forecast_action_engine_does_not_write_dispatcher_owned_setpoints():
-    """Legacy forecast rules may still target policy values; the writer must skip them."""
-    script = Path("scripts/forecast-action-engine.py").read_text()
-    band_owned = _assigned_set(Path("scripts/forecast-action-engine.py"), "BAND_OWNED_PARAMS")
-    assert {
-        "temp_low",
-        "temp_high",
-        "vpd_low",
-        "vpd_high",
-    } <= band_owned
-    assert "skipped_band_owned" in script
-    assert "band_owned_dispatcher_contract" in script
-    start = script.index('if action_type == "setpoint" and param in BAND_OWNED_PARAMS')
-    end = script.index('if action_type == "setpoint" and param and adj_value is not None', start + 1)
-    body = script[start:end]
-    assert "INSERT INTO v_runtime_setpoint_plan_write" not in body
-    assert "INSERT INTO setpoint_plan" not in script
-    # VD-65: the whole engine stays off the NOTIFY fast path. Its values reach the
-    # controller only through setpoint_plan and the next normal dispatcher pass.
-    assert "v_runtime_setpoint_changes_write" not in script
-    assert "INSERT INTO setpoint_changes" not in script
 
 
 def test_setpoint_confirmation_monitor_resolves_acknowledged_alerts():
@@ -648,32 +470,6 @@ def test_ha_light_sync_reads_real_lutron_switch_entities():
     assert entity_map.EQUIPMENT_SWITCH_MAP["grow_light_grow"] == "grow_light_grow_intent"
 
 
-def test_planner_context_surfaces_band_source_trace():
-    """The planning prompt should show the read-only crop -> dispatcher/API
-    -> firmware -> cfg_readback chain for the four compliance-band edges
-    (diagnostic lineage since #806, never delivery confirmation).
-    """
-    script = Path("scripts/gather-plan-context.sh").read_text()
-
-    assert "BAND DATABASE LINEAGE (diagnostic only; consumed state unobservable)" in script
-    assert "never delivery confirmation" in script
-    assert "fn_band_setpoint_provenance(now(), '${GREENHOUSE_ID}')" in script
-    assert "Do not set band-driven, retired bias, or lighting-policy params in your plan" in script
-    assert "LIGHTING POLICY (read-only; dispatcher pushes these to ESP32)" in script
-    assert "fn_lighting_policy(now(), '${GREENHOUSE_ID}')" in script
-    assert "Do not set gl_dli_target, gl_sunrise_hour, gl_sunset_hour, or sw_gl_auto_mode" in script
-    assert "QUALIFIED LIGHT MINUTES + GROW LIGHTS" in script
-    assert "fn_lighting_minutes_policy(now(), '${GREENHOUSE_ID}')" in script
-    assert "target_light_minutes" in script
-    assert "qualified_light_minutes" in script
-    assert "TEMPEST LUX THRESHOLD RECOMMENDATION" in script
-    assert "fn_lighting_lux_threshold_recommendation(now(), '${GREENHOUSE_ID}')" in script
-    assert "lux_hysteresis" in script
-    assert "confirmed ESP32 cfg readbacks remain the controller-state source of truth" in script
-    assert (
-        "Set gl_main_target_light_minutes/gl_grow_target_light_minutes, gl_main_lux_threshold/gl_main_lux_hysteresis, and gl_grow_lux_threshold/gl_grow_lux_hysteresis from this evidence"
-        in script
-    )
 
 
 def test_lighting_policy_sql_excludes_esp32_readbacks_from_source_of_truth():
@@ -746,108 +542,18 @@ def test_band_trace_params_have_sensor_registry_readbacks():
         assert param in set(entity_map.CFG_READBACK_MAP.values())
 
 
-def test_vpd_high_moisture_guardrail_tracks_active_band():
-    import tasks
-
-    guardrails = tasks._vpd_high_moisture_guardrails(
-        {"vpd_low": 0.26, "vpd_high": 0.81},
-        {"temp_avg": 66.3, "dew_point": 53.5, "vpd_avg": 0.95},
-    )
-
-    assert guardrails["mister_engage_kpa"] == 0.86
-    assert guardrails["mister_all_kpa"] == 1.06
-    assert guardrails["mister_engage_delay_s"] == 45.0
-    assert guardrails["mister_all_delay_s"] == 90.0
-    assert guardrails["mister_pulse_gap_s"] == 30.0
-    assert guardrails["fog_escalation_kpa"] == 0.30
-    assert guardrails["min_fog_off_s"] == 60.0
 
 
-def test_vpd_high_moisture_guardrail_respects_dew_risk():
-    import tasks
-
-    guardrails = tasks._vpd_high_moisture_guardrails(
-        {"vpd_low": 0.26, "vpd_high": 0.81},
-        {"temp_avg": 66.3, "dew_point": 61.0, "vpd_avg": 0.95},
-    )
-
-    assert guardrails == {}
 
 
-def test_vpd_high_moisture_guardrail_stays_preemptive_in_ventilate():
-    import tasks
-
-    guardrails = tasks._vpd_high_moisture_guardrails(
-        {"vpd_low": 0.26, "vpd_high": 0.81},
-        {"temp_avg": 66.3, "dew_point": 53.5, "vpd_avg": 0.76, "greenhouse_mode": "VENTILATE"},
-    )
-
-    assert guardrails["mister_engage_kpa"] == 0.86
-    assert guardrails["fog_escalation_kpa"] == 0.20
 
 
-def test_vpd_high_moisture_guardrail_tightens_hot_dry_ventilate_fog():
-    import tasks
-
-    guardrails = tasks._vpd_high_moisture_guardrails(
-        {"vpd_low": 0.52, "vpd_high": 1.07},
-        {
-            "temp_avg": 76.8,
-            "sp_temp_high": 72.9,
-            "dew_point": 60.0,
-            "vpd_avg": 1.38,
-            "greenhouse_mode": "VENTILATE",
-            "outdoor_rh_pct": 18.0,
-        },
-    )
-
-    assert guardrails["fog_escalation_kpa"] == 0.15
-    assert guardrails["min_fog_off_s"] == 45.0
 
 
-def test_vpd_high_moisture_guardrail_stays_sticky_until_recent_recovery():
-    import tasks
-
-    guardrails = tasks._vpd_high_moisture_guardrails(
-        {"vpd_low": 0.52, "vpd_high": 1.07},
-        {
-            "temp_avg": 72.0,
-            "sp_temp_high": 72.9,
-            "dew_point": 58.0,
-            "vpd_avg": 0.93,
-            "greenhouse_mode": "VENTILATE",
-            "recent_samples": 12,
-            "recent_near_high_fraction": 0.75,
-            "recent_avg_vpd": 1.04,
-        },
-    )
-
-    assert guardrails["fog_escalation_kpa"] == 0.20
-    assert guardrails["min_fog_off_s"] == 60.0
 
 
-def test_vpd_high_moisture_guardrail_does_not_run_when_idle_below_band():
-    import tasks
-
-    guardrails = tasks._vpd_high_moisture_guardrails(
-        {"vpd_low": 0.26, "vpd_high": 0.81},
-        {"temp_avg": 66.3, "dew_point": 53.5, "vpd_avg": 0.76, "greenhouse_mode": "IDLE"},
-    )
-
-    assert guardrails == {}
 
 
-def test_vpd_high_moisture_guard_context_avoids_greenhouse_state_latest_scan():
-
-    src = _tasks_src()
-    start = src.index("async def _fetch_moisture_guard_context")
-    end = src.index("def _vpd_high_moisture_guardrails", start)
-    body = src[start:end]
-
-    assert "latest_climate AS" in body
-    assert "FROM climate" in body
-    assert "FROM v_greenhouse_state" not in body
-    assert "ORDER BY ts DESC\n             LIMIT 1" in body
 
 
 def test_alert_monitor_avoids_greenhouse_state_hot_path_scans():
@@ -865,34 +571,8 @@ def test_alert_monitor_avoids_greenhouse_state_hot_path_scans():
     assert "fn_setpoint_at(" not in body
 
 
-def test_mcp_set_tunable_treats_vpd_low_as_band_owned():
-    """MCP should expose crop-band params as read-only context, not Tier 1
-    tactical tuning. The dispatcher owns vpd_low through fn_band_setpoints().
-    """
-    mcp_path = Path(__file__).resolve().parent.parent / "mcp" / "server.py"
-    band_owned = _assigned_set(mcp_path, "BAND_OWNED_PARAMS")
-    tier1 = _assigned_set(mcp_path, "TIER1_TUNABLES")
-
-    assert band_owned == set(BAND_OWNED_REG)
-    assert "vpd_low" in band_owned
-    assert not (band_owned & tier1), f"Band-owned params must not be Tier 1 tunables: {band_owned & tier1}"
 
 
-def test_plan_required_params_match_registry_tier1_and_have_readback():
-    """The mandatory full-horizon surface must be only effectful Tier 1 knobs.
-
-    Reserved/no-op firmware globals may remain in the registry for operator
-    visibility, but they must not be required in every Hermes plan.
-    """
-    mcp_path = Path(__file__).resolve().parent.parent / "mcp" / "server.py"
-    required = _assigned_set(mcp_path, "PLAN_REQUIRED_PARAMS")
-    tier1 = _assigned_set(mcp_path, "TIER1_TUNABLES")
-    registry_tier1 = {n for n, d in REGISTRY.items() if d.planner_pushable and d.tier == 1}
-
-    assert required == tier1 == registry_tier1
-    assert not {"mist_vent_close_lead_s", "mist_vent_reopen_delay_s", "summer_vent_min_runtime_s"} & required
-    missing_readback = sorted(p for p in required if not REGISTRY[p].cfg_readback_object_id)
-    assert not missing_readback
 
 
 def test_setpoint_server_firmware_allowlist_comes_from_registry_routes():
@@ -1337,423 +1017,51 @@ def test_grafana_render_cache_warmer_is_retired():
     assert not Path("systemd/verdify-grafana-render-cache-warm.timer").exists()
 
 
-def test_lighting_automation_audit_checks_live_planner_context():
-    """The live audit should prove the planner prompt receives the per-circuit
-    policy rows and Tempest threshold evidence, not only that the shell script
-    contains those SQL snippets.
-    """
-    src = Path("scripts/audit-lighting-automation.py").read_text()
-
-    assert "live planner lighting context" in src
-    assert 'run(["bash", "scripts/gather-plan-context.sh"], timeout=90)' in src
-    assert "QUALIFIED LIGHT MINUTES + GROW LIGHTS" in src
-    assert "grow|grow_light_grow" in src
-    assert "main|grow_light_main" in src
-    assert "target_light_minutes" in src
-    assert "qualified_light_minutes" in src
-    assert "TEMPEST LUX THRESHOLD RECOMMENDATION" in src
-    assert "confirmed ESP32 cfg readbacks remain the controller-state source of truth" in src
-    assert "Set gl_main_target_light_minutes/gl_grow_target_light_minutes" in src
 
 
-def test_lighting_automation_audit_checks_mcp_set_tunable_gate():
-    """The live audit should prove the MCP gate accepts the new per-circuit
-    lighting knobs and rejects the retired shared lighting threshold.
-    """
-    src = Path("scripts/audit-lighting-automation.py").read_text()
-
-    assert "MCP lighting set_tunable gate" in src
-    assert "gl_main_target_light_minutes" in src
-    assert "gl_main_lux_threshold" in src
-    assert "sw_gl_main_auto_mode" in src
-    assert "gl_lux_threshold" in src
-    assert "trigger_id not found in plan_delivery_log" in src
-    assert "not planner-pushable" in src
 
 
-def test_mcp_set_plan_rejects_non_policy_tunables():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def set_plan")
-    end = server.index("@mcp.tool()", start + 1)
-    body = server[start:end]
-    assert "non_policy_params" in body
-    assert "param not in BAND_OWNED_PARAMS and param not in PLANNER_PUSHABLE_REG" in body
-    assert "Plan contains non-policy tunables" in body
 
 
-def test_alert_monitor_detects_planner_delivery_outages():
-    """Hermes outages and missed required plans must be visible alerts."""
-
-    src = _tasks_src()
-    assert "planner_gateway_delivery_failed" in src
-    assert "system.hermes" in src
-    assert "WITH last_success AS" in src
-    assert "gateway_status = 0" in src
-    assert "planner_trigger_sla_timeout" in src
-    assert "system.planner_trigger_sla" in src
-    assert "status = 'timed_out'" in src
-    assert "elapsed_seconds" in src
-    assert "hermes_run_id" in src
-    assert "planner_required_plan_missed" in src
-    assert "system.planner_required_plan" in src
-    assert "planner_trigger_ledger" in src
-    assert "event_type IN ('SUNRISE', 'SUNSET', 'MIDNIGHT', 'FORECAST_DEVIATION', 'DEVIATION', 'FORECAST')" in src
-    assert "last_required_recovery" in src
-    assert "COALESCE(r.expected_at, pdl.delivered_at) > lrr.expected_at" in src
-    assert "r.status IN ('missed', 'timed_out', 'delivery_failed', 'expected', 'delivered')" in src
-    assert "r.status IN ('action_completed', 'neutral_fallback', 'wrong_action', 'acked')" in src
-    assert "terminal_action = 'set_plan'" in src
 
 
-def test_forecast_deviation_defaults_cover_material_axes():
-    import tasks
-
-    thresholds = tasks._forecast_deviation_threshold_map([])
-    assert {
-        "temp_f",
-        "rh_pct",
-        "vpd_kpa",
-        "solar_w_m2",
-        "wind_speed_mph",
-        "wind_gust_mph",
-        "precip_in",
-        "cloud_cover_pct",
-    } <= set(thresholds)
-    assert "forecast_missing_min" not in thresholds
-
-    disabled = tasks._forecast_deviation_threshold_map(
-        [{"parameter": "wind_speed_mph", "enabled": False, "threshold": 99.0, "unit": "mph", "cooldown_min": 1}]
-    )
-    assert "wind_speed_mph" not in disabled
-
-    stale_db_row = tasks._forecast_deviation_threshold_map(
-        [{"parameter": "forecast_missing_min", "enabled": True, "threshold": 90.0, "unit": "min", "cooldown_min": 60}]
-    )
-    assert "forecast_missing_min" not in stale_db_row
 
 
-def test_forecast_deviation_helpers_compute_vpd_and_cloud_proxy():
-    import tasks
-
-    vpd = tasks._outdoor_vpd_kpa(65.8, 25.0)
-    assert vpd is not None
-    assert 1.5 < vpd < 1.8
-    assert tasks._outdoor_vpd_kpa(65.8, 120.0) is None
-
-    inferred_cloud = tasks._cloud_cover_proxy_pct(100.0, 500.0, 20.0)
-    assert inferred_cloud is not None
-    assert inferred_cloud > 80.0
-    assert tasks._cloud_cover_proxy_pct(100.0, 50.0, 20.0) is None
 
 
-def test_forecast_deviation_check_covers_distinct_axes_without_global_cooldown():
-
-    # forecast_deviation_check is the last entry point in the forecast submodule
-    # (#46 split); slicing from it to EOF preserves the original scope.
-    fsrc = _tasks_submodule_src("forecast")
-    start = fsrc.index("async def forecast_deviation_check")
-    body = fsrc[start:]
-
-    for parameter in (
-        "temp_f",
-        "rh_pct",
-        "vpd_kpa",
-        "solar_w_m2",
-        "wind_speed_mph",
-        "wind_gust_mph",
-        "precip_in",
-        "cloud_cover_pct",
-    ):
-        assert parameter in body
-    assert "_last_deviation_trigger_ts" not in body
-    assert "triggered = true" in body
-    assert "cooldown_min" in body
-    assert "precip_intensity_in_h" in body
-    assert "normalized_excess" in body
-    assert "consecutive_cycles" in body
-    assert "_insert_forecast_deviation_alert" in body
-    assert "write_text" not in body
-    assert 'consider_deviation("forecast_missing_min"' not in body
 
 
-def test_forecast_freshness_is_system_health_not_planner_deviation():
-    import tasks
-
-    src = _tasks_src()
-    # alert_monitor and forecast_deviation_check are sole entry points in their
-    # respective #46-split submodules; their module sources are the scopes here.
-    alert_body = _tasks_submodule_src("alerts")
-    fsrc = _tasks_submodule_src("forecast")
-    deviation_start = fsrc.index("async def forecast_deviation_check")
-    deviation_body = fsrc[deviation_start:]
-
-    assert tasks._FORECAST_STALE_SENSOR_ID == "system.weather_forecast"
-    assert "_FORECAST_STALE_THRESHOLD_S = 2 * 60 * 60" in src
-    assert "Forecast data stale" in alert_body
-    assert '"alert_type": "sensor_offline"' in alert_body
-    assert '"type": "forecast_sync"' in alert_body
-    assert "forecast_missing_min" not in tasks._FORECAST_DEVIATION_DEFAULTS
-    assert "forecast_missing_min" not in deviation_body
 
 
-def test_forecast_deviation_uses_alert_envelope_with_legacy_file_fallback():
-
-    src = _tasks_src()
-    assert "forecast_deviation" in src
-    assert "AlertEnvelope.model_validate(_forecast_deviation_alert_payload(trigger))" in src
-    assert "INSERT INTO alert_log" in src
-    assert "source, metric_value, threshold_value, greenhouse_id" in src
-
-    heartbeat = src[src.index("async def planning_heartbeat") :]
-    assert "_pending_forecast_deviation_alert" in heartbeat
-    assert 'STATE_DIR / "replan-needed.json"' in heartbeat
-    assert "_resolve_forecast_deviation_alert" in heartbeat
 
 
-def test_planning_milestones_use_phase4_trigger_set():
-    import tasks
-
-    matrix = tasks.PLANNER_TRIGGER_MATRIX
-    scheduled = {key for key, spec in matrix.items() if spec.materialize_expected}
-    assert scheduled == {
-        "MIDNIGHT",
-        "SUNRISE",
-        "WEEKLY",
-        "SOLAR_MAX",
-        "TRANSITION:peak_stress",
-        "TRANSITION:decline",
-        "SUNSET",
-    }
-    assert matrix["FORECAST_DEVIATION"].due_source == "forecast_deviation_check"
-    assert matrix["FORECAST_DEVIATION"].severity_event_type == "DEVIATION"
-    assert matrix["MANUAL"].due_source == "mcp.plan_run"
-    # WEEKLY deep-review (L4 #346 AC6): materialized once per week, expects a
-    # strategy set_plan but is not a hard daily-cycle SLA (required_plan=False).
-    assert matrix["WEEKLY"].due_source == "local.weekly_review"
-    assert matrix["WEEKLY"].expected_action == "set_plan"
-    assert matrix["WEEKLY"].required_plan is False
-    assert {matrix[key].hermes_route for key in matrix} == {"hermes-iris"}
-    for key in ("SUNRISE", "SUNSET", "MIDNIGHT", "FORECAST_DEVIATION"):
-        assert matrix[key].required_plan is True
-        assert matrix[key].expected_action == "set_plan"
-    for key in ("SOLAR_MAX", "TRANSITION:peak_stress", "TRANSITION:decline", "MANUAL"):
-        assert matrix[key].expected_action == "any"
-        assert matrix[key].required_plan is False
-    for retired in (
-        "PRE_DAWN",
-        "MORNING_BOUNDARY",
-        "MIDDAY_BOUNDARY",
-        "AFTERNOON_BOUNDARY",
-        "EVENING_BOUNDARY",
-        "fixed_pre_dawn",
-        "fixed_midday",
-        "fixed_afternoon",
-        "fixed_evening",
-        "FORECAST",
-    ):
-        assert retired not in matrix
 
 
-def test_planning_milestones_are_derived_from_trigger_matrix(monkeypatch):
-    import tasks
-
-    class EarlyDatetime(_dt):
-        @classmethod
-        def now(cls, tz=None):
-            return cls(2026, 5, 19, 0, 20, tzinfo=tz)
-
-    def fake_sun(_observer, *, date, tzinfo):
-        return {
-            "sunrise": _dt(date.year, date.month, date.day, 5, 40, tzinfo=tzinfo),
-            "noon": _dt(date.year, date.month, date.day, 12, 55, tzinfo=tzinfo),
-            "sunset": _dt(date.year, date.month, date.day, 20, 10, tzinfo=tzinfo),
-        }
-
-    # #46 split: _compute_milestones lives in the tasks.heartbeat submodule and
-    # reads its own module globals (datetime/_sun/state), so patch there.
-    hb = tasks.heartbeat
-    monkeypatch.setattr(hb, "_sun", fake_sun)
-    monkeypatch.setattr(hb, "_load_milestone_state", lambda: None)
-    monkeypatch.setattr(hb, "datetime", EarlyDatetime)
-    hb._milestones_date = None
-    hb._milestones_cache = {}
-    hb._milestones_fired = {}
-
-    milestones = tasks._compute_milestones()
-    # WEEKLY is materialize_expected but weekday-gated (only on the review
-    # weekday); the fake date (2026-05-19) is not it, so it is absent here.
-    review_day = EarlyDatetime(2026, 5, 19).date().weekday() == hb._WEEKLY_REVIEW_WEEKDAY
-    expected = [
-        key
-        for key, spec in tasks.PLANNER_TRIGGER_MATRIX.items()
-        if spec.materialize_expected and not (spec.due_source == "local.weekly_review" and not review_day)
-    ]
-    assert list(milestones) == expected
-    assert "WEEKLY" not in milestones  # 2026-05-19 is a Tuesday
-    assert milestones["MIDNIGHT"].hour == 0
-    assert milestones["MIDNIGHT"].minute == 15
-    assert milestones["SUNRISE"].hour == 5
-    assert milestones["SOLAR_MAX"].hour == 12
-    assert milestones["TRANSITION:peak_stress"].hour == 14
-    assert milestones["TRANSITION:decline"].hour == 19
-    assert milestones["SUNSET"].hour == 20
 
 
-def test_planner_trigger_matrix_drives_labels_and_expected_actions():
-    import tasks
-
-    assert tasks._milestone_event("SUNRISE") == ("SUNRISE", "Morning planning cycle")
-    assert tasks._milestone_event("SUNSET", catchup=True) == (
-        "SUNSET",
-        "Evening planning cycle (catch-up)",
-    )
-    assert tasks._milestone_event("TRANSITION:peak_stress") == ("TRANSITION", "Peak Stress")
-    assert tasks._expected_action_for_event("SUNRISE", "Morning planning cycle") == "set_plan"
-    assert tasks._expected_action_for_event("MIDNIGHT", "End-of-day review and reset") == "set_plan"
-    for event in ("FORECAST_DEVIATION", "DEVIATION", "FORECAST"):
-        assert tasks._expected_action_for_event(event, "weather miss") == "set_plan"
-    assert (
-        tasks._expected_action_for_event("MANUAL", "validation ack-only: Ad-hoc planning cycle via MCP plan_run")
-        == "acknowledge_trigger"
-    )
 
 
-def test_prompt_builder_events_validate_delivery_log_schema():
-    """Every emitted planner event must be accepted by PlanDeliveryLogRow."""
-    for event_type in iris_planner._PROMPT_BUILDERS:
-        PlanDeliveryLogRow.model_validate(
-            {
-                "event_type": event_type,
-                "event_label": "<label>",
-                "session_key": "hermes:iris:main:trigger:00000000-0000-0000-0000-000000000000",
-                "wake_mode": "now"
-                if event_type in {"SUNRISE", "SUNSET", "FORECAST_DEVIATION", "MANUAL"}
-                else "next-heartbeat",
-                "gateway_status": 200,
-                "gateway_body": "{}",
-            }
-        )
 
 
 # ── S24.9.3 — status='plan_written' on resolve ─────────────────────
 
 
-def test_resolve_delivery_log_sets_status_plan_written():
-    """The _resolve_delivery_log UPDATE must set status='plan_written'
-    alongside resulting_plan_id so the status column stays truthful.
-    String-check only — running the UPDATE requires asyncpg."""
-
-    src = _tasks_src()
-    # Locate the _resolve_delivery_log function and check its UPDATE string
-    start = src.index("async def _resolve_delivery_log")
-    end = src.index("async def ", start + 1)
-    body = src[start:end]
-    assert "status            = 'plan_written'" in body or "status = 'plan_written'" in body, (
-        "_resolve_delivery_log UPDATE must include status='plan_written'"
-    )
-    assert "pdl.gateway_status BETWEEN 200 AND 299" in body, (
-        "_resolve_delivery_log must not correlate failed gateway deliveries to later plans"
-    )
 
 
-def test_resolve_delivery_log_fallback_is_legacy_null_uuid_only():
-    """Rows with trigger_id must never use the old 2h time-window fallback."""
-
-    src = _tasks_src()
-    start = src.index("async def _resolve_delivery_log")
-    end = src.index("async def ", start + 1)
-    body = src[start:end]
-    assert "pj.trigger_id = pdl.trigger_id" in body
-    fallback = body.split("Legacy fallback for pre-v1.4 rows only", 1)[1]
-    assert "pdl.trigger_id IS NULL" in fallback
-    assert "pj.trigger_id IS NULL" in fallback
 
 
-def test_failed_plan_delivery_logs_delivery_failed_status():
-
-    src = _tasks_src()
-    start = src.index("async def _log_plan_delivery")
-    end = src.index("async def _deliver_and_log", start)
-    body = src[start:end]
-    assert 'result.get("delivered") is False' in body
-    assert 'result.get("gateway_status") is not None' in body
-    assert 'explicit_status = "delivery_failed"' in body
 
 
-def test_deliver_and_log_precreates_delivery_row_before_post():
-
-    src = _tasks_src()
-    start = src.index("async def _deliver_and_log")
-    end = src.index("async def _resolve_delivery_log", start)
-    body = src[start:end]
-    assert "prepare_delivery_result(event_type, label, instance=instance)" in body
-    assert "delivery_id = await _log_plan_delivery(pool, pre_result)" in body
-    assert 'trigger_id=pre_result["trigger_id"]' in body
 
 
-def test_planner_expected_trigger_ledger_is_materialized_before_delivery():
-
-    src = _tasks_src()
-    assert "async def _ensure_expected_planner_triggers" in src
-    assert "planner_trigger_ledger" in src
-    assert "ON CONFLICT (greenhouse_id, event_type, expected_at)" in src
-    assert "expected trigger was not delivered before due_at" in src
-    assert "plan_delivery_log_id" in src
 
 
-def test_planner_sla_lifecycle_uses_configured_pair_timeout():
-
-    src = _tasks_src()
-    start = src.index("async def _expire_planner_trigger_slas")
-    end = src.index("async def _log_plan_delivery", start)
-    body = src[start:end]
-    assert '_sla_seconds(row["event_type"], row["instance"])' in body
-    assert "status = 'timed_out'" in body
-    assert "status      = 'missed'" in body
-    assert "await _sync_planner_trigger_ledger(conn)" in body
 
 
-def test_required_plan_failure_history_survives_current_attempt_retry():
-    migration = (REPO_ROOT / "db/migrations/218-planner-required-failure-history.sql").read_text()
-    alerts = _tasks_submodule_src("alerts")
-
-    assert "had_required_failure boolean NOT NULL DEFAULT false" in migration
-    assert "COALESCE(OLD.had_required_failure, false)" in migration
-    assert "OLD.expected_action = 'set_plan'" in migration
-    assert "NEW.expected_action = 'set_plan'" in migration
-    assert "delivery.event_label ILIKE" in migration
-    assert "required.had_required_failure" in migration
-    assert "required.expected_at > recovery.expected_at" in migration
-    assert "fn_runtime_ordinary_boundary_digest" in migration
-    assert "had_required_failure', 'UPDATE'" in migration
-
-    required_alert = alerts.split("# 7b. Required SUNRISE/SUNSET/MIDNIGHT/FORECAST_DEVIATION plans", 1)[1]
-    required_alert = required_alert.split("# 7c. Planner ownership drift", 1)[0]
-    assert "had_required_failure" in required_alert
-    assert "r.expected_action = 'set_plan'" in required_alert
 
 
-def test_active_future_plan_range_guard_uses_tunable_registry():
-
-    src = _tasks_src()
-    assert "planner_tunable_range_drift" in src
-    assert "registry_value_error(parameter, value)" in src
-    assert "controller_locked_on" in src
-    assert "system.planner_tunable_range" in src
-    start = src.index("# 7d. Active/future tunable range drift")
-    end = src.index("# 7e. Future plan horizon guard", start)
-    body = src[start:end]
-    assert "now() - interval '10 minutes'" not in body
-    assert "LIMIT 10000" in body
 
 
-def test_alert_monitor_detects_missing_future_plan_horizon():
-
-    src = _tasks_src()
-    assert "planner_plan_horizon_missing" in src
-    assert "system.planner_plan_horizon" in src
-    assert "ts > now()" in src
-    assert "plan_id NOT LIKE 'iris-oneshot-%'" in src
 
 
 def test_dispatcher_coerces_registry_bounds_before_insert_and_push():
@@ -1808,7 +1116,7 @@ def test_dispatcher_gates_ai_moisture_stress_until_firmware_supports_entities():
     end = src.index("def _fetch_forecast", start)
     body = src[start:end]
     assert "ai_moisture_stress_supported = _ai_moisture_stress_policy_supported()" in body
-    assert "param in AI_MOISTURE_STRESS_POLICY_PARAMS and not ai_moisture_stress_supported" in body
+    assert "param in AI_MOISTURE_STRESS_POLICY_PARAMS and not ai_moisture_stress" in src  # _desired_skip_reason
 
     original_keys = dict(tasks.shared.esp32.get("keys") or {})
     original_readback = dict(tasks.shared.cfg_readback)
@@ -1866,17 +1174,6 @@ def test_ai_moisture_stress_backfill_is_dry_run_first_and_routine_only():
         assert param in script
 
 
-def test_dispatcher_propagates_plan_audit_to_setpoint_changes():
-
-    src = _tasks_src()
-    start = src.index("async def setpoint_dispatcher")
-    end = src.index("def _fetch_forecast", start)
-    body = src[start:end]
-    assert "trigger_id, planner_instance FROM v_active_plan" in body
-    assert "planner_meta =" in body
-    assert "trigger_id=change_trigger_id" in body
-    assert "(ts, parameter, value, source, trigger_id, planner_instance, delivery_status)" in body
-    assert "VALUES (now(), $1, $2, $3, $4::uuid, $5, 'pending')" in body
 
 
 def test_dispatcher_writes_guardrail_hold_audits_without_setpoint_push():
@@ -1891,51 +1188,8 @@ def test_dispatcher_writes_guardrail_hold_audits_without_setpoint_push():
     assert "plan_ts" in body
 
 
-def test_dispatcher_clamp_audit_rows_carry_plan_metadata():
-
-    src = _tasks_src()
-    assert "INSERT INTO v_runtime_setpoint_clamps_write" in src
-    assert "INSERT INTO setpoint_clamps" not in src
-    assert "status, plan_id, plan_ts, trigger_id, planner_instance" in src
-    assert '"plan_id": r["plan_id"]' in src
-    assert '"plan_ts": r["ts"]' in src
 
 
-def test_write_clamp_audit_rows_marks_unchanged_guardrail_holds():
-    import tasks
-
-    class FakeConn:
-        def __init__(self):
-            self.calls = []
-
-        async def execute(self, sql, *args):
-            self.calls.append((sql, args))
-
-    conn = FakeConn()
-    rows = [
-        {
-            "parameter": "fog_escalation_kpa",
-            "requested": 0.9,
-            "applied": 0.2,
-            "band_lo": 0.0,
-            "band_hi": 0.2,
-            "reason": "vpd_high_moisture_guardrail",
-            "plan_id": "iris-test",
-            "plan_ts": None,
-            "trigger_id": None,
-            "planner_instance": "opus",
-        }
-    ]
-
-    written = asyncio.run(tasks._write_clamp_audit_rows(conn, rows, set()))
-
-    assert written == 1
-    assert len(conn.calls) == 1
-    args = conn.calls[0][1]
-    assert args[0] == "fog_escalation_kpa"
-    assert args[6] == "held_by_guardrail"
-    assert args[7] == "iris-test"
-    assert args[10] == "opus"
 
 
 def test_plan_transition_audit_migration_penalizes_guardrail_dependence():
@@ -1946,26 +1200,8 @@ def test_plan_transition_audit_migration_penalizes_guardrail_dependence():
     assert "v_anchor - COALESCE(v_penalty, 0)" in migration
 
 
-def test_plan_context_surfaces_transition_audit_and_corrected_vpd_forecast():
-    script = (REPO_ROOT / "scripts" / "gather-plan-context.sh").read_text()
-    assert "GUARDRAIL-AWARE TRANSITION AUDIT" in script
-    assert "fn_plan_transition_audit" in script
-    # #806 replaced the bias-corrected priors with the contract-2 outdoor forecast verification.
-    assert "Contract 2: outdoor forecast versus outdoor observations, never indoor greenhouse VPD." in script
-    assert "corrected_vpd_kpa" not in script
-    assert "HOT/DRY VENTILATE UTILIZATION" in script
 
 
-def test_plan_context_embeds_public_site_static_context():
-    script = (REPO_ROOT / "scripts" / "gather-plan-context.sh").read_text()
-    assert (
-        'STATIC_CONTEXT_FILE="${VERDIFY_PLANNER_STATIC_CONTEXT:-/srv/verdify/state/planner-static-context.md}"'
-        in script
-    )
-    assert "PUBLIC SITE STATIC CONTEXT (same source as lab.verdify.ai)" in script
-    assert 'sha256=$(sha256sum "$STATIC_CONTEXT_FILE"' in script
-    assert 'cat "$STATIC_CONTEXT_FILE"' in script
-    assert "planner static site context" in script
 
 
 def test_site_publish_refreshes_prior_day_current_day_and_static_context():
@@ -1985,39 +1221,10 @@ def test_site_poller_refreshes_static_context_after_successful_rebuild():
     assert "content_signature" in script
 
 
-def test_plan_evaluate_returns_guardrail_scorecard():
-    server = (REPO_ROOT / "mcp" / "server.py").read_text()
-    start = server.index("async def plan_evaluate")
-    end = server.index("@mcp.tool()", start + 1) if "@mcp.tool()" in server[start + 1 :] else len(server)
-    body = server[start:end]
-    assert "v_plan_guardrail_scorecard" in body
-    assert '"guardrail_scorecard": dict(guardrail_row)' in body
 
 
-def test_plan_evaluate_triggers_public_site_publish():
-    server = (REPO_ROOT / "mcp" / "server.py").read_text()
-    start = server.index("async def plan_evaluate")
-    end = server.index("@mcp.tool()", start + 1) if "@mcp.tool()" in server[start + 1 :] else len(server)
-    body = server[start:end]
-    assert "SITE_PUBLISH_TRIGGER_PATH" in body
-    assert "evaluation:{ev.plan_id}" in body
-    assert "site_publish_triggered" in body
 
 
-def test_send_to_iris_targets_hermes_gateway():
-    src = Path(iris_planner.__file__).read_text()
-    start = src.index("def send_to_iris")
-    body = src[start:]
-    assert 'instance: PlannerInstance = "local"' in body
-    assert "OPENCLAW" not in body
-    assert "/v1/runs" in body
-    assert "HERMES_URL" in body
-    assert "HERMES_API_KEY" in body
-    assert "hermes_run_id" in body
-    assert "maybe_start_planner_graph_shadow" not in body
-    assert "planner_graph_shadow" not in body
-    assert '"MANUAL"' in src
-    assert "prepare_delivery_result" in src
 
 
 def test_single_path_removes_runtime_shadow_surfaces():
@@ -2064,87 +1271,14 @@ def test_single_path_policy_docs_do_not_reintroduce_alternate_rollout():
     assert not hits
 
 
-def test_midnight_trigger_has_required_review_prompt_and_wake_mode():
-    src = Path(iris_planner.__file__).read_text()
-    assert "def _midnight_prompt" in src
-    assert "Planning Event: MIDNIGHT" in src
-    assert "call `plan_evaluate` for every completed Iris plan" in src
-    assert "Start the new local day with a plan" in src
-    assert '"MIDNIGHT": lambda ctx' in src
-    assert 'event_type in ("SUNRISE", "SUNSET", "MIDNIGHT", "WEEKLY", "FORECAST_DEVIATION", "MANUAL")' in src
 
 
-def test_midnight_milestone_exists_only_inside_catchup_window(monkeypatch):
-    import tasks
-
-    class EarlyDatetime(_dt):
-        @classmethod
-        def now(cls, tz=None):
-            return cls(2026, 5, 19, 1, 0, tzinfo=tz)
-
-    class LateDatetime(_dt):
-        @classmethod
-        def now(cls, tz=None):
-            return cls(2026, 5, 19, 12, 0, tzinfo=tz)
-
-    def fake_sun(_observer, *, date, tzinfo):
-        return {
-            "sunrise": _dt(date.year, date.month, date.day, 5, 40, tzinfo=tzinfo),
-            "noon": _dt(date.year, date.month, date.day, 12, 55, tzinfo=tzinfo),
-            "sunset": _dt(date.year, date.month, date.day, 20, 10, tzinfo=tzinfo),
-        }
-
-    # #46 split: patch the heartbeat submodule that owns _compute_milestones.
-    hb = tasks.heartbeat
-    monkeypatch.setattr(hb, "_sun", fake_sun)
-    monkeypatch.setattr(hb, "_load_milestone_state", lambda: None)
-
-    monkeypatch.setattr(hb, "datetime", EarlyDatetime)
-    hb._milestones_date = None
-    hb._milestones_cache = {}
-    hb._milestones_fired = {}
-    assert tasks._compute_milestones()["MIDNIGHT"].hour == 0
-
-    monkeypatch.setattr(hb, "datetime", LateDatetime)
-    hb._milestones_date = None
-    hb._milestones_cache = {}
-    hb._milestones_fired = {}
-    assert "MIDNIGHT" not in tasks._compute_milestones()
 
 
-def test_mcp_plan_run_uses_manual_trigger_and_delivery_log():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def plan_run")
-    end = server.index("@mcp.tool()", start + 1)
-    body = server[start:end]
-    assert "send_to_iris(" in body
-    assert '"MANUAL",' in body
-    assert "_insert_plan_delivery_log" in body
-    assert "prepare_delivery_result" in body
-    assert "trigger_id" in body
-    assert "acknowledge-only smoke" in body
 
 
-def test_replan_fallback_uses_audited_helper_not_direct_post():
-    script = Path("scripts/check-replan-trigger.sh").read_text()
-    assert "hermes-trigger.py" in script
-    assert "curl" not in script
-    helper = Path("scripts/hermes-trigger.py").read_text()
-    assert "prepare_delivery_result" in helper
-    assert "ON CONFLICT (trigger_id)" in helper
-    assert "send_to_iris(" in helper
 
 
-def test_knowledge_search_defaults_to_full_embedding_corpus():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def knowledge_search")
-    end = server.index("# ═══════════════════════════════════════════════════════════════", start)
-    body = server[start:end]
-    assert 'source_types: str = "lesson,plan,site_doc,playbook,observation"' in body
-    assert '{"lesson", "plan", "site_doc", "playbook", "observation"}' in body
-    assert "planner_lessons pl" in body
-    assert "pl.is_active = true" in body
-    assert "pl.superseded_by IS NULL" in body
 
 
 def test_firmware_misters_have_no_standalone_zone_stress_path():
@@ -2196,46 +1330,10 @@ def test_embedding_chunker_hard_splits_oversized_blocks():
     assert all(len(chunk.encode("utf-8")) <= 2048 for chunk in chunks)
 
 
-def test_mcp_set_plan_requires_audited_trigger():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def set_plan")
-    end = server.index("@mcp.tool()", start + 1)
-    body = server[start:end]
-    helper_start = server.index("async def _lock_current_planner_attempt")
-    helper_end = server.index("@mcp.tool()", helper_start)
-    helper = server[helper_start:helper_end]
-    assert "normalized_trigger_id" in body
-    assert "trigger_id is required for set_plan MCP writes" in body
-    assert "Copy trigger_id exactly from the planning prompt audit headers" in body
-    assert "plan_id is required" in body
-    assert "transitions is required" in body
-    assert "include_input=False" in body
-    assert "_lock_current_planner_attempt(" in body
-    assert "trigger_id not found in plan_delivery_log" in helper
-    assert "planner_instance does not match plan_delivery_log" in helper
 
 
-def test_mcp_set_plan_updates_delivery_log_by_trigger_id_immediately():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def set_plan")
-    end = server.index("@mcp.tool()", start + 1)
-    body = server[start:end]
-    assert "UPDATE plan_delivery_log" in body
-    assert "resulting_plan_id = $2" in body
-    assert "plan_written_at   = $3" in body
-    assert "status            = 'plan_written'" in body
-    assert "terminal_action   = 'set_plan'" in body
-    assert '"delivery_status": "plan_written" if normalized_trigger_id else None' in body
 
 
-def test_mcp_set_plan_triggers_public_site_publish():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def set_plan")
-    end = server.index("@mcp.tool()", start + 1)
-    body = server[start:end]
-    assert "SITE_PUBLISH_TRIGGER_PATH" in body
-    assert "trigger_path.write_text" in body
-    assert "plan.plan_id" in body
 
 
 def test_k3s_mcp_disables_vm_only_site_publish_file_trigger():
@@ -2244,182 +1342,16 @@ def test_k3s_mcp_disables_vm_only_site_publish_file_trigger():
     assert 'value: ""' in deployment
 
 
-def test_mcp_set_plan_populates_plan_journal_feedback_fields():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def set_plan")
-    end = server.index("@mcp.tool()", start + 1)
-    body = server[start:end]
-    assert "params_seen = sorted" in body
-    assert "conditions_summary" in body
-    assert "params_changed" in body
-    assert "$9::text[]" in body
 
 
-def test_mcp_set_plan_materializes_and_audits_climate_intent():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def set_plan")
-    end = server.index("@mcp.tool()", start + 1)
-    body = server[start:end]
-    helper_start = server.index("async def _lock_current_planner_attempt")
-    helper_end = server.index("@mcp.tool()", helper_start)
-    helper = server[helper_start:helper_end]
-
-    assert "_climate_intent_waypoint_errors(waypoints_raw)" in body
-    assert "_materialize_climate_intent_waypoints(" in body
-    assert "set_plan requires climate_intent on every transition" in body
-    assert "CLIMATE_INTENT_FIELDS" in server
-    assert "climate_intent must explicitly set every field" in server
-    assert "raw params are not accepted in set_plan" in server
-    assert "ClimateIntent validation failed" in body
-    assert "climate_intents" in body
-    assert "climate_intent_version" in body
-    assert "climate_intent_segments" in body
-    assert "climate_intent_guardrails" in body
-    assert "climate_intent_materialization_guardrails" in server
-    assert 'record["guardrails"] = guardrails' in server
-    assert "$10::jsonb" in body
-    assert "temp_above_high_f" in server
-    assert "vpd_above_high_kpa" in server
-    assert "dew_margin_f" in server
-    assert 'delivery["status"] != "pending"' in helper
-    assert "trigger_id is not the current writable attempt" in helper
 
 
-def test_mcp_climate_intent_materializer_uses_dispatcher_band_aliases():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def _fetch_active_tier1_params")
-    end = server.index("def _materialize_climate_intent_waypoints", start)
-    body = server[start:end]
-
-    for source, target in {
-        "temp_low_f": "temp_low",
-        "temp_high_f": "temp_high",
-        "vpd_low_kpa": "vpd_low",
-        "vpd_high_kpa": "vpd_high",
-    }.items():
-        assert f'"{source}": "{target}"' in server
-        assert f"               {source}," in body
-    assert "CLIMATE_TARGET_PARAM_ALIASES.get(key)" in body
-    assert "params[alias] = numeric" in body
 
 
-def test_planner_context_includes_dispatcher_owned_targets():
-    gather = (Path(iris_planner.__file__).resolve().parent.parent / "scripts" / "gather-plan-context.sh").read_text()
-
-    assert "DISPATCHER-OWNED CLIMATE TARGETS" in gather
-    for column in (
-        "temp_low_f",
-        "temp_target_f",
-        "temp_high_f",
-        "temp_target_delta_f",
-        "vpd_low_kpa",
-        "vpd_target_kpa",
-        "vpd_high_kpa",
-        "vpd_target_delta_kpa",
-    ):
-        assert column in gather
-    assert "The AI planner receives these as read-only prompt context" in gather
-    assert "VERDIFY_PLANNER_CONTEXT_DB_STATEMENT_TIMEOUT_MS" in gather
-    assert "statement_timeout=${DB_STATEMENT_TIMEOUT_MS}" in gather
-    assert "CLIMATE AUTHORITY MODE" in gather
-    assert "COMPLIANCE_FIRST_TEMP_AND_VPD_HIGH" in gather
-    assert "never close wet/fog assist or cut electric heat to save water, energy or cost" in gather
-    assert "band_house_temp_low" in gather
-    assert "fn_setpoint_at('temp_low'" not in gather
-    assert "CLIMATE AUTHORITY ACTION PROOF" in gather
-    assert "CLIMATE AUTHORITY ACTION ROLLUP" in gather
-    assert "CLIMATE ACTION RESPONSE PRIORS" in gather
-    assert "5m lookahead" in gather
-    assert "LIMIT 300" in gather
-    assert "avg_temp_abs_error_delta_f" in gather
-    assert "avg_vpd_abs_error_delta_kpa" in gather
-    assert "Use this as a recent response prior alongside forecast pressure" in gather
-    assert "controller-owned truth for the current action" in gather
-    assert "wet_assist_block_reason" in gather
-    assert "fog_block_reason" in gather
-    assert "relay_truth" in gather
-    assert "sensor_status" in gather
-    assert "jsonb_typeof(sensor_status)" in gather
-    assert "sensor_status.latest_climate_ts" in gather
-    assert "sensor_status.latest_climate_age_s" in gather
-    assert "sensor_status.temp_avg_present" in gather
-    assert "sensor_status.vpd_avg_present" in gather
-    assert "sensor_status.band_context_complete" in gather
-    assert "target deltas, relay truth, and sensor freshness" in gather
-    assert "dispatcher climate targets" in gather
-    assert "climate action proof fresh" in gather
-    assert "planner must not infer why relays are off without fresh proof" in gather
 
 
-def test_greenhouse_state_exposes_graphable_target_deltas():
-    migration = (
-        Path(iris_planner.__file__).resolve().parent.parent
-        / "db"
-        / "migrations"
-        / "141-greenhouse-state-target-deltas.sql"
-    ).read_text()
-    schema = (Path(iris_planner.__file__).resolve().parent.parent / "db" / "schema.sql").read_text()
-
-    for column in (
-        "sp_temp_target",
-        "sp_vpd_target",
-        "temp_target_delta_f",
-        "vpd_target_delta_kpa",
-        "temp_band_error_f",
-        "vpd_band_error_kpa",
-    ):
-        assert column in migration
-        assert column in schema
-    assert "ClimateIntent does" in migration
-    assert "signed target deltas" in schema
 
 
-def test_climate_authority_action_log_contract_is_tracked():
-    migration = (
-        Path(iris_planner.__file__).resolve().parent.parent / "db" / "migrations" / "142-climate-action-log.sql"
-    ).read_text()
-    schema = (Path(iris_planner.__file__).resolve().parent.parent / "db" / "schema.sql").read_text()
-    ingestor = (Path(iris_planner.__file__).resolve().parent.parent / "ingestor" / "ingestor.py").read_text()
-
-    for token in (
-        "CREATE TABLE IF NOT EXISTS public.climate_action_log",
-        "wet_assist_allowed",
-        "wet_assist_block_reason",
-        "relay_truth jsonb",
-        "CREATE OR REPLACE FUNCTION public.fn_climate_action_effectiveness",
-        "CREATE OR REPLACE VIEW public.v_climate_action_effectiveness_5m",
-        "CREATE OR REPLACE VIEW public.v_climate_action_effectiveness_15m",
-        "CREATE OR REPLACE VIEW public.v_climate_action_daily_scorecard",
-    ):
-        assert token in migration
-
-    for token in (
-        "CREATE TABLE public.climate_action_log",
-        "wet_assist_allowed",
-        "wet_assist_block_reason",
-        "relay_truth jsonb",
-        "CREATE FUNCTION public.fn_climate_action_effectiveness",
-        "CREATE VIEW public.v_climate_action_effectiveness_5m",
-        "CREATE VIEW public.v_climate_action_effectiveness_15m",
-        "CREATE VIEW public.v_climate_action_daily_scorecard",
-    ):
-        assert token in schema
-
-    assert "CLIMATE_ACTION_LOG_ENTITIES" in ingestor
-    assert "CLIMATE_ACTION_LOG_INTERVAL = 60" in ingestor
-    assert "async def write_climate_action_log" in ingestor
-    assert "-> bool" in ingestor[ingestor.index("async def write_climate_action_log") :].splitlines()[0]
-    assert "last_climate_action_log = 0.0" in ingestor
-    assert "if now - last_climate_action_log >= CLIMATE_ACTION_LOG_INTERVAL" in ingestor
-    assert "changed_entities & CLIMATE_ACTION_LOG_ENTITIES" in ingestor
-    assert "last_climate_action_log != now" in ingestor
-    assert "last_climate_action_log = now" in ingestor
-    assert "'latest_climate_ts', lc.ts" in ingestor
-    assert "'latest_climate_age_s'" in ingestor
-    assert "'temp_avg_present', lc.temp_avg IS NOT NULL" in ingestor
-    assert "'vpd_avg_present', lc.vpd_avg IS NOT NULL" in ingestor
-    assert "'band_context_complete'" in ingestor
-    assert "ClimateActionLogRow(" in ingestor
 
 
 def test_climate_action_scorecard_single_day_pushdown_contract():
@@ -2792,49 +1724,10 @@ def test_climate_wet_assist_is_separate_from_crop_direct_wet_windows():
     assert "_fertilized" not in watchdog
 
 
-def test_mcp_set_tunable_resolves_trigger_ledger_with_oneshot_plan():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def set_tunable")
-    end = server.index("# ═══════════════════════════════════════════════════════════════", start + 1)
-    body = server[start:end]
-    helper_start = server.index("async def _lock_current_planner_attempt")
-    helper_end = server.index("@mcp.tool()", helper_start)
-    helper = server[helper_start:helper_end]
-    assert "trigger_id is required for set_tunable MCP writes" in body
-    assert "Copy trigger_id exactly from the planning prompt audit headers into set_tunable" in body
-    assert "parameter is required" in body
-    assert "value is required" in body
-    assert "_lock_current_planner_attempt(" in body
-    assert "trigger_id not found in plan_delivery_log" in helper
-    assert "planner_instance does not match plan_delivery_log" in helper
-    assert "UPDATE plan_delivery_log" in body
-    assert "resulting_plan_id = $2" in body
-    assert "plan_written_at   = $3" in body
-    assert "status            = 'action_completed'" in body
-    assert "terminal_action   = 'set_tunable'" in body
-    assert '"delivery_status": "action_completed" if normalized_trigger_id else None' in body
 
 
-def test_mcp_classifies_required_ack_as_wrong_or_explicit_neutral():
-    server = (Path(iris_planner.__file__).resolve().parent.parent / "mcp" / "server.py").read_text()
-    start = server.index("async def acknowledge_trigger")
-    body = server[start:]
-    assert 'expected_action = ledger["expected_action"]' in body
-    assert 'required_full_plan = expected_action == "set_plan"' in body
-    assert "required set_plan trigger received the wrong terminal action" in body
-    assert "target_status = terminal.status" in body
-    assert "neutral_fallback: bool = False" in body
 
 
-def test_required_plan_alert_ignores_validation_ack_only_rows():
-
-    src = _tasks_src()
-    start = src.index("# 7b. Required SUNRISE/SUNSET/MIDNIGHT/FORECAST_DEVIATION plans")
-    end = src.index("if required_misses:", start)
-    body = src[start:end]
-    assert "r.expected_action = 'set_plan'" in body
-    assert "event_label NOT ILIKE 'validation%ack-only%'" not in body
-    assert "unrecovered_required_misses" in body
 
 
 def test_fert_master_valve_is_wired_and_interlocked_with_fert_relays():
@@ -3693,16 +2586,6 @@ def test_ingestor_records_esphome_feedback_with_value_ranges():
         ingestor.state.climate.update(original_climate)
 
 
-def test_planner_context_uses_canonical_irrigation_sources():
-    script = Path("scripts/gather-plan-context.sh").read_text()
-
-    # VD-60: section 11 is the ingestor's entry point over M3's line state; the retired views are gone.
-    assert "-m tasks.irrigation context --hours 24" in script
-    assert "v_irrigation_schedule_current" not in script
-    assert "v_irrigation_fertigation_runs" not in script
-    assert "FROM irrigation_schedule" not in script
-    assert "FROM irrigation_log" not in script
-    assert "SELECT zone, start_time, duration_s" not in script
 
 
 def test_schema_contract_marks_legacy_irrigation_as_retired():
@@ -5848,13 +4731,6 @@ def test_irrigation_relay_state_panel_uses_dense_timeline():
 # ── S24.9.7 — _deliver_and_log sentinel skip (integration-shape) ───
 
 
-def test_sentinel_import_chain_wired():
-    """tasks.py imports the sentinel from iris_planner. Confirms the
-    symbol is exposed + named consistently."""
-    import tasks
-
-    assert hasattr(tasks, "CONTEXT_GATHER_FAILED_SENTINEL")
-    assert tasks.CONTEXT_GATHER_FAILED_SENTINEL == iris_planner.CONTEXT_GATHER_FAILED_SENTINEL
 
 
 def test_vision_snapshot_observations_carry_position_ids():
@@ -5866,15 +4742,3 @@ def test_vision_snapshot_observations_carry_position_ids():
     assert "ts, crop_id, greenhouse_id, zone, position, zone_id, position_id," in src
 
 
-def test_planning_failure_alert_names_provider_billing():
-    """#1351: a Hermes run that fails after its 202 (OpenAI out of credits) raises the planning alert, critical,
-    naming the cause; recovery means a terminal success, not a 2xx gateway status."""
-    from tasks import alerts as alert_tasks
-
-    src = _tasks_src()
-    assert "AND status IN ('plan_written', 'action_completed', 'acked')" in src
-    assert "gateway_status BETWEEN 200 AND 299\n            )" not in src
-    body = '{"run_id": "run_x", "status": "started"}\n{"error_class":"provider_billing","hermes_run_status":"failed"}'
-    assert alert_tasks._planner_run_error_class(body) == "provider_billing"
-    assert alert_tasks._planner_run_error_class('{"run_id": "run_x", "status": "started"}') is None
-    assert "provider_billing" in alert_tasks.PLANNER_PROVIDER_OUTAGE_CLASSES

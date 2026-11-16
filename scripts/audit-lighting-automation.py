@@ -10,8 +10,6 @@ the ESP32 OTA lands, the live audit should report BLOCKED rather than COMPLETE.
 from __future__ import annotations
 
 import argparse
-import asyncio
-import importlib.util
 import json
 import subprocess
 import sys
@@ -22,7 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
-from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -186,80 +183,6 @@ def grafana_dashboard(uid: str) -> dict[str, Any]:
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
     return json.loads(proc.stdout)["dashboard"]
-
-
-def mcp_set_tunable_dry_run() -> tuple[bool, str]:
-    """Prove the MCP allowlist without writing a setpoint.
-
-    A random trigger_id that is not in plan_delivery_log makes allowed params
-    reach the trigger ledger check and return "trigger_id not found" before any
-    INSERT. Disallowed params return at the registry gate before opening DB.
-    """
-    spec = importlib.util.spec_from_file_location("verdify_mcp_server_audit", REPO_ROOT / "mcp" / "server.py")
-    if spec is None or spec.loader is None:
-        return False, "could not load mcp/server.py"
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    fake_trigger = str(uuid4())
-
-    async def _calls() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
-        minutes = json.loads(
-            await module.set_tunable(
-                "gl_main_target_light_minutes",
-                960,
-                "lighting audit dry-run",
-                trigger_id=fake_trigger,
-                planner_instance="local",
-            )
-        )
-        main = json.loads(
-            await module.set_tunable(
-                "gl_main_lux_threshold",
-                41000,
-                "lighting audit dry-run",
-                trigger_id=fake_trigger,
-                planner_instance="local",
-            )
-        )
-        auto = json.loads(
-            await module.set_tunable(
-                "sw_gl_main_auto_mode",
-                1,
-                "lighting audit dry-run",
-                trigger_id=fake_trigger,
-                planner_instance="local",
-            )
-        )
-        legacy = json.loads(
-            await module.set_tunable(
-                "gl_lux_threshold",
-                41000,
-                "lighting audit dry-run",
-                trigger_id=fake_trigger,
-                planner_instance="local",
-            )
-        )
-        return minutes, main, auto, legacy
-
-    minutes, main, auto, legacy = asyncio.run(_calls())
-    allowed = set(legacy.get("allowed", []))
-    ok = (
-        minutes.get("error") == "trigger_id not found in plan_delivery_log"
-        and main.get("error") == "trigger_id not found in plan_delivery_log"
-        and auto.get("error") == "trigger_id not found in plan_delivery_log"
-        and legacy.get("error")  # #1477: gl_lux_threshold is retired, so MCP refuses it
-        and "gl_main_target_light_minutes" in allowed
-        and "gl_main_lux_threshold" in allowed
-        and "sw_gl_main_auto_mode" in allowed
-        and "gl_lux_threshold" not in allowed
-    )
-    detail = (
-        f"gl_main_target_light_minutes={minutes.get('error')}; "
-        f"gl_main_lux_threshold={main.get('error')}; "
-        f"sw_gl_main_auto_mode={auto.get('error')}; "
-        f"gl_lux_threshold={legacy.get('error')}"
-    )
-    return ok, detail
 
 
 def render_panel(uid: str, panel_id: int, width: int, height: int, timeout: int = 45) -> tuple[bool, str]:
@@ -472,7 +395,7 @@ def static_checks(audit: Audit) -> None:
         "Lutron control/sync path is missing switch.greenhouse_* mappings or still references stale light.* wrappers",
     )
 
-    for relpath in ("ingestor/tasks.py", "api/main.py", "scripts/setpoint-server.py", "scripts/gather-plan-context.sh"):
+    for relpath in ("ingestor/tasks.py", "api/main.py", "scripts/setpoint-server.py"):
         src = read(REPO_ROOT / relpath)
         audit.check(
             "fn_lighting_minutes_policy" in src,
@@ -780,39 +703,7 @@ def live_checks(audit: Audit, require_ota: bool) -> None:
         else "firmware state/reason or decision timestamp blank until OTA or stale after rollback",
     )
 
-    try:
-        planner_context = run(["bash", "scripts/gather-plan-context.sh"], timeout=90)
-        context_text = planner_context.stdout
-        required_context_tokens = (
-            "QUALIFIED LIGHT MINUTES + GROW LIGHTS",
-            "grow|grow_light_grow",
-            "main|grow_light_main",
-            "target_light_minutes",
-            "QUALIFIED LIGHT MINUTES TODAY",
-            "TEMPEST LUX THRESHOLD RECOMMENDATION",
-            "confirmed ESP32 cfg readbacks remain the controller-state source of truth",
-            "Use Tempest outdoor illuminance as the lighting trigger",
-            "Set gl_main_target_light_minutes/gl_grow_target_light_minutes",
-            "Per-circuit gl_main_target_light_minutes/gl_grow_target_light_minutes",
-        )
-        audit.check(
-            planner_context.returncode == 0 and all(token in context_text for token in required_context_tokens),
-            "live planner lighting context",
-            "planner context includes per-circuit policy rows, Tempest threshold evidence, and per-circuit tunable guidance",
-            planner_context.stderr.strip() or "planner context missing lighting policy/evidence tokens",
-        )
-    except subprocess.TimeoutExpired as exc:
-        audit.add("live planner lighting context", "FAIL", f"timed out after {exc.timeout}s")
-
-    try:
-        ok, detail = mcp_set_tunable_dry_run()
-        audit.add(
-            "MCP lighting set_tunable gate",
-            "PASS" if ok else "FAIL",
-            detail,
-        )
-    except Exception as exc:
-        audit.add("MCP lighting set_tunable gate", "FAIL", str(exc))
+    # The planner context and MCP set_tunable checks retired with the plan cycle (climate refactor 4.2).
 
     timeline = psql_json(
         """

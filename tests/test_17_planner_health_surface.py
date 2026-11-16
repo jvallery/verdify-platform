@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import asyncio
 import hashlib
 import importlib.util
 import io
@@ -12,12 +11,9 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import get_type_hints
-from uuid import uuid4
 
 import pytest
 import yaml
-from pydantic import TypeAdapter
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -498,7 +494,8 @@ def test_hermes_readiness_covers_the_exact_configured_mcp_allowlist(mcp_server):
 
     assert _readiness_required_tools(readiness_source) == configured
     assert mcp_server.HERMES_REQUIRED_TOOLS == configured
-    assert {"set_plan", "set_tunable", "acknowledge_trigger"} <= configured
+    assert "review_write" in configured
+    assert not {"set_plan", "set_tunable", "acknowledge_trigger", "plan_evaluate", "set_setting"} & configured
 
 
 def test_hermes_readiness_parses_exact_tool_names_not_substrings():
@@ -923,7 +920,8 @@ def test_hermes_mcp_server_ready_checks_http_status_payload_and_required_tools(m
         def __exit__(self, *_args):
             self.close()
 
-    required = sorted(namespace["REQUIRED"])
+    # The first required tool an older MCP image must still serve leads the list.
+    required = sorted(namespace["REQUIRED"], key=lambda name: (name in namespace["PLAN_OPTIONAL"], name))
     monkeypatch.setattr(
         namespace["urllib"].request,
         "urlopen",
@@ -971,11 +969,10 @@ def test_an_mcp_image_from_before_the_irrigation_and_settings_tools_does_not_blo
         "irrigation_schedule_set",
         "irrigation_status",
         "irrigation_stop",
-        "set_setting",
+        "review_write",
         "settings",
     }
     assert optional <= namespace["REQUIRED"]
-    assert not {"set_plan", "acknowledge_trigger"} & optional
 
     def serves(tools):
         body = json.dumps({"ready": True, "required_tools": sorted(tools)})
@@ -994,8 +991,8 @@ def test_an_mcp_image_from_before_the_irrigation_and_settings_tools_does_not_blo
     before = namespace["REQUIRED"] - optional
     serves(before)
     assert namespace["mcp_server_ready"]() == (True, [], None)
-    serves(before - {"set_plan"})
-    assert namespace["mcp_server_ready"]() == (False, ["set_plan"], None)
+    serves(before - {"scorecard"})
+    assert namespace["mcp_server_ready"]() == (False, ["scorecard"], None)
 
 
 def test_actual_python3_liveness_probe_replaces_unacknowledged_disconnect_or_fatal(tmp_path):
@@ -1165,29 +1162,6 @@ def test_prod_source_cannot_recreate_retired_hermes_claim():
     # control-plane/agent-fleet-control/scripts/test_render_sync_classification.py with the owned declaration.
 
 
-def test_materializer_runs_one_canonical_final_normalization_per_output(mcp_server, monkeypatch):
-    calls: list[str] = []
-    original = mcp_server.normalize_planner_value
-
-    def normalize(parameter: str, value: float) -> float:
-        calls.append(parameter)
-        return original(parameter, value)
-
-    monkeypatch.setattr(mcp_server, "normalize_planner_value", normalize)
-    waypoints, _records = mcp_server._materialize_climate_intent_waypoints(
-        [
-            {
-                "ts": "2026-07-10T06:00:00-06:00",
-                "climate_intent": {},
-                "reason": "canonical normalization proof",
-            }
-        ],
-        {},
-    )
-    params = set(waypoints[0]["params"])
-
-    assert set(calls) == params
-    assert len(calls) == len(params)
 
 
 def _schema_max_length(schema: dict[str, object]) -> int:
@@ -1199,175 +1173,17 @@ def _schema_max_length(schema: dict[str, object]) -> int:
     raise AssertionError(f"schema does not advertise maxLength: {schema}")
 
 
-def test_set_plan_tool_schema_advertises_compact_argument_limits(mcp_server):
-    hints = get_type_hints(mcp_server.set_plan, include_extras=True)
-    expected_max_lengths = {
-        "plan_id": 18,
-        "hypothesis": mcp_server.SET_PLAN_HYPOTHESIS_MAX_CHARS,
-        "transitions": mcp_server.SET_PLAN_TRANSITIONS_MAX_CHARS,
-        "experiment": mcp_server.SET_PLAN_EXPERIMENT_MAX_CHARS,
-        "expected_outcome": mcp_server.SET_PLAN_EXPECTED_OUTCOME_MAX_CHARS,
-        "trigger_id": 36,
-        "planner_instance": 5,
-        "valid_from": 40,
-        "expires_at": 40,
-    }
-
-    schemas = {name: TypeAdapter(hints[name]).json_schema() for name in expected_max_lengths}
-    advertised_total = sum(_schema_max_length(schemas[name]) for name in expected_max_lengths)
-
-    assert {name: _schema_max_length(schema) for name, schema in schemas.items()} == expected_max_lengths
-    assert advertised_total < 9000
-    assert "3-8 time-ordered waypoints" in schemas["transitions"]["description"]
-    assert "at most 2 stress windows and 3 rationales" in schemas["hypothesis"]["description"]
 
 
-def test_set_plan_waypoint_contract_accepts_three_to_eight_complete_intents(mcp_server):
-    intent = mcp_server.ClimateIntent().model_dump()
-
-    def waypoints(count: int, *, reason: str = "compact posture") -> list[dict[str, object]]:
-        return [
-            {
-                "ts": f"2026-08-{25 + (idx // 3):02d}T{(idx % 3) * 8:02d}:00:00+00:00",
-                "climate_intent": dict(intent),
-                "reason": reason,
-            }
-            for idx in range(count)
-        ]
-
-    assert mcp_server._climate_intent_waypoint_errors(waypoints(3)) == []
-    assert mcp_server._climate_intent_waypoint_errors(waypoints(8)) == []
-
-    for invalid_count in (2, 9):
-        errors = mcp_server._climate_intent_waypoint_errors(waypoints(invalid_count))
-        assert errors[0]["transition_count"] == invalid_count
-        assert errors[0]["error"] == "set_plan requires 3-8 transitions"
-
-    errors = mcp_server._climate_intent_waypoint_errors(
-        waypoints(3, reason="r" * (mcp_server.SET_PLAN_REASON_MAX_CHARS + 1))
-    )
-    assert errors[0]["reason_chars"] == mcp_server.SET_PLAN_REASON_MAX_CHARS + 1
-    assert errors[0]["error"] == "reason must be at most 120 characters"
-
-    incomplete = waypoints(3)
-    missing_field = mcp_server.CLIMATE_INTENT_FIELDS[0]
-    del incomplete[1]["climate_intent"][missing_field]
-    errors = mcp_server._climate_intent_waypoint_errors(incomplete)
-    missing_error = next(error for error in errors if error["transition_index"] == 1)
-    assert missing_error["error"] == "climate_intent must explicitly set every field"
-    assert missing_error["missing_fields"] == [missing_field]
 
 
-def test_canonical_eight_waypoint_tool_call_fits_final_completion_ceiling(mcp_server):
-    intent = mcp_server.ClimateIntent().model_dump()
-    transitions = json.dumps(
-        [
-            {
-                "ts": (datetime(2026, 8, 25, tzinfo=UTC) + timedelta(hours=8 * idx)).isoformat(),
-                "climate_intent": intent,
-                "reason": "Forecast-anchored compact posture; preserve safety and band compliance.",
-            }
-            for idx in range(8)
-        ],
-        separators=(",", ":"),
-    )
-    hypothesis = json.dumps(
-        {
-            "conditions": {
-                "outdoor_temp_peak_f": 95,
-                "outdoor_rh_min_pct": 12,
-                "solar_peak_w_m2": 900,
-                "cloud_cover_avg_pct": 15,
-                "notes": "hot, dry, clear",
-            },
-            "stress_windows": [
-                {
-                    "kind": "vpd_high",
-                    "start": "2026-08-25T10:00:00-06:00",
-                    "end": "2026-08-25T16:00:00-06:00",
-                    "severity": "high",
-                    "mitigation": "early wet assist with safe dew margin",
-                },
-                {
-                    "kind": "heat_stress",
-                    "start": "2026-08-25T12:00:00-06:00",
-                    "end": "2026-08-25T17:00:00-06:00",
-                    "severity": "medium",
-                    "mitigation": "solar pre-cooling and stage-2 readiness",
-                },
-            ],
-            "rationale": [
-                {
-                    "parameter": "fog_escalation_kpa",
-                    "old_value": 0.4,
-                    "new_value": 0.25,
-                    "forecast_anchor": "RH below 15% at peak",
-                    "expected_effect": "reduce VPD-high stress under 2h",
-                },
-                {
-                    "parameter": "cool_stage2_over_high_f",
-                    "old_value": 1,
-                    "new_value": 0.5,
-                    "forecast_anchor": "95F peak with clear solar",
-                    "expected_effect": "start stage 2 before heat peak",
-                },
-                {
-                    "parameter": "mister_pulse_gap_s",
-                    "old_value": 45,
-                    "new_value": 25,
-                    "forecast_anchor": "dry ventilation period",
-                    "expected_effect": "increase safe moisture duty",
-                },
-            ],
-        },
-        separators=(",", ":"),
-    )
-    arguments = {
-        "plan_id": "iris-20260825-1700",
-        "hypothesis": hypothesis,
-        "transitions": transitions,
-        "experiment": "Compare compact forecast-aware posture to the prior day.",
-        "expected_outcome": "Reduce VPD-high stress below 2h without a dew-margin or water-budget violation.",
-        "trigger_id": "00000000-0000-0000-0000-000000000001",
-        "planner_instance": "local",
-        "valid_from": None,
-        "expires_at": None,
-    }
-
-    decoded_chars = mcp_server._set_plan_decoded_argument_chars(**arguments)
-    serialized_tool_arguments = json.dumps(arguments, separators=(",", ":"))
-
-    assert len(hypothesis) <= mcp_server.SET_PLAN_HYPOTHESIS_MAX_CHARS
-    assert len(transitions) <= mcp_server.SET_PLAN_TRANSITIONS_MAX_CHARS
-    assert decoded_chars < 9000
-    assert len(serialized_tool_arguments) < 10000
-    assert len(serialized_tool_arguments) < 16384
 
 
-@pytest.mark.asyncio
-async def test_set_plan_rejects_only_oversized_decoded_arguments_before_db(mcp_server, monkeypatch):
-    async def unexpected_db():
-        raise AssertionError("decoded argument guard must run before database access")
-
-    monkeypatch.setattr(mcp_server, "_db", unexpected_db)
-    result = json.loads(
-        await mcp_server.set_plan(
-            plan_id="iris-20260825-1700",
-            hypothesis="x" * mcp_server.SET_PLAN_ARGUMENTS_MAX_CHARS,
-            transitions="[]",
-            trigger_id="00000000-0000-0000-0000-000000000001",
-            planner_instance="local",
-        )
-    )
-
-    assert result["error"] == "set_plan decoded arguments exceed the compact tool-call contract"
-    assert result["decoded_argument_chars"] > mcp_server.SET_PLAN_ARGUMENTS_MAX_CHARS
-    assert result["max_decoded_argument_chars"] == mcp_server.SET_PLAN_ARGUMENTS_MAX_CHARS
 
 
 @pytest.mark.asyncio
 async def test_mcp_readiness_fails_closed_when_a_required_tool_is_missing(mcp_server, monkeypatch):
-    missing = "set_plan"
+    missing = "review_write"
     available = mcp_server.HERMES_REQUIRED_TOOLS - {missing}
     connection = _ReadyConnection()
 
@@ -1430,295 +1246,25 @@ async def test_mcp_db_connections_enforce_server_side_query_budget(mcp_server, m
     assert mcp_server.MCP_DB_STATEMENT_TIMEOUT_MS == 15000
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("event_type", ["SUNRISE", "FORECAST_DEVIATION", "DEVIATION", "FORECAST"])
-async def test_required_set_plan_rejects_set_tunable_without_writing_a_waypoint(mcp_server, monkeypatch, event_type):
-    connection = _RequiredTunableConnection(event_type)
-
-    async def db():
-        return connection
-
-    monkeypatch.setattr(mcp_server, "_db", db)
-    result = json.loads(
-        await mcp_server.set_tunable(
-            parameter="mister_vpd_weight",
-            value=1.5,
-            trigger_id="00000000-0000-0000-0000-000000000001",
-            planner_instance="local",
-        )
-    )
-
-    assert result["status"] == "wrong_action"
-    assert result["terminal_action"] == "wrong_action"
-    assert len(connection.executed) == 2
-    assert all("INSERT INTO setpoint_plan" not in sql for sql, _args in connection.executed)
-    assert connection.closed is True
 
 
-@pytest.mark.asyncio
-async def test_set_tunable_rejects_value_outside_stricter_firmware_bound(mcp_server, monkeypatch):
-    from verdify_schemas.tunable_registry import REGISTRY
-
-    original = REGISTRY["mister_vpd_weight"]
-    monkeypatch.setitem(
-        REGISTRY,
-        "mister_vpd_weight",
-        original.model_copy(update={"min": 0.5, "max": 3.0, "fw_clamp_lo": 1.0, "fw_clamp_hi": 2.0}),
-    )
-    result = json.loads(
-        await mcp_server.set_tunable(
-            parameter="mister_vpd_weight",
-            value=2.5,
-            trigger_id="00000000-0000-0000-0000-000000000001",
-            planner_instance="local",
-        )
-    )
-
-    assert result["error"] == "Tunable value outside strict planner/firmware bounds"
-    assert result["nearest_safe"] == 2.0
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("event_type", ["SUNRISE", "SUNSET", "FORECAST_DEVIATION", "DEVIATION", "FORECAST"])
-async def test_required_set_plan_accepts_only_explicit_neutral_ack_fallback(mcp_server, monkeypatch, event_type):
-    connection = _RequiredAckConnection(event_type)
-
-    async def db():
-        return connection
-
-    monkeypatch.setattr(mcp_server, "_db", db)
-    result = json.loads(
-        await mcp_server.acknowledge_trigger(
-            trigger_id="00000000-0000-0000-0000-000000000001",
-            reason="MCP input unavailable; deterministic firmware remains authoritative",
-            planner_instance="local",
-            neutral_fallback=True,
-        )
-    )
-
-    assert result["status"] == "neutral_fallback"
-    assert result["terminal_action"] == "neutral_fallback"
-    assert result["neutral"] is True
-    assert len(connection.executed) == 1
-    assert connection.closed is True
 
 
-@pytest.mark.asyncio
-async def test_current_attempt_fence_rejects_timed_out_delivery(mcp_server):
-    connection = _AttemptConnection(
-        {
-            "id": 1,
-            "trigger_id": "00000000-0000-0000-0000-000000000001",
-            "event_type": "SUNRISE",
-            "event_label": "Morning planning cycle",
-            "status": "timed_out",
-            "instance": "local",
-        },
-        None,
-    )
-
-    _delivery, _ledger, error = await mcp_server._lock_current_planner_attempt(
-        connection,
-        "00000000-0000-0000-0000-000000000001",
-        "local",
-    )
-
-    assert error["error"] == "trigger_id is not the current writable attempt"
-    assert error["status"] == "timed_out"
-    assert len(connection.queries) == 1
-    assert "FOR UPDATE" in connection.queries[0]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("event_type", ["SUNSET", "WEEKLY", "TRANSITION"])
-async def test_current_attempt_fence_rejects_old_scheduled_attempt_after_retry(mcp_server, event_type):
-    connection = _AttemptConnection(
-        {
-            "id": 1,
-            "trigger_id": "00000000-0000-0000-0000-000000000001",
-            "event_type": event_type,
-            "event_label": "Scheduled planning cycle",
-            "status": "pending",
-            "instance": "local",
-        },
-        None,
-    )
-
-    _delivery, _ledger, error = await mcp_server._lock_current_planner_attempt(
-        connection,
-        "00000000-0000-0000-0000-000000000001",
-        "local",
-    )
-
-    assert error["error"] == "scheduled trigger attempt is stale or superseded"
-    assert len(connection.queries) == 2
-    assert all("FOR UPDATE" in query for query in connection.queries)
 
 
-def test_all_terminal_actions_share_locked_attempt_and_conditional_pair_fences():
-    source = (REPO_ROOT / "mcp" / "server.py").read_text()
-    for function_name, next_name in (
-        ("set_tunable", "plan_status"),
-        ("set_plan", "acknowledge_trigger"),
-        ("acknowledge_trigger", "plan_evaluate"),
-    ):
-        body = source[source.index(f"async def {function_name}") : source.index(f"async def {next_name}")]
-        assert "_lock_current_planner_attempt(" in body
-        assert "plan_delivery_log_id" in body
-        assert "status = 'delivered'" in body
-        assert "RETURNING id" in body
-    set_plan_body = source[source.index("async def set_plan") : source.index("async def acknowledge_trigger")]
-    assert 'db_now = await conn.fetchval("SELECT now()")' in set_plan_body
-    assert set_plan_body.index("plan_current_coverage_error(plan, db_now)") < set_plan_body.index("UPDATE plan_journal")
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("winner_status", ["plan_written", "action_completed", "acked"])
-async def test_two_connection_terminal_winner_fences_late_competitor(mcp_server, winner_status):
-    dsn = os.environ.get("PLANNER_FENCE_TEST_DSN")
-    if not dsn:
-        pytest.skip("PLANNER_FENCE_TEST_DSN is required for real two-connection fencing proof")
-    asyncpg = pytest.importorskip("asyncpg")
-    schema = f"planner_fence_{uuid4().hex}"
-    admin = await asyncpg.connect(dsn)
-    trigger_id = uuid4()
-    try:
-        await admin.execute(f'CREATE SCHEMA "{schema}"')
-        await admin.execute(
-            f"""
-            CREATE TABLE "{schema}".plan_delivery_log (
-                id bigint PRIMARY KEY,
-                trigger_id uuid UNIQUE NOT NULL,
-                event_type text NOT NULL,
-                event_label text,
-                status text NOT NULL,
-                instance text
-            );
-            CREATE TABLE "{schema}".planner_trigger_ledger (
-                id bigint PRIMARY KEY,
-                trigger_id uuid,
-                plan_delivery_log_id bigint,
-                event_type text NOT NULL,
-                expected_action text NOT NULL,
-                status text NOT NULL
-            );
-            """
-        )
-        await admin.execute(
-            f"""
-            INSERT INTO "{schema}".plan_delivery_log
-                (id, trigger_id, event_type, event_label, status, instance)
-            VALUES (1, $1, 'SUNRISE', 'Morning planning cycle', 'pending', 'local')
-            """,
-            trigger_id,
-        )
-        await admin.execute(
-            f"""
-            INSERT INTO "{schema}".planner_trigger_ledger
-                (id, trigger_id, plan_delivery_log_id, event_type, expected_action, status)
-            VALUES (2, $1, 1, 'SUNRISE', 'set_plan', 'delivered')
-            """,
-            trigger_id,
-        )
-        connection_settings = {"search_path": schema}
-        winner = await asyncpg.connect(dsn, server_settings=connection_settings)
-        late = await asyncpg.connect(dsn, server_settings=connection_settings)
-        try:
-
-            async def late_attempt():
-                async with late.transaction():
-                    return await mcp_server._lock_current_planner_attempt(late, str(trigger_id), "local")
-
-            async with winner.transaction():
-                _delivery, _ledger, error = await mcp_server._lock_current_planner_attempt(
-                    winner, str(trigger_id), "local"
-                )
-                assert error is None
-                blocked = asyncio.create_task(late_attempt())
-                await asyncio.sleep(0.1)
-                assert blocked.done() is False
-                await winner.execute(
-                    "UPDATE plan_delivery_log SET status = $1 WHERE id = 1",
-                    winner_status,
-                )
-                await winner.execute(
-                    "UPDATE planner_trigger_ledger SET status = $1 WHERE id = 2",
-                    winner_status,
-                )
-            _late_delivery, _late_ledger, late_error = await blocked
-            assert late_error["error"] == "trigger_id is not the current writable attempt"
-            assert late_error["status"] == winner_status
-        finally:
-            await winner.close()
-            await late.close()
-    finally:
-        await admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
-        await admin.close()
 
 
-def test_forecast_comparator_uses_observed_outdoor_temp_rh_and_derived_vpd():
-    source = (REPO_ROOT / "ingestor/tasks/forecast.py").read_text()
-    body = source[source.index("async def forecast_deviation_check") :]
-
-    assert "SELECT outdoor_temp_f, outdoor_rh_pct" in body
-    assert 'observed_temp = _first_float(current["outdoor_temp_f"])' in body
-    assert 'observed_rh = _first_float(current["outdoor_rh_pct"])' in body
-    assert "_outdoor_vpd_kpa(observed_temp, observed_rh)" in body
-    assert 'current["temp_avg"]' not in body
-    assert 'current["rh_avg"]' not in body
 
 
-def test_plan_status_and_context_exclude_expired_plan_rows():
-    mcp_source = (REPO_ROOT / "mcp/server.py").read_text()
-    plan_status_source = mcp_source[mcp_source.index("async def plan_status") : mcp_source.index("async def lessons")]
-    context_source = (REPO_ROOT / "scripts/gather-plan-context.sh").read_text()
-
-    assert "lifecycle_status = 'effective'" in plan_status_source
-    assert "expires_at > now()" in plan_status_source
-    assert "expires_at > now()" in context_source
 
 
-def test_required_trigger_fired_state_waits_for_terminal_full_plan():
-    heartbeat = (REPO_ROOT / "ingestor/tasks/heartbeat.py").read_text()
-
-    assert 'if disposition == "complete"' in heartbeat
-    assert "if delivered and not required_full_plan" in heartbeat
-    assert "fired-state waits for set_plan" in heartbeat
-    assert "WHEN $3 = 'delivered' THEN NULL" in heartbeat
-    assert "'wrong_action', 'neutral_fallback', 'timed_out'" in heartbeat
-    assert "another SUNRISE plan exists within last 4h" not in heartbeat
 
 
-@pytest.mark.asyncio
-async def test_deviation_normal_ack_is_wrong_action(mcp_server, monkeypatch):
-    connection = _RequiredAckConnection("FORECAST_DEVIATION")
-
-    async def db():
-        return connection
-
-    monkeypatch.setattr(mcp_server, "_db", db)
-    result = json.loads(
-        await mcp_server.acknowledge_trigger(
-            trigger_id="00000000-0000-0000-0000-000000000001",
-            reason="No weather adjustment needed",
-            planner_instance="local",
-        )
-    )
-    assert result["status"] == "wrong_action"
-    assert result["terminal_action"] == "wrong_action"
-    assert all("INSERT INTO setpoint_plan" not in sql for sql, _args in connection.executed)
-    assert connection.closed
 
 
-def test_deviation_prompt_requires_expiring_full_plan_and_preserves_safety():
-    from iris_planner import _forecast_deviation_prompt
-
-    prompt = _forecast_deviation_prompt("bounded non-actuating context", "weather miss")
-    assert "one valid full expiring plan" in prompt
-    assert "`set_plan`" in prompt
-    assert "neutral_fallback=true" in prompt
-    assert "experiment-owned fields" in prompt
-    assert "shadow proposals" in prompt
-    assert "normal acknowledgement or one-off `set_tunable`" in prompt
-    assert "Confirm persistence before reporting" in prompt
-    assert "Adjust tunables only" not in prompt

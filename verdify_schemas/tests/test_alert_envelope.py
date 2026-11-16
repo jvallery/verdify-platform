@@ -692,9 +692,7 @@ def test_schema_covers_alert_types_in_write_paths():
     tasks_sources = sorted(tasks_pkg.glob("*.py")) if tasks_pkg.is_dir() else [root / "ingestor" / "tasks.py"]
     sources = [
         *tasks_sources,
-        root / "ingestor" / "iris_planner.py",
         root / "api" / "main.py",
-        root / "scripts" / "forecast-action-engine.py",
     ]
     found: set[str] = set()
     patterns = [

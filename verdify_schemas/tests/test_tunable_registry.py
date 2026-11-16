@@ -37,6 +37,7 @@ from verdify_schemas.setpoint import SetpointSnapshot
 from verdify_schemas.tunable_registry import (
     _ENTITY_NAMES,
     ACTIVE_TUNABLES_REG,
+    AGENT_SETTABLE_PARAMS,
     CFG_READBACK_ALIASES_REG,
     CFG_READBACK_MAP_REG,
     FIRMWARE_V2_STAGED_REG,
@@ -458,16 +459,15 @@ class TestDriftGuard:
         _install_mcp_runtime_import_stubs(monkeypatch)
         mcp_path = REPO_ROOT / "mcp" / "server.py"
         module = runpy.run_path(str(mcp_path), run_name="_test_mcp_server_registry")
-        assert set(module["TIER1_TUNABLES"]) == set(TIER1_REG)
         assert set(module["PLAN_REQUIRED_PARAMS"]) == set(TIER1_REG)
 
-    def test_mcp_set_tunable_uses_planner_pushable_registry(self) -> None:
-        """MCP set_tunable must use the canonical planner-policy gate."""
-        mcp_path = REPO_ROOT / "mcp" / "server.py"
-        text = mcp_path.read_text()
-        assert "PLANNER_PUSHABLE_REG" in text
-        assert "parameter not in PLANNER_PUSHABLE_REG" in text
-        assert "parameter not in TIER1_TUNABLES" not in text
+    def test_mcp_has_no_planner_climate_write_tool(self) -> None:
+        """Climate refactor 4.2: set_tunable and set_plan are gone; no MCP path inserts a plan row."""
+        text = (REPO_ROOT / "mcp" / "server.py").read_text()
+        for tool in ("set_tunable", "set_plan", "plan_run", "plan_evaluate", "acknowledge_trigger", "plan_status"):
+            assert f"async def {tool}(" not in text, tool
+        assert "INSERT INTO setpoint_plan" not in text
+        assert "INSERT INTO plan_journal" not in text
 
     def test_planner_pushable_is_only_planner_policy(self) -> None:
         planner_policy = {n for n, d in REGISTRY.items() if d.control_class == "planner_policy"}
@@ -574,13 +574,6 @@ class TestDriftGuard:
         assert err is not None
         assert "mister_all_kpa=2.8 outside registry bounds [1, 2.5]" in err
         assert "nearest_safe=2.5" in err
-
-    def test_mcp_set_tunable_validates_registry_bounds(self) -> None:
-        """set_tunable must reject out-of-range planner pushes before DB writes."""
-        mcp_path = REPO_ROOT / "mcp" / "server.py"
-        text = mcp_path.read_text()
-        assert "registry_value_error(parameter, value)" in text
-        assert "Tunable value outside registry bounds" in text
 
 
 class TestActivityDirectWetGuards:
@@ -907,13 +900,12 @@ class TestPlannerWriteContractLockout:
         assert not leaked, f"controller_safety params leaked into PLANNER_PUSHABLE_REG: {leaked}"
 
     def test_fsm_controller_switch_locked_out(self) -> None:
-        """The FSM master switch is non-pushable and force-rewritten ON by set_plan,
-        so the planner can never disable the deterministic controller."""
+        """The FSM master switch is non-pushable and no agent may set it, so the
+        planner can never disable the deterministic controller."""
         row = REGISTRY["sw_fsm_controller_enabled"]
         assert not row.planner_pushable
         assert "sw_fsm_controller_enabled" not in PLANNER_PUSHABLE_REG
-        mcp_text = (REPO_ROOT / "mcp" / "server.py").read_text()
-        assert 'FORCED_ON_SWITCH_PARAMS = frozenset({"sw_fsm_controller_enabled"})' in mcp_text
+        assert "sw_fsm_controller_enabled" not in AGENT_SETTABLE_PARAMS
 
     def test_dehum_vent_hold_flag_is_operator_only(self) -> None:
         """#410/#420: the S8 vent+reheat hold activation flag is operator-scoped.
@@ -942,9 +934,9 @@ class TestPlannerWriteContractLockout:
         assert registry_value_error("sw_dehum_vent_hold_enabled", 1.0) is None
         assert registry_value_error("sw_dehum_vent_hold_enabled", 0.0) is None
         assert registry_value_error("sw_dehum_vent_hold_enabled", 0.5) is not None
-        # Never planner-named: the assembled iris prompt must not offer it.
-        planner_src = (REPO_ROOT / "ingestor" / "iris_planner.py").read_text()
-        assert "dehum_vent_hold_enabled" not in planner_src
+        # Never agent-settable and never named in the review prompt.
+        assert "sw_dehum_vent_hold_enabled" not in AGENT_SETTABLE_PARAMS
+        assert "dehum_vent_hold_enabled" not in (REPO_ROOT / "ingestor" / "review_prompt.py").read_text()
 
     def test_dehum_vent_hold_readback_route_is_registry_derived_only(self) -> None:
         """#420 reconciliation: exactly ONE authoritative CFG route.
@@ -957,25 +949,13 @@ class TestPlannerWriteContractLockout:
         assert CFG_READBACK_MAP_REG["cfg___dehum_vent_hold_enabled"] == "sw_dehum_vent_hold_enabled"
         assert _entity_map().CFG_READBACK_MAP["cfg___dehum_vent_hold_enabled"] == "sw_dehum_vent_hold_enabled"
 
-    def test_set_plan_drops_band_owned_before_insert_and_rejects_non_policy(self) -> None:
-        """set_plan's write path enforces the contract: band-owned params are
-        dropped (band_params_dropped) BEFORE the setpoint_plan INSERT, any param
-        outside BAND_OWNED∪PLANNER_PUSHABLE rejects the whole plan, and the FSM
-        switch is force-rewritten on."""
-        text = (REPO_ROOT / "mcp" / "server.py").read_text()
-        # Non-policy rejection keyed on the registry sets.
-        assert "param not in BAND_OWNED_PARAMS and param not in PLANNER_PUSHABLE_REG" in text
-        assert '"non_policy_params"' in text
-        # Band-owned drop happens inside the waypoint loop, before the INSERT.
-        drop_at = text.index("if param in BAND_OWNED_PARAMS:")
-        dropped_counter_at = text.index("band_params_dropped += 1", drop_at)
-        insert_at = text.index("INSERT INTO setpoint_plan", drop_at)
-        assert drop_at < dropped_counter_at < insert_at, (
-            "band-owned params must be dropped before the setpoint_plan INSERT"
-        )
-        # FSM switch force-on rewrite.
-        assert "if param in FORCED_ON_SWITCH_PARAMS and float(value) < 0.5:" in text
-        assert "value = 1.0" in text
+    def test_agents_may_set_only_operator_switches(self) -> None:
+        """Climate refactor 4.2: an agent's set_setting reaches only the operator switches."""
+        assert AGENT_SETTABLE_PARAMS
+        for name in AGENT_SETTABLE_PARAMS:
+            row = REGISTRY[name]
+            assert (row.kind, row.push_owner) == ("switch", "operator"), name
+        assert not AGENT_SETTABLE_PARAMS & set(PLANNER_PUSHABLE_REG)
 
 
 # ─── Drift Guard #2 — step, label and unit match the firmware entities (VD-29) ───

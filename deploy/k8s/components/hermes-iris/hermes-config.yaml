@@ -43,21 +43,19 @@ data:
     from pathlib import Path
 
     REQUIRED = {
-        "acknowledge_trigger", "activity", "alerts", "climate", "crop_history",
-        "crop_lifecycle", "crops", "equipment_state", "forecast",
-        "get_setpoints", "history", "irrigation_clear_fault", "irrigation_history",
-        "irrigation_line_set", "irrigation_run", "irrigation_schedule", "irrigation_schedule_set",
-        "irrigation_status", "irrigation_stop", "knowledge_search", "lessons",
-        "lessons_manage", "lessons_search", "observations", "plan_evaluate",
-        "plan_status", "position_current", "scorecard", "set_plan",
-        "set_setting", "set_tunable", "settings", "topology",
+        "activity", "alerts", "climate", "crop_history", "crop_lifecycle", "crops",
+        "equipment_state", "forecast", "get_setpoints", "history", "irrigation_clear_fault",
+        "irrigation_history", "irrigation_line_set", "irrigation_run", "irrigation_schedule",
+        "irrigation_schedule_set", "irrigation_status", "irrigation_stop", "knowledge_search",
+        "lessons", "lessons_manage", "lessons_search", "observations", "position_current",
+        "review_write", "scorecard", "settings", "topology",
     }
-    # Iris ends every trigger without these. The config moves at any sync and the MCP image at its promotion, so an
-    # image from before them must not take the planner out of service. A newer image's own /readyz still fails if it
-    # stops registering one.
+    # Iris ends a review without these. The config moves at any sync and the MCP image at its promotion, so an image
+    # from before them (review_write arrives with the daily review) must not take Iris out of service. A newer image's
+    # own /readyz still fails if it stops registering one.
     PLAN_OPTIONAL = {
         "activity", "irrigation_clear_fault", "irrigation_history", "irrigation_line_set", "irrigation_run",
-        "irrigation_schedule", "irrigation_schedule_set", "irrigation_status", "irrigation_stop", "set_setting",
+        "irrigation_schedule", "irrigation_schedule_set", "irrigation_status", "irrigation_stop", "review_write",
         "settings",
     }
     PROBE_STATE_SCHEMA = 1
