@@ -29,8 +29,12 @@ test("an operator: Stop all water first, then the three bursts, each a name over
   expect(screen.getByRole("region", { name: "Quick actions" })).toBeTruthy();
   expect(names()).toEqual(["Stop all water", "Exchange air · 15 min", "Run the fogger · 5 min", "Circulate air · 10 min"]);
   expect(screen.getByRole("button", { name: "Stop all water" }).className).toContain("btn-stop");
-  expect(screen.getByText("Both fans on, vent open. Runs for 15 minutes.")).toBeTruthy();
-  expect(screen.getByText("Both fans on, vent closed. Runs for 10 minutes.")).toBeTruthy();
+  // NOW-CARDS: the fan cards say a manual fan run stops both heaters; the detail is clamped to two lines, with the
+  // full text in its title, so the row keeps its height at 1440 px (e2e/now.spec.ts).
+  for (const detail of ["Both fans on, vent open; heaters off. 15 minutes.", "Both fans on, vent closed; heaters off. 10 minutes."]) {
+    const shown = screen.getByText(detail);
+    expect([shown.className, shown.getAttribute("title")]).toEqual(["meta now-burst-detail", detail]);
+  }
 });
 
 test("a burst is one API-IRR-12 with its kind and minutes and no dialog; Stop all water calls the route's Stop", async () => {

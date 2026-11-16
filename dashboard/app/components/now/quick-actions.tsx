@@ -12,15 +12,15 @@ import { StopAllWater, type StopAllControl } from "../stop-all-water";
 import { Term } from "../term";
 
 const BURST_PURPOSE = {
-  fans: { title: "Exchange air", detail: "Both fans on, vent open. Runs for 15 minutes." },
+  fans: { title: "Exchange air", detail: "Both fans on, vent open; heaters off. 15 minutes." },
   humidify: { title: "Run the fogger", detail: "Fog on for 5 minutes. Water safeguards still apply." },
-  vent_bypass: { title: "Circulate air", detail: "Both fans on, vent closed. Runs for 10 minutes." },
+  vent_bypass: { title: "Circulate air", detail: "Both fans on, vent closed; heaters off. 10 minutes." },
 } as const;
 
 /** The shared burst button (Equipment's too): its name over its length on a phone, so three fit side by side. */
 function QuickBurst({ burst }: { burst: (typeof BURSTS)[number] }) {
   const purpose = BURST_PURPOSE[burst.kind];
-  return <div className="now-burst"><div><h4>{purpose.title}</h4><p className="meta">{purpose.detail}</p></div><BurstButton burst={burst} className="now-burst-button" label={`${purpose.title} · ${burst.minutes} min`} /></div>;
+  return <div className="now-burst"><div><h4>{purpose.title}</h4><p className="meta now-burst-detail" title={purpose.detail}>{purpose.detail}</p></div><BurstButton burst={burst} className="now-burst-button" label={`${purpose.title} · ${burst.minutes} min`} /></div>;
 }
 
 /** The bursts, or why they are not here yet: while the engine flag is unknown the row keeps its height. */

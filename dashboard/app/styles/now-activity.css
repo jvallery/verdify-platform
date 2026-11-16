@@ -338,6 +338,9 @@ a.now-status-item:hover{color:var(--mint);text-decoration:underline}
 .now-bursts{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
 .now-burst{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3) 0;border-bottom:1px solid var(--line)}
 .now-burst h4,.now-burst p{margin:0}
+/* NOW-CARDS: the heater note stays on the fan cards; two lines at most keep the row, and Needs someone, in the first
+   screen at 1440 x 900 (e2e/now.spec.ts). The full text is in the title. */
+.now-burst-detail{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
 .now-burst .btn{flex-shrink:0;min-width:7rem}
 .now-actions-term{margin-top:var(--space-3)}
 .now-lights{display:grid;gap:var(--space-4)}
