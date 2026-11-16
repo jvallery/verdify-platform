@@ -397,10 +397,16 @@ def test_retired_irrigation_clocks_fert_cadence_and_center_bursts_are_not_writab
 # keys pass whether or not the firmware in this tree emits them yet, and the firmware PR need not edit this file.
 # Remove an entry once the build that publishes it is the last-good build.
 HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
-    "STATE_MAP": {"relay_counters", "outdoor_source"},
+    "STATE_MAP": {
+        "relay_counters",
+        "outdoor_source",
+        "climate_law_state",
+        "climate_drying_meter",
+        "climate_law_constants",
+    },
     # The drying cost limit (phase 3): the registry row routes its number entity and readback.
-    "SETPOINT_MAP": {"drying_cost_limit__kwh_kg_"},
-    "CFG_READBACK_MAP": {"cfg___drying_cost_limit__kwh_kg_"},
+    "SETPOINT_MAP": {"dry_cost_limit_kwh_per_kg"},
+    "CFG_READBACK_MAP": {"cfg_dry_cost_limit_kwh_per_kg"},
 }
 
 

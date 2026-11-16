@@ -362,6 +362,7 @@ const ALERT_TYPE = {
   house_band_drift: "The greenhouse is outside its band",
   irrigation_feedback_gap: "Watering feedback missing",
   leak_detected: "Water flowing with every Verdify valve closed",
+  law_constants_mismatch: "The controller runs other climate-law numbers than this release",
   lighting_cfg_threshold_drift: "Grow light thresholds drifted on the controller",
   climate_action_proof_stale: "Climate control evidence is out of date",
   component_experiment_integrity: "An experiment needs attention",

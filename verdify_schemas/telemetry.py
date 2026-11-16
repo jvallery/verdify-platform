@@ -18,6 +18,7 @@ Principles:
 from __future__ import annotations
 
 import math
+import re
 from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -398,6 +399,56 @@ class RelayCounters(BaseModel):
     vt: int = Field(ge=0, le=_UINT32_MAX)
     f1s: int = Field(ge=0, le=_UINT32_MAX)
     f2s: int = Field(ge=0, le=_UINT32_MAX)
+
+
+class ClimateLawState(BaseModel):
+    """``climate_law_state`` (phase 3 firmware): the law's state record, published on every change and as a 60 s
+    heartbeat. Stored as the ``climate_law_state`` row of ``system_state`` on every receipt, so a row younger than
+    120 s shows the law is running.
+
+    ``l`` the latch bits and ``o`` the request bits; ``dr`` why drying is not running (``none``, or the first reason
+    that applies; a reason this host does not know is kept as text); ``e`` the drying cost now in kWh/kg (null
+    without outdoor data); ``lim`` the drying cost limit in force; ``br`` 1 when the controller's band check changed
+    the band it received; ``b`` the band in force (temp low, temp high in F, VPD low, VPD high in kPa).
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    v: Literal[1]
+    l: int = Field(ge=0, le=_UINT32_MAX)  # noqa: E741 (the wire key)
+    o: int = Field(ge=0, le=_UINT32_MAX)
+    dr: str = Field(min_length=1, max_length=40)
+    e: float | None = Field(ge=0, allow_inf_nan=False)
+    lim: float = Field(ge=0, allow_inf_nan=False)
+    br: Literal[0, 1]
+    b: tuple[float, float, float, float]
+
+
+class ClimateDryingMeter(BaseModel):
+    """``climate_drying_meter`` (phase 3 firmware): lifetime drying counters, published every 300 s. Seconds of a
+    drying run with the vent open (``s``), water carried out (``g``, grams), heat carried out (``wh``) and seconds the
+    house wanted drying while none ran (``rw``). Stored as the ``climate_drying_meter`` row of ``system_state`` on
+    change; like ``relay_counters`` a value may step back after a restart, and a reader counts a negative difference
+    as no count for that interval."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    v: Literal[1]
+    s: int = Field(ge=0, le=_UINT32_MAX)
+    g: int = Field(ge=0, le=_UINT32_MAX)
+    wh: int = Field(ge=0, le=_UINT32_MAX)
+    rw: int = Field(ge=0, le=_UINT32_MAX)
+
+
+# The versioned JSON text entities the ingestor validates before it stores them in system_state: any other
+# payload (another version, a missing or extra key, a value out of range) is dropped with a warning.
+VERSIONED_TEXT_PAYLOADS: dict[str, type[BaseModel]] = {
+    "relay_counters": RelayCounters,
+    "climate_law_state": ClimateLawState,
+    "climate_drying_meter": ClimateDryingMeter,
+}
+# ``climate_law_constants`` (phase 3 firmware): the SHA-256 of the constants compiled into the running build.
+LAW_CONSTANTS_HASH = re.compile(r"[0-9a-f]{64}")
 
 
 class SystemStateRow(BaseModel):

@@ -35,6 +35,7 @@ from verdify_schemas.alerts import (
     IrrigationFenceBreachAlert,
     IrrigationLineFaultedAlert,
     IrrigationRunMissedAlert,
+    LawConstantsMismatchAlert,
     LeakDetectedAlert,
     LightingCfgThresholdDriftAlert,
     McpUnreachableAlert,
@@ -404,6 +405,10 @@ CASES = {
     "planner_evaluation_missed": (
         PlannerEvaluationMissedAlert,
         {"plan_id": "iris-20260509-0551", "age_hours": 27},
+    ),
+    "law_constants_mismatch": (
+        LawConstantsMismatchAlert,
+        {"reported": "a" * 64, "expected": "b" * 64, "reported_at": "2026-11-16T05:00:00+00:00"},
     ),
     "lighting_cfg_threshold_drift": (
         LightingCfgThresholdDriftAlert,

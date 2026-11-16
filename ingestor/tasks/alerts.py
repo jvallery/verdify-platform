@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from verdify_schemas.climate_law_constants import CONSTANTS_SHA256 as LAW_CONSTANTS_SHA256
 from verdify_schemas.irrigation import (
     DEVICE_IDX,
     REASON_WORDS,
@@ -529,6 +530,34 @@ async def _sensor_fault_alert(conn) -> dict | None:
         "details": {"since": fault["since"].isoformat(), "mode_reason": reason},
         "metric_value": None,
         "threshold_value": float(SENSOR_FAULT_ALERT_AFTER_S),
+    }
+
+
+# The constants compiled into the controller (climate_law_constants, phase 3 firmware, published hourly and stored on
+# change) against the host's own (verdify_schemas.climate_law_constants.CONSTANTS_SHA256): an info alert while they
+# differ. A build before the law publishes nothing, so there is no row and no alert.
+_LAW_CONSTANTS_SQL = f"""
+SELECT value, ts FROM system_state
+ WHERE entity = 'climate_law_constants' AND ts > now() - interval '{_IRR_NEWEST_STATE_WINDOW}'
+ ORDER BY ts DESC LIMIT 1
+"""
+
+
+async def _law_constants_alert(conn, expected: str) -> dict | None:
+    """The law_constants_mismatch alert while the controller's newest constants hash is not ``expected``."""
+    row = await conn.fetchrow(_LAW_CONSTANTS_SQL)
+    if row is None or row["value"] == expected:
+        return None
+    return {
+        "alert_type": "law_constants_mismatch",
+        "severity": "info",
+        "category": "system",
+        "sensor_id": "system.climate_law_constants",
+        "zone": None,
+        "message": "The controller's climate-law constants differ from this release's: flash the matching build",
+        "details": {"reported": row["value"], "expected": expected, "reported_at": row["ts"].isoformat()},
+        "metric_value": None,
+        "threshold_value": None,
     }
 
 
@@ -1641,6 +1670,11 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         fault = await _sensor_fault_alert(conn)
         if fault is not None:
             alerts.append(fault)
+
+        # 4a'. The controller's compiled climate-law constants against this release's
+        mismatch = await _law_constants_alert(conn, LAW_CONSTANTS_SHA256)
+        if mismatch is not None:
+            alerts.append(mismatch)
 
         # 4b. VPD extreme
         vpd_row = await conn.fetchrow(

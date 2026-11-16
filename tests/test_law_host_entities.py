@@ -2,7 +2,9 @@
 
 ``relay_counters`` (one JSON object of lifetime counters) is validated and stored as a ``system_state`` row;
 ``outdoor_source`` and the new ``mode_reason`` values are stored as they come; ``band_source`` takes ``corridor``; and
-the controller's SENSOR_FAULT state opens a critical ``sensor_fault`` alert after two minutes. No database.
+the controller's SENSOR_FAULT state opens a critical ``sensor_fault`` alert after two minutes. Phase 3: the law's
+state record (every receipt), drying meter and constants hash are validated and stored, and a constants hash other
+than the host's opens an info alert. No database.
 """
 
 from __future__ import annotations
@@ -32,6 +34,17 @@ for key, value in {
 import ingestor  # noqa: E402
 from verdify_schemas.alerts import AlertEnvelope  # noqa: E402
 
+LAW_STATE = {
+    "v": 1,
+    "l": 0x41,
+    "o": 0x104,
+    "dr": "none",
+    "e": 0.412,
+    "lim": 0.7,
+    "br": 0,
+    "b": [62.5, 72.5, 0.76, 1.19],
+}
+METER = {"v": 1, "s": 5400, "g": 1830, "wh": 2900, "rw": 600}
 COUNTERS = {"v": 1, "h1": 120, "h2": 40, "f1": 300, "f2": 12, "fg": 900, "vt": 77, "f1s": 86400, "f2s": 3600}
 
 
@@ -101,9 +114,75 @@ def test_band_source_takes_the_corridor():
     assert ingestor.state.diagnostics["band_source"] == "corridor"
 
 
+# ── phase 3: the law's state record, drying meter and constants hash ─────
+
+
+def test_the_law_state_is_stored_on_every_receipt_as_its_heartbeat():
+    for _ in range(3):
+        observe("climate_law_state", json.dumps(LAW_STATE))
+    assert len(ingestor.state.pending_states) == 3
+    assert {entity for entity, _ in ingestor.state.pending_states} == {"climate_law_state"}
+    assert json.loads(ingestor.state.pending_states[0][1]) == LAW_STATE
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {**LAW_STATE, "dr": "a_reason_this_host_does_not_know"},
+        {**LAW_STATE, "e": None, "dr": "no_outdoor"},
+        {**LAW_STATE, "e": 1000000000, "lim": 0, "br": 1},
+    ],
+)
+def test_the_law_state_keeps_an_unknown_reason_and_a_missing_cost(state):
+    observe("climate_law_state", json.dumps(state))
+    assert json.loads(ingestor.state.pending_states[0][1]) == state
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {**LAW_STATE, "v": 2},
+        {key: value for key, value in LAW_STATE.items() if key != "b"},
+        {**LAW_STATE, "b": [62.5, 72.5, 0.76]},
+        {**LAW_STATE, "br": 2},
+        {**LAW_STATE, "l": -1},
+        {**LAW_STATE, "e": -0.1},
+        {**LAW_STATE, "dr": ""},
+        {**LAW_STATE, "extra": 1},
+    ],
+)
+def test_a_law_state_that_is_not_version_1_is_dropped(state):
+    observe("climate_law_state", json.dumps(state))
+    observe("climate_law_state", '{"v":1,"e":NaN}')
+    assert ingestor.state.pending_states == []
+
+
+def test_the_drying_meter_is_stored_on_change_and_a_bad_one_dropped():
+    observe("climate_drying_meter", json.dumps(METER))
+    observe("climate_drying_meter", json.dumps(METER))
+    observe("climate_drying_meter", json.dumps({**METER, "v": 2}))
+    observe("climate_drying_meter", json.dumps({**METER, "g": 1.5}))
+    observe("climate_drying_meter", json.dumps({**METER, "s": 5100}))  # a restart stepped it back
+    assert [json.loads(value)["s"] for _, value in ingestor.state.pending_states] == [5400, 5100]
+
+
+def test_the_constants_hash_is_stored_and_a_malformed_one_dropped():
+    observe("climate_law_constants", "AB" * 32)
+    observe("climate_law_constants", "ab" * 31)
+    observe("climate_law_constants", " " + "ab" * 32 + "\n")
+    assert ingestor.state.pending_states == [("climate_law_constants", "ab" * 32)]
+
+
 # ── the sensor_fault alert ──────────────────────────────────────────────────
 
-NAMES = {"_IRR_NEWEST_STATE_WINDOW", "SENSOR_FAULT_ALERT_AFTER_S", "_SENSOR_FAULT_SQL", "_sensor_fault_alert"}
+NAMES = {
+    "_IRR_NEWEST_STATE_WINDOW",
+    "SENSOR_FAULT_ALERT_AFTER_S",
+    "_SENSOR_FAULT_SQL",
+    "_sensor_fault_alert",
+    "_LAW_CONSTANTS_SQL",
+    "_law_constants_alert",
+}
 
 
 def _alert_fn():
@@ -141,3 +220,14 @@ def test_sensor_fault_opens_a_critical_alert_naming_its_reason():
     envelope = AlertEnvelope.model_validate(alert)
     assert envelope.alert_type == "sensor_fault"
     assert asyncio.run(ns["_sensor_fault_alert"](Conn(None))) is None
+
+
+def test_a_constants_hash_other_than_the_host_s_opens_an_info_alert():
+    ns = _alert_fn()
+    at = datetime(2026, 11, 16, 5, 0, tzinfo=UTC)
+    assert asyncio.run(ns["_law_constants_alert"](Conn(None), "b" * 64)) is None
+    assert asyncio.run(ns["_law_constants_alert"](Conn({"value": "b" * 64, "ts": at}), "b" * 64)) is None
+    alert = asyncio.run(ns["_law_constants_alert"](Conn({"value": "a" * 64, "ts": at}), "b" * 64))
+    assert (alert["alert_type"], alert["severity"]) == ("law_constants_mismatch", "info")
+    assert alert["details"] == {"reported": "a" * 64, "expected": "b" * 64, "reported_at": at.isoformat()}
+    assert AlertEnvelope.model_validate(alert).alert_type == "law_constants_mismatch"

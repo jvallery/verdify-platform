@@ -65,6 +65,7 @@ AlertType = Literal[
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
+    "law_constants_mismatch",
     "leak_detected",
     "lighting_cfg_threshold_drift",
     "climate_action_proof_stale",
@@ -121,6 +122,7 @@ ALERT_TYPES: tuple[str, ...] = (
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
+    "law_constants_mismatch",
     "leak_detected",
     "lighting_cfg_threshold_drift",
     "climate_action_proof_stale",
@@ -260,6 +262,15 @@ class SensorFaultDetails(_DetailsBase):
 
     since: AwareDatetime
     mode_reason: str | None = None
+
+
+class LawConstantsMismatchDetails(_DetailsBase):
+    """The controller's compiled climate-law constants (``climate_law_constants``, phase 3 firmware) differ from the
+    constants of the host's own revision: ``reported`` and ``expected`` are SHA-256 hex digests."""
+
+    reported: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reported_at: AwareDatetime
 
 
 class VpdExtremeDetails(_DetailsBase):
@@ -670,6 +681,11 @@ class TempSafetyAlert(_AlertBase):
     details: TempSafetyDetails
 
 
+class LawConstantsMismatchAlert(_AlertBase):
+    alert_type: Literal["law_constants_mismatch"]
+    details: LawConstantsMismatchDetails
+
+
 class SensorFaultAlert(_AlertBase):
     alert_type: Literal["sensor_fault"]
     details: SensorFaultDetails
@@ -1020,6 +1036,7 @@ AlertEnvelopeUnion = Annotated[
     | HeatStagingInversionAlert
     | HouseBandDriftAlert
     | IrrigationFeedbackGapAlert
+    | LawConstantsMismatchAlert
     | LeakDetectedAlert
     | LightingCfgThresholdDriftAlert
     | ClimateActionProofStaleAlert

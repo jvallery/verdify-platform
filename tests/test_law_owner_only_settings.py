@@ -20,6 +20,7 @@ from verdify_schemas.setting_help import setting_help
 from verdify_schemas.tunable_registry import (
     DRY_COST_LIMIT_OBJECT_ID,
     DRY_COST_LIMIT_PARAM,
+    DRY_COST_LIMIT_READBACK_ID,
     OWNER_ONLY_PARAMS,
     PLANNER_PUSHABLE_REG,
     REGISTRY,
@@ -44,7 +45,10 @@ def test_the_row_takes_its_numbers_from_the_constants_module():
     )
     assert (spec.default, spec.min, spec.max) == (0.7, 0.0, 1.5)
     assert (spec.label, spec.unit, spec.control_class) == ("Drying Cost Limit", "kWh/kg", "controller_safety")
-    assert spec.esp_object_id == DRY_COST_LIMIT_OBJECT_ID and spec.cfg_readback_object_id
+    assert (spec.esp_object_id, spec.cfg_readback_object_id) == (
+        "dry_cost_limit_kwh_per_kg",
+        "cfg_dry_cost_limit_kwh_per_kg",
+    )  # the phase 3 build's names
     assert desired_write_rule(LIMIT) == (True, None)
     assert setting_help(LIMIT) is not None
 
@@ -138,6 +142,8 @@ def test_the_limit_is_not_sent_until_the_controller_lists_its_entity(dispatcher,
     monkeypatch.setitem(dispatcher.shared.esp32, "keys", {"mister_engage_kpa": 7})
     assert dispatcher._dry_cost_limit_supported() is False
     monkeypatch.setitem(dispatcher.shared.esp32, "keys", {DRY_COST_LIMIT_OBJECT_ID: 9})
+    assert dispatcher._dry_cost_limit_supported() is False
+    monkeypatch.setitem(dispatcher.shared.esp32, "keys", {DRY_COST_LIMIT_OBJECT_ID: 9, DRY_COST_LIMIT_READBACK_ID: 10})
     assert dispatcher._dry_cost_limit_supported() is True
     monkeypatch.setitem(dispatcher.shared.esp32, "keys", None)
     assert dispatcher._dry_cost_limit_supported() is False

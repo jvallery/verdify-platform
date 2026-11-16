@@ -336,6 +336,12 @@ STATE_MAP: dict[str, str] = {
     # (station | intake | none).
     "relay_counters": "relay_counters",
     "outdoor_source": "outdoor_source",
+    # Phase 3 firmware (climate refactor, package 1.5c): the law's state record (every receipt), its drying meter
+    # (lifetime counters) and the SHA-256 of its compiled constants; the two JSON ones are validated by
+    # verdify_schemas.telemetry before they are stored.
+    "climate_law_state": "climate_law_state",
+    "climate_drying_meter": "climate_drying_meter",
+    "climate_law_constants": "climate_law_constants",
 }
 
 # ──────────────────────────────────────────────────────────────

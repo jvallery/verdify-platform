@@ -149,7 +149,7 @@ from verdify_schemas.experiment_config import (
 )
 from verdify_schemas.policy_transport import POLICY_IDENTITY_SENSOR
 from verdify_schemas.policy_vector import wire_fields
-from verdify_schemas.telemetry import RelayCounters, expand_moisture_exchange_wire
+from verdify_schemas.telemetry import LAW_CONSTANTS_HASH, VERSIONED_TEXT_PAYLOADS, expand_moisture_exchange_wire
 from verdify_schemas.tunable_registry import get as get_tunable
 
 # ──────────────────────────────────────────────────────────────
@@ -3720,14 +3720,26 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
                 except (ValueError, TypeError):
                     log.warning("Moisture-exchange detail has an unsupported wire shape")
                     val = '{"raw":"unsupported_moisture_exchange_detail"}'
-            elif obj_id == "relay_counters":
+            elif obj_id in VERSIONED_TEXT_PAYLOADS:
                 try:
-                    val = RelayCounters.model_validate_json(val).model_dump_json()
+                    val = VERSIONED_TEXT_PAYLOADS[obj_id].model_validate_json(val).model_dump_json()
                 except ValidationError:
-                    log.warning("Relay counters payload rejected: not a version 1 counter object")
+                    log.warning("%s payload rejected: not a version 1 object of its contract", obj_id)
+                    return
+            elif obj_id == "climate_law_constants":
+                val = val.strip()
+                if not LAW_CONSTANTS_HASH.fullmatch(val):
+                    log.warning("Climate law constants hash rejected: not 64 lowercase hex characters")
                     return
             old = state.system.get(entity)
-            force_refresh = entity in {"gl_main_state", "gl_main_reason", "gl_grow_state", "gl_grow_reason"}
+            # climate_law_state is stored on every receipt: its 60 s heartbeat row shows the law is running.
+            force_refresh = entity in {
+                "gl_main_state",
+                "gl_main_reason",
+                "gl_grow_state",
+                "gl_grow_reason",
+                "climate_law_state",
+            }
             if old != val or force_refresh:
                 if _observation_spool_enabled():
                     events = [("system_state", {"entity": entity, "value": val})]

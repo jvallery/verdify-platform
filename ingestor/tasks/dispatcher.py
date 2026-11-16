@@ -40,7 +40,12 @@ from verdify_schemas.setting_values import (
     within_relative_deadband,
 )
 from verdify_schemas.telemetry import SystemStateRow
-from verdify_schemas.tunable_registry import DRY_COST_LIMIT_OBJECT_ID, DRY_COST_LIMIT_PARAM, desired_write_rule
+from verdify_schemas.tunable_registry import (
+    DRY_COST_LIMIT_OBJECT_ID,
+    DRY_COST_LIMIT_PARAM,
+    DRY_COST_LIMIT_READBACK_ID,
+    desired_write_rule,
+)
 
 from . import band_anchors, bounded_reconcile, c1_overlay, drift_probe
 from ._common import (
@@ -473,9 +478,11 @@ def _ai_moisture_stress_policy_supported() -> bool:
 
 
 def _dry_cost_limit_supported() -> bool:
-    """Whether the connected controller lists the drying cost limit's number entity (phase 3 firmware). Until it
-    does, a stored limit or its release is not sent: an older build would answer entity_key_unavailable."""
-    return DRY_COST_LIMIT_OBJECT_ID in (shared.esp32.get("keys") or {})
+    """Whether the connected controller lists the drying cost limit's number entity and its readback (phase 3
+    firmware). Until it does, a stored limit or its release is not sent, so an older build, or a rollback to one,
+    raises no delivery failure for it."""
+    keys = shared.esp32.get("keys") or {}
+    return DRY_COST_LIMIT_OBJECT_ID in keys and DRY_COST_LIMIT_READBACK_ID in keys
 
 
 def _direct_wet_defaults(lighting_row, lighting_circuit_rows) -> dict[str, float]:

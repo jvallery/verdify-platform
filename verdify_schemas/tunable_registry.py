@@ -167,11 +167,11 @@ class TunableDef(BaseModel):
 # inputs, and retired aliases) is tier=2 context and MCP rejects planner writes.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# The drying cost limit's names (see its row). The entity and readback object_ids follow the firmware names proposed
-# to the phase 3 build: "Drying Cost Limit (kWh/kg)" and "Cfg • Drying Cost Limit (kWh/kg)".
+# The drying cost limit's names (see its row), as the phase 3 build publishes them: the number "Dry Cost Limit kWh per
+# kg" and its readback "Cfg Dry Cost Limit kWh per kg".
 DRY_COST_LIMIT_PARAM = "dry_cost_limit_kwh_per_kg"
-DRY_COST_LIMIT_OBJECT_ID = "drying_cost_limit__kwh_kg_"
-DRY_COST_LIMIT_READBACK_ID = "cfg___drying_cost_limit__kwh_kg_"
+DRY_COST_LIMIT_OBJECT_ID = "dry_cost_limit_kwh_per_kg"
+DRY_COST_LIMIT_READBACK_ID = "cfg_dry_cost_limit_kwh_per_kg"
 
 REGISTRY: dict[str, TunableDef] = {
     # ─────────────────────────────────────────────────────────────────────
@@ -2050,9 +2050,9 @@ REGISTRY: dict[str, TunableDef] = {
         notes="Site barometric pressure. The firmware uses it only for the inside/outside air enthalpy that feeds the economiser (sensors.yaml inside_enthalpy, outside_enthalpy); VPD does not use it. Site constant, not planner-pushable.",
     ),
     # The drying cost limit (climate refactor, package 1.5b): the law's one stored drying setting. Only the owner
-    # writes it, from the dashboard (OWNER_ONLY_PARAMS); the dispatcher sends it only to a controller that lists
-    # its entity (phase 3 firmware). No fw_clamp until that build's tunables.yaml carries the entity: the range,
-    # step and default are the constants module's, and the drift guards then hold the entity to them.
+    # writes it, from the dashboard (OWNER_ONLY_PARAMS); the dispatcher sends it only to a controller that lists its
+    # entity and readback (phase 3 firmware). No fw_clamp until that build's tunables.yaml carries the entity: the
+    # range, step and default are the constants module's, and the drift guards then hold the entity to them.
     DRY_COST_LIMIT_PARAM: TunableDef(
         name=DRY_COST_LIMIT_PARAM,
         kind="numeric",
