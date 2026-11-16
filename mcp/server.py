@@ -2783,21 +2783,37 @@ async def forecast(hours: int = 72) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 
+_SERVED_BAND_PARAMETERS = ("temp_low", "temp_high", "vpd_low", "vpd_high", "temp_target", "vpd_target")
+
+
 @mcp.tool()
 async def get_setpoints() -> str:
-    """Get all current active setpoints (firmware band values + planner tunables)."""
+    """Get all current active setpoints: the served band now (source band) and each other setting's newest value."""
     conn = await _db()
     try:
+        # The band has one source, fn_band_setpoints (RULINGS AF2): the settings ledger's band rows are not it.
         rows = await conn.fetch(
             """
+            WITH band AS (
+                SELECT p.parameter, p.value, 'band'::text AS source, now() AS ts
+                  FROM fn_band_setpoints(now()) b,
+                       LATERAL (VALUES ('temp_low', b.temp_low), ('temp_high', b.temp_high),
+                                       ('vpd_low', b.vpd_low), ('vpd_high', b.vpd_high),
+                                       ('temp_target', b.temp_target), ('vpd_target', b.vpd_target)) p(parameter, value)
+            ), ledger AS (
+                SELECT DISTINCT ON (parameter) parameter, value, source, ts
+                  FROM setpoint_changes
+                 WHERE parameter <> ALL($2::text[])
+                 ORDER BY parameter, ts DESC
+            )
             SELECT parameter, round(value::numeric,3) as value, source,
                    to_char(ts AT TIME ZONE 'America/Denver', 'HH24:MI') as updated
-            FROM (SELECT DISTINCT ON (parameter) parameter, value, source, ts
-                  FROM setpoint_changes ORDER BY parameter, ts DESC) sub
+            FROM (SELECT * FROM band WHERE value IS NOT NULL UNION ALL SELECT * FROM ledger) sub
             WHERE parameter = ANY($1::text[])
             ORDER BY parameter
             """,
             sorted(ALL_TUNABLES),
+            list(_SERVED_BAND_PARAMETERS),
         )
         validated = [SetpointSummary.model_validate(dict(r)).model_dump(mode="json") for r in rows]
         return json.dumps(validated)

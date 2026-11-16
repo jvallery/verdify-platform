@@ -290,6 +290,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_lab_serving_cache.py
     tests/test_lab_publish_k3s_guard.py
     tests/test_mcp_audience_auth.py
+    tests/test_mcp_band_source.py
     tests/test_mcp_named_agents.py
     tests/test_mcp_irrigation_read_tools.py
     tests/test_mcp_irrigation_write_tools.py
