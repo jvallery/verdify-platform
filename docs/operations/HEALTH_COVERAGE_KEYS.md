@@ -22,9 +22,10 @@ Namespace ingest/Lease alerts do not establish these availability checks. The sa
 |---|---|---|---|
 | `verdify-descheduler/descheduler` | `kube_cronjob_status_last_successful_time{namespace="verdify-descheduler",cronjob="descheduler"}` | Hourly, minute 15 | Latest scheduled failure and overdue/missing success; preserve an explicit operator pause |
 | `verdify-prod/verdify-fixed-panel-native-freezer` | `kube_cronjob_status_last_successful_time{namespace="verdify-prod",cronjob="verdify-fixed-panel-native-freezer"}` | Daily, local 00:30 | Latest scheduled failure and overdue/missing success; no experiment activation |
-| `verdify-prod/verdify-winter-feasibility` | `kube_cronjob_status_last_successful_time{namespace="verdify-prod",cronjob="verdify-winter-feasibility"}` | Daily, local 00:30 | Latest scheduled failure and overdue/missing success; no scientific eligibility inference |
 
-All three last-success series were present. Confirm `spec.timeZone`, deadlines and suspend from live source before choosing thresholds. A historical failed Job must not remain the latest-failure alarm after a newer scheduled success. Kubernetes Job failure telemetry is operational evidence, not proof that an outcome freeze or physical operation was scientifically valid.
+Both last-success series were present. Confirm `spec.timeZone`, deadlines and suspend from live source before choosing thresholds. A historical failed Job must not remain the latest-failure alarm after a newer scheduled success. Kubernetes Job failure telemetry is operational evidence, not proof that an outcome freeze or physical operation was scientifically valid.
+
+CronJob `verdify-prod/verdify-winter-feasibility` was retired by #1634 and needs no last-success rule; remove any rule or registry entry that still expects it.
 
 CronJob `verdify-prod/verdify-ha-gap-backfill` was retired by VD-48 and needs no last-success rule; remove any rule or registry entry that still expects it.
 
