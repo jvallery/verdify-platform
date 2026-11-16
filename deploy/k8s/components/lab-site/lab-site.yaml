@@ -139,8 +139,7 @@ spec:
         app.kubernetes.io/component: lab-site
     spec:
       imagePullSecrets:
-        - name: zot-origin-cluster-pull  # zot origin (ADR-0021); ghcr kept during transition
-        - name: ghcr-jvallery-readonly
+        - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
       # Serving caches are per-pod; the private origin keeps publisher RWO custody.
       automountServiceAccountToken: false
       securityContext:

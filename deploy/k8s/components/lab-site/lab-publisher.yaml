@@ -77,8 +77,7 @@ spec:
         spec:
           restartPolicy: Never
           imagePullSecrets:
-            - name: zot-origin-cluster-pull  # zot origin (ADR-0021); ghcr kept during transition
-            - name: ghcr-jvallery-readonly
+            - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
           # The publisher and origin share one RWO attachment cohort. Each
           # carries the matching label, so an origin replacement remains with
           # an active publisher; the first cohort pod can bootstrap on an

@@ -94,8 +94,7 @@ spec:
         app.kubernetes.io/component: hermes-iris
     spec:
       imagePullSecrets:
-        - name: zot-origin-cluster-pull  # zot origin (ADR-0021); ghcr kept during transition
-        - name: ghcr-jvallery-readonly
+        - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
