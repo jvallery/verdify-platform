@@ -21,6 +21,7 @@ import time
 import unicodedata
 import urllib.request
 import zlib
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -3607,6 +3608,61 @@ async def _readback_writes(conn: asyncpg.Connection) -> dict[str, datetime] | No
     return {row["parameter"]: row["at"] for row in rows if row["at"] is not None}
 
 
+# RULINGS AF1 (control-path F4): after a reboot the controller can report its stored value a few seconds after a push
+# and before the push is confirmed, so the 'esp32' observed row lands later than the push it predates. A confirmation
+# then leaves the ledger's newest row naming a value the controller no longer holds. The rows confirmed in this
+# transaction (confirmed_at = now(), the transaction's time) are read with the newest row of their parameter.
+CONFIRMED_NOW_SQL = """
+SELECT DISTINCT ON (c.parameter)
+       c.parameter, c.ts AS confirmed_ts, c.value AS confirmed_value,
+       n.ts AS newest_ts, n.value AS newest_value, n.source AS newest_source
+  FROM setpoint_changes c
+  JOIN LATERAL (
+        SELECT newest.ts, newest.value, newest.source
+          FROM setpoint_changes newest
+         WHERE newest.parameter = c.parameter
+           AND COALESCE(newest.greenhouse_id, '') = COALESCE(c.greenhouse_id, '')
+         ORDER BY newest.ts DESC
+         LIMIT 1
+       ) n ON true
+ WHERE c.confirmed_at = now()
+   AND c.delivery_status = 'confirmed'
+   AND COALESCE(c.source, '') <> 'esp32'
+   AND c.parameter = ANY($1::text[])
+ ORDER BY c.parameter, c.ts DESC
+"""
+
+
+def observed_rows_to_restore(confirmed: list[Mapping[str, Any]]) -> list[tuple[str, float]]:
+    """(parameter, value) for each confirmation whose parameter's newest row is a later 'esp32' observation of
+    another value; the caller writes one observed row with the confirmed value at the confirmation time."""
+    restore = []
+    for row in confirmed:
+        if row["newest_source"] != "esp32" or row["newest_ts"] <= row["confirmed_ts"]:
+            continue
+        held, newest = float(row["confirmed_value"]), float(row["newest_value"])
+        if abs(newest - held) <= readback_abs_tolerance(row["parameter"]) or (
+            abs(newest - held) / max(abs(held), 1e-3) < 0.01
+        ):
+            continue
+        restore.append((row["parameter"], held))
+    return restore
+
+
+async def _restore_confirmed_value_as_newest(conn, params: list[str]) -> None:
+    if not params:
+        return
+    restore = observed_rows_to_restore(await conn.fetch(CONFIRMED_NOW_SQL, params))
+    if restore:
+        await conn.executemany(
+            "INSERT INTO v_runtime_setpoint_changes_write "
+            "(ts, parameter, value, source, confirmed_at, delivery_status) "
+            "VALUES (now(), $1, $2, 'esp32', now(), 'observed')",
+            restore,
+        )
+        log.info("setpoint_changes: restored the confirmed value as newest for %s", ", ".join(p for p, _ in restore))
+
+
 async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason: str = "periodic") -> None:
     """Commit one immutable cached-readback batch before fanout or admission ACK."""
     if shared.is_shadow_mode():
@@ -3676,6 +3732,7 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
                             """,
                         [(param, val, readback_abs_tolerance(param)) for _ts, param, val in snapshot_rows],
                     )
+                    await _restore_confirmed_value_as_newest(conn, [param for _ts, param, _val in snapshot_rows])
                     await conn.execute(
                         "INSERT INTO v_runtime_system_state_write (ts, entity, value) VALUES ($1, $2, $3)",
                         ts,
