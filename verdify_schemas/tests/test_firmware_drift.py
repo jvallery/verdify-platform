@@ -782,7 +782,8 @@ def test_engine_air_inputs_fall_back_to_the_case_probe():
 def test_engine_counts_degraded_sensing_only_after_its_grace():
     """#1271: the engine's degraded input runs through irr_degraded_after_grace() on every climate tick,
     before any branch can skip it (test_irrigation_program.cpp covers the 300 s count). The climate trust
-    gate keeps the raw !avg_ok: with a grace there, a boot or an outage would chase a fabricated VPD."""
+    gate has no grace: with one, a boot or an outage would chase a fabricated VPD. Phase 2 (RULINGS G2): the
+    gate is the indoor reading's own flag, degraded unless the wall averages carry a valid humidity."""
     code = _code_only((REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text())
     call = "const bool irr_degraded = verdify_irr::irr_degraded_after_grace(degraded_grace, avg_ok, now_ms);"
     assert code.count(call) == 1
@@ -790,7 +791,7 @@ def test_engine_counts_degraded_sensing_only_after_its_grace():
     assert code.index("bool avg_ok =") < code.index(call) < code.index("SensorInputs sensor_in = {")
     assert code.count("sensor_in.sensor_degraded") == 1, "the engine no longer reads the raw flag"
     assert code.count("irr_in.sensor_degraded") == 1
-    assert ".sensor_degraded = !avg_ok," in code
+    assert ".sensor_degraded = indoor_reading_degraded(indoor)," in code
 
 
 def test_ota_on_begin_closes_every_wet_relay():
@@ -887,7 +888,7 @@ def test_zone_choice_reads_zone_vpd_through_peer_fallback():
     assert "{NAN, 0u}" in snapshot
     for zone in ("south", "west", "east"):
         assert re.search(rf"\{{id\(vpd_{zone}\)\.state,\s*id\(last_{zone}_ms\)\}}", snapshot), zone
-    assert controls.index("if(VPD > 10.0f) VPD = 10.0f;") < snap_start
+    assert controls.index("const float VPD = indoor.vpd_kpa;") < snap_start
 
     mister_start, mister_end = _source_span(
         controls, "/**************** 12 — MISTER STATE MACHINE", "/**************** 14 — Telemetry & debug"

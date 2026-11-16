@@ -64,7 +64,7 @@ struct Input {
   Mode mode;
   bool controller_fog, fog_before, vent_requested;
   bool manual_fog_force, fan_requires_vent;
-  bool controller_time_valid, drip_relay_open, occupancy_moisture_block;
+  bool drip_relay_open, occupancy_moisture_block;
   bool irrigation_water_conflict, climate_water_budget_block;
   bool mister_volume_hard_block, fert_master_on;
 };
@@ -82,7 +82,9 @@ Observation tick(const Input &in) {
   bool willFog = in.fog_before, willVent = in.vent_requested;
   const bool manual_fog_force = in.manual_fog_force;
   const bool fan_requires_vent = in.fan_requires_vent;
-  const bool controller_time_valid = in.controller_time_valid;
+  // Phase 2: the HUMID latch behind manual_fog_force, and the SENSOR_FAULT entry tick.
+  const bool manual_fog_latched = in.manual_fog_force;
+  const bool no_indoor_entry = in.mode == SENSOR_FAULT;
   const bool drip_relay_open = in.drip_relay_open;
   const bool occupancy_moisture_block = in.occupancy_moisture_block;
   const bool irrigation_water_conflict = in.irrigation_water_conflict;
@@ -120,7 +122,7 @@ int scenario(const std::string &name) {
   // Every synthetic safety/authority input is explicit. No historical input
   // admission or telemetry reconstruction is performed by this scenario.
   Input in{start, IDLE, true, true, false, false, false,
-           true, false, false, false, false, false, false};
+           false, false, false, false, false, false};
   set_policy(true);
   set_durations();
   struct GateCase { const char *name; bool policy, actual, desired, expected; };
@@ -201,21 +203,33 @@ int scenario(const std::string &name) {
     if (name == "manual_force_on") {
       EXPECT("manual_force_dwell_bypass", r.request && r.fog && r.last_on == 59999U);
     } else {
-      EXPECT("minimum_off_not_elapsed", r.request && !r.fog && r.transitions == 0U);
-      in.now_ms = 60000U;
+      // Phase 2: no OFF edge since boot, so the fogger is available at once; the
+      // minimum off time counts from a real OFF edge.
+      EXPECT("boot_available", r.request && r.fog && r.last_on == 59999U && r.transitions == 1U);
+      in.controller_fog = false;
+      in.fog_before = false;
+      in.now_ms = 59999U + 60000U;
       r = tick(in);
-      EXPECT("minimum_off_boundary", r.request && r.fog && r.last_on == 60000U && r.transitions == 1U);
+      EXPECT("minimum_off_edge", !r.fog && r.last_off == in.now_ms && r.transitions == 2U);
+      const uint32_t off = in.now_ms;
+      in.controller_fog = true;
+      in.fog_before = true;
+      in.now_ms = off + 59999U;
+      r = tick(in);
+      EXPECT("minimum_off_not_elapsed", r.request && !r.fog && r.transitions == 2U);
+      in.now_ms = off + 60000U;
+      r = tick(in);
+      EXPECT("minimum_off_boundary", r.request && r.fog && r.last_on == in.now_ms && r.transitions == 3U);
     }
     return 0;
   }
-  if (name == "blocked_clock" || name == "blocked_drip_relay" ||
+  if (name == "blocked_drip_relay" ||
       name == "blocked_occupancy" || name == "blocked_irrigation" ||
       name == "blocked_budget" || name == "blocked_hard_limit" ||
       name == "blocked_fertilizer" || name == "sensor_fault_preblocked") {
     auto r = tick(in);
     EXPECT("interlock_initially_on", r.fog);
     in.now_ms += 1U;
-    if (name == "blocked_clock") in.controller_time_valid = false;
     if (name == "blocked_drip_relay") in.drip_relay_open = true;
     if (name == "blocked_occupancy") in.occupancy_moisture_block = true;
     if (name == "blocked_irrigation") in.irrigation_water_conflict = true;

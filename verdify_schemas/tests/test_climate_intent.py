@@ -477,9 +477,9 @@ def test_every_firmware_fog_block_word_is_a_known_reason() -> None:
     ]
     assert "fog_force_off_reason(mode, fog_rails)" in ladder
     words |= set(re.findall(r'snprintf\(fog_block_reason, sizeof\(fog_block_reason\), "([a-z_]+)"\)', ladder))
-    # The manual HUMID path publishes fog_safety_block_reason()'s word as the ladder's next rung.
-    safety = controls[controls.index("auto fog_safety_block_reason = [&]() -> const char* {") :]
-    safety = safety[: safety.index("};")]
+    # The manual HUMID path publishes manual_fog_safety_block_reason()'s word as the ladder's next rung.
+    safety = logic[logic.index("inline const char* manual_fog_safety_block_reason(") :]
+    safety = safety[: safety.index("\n}\n")]
     words |= set(re.findall(r'return "([a-z_]+)";', safety))
 
     unknown = sorted(words - set(FOG_BLOCK_REASONS))

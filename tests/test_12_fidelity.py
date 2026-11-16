@@ -1016,27 +1016,30 @@ def test_firmware_lighting_telemetry_fails_closed_when_time_invalid():
 
 
 def test_controller_time_failure_is_final_fog_rail():
+    """Phase 2 (running alone, #1638): the clock is no longer a fog or climate-mist term. Without a
+    trusted clock the band is the corridor and fog follows it; the engine's climate-demand input
+    keeps today's clock term (RULINGS C2) and lighting keeps its own time_invalid test."""
     controls = Path("firmware/greenhouse/controls.yaml").read_text()
     sensors = Path("firmware/greenhouse/sensors.yaml").read_text()
     logic = Path("firmware/lib/greenhouse_logic.h").read_text()
 
-    assert "const bool controller_time_valid = sntp_now.is_valid() && !id(sntp_failed);" in controls
-    assert "int local_hour = controller_time_valid ? sntp_now.hour : 12;" in controls
-    assert 'if(!controller_time_valid) return "time_invalid";' in controls
+    assert "const bool wall_clock_valid = sntp_now.is_valid() && !id(sntp_failed);" in controls
+    assert "sntp_acquisition_valid(id(sntp_acquired), sntp_now.is_valid(), id(sntp_failed));" in controls
+    assert "int local_hour = wall_clock_valid ? sntp_now.hour : 12;" in controls
+    assert '"time_invalid"' not in controls[: controls.index("/**************** 10")]
+    assert "controller_time_valid" not in controls
 
-    # #1161 (F9): the clock is a term of the one fog force-off rule, in every mode (survival fog too).
     rule = logic[logic.index("inline const char* fog_force_off_reason(") :]
     rule = rule[: rule.index("\n}\n")]
-    survival = rule[rule.index("if (mode != SAFETY_COOL) {") :]
-    survival = survival[: survival.index("    }\n")]
-    assert 'if (!in.controller_time_valid) return "time_invalid";' in rule
-    assert "controller_time_valid" not in survival
+    assert "time_invalid" not in rule and "controller_time_valid" not in rule
 
     final_gate_start = controls.index("const FogForceOffInputs fog_rails{")
     final_gate_end = controls.index("/**************** 10", final_gate_start)
     final_gate = controls[final_gate_start:final_gate_end]
-    assert "              controller_time_valid,\n" in final_gate
+    assert "time_valid" not in final_gate[: final_gate.index("};")]
+    assert "!fog_forced_off(mode, fog_rails_but_drips) && wall_clock_valid;" in final_gate
     assert final_gate.index("if (fog_forced_off(mode, fog_rails)) {") < final_gate.index("willFog = false;")
+    assert "&& wall_clock_valid;" in controls[controls.index("const bool climate_mist_wanted =") :]
 
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
     assert "fog_forced_off(mode, fog_rails));" in relay_apply
@@ -2992,7 +2995,6 @@ def test_leak_detected_locks_water_actuators():
     assert "leak" not in rails
     for term in (
         "sensor_fault_relay_lock",
-        "controller_time_valid",
         "occupancy_block",
         "fert_master_on",
         "drip_relay_open",
@@ -3109,18 +3111,23 @@ def test_occupancy_inhibit_is_final_fog_force_off():
 def test_manual_fog_cannot_bypass_final_fog_safety_rails():
     controls = Path("firmware/greenhouse/controls.yaml").read_text()
 
-    manual_start = controls.index("auto fog_safety_block_reason")
+    manual_start = controls.index("const bool manual_fans_latched =")
     manual_end = controls.index("/**************** 11a", manual_start)
     manual_block = controls[manual_start:manual_end]
 
-    assert 'return "dew_margin";' in manual_block
-    assert 'return "time_window";' in manual_block
-    assert 'return "rh_ceiling";' in manual_block
-    assert 'return "temp_low";' in manual_block
+    # Phase 2 (M2, RULINGS G2/G7): the press's safety block is one library function the host
+    # tests run; it skips the tests it cannot evaluate (no humidity reading), nothing else.
+    logic = Path("firmware/lib/greenhouse_logic.h").read_text()
+    block_fn = logic[logic.index("inline const char* manual_fog_safety_block_reason(") :]
+    block_fn = block_fn[: block_fn.index("\n}\n")]
+    assert 'return "dew_margin";' in block_fn
+    assert 'return "time_window";' in block_fn
+    assert 'return "rh_ceiling";' in block_fn
+    assert 'return "temp_low";' in block_fn
     # A fog run-once from the irrigation engine is a manual fog request too, and meets the same rails.
     assert "const bool manual_fog_eff    = manual_fog_latched || irr_fog_run();" in manual_block
     assert "const bool manual_fog_requested = manual_fog_eff;" in manual_block
-    assert "const char* manual_fog_safety_block = fog_safety_block_reason();" in manual_block
+    assert "const char* manual_fog_safety_block = manual_fog_safety_block_reason(sensor_in, setpts);" in manual_block
     assert "const ManualOverrides manual_ov = {" in manual_block
     assert "manual_fog_eff,                      // humid_active" in manual_block
     assert "const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);" in manual_block
@@ -3141,7 +3148,7 @@ def test_manual_fan_cannot_open_vent_during_safety_heat():
     manual_end = controls.index("/**************** 11a", manual_start)
     manual_block = controls[manual_start:manual_end]
 
-    assert "SAFETY_COOL / SAFETY_HEAT) are a no-op there" in manual_block
+    assert "(SAFETY_COOL / SAFETY_HEAT) are a no-op there" in manual_block
     assert "const bool manual_fans_eff   = manual_fans_latched;" in manual_block
     assert "const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);" in manual_block
     assert "const bool manual_fan_force = manual_force.fans;" in manual_block
@@ -3262,29 +3269,40 @@ def test_fog_respects_conflict_and_budget_before_reporting_served():
 
 
 def test_sensor_fault_is_final_relay_lock_above_manual_overrides():
+    """Phase 2 (decision 7, RULINGS B1): SENSOR_FAULT is no longer an all-off lock. Its request is the
+    outdoor rule (no_indoor_relays()), the manual overrides stay effective, the fogger stays locked
+    unless an operator latched HUMID, and relays the table drops are cut on the entry tick only."""
     controls = Path("firmware/greenhouse/controls.yaml").read_text()
 
-    assert "const bool sensor_fault_relay_lock = mode == SENSOR_FAULT;" in controls
+    # G7: only the HUMID latch is exempt from the lock; an engine run-once is not an override.
+    assert "const bool sensor_fault_relay_lock = sensor_fault_fog_lock(mode, manual_fog_latched);" in controls
+    assert "relay_out = no_indoor_relays(no_indoor, leadIs1);" in controls
+    assert (
+        "outdoorT, outdoor_age, corridor.temp_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last" in controls
+    )
     assert "const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);" in controls
     assert "const bool manual_fan_force = manual_force.fans;" in controls
     assert "const bool manual_fog_force = manual_force.fog;" in controls
-    # #370: the SENSOR_FAULT all-off lock is rule 1 of the pure resolver, applied after the
-    # manual overrides; the native suite proves every relay is off under it.
+    # #370: the pure resolver arbitrates the decision-7 table like any other request, after the
+    # manual overrides; it has no SENSOR_FAULT rule of its own any more.
     assert "const bool fan_requires_vent = arb.fan_requires_vent;" in controls
     assert "const bool force_heat_off = arb.force_heat_off;" in controls
+    assert controls.index("relay_out = no_indoor_relays(") < controls.index("const ManualForce manual_force")
     assert controls.index("const ManualForce manual_force") < controls.index(
         "const RelayArbitration arb = arbitrate_relay_conflicts("
     )
     logic = Path("firmware/lib/greenhouse_logic.h").read_text()
     resolver = logic[logic.index("inline RelayArbitration arbitrate_relay_conflicts(") :]
-    assert "a.sensor_fault_lock = mode == SENSOR_FAULT;" in resolver
-    assert "a.out = {false, false, false, false, false, false};" in resolver
-    assert "a.force_heat_off = a.heat_vent_block || a.heat_fan_block || a.sensor_fault_lock;" in resolver
+    resolver = resolver[: resolver.index("\n}\n")]
+    assert "sensor_fault" not in resolver
+    assert "a.force_heat_off = a.heat_vent_block || a.heat_fan_block;" in resolver
 
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
-    assert "set_relay(R[5], willVent, fan_requires_vent, sensor_fault_relay_lock);" in relay_apply
-    assert "set_relay(R[2], willFan1, manual_fan_force, sensor_fault_relay_lock);" in relay_apply
-    assert "set_relay(R[3], willFan2, manual_fan_force, sensor_fault_relay_lock);" in relay_apply
+    assert "set_relay(R[0], willHeat1, false, force_heat_off || no_indoor_entry);" in relay_apply
+    assert "set_relay(R[1], willHeat2, false, force_heat2_off || no_indoor_entry);" in relay_apply
+    assert "set_relay(R[5], willVent, fan_requires_vent, no_indoor_entry);" in relay_apply
+    assert "set_relay(R[2], willFan1, manual_fan_force, no_indoor_entry);" in relay_apply
+    assert "set_relay(R[3], willFan2, manual_fan_force, no_indoor_entry);" in relay_apply
     assert "irrigation_water_conflict" in relay_apply
     assert "climate_water_budget_block" in relay_apply
 

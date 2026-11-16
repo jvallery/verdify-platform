@@ -15,9 +15,11 @@
  *     heat1 is the ELECTRIC coil, heat2 is the gas stage)
  *   - Vent actuator travel time (ESPHome min_vent_on_s/min_vent_off_s)
  *
- * SENSOR_FAULT: ALL relays off, heat included. No hardware thermostat is
- * installed (Jason accepted that on 2026-11-04, #1296), so nothing heats the
- * house in a sensor fault or with a dead controller.
+ * SENSOR_FAULT: resolve_equipment() requests ALL relays off; controls.yaml
+ * replaces that request with the outdoor rule of decision 7 (RULINGS B1,
+ * no_indoor_relays() in running_alone.h): vent and lead fan, or the electric
+ * heater, or nothing without a fresh outdoor reading. The furnace never runs
+ * without an indoor reading. No hardware thermostat is installed (#1296).
  * SENSOR_FAULT does NOT overwrite mode_prev — preserves hysteresis
  * context for graceful recovery from transient I2C glitches.
  *
@@ -30,6 +32,7 @@
 
 #include "greenhouse_types.h"
 #include "greenhouse_solar.h"
+#include "running_alone.h"
 
 // ── Firmware-v2 solar accessors ─────────────────────────────────────────
 // Every time-of-day rule keys on SOLAR PHASE (greenhouse_solar.h), computed
@@ -60,10 +63,15 @@ inline int effective_minutes_to_sunset(const SensorInputs& in) noexcept {
 }
 
 // ── R2-4: Plausibility validation — catches NaN, inf, and garbage ──
+// Phase 2 (RULINGS G2): a valid indoor TEMPERATURE is what the controller needs to
+// run; humidity may be missing (NaN, never substituted: the reading is then degraded
+// and fog, misters and drying hold). A humidity that is present must be in range.
+// Fails (SENSOR_FAULT, the state of decision 7) only without a valid temperature or on
+// a garbage value.
 inline bool sensors_plausible(const SensorInputs& in) noexcept {
-    return std::isfinite(in.temp_f)  && in.temp_f  > -20.0f && in.temp_f  < 140.0f
-        && std::isfinite(in.rh_pct)  && in.rh_pct  >= 0.0f  && in.rh_pct  <= 100.0f
-        && std::isfinite(in.vpd_kpa) && in.vpd_kpa >= 0.0f  && in.vpd_kpa < 10.0f
+    return indoor_temp_valid(in.temp_f)
+        && (std::isnan(in.rh_pct)  || (in.rh_pct  >= 0.0f && in.rh_pct  <= 100.0f))
+        && (std::isnan(in.vpd_kpa) || (in.vpd_kpa >= 0.0f && in.vpd_kpa < 10.0f))
         && in.local_hour >= 0        && in.local_hour <= 23;
 }
 
@@ -492,8 +500,10 @@ inline bool fog_permitted(const SensorInputs& in, const Setpoints& sp) noexcept 
 // What forces fog (L11) OFF whatever the climate wants, in one place: the
 // fog gate, the fog relay's force-off and the fog_block_reason ladder in
 // controls.yaml all call it. In every mode: SENSOR_FAULT's relay lock,
-// confirmed occupancy (D-IRP-10), L03 open or about to open (SAF-5), a drip
-// relay reading ON (drips never overlap fog) and an invalid controller clock.
+// confirmed occupancy (D-IRP-10), L03 open or about to open (SAF-5) and a drip
+// relay reading ON (drips never overlap fog). The clock is not a term (phase 2,
+// running alone): with no trusted clock the band is the corridor and fog follows
+// it like any other band.
 // Outside SAFETY_COOL also a drip run of the irrigation engine holding the
 // water, the soft water budget and the SAF-4 daily ceiling; in SAFETY_COOL
 // survival fog runs past all three (D-IRP-03, D-IRP-04: its water still
@@ -501,8 +511,7 @@ inline bool fog_permitted(const SensorInputs& in, const Setpoints& sp) noexcept 
 // drip relay reads ON). leak_detected is not an input: it raises the leak
 // alert and nothing else (Q-05). The fog RH ceiling stays in fog_permitted().
 struct FogForceOffInputs {
-    bool sensor_fault_relay_lock;     // mode == SENSOR_FAULT
-    bool controller_time_valid;
+    bool sensor_fault_relay_lock;     // mode == SENSOR_FAULT (a HUMID press is exempt, RULINGS B1)
     bool occupancy_block;             // occupancy_moisture_block: Frigate confirms someone inside
     bool fert_master_on;              // L03 open, or the engine's l03_hold (SAF-5)
     bool drip_relay_open;             // a drip relay (L01, L02, L05, L06) reads ON
@@ -513,7 +522,7 @@ struct FogForceOffInputs {
 
 // The fog_block_reason word of the first term that forces fog OFF, or "" when
 // none does. The order keeps the ladder's earlier words in their old order:
-// occupancy, irrigation, resource_budget, time_invalid.
+// occupancy, irrigation, resource_budget.
 inline const char* fog_force_off_reason(Mode mode, const FogForceOffInputs& in) noexcept {
     if (in.sensor_fault_relay_lock) return "sensor_fault";
     if (in.occupancy_block) return "occupancy";
@@ -524,7 +533,6 @@ inline const char* fog_force_off_reason(Mode mode, const FogForceOffInputs& in) 
         if (in.climate_water_budget_block) return "resource_budget";
         if (in.mister_volume_hard_block) return "water_ceiling";
     }
-    if (!in.controller_time_valid) return "time_invalid";
     return "";
 }
 
@@ -753,6 +761,15 @@ inline bool stage2_escalation_latch(float value, float entry_thr, float exit_thr
     return latched;
 }
 
+// The cold-vent guard: outdoor air colder than the band's low edge less the guard
+// delta widens the cooling entry margin and the exit hysteresis, so the vent starts
+// less often. With no outdoor reading at all (the station and the intake probe both
+// missing or stale) it assumes cold, the side with fewer vent starts (RULINGS G6).
+inline bool outdoor_cold_for_vent_guard(const SensorInputs& in, const Setpoints& sp) noexcept {
+    if (!std::isfinite(in.outdoor_temp_f)) return true;
+    return in.outdoor_temp_f < (sp.temp_low - sp.cold_vent_guard_delta_f);
+}
+
 inline float cold_vent_cooling_entry_margin_f(const Setpoints& sp) noexcept {
     const float band_width = std::max(2.0f, sp.temp_high - sp.temp_low);
     const float legacy_cold_margin = std::max(1.0f, band_width * 0.25f);
@@ -819,7 +836,8 @@ inline ClimateCandidateProjection climate_projection(
     ClimateAction prior_action
 ) noexcept {
     const float projected_temp = in.temp_f + temp_effect_f;
-    const float projected_vpd = in.vpd_kpa + vpd_effect_kpa;
+    // No humidity reading (RULINGS G2): no VPD error, as for an untrusted VPD.
+    const float projected_vpd = std::isfinite(in.vpd_kpa) ? in.vpd_kpa + vpd_effect_kpa : sp.vpd_target;
     return {
         .action = action,
         .safety_ok = blocked_reason == nullptr || blocked_reason[0] == '\0',
@@ -917,8 +935,7 @@ inline ClimateActionDecision evaluate_climate_decision(
         && std::isfinite(in.dew_point_f)
         && in.outdoor_dewpoint_f < in.dew_point_f;
     const bool was_cooling = state.mode_prev == VENTILATE || state.mode_prev == THERMAL_RELIEF;
-    const bool outdoor_cold_for_vent =
-        std::isfinite(in.outdoor_temp_f) && in.outdoor_temp_f < (sp.temp_low - sp.cold_vent_guard_delta_f);
+    const bool outdoor_cold_for_vent = outdoor_cold_for_vent_guard(in, sp);
     const float cooling_exit_hysteresis =
         outdoor_cold_for_vent ? std::max(sp.cool_exit_hysteresis_f, COLD_VENT_COOL_EXIT_HYST_MIN_F)
                               : sp.cool_exit_hysteresis_f;
@@ -1194,8 +1211,9 @@ inline ClimateActionDecision describe_effective_climate_decision(
 ) noexcept {
     const ClimateAction action = effective_climate_action_for_mode(mode, state, relay_out);
     const float temp_error = climate_band_error(in.temp_f, sp.temp_low, sp.temp_high);
-    const float vpd_error = climate_band_error(in.vpd_kpa, sp.vpd_low, sp.vpd_high);
-    const float dry_excess = std::max(0.0f, in.vpd_kpa - sp.vpd_high);
+    const bool vpd_known = std::isfinite(in.vpd_kpa);  // RULINGS G2: no humidity, no VPD error
+    const float vpd_error = vpd_known ? climate_band_error(in.vpd_kpa, sp.vpd_low, sp.vpd_high) : 0.0f;
+    const float dry_excess = vpd_known ? std::max(0.0f, in.vpd_kpa - sp.vpd_high) : 0.0f;
     const char* fog_block_reason = "none";
     const char* wet_block_reason = climate_wet_assist_block_reason(in, sp);
     const char* climate_fog_block = climate_fog_assist_block_reason(in, sp);
@@ -1599,8 +1617,7 @@ inline Mode determine_mode_band_first(
     const bool vpd_trusted = vpd_control_trusted(in);
     const bool vpd_high = vpd_trusted && in.vpd_kpa > sp.vpd_high;
     const bool vpd_high_resolved = !vpd_trusted || in.vpd_kpa <= (sp.vpd_high - HV);
-    const bool outdoor_cold_for_vent =
-        std::isfinite(in.outdoor_temp_f) && in.outdoor_temp_f < (sp.temp_low - sp.cold_vent_guard_delta_f);
+    const bool outdoor_cold_for_vent = outdoor_cold_for_vent_guard(in, sp);
     const float cooling_exit_hysteresis =
         outdoor_cold_for_vent ? std::max(sp.cool_exit_hysteresis_f, COLD_VENT_COOL_EXIT_HYST_MIN_F)
                               : sp.cool_exit_hysteresis_f;
@@ -2819,8 +2836,8 @@ inline RelayOutputs resolve_equipment(
 
 // ── Manual button-override layer (FANS / HUMID / VENT-BYPASS) ────────────
 // Applies the absolute-priority manual override on top of the resolved relay
-// table. PRECEDENCE: the hard safety rails win — SENSOR_FAULT / SAFETY_COOL /
-// SAFETY_HEAT are never overridden (a FANS press during a cold-rail SAFETY_HEAT
+// table. PRECEDENCE: the hard safety rails win — SAFETY_COOL / SAFETY_HEAT
+// are never overridden (a FANS press during a cold-rail SAFETY_HEAT
 // must NOT throw both fans + the vent open and dump the heat). In every other
 // mode the override SUPERSEDES climate automation:
 //   FANS        → both fans ON, vent OPEN.
@@ -2837,8 +2854,11 @@ inline ManualForce apply_manual_overrides(RelayOutputs& out,
                                           const ManualOverrides& ov,
                                           Mode mode) noexcept {
     ManualForce f = {false, false, false};
-    if (mode == SENSOR_FAULT || mode == SAFETY_COOL || mode == SAFETY_HEAT) {
-        return f;  // safety rails are absolute — no manual override
+    // The temperature rails are absolute: no manual override. With no valid indoor
+    // reading (SENSOR_FAULT, the state of decision 7) the overrides stay effective,
+    // because the controller acts on the outdoor reading only (RULINGS B1).
+    if (mode == SAFETY_COOL || mode == SAFETY_HEAT) {
+        return f;
     }
     const bool fans_requested = ov.fans_active || ov.vent_bypass_active;
     if (fans_requested) {
@@ -2857,6 +2877,28 @@ inline ManualForce apply_manual_overrides(RelayOutputs& out,
         f.fog = true;
     }
     return f;
+}
+
+// The fog safety block a HUMID press must respect (the YAML's
+// fog_safety_block_reason, moved here so the host tests run the same check). A test
+// that cannot be evaluated is skipped, not failed: without a humidity reading (RULINGS
+// G2) or without any indoor reading (the state of decision 7, G7) the dew-point margin
+// and the RH ceiling cannot be computed, so the press stays effective there; the
+// solar time window and, with a temperature, the temperature floor still apply.
+inline const char* manual_fog_safety_block_reason(const SensorInputs& in, const Setpoints& sp) noexcept {
+    const bool humidity_known = std::isfinite(in.rh_pct) && std::isfinite(in.dew_point_f);
+    if (humidity_known && dew_margin_f(in) < sp.direct_wet_stress_min_dew_margin_f) return "dew_margin";
+    if (!fog_hour_permitted(in, sp)) return "time_window";
+    if (humidity_known && in.rh_pct > sp.fog_rh_ceiling) return "rh_ceiling";
+    if (std::isfinite(in.temp_f) && in.temp_f < sp.fog_min_temp) return "temp_low";
+    return "";
+}
+
+// SENSOR_FAULT's fog lock (FogForceOffInputs.sensor_fault_relay_lock). Only an
+// operator's HUMID latch is exempt (RULINGS G7); an engine run-once is not an
+// override and stays refused by the engine's own sensor-fault hold.
+inline bool sensor_fault_fog_lock(Mode mode, bool humid_latched) noexcept {
+    return mode == SENSOR_FAULT && !humid_latched;
 }
 
 // ── Manual override deadline latches (irrigation F12, VD-47) ─────────────
@@ -2933,12 +2975,11 @@ inline LightingDecision evaluate_lighting_held(
 // leave the vent shut against the fan's airflow — EXCEPT (a) SAFETY_HEAT
 // (lead-fan circulation with the vent shut to keep heat in) and (b) an active
 // VENT-BYPASS (the deliberate fans-on / vent-closed carve-out, #290).
-// SENSOR_FAULT drives every relay off elsewhere.
+// SENSOR_FAULT runs the lead fan with the vent open (decision 7), so it holds too.
 inline bool fan_requires_open_vent(Mode mode,
                                    bool fan_on_or_wanted,
                                    bool vent_bypass_active) noexcept {
-    return mode != SENSOR_FAULT
-        && mode != SAFETY_HEAT
+    return mode != SAFETY_HEAT
         && !vent_bypass_active
         && fan_on_or_wanted;
 }
@@ -2949,16 +2990,17 @@ inline bool fan_requires_open_vent(Mode mode,
 // gates (min-off elapsed / min-on elapsed). Pure, so every combination of mode,
 // request, physical state, dwell and bypass is unit-tested exhaustively
 // (test_greenhouse_logic.cpp). The rules, applied in this order:
-//   1. SENSOR_FAULT forces every relay off (above the manual overrides).
-//   2. A fan running or wanted holds the vent open, except in SAFETY_HEAT and
+//   1. A fan running or wanted holds the vent open, except in SAFETY_HEAT and
 //      under VENT-BYPASS (fan_requires_open_vent()).
-//   3. Outside SAFETY_HEAT and DEHUM_VENT (BC-5/BC-11, the sanctioned heat+air
+//   2. Outside SAFETY_HEAT and DEHUM_VENT (BC-5/BC-11, the sanctioned heat+air
 //      states) no heater runs while the vent is open or opening, or while a fan
 //      runs or is wanted.
-//   4. heat2 waits until heat1 is on or may turn on (stage order).
-//   5. force_heat_off cuts both heaters past min-on when rule 1 or 3 fired;
+//   3. heat2 waits until heat1 is on or may turn on (stage order).
+//   4. force_heat_off cuts both heaters past min-on when rule 2 fired;
 //      force_heat2_off also cuts a running heat2 that is no longer wanted when
 //      heat1 will be off after this tick, so heat2 never runs alone.
+// SENSOR_FAULT has no rule of its own here since phase 2: its request is the
+// decision-7 table (no_indoor_relays()), which these rules arbitrate like any other.
 // Fog is not arbitrated here: fog_forced_off() owns its rails.
 inline RelayArbitration arbitrate_relay_conflicts(Mode mode,
                                                   const RelayOutputs& requested,
@@ -2969,11 +3011,6 @@ inline RelayArbitration arbitrate_relay_conflicts(Mode mode,
     RelayArbitration a{};
     a.out = requested;
     a.block_reason = "";
-    a.sensor_fault_lock = mode == SENSOR_FAULT;
-    if (a.sensor_fault_lock) {
-        a.out = {false, false, false, false, false, false};
-        a.block_reason = "sensor_fault";
-    }
 
     const bool fan_physically_on = physical.fan1 || physical.fan2;
     const bool fan_wanted = a.out.fan1 || a.out.fan2;
@@ -2994,19 +3031,17 @@ inline RelayArbitration arbitrate_relay_conflicts(Mode mode,
     a.heat_stage_block = a.out.heat2 && !heat1_available;
     if (a.heat_stage_block) a.out.heat2 = false;
 
-    a.force_heat_off = a.heat_vent_block || a.heat_fan_block || a.sensor_fault_lock;
+    a.force_heat_off = a.heat_vent_block || a.heat_fan_block;
     const bool heat1_on_after_apply =
         (a.out.heat1 && (physical.heat1 || heat1_can_on))
         || (physical.heat1 && !a.force_heat_off && !heat1_can_off);
     a.force_heat2_off = a.force_heat_off || (physical.heat2 && !a.out.heat2 && !heat1_on_after_apply);
 
-    if (a.block_reason[0] == '\0') {
-        if (a.heat_vent_block) a.block_reason = "heat_vent";
-        else if (a.heat_fan_block) a.block_reason = "heat_fan";
-        else if (a.heat_stage_block) a.block_reason = "heat_stage";
-        else if (a.fan_vent_hold) a.block_reason = "fan_vent_hold";
-        else if (a.force_heat2_off) a.block_reason = "heat2_without_heat1";
-    }
+    if (a.heat_vent_block) a.block_reason = "heat_vent";
+    else if (a.heat_fan_block) a.block_reason = "heat_fan";
+    else if (a.heat_stage_block) a.block_reason = "heat_stage";
+    else if (a.fan_vent_hold) a.block_reason = "fan_vent_hold";
+    else if (a.force_heat2_off) a.block_reason = "heat2_without_heat1";
     return a;
 }
 
@@ -3016,7 +3051,7 @@ inline RelayArbitration arbitrate_relay_conflicts(Mode mode,
 // margin; SAFETY_COOL can request fog above the hard temperature rail too.
 // This only exempts an explicit controller fog request from the vent interlock.
 // The caller still applies the fog force-off (fog_force_off_reason(): occupancy,
-// SAF-5, drips, the clock and the water limits).
+// SAF-5, drips and the water limits).
 inline bool open_vent_fog_assist_permitted(Mode mode,
                                            const RelayOutputs& requested) noexcept {
     return requested.fog && (mode == VENTILATE || mode == SAFETY_COOL);

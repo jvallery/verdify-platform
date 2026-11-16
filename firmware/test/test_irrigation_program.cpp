@@ -3296,7 +3296,6 @@ struct Dev {
     const bool budget = soft_budget();
     const Mode mode = climate.sensor_fault ? SENSOR_FAULT : climate.safety_cool ? SAFETY_COOL : SEALED_MIST;
     const FogForceOffInputs rails{climate.sensor_fault,
-                                  true,
                                   climate.occupied,
                                   (relays & irr_bit(kL03)) != 0 || out.l03_hold,
                                   (relays & kDripManifoldMask) != 0,

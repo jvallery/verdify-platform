@@ -15,7 +15,7 @@
 
 // ── Greenhouse operating modes (mutually exclusive, priority-ordered) ──
 enum Mode {
-    SENSOR_FAULT,     // NaN/invalid/implausible sensor readings — ALL relays off
+    SENSOR_FAULT,     // no valid indoor temperature: the outdoor rule of decision 7 (running_alone.h)
     SAFETY_COOL,      // temp >= safety_max → vent open, both fans, fog allowed
     SAFETY_HEAT,      // temp <= safety_min → vent closed, both heaters
     SEALED_MIST,      // VPD > band ceiling → vent closed, fans off, misters pulsing
@@ -371,12 +371,10 @@ struct RelayOutputs {
 // The one place the controller resolves equipment conflicts between the
 // requested relay table and the relays' PHYSICAL state (dwell timers keep a
 // relay in its old state after the request flips). arbitrate_relay_conflicts()
-// (greenhouse_logic.h) applies, in order: the SENSOR_FAULT all-off lock, the
-// fan->vent hold, the heat<->air-exchange suppression, the heat-stage rule and
-// the heater force-offs. controls.yaml applies its result unchanged.
+// (greenhouse_logic.h) applies, in order: the fan->vent hold, the
+// heat<->air-exchange suppression, the heat-stage rule and the heater force-offs. controls.yaml applies its result unchanged.
 struct RelayArbitration {
     RelayOutputs out;          // the arbitrated request handed to set_relay
-    bool sensor_fault_lock;    // SENSOR_FAULT: every relay forced off
     bool fan_requires_vent;    // a fan runs or is wanted: vent held open (force_on)
     bool fan_vent_hold;        // ...and the request had the vent closed
     bool heat_vent_block;      // heat suppressed: vent open or opening

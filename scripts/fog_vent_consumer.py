@@ -29,9 +29,9 @@ INPUTS = {
     "vent_rly.state/fog_rly.state": "bool; actual pre-apply storage readback, never same-row telemetry output",
     "RelayMeta[4,5]": "persistent last_on_ms,last_off_ms,on_stamp_ms,runtime_ms; initialized once per process and advanced by actual relay code",
     "manual_fog_force/fan_requires_vent": "bool; upstream authority decisions, not reconstructed here",
-    "controller_time_valid": "bool",
     "occupancy_moisture_block/drip_relay_open/irrigation_water_conflict/climate_water_budget_block/mister_volume_hard_block/fert_master_on": "six explicit bool upstream safety decisions",
-    "sensor_fault_relay_lock": "actual extracted expression mode == SENSOR_FAULT",
+    "sensor_fault_relay_lock": "actual extracted expression mode == SENSOR_FAULT && !manual_fog_eff (phase 2: a HUMID press stays effective)",
+    "no_indoor_entry": "bool; the tick SENSOR_FAULT is entered (phase 2: relays the decision-7 table drops are cut then only)",
     "fog_rails": "actual extracted FogForceOffInputs the fog gate, the relay force-off and the ladder share (#1161)",
 }
 SCENARIOS = (
@@ -55,7 +55,6 @@ SCENARIOS = (
     "minimum_on_wrap",
     "minimum_off",
     "manual_force_on",
-    "blocked_clock",
     "blocked_drip_relay",
     "blocked_occupancy",
     "blocked_irrigation",
@@ -121,7 +120,7 @@ def extract_fragments(root: Path = ROOT, controls_text: str | None = None) -> di
         "policy_selection": _span(controls, "const auto pol =", "// Journal-visible"),
         "dwell_constants": _span(controls, "const uint32_t MIN_HEAT_ON_MS", "const float    EXTRA_COOL_S3_DELTA_F"),
         "relay_helpers": _span(controls, "struct RelayMeta {", "/**************** 3"),
-        "sensor_fault_lock": _statement(controls, "const bool sensor_fault_relay_lock = mode == SENSOR_FAULT"),
+        "sensor_fault_lock": _statement(controls, "const bool sensor_fault_relay_lock = sensor_fault_fog_lock("),
         # Pre-arbitration relay readback; vent_is_open aliases its vent field (#370).
         "relay_physical": _statement(controls, "const RelayOutputs relay_physical = {"),
         "vent_readback": _statement(controls, "const bool vent_is_open = relay_physical.vent"),
@@ -132,7 +131,7 @@ def extract_fragments(root: Path = ROOT, controls_text: str | None = None) -> di
             controls,
             "if (polb(verdify_policy::kPF_sw_fog_closes_vent, id(fog_closes_vent)) && vent_is_open && !open_vent_fog_assist)",
         ),
-        "vent_apply": _statement(controls, "set_relay(R[5], willVent, fan_requires_vent, sensor_fault_relay_lock)"),
+        "vent_apply": _statement(controls, "set_relay(R[5], willVent, fan_requires_vent, no_indoor_entry)"),
         "fog_apply": _span_through(controls, "set_relay(\n              R[4],", "fog_forced_off(mode, fog_rails));"),
     }
     # Refuse reordering that would change pre-apply readback semantics.

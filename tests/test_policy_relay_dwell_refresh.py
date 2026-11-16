@@ -73,6 +73,7 @@ def native_relay_consumer(tmp_path_factory, record_testsuite_property):
 #include <cstdlib>
 #include <string>
 #include "policy_rom_baseline_generated.h"
+#include "running_alone.h"
 
 namespace esphome { namespace switch_ {
 struct Switch {
@@ -280,16 +281,23 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (scenario == "boot_min_off") {
-    // #299 restart: static RelayMeta starts at zero after a reboot and
-    // millis() restarts near zero, so an ordinary ON waits the full min-off
-    // from boot; only an explicit force bypasses it.
+  if (scenario == "boot_available") {
+    // Phase 2 (running alone): static RelayMeta starts at zero after a reboot.
+    // A relay with no OFF edge since boot is available at once (the boot hold
+    // of the minimum off time is gone); the minimum off time counts from a real
+    // OFF edge (repeated_on_refused_by_min_off, external_off). The furnace alone
+    // waits one minimum off time after any boot (RULINGS G4).
+    if (selected == 1) {
+      auto r = tick(selected, 5000U, true);
+      CHECK(!r.on && r.last_on == 0U && r.transitions == 0U);
+      r = tick(selected, r.min_off - 1U, true);
+      CHECK(!r.on);
+      r = tick(selected, r.min_off, true);
+      CHECK(r.on && r.last_on == r.min_off && r.last_off == 0U && r.transitions == 1U);
+      return 0;
+    }
     auto r = tick(selected, 5000U, true);
-    CHECK(!r.on && r.last_off == 0U && r.transitions == 0U);
-    r = tick(selected, 119999U, true);
-    CHECK(!r.on && r.transitions == 0U);
-    r = tick(selected, 120000U, true);
-    CHECK(r.on && r.last_on == 120000U && r.transitions == 1U);
+    CHECK(r.on && r.last_on == 5000U && r.last_off == 0U && r.transitions == 1U);
     return 0;
   }
 
@@ -359,7 +367,7 @@ int main(int argc, char** argv) {
         "force",
         "rollover_on",
         "rollover_off",
-        "boot_min_off",
+        "boot_available",
         "boot_force_on",
         "manual_force_off_then_ordinary_on",
         "repeated_on_refused_by_min_off",

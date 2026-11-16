@@ -525,6 +525,9 @@ int main(int argc, char** argv) {
             ? 99999u
             : (uint32_t)r.outdoor_data_age_s;
 
+        r.cooling_entry_margin_f = outdoor_cold_for_vent_guard(in, sp)
+            ? cold_vent_cooling_entry_margin_f(sp) : 0.0f;
+
         Mode mode = determine_mode(in, sp, state, dt_ms);
         RelayOutputs out = resolve_equipment(mode, in, sp, state, true);
         if (mode == SEALED_MIST) {

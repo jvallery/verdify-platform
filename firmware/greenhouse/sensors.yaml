@@ -202,7 +202,7 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            id(last_external_update) = millis() / 1000;
+            id(last_external_update) = millis();
             id(last_case_ms) = millis();
 
   - platform: modbus_controller
@@ -237,7 +237,7 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            id(last_external_update) = millis() / 1000;
+            id(last_external_update) = millis();
             id(last_north_ms) = millis();
   - platform: modbus_controller
     id: north_wall_humidity
@@ -283,7 +283,7 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            id(last_external_update) = millis() / 1000;
+            id(last_external_update) = millis();
             id(last_west_ms) = millis();
   - platform: modbus_controller
     id: west_wall_humidity
@@ -329,7 +329,7 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            id(last_external_update) = millis() / 1000;
+            id(last_external_update) = millis();
             id(last_south_ms) = millis();
   - platform: modbus_controller
     id: south_wall_humidity
@@ -375,7 +375,7 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            id(last_external_update) = millis() / 1000;
+            id(last_external_update) = millis();
             id(last_east_ms) = millis();
   - platform: modbus_controller
     id: east_wall_humidity
@@ -421,7 +421,8 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            id(last_external_update) = millis() / 1000;
+            id(last_external_update) = millis();
+            id(last_intake_ms) = millis();
   - platform: modbus_controller
     id: exterior_intake_humidity
     name: "Exterior Intake RH (%)"
@@ -2278,7 +2279,12 @@ sensor:
     update_interval: 30s
     lambda: |-
       if (!id(cfg_first_pull_ok)) return NAN;
-      return id(ha_outdoor_temp).state;
+      // Phase 2: the selected outdoor source (station, else intake), as the
+      // control loop reads it; NaN when neither is fresh.
+      return select_outdoor_reading(millis(),
+          id(ha_outdoor_temp).state, id(ha_outdoor_rh).state, id(tempest_last_obs_ms),
+          id(exterior_intake_temperature).state, id(exterior_intake_humidity).state,
+          id(last_intake_ms)).temp_f;
 
   - platform: template
     id: cfg_outdoor_dewpoint_f
@@ -2291,15 +2297,11 @@ sensor:
     update_interval: 30s
     lambda: |-
       if (!id(cfg_first_pull_ok)) return NAN;
-      // Recompute outdoor DP here from the Tempest-primary outdoor inputs so
-      // the readback reflects the same value SensorInputs uses.
-      float Tf = id(ha_outdoor_temp).state;
-      float RH = id(ha_outdoor_rh).state;
-      if (isnan(Tf) || isnan(RH) || RH <= 0.0f) return NAN;
-      float Tc = (Tf - 32.0f) * (5.0f / 9.0f);
-      float gamma = (17.27f * Tc) / (237.7f + Tc) + log(RH / 100.0f);
-      float dp_c = (237.7f * gamma) / (17.27f - gamma);
-      return dp_c * (9.0f / 5.0f) + 32.0f;
+      // Phase 2: the selected outdoor source's dew point, the value SensorInputs uses.
+      return select_outdoor_reading(millis(),
+          id(ha_outdoor_temp).state, id(ha_outdoor_rh).state, id(tempest_last_obs_ms),
+          id(exterior_intake_temperature).state, id(exterior_intake_humidity).state,
+          id(last_intake_ms)).dew_point_f;
 
   # ─── Phase 1c: fire-and-forget tunable readbacks ──────────────────
   # 10 cfg_* sensors closing the "dispatcher pushes but firmware never
