@@ -71,7 +71,11 @@ inline RelayPass relay_pass(RelayState& r, const Output& request, const RelayInp
     if (request.drying && air) r.drying_air = true;
     else if (!air || p.force.fans || (!request.drying && (request.vent || request.fans > 0))) r.drying_air = false;
     if (p.force.fans) p.out.heat1 = p.out.heat2 = false;
-    if (p.out.heat1 && air && !request.drying && !request.cold && !r.drying_air) p.out.heat1 = false;
+    // A start also waits for the physical air (review AG3-1): the drivers switch heat1 before the vent, so a vent
+    // the relay layer closes this pass is still open when heat1 would start; phase 2 held heat one more pass.
+    const bool air_phys = physical.vent || physical.fan1 || physical.fan2;
+    if (p.out.heat1 && (air || (!physical.heat1 && air_phys)) && !request.drying && !request.cold && !r.drying_air)
+        p.out.heat1 = false;
     if (p.out.heat2 && air) p.out.heat2 = false;
     detail::undo_held_start(r.heat1, heat1_before, physical.heat1, p.out.heat1, in.dt_ms);
     detail::undo_held_start(r.heat2, heat2_before, physical.heat2, p.out.heat2, in.dt_ms);

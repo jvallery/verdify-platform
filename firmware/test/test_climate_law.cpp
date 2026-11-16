@@ -1568,7 +1568,7 @@ static void glue_heater_air_interlock() {
     for (int i = 0; i < int(HEAT_MIN_OFF_S) + 60; ++i) g.step(cool);
     g.air_off_pass = g.heat1_on_pass = -1;
     for (int i = 0; i < tail && g.heat1_on_pass < 0; ++i) g.step(heat);
-    CHECK(g.air_off_pass > 0 && g.heat1_on_pass == g.air_off_pass, "AG3 (a): heat1 starts the pass the air is off");
+    CHECK(g.air_off_pass > 0 && g.heat1_on_pass == g.air_off_pass + 1, "AG3 (a): heat1 starts the pass after the air is physically off");
     CHECK(g.overlap == 0 && g.c.starts[0] == 2 && g.heat1_edges == 3 && g.heat1_off_resets == 0,
           "AG3 (a): no overlap, two starts, no tick-by-tick toggling, no held start moved the off time");
   }
@@ -1584,7 +1584,7 @@ static void glue_heater_air_interlock() {
     for (int i = 0; i < int(HEAT_MIN_OFF_S) + 60; ++i) g.step(vent_row, SENSOR_FAULT);
     g.air_off_pass = g.heat1_on_pass = -1;
     for (int i = 0; i < tail && g.heat1_on_pass < 0; ++i) g.step(heat_row, SENSOR_FAULT);
-    CHECK(g.air_off_pass > 0 && g.heat1_on_pass == g.air_off_pass, "AG3 (b): heat1 waits for the air, then starts");
+    CHECK(g.air_off_pass > 0 && g.heat1_on_pass == g.air_off_pass + 1, "AG3 (b): heat1 waits for the air, then starts");
     CHECK(g.overlap == 0 && g.c.starts[0] == 2 && g.heat1_edges == 3 && g.heat1_off_resets == 0,
           "AG3 (b): no overlap across the flips, no toggling, no moved off time");
   }
@@ -1599,7 +1599,7 @@ static void glue_heater_air_interlock() {
       if (!g.phys.heat1) ++held;
     }
     CHECK(held > 200, "AG3 (c): heat1 held through the air's minimum-on tail");
-    CHECK(g.heat1_on_pass == g.air_off_pass, "AG3 (c): heat1 starts the pass the air is off");
+    CHECK(g.heat1_on_pass == g.air_off_pass + 1, "AG3 (c): heat1 starts the pass after the air is physically off");
     CHECK(g.overlap == 0 && g.c.starts[0] == 1 && g.heat1_edges == 1 && g.heat1_off_resets == 0,
           "AG3 (c): one start, no toggling, the held start moved no counter and no switch time");
   }
@@ -1616,9 +1616,26 @@ static void glue_heater_air_interlock() {
       if (!g.phys.heat1) ++held;
     }
     CHECK(held > 200, "AG3 (d): heat1 held while the fans finish their minimum on");
-    CHECK(g.heat1_on_pass == g.air_off_pass, "AG3 (d): heat1 starts the pass the air is off");
+    CHECK(g.heat1_on_pass == g.air_off_pass + 1, "AG3 (d): heat1 starts the pass after the air is physically off");
     CHECK(g.overlap == 0 && g.c.starts[0] == 1 && g.heat1_edges == 1 && g.heat1_off_resets == 0,
           "AG3 (d): one start, no toggling, no moved switch time");
+  }
+  // AG3-1: on the pass the relay layer closes the vent (its minimum on over) heat1 does not start beside it; the
+  // physical vent is still open when the drivers switch heat1.
+  {
+    L::Output vent_only{};
+    vent_only.cooling = vent_only.vent = true;
+    RelayRig g;
+    for (int i = 0; i < 5; ++i) g.step(vent_only);
+    CHECK(g.phys.vent && !g.phys.fan1 && !g.phys.fan2, "AG3-1 setup: the vent alone is open");
+    bool start_beside_open_vent = false;
+    for (int i = 0; i < int(VENT_MIN_ON_S) + 10; ++i) {
+      const bool vent_before = g.phys.vent;
+      g.step(heat);
+      if (vent_before && g.phys.heat1) start_beside_open_vent = true;
+    }
+    CHECK(!start_beside_open_vent && g.phys.heat1 && g.heat1_on_pass == g.air_off_pass + 1,
+          "AG3-1: heat1 starts one pass after the vent is physically closed");
   }
   // The exceptions: the law's drying keeps heat1 with the vent and its fan; at 40 F heat1 runs (the air is stopped).
   {

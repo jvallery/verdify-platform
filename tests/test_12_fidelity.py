@@ -2206,7 +2206,12 @@ def test_sensor_fault_is_final_relay_lock_above_manual_overrides():
     # except the law's own drying and the 40 F protection; a held start is undone (no switch time, counter or
     # physical edge). Native test: glue_heater_air_interlock.
     assert "const bool air = p.out.vent || p.out.fan1 || p.out.fan2;" in relay_pass
-    heat1_cut = "if (p.out.heat1 && air && !request.drying && !request.cold && !r.drying_air) p.out.heat1 = false;"
+    heat1_cut = (
+        "if (p.out.heat1 && (air || (!physical.heat1 && air_phys)) && !request.drying && !request.cold && !r.drying_air)\n"
+        "        p.out.heat1 = false;"
+    )
+    # AG3-1: a start also waits for the physical air (the drivers switch heat1 before the vent).
+    assert "const bool air_phys = physical.vent || physical.fan1 || physical.fan2;" in relay_pass
     # AG3a: the drying run's own air tail keeps heat1 (set while drying asks for the air, cleared when the air is
     # off, a press, or another request takes the air). Native test: glue_drying_tail.
     assert "if (request.drying && air) r.drying_air = true;" in relay_pass
