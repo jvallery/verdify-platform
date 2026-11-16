@@ -5629,8 +5629,10 @@ async def band_profile_preview(
     temperature field recompiles the temperature series with sunrise and sunset at the midpoint of noon and midnight,
     any VPD field the VPD series; anchors then override single raw anchors. Returns current and draft (profile, anchors,
     simple), changed (the anchors a Save would write), both curves over the day at 10-min steps of t, vpd.device (the
-    draft with the controller's night bias), findings (error: band_order, guardrail, night_floor, the 0.74 kPa night
-    dry-out floor; warning: overshoot, dewpoint_unreached), the night heat estimate for both, the expected night VPD,
+    draft with the controller's night bias), findings (error: band_order, guardrail, band_width (narrower than the
+    control law's minimum widths anywhere in the day), night_floor (the law's drying line, vpd_low plus its drying
+    margin, under the night floor anywhere in the night; guardrails carries the numbers); warning: overshoot,
+    dewpoint_unreached), the night heat estimate for both, the expected night VPD,
     measured (the last 24 h of the house average on t) and forecast (outdoor). Unknown values are null, never 0.
 
     There is no band write tool: the band is operator-owned and is saved on the dashboard (Control → Band). Refusals

@@ -1774,14 +1774,17 @@ components:
         night_vpd_bias_kpa: {type: [number, 'null'], description: The bias the controller reports running}
         guardrails:
           type: object
-          required: [temp_min_f, temp_max_f, margin_f, vpd_min_kpa, vpd_max_kpa, night_vpd_floor_kpa]
+          required: [temp_min_f, temp_max_f, margin_f, vpd_min_kpa, vpd_max_kpa, night_vpd_floor_kpa, min_width_f, min_width_kpa, dry_on_above_vpd_low_kpa]
           properties:
             temp_min_f: {type: number}
             temp_max_f: {type: number}
             margin_f: {type: number}
             vpd_min_kpa: {type: number}
             vpd_max_kpa: {type: number}
-            night_vpd_floor_kpa: {type: number}
+            night_vpd_floor_kpa: {type: number, description: 'The drying line (vpd_low + dry_on_above_vpd_low_kpa) stays at or above this all night'}
+            min_width_f: {type: number, description: The control law's minimum temperature band width at every point of the day}
+            min_width_kpa: {type: number, description: The control law's minimum VPD band width at every point of the day}
+            dry_on_above_vpd_low_kpa: {type: number, description: The control law dries the house below vpd_low plus this}
         overshoot: {type: object, additionalProperties: {type: number}, description: 'By series, how far the draft curve leaves its anchor range'}
         night_heat_kwh:
           type: object

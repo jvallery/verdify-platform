@@ -30,7 +30,7 @@ from verdify_schemas.tunable_registry import (
     ZONE_VPD_TARGET_PARAMS,
     desired_write_rule,
 )
-from verdify_services import activity, reads, settings
+from verdify_services import activity, reads, series, settings
 from verdify_services.actor import Actor
 from verdify_services.irrigation import program
 from verdify_services.problems import ServiceError
@@ -335,6 +335,13 @@ class FakeDB:
             return out
         if sql == settings._ANCHOR_ROWS_SQL:
             return [{k: row[k] for k in ("id", "crop_type", "series", "anchor", "season")} for row in self.anchors]
+        if sql == series.ANCHOR_ROWS_SQL:
+            _, crop, wanted = args
+            return [
+                {**row, "current_season": self.season}
+                for row in self.anchors
+                if row["crop_type"] == crop and row["series"] in wanted and row["season"] in (self.season, "all")
+            ]
         if sql.startswith("UPDATE crop_band_anchors SET "):
             assert self.depth > 0
             column = sql.removeprefix("UPDATE crop_band_anchors SET ").split(" ", 1)[0]

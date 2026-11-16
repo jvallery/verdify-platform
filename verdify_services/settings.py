@@ -37,6 +37,7 @@ import asyncpg
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from verdify_schemas.activity import ActivityLogRow
+from verdify_schemas.band_profile import HOUSE_PARAMS
 from verdify_schemas.band_rows import BandRows, band_rows, rows_in_force
 from verdify_schemas.policy_vector import wire_fields
 from verdify_schemas.setting_help import SettingHelp, setting_help, setting_label, source_params
@@ -1438,6 +1439,12 @@ async def write(
         checked, row, anchor_rows, stored = await write_in_transaction(
             tx, actor, param, value, flag, reason, expected_id
         )
+        if param in HOUSE_PARAMS and anchor_rows:
+            # The band editor's checks hold for one anchor too (climate refactor plan 4.1). Imported here because
+            # band_profile imports this module.
+            from verdify_services import band_profile
+
+            await band_profile.check_stored(tx)
         detail: dict[str, Any] = {
             **extra,
             "ref": {"table": "desired_state", "id": row["id"]},

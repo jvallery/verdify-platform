@@ -67,7 +67,7 @@ test("an edit previews through API-23 and Save writes the changed anchors in one
 test("a night floor under 0.74 kPa shows beside its field and Save stays off", async () => {
   await mount();
   await type(field("Night range below"), "0.30");
-  expect(screen.getAllByText(/it stays at least 0.74 kPa so the house dries out overnight/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/that drying line stays at least 0.74 kPa all night/).length).toBeGreaterThan(0);
   expect((screen.getByRole("button", { name: "Save band" }) as HTMLButtonElement).disabled).toBe(true);
 });
 

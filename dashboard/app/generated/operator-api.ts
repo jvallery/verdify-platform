@@ -1334,7 +1334,14 @@ export interface components {
                 readonly vpd: components["schemas"]["NullableNumbers"];
             };
             readonly guardrails: {
+                /** @description The control law dries the house below vpd_low plus this */
+                readonly dry_on_above_vpd_low_kpa: number;
                 readonly margin_f: number;
+                /** @description The control law's minimum temperature band width at every point of the day */
+                readonly min_width_f: number;
+                /** @description The control law's minimum VPD band width at every point of the day */
+                readonly min_width_kpa: number;
+                /** @description The drying line (vpd_low + dry_on_above_vpd_low_kpa) stays at or above this all night */
                 readonly night_vpd_floor_kpa: number;
                 readonly temp_max_f: number;
                 readonly temp_min_f: number;

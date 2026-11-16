@@ -16,6 +16,8 @@ import jsonschema
 import pytest
 import yaml
 
+from verdify_schemas import band_profile as schema
+from verdify_schemas import climate_law_constants as K
 from verdify_schemas.activity import ActivityLogRow
 from verdify_schemas.band_profile import (
     HOUSE_PARAMS,
@@ -140,6 +142,69 @@ def test_the_band_stays_5_f_inside_the_40_and_100_f_guardrails():
 def test_a_band_whose_low_crosses_its_target_is_refused():
     anchors = dict(LIVE, band_temp_low_sr=70.0)
     assert ("band_order", "error") in {(f.code, f.severity) for f in findings(anchors)}
+
+
+# The house band as stored on 2026-11-16, and band 2 (plan appendix D.2): eight values entered in the Advanced view.
+TODAY = dict(LIVE, band_temp_low_mid=60.7, band_temp_target_mid=65.7, band_temp_high_mid=70.7)
+BAND_2 = dict(
+    TODAY,
+    band_temp_low_sm=71.8,
+    band_temp_low_ss=70.0,
+    band_temp_high_sm=85.8,
+    band_temp_high_ss=84.0,
+    band_vpd_high_sr=1.29,
+    band_vpd_high_sm=1.39,
+    band_vpd_high_ss=1.37,
+    band_vpd_high_mid=1.27,
+)
+
+
+def errors(anchors) -> list[tuple[str, str]]:
+    return [(f.code, f.field) for f in findings(anchors) if f.severity == "error"]
+
+
+def test_the_law_s_numbers_come_from_the_generated_constants():
+    assert (schema.BAND_MIN_WIDTH_F, schema.BAND_MIN_WIDTH_KPA) == (K.BAND_MIN_WIDTH_F, K.BAND_MIN_WIDTH_KPA)
+    assert schema.NIGHT_VPD_FLOOR_MIN_KPA == K.NIGHT_VPD_FLOOR_KPA
+    assert schema.DRY_ON_ABOVE_VPD_LOW_KPA == K.DRY_ON_ABOVE_VPD_LOW_KPA
+    assert (schema.BAND_TEMP_MIN_F, schema.BAND_TEMP_MAX_F) == (K.BAND_TEMP_MIN_F, K.BAND_TEMP_MAX_F)
+    assert (schema.GUARDRAIL_VPD_MIN_KPA, schema.GUARDRAIL_VPD_MAX_KPA) == (K.BAND_VPD_MIN_KPA, K.BAND_VPD_MAX_KPA)
+
+
+@pytest.mark.parametrize("band", [TODAY, BAND_2], ids=["today", "band 2"])
+def test_today_s_band_and_band_2_pass_every_check(band):
+    assert errors(band) == []
+    # Today's curve dips to about 0.72 kPa after solar midnight; the drying line sits 0.05 above it.
+    lowest, phase = schema.curve_min_at(series_points(band, "vpd_low"), *schema.NIGHT_PHASES)
+    assert 0.72 < lowest < K.NIGHT_VPD_FLOOR_KPA < lowest + K.DRY_ON_ABOVE_VPD_LOW_KPA and 3.0 < phase < 4.0
+
+
+def test_a_band_narrower_than_the_law_s_temperature_width_is_refused():
+    base = compile_profile(PROFILE)
+    at_minimum = dict(base, band_temp_high_mid=round(base["band_temp_low_mid"] + K.BAND_MIN_WIDTH_F, 1))
+    narrower = dict(base, band_temp_high_mid=round(base["band_temp_low_mid"] + K.BAND_MIN_WIDTH_F - 0.1, 1))
+    assert errors(at_minimum) == []
+    assert errors(narrower) == [("band_width", "temp_width_night")]
+
+
+def test_a_band_narrower_than_the_law_s_vpd_width_is_refused_by_day_too():
+    base = compile_profile(PROFILE)
+    at_minimum = dict(base, band_vpd_high_sm=round(base["band_vpd_low_sm"] + K.BAND_MIN_WIDTH_KPA, 2))
+    narrower = dict(base, band_vpd_high_sm=round(base["band_vpd_low_sm"] + K.BAND_MIN_WIDTH_KPA - 0.01, 2))
+    assert errors(at_minimum) == []
+    assert errors(narrower) == [("band_width", "vpd_above_day")]
+
+
+def test_the_night_floor_is_checked_on_the_drying_line_of_the_curve():
+    # The midnight anchor alone no longer decides: a pure sinusoid whose floor is 0.69 at midnight dries from 0.74.
+    floor = round(K.NIGHT_VPD_FLOOR_KPA - K.DRY_ON_ABOVE_VPD_LOW_KPA, 2)
+    assert errors(compile_profile(PROFILE.model_copy(update={"vpd_below_night": round(0.9 - floor, 2)}))) == []
+    lower = PROFILE.model_copy(update={"vpd_below_night": round(0.9 - floor + 0.01, 2)})
+    assert errors(compile_profile(lower)) == [("night_floor", "vpd_below_night")]
+    # A midnight anchor at 0.74 whose curve dips towards sunrise is refused.
+    dipping = dict(compile_profile(PROFILE), band_vpd_low_sr=0.62)
+    assert dipping["band_vpd_low_mid"] == 0.74
+    assert errors(dipping) == [("night_floor", "vpd_below_night")]
 
 
 def test_night_bias_is_the_controller_s_sin_squared_bump():
@@ -418,3 +483,35 @@ def test_iris_may_not_write_the_band(monkeypatch):
         save(bp.BandProfilePatch(temp_night=67.7), actor=Actor.iris())
     assert caught.value.problem.code == "read_only"
     assert harness.writes == [] and harness.logged is None
+
+
+# ── API-10 on one anchor ────────────────────────────────────────────────────
+
+
+def stored_band(band):
+    from test_verdify_services_settings import FakeDB
+
+    db = FakeDB()
+    for name, value in band.items():
+        series_name, anchor = name.removeprefix("band_").rsplit("_", 1)
+        db.add_anchor("house", series_name, anchor, "all", value)
+    return db
+
+
+def set_one(db, param, value):
+    return asyncio.run(settings.write(db, Actor.person("jason", "operator"), param, value, True, None, None))
+
+
+def anchor_value(db, name):
+    series_name, anchor = name.removeprefix("band_").rsplit("_", 1)
+    return next(row["value"] for row in db.anchors if (row["series"], row["anchor"]) == (series_name, anchor))
+
+
+def test_one_anchor_written_through_settings_is_held_to_the_band_checks():
+    db = stored_band(TODAY)
+    with pytest.raises(ServiceError) as caught:
+        set_one(db, "band_temp_high_mid", 66.0)  # 5.3 F wide at solar midnight
+    assert (caught.value.problem.code, caught.value.problem.field) == ("out_of_range", "value")
+    assert anchor_value(db, "band_temp_high_mid") == 70.7 and db.desired == []
+    set_one(db, "band_temp_high_mid", 71.0)
+    assert anchor_value(db, "band_temp_high_mid") == 71.0 and len(db.desired) == 1

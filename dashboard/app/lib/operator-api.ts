@@ -260,7 +260,7 @@ const bandProfilePreview = z.object({
   temp: z.object({ current: bandCurve, draft: bandCurve }),
   vpd: z.object({ current: bandCurve, draft: bandCurve, device: bandCurve, expected_low: nullableNumbers, expected_high: nullableNumbers }),
   night_vpd_bias_kpa: maybe(num),
-  guardrails: z.object({ temp_min_f: num, temp_max_f: num, margin_f: num, vpd_min_kpa: num, vpd_max_kpa: num, night_vpd_floor_kpa: num }),
+  guardrails: z.object({ temp_min_f: num, temp_max_f: num, margin_f: num, vpd_min_kpa: num, vpd_max_kpa: num, night_vpd_floor_kpa: num, min_width_f: num, min_width_kpa: num, dry_on_above_vpd_low_kpa: num }),
   overshoot: z.record(z.string(), num),
   night_heat_kwh: z.object({ current: maybe(num), draft: maybe(num) }),
   envelope: maybe(z.object({ hours: int, days: int, rmse_f: num, dewpoint_p10_f: num })),

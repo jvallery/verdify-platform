@@ -14,9 +14,12 @@ the anchors are chosen:
   profile compiles to (Advanced, raw anchors, otherwise).
 * ``findings`` checks a full anchor set: ``error`` findings refuse a Save, ``warning`` findings are shown only.
 
-Guardrails (decisions.md, 2026-11-05): the hard temperature rails are 40 °F and 100 °F, and the controller's
-``validate_setpoints`` keeps them at least 5 °F outside the band, so the band itself stays within 45-95 °F. The VPD
-rails are 0.3 and 3.0 kPa. The night VPD floor stays at least 0.74 kPa (the nightly dry-out; Jason, #1365).
+Guardrails: every number comes from the climate law's constants (``verdify_schemas/climate_law.yaml``, generated
+into ``climate_law_constants``). The hard temperature rails are the protection limits (40 °F and 100 °F) and the band
+itself stays within 45-95 °F; the VPD band within 0.3-3.0 kPa. The law needs a band in which the on and off lines of
+opposing actions do not overlap, so the band is at least 6.5 °F and 0.35 kPa wide at every point of the day
+(climate refactor plan §4.1). The night floor (Jason, #1365, decision 10) is checked on the curve: the law's drying
+line, ``vpd_low`` + 0.05 kPa, stays at or above 0.74 kPa at every point of the night (sunset to sunrise).
 
 Pure: no database, clock or file reads.
 """
@@ -30,18 +33,25 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from verdify_schemas import climate_law_constants as K
 from verdify_schemas.band_rows import ANCHOR_KEYS, HOUSE_SERIES
 
 # ── guardrails and display rules ────────────────────────────────────────────
-GUARDRAIL_TEMP_MIN_F = 40.0
-GUARDRAIL_TEMP_MAX_F = 100.0
-# firmware/lib/greenhouse_types.h validate_setpoints: safety_min <= temp_low - 5 and safety_max >= temp_high + 5.
-SAFETY_MARGIN_F = 5.0
-GUARDRAIL_VPD_MIN_KPA = 0.3
-GUARDRAIL_VPD_MAX_KPA = 3.0
-# Jason, 2026-11-05 (#1365): the night floor stays at least 0.74 kPa so the house dries out overnight. Compared at
-# the two decimals he stated, so the stored 0.738 is the 0.74 floor.
-NIGHT_VPD_FLOOR_MIN_KPA = 0.74
+GUARDRAIL_TEMP_MIN_F = K.SAFETY_MIN_F
+GUARDRAIL_TEMP_MAX_F = K.SAFETY_MAX_F
+BAND_TEMP_MIN_F = K.BAND_TEMP_MIN_F
+BAND_TEMP_MAX_F = K.BAND_TEMP_MAX_F
+# How far inside the protection limits the band stays (firmware validate_setpoints).
+SAFETY_MARGIN_F = BAND_TEMP_MIN_F - GUARDRAIL_TEMP_MIN_F
+GUARDRAIL_VPD_MIN_KPA = K.BAND_VPD_MIN_KPA
+GUARDRAIL_VPD_MAX_KPA = K.BAND_VPD_MAX_KPA
+BAND_MIN_WIDTH_F = K.BAND_MIN_WIDTH_F
+BAND_MIN_WIDTH_KPA = K.BAND_MIN_WIDTH_KPA
+# The law starts drying below vpd_low + this; that drying line is what the night floor is checked on.
+DRY_ON_ABOVE_VPD_LOW_KPA = K.DRY_ON_ABOVE_VPD_LOW_KPA
+NIGHT_VPD_FLOOR_MIN_KPA = K.NIGHT_VPD_FLOOR_KPA
+# Solar phase 2 is sunset and 4 (= 0) the next sunrise: the night the floor covers.
+NIGHT_PHASES = (2.0, 4.0)
 # The dispatcher's push quantum (tunable_registry._fw2_push_step): 0.1 °F and 0.01 kPa.
 STEP: Mapping[str, float] = {"temp": 0.1, "vpd": 0.01}
 # Advanced anchors that leave the anchor range by more than this get a warning (research §4).
@@ -188,6 +198,25 @@ def curve_extremes(points: tuple[float, float, float, float]) -> tuple[float, fl
     return min(values), max(values)
 
 
+def curve_min_at(
+    points: tuple[float, float, float, float], start: float = 0.0, end: float = 4.0
+) -> tuple[float, float]:
+    """The curve's minimum between two phases (both ends included) and the phase where it falls."""
+    count = max(2, round(_SAMPLES * (end - start) / 4.0) + 1)
+    phases = [start + (end - start) * index / (count - 1) for index in range(count)]
+    return min((harmonic(*points, phase), phase) for phase in phases)
+
+
+def width_points(anchors: Mapping[str, float], axis: Axis) -> tuple[float, float, float, float]:
+    """The band's width (high - low) at each anchor; the harmonic is linear, so this is the width curve's anchors."""
+    low, high = series_points(anchors, f"{axis}_low"), series_points(anchors, f"{axis}_high")
+    return tuple(h - lo for h, lo in zip(high, low, strict=True))  # type: ignore[return-value]
+
+
+def is_night(phase: float) -> bool:
+    return NIGHT_PHASES[0] <= phase <= NIGHT_PHASES[1]
+
+
 def overshoot(anchors: Mapping[str, float]) -> dict[str, float]:
     """{series: how far its curve leaves its own anchor range}, 0 for a profile-compiled band."""
     out: dict[str, float] = {}
@@ -211,7 +240,8 @@ def _fmt(value: float, axis: Axis) -> str:
 
 
 def findings(anchors: Mapping[str, float]) -> list[Finding]:
-    """Errors refuse a Save; warnings are shown. Order: ordering, guardrails, the night floor, overshoot."""
+    """Errors refuse a Save; warnings are shown. Order: ordering, guardrails, the widths, the night floor,
+    overshoot."""
     out: list[Finding] = []
     for lower, upper in (("temp_low", "temp_target"), ("temp_target", "temp_high")) + (
         ("vpd_low", "vpd_target"),
@@ -223,8 +253,8 @@ def findings(anchors: Mapping[str, float]) -> list[Finding]:
             out.append(
                 Finding("band_order", "error", param(upper, "sm"), f"{upper} falls below {lower} during the day")
             )
-    temp_floor = GUARDRAIL_TEMP_MIN_F + SAFETY_MARGIN_F
-    temp_ceiling = GUARDRAIL_TEMP_MAX_F - SAFETY_MARGIN_F
+    temp_floor = BAND_TEMP_MIN_F
+    temp_ceiling = BAND_TEMP_MAX_F
     low_min = curve_extremes(series_points(anchors, "temp_low"))[0]
     high_max = curve_extremes(series_points(anchors, "temp_high"))[1]
     if low_min < temp_floor - 1e-9:
@@ -259,15 +289,32 @@ def findings(anchors: Mapping[str, float]) -> list[Finding]:
                 f"{_fmt(GUARDRAIL_VPD_MIN_KPA, 'vpd')}-{_fmt(GUARDRAIL_VPD_MAX_KPA, 'vpd')}",
             )
         )
-    night_floor = float(anchors[param("vpd_low", "mid")])
-    if round(night_floor, 2) < NIGHT_VPD_FLOOR_MIN_KPA:
+    for axis, minimum, fields in (
+        ("temp", BAND_MIN_WIDTH_F, ("temp_width_day", "temp_width_night")),
+        ("vpd", BAND_MIN_WIDTH_KPA, ("vpd_above_day", "vpd_above_night")),
+    ):
+        narrowest, at = curve_min_at(width_points(anchors, axis))
+        if narrowest < minimum - 1e-9:
+            out.append(
+                Finding(
+                    "band_width",
+                    "error",
+                    fields[1] if is_night(at) else fields[0],
+                    f"The band narrows to {_fmt(narrowest, axis)}; the control law needs it at least "
+                    f"{_fmt(minimum, axis)} wide at every point of the day",
+                )
+            )
+    lowest, _ = curve_min_at(series_points(anchors, "vpd_low"), *NIGHT_PHASES)
+    drying_line = lowest + DRY_ON_ABOVE_VPD_LOW_KPA
+    if drying_line < NIGHT_VPD_FLOOR_MIN_KPA - 1e-9:
         out.append(
             Finding(
                 "night_floor",
                 "error",
                 "vpd_below_night",
-                f"The night VPD floor is {_fmt(night_floor, 'vpd')}; it stays at least "
-                f"{_fmt(NIGHT_VPD_FLOOR_MIN_KPA, 'vpd')} so the house dries out overnight",
+                f"The night VPD floor dips to {_fmt(lowest, 'vpd')}, so the house is dried only below "
+                f"{drying_line:.3f} kPa; that drying line stays at least "
+                f"{_fmt(NIGHT_VPD_FLOOR_MIN_KPA, 'vpd')} all night so the house dries out overnight",
             )
         )
     for series, amount in overshoot(anchors).items():

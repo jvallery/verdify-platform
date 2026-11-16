@@ -35,6 +35,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from verdify_schemas.activity import ActivityLogRow
 from verdify_schemas.band_profile import (
+    BAND_MIN_WIDTH_F,
+    BAND_MIN_WIDTH_KPA,
+    DRY_ON_ABOVE_VPD_LOW_KPA,
     GUARDRAIL_TEMP_MAX_F,
     GUARDRAIL_TEMP_MIN_F,
     GUARDRAIL_VPD_MAX_KPA,
@@ -141,6 +144,9 @@ class Guardrails(_Model):
     vpd_min_kpa: float = GUARDRAIL_VPD_MIN_KPA
     vpd_max_kpa: float = GUARDRAIL_VPD_MAX_KPA
     night_vpd_floor_kpa: float = NIGHT_VPD_FLOOR_MIN_KPA
+    min_width_f: float = BAND_MIN_WIDTH_F
+    min_width_kpa: float = BAND_MIN_WIDTH_KPA
+    dry_on_above_vpd_low_kpa: float = DRY_ON_ABOVE_VPD_LOW_KPA
 
 
 class NightHeat(_Model):
@@ -470,6 +476,19 @@ async def _current_anchors(conn: asyncpg.Connection) -> dict[str, float]:
             problem("read_only", f"the house band has no complete anchor set (missing {', '.join(missing)})")
         )
     return anchors
+
+
+async def check_stored(conn: asyncpg.Connection) -> None:
+    """Refuse (``out_of_range``, field ``value``) when the house band as ``conn``'s transaction sees it has an
+    ``error`` finding. A single-anchor write (API-10, MCP ``set_setting``) runs it after its update, so it is held to
+    the editor's checks and rolls back with them. A store without the full anchor set has no curve to check (the
+    editor refuses to open on it, ``read_only``), so nothing is refused for it here."""
+    anchors = anchors_from_rows(await conn.fetch(series.ANCHOR_ROWS_SQL, GREENHOUSE_ID, HOUSE_CROP, list(HOUSE_SERIES)))
+    if any(name not in anchors for name in HOUSE_PARAMS):
+        return
+    for finding in findings(anchors):
+        if finding.severity == "error":
+            raise ServiceError(problem("out_of_range", finding.detail, field="value"))
 
 
 async def _night_bias(conn: asyncpg.Connection) -> float | None:

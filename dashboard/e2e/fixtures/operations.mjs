@@ -430,6 +430,9 @@ const HOUSE_BAND = BAND_SERIES.flatMap((series) => BAND_ANCHORS.map((anchor) => 
 const TEMP_FIELDS = ["temp_day", "temp_night", "temp_width_day", "temp_width_night"];
 const VPD_FIELDS = ["vpd_day", "vpd_night", "vpd_below_day", "vpd_above_day", "vpd_below_night", "vpd_above_night"];
 const NIGHT_FLOOR_KPA = 0.74;
+const DRY_ON_KPA = 0.05;
+const MIN_WIDTH_F = 6.5;
+const MIN_WIDTH_KPA = 0.35;
 const bandStep = (param) => (param.includes("temp_") ? 0.1 : 0.01);
 const onStep = (value, step) => Number((Math.round(value / step) * step).toFixed(step < 0.1 ? 2 : 1));
 const houseAnchors = (world) => Object.fromEntries(HOUSE_BAND.map((param) => [param, bandValue(world, param)]));
@@ -493,10 +496,19 @@ function harmonicAt([sr, sm, ss, mid], phase) {
   return (sr + sm + ss + mid) / 4 + ((sr - ss) / 2) * Math.cos(theta) + ((sm - mid) / 2) * Math.sin(theta) + ((sr - sm + ss - mid) / 4) * Math.cos(2 * theta);
 }
 const curveOf = (anchors, axis, phases) => Object.fromEntries(["low", "target", "high"].map((role) => [role, phases.map((phase) => round(harmonicAt(BAND_ANCHORS.map((key) => at(anchors, `${axis}_${role}`, key)), phase), 4))]));
+/** verdify_schemas.band_profile.findings, in part: the law's minimum widths all day and the drying line all night. */
 function bandFindings(anchors) {
   const out = [];
-  const floor = at(anchors, "vpd_low", "mid");
-  if (round(floor, 2) < NIGHT_FLOOR_KPA) out.push({ code: "night_floor", severity: "error", field: "vpd_below_night", detail: `The night VPD floor is ${floor.toFixed(2)} kPa; it stays at least 0.74 kPa so the house dries out overnight` });
+  const points = (series) => BAND_ANCHORS.map((key) => at(anchors, series, key));
+  const samples = (from, to) => Array.from({ length: 201 }, (_, index) => from + ((to - from) * index) / 200);
+  for (const [axis, minimum, unit, field] of [["temp", MIN_WIDTH_F, "°F", "temp_width_night"], ["vpd", MIN_WIDTH_KPA, "kPa", "vpd_above_night"]]) {
+    const widths = samples(0, 4).map((phase) => harmonicAt(points(`${axis}_high`), phase) - harmonicAt(points(`${axis}_low`), phase));
+    const narrowest = Math.min(...widths);
+    if (narrowest < minimum - 1e-9) out.push({ code: "band_width", severity: "error", field, detail: `The band narrows to ${narrowest.toFixed(axis === "temp" ? 1 : 2)} ${unit}; the control law needs it at least ${minimum} ${unit} wide at every point of the day` });
+  }
+  const floor = Math.min(...samples(2, 4).map((phase) => harmonicAt(points("vpd_low"), phase)));
+  const line = floor + DRY_ON_KPA;
+  if (line < NIGHT_FLOOR_KPA - 1e-9) out.push({ code: "night_floor", severity: "error", field: "vpd_below_night", detail: `The night VPD floor dips to ${floor.toFixed(2)} kPa, so the house is dried only below ${line.toFixed(3)} kPa; that drying line stays at least 0.74 kPa all night so the house dries out overnight` });
   if (!isSimple(anchors)) out.push({ code: "overshoot", severity: "warning", field: "band_temp_low_sr", detail: "temp_low leaves its anchor range by 1.5 °F: sunrise and sunset are not the midpoint of noon and midnight" });
   return out;
 }
@@ -534,7 +546,7 @@ function profileBody(world, { query }) {
     temp: { current: temp, draft: tempDraft },
     vpd: { current: vpd, draft: vpdDraft, device: vpdDraft, expected_low: night(vpdDraft.target, -0.2), expected_high: night(vpdDraft.target, 0.05) },
     night_vpd_bias_kpa: 0,
-    guardrails: { temp_min_f: 40, temp_max_f: 100, margin_f: 5, vpd_min_kpa: 0.3, vpd_max_kpa: 3, night_vpd_floor_kpa: NIGHT_FLOOR_KPA },
+    guardrails: { temp_min_f: 40, temp_max_f: 100, margin_f: 5, vpd_min_kpa: 0.3, vpd_max_kpa: 3, night_vpd_floor_kpa: NIGHT_FLOOR_KPA, min_width_f: MIN_WIDTH_F, min_width_kpa: MIN_WIDTH_KPA, dry_on_above_vpd_low_kpa: DRY_ON_KPA },
     overshoot: Object.fromEntries(BAND_SERIES.map((series) => [series, isSimple(draft) ? 0 : series.startsWith("temp") ? 1.54 : 0.015])),
     night_heat_kwh: { current: heat(temp), draft: heat(tempDraft) },
     envelope: { hours: 140, days: 14, rmse_f: 4.5, dewpoint_p10_f: 44 },
