@@ -148,6 +148,10 @@ test-climate-law: ## The band-edge climate law (climate_law.h): equals the refer
 climate-law-sim: ## Closed-loop simulation: the firmware's law and relay layer reproduce the reference over the weather year (CI only; heavy)
 	python3 firmware/test/climate_law_sim.py --full
 
+climate-law-replay: ## The band-edge law over the recorded corpus: interlocks, G1 protection, NaN trace, noise (#1671; replaces the determine_mode replay for the control path)
+	cd firmware && g++ -std=c++17 -O2 -I lib -o test/test_climate_law_replay test/test_climate_law_replay.cpp
+	gzip -cd $(REPLAY_CORPUS_GZ) | ./firmware/test/test_climate_law_replay
+
 test-firmware: test-policy-vector test-policy-engine test-policy-recovery test-policy-injection test-zone-vpd test-irrigation-program test-greenhouse-logic test-running-alone test-climate-law ## Run native C++ logic tests + replay against golden CSV (same code as ESP32)
 	# OBS-1e (Sprint 16) — replay validation against 8 months of real telemetry.
 	# Replay validation complements unit tests because unit tests alone
@@ -175,10 +179,6 @@ firmware-replay-stream-check: ## TWIN-1/2: build the gated replay_emit_follow (-
 	    && echo "stream header carries climate_action column ✓"
 	REPLAY_EMIT_FORCE_FSM=1 sh -c 'tail -n +2 $(REPLAY_CORPUS_TMP) | head -50 | ./firmware/test/replay_emit_follow --stream --header-from $(REPLAY_CORPUS_TMP)' \
 	    | tail -n +2 | awk -F"\t" 'NF==12{ok++} END{ if(ok>0){print "stream emitted "ok" decision rows w/ 12 cols ✓"} else {print "FAIL: no stream rows"; exit 1} }'
-
-climate-law-replay: ## The band-edge law over the recorded corpus: interlocks, G1 protection, NaN trace, noise (#1671; replaces the determine_mode replay for the control path)
-	cd firmware && g++ -std=c++17 -O2 -I lib -o test/test_climate_law_replay test/test_climate_law_replay.cpp
-	gzip -cd $(REPLAY_CORPUS_GZ) | ./firmware/test/test_climate_law_replay
 
 firmware-invariants: ## Phase-0: run 16 invariants from invariants.h against the replay corpus (pass = bulletproof gate green)
 	gzip -cd $(REPLAY_CORPUS_GZ) > $(REPLAY_CORPUS_TMP)
