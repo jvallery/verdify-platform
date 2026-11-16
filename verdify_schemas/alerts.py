@@ -62,14 +62,17 @@ AlertType = Literal[
     "heap_pressure_critical",
     "heap_pressure_warning",
     "heat_manual_override",
+    "heat_no_power",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
     "leak_detected",
     "lighting_cfg_threshold_drift",
     "climate_action_proof_stale",
+    "clock_unconfirmed",
     "component_experiment_integrity",
     "plan_context_failed",
+    "plan_not_delivered",
     "planner_band_ownership_drift",
     "planner_evaluation_missed",
     "planner_gateway_delivery_failed",
@@ -117,14 +120,17 @@ ALERT_TYPES: tuple[str, ...] = (
     "heap_pressure_critical",
     "heap_pressure_warning",
     "heat_manual_override",
+    "heat_no_power",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
     "leak_detected",
     "lighting_cfg_threshold_drift",
     "climate_action_proof_stale",
+    "clock_unconfirmed",
     "component_experiment_integrity",
     "plan_context_failed",
+    "plan_not_delivered",
     "planner_band_ownership_drift",
     "planner_evaluation_missed",
     "planner_gateway_delivery_failed",
@@ -181,6 +187,8 @@ class _ProbeOfflineLifecycle(_DetailsBase):
 class SensorOfflineDetails(_ProbeOfflineLifecycle):
     type: str
     staleness_ratio: float | None = None
+    # One row per silent device (#1664): the registry sensors of that device that are stale.
+    columns: list[str] | None = None
 
 
 class IrrigationFeedbackGapDetails(_DetailsBase):
@@ -398,6 +406,15 @@ class SafetyInvalidDetails(_DetailsBase):
 
 class HeatManualOverrideDetails(_DetailsBase):
     watts: int = Field(..., ge=0)
+    samples: int | None = Field(default=None, ge=1)
+
+
+class HeatNoPowerDetails(_DetailsBase):
+    # heat1 commanded on for at least 15 min while every fresh heater-circuit sample of that window read
+    # below 500 W (#1637). ``on_since`` is heat1's newest on event; ``max_watts`` the highest fresh sample.
+    on_since: AwareDatetime
+    samples: int = Field(..., ge=1)
+    max_watts: float = Field(..., ge=0)
 
 
 class SoilSensorOfflineDetails(_ProbeOfflineLifecycle):
@@ -535,12 +552,26 @@ class SetpointUnconfirmedDetails(_DetailsBase):
 
 
 class SetpointDeliveryStuckDetails(_DetailsBase):
-    # Plain convergence (VD-62): settings whose outgoing value has differed
-    # from the controller's readback for more than 15 min. Clamped and
-    # experiment-policy-held settings are left out by the dispatcher.
+    # Settings whose newest requested value (setpoint_changes) has differed from the controller's
+    # readback (setpoint_snapshot) for more than 15 min; critical after 45 min (#1636). Read from
+    # database tables only.
     differing: int = Field(..., ge=1)
     params: list[str] = Field(..., min_length=1, max_length=20)
     oldest_since: AwareDatetime
+
+
+class PlanNotDeliveredDetails(_DetailsBase):
+    # The newest setpoint_plan is older than 30 min and no plan or band setpoint_changes row was confirmed
+    # after it (#1636; interim, removed when plans end).
+    plan_created_at: AwareDatetime
+    last_confirmed_at: AwareDatetime | None = None
+
+
+class ClockUnconfirmedDetails(_DetailsBase):
+    # The controller's clock (#1638): the median of controller_time_epoch minus the row time over the last
+    # 10 min, and whether every diagnostics row of the last 30 min reported sntp_valid 0.
+    offset_s: float | None = None
+    sntp_invalid_30m: bool
 
 
 class ESP32PushFailedDetails(_DetailsBase):
@@ -570,9 +601,12 @@ class BandDeviceDbDivergenceDetails(_DetailsBase):
     # The device's resolved on-chip band drifted from the DB-served band beyond
     # the firmware-approximation tolerance, or the device band readback is stale
     # (data-path review issue 2; from v_band_device_divergence).
-    max_temp_abs_diff: float = Field(..., ge=0)
-    max_vpd_abs_diff: float = Field(..., ge=0)
+    # The edge differences are NULL in on-chip mode (migration 250); the served temperature target
+    # difference is the input that reads there (#1638).
+    max_temp_abs_diff: float | None = Field(default=None, ge=0)
+    max_vpd_abs_diff: float | None = Field(default=None, ge=0)
     device_age_s: float = Field(..., ge=0)
+    temp_target_abs_diff: float | None = Field(default=None, ge=0)
 
 
 class PlanContextFailedDetails(_DetailsBase):
@@ -758,6 +792,11 @@ class HeatManualOverrideAlert(_AlertBase):
     details: HeatManualOverrideDetails
 
 
+class HeatNoPowerAlert(_AlertBase):
+    alert_type: Literal["heat_no_power"]
+    details: HeatNoPowerDetails
+
+
 class SoilSensorOfflineAlert(_AlertBase):
     alert_type: Literal["soil_sensor_offline"]
     details: SoilSensorOfflineDetails
@@ -826,6 +865,16 @@ class SetpointUnconfirmedAlert(_AlertBase):
 class SetpointDeliveryStuckAlert(_AlertBase):
     alert_type: Literal["setpoint_delivery_stuck"]
     details: SetpointDeliveryStuckDetails
+
+
+class PlanNotDeliveredAlert(_AlertBase):
+    alert_type: Literal["plan_not_delivered"]
+    details: PlanNotDeliveredDetails
+
+
+class ClockUnconfirmedAlert(_AlertBase):
+    alert_type: Literal["clock_unconfirmed"]
+    details: ClockUnconfirmedDetails
 
 
 class ESP32PushFailedAlert(_AlertBase):
@@ -1001,6 +1050,7 @@ AlertEnvelopeUnion = Annotated[
     | HeapPressureCriticalAlert
     | HeapPressureWarningAlert
     | HeatManualOverrideAlert
+    | HeatNoPowerAlert
     | HeatStagingInversionAlert
     | HouseBandDriftAlert
     | IrrigationFeedbackGapAlert
@@ -1022,6 +1072,8 @@ AlertEnvelopeUnion = Annotated[
     | SafetyInvalidAlert
     | SensorOfflineAlert
     | SetpointDeliveryStuckAlert
+    | PlanNotDeliveredAlert
+    | ClockUnconfirmedAlert
     | SetpointUnconfirmedAlert
     | SiteContentStaleAlert
     | SoilDryoutAlert

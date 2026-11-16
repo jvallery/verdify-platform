@@ -38,6 +38,7 @@ from ._common import (
     PROBE_OFFLINE_RESOLVE_DAYS,
     REGISTRY,
     SAFETY_RAIL_PARAMS,
+    SECOND_READBACK_ABS_TOLERANCE_PARAMS,
     SOIL_DRYOUT_MIN_DURATION_H,
     SOIL_DRYOUT_TARGETS_SQL,
     UTC,
@@ -55,7 +56,6 @@ from ._common import (
     log,
     re,
     registry_value_error,
-    shared,
     soil_dryout_probes,
 )
 from .daily import (
@@ -68,11 +68,6 @@ from .heartbeat import (
 )
 from .irrigation import LINE_RELAYS, _schedule_specs, read_program
 
-# Plain convergence (VD-62): a setting whose outgoing value has differed from
-# the controller for longer than this is not reaching it.
-SETPOINT_DELIVERY_STUCK_AFTER = _td(minutes=15)
-SETPOINT_DELIVERY_STUCK_MAX_PARAMS = 20
-
 # The zones that hold a planting now (migration 293): open crop_occupancy rows, by zone slug. A planting with no
 # cell still counts for its zone or shelf. Alerting only; no control function reads plantings.
 ACTIVE_PLANTING_ZONES_SQL = (
@@ -80,60 +75,265 @@ ACTIVE_PLANTING_ZONES_SQL = (
 )
 
 
-def _setpoint_delivery_stuck_alert(
-    differing: Mapping[str, datetime],
-    dispatcher_stage: str | None,
-    now: datetime,
-) -> dict[str, object] | None:
-    """One envelope while any setting has differed for more than 15 minutes.
+# Setpoint delivery (#1636): a setting whose newest requested value (setpoint_changes) has differed from the
+# controller's readback (setpoint_snapshot) for longer than these is not reaching it. Database tables only:
+# nothing here reads dispatcher memory, so a restart, a raised pass or a held stage cannot hide it.
+SETPOINT_DELIVERY_STUCK_AFTER = _td(minutes=15)
+SETPOINT_DELIVERY_CRITICAL_AFTER = _td(minutes=45)
+SETPOINT_DELIVERY_STUCK_MAX_PARAMS = 20
+# The readback match is the snapshot confirmation's own (ingestor._publish_setpoint_snapshot): within 1 %, or
+# within 1 s for the quantized second-valued settings ($1).
+_READBACK_MATCH = """(abs({a} - {b}) / greatest(abs({b}), 1e-3) < 0.01
+         OR abs({a} - {b}) <= CASE WHEN {param} = ANY($1::text[]) THEN 1.0 ELSE 0.0 END)"""
+_SETPOINT_DELIVERY_SQL = f"""
+WITH requested AS (
+    SELECT DISTINCT ON (parameter) parameter, ts, value, confirmed_at, delivery_status
+      FROM setpoint_changes
+     WHERE COALESCE(source, '') <> 'esp32' AND ts > now() - interval '60 days'
+     ORDER BY parameter, ts DESC
+), differing AS (
+    SELECT q.parameter, q.value, q.confirmed_at
+      FROM requested q
+     CROSS JOIN LATERAL (
+           SELECT s.value FROM setpoint_snapshot s
+            WHERE s.parameter = q.parameter AND s.ts > now() - interval '1 day'
+            ORDER BY s.ts DESC LIMIT 1
+     ) r
+     WHERE COALESCE(q.delivery_status, '') NOT IN ('superseded', 'cancelled')
+       AND NOT {_READBACK_MATCH.format(a="q.value", b="r.value", param="q.parameter")}
+), since AS (
+    SELECT d.parameter,
+           CASE WHEN d.confirmed_at IS NULL THEN (
+               -- not taken yet: since the first request after the last confirmed one
+               SELECT min(sc.ts) FROM setpoint_changes sc
+                WHERE sc.parameter = d.parameter AND COALESCE(sc.source, '') <> 'esp32'
+                  AND sc.ts > now() - interval '60 days'
+                  AND sc.ts > COALESCE((
+                      SELECT max(c.ts) FROM setpoint_changes c
+                       WHERE c.parameter = d.parameter AND COALESCE(c.source, '') <> 'esp32'
+                         AND c.ts > now() - interval '60 days' AND c.confirmed_at IS NOT NULL
+                  ), '-infinity'))
+           ELSE (
+               -- taken, then lost (a restart reverts what the controller does not keep): since the first
+               -- readback after the last one that matched
+               SELECT min(s.ts) FROM setpoint_snapshot s
+                WHERE s.parameter = d.parameter AND s.ts > now() - interval '1 day'
+                  AND s.ts > COALESCE((
+                      SELECT max(m.ts) FROM setpoint_snapshot m
+                       WHERE m.parameter = d.parameter AND m.ts > now() - interval '1 day'
+                         AND {_READBACK_MATCH.format(a="d.value", b="m.value", param="d.parameter")}
+                  ), '-infinity'))
+           END AS since
+      FROM differing d
+)
+SELECT parameter, since, EXTRACT(EPOCH FROM now() - since)::double precision AS age_s
+  FROM since WHERE since IS NOT NULL
+ ORDER BY since, parameter
+"""
 
-    ``differing`` is ``shared.delivery_differing_since``, which already leaves
-    out clamped and experiment-policy-held settings. Nothing is raised while
-    the C1 qualification overlay holds the pass on purpose (``held:c1``).
-    Heap deferral and a lost Lease still count: then settings really are not
-    reaching the controller.
+
+def _setpoint_delivery_stuck_alert(rows: Sequence[Mapping]) -> dict[str, object] | None:
+    """One envelope while any setting has differed from its readback for more than 15 minutes; critical after 45.
+
+    ``rows`` are ``_SETPOINT_DELIVERY_SQL``'s: each differing setting, since when and its age in seconds by the
+    database clock. Every pushed value counts, lighting and operator switches included; no dispatcher stage
+    exempts it.
     """
-    if dispatcher_stage == "held:c1":
-        return None
-    stuck = sorted((since, param) for param, since in differing.items() if now - since > SETPOINT_DELIVERY_STUCK_AFTER)
+    stuck = [row for row in rows if row["age_s"] > SETPOINT_DELIVERY_STUCK_AFTER.total_seconds()]
     if not stuck:
         return None
-    oldest = stuck[0][0]
+    oldest = min(row["since"] for row in stuck)
+    age_s = max(float(row["age_s"]) for row in stuck)
+    critical = age_s > SETPOINT_DELIVERY_CRITICAL_AFTER.total_seconds()
     count = len(stuck)
     noun = "setting" if count == 1 else "settings"
     return {
         "alert_type": "setpoint_delivery_stuck",
-        "severity": "warning",
+        "severity": "critical" if critical else "warning",
         "category": "system",
         "sensor_id": "dispatcher",
         "zone": None,
         "message": f"{count} {noun} not reaching the controller since {oldest.astimezone(UTC):%H:%M} UTC",
         "details": {
             "differing": count,
-            "params": [param for _since, param in stuck[:SETPOINT_DELIVERY_STUCK_MAX_PARAMS]],
+            "params": sorted(str(row["parameter"]) for row in stuck)[:SETPOINT_DELIVERY_STUCK_MAX_PARAMS],
             "oldest_since": oldest.astimezone(UTC).isoformat(),
         },
-        "metric_value": round((now - oldest).total_seconds(), 1),
-        "threshold_value": SETPOINT_DELIVERY_STUCK_AFTER.total_seconds(),
+        "metric_value": round(age_s, 1),
+        "threshold_value": (
+            SETPOINT_DELIVERY_CRITICAL_AFTER if critical else SETPOINT_DELIVERY_STUCK_AFTER
+        ).total_seconds(),
     }
 
 
-def _setpoint_delivery_stuck_preserved(
-    differing: Mapping[str, datetime],
-    dispatcher_stage: str | None,
-) -> frozenset[str]:
-    """Alert types ``_sync_monitor_alerts`` keeps open without a fresh envelope.
+async def _setpoint_delivery_cycle(conn) -> tuple[dict | None, frozenset[str]]:
+    """The stuck envelope, and the types to keep open: when the read fails the state is unknown, so an open row
+    neither resolves nor is raised again."""
+    try:
+        rows = await conn.fetch(_SETPOINT_DELIVERY_SQL, sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS))
+    except Exception as e:
+        log.warning("setpoint delivery check failed: %s", e)
+        return None, frozenset({"setpoint_delivery_stuck"})
+    return _setpoint_delivery_stuck_alert(rows), frozenset()
 
-    ``setpoint_delivery_stuck`` is raised once a setting has differed for more
-    than 15 minutes and resolves when none differs. An open one therefore stays
-    open while any setting still differs, even when this process has tracked
-    them for less than 15 minutes (after an ingestor restart, for example), and
-    before this process's first dispatcher pass, when the state is unknown. It
-    resolves, and is not kept, while the C1 overlay holds the pass on purpose.
-    """
-    if dispatcher_stage is None or (dispatcher_stage != "held:c1" and differing):
-        return frozenset({"setpoint_delivery_stuck"})
-    return frozenset()
+
+# Plans written but nothing delivered (#1636, interim): the newest plan is older than this and no plan or band
+# request was confirmed after it. Removed in the release that ends plan writing (packages 4.2 and 5.1).
+PLAN_NOT_DELIVERED_AFTER_S = 1800
+_PLAN_NOT_DELIVERED_SQL = """
+SELECT p.created_at AS plan_created_at,
+       (SELECT max(confirmed_at) FROM setpoint_changes
+         WHERE source IN ('plan', 'band') AND ts > now() - interval '7 days') AS last_confirmed_at
+  FROM (SELECT max(created_at) AS created_at FROM setpoint_plan
+         WHERE ts > now() - interval '8 days' AND created_at > now() - interval '7 days') AS p
+ WHERE p.created_at < now() - make_interval(secs => $1)
+   AND NOT EXISTS (
+       SELECT 1 FROM setpoint_changes sc
+        WHERE sc.source IN ('plan', 'band') AND sc.ts > p.created_at - interval '1 hour'
+          AND sc.confirmed_at > p.created_at)
+"""
+
+
+def _plan_not_delivered_alert(row: Mapping | None) -> dict | None:
+    """The critical plan_not_delivered envelope for ``_PLAN_NOT_DELIVERED_SQL``'s row, None without one."""
+    if row is None:
+        return None
+    created = row["plan_created_at"]
+    confirmed = row["last_confirmed_at"]
+    return {
+        "alert_type": "plan_not_delivered",
+        "severity": "critical",
+        "category": "system",
+        "sensor_id": "planner",
+        "zone": None,
+        "message": f"Iris's plan of {created.astimezone(UTC):%H:%M} UTC has not reached the controller: "
+        "no plan or band setting confirmed since",
+        "details": {
+            "plan_created_at": created.isoformat(),
+            "last_confirmed_at": confirmed.isoformat() if confirmed is not None else None,
+        },
+        "metric_value": None,
+        "threshold_value": float(PLAN_NOT_DELIVERED_AFTER_S),
+    }
+
+
+# The controller's clock (#1638): the band runs on it. Raised when the median offset from the row time over the
+# last 10 minutes exceeds this (baseline -52 to 0 s; the 2026 fault ran 690 to 7,060 s), or when every
+# diagnostics row of the last 30 minutes reports sntp_valid 0.
+CLOCK_OFFSET_ALERT_S = 120.0
+_CLOCK_SQL = """
+SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY controller_time_epoch - EXTRACT(EPOCH FROM ts))
+           FILTER (WHERE ts > now() - interval '10 minutes' AND controller_time_epoch IS NOT NULL) AS offset_s,
+       COALESCE(bool_and(sntp_valid = 0), false)
+           AND min(ts) FILTER (WHERE sntp_valid IS NOT NULL) <= now() - interval '25 minutes' AS sntp_invalid_30m
+  FROM diagnostics
+ WHERE ts > now() - interval '30 minutes'
+"""
+
+
+def _clock_unconfirmed_alert(row: Mapping | None) -> dict | None:
+    """The critical clock_unconfirmed envelope for ``_CLOCK_SQL``'s row when the clock is off or unsynced."""
+    if row is None:
+        return None
+    offset = row["offset_s"]
+    off = offset is not None and abs(float(offset)) > CLOCK_OFFSET_ALERT_S
+    invalid = bool(row["sntp_invalid_30m"])
+    if not off and not invalid:
+        return None
+    if off:
+        message = f"The controller's clock is {abs(float(offset)):.0f} s {'fast' if offset > 0 else 'slow'}"
+    else:
+        message = "The controller's clock has not synced with a time server for 30 minutes"
+    return {
+        "alert_type": "clock_unconfirmed",
+        "severity": "critical",
+        "category": "system",
+        "sensor_id": "diag.controller_time",
+        "zone": None,
+        "message": message,
+        "details": {
+            "offset_s": round(float(offset), 1) if offset is not None else None,
+            "sntp_invalid_30m": invalid,
+        },
+        "metric_value": round(float(offset), 1) if offset is not None else None,
+        "threshold_value": CLOCK_OFFSET_ALERT_S,
+    }
+
+
+# The electric heater's circuit (#1637): channel 1 of the heater meter (abs: its clamp reads reversed). Only
+# fresh samples count, quality ok with a source timestamp inside the window, so a frozen meter raises neither
+# alert.
+HEAT_SETTLE = _td(minutes=15)
+HEAT_NO_POWER_BELOW_W = 500.0
+HEAT_LOAD_ABOVE_W = 1000.0
+HEAT_MIN_FRESH_SAMPLES = 2
+_HEAT_SQL = """
+SELECT h1.state AS heat1_on, h1.ts <= now() - $1::interval AS heat1_settled, h1.ts AS heat1_since,
+       COALESCE(h2.state, false) AS heat2_on, COALESCE(h2.ts <= now() - $1::interval, true) AS heat2_settled,
+       f.samples, f.max_w, f.min_w
+  FROM (SELECT state, ts FROM equipment_state WHERE equipment = 'heat1' ORDER BY ts DESC LIMIT 1) AS h1
+  LEFT JOIN (SELECT state, ts FROM equipment_state WHERE equipment = 'heat2' ORDER BY ts DESC LIMIT 1) AS h2
+    ON true
+ CROSS JOIN (
+       SELECT count(DISTINCT ch1_source_ts)::int AS samples,
+              max(abs(ch1_power_w)) AS max_w, min(abs(ch1_power_w)) AS min_w
+         FROM energy
+        WHERE ts > now() - $1::interval - interval '5 minutes'
+          AND ch1_quality = 'ok' AND ch1_power_w IS NOT NULL
+          AND ch1_source_ts > now() - $1::interval
+ ) AS f
+"""
+
+
+def _heat_power_alerts(row: Mapping | None) -> list[dict]:
+    """heat_no_power while heat1 has been on for 15 min with no draw; heat_manual_override while a heater-sized
+    load runs with both heat relays off for 15 min. Both need HEAT_MIN_FRESH_SAMPLES fresh samples in the window."""
+    if row is None or row["samples"] < HEAT_MIN_FRESH_SAMPLES:
+        return []
+    samples = int(row["samples"])
+    if row["heat1_on"] and row["heat1_settled"] and row["max_w"] < HEAT_NO_POWER_BELOW_W:
+        return [
+            {
+                "alert_type": "heat_no_power",
+                "severity": "warning",
+                "category": "equipment",
+                "sensor_id": "equipment.heat1",
+                "zone": None,
+                "message": f"Electric heater on for 15 min but drawing {int(row['max_w'])} W at most "
+                f"({samples} readings)",
+                "details": {
+                    "on_since": row["heat1_since"].isoformat(),
+                    "samples": samples,
+                    "max_watts": round(float(row["max_w"]), 1),
+                },
+                "metric_value": round(float(row["max_w"]), 1),
+                "threshold_value": HEAT_NO_POWER_BELOW_W,
+            }
+        ]
+    heat1_off = not row["heat1_on"] and row["heat1_settled"]
+    heat2_off = not row["heat2_on"] and row["heat2_settled"]
+    if heat1_off and heat2_off and row["min_w"] > HEAT_LOAD_ABOVE_W:
+        return [
+            {
+                "alert_type": "heat_manual_override",
+                "severity": "warning",
+                "category": "equipment",
+                "sensor_id": "equipment.heat1",
+                "zone": None,
+                "message": f"Heater circuit drawing {int(row['min_w'])} W or more with both heat relays off",
+                "details": {"watts": int(row["min_w"]), "samples": samples},
+                "metric_value": round(float(row["min_w"]), 1),
+                "threshold_value": HEAT_LOAD_ABOVE_W,
+            }
+        ]
+    return []
+
+
+# The served temperature target (#1638): the device's against the database band's. Blind near solar noon and
+# midnight, where the curve is flat; a backup to the clock alert. A target row older than the age limit is not
+# compared.
+BAND_TARGET_DIFF_ALERT_F = 1.0
+BAND_TARGET_MAX_AGE_S = 900.0
 
 
 def _component_experiment_integrity_alert(
@@ -197,6 +397,79 @@ _SOIL_OFFLINE_PROBES = (
     ("soil.south_2", "south", ("soil_moisture_south_2", "soil_temp_south_2")),
     ("soil.west", "west", ("soil_moisture_west", "soil_temp_west")),
 )
+
+# One sensor_offline row per silent device (#1664): every registry sensor whose id starts with a prefix here
+# belongs to that device, and one row lists its stale sensors in details.columns. A sensor of no device keeps
+# its own row. Soil columns belong to soil_sensor_offline.
+_OFFLINE_DEVICES = (
+    ("device.hydro_probe", "climate.hydro_"),
+    ("device.controller_diagnostics", "diag."),
+)
+_SOIL_SENSOR_IDS = frozenset(
+    f"climate.{column}" for _probe, _zone, columns in _SOIL_OFFLINE_PROBES for column in columns
+)
+_STALE_EXCLUDE = frozenset({"state.mister_state", "state.mister_zone"})  # legacy firmware entities
+
+
+def _offline_device(sensor_id: str) -> str | None:
+    return next((device for device, prefix in _OFFLINE_DEVICES if sensor_id.startswith(prefix)), None)
+
+
+def _sensor_offline_alerts(rows: Sequence[Mapping]) -> list[dict]:
+    """sensor_offline envelopes for v_sensor_staleness's stale rows: one per device, one per other sensor."""
+    singles: list[dict] = []
+    devices: dict[str, list[Mapping]] = {}
+    for r in rows:
+        sensor_id = r["sensor_id"]
+        if sensor_id in _STALE_EXCLUDE or sensor_id in _SOIL_SENSOR_IDS:
+            continue
+        device = _offline_device(sensor_id)
+        if device is not None:
+            devices.setdefault(device, []).append(r)
+            continue
+        ratio = r["staleness_ratio"]
+        singles.append(
+            {
+                "alert_type": "sensor_offline",
+                "severity": "warning",
+                "category": "sensor",
+                "sensor_id": sensor_id,
+                "zone": None,
+                "message": f"Sensor `{sensor_id}` offline ({ratio:.0f}x expected interval)"
+                if ratio
+                else f"Sensor `{sensor_id}` offline",
+                "details": {"type": r["type"], "staleness_ratio": float(ratio) if ratio else None},
+                "metric_value": float(ratio) if ratio else None,
+                "threshold_value": None,
+            }
+        )
+    for device, members in sorted(devices.items()):
+        columns = sorted(str(r["sensor_id"]) for r in members)
+        ratios = [float(r["staleness_ratio"]) for r in members if r["staleness_ratio"]]
+        ratio = max(ratios) if ratios else None
+        singles.append(
+            {
+                "alert_type": "sensor_offline",
+                "severity": "warning",
+                "category": "sensor",
+                "sensor_id": device,
+                "zone": None,
+                "message": f"Device `{device}` offline: {len(columns)} sensor(s) stale ({', '.join(columns)})",
+                "details": {"type": str(members[0]["type"]), "staleness_ratio": ratio, "columns": columns},
+                "metric_value": ratio,
+                "threshold_value": None,
+            }
+        )
+    return singles
+
+
+def _replaced_sensor_offline_key(key) -> bool:
+    """A per-column sensor_offline key that a per-device row or soil_sensor_offline now owns (#1664)."""
+    return (
+        key[0] == "sensor_offline"
+        and isinstance(key[1], str)
+        and (key[1] in _SOIL_SENSOR_IDS or _offline_device(key[1]) is not None)
+    )
 
 
 def _alert_details(value) -> dict:
@@ -930,29 +1203,14 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
             if component_alert is not None:
                 alerts.append(component_alert)
 
-        # 1. sensor_offline (exclude legacy firmware entities)
-        _STALE_EXCLUDE = {"state.mister_state", "state.mister_zone"}
-        for r in await conn.fetch(
-            "SELECT sensor_id, type, staleness_ratio FROM v_sensor_staleness WHERE is_stale = true"
-        ):
-            if r["sensor_id"] in _STALE_EXCLUDE:
-                continue
-            ratio = r["staleness_ratio"]
-            alerts.append(
-                {
-                    "alert_type": "sensor_offline",
-                    "severity": "warning",
-                    "category": "sensor",
-                    "sensor_id": r["sensor_id"],
-                    "zone": None,
-                    "message": f"Sensor `{r['sensor_id']}` offline ({ratio:.0f}x expected interval)"
-                    if ratio
-                    else f"Sensor `{r['sensor_id']}` offline",
-                    "details": {"type": r["type"], "staleness_ratio": float(ratio) if ratio else None},
-                    "metric_value": float(ratio) if ratio else None,
-                    "threshold_value": None,
-                }
+        # 1. sensor_offline: one row per silent device, one per other sensor (#1664)
+        alerts.extend(
+            _sensor_offline_alerts(
+                await conn.fetch(
+                    "SELECT sensor_id, type, staleness_ratio FROM v_sensor_staleness WHERE is_stale = true"
+                )
             )
+        )
 
         forecast_health = await conn.fetchrow(
             """
@@ -1076,14 +1334,46 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         # the DB-served band (issue 2). Catches a silent firmware-vs-DB curve skew,
         # a frozen/unsynced on-chip band, or sw_onchip_band_enabled flipped off —
         # all of which the compliance panels (which read the DB band) would HIDE.
+        # Since migration 250 the edge inputs are NULL in on-chip mode; the served temperature target
+        # difference reads there (#1638).
         bdd = await conn.fetchrow(
             """
             SELECT max_temp_abs_diff, max_vpd_abs_diff,
-                   EXTRACT(EPOCH FROM device_age) AS device_age_s
+                   EXTRACT(EPOCH FROM device_age) AS device_age_s,
+                   temp_target_abs_diff, EXTRACT(EPOCH FROM target_age) AS target_age_s
               FROM v_band_device_divergence
             """
         )
-        if bdd and bdd["max_temp_abs_diff"] is not None:
+        target_d = bdd["temp_target_abs_diff"] if bdd else None
+        target_age_s = bdd["target_age_s"] if bdd else None
+        if (
+            target_d is not None
+            and target_age_s is not None
+            and float(target_age_s) <= BAND_TARGET_MAX_AGE_S
+            and float(target_d) > BAND_TARGET_DIFF_ALERT_F
+            and (bdd["max_temp_abs_diff"] is None)
+        ):
+            alerts.append(
+                {
+                    "alert_type": "band_device_db_divergence",
+                    "severity": "warning",
+                    "category": "climate",
+                    "sensor_id": None,
+                    "zone": "house",
+                    "message": (
+                        f"Band served by the controller differs from the database band: temperature target "
+                        f"off by {round(float(target_d), 2)} °F (a clock fault or an unsynced band)"
+                    ),
+                    "details": {
+                        "max_vpd_abs_diff": None,
+                        "device_age_s": round(float(bdd["device_age_s"] or 0.0), 1),
+                        "temp_target_abs_diff": round(float(target_d), 3),
+                    },
+                    "metric_value": round(float(target_d), 3),
+                    "threshold_value": BAND_TARGET_DIFF_ALERT_F,
+                }
+            )
+        elif bdd and bdd["max_temp_abs_diff"] is not None:
             temp_d = float(bdd["max_temp_abs_diff"])
             vpd_d = float(bdd["max_vpd_abs_diff"])
             age_s = float(bdd["device_age_s"] or 0.0)
@@ -1115,6 +1405,11 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                         "threshold_value": 1.0,
                     }
                 )
+
+        # 1c. clock_unconfirmed: the controller's clock is off or has not synced (#1638)
+        clock = _clock_unconfirmed_alert(await conn.fetchrow(_CLOCK_SQL))
+        if clock is not None:
+            alerts.append(clock)
 
         # 2. relay_stuck
         # v_relay_stuck is derived from commanded switch state, not independent
@@ -2356,29 +2651,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                     }
                 )
 
-        # 9. Heat manual override
-        heat = await conn.fetchrow("SELECT AVG(watts_heat) AS w FROM energy WHERE ts > now() - interval '10 minutes'")
-        if heat and heat["w"] and heat["w"] > 1000:
-            h1 = await conn.fetchval(
-                "SELECT state FROM equipment_state WHERE equipment = 'heat1' ORDER BY ts DESC LIMIT 1"
-            )
-            h2 = await conn.fetchval(
-                "SELECT state FROM equipment_state WHERE equipment = 'heat2' ORDER BY ts DESC LIMIT 1"
-            )
-            if not h1 and not h2:
-                alerts.append(
-                    {
-                        "alert_type": "heat_manual_override",
-                        "severity": "warning",
-                        "category": "equipment",
-                        "sensor_id": "equipment.heat1",
-                        "zone": None,
-                        "message": f"Heat drawing {int(heat['w'])}W but ESP32 reports OFF",
-                        "details": {"watts": int(heat["w"])},
-                        "metric_value": float(heat["w"]),
-                        "threshold_value": 1000.0,
-                    }
-                )
+        # 9. The electric heater's power against its relay (#1637): on without a draw (heat_no_power), or a
+        # heater-sized draw with both heat relays off (heat_manual_override). Fresh meter samples only.
+        alerts.extend(_heat_power_alerts(await conn.fetchrow(_HEAT_SQL, HEAT_SETTLE)))
 
         # 9. Soil probes offline: one alert per probe (VD-72, Round 2b C).
         #
@@ -3053,15 +3328,15 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
 
         # Reactive trigger marker removed in Sprint 5 P6 — deviation monitor handles replans
 
-        # 15. Setpoint delivery stuck (VD-62). The dispatcher converges in
-        # paced passes; this says when settings stop reaching the controller.
-        stuck_alert = _setpoint_delivery_stuck_alert(
-            shared.delivery_differing_since,
-            shared.dispatcher_stage,
-            datetime.now(UTC),
-        )
+        # 15. Setpoint delivery stuck (#1636): every requested value against its readback, from the
+        # database alone; warning at 15 minutes, critical at 45.
+        stuck_alert, delivery_preserved = await _setpoint_delivery_cycle(conn)
         if stuck_alert is not None:
             alerts.append(stuck_alert)
+        # 15a. Plans written but nothing delivered (#1636, interim until plans end).
+        plan_alert = _plan_not_delivered_alert(await conn.fetchrow(_PLAN_NOT_DELIVERED_SQL, PLAN_NOT_DELIVERED_AFTER_S))
+        if plan_alert is not None:
+            alerts.append(plan_alert)
 
         # 15b. ESP32 push failures are one-shot event rows (dispatcher and
         # setpoint listener); nothing else closes them. Close each once every
@@ -3084,12 +3359,8 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
             unpotted_keys=soil_unpotted_keys,
             refresh_only_keys=leak_refresh_only_keys,
             silences=silences,
-            # An open stuck alert resolves only when no setting differs (and
-            # stays open while this process's delivery state is unknown).
-            preserve_open_types=_setpoint_delivery_stuck_preserved(
-                shared.delivery_differing_since, shared.dispatcher_stage
-            )
-            | irrigation_preserved,
+            # An open stuck alert stays open while the delivery read failed (state unknown).
+            preserve_open_types=delivery_preserved | irrigation_preserved,
         )
 
 
@@ -3471,6 +3742,10 @@ async def _sync_monitor_alerts(
             # reaches the dashboard and the verdify_alert_open gauge directly.
             if is_escalation:
                 escalated_count += 1
+                if scope is None and existing["disposition"] == "acknowledged":
+                    # The gauge pages only rows with disposition open: an acknowledged warning that turns
+                    # critical opens again, so it pages (#1636). acknowledged_at stays as the record.
+                    await conn.execute("UPDATE alert_log SET disposition = $2 WHERE id = $1", existing["id"], "open")
             continue
         if key in refresh_only_keys:
             # Raised only to refresh its open row, which closed after the
@@ -3560,6 +3835,8 @@ async def _sync_monitor_alerts(
             # 4. Open but neither raised nor kept open.
             if _legacy_soil_column_key(key):
                 resolution = "auto-resolved: replaced by the per-probe alert"
+            elif _replaced_sensor_offline_key(key):
+                resolution = "auto-resolved: replaced by the per-device alert"
             elif key in unpotted_keys:
                 resolution = "auto-resolved: zone unpotted"
             else:
