@@ -1,6 +1,6 @@
 {
   "migration": "312-operator-metrics-reads.sql",
-  "final_migration_qualification_pending": true,
+  "final_migration_qualification_pending": false,
   "before": {
     "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
     "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
@@ -11,5 +11,36 @@
     "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
     "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
   },
-  "projection": "2026-11-16, read only, production at exact309 (310 and 311 are seal-neutral). daily_band_compliance is verdify's with relacl NULL and daily_record is created by 310 with none; a SELECT entry for verdify_dashboard_runtime (not an api, ingestor or MCP role, not PUBLIC) leaves both outside every digest's closure. energy carries verdify=arwdDxt, verdify_ingestor_runtime=r and verdify_mcp_runtime=r, so the ordinary digest hashes its relacl text; 312 leaves it as it is and grants the new v_dashboard_energy projection instead, which is verdify's, has no protected name and no api, ingestor, MCP or PUBLIC entry. All three seals are expected to stay 309's. If the probe shows any digest moved, stop. Otherwise run scripts/qualify-migration-successor.py db/migrations/312-operator-metrics-reads.sql (with --apply-first db/migrations/310-daily-record.sql --apply-first db/migrations/311-one-compliance-definition.sql while production is at 309, or only 311 at 310) --native-fixture db/qualification/312-operator-metrics-reads-fixture.sql --fixture tests/fixtures/312-operator-metrics-reads-native-qualification.json."
+  "projection": "2026-11-16, read only, production at exact309 (310 and 311 are seal-neutral). daily_band_compliance is verdify's with relacl NULL and daily_record is created by 310 with none; a SELECT entry for verdify_dashboard_runtime (not an api, ingestor or MCP role, not PUBLIC) leaves both outside every digest's closure. energy carries verdify=arwdDxt, verdify_ingestor_runtime=r and verdify_mcp_runtime=r, so the ordinary digest hashes its relacl text; 312 leaves it as it is and grants the new v_dashboard_energy projection instead, which is verdify's, has no protected name and no api, ingestor, MCP or PUBLIC entry. All three seals are expected to stay 309's. If the probe shows any digest moved, stop. Otherwise run scripts/qualify-migration-successor.py db/migrations/312-operator-metrics-reads.sql (with --apply-first db/migrations/310-daily-record.sql --apply-first db/migrations/311-one-compliance-definition.sql while production is at 309, or only 311 at 310) --native-fixture db/qualification/312-operator-metrics-reads-fixture.sql --fixture tests/fixtures/312-operator-metrics-reads-native-qualification.json.",
+  "measured_at": "2026-11-16T20:02:53Z",
+  "qualified_successor": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "after_rollback": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "exact_final_migration_sha256": "66e6bfe12302b2d2756514a2c9903f05e728b1326d6c21aee07362baeca7afa2",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "aac804dafa55e46dbf0dfed89681746b3eddb6e0caa030ab00b8d6d9e7c07f7d",
+  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
+  "native_fixture": {
+    "checks": [
+      "energy_acl_unchanged",
+      "dashboard_login_attests",
+      "dashboard_login_no_energy_table",
+      "dashboard_login_reads_compliance",
+      "dashboard_login_reads_daily_record",
+      "dashboard_login_reads_meter_last_hour"
+    ],
+    "all_passed": true,
+    "attested": {
+      "dashboard": true
+    }
+  },
+  "native_fixture_sha256": "7953dfb8c05471089fc4c1b5d59a7955bfbb2b18e8a4fc42ccf6952a0eaf9689"
 }
