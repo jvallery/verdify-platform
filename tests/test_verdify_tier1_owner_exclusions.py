@@ -66,7 +66,7 @@ def test_public_product_hosts_carry_shared_hsts_baseline():
     assert hardened["services"] == routes[0]["services"]
     # graphs panels are iframed cross-origin by lab; SAMEORIGIN would break them.
     assert "graphs.verdify.ai" not in hardened["match"]
-    assert "middlewares" not in routes[0]
+    assert routes[0]["middlewares"] == [{"name": "hsts-only", "namespace": "network-infra"}]
 
 
 def test_graphs_host_carries_hsts_only():

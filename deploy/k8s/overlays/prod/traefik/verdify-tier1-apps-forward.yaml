@@ -63,6 +63,12 @@ spec:
         && !Host(`mqtt.verdify.ai`)
         && !Host(`dashboard.verdify.ai`)
       priority: 50
+      # network-infra#1104 (COORD ruling 2026-11-16T16:44:59Z): every catch-all response,
+      # including verdify-traefik's 404 for hosts with no router (e.g. ingress.verdify.ai),
+      # carries HSTS. HSTS only: no framing, CSP or Referrer-Policy change for these hosts.
+      middlewares:
+        - name: hsts-only
+          namespace: network-infra
       services:
         - name: verdify-traefik
           port: 80
