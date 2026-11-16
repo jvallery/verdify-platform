@@ -1237,15 +1237,18 @@ def sealed_sql_315():
 EXPERIMENT_V2_SHADOW_DROPS_MIGRATION = (
     316,
     "316-experiment-v2-and-shadow-drops.sql",
-    "0bb13b701cbf79b8441fa0004da0c73145f3459a2f44753728ff636628cda271",
+    "8439a0e4d9c6cc2809a4a6f61b1a217e2e6ffba1320cad2f55c9582baf56924c",
 )
 # The first drops of the climate refactor (#1633, host release 4; contracts phase4-drops): the confirmed-component
 # experiment v2, the policy twin, the planner graph and memory tables, planner_pack, forecast_deviation_thresholds, the
 # retired planner experiment views and thirteen retired roles. The dropped grants move the api, ingestor and MCP seals
-# (record: tests/fixtures/316-experiment-v2-and-shadow-drops-native-qualification.json). Until the probe measures
-# them, the literals are 315's (fail closed).
+# (record: tests/fixtures/316-experiment-v2-and-shadow-drops-native-qualification.json). Measured by the native
+# probe of 2026-11-16: all three move.
 SUCCESSOR_316 = {
     **SUCCESSOR_315,
+    "api": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "ingestor": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+    "mcp": "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929",
 }
 
 

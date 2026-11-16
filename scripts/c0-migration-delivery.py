@@ -498,12 +498,15 @@ SUCCESSOR_315_DIGESTS = {
 SUCCESSOR_315_MCP_DIGEST = "ae8180a5fc5dc400fc0f9c49fc6f069c89af033a9b9425ef52a14bf85b202256"
 # Exact316 (#1633, host release 4; contracts phase4-drops): the first drops of the climate refactor, the experiment
 # v2, the policy twin, the planner graph, memory and pack tables, forecast_deviation_thresholds, the retired planner
-# experiment views and thirteen retired roles, each table archived first. The dropped grants move the seals; until the
-# native probe measures them, the literals are 315's (fail closed). It follows 315.
+# experiment views and thirteen retired roles, each table archived first. The dropped grants move the seals, measured
+# by the native probe of 2026-11-16: all three move. It follows 315.
 SUCCESSOR_316 = "316-experiment-v2-and-shadow-drops.sql"
-SUCCESSOR_316_SHA256 = "0bb13b701cbf79b8441fa0004da0c73145f3459a2f44753728ff636628cda271"
-SUCCESSOR_316_DIGESTS = SUCCESSOR_315_DIGESTS
-SUCCESSOR_316_MCP_DIGEST = SUCCESSOR_315_MCP_DIGEST
+SUCCESSOR_316_SHA256 = "8439a0e4d9c6cc2809a4a6f61b1a217e2e6ffba1320cad2f55c9582baf56924c"
+SUCCESSOR_316_DIGESTS = {
+    "verdify_api_runtime_login": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "verdify_ingestor_runtime_login": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+}
+SUCCESSOR_316_MCP_DIGEST = "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
