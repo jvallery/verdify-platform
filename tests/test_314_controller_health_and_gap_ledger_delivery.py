@@ -249,7 +249,10 @@ def test_outage_readers_see_gaps_without_replayed_minutes():
 def test_the_projection_is_the_files_literals():
     evidence = json.loads(FIXTURE.read_text())
     assert evidence["migration"] == c0.SUCCESSOR_314
-    assert evidence["before"] == registered(PREDECESSOR)
+    # Production was at 311 (312 moves no seal), and the probe applied 312 and 313 first: "before" is the live
+    # state, the applied-first seals are 313's, the predecessor this file checks.
+    assert evidence["before"] == registered(PREDECESSOR - 1)
+    assert evidence["applied_first_seals"] == registered(PREDECESSOR)
 
 
 def test_native_qualification_is_recorded():
@@ -265,7 +268,12 @@ def test_native_qualification_is_recorded():
     assert evidence["migration"] == c0.SUCCESSOR_314
     assert evidence["exact_final_migration_sha256"] == c0.SUCCESSOR_314_SHA256
     assert evidence["qualified_successor"] == registered(314)
-    assert evidence["before"] == registered(PREDECESSOR) == evidence["after_rollback"]
+    assert evidence["before"] == registered(PREDECESSOR - 1) == evidence["after_rollback"]
+    assert [(r["migration"], r["sha256"]) for r in evidence["applied_first"]] == [
+        (c0.SUCCESSOR_312, c0.SUCCESSOR_312_SHA256),
+        (c0.SUCCESSOR_313, c0.SUCCESSOR_313_SHA256),
+    ]
+    assert evidence["applied_first_seals"] == registered(PREDECESSOR)
     assert evidence["final_migration_rollback_verified"] is True
     assert evidence["inside_transaction_receipts_match"] is True
     assert evidence["native_fixture_sha256"] == hashlib.sha256(NATIVE.read_bytes()).hexdigest()
