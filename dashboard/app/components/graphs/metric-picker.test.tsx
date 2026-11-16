@@ -72,7 +72,7 @@ test("+ Setting lists numeric settings in an open panel's unit, never the Band i
   expect(SETTINGS.find((row) => row.param === "temp_low")?.group).toBe("read_only");
   expect(listed("°F")).not.toContain("temp_low");
   expect(listed("kPa")).not.toContain("vpd_low");
-  expect(listed("%")).toEqual(["sched_mist_rh_max_pct"]);  // the third flash retired fog_rh_ceiling_pct (read-only now)
+  expect(listed("%")).toEqual(["sched_mist_rh_max_pct"]);
   expect(SETTINGS.some((row) => row.group === "band_in_force")).toBe(true);
   expect(groups.flatMap((group) => group.items).filter((row) => row.group === "band_in_force" || row.group === "read_only" || row.kind !== "numeric")).toEqual([]);
   expect(chooserGroups(SETTINGS, ["kPa"], "engage").flatMap((group) => group.items.map((row) => row.param))).toEqual(["mister_engage_kpa"]);

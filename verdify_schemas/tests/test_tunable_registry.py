@@ -48,7 +48,6 @@ from verdify_schemas.tunable_registry import (
     RETIRING_TUNABLES,
     SETPOINT_MAP_REG,
     THIRD_FLASH_INERT_WIRE_REG,
-    THIRD_FLASH_RETIRED_REG,
     TIER1_REG,
     TunableDef,
     planner_effective_bounds,
@@ -498,10 +497,8 @@ class TestDriftGuard:
             assert REGISTRY[param].tier == 2
         assert REGISTRY["temp_low"].control_class == "crop_band"
         assert REGISTRY["mister_hysteresis_kpa"].control_class == "controller_safety"
-        assert REGISTRY["safety_min"].control_class == "retired"  # the third flash: the law compiles 40/100 F
         assert REGISTRY["fallback_window_s"].control_class == "readback_context"
         assert REGISTRY["mister_on_s"].control_class == "retired"
-        assert REGISTRY["d_cool_stage_2"].control_class == "retired"
         # VD-46 (#1161): the rank arbiter runs whenever more than one zone is a VPD member, so the
         # switch decides nothing; Settings and MCP show it read-only with this reason.
         assert REGISTRY["sw_arbiter_zone_enabled"].control_class == "retired"
@@ -897,34 +894,26 @@ class TestPlannerWriteContractLockout:
     def test_hard_safety_rails_locked_out(self) -> None:
         """The hard rails (push_owner='safety') and the whole controller_safety
         class are non-pushable and absent from the planner-writable surface. The
-        third flash deleted the rails' entities (the law compiles 40 F and 100 F),
-        so their rows are retired."""
+        third flash deleted the four temperature and VPD rails (the law compiles
+        40 F and 100 F) and release 4 their rows."""
+        assert not {"safety_min", "safety_max", "safety_vpd_min", "safety_vpd_max"} & set(REGISTRY)
         rails = sorted(n for n, d in REGISTRY.items() if d.push_owner == "safety")
-        assert {"safety_min", "safety_max", "safety_vpd_min", "safety_vpd_max"} <= set(rails)
         for n in rails:
             assert not REGISTRY[n].planner_pushable
-            assert REGISTRY[n].control_class == "retired" and n in THIRD_FLASH_RETIRED_REG
             assert n not in PLANNER_PUSHABLE_REG
         safety_class = [n for n, d in REGISTRY.items() if d.control_class == "controller_safety"]
         leaked = [n for n in safety_class if n in PLANNER_PUSHABLE_REG]
         assert not leaked, f"controller_safety params leaked into PLANNER_PUSHABLE_REG: {leaked}"
 
-    def test_fsm_controller_switch_locked_out(self) -> None:
-        """The FSM master switch is non-pushable and no agent may set it, so the
-        planner can never disable the deterministic controller."""
-        row = REGISTRY["sw_fsm_controller_enabled"]
-        assert not row.planner_pushable
-        assert "sw_fsm_controller_enabled" not in PLANNER_PUSHABLE_REG
+    def test_fsm_controller_switch_is_gone(self) -> None:
+        """The FSM master switch left the firmware with the third flash and the registry with release 4."""
+        assert "sw_fsm_controller_enabled" not in REGISTRY
         assert "sw_fsm_controller_enabled" not in AGENT_SETTABLE_PARAMS
 
     def test_dehum_vent_hold_flag_left_with_its_entity(self) -> None:
         """#410/#420: the S8 vent+reheat hold flag. The third flash deleted the switch and its readback
-        (package 4.3), so the row is entity-less, retired and never planner-named (RULINGS AE7a)."""
-        row = REGISTRY["sw_dehum_vent_hold_enabled"]
-        assert row.kind == "switch" and not row.planner_pushable and row.tier == 2
-        assert row.control_class == "retired" and "sw_dehum_vent_hold_enabled" in THIRD_FLASH_RETIRED_REG
-        assert row.esp_object_id is None and row.cfg_readback_object_id is None
-        assert "sw_dehum_vent_hold_enabled" not in PLANNER_PUSHABLE_REG
+        (package 4.3) and release 4 its row (RULINGS AE7a)."""
+        assert "sw_dehum_vent_hold_enabled" not in REGISTRY
         assert "cfg___dehum_vent_hold_enabled" not in _entity_map().CFG_READBACK_MAP
         assert "sw_dehum_vent_hold_enabled" not in AGENT_SETTABLE_PARAMS
         assert "dehum_vent_hold_enabled" not in (REPO_ROOT / "ingestor" / "review_prompt.py").read_text()
@@ -993,9 +982,9 @@ def _parse_entities(text: str) -> tuple[dict[str, tuple[str, float | None]], dic
     return numbers, switches
 
 
-# The settings the third flash deleted keep their copied entity name until host release 4 deletes the rows
-# (RULINGS AE7a); the guards skip them.
-_THIRD_FLASH_DELETED = THIRD_FLASH_RETIRED_REG | THIRD_FLASH_INERT_WIRE_REG
+# The policy-wire settings the third flash deleted keep their copied entity name until their rows go with the wire
+# change; the guards skip them.
+_THIRD_FLASH_DELETED = THIRD_FLASH_INERT_WIRE_REG
 
 
 def _lost_entity(name: str, spec: TunableDef) -> str:
@@ -1146,7 +1135,7 @@ class TestStepLabelUnitDriftGuard:
             "band_anchors._round_for_push changed: update the anchor steps (_fw2_push_step in "
             "tunable_registry.py) and _ROUND_FOR_PUSH_RULE together"
         )
-        assert len(FIRMWARE_V2_STAGED_REG) == 56
+        assert len(FIRMWARE_V2_STAGED_REG) == 53
         mismatched = {
             name: (REGISTRY[name].step, _push_quantum(name))
             for name in sorted(FIRMWARE_V2_STAGED_REG)
@@ -1156,7 +1145,7 @@ class TestStepLabelUnitDriftGuard:
         assert REGISTRY["band_temp_low_sr"].step == 0.1
         assert REGISTRY["zone_vpd_width_below_center"].step == 0.01
         assert REGISTRY["zone_priority_center"].step == 1.0
-        assert REGISTRY["wet_taper_before_sunset_min"].step == 1.0
+        assert REGISTRY["manual_override_timeout_min"].step == 1.0
 
     def test_registry_labels_match_tunables_yaml(self, tunables_yaml: str) -> None:
         mismatches = _label_mismatches(REGISTRY, tunables_yaml)
@@ -1198,11 +1187,10 @@ class TestStepLabelUnitDriftGuard:
         """
         sensors = (REPO_ROOT / "firmware" / "greenhouse" / "sensors.yaml").read_text(encoding="utf-8")
         readback_names = set(_YAML_NAME_LINE_RE.findall(sensors))
-        assert len(FIRMWARE_V2_STAGED_REG) == 56
+        assert len(FIRMWARE_V2_STAGED_REG) == 53
         missing: list[str] = []
         rewired: list[str] = []
-        # The three window anchors the third flash deleted have no readback (RULINGS AE7a).
-        for name in sorted(FIRMWARE_V2_STAGED_REG - THIRD_FLASH_RETIRED_REG):
+        for name in sorted(FIRMWARE_V2_STAGED_REG):
             spec = REGISTRY[name]
             rebuilt = f"Cfg • {spec.label}" + (f" ({spec.unit})" if spec.unit else "")
             if rebuilt not in readback_names:
@@ -1287,7 +1275,7 @@ _VD63_ROWS: dict[str, tuple] = {
 }
 
 
-# VD-63 rows whose entity and readback the third flash deleted (package 4.3): entity-less and retired (RULINGS AE7a).
+# VD-63 rows whose entity and readback the third flash deleted (package 4.3); release 4 deleted the rows.
 _VD63_THIRD_FLASH_RETIRED = (
     "night_stress_min_dew_margin_f",
     "sw_night_econ_heat_suppress_enabled",
@@ -1298,11 +1286,8 @@ _VD63_THIRD_FLASH_RETIRED = (
 
 class TestRegisteredFirmwareTunables:
     @pytest.mark.parametrize("name", _VD63_THIRD_FLASH_RETIRED)
-    def test_third_flash_rows_are_off(self, name: str) -> None:
-        spec = REGISTRY[name]
-        assert name in THIRD_FLASH_RETIRED_REG and spec.control_class == "retired"
-        assert spec.esp_object_id is None and spec.cfg_readback_object_id is None
-        assert not spec.planner_pushable and name not in PLANNER_PUSHABLE_REG and spec.wire_id is None
+    def test_third_flash_rows_are_gone(self, name: str) -> None:
+        assert name not in REGISTRY and name not in PLANNER_PUSHABLE_REG
 
     @pytest.mark.parametrize("name", sorted(_VD63_ROWS))
     def test_row_contract(self, name: str) -> None:
@@ -1378,8 +1363,9 @@ def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None
     )
 
     # 29 until #369 deleted the eight direct-wet zone offsets with their firmware entities, 21 until #1477
-    # deleted the activity mirror and the shared and per-circuit DLI lighting values with theirs.
-    assert len(NO_EFFECT_RETIRED_REG) == 10
+    # deleted the activity mirror and the shared and per-circuit DLI lighting values with theirs, 7 since release 4
+    # deleted the three wet-taper and night-stress rows with the third flash.
+    assert len(NO_EFFECT_RETIRED_REG) == 7
     for name in NO_EFFECT_RETIRED_REG:
         spec = REGISTRY[name]
         assert spec.control_class == "retired", name

@@ -29,7 +29,8 @@ BAND_ZONES = ("house", "center", "south", "west", "east")
 INTERNAL = re.compile(r"\b(MCP|ADR|TIER\d?|BC-\d+|sprint|dispatcher|registry|firmware)\b|#\d+", re.IGNORECASE)
 SNAKE = re.compile(r"\b[a-z0-9]+_[a-z0-9_]+\b")
 LIMITS = {"summary": 120, "effect": 420, "raise_": 260, "lower": 260, "caution": 260}
-GUARDRAILS = {"safety_min", "safety_max", "safety_vpd_min", "safety_vpd_max"}
+# The four temperature and VPD rails left with the third flash (the law compiles 40 F and 100 F).
+GUARDRAILS: set[str] = set()
 
 
 @cache
@@ -81,7 +82,6 @@ def test_the_guardrails_are_marked_and_state_the_controller_rule():
     for name in GUARDRAILS:
         assert "guardrail" in HELP[name].summary.lower(), name
         assert HELP[name].caution, name
-    assert REGISTRY["safety_min"].default == 40.0 and REGISTRY["safety_max"].default == 100.0
 
 
 def test_the_served_text_is_the_entry_without_its_refs():

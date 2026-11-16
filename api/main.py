@@ -122,7 +122,6 @@ FIRMWARE_SETPOINT_PARAMS = frozenset(SETPOINT_MAP_REG.values())
 HOUSE_BAND_COMPUTED_PARAMS = frozenset(
     name for name in CROP_BAND_REG if name.startswith("temp_") or name in {"vpd_high", "vpd_low"}
 )
-ZONE_VPD_TARGET_PARAMS = frozenset(name for name in CROP_BAND_REG if name.startswith("vpd_target_"))
 PUBLIC_CROP_EXCLUDE_SLUGS_DB = sorted(PUBLIC_CROP_EXCLUDE_SLUGS)
 PUBLIC_CROP_FIELDS = (
     "id",
@@ -744,7 +743,6 @@ def _public_crop_zone_sql_predicate(
 
 
 EQUIPMENT_SWITCH_SETPOINTS = {
-    "sw_economiser_enabled": "economiser_enabled",
     "sw_fog_closes_vent": "fog_closes_vent",
     "sw_irrigation_enabled": "irrigation_enabled",
     "sw_irrigation_wall_enabled": "irrigation_wall_enabled",
@@ -1039,7 +1037,6 @@ _PUBLIC_BAND_TRACE_CACHE: dict[str, tuple[float, PublicBandTraceResponse]] = {}
 CONTACT_ALLOWED_TOPICS = {"build", "control", "data", "press", "collaboration", "correction", "other"}
 CONTACT_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CONTACT_URL_RE = re.compile(r"(https?://|www\.)", re.IGNORECASE)
-FORCED_ON_SWITCH_PARAMS = frozenset({"sw_fsm_controller_enabled"})
 CONTACT_NOTIFY_SUBJECT_PREFIX = "Verdify contact"
 PUBLIC_CAMERA_IDS = {"greenhouse_1", "greenhouse_2"}
 FRIGATE_BASE_URL_ENV = "VERDIFY_FRIGATE_PUBLIC_BASE_URL"
@@ -1581,10 +1578,6 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
         band_row = await conn.fetchrow(
             "SELECT temp_low, temp_high, vpd_low, vpd_high, temp_target, vpd_target FROM fn_band_setpoints(now())"
         )
-        zone_row = await conn.fetchrow(
-            "SELECT vpd_target_south, vpd_target_west, vpd_target_east, vpd_target_center "
-            "FROM fn_zone_vpd_targets(now())"
-        )
         house_row = await conn.fetchrow("SELECT house_vpd_low, house_vpd_high FROM fn_house_vpd_control_band(now())")
         lighting_row = await conn.fetchrow(
             "SELECT target_dli, sunrise_hour, cutoff_hour, target_light_hours FROM fn_lighting_policy(now(), $1)",
@@ -1600,7 +1593,7 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
         # Without a computed band, recovery tooling would receive partial
         # temp/VPD policy and could mask a dispatcher problem. Better to 503
         # than return a response that looks authoritative but is incomplete.
-        if band_row is None or zone_row is None or house_row is None or lighting_row is None:
+        if band_row is None or house_row is None or lighting_row is None:
             existing = await conn.fetchval(
                 "SELECT id FROM alert_log WHERE alert_type = 'band_fn_null' AND disposition = 'open' LIMIT 1"
             )
@@ -1615,7 +1608,6 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
                         ),
                         "details": {
                             "band_row_null": band_row is None,
-                            "zone_row_null": zone_row is None,
                             "house_row_null": house_row is None,
                             "lighting_row_null": lighting_row is None,
                         },
@@ -1664,10 +1656,6 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
             }
             params.update(lighting_values)
         params.update(_direct_wet_policy_values(lighting_row, lighting_circuit_rows))
-        # Per-zone VPD targets (from crop data per zone)
-        if zone_row:
-            for param in ZONE_VPD_TARGET_PARAMS:
-                params[param] = _round_half_up(float(zone_row[param]), 2)
         # Mister tuning: the last delivered value (setpoint_changes), else the band default.
         if house_row:
             vpd_hi = float(house_row["house_vpd_high"])
@@ -2855,8 +2843,6 @@ def _active_plan_range_violation_count(rows) -> int:
             violations += 1
             continue
         error = registry_value_error(parameter, value)
-        if parameter in FORCED_ON_SWITCH_PARAMS and value < 0.5:
-            error = "controller_locked_on"
         if error:
             violations += 1
     return violations

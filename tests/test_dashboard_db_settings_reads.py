@@ -412,7 +412,7 @@ def test_a_plan_in_force_is_never_shown_or_applied_since_climate_refactor_4_2(ds
             conn,
             "preemptive-vd55",
             t0 - 10 * MIN,
-            [(t0 - 10 * MIN, "sw_economiser_enabled", 1.0)],
+            [(t0 - 10 * MIN, "sw_gl_main_solar_phasing", 1.0)],
             source="preemptive",
         )
         await snapshot(conn, t0 - 1 * MIN, "mister_engage_delay_s", 48.75)
@@ -421,7 +421,7 @@ def test_a_plan_in_force_is_never_shown_or_applied_since_climate_refactor_4_2(ds
         delay = rows["mister_engage_delay_s"]
         # The plan rows stay, but no plan applies: no plan block, and the source is never plan.
         assert (delay.desired, delay.plan) == (None, None) and delay.applied_from != "plan"
-        assert rows["sw_economiser_enabled"].plan is None and rows["sw_economiser_enabled"].applied_from != "plan"
+        assert rows["sw_gl_main_solar_phasing"].plan is None and rows["sw_gl_main_solar_phasing"].applied_from != "plan"
         assert rows["mister_engage_kpa"].plan is None
 
     scenario(dsn, body)

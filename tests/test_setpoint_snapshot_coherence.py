@@ -158,7 +158,7 @@ class Pool:
 def context(monkeypatch):
     values = {field.name: 0.0 for field in wire_fields()}
     values["mister_all_kpa"] = 1.25
-    values["safety_max"] = 100.0  # Existing noncanonical rows must survive.
+    values["fallback_window_s"] = 100.0  # Existing noncanonical rows must survive.
     monkeypatch.setattr(shared, "cfg_readback", values)
     monkeypatch.setattr(ingestor.state, "cfg_readback", values)
     monkeypatch.setattr(shared, "cfg_readback_generation", dict.fromkeys(values, 3))
@@ -200,7 +200,7 @@ async def test_snapshot_confirmation_and_fanout_use_one_committed_immutable_map(
     snapshot = {name: value for _ts, name, value in connection.rows}
     confirmed = {name: value for name, value, _tolerance in connection.confirmations}
     assert snapshot == confirmed and snapshot["mister_all_kpa"] == 1.25
-    assert snapshot["safety_max"] == 100.0
+    assert snapshot["fallback_window_s"] == 100.0
     assert len({ts for ts, _name, _value in connection.rows}) == 1
     assert connection.events[:5] == ["begin", "insert", "confirm", "pass", "commit"]
     assert connection.events[5:] == ["fanout"] * len(snapshot)
@@ -377,14 +377,14 @@ async def test_flush_loop_confirmation_matches_snapshot_when_callback_arrives_du
 
 @pytest.mark.asyncio
 async def test_af1_a_confirmation_after_a_later_boot_observation_restores_the_held_value_as_newest(context):
-    """RULINGS AF1, today's sequence: night_dryout_pulse_s 600 pushed 19:50:00, the rebooted controller reported its
+    """RULINGS AF1, today's sequence: gl_main_min_on_s 600 pushed 19:50:00, the rebooted controller reported its
     stored 120 at 19:50:26, the push was confirmed 19:50:35. The newest row must then say 600 again."""
     _values, connection, pool = context
     day = datetime(2026, 11, 16, tzinfo=UTC)
     pushed, observed = day.replace(hour=19, minute=50), day.replace(hour=19, minute=50, second=26)
     connection.newest_rows = [
         {
-            "parameter": "night_dryout_pulse_s",
+            "parameter": "gl_main_min_on_s",
             "confirmed_ts": pushed,
             "confirmed_value": 600.0,
             "newest_ts": observed,
@@ -394,7 +394,7 @@ async def test_af1_a_confirmation_after_a_later_boot_observation_restores_the_he
     ]
     shared.register_setpoint_snapshot_publisher()
     await ingestor._publish_setpoint_snapshot(pool, day.replace(hour=19, minute=50, second=35))
-    assert connection.restored == [("night_dryout_pulse_s", 600.0)]
+    assert connection.restored == [("gl_main_min_on_s", 600.0)]
     # Nothing to restore when the newest row already holds the value, is the push itself, or predates it.
     same = dict(connection.newest_rows[0], newest_value=600.0)
     own = dict(connection.newest_rows[0], newest_ts=pushed, newest_source="dispatcher")

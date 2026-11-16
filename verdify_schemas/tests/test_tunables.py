@@ -140,7 +140,7 @@ class TestTunableParameterValidator:
 
     def test_accepts_known_switch(self):
         adapter = TypeAdapter(TunableParameter)
-        assert adapter.validate_python("sw_economiser_enabled") == "sw_economiser_enabled"
+        assert adapter.validate_python("sw_occupancy_inhibit") == "sw_occupancy_inhibit"
 
     def test_rejects_unknown(self):
         adapter = TypeAdapter(TunableParameter)

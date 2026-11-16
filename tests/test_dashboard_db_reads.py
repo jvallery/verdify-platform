@@ -672,7 +672,7 @@ def test_plan_lanes_waypoints_and_planner_health(dsn):
             "preemptive-vd54",
             t0 - 30 * MIN,
             t0 + 6 * H,
-            [(t0 + 2 * H, "sw_economiser_enabled", 0.0)],
+            [(t0 + 2 * H, "sw_gl_main_solar_phasing", 0.0)],
             source="preemptive",
         )
         await conn.execute(

@@ -27,7 +27,6 @@ from verdify_schemas.tunable_registry import (
     READ_ONLY_REASONS,
     REGISTRY,
     SWITCH_READBACK_EQUIPMENT,
-    ZONE_VPD_TARGET_PARAMS,
     desired_write_rule,
 )
 from verdify_services import activity, reads, series, settings
@@ -448,7 +447,7 @@ def test_every_registry_row_gets_a_write_decision_with_a_reason_when_refused():
 
 @pytest.mark.parametrize(
     "param",
-    sorted(LEGACY_WIDE_LIMIT_PARAMS | ZONE_VPD_TARGET_PARAMS | {"sw_onchip_band_enabled"}),
+    sorted(LEGACY_WIDE_LIMIT_PARAMS | {"sw_onchip_band_enabled"}),
 )
 def test_the_read_only_list_is_refused_read_only_with_its_reason(param):
     db = FakeDB()
@@ -1231,9 +1230,8 @@ def test_every_catalog_row_carries_its_help_and_a_read_only_row_its_kind():
     assert rows["outdoor_temp_f"].read_only_kind == "readback_context"
     assert rows["sw_onchip_band_enabled"].read_only_kind == "band_owner"
     assert "activity_start_hour" not in rows  # #1477: retired with its firmware entity
-    # The third flash deleted the rails' entities (the law compiles 40 F and 100 F): read-only, still a guardrail.
-    assert rows["safety_max"].help.guardrail and not rows["safety_max"].writable
-    assert rows["safety_max"].read_only_kind == "retired"
+    # Release 4 deleted the rails' rows (the third flash deleted their entities; the law compiles 40 F and 100 F).
+    assert "safety_max" not in rows
     assert rows[KPA].model_dump(mode="json")["help"]["raise"] == setting_help(KPA).raise_
 
 

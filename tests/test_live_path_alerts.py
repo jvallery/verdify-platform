@@ -87,20 +87,12 @@ def test_temp_safety_pages_below_40_and_above_100(monkeypatch, temp_f, expected)
     assert envelope["message"].startswith(expected) and envelope["metric_value"] == temp_f
 
 
-SAFETY_SQL = "FROM setpoint_snapshot\n            WHERE parameter = ANY($1::text[])"
+def test_the_safety_rail_check_left_with_the_rails(monkeypatch):
+    """Release 4 deleted the four rails' rows (the law compiles 40 F and 100 F): nothing reads them for an alert."""
+    from verdify_schemas.tunable_registry import REGISTRY
 
-
-def test_safety_invalid_pages_only_a_missing_rail_value_once_the_rails_are_retired(monkeypatch):
-    """The third flash deleted the rails' entities (the law compiles 40 F and 100 F; RULINGS AE7a): their rows have
-    no firmware clamp, so an old readback outside the former range no longer pages; a missing value still does."""
-    rail = alerts.REGISTRY["safety_min"]
-    assert rail.fw_clamp_lo is None and rail.fw_clamp_hi is None
-    former_out_of_range = [{"parameter": "safety_min", "value": 0.0}, {"parameter": "safety_max", "value": 95.0}]
-    assert "safety_invalid" not in monitor_pass(monkeypatch, Conn(rows={SAFETY_SQL: former_out_of_range}))
-    got = monitor_pass(monkeypatch, Conn(rows={SAFETY_SQL: [{"parameter": "safety_min", "value": None}]}))
-    (envelope,) = got["safety_invalid"]
-    assert envelope["severity"] == "critical" and envelope["sensor_id"] == "setpoint.safety_min"
-    assert envelope["details"] == {"parameter": "safety_min", "value": None}
+    assert not {"safety_min", "safety_max"} & set(REGISTRY)
+    assert "safety_invalid" not in monitor_pass(monkeypatch, Conn())
 
 
 def test_heat_staging_inversion_is_a_warning_from_its_function(monkeypatch):

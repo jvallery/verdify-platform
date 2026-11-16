@@ -60,13 +60,10 @@ from ._common import (
     DIRECT_WET_REQUIRED_OBJECT_IDS,
     FIRMWARE_HAS_LIGHTING_TARGET_MINUTES,
     FIRMWARE_HAS_PER_CIRCUIT_LIGHTING,
-    FORCED_ON_SWITCH_PARAMS,
     GREENHOUSE_ID,
     HEAP_DEFER_FREE_KB,
     HEAP_DEFER_LARGEST_BLOCK_KB,
     HOUSE_BAND_PARAMS,
-    HOUSE_VPD_LOW_MARGIN_KPA,
-    HOUSE_VPD_MIN_WIDTH_KPA,
     LIGHTING_CIRCUIT_DEFAULT_PARAMS,
     LIGHTING_CIRCUIT_LUX_PARAMS,
     LIGHTING_CIRCUIT_SUPPORT_SENTINELS,
@@ -419,8 +416,6 @@ def _dispatch_source(
         return "band"
     if param in MISTER_DEFAULTS:
         return "band"
-    if param in FORCED_ON_SWITCH_PARAMS:
-        return "manual"
     return "band"
 
 
@@ -435,8 +430,8 @@ def _log_desired_skip_once(param: str, reason: str, *, warning: bool = False) ->
 def _log_not_sent_once(param: str, reason: str) -> None:
     """Log once per parameter and reason a setting the pass resolved (band, default or desired) but never sends.
 
-    The generic skip of #1633 phase 4: the controller lists no entity for it, or it is a set_band_anchor key the
-    host no longer sends. Not a desired_state skip, so it has its own message."""
+    The generic skip of #1633 phase 4: the controller lists no entity for it. Not a desired_state skip, so it has its
+    own message."""
     if (param, reason) in _DESIRED_SKIPS_LOGGED:
         return
     _DESIRED_SKIPS_LOGGED.add((param, reason))
@@ -534,9 +529,6 @@ def _fenced_desired_value(param: str, requested: float, audit) -> float:
     if violation is not None:
         audit(param, requested, value, 0.0, 0.0, violation, from_plan=False)
         log.warning("FW-3 invariant: desired %s=%s clamped to %s (%s)", param, requested, value, violation)
-    if param in FORCED_ON_SWITCH_PARAMS and value < 0.5:
-        audit(param, requested, 1.0, 1.0, 1.0, "forced_on_guardrail", from_plan=False)
-        value = 1.0
     if param.startswith("sw_"):
         value = 1.0 if value > 0.5 else 0.0
     return float(value)
@@ -724,65 +716,6 @@ async def _write_clamp_audit_rows(
         )
         written += 1
     return written
-
-
-def _finite_positive(value: object) -> float | None:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if math.isfinite(numeric) and numeric > 0.0:
-        return numeric
-    return None
-
-
-def _median(values: list[float]) -> float:
-    ordered = sorted(values)
-    mid = len(ordered) // 2
-    if len(ordered) % 2:
-        return ordered[mid]
-    return (ordered[mid - 1] + ordered[mid]) / 2.0
-
-
-def _house_vpd_control_band(band_row, zone_row) -> dict[str, float]:
-    """Derive the firmware's house VPD band from crop and zone policy.
-
-    `fn_band_setpoints()` is crop-science policy and can be pulled toward the
-    strictest crop. Firmware controls one air mass, so its global VPD band uses
-    the median zone target while per-zone mister targets still protect localized
-    crop stress.
-    """
-    base_low = float(band_row["vpd_low"])
-    base_high = float(band_row["vpd_high"])
-    if not zone_row:
-        return {"vpd_low": base_low, "vpd_high": base_high}
-
-    targets = [
-        target
-        for param in (
-            "vpd_target_south",
-            "vpd_target_west",
-            "vpd_target_east",
-            "vpd_target_center",
-        )
-        if (target := _finite_positive(zone_row[param])) is not None
-    ]
-    if not targets:
-        return {"vpd_low": base_low, "vpd_high": base_high}
-
-    min_target = min(targets)
-    max_target = max(targets)
-    house_high = min(max_target, max(base_high, _median(targets)))
-    # Crop policy can create a very narrow tactical VPD band when one zone is
-    # strict and another is dry. The firmware controls one air mass, so keep a
-    # minimum deadband by relaxing the low side instead of pushing high-side
-    # stress above the crop target.
-    house_low = max(base_low, min_target - HOUSE_VPD_LOW_MARGIN_KPA)
-    house_low = min(house_low, house_high - HOUSE_VPD_MIN_WIDTH_KPA)
-    house_low = max(0.1, house_low)
-    if house_high - house_low < HOUSE_VPD_MIN_WIDTH_KPA:
-        house_low = max(0.1, house_high - HOUSE_VPD_MIN_WIDTH_KPA)
-    return {"vpd_low": round(house_low, 3), "vpd_high": round(house_high, 3)}
 
 
 def _control_band_from_house_row(house_row) -> dict[str, float] | None:
@@ -1074,17 +1007,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                     continue
                 changes.append((param, val))
 
-        for param in FORCED_ON_SWITCH_PARAMS:
-            readback = shared.current_cfg_readbacks().get(param)
-            if readback is not None and readback < 0.5:
-                if not any(existing_param == param for existing_param, _ in changes):
-                    log.warning(
-                        "Controller guardrail: cfg readback has %s=%.0f; forcing ON",
-                        param,
-                        readback,
-                    )
-                    changes.append((param, 1.0))
-
         if quiet_active:
             log.info(
                 "Dispatcher: recording quiet mode active until %s; no setpoint overlay applied",
@@ -1158,16 +1080,14 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             deduped_changes[param] = float(value)
         changes = list(deduped_changes.items())
 
-        # DISPATCHER-02: a setting the connected controller does not list (#1633 phase 4) or a set_band_anchor key
-        # no longer sent never gets a readback. Left in, it would keep the oldest difference, sort first and fill
-        # every paced batch, so band, anchor and lighting changes would never go out. Drop them before the
-        # difference bookkeeping and pacing; the skip in the send loop below stays as a backstop.
+        # DISPATCHER-02: a setting the connected controller does not list (#1633 phase 4) never gets a readback.
+        # Left in, it would keep the oldest difference, sort first and fill every paced batch, so band, anchor and
+        # lighting changes would never go out. Drop them before the difference bookkeeping and pacing; the skip in
+        # the send loop below stays as a backstop.
         kept_changes: list[tuple[str, float]] = []
         for param, value in changes:
             if controller_omits_setting(param):
                 _log_not_sent_once(param, "controller lists no setting entity")
-            elif param in band_anchors.ANCHOR_KEYS_NOT_SENT:
-                _log_not_sent_once(param, "set_band_anchor key no longer sent")
             else:
                 kept_changes.append((param, value))
         changes = kept_changes
@@ -1273,9 +1193,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 # The connected controller has no entity for this setting (#1633 phase 4): no request row, no
                 # delivery failure. A controller that lists it again (a rollback) receives it on the next pass.
                 _log_not_sent_once(param, "controller lists no setting entity")
-                continue
-            if param in band_anchors.ANCHOR_KEYS_NOT_SENT:
-                _log_not_sent_once(param, "set_band_anchor key no longer sent")
                 continue
             source = _dispatch_source(param, quiet_params, outgoing_desired, outgoing_released)
             plan_owned = False  # no plan writes a setting (climate refactor 4.2)

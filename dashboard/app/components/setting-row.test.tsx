@@ -292,7 +292,7 @@ test("read-only rows show their kind and Details, no Edit; temp_low reads \"Lega
   draw(legacy);
   expect(cell("device")).toContain("Legacy limit, not used while the on-chip band runs");
   expect(text(document.querySelector(".setting-note"))).toBe("Legacy limit, not used while the on-chip band runs");
-  expect(document.querySelector(".setting-note")!.getAttribute("title")).toContain("the guardrails are Safety Min and Safety Max");
+  expect(document.querySelector(".setting-note")!.getAttribute("title")).toContain("the controller fixes the hard limits at 40 °F and 100 °F");
   expect(edit()).toBeNull();
   expect(details()!.getAttribute("href")).toBe("/settings?edit=temp_low");
   expect(document.querySelector(".setting-next")).toBeNull();
@@ -303,16 +303,6 @@ test("read-only rows show their kind and Details, no Edit; temp_low reads \"Lega
     expect(text(document.querySelector(".setting-note")), setting.param).toBe(readOnlyWords(setting)!.label);
     cleanup();
   }
-});
-
-test("a legacy zone VPD target reads as retired, not as a legacy limit: the third flash deleted its entity", () => {
-  // Zone misting reads the zone_vpd_target_* anchors on that build (RULINGS AE7a); the row stays for its history.
-  const target = row("vpd_target_center");
-  expect([target.writable, target.read_only_kind]).toEqual([false, "retired"]);
-  draw(target);
-  expect(text(document.querySelector(".setting-note"))).toBe("Retired");
-  expect(document.querySelector(".setting-note")!.getAttribute("title")).toContain("no longer uses it");
-  expect(edit()).toBeNull();
 });
 
 test("a site cap reads the program on the controller, without the revision while it is unknown; before the engine \"—\" with its reason", () => {
@@ -405,7 +395,7 @@ const ages = () => [...document.querySelectorAll(".setting-device .setting-age")
 
 test("every row shows exactly one age: reported as the drawer says it, Derived for Band in force, else changed, else age unknown", () => {
   const all = rows();
-  expect(all.length).toBeGreaterThan(200);
+  expect(all.length).toBeGreaterThan(150);
   for (const setting of all) {
     draw(setting);
     const found = ages();

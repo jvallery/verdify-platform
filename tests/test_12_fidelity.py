@@ -128,16 +128,11 @@ def _assigned_set(path: Path, name: str) -> set[str]:
 # ── S24.9.1 — _SETPOINT_RANGES coverage ────────────────────────────
 
 
-def test_setpoint_ranges_covers_safety_rails():
+def test_setpoint_ranges_covers_the_band_limits():
     """The cfg_readback range-check applies the same _SETPOINT_RANGES the
-    setpoint_changes path uses. At minimum these safety rails must be in
-    the table — they're the 30-day zero-polluted params the firmware
-    sprint-13 historical-impact scan flagged."""
+    setpoint_changes path uses. The safety rails left with the third flash
+    (release 4 deleted their rows); the band limits stay in the table."""
     expected = {
-        "safety_min",
-        "safety_max",
-        "safety_vpd_min",
-        "safety_vpd_max",
         "temp_high",
         "temp_low",
         "vpd_high",
@@ -148,20 +143,18 @@ def test_setpoint_ranges_covers_safety_rails():
     )
 
 
-def test_setpoint_ranges_reject_zero_for_safety_min():
-    """Concrete check: safety_min=0 is out of [30, 60]. on_state_change's
-    cfg_readback path (Sprint 24.9) now drops this instead of storing it."""
-    lo, hi = ingestor._SETPOINT_RANGES["safety_min"]
-    assert not (lo <= 0.0 <= hi), "0 must fall OUTSIDE safety_min range"
+def test_setpoint_ranges_reject_zero_for_temp_low():
+    """Concrete check: temp_low=0 is out of range. on_state_change's
+    cfg_readback path (Sprint 24.9) drops this instead of storing it."""
+    lo, hi = ingestor._SETPOINT_RANGES["temp_low"]
+    assert not (lo <= 0.0 <= hi), "0 must fall OUTSIDE temp_low range"
     # Valid operational value is inside
-    assert lo <= 40.0 <= hi
+    assert lo <= 60.0 <= hi
 
 
 def test_setpoint_ranges_accepts_realistic_values():
     """Valid operational values must NOT be rejected."""
     r = ingestor._SETPOINT_RANGES
-    assert r["safety_min"][0] <= 40.0 <= r["safety_min"][1]
-    assert r["safety_max"][0] <= 100.0 <= r["safety_max"][1]
     assert r["temp_low"][0] <= 65.0 <= r["temp_low"][1]
     assert r["temp_high"][0] <= 78.0 <= r["temp_high"][1]
     assert r["vpd_low"][0] <= 0.8 <= r["vpd_low"][1]
@@ -331,7 +324,7 @@ def test_api_setpoint_fallback_uses_computed_band_not_planner_band_rows():
     api = path.read_text()
     module = runpy.run_path(str(path), run_name="_test_api_main")
     start = api.index("async def get_setpoints")
-    end = api.index("        # Per-zone VPD targets", start)
+    end = api.index("\nasync def ", start + 1)  # release 4 removed the per-zone VPD target block that ended it
     body = api[start:end]
 
     assert "SETPOINT_MAP_REG" in api
@@ -424,27 +417,6 @@ def test_lighting_status_and_timeline_follow_firmware_hysteresis():
     assert "legacy DLI target columns remain compatibility-only" in timeline
     assert "dli_today <" not in timeline
     assert "COALESCE(t.qualified_light_minutes, 0) < p.target_light_minutes" in occupancy_status
-
-
-def test_house_vpd_control_band_uses_zone_median_not_strictest_crop():
-    """The firmware controls one air mass; zone targets still drive misters."""
-    import tasks
-
-    band = {"vpd_low": 0.375, "vpd_high": 0.635}
-    zones = {
-        "vpd_target_south": 1.15,
-        "vpd_target_west": 1.20,
-        "vpd_target_east": 0.70,
-        "vpd_target_center": 0.635,
-    }
-
-    control = tasks._house_vpd_control_band(band, zones)
-
-    assert control["vpd_high"] > band["vpd_high"]
-    assert 0.90 <= control["vpd_high"] <= 1.00
-    assert control["vpd_low"] >= band["vpd_low"]
-    assert control["vpd_high"] - control["vpd_low"] >= 0.55
-    assert control["vpd_high"] <= max(zones.values())
 
 
 def test_band_trace_params_have_sensor_registry_readbacks():

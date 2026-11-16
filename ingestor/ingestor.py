@@ -2817,17 +2817,12 @@ def _generation_log_callback(client, connection_generation: int):
 # Setpoint validation — reject boot-time defaults and implausible values
 # ──────────────────────────────────────────────────────────────
 _SETPOINT_RANGES = {
-    "safety_max": (70, 120),
-    "safety_min": (30, 60),
-    "safety_vpd_max": (1.5, 5.0),
-    "safety_vpd_min": (0.05, 1.0),
     "temp_high": (50, 110),
     "temp_low": (35, 90),
     "vpd_high": (0.3, 4.0),
     "vpd_low": (0.1, 3.0),
 }
 
-FORCED_ON_SWITCH_PARAMS = frozenset({"sw_fsm_controller_enabled"})
 _RECONCILABLE_CFG_PARAMS = frozenset(SETPOINT_MAP.values())
 
 # Boot window: suppress ESP32 setpoint reports for 60s after connect
@@ -2904,9 +2899,6 @@ def _accept_setpoint(param: str, value: float) -> bool:
 
 def _accept_outbound_setpoint(param: str, value: float) -> bool:
     """Return True if a DB-origin setpoint is inside registry bounds."""
-    if param in FORCED_ON_SWITCH_PARAMS and value < 0.5:
-        log.warning("Rejecting outbound OFF request %s=%.3f; unified band-first controller is locked ON", param, value)
-        return False
     spec = get_tunable(param)
     if spec is None or spec.kind != "numeric":
         return True
@@ -3178,15 +3170,6 @@ def _record_cfg_readback(obj_id: str, value: Any) -> bool:
             "writer_reconcile reason=cfg_drift param=%s generation=%d drift_version=%d",
             cfg_param,
             shared.transport_generation,
-            drift_version,
-        )
-    if cfg_param in FORCED_ON_SWITCH_PARAMS and val < 0.5 and replay_was_ready:
-        if drift_version is None:
-            drift_version = shared.note_cfg_drift(cfg_param)
-        log.warning(
-            "Controller guardrail: cfg readback has %s=%.0f; truthful repair dispatch queued drift_version=%d",
-            cfg_param,
-            val,
             drift_version,
         )
     return True

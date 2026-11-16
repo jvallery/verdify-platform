@@ -51,8 +51,8 @@ class SettingHelp(BaseModel):
     """A setting's operator text as API-09 and MCP serve it (OpenAPI ``SettingHelp``).
 
     ``raise`` and ``lower`` are null for a read-only row; for a switch they say what turning it on and off does.
-    ``guardrail`` marks a hard safety limit (Safety Min, Safety Max and the VPD pair): the dashboard shows
-    ``caution`` and asks for a confirmation before it saves one. ``reference_url`` is the lab entry, null for a row
+    ``guardrail`` marks a hard safety limit: the dashboard shows ``caution`` and asks for a confirmation before it
+    saves one. No row has one since release 4 deleted the four rails (the controller fixes 40 °F and 100 °F). ``reference_url`` is the lab entry, null for a row
     the lab page does not list.
     """
 
@@ -100,8 +100,7 @@ def _house_anchor(series: str, anchor: str) -> HelpEntry:
             ),
             raise_=f"Both heaters start warmer around {when}: the house is kept warmer then, and heating runs more.",
             lower=f"The house may run cooler around {when} before heat1, then gas heat2, start: less heating energy.",
-            caution="Keep it below the band target and high edge at the same anchor. The controller keeps it at "
-            "least 5 °F above Safety Min.",
+            caution="Keep it below the band target and high edge at the same anchor.",
             refs=(*_BAND_REFS, f"{_LOGIC}::band_heat_target_f", f"{_LOGIC}::heat2_latched = stage2_escalation_latch"),
         )
     if series == "temp_target":

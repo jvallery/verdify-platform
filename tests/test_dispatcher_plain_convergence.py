@@ -55,7 +55,6 @@ def _plain_planner_params() -> list[tuple[str, float, float]]:
         | _common.LIGHTING_POLICY_PARAMS
         | _common.DIRECT_WET_POLICY_PARAMS
         | _common.AI_MOISTURE_STRESS_POLICY_PARAMS
-        | _common.FORCED_ON_SWITCH_PARAMS
         | _common.RETIRED_UNROUTABLE_PARAMS
         | _common.MISTER_DEFAULTS
         | _common.SECOND_READBACK_ABS_TOLERANCE_PARAMS

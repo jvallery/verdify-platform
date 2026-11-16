@@ -537,7 +537,7 @@ CASES = {
     ),
     "safety_invalid": (
         SafetyInvalidAlert,
-        {"parameter": "safety_min", "value": 0.0},
+        {"parameter": "temp_low", "value": 0.0},
     ),
     "sensor_offline": (
         SensorOfflineAlert,
@@ -546,7 +546,7 @@ CASES = {
     "setpoint_unconfirmed": (
         SetpointUnconfirmedAlert,
         {
-            "parameter": "vpd_target_south",
+            "parameter": "vpd_high",
             "requested_value": 1.3,
             "last_cfg_readback": 1.2,
             "age_s": 360,
@@ -587,7 +587,7 @@ CASES = {
     ),
     "tunable_zero_variance": (
         TunableZeroVarianceAlert,
-        {"parameter": "vpd_target_west", "sample_count": 33_000, "pinned_value": 1.2},
+        {"parameter": "vpd_low", "sample_count": 33_000, "pinned_value": 1.2},
     ),
     "vent_moisture_capacity_limit": (
         VentMoistureCapacityLimitAlert,

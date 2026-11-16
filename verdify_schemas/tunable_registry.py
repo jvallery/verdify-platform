@@ -209,41 +209,6 @@ REGISTRY: dict[str, TunableDef] = {
         tier=2,
         notes="Crop band — dispatcher pushes every cycle.",
     ),
-    "d_heat_stage_2": TunableDef(
-        name="d_heat_stage_2",
-        kind="numeric",
-        min=2.0,
-        max=15.0,
-        default=5.0,
-        fw_clamp_lo=2.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="__heat_stage_2__f",
-        cfg_readback_object_id="cfg___d_heat_stage_2___f_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired from live band-first control. Heat2 now latches at the lower crop-band edge; "
-        "this value is retained only for legacy fallback/readback visibility.",
-    ),
-    "d_cool_stage_2": TunableDef(
-        name="d_cool_stage_2",
-        kind="numeric",
-        min=2.0,
-        max=15.0,
-        default=3.0,
-        fw_clamp_lo=2.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="__cool_stage_2__f",
-        cfg_readback_object_id="cfg___d_cool_stage_2___f_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes=(
-            "Legacy compatibility value. The live band-first controller stages "
-            "fan2 from cool_stage2_over_high_f instead; keep this out of "
-            "planner waypoints."
-        ),
-    ),
     "cool_stage2_over_high_f": TunableDef(
         name="cool_stage2_over_high_f",
         kind="numeric",
@@ -262,7 +227,7 @@ REGISTRY: dict[str, TunableDef] = {
         wire_kind="u8",
         wire_scale=10,
         wire_unit="degF",
-        notes=("Live band-first fan2 threshold above temp_high. This replaces planner use of legacy d_cool_stage_2."),
+        notes=("Live band-first fan2 threshold above temp_high."),
     ),
     "cool_exit_hysteresis_f": TunableDef(
         name="cool_exit_hysteresis_f",
@@ -496,81 +461,6 @@ REGISTRY: dict[str, TunableDef] = {
     # these (planner_pushable=False) — drift guard will keep MCP from
     # accidentally exposing them via set_tunable.
     # ─────────────────────────────────────────────────────────────────────
-    "safety_min": TunableDef(
-        name="safety_min",
-        kind="numeric",
-        min=30.0,
-        max=60.0,
-        default=40.0,
-        fw_clamp_lo=30.0,
-        fw_clamp_hi=60.0,
-        esp_object_id="safety_min__f",
-        cfg_readback_object_id="cfg___safety_min___f_",
-        push_owner="safety",
-        planner_pushable=False,
-        tier=2,
-        notes="Hard cold rail — SAFETY_HEAT mode trigger. Operator-only. Default 40 °F is the hard guardrail the dispatcher serves (Jason 2026-11-05, #1333).",
-    ),
-    "safety_max": TunableDef(
-        name="safety_max",
-        kind="numeric",
-        min=80.0,
-        max=110.0,
-        default=100.0,
-        fw_clamp_lo=80.0,
-        fw_clamp_hi=110.0,
-        esp_object_id="safety_max__f",
-        cfg_readback_object_id="cfg___safety_max___f_",
-        push_owner="safety",
-        planner_pushable=False,
-        tier=2,
-        notes="Hard hot rail — SAFETY_COOL mode trigger. Operator-only. Default 100 °F is the hard guardrail the dispatcher serves (Jason 2026-11-05, #1333).",
-    ),
-    "safety_vpd_min": TunableDef(
-        name="safety_vpd_min",
-        kind="numeric",
-        min=0.1,
-        max=1.5,
-        default=0.30,
-        fw_clamp_lo=0.1,
-        fw_clamp_hi=1.5,
-        esp_object_id="safety_vpd_min_kpa",
-        cfg_readback_object_id="cfg___safety_vpd_min__kpa_",
-        push_owner="safety",
-        planner_pushable=False,
-        tier=2,
-        notes="Hard low-VPD rail (vpd_min_safe). Operator-only.",
-    ),
-    "safety_vpd_max": TunableDef(
-        name="safety_vpd_max",
-        kind="numeric",
-        min=2.5,
-        max=3.0,
-        default=2.50,
-        fw_clamp_lo=2.5,
-        fw_clamp_hi=3.0,
-        esp_object_id="safety_vpd_max_kpa",
-        cfg_readback_object_id="cfg___safety_vpd_max__kpa_",
-        push_owner="safety",
-        planner_pushable=False,
-        tier=2,
-        notes="Hard high-VPD rail (vpd_max_safe). Operator-only.",
-    ),
-    "safety_max_seal_margin_f": TunableDef(
-        name="safety_max_seal_margin_f",
-        kind="numeric",
-        min=1.0,
-        max=15.0,
-        default=5.0,
-        fw_clamp_lo=1.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="safety_seal_margin__f",
-        cfg_readback_object_id="cfg___safety_seal_margin___f_",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Blocks new sealed-mist entries when temp is within this margin of safety_max.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # Mister engage thresholds + delays (push_owner="planner", tier=1).
     # ─────────────────────────────────────────────────────────────────────
@@ -898,61 +788,6 @@ REGISTRY: dict[str, TunableDef] = {
         "tight band. Its cfg_* readback ships with the engine release OTA; until then the native "
         "number state is the readback.",
     ),
-    "night_stress_min_dew_margin_f": TunableDef(
-        name="night_stress_min_dew_margin_f",
-        kind="numeric",
-        min=3.0,
-        max=15.0,
-        default=6.0,
-        fw_clamp_lo=3.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="night_stress_min_dew_margin___f_",
-        cfg_readback_object_id="cfg___night_stress_min_dew_margin___f_",
-        push_owner="safety",
-        planner_pushable=False,
-        tier=2,
-        notes="BC-7 night wetting dew margin, °F. At night, wetting and fog need a temperature-dewpoint "
-        "spread of at least max(direct_wet_stress_min_dew_margin_f, this), so no crown condensation. "
-        "The default is the global's initial value (6.0); default_setpoints() in greenhouse_types.h "
-        "says 10.0, but the live global starts at 6.0.",
-    ),
-    "sw_night_econ_heat_suppress_enabled": TunableDef(
-        name="sw_night_econ_heat_suppress_enabled",
-        kind="switch",
-        default=1,
-        esp_object_id="night_econ_heat_suppress_enabled",
-        cfg_readback_object_id="cfg_night_econ_heat_suppress_enabled",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="ENV-2 night econ-heat suppression (default ON). Never heat to chase humidity at night: "
-        "the econ-rescue heat (heat1 lifting a low VPD) is suppressed for the whole solar night half; "
-        "safety heat is untouched.",
-    ),
-    "sw_wet_taper_enabled": TunableDef(
-        name="sw_wet_taper_enabled",
-        kind="switch",
-        default=1,
-        esp_object_id="wet_taper_enabled",
-        cfg_readback_object_id="cfg_wet_taper_enabled",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: no controller effect. controls.yaml copies it into Setpoints, but past_wet_taper "
-        "(greenhouse_logic.h) is a no-op shim that returns false; wetting follows the VPD band curve.",
-    ),
-    "sw_night_stress_wet_enabled": TunableDef(
-        name="sw_night_stress_wet_enabled",
-        kind="switch",
-        default=1,
-        esp_object_id="night_stress_wet_enabled",
-        cfg_readback_object_id="cfg_night_stress_wet_enabled",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: no controller effect. controls.yaml copies it into Setpoints, but no control path "
-        "reads the field; night wetting follows the VPD band and night_stress_min_dew_margin_f.",
-    ),
     # Read-only on purpose: no esp_object_id, so no route can push it and
     # Settings shows it read-only with the reason in notes. Its readback
     # (cfg_on-chip_band_enabled) still lands in setpoint_snapshot. Label set
@@ -975,78 +810,6 @@ REGISTRY: dict[str, TunableDef] = {
     # profile) + related scoring tunables. Tier=2: visible context, not
     # planner-writable unless promoted in a replay-backed contract PR.
     # ─────────────────────────────────────────────────────────────────────
-    "vpd_target_south": TunableDef(
-        name="vpd_target_south",
-        kind="numeric",
-        min=0.3,
-        max=3.0,
-        default=1.3,
-        fw_clamp_lo=0.3,
-        fw_clamp_hi=3.0,
-        esp_object_id="vpd_target_south__kpa_",
-        cfg_readback_object_id="cfg___vpd_target_south__kpa_",
-        push_owner="band",
-        planner_pushable=False,
-        tier=2,
-        notes=(
-            "Live: controls.yaml compares south VPD with it for the any-zone-stressed mister gate, the zone stress score, the fairness pick and the S2 pulse lengthening at 1.2x. "
-            "The dispatcher pushes fn_zone_vpd_targets(now()) every cycle in both band-source modes: the zone crop's vpd_target anchor curve at the solar phase, house curve fallback. Read-only (desired_write_kind zone_vpd_target)."
-        ),
-    ),
-    "vpd_target_west": TunableDef(
-        name="vpd_target_west",
-        kind="numeric",
-        min=0.3,
-        max=3.0,
-        default=1.2,
-        fw_clamp_lo=0.3,
-        fw_clamp_hi=3.0,
-        esp_object_id="vpd_target_west__kpa_",
-        cfg_readback_object_id="cfg___vpd_target_west__kpa_",
-        push_owner="band",
-        planner_pushable=False,
-        tier=2,
-        notes=(
-            "Live: controls.yaml compares west VPD with it for the any-zone-stressed mister gate, the zone stress score, the fairness pick and the S2 pulse lengthening at 1.2x. "
-            "The dispatcher pushes fn_zone_vpd_targets(now()) every cycle in both band-source modes: the zone crop's vpd_target anchor curve at the solar phase, house curve fallback. Read-only (desired_write_kind zone_vpd_target)."
-        ),
-    ),
-    "vpd_target_east": TunableDef(
-        name="vpd_target_east",
-        kind="numeric",
-        min=0.3,
-        max=3.0,
-        default=1.0,
-        fw_clamp_lo=0.3,
-        fw_clamp_hi=3.0,
-        esp_object_id="vpd_target_east__kpa_",
-        cfg_readback_object_id="cfg___vpd_target_east__kpa_",
-        push_owner="band",
-        planner_pushable=False,
-        tier=2,
-        notes=(
-            "Live: east has no mister, but controls.yaml compares east VPD with it for the any-zone-stressed mister gate and the east adjacency boost to the south and center stress scores. "
-            "The dispatcher pushes fn_zone_vpd_targets(now()) every cycle in both band-source modes: the zone crop's vpd_target anchor curve at the solar phase, house curve fallback. Read-only (desired_write_kind zone_vpd_target)."
-        ),
-    ),
-    "vpd_target_center": TunableDef(
-        name="vpd_target_center",
-        kind="numeric",
-        min=0.1,
-        max=3.0,
-        default=0.8,
-        fw_clamp_lo=0.1,
-        fw_clamp_hi=3.0,
-        esp_object_id="vpd_target_center__kpa_",
-        cfg_readback_object_id="cfg___vpd_target_center__kpa_",
-        push_owner="band",
-        planner_pushable=False,
-        tier=2,
-        notes=(
-            "Live: controls.yaml compares house VPD with it for the any-zone-stressed mister gate, the center stress score, the fairness pick and the S2 pulse lengthening at 1.2x. Wider floor (0.1) for seedling propagation. "
-            "The dispatcher pushes fn_zone_vpd_targets(now()) every cycle in both band-source modes: the zone crop's vpd_target anchor curve at the solar phase, house curve fallback. Read-only (desired_write_kind zone_vpd_target)."
-        ),
-    ),
     "mister_center_penalty": TunableDef(
         name="mister_center_penalty",
         kind="numeric",
@@ -1066,21 +829,6 @@ REGISTRY: dict[str, TunableDef] = {
         wire_scale=10,
         wire_unit="fraction",
         notes="Score penalty on center zone to discourage over-misting seedlings.",
-    ),
-    "east_adjacency_factor": TunableDef(
-        name="east_adjacency_factor",
-        kind="numeric",
-        min=0.0,
-        max=1.0,
-        default=0.3,
-        fw_clamp_lo=0.0,
-        fw_clamp_hi=1.0,
-        esp_object_id="east_adjacency_factor",
-        cfg_readback_object_id="cfg___east_adjacency_factor",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Weight for borrowing east-zone signal into adjacent scoring (no east mister).",
     ),
     "min_fog_on_s": TunableDef(
         name="min_fog_on_s",
@@ -1225,54 +973,9 @@ REGISTRY: dict[str, TunableDef] = {
         wire_unit="s",
         notes="Vent actuator protection dwell. Operator/firmware policy, not routine planner policy.",
     ),
-    "lead_rotate_s": TunableDef(
-        name="lead_rotate_s",
-        kind="numeric",
-        min=60,
-        max=1800,
-        default=600,
-        fw_clamp_lo=60,
-        fw_clamp_hi=1800,
-        esp_object_id="lead_rotate__s_",
-        cfg_readback_object_id="cfg___lead_rotate_timeout__s_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Lead/lag fan rotation timer. Operator-tuned.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # Fog safety gates. Tier=2 — operator rarely tunes.
     # ─────────────────────────────────────────────────────────────────────
-    "fog_rh_ceiling_pct": TunableDef(
-        name="fog_rh_ceiling_pct",
-        kind="numeric",
-        min=75,
-        max=98,
-        default=90,
-        fw_clamp_lo=75,
-        fw_clamp_hi=98,
-        esp_object_id="fog_rh_ceiling____",
-        cfg_readback_object_id="cfg___fog_rh_ceiling____",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Fog blocks when indoor RH exceeds this. Safety-adjacent.",
-    ),
-    "fog_min_temp_f": TunableDef(
-        name="fog_min_temp_f",
-        kind="numeric",
-        min=40,
-        max=65,
-        default=55,
-        fw_clamp_lo=40,
-        fw_clamp_hi=65,
-        esp_object_id="fog_min_temp__f_",
-        cfg_readback_object_id="cfg___fog_min_temp___f_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Fog blocks when indoor temp below this (evap cooling hurts in cold).",
-    ),
     # RETIRED (VD-63): no firmware YAML has the fog_window_start__hr_ /
     # fog_window_end__hr_ entities or their cfg_* readbacks, so both rows carry
     # no route. They stay so the setpoint_changes history still validates;
@@ -1309,57 +1012,6 @@ REGISTRY: dict[str, TunableDef] = {
     # registry rows — replaced by the solar-phase curve-only fog gate (no firmware
     # entity, no ESPHome surface, no live read; only retirement comments + old build
     # artifacts mention them). Deleted to shrink the planner-pushable surface.
-    "max_relief_cycles": TunableDef(
-        name="max_relief_cycles",
-        kind="numeric",
-        min=1,
-        max=10,
-        default=3,
-        fw_clamp_lo=1,
-        fw_clamp_hi=10,
-        esp_object_id="max_relief_cycles",
-        cfg_readback_object_id="cfg___max_relief_cycles",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Consecutive sealed→relief cycles before forced ventilation latch.",
-    ),
-    "dehum_aggressive_kpa": TunableDef(
-        name="dehum_aggressive_kpa",
-        kind="numeric",
-        min=0.05,
-        max=1.0,
-        default=0.6,
-        fw_clamp_lo=0.05,
-        fw_clamp_hi=1.0,
-        esp_object_id="dehum_aggressive_kpa",
-        cfg_readback_object_id="cfg___dehum_aggressive__kpa_",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Margin below vpd_low that upgrades dehumidification demand; validate_setpoints also caps it below vpd_low.",
-    ),
-    "sw_dehum_vent_hold_enabled": TunableDef(
-        name="sw_dehum_vent_hold_enabled",
-        kind="switch",
-        default=0,
-        esp_object_id="dehum_vent_hold_enabled",
-        cfg_readback_object_id="cfg___dehum_vent_hold_enabled",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="#410/#420: OFF-default activation flag for the S8 vent+reheat "
-        "held-temp dehum hold. Activation is safety-checked (wave STEP-06) via the "
-        "sanctioned logged push path; iris must never toggle it "
-        "(controller_safety — MCP set_tunable rejects non-planner_policy rows). "
-        "Wire object_ids are the aioesphomeapi NAME slugs (the #421 wire-slug "
-        "lesson): switch 'Dehum Vent Hold Enabled' → dehum_vent_hold_enabled "
-        "(YAML id sw_dehum_vent_hold), sensor 'Cfg • Dehum Vent Hold Enabled' → "
-        "cfg___dehum_vent_hold_enabled. Canonical name is sw_-prefixed because "
-        "the dispatcher/RT-listener push paths route switch_command by that "
-        "prefix (entity_map SWITCH_TO_ENTITY); an unprefixed name would push a "
-        "wire-dead number_command at the switch entity.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # #1365 night dry-out (Jason 2026-11-05): vent + reheat pulses with
     # confirmed-drier outdoor air at night, electric heat1 only, a nightly kWh
@@ -1369,101 +1021,6 @@ REGISTRY: dict[str, TunableDef] = {
     # default_setpoints(). Live with the next signed flash; until then the
     # device has no such entities and nothing pushes these rows.
     # ─────────────────────────────────────────────────────────────────────
-    "sw_night_dryout_enabled": TunableDef(
-        name="sw_night_dryout_enabled",
-        kind="switch",
-        default=1,
-        esp_object_id="night_dryout_enabled",
-        cfg_readback_object_id="cfg___night_dryout_enabled",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="#1365 night dry-out master enable (default ON). At night, when VPD is below "
-        "max(vpd_low, 0.74 kPa) and the outdoor dewpoint is night_dryout_dp_margin_f below indoor "
-        "(fresh Tempest data), the controller runs vent + lead-fan pulses and electric heat1 holds "
-        "the temperature; heat2 never runs for humidity. sw_-prefixed so the push paths route a "
-        "switch_command.",
-    ),
-    "night_dryout_pulse_s": TunableDef(
-        name="night_dryout_pulse_s",
-        kind="numeric",
-        min=60,
-        max=600,
-        default=120,
-        fw_clamp_lo=60,
-        fw_clamp_hi=600,
-        esp_object_id="night_dryout_pulse__s_",
-        cfg_readback_object_id="cfg___night_dryout_pulse__s_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="#1365 night dry-out vent + lead-fan pulse length, s (default 120 s, the fan min-on).",
-    ),
-    "night_dryout_rest_s": TunableDef(
-        name="night_dryout_rest_s",
-        kind="numeric",
-        min=300,
-        max=3600,
-        default=780,
-        fw_clamp_lo=300,
-        fw_clamp_hi=3600,
-        esp_object_id="night_dryout_rest__s_",
-        cfg_readback_object_id="cfg___night_dryout_rest__s_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="#1365 closed rest after each dry-out pulse, s, while heat1 reheats (default 780 s). "
-        "The firmware raises it so pulse + rest is at least 900 s: at most 4 pulses an hour.",
-    ),
-    "night_dryout_dp_margin_f": TunableDef(
-        name="night_dryout_dp_margin_f",
-        kind="numeric",
-        min=1.0,
-        max=15.0,
-        default=3.0,
-        fw_clamp_lo=1.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="night_dryout_dp_margin___f_",
-        cfg_readback_object_id="cfg___night_dryout_dp_margin___f_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="#1365 how far the outdoor dewpoint must be below indoor before a dry-out pulse, °F "
-        "(default 3 °F, about 1.7 g/m3 at a 50 °F dewpoint). Confirms outdoor air is drier in "
-        "absolute terms.",
-    ),
-    "night_dryout_kwh_cap": TunableDef(
-        name="night_dryout_kwh_cap",
-        kind="numeric",
-        min=0.0,
-        max=30.0,
-        default=10.0,
-        fw_clamp_lo=0.0,
-        fw_clamp_hi=30.0,
-        esp_object_id="night_dryout_cap__kwh_",
-        cfg_readback_object_id="cfg___night_dryout_cap__kwh_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="#1365 nightly cap on the dry-out's heat1 reheat estimate (heat1 1.44 kW x the time "
-        "the dry-out wants it), kWh. Default 10, above the research's 5 kWh, because the target "
-        "is a full dry-out at 0.74 kPa or more; Jason accepted the energy. 0 disables new pulses.",
-    ),
-    "vent_latch_timeout_ms": TunableDef(
-        name="vent_latch_timeout_ms",
-        kind="numeric",
-        min=60000,
-        max=7200000,
-        default=1800000,
-        fw_clamp_lo=60000,
-        fw_clamp_hi=7200000,
-        esp_object_id="vent_latch_timeout__ms_",
-        cfg_readback_object_id="cfg___vent_latch_timeout__ms_",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Maximum forced-vent latch duration after relief-cycle breaker trips.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # VPD-primary state machine dwell / lead / reopen (MCP TIER1 core).
     # ─────────────────────────────────────────────────────────────────────
@@ -1487,21 +1044,6 @@ REGISTRY: dict[str, TunableDef] = {
         wire_unit="s",
         notes="VPD_WATCH observation window before engaging mist.",
     ),
-    "mist_vent_close_lead_s": TunableDef(
-        name="mist_vent_close_lead_s",
-        kind="numeric",
-        min=0,
-        max=60,
-        default=15,
-        fw_clamp_lo=0,
-        fw_clamp_hi=60,
-        esp_object_id="mist_vent_close_lead__s_",
-        cfg_readback_object_id="cfg___mist_vent_close_lead__s_",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Reserved/no-op in current firmware. Exposed/read back but not consumed by the control loop.",
-    ),
     "mist_max_closed_vent_s": TunableDef(
         name="mist_max_closed_vent_s",
         kind="numeric",
@@ -1521,21 +1063,6 @@ REGISTRY: dict[str, TunableDef] = {
         wire_scale=1,
         wire_unit="s",
         notes="Maximum time vent can stay closed during misting before thermal-relief burst.",
-    ),
-    "mist_vent_reopen_delay_s": TunableDef(
-        name="mist_vent_reopen_delay_s",
-        kind="numeric",
-        min=0,
-        max=120,
-        default=45,
-        fw_clamp_lo=0,
-        fw_clamp_hi=120,
-        esp_object_id="mist_vent_reopen_delay__s_",
-        cfg_readback_object_id="cfg___mist_vent_reopen_delay__s_",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Reserved/no-op in current firmware. Exposed/read back but not consumed by the control loop.",
     ),
     "mist_thermal_relief_s": TunableDef(
         name="mist_thermal_relief_s",
@@ -2019,21 +1546,6 @@ REGISTRY: dict[str, TunableDef] = {
         wire_unit="kJ/kg",
         notes="Economiser closes when enthalpy ≥ this. In MCP TIER1.",
     ),
-    "econ_heat_margin_f": TunableDef(
-        name="econ_heat_margin_f",
-        kind="numeric",
-        min=1.0,
-        max=15.0,
-        default=5.0,
-        fw_clamp_lo=1.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="econ_heat_margin__f",
-        cfg_readback_object_id="cfg___econ_heat_margin___f_",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Blocks economiser venting when heating demand is active and temp is far below high band.",
-    ),
     "site_pressure_hpa": TunableDef(
         name="site_pressure_hpa",
         kind="numeric",
@@ -2071,17 +1583,6 @@ REGISTRY: dict[str, TunableDef] = {
         step=_K.DRY_COST_LIMIT_STEP_KWH_PER_KG,
         label="Drying Cost Limit",
         unit="kWh/kg",
-    ),
-    "sw_economiser_enabled": TunableDef(
-        name="sw_economiser_enabled",
-        kind="switch",
-        default=1,
-        esp_object_id="economiser_enabled",
-        cfg_readback_object_id=None,
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Economiser master enable. Default ON.",
     ),
     "sw_gl_main_auto_mode": TunableDef(
         name="sw_gl_main_auto_mode",
@@ -2202,21 +1703,6 @@ REGISTRY: dict[str, TunableDef] = {
         "raised default 300→600 and floor 60→120 so dispatcher cadence "
         "jitter doesn't intermittently disqualify the gate.",
     ),
-    "summer_vent_min_runtime_s": TunableDef(
-        name="summer_vent_min_runtime_s",
-        kind="numeric",
-        min=60,
-        max=600,
-        default=180,
-        fw_clamp_lo=60,
-        fw_clamp_hi=600,
-        esp_object_id="summer_vent_min_runtime__s_",
-        cfg_readback_object_id="cfg___summer_vent_min_runtime__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=2,
-        notes="Reserved/no-op in current firmware. Setpoints field is clamped but not consumed by the gate.",
-    ),
     # ── Sprint-15.1 vent-close interlocks (fixes 4/5/7) ──────────────
     "sw_fog_closes_vent": TunableDef(
         name="sw_fog_closes_vent",
@@ -2268,38 +1754,6 @@ REGISTRY: dict[str, TunableDef] = {
     # ─────────────────────────────────────────────────────────────────────
     # Legacy compatibility/readback knobs.
     # ─────────────────────────────────────────────────────────────────────
-    "bias_heat": TunableDef(
-        name="bias_heat",
-        kind="numeric",
-        min=-10.0,
-        max=10.0,
-        default=0.0,
-        fw_clamp_lo=-10.0,
-        fw_clamp_hi=10.0,  # controls.yaml clamp
-        esp_object_id="bias_heat__f",  # entity_map.SETPOINT_MAP
-        cfg_readback_object_id="cfg___bias_heat___f_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired from live band-first control. Heating uses the crop-band lower quartile target; "
-        "this value is retained for legacy fallback/readback visibility.",
-    ),
-    "bias_cool": TunableDef(
-        name="bias_cool",
-        kind="numeric",
-        min=-10.0,
-        max=10.0,
-        default=0.0,
-        fw_clamp_lo=-10.0,
-        fw_clamp_hi=10.0,
-        esp_object_id="bias_cool__f",
-        cfg_readback_object_id="cfg___bias_cool___f_",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired from live band-first control. Cooling enters at the crop-band high edge; "
-        "this value is retained for legacy fallback/readback visibility.",
-    ),
     "min_heat_off_s": TunableDef(
         name="min_heat_off_s",
         kind="numeric",
@@ -2360,19 +1814,6 @@ REGISTRY: dict[str, TunableDef] = {
         wire_unit="ms",
         notes="Dwell hold duration. Default 5 min. Safety rails + R2-3 "
         "dry override + vpd_min_safe rescue preempt unconditionally.",
-    ),
-    "sw_fsm_controller_enabled": TunableDef(
-        name="sw_fsm_controller_enabled",
-        kind="switch",
-        default=1,
-        esp_object_id="fsm_controller_enabled",
-        cfg_readback_object_id="cfg_fsm_controller_enabled",
-        push_owner="operator",
-        planner_pushable=False,
-        tier=2,
-        notes="Unified band-first controller is the live controller path. "
-        "ESPHome control loop, dispatcher, MCP, and outbound-listener guardrails force this ON; "
-        "rollback requires an explicit firmware/config rollback outside the planner surface.",
     ),
     "mist_backoff_s": TunableDef(
         name="mist_backoff_s",
@@ -2517,17 +1958,6 @@ REGISTRY: dict[str, TunableDef] = {
     # Center mist follows only the base climate/VPD cadence; post-assembly
     # normalization below fixes these fields off/zero and classifies them retired.
     # ─────────────────────────────────────────────────────────────────────
-    "sw_dawn_rehydrate_enabled": TunableDef(
-        name="sw_dawn_rehydrate_enabled",
-        kind="switch",
-        default=1.0,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_dawn_rehydrate_enabled",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-3 dawn-rehydrate burst master enable (ships ON).",
-    ),
     "dawn_rehydrate_start_minute": TunableDef(
         name="dawn_rehydrate_start_minute",
         kind="numeric",
@@ -2542,62 +1972,6 @@ REGISTRY: dict[str, TunableDef] = {
         planner_pushable=False,
         tier=2,
         notes="IRR-3 dawn window minute-of-hour (anchor hour = gl_sunrise_hour).",
-    ),
-    "dawn_rehydrate_window_min": TunableDef(
-        name="dawn_rehydrate_window_min",
-        kind="numeric",
-        min=0.0,
-        max=120.0,
-        default=12.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_dawn_rehydrate_window__min_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-3 dawn rehydrate window length (minutes).",
-    ),
-    "dawn_rehydrate_on_s": TunableDef(
-        name="dawn_rehydrate_on_s",
-        kind="numeric",
-        min=1.0,
-        max=600.0,
-        default=90.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_dawn_rehydrate_pulse_on__s_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-3 center pulse ON during dawn window (s).",
-    ),
-    "dawn_rehydrate_gap_s": TunableDef(
-        name="dawn_rehydrate_gap_s",
-        kind="numeric",
-        min=5.0,
-        max=600.0,
-        default=20.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_dawn_rehydrate_pulse_gap__s_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-3 center pulse GAP during dawn window (s).",
-    ),
-    "sw_midday_drench_enabled": TunableDef(
-        name="sw_midday_drench_enabled",
-        kind="switch",
-        default=1.0,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_midday_drench_enabled",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-4 midday-drench burst master enable (ships ON).",
     ),
     "midday_drench_hour": TunableDef(
         name="midday_drench_hour",
@@ -2628,51 +2002,6 @@ REGISTRY: dict[str, TunableDef] = {
         planner_pushable=False,
         tier=2,
         notes="IRR-4 midday window minute-of-hour.",
-    ),
-    "midday_drench_window_min": TunableDef(
-        name="midday_drench_window_min",
-        kind="numeric",
-        min=0.0,
-        max=120.0,
-        default=11.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_midday_drench_window__min_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-4 midday drench window length (minutes).",
-    ),
-    "midday_drench_on_s": TunableDef(
-        name="midday_drench_on_s",
-        kind="numeric",
-        min=1.0,
-        max=600.0,
-        default=120.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_midday_drench_pulse_on__s_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-4 center pulse ON during midday window (s).",
-    ),
-    "midday_drench_gap_s": TunableDef(
-        name="midday_drench_gap_s",
-        kind="numeric",
-        min=5.0,
-        max=600.0,
-        default=25.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_midday_drench_pulse_gap__s_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-4 center pulse GAP during midday window (s).",
     ),
     # ─────────────────────────────────────────────────────────────────────
     # CYC-4 (NB7) — overnight ≤5s fog micro-pulse. Firmware-internal globals
@@ -2896,14 +2225,6 @@ _FW2_ZONE_PRIORITY: dict[str, float] = {zone: float(z["priority"]) for zone, z i
 
 _FW2_WINDOW_PARAMS: dict[str, tuple[float, float, float, str]] = {
     # name → (default, min, max, note)
-    "wet_taper_before_sunset_min": (
-        120.0,
-        0.0,
-        480.0,
-        "retired: no controller effect; past_wet_taper is a no-op shim, so wetting follows the VPD band (§B4)",
-    ),
-    "dawn_boost_offset_min": (60.0, 0.0, 360.0, "zone-boost window anchor, minutes after sunrise (§B4)"),
-    "midday_boost_offset_min": (60.0, -240.0, 240.0, "zone-boost window anchor, minutes after solar noon (§B4)"),
     "manual_override_timeout_min": (10.0, 1.0, 120.0, "manual FANS/HUMID/VENT-BYPASS latch timeout, minutes (§B5)"),
 }
 
@@ -3023,8 +2344,8 @@ def _firmware_v2_staged_defs() -> dict[str, TunableDef]:
 
 _FW2_STAGED_DEFS = _firmware_v2_staged_defs()
 
-# 24 house anchors + 16 zone targets + 8 widths + 4 ranks + 4 window params.
-assert len(_FW2_STAGED_DEFS) == 56, f"firmware-v2 staged contract drifted: {len(_FW2_STAGED_DEFS)} != 56"
+# 24 house anchors + 16 zone targets + 8 widths + 4 ranks + 1 window param (the third flash deleted the other three).
+assert len(_FW2_STAGED_DEFS) == 53, f"firmware-v2 staged contract drifted: {len(_FW2_STAGED_DEFS)} != 53"
 assert not set(_FW2_STAGED_DEFS) & set(REGISTRY), "firmware-v2 staged names collide with existing registry rows"
 
 REGISTRY.update(_FW2_STAGED_DEFS)
@@ -3038,19 +2359,9 @@ _INERT_IRRIGATION_COMPAT_TUNABLES: frozenset[str] = frozenset(
     {
         "feed_start_hour",
         "feed_end_hour",
-        "sw_dawn_rehydrate_enabled",
         "dawn_rehydrate_start_minute",
-        "dawn_rehydrate_window_min",
-        "dawn_rehydrate_on_s",
-        "dawn_rehydrate_gap_s",
-        "sw_midday_drench_enabled",
         "midday_drench_hour",
         "midday_drench_start_minute",
-        "midday_drench_window_min",
-        "midday_drench_on_s",
-        "midday_drench_gap_s",
-        "dawn_boost_offset_min",
-        "midday_boost_offset_min",
     }
 )
 
@@ -3103,30 +2414,17 @@ def split_entity_name(name: str) -> tuple[str, str | None]:
 # Number entity ``step:`` per registry row.
 _ENTITY_STEPS: dict[str, float] = {
     "band_track_fraction": 0.05,
-    "bias_cool": 0.5,
-    "bias_heat": 0.5,
     "cold_vent_guard_delta_f": 0.5,
     "cool_exit_hysteresis_f": 0.1,
     "cool_stage2_exit_hysteresis_f": 0.1,
     "cool_stage2_over_high_f": 0.1,
-    "d_cool_stage_2": 0.5,
-    "d_heat_stage_2": 0.5,
-    "dehum_aggressive_kpa": 0.05,
-    "night_dryout_pulse_s": 30.0,
-    "night_dryout_rest_s": 30.0,
-    "night_dryout_dp_margin_f": 0.5,
-    "night_dryout_kwh_cap": 0.5,
     "direct_wet_min_temp_f": 1.0,
     "direct_wet_stress_min_dew_margin_f": 0.5,
     "direct_wet_stress_vpd_margin_kpa": 0.05,
     "dwell_gate_ms": 30000.0,
-    "east_adjacency_factor": 0.1,
-    "econ_heat_margin_f": 0.5,
     "enthalpy_close": 0.5,
     "enthalpy_open": 0.5,
     "fog_escalation_kpa": 0.1,
-    "fog_min_temp_f": 5.0,
-    "fog_rh_ceiling_pct": 1.0,
     "gl_grow_lux_hysteresis": 250.0,
     "gl_grow_lux_threshold": 500.0,
     "gl_grow_min_off_s": 30.0,
@@ -3146,8 +2444,6 @@ _ENTITY_STEPS: dict[str, float] = {
     "gl_main_sunset_offset_min": 15.0,
     "gl_main_target_light_minutes": 15.0,
     "heat_hysteresis": 0.1,
-    "lead_rotate_s": 30.0,
-    "max_relief_cycles": 1.0,
     "min_fan_off_s": 10.0,
     "min_fan_on_s": 10.0,
     "min_fog_off_s": 15.0,
@@ -3159,8 +2455,6 @@ _ENTITY_STEPS: dict[str, float] = {
     "mist_backoff_s": 60.0,
     "mist_max_closed_vent_s": 60.0,
     "mist_thermal_relief_s": 30.0,
-    "mist_vent_close_lead_s": 5.0,
-    "mist_vent_reopen_delay_s": 15.0,
     "mister_all_delay_s": 30.0,
     "mister_all_kpa": 0.05,
     "mister_all_off_s": 30.0,
@@ -3176,30 +2470,18 @@ _ENTITY_STEPS: dict[str, float] = {
     "mister_pulse_on_s": 5.0,
     "mister_vpd_weight": 0.5,
     "mister_water_budget_gal": 10.0,
-    "night_stress_min_dew_margin_f": 0.5,
     "night_vpd_bias_kpa": 0.01,
     "outdoor_staleness_max_s": 30.0,
-    "safety_max": 1.0,
-    "safety_max_seal_margin_f": 0.5,
-    "safety_min": 1.0,
-    "safety_vpd_max": 0.05,
-    "safety_vpd_min": 0.05,
     "site_pressure_hpa": 1.0,
-    "summer_vent_min_runtime_s": 30.0,
     "temp_high": 0.5,
     "temp_hysteresis": 0.1,
     "temp_low": 0.5,
     "vent_exchange_fraction": 0.05,
-    "vent_latch_timeout_ms": 60000.0,
     "vent_prefer_dp_delta_f": 0.5,
     "vent_prefer_temp_delta_f": 0.5,
     "vpd_high": 0.05,
     "vpd_hysteresis": 0.05,
     "vpd_low": 0.05,
-    "vpd_target_center": 0.05,
-    "vpd_target_east": 0.05,
-    "vpd_target_south": 0.05,
-    "vpd_target_west": 0.05,
     "vpd_watch_dwell_s": 15.0,
 }
 
@@ -3207,26 +2489,17 @@ _ENTITY_STEPS: dict[str, float] = {
 # gives the row's label and unit.
 _ENTITY_NAMES: dict[str, str] = {
     "band_track_fraction": "Band Track Fraction",
-    "bias_cool": "Bias Cool °F",
-    "bias_heat": "Bias Heat °F",
     "cold_vent_guard_delta_f": "Cold Vent Guard Delta °F",
     "cool_exit_hysteresis_f": "Cool Exit Hysteresis °F",
     "cool_stage2_exit_hysteresis_f": "Cool Stage 2 Exit Hyst °F",
     "cool_stage2_over_high_f": "Cool Stage 2 Over High °F",
-    "d_cool_stage_2": "Δ Cool Stage‑2 °F",
-    "d_heat_stage_2": "Δ Heat Stage‑2 °F",
-    "dehum_aggressive_kpa": "Dehum Aggressive kPa",
     "direct_wet_min_temp_f": "Direct Wet Min Temp (F)",
     "direct_wet_stress_min_dew_margin_f": "Direct Wet Stress Min Dew Margin F",
     "direct_wet_stress_vpd_margin_kpa": "Direct Wet Stress VPD Margin kPa",
     "dwell_gate_ms": "Dwell Gate (ms)",
-    "east_adjacency_factor": "East Adjacency Factor",
-    "econ_heat_margin_f": "Econ Heat Margin °F",
     "enthalpy_close": "Enthalpy Close (kJ⁄kg)",
     "enthalpy_open": "Enthalpy Open (kJ⁄kg)",
     "fog_escalation_kpa": "Fog Escalation (kPa)",
-    "fog_min_temp_f": "Fog Min Temp (F)",
-    "fog_rh_ceiling_pct": "Fog RH Ceiling (%)",
     "gl_grow_lux_hysteresis": "GL Grow Lux Hysteresis",
     "gl_grow_lux_threshold": "GL Grow Lux Threshold",
     "gl_grow_min_off_s": "GL Grow Min Off S",
@@ -3246,8 +2519,6 @@ _ENTITY_NAMES: dict[str, str] = {
     "gl_main_sunset_offset_min": "GL Main Sunset Offset Min",
     "gl_main_target_light_minutes": "GL Main Target Light Minutes",
     "heat_hysteresis": "Heat Hysteresis °F",
-    "lead_rotate_s": "Lead Rotate (s)",
-    "max_relief_cycles": "Max Relief Cycles",
     "min_fan_off_s": "Min Fan OFF (s)",
     "min_fan_on_s": "Min Fan ON (s)",
     "min_fog_off_s": "Min Fog OFF (s)",
@@ -3259,8 +2530,6 @@ _ENTITY_NAMES: dict[str, str] = {
     "mist_backoff_s": "Mist Backoff (s)",
     "mist_max_closed_vent_s": "Mist Max Closed Vent (s)",
     "mist_thermal_relief_s": "Mist Thermal Relief (s)",
-    "mist_vent_close_lead_s": "Mist Vent Close Lead (s)",
-    "mist_vent_reopen_delay_s": "Mist Vent Reopen Delay (s)",
     "mister_all_delay_s": "Mister All Delay (s)",
     "mister_all_kpa": "VPD Mister All kPa",
     "mister_all_off_s": "Mister All OFF (s)",
@@ -3276,30 +2545,15 @@ _ENTITY_NAMES: dict[str, str] = {
     "mister_pulse_on_s": "Mister Pulse ON (s)",
     "mister_vpd_weight": "Mister VPD Weight",
     "mister_water_budget_gal": "Mister Water Budget (gal)",
-    "night_stress_min_dew_margin_f": "Night Stress Min Dew Margin (°F)",
     "night_vpd_bias_kpa": "Night VPD Bias kPa",
     "outdoor_staleness_max_s": "Outdoor Staleness Max (s)",
-    "safety_max": "Safety Max °F",
-    "safety_max_seal_margin_f": "Safety Seal Margin °F",
-    "safety_min": "Safety Min °F",
-    "safety_vpd_max": "Safety VPD Max kPa",
-    "safety_vpd_min": "Safety VPD Min kPa",
     "site_pressure_hpa": "Site Pressure (hPa)",
-    "summer_vent_min_runtime_s": "Summer Vent Min Runtime (s)",
     "sw_arbiter_zone_enabled": "Arbiter Zone Enabled",
     "sw_cool_all_fans_at_high_enabled": "Cool All Fans At High",
-    "sw_dehum_vent_hold_enabled": "Dehum Vent Hold Enabled",
-    "sw_night_dryout_enabled": "Night Dryout Enabled",
-    "night_dryout_pulse_s": "Night Dryout Pulse (s)",
-    "night_dryout_rest_s": "Night Dryout Rest (s)",
-    "night_dryout_dp_margin_f": "Night Dryout DP Margin (°F)",
-    "night_dryout_kwh_cap": "Night Dryout Cap (kWh)",
     "sw_direct_wet_gate_enabled": "Direct Wet Gate Enabled",
     "sw_direct_wet_stress_override_enabled": "Direct Wet Stress Override Enabled",
     "sw_dwell_gate_enabled": "Dwell Gate Enabled",
-    "sw_economiser_enabled": "Economiser Enabled",
     "sw_fog_closes_vent": "Fog Closes Vent",
-    "sw_fsm_controller_enabled": "FSM Controller Enabled",
     "sw_gl_grow_auto_mode": "GL Grow Auto Mode",
     "sw_gl_grow_out_of_service": "GL Grow Out Of Service",
     "sw_gl_grow_solar_phasing": "GL Grow Solar Phasing",
@@ -3307,25 +2561,17 @@ _ENTITY_NAMES: dict[str, str] = {
     "sw_gl_main_out_of_service": "GL Main Out Of Service",
     "sw_gl_main_solar_phasing": "GL Main Solar Phasing",
     "sw_mister_closes_vent": "Mister Closes Vent",
-    "sw_night_econ_heat_suppress_enabled": "Night Econ Heat Suppress Enabled",
-    "sw_night_stress_wet_enabled": "Night Stress Wet Enabled",
     "sw_occupancy_inhibit": "Occupancy Mist Inhibit",
     "sw_summer_vent_enabled": "Summer Vent Enabled",
-    "sw_wet_taper_enabled": "Wet Taper Enabled",
     "temp_high": "Set Temp High °F",
     "temp_hysteresis": "Temp Hysteresis °F",
     "temp_low": "Set Temp Low °F",
     "vent_exchange_fraction": "Vent Exchange Fraction",
-    "vent_latch_timeout_ms": "Vent Latch Timeout (ms)",
     "vent_prefer_dp_delta_f": "Vent Prefer DP Delta (F)",
     "vent_prefer_temp_delta_f": "Vent Prefer Temp Delta (F)",
     "vpd_high": "Set VPD High kPa",
     "vpd_hysteresis": "VPD Hysteresis kPa",
     "vpd_low": "Set VPD Low kPa",
-    "vpd_target_center": "VPD Target Center (kPa)",
-    "vpd_target_east": "VPD Target East (kPa)",
-    "vpd_target_south": "VPD Target South (kPa)",
-    "vpd_target_west": "VPD Target West (kPa)",
     "vpd_watch_dwell_s": "VPD Watch Dwell (s)",
 }
 
@@ -3341,66 +2587,8 @@ for _name, _spec in list(REGISTRY.items()):
         REGISTRY[_name] = _spec.model_copy(update={"label": _name})
 
 # ── The third flash (#1633 package 4.3, RULINGS AD1, AE7a) ─────────────────────
-# The firmware no longer has these settings: no number or switch entity, no cfg_* readback, no global. Their rows are
-# turned off here, in the same commit as the firmware deletions, so the drift guards see one tree; host release 4
-# deletes the rows and everything that names them (help, offers, dashboard labels, SQL and Grafana readers).
-# - THIRD_FLASH_RETIRED_REG: entity-less (no esp_object_id, no readback), not planner-pushable and retired.
-# - THIRD_FLASH_INERT_WIRE_REG: the 43 policy-wire fields among them. Retiring a wire field is a wire-schema change
-#   (WIRE_SCHEMA_VERSION and the firmware's policy header), which host release 4 decides (contracts section 4), so
-#   these keep their row and wire slot as inert slots: the firmware decodes the slot and reads nothing from it,
-#   release 3's generic skip sends nothing for an entity the controller does not list, and no agent may write them
-#   (AGENT_SETTABLE_PARAMS). The drift guards skip them by this name.
-THIRD_FLASH_RETIRED_REG: frozenset[str] = frozenset(
-    {
-        "bias_cool",
-        "bias_heat",
-        "d_cool_stage_2",
-        "d_heat_stage_2",
-        "dawn_boost_offset_min",
-        "dawn_rehydrate_gap_s",
-        "dawn_rehydrate_on_s",
-        "dawn_rehydrate_window_min",
-        "dehum_aggressive_kpa",
-        "east_adjacency_factor",
-        "econ_heat_margin_f",
-        "fog_min_temp_f",
-        "fog_rh_ceiling_pct",
-        "lead_rotate_s",
-        "max_relief_cycles",
-        "midday_boost_offset_min",
-        "midday_drench_gap_s",
-        "midday_drench_on_s",
-        "midday_drench_window_min",
-        "mist_vent_close_lead_s",
-        "mist_vent_reopen_delay_s",
-        "night_dryout_dp_margin_f",
-        "night_dryout_kwh_cap",
-        "night_dryout_pulse_s",
-        "night_dryout_rest_s",
-        "night_stress_min_dew_margin_f",
-        "safety_max",
-        "safety_max_seal_margin_f",
-        "safety_min",
-        "safety_vpd_max",
-        "safety_vpd_min",
-        "summer_vent_min_runtime_s",
-        "sw_dawn_rehydrate_enabled",
-        "sw_dehum_vent_hold_enabled",
-        "sw_economiser_enabled",
-        "sw_fsm_controller_enabled",
-        "sw_midday_drench_enabled",
-        "sw_night_dryout_enabled",
-        "sw_night_econ_heat_suppress_enabled",
-        "sw_night_stress_wet_enabled",
-        "sw_wet_taper_enabled",
-        "vent_latch_timeout_ms",
-        "vpd_target_center",
-        "vpd_target_east",
-        "vpd_target_south",
-        "vpd_target_west",
-        "wet_taper_before_sunset_min",
-    }
-)
+# Host release 4 deleted the 47 rows the third flash left entity-less (and everything that named them).
+# THIRD_FLASH_INERT_WIRE_REG: the 43 policy-wire fields the firmware no longer reads.
 THIRD_FLASH_INERT_WIRE_REG: frozenset[str] = frozenset(
     {
         "band_track_fraction",
@@ -3448,20 +2636,7 @@ THIRD_FLASH_INERT_WIRE_REG: frozenset[str] = frozenset(
         "vpd_watch_dwell_s",
     }
 )
-assert not THIRD_FLASH_RETIRED_REG & THIRD_FLASH_INERT_WIRE_REG
 assert all(REGISTRY[n].wire_id is not None for n in THIRD_FLASH_INERT_WIRE_REG)
-assert all(REGISTRY[n].wire_id is None for n in THIRD_FLASH_RETIRED_REG)
-for _name in THIRD_FLASH_RETIRED_REG:
-    REGISTRY[_name] = REGISTRY[_name].model_copy(
-        update={
-            "esp_object_id": None,
-            "cfg_readback_object_id": None,
-            "fw_clamp_lo": None,
-            "fw_clamp_hi": None,
-            "planner_pushable": False,
-            "tier": 2,
-        }
-    )
 
 FIRMWARE_V2_STAGED_REG: frozenset[str] = frozenset(_FW2_STAGED_DEFS)
 # The staged rows' exact readback slugs; the three window anchors the third flash deleted have none.
@@ -3490,10 +2665,6 @@ NO_EFFECT_RETIRED_REG: frozenset[str] = frozenset(
         # #1477: the activity mirror and the shared and per-circuit DLI lighting
         # values left the firmware and the registry (their names are in the
         # ingestor's RETIRED_UNROUTABLE_PARAMS), as the eight zone offsets did (#369).
-        # past_wet_taper is a no-op shim; nothing reads sw_night_stress_wet_enabled.
-        "sw_wet_taper_enabled",
-        "wet_taper_before_sunset_min",
-        "sw_night_stress_wet_enabled",
         # The east zone has no mister; the arbiters pass it as never allowed.
         "zone_priority_east",
         # The CYC-4 overnight micro-pulse path was deleted from the firmware.
@@ -3509,18 +2680,12 @@ assert NO_EFFECT_RETIRED_REG <= set(REGISTRY), sorted(NO_EFFECT_RETIRED_REG - se
 
 RETIRED_TUNABLES_REG: frozenset[str] = frozenset(
     {
-        "bias_cool",
-        "bias_heat",
-        "d_cool_stage_2",
-        "d_heat_stage_2",
         # #588 decision (wire schema v2): zero firmware presence — see the
         # registry row notes and RETIRED_WIRE_IDS ({6}).
         "direct_wet_stress_latest_hour",
         # VD-63: no firmware entity or readback; the rows carry no route.
         "fog_time_window_end",
         "fog_time_window_start",
-        "mist_vent_close_lead_s",
-        "mist_vent_reopen_delay_s",
         "mister_all_off_s",
         "mister_all_on_s",
         "mister_off_s",
@@ -3528,11 +2693,8 @@ RETIRED_TUNABLES_REG: frozenset[str] = frozenset(
         # VD-46 (#1161): the rank arbiter picks the mister zone whenever more than
         # one zone is a VPD member, so the switch decides nothing.
         "sw_arbiter_zone_enabled",
-        "sw_fsm_controller_enabled",
-        "summer_vent_min_runtime_s",
         *_INERT_IRRIGATION_COMPAT_TUNABLES,
         *NO_EFFECT_RETIRED_REG,
-        *THIRD_FLASH_RETIRED_REG,
     }
 )
 
@@ -3644,7 +2806,7 @@ def _active_tunables() -> frozenset[str]:
     rejects them, and `get_setpoints` / the `ALL_TUNABLES` schema enum should
     enumerate `ACTIVE_TUNABLES_REG` rather than `ALL_TUNABLES_REG` so a stale
     alias the firmware no longer consumes (verified live 2026-05-29:
-    `fog_burst_min`, `mister_on_s`, `bias_heat`, etc. still receive dispatcher
+    `fog_burst_min`, `mister_on_s`, etc. still received dispatcher
     writes) cannot masquerade as a live knob.
     """
     return frozenset(REGISTRY) - RETIRED_TUNABLES_REG
@@ -3865,9 +3027,6 @@ WRITABLE_CONTROL_CLASSES: frozenset[str] = frozenset(
 # The legacy wide limits: the dispatcher derives them, and they are not the band
 # while the controller runs its on-chip curve.
 LEGACY_WIDE_LIMIT_PARAMS: frozenset[str] = frozenset({"temp_low", "temp_high", "vpd_low", "vpd_high"})
-# The fixed per-zone VPD targets: the dispatcher sends fn_zone_vpd_targets(now()) every cycle, and the controller
-# still uses them to judge, rank and lengthen zone misting (controls.yaml), so they are not legacy limits.
-ZONE_VPD_TARGET_PARAMS: frozenset[str] = frozenset(name for name in REGISTRY if name.startswith("vpd_target_"))
 # Decides which side owns the band; refused by name whatever its class.
 BAND_OWNER_SWITCH = "sw_onchip_band_enabled"
 
@@ -3885,11 +3044,6 @@ READ_ONLY_REASONS: dict[str, str] = {
 assert len(LEGACY_WIDE_LIMIT_PARAMS) == 4 and all(
     REGISTRY[name].control_class == "crop_band" for name in LEGACY_WIDE_LIMIT_PARAMS
 ), "the legacy wide limits drifted"
-# The third flash deleted the four legacy zone VPD target entities (zone misting reads the zone_vpd_target_* anchors):
-# their rows are retired (THIRD_FLASH_RETIRED_REG) and keep the zone_vpd_target read-only reason until release 4.
-assert len(ZONE_VPD_TARGET_PARAMS) == 4 and all(
-    REGISTRY[name].control_class == "retired" for name in ZONE_VPD_TARGET_PARAMS
-), "the zone VPD targets drifted"
 
 
 # Settings only the owner writes (climate refactor plan, the law's stored settings): the drying cost limit and every
@@ -3950,8 +3104,6 @@ def desired_write_kind(name: str) -> str | None:
         return "band_owner"
     if name in LEGACY_WIDE_LIMIT_PARAMS:
         return "legacy_wide_limit"
-    if name in ZONE_VPD_TARGET_PARAMS:
-        return "zone_vpd_target"
     control_class = spec.control_class
     if control_class in ("retired", "readback_context"):
         return control_class

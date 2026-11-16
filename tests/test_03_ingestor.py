@@ -458,8 +458,8 @@ def test_initial_native_replay_survives_boot_window_without_historical_db_write(
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), 200.0])
 def test_native_mirror_rejects_nonfinite_and_out_of_range_before_replay(value):
-    generation = shared.note_transport_connected(frozenset({"safety_max"}))
-    ingestor._mirror_irrigation_number_readback("safety_max", value)
+    generation = shared.note_transport_connected(frozenset({"temp_high"}))
+    ingestor._mirror_irrigation_number_readback("temp_high", value)
     assert not shared.transport_readbacks_ready(generation)
     assert shared.current_cfg_readbacks() == {}
 

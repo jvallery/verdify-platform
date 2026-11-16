@@ -67,7 +67,6 @@ def _knobs() -> list[Knob]:
         | _common.LIGHTING_POLICY_PARAMS
         | _common.LIGHTING_TARGET_MINUTE_PARAMS
         | _common.AI_MOISTURE_STRESS_POLICY_PARAMS
-        | _common.FORCED_ON_SWITCH_PARAMS
         | _common.RETIRED_UNROUTABLE_PARAMS
         | _common.SECOND_READBACK_ABS_TOLERANCE_PARAMS
         | frozenset(band_anchors.ANCHOR_SYNC_PARAMS)
@@ -534,16 +533,18 @@ async def test_a_desired_row_for_a_retired_unknown_or_read_only_parameter_never_
     knob = KNOBS[0]
     connect(env, [knob])
     at = T0 - timedelta(minutes=1)
-    # VD-47 removed irrig_wall_days_mask from the registry, so a stale row names an unknown setting; bias_cool stays.
+    # VD-47 removed irrig_wall_days_mask and release 4 bias_cool from the registry, so stale rows name unknown
+    # settings; mister_on_s is a retired row.
     unusable = (
         "irrig_wall_days_mask",
         "bias_cool",
-        "sw_fsm_controller_enabled",
+        "mister_on_s",
         "no_such_setting",
         "temp_low",
         "sw_irrig_enabled",
     )
-    assert "irrig_wall_days_mask" not in REGISTRY and REGISTRY["bias_cool"].control_class == "retired"
+    assert "irrig_wall_days_mask" not in REGISTRY and "bias_cool" not in REGISTRY
+    assert REGISTRY["mister_on_s"].control_class == "retired"
     for param in unusable:
         env.db.write(param, 1.0, at=at)
     env.db.write(knob.param, knob.desired, at=at)

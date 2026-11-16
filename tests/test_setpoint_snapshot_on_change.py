@@ -288,8 +288,8 @@ def test_grow_light_states_keyframe_every_ten_minutes(monkeypatch):
 
 def test_alert_windows_hold_sparse_readbacks():
     source = (ROOT / "ingestor/tasks/alerts.py").read_text()
-    safety = source.split("# 8. Safety value sanity check", 1)[1].split('"""', 2)[1]
-    assert "ts > now() - interval '2 hours'" in safety
+    # Release 4 removed the safety-rail check (the rails left with the third flash).
+    assert "# 8. Safety value sanity check" not in source
     # Zero variance needs a week of keyframes (>= 24 rows, the oldest over 6 days), not 100 dense rows.
     assert "HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24" in source
     assert "count(*) > 100" not in source

@@ -91,6 +91,11 @@ const served = (names: string | string[] = "in-band"): Row[] => fixture(names, {
 const inGroupOrder = (rows: readonly Row[]) => SETTING_GROUPS.flatMap(([group]) => rows.filter((row) => row.group === group).map((row) => row.param));
 /** The rows the catalog lists by default: retired rows wait behind "Show retired" (#1333). */
 const unretired = (rows: readonly Row[]) => rows.filter((row) => row.control_class !== "retired");
+// Release 4 deleted the four safety rails, the only guardrail rows (the controller fixes 40 °F and 100 °F); the guardrail
+// path stays and is checked on a live row marked as one.
+const GUARDED = "mister_engage_delay_s";
+const asGuardrail = (rows: Row[]) => rows.map((row) => (row.param === GUARDED
+  ? { ...row, help: { ...row.help!, guardrail: true, caution: "Check the hard limit before changing it." } } : row));
 
 test("the catalog: one row per fixture row rendered from the registry, by group in fixed order, each with its TunableDef label and unit", async () => {
   await open("/settings?retired=1");
@@ -125,7 +130,6 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
   // A bare number gains the unit its key names, a long duration reads in a unit people read, and a time of day stays a
   // number (#1308 visual QA 38); the bounds' ends follow the value's unit.
   const value = (param: string) => text(rowOf(param).querySelector(".setting-device-value"));
-  // (The third flash retired vent_latch_timeout_ms, the 30 min example; dwell_gate_ms still shows ms read in minutes.)
   expect(["gl_main_min_on_s", "gl_main_target_light_minutes", "dwell_gate_ms", "gl_main_sunrise_hour"].map(value)).toEqual(["120 s", "960 min", "5 min", "7"]);
   expect([...rowOf("dwell_gate_ms").querySelectorAll(".ctl-bounds-end")].map((end) => text(end))).toEqual(["60 s", "30 min"]);
   expect(text(rowOf("mister_engage_kpa").querySelector(".setting-label"))).toBe("VPD Mister Engage");
@@ -851,12 +855,6 @@ test("the glossary at #glossary lists every term the pages define, from the one 
   expect(glossary.querySelector("details")?.open).toBe(false);
 });
 
-// The third flash retired the four safety limits, the only rows whose help is a guardrail; the guardrail flow is kept
-// on safety_max served as a writable controller-safety row.
-const guardrailWritable = (items: Row[]) => items.map((row) => (row.param === "safety_max"
-  ? { ...row, writable: true, group: "controller_safety", control_class: "controller_safety", read_only_reason: null, read_only_kind: null }
-  : row));
-
 test("retired rows wait behind Show retired, a search still finds them, and the glossary explains every row with its sources (#1332, #1333)", async () => {
   await open("/settings");
   const retired = served().filter((row) => row.control_class === "retired");
@@ -872,9 +870,9 @@ test("retired rows wait behind Show retired, a search still finds them, and the 
   expect(shown()).toEqual([retired[0].param]);
   cleanup(); stopFixtureApi();
   // The glossary: every setting the search keeps, with what it is, what it changes, raising and lowering it.
-  await open("/settings?view=glossary&q=Safety+Max", { patch: guardrailWritable });
-  const entry = document.querySelector('.ctl-glossary-entry[data-param="safety_max"]')!;
-  const help = served().find((row) => row.param === "safety_max")!.help as { summary: string; raise: string; lower: string; caution: string };
+  await open("/settings?view=glossary&q=Mister+Engage+Delay", { patch: asGuardrail });
+  const entry = document.querySelector(`.ctl-glossary-entry[data-param="${GUARDED}"]`)!;
+  const help = asGuardrail(served()).find((row) => row.param === GUARDED)!.help as { summary: string; raise: string; lower: string; caution: string };
   expect(text(entry.querySelector(".ctl-glossary-summary"))).toBe(help.summary);
   expect([...entry.querySelectorAll("dt")].map((term) => text(term))).toEqual(["What it changes", "Raising it", "Lowering it", "Guardrail"]);
   expect(document.querySelectorAll("tr.setting-row")).toHaveLength(0);
@@ -888,20 +886,20 @@ test("retired rows wait behind Show retired, a search still finds them, and the 
 });
 
 test("the drawer explains the setting above New value, and a guardrail saves only on a second press that shows its rule (#1332, #1333)", async () => {
-  const api = await open("/settings?q=safety_max&edit=safety_max", { patch: guardrailWritable });
-  const help = served().find((row) => row.param === "safety_max")!.help as { summary: string; caution: string; reference_url: string };
+  const api = await open(`/settings?q=${GUARDED}&edit=${GUARDED}`, { patch: asGuardrail });
+  const help = asGuardrail(served()).find((row) => row.param === GUARDED)!.help as { summary: string; caution: string; reference_url: string };
   expect(text(dialog().querySelector(".ctl-help-summary"))).toBe(help.summary);
   expect([...dialog().querySelectorAll(".ctl-help-list dt")].map((term) => text(term))).toEqual(["What it changes", "Raising it", "Lowering it"]);
   expect(text(dialog().querySelector(".ctl-help-caution"))).toBe(`Guardrail. ${help.caution}`);
   expect(within(dialog()).getByRole("link", { name: "Full reference entry" }).getAttribute("href")).toBe(help.reference_url);
-  fireEvent.change(screen.getByLabelText("New value") as HTMLInputElement, { target: { value: "99" } });
+  fireEvent.change(screen.getByLabelText("New value") as HTMLInputElement, { target: { value: "90" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   expect(writes(api)).toEqual([]);
   expect(text(dialog().querySelector(".ctl-guardrail-confirm"))).toContain(help.caution);
   fireEvent.click(screen.getByRole("button", { name: "Confirm guardrail change" }));
   await advance(0);
-  expect(writes(api)).toEqual([expect.objectContaining({ method: "PUT", path: "/api/v1/settings/safety_max", body: expect.objectContaining({ value: 99 }) })]);
+  expect(writes(api)).toEqual([expect.objectContaining({ method: "PUT", path: `/api/v1/settings/${GUARDED}`, body: expect.objectContaining({ value: 90 }) })]);
   cleanup(); stopFixtureApi();
   // A Band in force row is computed: it says so and links each anchor it comes from to its own drawer.
   await open("/settings?q=band_house_temp_high&edit=band_house_temp_high");

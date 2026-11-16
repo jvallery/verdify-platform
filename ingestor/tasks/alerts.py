@@ -36,8 +36,6 @@ from ._common import (
     HEAP_CRITICAL_RECOVERY_SAMPLES,
     PROBE_OFFLINE_ALERT_TYPES,
     PROBE_OFFLINE_RESOLVE_DAYS,
-    REGISTRY,
-    SAFETY_RAIL_PARAMS,
     SECOND_READBACK_ABS_TOLERANCE_PARAMS,
     SOIL_DRYOUT_MIN_DURATION_H,
     SOIL_DRYOUT_TARGETS_SQL,
@@ -1932,40 +1930,7 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        # 8. Safety value sanity check — catch zeroed/invalid safety rails. Readbacks are stored on change with an
-        # hourly keyframe (#1662): a new value is stored at once, and two keyframes keep the current one in reach.
-        for r in await conn.fetch(
-            """
-            SELECT DISTINCT ON (parameter) parameter, value
-            FROM setpoint_snapshot
-            WHERE parameter = ANY($1::text[])
-              AND ts > now() - interval '2 hours'
-            ORDER BY parameter, ts DESC
-        """,
-            sorted(SAFETY_RAIL_PARAMS),
-        ):
-            val = r["value"]
-            param = r["parameter"]
-            spec = REGISTRY[param]
-            lo = spec.fw_clamp_lo
-            hi = spec.fw_clamp_hi
-            is_invalid = val is None or (lo is not None and val < lo) or (hi is not None and val > hi)
-            if is_invalid:
-                alerts.append(
-                    {
-                        "alert_type": "safety_invalid",
-                        "severity": "critical",
-                        # "system" per AlertCategory literal; semantic
-                        # "safety" subtype is Sprint 25's discriminated union.
-                        "category": "system",
-                        "sensor_id": f"setpoint.{param}",
-                        "zone": None,
-                        "message": f"CRITICAL: {param}={val} is invalid — state machine safety compromised",
-                        "details": {"parameter": param, "value": val},
-                        "metric_value": float(val) if val else 0,
-                        "threshold_value": None,
-                    }
-                )
+        # 8. (Release 4) The safety-rail sanity check left with the rails: the law compiles 40 F and 100 F.
 
         # 9. The electric heater's power against its relay (#1637): on without a draw (heat_no_power), or a
         # heater-sized draw with both heat relays off (heat_manual_override). Fresh meter samples only.

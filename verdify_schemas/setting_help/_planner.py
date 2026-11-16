@@ -205,9 +205,8 @@ ENTRIES: dict[str, HelpEntry] = {
     "mister_water_budget_gal": HelpEntry(
         summary="Daily soft cap on mister water, in gallons.",
         effect=(
-            "Once today's mister water reaches this cap, the controller stops climate misting and holds fog, unless "
-            "VPD anywhere is above Safety VPD Max. The irrigation program uses the same cap. A separate hard daily "
-            "ceiling stops all wetting even in an emergency."
+            "Once today's mister water reaches this cap, the controller stops climate misting. The irrigation "
+            "program uses the same cap. A separate hard daily ceiling stops all wetting even in an emergency."
         ),
         raise_="More misting is allowed each day before the cap stops it.",
         lower="The cap stops misting and fog earlier on dry days, saving water but risking dry stress.",

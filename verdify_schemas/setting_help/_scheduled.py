@@ -176,8 +176,8 @@ def _legacy_edge(axis: str, side: str, refs: tuple[str, ...]) -> HelpEntry:
             f"the platform stops sending it once the band anchors are confirmed."
         ),
         caution=(
-            "Not editable. Change the band under Crop band; the hard limits are Safety Min and Safety Max "
-            "(temperature) and Safety VPD Min and Max."
+            "Not editable. Change the band under Crop band; the hard limits, 40 °F and 100 °F, are fixed in the "
+            "controller."
         ),
         refs=refs,
     )
@@ -241,23 +241,10 @@ ENTRIES: dict[str, HelpEntry] = {
     "temp_high": _legacy_edge("temp", "high", _LEGACY_TEMP_REFS),
     "vpd_low": _legacy_edge("vpd", "low", _LEGACY_VPD_REFS),
     "vpd_high": _legacy_edge("vpd", "high", _LEGACY_VPD_REFS),
-    "vpd_target_south": _zone_target("south", None),
-    "vpd_target_west": _zone_target("west", "citrus"),
-    "vpd_target_east": _zone_target("east", "pepper"),
-    "vpd_target_center": _zone_target("center", "Vanda orchids"),
     "zone_priority_center": _zone_priority("center", "Vanda orchids"),
     "zone_priority_south": _zone_priority("south", None),
     "zone_priority_west": _zone_priority("west", "citrus"),
     "zone_priority_east": _zone_priority("east", "pepper"),
-    "wet_taper_before_sunset_min": HelpEntry(
-        summary="Minutes before sunset when routine misting was meant to stop so leaves dry before dark.",
-        effect=(
-            "The controller stores and reports it, but the taper check is switched off in the control code: "
-            "misting at dusk and at night now follows the VPD band curve, whose evening edge keeps nights dry."
-        ),
-        caution="To keep evenings drier, raise the evening and night VPD band under Crop band instead.",
-        refs=(f"{_LOGIC}::past_wet_taper", "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG"),
-    ),
     "manual_override_timeout_min": HelpEntry(
         summary="How long a press of a panel button (fan burst, fog burst, vent bypass) lasts, in minutes.",
         effect=(
