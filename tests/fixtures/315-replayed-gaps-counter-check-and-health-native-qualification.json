@@ -1,10 +1,114 @@
 {
   "migration": "315-replayed-gaps-counter-check-and-health.sql",
-  "final_migration_qualification_pending": true,
+  "final_migration_qualification_pending": false,
   "projection": "315 appends three nullable diagnostics columns to v_runtime_diagnostics_write with INSERT for the ingestor duty and the three keys to fn_record_observational_source_event's diagnostics list, redefines v_data_trust_ledger and v_irrigation_day_coverage to read v_data_gaps_unreplayed and v_irrigation_schedule_current with a 2-hour readback rule, creates v_relay_counter_reconciliation_daily with SELECT for the dashboard and ingestor duties, and sets setpoint_plan rows inactive and open planner_trigger_ledger rows missed, so the ingestor seal moves and the api and MCP seals are measured again. With production at the last merged migration before 315, run scripts/qualify-migration-successor.py db/migrations/315-replayed-gaps-counter-check-and-health.sql --probe-only (naming any merged but unapplied predecessor with --apply-first), write the measured literals into the successor block, the delivery and bootstrap registrations and this file, then run it again with --native-fixture db/qualification/315-replayed-gaps-counter-check-and-health-fixture.sql --fixture tests/fixtures/315-replayed-gaps-counter-check-and-health-native-qualification.json.",
   "projected_successor": {
     "api": "7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc",
     "ingestor": "3ead905daede269bd598b38c86c0477d33e1b51c425a2efc7d5c16c042a745f2",
     "mcp": "ae8180a5fc5dc400fc0f9c49fc6f069c89af033a9b9425ef52a14bf85b202256"
-  }
+  },
+  "measured_at": "2026-11-16T23:23:49Z",
+  "before": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "qualified_successor": {
+    "api": "7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc",
+    "ingestor": "3ead905daede269bd598b38c86c0477d33e1b51c425a2efc7d5c16c042a745f2",
+    "mcp": "ae8180a5fc5dc400fc0f9c49fc6f069c89af033a9b9425ef52a14bf85b202256"
+  },
+  "after_rollback": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "exact_final_migration_sha256": "a5cadbc8645f7ee3fde65c41e8709b6dba6295dce1fa4f3406237f081dd49fff",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "d071ae8f6829e202ecc4bea772fb5a19a3b9e05699118561f2d5067a069767f4",
+  "qualification_source_sha256": "71853f105b49510302890ada5dde8dfb3085d8f6abf4551e8a7ac6d4caaa2fdc",
+  "applied_first": [
+    {
+      "migration": "312-operator-metrics-reads.sql",
+      "seq": 312,
+      "sha256": "66e6bfe12302b2d2756514a2c9903f05e728b1326d6c21aee07362baeca7afa2"
+    },
+    {
+      "migration": "313-planner-review.sql",
+      "seq": 313,
+      "sha256": "933d856e07503d36115b744eea09b4208e688ad2bbec06f48692e2a850d58e0b"
+    },
+    {
+      "migration": "314-controller-health-and-gap-ledger.sql",
+      "seq": 314,
+      "sha256": "568e0f739d735693c019c7e0bd673820ca5a1eff318e57cc23e6d409c5be680f"
+    }
+  ],
+  "applied_first_seals": {
+    "api": "e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373",
+    "ingestor": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+  },
+  "prelock": [
+    [
+      "public.diagnostics",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.mcp_runtime_boundary_receipt",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.planner_review",
+      "SHARE"
+    ],
+    [
+      "public.runtime_ordinary_login_attestation_receipts",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.schema_migrations",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.v_data_trust_ledger",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_irrigation_day_coverage",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_irrigation_schedule_current",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_runtime_diagnostics_write",
+      "ACCESS EXCLUSIVE"
+    ]
+  ],
+  "native_fixture": {
+    "checks": [
+      "three_diagnostics_columns_typed",
+      "ingestor_inserts_the_three_through_the_facade",
+      "counter_check_dashboard_and_ingestor_only",
+      "redefined_views_keep_readers",
+      "views_read_replay_aware_gaps",
+      "ingestor_login_writes_health_row",
+      "ledger_gap_hours_exclude_replayed_minutes",
+      "coverage_complete_when_fully_replayed",
+      "coverage_partial_when_cut_by_replay",
+      "coverage_no_data_without_replay",
+      "counter_check_six_relays_fans_run",
+      "counter_deltas_skip_restart_step_back",
+      "dashboard_login_reads_counter_check",
+      "spool_admits_the_three_keys",
+      "no_active_plan",
+      "no_open_trigger_ledger_row",
+      "schedule_readbacks_two_hours"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "8b8d2ea07094a282352690e006864ad084ad7d60360bff73f9bb267825688408"
 }
