@@ -33,8 +33,11 @@ of the chain locks exclusively: ALTER, DROP, TRUNCATE, REFRESH, CREATE OR
 REPLACE VIEW, trigger, rule, policy and index targets, FOREIGN KEY targets and
 the files' own LOCK TABLE targets (in their own mode when that is the only one
 the chain takes on the relation, ACCESS EXCLUSIVE otherwise). An index locks its
-table; relations the chain creates are not locked. LOCK on a view also locks
-its base relations (PostgreSQL locks views recursively). ``--prelock RELATION``
+table; relations the chain creates are not locked. A plain view is not
+prelocked: LOCK on a view also locks every base relation (PostgreSQL locks
+views recursively), which would hold the hottest tables exclusively for the
+whole session, so the file's own statement takes the view's lock (a file that
+redefines a busy view retries that itself). ``--prelock RELATION``
 adds a relation the SQL hides (dynamic DDL, a DO block or an extension call) in
 ACCESS EXCLUSIVE mode. The up-front locks wait at most 5 s each
 (``lock_timeout``), so the qualifier waits on production rather than racing it;
@@ -468,7 +471,10 @@ def _sql_literal(text: str) -> str:
 
 
 def prelock_sql(plan: Sequence[tuple[str, str]]) -> str:
-    """Lock the plan's existing relations in order (an index locks its table), each within PRELOCK_TIMEOUT."""
+    """Lock the plan's existing relations in order (an index locks its table), each within PRELOCK_TIMEOUT.
+
+    Plain views (relkind 'v') are skipped: LOCK TABLE on a view recurses into its base relations.
+    """
     if not plan:
         return ""
     rows = ",\n            ".join(
@@ -487,7 +493,7 @@ BEGIN
             {rows}) AS want(ord, name, mode)
           JOIN pg_catalog.pg_class c ON c.oid = pg_catalog.to_regclass(want.name)
           LEFT JOIN pg_catalog.pg_index x ON x.indexrelid = c.oid
-         WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'i', 'I')
+         WHERE c.relkind IN ('r', 'p', 'm', 'f', 'i', 'I')
          ORDER BY want.ord
     LOOP
         EXECUTE pg_catalog.format('LOCK TABLE %s IN %s MODE', target.rel::regclass, target.mode);
