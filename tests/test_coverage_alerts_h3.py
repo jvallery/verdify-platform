@@ -227,3 +227,43 @@ def test_a_flash_stays_quiet_and_an_unknown_version_waits():
     # a flash then two same-version restarts: two count, still a warning
     env = cov.reboot_alert([boot(50, "v1", "v2"), boot(30, "v2", "v2"), boot(10, "v2", "v2")])
     assert env["severity"] == "warning" and env["details"]["restarts_60m"] == 2
+
+
+# ── band_device_db_divergence, law-record branch (OBS-46) ──────────────────────────────────────────────────────────
+DB_BAND = {"temp_low": 62.0, "temp_high": 80.0, "vpd_low": 0.60, "vpd_high": 1.20}
+
+
+def law_band_row(age_s, b, band=None):
+    value = json.dumps({"v": 1, "l": 0, "b": b})
+    return {"ts": T0 - timedelta(seconds=age_s), "value": value, "age_s": age_s} | (band or DB_BAND)
+
+
+def test_law_band_is_silent_without_a_law_record():
+    assert cov.law_band_alert([]) == (None, False)
+    stale = [law_band_row(200 + i, [50.0, 90.0, 0.2, 2.0]) for i in range(3)]
+    assert cov.law_band_alert(stale) == (None, False)
+    no_band = [{"ts": T0, "value": json.dumps({"v": 1, "l": 0}), "age_s": 10.0} | DB_BAND]
+    assert cov.law_band_alert(no_band) == (None, False)
+
+
+def test_law_band_agreeing_records_judge_and_stay_quiet():
+    rows = [law_band_row(10 + 60 * i, [62.4, 79.5, 0.65, 1.15]) for i in range(3)]
+    assert cov.law_band_alert(rows) == (None, True)
+
+
+def test_law_band_opens_only_when_all_three_records_are_off():
+    off = [62.0, 82.5, 0.60, 1.20]
+    one_off = [law_band_row(10, off), law_band_row(70, [62.0, 80.0, 0.6, 1.2]), law_band_row(130, off)]
+    assert cov.law_band_alert(one_off) == (None, True)
+    assert cov.law_band_alert([law_band_row(10, off)]) == (None, True)
+    rows = [law_band_row(10, off), law_band_row(70, off), law_band_row(130, [62.0, 80.0, 0.6, 1.42])]
+    env, present = cov.law_band_alert(rows)
+    assert present and env["alert_type"] == "band_device_db_divergence" and env["severity"] == "warning"
+    assert env["details"]["max_temp_abs_diff"] == 2.5 and env["details"]["device_age_s"] == 10.0
+    AlertEnvelope.model_validate(env)
+
+
+def test_law_band_vpd_edge_alone_opens():
+    rows = [law_band_row(10 + 60 * i, [62.0, 80.0, 0.75, 1.2]) for i in range(3)]
+    env, _ = cov.law_band_alert(rows)
+    assert env is not None and env["details"]["max_vpd_abs_diff"] == 0.15

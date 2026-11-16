@@ -57,6 +57,13 @@ def ddl() -> list[str]:
         f"CREATE FUNCTION {SCHEMA}.fn_crop_band_value(text, text, timestamptz) RETURNS double precision "
         "LANGUAGE sql AS $$ SELECT CASE $2 WHEN 'vpd_low' THEN 0.6 WHEN 'temp_low' THEN 58.0 END $$"
     )
+    out.append(
+        f"CREATE FUNCTION {SCHEMA}.fn_band_setpoints(ts timestamptz, OUT temp_low double precision, "
+        "OUT temp_high double precision, OUT vpd_low double precision, OUT vpd_high double precision, "
+        "OUT temp_target double precision, OUT vpd_target double precision) LANGUAGE sql AS "
+        "$$ SELECT 62.0::float8, CASE WHEN ts < now() - interval '30 seconds' THEN 80.0 ELSE 81.5 END, "
+        "0.6::float8, 1.2::float8, 71.0::float8, 0.9::float8 $$"
+    )
     return out
 
 
@@ -293,5 +300,23 @@ def test_reboot_sql_finds_restarts_and_the_versions_around_them(dsn):
         # a long silence without a restart is not a restart: uptime grew with the gap
         await conn.execute(diag, t0 - 1 * MIN, 2360.0, None, None)
         assert len(await conn.fetch(cov.REBOOT_SQL, cov.REBOOT_WINDOW_MIN)) == 1
+
+    scenario(dsn, body)
+
+
+def test_law_band_sql_reads_the_newest_three_records_against_the_band_at_their_time(dsn):
+    async def body(conn, t0):
+        assert cov.law_band_alert(await conn.fetch(cov.LAW_BAND_SQL)) == (None, False)
+        b = json.dumps({"v": 1, "l": 0, "b": [62.0, 80.0, 0.6, 1.2]})
+        for minutes in (1, 2, 3, 20):  # the 20-minute record is outside the window
+            await state(conn, t0 - minutes * MIN, "climate_law_state", b)
+        rows = await conn.fetch(cov.LAW_BAND_SQL)
+        assert [r["temp_high"] for r in rows] == [80.0, 80.0, 80.0]
+        assert cov.law_band_alert(rows) == (None, True)
+        # the band moved under the newest record only: one record off is not an alert
+        await state(conn, t0 - 10 * timedelta(seconds=1), "climate_law_state", b)
+        rows = await conn.fetch(cov.LAW_BAND_SQL)
+        assert len(rows) == 3 and rows[0]["temp_high"] == 81.5
+        assert cov.law_band_alert(rows) == (None, True)
 
     scenario(dsn, body)

@@ -57,8 +57,10 @@ from ._common import (
     soil_dryout_probes,
 )
 from .coverage_alerts import (
+    LAW_BAND_SQL,
     SOIL_OPEN_ROWS_SQL,
     coverage_cycle,
+    law_band_alert,
     reboot_check,
     soil_dryout_hold,
     soil_probe_offline,
@@ -1418,8 +1420,21 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         )
         if bdd is _READ_FAILED:
             bdd = None
-        target_alert = _band_target_alert(bdd)
-        if target_alert is not None:
+        # The law-record branch (OBS-46): with a fresh climate_law_state record it alone judges the band;
+        # without one (before the law flash) it is silent and the target and edge branches below judge.
+        try:
+            law_rows = await conn.fetch(LAW_BAND_SQL)
+        except Exception as e:
+            log.warning("alert read for band_device_db_divergence (law record) failed: %s", e)
+            law_rows = None
+            read_preserved |= frozenset({"band_device_db_divergence"})
+        law_alert, law_present = law_band_alert(law_rows or [])
+        target_alert = None if law_present else _band_target_alert(bdd)
+        if law_alert is not None:
+            alerts.append(law_alert)
+        elif law_present:
+            pass
+        elif target_alert is not None:
             alerts.append(target_alert)
         elif bdd and bdd["max_temp_abs_diff"] is not None:
             temp_d = float(bdd["max_temp_abs_diff"])

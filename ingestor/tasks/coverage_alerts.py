@@ -961,6 +961,69 @@ async def reboot_check(conn) -> tuple[dict | None, frozenset[str]]:
     return reboot_alert(rows), frozenset()
 
 
+# ── band_device_db_divergence, law-record branch (verification OBS-46/47; decision 6, plan 9) ─────────────────────
+# Once the law runs, the band the controller enforces is climate_law_state `b` (temp low, temp high F; VPD low,
+# high kPa), and the third flash removes the target entities the older branches read. Each of the newest three law
+# records of the last 10 minutes is compared with fn_band_setpoints at its own time; the warning opens when all three
+# are off by more than 1.0 F or 0.10 kPa (the OBS-47 tolerance), so one record at a curve knot does not open it.
+# No climate_law_state row (every build before the law flash) or a newest record over 180 s old: this branch is
+# silent and returns law_present False, and the target and edge branches judge as before.
+LAW_BAND_TEMP_F = 1.0
+LAW_BAND_VPD_KPA = 0.10
+LAW_BAND_RECORDS = 3
+LAW_BAND_FRESH_S = 180.0
+LAW_BAND_SQL = """
+SELECT s.ts, s.value, EXTRACT(EPOCH FROM now() - s.ts)::double precision AS age_s,
+       b.temp_low, b.temp_high, b.vpd_low, b.vpd_high
+  FROM (SELECT ts, value FROM system_state
+         WHERE entity = 'climate_law_state' AND ts > now() - interval '10 minutes'
+         ORDER BY ts DESC LIMIT 3) s
+  CROSS JOIN LATERAL fn_band_setpoints(s.ts) b
+ ORDER BY s.ts DESC
+"""
+
+
+def law_band_alert(rows: Sequence[Mapping]) -> tuple[dict | None, bool]:
+    """(the law-branch band_device_db_divergence warning or None, whether a fresh law record exists)."""
+    diffs = []
+    for row in rows:
+        law = _law(row["value"])
+        band = law.get("b") if law else None
+        edges = (row["temp_low"], row["temp_high"], row["vpd_low"], row["vpd_high"])
+        if not isinstance(band, (list, tuple)) or len(band) != 4 or any(e is None for e in edges):
+            continue
+        try:
+            t = max(abs(float(band[0]) - float(edges[0])), abs(float(band[1]) - float(edges[1])))
+            v = max(abs(float(band[2]) - float(edges[2])), abs(float(band[3]) - float(edges[3])))
+        except (TypeError, ValueError):
+            continue
+        diffs.append((t, v, float(row["age_s"])))
+    if not diffs or diffs[0][2] > LAW_BAND_FRESH_S:
+        return None, False
+    off = [d for d in diffs if d[0] > LAW_BAND_TEMP_F or d[1] > LAW_BAND_VPD_KPA]
+    if len(diffs) < LAW_BAND_RECORDS or len(off) < LAW_BAND_RECORDS:
+        return None, True
+    temp_d, vpd_d = max(d[0] for d in off), max(d[1] for d in off)
+    return (
+        _warning(
+            "band_device_db_divergence",
+            None,
+            "climate",
+            f"Band the controller enforces (law record) differs from the database band: max ΔT {temp_d:.2f} °F / "
+            f"ΔVPD {vpd_d:.3f} kPa on the last {LAW_BAND_RECORDS} records (a clock fault or an unsynced band)",
+            {
+                "max_temp_abs_diff": round(temp_d, 3),
+                "max_vpd_abs_diff": round(vpd_d, 3),
+                "device_age_s": round(max(diffs[0][2], 0.0), 1),
+            },
+            round(max(temp_d / LAW_BAND_TEMP_F, vpd_d / LAW_BAND_VPD_KPA), 3),
+            1.0,
+        )
+        | {"zone": "house"},
+        True,
+    )
+
+
 H3_TYPES = (
     "reviewer_wrote_climate",
     "law_state_stale",
