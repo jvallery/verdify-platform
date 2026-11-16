@@ -254,7 +254,12 @@ def test_smoke_reads_the_pass_and_the_newest_row_of_each_canonical_field():
     assert f"entity='{ingestor.READBACK_PASS_ENTITY}'" in smoke
     assert "SELECT DISTINCT ON (parameter) parameter FROM setpoint_snapshot" in smoke
     assert "ts>now()-interval '2 hours'" in smoke
-    assert '[ "${snapshot_count}" = "48" ]' in smoke
+    # Review F1: the expected count is the canonical fields the controller still reads back (the third flash keeps
+    # THIRD_FLASH_INERT_WIRE_REG as inert wire slots with no readback), so the check passes on the law build and the
+    # third flash alike.
+    assert '[ "${snapshot_count}" = "${expected_fields}" ]' in smoke
+    assert "if n not in THIRD_FLASH_INERT_WIRE_REG" in smoke
+    assert '= "48" ]' not in smoke and "len(CANONICAL_FIELD_ORDER) == 48" not in smoke
     assert "HAVING count(DISTINCT parameter)=48" not in smoke
 
 

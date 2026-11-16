@@ -239,7 +239,9 @@ cycling_bad="$("${DB[@]}" \
        FROM bound b JOIN starts s USING (equipment)
       WHERE s.n > b.max_starts" | tr -d '[:space:]')"
 if [[ -n "$cycling_bad" ]]; then
-    guard_or_fail "Impossible relay cycling in the last hour (${cycling_bad} starts); no firmware OTA while a relay cycles faster than its dwell allows"
+    # Review F2: manual presses start relays past their minimum times (AB12), so a burst of presses can trip this
+    # bound too; it clears once those starts leave the hour, or a written override reason accepts it.
+    guard_or_fail "Impossible relay cycling in the last hour (${cycling_bad} starts); no firmware OTA while a relay cycles faster than its dwell allows (a burst of manual presses counts too: wait until the starts leave the hour, or set ALLOW_FIRMWARE_DEPLOY_GUARD_OVERRIDE=1 with a written FIRMWARE_DEPLOY_OVERRIDE_REASON)"
 fi
 pass "Relay cycling within the dwell bound"
 
