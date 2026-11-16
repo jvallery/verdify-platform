@@ -89,7 +89,7 @@ async def test_real_mcp_127_stateless_protocol_filters_exact_audience_inventorie
                 assert unauthenticated_list.status_code == 200
                 assert _protocol_payload(unauthenticated_list)["result"]["tools"] == []
 
-            expected_counts = {"iris": 33, "experiment": 7, "admin": 50, "observer": 0}
+            expected_counts = {"iris": 28, "experiment": 6, "admin": 46, "observer": 0}
             for request_id, (audience, token) in enumerate(tokens.items(), start=10):
                 auth_headers = {**common_headers, "authorization": f"Bearer {token}"}
                 initialized = await client.post("/mcp", headers=auth_headers, json=initialize)
@@ -427,7 +427,7 @@ async def test_real_mcp_irrigation_writes_are_typed_and_reach_the_services_as_th
                 "irrigation_clear_fault",
             ):
                 assert tools[name]["description"].startswith(
-                    "Changes watering only; it does not count as your plan for this trigger."
+                    "Changes watering only; it writes no climate value and is not a review."
                 )
                 properties = tools[name]["inputSchema"]["properties"]
                 assert not {"checked", "check_note", "actor", "source"} & set(properties)
