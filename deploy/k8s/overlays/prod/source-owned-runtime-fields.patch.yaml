@@ -84,11 +84,3 @@ metadata:
   name: verdify-db-backup
 spec:
   suspend: false
----
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: verdify-fixed-panel-native-freezer
-  namespace: verdify-prod
-spec:
-  suspend: false

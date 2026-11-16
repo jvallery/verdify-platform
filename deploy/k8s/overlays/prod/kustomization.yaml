@@ -72,9 +72,6 @@ resources:
   # writer. The fast-failover podSpec patch (priority/tolerations/cpu) is the
   # SEPARATE gated STAGED-ha3-fast-failover-patch.yaml, deliberately NOT listed.
   - ingestor-pdb.yaml
-  # #371: freeze only yesterday's declared native-route window at 00:30 local.
-  # Uses the existing DB-only outcome-freezer identity and network policy.
-  - native-panel-freezer.yaml
   # TWO-TIER TRAEFIK (#199 / D7): the shared apps Traefik (.7.10) tier-1
   # (verdify-tier1-forward) forwards *.verdify.ai to a dedicated in-namespace
   # verdify-traefik tier-2 (verdify-web entryPoint) which host-routes verdify-t2-*
@@ -220,9 +217,6 @@ patches:
   - path: db-storageclass-iscsi.yaml
   # DEVICE-WRITE INTERLOCK (#79): VERDIFY_DEVICE_WRITE_ENABLED=1 — prod only.
   - path: device-write-configmap.yaml
-  # Native callback capture is ingestor-only; use a narrow pod env patch so
-  # this activation Recreates only the sole writer, not all config consumers.
-  - path: native-panel-ledger-ingestor.patch.yaml
   # Numbered migrations run in the PreSync hook on the same exact revision,
   # before API/ingestor workloads can consume the new schema.
   - path: migration-ledger.patch.yaml
