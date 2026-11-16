@@ -81,12 +81,13 @@ function snprintfCodes(name: string): string[] {
   return [...repo("firmware/greenhouse/controls.yaml").matchAll(new RegExp(`snprintf\\(\\s*${name}\\s*,\\s*sizeof\\(${name}\\)\\s*,([\\s\\S]*?)\\);`, "g"))]
     .flatMap((match) => quoted(match[1]));
 }
-/** Every word `fog_force_off_reason()` and `fog_safety_block_reason` can return. */
+/** Every word `fog_force_off_reason()` and `manual_fog_safety_block_reason()` (firmware/lib/greenhouse_logic.h) can return. */
 function fogBlockReturns(): string[] {
-  const force = /inline const char\* fog_force_off_reason\([\s\S]*?\n\}/.exec(repo("firmware/lib/greenhouse_logic.h"));
-  const safety = /auto fog_safety_block_reason = \[&\]\(\) -> const char\* \{([\s\S]*?)\};/.exec(repo("firmware/greenhouse/controls.yaml"));
-  if (!force || !safety) throw new Error("no fog_force_off_reason or fog_safety_block_reason in the firmware");
-  return [...force[0].matchAll(/return "([a-z0-9_]+)"/g), ...safety[1].matchAll(/return "([a-z0-9_]+)"/g)].map((match) => match[1]);
+  const logic = repo("firmware/lib/greenhouse_logic.h");
+  const force = /inline const char\* fog_force_off_reason\([\s\S]*?\n\}/.exec(logic);
+  const safety = /inline const char\* manual_fog_safety_block_reason\([\s\S]*?\n\}/.exec(logic);
+  if (!force || !safety) throw new Error("no fog_force_off_reason or manual_fog_safety_block_reason in the firmware");
+  return [...force[0].matchAll(/return "([a-z0-9_]+)"/g), ...safety[0].matchAll(/return "([a-z0-9_]+)"/g)].map((match) => match[1]);
 }
 
 /** Every code in `codes` has words in `family`: words, not the code, and no underscore left in them. */

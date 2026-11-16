@@ -69,6 +69,11 @@ struct TraceRow {
     uint32_t sealed_max_ms;
     uint32_t relief_duration_ms;
     uint32_t outdoor_staleness_max_s;
+    // The cooling entry margin the controller applied on this row: non-zero
+    // only while the cold-vent guard holds (outdoor colder than the guard, or
+    // no outdoor reading at all, RULINGS G6). Set by the replay harness from
+    // outdoor_cold_for_vent_guard / cold_vent_cooling_entry_margin_f.
+    float cooling_entry_margin_f;
 
     // State (observed from telemetry)
     std::string greenhouse_state;  // "SEALED_MIST_S1"/"VENTILATE"/...
@@ -542,11 +547,14 @@ inline bool check_4_sealed_max_timeout(Ctx4& c, const TraceRow& r, ReportFn repo
     return true;
 }
 
-// #5: IDLE never selected when temp > temp_high + hysteresis for > 5 min continuous
+// #5: IDLE never selected when temp > temp_high + hysteresis for > 5 min continuous.
+// While the cold-vent guard holds, cooling starts only above temp_high plus the
+// guard's entry margin, so the overshoot is measured past that margin too.
 struct Ctx5 { uint64_t first_bad_ts = 0; bool tracking = false; };
 inline bool check_5_no_idle_when_overshoot(Ctx5& c, const TraceRow& r, ReportFn report = default_report) {
+    const float margin = std::max(std::max(r.temp_hysteresis, r.bias_cool), r.cooling_entry_margin_f);
     const bool overshoot_idle = mode_is_idle(r.greenhouse_state)
-                             && r.temp_f > r.temp_high + std::max(r.temp_hysteresis, r.bias_cool);
+                             && r.temp_f > r.temp_high + margin;
     if (overshoot_idle) {
         if (!c.tracking) { c.first_bad_ts = r.ts_unix_s; c.tracking = true; }
         else if (r.ts_unix_s - c.first_bad_ts > 300) {  // 5 min

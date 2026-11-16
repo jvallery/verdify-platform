@@ -863,6 +863,30 @@ TEST(invariant_18_fog_fert_exclusive) {
     PASS();
 }
 
+TEST(invariant_5_overshoot_counts_past_the_cold_vent_entry_margin) {
+    // RULINGS G6: with no outdoor reading the cold-vent guard holds and cooling
+    // starts only above temp_high + the entry margin; IDLE inside that margin is
+    // the designed behaviour, IDLE past it is still a breach.
+    auto idle_for = [](float temp_f, float margin_f) {
+        invariants::Ctx5 c;
+        bool ok = true;
+        for (uint64_t t = 0; t <= 600; t += 60) {
+            invariants::TraceRow r{};
+            r.ts_unix_s = 1000 + t;
+            r.greenhouse_state = "IDLE";
+            r.temp_high = 85.0f; r.temp_hysteresis = 1.0f; r.bias_cool = 0.0f;
+            r.temp_f = temp_f;
+            r.cooling_entry_margin_f = margin_f;
+            ok = invariants::check_5_no_idle_when_overshoot(c, r, silent_report) && ok;
+        }
+        return ok;
+    };
+    ASSERT_FALSE(idle_for(87.0f, 0.0f));   // no guard: 87 > 86 for 10 min
+    ASSERT_TRUE(idle_for(87.0f, 3.0f));    // guard: cooling starts above 88
+    ASSERT_FALSE(idle_for(88.5f, 3.0f));   // past the guard margin
+    PASS();
+}
+
 TEST(invariant_19_feed_hold_no_clean_center) {
     invariants::TraceRow r{};
     // Fert master open → no center mister / fog allowed.

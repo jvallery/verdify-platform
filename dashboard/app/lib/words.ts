@@ -208,7 +208,7 @@ const MIST_STAGE = {
 } as const;
 
 /**
- * The codes `gh_fog_block_reason` publishes (firmware/greenhouse/controls.yaml, with `fog_safety_block_reason`'s and
+ * The codes `gh_fog_block_reason` publishes (firmware/greenhouse/controls.yaml, with `manual_fog_safety_block_reason`'s and
  * `fog_force_off_reason`'s in firmware/lib/greenhouse_logic.h): why fog is held, or that it runs. Now's burst
  * `held_reason` reads from here. `FogBlockReason` in verdify_schemas/climate_intent.py is a different enum.
  * `leak_detected` is today's firmware only: the engine release drops it from every force-off (Q-05).
