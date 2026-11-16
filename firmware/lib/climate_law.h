@@ -7,12 +7,14 @@
  * its study options removed. Every number comes from climate_law_constants_generated.h (generated from
  * verdify_schemas/climate_law.yaml); CI fails on a numeric literal in this file other than 0, 1 or 2.
  * firmware/test/test_climate_law.cpp runs this law and the reference over one vector set and requires identical
- * outputs, and the closed-loop simulation in CI (firmware/test/climate_law_sim.sh) runs both through a whole year.
+ * outputs, and the closed-loop simulation in CI (firmware/test/climate_law_sim.py, the validate-containment-firmware part) runs
+ * both through a whole year and compares the per-minute relay trajectory.
  *
  * Pure functions over plain structs. No ESPHome type, no clock, no hour, season or zone branch.
  *
  *   check_band()        the controller's band check (section 4.1)
- *   step()              rules 1 to 9: nine latches and the requests (section 4.2)
+ *   step_checked()      check_band() then step(): the only entry the controller uses
+ *   step()              rules 1 to 9: nine latches and the requests (section 4.2), on a band already checked
  *   relay_step()        the relay layer (section 4.3) and the lead fan (section 4.7)
  *   mister_step()       the pulse request to the irrigation engine (section 4.8, rulings B3, B4)
  *   legacy_state()      the mode / action / axis labels the host still reads (section 11.1)
@@ -93,27 +95,31 @@ inline double dry_cost_limit(double stored) noexcept {
 // -- Section 4.2: the law ---------------------------------------------------
 struct Inputs {
     double T, vpd, dp_f;            // indoor temperature (F), VPD (kPa), dew point (F)
-    Band band;                      // the band now, after check_band()
-    bool humidity_trusted;          // false on the case sensor alone: rules 5 to 7 hold (section 4.2)
-    bool out_ok;                    // fresh outdoor data (station, else the intake probe)
+    Band band;                      // the band now, after check_band() (step_checked() does it)
+    bool temp_valid;                // a valid indoor temperature (ruling G2); false or a non-finite T: the law is off
+    bool humidity_valid;            // a finite indoor humidity from the same source (ruling G2); false or a
+                                    // non-finite VPD: rules 5 to 7 hold, the temperature rules and limits run
+    bool out_ok;                    // fresh outdoor data (station, else the intake probe); non-finite values = none
     double out_T, out_dp_f;         // outdoor temperature and dew point (F)
     double w_in, w_out;             // indoor and outdoor humidity ratio (g/kg)
     double dry_cost_limit;          // kWh per kg, from dry_cost_limit()
 };
 
-// Why drying is wanted (the dry latch is set) and not running. The drying meter publishes it.
+// Why drying is not running while it is wanted (the dry latch is set), the first that applies in this order; and the
+// two validity states, which apply whether or not drying is wanted. The state record publishes the name.
 enum DryRefusal : uint8_t {
-    DRY_RUNNING = 0,        // running, or not wanted
-    DRY_NO_OUTDOOR,         // no fresh outdoor data
-    DRY_COOLING,            // the house is cooling
-    DRY_FURNACE,            // the furnace latch is on
-    DRY_NOT_DRIER,          // outdoor air not drier (dew point margin or moisture difference)
-    DRY_TOO_COLD,           // the house is below the start line (or the stop line)
-    DRY_COST,               // the cost is above the limit
-    DRY_HUMIDITY_UNTRUSTED  // only the case sensor is left
+    DRY_RUNNING = 0,         // running, or not wanted
+    DRY_NO_OUTDOOR,          // no valid outdoor data
+    DRY_COOLING,             // the house is cooling
+    DRY_FURNACE,             // the furnace latch is on
+    DRY_NOT_DRIER,           // outdoor air not drier (dew point margin or moisture difference)
+    DRY_TOO_COLD,            // the house is below the start line (or the stop line)
+    DRY_COST,                // the cost is above the limit
+    DRY_HUMIDITY_INVALID,    // no valid indoor humidity (ruling G2)
+    DRY_NO_TEMPERATURE       // no valid indoor temperature: the law is off
 };
-inline constexpr const char* DRY_REFUSAL_NAMES[] = {"none",    "no_outdoor", "cooling", "furnace",
-                                                    "not_drier", "too_cold",  "cost",    "humidity_untrusted"};
+inline constexpr const char* DRY_REFUSAL_NAMES[] = {"none",      "no_outdoor", "cooling", "furnace",         "not_drier",
+                                                    "too_cold", "cost",       "humidity_invalid", "no_temperature"};
 
 struct State {
     bool h1 = false, h2 = false, cool = false, cool2 = false;
@@ -132,6 +138,14 @@ inline Output step(State& s, const Inputs& u) noexcept {
     Output q;
     const double T = u.T, V = u.vpd;
     const Band& b = u.band;
+    if (!u.temp_valid || !std::isfinite(T)) {  // no indoor temperature: the law does not act (decision 7 is the caller's)
+        s = State{};
+        q.dry_refusal = DRY_NO_TEMPERATURE;
+        return q;
+    }
+    const bool hum_ok = u.humidity_valid && std::isfinite(V);
+    const bool out_valid = u.out_ok && std::isfinite(u.out_T) && std::isfinite(u.out_dp_f) && std::isfinite(u.dp_f)
+                           && std::isfinite(u.w_in) && std::isfinite(u.w_out);
     // ---- temperature
     if (T < b.low + HEAT1_ON_ABOVE_LOW_F) s.h1 = true;
     else if (T > b.low + HEAT1_OFF_ABOVE_LOW_F) s.h1 = false;
@@ -152,12 +166,12 @@ inline Output step(State& s, const Inputs& u) noexcept {
     // ---- humidity, too wet
     if (V < b.vpd_low + DRY_ON_ABOVE_VPD_LOW_KPA) s.dry = true;
     else if (V > b.vpd_low + DRY_OFF_ABOVE_VPD_LOW_KPA) s.dry = false;
-    if (!u.humidity_trusted) {
+    if (!hum_ok) {
         s.wet = s.mist = s.dry = false;
     }
     // is outdoor air worth bringing in?
     bool air_ok = false, cost_ok = false;
-    if (u.out_ok) {
+    if (out_valid) {
         const double dw = u.w_in - u.w_out;
         if (u.out_dp_f <= u.dp_f - DRY_DEWPOINT_START_MARGIN_F) s.air = true;
         else if (u.out_dp_f > u.dp_f - DRY_DEWPOINT_STOP_MARGIN_F) s.air = false;
@@ -190,9 +204,9 @@ inline Output step(State& s, const Inputs& u) noexcept {
         q.cooling = q.drying = false;
     }
     // ---- why drying is wanted and not running (telemetry only)
-    if (!u.humidity_trusted && !q.drying) q.dry_refusal = DRY_HUMIDITY_UNTRUSTED;
+    if (!hum_ok) q.dry_refusal = DRY_HUMIDITY_INVALID;
     else if (s.dry && !q.drying) {
-        if (!u.out_ok) q.dry_refusal = DRY_NO_OUTDOOR;
+        if (!out_valid) q.dry_refusal = DRY_NO_OUTDOOR;
         else if (cooling) q.dry_refusal = DRY_COOLING;
         else if (s.h2) q.dry_refusal = DRY_FURNACE;
         else if (!air_ok) q.dry_refusal = DRY_NOT_DRIER;
@@ -202,11 +216,22 @@ inline Output step(State& s, const Inputs& u) noexcept {
     return q;
 }
 
+// The controller's entry: the band check of section 4.1 on every pass, then the law.
+inline Output step_checked(State& s, Inputs u, bool* band_repaired = nullptr) noexcept {
+    const BandCheck c = check_band(u.band);
+    u.band = c.band;
+    if (band_repaired) *band_repaired = c.repaired;
+    return step(s, u);
+}
+
 // -- Section 4.3: the relay layer; section 4.7: the lead fan ----------------
-// One minimum on and one minimum off time per relay, every relay available at boot, a fan only with the vent open
-// (the vent opens first, the fan follows on the next pass, the vent stays open while a fan runs), the furnace and the
-// vent never on together (the air waits for the furnace to finish and stop; the furnace waits for the vent to close),
-// the furnace cut at once at the 100 F limit, and the lead fan chosen only while both fans are off.
+// One minimum on and one minimum off time per relay; every relay available at boot except the furnace, which waits one
+// minimum off time after any boot (ruling G4); a fan only with the vent open (the vent opens first, the fan follows on
+// the next pass, the vent stays open while a fan runs); the furnace and the vent never on together (the air waits for
+// the furnace to finish and stop; the furnace waits for the vent to close); the lead fan chosen only while both fans
+// are off. At a protection limit (100 F, 40 F) no minimum time applies to any relay and the interlocks still do
+// (ruling G1): at 100 F both heaters stop, the vent opens and the fans start in the same pass; at 40 F the fans stop,
+// the vent closes and both heaters start, the furnace in the same pass once the air is off.
 struct Relay {
     bool on = false;
     bool switched = false;  // false until the relay first switches: available at once after boot
@@ -214,12 +239,12 @@ struct Relay {
 };
 
 struct RelayState {
-    Relay heat1, heat2, fan1, fan2, fog, vent;
+    Relay heat1, heat2{false, true, 0}, fan1, fan2, fog, vent;  // the furnace counts as just switched off at boot
     bool lead_fan1 = true;
 };
 
 struct RelayInputs {
-    double fan1_run_s, fan2_run_s;  // accumulated run seconds (persisted)
+    double fan1_run_s, fan2_run_s;  // accumulated run seconds (persisted); non-finite counts as 0
     bool fog_hold;                  // a hold of section 4.3 forces the fogger off at once
     uint32_t dt_ms;                 // since the last call
 };
@@ -229,9 +254,10 @@ struct RelayStarts {
 };
 
 namespace detail {
-inline bool relay_set(Relay& r, bool want, bool force_off, uint32_t min_on_ms, uint32_t min_off_ms) noexcept {
+inline bool relay_set(Relay& r, bool want, bool force_on, bool force_off, uint32_t min_on_ms,
+                      uint32_t min_off_ms) noexcept {
     if (want) {
-        if (!r.on && (!r.switched || r.since_ms >= min_off_ms)) {
+        if (!r.on && (force_on || !r.switched || r.since_ms >= min_off_ms)) {
             r.on = true;
             r.switched = true;
             r.since_ms = 0;
@@ -251,7 +277,9 @@ inline void relay_tick(Relay& r, uint32_t dt_ms) noexcept {
 
 inline RelayStarts relay_step(RelayState& r, const Output& e, const RelayInputs& in) noexcept {
     for (Relay* x : {&r.heat1, &r.heat2, &r.fan1, &r.fan2, &r.fog, &r.vent}) detail::relay_tick(*x, in.dt_ms);
-    if (!r.fan1.on && !r.fan2.on) r.lead_fan1 = in.fan1_run_s <= in.fan2_run_s;
+    const double run1 = std::isfinite(in.fan1_run_s) ? in.fan1_run_s : 0.0;
+    const double run2 = std::isfinite(in.fan2_run_s) ? in.fan2_run_s : 0.0;
+    if (!r.fan1.on && !r.fan2.on) r.lead_fan1 = run1 <= run2;
     bool want_f1 = r.lead_fan1 ? e.fans >= 1 : e.fans >= 2;
     bool want_f2 = r.lead_fan1 ? e.fans >= 2 : e.fans >= 1;
     bool want_vent = e.vent;
@@ -263,15 +291,33 @@ inline RelayStarts relay_step(RelayState& r, const Output& e, const RelayInputs&
     const bool vent_was_open = r.vent.on;
     const uint32_t heat_on = HEAT_MIN_ON_S * MS_PER_S, heat_off = HEAT_MIN_OFF_S * MS_PER_S;
     const uint32_t fan_on = FAN_MIN_ON_S * MS_PER_S, fan_off = FAN_MIN_OFF_S * MS_PER_S;
+    const uint32_t vent_on = VENT_MIN_ON_S * MS_PER_S, vent_off = VENT_MIN_OFF_S * MS_PER_S;
+    const bool prot = e.hot || e.cold;
     RelayStarts st{};
-    st.heat1 = detail::relay_set(r.heat1, e.heat1, false, heat_on, heat_off);
-    st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_on, e.hot, heat_on, heat_off);
-    st.fan1 = detail::relay_set(r.fan1, want_f1 && vent_was_open, false, fan_on, fan_off);
-    st.fan2 = detail::relay_set(r.fan2, want_f2 && vent_was_open, false, fan_on, fan_off);
-    st.vent = detail::relay_set(r.vent, want_vent || want_f1 || want_f2 || r.fan1.on || r.fan2.on, false,
-                                VENT_MIN_ON_S * MS_PER_S, VENT_MIN_OFF_S * MS_PER_S);
-    st.fog = detail::relay_set(r.fog, e.fog && !in.fog_hold, in.fog_hold, FOG_MIN_ON_S * MS_PER_S,
-                               FOG_MIN_OFF_S * MS_PER_S);
+    st.heat1 = detail::relay_set(r.heat1, e.heat1, prot, prot, heat_on, heat_off);
+    if (prot) {
+        // Ruling G1: no minimum time. The fans that are not wanted and the vent (when no fan is wanted) stop first,
+        // the vent opens before the fans in the same pass, and the furnace starts only with the air off.
+        if (!want_f1) detail::relay_set(r.fan1, false, false, true, fan_on, fan_off);
+        if (!want_f2) detail::relay_set(r.fan2, false, false, true, fan_on, fan_off);
+        st.vent = detail::relay_set(r.vent, want_vent || want_f1 || want_f2, true, true, vent_on, vent_off);
+        st.fan1 = detail::relay_set(r.fan1, want_f1 && r.vent.on, true, true, fan_on, fan_off);
+        st.fan2 = detail::relay_set(r.fan2, want_f2 && r.vent.on, true, true, fan_on, fan_off);
+        const bool air_now = r.vent.on || r.fan1.on || r.fan2.on;
+        st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_now, true, true, heat_on, heat_off);
+    } else {
+        st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_on, false, false, heat_on, heat_off);
+        if (r.heat2.on) {  // defence in depth: the law never asks for the furnace and the air together
+            want_vent = false;
+            want_f1 = want_f2 = false;
+        }
+        st.fan1 = detail::relay_set(r.fan1, want_f1 && vent_was_open, false, false, fan_on, fan_off);
+        st.fan2 = detail::relay_set(r.fan2, want_f2 && vent_was_open, false, false, fan_on, fan_off);
+        st.vent = detail::relay_set(r.vent, want_vent || want_f1 || want_f2 || r.fan1.on || r.fan2.on, false, false,
+                                    vent_on, vent_off);
+    }
+    st.fog = detail::relay_set(r.fog, e.fog && !in.fog_hold, prot && !in.fog_hold, in.fog_hold || prot,
+                               FOG_MIN_ON_S * MS_PER_S, FOG_MIN_OFF_S * MS_PER_S);
     return st;
 }
 
@@ -295,7 +341,9 @@ struct MisterInputs {
     bool allowed[ZONE_COUNT];         // irr_climate_zone_allowed() per zone (east never: no mister)
     double zone_vpd[ZONE_COUNT];      // each zone's VPD (centre: the house average); NaN unknown
     double vpd_high;                  // the band's VPD high edge
-    uint32_t since_fire_ms[ZONE_COUNT];  // since that zone's last climate pulse
+    uint32_t since_fire_ms[ZONE_COUNT];  // since that zone's last climate pulse: a per-zone counter advanced by dt_ms
+                                         // and saturating at UINT32_MAX, which is also its value at boot (never fired);
+                                         // never millis() - last, which wraps
     bool min_off_ready[ZONE_COUNT];   // outside the mister line minimum off time
     uint32_t dt_ms;
 };
@@ -361,8 +409,24 @@ inline MisterCommand mister_step(MisterState& s, const MisterInputs& in) noexcep
     bool any_allowed = false;
     for (int z = 0; z < ZONE_COUNT; ++z) any_allowed = any_allowed || in.allowed[z];
     if (!in.request || !any_allowed) {
-        if (s.phase != MISTER_IDLE || s.zone >= 0) c.close_all = true;
-        s = MisterState{};
+        // close an open pulse; a pulse cut short still owes its gap and a running gap keeps counting, so a request
+        // flap cannot skip the gap
+        if (s.phase == MISTER_PULSE) {
+            c.close_all = true;
+            s.phase = MISTER_GAP;
+            s.timer_ms = MISTER_GAP_S * MS_PER_S;
+        } else if (s.phase == MISTER_GAP) {
+            s.timer_ms = s.timer_ms > in.dt_ms ? s.timer_ms - in.dt_ms : 0;
+            if (s.timer_ms == 0) s.phase = MISTER_IDLE;
+        }
+        s.zone = -1;
+        return c;
+    }
+    if (s.phase == MISTER_PULSE && s.zone >= 0 && !in.allowed[s.zone]) {  // its own line disallowed: close now
+        c.close_all = true;
+        s.zone = -1;
+        s.phase = MISTER_GAP;
+        s.timer_ms = MISTER_GAP_S * MS_PER_S;
         return c;
     }
     if (s.phase != MISTER_IDLE) {
@@ -427,7 +491,7 @@ inline bool climate_demand(const Output& law, bool fog_held_except_drip, bool an
 
 // -- Section 11.1: the labels the host still reads in phase 3 ---------------
 struct LegacyInputs {
-    bool sensor_fault;  // no valid indoor reading
+    bool sensor_fault;  // no valid indoor temperature (ruling G2: the state of decision 7)
     double T, vpd;
     Band band;
     bool vent_on, fog_on, mister_on, heat1_on, heat2_on;  // relays as they are

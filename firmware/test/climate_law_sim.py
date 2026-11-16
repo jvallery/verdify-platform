@@ -21,7 +21,14 @@ The forcing (firmware/test/data/climate_law_forcing.f32.xz) is the review's forc
 simulator reads for these runs, stored as float32 (lossless for every column: the source values are float32) and the
 time column as a start and a 60 s step. The recorded relay columns, which only the replay mode reads, are zero.
 
-Heavy: about 80 simulated years. Run it in CI (the firmware-logic step), not on a workstation.
+Rulings G1 and G4 (2026-11-16) changed the firmware's relay layer after the plan's figures were made. G4 (the furnace
+waits one minimum off time after any boot) is applied to the reference copy compared here as well (one line: the
+furnace's last switch-off is set one step before the start). G1 (no minimum time at a protection limit) is not
+transcribed: instead every compared run must stay strictly between the two limits, which the harness asserts, so the
+rule never acts. The published-figures check uses the simulator exactly as committed.
+
+Heavy: about 80 simulated years (3 to 6 minutes of one core). It runs in CI (the validate-containment-firmware part);
+a workstation `make ci` runs it with --quick.
 Usage: python3 firmware/test/climate_law_sim.py [--quick]   (--quick: two weeks, for a smoke check of the harness)
 """
 
@@ -116,7 +123,7 @@ struct EdgeController {{
     climate_law::Inputs in{{}};
     in.T = u.T; in.vpd = u.vpd; in.dp_f = u.dp_f;
     in.band = {{u.tlo, u.thi, u.vlo, u.vhi}};
-    in.humidity_trusted = true;
+    in.temp_valid = true; in.humidity_valid = true;
     in.out_ok = u.out_ok; in.out_T = u.out_T; in.out_dp_f = u.out_dp_f; in.w_in = u.w_in; in.w_out = u.w_out;
     in.dry_cost_limit = k.e_max;
     last = climate_law::step(st, in);
@@ -161,16 +168,35 @@ def expand_forcing(dest: Path) -> None:
             zeros.tofile(f)
 
 
-def build(work: Path) -> tuple[Path, Path]:
+G4_ANCHOR = '  R[R_VENT].min_off = cfgd("dwell.vent_off", law_ctl ? LD.vent_off : 60);\n'
+G4_LINE = "  if (law_ctl) R[R_H2].last_off = t_start - dt;   // ruling G4: the furnace waits one minimum off time after boot\n"
+
+
+def with_g4(src: str) -> str:
+    if src.count(G4_ANCHOR) != 1:
+        raise SystemExit("G4 anchor not found in closed_loop2.cpp")
+    return src.replace(G4_ANCHOR, G4_ANCHOR + G4_LINE)
+
+
+def build(work: Path) -> tuple[Path, Path, Path]:
+    """The simulator as committed (published), the reference with G4, and the port."""
     cxx = os.environ.get("CXX", "g++").split()
     flags = ["-std=c++17", "-O2", "-w"]
+    published = work / "closed_loop2_published"
+    subprocess.run(
+        [*cxx, *flags, "-I", str(LIB), "-I", str(SIM), "-o", str(published), str(SIM / "closed_loop2.cpp")],
+        check=True,
+    )
+    ref_dir = work / "ref"
+    ref_dir.mkdir()
+    (ref_dir / "closed_loop2.cpp").write_text(with_g4((SIM / "closed_loop2.cpp").read_text()))
     ref = work / "closed_loop2_ref"
     subprocess.run(
-        [*cxx, *flags, "-I", str(LIB), "-I", str(SIM), "-o", str(ref), str(SIM / "closed_loop2.cpp")], check=True
+        [*cxx, *flags, "-I", str(LIB), "-I", str(SIM), "-o", str(ref), str(ref_dir / "closed_loop2.cpp")], check=True
     )
     port_dir = work / "port"
     port_dir.mkdir()
-    src = (SIM / "closed_loop2.cpp").read_text()
+    src = with_g4((SIM / "closed_loop2.cpp").read_text())
     a, b = src.index(RELAY_BEGIN), src.index(RELAY_END)
     src = src[:a] + RELAY_PORT + src[b + len(RELAY_END) :]
     (port_dir / "closed_loop2.cpp").write_text(src)
@@ -178,11 +204,18 @@ def build(work: Path) -> tuple[Path, Path]:
     (port_dir / "band_edge_controller.h").write_text(SHIM.format(reference=SIM / "band_edge_controller.h"))
     port = work / "closed_loop2_port"
     subprocess.run([*cxx, *flags, "-I", str(LIB), "-o", str(port), str(port_dir / "closed_loop2.cpp")], check=True)
-    return ref, port
+    return published, ref, port
 
 
 def run(
-    binary: Path, forcing: Path, name: str, params: str, canopy: float, span: tuple[int, int, int], kv: dict
+    binary: Path,
+    forcing: Path,
+    name: str,
+    params: str,
+    canopy: float,
+    span: tuple[int, int, int],
+    kv: dict,
+    trace: Path | None = None,
 ) -> str:
     start, end, score_from = span
     args = [
@@ -198,7 +231,22 @@ def run(
         "dryout_from=0",
     ]
     args += [f"{k}={v}" for k, v in kv.items()]
+    if trace is not None:
+        args.append(f"trace={trace}")
     return subprocess.run(args, capture_output=True, text=True, check=True).stdout
+
+
+def summary_problems(text: str) -> list[str]:
+    """An output that could match vacuously, or a run that reached a protection limit (G1 untranscribed)."""
+    rows = list(csv.DictReader(io.StringIO(text)))
+    months = [r for r in rows if r["period"] != "ALL"]
+    problems = []
+    if not months or not any(r["period"] == "ALL" for r in rows):
+        problems.append(f"short output: {len(rows)} rows")
+    for r in rows:
+        if not (K.SAFETY_MIN_F < float(r["temp_min_f"]) and float(r["temp_max_f"]) < K.SAFETY_MAX_F):
+            problems.append(f"reached a protection limit in {r['period']}: {r['temp_min_f']} to {r['temp_max_f']} F")
+    return problems
 
 
 def season_rows(text: str, season: str) -> list[dict]:
@@ -226,18 +274,36 @@ def main() -> int:
         work = Path(tmp)
         forcing = work / "forcing.bin"
         expand_forcing(forcing)
-        ref, port = build(work)
+        published, ref, port = build(work)
         # 1. port == reference, row for row
         compared = 0
+        traced_minutes = 0
         for name, kv in SCENARIOS.items():
             for set_name, sdef in SETS.items():
                 for season in ("winter", "summer"):
                     params, canopy = sdef[season]
                     span = winter_span if season == "winter" else summer_span
                     ref_kv = {**REFERENCE_CONSTANTS, **kv}
-                    a = run(ref, forcing, name, params, canopy, span, ref_kv)
-                    b = run(port, forcing, name, params, canopy, span, ref_kv)
+                    ta, tb = work / "trace_ref.csv", work / "trace_port.csv"
+                    a = run(ref, forcing, name, params, canopy, span, ref_kv, ta)
+                    b = run(port, forcing, name, params, canopy, span, ref_kv, tb)
                     compared += 1
+                    problems = summary_problems(a)
+                    trace_a, trace_b = ta.read_bytes(), tb.read_bytes()
+                    if trace_a.count(b"\n") < 2:
+                        problems.append("empty relay trace")
+                    if trace_a != trace_b:
+                        problems.append("per-minute relay trajectories differ")
+                        for la, lb in zip(trace_a.splitlines(), trace_b.splitlines(), strict=False):
+                            if la != lb:
+                                problems.append(f"  ref : {la.decode()}\n  port: {lb.decode()}")
+                                break
+                    traced_minutes += trace_a.count(b"\n") - 1
+                    if problems:
+                        failures += 1
+                        print(f"FAIL {name} {set_name} {season}:")
+                        for p in problems:
+                            print(f"  {p}")
                     if a != b:
                         failures += 1
                         print(f"FAIL port != reference: {name} {set_name} {season}")
@@ -245,7 +311,7 @@ def main() -> int:
                             if la != lb:
                                 print(f"  ref : {la}\n  port: {lb}")
                                 break
-        print(f"port vs reference: {compared} runs compared, {failures} differ")
+        print(f"port vs reference: {compared} runs compared ({traced_minutes} relay-trace minutes), {failures} fail")
         # 2. the reference with its own defaults reproduces the published monthly figures of the law
         if not args.quick:
             published = {}
@@ -257,7 +323,7 @@ def main() -> int:
             for set_name, sdef in SETS.items():
                 for season in ("winter", "summer"):
                     params, canopy = sdef[season]
-                    out = run(ref, forcing, "law", params, canopy, winter_span, {})
+                    out = run(published, forcing, "law", params, canopy, winter_span, {})
                     for r in season_rows(out, season):
                         p = published.get((set_name, r["period"]))
                         if p is None:

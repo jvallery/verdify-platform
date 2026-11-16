@@ -604,8 +604,14 @@ if in_part containment-firmware; then
   fi
 
   step "climate law closed-loop simulation: the firmware's law reproduces the reference over the weather year (#1671)"
+  # The full weather year (about 80 simulated years, 3 to 6 minutes of one core) runs only in CI; a workstation
+  # `make ci` runs the two-week smoke of the same comparison.
   if command -v g++ >/dev/null; then
-    $PY firmware/test/climate_law_sim.py
+    if [ -n "${CI:-}" ] || [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+      $PY firmware/test/climate_law_sim.py
+    else
+      $PY firmware/test/climate_law_sim.py --quick
+    fi
   else
     echo "SKIP: g++ not available on this host (required in the CI image)"
   fi

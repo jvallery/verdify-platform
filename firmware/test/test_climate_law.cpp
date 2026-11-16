@@ -45,7 +45,8 @@ static L::Inputs base_inputs(double T, double vpd) {
   u.vpd = vpd;
   u.dp_f = 50.0;
   u.band = kBand;
-  u.humidity_trusted = true;
+  u.temp_valid = true;
+  u.humidity_valid = true;
   u.out_ok = false;
   u.out_T = 40.0;
   u.out_dp_f = 30.0;
@@ -115,7 +116,8 @@ static void port_equals_reference_law() {
       L::Inputs u{};
       u.T = eu.T; u.vpd = eu.vpd; u.dp_f = eu.dp_f;
       u.band = {lo, hi, vlo, vhi};
-      u.humidity_trusted = true;
+      u.temp_valid = true;
+      u.humidity_valid = true;
       u.out_ok = eu.out_ok; u.out_T = eu.out_T; u.out_dp_f = eu.out_dp_f; u.w_in = eu.w_in; u.w_out = eu.w_out;
       u.dry_cost_limit = limit;
       const L::Output q = L::step(st, u);
@@ -153,6 +155,7 @@ static void port_equals_simulator_relay_layer() {
   for (int traj = 0; traj < 200; ++traj) {
     SimRelay H1, H2, F1, F2, FOG, VENT;
     H1.min_on = H2.min_on = HEAT_MIN_ON_S; H1.min_off = H2.min_off = HEAT_MIN_OFF_S;
+    H2.last_off = -5.0;  // ruling G4: the furnace waits one minimum off time after boot (applied to the reference too)
     F1.min_on = F2.min_on = FAN_MIN_ON_S; F1.min_off = F2.min_off = FAN_MIN_OFF_S;
     VENT.min_on = VENT_MIN_ON_S; VENT.min_off = VENT_MIN_OFF_S;
     FOG.min_on = FOG_MIN_ON_S; FOG.min_off = FOG_MIN_OFF_S;
@@ -166,10 +169,9 @@ static void port_equals_simulator_relay_layer() {
       if (r.coin(0.05)) {  // a new request now and then
         e = L::Output{};
         e.heat1 = r.coin(0.5); e.heat2 = r.coin(0.3); e.fog = r.coin(0.3);
-        e.hot = r.coin(0.05);
         const int mode = int(r.uni(0, 3));
         e.vent = mode > 0; e.fans = mode == 0 ? 0 : (r.coin(0.3) ? 2 : 1);
-        if (e.vent && r.coin(0.7)) e.heat2 = false;
+        if (e.vent) e.heat2 = false;  // the law never asks for both (q.heat2 needs !q.vent)
       }
       // simulator
       if (!F1.on && !F2.on) lead1 = f1_s <= f2_s;
@@ -367,13 +369,13 @@ static void rule7_drying() {
   // case sensor alone: humidity rules hold
   s = {};
   u = drying_inputs(T, vl);
-  u.humidity_trusted = false;
+  u.humidity_valid = false;
   q = L::step(s, u);
-  CHECK(!q.drying && !q.fog && !q.mist && q.dry_refusal == L::DRY_HUMIDITY_UNTRUSTED, "case sensor alone");
+  CHECK(!q.drying && !q.fog && !q.mist && q.dry_refusal == L::DRY_HUMIDITY_INVALID, "no valid humidity");
   u = base_inputs(kBand.low + 1, 2.5);
-  u.humidity_trusted = false;
+  u.humidity_valid = false;
   q = L::step(s, u);
-  CHECK(!q.fog && !q.mist && q.heat1, "case sensor alone: no fog, temperature rules run");
+  CHECK(!q.fog && !q.mist && q.heat1, "no valid humidity: no fog, temperature rules run");
 }
 
 // -- protection, with a band that bypasses validation ---------------------
@@ -400,20 +402,45 @@ static void protection_limits() {
 }
 
 // -- 4.3: the relay layer ------------------------------------------------
+static L::RelayState after_boot_wait() {  // a relay state past the furnace's boot wait (ruling G4)
+  L::RelayState r;
+  L::relay_step(r, L::Output{}, L::RelayInputs{0, 0, false, HEAT_MIN_OFF_S * MS_PER_S});
+  return r;
+}
+
 static void relay_layer() {
   L::RelayState r;
   L::Output e{};
-  e.heat1 = e.heat2 = true;
+  e.heat1 = e.heat2 = e.fog = true;
   L::RelayInputs in{0, 0, false, 1000};
   L::relay_step(r, e, in);
-  CHECK(r.heat1.on && r.heat2.on, "every relay available at boot");
+  CHECK(r.heat1.on && r.fog.on && !r.heat2.on, "G4: every relay available at boot except the furnace");
+  e = L::Output{};
+  e.vent = true; e.fans = 1;
+  L::relay_step(r, e, in);
+  L::relay_step(r, e, in);
+  CHECK(r.vent.on && r.fan1.on, "G4: vent and fans available at boot");
+  r = {};
+  e = L::Output{};
+  e.heat2 = true;
+  uint32_t waited = 0;
+  while (!r.heat2.on && waited < 2 * HEAT_MIN_OFF_S * MS_PER_S) {
+    L::relay_step(r, e, in);
+    waited += in.dt_ms;
+  }
+  CHECK(waited == HEAT_MIN_OFF_S * MS_PER_S, "G4: the furnace starts one minimum off time after boot");
+  r = after_boot_wait();
+  e = L::Output{};
+  e.heat1 = e.heat2 = true;
+  L::relay_step(r, e, in);
+  CHECK(r.heat1.on && r.heat2.on, "both heaters on");
   e = L::Output{};
   L::relay_step(r, e, in);
   CHECK(r.heat1.on && r.heat2.on, "minimum on time holds the heaters");
   for (uint32_t t = 1000; t < HEAT_MIN_ON_S * MS_PER_S; t += 1000) L::relay_step(r, e, in);
   CHECK(!r.heat1.on && !r.heat2.on, "off after the minimum on time");
   // cooling with the furnace on: the air waits for the furnace to finish
-  r = {};
+  r = after_boot_wait();
   e = L::Output{};
   e.heat2 = true;
   L::relay_step(r, e, in);
@@ -429,22 +456,93 @@ static void relay_layer() {
   CHECK(!r.heat2.on && r.vent.on && !r.fan1.on, "furnace off, then the vent opens first");
   L::relay_step(r, e, in);
   CHECK(r.vent.on && r.fan1.on, "the fan follows on the next pass");
-  // 100 F: the furnace is cut at once and the vent does not wait
-  r = {};
+  // G1, 100 F: both heaters cut at once, the vent opens and both fans start in the same pass
+  r = after_boot_wait();
   e = L::Output{};
-  e.heat2 = true;
+  e.heat1 = e.heat2 = true;
   L::relay_step(r, e, in);
   e = L::Output{};
   e.vent = true; e.fans = 2; e.cooling = true; e.hot = true;
   L::relay_step(r, e, in);
-  CHECK(!r.heat2.on && r.vent.on, "100 F: furnace cut at once, vent opens");
+  CHECK(!r.heat1.on && !r.heat2.on && r.vent.on && r.fan1.on && r.fan2.on,
+        "G1, 100 F: heaters cut at once, vent and both fans in the same pass");
+  // G1, 100 F: the vent and the fans ignore their minimum off time
+  r = after_boot_wait();
+  e = L::Output{};
+  e.vent = true; e.fans = 2; e.cooling = true;
   L::relay_step(r, e, in);
-  CHECK(r.fan1.on && r.fan2.on, "100 F: both fans follow");
+  L::relay_step(r, e, in);
+  for (uint32_t t = 0; t < FAN_MIN_ON_S * MS_PER_S; t += 1000) L::relay_step(r, L::Output{}, in);
+  L::relay_step(r, L::Output{}, in);
+  CHECK(!r.vent.on && !r.fan1.on && !r.fan2.on, "air off");
+  e.hot = true;
+  L::relay_step(r, e, in);
+  CHECK(r.vent.on && r.fan1.on && r.fan2.on, "G1, 100 F: vent and fans start inside their minimum off time");
+  // G1, 40 F: the fans stop and the vent closes at once, both heaters start in the same pass
+  r = after_boot_wait();
+  e = L::Output{};
+  e.vent = true; e.fans = 2; e.cooling = true;
+  L::relay_step(r, e, in);
+  L::relay_step(r, e, in);
+  CHECK(r.vent.on && r.fan1.on && r.fan2.on, "cooling running");
+  e = L::Output{};
+  e.heat1 = e.heat2 = true; e.cold = true;
+  L::relay_step(r, e, in);
+  CHECK(!r.vent.on && !r.fan1.on && !r.fan2.on && r.heat1.on && r.heat2.on,
+        "G1, 40 F: air off at once, both heaters on in the same pass");
+  // G1, 40 F: the heaters ignore their minimum off time
+  r = after_boot_wait();
+  e = L::Output{};
+  e.heat1 = e.heat2 = true;
+  L::relay_step(r, e, in);
+  for (uint32_t t = 0; t < HEAT_MIN_ON_S * MS_PER_S; t += 1000) L::relay_step(r, L::Output{}, in);
+  CHECK(!r.heat1.on && !r.heat2.on, "heaters off");
+  e.cold = true;
+  L::relay_step(r, e, in);
+  CHECK(r.heat1.on && r.heat2.on, "G1, 40 F: heaters start inside their minimum off time");
+  // G1 keeps the interlocks: at 100 F with the furnace asked (impossible from the law) the air still wins
+  r = after_boot_wait();
+  e = L::Output{};
+  e.heat2 = e.vent = true; e.fans = 1; e.hot = true;
+  L::relay_step(r, e, in);
+  CHECK(!(r.heat2.on && r.vent.on) && !(r.fan1.on && !r.vent.on), "G1: interlocks still apply");
+  // m6: a furnace and vent request together outside protection: the furnace wins, the air waits
+  r = after_boot_wait();
+  e = L::Output{};
+  e.heat2 = e.vent = true; e.fans = 1;
+  for (int i = 0; i < 5; ++i) {
+    L::relay_step(r, e, in);
+    CHECK(!(r.heat2.on && r.vent.on) && !((r.fan1.on || r.fan2.on) && !r.vent.on), "m6: never together");
+  }
   // the vent stays open while a fan runs
+  r = after_boot_wait();
+  e = L::Output{};
+  e.vent = true; e.fans = 1;
+  L::relay_step(r, e, in);
+  L::relay_step(r, e, in);
   e = L::Output{};
   L::relay_step(r, e, in);
   L::relay_step(r, e, in);
   CHECK(r.fan1.on && r.vent.on, "vent held open while the fans finish their minimum on time");
+  // saturation: a relay off since boot stays available however long the controller runs (m11)
+  r = {};
+  L::relay_step(r, L::Output{}, L::RelayInputs{0, 0, false, UINT32_MAX - 1000});
+  L::relay_step(r, L::Output{}, L::RelayInputs{0, 0, false, 5000});
+  CHECK(r.heat2.since_ms == UINT32_MAX && r.heat1.since_ms == UINT32_MAX, "relay timers saturate");
+  e = L::Output{};
+  e.heat2 = true;
+  L::relay_step(r, e, in);
+  CHECK(r.heat2.on, "a saturated timer leaves the relay available");
+  // m5: a non-finite run time counts as 0
+  r = after_boot_wait();
+  e = L::Output{};
+  e.vent = true; e.fans = 1;
+  L::relay_step(r, e, L::RelayInputs{NAN, 100, false, 1000});
+  CHECK(r.lead_fan1, "m5: a NaN run time counts as 0, so that fan leads");
+  L::relay_step(r, L::Output{}, in);
+  r = after_boot_wait();
+  L::relay_step(r, e, L::RelayInputs{100, NAN, false, 1000});
+  CHECK(!r.lead_fan1, "m5: either side");
   // fog: minimum times and the hold
   r = {};
   e = L::Output{};
@@ -555,8 +653,9 @@ static void invariants() {
         off_ms[k] += 1000;
         if (now[k] != prev[k]) {
           // a switch-off before the minimum on time is allowed only for the furnace at 100 F
-          if (!now[k] && on_ms[k] < min_on[k] * MS_PER_S && !(k == 1 && q.hot)) min_times = false;
-          if (now[k] && off_ms[k] < min_off[k] * MS_PER_S && i > 0 && off_ms[k] <= uint32_t(i) * 1000) min_times = false;
+          if (!now[k] && on_ms[k] < min_on[k] * MS_PER_S && !(q.hot || q.cold)) min_times = false;
+          if (now[k] && off_ms[k] < min_off[k] * MS_PER_S && !(q.hot || q.cold) && (k == 1 || off_ms[k] <= uint32_t(i) * 1000))
+            min_times = false;
           on_ms[k] = off_ms[k] = 0;
           prev[k] = now[k];
         }
@@ -621,7 +720,7 @@ static void mister_request() {
   L::mister_opened(s, c.open_zone, c.pulse_ms);
   m.request = false;
   c = L::mister_step(s, m);
-  CHECK(c.close_all && s.phase == L::MISTER_IDLE, "request ends: pulse closed at once");
+  CHECK(c.close_all && s.phase == L::MISTER_GAP, "request ends: pulse closed at once, the gap still owed");
   // the longer pulse (ruling B4)
   CHECK(L::mister_pulse_ms(1.2 * MISTER_LONG_PULSE_VPD_RATIO + 0.01, 1.2)
             == uint32_t(std::lround(MISTER_PULSE_S * MS_PER_S * MISTER_LONG_PULSE_FACTOR)),
@@ -714,6 +813,146 @@ static void legacy_labels() {
   CHECK(L::legacy_state(in).axis == CLIMATE_PRIORITY_TEMP, "idle, temperature out: temp");
 }
 
+// -- non-finite inputs fail safe (review M1, M2, m12), the checked entry (m2), the review's test gaps (m3, m4, m11) --
+static void nonfinite_and_gaps() {
+  // M1: a NaN temperature after the furnace latched: every request off, the state cleared
+  L::State s;
+  L::Output q = L::step(s, base_inputs(kBand.low - 1, 1.0));
+  CHECK(s.h2 && q.heat2, "furnace latched");
+  q = L::step(s, base_inputs(NAN, 1.0));
+  CHECK(!q.heat1 && !q.heat2 && !q.vent && q.fans == 0 && !q.fog && !q.mist && !q.drying && !s.h1 && !s.h2
+            && q.dry_refusal == L::DRY_NO_TEMPERATURE,
+        "M1: NaN temperature: the law does not act");
+  s = {};
+  L::step(s, base_inputs(kBand.high + 3, 1.0));
+  q = L::step(s, base_inputs(INFINITY, 1.0));
+  CHECK(!q.vent && q.fans == 0 && !q.hot && !s.cool, "M1: infinite temperature: no request (not read as 100 F)");
+  s = {};
+  L::Inputs u = base_inputs(kBand.low - 1, 1.0);
+  L::step(s, u);
+  u.temp_valid = false;
+  q = L::step(s, u);
+  CHECK(!q.heat1 && !q.heat2 && q.dry_refusal == L::DRY_NO_TEMPERATURE, "G2: temperature not valid: the law is off");
+  // M1: a NaN VPD after fog latched
+  s = {};
+  q = L::step(s, base_inputs(70, kBand.vpd_high + 0.5));
+  CHECK(q.fog && q.mist, "fog and mist latched");
+  q = L::step(s, base_inputs(70, NAN));
+  CHECK(!q.fog && !q.mist && !s.wet && !s.mist && q.dry_refusal == L::DRY_HUMIDITY_INVALID, "M1: NaN VPD: fog stops");
+  // G2: no valid humidity, valid temperature: the temperature rules and the protection limits still run
+  s = {};
+  u = base_inputs(SAFETY_MAX_F + 1, NAN);
+  q = L::step(s, u);
+  CHECK(q.hot && q.vent && q.fans == 2 && !q.fog, "G2: 100 F protection runs without humidity");
+  s = {};
+  u = base_inputs(SAFETY_MIN_F - 1, NAN);
+  q = L::step(s, u);
+  CHECK(q.cold && q.heat1 && q.heat2, "G2: 40 F protection runs without humidity");
+  // M2: a NaN outdoor temperature with out_ok: no drying, refusal no_outdoor
+  s = {};
+  u = drying_inputs(70, kBand.vpd_low);
+  q = L::step(s, u);
+  CHECK(q.drying, "drying runs with valid outdoor data");
+  s = {};
+  u.out_T = NAN;
+  q = L::step(s, u);
+  CHECK(!q.drying && !s.air && q.dry_refusal == L::DRY_NO_OUTDOOR, "M2: NaN outdoor temperature: no drying");
+  // M2: a running run stops when the dew points turn non-finite (the air latch does not hold)
+  s = {};
+  u = drying_inputs(70, kBand.vpd_low);
+  L::step(s, u);
+  for (double L::Inputs::*f : {&L::Inputs::out_dp_f, &L::Inputs::dp_f, &L::Inputs::w_in, &L::Inputs::w_out}) {
+    L::State t = s;
+    L::Inputs v = u;
+    v.*f = NAN;
+    q = L::step(t, v);
+    CHECK(!q.drying && !t.run && q.dry_refusal == L::DRY_NO_OUTDOOR, "M2: a non-finite drying input stops the run");
+  }
+  // m12: the drying cost limit passed as NaN refuses (no start at any price)
+  s = {};
+  u = drying_inputs(70, kBand.vpd_low);
+  u.dry_cost_limit = NAN;
+  q = L::step(s, u);
+  CHECK(!q.drying && q.dry_refusal == L::DRY_COST, "m12: a NaN limit passed in refuses");
+  // m12: no non-finite input sets a request that a finite one would not
+  Rng r{31337};
+  bool safe = true;
+  for (int i = 0; i < 20000; ++i) {
+    L::State t;
+    L::Inputs v = drying_inputs(r.uni(30, 110), r.uni(0, 3));
+    double* fields[] = {&v.T, &v.vpd, &v.dp_f, &v.out_T, &v.out_dp_f, &v.w_in, &v.w_out};
+    const double bad[] = {NAN, INFINITY, -INFINITY};
+    *fields[r.next() % 7] = bad[r.next() % 3];
+    for (int k = 0; k < 3; ++k) q = L::step(t, v);
+    if (!std::isfinite(v.T) && (q.heat1 || q.heat2 || q.vent || q.fans || q.fog || q.mist)) safe = false;
+    if (!std::isfinite(v.vpd) && (q.fog || q.mist || q.drying)) safe = false;
+    if ((!std::isfinite(v.out_T) || !std::isfinite(v.out_dp_f) || !std::isfinite(v.dp_f)) && q.drying) safe = false;
+    if (q.drying && !(q.dry_cost <= v.dry_cost_limit)) safe = false;
+  }
+  CHECK(safe, "m12: non-finite inputs never request heat, air, water or drying they should not");
+  // m11: refusal order: cooling before furnace (an unchecked inverted band latches both)
+  s = {};
+  u = drying_inputs(72, 0.5);
+  u.band = {80.0, 65.0, 0.8, 1.25};
+  q = L::step(s, u);
+  CHECK(s.cool && s.h2 && s.dry && q.dry_refusal == L::DRY_COOLING, "m11: refusal order cooling, then furnace");
+  // m2: step_checked() runs the band check first
+  s = {};
+  L::State s2;
+  u = drying_inputs(72, 0.5);
+  u.band = {80.0, 65.0, 0.8, 1.25};
+  bool repaired = false;
+  const L::Output a = L::step_checked(s, u, &repaired);
+  L::Inputs c = u;
+  c.band = L::check_band(u.band).band;
+  const L::Output b = L::step(s2, c);
+  CHECK(repaired && a.cooling == b.cooling && a.heat2 == b.heat2 && a.heat1 == b.heat1 && a.vent == b.vent
+            && !(a.cooling && a.heat2),
+        "m2: step_checked equals step on the checked band; no cooling inside a repaired band with the furnace");
+  // m11: check_band with a non-finite high edge takes the low edge plus the minimum width
+  const L::Band nb = L::check_band({70.0, NAN, 1.0, NAN}).band;
+  CHECK(nb.high == 70.0 + BAND_MIN_WIDTH_F && std::fabs(nb.vpd_high - (1.0 + BAND_MIN_WIDTH_KPA)) < 1e-12,
+        "m11: non-finite high edges");
+  // m11: vpd_emergency leaves out the centre zone (it is the house average)
+  const double zc[ZONE_COUNT] = {VPD_EMERGENCY_KPA + 0.1, NAN, NAN, NAN};
+  CHECK(!L::vpd_emergency(2.0, zc), "m11: the centre zone is not an emergency term");
+  const double zs[ZONE_COUNT] = {NAN, VPD_EMERGENCY_KPA + 0.1, NAN, NAN};
+  CHECK(L::vpd_emergency(2.0, zs), "m11: south is");
+  // m11: fairness fires strictly after the overdue time
+  L::MisterInputs m = mister_inputs(1.6);
+  m.allowed[ZONE_SOUTH] = true;
+  m.since_fire_ms[ZONE_SOUTH] = MISTER_OVERDUE_S * MS_PER_S;
+  CHECK(L::mister_choose_zone(m) == ZONE_CENTER, "m11: not overdue at exactly the overdue time");
+  m.since_fire_ms[ZONE_SOUTH] = MISTER_OVERDUE_S * MS_PER_S + 1;
+  CHECK(L::mister_choose_zone(m) == ZONE_SOUTH, "m11: overdue one millisecond later");
+  // m4: a saturated counter (never fired since boot) is overdue
+  m.since_fire_ms[ZONE_SOUTH] = UINT32_MAX;
+  CHECK(L::mister_choose_zone(m) == ZONE_SOUTH, "m4: never fired counts as overdue");
+  // m3: the open pulse closes when its own line alone is disallowed, and the gap is kept
+  L::MisterState ms;
+  m = mister_inputs(1.6);
+  m.allowed[ZONE_SOUTH] = true;
+  L::MisterCommand cmd = L::mister_step(ms, m);
+  L::mister_opened(ms, cmd.open_zone, cmd.pulse_ms);
+  L::mister_step(ms, m);
+  m.allowed[cmd.open_zone] = false;
+  L::MisterCommand c2 = L::mister_step(ms, m);
+  CHECK(c2.close_all && ms.phase == L::MISTER_GAP && ms.timer_ms == MISTER_GAP_S * MS_PER_S,
+        "m3: own line disallowed: closed now, the gap follows");
+  // m3: a request flap does not skip the gap
+  ms = {};
+  m = mister_inputs(1.6);
+  cmd = L::mister_step(ms, m);
+  L::mister_opened(ms, cmd.open_zone, cmd.pulse_ms);
+  m.request = false;
+  L::mister_step(ms, m);
+  L::mister_step(ms, m);
+  m.request = true;
+  uint32_t gap = m.dt_ms;  // the second flap tick
+  while (L::mister_step(ms, m).open_zone < 0 && gap < 10 * MISTER_GAP_S * MS_PER_S) gap += m.dt_ms;
+  CHECK(gap + m.dt_ms == MISTER_GAP_S * MS_PER_S, "m3: after a request flap the next pulse waits the whole gap");
+}
+
 int main() {
   port_equals_reference_law();
   port_equals_simulator_relay_layer();
@@ -726,6 +965,7 @@ int main() {
   mister_request();
   engine_inputs();
   legacy_labels();
+  nonfinite_and_gaps();
   std::printf("test_climate_law: %d checks, %d failed\n", checks_run, checks_failed);
   return checks_failed == 0 ? 0 : 1;
 }
