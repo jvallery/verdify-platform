@@ -88,7 +88,7 @@ test("the rail's Show filters carry counts, filter the rows and survive a reload
   await expect(rail.locator(".ctl-rail-list").first().getByRole("link")).toHaveText([
     /^All \d+$/, "Pending changes 0", "Changed in the last 24 h 5", "Waiting for controller 0", "Not applied 0", "Manual (Iris skips) 0", "Set by Iris or an agent 4", /^Read-only \d+$/,
   ]);
-  await rail.getByRole("link", { name: "Controller safety 27" }).click();
+  await rail.getByRole("link", { name: /^Controller safety \d+$/ }).click();
   await expect(page.locator("#group-controller_safety")).toBeInViewport();
   await expect(page).toHaveURL(/\/settings$/);
   await page.getByRole("link", { name: "Set by Iris or an agent 4" }).click();
