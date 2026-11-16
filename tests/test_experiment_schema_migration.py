@@ -389,6 +389,8 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "311-one-compliance-definition.sql",
         # The operator API's metric reads (two grants and the energy projection) run forward only.
         "312-operator-metrics-reads.sql",
+        # The daily review table and its grants run forward only.
+        "313-planner-review.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(

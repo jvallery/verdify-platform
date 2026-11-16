@@ -1134,6 +1134,36 @@ def sealed_sql_312():
     )
 
 
+PLANNER_REVIEW_MIGRATION = (
+    313,
+    "313-planner-review.sql",
+    "682f77d14b56c241d828b7b39afe20152344b550777cd89c78687ce835997005",
+)
+# The daily review (#1659, climate refactor 5.1): planner_review with ingestor and MCP duty grants and the ingestor's
+# SELECT on v_daily_record, so the ingestor and MCP seals move and the api seal keeps its value. PENDING native
+# qualification (tests/fixtures/313-planner-review-native-qualification.json): the literals are 310's until measured.
+SUCCESSOR_313 = {
+    **SUCCESSOR_312,
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22",
+}
+
+
+def sealed_sql_313():
+    # Keep every 312 predicate and bind the exact 313 runner stamp with its successor seals.
+    predecessor = sealed_sql_312()
+    current = seal_profile_sql(312, SUCCESSOR_312)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(313, SUCCESSOR_313), 1)
+        + " AND "
+        + ledger_row_sql(*PLANNER_REVIEW_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1202,6 +1232,8 @@ def sealed_sql():
         + sealed_sql_311()
         + " OR "
         + sealed_sql_312()
+        + " OR "
+        + sealed_sql_313()
         + ")"
     )
 
