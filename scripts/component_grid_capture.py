@@ -685,7 +685,10 @@ def evaluate_layer_triple(
         )
 
     blockers: list[str] = sorted(malformed.values())
-    if band_source not in {"dispatcher_legacy", "onchip_curve"}:
+    if band_source == "corridor":
+        # Phase 2 firmware: the clock is not trusted and the controller runs the corridor band; no curve to observe.
+        blockers.append("consumed_branch_corridor_clock_untrusted")
+    elif band_source not in {"dispatcher_legacy", "onchip_curve"}:
         blockers.append("consumed_branch_unobservable")
     elif (
         band_source == "onchip_curve"

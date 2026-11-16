@@ -100,7 +100,7 @@ def test_a_relay_counter_payload_that_is_not_version_1_is_dropped(payload):
     [
         ("outdoor_source", "intake", "outdoor_source"),
         ("outdoor_source", "none", "outdoor_source"),
-        ("mode_reason", "no_indoor_heat", "mode_reason"),
+        ("mode_reason", "sensor_fault", "mode_reason"),
         ("greenhouse_state", "SENSOR_FAULT", "greenhouse_state"),
     ],
 )
@@ -178,6 +178,7 @@ def test_the_constants_hash_is_stored_and_a_malformed_one_dropped():
 NAMES = {
     "_IRR_NEWEST_STATE_WINDOW",
     "SENSOR_FAULT_ALERT_AFTER_S",
+    "_SENSOR_FAULT_RELAYS",
     "_SENSOR_FAULT_SQL",
     "_sensor_fault_alert",
     "_LAW_CONSTANTS_SQL",
@@ -208,18 +209,31 @@ class Conn:
         return self.row
 
 
-def test_sensor_fault_opens_a_critical_alert_naming_its_reason():
+def test_sensor_fault_opens_a_critical_alert_naming_the_outdoor_source_and_the_relays():
     ns = _alert_fn()
     since = datetime(2026, 11, 16, 5, 0, tzinfo=UTC)
-    conn = Conn({"since": since, "mode_reason": "no_indoor_heat"})
+    row = {"since": since, "mode_reason": "sensor_fault", "outdoor_source": "station", "relays_on": ["heat1"]}
+    conn = Conn(row)
     alert = asyncio.run(ns["_sensor_fault_alert"](conn))
-    assert conn.calls[0][1] == (120,)
+    assert conn.calls[0][1] == (120, ["vent", "fan1", "fan2", "heat1", "heat2"])
     assert "'SENSOR_FAULT'" in conn.calls[0][0] and "make_interval(secs => $1)" in conn.calls[0][0]
     assert (alert["alert_type"], alert["severity"]) == ("sensor_fault", "critical")
-    assert "no_indoor_heat" in alert["message"]
+    assert alert["message"].endswith("(outdoor source station; on: heat1)")
+    assert alert["details"]["relays_on"] == ["heat1"] and alert["details"]["outdoor_source"] == "station"
     envelope = AlertEnvelope.model_validate(alert)
     assert envelope.alert_type == "sensor_fault"
+    blind = asyncio.run(ns["_sensor_fault_alert"](Conn({**row, "outdoor_source": None, "relays_on": []})))
+    assert blind["message"].endswith("(outdoor source unknown; on: nothing)")
     assert asyncio.run(ns["_sensor_fault_alert"](Conn(None))) is None
+
+
+def test_a_corridor_band_is_an_explicit_outcome_where_the_band_branch_is_checked():
+    wire = (ROOT / "verdify_schemas/control_band_wire.py").read_text()
+    capture = (ROOT / "scripts/component_grid_capture.py").read_text()
+    assert 'if document["band_source"]["value"] == "corridor":' in wire
+    assert "the controller runs the corridor band (clock not trusted)" in wire
+    assert 'if band_source == "corridor":' in capture
+    assert "consumed_branch_corridor_clock_untrusted" in capture
 
 
 def test_a_constants_hash_other_than_the_host_s_opens_an_info_alert():
@@ -231,3 +245,9 @@ def test_a_constants_hash_other_than_the_host_s_opens_an_info_alert():
     assert (alert["alert_type"], alert["severity"]) == ("law_constants_mismatch", "info")
     assert alert["details"] == {"reported": "a" * 64, "expected": "b" * 64, "reported_at": at.isoformat()}
     assert AlertEnvelope.model_validate(alert).alert_type == "law_constants_mismatch"
+
+
+def test_outdoor_source_is_stored_on_every_receipt_so_its_age_is_known():
+    for _ in range(2):
+        observe("outdoor_source", "station")
+    assert ingestor.state.pending_states == [("outdoor_source", "station")] * 2

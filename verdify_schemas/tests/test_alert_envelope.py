@@ -487,7 +487,12 @@ CASES = {
     ),
     "sensor_fault": (
         SensorFaultAlert,
-        {"since": "2026-11-16T05:00:00+00:00", "mode_reason": "no_indoor_heat"},
+        {
+            "since": "2026-11-16T05:00:00+00:00",
+            "mode_reason": "sensor_fault",
+            "outdoor_source": "none",
+            "relays_on": [],
+        },
     ),
     "soil_sensor_offline": (
         SoilSensorOfflineAlert,

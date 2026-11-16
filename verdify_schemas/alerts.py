@@ -257,11 +257,13 @@ class TempSafetyDetails(_DetailsBase):
 
 class SensorFaultDetails(_DetailsBase):
     """The controller's SENSOR_FAULT state (climate refactor decision 7, RULINGS B1): no valid indoor reading, so it
-    acts on the outdoor air alone. ``mode_reason`` says which branch: ``no_indoor_vent``, ``no_indoor_heat`` or
-    ``no_indoor_off`` from the phase 2 build, ``sensor_fault`` from earlier builds."""
+    acts on the outdoor air alone. The branch shows in ``outdoor_source`` (``none`` is the off branch) and in the
+    relays on (vent and the lead fan, or heat1 alone, or nothing); ``mode_reason`` is the controller's, unchanged."""
 
     since: AwareDatetime
     mode_reason: str | None = None
+    outdoor_source: str | None = None
+    relays_on: list[str] = Field(default_factory=list)
 
 
 class LawConstantsMismatchDetails(_DetailsBase):

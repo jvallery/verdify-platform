@@ -3732,13 +3732,15 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
                     log.warning("Climate law constants hash rejected: not 64 lowercase hex characters")
                     return
             old = state.system.get(entity)
-            # climate_law_state is stored on every receipt: its 60 s heartbeat row shows the law is running.
+            # climate_law_state (60 s heartbeat) and outdoor_source (every 300 s) are stored on every receipt: the
+            # newest row's age shows the law is running and how old the controller's outdoor reading choice is.
             force_refresh = entity in {
                 "gl_main_state",
                 "gl_main_reason",
                 "gl_grow_state",
                 "gl_grow_reason",
                 "climate_law_state",
+                "outdoor_source",
             }
             if old != val or force_refresh:
                 if _observation_spool_enabled():

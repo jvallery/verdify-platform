@@ -421,6 +421,10 @@ def validate_wire_contract(contract: dict, document: dict, accepted_firmware: st
         or not 0 <= (completed - marker_time).total_seconds() <= 30
     ):
         raise ValueError("served wire sample clock callback not original/current")
+    if document["band_source"]["value"] == "corridor":
+        # Phase 2 firmware: the on-chip band is on but the clock is not trusted, so the controller runs the corridor
+        # (the widest anchor edges) and no curve sample exists to compare. An explicit outcome, not a malformed one.
+        raise ValueError("served wire refused: the controller runs the corridor band (clock not trusted)")
     if document["band_source"]["value"] != "onchip_curve":
         raise ValueError("served wire contract requires consumed onchip branch")
     raw = marker["value"]
