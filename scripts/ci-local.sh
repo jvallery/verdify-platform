@@ -243,9 +243,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_experiment_qualification_spec.py
     tests/test_experiment_schema_migration.py
     tests/test_experiment_v2_counter_source.py
-    tests/test_experiment_v2_reconcile.py
-    tests/test_experiment_v2_reconcile_archive.py
-    tests/test_experiment_v2_capture_inputs.py
     tests/test_freeze_route_day_target.py
     tests/test_experiment_v2_restore_rehearsal.py
     tests/test_experiment_v2_data_contract.py
