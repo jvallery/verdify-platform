@@ -62,54 +62,60 @@ check "Equipment: ${ea}s ago (<86400s)" "$([ "$ea" -lt 86400 ] && echo true || e
 da=$(db "SELECT EXTRACT(EPOCH FROM now()-max(ts))::int FROM diagnostics;" | tr -d ' ')
 check "Diagnostics: ${da}s ago (<300s)" "$([ "$da" -lt 300 ] && echo true || echo "stale: ${da}s")"
 
-aa=$(db "SELECT EXTRACT(EPOCH FROM now()-max(ts))::int FROM climate_action_log;" | tr -d ' ')
-check "Climate action log: ${aa:-no data}s ago (<300s)" "$([ -n "$aa" ] && [ "$aa" -lt 300 ] && echo true || echo "stale: ${aa:-no data}s")"
+# Controller decision proof: the law's state record heartbeat (<=120s, the law build), else today's action log.
+la=$(db "SELECT extract(epoch FROM now() - max(ts))::int FROM system_state WHERE entity = 'climate_law_state' AND ts > now() - interval '1 hour';" | tr -d ' ')
+if [ -n "$la" ] && [ "$la" -ge 0 ] 2>/dev/null && [ "$la" -le 120 ]; then
+  check "Climate law state: ${la}s ago (<=120s)" true
+else
+  aa=$(db "SELECT EXTRACT(EPOCH FROM now()-max(ts))::int FROM climate_action_log;" | tr -d ' ')
+  check "Climate action log: ${aa:-no data}s ago (<300s)" "$([ -n "$aa" ] && [ "$aa" -lt 300 ] && echo true || echo "stale: ${aa:-no data}s")"
 
-ap_raw=$(db "
-WITH latest AS (
-  SELECT *
-    FROM climate_action_log
-   ORDER BY ts DESC
-   LIMIT 1
-)
-SELECT COALESCE(
-  (
-    SELECT concat_ws(',',
-      CASE WHEN climate_action IS NULL OR climate_action = '' THEN 'climate_action' END,
-      CASE WHEN priority_axis IS NULL OR priority_axis = '' THEN 'priority_axis' END,
-      CASE WHEN climate_intent_version IS NULL OR climate_intent_version = '' THEN 'climate_intent_version' END,
-      CASE WHEN temp_low_f IS NULL THEN 'temp_low_f' END,
-      CASE WHEN temp_target_f IS NULL THEN 'temp_target_f' END,
-      CASE WHEN temp_high_f IS NULL THEN 'temp_high_f' END,
-      CASE WHEN vpd_low_kpa IS NULL THEN 'vpd_low_kpa' END,
-      CASE WHEN vpd_target_kpa IS NULL THEN 'vpd_target_kpa' END,
-      CASE WHEN vpd_high_kpa IS NULL THEN 'vpd_high_kpa' END,
-      CASE WHEN temp_target_delta_f IS NULL THEN 'temp_target_delta_f' END,
-      CASE WHEN vpd_target_delta_kpa IS NULL THEN 'vpd_target_delta_kpa' END,
-      CASE WHEN temp_band_error_f IS NULL THEN 'temp_band_error_f' END,
-      CASE WHEN vpd_band_error_kpa IS NULL THEN 'vpd_band_error_kpa' END,
-      CASE WHEN relay_truth IS NULL OR jsonb_typeof(relay_truth) <> 'object' OR relay_truth = '{}'::jsonb THEN 'relay_truth' END,
-      CASE WHEN sensor_status IS NULL OR jsonb_typeof(sensor_status) <> 'object' OR sensor_status = '{}'::jsonb THEN 'sensor_status' END,
-      CASE WHEN sensor_status->>'latest_climate_ts' IS NULL OR sensor_status->>'latest_climate_ts' = '' THEN 'sensor_status.latest_climate_ts' END,
-      CASE
-        WHEN CASE
-          WHEN sensor_status->>'latest_climate_age_s' ~ '^[0-9]+$'
-          THEN (sensor_status->>'latest_climate_age_s')::int < 300
-          ELSE false
-        END IS NOT true THEN 'sensor_status.latest_climate_age_s'
-      END,
-      CASE WHEN sensor_status->>'temp_avg_present' IS DISTINCT FROM 'true' THEN 'sensor_status.temp_avg_present' END,
-      CASE WHEN sensor_status->>'vpd_avg_present' IS DISTINCT FROM 'true' THEN 'sensor_status.vpd_avg_present' END,
-      CASE WHEN sensor_status->>'band_context_complete' IS DISTINCT FROM 'true' THEN 'sensor_status.band_context_complete' END
-    )
-    FROM latest
-  ),
-  'missing'
-);" 2>/dev/null)
-ap_rc=$?
-ap=$(printf '%s' "$ap_raw" | tr -d '[:space:]')
-if [ "$ap_rc" -ne 0 ]; then ap="query_failed"; fi
-check "Climate action proof complete" "$([ -z "$ap" ] && echo true || echo "incomplete: $ap")"
+  ap_raw=$(db "
+  WITH latest AS (
+    SELECT *
+      FROM climate_action_log
+     ORDER BY ts DESC
+     LIMIT 1
+  )
+  SELECT COALESCE(
+    (
+      SELECT concat_ws(',',
+        CASE WHEN climate_action IS NULL OR climate_action = '' THEN 'climate_action' END,
+        CASE WHEN priority_axis IS NULL OR priority_axis = '' THEN 'priority_axis' END,
+        CASE WHEN climate_intent_version IS NULL OR climate_intent_version = '' THEN 'climate_intent_version' END,
+        CASE WHEN temp_low_f IS NULL THEN 'temp_low_f' END,
+        CASE WHEN temp_target_f IS NULL THEN 'temp_target_f' END,
+        CASE WHEN temp_high_f IS NULL THEN 'temp_high_f' END,
+        CASE WHEN vpd_low_kpa IS NULL THEN 'vpd_low_kpa' END,
+        CASE WHEN vpd_target_kpa IS NULL THEN 'vpd_target_kpa' END,
+        CASE WHEN vpd_high_kpa IS NULL THEN 'vpd_high_kpa' END,
+        CASE WHEN temp_target_delta_f IS NULL THEN 'temp_target_delta_f' END,
+        CASE WHEN vpd_target_delta_kpa IS NULL THEN 'vpd_target_delta_kpa' END,
+        CASE WHEN temp_band_error_f IS NULL THEN 'temp_band_error_f' END,
+        CASE WHEN vpd_band_error_kpa IS NULL THEN 'vpd_band_error_kpa' END,
+        CASE WHEN relay_truth IS NULL OR jsonb_typeof(relay_truth) <> 'object' OR relay_truth = '{}'::jsonb THEN 'relay_truth' END,
+        CASE WHEN sensor_status IS NULL OR jsonb_typeof(sensor_status) <> 'object' OR sensor_status = '{}'::jsonb THEN 'sensor_status' END,
+        CASE WHEN sensor_status->>'latest_climate_ts' IS NULL OR sensor_status->>'latest_climate_ts' = '' THEN 'sensor_status.latest_climate_ts' END,
+        CASE
+          WHEN CASE
+            WHEN sensor_status->>'latest_climate_age_s' ~ '^[0-9]+$'
+            THEN (sensor_status->>'latest_climate_age_s')::int < 300
+            ELSE false
+          END IS NOT true THEN 'sensor_status.latest_climate_age_s'
+        END,
+        CASE WHEN sensor_status->>'temp_avg_present' IS DISTINCT FROM 'true' THEN 'sensor_status.temp_avg_present' END,
+        CASE WHEN sensor_status->>'vpd_avg_present' IS DISTINCT FROM 'true' THEN 'sensor_status.vpd_avg_present' END,
+        CASE WHEN sensor_status->>'band_context_complete' IS DISTINCT FROM 'true' THEN 'sensor_status.band_context_complete' END
+      )
+      FROM latest
+    ),
+    'missing'
+  );" 2>/dev/null)
+  ap_rc=$?
+  ap=$(printf '%s' "$ap_raw" | tr -d '[:space:]')
+  if [ "$ap_rc" -ne 0 ]; then ap="query_failed"; fi
+  check "Climate action proof complete" "$([ -z "$ap" ] && echo true || echo "incomplete: $ap")"
+fi
 
 api_health_raw=$(curl -fsS "$API_HEALTH_URL" 2>/dev/null)
 api_health_rc=$?
@@ -130,6 +136,13 @@ checks = payload.get("checks") or {}
 failures = []
 if payload.get("status") != "ok":
     failures.append("status={!r}".format(payload.get("status")))
+
+if checks.get("control_proof") == "law":
+    # The law build proves its decisions with its state record heartbeat; the action log is not required.
+    if checks.get("service_controller") != "ok":
+        failures.append("service_controller={!r}".format(checks.get("service_controller")))
+    print("true" if not failures else "; ".join(failures))
+    sys.exit(0)
 
 age = checks.get("climate_action_log_age_seconds")
 if not isinstance(age, (int, float)) or age >= 300:
