@@ -66,8 +66,16 @@ def repo(tmp_path: Path):
         "deploy/k8s/overlays/prod/release-pins.yaml": RELEASE_PINS,
         "deploy/k8s/dashboard/kustomization.yaml": KUSTOMIZATION,
         "docs/notes/free.md": "# Free\n",
-        "docs/planner/read-by-a-test.md": "# Read\n",
-        "tests/test_reader.py": 'PATH = "docs/planner/read-by-a-test.md"\n',
+        "docs/notes/read-by-a-test.md": "# Read\n",
+        "tests/test_reader.py": 'PATH = "docs/notes/read-by-a-test.md"\n',
+        "docs/planner/playbook.md": "# Playbook\n",
+        "docs/design/dashboard/openapi/notes.md": "# API\n",
+        "research/planner-efficacy/notes.md": "# Protocol\n",
+        "research/notes.md": "# Research\n",
+        "planning/notes.md": "# Plan\n",
+        "README.md": "# Repo\n",
+        "cortex_planner/static/system.md": "# Prompt\n",
+        "firmware/DESIGN.md": "# Design\n",
         "firmware/lib/logic.h": "int x;\n",
         "api/main.py": "x = 1\n",
         ".dockerignore": "\n",
@@ -79,15 +87,26 @@ def repo(tmp_path: Path):
     git(tmp_path, "commit", "-qm", "base")
     base = git(tmp_path, "rev-parse", "HEAD")
 
-    def change(edits: dict[str, str]) -> dict:
+    def change(edits: dict[str, object], push: bool = False) -> dict:
+        """Apply edits on base and classify: str writes, None deletes,
+        ("symlink", target) replaces with a link, "+x" sets the executable bit."""
         git(tmp_path, "checkout", "-q", base)
-        for name, text in edits.items():
-            (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-            (tmp_path / name).write_text(text)
+        for name, edit in edits.items():
+            path = tmp_path / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if edit is None:
+                path.unlink()
+            elif edit == "+x":
+                path.chmod(0o755)
+            elif isinstance(edit, tuple):
+                path.unlink(missing_ok=True)
+                path.symlink_to(edit[1])
+            else:
+                path.write_text(edit)
         git(tmp_path, "add", "-A")
         git(tmp_path, "commit", "-qm", "change")
         head = git(tmp_path, "rev-parse", "HEAD")
-        return IMPACT.classify(tmp_path, base, head)
+        return (IMPACT.classify_push if push else IMPACT.classify)(tmp_path, base, head)
 
     return change
 
@@ -130,7 +149,83 @@ def test_unreferenced_markdown_is_the_docs_class(repo):
 
 
 def test_markdown_a_test_reads_runs_everything(repo):
-    assert repo({"docs/planner/read-by-a-test.md": "# Changed\n"})["light"] == "none"
+    assert repo({"docs/notes/read-by-a-test.md": "# Changed\n"})["light"] == "none"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["README.md", "planning/notes.md", "research/notes.md", "docs/notes/new.md", "planning/new/deep.md"],
+)
+def test_documentation_roots_and_top_level_markdown_are_the_docs_class(repo, path):
+    assert repo({path: "# Changed\n"})["light"] == "docs"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "cortex_planner/static/system.md",  # an LLM prompt the planner loads
+        "firmware/DESIGN.md",  # firmware Markdown a drift test scans
+        "docs/planner/playbook.md",  # the Iris playbook and site-content playbook root
+        "docs/design/dashboard/openapi/notes.md",
+        "research/planner-efficacy/notes.md",
+        "dashboard/NOTES.md",
+        "deploy/k8s/NOTES.md",
+        "site/docs/page.md",
+    ],
+)
+def test_markdown_outside_the_documentation_roots_runs_everything(repo, path):
+    assert repo({path: "# Changed\n" * 500})["light"] == "none"
+
+
+def test_a_symlinked_or_executable_markdown_file_runs_everything(repo):
+    assert repo({"docs/notes/link.md": ("symlink", "../../README.md")})["light"] == "none"
+    assert repo({"docs/notes/free.md": "+x"})["light"] == "none"
+
+
+def test_deleting_documentation_is_the_docs_class(repo):
+    assert repo({"docs/notes/free.md": None})["light"] == "docs"
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        None,  # deleted
+        ("symlink", "release-pins.yaml"),
+        "+x",  # mode only
+        KUSTOMIZATION.replace("images:", "transformers:\n# - release-pins.yaml\nimages:"),
+    ],
+)
+def test_a_pin_file_deleted_linked_mode_changed_or_reshaped_runs_everything(repo, edit):
+    assert repo({"deploy/k8s/overlays/prod/kustomization.yaml": edit})["light"] == "none"
+
+
+def test_an_added_pin_file_runs_everything(tmp_path):
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "config", "user.email", "ci")
+    git(tmp_path, "config", "user.name", "ci")
+    (tmp_path / "README.md").write_text("# Repo\n")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-qm", "base")
+    base = git(tmp_path, "rev-parse", "HEAD")
+    pins = tmp_path / "deploy/k8s/overlays/prod/release-pins.yaml"
+    pins.parent.mkdir(parents=True)
+    pins.write_text(RELEASE_PINS)
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-qm", "add")
+    assert IMPACT.classify(tmp_path, base, git(tmp_path, "rev-parse", "HEAD"))["light"] == "none"
+
+
+def test_main_push_classifies_a_pin_merge_as_skip_and_pins(repo):
+    result = repo({"deploy/k8s/overlays/prod/kustomization.yaml": KUSTOMIZATION.replace(D1, D2)}, push=True)
+    assert (result["mode"], result["light"]) == ("skip", "pins")
+    result = repo({"docs/notes/free.md": "# Changed\n"}, push=True)
+    assert (result["mode"], result["light"]) == ("validate", "docs")
+
+
+def test_an_unknown_base_falls_back_to_the_full_run(repo, tmp_path):
+    head = git(tmp_path, "rev-parse", "HEAD")
+    result = IMPACT.classify(tmp_path, "f" * 40, head)
+    assert result["light"] == "none" and "fallback" in result
 
 
 @pytest.mark.parametrize("path", ["api/main.py", "docs/notes/free.yaml", "README"])
@@ -245,5 +340,37 @@ def test_registry_step_not_impacted_passes_before_any_work(tmp_path, value, code
         capture_output=True,
         text=True,
         env={"PATH": "/usr/bin:/bin", "VERDIFY_IMPACTED": value, "HOME": str(tmp_path)},
+    )
+    assert result.returncode == code, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("render", "code"),
+    [
+        ("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: a\n", 0),
+        ("apiVersion: v1\nkind: ConfigMap\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: b\n", 1),
+    ],
+)
+def test_the_pins_part_fails_on_a_rendered_secret(render, code):
+    result = subprocess.run(["bash", str(GHA / "assert-no-secret.sh")], input=render, capture_output=True, text=True)
+    assert result.returncode == code, result.stdout + result.stderr
+
+
+def test_pins_check_uses_the_secret_guard_and_the_non_zero_digest_tests():
+    text = (GHA / "pins-check.sh").read_text()
+    assert "assert-no-secret.sh" in text
+    assert "tests/test_prod_release_pins.py" in text
+    assert "tests/test_experiment_v2_orchestrator_manifests.py" in text
+
+
+@pytest.mark.parametrize(("covers", "code"), [(True, 0), (False, 1)])
+def test_campaign_shard_refuses_a_tool_whose_selection_lacks_dashboard_db_files(tmp_path, covers, code):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_dashboard_db_a.py").write_text("")
+    selected = '["tests/test_dashboard_db_a.py"]' if covers else '["tests/test_other.py"]'
+    tool = tmp_path / "tool.py"
+    tool.write_text(f"def selection(select=None):\n    return {selected}, []\n\ndef main():\n    return 0\n")
+    result = subprocess.run(
+        [sys.executable, str(GHA / "campaign_shard.py"), str(tool)], cwd=tmp_path, capture_output=True, text=True
     )
     assert result.returncode == code, result.stdout + result.stderr

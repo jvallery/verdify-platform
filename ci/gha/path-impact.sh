@@ -26,6 +26,11 @@ case "$(cat "$out/light")" in
   none|docs|pins) echo "path impact light class: $(cat "$out/light")" ;;
   *) echo "path impact wrote no light class" >&2; exit 1 ;;
 esac
+# validate-parts feeds fromJSON in ci.yml: exactly one of the three known lists.
+case "$(cat "$out/light"):$(cat "$out/validate-parts")" in
+  'none:["containment-firmware","pure-logic-1","pure-logic-2","rest"]'|'pins:["pins"]'|'docs:[]') ;;
+  *) echo "path impact wrote an unexpected validate-parts for its light class" >&2; exit 1 ;;
+esac
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   for f in "$out"/*; do
     name="$(basename "$f")"

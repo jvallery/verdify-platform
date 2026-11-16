@@ -71,9 +71,19 @@ LIGHT_PIN_PATHS = (
     "deploy/k8s/overlays/prod/release-pins.yaml",
     "deploy/k8s/dashboard/kustomization.yaml",
 )
-# docs: Markdown that no test, script, CI file or generator names. A changed
-# Markdown file whose basename appears in any of these trees is "coupled" (a test
-# or generator reads it) and selects the full run.
+# docs: plain Markdown files (mode 100644, never a symlink) under the documentation
+# roots, or top-level *.md, whose basename no test, script, CI file or generator
+# names. Markdown anywhere else (cortex_planner prompts, firmware/, dashboard/,
+# deploy/, site/, any code tree) is runtime or test input and selects the full run.
+# Excluded roots are read by code: docs/planner/ (the Iris playbook and the
+# site-content playbook root), the dashboard OpenAPI folder (schema tests, the
+# dashboard build) and research/planner-efficacy/ (Python, protocols and data read
+# by scripts, tests, the orchestrator image and the ingestor's qualification task).
+# docs/ as a whole is copied into the ingestor image as the site-content corpus:
+# content, not code, so the PR image build-check still builds the ingestor.
+LIGHT_DOC_ROOTS = ("docs/", "planning/", "research/")
+LIGHT_DOC_EXCLUDED = ("docs/planner/", "docs/design/dashboard/openapi/", "research/planner-efficacy/")
+REGULAR_FILE = "100644"
 LIGHT_DOC_REFERENCE_ROOTS = ("tests", "verdify_schemas/tests", "scripts", "ci", ".github", "Makefile")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 FULL_VALIDATE_PARTS = ["containment-firmware", "pure-logic-1", "pure-logic-2", "rest"]
@@ -216,6 +226,12 @@ def pin_only(root, base, head, paths):
     return old != new and normalize(old) == normalize(new)
 
 
+def _mode(root, revision, path):
+    """Tree mode of path at revision ("100644" for a plain file), or None if absent."""
+    line = git(root, "ls-tree", revision, "--", path).decode().strip()
+    return line.split(None, 1)[0] if line else None
+
+
 def _without_digests(text):
     """Drop comment-only lines and blank every sha256 digest (pin-only comparison)."""
     return [DIGEST.sub("sha256:<digest>", line) for line in text.splitlines() if not line.lstrip().startswith("#")]
@@ -226,10 +242,10 @@ def light_pins(root, base, head, paths):
     if not paths or any(path not in LIGHT_PIN_PATHS for path in paths):
         return False
     for path in paths:
-        try:
-            old, new = blob(root, base, path), blob(root, head, path)
-        except subprocess.CalledProcessError:
-            return False  # added or deleted: not a digest-only change
+        # Added, deleted, a symlink or a mode change: not a digest-only change.
+        if _mode(root, base, path) != REGULAR_FILE or _mode(root, head, path) != REGULAR_FILE:
+            return False
+        old, new = blob(root, base, path), blob(root, head, path)
         if _without_digests(old) != _without_digests(new):
             return False
     return True
@@ -249,10 +265,23 @@ def _doc_references(root, head):
     return "\n".join(texts)
 
 
-def light_docs(root, head, paths):
-    """Every path is Markdown that no test, script or CI file names."""
-    if not paths or any(not path.endswith(".md") for path in paths):
+def _doc_path(path):
+    if not path.endswith(".md"):
         return False
+    if "/" not in path:
+        return True  # top-level Markdown (README.md, AGENTS.md, ...)
+    return path.startswith(LIGHT_DOC_ROOTS) and not path.startswith(LIGHT_DOC_EXCLUDED)
+
+
+def light_docs(root, base, head, paths):
+    """Every path is plain documentation Markdown that no test, script or CI file names."""
+    if not paths or any(not _doc_path(path) for path in paths):
+        return False
+    for path in paths:
+        # Present at head: a plain file. Deleted: it was a plain file at base.
+        mode = _mode(root, head, path) or _mode(root, base, path)
+        if mode != REGULAR_FILE:
+            return False
     references = _doc_references(root, head)
     return not any(PurePosixPath(path).name in references for path in paths)
 
@@ -260,7 +289,7 @@ def light_docs(root, head, paths):
 def light_class(root, base, head, paths):
     if light_pins(root, base, head, paths):
         return "pins"
-    if light_docs(root, head, paths):
+    if light_docs(root, base, head, paths):
         return "docs"
     return "none"
 
