@@ -7,7 +7,7 @@
 
 namespace climate_law_k {
 
-constexpr const char* CONSTANTS_SHA256 = "32a5433df8588caabb543c84722f9ed4d71d5e2bfe5c8365a09ce61ebb92fb0d";
+constexpr const char* CONSTANTS_SHA256 = "9ab82e581e84997f7ec0f79ba65b1e69317d2f9ff65bb6941a1588bcc999c81f";
 
 // ---- temperature
 // Electric heater on below low + this [F]
@@ -73,6 +73,8 @@ constexpr double F_PER_K = 1.8;
 constexpr double KJ_PER_KWH = 3600.0;
 // Grams per kilogram [g/kg]
 constexpr double G_PER_KG = 1000.0;
+// Milliseconds per second [ms/s]
+constexpr uint32_t MS_PER_S = 1000u;
 // ---- protection
 // At or above: vent open, both fans on, both heaters off [F]
 constexpr double SAFETY_MAX_F = 100.0;

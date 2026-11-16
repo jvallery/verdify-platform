@@ -4,7 +4,7 @@ Generated from `verdify_schemas/climate_law.yaml` by `scripts/gen-climate-law-co
 change the YAML and regenerate. The firmware compiles these values and reports the hash below; changing one
 is a firmware release. Design: `docs/design/climate-refactor-plan-2026-11-15.md`, sections 4.4 and 9.
 
-Constants hash (SHA-256): `32a5433df8588caabb543c84722f9ed4d71d5e2bfe5c8365a09ce61ebb92fb0d`
+Constants hash (SHA-256): `9ab82e581e84997f7ec0f79ba65b1e69317d2f9ff65bb6941a1588bcc999c81f`
 
 | Name | Value | Unit | Group | Meaning |
 |---|---:|---|---|---|
@@ -38,6 +38,7 @@ Constants hash (SHA-256): `32a5433df8588caabb543c84722f9ed4d71d5e2bfe5c8365a09ce
 | `F_PER_K` | 1.8 | F/K | physics | Degrees F per kelvin of temperature difference |
 | `KJ_PER_KWH` | 3600.0 | kJ/kWh | physics | Kilojoules per kilowatt-hour |
 | `G_PER_KG` | 1000.0 | g/kg | physics | Grams per kilogram |
+| `MS_PER_S` | 1000 | ms/s | physics | Milliseconds per second |
 | `SAFETY_MAX_F` | 100.0 | F | protection | At or above: vent open, both fans on, both heaters off |
 | `SAFETY_MIN_F` | 40.0 | F | protection | At or below: both heaters on, vent closed, fans, fogger and misters off |
 | `HEAT_MIN_ON_S` | 300 | s | relay | Electric heater and furnace: minimum on time |

@@ -55,6 +55,7 @@ constants:
   f_per_k: {value: 1.8, unit: F/K, group: physics, what: "Degrees F per kelvin of temperature difference"}
   kj_per_kwh: {value: 3600.0, unit: kJ/kWh, group: physics, what: "Kilojoules per kilowatt-hour"}
   g_per_kg: {value: 1000.0, unit: g/kg, group: physics, what: "Grams per kilogram"}
+  ms_per_s: {value: 1000, unit: ms/s, group: physics, what: "Milliseconds per second"}
 
   # ---- Rules 8 and 9: protection limits, independent of the band (RULINGS B3: also the boot values)
   safety_max_f: {value: 100.0, unit: F, group: protection, what: "At or above: vent open, both fans on, both heaters off"}

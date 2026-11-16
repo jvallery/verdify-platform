@@ -78,3 +78,4 @@ firmware/test/test_policy_recovery
 # Agent instructions live in AGENTS.md only (estate rule R22). The repo-pod runtime may write a
 # briefing-only CLAUDE.md into the worktree until its runtime change ships; never commit it.
 CLAUDE.md
+firmware/test/test_climate_law
