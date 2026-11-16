@@ -38,7 +38,9 @@ struct RelayPass {
 // - relay_step(): minimum times, interlocks, the lead fan (published from RelayState::lead_fan1), G1/G4;
 // - apply_manual_overrides(): FANS, VENT-BYPASS, HUMID (a no-op in SAFETY_COOL/SAFETY_HEAT, effective in
 //   SENSOR_FAULT);
-// - the interlocks over a press: the furnace never with the air; the fog holds win.
+// - the interlocks over a press: no heater with a manual fan run (RULINGS AE10: FANS or VENT-BYPASS stops the
+//   electric heater as well as the furnace, as the phase 2 build did; at 40 F the override is a no-op and T1 has
+//   cleared the latch, so the protection heats); the furnace never with the air; the fog holds win.
 // The caller switches the drivers to `out`, then calls relay_sync() again with the physical states.
 inline RelayPass relay_pass(RelayState& r, const Output& request, const RelayInputs& in, const RelayOutputs& physical,
                             const ManualOverrides& ov, Mode mode) noexcept {
@@ -46,6 +48,7 @@ inline RelayPass relay_pass(RelayState& r, const Output& request, const RelayInp
     relay_step(r, request, in);
     RelayPass p{{r.heat1.on, r.heat2.on, r.fan1.on, r.fan2.on, r.fog.on, r.vent.on}, {false, false, false}};
     p.force = apply_manual_overrides(p.out, ov, mode);
+    if (p.force.fans) p.out.heat1 = p.out.heat2 = false;
     if (p.out.heat2 && (p.out.vent || p.out.fan1 || p.out.fan2)) p.out.heat2 = false;
     if (in.fog_hold) p.out.fog = false;
     return p;

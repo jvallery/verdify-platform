@@ -742,6 +742,53 @@ static void glue_override_rails() {
   CHECK(phys.heat2, "rails setup: the furnace runs");
   p = L::relay_pass(r, furnace, plain, phys, ManualOverrides{true, false, false, false}, IDLE);
   CHECK(!p.out.heat2 && p.out.fan1 && p.out.fan2 && p.out.vent, "rails: a FANS press ends a furnace run at once");
+  // RULINGS AE10: a manual fan run (FANS, vent open; VENT-BYPASS, vent closed) stops the electric heater too, and the
+  // heater comes back after the latch ends (its minimum off time from the cut).
+  L::Output warm{};
+  warm.heat1 = true;
+  for (const ManualOverrides ov : {ManualOverrides{true, false, false, false}, ManualOverrides{false, true, false, false}}) {
+    r = after_boot_wait();
+    phys = off;
+    for (int i = 0; i < 3; ++i) {
+      p = L::relay_pass(r, warm, plain, phys, ManualOverrides{false, false, false, false}, IDLE);
+      phys = p.out;
+    }
+    CHECK(phys.heat1, "AE10 setup: the electric heater runs");
+    for (int i = 0; i < 5; ++i) {
+      p = L::relay_pass(r, warm, plain, phys, ov, IDLE);
+      phys = p.out;
+      CHECK(!p.out.heat1 && !p.out.heat2 && p.out.fan1 && p.out.fan2, "AE10: no heater during a manual fan run");
+    }
+    CHECK(phys.vent == ov.fans_active, "AE10: FANS opens the vent, VENT-BYPASS keeps it closed");
+    int back_after = -1;
+    for (int i = 1; i <= int(HEAT_MIN_OFF_S) + int(FAN_MIN_ON_S) + 5 && back_after < 0; ++i) {
+      p = L::relay_pass(r, warm, plain, phys, ManualOverrides{false, false, false, false}, IDLE);
+      phys = p.out;
+      if (phys.heat1) back_after = i;
+    }
+    CHECK(back_after > 0, "AE10: the electric heater comes back after the latch ends");
+  }
+  // At 40 F the latch is cleared (T1) and the protection heats.
+  {
+    GluePass g;
+    g.fans_until_ms = 600000;
+    for (int i = 0; i < 30; ++i) g.run(SAFETY_MIN_F);
+    CHECK(g.fans_until_ms == 0 && g.phys.heat1 && !g.phys.fan1 && !g.phys.fan2 && !g.phys.vent,
+          "AE10: at 40 F the FANS latch is cleared and the electric heater runs");
+  }
+  // The law's own drying still runs the electric heater beside the open vent (no press: no AE10 cut).
+  L::Output drying{};
+  drying.drying = true;
+  drying.vent = true;
+  drying.fans = 1;
+  drying.heat1 = true;
+  r = after_boot_wait();
+  phys = off;
+  for (int i = 0; i < 5; ++i) {
+    p = L::relay_pass(r, drying, plain, phys, ManualOverrides{false, false, false, false}, IDLE);
+    phys = p.out;
+  }
+  CHECK(phys.heat1 && phys.vent && (phys.fan1 || phys.fan2), "AE10: drying keeps the electric heater with the vent");
 }
 
 // -- T3: the climate decision telemetry is the law's label, not the mode machine's ------------

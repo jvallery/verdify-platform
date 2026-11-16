@@ -3505,7 +3505,17 @@ def test_sensor_fault_is_final_relay_lock_above_manual_overrides():
     assert "if (!want_vent && !want_f1 && !want_f2) detail::relay_set(r.vent, false, false, true," in step
     # The furnace never with the air (G1), also over a press (T7 item 5).
     assert "st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_on, false, false, heat_on, heat_off);" in step
-    assert "if (p.out.heat2 && (p.out.vent || p.out.fan1 || p.out.fan2)) p.out.heat2 = false;" in _relay_pass()
+    relay_pass = _relay_pass()
+    assert "if (p.out.heat2 && (p.out.vent || p.out.fan1 || p.out.fan2)) p.out.heat2 = false;" in relay_pass
+    # RULINGS AE10: a manual fan run (FANS or VENT-BYPASS) stops the electric heater as well as the furnace, after
+    # the override layer (a no-op at 40 F, where T1 has cleared the latch and the protection heats). The law's own
+    # requests keep the rule in step(): heat1 only when not cooling, the vent only to cool or dry. Native test:
+    # glue_override_rails.
+    forced = relay_pass.index("p.force = apply_manual_overrides(p.out, ov, mode);")
+    assert forced < relay_pass.index("if (p.force.fans) p.out.heat1 = p.out.heat2 = false;")
+    law_step = _inline_fn(Path("firmware/lib/climate_law.h").read_text(), "inline Output step(")
+    assert "q.heat1 = (s.h1 && !q.cooling) || cold;" in law_step
+    assert "q.vent = q.cooling || q.drying;" in law_step
 
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
     assert "law_relay_in.cut_unwanted = no_indoor_entry;" in relay_apply
