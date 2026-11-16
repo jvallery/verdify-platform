@@ -1,8 +1,11 @@
 # Derived TimescaleDB runtime for verdify-prod (fleet control-plane #5787, Wave 2.5 item 1.1).
 #
-# Same PostgreSQL 16.11 and TimescaleDB 2.25.2 as the upstream image it replaces
-# (timescale/timescaledb:2.25.2-pg16, the linux/amd64 manifest pinned below), so the
-# live data directory and extension version do not change. Changes:
+# PostgreSQL 16.15 and TimescaleDB 2.29.2 (timescale/timescaledb:2.29.2-pg16, the
+# linux/amd64 manifest pinned below; #1544, STD-OPS-01: 16.11 missed the 16.12-16.15
+# security fixes). Same PG major, so the data directory is reused. The image also
+# ships timescaledb-2.25.2.so, so the live extension keeps loading at 2.25.2 after the
+# restart until the separate ALTER EXTENSION timescaledb UPDATE step (asserted below).
+# Changes:
 #   * Remove the bundled Go tools timescaledb-parallel-copy and timescaledb-tune
 #     (Critical findings in Go stdlib 1.22.4/1.24.6 and pgx v5.7.2). Nothing in this
 #     repository runs either one. NO_TS_TUNE=true makes a fresh initdb skip the
@@ -20,7 +23,7 @@
 # Built by .github/workflows/build.yml job timescaledb (on a change to this file, or a
 # workflow_dispatch whose base predates it) and hand-pinned by digest; the pin job never
 # moves it, because repinning verdify-db restarts the database (#1458).
-FROM docker.io/timescale/timescaledb:2.25.2-pg16@sha256:5d523957b04041e1c8dc776dd086a2d68fd1ebc9d4ac3e948b65f02c88550140
+FROM docker.io/timescale/timescaledb:2.29.2-pg16@sha256:343e54b05d0b039b5867cf054a6422d595f598af93b94507d61f9addd4815fef
 
 RUN set -eux; \
     apk upgrade --no-cache; \
@@ -29,8 +32,9 @@ RUN set -eux; \
     test ! -e /usr/local/bin/timescaledb-tune; \
     test ! -e /usr/local/bin/gosu; \
     if command -v gosu; then exit 1; fi; \
+    test -e /usr/local/lib/postgresql/timescaledb-2.29.2.so; \
     test -e /usr/local/lib/postgresql/timescaledb-2.25.2.so; \
-    postgres --version | grep -q ' 16\.11'; \
+    postgres --version | grep -q ' 16\.15'; \
     for pkg in libssl3 libcrypto3; do \
         v="$(apk list --installed "$pkg" | awk '{print $1}' | sed "s/^$pkg-//")"; \
         test -n "$v"; \
