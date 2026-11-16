@@ -179,6 +179,11 @@ async def attest_ordinary_ingestor_runtime_role(pool: asyncpg.Pool) -> None:
 CLIMATE_FLUSH_INTERVAL = 60  # seconds between climate row writes
 CLIMATE_ACTION_LOG_INTERVAL = 60  # seconds between controller decision snapshots
 DIAG_FLUSH_INTERVAL = 60  # seconds between diagnostics row writes
+# DIAG-WINDOW (release 4): with the spool on, a row takes every observation of this connection that is newer than the
+# one last written for its column, up to this age. A fixed 60 s window did not tile the 60.2-61.3 s ticks, so an
+# observation landing between two windows was never written (a lost per-minute low is a lost minute).
+DIAG_OBSERVATION_MAX_AGE_S = 180
+DIAG_PENDING_PER_COLUMN = 4
 LOG_FLUSH_INTERVAL = 10  # seconds between log batch writes
 COUNTER_SAMPLE_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_COUNTER_SAMPLE_BUFFER_MAX_ROWS", "50000")))
 EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS", "50000")))
@@ -367,6 +372,8 @@ class State:
         self.diagnostics: dict[str, Any] = {}
         self.diagnostic_observations: dict[str, tuple[datetime, int]] = {}
         self.diagnostic_accepted_observations: dict[str, tuple[datetime, int]] = {}
+        # Values received since the last row, oldest first, so two publishes between ticks both reach a row.
+        self.diagnostic_pending: dict[str, list[tuple[datetime, int, Any]]] = {}
         self.daily: dict[str, float] = {}
 
         # Raw device-counter evidence. Epoch ids rotate on local-day rollover,
@@ -2415,24 +2422,55 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
         generation = shared.transport_generation
         if generation < 1 or shared.esp32.get("state_subscription_generation") != generation:
             return
-        # Retained caches are not current-generation native observations.
-        fresh = {
-            col: (moment, gen)
-            for col, (moment, gen) in state.diagnostic_observations.items()
-            if gen == generation and 0 <= (ts - moment).total_seconds() <= DIAG_FLUSH_INTERVAL
-        }
-        if not fresh or fresh == state.diagnostic_accepted_observations:
+        # Retained caches are not current-generation native observations. Each value of this connection is
+        # written once: only when it is newer than the one last written for its column (DIAG-WINDOW). Values
+        # that arrived between two ticks become one row each, oldest first, so a tick never drops one.
+        accepted = state.diagnostic_accepted_observations
+
+        def unwritten(col: str, moment: datetime, gen: int) -> bool:
+            return (
+                gen == generation
+                and 0 <= (ts - moment).total_seconds() <= DIAG_OBSERVATION_MAX_AGE_S
+                and not (col in accepted and accepted[col][1] == gen and accepted[col][0] >= moment)
+            )
+
+        queues: dict[str, list[tuple[datetime, int, Any]]] = {}
+        for col, (moment, gen) in state.diagnostic_observations.items():
+            queue = [e for e in state.diagnostic_pending.get(col, ()) if e[0] < moment and unwritten(col, *e[:2])]
+            if unwritten(col, moment, gen):
+                queue.append((moment, gen, d.get(col)))
+            if queue:
+                queues[col] = queue
+        if not queues:
             return
-        flush_ts = ts
-        ts = max(moment for moment, _ in fresh.values())
-        # A state the controller publishes only when it changes is carried from its last receipt in this connection
-        # into every row, so the newest row always holds it; a new connection starts without it.
-        carried = {
-            col
-            for col, (moment, gen) in state.diagnostic_observations.items()
-            if col in CARRIED_DIAGNOSTIC_COLUMNS and col not in fresh and gen == generation and moment <= flush_ts
-        }
-        d = {col: value for col, value in d.items() if col in fresh or col in carried}
+        rows = []
+        for i in range(max(len(queue) for queue in queues.values())):
+            fresh = {col: queue[i] for col, queue in queues.items() if i < len(queue)}
+            row_ts = max(moment for moment, _, _ in fresh.values())
+            # A state the controller publishes only when it changes is carried from its last receipt in this
+            # connection into every row, so the newest row always holds it; a new connection starts without it.
+            carried = {
+                col: d.get(col)
+                for col, (moment, gen) in state.diagnostic_observations.items()
+                if col in CARRIED_DIAGNOSTIC_COLUMNS and col not in fresh and gen == generation and moment <= row_ts
+            }
+            values = {col: value for col, (_, _, value) in fresh.items()} | carried
+            try:
+                diag = Diagnostics.model_validate({"ts": row_ts, "greenhouse_id": GREENHOUSE_ID, **values})
+            except ValidationError as e:
+                log.error(f"diagnostics row failed schema validation: {e}")
+                shared.note_row_rejected("diagnostics")
+                diag = None
+            rows.append((row_ts, fresh, diag))
+        for row_ts, fresh, diag in rows:
+            if diag is not None:
+                payload = diag.model_dump(mode="json", exclude={"ts", "greenhouse_id"})
+                if not _accept_observations([("diagnostics", payload)], row_ts):
+                    raise OSError("diagnostics snapshot durable acceptance rejected")
+            # Acceptance advances the snapshot cadence even while DB is down. The common FIFO drain retries it;
+            # never regenerate its UUID/time. A rejected row is not retried either.
+            accepted.update({col: (moment, gen) for col, (moment, gen, _) in fresh.items()})
+        return
     if not d:
         return
     try:
@@ -2440,14 +2478,6 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
     except ValidationError as e:
         log.error(f"diagnostics row failed schema validation: {e}")
         shared.note_row_rejected("diagnostics")
-        return
-    if _observation_spool_enabled():
-        payload = diag.model_dump(mode="json", exclude={"ts", "greenhouse_id"})
-        if not _accept_observations([("diagnostics", payload)], ts):
-            raise OSError("diagnostics snapshot durable acceptance rejected")
-        state.diagnostic_accepted_observations = fresh
-        # Acceptance advances the snapshot cadence even while DB is down.
-        # The common FIFO drain retries it; never regenerate its UUID/time.
         return
     async with pool.acquire() as conn:
         await conn.execute(
@@ -2957,6 +2987,9 @@ def _record_diagnostic(
             and observed_at.utcoffset() is not None
         ):
             state.diagnostic_observations[col] = (observed_at, generation)
+            pending = [e for e in state.diagnostic_pending.get(col, ()) if e[1] == generation and e[0] < observed_at]
+            pending.append((observed_at, generation, state.diagnostics.get(col)))
+            state.diagnostic_pending[col] = pending[-DIAG_PENDING_PER_COLUMN:]
 
     _begin_counter_source_generation(generation, observed_at)
     if col == "uptime_s":

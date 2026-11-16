@@ -298,7 +298,7 @@ def test_diagnostic_snapshot_excludes_stale_old_generation_and_unfenced_cache(mo
     monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_generation", 7)
     ingestor.state.diagnostics.update(uptime_s=30, wifi_rssi=-40, heap_bytes=100, firmware_version="old")
     ingestor.state.diagnostic_observations.update(
-        uptime_s=(TS, 7), wifi_rssi=(TS, 6), heap_bytes=(TS - timedelta(seconds=61), 7)
+        uptime_s=(TS, 7), wifi_rssi=(TS, 6), heap_bytes=(TS - timedelta(seconds=ingestor.DIAG_OBSERVATION_MAX_AGE_S), 7)
     )
     asyncio.run(ingestor.write_diagnostics(Pool(), TS + timedelta(seconds=1)))
     row = ingestor._get_observation_spool().queue.rows()[0][2]
@@ -310,6 +310,39 @@ def test_diagnostic_snapshot_excludes_stale_old_generation_and_unfenced_cache(mo
     assert ingestor._get_observation_spool().queue.rows() == before
     asyncio.run(ingestor.write_diagnostics(Pool(), TS + timedelta(seconds=62)))
     assert ingestor._get_observation_spool().queue.rows() == before
+
+
+def test_a_61_s_tick_against_a_60_s_publisher_loses_and_repeats_nothing(monkeypatch):
+    """DIAG-WINDOW: the tick runs 60 s plus the loop's work. Over 120 ticks every published value is written once."""
+    monkeypatch.setattr(ingestor.shared, "transport_generation", 7)
+    monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_generation", 7)
+    columns = {"test_rssi": "wifi_rssi", "test_heap_minute": "heap_min_free_minute_kb", "test_reset": "reset_reason"}
+    for obj_id, col in columns.items():
+        monkeypatch.setitem(ingestor.DIAGNOSTIC_MAP, obj_id, col)
+    publishes = [
+        (TS + timedelta(seconds=60 * k + 0.5 + i * 0.2), obj_id, k)
+        for k in range(125)
+        for i, obj_id in enumerate(columns)
+    ]
+    ticks = [TS + timedelta(seconds=61 * j + 1) for j in range(1, 121)]
+    events = sorted([(at, 0, obj_id, k) for at, obj_id, k in publishes] + [(at, 1, "", 0) for at in ticks])
+    published: dict[str, list] = {col: [] for col in columns.values()}
+    for at, kind, obj_id, k in events:
+        if at > ticks[-1]:
+            break
+        if kind == 0:
+            col = columns[obj_id]
+            value = f"reason {k}" if col == "reset_reason" else float(-40 - k % 50 if col == "wifi_rssi" else k)
+            assert ingestor._record_diagnostic(obj_id, value, at, 7)
+            published[col].append(value)
+        else:
+            asyncio.run(ingestor.write_diagnostics(Pool(), at))
+    rows = [row[2] for row in ingestor._get_observation_spool().queue.rows()]
+    assert len(rows) > len(ticks)  # the ticks that held two publishes wrote two rows
+    assert [row["observed_at"] for row in rows] == sorted({row["observed_at"] for row in rows})
+    for col in columns.values():
+        written = [row["payload"][col] for row in rows if row["payload"].get(col) is not None]
+        assert written == published[col], col  # every value once, in order
 
 
 def test_an_on_change_state_is_carried_into_every_row_of_its_connection(monkeypatch):
