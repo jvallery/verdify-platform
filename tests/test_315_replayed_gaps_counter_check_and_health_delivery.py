@@ -71,7 +71,8 @@ def flat(text):
 
 
 def view(name):
-    return flat(BODY.split(f"VIEW public.{name}", 1)[1].split("COMMENT ON VIEW", 1)[0])
+    text = BODY.split(f"VIEW public.{name}", 1)[1]
+    return flat(min(text.split("COMMENT ON VIEW", 1)[0], text.split("\n$", 1)[0], key=len))
 
 
 def later():
@@ -172,9 +173,9 @@ def test_body_grants_exactly_the_facade_columns_and_the_counter_check():
     grants = [flat(g) for g in re.findall(r"\bGRANT\b.*?;", BODY, re.S)]
     spool = f"FUNCTION {SPOOL}"
     assert grants == [
-        f"GRANT INSERT ({', '.join(HEALTH_COLUMNS)}) ON public.v_runtime_diagnostics_write TO {ING_DUTY};",
-        f"GRANT EXECUTE ON {spool} TO {ING_DUTY};",
         f"GRANT SELECT ON public.{RECON} TO verdify_dashboard_runtime, {ING_DUTY};",
+        f"GRANT EXECUTE ON {spool} TO {ING_DUTY};",
+        f"GRANT INSERT ({', '.join(HEALTH_COLUMNS)}) ON public.v_runtime_diagnostics_write TO {ING_DUTY};",
     ]
     # The spool function's ACL, restated as 314 does (CREATE OR REPLACE keeps the owner).
     assert [flat(r) for r in re.findall(r"\bREVOKE\b.*?;", BODY, re.S)] == [f"REVOKE ALL ON {spool} FROM PUBLIC;"]
@@ -208,7 +209,7 @@ def test_both_gap_readers_read_the_replay_aware_gaps_only():
         "crop_lifecycle_completeness",
         "daily_plan_archive_self_check",
     ]
-    assert coverage.endswith("END AS coverage FROM days d;")
+    assert coverage.endswith("END AS coverage FROM days d")
 
 
 def _diagnostics_list(sql):
@@ -270,6 +271,32 @@ def test_the_schedule_view_and_the_retired_plans():
     assert sched.count("AS stale_readback_count") == 1 and sched.count("AS readback_drift_count") == 1
     assert "UPDATE public.setpoint_plan SET is_active = false WHERE is_active;" in BODY
     assert "WHERE status IN ('expected', 'delivered');" in BODY and "UPDATE public.planner_trigger_ledger" in BODY
+
+
+def test_the_views_go_first_in_a_bounded_retry_and_diagnostics_last():
+    """Release 4 sync: a slow reader of a view costs a retry, not the run; the hot table is locked last."""
+    block = flat(BODY[BODY.index("DO $views$") : BODY.index("END $views$;")])
+    for name, tag in (
+        ("v_data_trust_ledger", "ledger"),
+        ("v_irrigation_day_coverage", "coverage"),
+        ("v_irrigation_schedule_current", "schedule"),
+    ):
+        assert f"('public.{name}', ${tag}$ CREATE OR REPLACE VIEW public.{name} AS" in block
+    assert "saved text := pg_catalog.current_setting('lock_timeout');" in block
+    assert "PERFORM pg_catalog.set_config('lock_timeout', '5s', true); EXECUTE rec.ddl;" in block
+    assert block.count("PERFORM pg_catalog.set_config('lock_timeout', saved, true);") == 2
+    assert "EXCEPTION WHEN lock_not_available THEN" in block and "IF attempt >= 8 THEN" in block
+    assert "PERFORM pg_catalog.pg_sleep(1);" in block and "'315 could not lock % exclusively" in block
+    assert "LOCK TABLE" not in BODY
+    order = [
+        BODY.index("END $views$;"),
+        BODY.index("UPDATE public.setpoint_plan"),
+        BODY.index("CREATE VIEW public.v_relay_counter_reconciliation_daily"),
+        BODY.index("CREATE OR REPLACE FUNCTION public.fn_record_observational_source_event("),
+        BODY.index("ALTER TABLE public.diagnostics ADD COLUMN"),
+        BODY.index("CREATE OR REPLACE VIEW public.v_runtime_diagnostics_write"),
+    ]
+    assert order == sorted(order)
 
 
 def test_the_counter_check_names_its_relays_window_and_restart_rule():

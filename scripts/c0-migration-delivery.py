@@ -490,7 +490,7 @@ SUCCESSOR_314_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c12
 # seals are measured again. Measured by the native probe of 2026-11-16: all three move (the MCP duty reads
 # v_irrigation_day_coverage). It follows 314.
 SUCCESSOR_315 = "315-replayed-gaps-counter-check-and-health.sql"
-SUCCESSOR_315_SHA256 = "fd8c29416817e87c702557b7431e0bc7c581cc2109953afd7ea7134b442fe453"
+SUCCESSOR_315_SHA256 = "a5cadbc8645f7ee3fde65c41e8709b6dba6295dce1fa4f3406237f081dd49fff"
 SUCCESSOR_315_DIGESTS = {
     "verdify_api_runtime_login": "7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc",
     "verdify_ingestor_runtime_login": "3ead905daede269bd598b38c86c0477d33e1b51c425a2efc7d5c16c042a745f2",

@@ -75,122 +75,22 @@ BEGIN
     THEN RAISE EXCEPTION '315 refuses an unqualified predecessor'; END IF;
 END $predecessor$;
 
--- AF9(b). One column per statement: diagnostics is a compressed hypertable.
-ALTER TABLE public.diagnostics ADD COLUMN loop_stack_high_water_b integer;
-ALTER TABLE public.diagnostics ADD COLUMN wifi_disconnect_count integer;
-ALTER TABLE public.diagnostics ADD COLUMN api_client_count integer;
-
-COMMENT ON COLUMN public.diagnostics.loop_stack_high_water_b IS
-    'Lowest free stack of the loop task since boot, in bytes (loop_stack_high_water; 315, #1633). NULL = not '
-    'published.';
-COMMENT ON COLUMN public.diagnostics.wifi_disconnect_count IS
-    'WiFi disconnects since boot; resets with a restart (wifi_disconnect_count; 315). NULL = not published.';
-COMMENT ON COLUMN public.diagnostics.api_client_count IS
-    'API client connections at publish time (api_client_count; 315). NULL = not published.';
-
--- 314's facade with the three columns appended: the same columns in the same order, then the three.
-CREATE OR REPLACE VIEW public.v_runtime_diagnostics_write
-    WITH (security_barrier=true, security_invoker=false) AS
-SELECT ts, wifi_rssi, heap_bytes, heap_min_free_kb, heap_largest_free_block_kb, uptime_s, probe_health,
-       reset_reason, firmware_version, active_probe_count, relief_cycle_count, vent_latch_timer_s, sealed_timer_s,
-       vpd_watch_timer_s, mist_backoff_timer_s, vent_mist_assist_active, effective_heat_target_f,
-       effective_cool_stage2_delta_f, effective_vpd_hysteresis_kpa, effective_dehum_aggressive_kpa,
-       controller_time_epoch, controller_local_hour, sntp_valid, sntp_miss_count, last_sntp_sync_age_s,
-       band_source, zone_wet_granted, greenhouse_id, heap_min_free_minute_kb, heap_largest_block_minute_low_kb,
-       loop_worst_ms, restart_count, nvs_used_entries, nvs_free_entries, nvs_write_worst_ms, gap_log_state,
-       sensor_degraded_active, loop_stack_high_water_b, wifi_disconnect_count, api_client_count
-  FROM public.diagnostics;
-
-GRANT INSERT (loop_stack_high_water_b, wifi_disconnect_count, api_client_count)
-    ON public.v_runtime_diagnostics_write TO verdify_ingestor_runtime;
-
--- The spool's admission function (267; RELEASE REVIEW DISPATCHER-01): the ingestor spools every diagnostics row
--- as its full model, and the function refuses any key outside its pinned diagnostics list, which would jam the FIFO
--- spool. 314's text byte for byte with the three AF9(b) keys appended in this order; CREATE OR REPLACE keeps the owner,
--- SECURITY DEFINER, search_path and time zone, and the REVOKE/GRANT pair restates the ACL as 314 does.
-CREATE OR REPLACE FUNCTION public.fn_record_observational_source_event(
- p_event_id uuid,p_kind text,p_source_ts timestamptz,p_greenhouse_id text,
- p_runtime_instance_id uuid,p_connection_generation bigint,p_payload jsonb
-) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=pg_catalog,public,pg_temp
-SET timezone='UTC'
-AS $body$
-DECLARE target_table text; target_view text; allowed text[]; required text[];
- h bytea; inserted uuid; k text; v jsonb; t oid; category "char"; n numeric;
- typed_payload jsonb; column_names text; expressions text;
+-- The three view redefinitions run first, each in a bounded retry (RELEASE 4 sync, coordinator 2026-11-16): a
+-- reader of a view (v_data_trust_ledger takes about 23 s through two API routes and validate-irrigation-stack) holds
+-- AccessShare, so each CREATE OR REPLACE waits at most 5 s per attempt, up to 8 attempts 1 s apart, and the file
+-- raises naming the view when every attempt is lost. lock_timeout is set inside each attempt and restored to the
+-- session's value after it, so the statements after this block keep the runner's own timeout. The views are
+-- redefined by EXECUTE because LOCK TABLE on a view would also lock every relation it reads. diagnostics and its
+-- write facade come last, so the hot table is locked exclusively only for its three ALTERs.
+DO $views$
+DECLARE
+    saved text := pg_catalog.current_setting('lock_timeout');
+    rec record;
+    attempt integer;
 BEGIN
- IF p_event_id IS NULL OR p_source_ts IS NULL OR p_greenhouse_id IS DISTINCT FROM 'vallery'
- OR p_runtime_instance_id IS NULL OR p_connection_generation IS NULL
- OR p_connection_generation NOT BETWEEN 0 AND 9007199254740991
- OR jsonb_typeof(p_payload) IS DISTINCT FROM 'object' OR p_payload='{}'::jsonb
- OR octet_length(p_payload::text)>1048576 THEN
- RAISE EXCEPTION 'invalid observational source event'; END IF;
- CASE p_kind
- WHEN 'system_state' THEN target_table:='system_state'; target_view:='v_runtime_system_state_write'; allowed:=ARRAY['entity','value']; required:=allowed;
- WHEN 'override' THEN target_table:='override_events'; target_view:='v_runtime_override_events_write'; allowed:=ARRAY['override_type','mode']; required:=ARRAY['override_type'];
- WHEN 'setpoint_observed' THEN target_table:='setpoint_changes'; target_view:='v_runtime_setpoint_changes_write'; allowed:=ARRAY['parameter','value']; required:=allowed;
- WHEN 'esp32_log' THEN target_table:='esp32_logs'; target_view:='v_runtime_esp32_logs_write'; allowed:=ARRAY['level','tag','message']; required:=ARRAY['level','message'];
- WHEN 'diagnostics' THEN target_table:='diagnostics'; target_view:='v_runtime_diagnostics_write'; allowed:=ARRAY['wifi_rssi','heap_bytes','heap_min_free_kb','heap_largest_free_block_kb','uptime_s','probe_health','reset_reason','firmware_version','active_probe_count','relief_cycle_count','vent_latch_timer_s','sealed_timer_s','vpd_watch_timer_s','mist_backoff_timer_s','vent_mist_assist_active','effective_heat_target_f','effective_cool_stage2_delta_f','effective_vpd_hysteresis_kpa','effective_dehum_aggressive_kpa','controller_time_epoch','controller_local_hour','sntp_valid','sntp_miss_count','last_sntp_sync_age_s','band_source','zone_wet_granted',
- 'heap_min_free_minute_kb','heap_largest_block_minute_low_kb','loop_worst_ms','restart_count','nvs_used_entries','nvs_free_entries','nvs_write_worst_ms','gap_log_state','sensor_degraded_active','loop_stack_high_water_b','wifi_disconnect_count','api_client_count']; required:=ARRAY[]::text[];
- ELSE RAISE EXCEPTION 'unknown observational source kind'; END CASE;
- FOREACH k IN ARRAY required LOOP
- IF NOT p_payload ? k OR p_payload->k='null'::jsonb THEN
- RAISE EXCEPTION 'observational required field missing: %',k; END IF;
- END LOOP;
- typed_payload:=p_payload;
- FOR k,v IN SELECT key,value FROM jsonb_each(p_payload) LOOP
- IF NOT k=ANY(allowed) OR NOT EXISTS(
- SELECT 1 FROM pg_attribute a WHERE a.attrelid=format('public.%I',target_view)::regclass
- AND a.attname=k AND a.attnum>0 AND NOT a.attisdropped
- AND has_column_privilege('verdify_ingestor_runtime',a.attrelid,a.attnum,'INSERT')) THEN
- RAISE EXCEPTION 'observational field outside pinned INSERT projection: %',k; END IF;
- SELECT a.atttypid,ty.typcategory INTO STRICT t,category FROM pg_attribute a JOIN pg_type ty ON ty.oid=a.atttypid
- WHERE a.attrelid=format('public.%I',target_table)::regclass AND a.attname=k AND a.attnum>0 AND NOT a.attisdropped;
- IF v='null'::jsonb THEN CONTINUE; END IF;
- IF (category='N' AND jsonb_typeof(v)<>'number') OR (category='S' AND jsonb_typeof(v)<>'string')
- OR (category='B' AND jsonb_typeof(v)<>'boolean') THEN
- RAISE EXCEPTION 'observational JSON type mismatch: %',k; END IF;
- IF t IN ('smallint'::regtype,'integer'::regtype,'bigint'::regtype) THEN
- n:=(v #>> '{}')::numeric;
- IF n<>trunc(n) THEN RAISE EXCEPTION 'fractional observational integer: %',k; END IF;
- IF t='smallint'::regtype THEN v:=to_jsonb(n::smallint);
- ELSIF t='integer'::regtype THEN v:=to_jsonb(n::integer);
- ELSE v:=to_jsonb(n::bigint); END IF;
- typed_payload:=jsonb_set(typed_payload,ARRAY[k],v);
- END IF;
- END LOOP;
- IF p_kind='esp32_log' AND (p_payload->>'message'='' OR p_payload->>'level' NOT IN ('NONE','ERROR','WARN','INFO','DEBUG','VERBOSE','VERY_VERBOSE','UNKNOWN')) THEN
- RAISE EXCEPTION 'invalid observational log'; END IF;
- h:=sha256(convert_to(jsonb_build_object('event_id',p_event_id,'kind',p_kind,'source_ts',p_source_ts,
- 'greenhouse_id',p_greenhouse_id,'runtime',p_runtime_instance_id,'generation',p_connection_generation,
- 'payload',p_payload)::text,'UTF8'));
- INSERT INTO public.observational_source_events(event_id,kind,source_ts,greenhouse_id,source_runtime_instance_id,source_connection_generation,event_payload,event_sha256)
- VALUES(p_event_id,p_kind,p_source_ts,p_greenhouse_id,p_runtime_instance_id,p_connection_generation,p_payload,h)
- ON CONFLICT(event_id) DO NOTHING RETURNING event_id INTO inserted;
- IF inserted IS NULL THEN
- IF NOT EXISTS(SELECT 1 FROM public.observational_source_events WHERE event_id=p_event_id AND event_sha256=h) THEN
- RAISE EXCEPTION 'observational UUID already binds different immutable evidence'; END IF;
- RETURN false; END IF;
- IF p_kind='setpoint_observed' THEN
- -- Historical observed evidence; never now(), UPDATE, control replay or fresh confirmation.
- typed_payload:=typed_payload||jsonb_build_object('source','esp32','confirmed_at',p_source_ts,'delivery_status','observed');
- END IF;
- SELECT string_agg(format('%I',key),',' ORDER BY key),
- string_agg(format('(jsonb_populate_record(NULL::public.%I,$3)).%I',target_table,key),',' ORDER BY key)
- INTO column_names,expressions FROM jsonb_object_keys(typed_payload) AS key;
- IF p_kind IN ('override','esp32_log') THEN
- EXECUTE format('INSERT INTO public.%I(ts,%s) SELECT $1,%s',target_view,column_names,expressions)
- USING p_source_ts,p_greenhouse_id,typed_payload;
- ELSE
- EXECUTE format('INSERT INTO public.%I(ts,greenhouse_id,%s) SELECT $1,$2,%s',target_view,column_names,expressions)
- USING p_source_ts,p_greenhouse_id,typed_payload;
- END IF;
- RETURN true;
-END $body$;
-REVOKE ALL ON FUNCTION public.fn_record_observational_source_event(uuid,text,timestamptz,text,uuid,bigint,jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.fn_record_observational_source_event(uuid,text,timestamptz,text,uuid,bigint,jsonb) TO verdify_ingestor_runtime;
-
+    FOR rec IN SELECT * FROM (VALUES
 -- AF10: the live ledger (last defined by 134) with its data_gap_hours_24h check reading the replay-aware gaps.
+        ('public.v_data_trust_ledger', $ledger$
 CREATE OR REPLACE VIEW public.v_data_trust_ledger AS
  SELECT 'climate_freshness'::text AS check_name,
         CASE
@@ -343,14 +243,10 @@ UNION ALL
     0::numeric AS threshold_value,
     'completed generated daily plan pages stale or unaudited'::text AS details
    FROM v_daily_plan_archive_self_check
-  WHERE v_daily_plan_archive_self_check.date >= ((now() AT TIME ZONE 'America/Denver'::text)::date - 14) AND v_daily_plan_archive_self_check.date < (now() AT TIME ZONE 'America/Denver'::text)::date;
-COMMENT ON VIEW public.v_data_trust_ledger IS
-    'Owner-facing public health checks spanning freshness, coverage, gaps, recovered planner trigger SLA, water hard '
-    'failures, canonical fertigation logging, measured energy sync, forecasts, crop completeness, and generated '
-    'archives. Future instrumentation requirements are reported separately from live-system health. Gaps exclude '
-    'the minutes the gap log replayed (v_data_gaps_unreplayed; 315).';
-
+  WHERE v_daily_plan_archive_self_check.date >= ((now() AT TIME ZONE 'America/Denver'::text)::date - 14) AND v_daily_plan_archive_self_check.date < (now() AT TIME ZONE 'America/Denver'::text)::date
+$ledger$),
 -- AF10: the live coverage (last defined by 281) with both gap tests reading the replay-aware gaps.
+        ('public.v_irrigation_day_coverage', $coverage$
 CREATE OR REPLACE VIEW public.v_irrigation_day_coverage AS
  WITH wet_relays(relay_slug) AS (
          VALUES ('drip_wall'::text), ('drip_wall_fert'::text), ('fert_master_valve'::text), ('mister_center'::text), ('drip_center'::text), ('drip_center_fert'::text), ('mister_south'::text), ('mister_south_fert'::text), ('mister_west'::text), ('mister_west_fert'::text), ('fog'::text)
@@ -403,16 +299,12 @@ CREATE OR REPLACE VIEW public.v_irrigation_day_coverage AS
               WHERE g.start_ts < d.day_end AND g.end_ts > d.day_start)) THEN 'partial'::text
             ELSE 'complete'::text
         END AS coverage
-   FROM days d;
-COMMENT ON VIEW public.v_irrigation_day_coverage IS
-    'Each America/Denver day from the first wet-relay row to today: no_data (after the newest climate row''s day, '
-    'every day when there is no climate row, or wholly inside one unreplayed gap piece), partial (today, the newest '
-    'climate row''s day, or an unreplayed gap overlap) or complete. Gaps exclude the minutes the gap log replayed '
-    '(v_data_gaps_unreplayed; 315). A complete day with no runs has no minutes rows; nothing is zero-filled.';
-
+   FROM days d
+$coverage$),
 -- RELEASE REVIEW READERS-5: readbacks are stored on change with an hourly keyframe (#1662), so a readback is stale
 -- when its newest row is older than 2 hours (the rule of validate-irrigation-stack's cfg readback check), not 15
 -- minutes. The live definition otherwise; every column and the ACL stay.
+        ('public.v_irrigation_schedule_current', $schedule$
 CREATE OR REPLACE VIEW public.v_irrigation_schedule_current AS
  WITH param_defaults(parameter, default_value) AS (
          VALUES ('irrig_wall_start_hour'::text,10.0), ('irrig_wall_start_min'::text,30.0), ('irrig_wall_duration_min'::text,10.0), ('irrig_wall_fert_duration_min'::text,6.0), ('irrig_wall_fert_every_n'::text,0.0), ('irrig_wall_days_mask'::text,127.0), ('irrig_wall_fert_days_mask'::text,127.0), ('irrig_wall_flush_min'::text,2.0), ('irrig_wall_interval_days'::text,1.0), ('irrig_center_start_hour'::text,10.0), ('irrig_center_start_min'::text,30.0), ('irrig_center_duration_min'::text,10.0), ('irrig_center_fert_duration_min'::text,6.0), ('irrig_center_fert_every_n'::text,0.0), ('irrig_center_days_mask'::text,127.0), ('irrig_center_fert_days_mask'::text,127.0), ('irrig_center_flush_min'::text,2.0), ('irrig_center_interval_days'::text,1.0)
@@ -548,7 +440,44 @@ UNION ALL
     s.readback_drift_count,
     'Center drip/fert path; center root-zone and runoff feedback remain pending physical instrumentation.'::text AS notes
    FROM pivoted p
-     CROSS JOIN source_rollup s;
+     CROSS JOIN source_rollup s
+$schedule$)
+    ) AS v(target, ddl) LOOP
+        attempt := 0;
+        LOOP
+            attempt := attempt + 1;
+            BEGIN
+                PERFORM pg_catalog.set_config('lock_timeout', '5s', true);
+                EXECUTE rec.ddl;
+                PERFORM pg_catalog.set_config('lock_timeout', saved, true);
+                EXIT;
+            EXCEPTION WHEN lock_not_available THEN
+                PERFORM pg_catalog.set_config('lock_timeout', saved, true);
+                IF attempt >= 8 THEN
+                    RAISE EXCEPTION '315 could not lock % exclusively in 8 attempts of 5 s', rec.target
+                        USING ERRCODE = 'lock_not_available';
+                END IF;
+                PERFORM pg_catalog.pg_sleep(1);
+            END;
+        END LOOP;
+    END LOOP;
+    IF pg_catalog.current_setting('lock_timeout') IS DISTINCT FROM saved THEN
+        RAISE EXCEPTION '315 left lock_timeout changed';
+    END IF;
+END $views$;
+
+COMMENT ON VIEW public.v_data_trust_ledger IS
+    'Owner-facing public health checks spanning freshness, coverage, gaps, recovered planner trigger SLA, water hard '
+    'failures, canonical fertigation logging, measured energy sync, forecasts, crop completeness, and generated '
+    'archives. Future instrumentation requirements are reported separately from live-system health. Gaps exclude '
+    'the minutes the gap log replayed (v_data_gaps_unreplayed; 315).';
+
+COMMENT ON VIEW public.v_irrigation_day_coverage IS
+    'Each America/Denver day from the first wet-relay row to today: no_data (after the newest climate row''s day, '
+    'every day when there is no climate row, or wholly inside one unreplayed gap piece), partial (today, the newest '
+    'climate row''s day, or an unreplayed gap overlap) or complete. Gaps exclude the minutes the gap log replayed '
+    '(v_data_gaps_unreplayed; 315). A complete day with no runs has no minutes rows; nothing is zero-filled.';
+
 COMMENT ON VIEW public.v_irrigation_schedule_current IS
     'Canonical current irrigation schedule. Values prefer v_active_plan, then ESP32 observed number states, then cfg_* '
     'readbacks, then firmware defaults. A readback is stale when its newest row is older than 2 hours (315).';
@@ -619,6 +548,121 @@ COMMENT ON VIEW public.v_relay_counter_reconciliation_daily IS
     'source. Valid from the phase 2 flash, 2026-11-16 19:48Z: that day and today read partial; no_record = no '
     'daily_relay_record row.';
 GRANT SELECT ON public.v_relay_counter_reconciliation_daily TO verdify_dashboard_runtime, verdify_ingestor_runtime;
+
+-- The spool's admission function (267; RELEASE REVIEW DISPATCHER-01): the ingestor spools every diagnostics row
+-- as its full model, and the function refuses any key outside its pinned diagnostics list, which would jam the FIFO
+-- spool. 314's text byte for byte with the three AF9(b) keys appended in this order; CREATE OR REPLACE keeps the owner,
+-- SECURITY DEFINER, search_path and time zone, and the REVOKE/GRANT pair restates the ACL as 314 does.
+CREATE OR REPLACE FUNCTION public.fn_record_observational_source_event(
+ p_event_id uuid,p_kind text,p_source_ts timestamptz,p_greenhouse_id text,
+ p_runtime_instance_id uuid,p_connection_generation bigint,p_payload jsonb
+) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,pg_temp
+SET timezone='UTC'
+AS $body$
+DECLARE target_table text; target_view text; allowed text[]; required text[];
+ h bytea; inserted uuid; k text; v jsonb; t oid; category "char"; n numeric;
+ typed_payload jsonb; column_names text; expressions text;
+BEGIN
+ IF p_event_id IS NULL OR p_source_ts IS NULL OR p_greenhouse_id IS DISTINCT FROM 'vallery'
+ OR p_runtime_instance_id IS NULL OR p_connection_generation IS NULL
+ OR p_connection_generation NOT BETWEEN 0 AND 9007199254740991
+ OR jsonb_typeof(p_payload) IS DISTINCT FROM 'object' OR p_payload='{}'::jsonb
+ OR octet_length(p_payload::text)>1048576 THEN
+ RAISE EXCEPTION 'invalid observational source event'; END IF;
+ CASE p_kind
+ WHEN 'system_state' THEN target_table:='system_state'; target_view:='v_runtime_system_state_write'; allowed:=ARRAY['entity','value']; required:=allowed;
+ WHEN 'override' THEN target_table:='override_events'; target_view:='v_runtime_override_events_write'; allowed:=ARRAY['override_type','mode']; required:=ARRAY['override_type'];
+ WHEN 'setpoint_observed' THEN target_table:='setpoint_changes'; target_view:='v_runtime_setpoint_changes_write'; allowed:=ARRAY['parameter','value']; required:=allowed;
+ WHEN 'esp32_log' THEN target_table:='esp32_logs'; target_view:='v_runtime_esp32_logs_write'; allowed:=ARRAY['level','tag','message']; required:=ARRAY['level','message'];
+ WHEN 'diagnostics' THEN target_table:='diagnostics'; target_view:='v_runtime_diagnostics_write'; allowed:=ARRAY['wifi_rssi','heap_bytes','heap_min_free_kb','heap_largest_free_block_kb','uptime_s','probe_health','reset_reason','firmware_version','active_probe_count','relief_cycle_count','vent_latch_timer_s','sealed_timer_s','vpd_watch_timer_s','mist_backoff_timer_s','vent_mist_assist_active','effective_heat_target_f','effective_cool_stage2_delta_f','effective_vpd_hysteresis_kpa','effective_dehum_aggressive_kpa','controller_time_epoch','controller_local_hour','sntp_valid','sntp_miss_count','last_sntp_sync_age_s','band_source','zone_wet_granted',
+ 'heap_min_free_minute_kb','heap_largest_block_minute_low_kb','loop_worst_ms','restart_count','nvs_used_entries','nvs_free_entries','nvs_write_worst_ms','gap_log_state','sensor_degraded_active','loop_stack_high_water_b','wifi_disconnect_count','api_client_count']; required:=ARRAY[]::text[];
+ ELSE RAISE EXCEPTION 'unknown observational source kind'; END CASE;
+ FOREACH k IN ARRAY required LOOP
+ IF NOT p_payload ? k OR p_payload->k='null'::jsonb THEN
+ RAISE EXCEPTION 'observational required field missing: %',k; END IF;
+ END LOOP;
+ typed_payload:=p_payload;
+ FOR k,v IN SELECT key,value FROM jsonb_each(p_payload) LOOP
+ IF NOT k=ANY(allowed) OR NOT EXISTS(
+ SELECT 1 FROM pg_attribute a WHERE a.attrelid=format('public.%I',target_view)::regclass
+ AND a.attname=k AND a.attnum>0 AND NOT a.attisdropped
+ AND has_column_privilege('verdify_ingestor_runtime',a.attrelid,a.attnum,'INSERT')) THEN
+ RAISE EXCEPTION 'observational field outside pinned INSERT projection: %',k; END IF;
+ SELECT a.atttypid,ty.typcategory INTO STRICT t,category FROM pg_attribute a JOIN pg_type ty ON ty.oid=a.atttypid
+ WHERE a.attrelid=format('public.%I',target_table)::regclass AND a.attname=k AND a.attnum>0 AND NOT a.attisdropped;
+ IF v='null'::jsonb THEN CONTINUE; END IF;
+ IF (category='N' AND jsonb_typeof(v)<>'number') OR (category='S' AND jsonb_typeof(v)<>'string')
+ OR (category='B' AND jsonb_typeof(v)<>'boolean') THEN
+ RAISE EXCEPTION 'observational JSON type mismatch: %',k; END IF;
+ IF t IN ('smallint'::regtype,'integer'::regtype,'bigint'::regtype) THEN
+ n:=(v #>> '{}')::numeric;
+ IF n<>trunc(n) THEN RAISE EXCEPTION 'fractional observational integer: %',k; END IF;
+ IF t='smallint'::regtype THEN v:=to_jsonb(n::smallint);
+ ELSIF t='integer'::regtype THEN v:=to_jsonb(n::integer);
+ ELSE v:=to_jsonb(n::bigint); END IF;
+ typed_payload:=jsonb_set(typed_payload,ARRAY[k],v);
+ END IF;
+ END LOOP;
+ IF p_kind='esp32_log' AND (p_payload->>'message'='' OR p_payload->>'level' NOT IN ('NONE','ERROR','WARN','INFO','DEBUG','VERBOSE','VERY_VERBOSE','UNKNOWN')) THEN
+ RAISE EXCEPTION 'invalid observational log'; END IF;
+ h:=sha256(convert_to(jsonb_build_object('event_id',p_event_id,'kind',p_kind,'source_ts',p_source_ts,
+ 'greenhouse_id',p_greenhouse_id,'runtime',p_runtime_instance_id,'generation',p_connection_generation,
+ 'payload',p_payload)::text,'UTF8'));
+ INSERT INTO public.observational_source_events(event_id,kind,source_ts,greenhouse_id,source_runtime_instance_id,source_connection_generation,event_payload,event_sha256)
+ VALUES(p_event_id,p_kind,p_source_ts,p_greenhouse_id,p_runtime_instance_id,p_connection_generation,p_payload,h)
+ ON CONFLICT(event_id) DO NOTHING RETURNING event_id INTO inserted;
+ IF inserted IS NULL THEN
+ IF NOT EXISTS(SELECT 1 FROM public.observational_source_events WHERE event_id=p_event_id AND event_sha256=h) THEN
+ RAISE EXCEPTION 'observational UUID already binds different immutable evidence'; END IF;
+ RETURN false; END IF;
+ IF p_kind='setpoint_observed' THEN
+ -- Historical observed evidence; never now(), UPDATE, control replay or fresh confirmation.
+ typed_payload:=typed_payload||jsonb_build_object('source','esp32','confirmed_at',p_source_ts,'delivery_status','observed');
+ END IF;
+ SELECT string_agg(format('%I',key),',' ORDER BY key),
+ string_agg(format('(jsonb_populate_record(NULL::public.%I,$3)).%I',target_table,key),',' ORDER BY key)
+ INTO column_names,expressions FROM jsonb_object_keys(typed_payload) AS key;
+ IF p_kind IN ('override','esp32_log') THEN
+ EXECUTE format('INSERT INTO public.%I(ts,%s) SELECT $1,%s',target_view,column_names,expressions)
+ USING p_source_ts,p_greenhouse_id,typed_payload;
+ ELSE
+ EXECUTE format('INSERT INTO public.%I(ts,greenhouse_id,%s) SELECT $1,$2,%s',target_view,column_names,expressions)
+ USING p_source_ts,p_greenhouse_id,typed_payload;
+ END IF;
+ RETURN true;
+END $body$;
+REVOKE ALL ON FUNCTION public.fn_record_observational_source_event(uuid,text,timestamptz,text,uuid,bigint,jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_record_observational_source_event(uuid,text,timestamptz,text,uuid,bigint,jsonb) TO verdify_ingestor_runtime;
+
+-- AF9(b). One column per statement: diagnostics is a compressed hypertable.
+ALTER TABLE public.diagnostics ADD COLUMN loop_stack_high_water_b integer;
+ALTER TABLE public.diagnostics ADD COLUMN wifi_disconnect_count integer;
+ALTER TABLE public.diagnostics ADD COLUMN api_client_count integer;
+
+COMMENT ON COLUMN public.diagnostics.loop_stack_high_water_b IS
+    'Lowest free stack of the loop task since boot, in bytes (loop_stack_high_water; 315, #1633). NULL = not '
+    'published.';
+COMMENT ON COLUMN public.diagnostics.wifi_disconnect_count IS
+    'WiFi disconnects since boot; resets with a restart (wifi_disconnect_count; 315). NULL = not published.';
+COMMENT ON COLUMN public.diagnostics.api_client_count IS
+    'API client connections at publish time (api_client_count; 315). NULL = not published.';
+
+-- 314's facade with the three columns appended: the same columns in the same order, then the three.
+CREATE OR REPLACE VIEW public.v_runtime_diagnostics_write
+    WITH (security_barrier=true, security_invoker=false) AS
+SELECT ts, wifi_rssi, heap_bytes, heap_min_free_kb, heap_largest_free_block_kb, uptime_s, probe_health,
+       reset_reason, firmware_version, active_probe_count, relief_cycle_count, vent_latch_timer_s, sealed_timer_s,
+       vpd_watch_timer_s, mist_backoff_timer_s, vent_mist_assist_active, effective_heat_target_f,
+       effective_cool_stage2_delta_f, effective_vpd_hysteresis_kpa, effective_dehum_aggressive_kpa,
+       controller_time_epoch, controller_local_hour, sntp_valid, sntp_miss_count, last_sntp_sync_age_s,
+       band_source, zone_wet_granted, greenhouse_id, heap_min_free_minute_kb, heap_largest_block_minute_low_kb,
+       loop_worst_ms, restart_count, nvs_used_entries, nvs_free_entries, nvs_write_worst_ms, gap_log_state,
+       sensor_degraded_active, loop_stack_high_water_b, wifi_disconnect_count, api_client_count
+  FROM public.diagnostics;
+
+GRANT INSERT (loop_stack_high_water_b, wifi_disconnect_count, api_client_count)
+    ON public.v_runtime_diagnostics_write TO verdify_ingestor_runtime;
 
 -- Successor seals: the probe of the rolled-back native qualification measures them, and each receipt is re-sealed.
 -- Measured by the native probe of 2026-11-16 (22:55Z): all three seals move; the MCP seal moves because the MCP duty

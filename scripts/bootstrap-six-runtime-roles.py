@@ -1204,7 +1204,7 @@ def sealed_sql_314():
 REPLAYED_GAPS_COUNTER_CHECK_MIGRATION = (
     315,
     "315-replayed-gaps-counter-check-and-health.sql",
-    "fd8c29416817e87c702557b7431e0bc7c581cc2109953afd7ea7134b442fe453",
+    "a5cadbc8645f7ee3fde65c41e8709b6dba6295dce1fa4f3406237f081dd49fff",
 )
 # Replayed gaps stop counting as missing, the relay counter check and three health columns (#1633, host release 4;
 # RULINGS AF7, AF9, AF10): v_data_trust_ledger and v_irrigation_day_coverage read v_data_gaps_unreplayed, the dashboard
