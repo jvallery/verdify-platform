@@ -45,6 +45,10 @@ inline bool gh_pre_ota_heap_floor_met(float free_kb, float largest_block_kb) {
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
 #include "esp_system.h"
+#include "esp_flash.h"
+#include "esp_partition.h"
+#include "nvs.h"
+#include <cstdio>
 
 inline float gh_free_heap_kb() {
     return esp_get_free_heap_size() / 1024.0f;
@@ -57,7 +61,42 @@ inline float gh_min_free_heap_kb() {
 inline float gh_largest_free_heap_block_kb() {
     return heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) / 1024.0f;
 }
+// RULINGS W1/W2: the device's own partition table (OTA never rewrites it), NVS use and the flash chip, for the
+// flash-backed buffer's design. Read-only, static buffers, no heap; a failed call reports its error code.
+inline void gh_flash_profile(const char** parts_line, const char** nvs_line) {
+    static char parts[384];
+    static char nvs[160];
+    size_t n = 0;
+    parts[0] = '\0';
+    esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, NULL);
+    while (it != NULL) {
+        const esp_partition_t* p = esp_partition_get(it);
+        const int w = snprintf(parts + n, sizeof(parts) - n, "%s%s@0x%lx+0x%lx", n ? "," : "", p->label,
+                               (unsigned long) p->address, (unsigned long) p->size);
+        if (w < 0 || size_t(w) >= sizeof(parts) - n) break;  // full: stop, release below
+        n += size_t(w);
+        it = esp_partition_next(it);
+    }
+    if (it != NULL) esp_partition_iterator_release(it);
+    nvs_stats_t st = {};
+    const esp_err_t nvs_err = nvs_get_stats(NULL, &st);
+    uint32_t id = 0, bytes = 0;
+    const esp_err_t id_err = esp_flash_read_id(NULL, &id);
+    const esp_err_t size_err = esp_flash_get_size(NULL, &bytes);
+    snprintf(nvs, sizeof(nvs),
+             "nvs_used=%u nvs_free=%u nvs_total=%u nvs_ns=%u nvs_err=0x%x flash_id=0x%06lx id_err=0x%x "
+             "flash_bytes=%lu size_err=0x%x",
+             unsigned(st.used_entries), unsigned(st.free_entries), unsigned(st.total_entries),
+             unsigned(st.namespace_count), unsigned(nvs_err), (unsigned long) id, unsigned(id_err),
+             (unsigned long) bytes, unsigned(size_err));
+    *parts_line = parts;
+    *nvs_line = nvs;
+}
 #else
+inline void gh_flash_profile(const char** parts_line, const char** nvs_line) {
+    *parts_line = "native";
+    *nvs_line = "native";
+}
 inline float gh_free_heap_kb() { return 0.0f; }
 inline float gh_min_free_heap_kb() { return 0.0f; }
 inline float gh_largest_free_heap_block_kb() { return 0.0f; }

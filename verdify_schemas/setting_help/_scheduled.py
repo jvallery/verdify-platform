@@ -180,21 +180,10 @@ def _legacy_edge(axis: str, side: str, refs: tuple[str, ...]) -> HelpEntry:
 
 
 def _zone_target(zone: str, crop: str | None) -> HelpEntry:
-    if zone == "east":
-        use = (
-            "The east zone has no mister, but the controller still uses this value: east VPD above it counts as a "
-            "zone needing misting, and adds to the south and center misting scores."
-        )
-    elif zone == "center":
-        use = (
-            "The controller still uses this value: house VPD above it counts as the center zone needing misting, "
-            "and it sets the center misting score, the overdue-zone check and when a pulse is lengthened."
-        )
-    else:
-        use = (
-            f"The controller still uses this value: {zone} VPD above it counts as the zone needing misting, and it "
-            f"sets the misting score, the overdue-zone check and when a pulse is lengthened."
-        )
+    use = (
+        "Not used since the band-edge climate law: the misters pick a zone by the irrigation program's ranking on "
+        "the house band, centre first, not by this target."
+    )
     return HelpEntry(
         summary=f"VPD target for the {zone} zone, worked out by the platform each cycle from the zone's target curve.",
         effect=(
@@ -203,8 +192,7 @@ def _zone_target(zone: str, crop: str | None) -> HelpEntry:
         ),
         caution="Read-only. Edit the zone's VPD target curve under Crop band to change how the zone is misted.",
         refs=(
-            f"{_CONTROLS}::id(vpd_target_{zone}) > 0",
-            f"{_CONTROLS}::zone_vpd > zone_target * 1.2f",
+            "firmware/lib/climate_law.h::zone = verdify_irr::irr_rank_vpd_zone(allowed, intents, rank);",
             f"{_DISPATCHER}::fn_zone_vpd_targets",
         ),
     )
@@ -239,13 +227,10 @@ def _zone_priority(zone: str, crop: str | None) -> HelpEntry:
 ENTRIES: dict[str, HelpEntry] = {
     "direct_wet_min_temp_f": HelpEntry(
         summary="House temperature below which automated wetting was meant to be blocked; 0 turns the check off.",
-        effect=(
-            "The controller only uses it to name the reason when misting is already blocked. Whether misters run "
-            "is decided by the VPD band, the dew margin and the irrigation program."
-        ),
-        raise_="No effect on equipment today; a cold house may be reported as the blocking reason more often.",
-        lower="No effect on equipment today; the cold-house reason is reported less often.",
-        refs=(f"{_CONTROLS}::direct_wet_min_temp_f", f"{_CONTROLS}::direct_wet_temp"),
+        effect="Not used since the band-edge climate law. Wetting stops when the house is below the band's low temperature edge.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
+        refs=("firmware/lib/climate_law_constants_generated.h::WET_MIN_ABOVE_LOW_F",),
     ),
     **_lighting("main"),
     **_lighting("grow"),

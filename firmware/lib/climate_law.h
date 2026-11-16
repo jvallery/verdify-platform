@@ -19,11 +19,14 @@
  *   mister_step()       the pulse request to the irrigation engine (section 4.8, rulings B3, B4)
  *   legacy_state()      the mode / action / axis labels the host still reads (section 11.1)
  *   the engine inputs   section 8.7 with ruling C2
+ *   DryingMeter         the drying meter of section 4.5
+ *   latch_bits(), request_bits()  the state record's bit masks (climate_law_payload.h formats the payloads)
  */
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <initializer_list>
 #include <limits>
 
 #include "climate_law_constants_generated.h"
@@ -248,6 +251,7 @@ struct RelayInputs {
     double fan1_run_s, fan2_run_s;  // accumulated run seconds (persisted); non-finite counts as 0
     bool fog_hold;                  // a hold of section 4.3 forces the fogger off at once
     uint32_t dt_ms;                 // since the last call
+    bool cut_unwanted = false;      // force off at once every relay not requested (entry to the no-indoor state)
 };
 
 struct RelayStarts {
@@ -284,15 +288,23 @@ inline RelayStarts relay_step(RelayState& r, const Output& e, const RelayInputs&
     bool want_f1 = r.lead_fan1 ? e.fans >= 1 : e.fans >= 2;
     bool want_f2 = r.lead_fan1 ? e.fans >= 2 : e.fans >= 1;
     bool want_vent = e.vent;
+    const uint32_t heat_on = HEAT_MIN_ON_S * MS_PER_S, heat_off = HEAT_MIN_OFF_S * MS_PER_S;
+    const uint32_t fan_on = FAN_MIN_ON_S * MS_PER_S, fan_off = FAN_MIN_OFF_S * MS_PER_S;
+    const uint32_t vent_on = VENT_MIN_ON_S * MS_PER_S, vent_off = VENT_MIN_OFF_S * MS_PER_S;
+    const uint32_t fog_on = FOG_MIN_ON_S * MS_PER_S, fog_off = FOG_MIN_OFF_S * MS_PER_S;
+    if (in.cut_unwanted) {  // the heaters, fans and vent the request drops stop now (the fogger has its holds, G1a)
+        if (!e.heat1) detail::relay_set(r.heat1, false, false, true, heat_on, heat_off);
+        if (!e.heat2) detail::relay_set(r.heat2, false, false, true, heat_on, heat_off);
+        if (!want_f1) detail::relay_set(r.fan1, false, false, true, fan_on, fan_off);
+        if (!want_f2) detail::relay_set(r.fan2, false, false, true, fan_on, fan_off);
+        if (!want_vent && !want_f1 && !want_f2) detail::relay_set(r.vent, false, false, true, vent_on, vent_off);
+    }
     if (r.heat2.on && !e.hot) {  // the air waits for the furnace to stop
         want_vent = false;
         want_f1 = want_f2 = false;
     }
     const bool air_on = r.vent.on || r.fan1.on || r.fan2.on;
     const bool vent_was_open = r.vent.on;
-    const uint32_t heat_on = HEAT_MIN_ON_S * MS_PER_S, heat_off = HEAT_MIN_OFF_S * MS_PER_S;
-    const uint32_t fan_on = FAN_MIN_ON_S * MS_PER_S, fan_off = FAN_MIN_OFF_S * MS_PER_S;
-    const uint32_t vent_on = VENT_MIN_ON_S * MS_PER_S, vent_off = VENT_MIN_OFF_S * MS_PER_S;
     const bool prot = e.hot || e.cold;
     RelayStarts st{};
     st.heat1 = detail::relay_set(r.heat1, e.heat1, prot, prot, heat_on, heat_off);
@@ -321,8 +333,7 @@ inline RelayStarts relay_step(RelayState& r, const Output& e, const RelayInputs&
                                     vent_on, vent_off);
     }
     // G1a: the fogger keeps its minimum times at every temperature; only its hard holds stop it at once.
-    st.fog = detail::relay_set(r.fog, e.fog && !in.fog_hold, false, in.fog_hold, FOG_MIN_ON_S * MS_PER_S,
-                               FOG_MIN_OFF_S * MS_PER_S);
+    st.fog = detail::relay_set(r.fog, e.fog && !in.fog_hold, false, in.fog_hold, fog_on, fog_off);
     return st;
 }
 
@@ -525,9 +536,110 @@ inline LegacyState legacy_state(const LegacyInputs& in) noexcept {
     if (in.heat1_on || in.heat2_on) return {IDLE, MIST_WATCH, CLIMATE_HEAT, CLIMATE_PRIORITY_TEMP};
     const Band& b = in.band;
     const bool temp_out = !(in.T >= b.low && in.T <= b.high);
-    const bool vpd_out = !(in.vpd >= b.vpd_low && in.vpd <= b.vpd_high);
+    const bool vpd_out = std::isfinite(in.vpd) && !(in.vpd >= b.vpd_low && in.vpd <= b.vpd_high);  // X5 P4
     return {IDLE, MIST_WATCH, CLIMATE_IDLE,
             temp_out ? CLIMATE_PRIORITY_TEMP : (vpd_out ? CLIMATE_PRIORITY_VPD : CLIMATE_PRIORITY_RESOURCE)};
 }
+
+// -- Inputs the controller derives ---------------------------------------
+// The humidity ratio (g/kg) from a dew point (F) at the site pressure, with the device VPD's Magnus coefficients:
+// the vapour pressure is the saturation pressure at the dew point, so it holds for the wall and the case reading.
+inline double humidity_ratio_g_per_kg(double dew_point_f) noexcept {
+    const double c = (dew_point_f - F_AT_ZERO_C) / F_PER_K;
+    const double e = SAT_VP_A_KPA * std::exp(SAT_VP_B * c / (c + SAT_VP_C_C));
+    const double dry = SITE_PRESSURE_KPA - e;
+    return dry > 0 ? WATER_AIR_G_PER_KG * e / dry : std::numeric_limits<double>::quiet_NaN();
+}
+
+// The relays as they are after the caller's override layer (or anything else that switched one): a relay whose
+// physical state differs takes it with a fresh switch time, so its minimum times count from that edge (#1313).
+inline void relay_sync(RelayState& r, const RelayOutputs& physical) noexcept {
+    auto sync = [](Relay& x, bool on) {
+        if (x.on != on) {
+            x.on = on;
+            x.switched = true;
+            x.since_ms = 0;
+        }
+    };
+    sync(r.heat1, physical.heat1);
+    sync(r.heat2, physical.heat2);
+    sync(r.fan1, physical.fan1);
+    sync(r.fan2, physical.fan2);
+    sync(r.fog, physical.fog);
+    sync(r.vent, physical.vent);
+}
+
+// -- The no-indoor-temperature table (FW-INFRA's no_indoor_relays(), decision 7) as a request ----------
+// The table goes through the same relay layer, so the interlocks and the boot rule apply to it.
+inline Output output_from_relays(const RelayOutputs& t) noexcept {
+    Output q;
+    q.heat1 = t.heat1;
+    q.heat2 = t.heat2;
+    q.vent = t.vent;
+    q.fog = t.fog;
+    q.fans = (t.fan1 ? 1 : 0) + (t.fan2 ? 1 : 0);
+    return q;
+}
+
+// -- Section 4.5: the drying meter ------------------------------------------
+// Lifetime counters (contract phase3-entities, `climate_drying_meter`): seconds of a drying run with the vent open,
+// water and heat carried out with the compiled air exchange, and seconds the dry latch was set with no run. The
+// fractions are kept so 1 s steps add up exactly; the published values are whole units.
+struct DryingMeter {
+    uint32_t s = 0, g = 0, wh = 0, rw = 0;
+    double s_frac = 0, g_frac = 0, wh_frac = 0, rw_frac = 0;
+};
+
+namespace detail {
+inline void meter_add(uint32_t& whole, double& frac, double add) noexcept {
+    if (!(add > 0)) return;
+    frac += add;
+    const double w = std::floor(frac);
+    frac -= w;
+    const double room = double(std::numeric_limits<uint32_t>::max() - whole);
+    whole = w >= room ? std::numeric_limits<uint32_t>::max() : whole + uint32_t(w);
+}
+}  // namespace detail
+
+// One pass. `law` and `state` are this pass's law output and latches, the relays as they are after the relay layer,
+// the readings the law used. Non-finite readings add no water or heat (the seconds still count).
+inline void drying_meter_step(DryingMeter& m, const State& state, const Output& law, bool vent_on, bool fan_on,
+                              const Inputs& u, uint32_t dt_ms) noexcept {
+    const double dt = double(dt_ms) / double(MS_PER_S);
+    if (law.drying && vent_on) {
+        const double mv = DRY_METER_VENT_KG_PER_S + (fan_on ? DRY_METER_FAN_KG_PER_S : 0.0);
+        detail::meter_add(m.s, m.s_frac, dt);
+        const double dw = u.w_in - u.w_out;  // g/kg
+        if (std::isfinite(dw)) detail::meter_add(m.g, m.g_frac, mv * dw * dt);
+        const double dT = (u.T - u.out_T) / F_PER_K;  // K
+        if (std::isfinite(dT))
+            detail::meter_add(m.wh, m.wh_frac, mv * AIR_CP_KJ_PER_KG_K * dT * dt / (KJ_PER_KWH / WH_PER_KWH));
+    } else if (state.dry) {
+        detail::meter_add(m.rw, m.rw_frac, dt);
+    }
+}
+
+// -- Payloads (contract phase3-entities) -------------------------------------
+namespace detail {
+inline uint32_t bits(std::initializer_list<bool> b) noexcept {  // first element is bit 0
+    uint32_t m = 0, bit = 1;
+    for (bool x : b) {
+        if (x) m |= bit;
+        bit <<= 1;
+    }
+    return m;
+}
+}  // namespace detail
+
+inline uint32_t latch_bits(const State& s) noexcept {
+    return detail::bits({s.h1, s.h2, s.cool, s.cool2, s.wet, s.mist, s.dry, s.air, s.run});
+}
+inline uint32_t request_bits(const Output& q) noexcept {
+    return detail::bits({q.heat1, q.heat2, q.vent, q.fog, q.mist, q.fans >= 1, q.fans >= 2, q.cooling, q.drying,
+                         q.hot, q.cold});
+}
+
+// `climate_law_constants`: the hash of the compiled constants.
+inline const char* constants_hash() noexcept { return CONSTANTS_SHA256; }
 
 }  // namespace climate_law

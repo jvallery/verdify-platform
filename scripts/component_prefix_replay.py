@@ -168,6 +168,27 @@ SP_MEMBER_ALIASES: dict[str, str] = {
 _SP_ASSIGN = re.compile(r'assign_[a-z_]*\(\s*"(?P<column>sp_[a-z0-9_]+)"\s*,\s*sp\.(?P<member>[a-z0-9_]+)')
 
 
+# Phase 3 (#1671, RULINGS P1, T2): the band-edge law leaves these policy fields with no control read by design
+# (contracts phase3-wiring section 7a). They are recorded as inert instead of refusing the report; package
+# 4.3's host counterpart deletes this tooling with the mode machine.
+PHASE3_INERT_FIELDS = frozenset(
+    {
+        "mister_all_kpa",
+        "mister_center_penalty",
+        "mister_engage_delay_s",
+        "mister_engage_kpa",
+        "mister_min_off_s",
+        "mister_pulse_gap_s",
+        "mister_pulse_on_s",
+        "mister_vpd_weight",
+        "night_vpd_bias_kpa",  # RULINGS T2: inert, no longer reaches the band
+        "sw_direct_wet_gate_enabled",
+        "sw_fog_closes_vent",
+        "sw_mister_closes_vent",
+    }
+)
+
+
 class PrefixReplayError(ValueError):
     """The offline inputs cannot produce a truthful replay verdict."""
 
@@ -671,13 +692,14 @@ def source_coverage_report(fog_vent_inputs: Mapping[str, Any] | None = None) -> 
         sites = [
             site for site in consumers[name]["sites"] if site["category"] == "control" and site["access"] == "read"
         ]
-        if not sites:
+        if not sites and name not in PHASE3_INERT_FIELDS:
             raise PrefixReplayError(f"no actual control consumer found for {name}")
         fields.append(
             {
                 "name": name,
                 **declaration,
                 "control_read_sites": sites,
+                "phase3_inert": name in PHASE3_INERT_FIELDS and not sites,
                 "assignment_declared": declaration["sink"] != "kNone",
                 "native_path_qualification": "not_established_by_source_scan",
             }

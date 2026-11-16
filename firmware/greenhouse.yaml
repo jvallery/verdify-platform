@@ -35,6 +35,9 @@ esphome:
     - lib/running_alone.h
     - lib/zone_vpd.h
     - lib/greenhouse_logic.h
+    - lib/climate_law.h          # phase 3 (#1671): the band-edge law and its relay layer
+    - lib/climate_law_payload.h  # its JSON payloads
+    - lib/climate_law_glue.h     # its glue to the override layer and telemetry
     # Lane E (#586): atomic policy engine — generated codec + ROM baseline +
     # engine + NVS journal glue (order matters; policy_vector.h needs the
     # generated headers, the glue needs policy_vector.h).

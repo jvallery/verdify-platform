@@ -796,6 +796,22 @@ number:
           id(night_dryout_kwh_cap) = v;
           id(num_night_dryout_kwh_cap).publish_state(v);
 
+  # Phase 3 (#1671): the drying cost limit (contract phase3-entities; owner-only).
+  - platform: template
+    id: num_dry_cost_limit_kwh_per_kg
+    name: "Dry Cost Limit kWh per kg"
+    min_value: 0.0
+    max_value: 1.5
+    step: 0.05
+    unit_of_measurement: "kWh/kg"
+    lambda: "return id(dry_cost_limit);"
+    set_action:
+      - lambda: |
+          id(cfg_first_pull_ok) = true;
+          const float v = (float) climate_law::dry_cost_limit(x);
+          id(dry_cost_limit) = v;
+          id(num_dry_cost_limit_kwh_per_kg).publish_state(v);
+
   - platform: template
     id: num_vent_latch_timeout_ms
     name: "Vent Latch Timeout (ms)"

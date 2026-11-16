@@ -396,30 +396,11 @@ interval:
             counter_store.restored = true;
           }
           RelayCounters& relay_counters = counter_store.counters;
-          bool currentLeadIs1 = id(fan_lead_is_fan1);
-          static uint32_t last_rotate_ms = millis();
-          const bool wall_clock_rotate_due = now_ms - last_rotate_ms >= LEAD_ROTATE_TIMEOUT_MS;
-          const bool any_fan_running = id(fan1_rly)->state || id(fan2_rly)->state;
-          uint32_t fan1_runtime_with_active_ms = 0;
-          uint32_t fan2_runtime_with_active_ms = 0;
-          fan_runtime_for_lead_ms(relay_counters.fan_run_s[0], relay_counters.fan_run_s[1],
-                                  fan1_runtime_with_active_ms, fan2_runtime_with_active_ms);
-          bool leadIs1 = choose_runtime_balanced_fan_lead(
-            currentLeadIs1,
-            fan1_runtime_with_active_ms,
-            fan2_runtime_with_active_ms,
-            any_fan_running,
-            wall_clock_rotate_due);
-          if(leadIs1 != currentLeadIs1){
-            id(fan_lead_is_fan1) = leadIs1;
-            last_rotate_ms = now_ms;
-            ESP_LOGI("lead","Lead fan selected -> %s (fan1=%lus fan2=%lus)",
-                     leadIs1 ? "Fan 1" : "Fan 2",
-                     static_cast<unsigned long>(fan1_runtime_with_active_ms / 1000UL),
-                     static_cast<unsigned long>(fan2_runtime_with_active_ms / 1000UL));
-          }else if(wall_clock_rotate_due && !any_fan_running){
-            last_rotate_ms = now_ms;
-          }
+          // T6 S3: the lead fan is the relay layer's (relay_step() picks it from the run
+          // seconds while both fans are off); this pass's request tables use the lead
+          // as it stands, and section 11a publishes the one the relay layer runs.
+          static climate_law::RelayState law_relays;
+          const bool leadIs1 = law_relays.lead_fan1;
 
           /**************** 8+9 — MODE + EQUIPMENT (via greenhouse_logic.h) *******/
           // Single source of truth: same code runs on ESP32 and in x86 tests.
@@ -481,8 +462,9 @@ interval:
           float sv2_temp_low  = id(target_temp_low_f);
           float sv2_temp_high = id(target_temp_high_f);
           float sv2_temp_tgt  = (sv2_temp_low + sv2_temp_high) * 0.5f;
-          float sv2_vpd_low   = id(target_vpd_low);
-          float sv2_vpd_high  = id(target_vpd_high);
+          // T6 F1: the pushed VPD edges (target_vpd_*_kpa), not the dead globals.
+          float sv2_vpd_low   = id(target_vpd_low_kpa);
+          float sv2_vpd_high  = id(target_vpd_high_kpa);
           float sv2_vpd_tgt   = (sv2_vpd_low + sv2_vpd_high) * 0.5f;
           const BandSource band_source = select_band_source(id(sw_onchip_band_enabled), band_clock_trusted);
           const BandAnchors band_tl = {id(band_temp_low_sr), id(band_temp_low_sm), id(band_temp_low_ss), id(band_temp_low_mid)};
@@ -511,23 +493,9 @@ interval:
             }
           }
 
-          // Item-4 night-dry lever (planner-pushable, clamped 0..0.25 kPa): raise
-          // the VPD band overnight so the dryer keeps running, weighted by a smooth
-          // sin^2 bump that PEAKS at solar midnight and is exactly 0 at sunset (phase
-          // 2) and sunrise (phase 4) — so it can never re-introduce a slope corner.
-          // Lets the planner pre-empt a humid night without touching the anchors.
-          {
-            const float nbias = pol(verdify_policy::kPF_night_vpd_bias_kpa, id(night_vpd_bias_kpa));
-            // Not on the corridor: it is already the widest band, and the solar
-            // night is unknown without a trusted clock.
-            if (band_source != BandSource::kCorridor && nbias > 0.0f && sv2_phase >= 2.0f && sv2_phase <= 4.0f) {
-              const float s = sinf(3.14159265f * (sv2_phase - 2.0f) * 0.5f);
-              const float add = nbias * s * s;  // s^2: 0 at phase 2/4, 1 at phase 3
-              sv2_vpd_low  += add;
-              sv2_vpd_tgt  += add;
-              sv2_vpd_high += add;
-            }
-          }
+          // RULINGS T2 (F2): night_vpd_bias_kpa no longer reaches the band the law, the
+          // zone gate and mister_step receive. The setting still takes pushes and reads
+          // back (cfg_night_vpd_bias_kpa), inert until package 4.3 removes it.
 
           // Phase 2: one outdoor reading for every outdoor-dependent decision: the
           // weather station (Tempest UDP) first, the wired exterior intake probe
@@ -712,13 +680,67 @@ interval:
               id(sw_fsm_controller_enabled) = true;
               id(sw_fsm_controller_enabled_switch).publish_state(true);
           }
-          // G3: during the boot grace the controller decides nothing: the mode stays
-          // IDLE (mode_reason "init") and every climate relay request is off, so
-          // nothing is switched (the relays are off since on_boot).
-          Mode mode = boot_wait ? IDLE : determine_mode(sensor_in, setpts, ctl_state, dt_ms);
-          RelayOutputs relay_out = boot_wait
-              ? RelayOutputs{false, false, false, false, false, false}
-              : resolve_equipment(mode, sensor_in, setpts, ctl_state, leadIs1);
+          // Phase 3 (#1671): the band-edge law (lib/climate_law.h, plan appendix A)
+          // decides the climate relays; determine_mode()/resolve_equipment() are no
+          // longer called (their code stays for package 4.3). G3: during the boot
+          // grace the law gets no temperature, so it requests nothing (mode_reason
+          // "init"). `mode` is a label for the consumers that still read one (the fog
+          // holds, the engine's sensor_fault input, telemetry); section 12 ends by
+          // setting it to the 11.1 label of the relays (climate_law::legacy_state()).
+          const bool law_temp_valid = !boot_wait && indoor.source != IndoorSource::kNone;
+          climate_law::Inputs law_in{};
+          law_in.T = Tin;
+          law_in.vpd = VPD;
+          law_in.dp_f = indoor.dew_point_f;
+          law_in.band = {sv2_temp_low, sv2_temp_high, sv2_vpd_low, sv2_vpd_high};
+          law_in.temp_valid = law_temp_valid;
+          // RULINGS AG1 (plan 4.2): the humidity rules run on the wall averages only; on the
+          // case sensor they hold (no fog, mist or drying on the case air, 100 F included).
+          law_in.humidity_valid = climate_law::law_humidity_valid(law_temp_valid, indoor);
+          law_in.out_ok = outdoor.source != OutdoorSource::kNone && outdoor_data_fresh(outdoor.age_s);
+          law_in.out_T = outdoorT;
+          law_in.out_dp_f = outdoor_dp;
+          // FW-INFRA note 4: the humidity ratio from the dew point (right on the case sensor too).
+          law_in.w_in = climate_law::humidity_ratio_g_per_kg(indoor.dew_point_f);
+          law_in.w_out = climate_law::humidity_ratio_g_per_kg(outdoor_dp);
+          law_in.dry_cost_limit = climate_law::dry_cost_limit(id(dry_cost_limit));
+          static climate_law::State law_state;
+          bool law_band_repaired = false;
+          const climate_law::Output law = climate_law::step_checked(law_state, law_in, &law_band_repaired);
+          // T6 S4/F6/I4/E-m3: every consumer of the band reads the band the law acted on
+          // (check_band() repaired), not the raw edges.
+          const climate_law::Band law_band = climate_law::check_band(law_in.band).band;
+          // X5 (P2): the published consumed band, targets, deltas and climate errors are the
+          // band the law used: its edges into setpts (telemetry only from here on), targets
+          // kept inside them.
+          setpts.temp_low = float(law_band.low);
+          setpts.temp_high = float(law_band.high);
+          setpts.vpd_low = float(law_band.vpd_low);
+          setpts.vpd_high = float(law_band.vpd_high);
+          setpts.temp_target = std::min(std::max(setpts.temp_target, setpts.temp_low), setpts.temp_high);
+          setpts.vpd_target = std::min(std::max(setpts.vpd_target, setpts.vpd_low), setpts.vpd_high);
+          Mode mode = boot_wait ? IDLE
+              : !law_temp_valid ? SENSOR_FAULT
+              : law.hot ? SAFETY_COOL
+              : law.cold ? SAFETY_HEAT
+              : IDLE;
+          // RULINGS Q2: the doubly blind judgement for the bus watchdog below.
+          id(doubly_blind_state) = boot_wait ? int8_t(-1)
+              : int8_t(mode == SENSOR_FAULT && outdoor.source == OutdoorSource::kNone);
+          // RULINGS T1: at a protection limit (100 F, 40 F) the FANS and VENT-BYPASS
+          // latches are cleared, before the latch booleans below, so the override and
+          // the protection never fight at a limit crossing. Logged once per clear.
+          // X4: the clear is climate_law::clear_latches_at_protection() (lib/climate_law_glue.h),
+          // the function the host tests drive.
+          if (climate_law::clear_latches_at_protection(law, id(manual_fans_until_ms), id(vent_bypass_until_ms))) {
+            ESP_LOGW("manual", "Protection limit %s: FANS / VENT-BYPASS latch cleared", law.hot ? "hot" : "cold");
+          }
+          climate_law::Output law_request = law;
+          // The request as a relay table (lead fan first), for the consumers that read one.
+          RelayOutputs relay_out = {law.heat1, law.heat2,
+                                    leadIs1 ? law.fans >= 1 : law.fans >= 2,
+                                    leadIs1 ? law.fans >= 2 : law.fans >= 1,
+                                    law.fog, law.vent};
 
           // Decision 7 (RULINGS B1): with no valid indoor temperature (SENSOR_FAULT)
           // the controller acts on the outdoor reading against the corridor's low
@@ -734,19 +756,18 @@ interval:
           no_indoor_prev = mode == SENSOR_FAULT;
           if (mode == SENSOR_FAULT) {
             static NoIndoorBranch no_indoor_last = NoIndoorBranch::kOff;
+            // T6 S4: a finite corridor low edge, else the checked band's low edge.
+            const float no_indoor_low = std::isfinite(corridor.temp_low) ? corridor.temp_low : float(law_band.low);
             const NoIndoorBranch no_indoor = no_indoor_branch(
-                outdoorT, outdoor_age, corridor.temp_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last);
+                outdoorT, outdoor_age, no_indoor_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last);
             relay_out = no_indoor_relays(no_indoor, leadIs1);
+            law_request = climate_law::output_from_relays(relay_out);  // through the same relay layer
             if (no_indoor_entry || no_indoor != no_indoor_last) {
               ESP_LOGE("sensor_fault", "No indoor temperature: %s (outdoor %.1f°F, age %u s, corridor low %.1f°F)",
-                       no_indoor_reason(no_indoor), outdoorT, (unsigned) outdoor_age, corridor.temp_low);
+                       no_indoor_reason(no_indoor), outdoorT, (unsigned) outdoor_age, no_indoor_low);
             }
             no_indoor_last = no_indoor;
           }
-
-          bool willHeat1 = relay_out.heat1, willHeat2 = relay_out.heat2;
-          bool willFan1 = relay_out.fan1, willFan2 = relay_out.fan2;
-          bool willFog = relay_out.fog, willVent = relay_out.vent;
 
           // ── Firmware-v2 BUTTON OVERRIDE LAYER (deadline latches) ──────────
           // FANS / HUMID / VENT-BYPASS are LATCHES with a deadline
@@ -787,122 +808,19 @@ interval:
           // dew-point margin or RH ceiling without a humidity reading (G2, G7). No
           // clock term (phase 2: fog follows the corridor without a trusted clock).
           const bool sensor_fault_relay_lock = sensor_fault_fog_lock(mode, manual_fog_latched);
-          const char* manual_fog_safety_block = manual_fog_safety_block_reason(sensor_in, setpts);
+          // Phase 3 (wiring note 4): the HUMID press's safety block reads no climate
+          // setting: the compiled wetting dew margin (skipped with no humidity reading, G7)
+          // and the law's cold-house guard (below the band's low edge).
+          const char* manual_fog_safety_block =
+              // AG1: the press keeps the case dew point (indoor.humidity_valid, G2), not the law's
+              // wall-only humidity validity.
+              (law_temp_valid && indoor.humidity_valid &&
+               Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "dew_margin"
+              : (law_temp_valid && Tin < law_band.low) ? "temp_low"
+              : "";
 
-          // Resolve the absolute-priority override through the pure, unit-tested
-          // apply_manual_overrides() (greenhouse_logic.h) so this relay table
-          // matches the native tests exactly. The temperature rails
-          // (SAFETY_COOL / SAFETY_HEAT) are a no-op there — a manual press never
-          // fights a safety rail; in SENSOR_FAULT the overrides stay effective
-          // (RULINGS B1). Otherwise FANS/VENT-BYPASS force BOTH fans
-          // (vent OPEN, or CLOSED under bypass — the winter house-air pull) and
-          // HUMID forces the fogger unless a genuine fog safety block is up.
-          // ManualForce.fans/.fog feed set_relay's force_on below so a press
-          // bypasses relay min-off dwell and engages within one tick — the #289
-          // fix (manual_fan_force was previously computed but NEVER passed to the
-          // fan set_relay calls, so the FANS button stuck behind the fan min-off
-          // timer while the vent moved: the exact "pressed fans, nothing happened"
-          // signature).
-          RelayOutputs ov_out = {willHeat1, willHeat2, willFan1, willFan2, willFog, willVent};
-          const ManualOverrides manual_ov = {
-              manual_fans_eff,                     // fans_active
-              vent_bypass_eff,                     // vent_bypass_active
-              manual_fog_eff,                      // humid_active
-              manual_fog_safety_block[0] != '\0'   // fog_safety_blocked
-          };
-          const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);
-          willFan1 = ov_out.fan1; willFan2 = ov_out.fan2;
-          willFog  = ov_out.fog;  willVent = ov_out.vent;
-          const bool manual_fan_force = manual_force.fans;
-          const bool manual_fog_force = manual_force.fog;
-          /**************** 11a — RELAY CONFLICT ARBITRATION (#370) **************/
-          // One pure resolver, arbitrate_relay_conflicts() (greenhouse_logic.h),
-          // decides every equipment conflict between the requested relay table and
-          // the relays' physical state, in order: the fan/vent hold, the heat<->air
-          // suppression (SAFETY_HEAT and DEHUM_VENT exempt), the heat-stage rule and
-          // the heater force-offs. SENSOR_FAULT's request is the decision-7 table
-          // above, arbitrated like any other. The pure state machine keeps fans and
-          // vent logically consistent, but relay dwell timers are physical state: on
-          // a VENTILATE->sealed transition fan min_on can keep a fan running after
-          // the vent may close, so the vent holds open until the fan dwell clears.
-          // VENT-BYPASS (#290) is the deliberate fans-on / vent-CLOSED carve-out and
-          // SAFETY_HEAT runs the lead fan with the vent shut to keep heat in
-          // (fan_requires_open_vent()). The native suite checks the resolver against
-          // the former inline rules over every input combination.
-          const RelayOutputs relay_physical = {
-              id(heat1_rly)->state, id(heat2_rly)->state,
-              id(fan1_rly)->state, id(fan2_rly)->state,
-              id(fog_rly)->state, id(vent_rly)->state};
-          const RelayArbitration arb = arbitrate_relay_conflicts(
-              mode,
-              RelayOutputs{willHeat1, willHeat2, willFan1, willFan2, willFog, willVent},
-              relay_physical,
-              can_on(R[0]),
-              can_off(R[0]),
-              vent_bypass_eff);
-          willHeat1 = arb.out.heat1; willHeat2 = arb.out.heat2;
-          willFan1  = arb.out.fan1;  willFan2  = arb.out.fan2;
-          willFog   = arb.out.fog;   willVent  = arb.out.vent;
-          const bool fan_requires_vent = arb.fan_requires_vent;
-          const bool vent_is_open = relay_physical.vent;
-          const bool force_heat_off = arb.force_heat_off;
-          const bool force_heat2_off = arb.force_heat2_off;
-
-          static bool fan_vent_interlock_prev = false;
-          if (arb.fan_vent_hold != fan_vent_interlock_prev) {
-              if (arb.fan_vent_hold) {
-                  ESP_LOGI("interlock","Fan/vent: holding vent open until fan dwell clears");
-              } else {
-                  ESP_LOGI("interlock","Fan/vent: fan dwell clear, releasing vent hold");
-              }
-              fan_vent_interlock_prev = arb.fan_vent_hold;
-          }
-          static bool heat_vent_interlock_prev = false;
-          static bool heat_fan_interlock_prev = false;
-          if (arb.heat_vent_block != heat_vent_interlock_prev) {
-              if (arb.heat_vent_block) {
-                  ESP_LOGI("interlock","Heat/vent: suppressing non-safety heat until vent closes");
-              } else {
-                  ESP_LOGI("interlock","Heat/vent: vent closed, releasing heat hold");
-              }
-              heat_vent_interlock_prev = arb.heat_vent_block;
-          }
-          if (arb.heat_fan_block != heat_fan_interlock_prev) {
-              if (arb.heat_fan_block) {
-                  ESP_LOGI("interlock","Heat/fan: suppressing non-safety heat until fan dwell clears");
-              } else {
-                  ESP_LOGI("interlock","Heat/fan: fan dwell clear, releasing heat hold");
-              }
-              heat_fan_interlock_prev = arb.heat_fan_block;
-          }
-          static bool heat_stage_interlock_prev = false;
-          if (arb.heat_stage_block != heat_stage_interlock_prev) {
-              if (arb.heat_stage_block) {
-                  ESP_LOGI("interlock","Heat stage: suppressing heat2 until heat1 is available");
-              } else {
-                  ESP_LOGI("interlock","Heat stage: heat1 available, releasing heat2 hold");
-              }
-              heat_stage_interlock_prev = arb.heat_stage_block;
-          }
-
-          // Fog + misters follow their existing vent-policy tunables. Pre-sprint-15.1,
-          // 74% of fog-on-time and 12% of mister-on-time had vent still open
-          // (set_relay respects per-relay min_on timers but has no cross-relay
-          // ordering). Reading `vent_rly->state` gives the ACTUAL physical state,
-          // so even if firmware has already set willVent=false this cycle, we
-          // can suppress normal moisture until the actuator reports closed when
-          // the corresponding tunable asks for closed-vent moisture.
-          //
-          // Operator toggles:
-          //   - sw_fog_closes_vent (`fog_closes_vent`, default true) gates fog
-          //   - sw_mister_closes_vent (`mister_closes_vent`, default false)
-          //     gates normal mister pulses. The explicit VENTILATE assist path
-          //     bypasses both so dry-hot cooling can add moisture without
-          //     pretending the house is sealed.
-          const bool open_vent_fog_assist =
-              open_vent_fog_assist_permitted(mode, relay_out);
-          const bool open_vent_mister_assist =
-              (mode == VENTILATE) && ctl_state.vent_mist_assist_active;
+          // Phase 3: sw_fog_closes_vent and sw_mister_closes_vent are inert; the law
+          // decides fog and mist with the vent.
           // F7 (#1161): one occupancy rule for every kind of mist and fog. True only while a
           // detection the ingestor pushed holds (1b's 60 min fail-safe ends it); unknown or
           // missing occupancy leaves it false, so mist runs (D-IRP-10). VPD mist and fog read it
@@ -922,17 +840,11 @@ interval:
           // FW-9: VPD emergency override — allow wet assist even if the daily
           // water budget is exhausted. Include house and zone VPD so a
           // safety miss is not hidden by stale/missing local sensors.
-          float budget_vpd_max = VPD;
-          auto merge_budget_vpd = [&](float observed_vpd) {
-              if(!isnan(observed_vpd)) {
-                  budget_vpd_max = isnan(budget_vpd_max) ? observed_vpd : fmax(budget_vpd_max, observed_vpd);
-              }
-          };
-          merge_budget_vpd(id(vpd_south).state);
-          merge_budget_vpd(id(vpd_west).state);
-          merge_budget_vpd(id(vpd_east).state);
-          const bool climate_vpd_emergency =
-              !isnan(budget_vpd_max) && (budget_vpd_max > id(safety_vpd_max_kpa));
+          // Phase 3 (B3): the emergency level is compiled (VPD_EMERGENCY_KPA), the
+          // terms are today's (the house and the raw zone probes).
+          const double emergency_zone_vpd[ZONE_COUNT] = {
+              NAN, id(vpd_south).state, id(vpd_west).state, id(vpd_east).state};
+          const bool climate_vpd_emergency = climate_law::vpd_emergency(VPD, emergency_zone_vpd);
           const bool climate_water_budget_block =
               id(mister_water_today) >= pol(verdify_policy::kPF_mister_water_budget_gal, id(mister_water_budget_gal))
               && !climate_vpd_emergency;
@@ -993,11 +905,7 @@ interval:
           fog_rails_but_drips.drip_relay_open = false;
           fog_rails_but_drips.irrigation_water_conflict = false;
           fog_rails_but_drips.sensor_fault_relay_lock = mode == SENSOR_FAULT;  // C2: today's term
-          // C2: the engine's input keeps today's clock term exactly.
-          const bool climate_fog_wanted = willFog && !fog_forced_off(mode, fog_rails_but_drips) && wall_clock_valid;
-          if (fog_forced_off(mode, fog_rails)) {
-              willFog = false;
-          }
+          const bool fog_hold = fog_forced_off(mode, fog_rails);
           if (occupancy_moisture_block != occupancy_water_interlock_prev) {
               if (occupancy_moisture_block) {
                   ESP_LOGW("interlock","Occupancy confirmed: holding fog and every mist (drips run)");
@@ -1006,9 +914,62 @@ interval:
               }
               occupancy_water_interlock_prev = occupancy_moisture_block;
           }
-          if (polb(verdify_policy::kPF_sw_fog_closes_vent, id(fog_closes_vent)) && vent_is_open && !open_vent_fog_assist) {
-              willFog = false;
+          // sw_fog_closes_vent is inert in phase 3: the law decides fog with the vent.
+
+          /**************** 11a — RELAY LAYER, THEN THE OVERRIDES (phase 3) ********/
+          // climate_law::relay_step() owns the minimum times, the interlocks (a fan
+          // only with the vent open, the furnace never with the air), the lead fan, the
+          // furnace's boot wait (G4) and the protection limits (G1, G1a-c). On the
+          // entry to the no-indoor state it cuts what the table drops (decision 7).
+          // RULINGS AG2: the law's own fog keeps the phase 2 dew-point margin (outside
+          // SENSOR_FAULT, under WET_DEW_MARGIN_F the request drops); the engine's fog demand
+          // below reads the same gated request.
+          if (!climate_law::law_fog_dew_margin_ok(mode, Tin, indoor.dew_point_f)) law_request.fog = false;
+          climate_law::RelayInputs law_relay_in{};
+          law_relay_in.fan1_run_s = relay_counters.fan_run_s[0];
+          law_relay_in.fan2_run_s = relay_counters.fan_run_s[1];
+          law_relay_in.fog_hold = fog_hold;
+          law_relay_in.dt_ms = dt_ms;
+          law_relay_in.cut_unwanted = no_indoor_entry;
+          // The manual override layer on the relay layer's result, exactly as phase 2
+          // (B1, G7): FANS forces both fans with the vent open, VENT-BYPASS both fans
+          // with the vent closed, HUMID the fogger unless a fog safety block is up; a
+          // no-op at the protection limits (mode SAFETY_COOL / SAFETY_HEAT, and T1 has
+          // cleared FANS and VENT-BYPASS there); effective in SENSOR_FAULT. A press acts
+          // this pass, past minimum off times. climate_law::relay_pass()
+          // (lib/climate_law_glue.h) first syncs the relay layer to the physical relays
+          // (T6 S2), runs relay_step(), the overrides, and the interlocks over the result
+          // (AE10, AG3: no heater with a manual fan run; the electric heater never with the
+          // air except the law's drying and 40 F; the furnace never with the air; the fog
+          // holds win).
+          const ManualOverrides manual_ov = {
+              manual_fans_eff,                     // fans_active
+              vent_bypass_eff,                     // vent_bypass_active
+              manual_fog_eff,                      // humid_active
+              manual_fog_safety_block[0] != '\0'   // fog_safety_blocked
+          };
+          const climate_law::RelayPass pass_out = climate_law::relay_pass(
+              law_relays, law_request, law_relay_in,
+              RelayOutputs{id(heat1_rly)->state, id(heat2_rly)->state, id(fan1_rly)->state,
+                           id(fan2_rly)->state, id(fog_rly)->state, id(vent_rly)->state},
+              manual_ov, mode);
+          const RelayOutputs ov_out = pass_out.out;
+          const ManualForce manual_force = pass_out.force;
+          const bool manual_fan_force = manual_force.fans;
+          const bool manual_fog_force = manual_force.fog;
+          // T6 S3/F4/E-m1: one lead-fan chooser, the relay layer's; the published lead
+          // is the fan that runs first.
+          if (law_relays.lead_fan1 != id(fan_lead_is_fan1)) {
+            id(fan_lead_is_fan1) = law_relays.lead_fan1;
+            ESP_LOGI("lead", "Lead fan -> %s (fan1=%lus fan2=%lus)", law_relays.lead_fan1 ? "Fan 1" : "Fan 2",
+                     static_cast<unsigned long>(relay_counters.fan_run_s[0]),
+                     static_cast<unsigned long>(relay_counters.fan_run_s[1]));
           }
+          // RULINGS T4 (C2): the engine's climate fog demand keeps today's terms: the
+          // law's fog OR a HUMID press / run-once the override layer forced, after the
+          // override layer, with the rails but the drips and today's clock term.
+          const bool climate_fog_wanted = climate_law::climate_fog_wanted(
+              law_request, manual_force, fog_forced_off(mode, fog_rails_but_drips), wall_clock_valid);
 
           /**************** 10 — CYCLE COUNTERS ***********************************/
           // #367: count accepted relay edges after dwell and overrides apply
@@ -1019,25 +980,23 @@ interval:
               id(fog_rly)->state, id(vent_rly)->state};
 
           /**************** 11 — APPLY RELAY OUTPUTS ******************************/
-          set_relay(R[0], willHeat1, false, force_heat_off || no_indoor_entry);
-          set_relay(R[1], willHeat2, false, force_heat2_off || no_indoor_entry);
-          set_relay(R[5], willVent, fan_requires_vent, no_indoor_entry);
-          // #289 fix: pass manual_fan_force so a FANS / VENT-BYPASS press forces
-          // the fans on THIS tick, bypassing the fan min-off dwell that silently
-          // swallowed manual presses before.
-          set_relay(R[2], willFan1, manual_fan_force, no_indoor_entry);
-          set_relay(R[3], willFan2, manual_fan_force, no_indoor_entry);
-          set_relay(
-              R[4],
-              willFog,
-              // CYC-4: force_on bypasses MIN_FOG_OFF_MS so a ≤5s micro-pulse can
-              // start even if the fogger toggled recently; force_off bypasses
-              // MIN_FOG_ON_MS so the pulse is cut at its ≤5s cap (and on any
-              // safety interlock). F9 (#1161): the force-off is the shared fog
-              // rule, so survival fog in SAFETY_COOL runs past an engine drip,
-              // the soft budget and SAF-4, and no leak signal forces it off.
-              manual_fog_force,
-              fog_forced_off(mode, fog_rails));
+          // The drivers switch, book runtimes and count; the timing is the relay
+          // layer's, so both force flags are set and their own dwell tests never gate.
+          set_relay(R[0], ov_out.heat1, true, true);
+          set_relay(R[1], ov_out.heat2, true, true);
+          set_relay(R[5], ov_out.vent, true, true);
+          set_relay(R[2], ov_out.fan1, true, true);
+          set_relay(R[3], ov_out.fan2, true, true);
+          set_relay(R[4], ov_out.fog, true, true);
+          // The relay layer follows what is physically on (an override's edge, an OTA
+          // on_begin close): minimum times count from that edge (#1313).
+          climate_law::relay_sync(law_relays, RelayOutputs{
+              id(heat1_rly)->state, id(heat2_rly)->state, id(fan1_rly)->state,
+              id(fan2_rly)->state, id(fog_rly)->state, id(vent_rly)->state});
+          // What this pass commanded (the telemetry and logs below read these names).
+          const bool willHeat1 = ov_out.heat1, willHeat2 = ov_out.heat2;
+          const bool willFan1 = ov_out.fan1, willFan2 = ov_out.fan2;
+          const bool willFog = ov_out.fog, willVent = ov_out.vent;
 
           if(!relay_was_on[0] && id(heat1_rly)->state) id(cnt_heat1_today) += 1;
           if(!relay_was_on[1] && id(heat2_rly)->state) id(cnt_heat2_today) += 1;
@@ -1092,65 +1051,39 @@ interval:
           // Stages: S1 (single zone) → S2 (all zones rotating) → FOG (escalation)
           char moisture_block_reason[96] = "none";
           char direct_wet_zone_mask[48] = "unknown";
+          // X1: the mister train as mister_step() left it this pass, for the assist telemetry (section 14).
+          climate_law::MisterState mister_law_now{};
           {
-            const uint32_t MISTER_ENGAGE_DELAY_MS = uint32_t(pol(verdify_policy::kPF_mister_engage_delay_s, id(mister_engage_delay_s))) * 1000UL;
-            const uint32_t MISTER_ALL_DELAY_MS    =
-                uint32_t(pol(verdify_policy::kPF_mister_all_delay_s, id(mister_all_delay_s))) * 1000UL;
-
             // F8: zone choice takes each zone's VPD from these locals (own → peers →
             // house), never a stale held VPD; *_temp below still reads the raw probe.
             float south_vpd = zone_vpd_with_fallback(ZONE_SOUTH, zp, VPD, now_ms).vpd_kpa;
             float west_vpd  = zone_vpd_with_fallback(ZONE_WEST,  zp, VPD, now_ms).vpd_kpa;
             float east_vpd  = zone_vpd_with_fallback(ZONE_EAST,  zp, VPD, now_ms).vpd_kpa;
             float avg_vpd   = VPD;
-            float south_temp = id(south_wall_temperature).state;
-            float west_temp  = id(west_wall_temperature).state;
-            float east_temp  = id(east_wall_temperature).state;
 
-            // Sprint-15.1 fix 5: vent-close interlock for normal mister
-            // pulses. Atomizers ejecting moisture while vent is open leaks
-            // most of the humidity, so `sw_mister_closes_vent` still blocks
-            // ordinary SEALED_MIST pulses until the physical vent closes.
-            // VENTILATE assist is an explicit exception: temp has priority,
-            // fans/vent must remain open, and the planner/firmware are asking
-            // for bounded evaporative support rather than sealed humidifying.
-              const bool mister_vent_ok = open_vent_mister_assist || !polb(verdify_policy::kPF_sw_mister_closes_vent, id(mister_closes_vent)) || !vent_is_open;
-              // BC-14 (ADR0003 §6.6) FOG-FIRST: the zone misters engage only when the
-              // FSM ladder has ESCALATED PAST the fog entry stage (mist_stage >= MIST_S1).
-              // Fog itself is driven by the FSM out.fog/willFog (it leads at MIST_FOG and
-              // persists, LAYERED). So misters must NOT run while the ladder is still at
-              // MIST_FOG — fog gets its window first; misters add only when fog can't hold.
-              const bool fsm_escalated_to_misters =
-                  (ctl_state.mist_stage == MIST_S1) || (ctl_state.mist_stage == MIST_S2);
-              const bool climate_wet_assist_demand =
-                  ((mode == SEALED_MIST) && fsm_escalated_to_misters) || ctl_state.vent_mist_assist_active;
-              bool humidity_demand = climate_wet_assist_demand && mister_vent_ok;
-
-            const float wet_dew_margin_f = (!isnan(Tin) && !isnan(id(dewpoint_avg).state))
-              ? Tin - id(dewpoint_avg).state
+            // Phase 3 (#1671, plan 4.8): the climate mister pulses follow the law's mister
+            // request (house VPD above vpd_high + 0.30, cold-house guard) through
+            // climate_law::mister_step(): one pulse at a time, compiled length and gap
+            // (B3), the fairness rule, the engine's rank on the house band, the mister
+            // line minimum off time as a fence. The S1/S2 stage machine, its engage delays,
+            // the per-zone crop VPD targets and sw_mister_closes_vent are not read.
+            const float wet_dew_margin_f = (!isnan(Tin) && !isnan(indoor.dew_point_f))
+              ? Tin - indoor.dew_point_f
               : -999.0f;
-            // Firmware-v2: defer to the header's single-source wet-assist gate
-            // (solar wet taper + stress rule + feed-hold + dew margin). No
-            // controls.yaml-side wall-clock recompute — same code as the FSM.
-            // Phase 2: no clock term; the misters work on the corridor without one.
-            const bool climate_wet_assist_safety_ok =
-              climate_wet_assist_permitted(sensor_in, setpts);
+            // The zone gate's safety term (plan 8.7): no occupancy, no feed hold, house VPD
+            // above the band's high edge, the compiled wetting dew margin; no clock term.
+            const bool climate_wet_assist_safety_ok = climate_law::zone_gate_safety_ok(
+              occupancy_moisture_block, feed_hold_active, VPD, law_band.vpd_high, wet_dew_margin_f);
             // F6 (#1161): one rule per mister zone (L04 center, L07 south, L09 west),
-            // irr_vpd_zone_allowed() in lib/irrigation_program.h: the climate demand and
-            // its safety gate, the zone an effective VPD member of the irrigation program
-            // (its VPD-member bit and its line's enable bit), not backing off or latched by
-            // the mister watchdog (D-IRP-19), its duty cap not reached (SAF-4/IRR-5: the
-            // clean line's daily_cap_min against every mister second on the zone today,
-            // whatever opened it, so the bare-root Vanda velamen cycles green<->silver; 120
-            // min for center in the ROM default) and the SAF-4 ceiling not reached, even in
-            // a VPD emergency. With no program the ROM default makes L04 the only member,
-            // so center VPD misting runs as before.
+            // irr_climate_zone_allowed(): the demand and its safety term, the zone an
+            // effective VPD member, not backing off or latched by the watchdog, its duty
+            // cap and SAF-4 not reached. Unchanged; fed with the law's request.
             const bool center_wet_allowed = irr_climate_zone_allowed(
-              verdify_irr::kL04, climate_wet_assist_demand, climate_wet_assist_safety_ok, mister_volume_hard_block);
+              verdify_irr::kL04, law.mist, climate_wet_assist_safety_ok, mister_volume_hard_block);
             const bool south_wet_allowed = irr_climate_zone_allowed(
-              verdify_irr::kL07, climate_wet_assist_demand, climate_wet_assist_safety_ok, mister_volume_hard_block);
+              verdify_irr::kL07, law.mist, climate_wet_assist_safety_ok, mister_volume_hard_block);
             const bool west_wet_allowed = irr_climate_zone_allowed(
-              verdify_irr::kL09, climate_wet_assist_demand, climate_wet_assist_safety_ok, mister_volume_hard_block);
+              verdify_irr::kL09, law.mist, climate_wet_assist_safety_ok, mister_volume_hard_block);
             const bool any_mister_wet_allowed = south_wet_allowed || west_wet_allowed || center_wet_allowed;
             {
               direct_wet_zone_mask[0] = '\0';
@@ -1207,540 +1140,102 @@ interval:
               }
             };
             direct_wet_relay_watchdog();
-            auto zone_wet_allowed = [&](int z) -> bool {
-              return (z == 1 && south_wet_allowed) || (z == 2 && west_wet_allowed) || (z == 3 && center_wet_allowed);
-            };
-            // F6: the first zone allowed now, center first (rank 1 by default), then south, west.
-            auto first_allowed_mister_zone = [&]() -> int {
-              for (int z : {3, 1, 2}) {
-                if(zone_wet_allowed(z)) return z;
-              }
-              return 0;
-            };
 
-              // If misters WERE firing but vent just opened, kill the zone
-              // drivers immediately so we don't wait for the pulse timer.
-              // F6 (D-IRP-09): this vent kill is for VPD pulses only. A scheduled
-              // window pulse has no vent gate, and irr_climate_close() never
-              // closes a relay the engine's own run holds.
-            if (!mister_vent_ok && id(mister_pulse_zone) > 0) {
-                close_climate_misters();
-                id(mister_pulse_zone) = 0;
-                id(mister_pulse_timer_ms) = 0;
-                ESP_LOGI("interlock","Mister suppressed — vent still open");
+            const bool budget_block = climate_water_budget_block;
+            const bool occupancy_blocks = occupancy_moisture_block;
+            const bool irrigation_block = irrigation_water_conflict;
+            // The pulse request with every hold of plan 8.7 (SAF-4 and the watchdog act
+            // through the zone gate above).
+            const bool mister_request = law.mist && !budget_block && !occupancy_blocks && !irrigation_block;
+            static climate_law::MisterState mister_law;
+            static uint32_t mister_since_fire_ms[ZONE_COUNT] = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
+            for (int z = 0; z < ZONE_COUNT; z++) {
+              mister_since_fire_ms[z] = UINT32_MAX - mister_since_fire_ms[z] < dt_ms ? UINT32_MAX
+                                                                                  : mister_since_fire_ms[z] + dt_ms;
             }
-
-            // Defensive: zero the engage-delay timers on SEALED_MIST rising edge.
-            // The mister_blocked branch intentionally preserves them (fast
-            // re-engage when block clears), so a SEALED→IDLE bounce inside the
-            // 60s idle holdoff could otherwise carry stale accumulation into
-            // the next seal cycle and fire mister_state=1 immediately.
-            static bool was_sealed = false;
-            if(humidity_demand && !was_sealed){
-              id(humid_s1_duration_ms) = 0;
-              id(humid_s2_duration_ms) = 0;
-            }
-            was_sealed = humidity_demand;
-
-            // Misters run for sealed humidification and band-first controller vent mist assist.
-            // Fog remains the heavy escalation and is still gated by the vent
-            // close interlock above when fog_closes_vent is enabled.
-              bool occupancy_blocks = occupancy_moisture_block;
-              // Quick check: is any zone above its crop VPD target?
-              bool any_zone_stressed = false;
-              if(south_wet_allowed && !isnan(south_vpd) && id(vpd_target_south) > 0 && south_vpd > id(vpd_target_south)) any_zone_stressed = true;
-              if(west_wet_allowed && !isnan(west_vpd) && id(vpd_target_west) > 0 && west_vpd > id(vpd_target_west)) any_zone_stressed = true;
-              if(!isnan(east_vpd) && id(vpd_target_east) > 0 && east_vpd > id(vpd_target_east)) any_zone_stressed = true;
-              if(center_wet_allowed && id(vpd_target_center) > 0 && avg_vpd > id(vpd_target_center)) any_zone_stressed = true;
-              bool global_stressed = (avg_vpd > pol(verdify_policy::kPF_mister_engage_kpa, id(mister_engage_kpa)));
-              bool budget_block = climate_water_budget_block;
-              bool irrigation_block = irrigation_water_conflict;
-              bool zone_mister_demand = humidity_demand && mister_vent_ok;
-              // Q-05 (F14): no leak term. leak_detected raises the leak alert and
-              // holds nothing, so VPD misting runs while the hose runs.
-              bool mister_blocked =
-                  budget_block
-                  || !zone_mister_demand
-                  || !any_mister_wet_allowed
-                  || irrigation_block
-                  || occupancy_blocks;
-              if(mister_blocked) {
-                if(budget_block) {
-                  snprintf(moisture_block_reason, sizeof(moisture_block_reason), "water_budget");
-                } else if(!zone_mister_demand) {
-                  snprintf(
-                    moisture_block_reason,
-                    sizeof(moisture_block_reason),
-                    ((mode == SEALED_MIST) || ctl_state.vent_mist_assist_active) && !mister_vent_ok
-                      ? "vent_interlock"
-                      : "no_humidity_demand");
-                } else if(!any_mister_wet_allowed) {
-                  if(climate_wet_assist_demand) {
-                    if(VPD <= (VPDhi + pol(verdify_policy::kPF_direct_wet_stress_vpd_margin_kpa, id(direct_wet_stress_vpd_margin_kpa)))) {
-                      snprintf(moisture_block_reason, sizeof(moisture_block_reason), "below_threshold");
-                    } else if(wet_dew_margin_f < pol(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f))) {
-                      snprintf(moisture_block_reason, sizeof(moisture_block_reason), "dew_margin");
-                    } else if(past_wet_taper(sensor_in, setpts) && !stress_wet_override_permitted(sensor_in, setpts)) {
-                      snprintf(moisture_block_reason, sizeof(moisture_block_reason), "wet_taper");
-                    } else {
-                      snprintf(moisture_block_reason, sizeof(moisture_block_reason), "no_zone_available");
-                    }
-                  } else if(!polb(verdify_policy::kPF_sw_direct_wet_gate_enabled, id(direct_wet_gate_enabled))) {
-                    snprintf(moisture_block_reason, sizeof(moisture_block_reason), "no_zone_available");
-                  } else if(id(direct_wet_min_temp_f) > 0.0f && (isnan(Tin) || Tin < id(direct_wet_min_temp_f))) {
-                    snprintf(moisture_block_reason, sizeof(moisture_block_reason), "direct_wet_temp");
-                  } else {
-                    snprintf(moisture_block_reason, sizeof(moisture_block_reason), "direct_wet_window");
-                  }
-                } else if(irrigation_block) {
-                  snprintf(moisture_block_reason, sizeof(moisture_block_reason), "irrigation");
-                } else if(occupancy_blocks) {
-                  snprintf(moisture_block_reason, sizeof(moisture_block_reason), "occupancy");
-                }
-              } else if(!any_zone_stressed && !global_stressed) {
-                snprintf(moisture_block_reason, sizeof(moisture_block_reason), "no_vpd_demand");
-              } else if(id(mister_state) == 0 && humidity_demand && id(humid_s1_duration_ms) < MISTER_ENGAGE_DELAY_MS) {
-                snprintf(moisture_block_reason, sizeof(moisture_block_reason), "engage_delay");
+            climate_law::MisterInputs mister_in{};
+            mister_in.request = mister_request;
+            mister_in.allowed[ZONE_CENTER] = center_wet_allowed;
+            mister_in.allowed[ZONE_SOUTH] = south_wet_allowed;
+            mister_in.allowed[ZONE_WEST] = west_wet_allowed;
+            mister_in.allowed[ZONE_EAST] = false;  // no mister
+            mister_in.zone_vpd[ZONE_CENTER] = avg_vpd;
+            mister_in.zone_vpd[ZONE_SOUTH] = south_vpd;
+            mister_in.zone_vpd[ZONE_WEST] = west_vpd;
+            mister_in.zone_vpd[ZONE_EAST] = east_vpd;
+            mister_in.vpd_high = law_band.vpd_high;
+            for (int z = 0; z < ZONE_COUNT; z++) mister_in.since_fire_ms[z] = mister_since_fire_ms[z];
+            const uint32_t mister_min_off_ms = uint32_t(climate_law::MISTER_MIN_OFF_S * climate_law::MS_PER_S);
+            mister_in.min_off_ready[ZONE_CENTER] = now_ms - id(last_off_center_ms) >= mister_min_off_ms;
+            mister_in.min_off_ready[ZONE_SOUTH] = now_ms - id(last_off_south_ms) >= mister_min_off_ms;
+            mister_in.min_off_ready[ZONE_WEST] = now_ms - id(last_off_west_ms) >= mister_min_off_ms;
+            mister_in.min_off_ready[ZONE_EAST] = false;
+            mister_in.dt_ms = dt_ms;
+            const climate_law::MisterCommand mister_cmd = climate_law::mister_step(mister_law, mister_in);
+            if (mister_cmd.close_all) {
+              // T6 C-m3: the pulse's VPD effectiveness, as phase 2 published it at a pulse's end.
+              if (id(mister_pulse_zone) > 0 && !isnan(id(mister_vpd_at_start)) && !isnan(avg_vpd)) {
+                const float delta = avg_vpd - id(mister_vpd_at_start);
+                id(mister_vpd_delta).publish_state(delta);
+                ESP_LOGI("mister", "Pulse done: zone=%d delta=%.3f kPa (%.2f -> %.2f)", id(mister_pulse_zone), delta,
+                         id(mister_vpd_at_start), avg_vpd);
               }
-
-            if(mister_blocked && id(mister_state) > 0){
-              ESP_LOGI("mister","BLOCKED (budget=%.0f/%.0f humid=%d zone=%d occ=%d)",
-                       id(mister_water_today), pol(verdify_policy::kPF_mister_water_budget_gal, id(mister_water_budget_gal)),
-                       humidity_demand, any_zone_stressed, occupancy_blocks);
               close_climate_misters();
-              id(mister_state) = 0;
-              id(mister_selected_zone) = 0;
-              id(mister_duty_phase) = 0;
-              id(mister_duty_timer_ms) = 0;
-              // NOTE: Do NOT reset humid_s1/s2 duration timers here.
-              // Preserves escalation progress so misters re-engage quickly
-              // when the blocking condition clears (e.g., COOL→IDLE transition).
+              id(mister_pulse_zone) = 0;
             }
-
-            if(!mister_blocked){
-              // Track humidity duration for mister engage delay.
-              if(humidity_demand && id(mister_state) == 0){
-                id(humid_s1_duration_ms) += dt_ms;
-                id(humid_idle_holdoff_ms) = 0;
-              } else if(!humidity_demand){
-                // Hold-off: only reset engage timer after 60s continuous idle
-                id(humid_idle_holdoff_ms) += dt_ms;
-                if(id(humid_idle_holdoff_ms) > 60000UL){
-                  id(humid_s1_duration_ms) = 0;
-                  id(humid_s2_duration_ms) = 0;
-                }
+            if (mister_cmd.open_zone >= 0) {
+              const int z = mister_cmd.open_zone;
+              // The legacy zone numbering of the telemetry globals: south 1, west 2, center 3.
+              const int legacy_zone = z == ZONE_SOUTH ? 1 : z == ZONE_WEST ? 2 : 3;
+              const uint8_t zone_line = z == ZONE_SOUTH ? verdify_irr::kL07
+                                      : z == ZONE_WEST  ? verdify_irr::kL09
+                                                        : verdify_irr::kL04;
+              // #1160 (F5): the engine grants the mist manifold; with no grant nothing
+              // opens and mister_step asks again one pulse length later.
+              close_climate_misters();
+              if (irr_vpd_grant(zone_line, mister_cmd.pulse_ms)) {
+                if (legacy_zone == 1)      { id(south_wall_mister).turn_on(); id(last_fire_south_ms)  = now_ms; id(cnt_mister_south_today)  += 1; }
+                else if (legacy_zone == 2) { id(west_wall_mister).turn_on();  id(last_fire_west_ms)   = now_ms; id(cnt_mister_west_today)   += 1; }
+                else                       { id(center_mister).turn_on();     id(last_fire_center_ms) = now_ms; id(cnt_mister_center_today) += 1; }
+                climate_law::mister_opened(mister_law, z, mister_cmd.pulse_ms);
+                mister_since_fire_ms[z] = 0;
+                id(mister_pulse_zone) = legacy_zone;
+                id(mister_selected_zone) = legacy_zone;
+                id(mister_vpd_at_start) = avg_vpd;
+                ESP_LOGI("mister", "PULSE zone=%d %ums (VPD=%.2f, high=%.2f)", legacy_zone,
+                         (unsigned) mister_cmd.pulse_ms, avg_vpd, law_band.vpd_high);
               } else {
-                id(humid_idle_holdoff_ms) = 0;
-              }
-
-              // ═══════════ FOG → MISTERS ESCALATION (lowest-GPM-first; ADR0003 §6.6) ═══════════
-              // ENTRY: FOG (AquaFog ~0.26 GPM — gentlest, lowest WATER; driven by the FSM
-              //        out.fog/willFog, runs BEFORE these misters and persists under them).
-              // S1: Pulse-rotation misters (~1 GPM/zone, targeted) — fog couldn't hold the target.
-              // S2: Aggressive misters (all zones rotating, heaviest water) — last resort.
-              // (Ordered by WATER GPM per Jason 2026-06-17; fog is higher electrical-power but
-              //  lowest water, so it leads. The mister_state machine below only RUNS once the FSM
-              //  has escalated past fog — see fsm_escalated_to_misters at the humidity_demand gate.)
-
-              const uint32_t PULSE_ON_MS  =
-                  uint32_t(pol(verdify_policy::kPF_mister_pulse_on_s, id(mister_pulse_on_s))) * 1000UL;
-              const uint32_t PULSE_GAP_MS =
-                  uint32_t(pol(verdify_policy::kPF_mister_pulse_gap_s, id(mister_pulse_gap_s))) * 1000UL;
-
-              // Climate VPD pulses: every zone uses the base pulse cadence; there is no
-              // dawn or midday watering substitution (schedules are the engine's, #1161).
-              ctl_state.center_burst = CENTER_BURST_NONE;
-              auto pulse_on_ms_for  = [&](int) -> uint32_t { return PULSE_ON_MS; };
-              auto pulse_gap_ms_for = [&](int) -> uint32_t { return PULSE_GAP_MS; };
-
-              // Mister re-fire dwell fence: a zone may not re-energize within
-              // mister_min_off_s of its own last off. The misters bypass the
-              // RelayMeta R[] min-on/off machinery (they're a multi-zone pulse
-              // FSM), so this is their per-zone equivalent. Suppression only
-              // DELAYS a re-fire (never forces a relay on / never over-waters),
-              // so the failure mode is benign. Returns true if energizing is
-              // allowed now.
-              const uint32_t MISTER_MIN_OFF_MS = (uint32_t)pol(verdify_policy::kPF_mister_min_off_s, id(mister_min_off_s)) * 1000UL;
-              auto mister_zone_last_off = [&](int z) -> uint32_t {
-                return z == 1 ? id(last_off_south_ms)
-                     : z == 2 ? id(last_off_west_ms)
-                     : id(last_off_center_ms);
-              };
-              auto mister_zone_can_on = [&](int z) -> bool {
-                return z <= 0 || (now_ms - mister_zone_last_off(z)) >= MISTER_MIN_OFF_MS;
-              };
-
-              // IRR-2: raise the hysteresis floor from the legacy 0.05 to the
-              // operator-tunable mister_hysteresis_kpa (default 0.10) so the
-              // mister state machine cannot chatter inside a tight band. Still
-              // capped by band width (HV) and the engage-kPa-derived term.
-              const float MISTER_HYST = fminf(HV, fmaxf(id(mister_hysteresis_kpa),
-                  pol(verdify_policy::kPF_mister_engage_kpa, id(mister_engage_kpa)) * 0.25f));
-
-              // Helper: select mister zone with highest stress score.
-              // Each zone has its own VPD target from its planted crops.
-              // Stress score starts with (actual VPD - target) / target.
-              // Once humidity demand exists, zone heat stress is also folded
-              // in from the crop temp band so hot south/east pockets influence
-              // which mister zone gets the next pulse.
-              // East has a sensor + target but NO mister — its stress boosts
-              // adjacent zones (south, center) to increase their misting urgency.
-              // Center has no sensor, uses avg_vpd with a penalty multiplier.
-              auto select_most_stressed_zone = [&]() -> int {
-                float s_stress = -999.0f, w_stress = -999.0f, c_stress = -999.0f;
-                float temp_band = max(2.0f, id(target_temp_high_f) - id(target_temp_low_f));
-                auto zone_temp_stress = [&](float zone_temp) -> float {
-                  if(isnan(zone_temp)) return 0.0f;
-                  float above_high = max(0.0f, zone_temp - id(target_temp_high_f)) / temp_band;
-                  float above_avg  = max(0.0f, zone_temp - Tin) / temp_band;
-                  return above_high + above_avg;
-                };
-
-                // East zone stress (sensor, no mister) — boosts south + center
-                float east_vpd_val = isnan(east_vpd) ? 0.0f : east_vpd;
-                float e_stress = 0.0f;
-                if(!isnan(east_vpd) && id(vpd_target_east) > 0.0f)
-                  e_stress = max(0.0f, (east_vpd_val - id(vpd_target_east)) / id(vpd_target_east));
-                e_stress += zone_temp_stress(east_temp);
-
-                // South: own sensor + gets boost from east stress (adjacent)
-                  if(south_wet_allowed && !isnan(south_vpd) && id(vpd_target_south) > 0.0f)
-                    s_stress = (south_vpd - id(vpd_target_south)) / id(vpd_target_south)
-                               + zone_temp_stress(south_temp)
-                               + e_stress * id(east_adjacency_factor);
-
-                  // West: own sensor, no east adjacency boost
-                  if(west_wet_allowed && !isnan(west_vpd) && id(vpd_target_west) > 0.0f)
-                    w_stress = (west_vpd - id(vpd_target_west)) / id(vpd_target_west)
-                               + zone_temp_stress(west_temp);
-
-                  // Center: avg_vpd proxy + east adjacency boost + sensor penalty
-                  if(center_wet_allowed && id(vpd_target_center) > 0.0f)
-                    c_stress = (avg_vpd - id(vpd_target_center)) / id(vpd_target_center)
-                               * pol(verdify_policy::kPF_mister_center_penalty, id(mister_center_penalty))
-                               + e_stress * id(east_adjacency_factor);
-
-                // Only mist zones actually above their VPD or temp target.
-                if(s_stress <= 0 && w_stress <= 0 && c_stress <= 0) return 0;
-                if(s_stress >= w_stress && s_stress >= c_stress && s_stress > 0) return 1;
-                if(w_stress >= s_stress && w_stress >= c_stress && w_stress > 0) return 2;
-                if(c_stress > 0) return 3;
-                return 0;
-              };
-
-              // pulse_ms: the pulse's commanded length, which the engine's grant carries
-              // as the m= token's planned end (#1160) and the mister watchdog's limit
-              // (D-IRP-19: pulse_ms + 30 s).
-              auto turn_on_zone = [&](int zone, uint32_t pulse_ms) {
-                close_climate_misters();
-                // F6 (#1161): only a zone allowed now pulses; a stale fairness or zone
-                // hint falls to the first allowed zone (center first).
-                if(!zone_wet_allowed(zone)) zone = first_allowed_mister_zone();
-                if(zone == 0) { id(mister_pulse_zone) = 0; return; }
-                // Mister re-fire dwell fence (mister_min_off_s): if the chosen
-                // zone is still inside its min-off hold, try another allowed zone
-                // (center first); if none is ready, hold this cycle (all misters stay
-                // off, mister_pulse_zone=0). The caller arms mister_pulse_timer_ms =
-                // pulse_on_ms_for(0) = PULSE_ON_MS, so the FSM re-evaluates ~one
-                // gap later — by which point min_off has elapsed and it fires.
-                // Suppression only DELAYS a re-fire; it never forces a relay on
-                // and never extends a normal pulse, so the failure mode is benign.
-                if(!mister_zone_can_on(zone)) {
-                  int alt = 0;
-                  for (int z : {3, 1, 2}) {
-                    if(z != zone && zone_wet_allowed(z) && mister_zone_can_on(z)) { alt = z; break; }
-                  }
-                  if(alt > 0) {
-                    zone = alt;
-                  } else {
-                    ESP_LOGI("mister","DWELL-HOLD zone=%d (min_off %us)", zone, (unsigned)pol(verdify_policy::kPF_mister_min_off_s, id(mister_min_off_s)));
-                    id(mister_pulse_zone) = 0;
-                    return;
-                  }
-                }
-                // #1160 (F5): the irrigation engine grants the mist manifold. With no
-                // grant (another mister holds it, a drip runs, L03 is open, it is the
-                // turn of a scheduled pulse waiting at this boundary, or a scheduled
-                // pulse on this zone already serves it) nothing opens and the FSM asks
-                // again one pulse later, as for the dwell hold above.
-                const uint8_t zone_line = zone == 1 ? verdify_irr::kL07
-                                        : zone == 2 ? verdify_irr::kL09
-                                                    : verdify_irr::kL04;
-                if(!irr_vpd_grant(zone_line, pulse_ms)) {
-                  ESP_LOGI("mister","MANIFOLD-HOLD zone=%d", zone);
-                  id(mister_pulse_zone) = 0;
-                  return;
-                }
-                // sprint-2: last-fire ms for fairness watchdog.
-                // sprint-7: per-zone cycle counters at the rising edge
-                //          (turn_on_zone is always preceded by all-off,
-                //          so every call is an off→on transition).
-                if(zone == 1)      { id(south_wall_mister).turn_on(); id(last_fire_south_ms)  = now_ms; id(cnt_mister_south_today)  += 1; }
-                else if(zone == 2) { id(west_wall_mister).turn_on();  id(last_fire_west_ms)   = now_ms; id(cnt_mister_west_today)   += 1; }
-                else               { id(center_mister).turn_on();     id(last_fire_center_ms) = now_ms; id(cnt_mister_center_today) += 1; }
-                id(mister_pulse_zone) = zone;
-                id(mister_selected_zone) = zone;
-              };
-
-              auto turn_off_all_misters = [&]() {
-                // GPIO falling-edge callbacks own last-off stamps for every
-                // stop path, including watchdog/irrigation cancellation. A
-                // repeated OFF request must not restart the minimum-off fence.
-                // #1160: the engine's own runs keep their relays, and the climate
-                // VPD pulse hands the mist manifold back.
-                close_climate_misters();
                 id(mister_pulse_zone) = 0;
-              };
-
-              const char* zone_names[] = {"none", "south", "west", "center"};
-
-              // Fairness watchdog (sprint-2): if a stressed zone hasn't fired in
-              // FAIRNESS_WINDOW_MS, it bypasses the stress-scoring contest. Motivated
-              // by the 90-day audit showing west stressed 36% of time but firing only
-              // 13% of mister cycles — center's use of avg_vpd as a stress proxy
-              // correlates it with south, and east adjacency boosts south+center when
-              // east is stressed; west gets neither boost. Guarantees no stressed
-              // zone waits longer than 10 min without a pulse. Ties → most overdue.
-              auto select_overdue_zone = [&]() -> int {
-                const uint32_t FAIRNESS_WINDOW_MS = 600000UL;  // 10 min
-                  int candidate = 0;
-                  uint32_t candidate_age = 0;
-                  auto check = [&](int z, float vpd, float target, uint32_t last_fire) {
-                    if((z == 1 && !south_wet_allowed)
-                       || (z == 2 && !west_wet_allowed)
-                       || (z == 3 && !center_wet_allowed)) return;
-                    if(isnan(vpd) || target <= 0.0f) return;
-                    if(vpd <= target) return;  // zone not stressed
-                  uint32_t age = now_ms - last_fire;  // last_fire==0 ⇒ age == uptime
-                  if(age > FAIRNESS_WINDOW_MS && age > candidate_age) {
-                    candidate = z;
-                    candidate_age = age;
-                  }
-                };
-                check(1, south_vpd, id(vpd_target_south),  id(last_fire_south_ms));
-                check(2, west_vpd,  id(vpd_target_west),   id(last_fire_west_ms));
-                check(3, avg_vpd,   id(vpd_target_center), id(last_fire_center_ms));
-                return candidate;
-              };
-
-              // Pulse-zone selector: the fairness watchdog first; then, with more than
-              // one zone allowed, the per-zone band arbiter; with one, the legacy stress
-              // scoring, which can only pick that zone. Caller decided "fire a pulse
-              // now"; this answers "which zone."
-                // Item-3 arbiter: choose the wet zone from the deterministic per-zone
-                // VPD band + owner priority (center=rank 1) — the SAME math the diag
-                // block publishes as gh_zone_wet_granted. F6 (#1161): it runs whenever
-                // more than one zone is allowed, whatever sw_arbiter_zone_enabled says
-                // (that switch is retired); among the allowed zones none above its band
-                // target, the best-ranked one pulses (irr_rank_vpd_zone()). Maps the
-                // solar.h ZoneId (center0/south1/west2/east3) → legacy misting numbering
-                // (none0/south1/west2/center3). EAST has no mister relay.
-                auto select_arbiter_zone = [&]() -> int {
-                  ZoneBand zb[ZONE_COUNT];
-                  zb[ZONE_CENTER] = zone_band_at_phase({id(zone_vpd_target_center_sr),id(zone_vpd_target_center_sm),id(zone_vpd_target_center_ss),id(zone_vpd_target_center_mid)}, id(zone_vpd_width_below_center), id(zone_vpd_width_above_center), cl_phase);
-                  zb[ZONE_SOUTH]  = zone_band_at_phase({id(zone_vpd_target_south_sr),id(zone_vpd_target_south_sm),id(zone_vpd_target_south_ss),id(zone_vpd_target_south_mid)}, id(zone_vpd_width_below_south), id(zone_vpd_width_above_south), cl_phase);
-                  zb[ZONE_WEST]   = zone_band_at_phase({id(zone_vpd_target_west_sr),id(zone_vpd_target_west_sm),id(zone_vpd_target_west_ss),id(zone_vpd_target_west_mid)}, id(zone_vpd_width_below_west), id(zone_vpd_width_above_west), cl_phase);
-                  zb[ZONE_EAST]   = zone_band_at_phase({id(zone_vpd_target_east_sr),id(zone_vpd_target_east_sm),id(zone_vpd_target_east_ss),id(zone_vpd_target_east_mid)}, id(zone_vpd_width_below_east), id(zone_vpd_width_above_east), cl_phase);
-                  float zvpd[ZONE_COUNT];  // F8: same fallback values the relays use
-                  for (int z = 0; z < ZONE_COUNT; z++) zvpd[z] = zone_vpd_with_fallback(ZoneId(z), zp, VPD, now_ms).vpd_kpa;
-                  ZoneWetIntent zi[ZONE_COUNT];
-                  for (int z = 0; z < ZONE_COUNT; z++) zi[z] = zone_wet_intent(zvpd[z], zb[z]);
-                  const int prank[ZONE_COUNT] = { id(zone_priority_center), id(zone_priority_south), id(zone_priority_west), id(zone_priority_east) };
-                  const bool zact[ZONE_COUNT] = { center_wet_allowed, south_wet_allowed, west_wet_allowed, false };
-                  const int won = verdify_irr::irr_rank_vpd_zone(zact, zi, prank);
-                  if (won == ZONE_SOUTH)  return 1;
-                  if (won == ZONE_WEST)   return 2;
-                  if (won == ZONE_CENTER) return 3;
-                  return 0;  // fewer than two zones allowed, or EAST (no relay)
-                };
-                auto select_zone_for_pulse = [&]() -> int {
-                  int overdue = select_overdue_zone();
-                  if(overdue > 0) {
-                    id(cnt_mister_fairness_overrides_today) += 1;
-                    ESP_LOGI("mister","FAIRNESS: zone=%s overdue — overriding scoring",
-                             zone_names[overdue]);
-                    return overdue;
-                  }
-                  // F6: the stress score halves center (mister_center_penalty), so it never
-                  // chooses between VPD members; the rank arbiter does.
-                  const int az = select_arbiter_zone();
-                  if (az > 0) return az;
-                  return select_most_stressed_zone();
-                };
-                auto fallback_wet_zone = [&]() -> int {
-                  return first_allowed_mister_zone();
-                };
-
-              // --- S1 ENGAGE: misters start only under humidity demand; zone/global
-              // stress decide whether a pulse is warranted and which zone gets it.
-              // #367: dt_ms elapsed before any pulse armed in this tick, so a
-              // newly armed pulse keeps its complete requested duration.
-              bool mister_timer_armed_this_tick = false;
-              if(id(mister_state) == 0
-                 && humidity_demand
-                 && id(humid_s1_duration_ms) >= MISTER_ENGAGE_DELAY_MS
-                 && (any_zone_stressed || global_stressed)){
-
-                int zone = select_zone_for_pulse();
-                  if(zone == 0) zone = fallback_wet_zone();
-                if(zone > 0) {  // Engage
-                  id(mister_state) = 1;  // S1 = single zone pulse
-                  id(mister_vpd_at_start) = avg_vpd;  // Track effectiveness
-                  turn_on_zone(zone, pulse_on_ms_for(zone));
-                  // IRR-3/IRR-4: cadence keyed on the ACTUAL fired zone
-                  // (turn_on_zone may remap to first_allowed); center override
-                  // only applies to zone 3.
-                  id(mister_pulse_timer_ms) = pulse_on_ms_for(id(mister_pulse_zone));
-                  mister_timer_armed_this_tick = true;
-                  ESP_LOGI("mister","S1 MISTERS: pulse %s %ums (VPD=%.2f, target=%.2f)",
-                           zone_names[zone], (unsigned)pulse_on_ms_for(id(mister_pulse_zone)), avg_vpd,
-                           zone == 1 ? id(vpd_target_south) : zone == 2 ? id(vpd_target_west) : id(vpd_target_center));
-                }
+                ESP_LOGI("mister", "MANIFOLD-HOLD zone=%d", legacy_zone);
               }
-
-              // --- ESCALATE S1 → S2: all zones rotating ---
-              if(id(mister_state) == 1){
-                id(humid_s2_duration_ms) += dt_ms;
-                if(id(humid_s2_duration_ms) >= MISTER_ALL_DELAY_MS
-                   && avg_vpd > pol(verdify_policy::kPF_mister_all_kpa, id(mister_all_kpa))){
-                    id(mister_state) = 2;  // S2 = all zones rotating
-                    id(mister_rotation_index) = 0;
-                    int zone = select_zone_for_pulse();
-                    if(zone == 0) zone = fallback_wet_zone();
-                  // IRR-3/IRR-4: base ON is the same for every zone (center
-                  // burst override applies only to zone 3). The south/west
-                  // VPD-weight multiplier is unchanged and never touches center.
-                  // #1160: the length is known before the pulse opens, so the
-                  // engine's grant carries it.
-                  uint32_t weighted_ms = pulse_on_ms_for(zone);
-                  float svpd = isnan(south_vpd) ? 0.0f : south_vpd;
-                  float wvpd = isnan(west_vpd) ? 0.0f : west_vpd;
-                  float max_vpd = max(max(svpd, wvpd), avg_vpd);
-                  if(zone == 1 && svpd >= max_vpd * 0.95f) weighted_ms = uint32_t(PULSE_ON_MS * pol(verdify_policy::kPF_mister_vpd_weight, id(mister_vpd_weight)));
-                  else if(zone == 2 && wvpd >= max_vpd * 0.95f) weighted_ms = uint32_t(PULSE_ON_MS * pol(verdify_policy::kPF_mister_vpd_weight, id(mister_vpd_weight)));
-                    turn_on_zone(zone, weighted_ms);
-                  id(mister_pulse_timer_ms) = weighted_ms;
-                  mister_timer_armed_this_tick = true;
-                  ESP_LOGI("mister","S2 ALL-ROTATE: start %s %dms (VPD=%.2f)",
-                           zone_names[zone], weighted_ms, avg_vpd);
-                }else{
-                }
-              }
-
-              // --- ESCALATE S2 → S3: FOG (heavy artillery) ---
-              // Fog fires when misters alone can't control VPD.
-              // fog_closes_vent controls whether fog forces the vent shut.
-              // This is tracked separately — see willFog gate at line ~439.
-
-              // --- DE-ESCALATE S2 → S1 ---
-              if(id(mister_state) == 2
-                 && avg_vpd < (pol(verdify_policy::kPF_mister_all_kpa, id(mister_all_kpa)) - MISTER_HYST)){
-                ESP_LOGI("mister","S2→S1: VPD=%.2f", avg_vpd);
-                  id(mister_state) = 1;
-                  id(humid_s2_duration_ms) = 0;
-                  int zone = select_zone_for_pulse();
-                  if(zone == 0) zone = fallback_wet_zone();
-                  turn_on_zone(zone, pulse_on_ms_for(zone));
-                id(mister_pulse_timer_ms) = pulse_on_ms_for(id(mister_pulse_zone));
-                mister_timer_armed_this_tick = true;
-              }
-
-              // --- DE-ESCALATE S1 → off ---
-              if(id(mister_state) == 1 && !any_zone_stressed
-                 && avg_vpd < (pol(verdify_policy::kPF_mister_engage_kpa, id(mister_engage_kpa)) - MISTER_HYST)){
-                ESP_LOGI("mister","S1→off: VPD=%.2f", avg_vpd);
-                turn_off_all_misters();
-                id(mister_state) = 0;
-                id(mister_selected_zone) = 0;
-                id(mister_pulse_timer_ms) = 0;
-                id(humid_s1_duration_ms) = 0;
-                id(humid_s2_duration_ms) = 0;
-              }
-
-              // --- PULSE TIMER (both S2 and S3) ---
-              if(id(mister_state) > 0){
-                if(!mister_timer_armed_this_tick){
-                  if(id(mister_pulse_timer_ms) > dt_ms){
-                    id(mister_pulse_timer_ms) -= dt_ms;
-                  }else{
-                    id(mister_pulse_timer_ms) = 0;
-                  }
-                }
-
-                if(id(mister_pulse_timer_ms) == 0){
-                  if(id(mister_pulse_zone) > 0){
-                    // === PULSE ON → GAP ===
-                    // IRR-3/IRR-4: capture the just-finished zone BEFORE
-                    // turn_off_all_misters() clears mister_pulse_zone, so the
-                    // GAP after a CENTER pulse uses the denser center gap.
-                    const int finished_zone = id(mister_pulse_zone);
-                    // Track effectiveness: VPD change during this pulse
-                    if(!isnan(id(mister_vpd_at_start)) && !isnan(avg_vpd)){
-                      float delta = avg_vpd - id(mister_vpd_at_start);
-                      id(mister_vpd_delta).publish_state(delta);
-                      ESP_LOGI("mister","Pulse done: zone=%s delta=%.3f kPa (%.2f → %.2f)",
-                               zone_names[finished_zone], delta,
-                               id(mister_vpd_at_start), avg_vpd);
-                    }
-                    turn_off_all_misters();
-                    id(mister_pulse_timer_ms) = pulse_gap_ms_for(finished_zone);
-
-                  }else{
-                    // === GAP → NEXT PULSE ===
-                    if(id(mister_state) == 1){
-                        // S1: re-read VPD, pulse most stressed zone
-                        int zone = select_zone_for_pulse();
-                        if(zone == 0) zone = fallback_wet_zone();
-                      id(mister_vpd_at_start) = avg_vpd;  // Track effectiveness
-                      turn_on_zone(zone, pulse_on_ms_for(zone));
-                      id(mister_pulse_timer_ms) = pulse_on_ms_for(id(mister_pulse_zone));
-                      ESP_LOGI("mister","PULSE: %s %ums (VPD=%.2f)",
-                               zone_names[zone], (unsigned)pulse_on_ms_for(id(mister_pulse_zone)), avg_vpd);
-
-                    }else if(id(mister_state) == 2){
-                        // S2: pick the most stressed zone each pulse (not round-robin)
-                        int zone = select_zone_for_pulse();
-                        if(zone == 0) zone = fallback_wet_zone();
-                      id(mister_vpd_at_start) = avg_vpd;  // Track effectiveness
-                      // VPD-weighted duration for high-stress zones. Base ON is
-                      // the same for every zone (IRR-3/IRR-4 center burst
-                      // override applies only to zone 3); the south/west VPD
-                      // weight multiplier is unchanged and never touches center.
-                      // #1160: the length is known before the pulse opens, so the
-                      // engine's grant carries it.
-                      uint32_t weighted_ms = pulse_on_ms_for(zone);
-                      float zone_vpd = (zone == 1) ? south_vpd : (zone == 2) ? west_vpd : avg_vpd;
-                      float zone_target = (zone == 1) ? id(vpd_target_south) : (zone == 2) ? id(vpd_target_west) : id(vpd_target_center);
-                      if(!isnan(zone_vpd) && zone_target > 0 && zone_vpd > zone_target * 1.2f){
-                        weighted_ms = uint32_t(PULSE_ON_MS * pol(verdify_policy::kPF_mister_vpd_weight, id(mister_vpd_weight)));
-                      }
-                      turn_on_zone(zone, weighted_ms);
-                      id(mister_pulse_timer_ms) = weighted_ms;
-                      ESP_LOGI("mister","ROTATE: %s %dms (VPD=%.2f target=%.2f)",
-                               zone_names[zone], weighted_ms,
-                               isnan(zone_vpd) ? 0.0f : zone_vpd, zone_target);
-                    }
-                  }
-                }
-              }
-
-              // Update h for telemetry (new hierarchy: S1=misters, S2=all-rotate, S3=fog)
-
-              // --- RUNTIME TRACKING ---
-              // #1160: runtime_mister_*_ms mirror the engine's RTC block, which counts
-              // every mister relay that reads ON at each engine tick, whatever opened it.
-              if(id(south_wall_mister).state || id(west_wall_mister).state || id(center_mister).state) {
-                snprintf(moisture_block_reason, sizeof(moisture_block_reason), "served");
-              } else if(humidity_demand && id(mister_state) > 0 && id(mister_pulse_zone) == 0) {
-                snprintf(moisture_block_reason, sizeof(moisture_block_reason), "pulse_gap");
-              }
+            }
+            mister_law_now = mister_law;
+            // Telemetry globals: 1 while a pulse train runs (pulse or gap), else 0.
+            id(mister_state) = mister_law.phase == climate_law::MISTER_IDLE ? 0 : 1;
+            id(mister_pulse_timer_ms) = mister_law.timer_ms;
+            // moisture_block_reason (free text): why VPD misting is not running.
+            if (id(south_wall_mister).state || id(west_wall_mister).state || id(center_mister).state) {
+              snprintf(moisture_block_reason, sizeof(moisture_block_reason), "served");
+            } else if (!law.mist) {
+              snprintf(moisture_block_reason, sizeof(moisture_block_reason), "no_vpd_demand");  // T6 C-m4: today's word
+            } else if (budget_block) {
+              snprintf(moisture_block_reason, sizeof(moisture_block_reason), "water_budget");
+            } else if (occupancy_blocks) {
+              snprintf(moisture_block_reason, sizeof(moisture_block_reason), "occupancy");
+            } else if (irrigation_block) {
+              snprintf(moisture_block_reason, sizeof(moisture_block_reason), "irrigation");
+            } else if (!any_mister_wet_allowed) {
+              snprintf(moisture_block_reason, sizeof(moisture_block_reason),
+                       wet_dew_margin_f < climate_law::WET_DEW_MARGIN_F ? "dew_margin" : "no_zone_available");
+            } else if (mister_law.phase == climate_law::MISTER_GAP) {
+              snprintf(moisture_block_reason, sizeof(moisture_block_reason), "pulse_gap");
             }
 
             // Water tracking (F6, #1161): the flow meter counts into SAF-4 and the soft
             // budget whenever any mister relay is ON, whatever its origin (a VPD pulse, a
             // scheduled or run-now window, a feed on L08 or L10, a mist prewet or flush),
             // or fog is, survival fog included (D-IRP-04: exempt from both caps, still
-            // counted). It runs outside the mister_blocked branch, so blocked VPD misting
+            // counted). It runs whether or not a VPD pulse runs, so blocked VPD misting
             // never stops the count; drips never overlap mist or fog, so no drip water is
             // counted. Runtime per zone is the engine's (its RTC block, every relay ON).
             {
@@ -1770,9 +1265,11 @@ interval:
               irr_in.vpd_emergency = climate_vpd_emergency;
               // Climate wetting that only a drip holds back (the climate yield, D-IRP-03).
               // C2: the engine's input keeps today's clock term exactly.
-              const bool climate_mist_wanted = zone_mister_demand && any_mister_wet_allowed
-                  && (any_zone_stressed || global_stressed) && !budget_block && !occupancy_blocks
-                  && wall_clock_valid;
+              // Phase 3: the law's request in place of the mode's; the zone and global
+              // stress terms read retired climate settings and the law's request implies
+              // them (house VPD above vpd_high + 0.30), so they are dropped (wiring note 6).
+              const bool climate_mist_wanted = law.mist && any_mister_wet_allowed
+                  && !budget_block && !occupancy_blocks && wall_clock_valid;
               irr_in.climate_demand = climate_mist_wanted || climate_fog_wanted;
               irr_in.occupied = occupancy_moisture_block;
               // The RH ceiling and the dew margin read the measured indoor air: the average
@@ -1784,22 +1281,103 @@ interval:
               const verdify_irr::IrrAirInputs irr_air = verdify_irr::irr_air_inputs(
                   avg_ok ? id(average_temperature).state : irr_case_fresh ? id(case_temperature).state : NAN,
                   avg_ok ? id(average_humidity).state : irr_case_fresh ? id(case_humidity).state : NAN,
-                  pol(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f)));
+                  float(climate_law::WET_DEW_MARGIN_F));  // package 3.2 (B3): compiled
               irr_in.rh_pct = irr_air.rh_pct;
               irr_in.dew_margin_known = irr_air.dew_margin_known;
               irr_in.dew_breach = irr_air.dew_breach;
               const float irr_budget_gal = pol(verdify_policy::kPF_mister_water_budget_gal, id(mister_water_budget_gal));
               irr_in.soft_budget_centigal = (std::isfinite(irr_budget_gal) && irr_budget_gal > 0.0f)
                   ? uint32_t(irr_budget_gal * 100.0f + 0.5f) : 0u;
-              const float irr_min_off_s = pol(verdify_policy::kPF_mister_min_off_s, id(mister_min_off_s));
-              irr_in.mister_min_off_s = (std::isfinite(irr_min_off_s) && irr_min_off_s > 0.0f)
-                  ? uint16_t(irr_min_off_s > 65535.0f ? 65535.0f : irr_min_off_s) : uint16_t(0);
+              irr_in.mister_min_off_s = uint16_t(climate_law::MISTER_MIN_OFF_S);  // package 3.2 (B3): compiled
               irr_set_vpd_sources(zone_vpd_with_fallback(ZONE_SOUTH, zp, VPD, now_ms).source,
                                   zone_vpd_with_fallback(ZONE_WEST, zp, VPD, now_ms).source);
             }
           }
 
           /**************** 14 — Telemetry & debug *******************************/
+          // Phase 3: the 11.1 label of the relays as they are (climate_law::legacy_state()),
+          // so every consumer of the mode vocabulary keeps working; the boot grace stays IDLE.
+          // T3: the same label (published_label()) drives climate_action and the axis below.
+          climate_law::LegacyInputs legacy_in{};
+          legacy_in.sensor_fault = mode == SENSOR_FAULT;
+          legacy_in.T = Tin;
+          legacy_in.vpd = VPD;
+          legacy_in.band = law_band;
+          legacy_in.vent_on = id(vent_rly)->state;
+          legacy_in.fog_on = id(fog_rly)->state;
+          legacy_in.mister_on = id(south_wall_mister).state || id(west_wall_mister).state || id(center_mister).state;
+          legacy_in.heat1_on = id(heat1_rly)->state;
+          legacy_in.heat2_on = id(heat2_rly)->state;
+          legacy_in.drying = law.drying;
+          const climate_law::LegacyState legacy =
+              climate_law::published_label(climate_law::legacy_state(legacy_in), boot_wait);
+          if (!boot_wait) mode = legacy.mode;
+          ctl_state.mist_stage = legacy.mist_stage;  // the label's suffix only; nothing decides on it
+          // F9 (#1161): the force-off words come from the same rule as the fog gate and
+          // the relay (fog_force_off_reason()), so while survival fog runs in SAFETY_COOL
+          // this never reads irrigation, resource_budget or water_ceiling, and no leak.
+          // T3: computed here so climate_fog_block_reason (below) and fog_block_reason
+          // (OBS-1e) read the one ladder.
+          char fog_block_reason[64];
+          {
+            const char* fog_forced_reason = fog_force_off_reason(mode, fog_rails);
+            if(fog_forced_reason[0] != '\0') {
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", fog_forced_reason);
+            } else if(manual_fog_requested && manual_fog_safety_block[0] != '\0') {
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", manual_fog_safety_block);
+            } else if(id(fog_rly)->state) {
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "served");
+            } else if(law_request.fog && !id(fog_rly)->state) {
+              // Phase 3: the law asks for fog and the fogger waits its minimum off time.
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "relay_min_off");
+            } else {
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "none");
+            }
+          }
+          // Phase 3 (contract phase3-entities): the drying meter, the law's state record
+          // (on every change but the cost, and every 60 s), the meter (every 300 s) and the
+          // constants hash (every 3,600 s), the last two once within 15 s of boot. Static
+          // buffers; the text sensor's own string is the only allocation per publish.
+          {
+            static climate_law::DryingMeter drying_meter;
+            climate_law::drying_meter_step(drying_meter, law_state, law, id(vent_rly)->state,
+                                           id(fan1_rly)->state || id(fan2_rly)->state, law_in, dt_ms);
+            static char law_record[256];
+            static char law_record_key[256] = "";
+            static uint32_t law_record_ms = 0;
+            static bool law_record_sent = false;
+            climate_law::Output keyed = law;
+            keyed.dry_cost = NAN;  // the cost alone does not trigger a publish
+            static char key[256];
+            climate_law::format_state_record(key, sizeof(key), law_state, keyed, law_in.dry_cost_limit,
+                                             law_band_repaired, law_band);
+            // T6 F8/C-m1: nothing during the boot grace (the law has no temperature yet).
+            // T6 C-m7: on a change at most every 5 s, and the 60 s heartbeat; never every second.
+            if (climate_law::law_record_due(boot_wait, law_record_sent, strcmp(key, law_record_key) != 0, now_ms,
+                                            law_record_ms)) {
+              climate_law::format_state_record(law_record, sizeof(law_record), law_state, law,
+                                               law_in.dry_cost_limit, law_band_repaired, law_band);
+              id(gh_climate_law_state).publish_state(law_record);
+              snprintf(law_record_key, sizeof(law_record_key), "%s", key);
+              law_record_ms = now_ms;
+              law_record_sent = true;
+            }
+            static uint32_t meter_ms = 0, constants_ms = 0;
+            static bool meter_sent = false, constants_sent = false;
+            const bool boot_publish_due = millis() >= 10000UL;  // "within 15 s of boot"
+            if ((!meter_sent && boot_publish_due) || (meter_sent && now_ms - meter_ms >= 300000UL)) {
+              static char meter_text[128];
+              climate_law::format_drying_meter(meter_text, sizeof(meter_text), drying_meter);
+              id(gh_climate_drying_meter).publish_state(meter_text);
+              meter_ms = now_ms;
+              meter_sent = true;
+            }
+            if ((!constants_sent && boot_publish_due) || (constants_sent && now_ms - constants_ms >= 3600000UL)) {
+              id(gh_climate_law_constants).publish_state(climate_law::constants_hash());
+              constants_ms = now_ms;
+              constants_sent = true;
+            }
+          }
           char lbl[48];
           if(mode == SEALED_MIST){
             snprintf(lbl, sizeof(lbl), "SEALED_MIST_%s", MIST_NAMES[ctl_state.mist_stage]);
@@ -1816,62 +1394,27 @@ interval:
 
           /*** ClimateIntent controller decision — primary path telemetry ***/
           {
-            ClimateActionDecision climate_decision = describe_effective_climate_decision(mode, sensor_in, setpts, ctl_state, relay_out);
+            // T3: the law's label, drying run and fog threshold (climate_law_glue.h), not the
+            // mode machine's never-stepped ctl_state.
+            ClimateActionDecision climate_decision = climate_law::describe_law_decision(
+                legacy, sensor_in, setpts, law, law_band, law_in.out_ok, fog_block_reason);
             const char* climate_action = CLIMATE_ACTION_NAMES[climate_decision.climate_action];
             const char* priority_axis = CLIMATE_PRIORITY_AXIS_NAMES[climate_decision.priority_axis];
-            const char* moisture_state = CLIMATE_MOISTURE_ASSIST_STATE_NAMES[climate_decision.moisture_assist_state];
-            const char* moisture_zone = CLIMATE_MOISTURE_ZONE_NAMES[climate_decision.moisture_zone];
-            const bool selected_wet_action =
-              climate_decision.climate_action == CLIMATE_VENT_COOL_MIST_ASSIST
-              || climate_decision.climate_action == CLIMATE_VENT_COOL_FOG_ASSIST
-              || climate_decision.climate_action == CLIMATE_SEALED_HUMIDIFY
-              || climate_decision.climate_action == CLIMATE_SEALED_FOG;
+            // X1 (P1): the assist state, zone and next mist come from the law and mister_step
+            // (climate_law::moisture_assist()), not the mode machine's state.
             const bool mister_relay_on =
               id(south_wall_mister).state
               || id(west_wall_mister).state
               || id(center_mister).state;
-            auto climate_zone_name = [](int zone) -> const char* {
-              if(zone == 1) return "south";
-              if(zone == 2) return "west";
-              if(zone == 3) return "center";
-              return "none";
-            };
-            const char* effective_moisture_state = moisture_state;
-            const char* effective_moisture_zone = moisture_zone;
-            float effective_next_mist_s = climate_decision.next_mist_eligible_s;
-
-            if(!selected_wet_action && VPD <= VPDhi) {
-              effective_moisture_state = "inactive";
-              effective_moisture_zone = "none";
-              effective_next_mist_s = -1.0f;
-            } else if(selected_wet_action && mister_relay_on && id(mister_pulse_zone) > 0) {
-              effective_moisture_state = "pulse_on";
-              effective_moisture_zone = climate_zone_name(id(mister_pulse_zone));
-              effective_next_mist_s = 0.0f;
-            } else if(selected_wet_action && id(mister_state) > 0 && id(mister_pulse_zone) == 0 && id(mister_pulse_timer_ms) > 0) {
-              effective_moisture_state = "pulse_gap";
-              effective_moisture_zone = "none";
-              effective_next_mist_s = float(id(mister_pulse_timer_ms)) / 1000.0f;
-            } else if(selected_wet_action && strcmp(moisture_block_reason, "served") == 0) {
-              effective_moisture_state = "pulse_on";
-              effective_moisture_zone = climate_zone_name(id(mister_pulse_zone));
-              effective_next_mist_s = 0.0f;
-            } else if(selected_wet_action && strcmp(moisture_block_reason, "pulse_gap") == 0) {
-              effective_moisture_state = "pulse_gap";
-              effective_moisture_zone = "none";
-              effective_next_mist_s = float(id(mister_pulse_timer_ms)) / 1000.0f;
-            } else if(selected_wet_action && strcmp(moisture_block_reason, "engage_delay") == 0) {
-              effective_moisture_state = "engage_delay";
-              effective_moisture_zone = "none";
-            } else if(selected_wet_action
-                      && strcmp(moisture_block_reason, "none") != 0
-                      && strcmp(moisture_block_reason, "no_vpd_demand") != 0) {
-              effective_moisture_state = "blocked";
-              effective_moisture_zone = "none";
-              effective_next_mist_s = -1.0f;
-            } else if(!mister_relay_on && id(mister_pulse_zone) == 0) {
-              effective_moisture_zone = "none";
-            }
+            const int pulse_zone = id(mister_pulse_zone);
+            const climate_law::MoistureAssist assist = climate_law::moisture_assist(
+                law.mist, mister_relay_on,
+                pulse_zone == 1 ? "south" : pulse_zone == 2 ? "west" : pulse_zone == 3 ? "center" : "none",
+                mister_law_now);
+            const char* effective_moisture_state = assist.state;
+            const char* effective_moisture_zone = assist.zone;
+            const float effective_next_mist_s = assist.next_mist_s;
+            climate_decision.next_mist_eligible_s = assist.next_mist_s;
             char temp_error[24];
             char vpd_error[24];
             char fog_margin[24];
@@ -2094,32 +1637,7 @@ interval:
               snprintf(last_overrides, sizeof(last_overrides), "%s", overrides);
             }
 
-            // F9 (#1161): the force-off words come from the same rule as the fog gate and
-            // the relay (fog_force_off_reason()), so while survival fog runs in SAFETY_COOL
-            // this never reads irrigation, resource_budget or water_ceiling, and no leak.
-            char fog_block_reason[64];
-            const char* fog_forced_reason = fog_force_off_reason(mode, fog_rails);
-            if(fog_forced_reason[0] != '\0') {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", fog_forced_reason);
-            } else if(manual_fog_requested && manual_fog_safety_block[0] != '\0') {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", manual_fog_safety_block);
-            } else if(id(fog_rly)->state) {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "served");
-            } else if(!fog_phase_permitted(sensor_in, setpts)) {
-              // Firmware-v2: solar wet taper / night without a stress-wet pass.
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "wet_taper");
-            } else if(of.fog_gate_rh) {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "rh_ceiling");
-            } else if(of.fog_gate_temp) {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "temp_low");
-            } else if(relay_out.fog && polb(verdify_policy::kPF_sw_fog_closes_vent, id(fog_closes_vent)) && vent_is_open && !open_vent_fog_assist) {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "vent_interlock");
-            } else if(willFog && !id(fog_rly)->state) {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "relay_min_off");
-            } else {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "none");
-            }
-
+            // fog_block_reason: the ladder computed with the label above (T3).
             static char last_fog_block_reason[64] = "";
             if(strcmp(last_fog_block_reason, fog_block_reason) != 0){
               id(gh_fog_block_reason).publish_state(fog_block_reason);
@@ -2131,7 +1649,9 @@ interval:
           // by determine_mode() (short static C string, no heap). Guard
           // against nullptr so an unknown branch never crashes the publish.
           {
-            const char* reason = ctl_state.last_mode_reason;
+            // Phase 3: boot grace `init`, no indoor temperature `sensor_fault` (as phase 2),
+            // otherwise `law` (contract phase3-entities).
+            const char* reason = boot_wait ? "init" : (mode == SENSOR_FAULT ? "sensor_fault" : "law");
             const char* safe_reason = reason ? reason : "unknown";
             static char last_mode_reason[48] = "";
             if(strcmp(last_mode_reason, safe_reason) != 0){
@@ -2159,19 +1679,19 @@ interval:
 
           /*** AI-control diagnostics — requested vs served actuator paths ***/
           {
-            const bool vent_mist_served =
-                ctl_state.vent_mist_assist_active
-                && (id(fog_rly)->state
-                    || id(south_wall_mister).state
-                    || id(west_wall_mister).state
-                    || id(center_mister).state);
+            // X6 (P3): keyed on the published label and the law's wet request.
+            const bool wet_on = id(fog_rly)->state || id(south_wall_mister).state
+                || id(west_wall_mister).state || id(center_mister).state;
+            const climate_law::VentAssistStatus vent_assist =
+                climate_law::vent_assist_status(legacy, id(vent_rly)->state, law, wet_on);
             char vent_status[128];
-            if(!ctl_state.vent_mist_assist_active) {
-              snprintf(vent_status, sizeof(vent_status), "inactive");
-            } else if(vent_mist_served) {
+            if(vent_assist == climate_law::VentAssistStatus::kServed) {
               snprintf(vent_status, sizeof(vent_status), "served");
+            } else if(vent_assist == climate_law::VentAssistStatus::kBlocked) {
+              snprintf(vent_status, sizeof(vent_status), "blocked:%s",
+                       law.fog && !law.mist ? fog_block_reason : moisture_block_reason);
             } else {
-              snprintf(vent_status, sizeof(vent_status), "blocked:%s", moisture_block_reason);
+              snprintf(vent_status, sizeof(vent_status), "inactive");
             }
 
             static char last_moisture_block_reason[96] = "";
@@ -2450,13 +1970,40 @@ interval:
   # for > id(fallback_window_s) (3600 s), counted from boot if none ever did, the
   # controller restarts, so at most once an hour (sensor_bus_restart_due(),
   # lib/running_alone.h; unsigned millisecond arithmetic, wrap-safe).
+  # Doubly blind (no valid indoor temperature and no outdoor reading; RULINGS
+  # Q2, U1): restart after 10 minutes the first time, then every 60 minutes while
+  # it lasts (doubly_blind_restart_step()); the 10-minute window comes back only
+  # after 60 minutes of readings (X2), and never while water runs (X3). Every
+  # climate relay is already off then.
+  # Both restarts go through App.safe_reboot() (RULINGS Q1), which runs
+  # on_shutdown and saves the relay counters; esp_restart() skipped it.
   ################################################################################
   - interval: 60s
     then:
       - lambda: |-
+          static DoublyBlindRestart blind_restart;
+          const int8_t blind = id(doubly_blind_state);
+          const uint32_t blind_window_ms =
+              id(doubly_blind_restarted) ? DOUBLY_BLIND_REPEAT_RESTART_MS : DOUBLY_BLIND_FIRST_RESTART_MS;
+          // X3: never while water runs: a wet relay open, or an irrigation run active
+          // (the engine's grants, a drip, a fog run-once); retried at the next tick.
+          const bool water_busy = id(fog_rly)->state || id(center_mister).state
+              || id(south_wall_mister).state || id(south_wall_mister_fertilized).state
+              || id(west_wall_mister).state || id(west_wall_mister_fertilized).state
+              || id(wall_drips).state || id(wall_drips_fertilized).state
+              || id(center_drips).state || id(center_drips_fertilized).state
+              || id(fertilizer_master_valve).state
+              || id(irr_grant_mask) != 0 || irr_drip_active() || irr_fog_run();
+          if (doubly_blind_restart_step(blind_restart, id(doubly_blind_restarted), blind >= 0, blind == 1, millis(),
+                                        water_busy)) {
+            ESP_LOGE("watchdog", "No indoor temperature and no outdoor reading for more than %u s - restarting",
+                     unsigned(blind_window_ms / 1000u));
+            App.safe_reboot();
+            return;
+          }
           if(sensor_bus_restart_due(millis(), id(last_external_update), id(fallback_window_s) * 1000UL)){
             ESP_LOGE("watchdog","No probe answered for more than %u s - restarting", id(fallback_window_s));
-            esp_restart();
+            App.safe_reboot();
           }
 
 
@@ -2501,6 +2048,12 @@ interval:
             ESP_LOGW("heap", "Pre-OTA runtime floor violation: heap=%s loop_overruns=%u",
                      floor_met ? "PASS" : "FAIL", loop_overruns);
           }
+          // RULINGS W1/W2: the device's partition table, NVS use and flash chip (read-only).
+          const char* flash_parts = "";
+          const char* flash_nvs = "";
+          gh_flash_profile(&flash_parts, &flash_nvs);
+          ESP_LOGW("flash_profile", "parts=%s", flash_parts);
+          ESP_LOGW("flash_profile", "%s", flash_nvs);
 
 ################################################################################
 # END OF FILE

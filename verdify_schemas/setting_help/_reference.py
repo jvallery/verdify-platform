@@ -259,7 +259,7 @@ ENTRIES: dict[str, HelpEntry] = {
             "Checked once a minute: if no external probe has reported for longer than this, the controller "
             "restarts to recover the sensors. It ships at one hour and nothing sets it."
         ),
-        refs=(f"{_CONTROLS}::> id(fallback_window_s)", f"{_CONTROLS}::esp_restart();"),
+        refs=(f"{_CONTROLS}::> id(fallback_window_s)", f"{_CONTROLS}::App.safe_reboot();"),
     ),
     "outdoor_temp_f": HelpEntry(
         label="Outdoor Temp",

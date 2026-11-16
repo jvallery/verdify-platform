@@ -15,6 +15,11 @@ from scripts import prepare_component_prefix_replay as prep
 from verdify_schemas.tunable_registry import wire_value_bounds
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Phase 3 (#1671, RULINGS P1): the band-edge law replaces the phase 2 fog/vent glue this extractor reads
+# (relay_physical, the fog-closes-vent gate, open_vent_fog_assist). With the law wired there is no consumer to
+# extract; package 4.3's host counterpart deletes this tooling.
+PHASE3_LAW_WIRED = "climate_law::relay_step(" in (ROOT / "firmware/greenhouse/controls.yaml").read_text()
 SPEC = importlib.util.spec_from_file_location("prefix_input_report", ROOT / "scripts/component_prefix_replay.py")
 assert SPEC and SPEC.loader
 replay = importlib.util.module_from_spec(SPEC)
@@ -31,6 +36,9 @@ def source_report():
 def explicit_fixture(source_report):
     # Deliberately synthetic and never published as historical observations.
     fragments = source_report["fog_vent_input_admission"]["fragment_sha256"]
+    if PHASE3_LAW_WIRED:
+        assert not fragments  # nothing left to extract; the admission refuses
+        pytest.skip("phase 3: the fog/vent consumer is retired (RULINGS P1)")
     assert fragments, "P1's actual source extractor is required for these contract tests"
     snapshot = {name: wire_value_bounds(name)[0] for name in prep.FOG_VENT_DWELL_FIELDS}
     snapshot["sw_fog_closes_vent"] = True
@@ -85,7 +93,9 @@ def test_actual_source_report_preserves_27_of_48_and_classifies_other_twenty(sou
     assert len(remaining) == 20
     assert {row["name"] for row in remaining} == set(source_report["unimposed_fields"]) - {"sw_fog_closes_vent"}
     assert all(
-        row["control_read_sites"] and row["required_inputs_and_state"] and row["missing_or_unknown"]
+        (row["control_read_sites"] or (PHASE3_LAW_WIRED and row["name"] in replay.PHASE3_INERT_FIELDS))
+        and row["required_inputs_and_state"]
+        and row["missing_or_unknown"]
         for row in remaining
     )
     assert all(row["prefix_admitted"] is False and row["qualification"] == "unproven" for row in remaining)

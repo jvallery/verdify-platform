@@ -1015,10 +1015,33 @@ def test_firmware_lighting_telemetry_fails_closed_when_time_invalid():
     assert "publish_lighting_epoch(id(gl_grow_decision_epoch), time.timestamp)" in controls
 
 
+def _inline_fn(source: str, signature: str) -> str:
+    """One inline function of a firmware header, from its signature to its closing brace."""
+    body = source[source.index(signature) :]
+    return body[: body.index("\n}\n")]
+
+
+def _relay_pass() -> str:
+    """climate_law::relay_pass() (lib/climate_law_glue.h): the relay layer, then the override layer, then the
+    interlocks over a press and the fog holds. Phase 3 (#1671) moved the phase 2 call sites of
+    apply_manual_overrides() and the fog force-off here; the native suite (test_climate_law.cpp,
+    glue_override_rails and protection_clears_overrides) drives it. contracts: fidelity-guards-phase3."""
+    return _inline_fn(Path("firmware/lib/climate_law_glue.h").read_text(), "inline RelayPass relay_pass(")
+
+
+def _climate_pulse_open(controls: str) -> str:
+    """Section 12's only place that opens a climate mister: mister_step()'s open command, asked of the engine's
+    grant (phase 3; phase 2's turn_on_zone lambda)."""
+    start = controls.index("if (mister_cmd.open_zone >= 0) {")
+    return controls[start : controls.index("mister_law_now = mister_law;", start)]
+
+
 def test_controller_time_failure_is_final_fog_rail():
     """Phase 2 (running alone, #1638): the clock is no longer a fog or climate-mist term. Without a
     trusted clock the band is the corridor and fog follows it; the engine's climate-demand input
-    keeps today's clock term (RULINGS C2) and lighting keeps its own time_invalid test."""
+    keeps today's clock term (RULINGS C2) and lighting keeps its own time_invalid test. Phase 3: the
+    rails are the relay layer's fog hold; the engine's fog demand is climate_law::climate_fog_wanted()
+    (RULINGS T4), with the same clock term."""
     controls = Path("firmware/greenhouse/controls.yaml").read_text()
     sensors = Path("firmware/greenhouse/sensors.yaml").read_text()
     logic = Path("firmware/lib/greenhouse_logic.h").read_text()
@@ -1037,12 +1060,35 @@ def test_controller_time_failure_is_final_fog_rail():
     final_gate_end = controls.index("/**************** 10", final_gate_start)
     final_gate = controls[final_gate_start:final_gate_end]
     assert "time_valid" not in final_gate[: final_gate.index("};")]
-    assert "!fog_forced_off(mode, fog_rails_but_drips) && wall_clock_valid;" in final_gate
-    assert final_gate.index("if (fog_forced_off(mode, fog_rails)) {") < final_gate.index("willFog = false;")
+    # The relay's force-off: the rails alone, no clock term.
+    assert "const bool fog_hold = fog_forced_off(mode, fog_rails);" in final_gate
+    # The engine's climate fog demand keeps today's clock term (C2), after the override layer (T4).
+    assert (
+        "climate_law::climate_fog_wanted(\n"
+        "              law_request, manual_force, fog_forced_off(mode, fog_rails_but_drips), wall_clock_valid);"
+    ) in final_gate
+    # RULINGS AG2: the law's own fog keeps the 8 F dew-point margin (outside SENSOR_FAULT), dropped from the request
+    # before relay_pass(); the engine's demand above reads the same gated request. Native test: law_fog_wet_rails.
+    dew_gate = "if (!climate_law::law_fog_dew_margin_ok(mode, Tin, indoor.dew_point_f)) law_request.fog = false;"
+    assert final_gate.index(dew_gate) < final_gate.index("const climate_law::RelayPass pass_out")
+    assert "law, manual_force, fog_forced_off(" not in controls
+    glue = Path("firmware/lib/climate_law_glue.h").read_text()
+    margin = _inline_fn(glue, "inline bool law_fog_dew_margin_ok(")
+    assert "return mode == SENSOR_FAULT || (temp_f - dew_point_f >= WET_DEW_MARGIN_F);" in margin
+    fog_wanted = _inline_fn(glue, "inline bool climate_fog_wanted(")
+    assert "return (law.fog || force.fog) && !rails_but_drips_force_off && wall_clock_valid;" in fog_wanted
     assert "&& wall_clock_valid;" in controls[controls.index("const bool climate_mist_wanted =") :]
+    for retired in (
+        "!fog_forced_off(mode, fog_rails_but_drips) && wall_clock_valid;",
+        "if (fog_forced_off(mode, fog_rails)) {",
+        "willFog = false;",
+    ):
+        assert retired not in controls, retired
 
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
-    assert "fog_forced_off(mode, fog_rails));" in relay_apply
+    assert "law_relay_in.fog_hold = fog_hold;" in relay_apply
+    assert "wall_clock_valid" not in relay_apply[: relay_apply.index("const climate_law::RelayPass pass_out")]
+    assert "if (in.fog_hold) p.out.fog = false;" in _relay_pass()
 
     fog_start = controls.index("char fog_block_reason")
     fog_end = controls.index("static char last_fog_block_reason", fog_start)
@@ -2100,10 +2146,30 @@ def test_knowledge_search_defaults_to_full_embedding_corpus():
 
 
 def test_firmware_misters_have_no_standalone_zone_stress_path():
+    """A climate mister pulse needs the house humidity request; a stressed zone only chooses where the pulse goes.
+    Phase 3 (#1671, plan 4.8): the request is the law's (law.mist), the pulse train climate_law::mister_step(),
+    which asks for nothing without the request or an allowed zone; zone stress is read only in
+    mister_choose_zone(). sw_mister_closes_vent is inert (RULINGS T7 item 4, decision 20)."""
     controls = Path("firmware/greenhouse/controls.yaml").read_text()
-    assert "bool zone_mister_demand = humidity_demand && mister_vent_ok;" in controls
-    assert "&& humidity_demand" in controls
-    assert "&& (humidity_demand || any_zone_stressed)" not in controls
+    law = Path("firmware/lib/climate_law.h").read_text()
+    assert (
+        "const bool mister_request = law.mist && !budget_block && !occupancy_blocks && !irrigation_block;" in controls
+    )
+    assert "mister_in.request = mister_request;" in controls
+    assert "const climate_law::MisterCommand mister_cmd = climate_law::mister_step(mister_law, mister_in);" in controls
+    step = _inline_fn(law, "inline MisterCommand mister_step(")
+    no_request = step[step.index("if (!in.request || !any_allowed) {") :]
+    no_request = no_request[: no_request.index("        return c;\n    }")]
+    assert "c.open_zone" not in no_request  # no request, no allowed zone: nothing is asked for
+    assert step.index("if (!in.request || !any_allowed) {") < step.index("c.open_zone = mister_choose_zone(in);")
+    for retired in (
+        "zone_mister_demand",
+        "humidity_demand",
+        "any_zone_stressed",
+        "global_stressed",
+        "mister_vent_ok",
+    ):
+        assert retired not in controls, retired
 
 
 def test_site_content_populator_corpus_roots_are_post_vm_decommission():
@@ -2526,13 +2592,33 @@ def test_climate_telemetry_uses_actual_mister_pulse_state():
     end = controls.index("/*** OBS-1e", start)
     block = controls[start:end]
 
-    assert "const bool selected_wet_action" in block
-    assert "const bool mister_relay_on" in block
-    assert 'effective_moisture_state = "pulse_on"' in block
-    assert 'effective_moisture_state = "pulse_gap"' in block
-    assert 'effective_moisture_state = "inactive"' in block
-    assert "effective_moisture_zone = climate_zone_name(id(mister_pulse_zone))" in block
-    assert "effective_next_mist_s = float(id(mister_pulse_timer_ms)) / 1000.0f" in block
+    # Phase 3 (RULINGS X1): the state comes from the mister relays as they are and the pulse train as
+    # mister_step() left it (climate_law::moisture_assist(), native test law_decision_telemetry), not from the
+    # decision; the S1/S2 stage machine and its engage_delay state are gone with section 12's old code.
+    assert (
+        "const bool mister_relay_on =\n"
+        "              id(south_wall_mister).state\n"
+        "              || id(west_wall_mister).state\n"
+        "              || id(center_mister).state;"
+    ) in block
+    assert (
+        "const climate_law::MoistureAssist assist = climate_law::moisture_assist(\n                law.mist, mister_relay_on,"
+        in block
+    )
+    assert "                mister_law_now);" in block
+    assert "const char* effective_moisture_state = assist.state;" in block
+    assert "const char* effective_moisture_zone = assist.zone;" in block
+    assert "const float effective_next_mist_s = assist.next_mist_s;" in block
+    assert "mister_law_now = mister_law;" in controls
+    assist = _inline_fn(Path("firmware/lib/climate_law_glue.h").read_text(), "inline MoistureAssist moisture_assist(")
+    assert 'if (mister_on) return {"pulse_on", zone, 0.0f};' in assist
+    assert (
+        'if (law_mist && m.phase == MISTER_GAP) return {"pulse_gap", "none", float(m.timer_ms) / float(MS_PER_S)};'
+        in assist
+    )
+    assert 'return {"inactive", "none", -1.0f};' in assist
+    for retired in ("const bool selected_wet_action", "climate_zone_name(", '"engage_delay"'):
+        assert retired not in block, retired
     assert "id(gh_climate_moisture_assist_state).publish_state(effective_moisture_state)" in block
     assert "id(gh_climate_moisture_zone).publish_state(effective_moisture_zone)" in block
 
@@ -2564,13 +2650,26 @@ def test_climate_action_log_persists_moisture_exchange_telemetry():
     ):
         assert token in types
 
+    # Phase 3 (RULINGS T3, declared change 10): the action is the law's drying run and the reason its refusal;
+    # the mode machine's projections publish their neutral values. describe_law_decision() (lib/climate_law_glue.h,
+    # native test law_decision_telemetry) overwrites what greenhouse_logic.h's describe_climate_decision_for_action()
+    # derived, so the published fields are asserted there, not in the mode machine's code.
+    assert "inline ClimateActionDecision describe_climate_decision_for_action(" in logic
+    decide = _inline_fn(
+        Path("firmware/lib/climate_law_glue.h").read_text(), "inline ClimateActionDecision describe_law_decision("
+    )
     for token in (
-        "moisture_exchange_action_name",
-        "vent_overcools",
-        "moisture_exchange_action = moisture_exchange_action_name(mx.action)",
-        "moisture_heat_assist_active = state.dehum_heat_assist_active",
+        "describe_climate_decision_for_action(label.action, label.axis, in, sp, neutral);",
+        'd.moisture_exchange_action = law.drying ? "vent_dehum" : "none";',
+        "DRY_REFUSAL_NAMES[dr]",
+        "d.moisture_outdoor_fresh = out_ok;",
+        "d.moisture_vent_overcools = false;",
+        "d.moisture_heat_assist_active = false;",
+        "d.moisture_heat_assist_timer_ms = 0;",
     ):
-        assert token in logic
+        assert token in decide, token
+    assert "ClimateActionDecision climate_decision = climate_law::describe_law_decision(" in controls
+    assert "describe_effective_climate_decision(" not in controls
 
     # Compact keys fit Home Assistant's 255-character state; the ingestor expands them. The action alone goes to
     # gh_climate_moisture_exchange and the JSON to its _details entity.
@@ -2608,6 +2707,15 @@ def test_climate_decision_surface_excludes_fert_and_drip_relays():
     for forbidden in ("fert", "drip", "fertilizer", "irrig"):
         assert forbidden not in decision_block.lower()
 
+    # Phase 3: the climate decision is the law's Output and its relay layer; neither names a fertilizer or drip
+    # relay (the irrigation engine owns them).
+    law = (REPO_ROOT / "firmware" / "lib" / "climate_law.h").read_text()
+    for struct in ("struct Output {", "struct RelayState {", "struct RelayInputs {"):
+        block = law[law.index(struct) :]
+        block = block[: block.index("};")]
+        for forbidden in ("fert", "drip", "irrig"):
+            assert forbidden not in block.lower(), (struct, forbidden)
+
 
 def test_climate_wet_assist_is_separate_from_crop_direct_wet_windows():
     """#1161 (F6): ADR-0007's center-only routing is gone. Each mister zone takes climate VPD pulses
@@ -2618,8 +2726,20 @@ def test_climate_wet_assist_is_separate_from_crop_direct_wet_windows():
     greenhouse = (REPO_ROOT / "firmware" / "greenhouse.yaml").read_text()
 
     assert "const bool climate_wet_assist_safety_ok" in controls
-    assert "climate_wet_assist_permitted(sensor_in, setpts)" in controls
+    # Phase 3 (#1671, contract phase3-wiring section 6): the zone gate's safety term is
+    # climate_law::zone_gate_safety_ok() with today's terms (occupancy, feed hold, house VPD above the band's high
+    # edge, the dew margin) and the compiled 8 F wetting margin with no night test (RULINGS B3); the demand is the
+    # law's mister request. Native test: engine_inputs.
+    assert (
+        "const bool climate_wet_assist_safety_ok = climate_law::zone_gate_safety_ok(\n"
+        "              occupancy_moisture_block, feed_hold_active, VPD, law_band.vpd_high, wet_dew_margin_f);"
+    ) in controls
+    gate = _inline_fn(Path("firmware/lib/climate_law.h").read_text(), "inline bool zone_gate_safety_ok(")
+    assert "return !occupied && !feed_hold && std::isfinite(house_vpd) && house_vpd > vpd_high" in gate
+    assert "&& std::isfinite(dew_margin_f) && dew_margin_f >= WET_DEW_MARGIN_F;" in gate
     for gone in (
+        "climate_wet_assist_permitted(sensor_in, setpts)",
+        "climate_wet_assist_demand",
         "WetTopologyPolicy",
         "resolve_wet_request",
         "WetCommandOrigin",
@@ -2634,7 +2754,7 @@ def test_climate_wet_assist_is_separate_from_crop_direct_wet_windows():
     for zone, line in (("center", "kL04"), ("south", "kL07"), ("west", "kL09")):
         assert (
             f"const bool {zone}_wet_allowed = irr_climate_zone_allowed(\n"
-            f"              verdify_irr::{line}, climate_wet_assist_demand, climate_wet_assist_safety_ok, "
+            f"              verdify_irr::{line}, law.mist, climate_wet_assist_safety_ok, "
             "mister_volume_hard_block);"
         ) in controls
     rule = engine[engine.index("inline bool irr_vpd_zone_allowed(") :]
@@ -2802,11 +2922,13 @@ def test_clean_water_relays_reject_direct_on_and_keep_controller_paths():
     assert "if(id(fertilizer_master_valve).state) {" in center_block
     assert "Blocked ungranted center_mister ON" in center_block
 
-    climate_on = controls[controls.index("auto turn_on_zone =") : controls.index("auto turn_off_all_misters")]
-    grant = climate_on.index("if(!irr_vpd_grant(zone_line, pulse_ms)) {")
+    climate_on = _climate_pulse_open(controls)
+    grant = climate_on.index("if (irr_vpd_grant(zone_line, mister_cmd.pulse_ms)) {")
+    refused = climate_on.index("} else {", grant)
     for relay in ("center_mister", "south_wall_mister", "west_wall_mister"):
-        assert grant < climate_on.index(f"id({relay}).turn_on();")
+        assert grant < climate_on.index(f"id({relay}).turn_on();") < refused
         assert controls.count(f"id({relay}).turn_on();") == 1  # only the granted climate pulse
+    assert "auto turn_on_zone =" not in controls
     for relay in (
         "wall_drips",
         "center_drips",
@@ -2899,9 +3021,19 @@ def test_center_mist_has_no_deliberate_dawn_or_midday_watering_surface():
 
     assert "center_burst_decision(" not in controls
     assert "CENTER_PULSE" not in controls
-    assert "ctl_state.center_burst = CENTER_BURST_NONE;" in controls
-    assert "return PULSE_ON_MS;" in controls
-    assert "return PULSE_GAP_MS;" in controls
+    # Phase 3 (#1671; RULINGS B3, B4): every climate pulse, centre included, is mister_step()'s one cadence: the
+    # compiled pulse (times the compiled factor above 1.2 x the band's VPD high edge) and gap; there is no dawn or
+    # midday substitution and no per-zone pulse length. Native test: mister_request.
+    law = Path("firmware/lib/climate_law.h").read_text()
+    pulse = _inline_fn(law, "inline uint32_t mister_pulse_ms(")
+    assert "const double base = double(MISTER_PULSE_S * MS_PER_S);" in pulse
+    assert "zone_vpd > MISTER_LONG_PULSE_VPD_RATIO * vpd_high" in pulse
+    step = _inline_fn(law, "inline MisterCommand mister_step(")
+    assert step.count("s.timer_ms = MISTER_GAP_S * MS_PER_S;") == 3
+    assert "c.pulse_ms = c.open_zone >= 0 ? mister_pulse_ms(in.zone_vpd[c.open_zone], in.vpd_high)" in step
+    assert "if (irr_vpd_grant(zone_line, mister_cmd.pulse_ms)) {" in _climate_pulse_open(controls)
+    for retired in ("ctl_state.center_burst", "PULSE_ON_MS", "PULSE_GAP_MS", "pulse_on_ms_for", "pulse_gap_ms_for"):
+        assert retired not in controls, retired
     assert "10:30" not in controls
     for entity_id in (
         "num_dawn_rehydrate_window_min",
@@ -2942,8 +3074,14 @@ def test_irrigation_engine_holds_the_water_for_its_drip_runs():
     ):
         assert gone not in controls
     assert "const bool irrigation_water_conflict = irr_drip_active();" in controls
-    assert "bool irrigation_block = irrigation_water_conflict;" in controls
-    assert "|| irrigation_block" in controls
+    assert "const bool irrigation_block = irrigation_water_conflict;" in controls
+    # Phase 3: the hold is a term of mister_step()'s request (mist) and of the fog rails (fog).
+    assert (
+        "const bool mister_request = law.mist && !budget_block && !occupancy_blocks && !irrigation_block;" in controls
+    )
+    rails = controls[controls.index("const FogForceOffInputs fog_rails{") :]
+    assert "              irrigation_water_conflict,\n" in rails[: rails.index("};")]
+    assert "|| irrigation_block" not in controls  # phase 2's mister_blocked
     assert "- interval: 5s" in package
     assert "irr_esp_tick(b, clock_valid, epoch, utc_offset_min);" in package
 
@@ -2954,14 +3092,24 @@ def test_mister_budget_emergency_uses_house_average_vpd():
     end = controls.index("static bool occupancy_water_interlock_prev", start)
     block = controls[start:end]
 
-    assert "float budget_vpd_max = VPD;" in block
-    assert "merge_budget_vpd(id(vpd_south).state);" in block
-    assert "merge_budget_vpd(id(vpd_west).state);" in block
-    assert "merge_budget_vpd(id(vpd_east).state);" in block
-    assert "budget_vpd_max > id(safety_vpd_max_kpa)" in block
+    # Phase 3: the same terms (the house VPD and the three zone probes, the highest finite one) through
+    # climate_law::vpd_emergency(); the level is compiled, VPD_EMERGENCY_KPA (RULINGS B3: 2.5 kPa, the value
+    # safety_vpd_max_kpa held). Native test: engine_inputs.
+    assert (
+        "const double emergency_zone_vpd[ZONE_COUNT] = {\n"
+        "              NAN, id(vpd_south).state, id(vpd_west).state, id(vpd_east).state};"
+    ) in block
+    assert "const bool climate_vpd_emergency = climate_law::vpd_emergency(VPD, emergency_zone_vpd);" in block
+    emergency = _inline_fn(Path("firmware/lib/climate_law.h").read_text(), "inline bool vpd_emergency(")
+    assert "merge(house_vpd);" in emergency
+    assert "if (z != ZONE_CENTER) merge(zone_vpd[z]);" in emergency
+    assert "return std::isfinite(m) && m > VPD_EMERGENCY_KPA;" in emergency
     assert "const bool climate_water_budget_block =" in block
-    assert "!climate_vpd_emergency" in block
-    assert "bool budget_block = climate_water_budget_block;" in controls
+    assert "&& !climate_vpd_emergency;" in block
+    assert "const bool budget_block = climate_water_budget_block;" in controls
+    for retired in ("budget_vpd_max", "merge_budget_vpd"):
+        assert retired not in controls, retired
+    assert "safety_vpd_max_kpa" not in block  # the emergency reads the compiled level, not the setting
 
 
 def test_leak_detected_locks_water_actuators():
@@ -2983,8 +3131,11 @@ def test_leak_detected_locks_water_actuators():
     ):
         assert gone not in controls, gone
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
-    assert "set_relay(\n              R[4]," in relay_apply
-    assert "fog_forced_off(mode, fog_rails));" in relay_apply
+    # Phase 3: the fog relay's force-off is the relay layer's fog hold, the same rails (no leak term).
+    assert "law_relay_in.fog_hold = fog_hold;" in relay_apply
+    assert "set_relay(R[4], ov_out.fog, true, true);" in relay_apply
+    assert "leak" not in relay_apply
+    assert "const bool fog_hold = fog_forced_off(mode, fog_rails);" in controls
 
     rails = logic[logic.index("struct FogForceOffInputs {") :]
     rails = rails[: rails.index("};")]
@@ -3000,10 +3151,13 @@ def test_leak_detected_locks_water_actuators():
     ):
         assert f"bool {term};" in rails, term
 
-    mister_start = controls.index("bool mister_blocked =")
-    mister_end = controls.index("if(mister_blocked && id(mister_state) > 0)", mister_start)
+    # Phase 3: VPD misting is section 12's mister_step() glue, from its request to the engine inputs.
+    mister_start = controls.index("const bool budget_block = climate_water_budget_block;")
+    mister_end = controls.index("// Water tracking (F6, #1161)", mister_start)
     mister_block = controls[mister_start:mister_end]
+    assert "mister_in.request = mister_request;" in mister_block
     assert "leak" not in mister_block
+    assert "bool mister_blocked =" not in controls
 
     fog_start = controls.index("char fog_block_reason")
     fog_end = controls.index("static char last_fog_block_reason", fog_start)
@@ -3030,11 +3184,16 @@ def test_irrigation_disable_cannot_suppress_climate_center_mist():
     glue = Path("firmware/lib/irrigation_engine_esphome.h").read_text()
 
     assert "id(irrig_enabled)" not in controls
-    climate_on = controls[controls.index("auto turn_on_zone =") : controls.index("auto turn_off_all_misters")]
-    # #1161 (F6): every VPD zone asks the engine for the manifold before its relay turns on.
-    grant = climate_on.index("if(!irr_vpd_grant(zone_line, pulse_ms)) {")
+    climate_on = _climate_pulse_open(controls)
+    # #1161 (F6): every VPD zone asks the engine for the manifold before its relay turns on (phase 3: the open
+    # command of mister_step(), asked of irr_vpd_grant()).
+    grant = climate_on.index("if (irr_vpd_grant(zone_line, mister_cmd.pulse_ms)) {")
     for relay in ("south_wall_mister", "west_wall_mister", "center_mister"):
         assert grant < climate_on.index(f"id({relay}).turn_on();")
+    # The climate path closes only its own pulse: every close goes through irr_climate_close().
+    closer = controls[controls.index("auto close_climate_misters = [&]() {") :]
+    closer = closer[: closer.index("};")]
+    assert closer.count("irr_climate_close(id(") == 5 and ".turn_off()" not in closer
     assert "} else if (!line_enabled(e, idx)) {\n    res.reason = IrrReason::kDis;" in engine
     assert "p.vpd_member_mask = uint8_t(1u << kMisterMaskBit[kL04]);" in engine
     close = glue[glue.index("inline void irr_climate_close(") :]
@@ -3076,26 +3235,37 @@ def test_occupancy_inhibit_is_final_fog_force_off():
     controls = Path("firmware/greenhouse/controls.yaml").read_text()
     logic = Path("firmware/lib/greenhouse_logic.h").read_text()
 
-    manual_fog = "const bool manual_fog_force = manual_force.fog;"
     occupancy_gate = "const bool occupancy_moisture_block = id(occupancy_inhibit_enabled) && id(greenhouse_occupied);"
-    assert manual_fog in controls
     assert occupancy_gate in controls
-    assert controls.index(manual_fog) < controls.index(occupancy_gate)
 
     final_gate_start = controls.index(occupancy_gate)
     final_gate_end = controls.index("/**************** 10", final_gate_start)
     final_gate = controls[final_gate_start:final_gate_end]
     assert "              occupancy_moisture_block,\n" in final_gate
-    assert "if (fog_forced_off(mode, fog_rails)) {\n              willFog = false;" in final_gate
     assert "Occupancy confirmed: holding fog and every mist (drips run)" in final_gate
+    # Phase 3: the rails are the relay layer's fog hold. It is final over a HUMID press because relay_pass() applies
+    # it after the override layer (phase 2: the gate stood after manual_fog_force in the loop). Native test:
+    # glue_override_rails.
+    assert "const bool fog_hold = fog_forced_off(mode, fog_rails);" in final_gate
+    assert "law_relay_in.fog_hold = fog_hold;" in final_gate
+    relay_pass = _relay_pass()
+    assert relay_pass.index("p.force = apply_manual_overrides(p.out, ov, mode);") < relay_pass.index(
+        "if (in.fog_hold) p.out.fog = false;"
+    )
+    assert "if (fog_forced_off(mode, fog_rails)) {\n              willFog = false;" not in controls
+    # VPD mist: the request and the zone gate both read it.
+    assert (
+        "const bool mister_request = law.mist && !budget_block && !occupancy_blocks && !irrigation_block;" in controls
+    )
+    assert "climate_law::zone_gate_safety_ok(\n              occupancy_moisture_block," in controls
 
     rule = logic[logic.index("inline const char* fog_force_off_reason(") :]
     rule = rule[: rule.index("\n}\n")]
     assert rule.index('if (in.occupancy_block) return "occupancy";') < rule.index("if (mode != SAFETY_COOL)")
 
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
-    assert "fog_forced_off(mode, fog_rails));" in relay_apply
-    assert "bool occupancy_blocks = occupancy_moisture_block;" in controls
+    assert "law_relay_in.fog_hold = fog_hold;" in relay_apply
+    assert "const bool occupancy_blocks = occupancy_moisture_block;" in controls
     assert "irr_in.occupied = occupancy_moisture_block;" in controls
 
     fog_start = controls.index("char fog_block_reason")
@@ -3111,23 +3281,41 @@ def test_manual_fog_cannot_bypass_final_fog_safety_rails():
     manual_end = controls.index("/**************** 11a", manual_start)
     manual_block = controls[manual_start:manual_end]
 
-    # Phase 2 (M2, RULINGS G2/G7): the press's safety block is one library function the host
-    # tests run; it skips the tests it cannot evaluate (no humidity reading), nothing else.
-    logic = Path("firmware/lib/greenhouse_logic.h").read_text()
-    block_fn = logic[logic.index("inline const char* manual_fog_safety_block_reason(") :]
-    block_fn = block_fn[: block_fn.index("\n}\n")]
-    assert 'return "dew_margin";' in block_fn
-    assert 'return "time_window";' in block_fn
-    assert 'return "rh_ceiling";' in block_fn
-    assert 'return "temp_low";' in block_fn
+    # Phase 3 (wiring note 4; RULINGS T7 items 2 and 3, G7): the press's safety block reads no climate setting: the
+    # compiled 8 F wetting dew margin (skipped with no humidity reading) and the law's cold-house guard (below the
+    # checked band's low edge, skipped with no temperature). Phase 2's RH ceiling and 55 F floor are retired (T7);
+    # its time_window test was already inert (fog_phase_permitted() returns true).
+    assert (
+        "const char* manual_fog_safety_block =\n"
+        "              // AG1: the press keeps the case dew point (indoor.humidity_valid, G2), not the law's\n"
+        "              // wall-only humidity validity.\n"
+        "              (law_temp_valid && indoor.humidity_valid &&\n"
+        "               Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "
+        '"dew_margin"\n'
+        '              : (law_temp_valid && Tin < law_band.low) ? "temp_low"\n'
+        '              : "";'
+    ) in manual_block
+    assert "manual_fog_safety_block_reason(" not in controls
     # A fog run-once from the irrigation engine is a manual fog request too, and meets the same rails.
     assert "const bool manual_fog_eff    = manual_fog_latched || irr_fog_run();" in manual_block
     assert "const bool manual_fog_requested = manual_fog_eff;" in manual_block
-    assert "const char* manual_fog_safety_block = manual_fog_safety_block_reason(sensor_in, setpts);" in manual_block
-    assert "const ManualOverrides manual_ov = {" in manual_block
-    assert "manual_fog_eff,                      // humid_active" in manual_block
-    assert "const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);" in manual_block
-    assert "const bool manual_fog_force = manual_force.fog;" in manual_block
+    # The override layer runs inside climate_law::relay_pass() (lib/climate_law_glue.h); the fog holds are applied
+    # after it, so no press passes a fog rail. Native tests: glue_fog_demand_and_sync, glue_override_rails.
+    overrides = controls[manual_end : controls.index("/**************** 10", manual_end)]
+    assert "const ManualOverrides manual_ov = {" in overrides
+    assert "manual_fog_eff,                      // humid_active" in overrides
+    assert "manual_fog_safety_block[0] != '\\0'   // fog_safety_blocked" in overrides
+    assert "manual_ov, mode);" in overrides
+    assert "const ManualForce manual_force = pass_out.force;" in overrides
+    assert "const bool manual_fog_force = manual_force.fog;" in overrides
+    relay_pass = _relay_pass()
+    assert relay_pass.index("p.force = apply_manual_overrides(p.out, ov, mode);") < relay_pass.index(
+        "if (in.fog_hold) p.out.fog = false;"
+    )
+    press = _inline_fn(
+        Path("firmware/lib/greenhouse_logic.h").read_text(), "inline ManualForce apply_manual_overrides("
+    )
+    assert "if (ov.humid_active && !ov.fog_safety_blocked) {" in press
 
     fog_start = controls.index("char fog_block_reason")
     fog_end = controls.index("static char last_fog_block_reason", fog_start)
@@ -3144,21 +3332,35 @@ def test_manual_fan_cannot_open_vent_during_safety_heat():
     manual_end = controls.index("/**************** 11a", manual_start)
     manual_block = controls[manual_start:manual_end]
 
-    assert "(SAFETY_COOL / SAFETY_HEAT) are a no-op there" in manual_block
     assert "const bool manual_fans_eff   = manual_fans_latched;" in manual_block
-    assert "const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);" in manual_block
-    assert "const bool manual_fan_force = manual_force.fans;" in manual_block
-    # #370: the fan/vent rule (and its SAFETY_HEAT and bypass carve-outs) is part of the one
-    # pure resolver; controls.yaml hands it the bypass latch and applies its result.
-    interlock_block = controls[manual_end : controls.index("/**************** 10", manual_end)]
-    assert "const RelayArbitration arb = arbitrate_relay_conflicts(" in interlock_block
-    assert "vent_bypass_eff);" in interlock_block
-    assert "const bool fan_requires_vent = arb.fan_requires_vent;" in interlock_block
-    logic = Path("firmware/lib/greenhouse_logic.h").read_text()
-    assert (
-        "a.fan_requires_vent = fan_requires_open_vent(mode, fan_physically_on || fan_wanted, vent_bypass_active);"
-        in logic
+    # Phase 3: the override layer is a no-op at the protection limits, and RULINGS T1 also clears the FANS and
+    # VENT-BYPASS latches there (climate_law::clear_latches_at_protection(), before the latch booleans). At 40 F
+    # no fan runs at all (decision 12, RULINGS AB1: the furnace has its own blower), so phase 2's SAFETY_HEAT
+    # fan-with-the-vent-shut carve-out is gone with the mode machine. Native tests: protection_clears_overrides,
+    # glue_override_rails.
+    clear = controls.index(
+        "if (climate_law::clear_latches_at_protection(law, id(manual_fans_until_ms), id(vent_bypass_until_ms))) {"
     )
+    assert clear < controls.index("const bool manual_fans_latched =")
+    assert "Mode mode = boot_wait ? IDLE" in controls[:clear]
+    assert ": law.hot ? SAFETY_COOL\n              : law.cold ? SAFETY_HEAT" in controls[:clear]
+    press = _inline_fn(
+        Path("firmware/lib/greenhouse_logic.h").read_text(), "inline ManualForce apply_manual_overrides("
+    )
+    assert press.index("if (mode == SAFETY_COOL || mode == SAFETY_HEAT) {\n        return f;") < press.index(
+        "out.fan1 = true;"
+    )
+    interlock_block = controls[manual_end : controls.index("/**************** 10", manual_end)]
+    assert "vent_bypass_eff,                     // vent_bypass_active" in interlock_block
+    assert "manual_ov, mode);" in interlock_block
+    assert "const bool manual_fan_force = manual_force.fans;" in interlock_block
+    # A fan only with the vent open, the vent held open while a fan runs (RULINGS G1): the relay layer.
+    step = _inline_fn(Path("firmware/lib/climate_law.h").read_text(), "inline RelayStarts relay_step(")
+    assert "st.fan1 = detail::relay_set(r.fan1, want_f1 && vent_was_open, false, false, fan_on, fan_off);" in step
+    assert "want_vent || want_f1 || want_f2 || r.fan1.on || r.fan2.on" in step
+    assert "st.fan1 = detail::relay_set(r.fan1, want_f1 && r.vent.on, true, true, fan_on, fan_off);" in step
+    for retired in ("arbitrate_relay_conflicts(", "fan_requires_vent", "apply_manual_overrides(ov_out"):
+        assert retired not in controls, retired
 
 
 def test_manual_climate_buttons_are_flag_only_controller_path():
@@ -3235,10 +3437,14 @@ def test_fog_respects_conflict_and_budget_before_reporting_served():
         "fert_master_on",
     ):
         assert f"              {term},\n" in final_gate, term
-    assert "if (fog_forced_off(mode, fog_rails)) {" in final_gate
+    # Phase 3: the rule is the relay layer's fog hold, in force before the fogger can run or report served.
+    assert "const bool fog_hold = fog_forced_off(mode, fog_rails);" in final_gate
 
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
-    assert "fog_forced_off(mode, fog_rails));" in relay_apply
+    assert "law_relay_in.fog_hold = fog_hold;" in relay_apply
+    step = _inline_fn(Path("firmware/lib/climate_law.h").read_text(), "inline RelayStarts relay_step(")
+    assert "st.fog = detail::relay_set(r.fog, e.fog && !in.fog_hold, false, in.fog_hold, fog_on, fog_off);" in step
+    assert "if (in.fog_hold) p.out.fog = false;" in _relay_pass()
 
     fog_start = controls.index("char fog_block_reason")
     fog_end = controls.index("static char last_fog_block_reason", fog_start)
@@ -3256,51 +3462,97 @@ def test_fog_respects_conflict_and_budget_before_reporting_served():
     ) in water_tracking
     assert "const bool fog_flow_active = id(fog_rly)->state;" in water_tracking
     assert "if(mister_flow_active || fog_flow_active)" in water_tracking
-    # Outside if(!mister_blocked): the block opens after that branch has closed.
-    blocked_branch = controls.index("if(!mister_blocked){")
-    assert controls.index("const bool mister_flow_active", blocked_branch) > controls.index(
-        '"pulse_gap");\n              }\n            }\n', blocked_branch
-    )
+    # Outside the VPD pulse branches (phase 3: mister_step()'s close and open commands and the
+    # moisture_block_reason ladder), so blocked or idle VPD misting never stops the count.
+    pulse_open = controls.index("if (mister_cmd.open_zone >= 0) {")
+    ladder_end = controls.index('"pulse_gap");\n            }\n', pulse_open)
+    assert controls.index("const bool mister_flow_active", pulse_open) > ladder_end
+    assert "if(!mister_blocked){" not in controls
     assert "climate_mister_flow_active" not in controls
 
 
 def test_sensor_fault_is_final_relay_lock_above_manual_overrides():
     """Phase 2 (decision 7, RULINGS B1): SENSOR_FAULT is no longer an all-off lock. Its request is the
     outdoor rule (no_indoor_relays()), the manual overrides stay effective, the fogger stays locked
-    unless an operator latched HUMID, and relays the table drops are cut on the entry tick only."""
+    unless an operator latched HUMID, and relays the table drops are cut on the entry tick only. Phase 3:
+    the table is a request to climate_law::relay_pass(), the relay layer's cut_unwanted is the entry-tick cut.
+    Native tests: glue_override_rails, the no-indoor entry cut in test_climate_law.cpp."""
     controls = Path("firmware/greenhouse/controls.yaml").read_text()
 
     # G7: only the HUMID latch is exempt from the lock; an engine run-once is not an override.
     assert "const bool sensor_fault_relay_lock = sensor_fault_fog_lock(mode, manual_fog_latched);" in controls
     assert "relay_out = no_indoor_relays(no_indoor, leadIs1);" in controls
+    # T6 S4: the corridor's low edge, else (non-finite) the checked band's low edge.
     assert (
-        "outdoorT, outdoor_age, corridor.temp_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last" in controls
+        "const float no_indoor_low = std::isfinite(corridor.temp_low) ? corridor.temp_low : float(law_band.low);"
+        in controls
     )
-    assert "const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);" in controls
+    assert "outdoorT, outdoor_age, no_indoor_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last" in controls
+    # Phase 3: the decision-7 table goes through the same relay layer, then the override layer, as a request.
+    assert "law_request = climate_law::output_from_relays(relay_out);" in controls
+    assert controls.index("relay_out = no_indoor_relays(") < controls.index(
+        "const climate_law::RelayPass pass_out = climate_law::relay_pass("
+    )
+    assert "law_relays, law_request, law_relay_in," in controls
+    assert "const ManualForce manual_force = pass_out.force;" in controls
     assert "const bool manual_fan_force = manual_force.fans;" in controls
     assert "const bool manual_fog_force = manual_force.fog;" in controls
-    # #370: the pure resolver arbitrates the decision-7 table like any other request, after the
-    # manual overrides; it has no SENSOR_FAULT rule of its own any more.
-    assert "const bool fan_requires_vent = arb.fan_requires_vent;" in controls
-    assert "const bool force_heat_off = arb.force_heat_off;" in controls
-    assert controls.index("relay_out = no_indoor_relays(") < controls.index("const ManualForce manual_force")
-    assert controls.index("const ManualForce manual_force") < controls.index(
-        "const RelayArbitration arb = arbitrate_relay_conflicts("
+    # The overrides stay effective in SENSOR_FAULT (B1): only the protection limits make them a no-op.
+    press = _inline_fn(
+        Path("firmware/lib/greenhouse_logic.h").read_text(), "inline ManualForce apply_manual_overrides("
     )
-    logic = Path("firmware/lib/greenhouse_logic.h").read_text()
-    resolver = logic[logic.index("inline RelayArbitration arbitrate_relay_conflicts(") :]
-    resolver = resolver[: resolver.index("\n}\n")]
-    assert "sensor_fault" not in resolver
-    assert "a.force_heat_off = a.heat_vent_block || a.heat_fan_block;" in resolver
+    assert "if (mode == SAFETY_COOL || mode == SAFETY_HEAT) {" in press and "mode == SENSOR_FAULT" not in press
+    # The relay layer has no SENSOR_FAULT rule of its own; the entry tick cuts what the table drops (cut_unwanted).
+    step = _inline_fn(Path("firmware/lib/climate_law.h").read_text(), "inline RelayStarts relay_step(")
+    assert "sensor_fault" not in step.lower()
+    assert "if (in.cut_unwanted) {" in step
+    for relay, want in (("heat1", "!e.heat1"), ("heat2", "!e.heat2"), ("fan1", "!want_f1"), ("fan2", "!want_f2")):
+        assert f"if ({want}) detail::relay_set(r.{relay}, false, false, true," in step
+    assert "if (!want_vent && !want_f1 && !want_f2) detail::relay_set(r.vent, false, false, true," in step
+    # The furnace never with the air (G1), also over a press (T7 item 5).
+    assert "st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_on, false, false, heat_on, heat_off);" in step
+    relay_pass = _relay_pass()
+    assert "if (p.out.heat2 && air) p.out.heat2 = false;" in relay_pass
+    # RULINGS AG3: the electric heater does not start into, and is cut at once by, an open vent or a running fan,
+    # except the law's own drying and the 40 F protection; a held start is undone (no switch time, counter or
+    # physical edge). Native test: glue_heater_air_interlock.
+    assert "const bool air = p.out.vent || p.out.fan1 || p.out.fan2;" in relay_pass
+    heat1_cut = "if (p.out.heat1 && air && !request.drying && !request.cold) p.out.heat1 = false;"
+    assert relay_pass.index("p.force = apply_manual_overrides(p.out, ov, mode);") < relay_pass.index(heat1_cut)
+    for relay in ("heat1", "heat2"):
+        undo = f"detail::undo_held_start(r.{relay}, {relay}_before, physical.{relay}, p.out.{relay}, in.dt_ms);"
+        assert relay_pass.index(heat1_cut) < relay_pass.index(undo)
+    # RULINGS AE10: a manual fan run (FANS or VENT-BYPASS) stops the electric heater as well as the furnace, after
+    # the override layer (a no-op at 40 F, where T1 has cleared the latch and the protection heats). The law's own
+    # requests keep the rule in step(): heat1 only when not cooling, the vent only to cool or dry. Native test:
+    # glue_override_rails.
+    forced = relay_pass.index("p.force = apply_manual_overrides(p.out, ov, mode);")
+    assert forced < relay_pass.index("if (p.force.fans) p.out.heat1 = p.out.heat2 = false;")
+    law_step = _inline_fn(Path("firmware/lib/climate_law.h").read_text(), "inline Output step(")
+    assert "q.heat1 = (s.h1 && !q.cooling) || cold;" in law_step
+    assert "q.vent = q.cooling || q.drying;" in law_step
 
     relay_apply = controls[controls.index("/**************** 11") : controls.index("/**************** 12")]
-    assert "set_relay(R[0], willHeat1, false, force_heat_off || no_indoor_entry);" in relay_apply
-    assert "set_relay(R[1], willHeat2, false, force_heat2_off || no_indoor_entry);" in relay_apply
-    assert "set_relay(R[5], willVent, fan_requires_vent, no_indoor_entry);" in relay_apply
-    assert "set_relay(R[2], willFan1, manual_fan_force, no_indoor_entry);" in relay_apply
-    assert "set_relay(R[3], willFan2, manual_fan_force, no_indoor_entry);" in relay_apply
-    assert "irrigation_water_conflict" in relay_apply
-    assert "climate_water_budget_block" in relay_apply
+    assert "law_relay_in.cut_unwanted = no_indoor_entry;" in relay_apply
+    # The drivers switch to the pass's result; the timing is the relay layer's.
+    for n, relay in ((0, "heat1"), (1, "heat2"), (5, "vent"), (2, "fan1"), (3, "fan2"), (4, "fog")):
+        assert f"set_relay(R[{n}], ov_out.{relay}, true, true);" in relay_apply
+    for retired in ("arbitrate_relay_conflicts(", "force_heat_off", "force_heat2_off", "set_relay(R[0], willHeat1"):
+        assert retired not in controls, retired
+
+
+def test_law_humidity_rules_hold_on_the_case_sensor():
+    """RULINGS AG1 (plan 4.2): the law's humidity rules (fog, misters, drying) run on the wall averages only; on the
+    case sensor (a wall-probe fault) they hold, 100 F included, while the HUMID press keeps the case dew point. Native
+    test: law_case_sensor_holds_humidity_rules (through select_indoor_reading())."""
+    controls = Path("firmware/greenhouse/controls.yaml").read_text()
+    glue = Path("firmware/lib/climate_law_glue.h").read_text()
+    assert "law_in.humidity_valid = climate_law::law_humidity_valid(law_temp_valid, indoor);" in controls
+    valid = _inline_fn(glue, "inline bool law_humidity_valid(")
+    assert "return law_temp_valid && indoor.humidity_valid && !indoor_reading_degraded(indoor);" in valid
+    assert "law_in.humidity_valid = law_temp_valid && indoor.humidity_valid;" not in controls
+    # The press and the centre bursts keep indoor.humidity_valid; nothing else reads the law's validity.
+    assert controls.count("law_in.humidity_valid") == 1
 
 
 def test_heap_guard_is_all_or_nothing_for_dispatcher_snapshot():

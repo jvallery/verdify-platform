@@ -670,6 +670,64 @@ TEST(sensor_bus_restarts_after_an_hour_silent_whatever_the_clock) {
     PASS();
 }
 
+TEST(doubly_blind_restarts_after_10_minutes_then_every_60) {
+    DoublyBlindRestart s;
+    bool restarted = false;
+    // Not judged yet (boot wait): nothing changes, a set flag stays set.
+    ASSERT_FALSE(doubly_blind_restart_step(s, restarted, false, true, 1000u));
+    ASSERT_FALSE(s.was_blind);
+    // Blind from t = 60 s: due only after 10 minutes of it.
+    ASSERT_FALSE(doubly_blind_restart_step(s, restarted, true, true, 60000u));
+    ASSERT_FALSE(doubly_blind_restart_step(s, restarted, true, true, 60000u + 600000u));
+    ASSERT_TRUE(doubly_blind_restart_step(s, restarted, true, true, 60000u + 600001u));
+    ASSERT_TRUE(restarted);
+    // After the restart (new state, flag kept): 60 minutes, not 10.
+    DoublyBlindRestart after;
+    ASSERT_FALSE(doubly_blind_restart_step(after, restarted, false, true, 30000u));  // boot wait keeps the flag
+    ASSERT_TRUE(restarted);
+    ASSERT_FALSE(doubly_blind_restart_step(after, restarted, true, true, 60000u));
+    ASSERT_FALSE(doubly_blind_restart_step(after, restarted, true, true, 60000u + 600001u));
+    ASSERT_FALSE(doubly_blind_restart_step(after, restarted, true, true, 60000u + 3600000u));
+    ASSERT_TRUE(doubly_blind_restart_step(after, restarted, true, true, 60000u + 3600001u));
+    ASSERT_TRUE(restarted);
+    // X2: one clear sample keeps the 60-minute window (a flapping reading cannot bring back 10 minutes).
+    DoublyBlindRestart again;
+    ASSERT_FALSE(doubly_blind_restart_step(again, restarted, true, true, 60000u));
+    ASSERT_FALSE(doubly_blind_restart_step(again, restarted, true, false, 120000u));
+    ASSERT_TRUE(restarted);
+    ASSERT_FALSE(doubly_blind_restart_step(again, restarted, true, true, 180000u));
+    ASSERT_FALSE(doubly_blind_restart_step(again, restarted, true, true, 180000u + 600001u));
+    ASSERT_TRUE(doubly_blind_restart_step(again, restarted, true, true, 180000u + 3600001u));
+    // 60 minutes of continuous clear readings restore the 10-minute window; a blind sample restarts that count.
+    DoublyBlindRestart cleared;
+    ASSERT_TRUE(restarted);
+    ASSERT_FALSE(doubly_blind_restart_step(cleared, restarted, true, false, 0u));
+    ASSERT_FALSE(doubly_blind_restart_step(cleared, restarted, true, false, 3000000u));
+    ASSERT_FALSE(doubly_blind_restart_step(cleared, restarted, true, true, 3060000u));   // blind: count restarts
+    ASSERT_FALSE(doubly_blind_restart_step(cleared, restarted, true, false, 3120000u));
+    ASSERT_FALSE(doubly_blind_restart_step(cleared, restarted, true, false, 3120000u + 3599999u));
+    ASSERT_TRUE(restarted);
+    ASSERT_FALSE(doubly_blind_restart_step(cleared, restarted, true, false, 3120000u + 3600000u));
+    ASSERT_FALSE(restarted);
+    ASSERT_FALSE(doubly_blind_restart_step(cleared, restarted, true, true, 7000000u));
+    ASSERT_TRUE(doubly_blind_restart_step(cleared, restarted, true, true, 7000000u + 600001u));
+    // X3: a due restart waits while water runs and is retried at the next tick.
+    DoublyBlindRestart wet;
+    bool r3 = false;
+    ASSERT_FALSE(doubly_blind_restart_step(wet, r3, true, true, 0u));
+    ASSERT_FALSE(doubly_blind_restart_step(wet, r3, true, true, 600001u, true));
+    ASSERT_FALSE(r3);
+    ASSERT_TRUE(doubly_blind_restart_step(wet, r3, true, true, 660001u, false));
+    ASSERT_TRUE(r3);
+    // Across the millis() wrap.
+    DoublyBlindRestart wrap;
+    bool r2 = false;
+    ASSERT_FALSE(doubly_blind_restart_step(wrap, r2, true, true, UINT32_MAX - 1000u));
+    ASSERT_FALSE(doubly_blind_restart_step(wrap, r2, true, true, 598000u));
+    ASSERT_TRUE(doubly_blind_restart_step(wrap, r2, true, true, 600000u));
+    PASS();
+}
+
 TEST(humidity_reading_range) {
     ASSERT_NEAR(humidity_reading_pct(55.0f), 55.0f, 1e-6f);
     ASSERT_NEAR(humidity_reading_pct(0.0f), 0.0f, 1e-6f);

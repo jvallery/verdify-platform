@@ -158,44 +158,33 @@ ENTRIES: dict[str, HelpEntry] = {
     # controls.yaml: global_stressed = avg_vpd > mister_engage_kpa; S1 off below engage - hysteresis.
     "mister_engage_kpa": HelpEntry(
         summary="House VPD above which the misters may start pulsing once humidifying has escalated to them.",
-        effect=(
-            "When the controller is humidifying past the fog stage, the misters pulse if the house VPD is above this "
-            "value or any zone is drier than its crop target. They stop once no zone is dry and VPD falls below this "
-            "value minus the mister hysteresis."
-        ),
-        raise_="The misters wait for drier air and stop sooner: less mister water, a drier house.",
-        lower="The misters start in less dry air and run longer: more water and humidity.",
-        caution="While the house is dry-stressed, a value far above the VPD band high edge is pulled back toward that edge.",
+        effect="Not used since the band-edge climate law. The misters start when the house VPD is 0.3 kPa above the band's high edge and stop 0.05 kPa above it.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
         refs=(
-            "firmware/greenhouse/controls.yaml::bool global_stressed = (avg_vpd > pol(verdify_policy::kPF_mister_engage_kpa",
-            "firmware/greenhouse/controls.yaml::&& avg_vpd < (pol(verdify_policy::kPF_mister_engage_kpa, id(mister_engage_kpa)) - MISTER_HYST)",
+            "firmware/lib/climate_law_constants_generated.h::MIST_ON_ABOVE_VPD_HIGH_KPA",
+            "firmware/lib/climate_law_constants_generated.h::MIST_OFF_ABOVE_VPD_HIGH_KPA",
         ),
     ),
     # controls.yaml: S1 -> S2 when avg_vpd > mister_all_kpa after Mister All Delay; S2 -> S1 below it minus hysteresis.
     "mister_all_kpa": HelpEntry(
         summary="House VPD above which the misters move from one zone at a time to rotating through all zones.",
-        effect=(
-            "After single-zone pulsing has run for Mister All Delay, the misters rotate through every mister zone if "
-            "the house VPD is above this value. They drop back to single-zone pulsing below it minus the mister "
-            "hysteresis."
-        ),
-        raise_="All-zone misting needs drier air: less water, slower recovery from dry spells.",
-        lower="All-zone misting starts in less dry air: more water and faster humidity recovery.",
-        caution="While the house is dry-stressed, a value that would block all-zone misting is pulled back near the band.",
+        effect="Not used since the band-edge climate law. The misters run one zone at a time; there is no all-zone stage.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
         refs=(
-            "firmware/greenhouse/controls.yaml::&& avg_vpd > pol(verdify_policy::kPF_mister_all_kpa, id(mister_all_kpa))",
+            "firmware/greenhouse/controls.yaml::const climate_law::MisterCommand mister_cmd = climate_law::mister_step(mister_law, mister_in);",
         ),
     ),
     # controls.yaml: S1 engages after humid_s1_duration_ms >= MISTER_ENGAGE_DELAY_MS.
     "mister_engage_delay_s": HelpEntry(
         summary="Seconds of continuous humidifying demand before the first mister pulse.",
-        effect=(
-            "Once humidifying has escalated to the misters, the controller waits this long before the first pulse, "
-            "so a brief dry blip does not start them."
+        effect="Not used since the band-edge climate law. Misting starts on the first pass the house VPD is high enough; there is no engage delay.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
+        refs=(
+            "firmware/greenhouse/controls.yaml::const climate_law::MisterCommand mister_cmd = climate_law::mister_step(mister_law, mister_in);",
         ),
-        raise_="Misters start later in each dry spell: less water, slower response.",
-        lower="Misters start sooner: faster response and more mister water.",
-        refs=("firmware/greenhouse/controls.yaml::const uint32_t MISTER_ENGAGE_DELAY_MS",),
     ),
     # mist_s2_delay_ms: the fog-only dwell before misters and the S1 -> S2 dwell, in the FSM and in controls.yaml.
     "mister_all_delay_s": HelpEntry(
@@ -230,78 +219,63 @@ ENTRIES: dict[str, HelpEntry] = {
     # controls.yaml: PULSE_ON_MS for climate mister pulses.
     "mister_pulse_on_s": HelpEntry(
         summary="Seconds each climate mister pulse runs on one zone.",
-        effect=(
-            "When the controller mists for VPD, each pulse opens one zone's misters for this long, then waits Mister "
-            "Pulse Gap before the next pulse. In all-zone rotation a very dry zone's pulse can be lengthened by "
-            "Mister VPD Weight."
-        ),
-        raise_="Longer pulses put more water down per pulse: faster humidity rise and wetter foliage.",
-        lower="Shorter pulses: less water per pulse, gentler humidifying.",
+        effect="Not used since the band-edge climate law. Each mister pulse runs a fixed 30 seconds, 1.4 times longer for a zone whose VPD is above 1.2 times the band's high edge.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
         refs=(
-            "firmware/greenhouse/controls.yaml::uint32_t(pol(verdify_policy::kPF_mister_pulse_on_s, id(mister_pulse_on_s))) * 1000UL",
+            "firmware/lib/climate_law_constants_generated.h::MISTER_PULSE_S",
+            "firmware/lib/climate_law_constants_generated.h::MISTER_LONG_PULSE_FACTOR",
         ),
     ),
     # controls.yaml: PULSE_GAP_MS between climate mister pulses.
     "mister_pulse_gap_s": HelpEntry(
         summary="Seconds of pause between climate mister pulses, so the mist can evaporate.",
-        effect="Between VPD mister pulses the controller keeps every mister off for this long before the next pulse.",
-        raise_="Longer pauses: less water per hour and more time for the mist to evaporate.",
-        lower="Shorter pauses: more water per hour and faster humidifying.",
-        refs=(
-            "firmware/greenhouse/controls.yaml::uint32_t(pol(verdify_policy::kPF_mister_pulse_gap_s, id(mister_pulse_gap_s))) * 1000UL",
-        ),
+        effect="Not used since the band-edge climate law. Mister pulses are a fixed 60 seconds apart.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
+        refs=("firmware/lib/climate_law_constants_generated.h::MISTER_GAP_S",),
     ),
     # controls.yaml mister_zone_can_on; irrigation engine mister_min_off_s fence.
     "mister_min_off_s": HelpEntry(
         summary="Shortest time a mister zone must stay off before it may pulse again.",
-        effect=(
-            "A mister zone may not reopen within this many seconds of its own last pulse. The controller picks "
-            "another ready zone or waits. The irrigation program applies the same fence to its mist runs."
-        ),
-        raise_="Each zone rests longer between pulses: fewer valve cycles and less water on any one zone.",
-        lower="A zone may pulse again sooner: more water on the driest zone and more valve cycling.",
+        effect="Not used since the band-edge climate law. Each mister line rests a fixed 45 seconds after it closes.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
         refs=(
-            "firmware/greenhouse/controls.yaml::const uint32_t MISTER_MIN_OFF_MS",
-            "firmware/lib/irrigation_program.h::mister_min_off_s",
+            "firmware/lib/climate_law_constants_generated.h::MISTER_MIN_OFF_S",
+            "firmware/greenhouse/controls.yaml::const uint32_t mister_min_off_ms = uint32_t(climate_law::MISTER_MIN_OFF_S",
         ),
     ),
     # controls.yaml: weighted_ms = PULSE_ON_MS * mister_vpd_weight for a very dry zone in S2.
     "mister_vpd_weight": HelpEntry(
         summary="Pulse-length multiplier for a very dry zone while the misters rotate through all zones.",
-        effect=(
-            "In all-zone rotation, a pulse lasts Mister Pulse ON times this value when its zone is the driest (the "
-            "first pulse) or more than 20% above its zone VPD target (later pulses); other pulses keep the normal "
-            "length. It never changes which zone is chosen."
-        ),
-        raise_="The driest zones get longer pulses: more water where it is driest.",
-        lower="Pulses stay closer to the normal length (below 1 they are shorter than normal).",
+        effect="Not used since the band-edge climate law. A zone whose VPD is above 1.2 times the band's high edge gets a pulse 1.4 times longer, both fixed.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
         refs=(
-            "firmware/greenhouse/controls.yaml::weighted_ms = uint32_t(PULSE_ON_MS * pol(verdify_policy::kPF_mister_vpd_weight, id(mister_vpd_weight)));",
-            "firmware/greenhouse/controls.yaml::zone_vpd > zone_target * 1.2f",
+            "firmware/lib/climate_law_constants_generated.h::MISTER_LONG_PULSE_VPD_RATIO",
+            "firmware/lib/climate_law_constants_generated.h::MISTER_LONG_PULSE_FACTOR",
         ),
     ),
     # controls.yaml: nbias * sin^2 added to the VPD band between sunset and sunrise.
     "night_vpd_bias_kpa": HelpEntry(
         summary="Extra VPD added to the night VPD band, most at solar midnight, without changing the crop band.",
-        effect=(
-            "Between sunset and sunrise the controller raises the low edge, target and high edge of the VPD band by "
-            "up to this amount, rising smoothly to the full amount at solar midnight and back to 0 at sunrise."
+        effect="Not used since the band-edge climate law. The night VPD band is served as set, with no extra raise.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
+        refs=(
+            "firmware/greenhouse/controls.yaml::const climate_law::Band law_band = climate_law::check_band(law_in.band).band;",
         ),
-        raise_="Drier nights: the controller dries the air at a higher VPD and humidifies only in drier air.",
-        lower="Back toward the crop band's own night VPD (0 adds nothing): more humid nights.",
-        refs=("firmware/greenhouse/controls.yaml::const float nbias = pol(verdify_policy::kPF_night_vpd_bias_kpa",),
     ),
     # controls.yaml select_most_stressed_zone: center score * mister_center_penalty; rank arbiter decides first.
     "mister_center_penalty": HelpEntry(
         summary="Weight on the center zone's dryness when the controller scores mister zones.",
-        effect=(
-            "Center has no VPD sensor of its own, so its score uses the house VPD times this weight. The zone "
-            "priority ranking decides first whenever two or more zones may mist, so this rarely changes the choice."
-        ),
-        raise_="Center scores closer to its full dryness and can win a pulse more often.",
-        lower="Center scores lower; at 0 it is chosen only when no other zone qualifies.",
+        effect="Not used since the band-edge climate law. The misters pick a zone by the irrigation program's ranking on the house band, centre first, not by per-zone VPD targets or weights.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
         refs=(
-            "firmware/greenhouse/controls.yaml::* pol(verdify_policy::kPF_mister_center_penalty, id(mister_center_penalty))",
+            "firmware/lib/climate_law.h::zone = verdify_irr::irr_rank_vpd_zone(allowed, intents, rank);",
+            "firmware/lib/climate_law_constants_generated.h::ZONE_RANK_CENTER",
         ),
     ),
     # Relay table R[4] min_on.
@@ -422,16 +396,12 @@ ENTRIES: dict[str, HelpEntry] = {
     # min_dew_margin_for_wetting (day); also the irrigation engine dew-breach margin.
     "direct_wet_stress_min_dew_margin_f": HelpEntry(
         summary="Minimum gap between air temperature and dew point before misting or fog may run by day.",
-        effect=(
-            "The controller blocks misting and fog while the house is within this many °F of its dew point, so "
-            "water does not condense on leaves. At night it uses the larger of this and Night Stress Min Dew Margin. "
-            "The irrigation program uses the same margin."
-        ),
-        raise_="Wetting stops in moister air: less condensation risk, but drier spells go uncorrected longer.",
-        lower="Wetting is allowed closer to the dew point: more humidifying, more risk of wet foliage.",
+        effect="Not used since the band-edge climate law. Wetting needs the house at least 8 °F above its dew point, a fixed margin.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
         refs=(
-            "firmware/lib/greenhouse_logic.h::inline float min_dew_margin_for_wetting",
-            "firmware/greenhouse/controls.yaml::pol(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f)));",
+            "firmware/lib/climate_law_constants_generated.h::WET_DEW_MARGIN_F",
+            "firmware/greenhouse/controls.yaml::wet_dew_margin_f < climate_law::WET_DEW_MARGIN_F",
         ),
     ),
     # controls.yaml econ gate: dH <= enthalpy_open unblocks.
@@ -516,41 +486,28 @@ ENTRIES: dict[str, HelpEntry] = {
     # controls.yaml: willFog = false while the vent is open, except vent fog assist.
     "sw_fog_closes_vent": HelpEntry(
         summary="Holds fog off while the vent is physically open, except when fog assists cooling.",
-        effect=(
-            "With this on, the fogger waits until the vent reports closed, so fog is not blown outside. Fog that "
-            "assists ventilation in hot, dry air may still run with the vent open."
-        ),
-        raise_="On: fog waits for the vent to close, so less fog water is lost outdoors.",
-        lower="Off: fog may run while the vent is still open, adding humidity sooner but losing some outdoors.",
-        refs=(
-            "firmware/greenhouse/controls.yaml::if (polb(verdify_policy::kPF_sw_fog_closes_vent, id(fog_closes_vent)) && vent_is_open && !open_vent_fog_assist) {",
-        ),
+        effect="Not used since the band-edge climate law. Fog is decided together with the vent, so the vent is not closed for it.",
+        raise_="Turning it on changes nothing: the controller does not read this setting.",
+        lower="Turning it off changes nothing: the controller does not read this setting.",
+        refs=("firmware/lib/climate_law.h::fog",),
     ),
     # controls.yaml mister_vent_ok.
     "sw_mister_closes_vent": HelpEntry(
         summary="Holds ordinary mister pulses off while the vent is physically open.",
-        effect=(
-            "With this on, humidifying mister pulses wait until the vent reports closed, and a pulse in progress "
-            "stops if the vent opens. Misting that assists ventilation in hot, dry air is not affected."
-        ),
-        raise_="On: misters wait for the vent to close, so less mist is lost outdoors, but humidifying starts later.",
-        lower="Off: misters may pulse while the vent is still open, humidifying sooner but losing some mist.",
+        effect="Not used since the band-edge climate law. Misting is decided together with the vent, so the vent is not closed for it.",
+        raise_="Turning it on changes nothing: the controller does not read this setting.",
+        lower="Turning it off changes nothing: the controller does not read this setting.",
         refs=(
-            "firmware/greenhouse/controls.yaml::const bool mister_vent_ok = open_vent_mister_assist || !polb(verdify_policy::kPF_sw_mister_closes_vent",
+            "firmware/greenhouse/controls.yaml::const climate_law::MisterCommand mister_cmd = climate_law::mister_step(mister_law, mister_in);",
         ),
     ),
     # Only feeds the moisture block-reason label in controls.yaml.
     "sw_direct_wet_gate_enabled": HelpEntry(
         summary="Older master switch for the daytime direct-wetting windows.",
-        effect=(
-            "The current controller does not use it to decide anything: it only changes the reason the controller "
-            "reports when no mister zone is available. Wetting windows now belong to the irrigation program."
-        ),
-        raise_="No effect on equipment; only the reported block reason changes.",
-        lower="No effect on equipment; only the reported block reason changes.",
-        refs=(
-            "firmware/greenhouse/controls.yaml::} else if(!polb(verdify_policy::kPF_sw_direct_wet_gate_enabled, id(direct_wet_gate_enabled))) {",
-        ),
+        effect="Not used since the band-edge climate law. Each mister zone is allowed by the irrigation program's per-zone rule alone.",
+        raise_="Turning it on changes nothing: the controller does not read this setting.",
+        lower="Turning it off changes nothing: the controller does not read this setting.",
+        refs=("firmware/greenhouse/controls.yaml::const bool center_wet_allowed = irr_climate_zone_allowed(",),
     ),
     # Relay table R[0]/R[1] min_off.
     "min_heat_off_s": HelpEntry(

@@ -1202,14 +1202,16 @@ inline const char* climate_summary_for_effective_action(
     return climate_summary_for_action(action);
 }
 
-inline ClimateActionDecision describe_effective_climate_decision(
-    Mode mode,
+// Phase 3 (RULINGS T3): the decision telemetry for an action and axis the caller already knows (the band-edge
+// law's climate_law::legacy_state() label of the relays). Nothing here reads the mode machine's ControlState
+// reasons; describe_effective_climate_decision() below keeps the mode machine's derivation for package 4.3.
+inline ClimateActionDecision describe_climate_decision_for_action(
+    ClimateAction action,
+    ClimatePriorityAxis priority_axis,
     const SensorInputs& in,
     const Setpoints& sp,
-    const ControlState& state,
-    const RelayOutputs& relay_out
+    const ControlState& state
 ) noexcept {
-    const ClimateAction action = effective_climate_action_for_mode(mode, state, relay_out);
     const float temp_error = climate_band_error(in.temp_f, sp.temp_low, sp.temp_high);
     const bool vpd_known = std::isfinite(in.vpd_kpa);  // RULINGS G2: no humidity, no VPD error
     const float vpd_error = vpd_known ? climate_band_error(in.vpd_kpa, sp.vpd_low, sp.vpd_high) : 0.0f;
@@ -1233,17 +1235,12 @@ inline ClimateActionDecision describe_effective_climate_decision(
         : CLIMATE_ZONE_NONE;
     const MoistureExchangeEstimate mx = estimate_moisture_exchange(in, sp);
 
-    ClimatePriorityAxis priority_axis = climate_priority_axis_for_effective_action(action, temp_error, vpd_error);
-    if (action == CLIMATE_HEAT && climate_reason_is(state.last_mode_reason, "heat_dehum")) {
-        priority_axis = CLIMATE_PRIORITY_VPD;
-    }
-
     return {
         .climate_action = action,
         .priority_axis = priority_axis,
         .temp_error_f = temp_error,
         .vpd_error_kpa = vpd_error,
-        .candidate_summary = climate_summary_for_effective_action(action, state),
+        .candidate_summary = climate_summary_for_action(action),
         .moisture_assist_state = climate_moisture_state_for_decision(selected_wet, dry_excess, wet_block_reason, state, sp),
         .moisture_zone = moisture_zone,
         .next_mist_eligible_s = climate_next_mist_eligible_seconds(selected_wet, dry_excess, wet_block_reason, state, sp),
@@ -1262,6 +1259,26 @@ inline ClimateActionDecision describe_effective_climate_decision(
         .moisture_heat_assist_active = state.dehum_heat_assist_active,
         .moisture_heat_assist_timer_ms = state.dehum_heat_assist_timer_ms
     };
+}
+
+inline ClimateActionDecision describe_effective_climate_decision(
+    Mode mode,
+    const SensorInputs& in,
+    const Setpoints& sp,
+    const ControlState& state,
+    const RelayOutputs& relay_out
+) noexcept {
+    const ClimateAction action = effective_climate_action_for_mode(mode, state, relay_out);
+    const float temp_error = climate_band_error(in.temp_f, sp.temp_low, sp.temp_high);
+    const bool vpd_known = std::isfinite(in.vpd_kpa);
+    const float vpd_error = vpd_known ? climate_band_error(in.vpd_kpa, sp.vpd_low, sp.vpd_high) : 0.0f;
+    ClimatePriorityAxis priority_axis = climate_priority_axis_for_effective_action(action, temp_error, vpd_error);
+    if (action == CLIMATE_HEAT && climate_reason_is(state.last_mode_reason, "heat_dehum")) {
+        priority_axis = CLIMATE_PRIORITY_VPD;
+    }
+    ClimateActionDecision d = describe_climate_decision_for_action(action, priority_axis, in, sp, state);
+    d.candidate_summary = climate_summary_for_effective_action(action, state);
+    return d;
 }
 
 static constexpr uint32_t FAN_LEAD_RUNTIME_DEADBAND_MS = 600000U;
