@@ -191,7 +191,7 @@ static void replay_conditions_and_ring() {
     CHECK(is_recorder_client("aioesphomeapi") && is_recorder_client("verdify-ingestor") &&
           is_recorder_client("verdify-ingestor 2026.11"));
     CHECK(!is_recorder_client("Home Assistant 2026.11.1") && !is_recorder_client("aioesphomeapi 43.0") &&
-          !is_recorder_client("verdify-tool") && !is_recorder_client("192.168.0.10") && !is_recorder_client("") &&
+          !is_recorder_client("verdify-tool") && !is_recorder_client("192.0.2.10") && !is_recorder_client("") &&
           !is_recorder_client(nullptr));
     // GL-2: a slot holds its quarter until the quarter 96 later is written.
     CHECK(slot_holds(4, 100) && slot_holds(4, 0) && !slot_holds(4, 101) && slot_holds(99, 195) && !slot_holds(99, 196));
