@@ -1,7 +1,9 @@
 # Supporting material for the 2026-11-15 control review
 
 This directory holds the simulator and the result files behind
-[`../greenhouse-control-effectiveness-review-2026-11-15.md`](../greenhouse-control-effectiveness-review-2026-11-15.md).
+[`../greenhouse-control-effectiveness-review-2026-11-15.md`](../greenhouse-control-effectiveness-review-2026-11-15.md)
+and behind the climate refactor plan that followed it,
+[`../../design/climate-refactor-plan-2026-11-15.md`](../../design/climate-refactor-plan-2026-11-15.md).
 Nothing here is imported, run or deployed by the product or by CI, and it can be deleted without affecting the
 product. Like the rest of `docs/`, the directory is in the ingestor image's build context, and the daily content
 refresh indexes the Markdown files under `docs/`.
@@ -27,6 +29,12 @@ refresh indexes the Markdown files under `docs/`.
 | `results/measured_monthly.csv` | Measured compliance by month, 2026-05-25 to 2026-11-15, against the served band of the time, with the out-of-band minutes split into capacity-limited and control-limited. |
 | `results/replay_monthly.csv` | The same record scored by the simulator's metric code against today's band (`validate.py replay`). This is the definition the simulated figures use; table A2 of the review compares on it. |
 | `results/night_checks.csv` | The output of `night_checks.py`: one value per check, model variant and item. |
+| `sim/band_edge_controller.h` | The plan's control law, as a reference implementation of about 170 lines. Its default constants are the law of section 4 of the plan; the members marked as study options (the effect check, fog forced at the 100 F limit, fog as a cooling stage, a second fan while drying, pre-staging and the hold-back while sun is on the house or forecast, `hold_f` / `hold_stack` / `hold_dry`) are off by default and are not part of it. It is not product code. |
+| `sim/closed_loop2.cpp` | `closed_loop.cpp` with the law as a further controller (`controller=edge`) and its relay layer, three mister zones, a runtime-balanced lead fan, a drying meter (hours, water and heat carried out), totals of relay starts and run hours, perfect-foresight pre-staging and hold-back ahead of sun (`pre.sun_wm2`, `pre.sun_h`; a horizon of 0 hours is the present sun alone), degraded modes (no outdoor data, a wrong clock, no clock) and a bias on the outdoor reading (`outdoor.bias_dp_f`, `outdoor.bias_t_f`). Its model of today's firmware differs from `closed_loop.cpp` in one thing: humidity misting has no daytime window and no temperature limit, because the firmware has none. `mister.min_temp_f=65`, `mister.start_offset_min=120` and `mister.drydown_min=180` give the model of `closed_loop.cpp` again. |
+| `sim/scenarios_plan.py`, `sim/robustness_plan.py` | The plan's scenario groups (`ref`, `law`, `ldeg`, `lprice`, `lecon`, `lpre`, `lrev`) and its one-factor robustness runs, which add a dead electric heater and a dead furnace. Group `lrev` holds the follow-up runs: higher stop lines for drying on spare heat (`edge.dt_stop`), a higher cost-limited start line, the electric heater's lines alone 0.5 and 1 F lower, the hold-back on the present sun and on the forecast, and the night VPD edge. |
+| `sim/plan_tables.py` | Builds every table in the plan from `results/plan_scenarios.csv` and `results/plan_robustness.csv`. |
+| `results/plan_scenarios.csv` | Every scenario of the plan, both model variants, by year and season; today's firmware (`fw_live`) and the law (`law`) by month as well. |
+| `results/plan_robustness.csv` | Today's firmware, the review's step 2, the law and the law with the drying cost limit at 0.7 kWh per kg, under fifteen one-factor changes to the physics, by year and season. |
 
 In the result files `set` is the model variant (A or B, section 9.1 of the review) and `period` is `year`,
 `winter` (October to April), `summer` (May to September) or a month. The three `dryout_*` columns score the
@@ -75,7 +83,32 @@ python robustness.py night                                  # results_robust_nig
 python validate.py replay results_replay.csv                # the record by month, scored against today's band
 python night_checks.py                                      # results_night_checks.csv (needs closed_loop_p3)
 python report_tables.py ../results tables                   # the review's tables, from the committed results
+
+# the climate refactor plan
+$CXX -I ../../../../firmware/lib -o closed_loop2 closed_loop2.cpp
+$CXX $P $DRY $FUR -DSIM_DRYOUT_DAY=1 -o closed_loop2_p3 closed_loop2.cpp # the review's step 2, for comparison
+python scenarios_plan.py ref ref                            # results_ref.csv
+python scenarios_plan.py law law ldeg                       # results_law.csv
+python scenarios_plan.py lpp lprice lpre                    # results_lpp.csv
+python scenarios_plan.py lecon lecon                        # results_lecon.csv
+python scenarios_plan.py lrev lrev                          # results_lrev.csv
+python robustness_plan.py                                   # results_robust3.csv
+python plan_tables.py ../results tables_plan                # the plan's tables, from the committed results
 ```
+
+`results/plan_scenarios.csv` is `results_ref.csv`, `results_law.csv`, `results_lpp.csv`, `results_lecon.csv` and
+`results_lrev.csv` together, and `results/plan_robustness.csv` is `results_robust3.csv`, with the numbers rounded to five decimals
+and the monthly rows kept only for `fw_live` and `law`. `plan_tables.py` run on them reproduces the plan's tables
+exactly. A scenario of the plan is four runs of about one second; the whole set is 106 scenarios and 60
+robustness runs.
+
+The review's own result files (`scenarios_base.csv`, `scenarios_matrix.csv`, `robustness.csv`,
+`robustness_night.csv`, `night_checks.csv`) were made with `closed_loop.cpp`, whose model of today's firmware
+allows humidity misting only from 120 minutes after sunrise to 180 minutes before sunset and at 65 F or above.
+The firmware has no such limits. `closed_loop2.cpp` and the plan's result files correct that: today's firmware
+moves from 71.8 / 60.6 % to 70.5 / 59.6 % of the year in band and from 125 / 132 to 135 / 142 relay starts a
+day, and the review's steps 1 and 2 move by 0.1 point or less. The review's files are kept as they were made,
+and the review carries a dated note.
 
 The pulse-end interlock fix of section 9.5 is a simulator option (`fw.rest_exempt=1` in `closed_loop.cpp`), not
 part of the patch: it changes what the relay arbiter is told during the first seconds of the rest phase.
@@ -117,3 +150,14 @@ the numbers rounded to five decimals; `scenarios_matrix.csv` keeps the year and 
 - The mister water budget is a setting the firmware clamps to 100 to 300 gallons. Scenarios with
   `mister.water_budget_gal=100000` therefore describe a firmware change, not a setting.
 - The simulated gains are not validated in the house. Section 10.1 of the review is the first test.
+- In `closed_loop2.cpp` the simulation of today's firmware always passes fan 1 as the lead fan, so its split of
+  hours between the two fans means nothing; the plan's tables show the fans together. The law's lead fan is
+  chosen by accumulated run seconds, as the plan specifies.
+- The physics charges a running fan its full air exchange whether or not the vent is open. Today's firmware runs
+  the lead fan with the vent closed in its cold-protection mode, so in the gas-outage case of
+  `robustness_plan.py` its coldest temperature is not comparable with the law's. With the furnace's heat set to
+  0.1 % the furnace column counts relay time, not gas.
+- The simulation has no sensor noise, no occupancy holds, no irrigation interlocks on the fogger and no manual
+  overrides. Under the law the simulator rotates the mister zones and opens them itself; the irrigation engine's
+  ranking and grants are not modelled. Outdoor data is present or absent for a whole run, so the 600 s age limit
+  is never exercised.

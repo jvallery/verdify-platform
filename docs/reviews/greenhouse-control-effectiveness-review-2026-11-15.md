@@ -8,6 +8,22 @@ deployments was changed. The remediation issues are listed in section 12.
 Supporting material (the simulator, its fitted parameters and every result table) is in
 [`control-review-2026-11-15/`](control-review-2026-11-15/README.md).
 
+**Update, 2026-11-15.** After this review was written the owner set ten constraints for the design. The
+[climate refactor plan](../design/climate-refactor-plan-2026-11-15.md) updates sections 10 to 12 for them and
+replaces them where they differ: one band-edge control law in place of steps 2 to 4 of section 10, a planner that
+reviews instead of writing settings, and a different delivery order. The measurements and findings of sections 2
+to 9 stand as written.
+
+**Correction, 2026-11-15.** The simulator behind sections 9 and 10 allowed humidity misting under today's
+firmware only from 120 minutes after sunrise to 180 minutes before sunset and at 65 F or above. The firmware has
+no such limits. With them removed, today's firmware simulates at 70.5 / 59.6 % of the year in band instead of
+71.8 / 60.6 %, with 135 / 142 relay starts a day instead of 125 / 132 and 63 / 56 gallons of fog and mist water
+instead of 56 / 54. Step 1 (78.3 / 69.7 %) and step 2 (85.6 / 82.6 %) move by 0.1 point or less, so each step's
+gain over today's firmware is about one point larger than printed. The other simulated figures for today's
+firmware in sections 9 and 10 were not re-run and are left as first printed; they are affected in the same way.
+The findings and the order of the steps do not change. The plan uses the corrected model throughout (its section
+5.1), and the support directory's README says which files were made with which model.
+
 ## 1. Summary and verdict
 
 **The design holds temperature and does not hold humidity.** From 2026-05-25 to 2026-11-15 (4,036 graded hours)
@@ -1237,6 +1253,11 @@ recommended constants. The rows marked "Current firmware" were run on today's fi
 
 ## 10. Recommended design
 
+*Updated by the [climate refactor plan](../design/climate-refactor-plan-2026-11-15.md). Step 1 (section 10.1)
+stands. Sections 4 and 11 of the plan replace steps 2 to 4 with one control law and a new delivery order. The
+simulated figures for today's firmware in sections 9 and 10 predate a correction to the simulator: see the note
+at the top of this review.*
+
 The order is: change settings, measure, patch the firmware, measure, remove what does not run, and only then
 consider the rewrite. Each step is useful without the next.
 
@@ -1401,6 +1422,10 @@ plans are scored on served-band compliance for plans that were confirmed on the 
 
 ## 11. Decisions for Jason
 
+*Updated by section 12 of the [climate refactor plan](../design/climate-refactor-plan-2026-11-15.md). Decisions
+1, 6, 7, 8, 11 and 12 below stand. Decisions 2 and 3 become the plan's decisions 1 and 10, decision 4 its
+decision 11, decision 5 its decision 4, decision 9 its phase 2, and decision 10 its decision 3.*
+
 Each decision has an issue in section 12 that carries the evidence and the options in full.
 
 | # | Decision | Options and what each costs | Recommendation |
@@ -1419,6 +1444,9 @@ Each decision has an issue in section 12 that carries the evidence and the optio
 | 12 | The winter-feasibility collector | It will fail every night from 2026-11-16, because migration 309 dropped a table it reads. Retire it, or repair its query and let the packet finish on 2026-12-31 as declared. | Retire it: the issue it served (#782) was closed as not planned. |
 
 ## 12. Remediation backlog
+
+*Section 11.3 of the [climate refactor plan](../design/climate-refactor-plan-2026-11-15.md) says, issue by
+issue, what stands, what is amended and what the plan supersedes.*
 
 The issues are filed in this repository under the product milestones, not under the estate convergence waves
 (the 2026-11 backlog reset set control tuning outside those waves). Each follows the issue contract. The epic
