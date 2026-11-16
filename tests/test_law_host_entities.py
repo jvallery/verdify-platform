@@ -231,15 +231,6 @@ def test_sensor_fault_opens_a_critical_alert_naming_the_outdoor_source_and_the_r
     assert asyncio.run(ns["_sensor_fault_alert"](Conn(None))) is None
 
 
-def test_a_corridor_band_is_an_explicit_outcome_where_the_band_branch_is_checked():
-    wire = (ROOT / "verdify_schemas/control_band_wire.py").read_text()
-    capture = (ROOT / "scripts/component_grid_capture.py").read_text()
-    assert 'if document["band_source"]["value"] == "corridor":' in wire
-    assert "the controller runs the corridor band (clock not trusted)" in wire
-    assert 'if band_source == "corridor":' in capture
-    assert "consumed_branch_corridor_clock_untrusted" in capture
-
-
 def test_a_constants_hash_other_than_the_host_s_opens_an_info_alert():
     ns = _alert_fn()
     at = datetime(2026, 11, 16, 5, 0, tzinfo=UTC)

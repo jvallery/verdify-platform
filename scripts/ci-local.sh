@@ -191,11 +191,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_20_vision_src_sync.py
     tests/test_vision_authenticated_snapshots.py
     tests/test_21_config_revision.py
-    tests/test_component_grid_capture.py
     tests/test_c1_grid_projection.py
-    tests/test_control_band_wire.py
-    tests/test_component_prefix_replay.py
-    tests/test_component_prefix_inputs.py
     tests/test_fog_vent_consumer.py
     tests/test_cnpg_rehearsal.py
     tests/test_cnpg_runtime_client_qualification.py
@@ -314,7 +310,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_policy_arbiter_migration.py
     tests/test_prometheus_rule_source_guard.py
     tests/test_policy_writer_demotion.py
-    tests/test_prepare_component_prefix_replay.py
     tests/test_prod_release_pins.py
     tests/test_psql_verdify_backend.py
     tests/test_publish_site_content_guard.py
@@ -404,7 +399,6 @@ if in_part rest; then
     tests/test_build_provenance.py \
     tests/test_c0_restore_probe.py \
     tests/test_c0_successor_249.py \
-    tests/test_capture_component_current_state.py \
     tests/test_cnpg_existing_target_fault.py \
     tests/test_cnpg_maintenance_276_projection.py \
     tests/test_cnpg_pitr_pair.py \

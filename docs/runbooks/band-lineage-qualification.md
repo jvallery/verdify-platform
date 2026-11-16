@@ -46,6 +46,9 @@ capture timestamp does not refresh an older observation.
 
 ## Capture version 2
 
+History: `scripts/component_grid_capture.py` and its wire module were deleted with the capture tooling (#1633,
+RULINGS T10); this section records the format it accepted.
+
 `scripts/component_grid_capture.py` requires input schema
 `verdify-component-grid-capture-input-v2`. Alongside the existing 48-field and
 six-series evidence, include a raw `band_source` text observation:
