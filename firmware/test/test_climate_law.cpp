@@ -13,13 +13,16 @@
 //       -o test/test_climate_law test/test_climate_law.cpp && ./test/test_climate_law
 
 #include "climate_law.h"
+#include "climate_law_payload.h"
 
 #include "band_edge_controller.h"
 
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace L = climate_law;
 using namespace climate_law_k;
@@ -981,6 +984,133 @@ static void nonfinite_and_gaps() {
   CHECK(gap + m.dt_ms == MISTER_GAP_S * MS_PER_S, "m3: after a request flap the next pulse waits the whole gap");
 }
 
+// -- Stage B: the no-indoor table, the drying meter and the payloads; writes the contract samples ----------
+static std::string samples_dir() {
+  const char* d = std::getenv("CLIMATE_LAW_SAMPLES_DIR");
+  return d ? std::string(d) : std::string();
+}
+static void write_sample(const char* name, const char* text) {
+  const std::string d = samples_dir();
+  if (d.empty()) return;
+  FILE* f = std::fopen((d + "/" + name).c_str(), "w");
+  if (!f) return;
+  std::fprintf(f, "%s\n", text);
+  std::fclose(f);
+}
+static bool json_shape_ok(const char* t) {  // one object, balanced, no NaN or inf text
+  int depth = 0;
+  for (const char* c = t; *c; ++c) {
+    if (*c == '{' || *c == '[') ++depth;
+    if (*c == '}' || *c == ']') --depth;
+    if (depth < 0) return false;
+  }
+  return depth == 0 && t[0] == '{' && !std::strstr(t, "nan") && !std::strstr(t, "inf");
+}
+
+static void stage_b_payloads() {
+  // the no-indoor table through the relay layer: vent + lead fan, or the electric heater; the entry cut
+  RelayOutputs vent_tab{false, false, true, false, false, true};
+  L::Output o = L::output_from_relays(vent_tab);
+  CHECK(o.vent && o.fans == 1 && !o.heat1 && !o.heat2, "no-indoor vent row as a request");
+  L::RelayState r = after_boot_wait();
+  L::Output heat{};
+  heat.heat1 = heat.heat2 = true;
+  L::relay_step(r, heat, L::RelayInputs{0, 0, false, 1000});
+  CHECK(r.heat1.on && r.heat2.on, "heaters running");
+  L::RelayInputs entry{0, 0, false, 1000};
+  entry.cut_unwanted = true;
+  L::relay_step(r, o, entry);
+  CHECK(!r.heat1.on && !r.heat2.on && r.vent.on, "entry cut: heaters off at once, the vent opens");
+  L::relay_step(r, o, L::RelayInputs{0, 0, false, 1000});
+  CHECK(r.fan1.on && r.vent.on, "the lead fan follows");
+  L::relay_step(r, L::Output{}, L::RelayInputs{0, 0, false, 1000});
+  CHECK(r.fan1.on && r.vent.on, "after the entry pass the minimum times apply again");
+
+  // a drying run, 30 minutes, through law, relay layer and meter
+  L::State s;
+  L::RelayState rs = after_boot_wait();
+  L::DryingMeter m;
+  L::Inputs u = drying_inputs(70, kBand.vpd_low);  // out_T 65, w_in 9, w_out 6
+  L::Output q;
+  for (int i = 0; i < 1800; ++i) {
+    q = L::step_checked(s, u);
+    L::relay_step(rs, q, L::RelayInputs{0, 0, false, 1000});
+    L::drying_meter_step(m, s, q, rs.vent.on, rs.fan1.on || rs.fan2.on, u, 1000);
+  }
+  CHECK(q.drying && m.s == 1800, "meter: 1800 s of drying with the vent open");
+  const double mv = DRY_METER_VENT_KG_PER_S + DRY_METER_FAN_KG_PER_S;
+  const double g = DRY_METER_VENT_KG_PER_S * 3.0 * 1 + mv * 3.0 * 1799;  // the fan joins on the second pass
+  CHECK(std::fabs(double(m.g) - g) <= 1.0, "meter: water carried out");
+  const double wh = (DRY_METER_VENT_KG_PER_S * 1 + mv * 1799) * AIR_CP_KJ_PER_KG_K * (5.0 / F_PER_K) / 3.6;
+  CHECK(std::fabs(double(m.wh) - wh) <= 1.0, "meter: heat carried out");
+  char rec[256];
+  int n = L::format_state_record(rec, sizeof rec, s, q, u.dry_cost_limit, false, u.band);
+  CHECK(n > 0 && n <= 200 && json_shape_ok(rec) && std::strstr(rec, "\"dr\":\"none\""), "state record while drying");
+  write_sample("climate_law_state.drying.json", rec);
+  // refused by cost: the dry latch counts as wanted-but-refused seconds
+  L::State s2;
+  L::Inputs cold = drying_inputs(70, kBand.vpd_low);
+  cold.out_T = -10;
+  cold.w_out = 8.5;
+  for (int i = 0; i < 600; ++i) {
+    q = L::step_checked(s2, cold);
+    L::drying_meter_step(m, s2, q, false, false, cold, 1000);
+  }
+  CHECK(q.dry_refusal == L::DRY_COST && m.rw == 600, "meter: refused seconds");
+  n = L::format_state_record(rec, sizeof rec, s2, q, cold.dry_cost_limit, false, cold.band);
+  CHECK(json_shape_ok(rec) && std::strstr(rec, "\"dr\":\"cost\""), "state record refused by cost");
+  write_sample("climate_law_state.refused_cost.json", rec);
+  char met[128];
+  n = L::format_drying_meter(met, sizeof met, m);
+  CHECK(n > 0 && json_shape_ok(met), "drying meter payload");
+  write_sample("climate_drying_meter.json", met);
+  // no outdoor data: e is null
+  L::State s3;
+  L::Inputs no_out = drying_inputs(70, kBand.vpd_low);
+  no_out.out_ok = false;
+  q = L::step_checked(s3, no_out);
+  L::format_state_record(rec, sizeof rec, s3, q, no_out.dry_cost_limit, false, no_out.band);
+  CHECK(json_shape_ok(rec) && std::strstr(rec, "\"e\":null") && std::strstr(rec, "\"dr\":\"no_outdoor\""),
+        "state record with no outdoor data");
+  write_sample("climate_law_state.no_outdoor.json", rec);
+  // cooling at 100 F with a repaired band
+  L::State s4;
+  L::Inputs hot = base_inputs(SAFETY_MAX_F + 1, 1.0);
+  hot.band = {70.0, 72.0, 1.0, 1.1};
+  bool repaired = false;
+  q = L::step_checked(s4, hot, &repaired);
+  L::format_state_record(rec, sizeof rec, s4, q, hot.dry_cost_limit, repaired, L::check_band(hot.band).band);
+  CHECK(json_shape_ok(rec) && std::strstr(rec, "\"br\":1") && (L::request_bits(q) >> 9 & 1u), "state record at 100 F");
+  write_sample("climate_law_state.hot_repaired_band.json", rec);
+  // no valid humidity; no valid temperature
+  L::State s5;
+  L::Inputs hum = base_inputs(70, NAN);
+  hum.humidity_valid = false;
+  q = L::step_checked(s5, hum);
+  L::format_state_record(rec, sizeof rec, s5, q, hum.dry_cost_limit, false, hum.band);
+  CHECK(json_shape_ok(rec) && std::strstr(rec, "\"dr\":\"humidity_invalid\""), "state record, humidity invalid");
+  write_sample("climate_law_state.humidity_invalid.json", rec);
+  L::State s6;
+  L::Inputs not_t = base_inputs(NAN, NAN);
+  not_t.temp_valid = false;
+  q = L::step_checked(s6, not_t);
+  L::format_state_record(rec, sizeof rec, s6, q, not_t.dry_cost_limit, false, not_t.band);
+  CHECK(json_shape_ok(rec) && std::strstr(rec, "\"l\":0,\"o\":0") && std::strstr(rec, "\"dr\":\"no_temperature\""),
+        "state record, no temperature");
+  write_sample("climate_law_state.no_temperature.json", rec);
+  // the longest record fits in 200 characters
+  L::State big;
+  big.h1 = big.h2 = big.cool = big.cool2 = big.wet = big.mist = big.dry = big.air = big.run = true;
+  L::Output bq{};
+  bq.dry_cost = DRY_COST_NONE_KWH_PER_KG;
+  bq.dry_refusal = L::DRY_HUMIDITY_INVALID;
+  n = L::format_state_record(rec, sizeof rec, big, bq, -1.25, true, {-140.5, -140.5, -10.25, -10.25});
+  CHECK(n <= 200, "the longest state record fits in 200 characters");
+  // the constants hash
+  CHECK(std::strlen(L::constants_hash()) == 64, "constants hash is 64 hex");
+  write_sample("climate_law_constants.txt", L::constants_hash());
+}
+
 int main() {
   port_equals_reference_law();
   port_equals_simulator_relay_layer();
@@ -994,6 +1124,7 @@ int main() {
   engine_inputs();
   legacy_labels();
   nonfinite_and_gaps();
+  stage_b_payloads();
   std::printf("test_climate_law: %d checks, %d failed\n", checks_run, checks_failed);
   return checks_failed == 0 ? 0 : 1;
 }
