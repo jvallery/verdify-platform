@@ -1,0 +1,10 @@
+{
+  "migration": "314-controller-health-and-gap-ledger.sql",
+  "final_migration_qualification_pending": true,
+  "before": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "projection": "314 adds nine nullable diagnostics columns, appends them to v_runtime_diagnostics_write with INSERT for the ingestor duty, and creates gap_replay_quarters with SELECT and a column INSERT for the ingestor duty, so the ingestor seal moves and the api and MCP seals are measured again. With production at the last merged migration before 314, run scripts/qualify-migration-successor.py db/migrations/314-controller-health-and-gap-ledger.sql --probe-only (naming any merged but unapplied predecessor with --apply-first), write the measured literals into the successor block, the delivery and bootstrap registrations and this file, then run it again with --native-fixture db/qualification/314-controller-health-and-gap-ledger-fixture.sql --fixture tests/fixtures/314-controller-health-and-gap-ledger-native-qualification.json."
+}

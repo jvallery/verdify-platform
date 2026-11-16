@@ -2451,10 +2451,13 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
                    effective_heat_target_f, effective_cool_stage2_delta_f,
                    effective_vpd_hysteresis_kpa, effective_dehum_aggressive_kpa,
                    controller_time_epoch, controller_local_hour, sntp_valid, sntp_miss_count,
-                   last_sntp_sync_age_s, band_source, zone_wet_granted
+                   last_sntp_sync_age_s, band_source, zone_wet_granted,
+                   heap_min_free_minute_kb, heap_largest_block_minute_low_kb, loop_worst_ms, restart_count,
+                   nvs_used_entries, nvs_free_entries, nvs_write_worst_ms, gap_log_state, sensor_degraded_active
                )
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                       $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)""",
+                       $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
+                       $28, $29, $30, $31, $32, $33, $34, $35, $36)""",
             ts,
             diag.wifi_rssi,
             diag.heap_bytes,
@@ -2482,6 +2485,15 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
             diag.last_sntp_sync_age_s,
             diag.band_source,
             diag.zone_wet_granted,
+            diag.heap_min_free_minute_kb,
+            diag.heap_largest_block_minute_low_kb,
+            diag.loop_worst_ms,
+            diag.restart_count,
+            diag.nvs_used_entries,
+            diag.nvs_free_entries,
+            diag.nvs_write_worst_ms,
+            diag.gap_log_state,
+            diag.sensor_degraded_active,
         )
     log.debug("diagnostics row written")
     # #113: fan-out the diagnostics row. Use the explicit column list above so the
@@ -2871,7 +2883,26 @@ INTEGER_DIAGNOSTIC_COLUMNS = {
     "sntp_valid",
     "sntp_miss_count",
     "last_sntp_sync_age_s",
+    "restart_count",
+    "nvs_used_entries",
+    "nvs_free_entries",
+    "sensor_degraded_active",
 }
+
+# The controller's own health (migration 314). A NaN (a failed nvs_get_stats) or another unusable reading is stored
+# as NULL, never as the last value and never as 0, and never fails the whole diagnostics row.
+HEALTH_DIAGNOSTIC_NUMERIC_COLUMNS = frozenset(
+    {
+        "heap_min_free_minute_kb",
+        "heap_largest_block_minute_low_kb",
+        "loop_worst_ms",
+        "restart_count",
+        "nvs_used_entries",
+        "nvs_free_entries",
+        "nvs_write_worst_ms",
+        "sensor_degraded_active",
+    }
+)
 
 
 def _coerce_integer_diagnostic(col: str, value: Any) -> int | None:
@@ -2947,8 +2978,23 @@ def _record_diagnostic(
         elif previous_is_current and previous_firmware != value:
             _mark_equipment_source_gap("firmware_revision_change")
             _invalidate_counter_epoch(observed_at)
+    if col in HEALTH_DIAGNOSTIC_NUMERIC_COLUMNS:
+        try:
+            reading = float(value)
+        except (TypeError, ValueError):
+            reading = math.nan
+        if not math.isfinite(reading) or reading < 0:
+            state.diagnostics.pop(col, None)
+            return True
+        if col not in INTEGER_DIAGNOSTIC_COLUMNS:
+            state.diagnostics[col] = reading
+            note_native_observation()
+            return True
     if col in INTEGER_DIAGNOSTIC_COLUMNS:
         parsed = _coerce_integer_diagnostic(col, value)
+        if parsed is None and col in HEALTH_DIAGNOSTIC_NUMERIC_COLUMNS:
+            state.diagnostics.pop(col, None)
+            return True
         if parsed is None:
             if generation >= 1 and col in {
                 "controller_time_epoch",

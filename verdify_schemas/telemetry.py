@@ -265,6 +265,18 @@ class Diagnostics(BaseModel):
     # priority arbiter granted wetting to this cycle ("none"|center|south|west|east).
     band_source: str | None = Field(default=None)
     zone_wet_granted: str | None = Field(default=None)
+    # The controller's own health (#1633 host release 3, migration 314). NULL = not published; the ingestor stores a
+    # non-finite reading as NULL. gap_log_state is free text here (armed, off: nvs_small, ...); readers map values
+    # they do not know.
+    heap_min_free_minute_kb: float | None = Field(default=None, ge=0)
+    heap_largest_block_minute_low_kb: float | None = Field(default=None, ge=0)
+    loop_worst_ms: float | None = Field(default=None, ge=0)
+    restart_count: int | None = Field(default=None, ge=0)
+    nvs_used_entries: int | None = Field(default=None, ge=0)
+    nvs_free_entries: int | None = Field(default=None, ge=0)
+    nvs_write_worst_ms: float | None = Field(default=None, ge=0)
+    gap_log_state: str | None = Field(default=None, max_length=64)
+    sensor_degraded_active: int | None = Field(default=None, ge=0, le=1)
 
 
 # Every equipment_state row asserts one of these. Must cover every value in

@@ -933,3 +933,25 @@ def test_durable_database_interruption_survives_process_state_loss(durable_sourc
     assert ingestor.state.pending_counter_samples == [original]
     asyncio.run(ingestor.write_equipment_counter_samples(_Pool()))
     assert ingestor._source_spool.rows() == []
+
+
+def test_controller_health_readings_store_null_for_an_unusable_value(monkeypatch):
+    """Migration 314's health columns: a NaN or unusable reading is stored as NULL (not the last value, not 0) and
+    never fails the diagnostics row; whole integer readings arrive as int and the gap log state as text."""
+    monkeypatch.setattr(ingestor.state, "diagnostics", {})
+    assert ingestor._record_diagnostic("nvs_used_entries", 120.0)
+    assert ingestor._record_diagnostic("free_heap_minute_low", 38.5)
+    assert ingestor._record_diagnostic("gap_log_state", "off: nvs_slow")
+    assert ingestor._record_diagnostic("sensor_degraded_active", 0.0)
+    assert ingestor.state.diagnostics == {
+        "nvs_used_entries": 120,
+        "heap_min_free_minute_kb": 38.5,
+        "gap_log_state": "off: nvs_slow",
+        "sensor_degraded_active": 0,
+    }
+    for obj_id in ("nvs_used_entries", "free_heap_minute_low", "sensor_degraded_active"):
+        assert ingestor._record_diagnostic(obj_id, float("nan"))
+    assert ingestor._record_diagnostic("nvs_free_entries", 2.5)
+    assert ingestor.state.diagnostics == {"gap_log_state": "off: nvs_slow"}
+    row = ingestor.Diagnostics.model_validate({"ts": datetime.now(UTC), **ingestor.state.diagnostics})
+    assert row.nvs_used_entries is None and row.gap_log_state == "off: nvs_slow"

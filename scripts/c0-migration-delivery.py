@@ -473,6 +473,17 @@ SUCCESSOR_313_DIGESTS = {
     "verdify_ingestor_runtime_login": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
 }
 SUCCESSOR_313_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+# Exact314 (#1633, host release 3): nine nullable diagnostics columns for the controller's own health on the
+# ingestor's write facade, and gap_replay_quarters, the ledger of replayed gap-log quarters. The ingestor duty's
+# grants move its seal; the api and MCP seals are measured again. PENDING native qualification: the literals are 313's
+# until the probe measures them. It follows 313.
+SUCCESSOR_314 = "314-controller-health-and-gap-ledger.sql"
+SUCCESSOR_314_SHA256 = "d3dc90601d41a7b4609cee531f132bcd1152eacb85f6f772cd3aa9e2c7b65a05"
+SUCCESSOR_314_DIGESTS = {
+    "verdify_api_runtime_login": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
+    "verdify_ingestor_runtime_login": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
+}
+SUCCESSOR_314_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
@@ -545,6 +556,7 @@ def reviewed_post_254(later, files=None):
         SUCCESSOR_311,
         SUCCESSOR_312,
         SUCCESSOR_313,
+        SUCCESSOR_314,
     )
     require(successors == list(reviewed[: len(successors)]), "unreviewed post-254 receipt successor")
     if successors:
@@ -606,6 +618,7 @@ def reviewed_post_254(later, files=None):
                 SUCCESSOR_311_SHA256,
                 SUCCESSOR_312_SHA256,
                 SUCCESSOR_313_SHA256,
+                SUCCESSOR_314_SHA256,
             ),
             strict=True,
         ):
@@ -906,6 +919,7 @@ COMMIT;"""
         (SUCCESSOR_311, SUCCESSOR_311_DIGESTS),
         (SUCCESSOR_312, SUCCESSOR_312_DIGESTS),
         (SUCCESSOR_313, SUCCESSOR_313_DIGESTS),
+        (SUCCESSOR_314, SUCCESSOR_314_DIGESTS),
     ):
         if name in later:
             expected["api"] = expected["api_receipt"] = digests["verdify_api_runtime_login"]
@@ -1033,6 +1047,8 @@ COMMIT;"""
             expected_mcp = SUCCESSOR_312_MCP_DIGEST
         if SUCCESSOR_313 in later:
             expected_mcp = SUCCESSOR_313_MCP_DIGEST
+        if SUCCESSOR_314 in later:
+            expected_mcp = SUCCESSOR_314_MCP_DIGEST
         if hotfix_predecessor_263:
             require(
                 mcp_state.get("mcp")
