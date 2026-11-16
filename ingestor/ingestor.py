@@ -1141,6 +1141,7 @@ async def write_climate(pool: asyncpg.Pool, ts: datetime) -> None:
         ClimateRow.model_validate({"ts": ts, "greenhouse_id": GREENHOUSE_ID, **merged})
     except ValidationError as e:
         log.error(f"climate row failed schema validation: {e}")
+        shared.note_row_rejected("climate")
         return
 
     # Sprint 23 Phase 4b: Pydantic validation at the asyncpg boundary.
@@ -1498,6 +1499,7 @@ async def write_ordinary_equipment_events(pool: asyncpg.Pool) -> None:
             EquipmentStateEvent(ts=observed_at, equipment=equipment, state=equipment_state, greenhouse_id=GREENHOUSE_ID)
         except ValidationError as e:
             log.error("equipment_state skipped (validation failed: %s): equipment=%s", e, equipment)
+            shared.note_row_rejected("equipment_state")
             continue
         rows.append((observed_at, equipment, equipment_state))
     if not rows:
@@ -1570,6 +1572,7 @@ async def write_state_transitions(pool: asyncpg.Pool, ts: datetime) -> set[str]:
             SystemStateRow(ts=ts, entity=entity, value=val, greenhouse_id=GREENHOUSE_ID)
         except ValidationError as e:
             log.error(f"system_state skipped (validation failed: {e}): entity={entity} value={val!r}")
+            shared.note_row_rejected("system_state")
             continue
         validated.append((ts, entity, val))
     if not validated:
@@ -2288,6 +2291,7 @@ async def write_climate_action_log(pool: asyncpg.Pool, ts: datetime) -> bool:
         )
     except ValidationError as e:
         log.error("climate_action_log skipped (validation failed: %s): action=%s priority=%s", e, action, priority_axis)
+        shared.note_row_rejected("climate_action_log")
         return False
 
     args = (
@@ -2348,6 +2352,7 @@ async def write_override_events(pool: asyncpg.Pool, ts: datetime) -> None:
             OverrideEvent(ts=ts, override_type=otype, mode=mode, greenhouse_id=GREENHOUSE_ID)
         except ValidationError as e:
             log.error(f"override_events skipped (validation failed: {e}): type={otype} mode={mode}")
+            shared.note_row_rejected("override_events")
             continue
         validated.append((ts, otype, mode))
     if not validated:
@@ -2385,6 +2390,7 @@ async def write_setpoint_changes(pool: asyncpg.Pool, ts: datetime) -> None:
             SetpointChange(ts=ts, parameter=param, value=val, source="esp32", greenhouse_id=GREENHOUSE_ID)
         except ValidationError as e:
             log.error(f"setpoint_changes skipped (validation failed: {e}): param={param} value={val}")
+            shared.note_row_rejected("setpoint_changes")
             continue
         validated.append((ts, param, val, "esp32", ts, "observed"))
     if not validated:
@@ -2424,6 +2430,7 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
         diag = Diagnostics.model_validate({"ts": ts, "greenhouse_id": GREENHOUSE_ID, **d})
     except ValidationError as e:
         log.error(f"diagnostics row failed schema validation: {e}")
+        shared.note_row_rejected("diagnostics")
         return
     if _observation_spool_enabled():
         payload = diag.model_dump(mode="json", exclude={"ts", "greenhouse_id"})
@@ -2556,6 +2563,7 @@ async def write_daily_summary(pool: asyncpg.Pool) -> None:
         )
     except ValidationError as e:
         log.error(f"daily_summary row failed schema validation: {e}")
+        shared.note_row_rejected("daily_summary")
         return
 
     fairness = d.get("mister_fairness_overrides_today")
@@ -3187,6 +3195,7 @@ def _record_equipment_callback(
 def _payload_rejected(obj_id: str, why: str) -> None:
     """Count a rejected versioned payload: the first of a run at WARNING, the rest at DEBUG (payload_rejected
     alerts on the run after 10 minutes)."""
+    shared.payload_rejections += 1
     first, count = shared.payload_rejected_since.get(obj_id, (datetime.now(UTC), 0))
     shared.payload_rejected_since[obj_id] = (first, count + 1)
     (log.warning if count == 0 else log.debug)("%s payload rejected: %s", obj_id, why)
@@ -3504,6 +3513,7 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
             SetpointSnapshot(ts=ts, parameter=param, value=val, greenhouse_id=GREENHOUSE_ID)
         except ValidationError as error:
             log.error("setpoint_snapshot skipped (validation failed: %s): param=%s value=%s", error, param, val)
+            shared.note_row_rejected("setpoint_snapshot")
             continue
         snapshot_rows.append((ts, param, val))
     try:
@@ -3825,6 +3835,8 @@ async def esp32_loop(pool: asyncpg.Pool = None) -> None:
                     log.info("Connected to ESP32 (no prior telemetry; first run)")
             else:
                 log.info("Connected to ESP32")
+            if not first_connect:
+                shared.esp32_reconnects += 1
             last_disconnected_at = None
             first_connect = False
 

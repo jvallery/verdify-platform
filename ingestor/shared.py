@@ -567,6 +567,20 @@ delivery_differing_since: dict[str, datetime] = {}
 # (first rejection of the current run, rejections since). The ingestor logs the first at WARNING and the rest at
 # DEBUG; it leaves on the next accepted payload. alert_monitor raises payload_rejected after 10 minutes.
 payload_rejected_since: dict[str, tuple[datetime, int]] = {}
+
+# Package 6 (RULINGS V2): process counters the ingestor writes once a minute as the system_state row
+# ``ingestor_counters`` (tasks/liveness.py), which the operator API's metrics timer exposes. They count from 0 at
+# process start, so Prometheus reads a restart as an ordinary counter reset.
+esp32_reconnects = 0
+payload_rejections = 0
+rows_rejected: dict[str, int] = {}
+
+
+def note_row_rejected(table: str) -> None:
+    """Count a device row dropped by schema validation; ``table`` is one of the fixed device tables."""
+    rows_rejected[table] = rows_rejected.get(table, 0) + 1
+
+
 # Last dispatcher stage written to system_state (entity dispatcher_stage):
 # "ordinary", "paced <sent>/<pending>" or "held:<heap|lease|readbacks>".
 # None until the first pass of this process records one.

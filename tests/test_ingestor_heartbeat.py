@@ -30,6 +30,7 @@ import tasks.liveness as liveness  # noqa: E402
 from verdify_services import reads  # noqa: E402
 
 INSERT = "INSERT INTO v_runtime_system_state_write (ts, entity, value) VALUES ($1, 'ingestor_heartbeat', 'alive')"
+COUNTERS_INSERT = "INSERT INTO v_runtime_system_state_write (ts, entity, value) VALUES ($1, $2, $3)"
 
 
 class _Conn:
@@ -62,8 +63,9 @@ def test_one_heartbeat_row_through_the_ingestor_write_view():
     pool = _Pool()
     before = datetime.now(UTC)
     asyncio.run(liveness.ingestor_heartbeat(pool))
-    [(query, (ts,))] = pool.conn.executes
+    [(query, (ts,)), (counters, (counters_ts, entity, _value))] = pool.conn.executes
     assert query == INSERT
+    assert counters == COUNTERS_INSERT and counters_ts == ts and entity == "ingestor_counters"
     assert ts.tzinfo is not None and before <= ts <= datetime.now(UTC)
 
 
@@ -78,7 +80,8 @@ def test_the_row_validates_through_system_state_row_first(monkeypatch):
     monkeypatch.setattr(liveness, "SystemStateRow", spy)
     pool = _Pool()
     asyncio.run(liveness.ingestor_heartbeat(pool))
-    assert [(fields["entity"], fields["value"]) for fields in built] == [("ingestor_heartbeat", "alive")]
+    assert [(fields["entity"], fields["value"]) for fields in built][0] == ("ingestor_heartbeat", "alive")
+    assert [fields["entity"] for fields in built] == ["ingestor_heartbeat", "ingestor_counters"]
     assert pool.conn.executes[0][1] == (built[0]["ts"],)
 
     class _NaiveClock:
@@ -134,3 +137,56 @@ def test_the_dashboard_reads_the_same_entity():
     assert liveness.HEARTBEAT_ENTITY == reads.HEARTBEAT_ENTITY == "ingestor_heartbeat"
     assert liveness.HEARTBEAT_VALUE == "alive"
     assert f"'{liveness.HEARTBEAT_ENTITY}'" in INSERT and f"'{liveness.HEARTBEAT_VALUE}'" in INSERT
+
+
+# ── package 6 (RULINGS V2): the ingestor_counters row ──────────────────────
+
+
+def test_the_counters_row_carries_the_process_counters_and_the_pin(monkeypatch):
+    monkeypatch.setattr(shared, "esp32_reconnects", 3)
+    monkeypatch.setattr(shared, "payload_rejections", 2)
+    monkeypatch.setattr(shared, "rows_rejected", {"climate": 4, "diagnostics": 1})
+    monkeypatch.setattr(liveness, "_expected_firmware_version", lambda: "2026.11.7.0133.9517acb6")
+    pool = _Pool()
+    asyncio.run(liveness.ingestor_heartbeat(pool))
+    (_, (_, entity, value)) = pool.conn.executes[1]
+    assert entity == "ingestor_counters"
+    assert value == ('{"v":1,"rc":3,"pr":2,"rj":{"climate":4,"diagnostics":1},"fw":"2026.11.7.0133.9517acb6"}')
+
+
+def test_an_odd_pin_is_left_out_not_a_lost_row(monkeypatch):
+    monkeypatch.setattr(liveness, "_expected_firmware_version", lambda: "not a version; rm -rf")
+    assert '"fw":""' in liveness.counters_value()
+    monkeypatch.setattr(liveness, "_expected_firmware_version", lambda: None)
+    assert '"fw":""' in liveness.counters_value()
+
+
+def test_a_failed_counters_write_never_costs_the_heartbeat(monkeypatch):
+    class _Failing(_Conn):
+        async def execute(self, query, *args):
+            if query == COUNTERS_INSERT:
+                raise OSError("connection reset")
+            return await super().execute(query, *args)
+
+    pool = _Pool()
+    pool.conn = _Failing()
+    asyncio.run(liveness.ingestor_heartbeat(pool))  # no raise
+    assert [query for query, _ in pool.conn.executes] == [INSERT]
+
+
+def test_note_row_rejected_counts_per_table(monkeypatch):
+    monkeypatch.setattr(shared, "rows_rejected", {})
+    shared.note_row_rejected("climate")
+    shared.note_row_rejected("climate")
+    shared.note_row_rejected("system_state")
+    assert shared.rows_rejected == {"climate": 2, "system_state": 1}
+
+
+def test_every_device_rejection_site_counts_its_table():
+    source = (INGESTOR / "ingestor.py").read_text()
+    from verdify_schemas.telemetry import INGESTOR_REJECTED_TABLES
+
+    for table in INGESTOR_REJECTED_TABLES:
+        assert f'shared.note_row_rejected("{table}")' in source, table
+    assert "shared.esp32_reconnects += 1" in source
+    assert "shared.payload_rejections += 1" in source

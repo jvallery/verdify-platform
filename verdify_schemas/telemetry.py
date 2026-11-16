@@ -463,6 +463,46 @@ class SystemStateRow(BaseModel):
     greenhouse_id: str = "vallery"
 
 
+INGESTOR_COUNTERS_ENTITY = "ingestor_counters"
+INGESTOR_REJECTED_TABLES = (
+    "climate",
+    "equipment_state",
+    "system_state",
+    "diagnostics",
+    "setpoint_changes",
+    "setpoint_snapshot",
+    "override_events",
+    "climate_action_log",
+    "daily_summary",
+)
+
+
+class IngestorCounters(BaseModel):
+    """The ``ingestor_counters`` system_state value (package 6, RULINGS V2), written once a minute by the ingestor's
+    heartbeat task and exposed by the operator API's metrics timer. Counts start at 0 with the ingestor process.
+
+    ``rc`` ESP32 reconnects, ``pr`` rejected versioned controller payloads, ``rj`` device rows dropped by schema
+    validation per table, ``fw`` the firmware version pin the ingestor enforces (empty when none)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    v: Literal[1] = 1
+    rc: int = Field(ge=0)
+    pr: int = Field(ge=0)
+    rj: dict[Literal[INGESTOR_REJECTED_TABLES], int] = Field(default_factory=dict)  # type: ignore[valid-type]
+    fw: str = Field(default="", max_length=64, pattern=r"^([A-Za-z0-9][A-Za-z0-9._-]{0,63})?$")
+
+    @field_validator("rj")
+    @classmethod
+    def _non_negative(cls, value: dict[str, int]) -> dict[str, int]:
+        if any(count < 0 for count in value.values()):
+            raise ValueError("rejection counts are non-negative")
+        return value
+
+    def compact(self) -> str:
+        return self.model_dump_json()
+
+
 class ClimateActionLogRow(BaseModel):
     """climate_action_log hypertable row — structured controller decision.
 

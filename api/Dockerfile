@@ -86,6 +86,7 @@ COPY --from=builder /install /usr/local
 # /app/operator_routes, and the import below proves every included one loads.
 COPY api/main.py ./main.py
 COPY api/operator_api.py ./operator_api.py
+COPY api/product_metrics.py ./product_metrics.py
 COPY api/operator_routes/ ./operator_routes/
 COPY verdify_schemas/ ./verdify_schemas/
 COPY verdify_services/ ./verdify_services/

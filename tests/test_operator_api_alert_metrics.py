@@ -22,6 +22,7 @@ if str(API) not in sys.path:
     sys.path.insert(0, str(API))
 
 import operator_api  # noqa: E402
+import product_metrics  # noqa: E402
 
 from verdify_services import alerts  # noqa: E402
 
@@ -82,11 +83,16 @@ class Connection:
         raise AssertionError(sql)
 
     async def execute(self, sql, *args):
-        assert sql == operator_api.SETUP_SQL
+        assert sql in (operator_api.SETUP_SQL, product_metrics.STATEMENT_TIMEOUT_SQL)
         return "SET"
 
+    async def fetchrow(self, sql, *args):
+        raise AssertionError("only the alert read is stubbed here")  # the other groups fail; tests/test_product_metrics
+
     async def fetch(self, sql, *args):
-        assert sql == alerts._OPEN_SQL and args == ()
+        if sql != alerts._OPEN_SQL:
+            raise AssertionError("only the alert read is stubbed here")
+        assert args == ()
         if self.failure:
             raise self.failure
         return list(self.rows)
@@ -108,15 +114,19 @@ class Pool:
 
 
 def scrape(pool: Pool):
-    with TestClient(operator_api.create_app(settings=SETTINGS, pool=pool)) as client:
+    """One timer pass, then a scrape (package 6: /metrics renders the timer's cache and never queries)."""
+    app = operator_api.create_app(settings=SETTINGS, pool=pool)
+    with TestClient(app) as client:
+        client.portal.call(app.state.product_metrics.refresh_due, pool)
         return client.get("/metrics")  # no bearer, no session
 
 
 def samples(text: str) -> dict[str, float]:
+    """The alert lines only; the product metrics are tests/test_product_metrics.py's."""
     return {
         line.rsplit(" ", 1)[0]: float(line.rsplit(" ", 1)[1])
         for line in text.splitlines()
-        if line and not line.startswith("#")
+        if line.startswith("verdify_alert_")
     }
 
 
