@@ -17,6 +17,7 @@ from verdify_schemas.alerts import (
     BandDeviceDbDivergenceAlert,
     BandFnNullAlert,
     ClimateActionProofStaleAlert,
+    ClockUnconfirmedAlert,
     ComponentExperimentIntegrityAlert,
     DeployOverrideAlert,
     ESP32PushFailedAlert,
@@ -29,6 +30,7 @@ from verdify_schemas.alerts import (
     HeapPressureCriticalAlert,
     HeapPressureWarningAlert,
     HeatManualOverrideAlert,
+    HeatNoPowerAlert,
     HeatStagingInversionAlert,
     HouseBandDriftAlert,
     IrrigationFeedbackGapAlert,
@@ -50,6 +52,7 @@ from verdify_schemas.alerts import (
     PlannerToolDependencyFailedAlert,
     PlannerTriggerSlaTimeoutAlert,
     PlannerTunableRangeDriftAlert,
+    PlanNotDeliveredAlert,
     RelayStuckAlert,
     SafetyInvalidAlert,
     SensorFaultAlert,
@@ -268,7 +271,19 @@ CASES = {
     ),
     "heat_manual_override": (
         HeatManualOverrideAlert,
-        {"watts": 1200},
+        {"watts": 1200, "samples": 3},
+    ),
+    "heat_no_power": (
+        HeatNoPowerAlert,
+        {"on_since": NOW, "samples": 3, "max_watts": 19.0},
+    ),
+    "plan_not_delivered": (
+        PlanNotDeliveredAlert,
+        {"plan_created_at": NOW, "last_confirmed_at": None},
+    ),
+    "clock_unconfirmed": (
+        ClockUnconfirmedAlert,
+        {"offset_s": 690.0, "sntp_invalid_30m": False},
     ),
     "heat_staging_inversion": (
         HeatStagingInversionAlert,
