@@ -915,14 +915,14 @@ HERMES_REQUIRED_TOOLS = frozenset(
 # drift, so a new tool cannot silently skip authorization.
 #
 # Audiences:
-#   iris       — the Hermes Iris profile, the daily reviewer. Exactly the tools of
+#   iris       — the Hermes Iris profile, the daily reviewer. Exactly the 28 tools of
 #                hermes-config.yaml tools.include (== HERMES_REQUIRED_TOOLS);
 #                tests/test_mcp_audience_auth.py holds the three surfaces in
 #                lockstep. Reads, its irrigation tools, lessons and review_write;
 #                no setting, plan or band write.
 #   experiment — the blinded experiment planner arm (audit §8.8): qualified
-#                climate/forecast/crop/topology READS plus trigger
-#                acknowledgement only. Treatment-revealing reads
+#                climate/forecast/crop/topology READS only (trigger
+#                acknowledgement retired with the plan cycle). Treatment-revealing reads
 #                (get_setpoints, history, scorecard, outcome_kpi,
 #                lessons*) and all ordinary writes are denied. Wired but
 #                unused until Lane C/D tranche 2 issues its credential.
@@ -4491,7 +4491,7 @@ async def irrigation_schedule_set(
     trigger_id: _WaterTriggerId = None,
     planner_instance: _WaterPlannerInstance = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Create, edit or delete a schedule. REST twins: API-IRR-03 (POST /v1/irrigation/schedules), API-IRR-04 (PUT
     /v1/irrigation/schedules/{slot_id}) and API-IRR-05 (DELETE /v1/irrigation/schedules/{slot_id}). Returns the Schedule
@@ -4606,7 +4606,7 @@ async def irrigation_line_set(
     trigger_id: _WaterTriggerId = None,
     planner_instance: _WaterPlannerInstance = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Change one line, or pause or resume every line. REST twin: API-IRR-08 (PUT /v1/irrigation/lines/{line_id}). Returns
     {"lines": [...]}: each changed line as irrigation_status shows it, with manual_before. Only the fields you send
@@ -4706,7 +4706,7 @@ async def irrigation_run(
     trigger_id: _WaterTriggerId = None,
     planner_instance: _WaterPlannerInstance = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Run one line now, or be refused; nothing is queued. REST twin: API-IRR-06 (POST /v1/irrigation/lines/{line_id}/run).
     Returns the Command JSON: status pending, then sent, or failed (not sent within 2 min, ended by a Stop, or the line
@@ -4766,7 +4766,7 @@ async def irrigation_stop(
     reason: _WaterReason = None,
     request_id: _WaterRequestId = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Stop one line, or every wet line when line_id is left out. REST twin: API-IRR-07 (POST /v1/irrigation/stop). Returns
     the Command JSON (kind stop; line_id null for every line). Whether water stopped shows on the relays in
@@ -4797,7 +4797,7 @@ async def irrigation_clear_fault(
     reason: _WaterReason = None,
     request_id: _WaterRequestId = None,
 ):
-    """Changes watering only; it does not count as your plan for this trigger.
+    """Changes watering only; it writes no climate value and is not a review.
 
     Clear a mister's watchdog latch, or every mister's when line_id is left out; harmless with nothing latched. REST
     twin: API-IRR-13 (POST /v1/irrigation/clear-fault). Returns the Command JSON (kind clear_fault; line_id null for every

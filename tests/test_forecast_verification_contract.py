@@ -134,22 +134,6 @@ INSERT INTO weather_forecast SELECT date_bin(interval '1 hour', now(), timestamp
     assert prior["corrected_prior"] is None
 
 
-def test_planner_context_requires_version_and_carries_eligibility():
-    source = (ROOT / "scripts/gather-plan-context.sh").read_text()
-    assert "verification_contract_version = 2" in source
-    assert "FROM v_forecast_planning_priors" in source
-    for field in (
-        "decision_at",
-        "available_at",
-        "lead_hours",
-        "fetch_age_minutes",
-        "calibration_paired_hours",
-        "calibration_observed_minutes",
-        "availability",
-    ):
-        assert field in source
-    assert "Use corrected_vpd_kpa as the planning prior" not in source
-    assert "AVG(bias)" not in source
 
 
 def test_instant_weather_and_preceding_hour_solar_are_not_shifted(isolated_pg):

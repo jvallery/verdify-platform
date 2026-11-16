@@ -87,9 +87,12 @@ What to do on this wake-up:
 4. Store the review with review_write(trigger_id=<the run id below>, summary=..., band_proposal=... or omitted).
    Call it exactly once. A wake-up that ends without review_write is recorded as a failed review.
 
-Irrigation: your irrigation tools stay (schedules, line settings, run, stop, clear fault, status). Use a write only
-for a clear fault in the record (a line that must be stopped, a fault to clear once its cause is gone), pass
-trigger_id=<the run id> and planner_instance='local', and say in the review what you did and why.
+Irrigation: your irrigation tools stay: irrigation_schedule_set, irrigation_line_set, irrigation_run,
+irrigation_stop and irrigation_clear_fault write; irrigation_status, irrigation_schedule and irrigation_history read.
+Use a write only for a clear fault in the record (a line that must be stopped, a fault to clear once its cause is
+gone), pass trigger_id=<the run id> and planner_instance='local', and say in the review what you did and why.
+`manual` means a person holds the item and your write is refused; `check_required` means only a person can record
+the line's check; irrigation_stop always works.
 Lessons: use lessons_manage to record a lesson the record proves; lessons are your memory between reviews."""
 
 

@@ -165,10 +165,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_dashboard_db_irrigation_ledger.py
     tests/test_irrigation_writes_rest.py
     tests/test_dashboard_db_irrigation_writes.py
-    tests/test_dashboard_db_forecast_engine.py
     tests/test_dashboard_db_next_reads.py
-    tests/test_10_planner_routing.py
-    tests/test_11_planner_milestones.py
     tests/test_13_grafana_band_traceability.py
     tests/test_14_shadow_mode.py
     tests/test_14_site_doctor.py
@@ -240,7 +237,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_component_grid_qualification.py
     tests/test_qualify_component_containment.py
     tests/test_esp32_policy_transaction.py
-    tests/test_experiment_gather_mode.py
     tests/test_experiment_qualification_regimes.py
     tests/test_experiment_qualification_settling.py
     tests/test_experiment_qualification_spec.py
@@ -274,7 +270,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_growlight_boundary_episodes.py
     tests/test_firmware_provisional_rollback.py
     tests/test_firmware_crop_agnostic_guard.py
-    tests/test_forecast_action_engine_path.py
     tests/test_generate_daily_plan.py
     tests/test_grafana_cm_check.py
     tests/test_grafana_manifest_security.py
@@ -301,12 +296,9 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_dashboard_db_crops_writes.py
     tests/test_irrigation_context.py
     tests/test_dashboard_db_irrigation_context.py
-    tests/test_gather_no_home_assistant.py
     tests/test_mcp_settings_tools.py
     tests/test_dashboard_db_mcp_settings.py
     tests/test_dashboard_db_settings_parity.py
-    tests/test_gather_manual_settings.py
-    tests/test_gather_parallel_driver.py
     tests/test_mcp_transport_runtime.py
     tests/test_outcome_kpi_dryout_projection.py
     tests/test_scorecard_realized_dryout.py
@@ -436,11 +428,9 @@ if in_part rest; then
     tests/test_fixed_panel_native_route.py \
     tests/test_fixed_panel_native_source.py \
     tests/test_event_alert_auto_resolve.py \
-    tests/test_forecast_deviation_delivery_retry.py \
     tests/test_forecast_replay.py \
     tests/test_forecast_verification_contract.py \
     tests/test_freeze_winter_target.py \
-    tests/test_gather_configmap_generator.py \
     tests/test_grafana_admin_sso.py \
     tests/test_grafana_dashboard_sync_contract.py \
     tests/test_grafana_render_cache.py \
@@ -460,7 +450,6 @@ if in_part rest; then
     tests/test_physical_crop_band_sql_reader.py \
     tests/test_post253_ordinary_attestation.py \
     tests/test_pretrial_provenance.py \
-    tests/test_prompt_variants.py \
     tests/test_public_band_lineage.py \
     tests/test_qualify_migration_successor_prelock.py \
     tests/test_replay_outdoor_coverage.py \
@@ -483,14 +472,14 @@ if in_part rest; then
   # Intentionally NOT collected by this gate:
   # - Live stack / production (curl through Traefik, kubectl exec into
   #   verdify-db-0, docker exec): tests/test_02_database.py, test_03_api.py,
-  #   test_04_planner.py, test_05_ingestor.py, test_06_website.py,
-  #   test_07_cron_replan.py, test_08_observability.py, test_09_api_responses.py,
+  #   test_05_ingestor.py, test_06_website.py,
+  #   test_08_observability.py, test_09_api_responses.py,
   #   test_13_operational_recovery.py. Several mix in offline classes; split
   #   those out before adding them here.
   # - Private database fixtures run by other CI steps: tests/test_dashboard_db_*.py
   #   (verdify-platform-ci campaign step, private TimescaleDB).
   # - Private PostgreSQL only, every test skips without a *_TEST_PG_BIN / DSN:
-  #   tests/test_427_local_fallback.py, test_c0_release_rehearsal.py,
+  #   tests/test_c0_release_rehearsal.py,
   #   test_daily_climate_metric_revisions.py.
   # - Own environment: research/planner-efficacy/tests/test_audit.py and
   #   test_epoch_analysis.py need scikit-learn (research/planner-efficacy/pyproject.toml).

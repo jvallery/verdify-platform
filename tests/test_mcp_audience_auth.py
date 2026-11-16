@@ -66,7 +66,6 @@ AGENT_TOOLS = frozenset(
         "forecast",
         "equipment_state",
         "history",
-        "plan_status",
         "get_setpoints",
         "scorecard",
         "topology",
@@ -119,10 +118,9 @@ EXPERIMENT_TOOLS = frozenset(
         "position_current",
         "crop_history",
         "crop_lifecycle",
-        "acknowledge_trigger",
     }
 )
-ADMIN_ONLY_TOOLS = frozenset({"plan_run", "query", "outcome_kpi"})
+ADMIN_ONLY_TOOLS = frozenset({"review_run", "query", "outcome_kpi"})
 
 _MISSING_MODULE = object()
 _MCP_STUB_MODULES = ("mcp", "mcp.server", "mcp.server.fastmcp")
@@ -464,7 +462,9 @@ class TestAudienceMatrix:
             denied
             == {
                 "outcome_kpi",
-                "plan_run",
+                "review_run",
+                # Climate refactor 4.2: Iris writes no setting; set_setting is for named agents and admin.
+                "set_setting",
                 "query",
                 "band_profile",
                 "band_profile_preview",
@@ -485,33 +485,24 @@ class TestAudienceMatrix:
     def test_experiment_matrix(self, mcp_server, monkeypatch):
         _configure(monkeypatch, mode="enforce", experiment="tok-exp")
         allowed = mcp_server.audience_allowlist("experiment")
-        # Audit §8.8: qualified reads + trigger acknowledgement. The one
-        # actuation-eligible output, policy_template_propose, retired (#1649).
-        assert allowed == {
-            "climate",
-            "forecast",
-            "topology",
-            "position_current",
-            "crop_history",
-            "crop_lifecycle",
-            "acknowledge_trigger",
-        }
+        # Audit §8.8: qualified reads only. The one actuation-eligible output,
+        # policy_template_propose, retired (#1649); acknowledge_trigger retired
+        # with the plan cycle (climate refactor 4.2).
+        assert allowed == EXPERIMENT_TOOLS
         # Treatment-revealing reads and ordinary writes are denied.
         for tool in (
             "get_setpoints",
-            "plan_status",
             "history",
             "scorecard",
             "outcome_kpi",
             "lessons",
             "lessons_search",
             "knowledge_search",
-            "set_plan",
-            "set_tunable",
-            "plan_evaluate",
+            "set_setting",
+            "review_write",
             "lessons_manage",
             "query",
-            "plan_run",
+            "review_run",
         ):
             with pytest.raises(mcp_server.ToolAccessDenied):
                 mcp_server.authorize_tool_call(tool, "tok-exp")
@@ -668,7 +659,7 @@ class TestListToolsAudienceFiltering:
     @pytest.mark.parametrize("mode", ["log", "enforce"])
     @pytest.mark.parametrize(
         ("audience", "token", "expected_count"),
-        [("iris", "tok-iris", 33), ("experiment", "tok-exp", 7), ("admin", "tok-admin", 50)],
+        [("iris", "tok-iris", 28), ("experiment", "tok-exp", 6), ("admin", "tok-admin", 46)],
     )
     def test_protocol_inventory_matches_exact_audience_allowlist(
         self, mcp_server, monkeypatch, mode, audience, token, expected_count

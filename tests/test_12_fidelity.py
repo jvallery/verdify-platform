@@ -61,10 +61,6 @@ from verdify_schemas.tunable_registry import (  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-
-
-
-
 def _tasks_src() -> str:
     """Full source of the tasks implementation.
 
@@ -177,20 +173,6 @@ def test_setpoint_ranges_accepts_realistic_values():
 # ── S24.9.4 — context-gather failure sentinel ──────────────────────
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_mcp_alert_ack_does_not_unresolve_resolved_alerts():
     # verdify_services.alerts.ack touches only rows with resolved_at IS NULL; the adapter keeps the reply.
     service = Path("verdify_services/alerts.py").read_text()
@@ -201,8 +183,6 @@ def test_mcp_alert_ack_does_not_unresolve_resolved_alerts():
     block = src[start : src.index('elif action == "resolve"', start)]
     assert "alerts_service.ack" in block
     assert "already_resolved" in block
-
-
 
 
 def test_public_health_forecast_outcomes_ignore_evaluated_ok_noops():
@@ -290,10 +270,6 @@ def test_zero_variance_rule_also_covers_band_params():
     # Look for these all appearing in the same zone_var_params tuple
     for param in ("temp_low", "temp_high", "vpd_low", "vpd_high"):
         assert f'"{param}"' in src
-
-
-
-
 
 
 def test_setpoint_confirmation_monitor_resolves_acknowledged_alerts():
@@ -470,8 +446,6 @@ def test_ha_light_sync_reads_real_lutron_switch_entities():
     assert entity_map.EQUIPMENT_SWITCH_MAP["grow_light_grow"] == "grow_light_grow_intent"
 
 
-
-
 def test_lighting_policy_sql_excludes_esp32_readbacks_from_source_of_truth():
     """Planner/band/manual setpoints are policy; ESP32 rows are acknowledgements."""
     policy = Path("db/migrations/123-lighting-per-circuit-state-machines.sql").read_text()
@@ -542,20 +516,6 @@ def test_band_trace_params_have_sensor_registry_readbacks():
         assert param in set(entity_map.CFG_READBACK_MAP.values())
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_alert_monitor_avoids_greenhouse_state_hot_path_scans():
 
     # alert_monitor is the sole entry point in the alerts submodule (#46 split),
@@ -569,10 +529,6 @@ def test_alert_monitor_avoids_greenhouse_state_hot_path_scans():
     # went with the retired vpd_* checks (RULINGS Q4).
     assert "fn_band_setpoints(c.ts)" in body
     assert "fn_setpoint_at(" not in body
-
-
-
-
 
 
 def test_setpoint_server_firmware_allowlist_comes_from_registry_routes():
@@ -1017,51 +973,7 @@ def test_grafana_render_cache_warmer_is_retired():
     assert not Path("systemd/verdify-grafana-render-cache-warm.timer").exists()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ── S24.9.3 — status='plan_written' on resolve ─────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_dispatcher_coerces_registry_bounds_before_insert_and_push():
@@ -1174,8 +1086,6 @@ def test_ai_moisture_stress_backfill_is_dry_run_first_and_routine_only():
         assert param in script
 
 
-
-
 def test_dispatcher_writes_guardrail_hold_audits_without_setpoint_push():
 
     src = _tasks_src()
@@ -1188,20 +1098,12 @@ def test_dispatcher_writes_guardrail_hold_audits_without_setpoint_push():
     assert "plan_ts" in body
 
 
-
-
-
-
 def test_plan_transition_audit_migration_penalizes_guardrail_dependence():
     migration = (REPO_ROOT / "db" / "migrations" / "120-plan-transition-guardrail-audit.sql").read_text()
     assert "fn_plan_transition_audit" in migration
     assert "v_plan_guardrail_scorecard" in migration
     assert "held_by_guardrail" in migration
     assert "v_anchor - COALESCE(v_penalty, 0)" in migration
-
-
-
-
 
 
 def test_site_publish_refreshes_prior_day_current_day_and_static_context():
@@ -1219,12 +1121,6 @@ def test_site_poller_refreshes_static_context_after_successful_rebuild():
     assert "/srv/verdify/scripts/gather-static-context.sh" in script
     assert "static context refresh failed" in script
     assert "content_signature" in script
-
-
-
-
-
-
 
 
 def test_single_path_removes_runtime_shadow_surfaces():
@@ -1269,16 +1165,6 @@ def test_single_path_policy_docs_do_not_reintroduce_alternate_rollout():
                 hits.append(f"{rel_path}:{term}")
     assert existing
     assert not hits
-
-
-
-
-
-
-
-
-
-
 
 
 def test_firmware_misters_have_no_standalone_zone_stress_path():
@@ -1330,28 +1216,10 @@ def test_embedding_chunker_hard_splits_oversized_blocks():
     assert all(len(chunk.encode("utf-8")) <= 2048 for chunk in chunks)
 
 
-
-
-
-
-
-
 def test_k3s_mcp_disables_vm_only_site_publish_file_trigger():
     deployment = (REPO_ROOT / "deploy" / "k8s" / "base" / "mcp-deployment.yaml").read_text()
     assert "VERDIFY_SITE_PUBLISH_TRIGGER_PATH" in deployment
     assert 'value: ""' in deployment
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_climate_action_scorecard_single_day_pushdown_contract():
@@ -1722,12 +1590,6 @@ def test_climate_wet_assist_is_separate_from_crop_direct_wet_windows():
     ):
         assert forced_off in watchdog
     assert "_fertilized" not in watchdog
-
-
-
-
-
-
 
 
 def test_fert_master_valve_is_wired_and_interlocked_with_fert_relays():
@@ -2584,8 +2446,6 @@ def test_ingestor_records_esphome_feedback_with_value_ranges():
     finally:
         ingestor.state.climate.clear()
         ingestor.state.climate.update(original_climate)
-
-
 
 
 def test_schema_contract_marks_legacy_irrigation_as_retired():
@@ -4731,8 +4591,6 @@ def test_irrigation_relay_state_panel_uses_dense_timeline():
 # ── S24.9.7 — _deliver_and_log sentinel skip (integration-shape) ───
 
 
-
-
 def test_vision_snapshot_observations_carry_position_ids():
     src = Path("scripts/analyze-greenhouse-snapshot.py").read_text()
 
@@ -4742,3 +4600,114 @@ def test_vision_snapshot_observations_carry_position_ids():
     assert "ts, crop_id, greenhouse_id, zone, position, zone_id, position_id," in src
 
 
+def test_write_clamp_audit_rows_marks_unchanged_guardrail_holds():
+    import tasks
+
+    class FakeConn:
+        def __init__(self):
+            self.calls = []
+
+        async def execute(self, sql, *args):
+            self.calls.append((sql, args))
+
+    conn = FakeConn()
+    rows = [
+        {
+            "parameter": "fog_escalation_kpa",
+            "requested": 0.9,
+            "applied": 0.2,
+            "band_lo": 0.0,
+            "band_hi": 0.2,
+            "reason": "forced_on_guardrail",
+            "plan_id": "iris-test",
+            "plan_ts": None,
+            "trigger_id": None,
+            "planner_instance": "opus",
+        }
+    ]
+
+    written = asyncio.run(tasks._write_clamp_audit_rows(conn, rows, set()))
+
+    assert written == 1
+    assert len(conn.calls) == 1
+    args = conn.calls[0][1]
+    assert args[0] == "fog_escalation_kpa"
+    assert args[6] == "held_by_guardrail"
+    assert args[7] == "iris-test"
+    assert args[10] == "opus"
+
+
+def test_knowledge_search_defaults_to_full_embedding_corpus():
+    server = (REPO_ROOT / "mcp" / "server.py").read_text()
+    start = server.index("async def knowledge_search")
+    end = server.index("# ═══════════════════════════════════════════════════════════════", start)
+    body = server[start:end]
+    assert 'source_types: str = "lesson,plan,site_doc,playbook,observation"' in body
+    assert '{"lesson", "plan", "site_doc", "playbook", "observation"}' in body
+    assert "planner_lessons pl" in body
+    assert "pl.is_active = true" in body
+    assert "pl.superseded_by IS NULL" in body
+
+
+def test_greenhouse_state_exposes_graphable_target_deltas():
+    migration = (REPO_ROOT / "db" / "migrations" / "141-greenhouse-state-target-deltas.sql").read_text()
+    schema = (REPO_ROOT / "db" / "schema.sql").read_text()
+
+    for column in (
+        "sp_temp_target",
+        "sp_vpd_target",
+        "temp_target_delta_f",
+        "vpd_target_delta_kpa",
+        "temp_band_error_f",
+        "vpd_band_error_kpa",
+    ):
+        assert column in migration
+        assert column in schema
+    assert "ClimateIntent does" in migration
+    assert "signed target deltas" in schema
+
+
+def test_climate_authority_action_log_contract_is_tracked():
+    migration = (REPO_ROOT / "db" / "migrations" / "142-climate-action-log.sql").read_text()
+    schema = (REPO_ROOT / "db" / "schema.sql").read_text()
+    ingestor = (REPO_ROOT / "ingestor" / "ingestor.py").read_text()
+
+    for token in (
+        "CREATE TABLE IF NOT EXISTS public.climate_action_log",
+        "wet_assist_allowed",
+        "wet_assist_block_reason",
+        "relay_truth jsonb",
+        "CREATE OR REPLACE FUNCTION public.fn_climate_action_effectiveness",
+        "CREATE OR REPLACE VIEW public.v_climate_action_effectiveness_5m",
+        "CREATE OR REPLACE VIEW public.v_climate_action_effectiveness_15m",
+        "CREATE OR REPLACE VIEW public.v_climate_action_daily_scorecard",
+    ):
+        assert token in migration
+
+    for token in (
+        "CREATE TABLE public.climate_action_log",
+        "wet_assist_allowed",
+        "wet_assist_block_reason",
+        "relay_truth jsonb",
+        "CREATE FUNCTION public.fn_climate_action_effectiveness",
+        "CREATE VIEW public.v_climate_action_effectiveness_5m",
+        "CREATE VIEW public.v_climate_action_effectiveness_15m",
+        "CREATE VIEW public.v_climate_action_daily_scorecard",
+    ):
+        assert token in schema
+
+    assert "CLIMATE_ACTION_LOG_ENTITIES" in ingestor
+    assert "CLIMATE_ACTION_LOG_INTERVAL = 60" in ingestor
+    assert "async def write_climate_action_log" in ingestor
+    assert "-> bool" in ingestor[ingestor.index("async def write_climate_action_log") :].splitlines()[0]
+    assert "last_climate_action_log = 0.0" in ingestor
+    assert "if now - last_climate_action_log >= CLIMATE_ACTION_LOG_INTERVAL" in ingestor
+    assert "changed_entities & CLIMATE_ACTION_LOG_ENTITIES" in ingestor
+    assert "last_climate_action_log != now" in ingestor
+    assert "last_climate_action_log = now" in ingestor
+    assert "'latest_climate_ts', lc.ts" in ingestor
+    assert "'latest_climate_age_s'" in ingestor
+    assert "'temp_avg_present', lc.temp_avg IS NOT NULL" in ingestor
+    assert "'vpd_avg_present', lc.vpd_avg IS NOT NULL" in ingestor
+    assert "'band_context_complete'" in ingestor
+    assert "ClimateActionLogRow(" in ingestor

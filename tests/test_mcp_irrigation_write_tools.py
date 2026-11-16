@@ -41,7 +41,7 @@ from verdify_services.problems import PROBLEM_CODES, ServiceError, problem
 ROOT = Path(__file__).resolve().parents[1]
 OPENAPI = yaml.safe_load((ROOT / "docs/design/dashboard/openapi/dashboard-api.v1.yaml").read_text())
 SCHEMAS = OPENAPI["components"]["schemas"]
-NO_PLAN = "Changes watering only; it does not count as your plan for this trigger."
+NO_PLAN = "Changes watering only; it writes no climate value and is not a review."
 PAUSE = datetime(2026, 11, 3, 18, tzinfo=UTC)
 REQUEST_ID = "00000000-0000-4000-8000-000000000061"
 AUDIT = {"reason": "forecast 92 F", "request_id": REQUEST_ID, "trigger_id": "t-1", "planner_instance": "local"}
@@ -250,26 +250,15 @@ def test_each_tool_is_for_iris_agents_and_admin_and_is_not_read_only(mcp_server,
     assert inspect.signature(getattr(mcp_server, tool)).return_annotation is inspect.Signature.empty
 
 
-def test_the_counts_the_prompt_and_the_docs_state_are_the_iris_list(mcp_server):  # noqa: F811
+def test_the_counts_and_the_review_prompt_state_the_iris_list(mcp_server):  # noqa: F811
     iris = mcp_server.audience_allowlist("iris")
     assert f"Exactly the {len(iris)} tools of" in (ROOT / "mcp/server.py").read_text()
     assert f"exactly the {len(iris)} tools in" in (ROOT / "docs/iris-planner-contract.md").read_text()
-
-    planner = (ROOT / "ingestor/iris_planner.py").read_text()
-    stated = re.search(r"Hermes exposes (\d+) production tools:(.*?)NEVER run psql", planner, re.S)
-    assert stated
-    listed = set(re.findall(r"`([a-z_]+)`", stated[2]))
-    assert len(listed) == int(stated[1]) and listed <= iris and set(WRITE_TOOLS) <= listed
-    assert f"{stated[1]} production tools" in (ROOT / "scripts/planner-dry.py").read_text()
-    assert f"your {stated[1]} MCP tools" in (ROOT / "docs/planner/greenhouse-playbook.md").read_text()
-
-
-def test_the_prompt_says_what_iris_needs_for_water(mcp_server):  # noqa: F811
-    planner = (ROOT / "ingestor/iris_planner.py").read_text()
-    assert "your irrigation tools only read" not in planner
-    assert "Still end every trigger with `set_plan` or `acknowledge_trigger`." in planner
-    for word in ("`manual` means a person holds", "`check_required`", "`irrigation_stop` always works"):
-        assert word in planner, word
+    assert set(WRITE_TOOLS) <= iris
+    # Climate refactor 4.2: the review prompt keeps Iris's water tools and their rules.
+    prompt = (ROOT / "ingestor/review_prompt.py").read_text()
+    for tool in WRITE_TOOLS:
+        assert tool in prompt, tool
 
 
 def test_the_instructions_give_the_writes_the_manual_rule_and_the_check(mcp_server):  # noqa: F811
@@ -281,7 +270,7 @@ def test_the_instructions_give_the_writes_the_manual_rule_and_the_check(mcp_serv
     assert "pause, resume, run, stop and clear-fault never change it" in text
     assert "only Iris is refused with `manual` on a manual item" in text
     assert "`check_required`: only a person records a line's check, on the dashboard" in text
-    assert NO_PLAN in text
+    assert "irrigation write changes watering only" in text
 
 
 # ── Signatures, enums and bounds ────────────────────────────────────────────

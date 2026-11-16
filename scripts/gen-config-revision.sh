@@ -4,8 +4,8 @@
 #
 # WHY: the fixed-name verdify-config ConfigMap is consumed via envFrom by
 # api / mcp / ingestor / migration-job / planner / setpoint-server /
-# lab-publisher, and the ingestor also consumes the mounted gather-script
-# ConfigMap. Editing one of
+# lab-publisher (the mounted gather-script ConfigMap retired with the plan
+# cycle, climate refactor 4.2). Editing one of
 # these ConfigMaps does NOT restart any pod — a
 # flag flip (e.g. VERDIFY_POLICY_VECTOR_MODE at a §8.10 rollout
 # step) would silently not take effect until some unrelated rollout. This
@@ -14,8 +14,7 @@
 # long-running env consumers, so a config edit changes the pod template and
 # the next ArgoCD sync rolls exactly those pods.
 #
-# HASH INPUT (canonical, no-arg invocation): the base ConfigMap, the ingestor
-# gather-script ConfigMap, PLUS every
+# HASH INPUT (canonical, no-arg invocation): the base ConfigMap, PLUS every
 # overlay file that patches the verdify-config ConfigMap (device-write /
 # publish-all / hermes-url / gather-script-env / future experiment patches),
 # discovered by content, sorted, hashed via sha256sum of the file list. The
@@ -44,7 +43,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 BASE_CM="deploy/k8s/base/configmap.yaml"
-GATHER_SCRIPT_CM="deploy/k8s/components/ingestor-gather-script/gather-script-configmap.yaml"
 OVERLAY_DIR="deploy/k8s/overlays"
 
 # Pod templates carrying the annotation (the long-running envFrom consumers).
@@ -82,7 +80,7 @@ discover_patches() {
       done
 }
 
-inputs=("$BASE_CM" "$GATHER_SCRIPT_CM")
+inputs=("$BASE_CM")
 if [ "${#overlays[@]}" -eq 0 ]; then
   scope_dirs=("$OVERLAY_DIR")
 else
