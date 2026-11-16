@@ -32,7 +32,15 @@ pytestmark = pytest.mark.skipif(
 )
 
 SCHEMA = "climate_alerts_13"
-TABLES = ("setpoint_changes", "setpoint_snapshot", "setpoint_plan", "diagnostics", "energy", "equipment_state")
+TABLES = (
+    "setpoint_changes",
+    "setpoint_snapshot",
+    "setpoint_plan",
+    "diagnostics",
+    "energy",
+    "equipment_state",
+    "alert_log",
+)
 MIN = timedelta(minutes=1)
 H = timedelta(hours=1)
 
@@ -254,7 +262,9 @@ def test_a_controller_restart_opens_nothing_for_values_the_dispatcher_re_pushes_
     scenario(dsn, mid_restart)
 
 
-def test_plan_not_delivered_waits_30_minutes_for_a_confirmed_write(dsn):
+def test_plan_not_delivered_raises_only_for_an_unconfirmed_request_or_90_quiet_minutes(dsn):
+    args = (alerts.PLAN_NOT_DELIVERED_AFTER_S, alerts.PLAN_NO_CONFIRMED_DELIVERY_S)
+
     async def plan(conn, created):
         await conn.execute(
             "INSERT INTO setpoint_plan (ts, parameter, value, plan_id, created_at, expires_at) "
@@ -265,15 +275,44 @@ def test_plan_not_delivered_waits_30_minutes_for_a_confirmed_write(dsn):
     async def body(conn, t0):
         await request(conn, t0 - 2 * H, "temp_low", 62.4, confirmed_at=t0 - 2 * H + MIN)
         await plan(conn, t0 - 31 * MIN)
-        row = await conn.fetchrow(alerts._PLAN_NOT_DELIVERED_SQL, alerts.PLAN_NOT_DELIVERED_AFTER_S)
+        # Nothing confirmed for 119 minutes: raised.
+        row = await conn.fetchrow(alerts._PLAN_NOT_DELIVERED_SQL, *args)
         assert row is not None and row["plan_created_at"] == t0 - 31 * MIN
         assert row["last_confirmed_at"] == t0 - 2 * H + MIN
-        # A plan or band write confirmed after the plan clears it.
-        await request(conn, t0 - 25 * MIN, "vpd_target_south", 1.0, confirmed_at=t0 - 24 * MIN)
-        assert await conn.fetchrow(alerts._PLAN_NOT_DELIVERED_SQL, alerts.PLAN_NOT_DELIVERED_AFTER_S) is None
+        # A band value confirmed within 90 minutes, and the plan asked nothing new: quiet (review M1).
+        await request(conn, t0 - 60 * MIN, "vpd_target_south", 1.0, confirmed_at=t0 - 59 * MIN)
+        assert await conn.fetchrow(alerts._PLAN_NOT_DELIVERED_SQL, *args) is None
+        # A request made after the plan, unconfirmed for more than 30 minutes: raised.
+        await request(conn, t0 - 30 * MIN - timedelta(seconds=30), "temp_high", 79.0, source="plan")
+        assert await conn.fetchrow(alerts._PLAN_NOT_DELIVERED_SQL, *args) is not None
+        # Superseded: not asked any more.
+        await conn.execute("UPDATE setpoint_changes SET delivery_status = 'superseded' WHERE parameter = 'temp_high'")
+        assert await conn.fetchrow(alerts._PLAN_NOT_DELIVERED_SQL, *args) is None
         # A plan younger than 30 minutes waits.
+        await conn.execute("DELETE FROM setpoint_changes WHERE parameter = 'vpd_target_south'")
         await plan(conn, t0 - 10 * MIN)
-        assert await conn.fetchrow(alerts._PLAN_NOT_DELIVERED_SQL, alerts.PLAN_NOT_DELIVERED_AFTER_S) is None
+        assert await conn.fetchrow(alerts._PLAN_NOT_DELIVERED_SQL, *args) is None
+
+    scenario(dsn, body)
+
+
+def test_an_open_stuck_row_stays_open_while_a_setting_aged_out_of_60_days_still_differs(dsn):
+    """Review m2: the request ages out of the 60-day window; the row must not auto-resolve while it differs."""
+
+    async def body(conn, t0):
+        await request(conn, t0 - 70 * 24 * H, "gl_grow_sunset_hour", 21.0, confirmed_at=t0 - 70 * 24 * H + MIN)
+        await readbacks(conn, "gl_grow_sunset_hour", [(t0 - MIN, 20.0)])
+        assert await delivery(conn) == {}
+        # No open row: nothing to keep.
+        assert await alerts._setpoint_delivery_cycle(conn) == (None, frozenset())
+        await conn.execute(
+            "INSERT INTO alert_log (id, alert_type, severity, message, details, disposition) VALUES "
+            "(1, 'setpoint_delivery_stuck', 'critical', 'm', '{\"params\": [\"gl_grow_sunset_hour\"]}', 'open')"
+        )
+        assert await alerts._setpoint_delivery_cycle(conn) == (None, frozenset({"setpoint_delivery_stuck"}))
+        # Taken: the row may resolve.
+        await readbacks(conn, "gl_grow_sunset_hour", [(t0, 21.0)])
+        assert await alerts._setpoint_delivery_cycle(conn) == (None, frozenset())
 
     scenario(dsn, body)
 

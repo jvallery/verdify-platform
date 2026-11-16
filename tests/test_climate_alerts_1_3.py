@@ -102,7 +102,7 @@ def test_16_minutes_of_difference_is_a_warning():
 def test_45_minutes_of_difference_is_critical():
     env = valid(alerts._setpoint_delivery_stuck_alert(stuck(("temp_low", 46 * MIN), ("vpd_low", 20 * MIN))))
     assert env.severity == "critical" and env.details["params"] == ["temp_low", "vpd_low"]
-    assert env.message == "2 settings not reaching the controller since 11:14 UTC"
+    assert env.message == "2 settings not reaching the controller since 2026-11-16 11:14 UTC"
     assert env.threshold_value == 45 * MIN
 
 
@@ -159,7 +159,7 @@ def test_a_plan_with_no_confirmed_write_after_it_raises_plan_not_delivered():
     created = T0 - timedelta(minutes=31)
     env = valid(alerts._plan_not_delivered_alert({"plan_created_at": created, "last_confirmed_at": None}))
     assert (env.alert_type, env.severity) == ("plan_not_delivered", "warning")
-    assert env.message.startswith("Iris's plan of 11:29 UTC has not reached the controller")
+    assert env.message.startswith("Iris's plan of 2026-11-16 11:29 UTC is not reaching the controller")
     assert alerts._plan_not_delivered_alert(None) is None
 
 
@@ -236,3 +236,65 @@ def test_open_per_column_rows_of_a_device_close_as_replaced():
     )
     assert column["resolution"] == "auto-resolved: replaced by the per-device alert"
     assert [row["resolved_at"] for row in log.of("sensor_offline", "device.hydro_probe")] == [None]
+
+
+# ── Review fixes: guarded reads (m1) and the band target input (m5) ────────
+
+
+def test_one_failing_read_skips_its_alert_and_the_others_are_still_evaluated():
+    """The clock read raising must not stop the heater read on the same pass; the clock type is kept open."""
+
+    class Conn:
+        async def fetchrow(self, sql, *args):
+            if sql is alerts._CLOCK_SQL:
+                raise RuntimeError("relation does not exist")
+            assert sql is alerts._HEAT_SQL
+            return heat_row(heat1_on=True, max_w=19.0, min_w=18.0)
+
+    async def run():
+        conn = Conn()
+        clock, clock_kept = await alerts._guarded_fetchrow(conn, frozenset({"clock_unconfirmed"}), alerts._CLOCK_SQL)
+        heat, heat_kept = await alerts._guarded_fetchrow(
+            conn, frozenset({"heat_no_power", "heat_manual_override"}), alerts._HEAT_SQL, alerts.HEAT_SETTLE
+        )
+        return clock, clock_kept, heat, heat_kept
+
+    clock, clock_kept, heat, heat_kept = asyncio.run(run())
+    assert clock is alerts._READ_FAILED and clock_kept == frozenset({"clock_unconfirmed"})
+    assert heat_kept == frozenset() and [a["alert_type"] for a in alerts._heat_power_alerts(heat)] == ["heat_no_power"]
+
+
+def test_every_new_read_in_the_monitor_is_guarded_and_its_type_kept_open():
+    import inspect
+
+    monitor = inspect.getsource(alerts.alert_monitor)
+    for read in ("_CLOCK_SQL", "_HEAT_SQL", "_PLAN_NOT_DELIVERED_SQL", "FROM v_band_device_divergence"):
+        before = monitor[: monitor.index(read)]
+        assert "_guarded_fetchrow(" in before[-500:], read
+    assert "preserve_open_types=delivery_preserved | read_preserved | irrigation_preserved" in monitor
+
+
+def band(diff, age_s, *, edge=None):
+    return {
+        "max_temp_abs_diff": edge,
+        "max_vpd_abs_diff": None,
+        "device_age_s": None,
+        "temp_target_abs_diff": diff,
+        "target_age_s": age_s,
+    }
+
+
+def test_a_fresh_band_target_1_2_degrees_off_raises_a_valid_warning():
+    env = valid(alerts._band_target_alert(band(1.2, 30.0)))
+    assert (env.alert_type, env.severity) == ("band_device_db_divergence", "warning")
+    assert env.details["temp_target_abs_diff"] == 1.2 and env.details["max_temp_abs_diff"] is None
+    # The climate row is stamped up to 15 s ahead of the database clock: a negative age is fresh.
+    assert alerts._band_target_alert(band(1.2, -15.0)) is not None
+
+
+def test_a_stale_or_small_target_difference_or_legacy_edges_raise_nothing():
+    assert alerts._band_target_alert(band(1.2, 20 * MIN)) is None
+    assert alerts._band_target_alert(band(0.9, 30.0)) is None
+    assert alerts._band_target_alert(band(None, None)) is None
+    assert alerts._band_target_alert(band(1.2, 30.0, edge=0.5)) is None
+    assert alerts._band_target_alert(None) is None

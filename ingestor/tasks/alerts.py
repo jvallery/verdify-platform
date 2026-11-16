@@ -147,7 +147,10 @@ def _setpoint_delivery_stuck_alert(rows: Sequence[Mapping]) -> dict[str, object]
     database clock. Every pushed value counts, lighting and operator switches included; no dispatcher stage
     exempts it. The one exception is K1's: the legacy band scalars while the controller runs its own band. A
     controller restart opens nothing for a value the dispatcher re-pushes within 15 minutes: its age runs from the
-    first readback that differs, and the matching readback after the re-push ends it.
+    first readback that differs, and the matching readback after the re-push ends it. A taken-then-lost age is
+    capped by the 1-day readback window (about 86,400 s). Requests are read back 60 days (a wider window raises
+    long-retired settings); an open row whose named settings aged out of it while the controller still differs
+    stays open (``_DELIVERY_STILL_DIFFERS_SQL``).
     """
     stuck = [row for row in rows if row["age_s"] > SETPOINT_DELIVERY_STUCK_AFTER.total_seconds()]
     if not stuck:
@@ -163,7 +166,7 @@ def _setpoint_delivery_stuck_alert(rows: Sequence[Mapping]) -> dict[str, object]
         "category": "system",
         "sensor_id": "dispatcher",
         "zone": None,
-        "message": f"{count} {noun} not reaching the controller since {oldest.astimezone(UTC):%H:%M} UTC",
+        "message": f"{count} {noun} not reaching the controller since {oldest.astimezone(UTC):%Y-%m-%d %H:%M} UTC",
         "details": {
             "differing": count,
             "params": sorted(str(row["parameter"]) for row in stuck)[:SETPOINT_DELIVERY_STUCK_MAX_PARAMS],
@@ -176,37 +179,93 @@ def _setpoint_delivery_stuck_alert(rows: Sequence[Mapping]) -> dict[str, object]
     }
 
 
+_READ_FAILED = object()
+
+
+async def _guarded_fetchrow(conn, types: frozenset[str], sql: str, *args) -> tuple[object, frozenset[str]]:
+    """One monitor read that cannot end the pass: on an error it logs and returns ``_READ_FAILED`` with ``types``
+    to keep open (state unknown: an open row neither resolves nor is raised again)."""
+    try:
+        return await conn.fetchrow(sql, *args), frozenset()
+    except Exception as e:
+        log.warning("alert read for %s failed: %s", ", ".join(sorted(types)), e)
+        return _READ_FAILED, types
+
+
 def _setpoint_delivery_args() -> tuple[list[str], list[str], list[str]]:
     """``_SETPOINT_DELIVERY_SQL``'s parameters: the 1 s tolerance settings, the legacy band scalars, the on-chip
     band sources."""
     return sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS), list(LEGACY_BAND_SCALARS), list(ONCHIP_BAND_SOURCES)
 
 
+# The settings an open stuck row names, newest request without an age bound, still differing from the readback.
+_DELIVERY_STILL_DIFFERS_SQL = f"""
+WITH named AS (
+    SELECT DISTINCT jsonb_array_elements_text(details->'params') AS parameter
+      FROM alert_log
+     WHERE alert_type = 'setpoint_delivery_stuck' AND resolved_at IS NULL
+       AND disposition IN ('open', 'acknowledged')
+), requested AS (
+    SELECT DISTINCT ON (sc.parameter) sc.parameter, sc.value, sc.delivery_status
+      FROM setpoint_changes sc JOIN named n USING (parameter)
+     WHERE COALESCE(sc.source, '') <> 'esp32'
+     ORDER BY sc.parameter, sc.ts DESC
+)
+SELECT q.parameter
+  FROM requested q
+ CROSS JOIN LATERAL (
+       SELECT s.value FROM setpoint_snapshot s
+        WHERE s.parameter = q.parameter AND s.ts > now() - interval '1 day'
+        ORDER BY s.ts DESC LIMIT 1
+ ) r
+ WHERE COALESCE(q.delivery_status, '') NOT IN ('superseded', 'cancelled')
+   AND NOT {_READBACK_MATCH.format(a="q.value", b="r.value", param="q.parameter")}
+ LIMIT 1
+"""
+
+
 async def _setpoint_delivery_cycle(conn) -> tuple[dict | None, frozenset[str]]:
     """The stuck envelope, and the types to keep open: when the read fails the state is unknown, so an open row
-    neither resolves nor is raised again."""
+    neither resolves nor is raised again; nor does it resolve while a setting it names still differs after its
+    request aged out of the 60-day window."""
+    keep = frozenset({"setpoint_delivery_stuck"})
     try:
         rows = await conn.fetch(_SETPOINT_DELIVERY_SQL, *_setpoint_delivery_args())
+        envelope = _setpoint_delivery_stuck_alert(rows)
+        if envelope is None and await conn.fetchrow(
+            _DELIVERY_STILL_DIFFERS_SQL, sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS)
+        ):
+            return None, keep
     except Exception as e:
         log.warning("setpoint delivery check failed: %s", e)
-        return None, frozenset({"setpoint_delivery_stuck"})
-    return _setpoint_delivery_stuck_alert(rows), frozenset()
+        return None, keep
+    return envelope, frozenset()
 
 
-# Plans written but nothing delivered (#1636, interim): the newest plan is older than this and no plan or band
-# request was confirmed after it. Removed in the release that ends plan writing (packages 4.2 and 5.1).
+# Plans written but not delivered (#1636, interim warning): with a plan in the last week, a plan or band request
+# made after the newest plan is still unconfirmed after 30 minutes ($1), or no plan or band request was confirmed
+# for 90 minutes ($2; band rows naturally pause up to 71 minutes). A plan that changed nothing deliverable raises
+# nothing. Removed in the release that ends plan writing (packages 4.2 and 5.1).
 PLAN_NOT_DELIVERED_AFTER_S = 1800
+PLAN_NO_CONFIRMED_DELIVERY_S = 5400
 _PLAN_NOT_DELIVERED_SQL = """
-SELECT p.created_at AS plan_created_at,
-       (SELECT max(confirmed_at) FROM setpoint_changes
-         WHERE source IN ('plan', 'band') AND ts > now() - interval '7 days') AS last_confirmed_at
-  FROM (SELECT max(created_at) AS created_at FROM setpoint_plan
-         WHERE ts > now() - interval '8 days' AND created_at > now() - interval '7 days') AS p
- WHERE p.created_at < now() - make_interval(secs => $1)
-   AND NOT EXISTS (
-       SELECT 1 FROM setpoint_changes sc
-        WHERE sc.source IN ('plan', 'band') AND sc.ts > p.created_at - interval '1 hour'
-          AND sc.confirmed_at > p.created_at)
+WITH p AS (
+    SELECT max(created_at) AS created_at FROM setpoint_plan
+     WHERE ts > now() - interval '8 days' AND created_at > now() - interval '7 days'
+), c AS (
+    SELECT max(confirmed_at) AS last_confirmed_at FROM setpoint_changes
+     WHERE source IN ('plan', 'band') AND ts > now() - interval '7 days'
+)
+SELECT p.created_at AS plan_created_at, c.last_confirmed_at
+  FROM p, c
+ WHERE p.created_at IS NOT NULL
+   AND (EXISTS (
+           SELECT 1 FROM setpoint_changes sc
+            WHERE sc.source IN ('plan', 'band') AND sc.ts > p.created_at
+              AND sc.ts < now() - make_interval(secs => $1) AND sc.confirmed_at IS NULL
+              AND COALESCE(sc.delivery_status, '') NOT IN ('superseded', 'cancelled'))
+        OR (p.created_at < now() - make_interval(secs => $1)
+            AND COALESCE(c.last_confirmed_at, '-infinity') < now() - make_interval(secs => $2)))
 """
 
 
@@ -222,8 +281,8 @@ def _plan_not_delivered_alert(row: Mapping | None) -> dict | None:
         "category": "system",
         "sensor_id": "planner",
         "zone": None,
-        "message": f"Iris's plan of {created.astimezone(UTC):%H:%M} UTC has not reached the controller: "
-        "no plan or band setting confirmed since",
+        "message": f"Iris's plan of {created.astimezone(UTC):%Y-%m-%d %H:%M} UTC is not reaching the controller: "
+        "a plan or band setting is unconfirmed after 30 minutes, or none confirmed for 90",
         "details": {
             "plan_created_at": created.isoformat(),
             "last_confirmed_at": confirmed.isoformat() if confirmed is not None else None,
@@ -350,6 +409,36 @@ def _heat_power_alerts(row: Mapping | None) -> list[dict]:
 # compared.
 BAND_TARGET_DIFF_ALERT_F = 1.0
 BAND_TARGET_MAX_AGE_S = 900.0
+
+
+def _band_target_alert(bdd: Mapping | None) -> dict | None:
+    """The band_device_db_divergence warning from the served temperature target (on-chip mode, edge inputs NULL):
+    a fresh target (at most 15 minutes old; a slightly negative age is clock skew) off by more than 1.0 °F."""
+    if not bdd or bdd["max_temp_abs_diff"] is not None:
+        return None
+    target_d, target_age_s = bdd["temp_target_abs_diff"], bdd["target_age_s"]
+    if target_d is None or target_age_s is None:
+        return None
+    if float(target_age_s) > BAND_TARGET_MAX_AGE_S or float(target_d) <= BAND_TARGET_DIFF_ALERT_F:
+        return None
+    return {
+        "alert_type": "band_device_db_divergence",
+        "severity": "warning",
+        "category": "climate",
+        "sensor_id": None,
+        "zone": "house",
+        "message": (
+            f"Band served by the controller differs from the database band: temperature target "
+            f"off by {round(float(target_d), 2)} °F (a clock fault or an unsynced band)"
+        ),
+        "details": {
+            "max_vpd_abs_diff": None,
+            "device_age_s": round(float(bdd["device_age_s"] or 0.0), 1),
+            "temp_target_abs_diff": round(float(target_d), 3),
+        },
+        "metric_value": round(float(target_d), 3),
+        "threshold_value": BAND_TARGET_DIFF_ALERT_F,
+    }
 
 
 def _component_experiment_integrity_alert(
@@ -1352,43 +1441,21 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         # all of which the compliance panels (which read the DB band) would HIDE.
         # Since migration 250 the edge inputs are NULL in on-chip mode; the served temperature target
         # difference reads there (#1638).
-        bdd = await conn.fetchrow(
+        bdd, read_preserved = await _guarded_fetchrow(
+            conn,
+            frozenset({"band_device_db_divergence"}),
             """
             SELECT max_temp_abs_diff, max_vpd_abs_diff,
                    EXTRACT(EPOCH FROM device_age) AS device_age_s,
                    temp_target_abs_diff, EXTRACT(EPOCH FROM target_age) AS target_age_s
               FROM v_band_device_divergence
-            """
+            """,
         )
-        target_d = bdd["temp_target_abs_diff"] if bdd else None
-        target_age_s = bdd["target_age_s"] if bdd else None
-        if (
-            target_d is not None
-            and target_age_s is not None
-            and float(target_age_s) <= BAND_TARGET_MAX_AGE_S
-            and float(target_d) > BAND_TARGET_DIFF_ALERT_F
-            and (bdd["max_temp_abs_diff"] is None)
-        ):
-            alerts.append(
-                {
-                    "alert_type": "band_device_db_divergence",
-                    "severity": "warning",
-                    "category": "climate",
-                    "sensor_id": None,
-                    "zone": "house",
-                    "message": (
-                        f"Band served by the controller differs from the database band: temperature target "
-                        f"off by {round(float(target_d), 2)} °F (a clock fault or an unsynced band)"
-                    ),
-                    "details": {
-                        "max_vpd_abs_diff": None,
-                        "device_age_s": round(float(bdd["device_age_s"] or 0.0), 1),
-                        "temp_target_abs_diff": round(float(target_d), 3),
-                    },
-                    "metric_value": round(float(target_d), 3),
-                    "threshold_value": BAND_TARGET_DIFF_ALERT_F,
-                }
-            )
+        if bdd is _READ_FAILED:
+            bdd = None
+        target_alert = _band_target_alert(bdd)
+        if target_alert is not None:
+            alerts.append(target_alert)
         elif bdd and bdd["max_temp_abs_diff"] is not None:
             temp_d = float(bdd["max_temp_abs_diff"])
             vpd_d = float(bdd["max_vpd_abs_diff"])
@@ -1423,7 +1490,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 )
 
         # 1c. clock_unconfirmed: the controller's clock is off or has not synced (#1638)
-        clock = _clock_unconfirmed_alert(await conn.fetchrow(_CLOCK_SQL))
+        clock_row, failed = await _guarded_fetchrow(conn, frozenset({"clock_unconfirmed"}), _CLOCK_SQL)
+        read_preserved |= failed
+        clock = None if clock_row is _READ_FAILED else _clock_unconfirmed_alert(clock_row)
         if clock is not None:
             alerts.append(clock)
 
@@ -2669,7 +2738,12 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
 
         # 9. The electric heater's power against its relay (#1637): on without a draw (heat_no_power), or a
         # heater-sized draw with both heat relays off (heat_manual_override). Fresh meter samples only.
-        alerts.extend(_heat_power_alerts(await conn.fetchrow(_HEAT_SQL, HEAT_SETTLE)))
+        heat_row, failed = await _guarded_fetchrow(
+            conn, frozenset({"heat_no_power", "heat_manual_override"}), _HEAT_SQL, HEAT_SETTLE
+        )
+        read_preserved |= failed
+        if heat_row is not _READ_FAILED:
+            alerts.extend(_heat_power_alerts(heat_row))
 
         # 9. Soil probes offline: one alert per probe (VD-72, Round 2b C).
         #
@@ -3350,7 +3424,15 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         if stuck_alert is not None:
             alerts.append(stuck_alert)
         # 15a. Plans written but nothing delivered (#1636, interim until plans end).
-        plan_alert = _plan_not_delivered_alert(await conn.fetchrow(_PLAN_NOT_DELIVERED_SQL, PLAN_NOT_DELIVERED_AFTER_S))
+        plan_row, failed = await _guarded_fetchrow(
+            conn,
+            frozenset({"plan_not_delivered"}),
+            _PLAN_NOT_DELIVERED_SQL,
+            PLAN_NOT_DELIVERED_AFTER_S,
+            PLAN_NO_CONFIRMED_DELIVERY_S,
+        )
+        read_preserved |= failed
+        plan_alert = None if plan_row is _READ_FAILED else _plan_not_delivered_alert(plan_row)
         if plan_alert is not None:
             alerts.append(plan_alert)
 
@@ -3375,8 +3457,8 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
             unpotted_keys=soil_unpotted_keys,
             refresh_only_keys=leak_refresh_only_keys,
             silences=silences,
-            # An open stuck alert stays open while the delivery read failed (state unknown).
-            preserve_open_types=delivery_preserved | irrigation_preserved,
+            # An open alert stays open while its read failed (state unknown).
+            preserve_open_types=delivery_preserved | read_preserved | irrigation_preserved,
         )
 
 

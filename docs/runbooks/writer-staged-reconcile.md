@@ -90,8 +90,21 @@ minutes.
 The dashboard's stuck-delivery banner reads this alert.
 
 `plan_not_delivered` (warning, interim until plans end in packages 4.2 and 5.1)
-backs it up: the newest `setpoint_plan` is over 30 minutes old and no `plan` or
-`band` request was confirmed after it.
+backs it up: a `plan` or `band` request made after the newest plan is still
+unconfirmed after 30 minutes, or no `plan` or `band` request was confirmed for 90
+minutes. A plan that asks nothing new raises nothing.
+
+An open stuck row whose settings aged out of the 60-day request window stays open
+while the controller still differs. `activity_start_hour` and
+`gl_main_sunset_hour` read one hour early from 2026-11-02 to 11-03 local midnight,
+probably the daylight-saving change; expect the same at the next change until the
+controller's handling of these hours is confirmed.
+
+Since `sensor_offline` is raised per device for the hydro probe and the
+controller diagnostics, its first pass after the release opens one
+`device.hydro_probe` row (the long-silent probe columns) and closes the per-column
+rows as replaced. A silence whose `sensor_pattern` names a column no longer
+matches that device row.
 
 When it fires, read `dispatcher_stage`, then the writer logs and the device:
 
