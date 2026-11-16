@@ -56,8 +56,8 @@ test("an operator's visit at 360 × 740: a burst from Now, a run and its stop on
   expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/equipment/override", body: { kind: "fans", minutes: 15 } });
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   // A regex reads the no-break space before the unit as it is.
-  await untilPolled(page, () => expect(page.locator(".now-running [data-chip=burst]")).toHaveText(/^Fans burst · \d+\smin left$/, { timeout: 500 }));
-  await expect(page.getByRole("button", { name: "Clear bursts" })).toBeVisible();
+  await untilPolled(page, () => expect(page.locator(".now-running [data-chip=burst]")).toHaveText(/^Fans, vent open · \d+\smin left$/, { timeout: 500 }));
+  await expect(page.getByRole("button", { name: "Stop manual runs" })).toBeVisible();
 
   await tab(page, /^Water/).click();
   const wall = lineRow(page, "L01");

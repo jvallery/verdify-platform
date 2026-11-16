@@ -184,8 +184,8 @@ test("Exchange air · 15 min from the quick actions: one API-IRR-12 with no dial
   await page.getByRole("button", { name: "Exchange air · 15 min" }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   // A regex reads the no-break space before the unit as it is.
-  await untilPolled(page, () => expect(page.locator(".now-running [data-chip=burst]")).toHaveText(/^Fans burst · \d+\smin left$/, { timeout: 500 }));
-  await expect(page.getByRole("button", { name: "Clear bursts" })).toBeVisible();
+  await untilPolled(page, () => expect(page.locator(".now-running [data-chip=burst]")).toHaveText(/^Fans, vent open · \d+\smin left$/, { timeout: 500 }));
+  await expect(page.getByRole("button", { name: "Stop manual runs" })).toBeVisible();
   expect((await fixtureWrites(request)).map((write) => [write.operationId, write.body])).toEqual([["API-IRR-12", { kind: "fans", minutes: 15 }]]);
 });
 

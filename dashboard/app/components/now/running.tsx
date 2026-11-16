@@ -3,7 +3,7 @@
  * What runs now (redesign §5.1 "Running now"; screens SCR-01, US-NOW-03): a row per API-02 `running` item with its plain
  * name, a dot in its equipment's token and "since HH:MM"; a wet line adds its cause in words and, with the irrigation
  * firmware, the time left from API-IRR-01 `active_runs[].ends_at`; a burst from the controller's readback (API-02
- * `overrides`) reads "Fans burst · 12 min left", with one Clear for operators (#1136) while the irrigation firmware runs;
+ * `overrides`) reads "Fans, vent open · 12 min left", with one Stop manual runs for operators (#1136) while the irrigation firmware runs;
  * before it a push-button burst still shows, with no Clear, since API-IRR-12 answers 503. While the answer says the
  * greenhouse data is out of reach, the ingestor is not running or the controller is not reporting (rows 1 to 3), one line
  * reads "Equipment reports unavailable since HH:MM" instead, never "Nothing running".

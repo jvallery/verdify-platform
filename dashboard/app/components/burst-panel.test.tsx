@@ -31,14 +31,14 @@ const burst = (fields: Partial<Parameters<typeof burstWords>[0]>) => ({ kind: "f
 
 test("what a running burst reads: the time left, none for a push-button burst, and why it is held off, in words", () => {
   const words = (fields: Partial<Parameters<typeof burstWords>[0]>) => burstWords(burst(fields), NOW).replaceAll(String.fromCharCode(0xa0), " ");
-  expect(words({ ends_at: iso(NOW + 12 * 60_000) })).toBe("Fans burst · 12 min left");
-  expect(words({})).toBe("Fans burst");
-  expect(words({ ends_at: iso(NOW - 60_000) })).toBe("Fans burst");
-  expect(words({ kind: "vent_bypass", ends_at: iso(NOW + 600_000) })).toBe("Vent bypass · 10 min left");
-  expect(words({ kind: "humidify", ends_at: iso(NOW + 300_000), held_reason: "occupancy" })).toBe("Humidify held off: someone inside");
+  expect(words({ ends_at: iso(NOW + 12 * 60_000) })).toBe("Fans, vent open · 12 min left");
+  expect(words({})).toBe("Fans, vent open");
+  expect(words({ ends_at: iso(NOW - 60_000) })).toBe("Fans, vent open");
+  expect(words({ kind: "vent_bypass", ends_at: iso(NOW + 600_000) })).toBe("Fans, vent closed · 10 min left");
+  expect(words({ kind: "humidify", ends_at: iso(NOW + 300_000), held_reason: "occupancy" })).toBe("Fogger held off: someone inside");
   // An unknown code shows raw, its case included.
-  expect(words({ kind: "humidify", held_reason: "new_reason" })).toBe("Humidify held off: new_reason");
-  expect(words({ kind: "humidify", held_reason: "RH_CEILING" })).toBe("Humidify held off: RH_CEILING");
+  expect(words({ kind: "humidify", held_reason: "new_reason" })).toBe("Fogger held off: new_reason");
+  expect(words({ kind: "humidify", held_reason: "RH_CEILING" })).toBe("Fogger held off: RH_CEILING");
   expect(burstsIgnoredText("SAFETY_COOL")).toBe("Bursts are ignored during emergency cooling");
   expect(burstsIgnoredText("SAFETY_HEAT")).toBe("Bursts are ignored during emergency heating");
   expect(burstsIgnoredText("SENSOR_FAULT")).toBe("Bursts are ignored during a sensor fault");
@@ -46,10 +46,10 @@ test("what a running burst reads: the time left, none for a push-button burst, a
   expect(burstsIgnoredText(null)).toBeNull();
 });
 
-test("Fans 15 min: one {kind, minutes} with no dialog, Sending… until the 202, and the chip reads once fan_burst_active turns on, never from the command", async () => {
+test("Fans, vent open 15 min: one {kind, minutes} with no dialog, Sending… until the 202, and the chip reads once fan_burst_active turns on, never from the command", async () => {
   const api = await open({ fixture: "burst-readback-late" });
   expect(running()).toBe("Running: none");
-  press("Fans 15 min");
+  press("Fans, vent open 15 min");
   expect(button("Sending…")).toBeTruthy();
   expect(document.querySelector("dialog")).toBeNull();
   await advance(0);
@@ -60,15 +60,15 @@ test("Fans 15 min: one {kind, minutes} with no dialog, Sending… until the 202,
   expect(sentAt("API-02")).toContain(5000);
   expect(running()).toBe("Running: none");
   await readBack(4999);
-  expect(bursts()).toEqual(["Fans burst · 15 min left"]);
+  expect(bursts()).toEqual(["Fans, vent open · 15 min left"]);
   expect(document.querySelector(".burst-actions .state-note")).toBeNull();
   expect(writes(api)).toHaveLength(1);
 });
 
 test.each([
   // Read 5 s after the ON edge.
-  ["Humidify 5 min", { kind: "humidify", minutes: 5 }, "Humidify burst · 4 min left"],
-  ["Vent bypass 10 min", { kind: "vent_bypass", minutes: 10 }, "Vent bypass · 9 min left"],
+  ["Fogger 5 min", { kind: "humidify", minutes: 5 }, "Fogger · 4 min left"],
+  ["Fans, vent closed 10 min", { kind: "vent_bypass", minutes: 10 }, "Fans, vent closed · 9 min left"],
 ])("%s sends its {kind, minutes} and its readback shows", async (name, body, chip) => {
   const api = await open();
   press(name);
@@ -78,40 +78,40 @@ test.each([
   expect(bursts()).toEqual([chip]);
 });
 
-test("a Humidify burst while someone is inside reads held off, in words", async () => {
+test("a Fogger while someone is inside reads held off, in words", async () => {
   await open({ fixture: "occupied" });
-  press("Humidify 5 min");
+  press("Fogger 5 min");
   await advance(0);
   await readBack(5000);
-  expect(bursts()).toEqual(["Humidify held off: someone inside"]);
+  expect(bursts()).toEqual(["Fogger held off: someone inside"]);
 });
 
 test("Clear sends one {kind: clear} and its readback reads none", async () => {
   const api = await open({ fixture: "push-button-burst" });
-  expect(bursts()).toEqual(["Fans burst"]);
-  press("Clear bursts");
+  expect(bursts()).toEqual(["Fans, vent open"]);
+  press("Stop manual runs");
   await advance(0);
   expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-IRR-12", body: { kind: "clear" } })]);
   await readBack(5000);
   expect(running()).toBe("Running: none");
 });
 
-test("each burst reads as on Now, its name bold and its length muted; Clear bursts shows only while a burst runs, or while what runs is unknown (#1308 visual QA 39)", async () => {
+test("each burst reads as on Now, its name bold and its length muted; Stop manual runs shows only while a burst runs, or while what runs is unknown (#1308 visual QA 39)", async () => {
   await open();
   const buttons = [...document.querySelectorAll<HTMLElement>(".burst-actions .burst-button")];
-  expect(buttons.map((node) => [text(node.querySelector(".burst-name")), text(node.querySelector(".burst-length"))])).toEqual([["Fans", "15 min"], ["Humidify", "5 min"], ["Vent bypass", "10 min"]]);
+  expect(buttons.map((node) => [text(node.querySelector(".burst-name")), text(node.querySelector(".burst-length"))])).toEqual([["Fans, vent open", "15 min"], ["Fogger", "5 min"], ["Fans, vent closed", "10 min"]]);
   expect(buttons.every((node) => node.className.includes("btn-wide"))).toBe(true);
   // Nothing runs: nothing to clear.
   expect(running()).toBe("Running: none");
-  expect(button("Clear bursts")).toBeNull();
+  expect(button("Stop manual runs")).toBeNull();
   cleanup(); stopFixtureApi();
   await open({ fixture: "push-button-burst" });
-  expect(button("Clear bursts")?.textContent).toBe("Clear bursts");
+  expect(button("Stop manual runs")?.textContent).toBe("Stop manual runs");
   cleanup(); stopFixtureApi();
   // The controller not reporting: what runs is unknown, so Clear stays.
   await open({ fixture: "controller-not-reporting" });
   expect(running()).toBe("Running actions unavailable: no current controller report");
-  expect(button("Clear bursts")).not.toBeNull();
+  expect(button("Stop manual runs")).not.toBeNull();
 });
 
 test("during emergency cooling the panel says bursts are ignored", async () => {
@@ -213,7 +213,7 @@ test("a burst that reads back after its 30 s drops Not started, on the shell's o
     const body = { ...(await answer.json() as object), overrides: [] };
     return { ...answer, headers: answer.headers, json: async () => body } as unknown as Response;
   }));
-  press("Fans 15 min");
+  press("Fans, vent open 15 min");
   await advance(0);
   await readBack(30_000);
   expect(text(document.querySelector(".burst-actions .state-note"))).toBe("Not started");
@@ -228,12 +228,12 @@ test("before the irrigation firmware: the bursts and Restart read arrives with t
   expect(text(document.querySelector("[data-arrives=bursts]"))).toBe("Bursts arrive with the irrigation firmware (manual_override)");
   expect(text(document.querySelector("[data-arrives=restart]"))).toBe("Restart arrives with the irrigation firmware");
   expect(document.querySelectorAll(".burst-panel [data-write-control]")).toHaveLength(0);
-  expect(bursts()).toEqual(["Fans burst"]);
+  expect(bursts()).toEqual(["Fans, vent open"]);
 });
 
 test("a viewer reads what runs, with no control and no words about controls", async () => {
   await open({ fixture: ["push-button-burst", "viewer-session"] });
-  expect(bursts()).toEqual(["Fans burst"]);
+  expect(bursts()).toEqual(["Fans, vent open"]);
   expect(document.querySelectorAll(".burst-panel button")).toHaveLength(0);
   expect(document.querySelector(".burst-more")).toBeNull();
   cleanup(); stopFixtureApi();
@@ -243,10 +243,10 @@ test("a viewer reads what runs, with no control and no words about controls", as
 });
 
 test("with changes switched off every burst and Restart is disabled, and nothing is sent", async () => {
-  // A push-button burst runs, so Clear bursts shows too.
+  // A push-button burst runs, so Stop manual runs shows too.
   const api = await open({ fixture: ["writes-off", "push-button-burst"] });
   const controls = [...document.querySelectorAll<HTMLButtonElement>(".burst-panel [data-write-control]")];
-  expect(controls.map((control) => control.textContent)).toEqual(["Fans 15 min", "Humidify 5 min", "Vent bypass 10 min", "Clear bursts", "Restart controller"]);
+  expect(controls.map((control) => control.textContent)).toEqual(["Fans, vent open 15 min", "Fogger 5 min", "Fans, vent closed 10 min", "Stop manual runs", "Restart controller"]);
   expect(controls.every((control) => control.disabled)).toBe(true);
   expect(writes(api)).toEqual([]);
 });
@@ -255,7 +255,7 @@ test("until API-IRR-01 answers nothing is offered; if it fails the panel says so
   const api = await open({ fixture: "push-button-burst", fail: { "API-IRR-01": 503 } });
   expect(document.querySelectorAll(".burst-panel [data-write-control]")).toHaveLength(0);
   expect(text(document.querySelector(".burst-panel .panel-error .fault"))).toBe("Can't tell whether the controller has the irrigation firmware yet.");
-  expect(bursts()).toEqual(["Fans burst"]);
+  expect(bursts()).toEqual(["Fans, vent open"]);
   const reads = requests(api, "API-IRR-01").length;
   press("Retry");
   await advance(0);

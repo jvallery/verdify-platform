@@ -182,7 +182,7 @@ test("every band verdict, required-trigger state and burst kind in the OpenAPI f
   expect([...BURST_KINDS].sort()).toEqual([...bursts].sort());
   expect(BAND_VERDICTS.map((verdict) => words("band_verdict", verdict))).toEqual(["in band", "above band", "below band", "band unavailable"]);
   expect(REQUIRED_TRIGGERS.map((state) => words("required_trigger", state))).toEqual(["OK", "Late", "Missed", "Failed"]);
-  expect(words("burst", "fans")).toBe("Fans burst");
+  expect(words("burst", "fans")).toBe("Fans, vent open");
   expect(words("mode", "UNKNOWN")).toBe("Mode unknown");
 });
 

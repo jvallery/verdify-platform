@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
 // Now's quick actions (redesign §5.1, D-UX-05) against the fixture API in process: Stop all water first, then Exchange air · 15 min,
-// Add humidity · 5 min and Circulate air · 10 min, each one API-IRR-12 with no dialog; before the irrigation firmware Stop all water
+// Run the fogger · 5 min and Circulate air · 10 min, each one API-IRR-12 with no dialog; before the irrigation firmware Stop all water
 // and the words that the bursts arrive with it; no row at all for a viewer; Stop stays live with changes switched off.
 // Then the lights (#1342): Main light and Grow light with their state in words and Equipment's own buttons (API-20).
 import { cleanup, fireEvent, screen } from "@testing-library/react";
@@ -27,10 +27,10 @@ test("an operator: Stop all water first, then the three bursts, each a name over
   renderWithApi(<Harness />);
   await advance(0);
   expect(screen.getByRole("region", { name: "Quick actions" })).toBeTruthy();
-  expect(names()).toEqual(["Stop all water", "Exchange air · 15 min", "Add humidity · 5 min", "Circulate air · 10 min"]);
+  expect(names()).toEqual(["Stop all water", "Exchange air · 15 min", "Run the fogger · 5 min", "Circulate air · 10 min"]);
   expect(screen.getByRole("button", { name: "Stop all water" }).className).toContain("btn-stop");
-  expect(screen.getByText("Both fans on, vent open. Runs for 15 minutes.")).toBeTruthy();
-  expect(screen.getByText("Both fans on, vent closed. Runs for 10 minutes.")).toBeTruthy();
+  expect(screen.getByText("Both fans on, vent open; both heaters stay off. Runs for 15 minutes.")).toBeTruthy();
+  expect(screen.getByText("Both fans on, vent closed (house air); both heaters stay off. Runs for 10 minutes.")).toBeTruthy();
 });
 
 test("a burst is one API-IRR-12 with its kind and minutes and no dialog; Stop all water calls the route's Stop", async () => {
@@ -66,7 +66,7 @@ test("with changes switched off the bursts are disabled and Stop all water stays
   renderWithApi(<Harness />, { role: "operator", writesEnabled: false });
   await advance(0);
   expect(screen.getByRole("button", { name: "Stop all water" }).hasAttribute("disabled")).toBe(false);
-  for (const name of ["Exchange air · 15 min", "Add humidity · 5 min", "Circulate air · 10 min"]) expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
+  for (const name of ["Exchange air · 15 min", "Run the fogger · 5 min", "Circulate air · 10 min"]) expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
   cleanup();
   stopFixtureApi();
   startFixtureApi({ fixture: ["in-band", "viewer-session"] });

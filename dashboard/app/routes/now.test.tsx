@@ -192,9 +192,9 @@ test("Exchange air · 15 min from the quick actions: one API-IRR-12 with no dial
   expect(document.querySelector("dialog")).toBeNull();
   await advance(5000);
   await advance(1);
-  expect(chips()).toEqual(["Fans burst · 14 min left"]);
-  expect(screen.getAllByRole("button", { name: "Clear bursts" })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Clear bursts" }));
+  expect(chips()).toEqual(["Fans, vent open · 14 min left"]);
+  expect(screen.getAllByRole("button", { name: "Stop manual runs" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Stop manual runs" }));
   await advance(0);
   expect(writes(api).at(-1)).toMatchObject({ operationId: "API-IRR-12", body: { kind: "clear" } });
   await advance(5000);
@@ -204,18 +204,18 @@ test("Exchange air · 15 min from the quick actions: one API-IRR-12 with no dial
 
 test("before the irrigation firmware a push-button burst shows its row with no Clear; so it does while the engine is unknown; a viewer has none", async () => {
   await open(["push-button-burst", "before-engine"]);
-  expect(chips()[0]).toBe("Fans burst · since 10:40");
-  expect(screen.queryByRole("button", { name: "Clear bursts" })).toBeNull();
+  expect(chips()[0]).toBe("Fans, vent open · since 10:40");
+  expect(screen.queryByRole("button", { name: "Stop manual runs" })).toBeNull();
   cleanup();
   stopFixtureApi();
   await open("push-button-burst", { fail: { "API-IRR-01": 404 } });
-  expect(chips()[0]).toBe("Fans burst · since 10:40");
-  expect(screen.queryByRole("button", { name: "Clear bursts" })).toBeNull();
+  expect(chips()[0]).toBe("Fans, vent open · since 10:40");
+  expect(screen.queryByRole("button", { name: "Stop manual runs" })).toBeNull();
   cleanup();
   stopFixtureApi();
   await open(["push-button-burst", "viewer-session"]);
-  expect(chips()[0]).toBe("Fans burst · since 10:40");
-  expect(screen.queryByRole("button", { name: "Clear bursts" })).toBeNull();
+  expect(chips()[0]).toBe("Fans, vent open · since 10:40");
+  expect(screen.queryByRole("button", { name: "Stop manual runs" })).toBeNull();
 });
 
 test("a latched mister in Needs someone: Clear fault on its alert's row sends one API-IRR-13, and the button goes once the latch reads gone", async () => {

@@ -207,7 +207,7 @@ test("a light offers the buttons its state calls for: the switch to its other st
   // Lutron on, the controller off: overridden by hand.
   expect(state("grow_light_main")).toBe("Off (controller) · Lutron On Differ");
   expect(shown()).toEqual(["Back to automatic Main", "Turn off 15 min Main"]);
-  // A manual switch is timed like the Fans burst (#1335): API-20's default 15 min, so the page sends no minutes.
+  // A manual switch is timed like the Fans, vent open (#1335): API-20's default 15 min, so the page sends no minutes.
   expect(timed()).toBe("A Turn on or Turn off lasts 15 min, then the light goes back to automatic");
   expect(lightWrites(api)).toEqual([["/api/v1/equipment/lights/main/on", null]]);
 });

@@ -95,13 +95,13 @@ test("the lanes-unknown span reads unknown in the key and the data table, betwee
   expect(states).toEqual(["off", "unknown", "off"]);
 });
 
-test("Fans 15 min sends one API-IRR-12 with no dialog, and reads Fans burst · 15 min left once the readback turns on", async ({ page, request }) => {
+test("Fans, vent open 15 min sends one API-IRR-12 with no dialog, and reads Fans, vent open · 15 min left once the readback turns on", async ({ page, request }) => {
   await useScreensClock(page, request, "burst-readback-late");
   await load(page, "/equipment");
   await expect(page.locator("[data-bursts=none]")).toHaveText("Running: none");
-  await page.getByRole("button", { name: "Fans 15 min" }).click();
+  await page.getByRole("button", { name: "Fans, vent open 15 min" }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
-  await untilPolled(page, () => expect(page.locator(".burst-panel [data-chip=burst]")).toHaveText("Fans burst · 15 min left", { timeout: 500 }));
+  await untilPolled(page, () => expect(page.locator(".burst-panel [data-chip=burst]")).toHaveText("Fans, vent open · 15 min left", { timeout: 500 }));
   expect((await fixtureWrites(request)).map((write) => [write.operationId, write.body])).toEqual([["API-IRR-12", { kind: "fans", minutes: 15 }]]);
 });
 
@@ -125,11 +125,11 @@ test("before the irrigation firmware the bursts and Restart say when they arrive
 
 test("at 390 px the burst buttons are full width and at least 44 px", async ({ page, request }) => {
   await page.setViewportSize(PHONE);
-  // A push-button burst runs, so Clear bursts shows beside the three bursts.
+  // A push-button burst runs, so Stop manual runs shows beside the three bursts.
   await useScreensClock(page, request, "push-button-burst");
   await load(page, "/equipment");
   const row = await page.locator(".burst-panel .burst-actions").first().boundingBox();
-  for (const name of ["Fans 15 min", "Humidify 5 min", "Vent bypass 10 min", "Clear bursts"]) {
+  for (const name of ["Fans, vent open 15 min", "Fogger 5 min", "Fans, vent closed 10 min", "Stop manual runs"]) {
     const box = await page.getByRole("button", { name }).boundingBox();
     expect(box?.width, name).toBeCloseTo(row?.width ?? 0, 0);
     expect(box?.height, name).toBeGreaterThanOrEqual(44);

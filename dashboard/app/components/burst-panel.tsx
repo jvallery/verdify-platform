@@ -25,9 +25,9 @@ import { PanelError } from "./panel";
 
 /** The three bursts as the Home Assistant buttons ran them. */
 export const BURSTS = [
-  { kind: "fans", minutes: 15, label: "Fans 15 min" },
-  { kind: "humidify", minutes: 5, label: "Humidify 5 min" },
-  { kind: "vent_bypass", minutes: 10, label: "Vent bypass 10 min" },
+  { kind: "fans", minutes: 15, label: "Fans, vent open 15 min" },
+  { kind: "humidify", minutes: 5, label: "Fogger 5 min" },
+  { kind: "vent_bypass", minutes: 10, label: "Fans, vent closed 10 min" },
 ] as const;
 export const BURSTS_ARRIVE_TEXT = "Bursts arrive with the irrigation firmware";
 export const RESTART_ARRIVES_TEXT = "Restart arrives with the irrigation firmware";
@@ -50,8 +50,8 @@ function heldWords(code: string): string {
   return hasWords("fog_block_reason", code) ? text.charAt(0).toLowerCase() + text.slice(1) : text;
 }
 /**
- * One running burst in words: "Fans burst · 12 min left" from `ends_at`, no time left for a push-button burst (`ends_at`
- * null), or why the controller holds it off: "Humidify held off: someone inside".
+ * One running burst in words: "Fans, vent open · 12 min left" from `ends_at`, no time left for a push-button burst (`ends_at`
+ * null), or why the controller holds it off: "Fogger held off: someone inside".
  */
 export function burstWords(burst: Now["overrides"][number], clock: number): string {
   const name = words("burst", burst.kind);
@@ -81,12 +81,12 @@ export function useBurstCommand() {
   return useCommand({ operation: "API-IRR-12", readback: overrideReadback });
 }
 
-/** "Fans" from "Fans 15 min": a burst's name without its length. */
+/** "Fans, vent open" from "Fans, vent open 15 min": a burst's name without its length. */
 const burstName = (label: string) => label.replace(/\s+\d+\s*min$/, "");
 
 /**
  * One burst's button, the same on Now's quick actions and Equipment's panel (redesign §5.12, D-UX-05): its name in bold
- * and its length muted ("Fans 15 min"), one API-IRR-12 `{kind, minutes}` per press with no dialog, then what the command
+ * and its length muted ("Fans, vent open 15 min"), one API-IRR-12 `{kind, minutes}` per press with no dialog, then what the command
  * says. `wide` is Equipment's full width on phones; Now sets its own layout through `className`.
  */
 export function BurstButton({ burst, wide = false, className, label }: { burst: (typeof BURSTS)[number]; wide?: boolean; className?: string; label?: string }) {
@@ -100,13 +100,13 @@ export function BurstButton({ burst, wide = false, className, label }: { burst: 
 }
 
 /**
- * Clear bursts: API-IRR-12 `{kind: "clear"}`, which ends every burst, so it stands once however many run. Equipment's
+ * Stop manual runs: API-IRR-12 `{kind: "clear"}`, which ends every burst, so it stands once however many run. Equipment's
  * panel and Now's burst chip both use it, each only while a burst may be running.
  */
 export function ClearBursts() {
   const command = useCommand({ operation: "API-IRR-12", readback: overrideReadback });
   return <>
-    <Button write wide busy={command.sending} onClick={() => void command.send({}, { kind: "clear" })}>Clear bursts</Button>
+    <Button write wide busy={command.sending} onClick={() => void command.send({}, { kind: "clear" })}>Stop manual runs</Button>
     <CommandNote phase={command.phase} message={command.message} error={command.error} />
   </>;
 }
