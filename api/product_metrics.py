@@ -17,6 +17,8 @@ execution, shared buffers hit, none read from disk):
   group       period  statement              planning  execution  buffers
   alerts      60 s    alerts._OPEN_SQL          6.7 ms     8.9 ms      772
   controller  60 s    CONTROLLER_SQL           11.5 ms     0.2 ms    1,230
+  devices     60 s    DEVICES_SQL, ENGINE_SQL, LEAD_FAN_SQL   index lookups of equipment_state/system_state
+  tables      900 s   TABLES_SQL              about 0.5 s execution (hypertable_size over six tables)
   health      60 s    HEALTH_SQL               the nine migration 314 columns; same 15-minute range of diagnostics_ts_idx
                                                 as CONTROLLER_SQL, measured on a private database (columns not live)
   state       60 s    STATE_SQL                10.2 ms    10.5 ms    1,076
@@ -239,6 +241,14 @@ FAMILIES: dict[str, Family] = {
     "verdify_controller_reset_reason": Family("gauge", "1 for the controller's last reset reason."),
     "verdify_controller_firmware_info": Family("gauge", "1 for the firmware version the controller reports."),
     "verdify_controller_band_source": Family("gauge", "1 for the band source the controller uses."),
+    # irrigation and lighting state, lead fan, table sizes (RULINGS AF9(a); contracts/metrics-coverage.md 2.2, 2.7, 2.9)
+    "verdify_irrigation_zone_on": Family("gauge", "1 while an irrigation valve is on (newest equipment_state, 30 d)."),
+    "verdify_irrigation_engine_ok": Family("gauge", "1 when this connection's firmware has the irrigation engine."),
+    "verdify_lights_on": Family("gauge", "1 while a grow-light circuit is on (newest equipment_state, 30 d)."),
+    "verdify_lead_fan": Family(
+        "gauge", "1 for the lead fan: the controller's Lead Fan entity when fresh, else the newest one-fan start."
+    ),
+    "verdify_table_bytes": Family("gauge", "Size of a product hypertable (hypertable_size, 15 min)."),
     # controller hardware budget (diagnostics, migration 314; contracts/metrics-coverage.md section 2.1a)
     "verdify_controller_heap_min_free_window_bytes": Family(
         "gauge", "Controller lowest free heap in its last one-minute window."
@@ -419,6 +429,47 @@ SELECT (array_agg(heap_min_free_minute_kb ORDER BY ts DESC)
  WHERE ts > now() - interval '15 minutes'
 """
 
+# Irrigation valves and light circuits: newest equipment_state row each within 30 days (irrigation changes rarely).
+DEVICES_SQL = """
+SELECT e.equipment, s.state
+  FROM unnest($1::text[]) AS e(equipment)
+  CROSS JOIN LATERAL (
+        SELECT state FROM equipment_state
+         WHERE equipment = e.equipment AND ts > now() - interval '30 days'
+         ORDER BY ts DESC
+         LIMIT 1) s
+"""
+ENGINE_SQL = """
+SELECT value FROM system_state WHERE entity = 'irr_engine' AND ts > now() - interval '30 days' ORDER BY ts DESC LIMIT 1
+"""
+# The lead fan: the controller's Lead Fan entity when it reported within 2 days (the third flash publishes it; today's
+# firmware never does, verification finding TEL-F8), else the fan of the newest start in 7 days made while the other
+# fan was off (that start is the lead's).
+LEAD_FAN_SQL = """
+WITH e AS (
+    SELECT equipment, ts, state FROM equipment_state
+     WHERE equipment IN ('fan1', 'fan2') AND ts > now() - interval '7 days'
+), single AS (
+    SELECT e.equipment, e.ts FROM e
+     WHERE e.state
+       AND NOT COALESCE((SELECT o.state FROM e o
+                          WHERE o.equipment <> e.equipment AND o.ts <= e.ts
+                          ORDER BY o.ts DESC LIMIT 1), false)
+)
+SELECT COALESCE(
+         (SELECT value FROM system_state WHERE entity = 'lead_fan' AND ts > now() - interval '2 days'
+           ORDER BY ts DESC LIMIT 1),
+         (SELECT equipment FROM single ORDER BY ts DESC LIMIT 1)) AS fan
+"""
+# hypertable_size() of the six flow tables, every 15 minutes: about 0.5 s on production (2026-11-16), readable as
+# verdify_dashboard_runtime (checked in a read-only transaction). A plain table falls back to pg_total_relation_size.
+TABLES_SQL = """
+SELECT t AS tbl, COALESCE(hypertable_size(('public.' || t)::regclass), pg_total_relation_size(('public.' || t)::regclass))
+           AS bytes
+  FROM unnest($1::text[]) AS t
+ WHERE to_regclass('public.' || t) IS NOT NULL
+"""
+
 # Newest row per entity through idx_system_state_entity (entity, ts DESC), 7 d of chunks at most.
 STATE_SQL = """
 SELECT e.entity, extract(epoch FROM now() - s.ts)::float8 AS age_s, s.value
@@ -558,6 +609,52 @@ def controller_samples(row: Mapping[str, Any] | None) -> list[Sample]:
     if row["band_source"]:
         out.append(sample("verdify_controller_band_source", 1, source=bounded(row["band_source"], BAND_SOURCES)))
     return out
+
+
+# The irrigation valves and grow-light circuits as equipment_state stores them (fixed lists).
+IRRIGATION_ZONES = (
+    "drip_wall",
+    "drip_wall_fert",
+    "drip_center",
+    "drip_center_fert",
+    "mister_center",
+    "mister_south",
+    "mister_south_fert",
+    "mister_west",
+    "mister_west_fert",
+    "fert_master_valve",
+)
+LIGHT_CIRCUITS = ("grow_light_main", "grow_light_grow")
+LEAD_FANS = {"Fan 1": "fan1", "Fan 2": "fan2", "fan1": "fan1", "fan2": "fan2"}
+
+
+def device_samples(
+    rows: Sequence[Mapping[str, Any]], engine: Mapping[str, Any] | None, lead: Mapping[str, Any] | None
+) -> list[Sample]:
+    """Irrigation valves, light circuits, the irrigation engine and the lead fan; an unknown state gives no sample."""
+    out: list[Sample] = []
+    for row in rows:
+        if row["state"] is None:
+            continue
+        if row["equipment"] in IRRIGATION_ZONES:
+            out.append(sample("verdify_irrigation_zone_on", 1 if row["state"] else 0, zone=row["equipment"]))
+        elif row["equipment"] in LIGHT_CIRCUITS:
+            out.append(sample("verdify_lights_on", 1 if row["state"] else 0, circuit=row["equipment"]))
+    if engine is not None and engine["value"] in ("true", "false"):
+        out.append(sample("verdify_irrigation_engine_ok", 1 if engine["value"] == "true" else 0))
+    fan = LEAD_FANS.get((lead or {}).get("fan") or "")
+    if fan is not None:
+        for name in ("fan1", "fan2"):
+            out.append(sample("verdify_lead_fan", 1 if name == fan else 0, fan=name))
+    return out
+
+
+def table_samples(rows: Sequence[Mapping[str, Any]]) -> list[Sample]:
+    return [
+        sample("verdify_table_bytes", row["bytes"], table=row["tbl"])
+        for row in rows
+        if row["tbl"] in FLOW_TABLES and _num(row["bytes"]) is not None
+    ]
 
 
 # lib/gap_log.h gap_log_state_name(): the six values the firmware publishes.
@@ -824,6 +921,15 @@ async def _collect_controller(conn: Any, metrics: ProductMetrics) -> list[Sample
     return controller_samples(await conn.fetchrow(CONTROLLER_SQL))
 
 
+async def _collect_devices(conn: Any, metrics: ProductMetrics) -> list[Sample]:
+    rows = await conn.fetch(DEVICES_SQL, [*IRRIGATION_ZONES, *LIGHT_CIRCUITS])
+    return device_samples(rows, await conn.fetchrow(ENGINE_SQL), await conn.fetchrow(LEAD_FAN_SQL))
+
+
+async def _collect_tables(conn: Any, metrics: ProductMetrics) -> list[Sample]:
+    return table_samples(await conn.fetch(TABLES_SQL, list(FLOW_TABLES)))
+
+
 async def _collect_health(conn: Any, metrics: ProductMetrics) -> list[Sample]:
     return health_samples(await conn.fetchrow(HEALTH_SQL))
 
@@ -879,6 +985,8 @@ GROUPS: tuple[Group, ...] = (
     Group(ALERTS_GROUP, 60, _collect_alerts),
     Group("controller", 60, _collect_controller),
     Group("health", 60, _collect_health),
+    Group("devices", 60, _collect_devices),
+    Group("tables", 900, _collect_tables),
     Group("state", 60, _collect_state),
     Group("relays", 60, _collect_relays),
     Group("house", 60, _collect_house),

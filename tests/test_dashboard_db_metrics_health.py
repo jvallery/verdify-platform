@@ -131,3 +131,28 @@ def test_each_reading_is_its_newest_non_null_value_in_15_minutes(dsn):
         assert got[("verdify_controller_sensor_degraded_active", ())] == 0
 
     scenario(dsn, body)
+
+
+def test_device_reads_take_the_newest_state_and_the_lead_from_a_one_fan_start(dsn):
+    async def body(conn, t0):
+        await conn.execute("CREATE TABLE IF NOT EXISTS equipment_state (ts timestamptz, equipment text, state boolean)")
+        await conn.execute("CREATE TABLE IF NOT EXISTS system_state (ts timestamptz, entity text, value text)")
+        await conn.execute("TRUNCATE equipment_state, system_state")
+        eq = "INSERT INTO equipment_state (ts, equipment, state) VALUES ($1, $2, $3)"
+        await conn.execute(eq, t0 - 60 * MIN, "fan2", True)  # fan2 alone: the lead
+        await conn.execute(eq, t0 - 50 * MIN, "fan1", True)  # second fan joins
+        await conn.execute(eq, t0 - 40 * MIN, "fan1", False)
+        await conn.execute(eq, t0 - 40 * MIN, "fan2", False)
+        await conn.execute(eq, t0 - 10 * MIN, "drip_wall", True)
+        await conn.execute(eq, t0 - 5 * MIN, "drip_wall", False)
+        rows = await conn.fetch(pm.DEVICES_SQL, [*pm.IRRIGATION_ZONES, *pm.LIGHT_CIRCUITS])
+        assert [(r["equipment"], r["state"]) for r in rows] == [("drip_wall", False)]
+        assert (await conn.fetchrow(pm.LEAD_FAN_SQL))["fan"] == "fan2"
+        await conn.execute(
+            "INSERT INTO system_state (ts, entity, value) VALUES ($1, 'lead_fan', 'Fan 1')", t0 - 3 * MIN
+        )
+        assert (await conn.fetchrow(pm.LEAD_FAN_SQL))["fan"] == "Fan 1"  # the entity wins once it reports
+        await conn.execute("INSERT INTO system_state (ts, entity, value) VALUES ($1, 'irr_engine', 'true')", t0)
+        assert (await conn.fetchrow(pm.ENGINE_SQL))["value"] == "true"
+
+    scenario(dsn, body)

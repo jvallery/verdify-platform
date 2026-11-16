@@ -136,6 +136,10 @@ class Conn:
             return None  # no meter row in the last hour
         if sql == pm.HEALTH_SQL:
             return dict.fromkeys(HEALTH_COLUMNS)  # before the third flash: every reading NULL
+        if sql == pm.ENGINE_SQL:
+            return {"value": "true"}
+        if sql == pm.LEAD_FAN_SQL:
+            return {"fan": "fan2"}
         raise AssertionError(sql)
 
     async def fetch(self, sql, *args):
@@ -167,6 +171,10 @@ class Conn:
                     "both_graded_min": 0,
                 }
             ]
+        if sql == pm.DEVICES_SQL:
+            return [{"equipment": "drip_wall", "state": False}, {"equipment": "grow_light_main", "state": True}]
+        if sql == pm.TABLES_SQL:
+            return [{"tbl": "climate", "bytes": 90456064}, {"tbl": "weird", "bytes": 1}]
         if sql == pm.GAPS_SQL:
             return [{"status": "replayed", "n": 2, "seconds": 400.0}, {"status": "none", "n": 1, "seconds": 130.0}]
         from verdify_services import alerts
@@ -485,3 +493,33 @@ def test_health_readings_scale_and_label():
     one = pm.health_samples({**dict.fromkeys(HEALTH_COLUMNS), "gap_log_state": "something new"})
     assert ("verdify_controller_gap_log_state", (("state", "other"),), 1.0) in one
     assert ("verdify_controller_gap_log_armed", (), 0.0) in one
+
+
+def test_device_and_table_families():
+    got = {
+        (n, labels): v
+        for n, labels, v in pm.device_samples(
+            [
+                {"equipment": "mister_south", "state": True},
+                {"equipment": "grow_light_grow", "state": False},
+                {"equipment": "heat1", "state": True},
+                {"equipment": "drip_wall", "state": None},
+            ],
+            {"value": "false"},
+            {"fan": "Fan 1"},
+        )
+    }
+    assert got[("verdify_irrigation_zone_on", (("zone", "mister_south"),))] == 1
+    assert got[("verdify_lights_on", (("circuit", "grow_light_grow"),))] == 0
+    assert got[("verdify_irrigation_engine_ok", ())] == 0
+    assert got[("verdify_lead_fan", (("fan", "fan1"),))] == 1 and got[("verdify_lead_fan", (("fan", "fan2"),))] == 0
+    assert not any(n == "verdify_relay_on" or "heat1" in str(labels) for n, labels in got)
+    assert pm.device_samples([], None, {"fan": None}) == []
+    assert pm.table_samples([{"tbl": "climate", "bytes": 5}, {"tbl": "other", "bytes": 7}]) == [
+        ("verdify_table_bytes", (("table", "climate"),), 5.0)
+    ]
+    cache = metrics()
+    asyncio.run(cache.refresh_due(Pool()))
+    text = cache.render()
+    assert 'verdify_table_bytes{table="climate"} 90456064' in text
+    assert 'verdify_lead_fan{fan="fan2"} 1' in text
