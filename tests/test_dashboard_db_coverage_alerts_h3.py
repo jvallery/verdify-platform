@@ -234,11 +234,14 @@ def test_utilities_drying_refusal_probes_and_owner_held(dsn):
 
         await change(conn, t0 - 3 * 24 * 60 * MIN, "mister_min_off_s", 30.0, "manual", t0 - 3 * 24 * 60 * MIN)
         await change(conn, t0 - 60 * MIN, "mister_min_off_s", 30.0, "esp32")  # observations are not desired rows
-        for m in range(10):
-            await conn.execute(
-                "INSERT INTO setpoint_snapshot (ts, parameter, value) VALUES ($1, 'mister_min_off_s', 45)",
-                t0 - m * MIN,
-            )
+        snap = "INSERT INTO setpoint_snapshot (ts, parameter, value) VALUES ($1, 'mister_min_off_s', $2)"
+        # readbacks stored on change (ALERTS-3): the held value, then one differing readback 40 minutes ago
+        await conn.execute(snap, t0 - 2 * 24 * 60 * MIN, 30.0)
+        await conn.execute(snap, t0 - 10 * MIN, 30.0)
+        await conn.execute(snap, t0 - 5 * MIN, 45.0)
+        assert cov.owner_held_alert(await conn.fetch(cov.OWNER_HELD_SQL)) is None  # differing for 5 minutes only
+        await conn.execute("DELETE FROM setpoint_snapshot WHERE ts > $1", t0 - 60 * MIN)
+        await conn.execute(snap, t0 - 40 * MIN, 45.0)
         rows = await conn.fetch(cov.OWNER_HELD_SQL)
         assert cov.owner_held_alert(rows)["details"]["changed"] == {"mister_min_off_s": [30.0, 45.0]}
         await change(conn, t0 - 20 * MIN, "mister_min_off_s", 45.0, "band", t0 - 19 * MIN)

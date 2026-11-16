@@ -691,7 +691,10 @@ def probes_alert(rows: Sequence[Mapping]) -> dict | None:
 
 # ── Gap 18: an owner-held value changed by something else ────────────────────
 # The newest desired row for a setting (not an esp32 observation, not a smoke sentinel) is the owner's ('manual'),
-# the controller confirmed it more than 15 minutes ago, and every readback of the last 15 minutes differs from it.
+# the controller confirmed it more than 15 minutes ago, and the readbacks have differed from it for 15 minutes: the
+# newest readback differs and the first differing readback since the last matching one (or the confirmation) is over
+# 15 minutes old. Readbacks are stored on change, so no count of rows in a window is required (release 3 review
+# ALERTS-3).
 # Held values older than 30 days are not watched (the dispatcher re-writes manual values in force). The four legacy
 # band scalars are left out (unused under the on-chip band, K1).
 OWNER_HELD_SQL = """
@@ -703,16 +706,21 @@ WITH held AS (
        AND c.parameter IN (SELECT DISTINCT parameter FROM setpoint_changes
                             WHERE source = 'manual' AND ts > now() - interval '30 days')
      ORDER BY c.parameter, c.ts DESC
-), recent AS (
-    SELECT h.parameter, h.value AS held, count(*)::int AS n,
-           count(*) FILTER (WHERE abs(s.value - h.value) > greatest(0.001, abs(h.value) * 0.001))::int AS differ,
-           (array_agg(s.value ORDER BY s.ts DESC))[1] AS device
-      FROM held h JOIN setpoint_snapshot s ON s.parameter = h.parameter
+), judged AS (
+    SELECT h.parameter, h.value AS held, d.first_differ, d.device
+      FROM held h
+     CROSS JOIN LATERAL (
+            SELECT max(s.ts) AS last_same FROM setpoint_snapshot s
+             WHERE s.parameter = h.parameter AND s.ts >= h.confirmed_at
+               AND abs(s.value - h.value) <= greatest(0.001, abs(h.value) * 0.001)) m
+     CROSS JOIN LATERAL (
+            SELECT min(s.ts) AS first_differ, (array_agg(s.value ORDER BY s.ts DESC))[1] AS device
+              FROM setpoint_snapshot s
+             WHERE s.parameter = h.parameter AND s.ts >= h.confirmed_at AND s.ts > COALESCE(m.last_same, '-infinity')) d
      WHERE h.source = 'manual' AND h.confirmed_at < now() - interval '15 minutes'
-       AND s.ts > now() - interval '15 minutes'
-     GROUP BY h.parameter, h.value
 )
-SELECT parameter, held, device FROM recent WHERE n >= 3 AND differ = n ORDER BY parameter LIMIT 20
+SELECT parameter, held, device FROM judged
+ WHERE first_differ < now() - interval '15 minutes' ORDER BY parameter LIMIT 20
 """
 
 
