@@ -85,10 +85,13 @@ CACHED_BAND_PROVENANCE = (
 )
 CACHED_BAND_LABELS = {
     "tracking": {
-        "Target Band Base": "Reconstructed Track Low",
-        "Target Band": "Reconstructed Track High",
-        "House Band Base": "Reconstructed Track Low",
-        "House Band": "Reconstructed Track High",
+        "Target Band Base": "Band Low",
+        "Target Band": "Band High",
+        "House Band Base": "Band Low",
+        "House Band": "Band High",
+        # the band tracking fraction is retired with the third flash: the edges are the full band
+        "Reconstructed Track Low": "Band Low",
+        "Reconstructed Track High": "Band High",
         "Target": "Reconstructed Target",
         "House Target": "Reconstructed Target",
     },
@@ -110,9 +113,8 @@ CACHED_BAND_TITLES = {
 }
 CACHED_BAND_DETAILS = {
     "tracking": (
-        "House-anchor edges are narrowed toward the reconstructed target using the latest cached "
-        "band_track_fraction or default 0.25 across the entire time window; fraction age, historical "
-        "validity and device acceptance are unverified. This is not the full low..high envelope. "
+        "The edges are the full low..high band the controller enforces (the band tracking fraction is retired "
+        "with the third flash); device acceptance is not shown here. "
         "Temperature uses °F and VPD uses kPa; measured climate and recorded relay series are separate."
     ),
     "zones": (
@@ -2267,12 +2269,12 @@ def cached_band_kind(panel: dict[str, Any]) -> str | None:
     sql = "\n".join(t.get("rawSql", "") for t in panel.get("targets", []))
     if "v_band_curve" not in sql:
         return None
-    if "band_track_fraction" in sql:
-        return "tracking"
     if "vpd_target_south" in sql:
         return "zones"
     if "c.temp_avg - b.temp_target" in sql:
         return "delta"
+    if re.search(r"\b(temp|vpd)_(low|high)\b", sql):
+        return "tracking"
     return "unknown"
 
 
@@ -2325,11 +2327,7 @@ def check_cached_band_lineage(label: str, panel: dict[str, Any]) -> list[str]:
         if override_props(panel, name).get("custom.hideFrom") != {"legend": False, "tooltip": False, "viz": False}:
             findings.append(f"{prefix}: {name} must remain visible in legend/tooltip")
     if kind in {"tracking", "delta"}:
-        low, high = (
-            ("Reconstructed Track Low", "Reconstructed Track High")
-            if kind == "tracking"
-            else ("Reference -1", "Reference +1")
-        )
+        low, high = ("Band Low", "Band High") if kind == "tracking" else ("Reference -1", "Reference +1")
         if override_props(panel, high).get("custom.fillBelowTo") != low:
             findings.append(f"{prefix}: broken reference fill")
     if panel.get("options", {}).get("legend", {}).get("showLegend") is not True:
