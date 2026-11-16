@@ -109,16 +109,12 @@ ENTRIES: dict[str, HelpEntry] = {
     ),
     "mister_hysteresis_kpa": HelpEntry(
         summary="Minimum VPD drop before the misters step down a stage.",
-        effect=(
-            "The misters step down (both zones to one, then off) only once house VPD falls this far below VPD "
-            "Mister All or VPD Mister Engage. The controller uses at least a quarter of VPD Mister Engage, and never "
-            "more than the VPD hysteresis."
-        ),
-        raise_="The misters keep running longer after VPD falls: fewer on/off cycles, more water per episode.",
-        lower="The misters stop sooner once VPD falls: less water, more on/off cycling.",
+        effect="Not used since the band-edge climate law. Misting starts 0.3 kPa above the band's high VPD edge and stops 0.05 kPa above it, a fixed gap.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
         refs=(
-            f"{_CONTROLS}::id(mister_hysteresis_kpa)",
-            f"{_CONTROLS}::S1→off",
+            "firmware/lib/climate_law_constants_generated.h::MIST_ON_ABOVE_VPD_HIGH_KPA",
+            "firmware/lib/climate_law_constants_generated.h::MIST_OFF_ABOVE_VPD_HIGH_KPA",
         ),
     ),
     "night_stress_min_dew_margin_f": HelpEntry(
@@ -172,13 +168,10 @@ ENTRIES: dict[str, HelpEntry] = {
     ),
     "east_adjacency_factor": HelpEntry(
         summary="How much east-zone dryness counts toward misting the south and center zones.",
-        effect=(
-            "The east zone has no mister. In the fallback zone scoring (used when the zone ranking picks no zone), "
-            "east's dryness and heat are added to the south and center scores, scaled by this factor."
-        ),
-        raise_="A dry east zone pulls the misters toward south and center more often in the fallback scoring.",
-        lower="East dryness counts less; at 0 it is ignored when choosing a mister zone.",
-        refs=(f"{_CONTROLS}::e_stress * id(east_adjacency_factor)",),
+        effect="Not used since the band-edge climate law. The misters pick a zone by the irrigation program's ranking on the house band, centre first, not by per-zone VPD targets or weights.",
+        raise_="No effect: the controller does not read this setting.",
+        lower="No effect: the controller does not read this setting.",
+        refs=("firmware/lib/climate_law.h::zone = verdify_irr::irr_rank_vpd_zone(allowed, intents, rank);",),
     ),
     "lead_rotate_s": HelpEntry(
         summary="How often the lead fan swaps between fan 1 and fan 2 when their run times are even.",

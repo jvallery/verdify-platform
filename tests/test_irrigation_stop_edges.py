@@ -29,8 +29,10 @@ def test_all_actual_clean_relay_falling_edges_enforce_existing_dwell(tmp_path):
         callback = block.split("    on_turn_off:\n      - lambda: |-\n", 1)[1]
         assert f"id({stamp}) = millis();" in callback
         callbacks.append(callback)
-    start = CONTROLS.index("auto mister_zone_last_off =")
-    end = CONTROLS.index("// IRR-2:", start)
+    # Phase 3 (#1671): the dwell is mister_step()'s min_off_ready input, computed from the
+    # same falling-edge stamps against the compiled MISTER_MIN_OFF_S.
+    start = CONTROLS.index("const uint32_t mister_min_off_ms =")
+    end = CONTROLS.index("mister_in.min_off_ready[ZONE_EAST] = false;", start)
     dwell = CONTROLS[start:end]
     midnight = CONTROLS[CONTROLS.index("// SAF-4/IRR-5:") : CONTROLS.index("// B5: reset DLI")]
     assert "id(last_off_" not in midnight
@@ -38,14 +40,19 @@ def test_all_actual_clean_relay_falling_edges_enforce_existing_dwell(tmp_path):
     run_cpp(
         tmp_path,
         """
+#include "climate_law.h"
 uint32_t clock_ms=0;
 uint32_t millis(){return clock_ms;}
 int main(){
  uint32_t last_off_south_ms=0,last_off_west_ms=0,last_off_center_ms=0,now_ms=0;
- const uint32_t MISTER_MIN_OFF_MS=45000;
- """
+ static_assert(climate_law::MISTER_MIN_OFF_S * climate_law::MS_PER_S == 45000, "45 s mister minimum off");
+ auto mister_zone_can_on=[&](int z){
+  climate_law::MisterInputs mister_in{};
+  """
         + dwell
         + """
+  return mister_in.min_off_ready[z == 1 ? ZONE_SOUTH : z == 2 ? ZONE_WEST : ZONE_CENTER];
+ };
  auto south_off=[&](){"""
         + callbacks[0]
         + """};

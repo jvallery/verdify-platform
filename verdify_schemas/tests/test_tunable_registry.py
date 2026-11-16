@@ -648,31 +648,38 @@ class TestActivityDirectWetGuards:
         south, L09 west) takes climate VPD pulses by one rule, irr_vpd_zone_allowed() on the
         irrigation program; the rank arbiter chooses among several whatever sw_arbiter_zone_enabled
         says, and turn_on_zone() asks the engine for the zone's grant before the relay opens."""
+        # Phase 3 (#1671, plan 8.7): the demand is the law's mist request, the safety term is
+        # climate_law::zone_gate_safety_ok() with the compiled wetting dew margin (declared change
+        # 3), and the rank and the one-pulse train are climate_law::mister_step(), which ranks
+        # through the engine's verdify_irr::irr_rank_vpd_zone(). Every gate keeps a needle here.
         required = [
             "const bool center_wet_allowed = irr_climate_zone_allowed(",
             "const bool south_wet_allowed = irr_climate_zone_allowed(",
             "const bool west_wet_allowed = irr_climate_zone_allowed(",
-            "verdify_irr::kL07, climate_wet_assist_demand, climate_wet_assist_safety_ok, mister_volume_hard_block);",
+            "verdify_irr::kL07, law.mist, climate_wet_assist_safety_ok, mister_volume_hard_block);",
             "direct_wet_relay_watchdog",
             "const uint16_t faulted = irr_mister_watchdog();",
             # The climate path closes only its own VPD pulse on a zone that may no longer mist.
             "if(!south_wet_allowed) irr_climate_close(id(south_wall_mister), verdify_irr::kL07);",
             "if(!west_wet_allowed) irr_climate_close(id(west_wall_mister), verdify_irr::kL09);",
             "if(!center_wet_allowed) irr_climate_close(id(center_mister), verdify_irr::kL04);",
-            "|| !any_mister_wet_allowed",
+            "const bool any_mister_wet_allowed = south_wet_allowed || west_wet_allowed || center_wet_allowed;",
+            "law.mist && any_mister_wet_allowed",
             "active_zone_gate_closed",
-            "const int won = verdify_irr::irr_rank_vpd_zone(zact, zi, prank);",
-            "if(!irr_vpd_grant(zone_line, pulse_ms)) {",
+            "mister_in.allowed[ZONE_CENTER] = center_wet_allowed;",
+            "mister_in.allowed[ZONE_SOUTH] = south_wet_allowed;",
+            "mister_in.allowed[ZONE_WEST] = west_wet_allowed;",
+            "mister_in.allowed[ZONE_EAST] = false;",
+            "const climate_law::MisterCommand mister_cmd = climate_law::mister_step(mister_law, mister_in);",
+            "if (irr_vpd_grant(zone_line, mister_cmd.pulse_ms)) {",
             "wet_dew_margin_f",
-            "climate_wet_assist_permitted(sensor_in, setpts)",
-            # Tranche 2 (#586): the dew-margin gate reads the runtime-gated
-            # policy snapshot (legacy global only while no experiment is armed).
-            "wet_dew_margin_f < pol(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, "
-            "id(direct_wet_stress_min_dew_margin_f))",
-            "past_wet_taper(sensor_in, setpts) && !stress_wet_override_permitted(sensor_in, setpts)",
+            "climate_law::zone_gate_safety_ok(\n"
+            "              occupancy_moisture_block, feed_hold_active, VPD, law_band.vpd_high, wet_dew_margin_f);",
         ]
         missing = [needle for needle in required if needle not in controls_yaml]
         assert not missing, f"Mister direct-wet gate coverage missing: {missing}"
+        law = (REPO_ROOT / "firmware" / "lib" / "climate_law.h").read_text()
+        assert "zone = verdify_irr::irr_rank_vpd_zone(allowed, intents, rank);" in law
         for gone in (
             "WetCommandOrigin::CLIMATE_VPD",
             "climate_wet_resolution",
@@ -680,6 +687,9 @@ class TestActivityDirectWetGuards:
             "const bool west_wet_allowed = false",
             "id(sw_arbiter_zone_enabled)",
             "crop_direct_wet_allowed",
+            # The retired wetting gates (declared changes 3 and 9).
+            "past_wet_taper(sensor_in, setpts)",
+            "climate_wet_assist_permitted(sensor_in, setpts)",
         ):
             assert gone not in controls_yaml, gone
 
@@ -1055,6 +1065,16 @@ def _step_mismatches(registry: Mapping[str, TunableDef], tunables_text: str) -> 
     return mismatches
 
 
+# Rows with an entity whose registry label and unit are their own, not split from the entity name, with the entity
+# name each must keep. The phase 3 drying cost limit (#1671): the name "Dry Cost Limit kWh per kg" gives the wire id
+# the contract fixes (dry_cost_limit_kwh_per_kg), and the registry shows "Drying Cost Limit" in kWh/kg
+# (tests/test_law_owner_only_settings.py pins that label). Drift on either side still fails: the entity name is
+# compared with the recorded one below.
+_OWN_LABEL_ENTITY_NAMES: dict[str, str] = {
+    "dry_cost_limit_kwh_per_kg": "Dry Cost Limit kWh per kg",
+}
+
+
 def _label_mismatches(registry: Mapping[str, TunableDef], tunables_text: str) -> list[str]:
     """Rows whose label or unit disagrees with their entity name; empty when clean.
 
@@ -1067,6 +1087,11 @@ def _label_mismatches(registry: Mapping[str, TunableDef], tunables_text: str) ->
     mismatches: list[str] = []
     for name, spec in sorted(registry.items()):
         key = spec.esp_object_id
+        if name in _OWN_LABEL_ENTITY_NAMES:
+            entity = numbers.get(key, (None,))[0] if spec.kind == "numeric" else switches.get(key)
+            if entity != _OWN_LABEL_ENTITY_NAMES[name]:
+                mismatches.append(f"{name}: entity name {entity!r}, recorded {_OWN_LABEL_ENTITY_NAMES[name]!r}")
+            continue
         if spec.kind == "numeric" and key in numbers:
             expected = split_entity_name(numbers[key][0])
         elif spec.kind == "switch" and key in switches:
@@ -1112,6 +1137,12 @@ class TestStepLabelUnitDriftGuard:
         renamed = tunables_yaml.replace(line, f'name: "{entity_name} Renamed"')
         assert any(m.startswith(f"{name}:") for m in _step_mismatches(REGISTRY, renamed))
         assert any(m.startswith(f"{name}:") for m in _label_mismatches(REGISTRY, renamed))
+
+    def test_own_label_rows_keep_their_recorded_entity_name(self, tunables_yaml: str) -> None:
+        """A row in _OWN_LABEL_ENTITY_NAMES fails when its entity is renamed or removed."""
+        renamed = tunables_yaml.replace('name: "Dry Cost Limit kWh per kg"', 'name: "Dry Cost Limit (kWh/kg)"')
+        assert renamed != tunables_yaml
+        assert _label_mismatches(REGISTRY, renamed)
 
     def test_guards_skip_rows_without_an_entity(self, tunables_yaml: str) -> None:
         """A row with no entity may set its own step, label and unit (#1152's irrigation_site rows)."""
