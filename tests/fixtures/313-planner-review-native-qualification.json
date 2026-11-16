@@ -1,6 +1,6 @@
 {
   "migration": "313-planner-review.sql",
-  "final_migration_qualification_pending": true,
+  "final_migration_qualification_pending": false,
   "before": {
     "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
     "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
@@ -11,5 +11,65 @@
     "api": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
     "ingestor": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
     "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
-  }
+  },
+  "measured_at": "2026-11-16T21:00:06Z",
+  "qualified_successor": {
+    "api": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
+    "ingestor": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+  },
+  "after_rollback": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "exact_final_migration_sha256": "933d856e07503d36115b744eea09b4208e688ad2bbec06f48692e2a850d58e0b",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "9508fb3f9c9e81bb7ff5a0e064f9e758a13f9b08405fb631c5a0e8267013603d",
+  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
+  "applied_first": [
+    {
+      "migration": "312-operator-metrics-reads.sql",
+      "seq": 312,
+      "sha256": "66e6bfe12302b2d2756514a2c9903f05e728b1326d6c21aee07362baeca7afa2"
+    }
+  ],
+  "applied_first_seals": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "prelock": [
+    [
+      "public.mcp_runtime_boundary_receipt",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.planner_review",
+      "SHARE"
+    ],
+    [
+      "public.runtime_ordinary_login_attestation_receipts",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.schema_migrations",
+      "SHARE ROW EXCLUSIVE"
+    ]
+  ],
+  "native_fixture": {
+    "checks": [
+      "ingestor_reads_and_inserts_and_updates_delivery_only",
+      "ingestor_reads_daily_record",
+      "mcp_reads_and_inserts_and_updates_review_only",
+      "api_and_public_denied",
+      "daily_lifecycle",
+      "one_daily_row_per_day",
+      "written_needs_summary",
+      "failed_needs_class"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "fdee1e8f2f10ad775b5a0f239a4026f2775234883e1a20b2d80ab58208c49629"
 }
