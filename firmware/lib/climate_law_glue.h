@@ -91,6 +91,16 @@ inline bool law_humidity_valid(bool law_temp_valid, const IndoorReading& indoor)
     return law_temp_valid && indoor.humidity_valid && !indoor_reading_degraded(indoor);
 }
 
+// The HUMID press's (and the fog run-once's) safety block (wiring note 4, T7 items 2 and 3, G7; AG1): the compiled
+// wetting dew margin on the indoor reading's own humidity (the case sensor's too: G2), skipped with no humidity
+// reading; then the law's cold-house guard (below the checked band's low edge), skipped with no temperature.
+inline const char* humid_press_block(bool law_temp_valid, const IndoorReading& indoor, double band_low) noexcept {
+    if (law_temp_valid && indoor.humidity_valid && indoor.temp_f - indoor.dew_point_f < WET_DEW_MARGIN_F)
+        return "dew_margin";
+    if (law_temp_valid && indoor.temp_f < band_low) return "temp_low";
+    return "";
+}
+
 // RULINGS AG2: the law's own fog keeps the phase 2 dew-point margin: outside SENSOR_FAULT it is dropped while the
 // indoor temperature minus the dew point is under WET_DEW_MARGIN_F (the misters' zone gate margin); no reading is no
 // margin. The caller drops law_request.fog before relay_pass() and feeds the same request to climate_fog_wanted().

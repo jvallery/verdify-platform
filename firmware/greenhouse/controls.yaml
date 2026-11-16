@@ -811,13 +811,10 @@ interval:
           // Phase 3 (wiring note 4): the HUMID press's safety block reads no climate
           // setting: the compiled wetting dew margin (skipped with no humidity reading, G7)
           // and the law's cold-house guard (below the band's low edge).
+          // AG1: the press keeps the case dew point (indoor.humidity_valid, G2), not the law's
+          // wall-only humidity validity (climate_law::humid_press_block(), native-tested).
           const char* manual_fog_safety_block =
-              // AG1: the press keeps the case dew point (indoor.humidity_valid, G2), not the law's
-              // wall-only humidity validity.
-              (law_temp_valid && indoor.humidity_valid &&
-               Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "dew_margin"
-              : (law_temp_valid && Tin < law_band.low) ? "temp_low"
-              : "";
+              climate_law::humid_press_block(law_temp_valid, indoor, law_band.low);
 
           // Phase 3: sw_fog_closes_vent and sw_mister_closes_vent are inert; the law
           // decides fog and mist with the vent.

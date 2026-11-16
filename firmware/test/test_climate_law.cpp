@@ -1691,6 +1691,62 @@ static void glue_drying_tail() {
   }
 }
 
+// -- Review tests T1, T2, T3 ------------------------------------------------------------------------
+static void glue_review_t1_t2_t3() {
+  // T1: a furnace start the AE10 cut holds off (a FANS press on the pass the relay layer would start heat2) is
+  // undone: no physical edge, no switch-time stamp, the furnace's off time keeps counting.
+  {
+    L::Output warm{};
+    warm.heat1 = warm.heat2 = true;
+    L::RelayState r = after_boot_wait();
+    const RelayOutputs off{false, false, false, false, false, false};
+    const uint32_t since0 = r.heat2.since_ms;
+    const L::RelayPass p = L::relay_pass(r, warm, L::RelayInputs{0, 0, false, 1000}, off,
+                                         ManualOverrides{true, false, false, false}, IDLE);
+    CHECK(!p.out.heat2 && !p.out.heat1 && p.force.fans, "T1 setup: the FANS press holds both heaters");
+    CHECK(!r.heat2.on && r.heat2.since_ms == since0 + 1000 && r.heat2.switched == after_boot_wait().heat2.switched,
+          "T1: the held furnace start moved no switch time");
+    L::relay_sync(r, p.out);
+    CHECK(!r.heat2.on && r.heat2.since_ms == since0 + 1000, "T1: the controller's sync after the drivers keeps it");
+  }
+  // T2: a cooling tail, then 40 F: the protection stops the air and starts heat1 in the same pass, although the
+  // vent and fans were physically on at the start of that pass (the 40 F exemption of the physical-air start check).
+  {
+    L::Output cool{};
+    cool.cooling = cool.vent = true;
+    cool.fans = 2;
+    L::Output cold{};
+    cold.cold = true;
+    cold.heat1 = cold.heat2 = true;
+    RelayRig g;
+    for (int i = 0; i < 10; ++i) g.step(cool);
+    CHECK(g.phys.vent && g.phys.fan1 && g.phys.fan2, "T2 setup: cooling air inside its minimum on");
+    g.step(cold, SAFETY_HEAT);
+    CHECK(g.phys.heat1 && !g.phys.vent && !g.phys.fan1 && !g.phys.fan2, "T2: at 40 F heat1 starts as the air stops");
+    CHECK(!g.phys.heat2, "T2: the furnace waits one pass for the air to read off (G1c)");
+    g.step(cold, SAFETY_HEAT);
+    CHECK(g.phys.heat2, "T2: then the furnace starts");
+  }
+  // T3: the HUMID press's safety block on the wiring's input path. Case sensor alone, finite case humidity: the law's
+  // humidity is not valid (AG1) but the press still checks the case dew point (G2).
+  {
+    const float off = running_alone_k::CASE_SENSOR_OFFSET_F;
+    const IndoorReading humid_case = select_indoor_reading(NAN, NAN, NAN, NAN, true, 75.0f + off, 90.0f);
+    CHECK(!L::law_humidity_valid(true, humid_case) && humid_case.humidity_valid, "T3 setup: case sensor alone");
+    CHECK(std::strcmp(L::humid_press_block(true, humid_case, kBand.low), "dew_margin") == 0,
+          "T3: the press refuses fog inside the case dew margin");
+    const IndoorReading dry_case = select_indoor_reading(NAN, NAN, NAN, NAN, true, 75.0f + off, 40.0f);
+    CHECK(L::humid_press_block(true, dry_case, kBand.low)[0] == '\0', "T3: a dry case reading lets the press fog");
+    const IndoorReading cold_case = select_indoor_reading(NAN, NAN, NAN, NAN, true, 60.0f + off, 40.0f);
+    CHECK(std::strcmp(L::humid_press_block(true, cold_case, kBand.low), "temp_low") == 0,
+          "T3: below the band's low edge the press is refused");
+    const IndoorReading no_rh = select_indoor_reading(NAN, NAN, NAN, NAN, true, 75.0f + off, NAN);
+    CHECK(!no_rh.humidity_valid && L::humid_press_block(true, no_rh, kBand.low)[0] == '\0',
+          "T3: with no humidity reading the dew test is skipped (G7)");
+    CHECK(L::humid_press_block(false, humid_case, kBand.low)[0] == '\0', "T3: with no temperature both tests skip");
+  }
+}
+
 int main() {
   port_equals_reference_law();
   port_equals_simulator_relay_layer();
@@ -1705,6 +1761,7 @@ int main() {
   law_fog_wet_rails();
   glue_heater_air_interlock();
   glue_drying_tail();
+  glue_review_t1_t2_t3();
   law_decision_telemetry();
   band_check();
   invariants();

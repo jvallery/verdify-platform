@@ -1976,14 +1976,15 @@ def test_manual_fog_cannot_bypass_final_fog_safety_rails():
     # its time_window test was already inert (fog_phase_permitted() returns true).
     assert (
         "const char* manual_fog_safety_block =\n"
-        "              // AG1: the press keeps the case dew point (indoor.humidity_valid, G2), not the law's\n"
-        "              // wall-only humidity validity.\n"
-        "              (law_temp_valid && indoor.humidity_valid &&\n"
-        "               Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "
-        '"dew_margin"\n'
-        '              : (law_temp_valid && Tin < law_band.low) ? "temp_low"\n'
-        '              : "";'
+        "              climate_law::humid_press_block(law_temp_valid, indoor, law_band.low);"
     ) in manual_block
+    block = _inline_fn(Path("firmware/lib/climate_law_glue.h").read_text(), "inline const char* humid_press_block(")
+    assert (
+        "if (law_temp_valid && indoor.humidity_valid && indoor.temp_f - indoor.dew_point_f < WET_DEW_MARGIN_F)"
+    ) in block
+    assert 'if (law_temp_valid && indoor.temp_f < band_low) return "temp_low";' in block
+    # AG1: the press reads indoor.humidity_valid (the case dew point), never the law's wall-only validity.
+    assert "law_humidity_valid" not in block and "indoor_reading_degraded" not in block
     assert "manual_fog_safety_block_reason(" not in controls
     # A fog run-once from the irrigation engine is a manual fog request too, and meets the same rails.
     assert "const bool manual_fog_eff    = manual_fog_latched || irr_fog_run();" in manual_block
