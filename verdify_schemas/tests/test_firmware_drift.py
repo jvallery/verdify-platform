@@ -910,36 +910,29 @@ def test_zone_choice_reads_zone_vpd_through_peer_fallback():
     mister_start, mister_end = _source_span(
         controls, "/**************** 12 — MISTER STATE MACHINE", "/**************** 14 — Telemetry & debug"
     )
-    arbiter_start, arbiter_end = _source_span(
-        controls, "auto select_arbiter_zone = [&]() -> int {", "auto select_zone_for_pulse"
-    )
     diag_start, diag_end = _source_span(
         controls, "// ── Firmware-v2 EVIDENCE SURFACE", "id(gh_zone_wet_granted).publish_state"
     )
-    assert snap_end < mister_start < arbiter_start < arbiter_end < mister_end < diag_start
+    assert snap_end < mister_start < mister_end < diag_start
     mister = controls[mister_start:mister_end]
-    arbiter = controls[arbiter_start:arbiter_end]
     diag = controls[diag_start:diag_end]
 
-    # The mister block's zone locals come from the fallback, and every
-    # zone-choice reader (stress scores, east adjacency, fairness, S2 weight)
-    # reads those locals.
+    # The mister block's zone locals come from the fallback, and zone choice
+    # (phase 3, #1671: climate_law::mister_step()) reads those locals.
     for zone in ("south", "west", "east"):
         pattern = (
             rf"float\s+{zone}_vpd\s*=\s*zone_vpd_with_fallback\(ZONE_{zone.upper()},\s*zp,\s*VPD,\s*now_ms\)\.vpd_kpa;"
         )
         assert re.search(pattern, mister), zone
-    assert "s_stress = (south_vpd - id(vpd_target_south))" in mister
-    assert "e_stress = max(0.0f, (east_vpd_val - id(vpd_target_east))" in mister
+    for zone in ("south", "west", "east"):
+        assert f"mister_in.zone_vpd[ZONE_{zone.upper()}] = {zone}_vpd;" in mister, zone
     zvpd_loop = re.compile(
         r"for\s*\(int z = 0; z < ZONE_COUNT; z\+\+\)\s*"
         r"zvpd\[z\]\s*=\s*zone_vpd_with_fallback\(ZoneId\(z\),\s*zp,\s*VPD,\s*now_ms\)\.vpd_kpa;"
     )
-    # The arbiter and the published gh_zone_wet_granted read the same values
-    # the relays use.
-    assert zvpd_loop.search(arbiter)
+    # The published gh_zone_wet_granted reads the same values the relays use.
     assert zvpd_loop.search(diag)
-    for name, block in (("mister block", mister), ("select_arbiter_zone", arbiter), ("diagnostic zvpd", diag)):
+    for name, block in (("mister block", mister), ("diagnostic zvpd", diag)):
         for raw in raw_reads:
             assert raw not in block, f"{name} reads raw {raw}; use zone_vpd_with_fallback()"
 
