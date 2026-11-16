@@ -1436,6 +1436,12 @@ async def write(
     request = {"value": _hashable(value), "manual": flag, "reason": reason}
 
     async def perform(tx: asyncpg.Connection) -> tuple[DesiredSetting, dict[str, Any]]:
+        if param in HOUSE_PARAMS:
+            # The house band lock before the setting's own lock, in the same order as the band editor's Save, so the
+            # two never deadlock; check_stored below then sees every band write committed before this one.
+            from verdify_services import band_profile
+
+            await tx.execute(band_profile.HOUSE_BAND_LOCK_SQL)
         checked, row, anchor_rows, stored = await write_in_transaction(
             tx, actor, param, value, flag, reason, expected_id
         )

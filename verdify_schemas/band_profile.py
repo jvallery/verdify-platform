@@ -294,7 +294,9 @@ def findings(anchors: Mapping[str, float]) -> list[Finding]:
         ("vpd", BAND_MIN_WIDTH_KPA, ("vpd_above_day", "vpd_above_night")),
     ):
         narrowest, at = curve_min_at(width_points(anchors, axis))
-        if narrowest < minimum - 1e-9:
+        # Half a step of margin: the controller recomputes the curve in float32 and repairs (br = 1) a band even
+        # 1e-7 narrower than its minimum, so a band exactly at the minimum is refused here.
+        if narrowest < minimum + STEP[axis] / 2.0:
             out.append(
                 Finding(
                     "band_width",

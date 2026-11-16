@@ -181,18 +181,21 @@ def test_today_s_band_and_band_2_pass_every_check(band):
 
 def test_a_band_narrower_than_the_law_s_temperature_width_is_refused():
     base = compile_profile(PROFILE)
+    one_step_wider = dict(base, band_temp_high_mid=round(base["band_temp_low_mid"] + K.BAND_MIN_WIDTH_F + 0.1, 1))
     at_minimum = dict(base, band_temp_high_mid=round(base["band_temp_low_mid"] + K.BAND_MIN_WIDTH_F, 1))
     narrower = dict(base, band_temp_high_mid=round(base["band_temp_low_mid"] + K.BAND_MIN_WIDTH_F - 0.1, 1))
-    assert errors(at_minimum) == []
-    assert errors(narrower) == [("band_width", "temp_width_night")]
+    assert errors(one_step_wider) == []
+    # Exactly at the minimum is refused: the controller's float32 curve would repair it (br = 1).
+    assert errors(at_minimum) == errors(narrower) == [("band_width", "temp_width_night")]
 
 
 def test_a_band_narrower_than_the_law_s_vpd_width_is_refused_by_day_too():
     base = compile_profile(PROFILE)
+    one_step_wider = dict(base, band_vpd_high_sm=round(base["band_vpd_low_sm"] + K.BAND_MIN_WIDTH_KPA + 0.01, 2))
     at_minimum = dict(base, band_vpd_high_sm=round(base["band_vpd_low_sm"] + K.BAND_MIN_WIDTH_KPA, 2))
     narrower = dict(base, band_vpd_high_sm=round(base["band_vpd_low_sm"] + K.BAND_MIN_WIDTH_KPA - 0.01, 2))
-    assert errors(at_minimum) == []
-    assert errors(narrower) == [("band_width", "vpd_above_day")]
+    assert errors(one_step_wider) == []
+    assert errors(at_minimum) == errors(narrower) == [("band_width", "vpd_above_day")]
 
 
 def test_the_night_floor_is_checked_on_the_drying_line_of_the_curve():
@@ -416,6 +419,12 @@ class SaveHarness:
     def __init__(self, monkeypatch):
         self.writes: list[tuple] = []
         self.logged: dict | None = None
+        self.executed: list[str] = []
+        harness = self
+
+        class Tx:
+            async def execute(self, sql, *args):
+                harness.executed.append(sql)
 
         async def current(tx):
             return dict(LIVE)
@@ -427,7 +436,7 @@ class SaveHarness:
             return checked, row, [len(self.writes)], stored_row(row["id"], param, value)
 
         async def recorded(conn, actor, *, op, action, target, request, request_id, reason, perform, load, **_):
-            value, detail = await perform(None)
+            value, detail = await perform(Tx())
             self.logged = {"op": op, "action": action, "target": target, "request": request, "detail": detail}
             ActivityLogRow(source=actor.source, actor=actor.name, action=action, target=target, detail=detail)
             return WriteResult(value=value)
@@ -460,6 +469,8 @@ def test_a_save_writes_each_changed_anchor_under_one_band_write_row(monkeypatch)
     }
     assert logged["detail"]["simple"] is False  # the VPD shoulders are still the live ones
     assert openapi_errors("BandWrite", result.value.model_dump(mode="json")) == []
+    # The house band lock comes first, so a concurrent single-anchor write cannot skew the band.
+    assert harness.executed[0] == bp.HOUSE_BAND_LOCK_SQL
 
 
 @pytest.mark.parametrize(

@@ -94,6 +94,7 @@ class FakeDB:
         self.climate_at: datetime | None = ago(seconds=60)
         self.armed: uuid.UUID | None = None
         self.locks: list[tuple] = []
+        self.band_locked = False
         self.season = "fall"
         self.desired: list[dict] = []
         self.plans: list[dict] = []
@@ -181,10 +182,16 @@ class FakeDB:
         return rows[0] if rows else None
 
     async def execute(self, sql, *args):
-        # the per-setting write lock every desired_state write takes first (#1360); only inside a transaction
-        assert sql == settings._PARAM_LOCK_SQL and self.depth > 0, sql
+        # the per-setting write lock every desired_state write takes first (#1360), and for a house band anchor the
+        # house band lock before it (#1633 package 1.6); only inside a transaction
+        assert sql in (settings._PARAM_LOCK_SQL, "SELECT pg_advisory_xact_lock(hashtext('verdify.house_band'))"), sql
+        assert self.depth > 0, sql
         self.sql.append(sql)
-        self.locks.append(args)
+        if sql == settings._PARAM_LOCK_SQL:
+            self.locks.append(args)
+        else:
+            assert not self.locks or self.band_locked, "the house band lock comes before the setting's lock"
+            self.band_locked = True
         return "SELECT 1"
 
     async def fetchval(self, sql, *args):

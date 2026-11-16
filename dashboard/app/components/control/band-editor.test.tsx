@@ -8,7 +8,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { FakeResizeObserver, MockPlot, media, setTokens } from "../../charts/fixtures/uplot-mock";
 import { OPERATOR, advance, renderWithApi, requests, startFixtureApi, stopFixtureApi, writes } from "../../lib/test-fixture-api";
 import { PREVIEW_DEBOUNCE_MS } from "../band-preview";
-import { BandEditor, draftParams, overlays } from "./band-editor";
+import type { BandProfilePreview } from "../../lib/operator-api";
+import { render } from "@testing-library/react";
+import { BandEditor, BandFacts, draftParams, overlays } from "./band-editor";
 
 vi.mock("uplot", async () => ({ default: (await import("../../charts/fixtures/uplot-mock")).MockPlot }));
 
@@ -97,4 +99,12 @@ test("the preview charts key the measured trace and the outdoor forecast", async
   await mount();
   expect(screen.getAllByText("Measured, last 24 h (after now: yesterday)").length).toBe(2);
   expect(screen.getAllByText(/Outdoor forecast/).length).toBe(2);
+});
+
+test("an API synced before the law's guardrails still shows the band facts (the web may ship first)", () => {
+  const guardrails = { temp_min_f: 40, temp_max_f: 100, margin_f: 5, vpd_min_kpa: 0.3, vpd_max_kpa: 3, night_vpd_floor_kpa: 0.74, min_width_f: null, min_width_kpa: null, dry_on_above_vpd_low_kpa: null };
+  const older = { guardrails, night_vpd_bias_kpa: null, night_heat_kwh: { current: null, draft: null }, envelope: null } as unknown as BandProfilePreview;
+  render(<BandFacts preview={older} />);
+  expect(screen.getByText(/The night VPD floor stays at least 0.74 kPa/)).toBeTruthy();
+  expect(screen.queryByText(/The control law needs/)).toBeNull();
 });
