@@ -3780,9 +3780,28 @@ assert len(ZONE_VPD_TARGET_PARAMS) == 4 and all(
 # crop-band row (the band). verdify_services.settings refuses a write or release of one from any actor but a
 # signed-in dashboard operator (``forbidden``), so MCP set_setting, the planner study runner and any agent path are
 # refused; none of them is planner-pushable, so MCP set_tunable and set_plan refuse them too.
+# Named member by member (RULINGS G9), so the set cannot grow silently: the house band (24 anchors), the zone VPD
+# curves (16 anchors, 8 widths), the legacy band rows (8, read-only), the zone priorities, the manual override
+# timeout and the drying cost limit. The assert below holds it to every crop_band row plus the limit.
+_BAND_ANCHORS = ("sr", "sm", "ss", "mid")
+_ZONES = ("center", "south", "west", "east")
 OWNER_ONLY_PARAMS: frozenset[str] = frozenset(
-    {DRY_COST_LIMIT_PARAM} | {name for name, spec in REGISTRY.items() if spec.control_class == "crop_band"}
+    {DRY_COST_LIMIT_PARAM, "manual_override_timeout_min"}
+    | {
+        f"band_{axis}_{edge}_{a}"
+        for axis in ("temp", "vpd")
+        for edge in ("low", "target", "high")
+        for a in _BAND_ANCHORS
+    }
+    | {f"zone_vpd_target_{zone}_{a}" for zone in _ZONES for a in _BAND_ANCHORS}
+    | {f"zone_vpd_width_{side}_{zone}" for side in ("below", "above") for zone in _ZONES}
+    | {f"zone_priority_{zone}" for zone in ("center", "south", "west")}
+    | {"temp_low", "temp_high", "vpd_low", "vpd_high"}
+    | {f"vpd_target_{zone}" for zone in _ZONES}
 )
+assert OWNER_ONLY_PARAMS == {DRY_COST_LIMIT_PARAM} | {
+    name for name, spec in REGISTRY.items() if spec.control_class == "crop_band"
+}, "the owner-only set and the crop_band rows differ: name the change in OWNER_ONLY_PARAMS"
 assert not OWNER_ONLY_PARAMS & PLANNER_PUSHABLE_REG, "an owner-only setting is planner-pushable"
 
 

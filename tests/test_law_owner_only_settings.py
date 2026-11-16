@@ -53,9 +53,75 @@ def test_the_row_takes_its_numbers_from_the_constants_module():
     assert setting_help(LIMIT) is not None
 
 
-def test_the_owner_only_set_is_the_limit_and_every_band_row_and_none_is_planner_pushable():
+# RULINGS G9: the owner-only set as built, member by member; a change here is a decision, not a side effect.
+OWNER_ONLY = (
+    "band_temp_high_mid",
+    "band_temp_high_sm",
+    "band_temp_high_sr",
+    "band_temp_high_ss",
+    "band_temp_low_mid",
+    "band_temp_low_sm",
+    "band_temp_low_sr",
+    "band_temp_low_ss",
+    "band_temp_target_mid",
+    "band_temp_target_sm",
+    "band_temp_target_sr",
+    "band_temp_target_ss",
+    "band_vpd_high_mid",
+    "band_vpd_high_sm",
+    "band_vpd_high_sr",
+    "band_vpd_high_ss",
+    "band_vpd_low_mid",
+    "band_vpd_low_sm",
+    "band_vpd_low_sr",
+    "band_vpd_low_ss",
+    "band_vpd_target_mid",
+    "band_vpd_target_sm",
+    "band_vpd_target_sr",
+    "band_vpd_target_ss",
+    "dry_cost_limit_kwh_per_kg",
+    "manual_override_timeout_min",
+    "temp_high",
+    "temp_low",
+    "vpd_high",
+    "vpd_low",
+    "vpd_target_center",
+    "vpd_target_east",
+    "vpd_target_south",
+    "vpd_target_west",
+    "zone_priority_center",
+    "zone_priority_south",
+    "zone_priority_west",
+    "zone_vpd_target_center_mid",
+    "zone_vpd_target_center_sm",
+    "zone_vpd_target_center_sr",
+    "zone_vpd_target_center_ss",
+    "zone_vpd_target_east_mid",
+    "zone_vpd_target_east_sm",
+    "zone_vpd_target_east_sr",
+    "zone_vpd_target_east_ss",
+    "zone_vpd_target_south_mid",
+    "zone_vpd_target_south_sm",
+    "zone_vpd_target_south_sr",
+    "zone_vpd_target_south_ss",
+    "zone_vpd_target_west_mid",
+    "zone_vpd_target_west_sm",
+    "zone_vpd_target_west_sr",
+    "zone_vpd_target_west_ss",
+    "zone_vpd_width_above_center",
+    "zone_vpd_width_above_east",
+    "zone_vpd_width_above_south",
+    "zone_vpd_width_above_west",
+    "zone_vpd_width_below_center",
+    "zone_vpd_width_below_east",
+    "zone_vpd_width_below_south",
+    "zone_vpd_width_below_west",
+)
+
+
+def test_the_owner_only_set_is_exactly_the_named_list_and_none_is_planner_pushable():
+    assert sorted(OWNER_ONLY_PARAMS) == list(OWNER_ONLY) and len(OWNER_ONLY) == 61
     band = {name for name, spec in REGISTRY.items() if spec.control_class == "crop_band"}
-    assert {"band_temp_low_sr", "band_vpd_low_mid", "zone_vpd_width_below_center"} <= band
     assert OWNER_ONLY_PARAMS == band | {LIMIT}
     assert not OWNER_ONLY_PARAMS & PLANNER_PUSHABLE_REG
 
@@ -101,6 +167,13 @@ def test_the_owner_releases_the_limit():
     db = FakeDB()
     write(db, PERSON, LIMIT, 0.5, True)
     assert release(db, PERSON, LIMIT).value.state == "released"
+
+
+def test_the_owner_releases_a_band_row():
+    db = FakeDB()
+    db.add_anchor("house", "temp_low", "sr", "all", 62.5)
+    write(db, PERSON, "band_temp_low_sr", 63.0, True)
+    assert release(db, PERSON, "band_temp_low_sr").value.state == "released"
 
 
 def test_the_preview_check_refuses_an_agent_too():

@@ -39,6 +39,7 @@ from verdify_schemas.alerts import (
     LeakDetectedAlert,
     LightingCfgThresholdDriftAlert,
     McpUnreachableAlert,
+    PayloadRejectedAlert,
     PlanContextFailedAlert,
     PlannerBandOwnershipDriftAlert,
     PlannerEvaluationMissedAlert,
@@ -405,6 +406,10 @@ CASES = {
     "planner_evaluation_missed": (
         PlannerEvaluationMissedAlert,
         {"plan_id": "iris-20260509-0551", "age_hours": 27},
+    ),
+    "payload_rejected": (
+        PayloadRejectedAlert,
+        {"entity": "climate_law_state", "since": "2026-11-16T05:00:00+00:00", "rejections": 11},
     ),
     "law_constants_mismatch": (
         LawConstantsMismatchAlert,

@@ -519,8 +519,16 @@ SELECT s.ts AS since,
               ORDER BY r.equipment) AS relays_on
   FROM (SELECT ts, value FROM system_state
          WHERE entity = 'greenhouse_state' AND ts > now() - interval '{_IRR_NEWEST_STATE_WINDOW}'
-         ORDER BY ts DESC LIMIT 1) AS s
- WHERE s.value = 'SENSOR_FAULT' AND s.ts <= now() - make_interval(secs => $1)
+         ORDER BY ts DESC LIMIT 1) AS newest
+ CROSS JOIN LATERAL (
+       -- The first SENSOR_FAULT row of the current run, so an ingestor restart (which stores the unchanged value
+       -- again) neither moves `since` nor closes and reopens the alert.
+       SELECT min(f.ts) AS ts FROM system_state f
+        WHERE f.entity = 'greenhouse_state' AND f.ts > now() - interval '{_IRR_NEWEST_STATE_WINDOW}'
+          AND f.ts > coalesce((SELECT max(o.ts) FROM system_state o
+                                WHERE o.entity = 'greenhouse_state' AND o.value <> 'SENSOR_FAULT'
+                                  AND o.ts > now() - interval '{_IRR_NEWEST_STATE_WINDOW}'), '-infinity')) AS s
+ WHERE newest.value = 'SENSOR_FAULT' AND s.ts <= now() - make_interval(secs => $1)
 """
 
 
@@ -556,11 +564,38 @@ async def _sensor_fault_alert(conn) -> dict | None:
 # The constants compiled into the controller (climate_law_constants, phase 3 firmware, published hourly and stored on
 # change) against the host's own (verdify_schemas.climate_law_constants.CONSTANTS_SHA256): an info alert while they
 # differ. A build before the law publishes nothing, so there is no row and no alert.
-_LAW_CONSTANTS_SQL = f"""
+# The hash is stored on every receipt (hourly), so a row older than 2 hours belongs to a build no longer running.
+_LAW_CONSTANTS_SQL = """
 SELECT value, ts FROM system_state
- WHERE entity = 'climate_law_constants' AND ts > now() - interval '{_IRR_NEWEST_STATE_WINDOW}'
+ WHERE entity = 'climate_law_constants' AND ts > now() - interval '2 hours'
  ORDER BY ts DESC LIMIT 1
 """
+
+
+PAYLOAD_REJECTED_ALERT_AFTER_S = 600
+
+
+def _payload_rejected_alerts(rejected: Mapping[str, tuple[datetime, int]], now: datetime) -> list[dict]:
+    """One payload_rejected warning per controller payload rejected on every receipt for 10 minutes or more."""
+    out = []
+    for entity, (since, count) in sorted(rejected.items()):
+        if (now - since).total_seconds() < PAYLOAD_REJECTED_ALERT_AFTER_S:
+            continue
+        out.append(
+            {
+                "alert_type": "payload_rejected",
+                "severity": "warning",
+                "category": "system",
+                "sensor_id": f"system.{entity}",
+                "zone": None,
+                "message": f"The controller's {entity} payload fails its contract ({count} receipts since "
+                f"{since:%H:%M} UTC): nothing of it is stored",
+                "details": {"entity": entity, "since": since.isoformat(), "rejections": count},
+                "metric_value": float(count),
+                "threshold_value": None,
+            }
+        )
+    return out
 
 
 async def _law_constants_alert(conn, expected: str) -> dict | None:
@@ -1695,6 +1730,7 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         mismatch = await _law_constants_alert(conn, LAW_CONSTANTS_SHA256)
         if mismatch is not None:
             alerts.append(mismatch)
+        alerts.extend(_payload_rejected_alerts(dict(shared.payload_rejected_since), datetime.now(UTC)))
 
         # 4b. VPD extreme
         vpd_row = await conn.fetchrow(

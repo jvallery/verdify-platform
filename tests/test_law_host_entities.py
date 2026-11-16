@@ -14,7 +14,8 @@ import asyncio
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -57,6 +58,7 @@ def isolated_state(monkeypatch):
     monkeypatch.setattr(ingestor.state, "pending_states", [])
     monkeypatch.setattr(ingestor.state, "key_to_object_id", {})
     monkeypatch.setattr(ingestor.state, "key_to_type", {})
+    monkeypatch.setattr(ingestor.shared, "payload_rejected_since", {})
 
 
 def observe(object_id, value):
@@ -183,6 +185,8 @@ NAMES = {
     "_sensor_fault_alert",
     "_LAW_CONSTANTS_SQL",
     "_law_constants_alert",
+    "PAYLOAD_REJECTED_ALERT_AFTER_S",
+    "_payload_rejected_alerts",
 }
 
 
@@ -191,11 +195,11 @@ def _alert_fn():
     body = [
         node
         for node in source.body
-        if (isinstance(node, ast.AsyncFunctionDef) and node.name in NAMES)
+        if (isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)) and node.name in NAMES)
         or (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in NAMES for t in node.targets))
     ]
     assert len(body) == len(NAMES)
-    ns: dict = {}
+    ns: dict = {"Mapping": Mapping, "datetime": datetime}
     exec(compile(ast.Module(body=body, type_ignores=[]), "owning-sensor-fault", "exec"), ns)  # noqa: S102
     return ns
 
@@ -251,3 +255,41 @@ def test_outdoor_source_is_stored_on_every_receipt_so_its_age_is_known():
     for _ in range(2):
         observe("outdoor_source", "station")
     assert ingestor.state.pending_states == [("outdoor_source", "station")] * 2
+
+
+def test_the_sensor_fault_run_starts_at_its_first_row_so_a_restart_does_not_reopen_it():
+    sql = _alert_fn()["_SENSOR_FAULT_SQL"]
+    assert "min(f.ts)" in sql and "o.value <> 'SENSOR_FAULT'" in sql
+    assert "newest.value = 'SENSOR_FAULT' AND s.ts <= now() - make_interval(secs => $1)" in sql
+
+
+def test_the_constants_hash_is_stored_on_every_receipt_and_read_only_while_recent():
+    for _ in range(2):
+        observe("climate_law_constants", "a" * 64)
+    assert ingestor.state.pending_states == [("climate_law_constants", "a" * 64)] * 2
+    assert "interval '2 hours'" in _alert_fn()["_LAW_CONSTANTS_SQL"]
+
+
+def test_a_payload_rejected_for_ten_minutes_opens_a_warning_and_an_accepted_one_clears_it(caplog):
+    with caplog.at_level("DEBUG", logger=ingestor.log.name):
+        for _ in range(3):
+            observe("climate_law_state", '{"v":1,"l":"nan"}')
+    assert ingestor.state.pending_states == []
+    assert [r.levelname for r in caplog.records if "payload rejected" in r.getMessage()] == [
+        "WARNING",
+        "DEBUG",
+        "DEBUG",
+    ]
+    since, count = ingestor.shared.payload_rejected_since["climate_law_state"]
+    assert count == 3
+    alerts = _alert_fn()["_payload_rejected_alerts"]
+    assert alerts(ingestor.shared.payload_rejected_since, since + timedelta(seconds=599)) == []
+    (alert,) = alerts(ingestor.shared.payload_rejected_since, since + timedelta(seconds=600))
+    assert (alert["alert_type"], alert["severity"], alert["details"]["rejections"]) == (
+        "payload_rejected",
+        "warning",
+        3,
+    )
+    assert AlertEnvelope.model_validate(alert).alert_type == "payload_rejected"
+    observe("climate_law_state", json.dumps(LAW_STATE))
+    assert "climate_law_state" not in ingestor.shared.payload_rejected_since

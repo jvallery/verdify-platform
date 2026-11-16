@@ -74,6 +74,9 @@ class FakeTransaction:
         self.db = db
 
     async def __aenter__(self):
+        if self.db.depth == 0:
+            self.db.tx_locks = 0
+            self.db.band_locked = False
         self.db.depth += 1
         self.saved = copy.deepcopy(self.db.state())
         return self
@@ -95,6 +98,7 @@ class FakeDB:
         self.armed: uuid.UUID | None = None
         self.locks: list[tuple] = []
         self.band_locked = False
+        self.tx_locks = 0
         self.season = "fall"
         self.desired: list[dict] = []
         self.plans: list[dict] = []
@@ -189,8 +193,9 @@ class FakeDB:
         self.sql.append(sql)
         if sql == settings._PARAM_LOCK_SQL:
             self.locks.append(args)
+            self.tx_locks += 1
         else:
-            assert not self.locks or self.band_locked, "the house band lock comes before the setting's lock"
+            assert not self.tx_locks or self.band_locked, "the house band lock comes before the setting's lock"
             self.band_locked = True
         return "SELECT 1"
 

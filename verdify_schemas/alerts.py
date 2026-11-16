@@ -67,6 +67,7 @@ AlertType = Literal[
     "irrigation_feedback_gap",
     "law_constants_mismatch",
     "leak_detected",
+    "payload_rejected",
     "lighting_cfg_threshold_drift",
     "climate_action_proof_stale",
     "component_experiment_integrity",
@@ -124,6 +125,7 @@ ALERT_TYPES: tuple[str, ...] = (
     "irrigation_feedback_gap",
     "law_constants_mismatch",
     "leak_detected",
+    "payload_rejected",
     "lighting_cfg_threshold_drift",
     "climate_action_proof_stale",
     "component_experiment_integrity",
@@ -683,6 +685,22 @@ class TempSafetyAlert(_AlertBase):
     details: TempSafetyDetails
 
 
+class PayloadRejectedDetails(_DetailsBase):
+    """A versioned JSON payload from the controller (``relay_counters``, ``climate_law_state``,
+    ``climate_drying_meter``, ``climate_law_constants``) has failed its contract on every receipt since ``since``,
+    so nothing of it is stored; ``rejections`` counts them. A law build whose state record is rejected reads as
+    "law not running"."""
+
+    entity: str
+    since: AwareDatetime
+    rejections: int = Field(ge=1)
+
+
+class PayloadRejectedAlert(_AlertBase):
+    alert_type: Literal["payload_rejected"]
+    details: PayloadRejectedDetails
+
+
 class LawConstantsMismatchAlert(_AlertBase):
     alert_type: Literal["law_constants_mismatch"]
     details: LawConstantsMismatchDetails
@@ -1039,6 +1057,7 @@ AlertEnvelopeUnion = Annotated[
     | HouseBandDriftAlert
     | IrrigationFeedbackGapAlert
     | LawConstantsMismatchAlert
+    | PayloadRejectedAlert
     | LeakDetectedAlert
     | LightingCfgThresholdDriftAlert
     | ClimateActionProofStaleAlert
