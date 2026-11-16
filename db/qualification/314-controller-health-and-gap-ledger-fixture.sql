@@ -102,9 +102,48 @@ BEGIN
 END $dashboard$;
 RESET SESSION AUTHORIZATION;
 
+-- AF4 (lane DATA): the ingestor duty reads the daily record, SELECT only.
+DO $af4$
+BEGIN
+    IF NOT (has_table_privilege('verdify_ingestor_runtime', 'public.daily_record', 'SELECT')
+       AND has_table_privilege('verdify_ingestor_runtime', 'public.daily_relay_record', 'SELECT')
+       AND NOT has_table_privilege('verdify_ingestor_runtime', 'public.daily_record', 'INSERT,UPDATE,DELETE,TRUNCATE')
+       AND NOT has_table_privilege('verdify_ingestor_runtime', 'public.daily_relay_record', 'INSERT,UPDATE,DELETE,TRUNCATE')
+       AND has_table_privilege('verdify_ingestor_runtime_login', 'public.daily_record', 'SELECT')) THEN
+        RAISE EXCEPTION '314 AF4 daily record grant is not SELECT only for the ingestor duty';
+    END IF;
+END $af4$;
+
+-- AF10 (lane DATA): definition, security and ACL as 310 made them, three recent days.
+DO $af10$
+BEGIN
+    IF NOT (SELECT p.prosecdef
+           AND p.proconfig = ARRAY['search_path=pg_catalog, public, pg_temp']
+           AND pg_get_functiondef(p.oid) LIKE '%(VALUES (v_today), (v_today - 1), (v_today - 2))%'
+           AND pg_get_functiondef(p.oid) LIKE '%v_today - 3, interval ''1 day''%'
+           AND p.proowner = (SELECT proowner FROM pg_proc WHERE oid = 'public.fn_daily_record_store(date)'::regprocedure)
+           AND NOT has_function_privilege('public', p.oid, 'EXECUTE')
+           AND has_function_privilege('verdify_matview_refresh_runtime', p.oid, 'EXECUTE')
+          FROM pg_proc p
+         WHERE p.oid = 'verdify_matview_refresh_runtime.fn_refresh_daily_record()'::regprocedure) THEN
+        RAISE EXCEPTION '314 AF10 fn_refresh_daily_record is not the three-day definition with 310''s security';
+    END IF;
+END $af10$;
+
+-- AF11 (lane MONITORING): the two change-only registry rows are inactive.
+DO $af11$
+BEGIN
+    IF (SELECT count(*) FROM public.sensor_registry
+         WHERE sensor_id IN ('state.lead_fan', 'equipment.sntp_status') AND NOT active) <> 2 THEN
+        RAISE EXCEPTION '314 AF11 change-only sensor_registry rows are still active';
+    END IF;
+END $af11$;
+
 SELECT 'QUALIFY native_fixture ' || json_build_object(
     'checks', json_build_array('nine_diagnostics_columns_typed', 'ingestor_inserts_the_nine_through_the_facade',
                                'ingestor_reads_and_inserts_the_ledger_only', 'api_mcp_and_public_denied',
                                'ingestor_login_writes_health_row', 'one_ledger_row_per_quarter',
-                               'placed_quarter_needs_records', 'dashboard_reads_gaps_without_replayed_minutes'),
+                               'placed_quarter_needs_records', 'dashboard_reads_gaps_without_replayed_minutes',
+                               'af4_ingestor_reads_daily_record_only', 'af10_refresh_stores_three_days',
+                               'af11_change_only_rows_inactive'),
     'all_passed', true)::text;

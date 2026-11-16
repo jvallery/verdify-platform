@@ -478,7 +478,7 @@ SUCCESSOR_313_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c12
 # grants move its seal; the api and MCP seals are measured again. PENDING native qualification: the literals are 313's
 # until the probe measures them. It follows 313.
 SUCCESSOR_314 = "314-controller-health-and-gap-ledger.sql"
-SUCCESSOR_314_SHA256 = "da33ed73d8cb9c231bdc8b1321e02ea00aff6c50e04d60e40eb515a77e80492f"
+SUCCESSOR_314_SHA256 = "f116d5a51cddbf76c2dbeb5eded41b0964e186c433217cf8bd1dcf38e11c0849"
 SUCCESSOR_314_DIGESTS = {
     "verdify_api_runtime_login": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
     "verdify_ingestor_runtime_login": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",

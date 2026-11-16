@@ -1171,7 +1171,7 @@ def sealed_sql_313():
 CONTROLLER_HEALTH_GAP_LEDGER_MIGRATION = (
     314,
     "314-controller-health-and-gap-ledger.sql",
-    "da33ed73d8cb9c231bdc8b1321e02ea00aff6c50e04d60e40eb515a77e80492f",
+    "f116d5a51cddbf76c2dbeb5eded41b0964e186c433217cf8bd1dcf38e11c0849",
 )
 # The controller health columns and the gap-replay ledger (#1633, host release 3; RULINGS AE1, AE3, AE8): nine
 # nullable diagnostics columns appended to the ingestor's write facade with INSERT for the ingestor duty, and

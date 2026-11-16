@@ -162,8 +162,25 @@ def test_body_grants_exactly_the_ingestor_duty():
         f"GRANT SELECT ON public.gap_replay_quarters TO {ING_DUTY};",
         f"GRANT INSERT ({LEDGER_INSERT}) ON public.gap_replay_quarters TO {ING_DUTY};",
         "GRANT SELECT ON public.v_data_gaps_unreplayed TO verdify_dashboard_runtime;",
+        # Lane DATA (RULINGS AF4, AF10): the daily record read, and 310's refresh ACL restated.
+        "GRANT SELECT ON public.daily_relay_record, public.daily_record TO verdify_ingestor_runtime;",
+        "GRANT EXECUTE ON FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() "
+        "TO verdify_matview_refresh_runtime;",
     ]
-    assert not re.search(r"\bTO PUBLIC\b|DEFAULT PRIVILEGES|\bOWNER TO\b|\bDROP\b|\bTRUNCATE\b|\bREVOKE\b", BODY)
+    revokes = [flat(r) for r in re.findall(r"\bREVOKE\b.*?;", BODY, re.S)]
+    assert revokes == ["REVOKE ALL ON FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() FROM PUBLIC;"]
+    assert not re.search(r"\bTO PUBLIC\b|DEFAULT PRIVILEGES|\bOWNER TO\b|\bDROP\b|\bTRUNCATE\b", BODY)
+
+
+def test_body_carries_the_data_and_monitoring_parts():
+    """RULINGS AF10 (three recent days) and AF11 (two change-only registry rows inactive)."""
+    assert "(VALUES (v_today), (v_today - 1), (v_today - 2))" in BODY
+    assert "generate_series(DATE '2026-10-17', v_today - 3, interval '1 day')" in BODY
+    assert "SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp" in BODY
+    assert flat(
+        "UPDATE public.sensor_registry SET active = false WHERE sensor_id IN ('state.lead_fan', "
+        "'equipment.sntp_status') AND active;"
+    ) in flat(BODY)
     # climate and equipment_state are unchanged (RULINGS AE8): no index, no column, no grant.
     for kept in ("public.climate", "public.equipment_state", "CREATE INDEX", "CREATE UNIQUE INDEX"):
         assert kept not in BODY, kept

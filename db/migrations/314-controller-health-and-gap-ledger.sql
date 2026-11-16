@@ -13,6 +13,10 @@
 -- v_data_gaps_unreplayed is data_gaps with the ledger's replayed spans cut out (a gap fully replayed has no row, a
 -- partly replayed one keeps its unreplayed pieces), so a reader of outages does not show replayed minutes as a gap
 -- and the ingestor needs no UPDATE on data_gaps. The dashboard duty reads it (series.py), as 308 granted its views.
+-- Lane DATA (contracts h3-314-data-additions, RULINGS AF4, AF10): the ingestor duty reads daily_record and
+-- daily_relay_record (daily_summary takes therms, starts and run time from them), and fn_refresh_daily_record stores
+-- today, yesterday and the day before on every run. Lane MONITORING (contracts h3-health-columns section 7, AF11):
+-- the two change-only sensor_registry rows state.lead_fan and equipment.sntp_status go inactive.
 -- Seals: the ingestor duty's new facade columns and its ledger grants move the ingestor seal; the api and MCP seals
 -- are re-measured too (both read diagnostics). The successor literals are measured by the rolled-back native
 -- qualification (tests/fixtures/314-controller-health-and-gap-ledger-native-qualification.json); until then the file
@@ -25,14 +29,14 @@ BEGIN
     IF current_user <> 'verdify'
         OR NOT EXISTS(SELECT 1 FROM public.schema_migrations WHERE source='db/migrations'
             AND seq=313 AND filename='db/migrations/313-planner-review.sql'
-            AND sha256='415691b042963a5621ead41b8ee887061dffb806ab8795d831b0edc68130a507'
+            AND sha256='933d856e07503d36115b744eea09b4208e688ad2bbec06f48692e2a850d58e0b'
             AND stamp_method='runner')
         OR EXISTS(SELECT 1 FROM public.schema_migrations WHERE source='db/migrations' AND seq>313)
         OR (SELECT count(*) FROM public.runtime_ordinary_login_attestation_receipts)<>2
         OR (SELECT count(*) FROM public.mcp_runtime_boundary_receipt)<>1
-        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM 'f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e'
-        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM '41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443'
-        OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM '16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22'
+        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM '4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820'
+        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM 'ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f'
+        OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM '5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc'
         OR EXISTS(SELECT 1 FROM public.runtime_ordinary_login_attestation_receipts r
             WHERE r.boundary_sha256 IS DISTINCT FROM public.fn_runtime_ordinary_boundary_digest(r.login_name))
         OR NOT EXISTS(SELECT 1 FROM public.mcp_runtime_boundary_receipt WHERE singleton
@@ -46,6 +50,11 @@ BEGIN
             IS DISTINCT FROM ARRAY['security_barrier=true','security_invoker=false']
         OR to_regclass('public.gap_replay_quarters') IS NOT NULL
         OR to_regclass('public.v_data_gaps_unreplayed') IS NOT NULL
+        OR to_regclass('public.daily_record') IS NULL OR to_regclass('public.daily_relay_record') IS NULL
+        OR has_table_privilege('verdify_ingestor_runtime', 'public.daily_record', 'SELECT')
+        OR to_regprocedure('verdify_matview_refresh_runtime.fn_refresh_daily_record()') IS NULL
+        OR (SELECT count(*) FROM public.sensor_registry
+             WHERE sensor_id IN ('state.lead_fan', 'equipment.sntp_status')) <> 2
         OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='verdify_dashboard_runtime' AND NOT rolcanlogin)
         OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='verdify_ingestor_runtime' AND NOT rolcanlogin)
     THEN RAISE EXCEPTION '314 refuses an unqualified predecessor'; END IF;
@@ -161,19 +170,59 @@ COMMENT ON VIEW public.v_data_gaps_unreplayed IS
     'per remaining piece of a gap, with the gap''s id and reason. Read this, not data_gaps, to show outages.';
 GRANT SELECT ON public.v_data_gaps_unreplayed TO verdify_dashboard_runtime;
 
+-- AF4 (lane DATA): the daily summary reads the daily record. SELECT only, to the group role.
+GRANT SELECT ON public.daily_relay_record, public.daily_record TO verdify_ingestor_runtime;
+
+-- AF10 (lane DATA): 310's refresh with (v_today - 2) added and the missing-day scan starting at v_today - 3.
+CREATE OR REPLACE FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() RETURNS integer
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $refresh$
+ DECLARE
+  v_today date := (now() AT TIME ZONE 'America/Denver')::date;
+  v_day date;
+  v_refreshed integer := 0;
+ BEGIN
+  IF session_user <> 'verdify_matview_refresh_runtime_login' THEN
+   RAISE EXCEPTION 'refresh caller outside duty' USING ERRCODE='42501';
+  END IF;
+  -- Today, yesterday and the day before every run (RULINGS AF10): a gap replay that lands just after local
+  -- midnight is stored again; then the newest 3 days back to 2026-10-17 that have no row. A day that fails is
+  -- skipped with a warning, so one bad day never stops the rest.
+  FOR v_day IN
+   SELECT recent.d FROM (VALUES (v_today), (v_today - 1), (v_today - 2)) AS recent(d)
+   UNION ALL
+   (SELECT missing.d::date FROM generate_series(DATE '2026-10-17', v_today - 3, interval '1 day') AS missing(d)
+     WHERE NOT EXISTS (SELECT 1 FROM public.daily_record r WHERE r.date = missing.d::date)
+     ORDER BY missing.d DESC LIMIT 3)
+  LOOP
+   BEGIN
+    PERFORM public.fn_daily_record_store(v_day);
+    v_refreshed := v_refreshed + 1;
+   EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'daily record % not stored: %', v_day, SQLERRM;
+   END;
+  END LOOP;
+  RETURN v_refreshed;
+ END $refresh$;
+REVOKE ALL ON FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() TO verdify_matview_refresh_runtime;
+
+-- AF11 (lane MONITORING): change-only entities are not judged stale; the lead fan is watched as a metric.
+UPDATE public.sensor_registry SET active = false
+ WHERE sensor_id IN ('state.lead_fan', 'equipment.sntp_status') AND active;
+
 -- Successor seals: the probe of the rolled-back native qualification measures them, and each receipt is re-sealed.
 -- PENDING: the literals below are 313's until the probe measures them, so an unqualified file stops here.
 DO $successor$
 BEGIN
-    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM 'f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e'
-        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM '41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443'
-        OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM '16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22'
+    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM '4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820'
+        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM 'ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f'
+        OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM '5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc'
     THEN RAISE EXCEPTION '314 refuses an unqualified successor'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '314 missing api receipt'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '314 missing ingestor receipt'; END IF;
-    UPDATE public.mcp_runtime_boundary_receipt SET boundary_sha256=decode('16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22','hex') WHERE singleton;
+    UPDATE public.mcp_runtime_boundary_receipt SET boundary_sha256=decode('5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc','hex') WHERE singleton;
     IF NOT FOUND THEN RAISE EXCEPTION '314 missing mcp receipt'; END IF;
     IF EXISTS(SELECT 1 FROM public.runtime_ordinary_login_attestation_receipts r
             WHERE r.boundary_sha256 IS DISTINCT FROM public.fn_runtime_ordinary_boundary_digest(r.login_name))
