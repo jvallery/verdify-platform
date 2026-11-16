@@ -147,10 +147,11 @@ MCP_UNREACHABLE_SENSOR = "system.mcp"
 
 
 def mcp_unreachable_alert(url: str, streak: int) -> dict:
-    """The mcp_unreachable alert_log payload (#1352): critical, so it pages through Alertmanager."""
+    """The mcp_unreachable alert_log payload (#1352). A warning since H3 (RULINGS Q4): MCP serves only the daily review
+    and the irrigation tools, and daily_review_missed is the signal that matters."""
     return {
         "alert_type": "mcp_unreachable",
-        "severity": "critical",
+        "severity": "warning",
         "category": "system",
         "sensor_id": MCP_UNREACHABLE_SENSOR,
         "zone": None,

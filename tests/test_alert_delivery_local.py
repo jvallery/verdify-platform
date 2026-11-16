@@ -2,7 +2,7 @@
 
 - No runtime sender is left: no code posts to chat.postMessage, and the ingestor no longer imports the Slack config
   or the operator-brief, policy and runbook helpers.
-- The two former Slack-only pages are alert_log rows: ``mcp_unreachable`` (planning heartbeat, critical, opened once
+- The two former Slack-only pages are alert_log rows: ``mcp_unreachable`` (planning heartbeat, warning since H3, opened once
   per outage and auto-resolved) and ``forecast_action_alert`` (forecast-action engine, warning). Both validate as
   ``AlertEnvelope`` and are written with a source other than ``system``, so the alert monitor never auto-resolves
   them as its own.
@@ -86,13 +86,13 @@ class Recorder:
         return "OK"
 
 
-def test_mcp_unreachable_is_a_critical_alert_log_row_opened_once_per_outage():
+def test_mcp_unreachable_is_a_warning_alert_log_row_opened_once_per_outage():
     ns = heartbeat_functions()
     payload = ns["mcp_unreachable_alert"]("http://verdify-mcp:8000/mcp", 3)
     env = AlertEnvelope.model_validate(payload)
     assert (env.alert_type, env.severity, env.category, env.sensor_id) == (
         "mcp_unreachable",
-        "critical",
+        "warning",  # RULINGS Q4: demoted at H3; daily_review_missed is the signal
         "system",
         "system.mcp",
     )

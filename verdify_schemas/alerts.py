@@ -71,6 +71,15 @@ AlertType = Literal[
     "daily_record_missing",
     "house_temp_band_drift",
     "relay_starts_high",
+    "reviewer_wrote_climate",
+    "law_state_stale",
+    "wetting_below_vpd_band",
+    "drying_meter_fault",
+    "relay_counters_backstep",
+    "utility_out_of_baseline",
+    "drying_refused_all_day",
+    "probes_disagree",
+    "owner_value_changed",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
@@ -140,6 +149,15 @@ ALERT_TYPES: tuple[str, ...] = (
     "daily_record_missing",
     "house_temp_band_drift",
     "relay_starts_high",
+    "reviewer_wrote_climate",
+    "law_state_stale",
+    "wetting_below_vpd_band",
+    "drying_meter_fault",
+    "relay_counters_backstep",
+    "utility_out_of_baseline",
+    "drying_refused_all_day",
+    "probes_disagree",
+    "owner_value_changed",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
@@ -841,6 +859,114 @@ class RelayStartsHighAlert(_AlertBase):
     details: RelayStartsHighDetails
 
 
+# ── Alert coverage, host release 3 (contracts/alert-coverage.md; RULINGS Q4) ──
+
+
+class ReviewerWroteClimateDetails(_DetailsBase):
+    # CRITICAL: setpoint_changes rows with source 'plan' or 'iris' after the H3 cutover (312's ledger time + 10 min).
+    rows: int = Field(..., ge=1)
+    sources: list[Literal["plan", "iris"]] = Field(..., min_length=1)
+    parameters: list[str]
+    newest: str
+    cutover: str
+
+
+class LawStateStaleDetails(_DetailsBase):
+    # No climate_law_state row for ``age_s`` while the controller is connected and past its boot grace.
+    age_s: float = Field(..., ge=0)
+    uptime_s: float = Field(..., ge=0)
+
+
+class WettingBelowVpdBandDetails(_DetailsBase):
+    # Fog or misters ON for 5 min while every house VPD reading of those 5 min is below the band's low edge.
+    relays: list[str] = Field(..., min_length=1)
+    vpd_max: float
+    vpd_low: float
+
+
+class DryingMeterFaultDetails(_DetailsBase):
+    # Counters that fell with no restart ({key: [before, after]}), or seconds a drying run went without ``s`` growing.
+    backsteps: dict[str, list[float]]
+    stalled_s: float | None = None
+
+
+class RelayCountersBackstepDetails(_DetailsBase):
+    # relay_counters keys that fell between consecutive rows with no restart between them.
+    backsteps: dict[str, list[float]] = Field(..., min_length=1)
+
+
+class UtilityOutOfBaselineDetails(_DetailsBase):
+    # Yesterday's daily_record above 1.5 x the 30-day p95 ({utility: [value, limit]}), or meter coverage below 70 %.
+    day: str
+    over: dict[Literal["electric_kwh", "gas_therm", "water_gal"], list[float]]
+    meter_coverage_pct: float | None = None
+
+
+class DryingRefusedAllDayDetails(_DetailsBase):
+    # Every wanted-drying climate_law_state record of yesterday refused for cost (at least 60 records).
+    day: str
+    wanted: int = Field(..., ge=0)
+    cost: int = Field(..., ge=0)
+
+
+class ProbesDisagreeDetails(_DetailsBase):
+    # 90 % of the last 30 minutes' rows: wall probe spread above 6 F or a probe more than 4 F off the median.
+    rows: int = Field(..., ge=0)
+    disagreeing: int = Field(..., ge=0)
+    max_spread_f: float
+    off_median: list[str]
+
+
+class OwnerValueChangedDetails(_DetailsBase):
+    # {parameter: [held, reads]}: an owner-held (manual) value the controller confirmed now reads otherwise for 15 min.
+    changed: dict[str, list[float]] = Field(..., min_length=1)
+
+
+class ReviewerWroteClimateAlert(_AlertBase):
+    alert_type: Literal["reviewer_wrote_climate"]
+    details: ReviewerWroteClimateDetails
+
+
+class LawStateStaleAlert(_AlertBase):
+    alert_type: Literal["law_state_stale"]
+    details: LawStateStaleDetails
+
+
+class WettingBelowVpdBandAlert(_AlertBase):
+    alert_type: Literal["wetting_below_vpd_band"]
+    details: WettingBelowVpdBandDetails
+
+
+class DryingMeterFaultAlert(_AlertBase):
+    alert_type: Literal["drying_meter_fault"]
+    details: DryingMeterFaultDetails
+
+
+class RelayCountersBackstepAlert(_AlertBase):
+    alert_type: Literal["relay_counters_backstep"]
+    details: RelayCountersBackstepDetails
+
+
+class UtilityOutOfBaselineAlert(_AlertBase):
+    alert_type: Literal["utility_out_of_baseline"]
+    details: UtilityOutOfBaselineDetails
+
+
+class DryingRefusedAllDayAlert(_AlertBase):
+    alert_type: Literal["drying_refused_all_day"]
+    details: DryingRefusedAllDayDetails
+
+
+class ProbesDisagreeAlert(_AlertBase):
+    alert_type: Literal["probes_disagree"]
+    details: ProbesDisagreeDetails
+
+
+class OwnerValueChangedAlert(_AlertBase):
+    alert_type: Literal["owner_value_changed"]
+    details: OwnerValueChangedDetails
+
+
 class LawConstantsMismatchAlert(_AlertBase):
     alert_type: Literal["law_constants_mismatch"]
     details: LawConstantsMismatchDetails
@@ -1222,6 +1348,15 @@ AlertEnvelopeUnion = Annotated[
     | DailyRecordMissingAlert
     | HouseTempBandDriftAlert
     | RelayStartsHighAlert
+    | ReviewerWroteClimateAlert
+    | LawStateStaleAlert
+    | WettingBelowVpdBandAlert
+    | DryingMeterFaultAlert
+    | RelayCountersBackstepAlert
+    | UtilityOutOfBaselineAlert
+    | DryingRefusedAllDayAlert
+    | ProbesDisagreeAlert
+    | OwnerValueChangedAlert
     | LeakDetectedAlert
     | LightingCfgThresholdDriftAlert
     | ClimateActionProofStaleAlert
