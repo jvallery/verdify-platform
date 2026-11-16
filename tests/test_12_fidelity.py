@@ -352,8 +352,9 @@ def test_api_setpoint_fallback_uses_computed_band_not_planner_band_rows():
     assert "SELECT * FROM" not in body
     assert "planner_band" not in body
     assert "params[param] = _round_half_up(band_val, precision)" in body
-    assert "params[param] = value" in body
-    assert "if param not in plan_params" in body
+    # Climate refactor 4.2 (review M3): no plan is overlaid; lighting and direct-wet values always apply.
+    assert "v_active_plan" not in body and "plan_params" not in body
+    assert "params.update(lighting_values)" in body
 
 
 def test_setpoint_server_controls_real_lutron_switch_entities_and_confirms_state():
