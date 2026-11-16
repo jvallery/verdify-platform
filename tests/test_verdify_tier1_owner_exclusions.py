@@ -52,3 +52,18 @@ def test_product_and_unknown_single_label_hosts_keep_forwarding():
             "a.b.verdify.ai",
         )
     )
+
+
+def test_public_product_hosts_carry_shared_hsts_baseline():
+    """network-infra#1104: HSTS baseline on api/lab/labs/mcp, not on graphs."""
+    routes = yaml.safe_load(SOURCE.read_text())["spec"]["routes"]
+    hardened = routes[1]
+    assert set(re.findall(r"Host\(`([^`]+)`\)", hardened["match"])) == {
+        name + ".verdify.ai" for name in ("api", "lab", "labs", "mcp")
+    }
+    assert hardened["priority"] > routes[0]["priority"]
+    assert hardened["middlewares"][0] == {"name": "baseline-headers-app-csp", "namespace": "network-infra"}
+    assert hardened["services"] == routes[0]["services"]
+    # graphs panels are iframed cross-origin by lab; SAMEORIGIN would break them.
+    assert "graphs.verdify.ai" not in hardened["match"]
+    assert "middlewares" not in routes[0]

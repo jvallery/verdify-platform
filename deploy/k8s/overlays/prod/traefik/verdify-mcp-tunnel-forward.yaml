@@ -13,6 +13,10 @@ spec:
   routes:
     - kind: Rule
       match: Host(`mcp.verdify.ai`) && PathPrefix(`/mcp`)
+      middlewares:
+        # HSTS + nosniff + frame/referrer baseline (network-infra#1104).
+        - name: baseline-headers-app-csp
+          namespace: network-infra
       services:
         - name: verdify-traefik
           port: 81

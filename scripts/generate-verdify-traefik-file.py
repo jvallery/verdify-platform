@@ -24,6 +24,36 @@ TRUSTED_MCP_SPEC = {
         }
     ],
 }
+# network-infra#1104: the api twin keys its budgets on Cf-Connecting-Ip, which
+# is trustworthy only on this isolated listener.
+TRUSTED_API_ROUTE = "verdify-t2-api-tunnel"
+TRUSTED_API_SPEC = {
+    "entryPoints": ["verdify-tunnel"],
+    "routes": [
+        {
+            "kind": "Rule",
+            "match": "Host(`api.verdify.ai`) && PathPrefix(`/api/v1/public/cameras/`)",
+            "priority": 100,
+            "middlewares": [
+                {"name": "verdify-strip-identity-headers"},
+                {"name": "verdify-camera-rate-limit-tunnel"},
+                {"name": "verdify-api-inflight"},
+            ],
+            "services": [{"name": "verdify-api", "port": 8080}],
+        },
+        {
+            "kind": "Rule",
+            "match": "Host(`api.verdify.ai`)",
+            "middlewares": [
+                {"name": "verdify-strip-identity-headers"},
+                {"name": "verdify-api-rate-limit-tunnel"},
+                {"name": "verdify-api-inflight"},
+            ],
+            "services": [{"name": "verdify-api", "port": 8080}],
+        },
+    ],
+}
+TRUSTED_TUNNEL_SPECS = {TRUSTED_MCP_ROUTE: TRUSTED_MCP_SPEC, TRUSTED_API_ROUTE: TRUSTED_API_SPEC}
 
 
 def compile_routes(documents: list[dict]) -> dict:
@@ -53,9 +83,10 @@ def compile_routes(documents: list[dict]) -> dict:
             raise ValueError("route outside the Verdify HTTP boundary")
         # The isolated listener carries canonical Cloudflare provenance. Never
         # expand it to another host, path, backend or middleware implicitly.
-        if metadata["name"] == TRUSTED_MCP_ROUTE:
-            if spec != TRUSTED_MCP_SPEC:
-                raise ValueError("trusted MCP route contract changed")
+        if metadata["name"] in TRUSTED_TUNNEL_SPECS:
+            if spec != TRUSTED_TUNNEL_SPECS[metadata["name"]]:
+                label = "MCP" if metadata["name"] == TRUSTED_MCP_ROUTE else "API"
+                raise ValueError(f"trusted {label} route contract changed")
         elif spec.get("entryPoints") != ["verdify-web"]:
             raise ValueError("route outside the Verdify HTTP boundary")
         if set(spec) - {"entryPoints", "routes"}:

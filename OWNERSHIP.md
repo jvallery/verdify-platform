@@ -99,14 +99,15 @@ DNS, the Cloudflare tunnel and `traefik-apps` are owned by jvallery/network-infr
 
 | Route (namespace) | Hosts | Backend |
 |---|---|---|
-| `verdify-tier1-forward` (verdify-prod, on traefik-apps) | every single-label `*.verdify.ai` host except the excluded ones (www, www-dev, proposals-hello, dashboard and others listed in the route) | `verdify-traefik` (tier 2) |
+| `verdify-tier1-forward` (verdify-prod, on traefik-apps) | every single-label `*.verdify.ai` host except the excluded ones (www, www-dev, proposals-hello, dashboard and others listed in the route); api, lab, labs and mcp take the shared `network-infra/baseline-headers-app-csp` (HSTS) on a priority-60 rule | `verdify-traefik` (tier 2) |
 | `verdify-t2-api` | `api.verdify.ai` (camera paths rate-limited) | `verdify-api` |
+| `verdify-t2-api-tunnel`, `verdify-api-tunnel-forward` (tunnelclient, on traefik-apps) | `api.verdify.ai` from the Cloudflare tunnel, rate-limited per `Cf-Connecting-Ip` | `verdify-api` |
 | `verdify-t2-graphs` | `graphs.verdify.ai` | `verdify-grafana-render-cache`, `verdify-grafana` |
 | `verdify-t2-lab` | `lab.verdify.ai`, `labs.verdify.ai` | `verdify-lab` |
 | `verdify-t2-mcp`, `verdify-t2-mcp-tunnel`, `verdify-mcp-tunnel-forward` | `mcp.verdify.ai` `/mcp` | `verdify-mcp` |
 | `verdify-dashboard-web` (verdify-dashboard, on traefik-apps) | `dashboard.verdify.ai` | `verdify-dashboard-web` |
 
-The middlewares in `verdify-prod` are `verdify-api-inflight`, `verdify-api-rate-limit`, `verdify-camera-rate-limit`, `verdify-strip-client-headers` and `verdify-strip-identity-headers`.
+The middlewares in `verdify-prod` are `verdify-api-inflight`, `verdify-api-rate-limit`, `verdify-api-rate-limit-tunnel`, `verdify-camera-rate-limit`, `verdify-camera-rate-limit-tunnel`, `verdify-strip-client-headers` and `verdify-strip-identity-headers`.
 
 ## Policy, RBAC and cluster-scoped objects
 

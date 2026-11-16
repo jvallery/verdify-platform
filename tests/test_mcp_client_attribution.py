@@ -8,6 +8,8 @@ import pytest
 from test_verdify_traefik_file import MODULE
 from test_verdify_traefik_file import documents as documents
 
+BASELINE_HEADERS = {"name": "baseline-headers-app-csp", "namespace": "network-infra"}
+
 
 def resource(documents, kind, name):
     return next(d for d in documents if d["kind"] == kind and d["metadata"]["name"] == name)
@@ -21,6 +23,7 @@ def test_tunnel_chain_is_mcp_only_and_ordinary_path_is_preserved(documents):
             {
                 "kind": "Rule",
                 "match": "Host(`mcp.verdify.ai`) && PathPrefix(`/mcp`)",
+                "middlewares": [BASELINE_HEADERS],
                 "services": [{"name": "verdify-traefik", "port": 81}],
             }
         ],
@@ -47,6 +50,65 @@ def test_tunnel_chain_is_mcp_only_and_ordinary_path_is_preserved(documents):
     assert generated["middlewares"]["verdify-strip-client-headers"] == {
         "headers": {"customRequestHeaders": {"Cf-Connecting-Ip": "", "Cf-Ray": ""}}
     }
+
+
+def test_api_tunnel_twin_keys_limits_on_cloudflare_client_only_there(documents):
+    """network-infra#1104: per-client budgets exist only on the isolated listener."""
+    outer = resource(documents, "IngressRoute", "verdify-api-tunnel-forward")["spec"]
+    assert outer == {
+        "entryPoints": ["tunnelclient"],
+        "routes": [
+            {
+                "kind": "Rule",
+                "match": "Host(`api.verdify.ai`)",
+                "middlewares": [BASELINE_HEADERS],
+                "services": [{"name": "verdify-traefik", "port": 81}],
+            }
+        ],
+        "tls": {},
+    }
+    generated = MODULE.compile_routes(documents)["http"]
+    ordinary = resource(documents, "IngressRoute", "verdify-t2-api")["spec"]["routes"]
+    twin = resource(documents, "IngressRoute", "verdify-t2-api-tunnel")["spec"]["routes"]
+    assert [r["match"] for r in twin] == [r["match"] for r in ordinary]
+    assert [r["services"] for r in twin] == [r["services"] for r in ordinary]
+    for index, limit in enumerate(["verdify-camera-rate-limit", "verdify-api-rate-limit"]):
+        assert generated["routers"][f"verdify-t2-api-{index}"]["entryPoints"] == ["verdify-web"]
+        assert limit in generated["routers"][f"verdify-t2-api-{index}"]["middlewares"]
+        assert generated["routers"][f"verdify-t2-api-tunnel-{index}"]["entryPoints"] == ["verdify-tunnel"]
+        assert generated["routers"][f"verdify-t2-api-tunnel-{index}"]["middlewares"] == [
+            "verdify-strip-identity-headers",
+            f"{limit}-tunnel",
+            "verdify-api-inflight",
+        ]
+        peer, tunnel = (
+            generated["middlewares"][limit]["rateLimit"],
+            generated["middlewares"][f"{limit}-tunnel"]["rateLimit"],
+        )
+        assert peer["sourceCriterion"] == {"ipStrategy": {"depth": 0}}
+        assert tunnel["sourceCriterion"] == {"requestHeaderName": "Cf-Connecting-Ip"}
+        assert (tunnel["average"], tunnel["burst"]) == (peer["average"], peer["burst"])
+    # The header-keyed limits must never be reachable from the ordinary listener.
+    for name, router in generated["routers"].items():
+        if any(m.endswith("-rate-limit-tunnel") for m in router.get("middlewares", [])):
+            assert router["entryPoints"] == ["verdify-tunnel"], name
+
+
+@pytest.mark.parametrize("mutation", ["middleware", "ordinary_listener", "extra_route", "host"])
+def test_trusted_api_route_cannot_expand_silently(documents, mutation):
+    candidate = copy.deepcopy(documents)
+    spec = resource(candidate, "IngressRoute", "verdify-t2-api-tunnel")["spec"]
+    route = spec["routes"][1]
+    if mutation == "middleware":
+        route["middlewares"] = [{"name": "verdify-strip-identity-headers"}]
+    elif mutation == "ordinary_listener":
+        spec["entryPoints"] = ["verdify-web"]
+    elif mutation == "extra_route":
+        spec["routes"].append({**copy.deepcopy(route), "match": "Host(`lab.verdify.ai`)"})
+    else:
+        route["match"] = "Host(`lab.verdify.ai`)"
+    with pytest.raises(ValueError, match="trusted API route contract changed"):
+        MODULE.compile_routes(candidate)
 
 
 @pytest.mark.parametrize("mutation", ["host", "path", "backend", "middleware", "ordinary_listener", "extra_route"])

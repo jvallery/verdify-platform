@@ -94,8 +94,9 @@ spec:
             - "--global.sendanonymoususage=false"
             - "--entryPoints.verdify-web.address=:8000/tcp"
             - "--entryPoints.verdify-web.asDefault=true"
-            # #1010: only the MCP tunnel twin reaches this isolated port. The
-            # ordinary listener and internal MCP callers retain peer attribution.
+            # #1010: only the MCP and (network-infra#1104) api tunnel twins reach
+            # this isolated port. The ordinary listener and internal MCP callers
+            # retain peer attribution.
             - "--entryPoints.verdify-tunnel.address=:8001/tcp"
             - "--entryPoints.verdify-tunnel.asDefault=false"
             - "--entryPoints.traefik.address=:8080/tcp"
