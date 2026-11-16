@@ -166,10 +166,34 @@ def test_body_grants_exactly_the_ingestor_duty():
         "GRANT SELECT ON public.daily_relay_record, public.daily_record TO verdify_ingestor_runtime;",
         "GRANT EXECUTE ON FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() "
         "TO verdify_matview_refresh_runtime;",
+        # The observation spool's function, 267's ACL restated (DISPATCHER-01).
+        f"GRANT EXECUTE ON FUNCTION {SPOOL_FN} TO {ING_DUTY};",
     ]
     revokes = [flat(r) for r in re.findall(r"\bREVOKE\b.*?;", BODY, re.S)]
-    assert revokes == ["REVOKE ALL ON FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() FROM PUBLIC;"]
+    assert revokes == [
+        "REVOKE ALL ON FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() FROM PUBLIC;",
+        f"REVOKE ALL ON FUNCTION {SPOOL_FN} FROM PUBLIC;",
+    ]
     assert not re.search(r"\bTO PUBLIC\b|DEFAULT PRIVILEGES|\bOWNER TO\b|\bDROP\b|\bTRUNCATE\b", BODY)
+
+
+SPOOL_FN = "public.fn_record_observational_source_event(uuid,text,timestamptz,text,uuid,bigint,jsonb)"
+
+
+def _spool_function_body(text: str) -> str:
+    start = text.index("FUNCTION public.fn_record_observational_source_event(")
+    return text[start : text.index("$body$;", start)]
+
+
+def test_the_spool_function_is_267s_with_the_nine_keys_appended():
+    """DISPATCHER-01: 314 redefines the observation spool's function as 267 wrote it, diagnostics list extended."""
+    old = _spool_function_body((ROOT / "db/migrations/267-idempotent-observational-source-events.sql").read_text())
+    new = _spool_function_body(SOURCE.split("END $predecessor$;", 1)[1])
+    tail = "'band_source','zone_wet_granted'"
+    appended = ",\n " + ",".join(f"'{name}'" for name in HEALTH_COLUMNS)
+    assert new == old.replace(tail + "]", tail + appended + "]", 1)
+    assert "CREATE OR REPLACE FUNCTION public.fn_record_observational_source_event(" in BODY
+    assert "md5(prosrc)='68a4d207755acf38a6e9a325efd0e07a'" in SOURCE  # the predecessor is 267's text
 
 
 def test_body_carries_the_data_and_monitoring_parts():
@@ -232,7 +256,7 @@ def test_native_fixture_writes_as_the_ingestor_login():
     text = NATIVE.read_text()
     qualifier.native_checks(NATIVE)
     assert "SET SESSION AUTHORIZATION verdify_ingestor_runtime_login;" in text
-    assert text.count("RESET SESSION AUTHORIZATION;") == 2
+    assert text.count("RESET SESSION AUTHORIZATION;") == 3  # ingestor writes, the spool function, the dashboard
     assert "SET SESSION AUTHORIZATION verdify_dashboard_runtime_login;" in text
     assert "INSERT INTO public.v_runtime_diagnostics_write" in text and "INSERT INTO public.gap_replay_quarters" in text
 
@@ -252,7 +276,8 @@ def test_the_projection_is_the_files_literals():
     # Production was at 311 (312 moves no seal), and the probe applied 312 and 313 first: "before" is the live
     # state, the applied-first seals are 313's, the predecessor this file checks.
     assert evidence["before"] == registered(PREDECESSOR - 1)
-    assert evidence["applied_first_seals"] == registered(PREDECESSOR)
+    if not evidence["final_migration_qualification_pending"]:
+        assert evidence["applied_first_seals"] == registered(PREDECESSOR)
 
 
 def test_native_qualification_is_recorded():

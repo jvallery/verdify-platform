@@ -1,91 +1,10 @@
 {
   "migration": "314-controller-health-and-gap-ledger.sql",
-  "final_migration_qualification_pending": false,
+  "final_migration_qualification_pending": true,
   "before": {
     "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
     "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
     "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
   },
-  "projection": "314 adds nine nullable diagnostics columns, appends them to v_runtime_diagnostics_write with INSERT for the ingestor duty, and creates gap_replay_quarters with SELECT and a column INSERT for the ingestor duty, grants the ingestor duty SELECT on daily_record and daily_relay_record, stores three recent days in fn_refresh_daily_record and sets the two change-only sensor_registry rows inactive, so the ingestor seal moves and the api and MCP seals are measured again. With production at the last merged migration before 314, run scripts/qualify-migration-successor.py db/migrations/314-controller-health-and-gap-ledger.sql --probe-only (naming any merged but unapplied predecessor with --apply-first), write the measured literals into the successor block, the delivery and bootstrap registrations and this file, then run it again with --native-fixture db/qualification/314-controller-health-and-gap-ledger-fixture.sql --fixture tests/fixtures/314-controller-health-and-gap-ledger-native-qualification.json.",
-  "projected_successor": {
-    "api": "4a75f42c556c5ad177d01fdf7f38ca3cb25b51ef0a9870812709648e3fe6bee8",
-    "ingestor": "d60b193039724542139baea3aca4a9c4f9209763177240aa9cb8078ce1040600",
-    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
-  },
-  "measured_at": "2026-11-16T21:44:28Z",
-  "qualified_successor": {
-    "api": "4a75f42c556c5ad177d01fdf7f38ca3cb25b51ef0a9870812709648e3fe6bee8",
-    "ingestor": "d60b193039724542139baea3aca4a9c4f9209763177240aa9cb8078ce1040600",
-    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
-  },
-  "after_rollback": {
-    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
-    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
-    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
-  },
-  "exact_final_migration_sha256": "ecbdac5fface9a9eb3c8456b8cebc99319d653112db6561c0f3b782f00a76a18",
-  "inside_transaction_receipts_match": true,
-  "final_migration_rollback_verified": true,
-  "native_probe_source_sha256": "2ef0ccf07d0de19a88d96bbb3975152d546d355db32242fc997a48a0eb487308",
-  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
-  "applied_first": [
-    {
-      "migration": "312-operator-metrics-reads.sql",
-      "seq": 312,
-      "sha256": "66e6bfe12302b2d2756514a2c9903f05e728b1326d6c21aee07362baeca7afa2"
-    },
-    {
-      "migration": "313-planner-review.sql",
-      "seq": 313,
-      "sha256": "933d856e07503d36115b744eea09b4208e688ad2bbec06f48692e2a850d58e0b"
-    }
-  ],
-  "applied_first_seals": {
-    "api": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
-    "ingestor": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
-    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
-  },
-  "prelock": [
-    [
-      "public.diagnostics",
-      "ACCESS EXCLUSIVE"
-    ],
-    [
-      "public.mcp_runtime_boundary_receipt",
-      "SHARE ROW EXCLUSIVE"
-    ],
-    [
-      "public.planner_review",
-      "SHARE"
-    ],
-    [
-      "public.runtime_ordinary_login_attestation_receipts",
-      "SHARE ROW EXCLUSIVE"
-    ],
-    [
-      "public.schema_migrations",
-      "SHARE ROW EXCLUSIVE"
-    ],
-    [
-      "public.v_runtime_diagnostics_write",
-      "ACCESS EXCLUSIVE"
-    ]
-  ],
-  "native_fixture": {
-    "checks": [
-      "nine_diagnostics_columns_typed",
-      "ingestor_inserts_the_nine_through_the_facade",
-      "ingestor_reads_and_inserts_the_ledger_only",
-      "api_mcp_and_public_denied",
-      "ingestor_login_writes_health_row",
-      "one_ledger_row_per_quarter",
-      "placed_quarter_needs_records",
-      "dashboard_reads_gaps_without_replayed_minutes",
-      "af4_ingestor_reads_daily_record_only",
-      "af10_refresh_stores_three_days",
-      "af11_change_only_rows_inactive"
-    ],
-    "all_passed": true
-  },
-  "native_fixture_sha256": "e0fd5ebc925ec06588eac8fe8267b548267f5f1863925f31877d1dc70763d4af"
+  "projection": "314 adds nine nullable diagnostics columns, appends them to v_runtime_diagnostics_write with INSERT for the ingestor duty, and creates gap_replay_quarters with SELECT and a column INSERT for the ingestor duty, grants the ingestor duty SELECT on daily_record and daily_relay_record, stores three recent days in fn_refresh_daily_record and sets the two change-only sensor_registry rows inactive, redefines fn_record_observational_source_event (267's text with the nine diagnostics keys appended), so the ingestor seal moves and the api and MCP seals are measured again. With production at the last merged migration before 314, run scripts/qualify-migration-successor.py db/migrations/314-controller-health-and-gap-ledger.sql --probe-only (naming any merged but unapplied predecessor with --apply-first), write the measured literals into the successor block, the delivery and bootstrap registrations and this file, then run it again with --native-fixture db/qualification/314-controller-health-and-gap-ledger-fixture.sql --fixture tests/fixtures/314-controller-health-and-gap-ledger-native-qualification.json."
 }

@@ -102,6 +102,70 @@ BEGIN
 END $dashboard$;
 RESET SESSION AUTHORIZATION;
 
+-- The observation spool (on in production) sends every Diagnostics field, NULL included, through
+-- fn_record_observational_source_event: the nine new keys pass with values and as NULL (phase 2 and law
+-- firmware), and a key outside the pinned list is still refused. Definition, security and ACL as 267 made them.
+SET SESSION AUTHORIZATION verdify_ingestor_runtime_login;
+DO $spool$
+DECLARE
+    at timestamptz := date_trunc('minute', now()) - interval '3 minutes';
+    every_key text[] :=
+        ARRAY['wifi_rssi','heap_bytes','heap_min_free_kb','heap_largest_free_block_kb','uptime_s','probe_health',
+              'reset_reason','firmware_version','active_probe_count','relief_cycle_count','vent_latch_timer_s',
+              'sealed_timer_s','vpd_watch_timer_s','mist_backoff_timer_s','vent_mist_assist_active',
+              'effective_heat_target_f','effective_cool_stage2_delta_f','effective_vpd_hysteresis_kpa',
+              'effective_dehum_aggressive_kpa','controller_time_epoch','controller_local_hour','sntp_valid',
+              'sntp_miss_count','last_sntp_sync_age_s','band_source','zone_wet_granted','heap_min_free_minute_kb',
+              'heap_largest_block_minute_low_kb','loop_worst_ms','restart_count','nvs_used_entries',
+              'nvs_free_entries','nvs_write_worst_ms','gap_log_state','sensor_degraded_active'];
+    all_null jsonb;
+    refused boolean := false;
+BEGIN
+    SELECT jsonb_object_agg(k, 'null'::jsonb) INTO all_null FROM unnest(every_key) AS k;
+    IF NOT public.fn_record_observational_source_event(gen_random_uuid(), 'diagnostics', at, 'vallery',
+            gen_random_uuid(), 1, all_null || jsonb_build_object('uptime_s', 100, 'heap_min_free_minute_kb', 38.5,
+            'heap_largest_block_minute_low_kb', 30.0, 'loop_worst_ms', 12.0, 'restart_count', 7,
+            'nvs_used_entries', 120, 'nvs_free_entries', 380, 'nvs_write_worst_ms', 0.0, 'gap_log_state', 'armed',
+            'sensor_degraded_active', 0)) THEN
+        RAISE EXCEPTION '314 spool function did not store a diagnostics row with the nine keys';
+    END IF;
+    IF NOT public.fn_record_observational_source_event(gen_random_uuid(), 'diagnostics', at + interval '1 minute',
+            'vallery', gen_random_uuid(), 1, all_null || jsonb_build_object('uptime_s', 160)) THEN
+        RAISE EXCEPTION '314 spool function did not store a diagnostics row with the nine keys NULL';
+    END IF;
+    IF (SELECT count(*) FROM public.diagnostics WHERE ts = at AND restart_count = 7 AND gap_log_state = 'armed') <> 1
+        OR (SELECT count(*) FROM public.diagnostics
+             WHERE ts = at + interval '1 minute' AND uptime_s = 160 AND restart_count IS NULL) <> 1 THEN
+        RAISE EXCEPTION '314 spool function rows are not in diagnostics';
+    END IF;
+    BEGIN
+        PERFORM public.fn_record_observational_source_event(gen_random_uuid(), 'diagnostics',
+            at + interval '2 minutes', 'vallery', gen_random_uuid(), 1, jsonb_build_object('no_such_key', 1));
+    EXCEPTION WHEN raise_exception THEN
+        refused := SQLERRM LIKE 'observational field outside pinned INSERT projection%';
+    END;
+    IF NOT refused THEN
+        RAISE EXCEPTION '314 spool function accepted a key outside its pinned list';
+    END IF;
+END $spool$;
+RESET SESSION AUTHORIZATION;
+DO $spool_definition$
+BEGIN
+    IF NOT (SELECT p.prosecdef
+           AND p.proconfig = ARRAY['search_path=pg_catalog, public, pg_temp', 'TimeZone=UTC']
+           AND p.proowner = (SELECT relowner FROM pg_class WHERE oid = 'public.observational_source_events'::regclass)
+           AND NOT has_function_privilege('public', p.oid, 'EXECUTE')
+           AND has_function_privilege('verdify_ingestor_runtime', p.oid, 'EXECUTE')
+           AND NOT has_function_privilege('verdify_api_runtime_login', p.oid, 'EXECUTE')
+           AND NOT has_function_privilege('verdify_mcp_runtime_login', p.oid, 'EXECUTE')
+           AND NOT has_function_privilege('verdify_dashboard_runtime_login', p.oid, 'EXECUTE')
+          FROM pg_proc p
+         WHERE p.oid = 'public.fn_record_observational_source_event(uuid,text,timestamptz,text,uuid,bigint,jsonb)'
+                       ::regprocedure) THEN
+        RAISE EXCEPTION '314 spool function lost 267''s security, owner or ACL';
+    END IF;
+END $spool_definition$;
+
 -- AF4 (lane DATA): the ingestor duty reads the daily record, SELECT only.
 DO $af4$
 BEGIN
@@ -145,5 +209,6 @@ SELECT 'QUALIFY native_fixture ' || json_build_object(
                                'ingestor_login_writes_health_row', 'one_ledger_row_per_quarter',
                                'placed_quarter_needs_records', 'dashboard_reads_gaps_without_replayed_minutes',
                                'af4_ingestor_reads_daily_record_only', 'af10_refresh_stores_three_days',
-                               'af11_change_only_rows_inactive'),
+                               'af11_change_only_rows_inactive',
+                               'spool_admits_the_nine_with_values_and_null', 'spool_function_keeps_267_security'),
     'all_passed', true)::text;
