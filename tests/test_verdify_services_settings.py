@@ -1120,7 +1120,7 @@ def test_a_band_value_write_moves_the_current_season_rows_only_and_names_them():
 def test_a_width_write_moves_that_column_on_all_four_rows_at_the_best_score():
     db = FakeDB()
     rows = orchid_rows(db)
-    write(db, AGENT, "zone_vpd_width_below_center", 0.25, False)
+    write(db, PERSON, "zone_vpd_width_below_center", 0.25, False)
     assert {key: row["width_below"] for key, row in rows.items()} == {
         **{("all", a): 0.20 for a in ("sr", "sm", "ss", "mid")},
         **{("fall", a): 0.25 for a in ("sr", "sm", "ss", "mid")},

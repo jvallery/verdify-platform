@@ -398,6 +398,9 @@ def test_retired_irrigation_clocks_fert_cadence_and_center_bursts_are_not_writab
 # Remove an entry once the build that publishes it is the last-good build.
 HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
     "STATE_MAP": {"relay_counters", "outdoor_source"},
+    # The drying cost limit (phase 3): the registry row routes its number entity and readback.
+    "SETPOINT_MAP": {"drying_cost_limit__kwh_kg_"},
+    "CFG_READBACK_MAP": {"cfg___drying_cost_limit__kwh_kg_"},
 }
 
 

@@ -40,7 +40,7 @@ from verdify_schemas.setting_values import (
     within_relative_deadband,
 )
 from verdify_schemas.telemetry import SystemStateRow
-from verdify_schemas.tunable_registry import desired_write_rule
+from verdify_schemas.tunable_registry import DRY_COST_LIMIT_OBJECT_ID, DRY_COST_LIMIT_PARAM, desired_write_rule
 
 from . import band_anchors, bounded_reconcile, c1_overlay, drift_probe
 from ._common import (
@@ -472,6 +472,12 @@ def _ai_moisture_stress_policy_supported() -> bool:
     return AI_MOISTURE_STRESS_POLICY_PARAMS.issubset(set(shared.cfg_readback))
 
 
+def _dry_cost_limit_supported() -> bool:
+    """Whether the connected controller lists the drying cost limit's number entity (phase 3 firmware). Until it
+    does, a stored limit or its release is not sent: an older build would answer entity_key_unavailable."""
+    return DRY_COST_LIMIT_OBJECT_ID in (shared.esp32.get("keys") or {})
+
+
 def _direct_wet_defaults(lighting_row, lighting_circuit_rows) -> dict[str, float]:
     """The direct-wet gate defaults, sent while a lighting policy row exists.
 
@@ -591,6 +597,7 @@ def _desired_skip_reason(
     lighting_target_minutes: bool,
     direct_wet: bool,
     ai_moisture_stress: bool,
+    dry_cost_limit: bool = False,
 ) -> str | None:
     """Why the dispatcher sends nothing for this desired_state row, or None.
 
@@ -615,6 +622,8 @@ def _desired_skip_reason(
         return "firmware has no direct-wet policy"
     if param in AI_MOISTURE_STRESS_POLICY_PARAMS and not ai_moisture_stress:
         return "firmware has no moisture-stress policy"
+    if param == DRY_COST_LIMIT_PARAM and not dry_cost_limit:
+        return "firmware has no drying cost limit"
     return None
 
 
@@ -1139,6 +1148,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         )
         direct_wet_supported = _direct_wet_policy_supported()
         ai_moisture_stress_supported = _ai_moisture_stress_policy_supported()
+        dry_cost_limit_supported = _dry_cost_limit_supported()
         planner_meta = {
             r["parameter"]: {
                 "trigger_id": str(r["trigger_id"]) if r["trigger_id"] else None,
@@ -1499,6 +1509,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 lighting_target_minutes=lighting_target_minutes_supported,
                 direct_wet=direct_wet_supported,
                 ai_moisture_stress=ai_moisture_stress_supported,
+                dry_cost_limit=dry_cost_limit_supported,
             )
             if skip is None and desired["value"] is not None and not math.isfinite(float(desired["value"])):
                 skip = "non-finite value"

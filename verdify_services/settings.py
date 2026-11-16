@@ -50,6 +50,7 @@ from verdify_schemas.setting_values import (
     snap_setting,
 )
 from verdify_schemas.tunable_registry import (
+    OWNER_ONLY_PARAMS,
     REGISTRY,
     SWITCH_READBACK_EQUIPMENT,
     TunableDef,
@@ -1172,6 +1173,19 @@ async def _check_writable(
     return spec, facts, target, anchor_ids
 
 
+def check_owner(actor: Actor, param: str) -> None:
+    """Only the owner writes or releases an ``OWNER_ONLY_PARAMS`` setting (the band rows and the drying cost limit):
+    a signed-in dashboard operator. Any other actor (an MCP agent, Iris, the system) is refused with ``forbidden``."""
+    if param in OWNER_ONLY_PARAMS and not (actor.source == "dashboard" and actor.role == "operator"):
+        raise ServiceError(
+            problem(
+                "forbidden",
+                f"Only the owner sets {setting_label(param)}, from the dashboard; {actor.source} may not",
+                field="param",
+            )
+        )
+
+
 def _check_manual(actor: Actor, spec: TunableDef, facts: _Facts) -> None:
     """§5.3 step 3: Iris never overwrites or releases a value a person holds manual (Q-02)."""
     desired = facts.desired
@@ -1235,6 +1249,7 @@ def _snap(spec: TunableDef, number: float, facts: _Facts) -> float:
 
 async def _validate(conn: asyncpg.Connection, actor: Actor, param: str, value: object) -> _Checked:
     spec, facts, target, anchor_ids = await _check_writable(conn, param)
+    check_owner(actor, param)
     current = _current(spec, facts)
     number = _check_value(spec, value, current)
     _check_manual(actor, spec, facts)
@@ -1256,6 +1271,7 @@ async def validate(conn: asyncpg.Connection, actor: Actor, param: str, value: fl
 
     1. Known and writable (``unknown_target``; ``read_only`` with the reason, a crop-band setting included
        while ``crop_band_anchors`` holds none of its rows).
+    1a. Owner only: a band row or the drying cost limit from anyone but a dashboard operator (``forbidden``).
     2. Type and range (``out_of_range`` with ``min`` and ``max``).
     3. Manual: an ``iris`` write to a setting whose newest row is manual (``manual``).
     4. Snap to the registry step, half to even, unless the value equals the value in force or the device
@@ -1500,6 +1516,7 @@ async def release(
     async def perform(tx: asyncpg.Connection) -> tuple[DesiredSetting, dict[str, Any]]:
         await _lock_and_guard(tx, param, expected_id)
         spec, facts, _target, _ids = await _check_writable(tx, param)
+        check_owner(actor, param)
         _check_manual(actor, spec, facts)
         manual_before = bool(facts.desired is not None and facts.desired["manual"])
         current = _current(spec, facts)

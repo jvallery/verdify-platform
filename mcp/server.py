@@ -5422,7 +5422,8 @@ async def set_setting(
     Refusals are Problem JSON with isError: `unknown_target`; `read_only` with the reason; `out_of_range` with min,
     max and current; `manual` when Iris writes or releases a setting whose newest row is manual (a person's value
     stays; other agents' writes win); `request_id_reused` when the same request_id carries another payload;
-    `invalid_request` when request_id or trigger_id is not a UUID; `forbidden` when the call has no resolved caller.
+    `invalid_request` when request_id or trigger_id is not a UUID; `forbidden` when the call has no resolved caller,
+    and for a band row or the drying cost limit, which only the owner sets from the dashboard.
 
     trigger_id and planner_instance only annotate the activity log; it does not count as your plan for a trigger:
     Iris still ends every trigger with set_plan or acknowledge_trigger."""
