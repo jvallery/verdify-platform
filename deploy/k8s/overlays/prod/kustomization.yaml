@@ -55,6 +55,8 @@ resources:
   - ingestor-state-pvc.yaml
   # #994: adopt/protect the exact existing production DB claim, no template change.
   - db-data-protected-pvc.yaml
+  # #1634: the retired winter collector's archive claim keeps its day files.
+  - winter-feasibility-archive-pvc.yaml
   # #575 / proxmox-infrastructure#86: adopt the already-migrated portable R2
   # Hermes run-state claim in Git. The original component claim is deleted from
   # this production render by the paired retirement patch below.
@@ -126,9 +128,6 @@ components:
   # toolchain in a per-Job emptyDir; the unused toolchain-cache PVC was
   # retired on 2026-11-04 (Jason R10).
   - ../../components/firmware-builder
-  # #782 read-only observational winter packet. Suspended until a prospective
-  # registration and exact source snapshot are staged on its archive PVC.
-  - ../../components/winter-feasibility
   - ../../components/planner
   # #1350 Cortex planner, SHADOW only: stores packs/attempts/proposals, dispatches nothing.
   - ../../components/cortex-planner
@@ -387,5 +386,3 @@ images:
 # release-pins.yaml followed by the gated sync.
 transformers:
   - release-pins.yaml
-  # Preserve the exact winter observation runtime after global API promotion.
-  - winter-runtime-pins.yaml

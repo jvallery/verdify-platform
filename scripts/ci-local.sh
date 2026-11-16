@@ -523,7 +523,6 @@ if in_part rest; then
     tests/test_wetting_incident.py \
     tests/test_wetting_incident_join.py \
     tests/test_winter_feasibility.py \
-    tests/test_winter_feasibility_runner.py \
     tests/test_writer_drift_probe.py \
     --deselect tests/test_winter_feasibility.py::test_source_candidates_bind_current_bytes_without_false_qualification
 

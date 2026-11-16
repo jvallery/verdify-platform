@@ -34,8 +34,6 @@ ACTUATOR_IMAGES = {
     "verdify-migrate",
     "verdify-experiment-v2-orchestrator",
 }
-WINTER_RUNTIME = ZOT + "verdify-api@sha256:75f510f52d71846197fdc1ddabead87912d8a31070439a29747e4ec36dc37624"
-WINTER_OBJECTS = {("Job", "verdify-winter-archive-init"), ("CronJob", "verdify-winter-feasibility")}
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -88,7 +86,7 @@ def test_release_pins_cover_exactly_the_actuator_managed_images() -> None:
 
 def test_candidates_keep_the_actuator_shape_and_release_pins_apply_last() -> None:
     kustomization = yaml.safe_load(KUSTOMIZATION.read_text())
-    assert kustomization["transformers"] == ["release-pins.yaml", "winter-runtime-pins.yaml"]
+    assert kustomization["transformers"] == ["release-pins.yaml"]
     for image in ACTUATOR_IMAGES:
         (entry,) = [row for row in kustomization["images"] if row["name"] == CANONICAL + image]
         assert entry == {"name": CANONICAL + image, "newName": ZOT + image, "digest": entry["digest"]}
@@ -101,23 +99,16 @@ def test_candidates_keep_the_actuator_shape_and_release_pins_apply_last() -> Non
 
 
 def _assert_release_images(rendered: str, pins: dict[str, str]) -> None:
-    seen_winter = set()
     for document in yaml.safe_load_all(rendered):
         if not document:
             continue
         identity = (document["kind"], document["metadata"]["name"])
         images = _container_images(document)
-        if identity in WINTER_OBJECTS:
-            assert document["metadata"]["namespace"] == "verdify-prod"
-            assert images == [WINTER_RUNTIME], "API promotion must preserve the winter runtime"
-            seen_winter.add(identity)
-            continue
         for ref in images:
             for image in ACTUATOR_IMAGES:
                 assert ref != CANONICAL + image, f"{image} rendered without a digest"
                 if ref.split("@")[0] == ZOT + image:
                     assert ref == f"{ZOT}{image}@{pins[image]}", f"{identity} does not render its release pin"
-    assert seen_winter == WINTER_OBJECTS
 
 
 def test_prod_render_runs_only_the_release_pins(prod_render: str) -> None:

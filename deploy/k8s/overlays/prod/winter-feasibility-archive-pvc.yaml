@@ -1,0 +1,19 @@
+# #1634: the winter feasibility collector (#782) is retired. Its archive claim
+# holds the collected day files (the last is 2026-11-14) and stays until the
+# owner decides otherwise. Same object, labels and spec as the retired component;
+# never a prune or rollback deletion target.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: verdify-winter-feasibility-archive
+  labels:
+    app.kubernetes.io/part-of: verdify
+    app.kubernetes.io/component: winter-feasibility
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn-v1-workspace-rwo
+  resources:
+    requests:
+      storage: 10Gi

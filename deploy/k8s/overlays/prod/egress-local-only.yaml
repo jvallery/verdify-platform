@@ -42,7 +42,6 @@ spec:
           - lab-site
           - mcp
           - outbound
-          - winter-feasibility
           # On egress-api-hermes-allowlist (public tcp/443): see the header.
           - api
           - hermes-iris

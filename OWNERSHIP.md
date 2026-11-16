@@ -65,11 +65,10 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-greenhouse-brief` | `3-59/5 * * * *` | verdify-api | |
 | `verdify-lab-publisher` | `5,35 * * * *` | verdify-lab-publisher-k3s | Lab content pipeline (`docs/runbooks/lab-content-pipeline.md`). |
 | `verdify-vision` | `0 15,18,21,0 * * *` | verdify-ingestor | |
-| `verdify-winter-feasibility` | `30 0 * * *` | verdify-api | Archive PVC `verdify-winter-feasibility-archive`. |
 | `verdify-knowledge-embed` | suspended | verdify-ingestor | |
 | `verdify-firmware-builder`, `verdify-firmware-flasher` | suspended (`0 0 31 2 *`) | cosign / ESPHome 2026.6.5 mirrors | Templates for the signed firmware path (`docs/runbooks/firmware-signed-artifacts.md`); run only as attended Jobs. |
 
-Job `verdify-winter-archive-init` is a `BeforeHookCreation` Sync hook, recreated on every sync; it is not residue. The writer and DB watchdog CronJobs and `verdify-ha-gap-backfill` are no longer running.
+The winter feasibility collector (CronJob `verdify-winter-feasibility`, its runner ConfigMap, two NetworkPolicies and the `verdify-winter-archive-init` hook) was retired by #1634; its archive PVC stays. The writer and DB watchdog CronJobs and `verdify-ha-gap-backfill` are no longer running.
 
 ### Other namespaces
 
@@ -89,7 +88,7 @@ Job `verdify-winter-archive-init` is a `BeforeHookCreation` Sync hook, recreated
 | `verdify-hermes-iris-data-portable-20260801` | longhorn-v1-rebuildable-rwo | 5Gi | |
 | `verdify-lab-site-cache` | longhorn-v1-rebuildable-rwo | 5Gi | RWO cohort with the lab publisher (`docs/runbooks/portable-stateful-recovery.md`). |
 | `verdify-firmware-artifacts` | longhorn-v1-workspace-rwo | 5Gi | Signed firmware artifacts. |
-| `verdify-winter-feasibility-archive` | longhorn-v1-workspace-rwo | 10Gi | |
+| `verdify-winter-feasibility-archive` | longhorn-v1-workspace-rwo | 10Gi | Day files of the retired winter collector (#1634), last 2026-11-14. Kept until the owner decides; `Prune=false,Delete=false`. |
 
 StorageClasses, Longhorn, NAS shares and the static PV are owned by jvallery/storage-infra.
 
