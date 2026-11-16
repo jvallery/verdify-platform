@@ -52,14 +52,14 @@ in_part() { [ "$VALIDATE_PART" = all ] || [[ " $* " == *" $VALIDATE_PART "* ]]; 
 
 if in_part rest; then
   step "ruff lint"
-  $RUFF check cortex_planner/ ingestor/ api/ experiment_orchestrator/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
+  $RUFF check cortex_planner/ ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
     research/planner-efficacy/generate_v2_artifacts.py \
     research/planner-efficacy/switchback/v2_*.py \
     research/planner-efficacy/tests/test_protocol_template_contract.py \
     research/planner-efficacy/tests/test_switchback_v2_*.py
 
   step "ruff format"
-  $RUFF format --check cortex_planner/ ingestor/ api/ experiment_orchestrator/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
+  $RUFF format --check cortex_planner/ ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
     research/planner-efficacy/generate_v2_artifacts.py \
     research/planner-efficacy/switchback/v2_*.py \
     research/planner-efficacy/tests/test_protocol_template_contract.py \
@@ -261,33 +261,19 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_experiment_qualification_spec.py
     tests/test_experiment_schema_migration.py
     tests/test_experiment_v2_counter_source.py
-    tests/test_experiment_v2_orchestrator_contracts.py
-    tests/test_experiment_v2_orchestrator_database.py
-    tests/test_experiment_v2_orchestrator_manifests.py
-    tests/test_experiment_v2_orchestrator_outcome.py
-    tests/test_experiment_v2_orchestrator_provider.py
-    tests/test_experiment_v2_orchestrator_runtime.py
-    tests/test_experiment_v2_orchestrator_service.py
-    tests/test_experiment_v2_orchestrator_stores.py
     tests/test_experiment_v2_reconcile.py
     tests/test_experiment_v2_reconcile_archive.py
     tests/test_experiment_v2_capture_inputs.py
     tests/test_freeze_route_day_target.py
     tests/test_experiment_v2_restore_rehearsal.py
-    tests/test_experiment_v2_shadow_source_lock.py
     tests/test_experiment_v2_data_contract.py
     tests/test_experiment_v2_day1_authorization.py
     tests/test_experiment_v2_direct_launch_runtime.py
-    tests/test_experiment_v2_launch_artifacts.py
-    tests/test_experiment_v2_direct_proof_activation.py
     tests/test_experiment_v2_direct_proof_attempt_status.py
     tests/test_experiment_v2_direct_proof_recovery_range_rollover.py
     tests/test_experiment_v2_direct_proof_retry.py
-    tests/test_experiment_v2_gate_r_activation.py
-    tests/test_experiment_v2_gate_r_readiness_activation.py
     tests/test_experiment_v2_proof_packet.py
     tests/test_experiment_v2_wetting_disposition.py
-    tests/test_783_current_role_admission.py
     tests/test_experiment_v2_readiness_guard.py
     tests/test_experiment_v2_emergency_recovery_retry.py
     tests/test_experiment_v2_recovery_generation_guard.py
@@ -365,7 +351,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_prometheus_rule_source_guard.py
     tests/test_policy_writer_demotion.py
     tests/test_prepare_component_prefix_replay.py
-    tests/test_prepare_experiment_v2_shadow.py
     tests/test_prod_release_pins.py
     tests/test_psql_verdify_backend.py
     tests/test_publish_site_content_guard.py
@@ -471,14 +456,9 @@ if in_part rest; then
     tests/test_experiment_v2_direct_launch.py \
     tests/test_experiment_v2_direct_physical_proof.py \
     tests/test_experiment_v2_direct_proof_preclaim_raw_reset_rollover.py \
-    tests/test_experiment_v2_direct_proof_raw_reset_rollover.py \
-    tests/test_experiment_v2_direct_proof_startup_rollover.py \
     tests/test_experiment_v2_direct_proof_work_binding.py \
-    tests/test_experiment_v2_direct_proof_zero_exposure_seal.py \
     tests/test_experiment_v2_emergency_recovery_exposure_boundary.py \
-    tests/test_experiment_v2_observation_pair_recovery_retry.py \
     tests/test_experiment_v2_observation_window_bundle_join.py \
-    tests/test_experiment_v2_orphaned_preclaim_recovery.py \
     tests/test_experiment_v2_readiness_reader_grants.py \
     tests/test_firmware_sntp_servers.py \
     tests/test_fixed_panel.py \

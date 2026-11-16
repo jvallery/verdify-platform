@@ -127,13 +127,3 @@ def test_source_and_measurement_corruption_fail_closed(tmp_path, mutation):
     except ValueError:
         packet = {}
     assert evaluate(packet, local)
-
-
-def test_nondevice_image_carries_manifest_analysis_and_typed_validator():
-    dockerfile = (ROOT / "experiment_orchestrator/Dockerfile").read_text()
-    for source in [
-        "scripts/experiment_v2_wetting_disposition.py",
-        wetting.POLICY_PATH,
-        "research/planner-efficacy/wetting-incident-2026-09-04-disposition-v4.md",
-    ]:
-        assert source in dockerfile and (ROOT / source).is_file()

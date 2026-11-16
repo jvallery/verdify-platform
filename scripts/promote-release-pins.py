@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Promote pin-actuator build candidates to production release pins (#808).
 
-The verdify-platform-ci pin actuator writes each build's api, mcp, ingestor,
-migrate and experiment-v2-orchestrator digests to the `images:` block of
+The verdify-platform-ci pin actuator writes each build's api, mcp, ingestor
+and migrate digests to the `images:` block of
 deploy/k8s/overlays/prod/kustomization.yaml. Those are build candidates; the prod
 render runs deploy/k8s/overlays/prod/release-pins.yaml. This script copies the
 candidates into the release pins and prints each change. Commit the result as a
 digest-only change, merge it, then run the gated verdify-prod-dark sync in the
 same attended session (docs/runbooks/laptop-operator.md §2).
 
-    python3 scripts/promote-release-pins.py                 # all five images
+    python3 scripts/promote-release-pins.py                 # all four images
     python3 scripts/promote-release-pins.py verdify-mcp     # only the named ones
 
-Promote all five together unless you know the schema allows otherwise: the
+Promote all four together unless you know the schema allows otherwise: the
 migrate hook carries the migrations the api, mcp and ingestor digests expect.
 """
 
@@ -38,7 +38,6 @@ IMAGES = (
     "verdify-mcp",
     "verdify-ingestor",
     "verdify-migrate",
-    "verdify-experiment-v2-orchestrator",
 )
 
 

@@ -61,7 +61,7 @@ preflight.
 - **Merge to `main`:** a fleet Argo Event submits the exact revision to the
   in-cluster `repo-build` WorkflowTemplate (Kaniko → zot origin) for the images
   declared in `.agent-fleet/ci.yaml`. The `verdify-platform-ci` pin actuator
-  then commits the api, mcp, ingestor, migrate and experiment-v2-orchestrator
+  then commits the api, mcp, ingestor and migrate
   digests to the `images:` block of `overlays/prod/kustomization.yaml` as
   build candidates. They do not render: `overlays/prod/release-pins.yaml`, a
   `transformers:` entry applied after `images:`, holds the digests production
@@ -70,7 +70,7 @@ preflight.
   change only.
 - **Promote:** in one attended session, run
   `python3 scripts/promote-release-pins.py` (it copies the candidate digests
-  into `release-pins.yaml`, all five by default: the migrate hook carries the
+  into `release-pins.yaml`, all four by default: the migrate hook carries the
   schema the others expect), commit that digest-only change, merge it, then run
   the gated sync below. Planner, setpoint-server and lab-publisher
   release pins are edited by hand in the `images:` block. Check the rendered

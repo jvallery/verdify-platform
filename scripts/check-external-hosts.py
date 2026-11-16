@@ -31,7 +31,6 @@ SCAN_PATHS = (
     "dashboard/server.mjs",
     "db",
     "deploy",
-    "experiment_orchestrator",
     "firmware",
     "hermes",
     "ingestor",

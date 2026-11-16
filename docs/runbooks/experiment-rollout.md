@@ -1,5 +1,8 @@
 # Confirmed-component planner experiment — rollout and rollback runbook
 
+> Retired. The experiment-v2 orchestrator Deployments, image and activation templates were removed by #1649
+> (Part of #1633). This runbook is history only; do not follow it.
+
 Scope: the fast AI-vs-Frozen-FSM experiment in ADR-0010, epic #581 and launch
 issue #642.
 

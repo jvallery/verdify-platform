@@ -38,7 +38,6 @@ SOURCE_PATHS = (
     "scripts",
     "deploy",
     "verdify_services",
-    "experiment_orchestrator",
     "dashboard/src",
     "dashboard/server",
 )

@@ -11,7 +11,6 @@ EXPECTED_EXTERNAL_FROM = {
     "ingestor/Dockerfile": [PYTHON_BASE],
     "mcp/Dockerfile": [PYTHON_BASE],
     "db/Dockerfile.migrate": [POSTGRES_BASE],
-    "experiment_orchestrator/Dockerfile": [PYTHON_BASE, PYTHON_BASE],
 }
 
 
@@ -40,7 +39,6 @@ PIP_FREE_RUNTIME_DOCKERFILES = (
     "ingestor/Dockerfile",
     "mcp/Dockerfile",
     "scripts/Dockerfile.setpoint-server",
-    "experiment_orchestrator/Dockerfile",
     "planner_graph/Dockerfile",
 )
 
