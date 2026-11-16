@@ -21,9 +21,9 @@ from tasks import coverage_alerts as cov  # noqa: E402
 from verdify_schemas.alerts import AlertEnvelope  # noqa: E402
 
 
-def valid(envelope: dict) -> AlertEnvelope:
+def valid(envelope: dict, severity: str = "warning") -> AlertEnvelope:
     env = AlertEnvelope.model_validate(envelope)
-    assert env.severity == "warning"
+    assert env.severity == severity
     return env
 
 
@@ -55,7 +55,7 @@ def test_no_outdoor_source_for_15_minutes_raises():
 
 
 def test_every_wall_probe_silent_with_the_case_sensor_reporting_raises():
-    env = valid(cov.case_only_alert({"rows": 10, "wall_rows": 0, "case_rows": 10}))
+    env = valid(cov.case_only_alert({"rows": 10, "wall_rows": 0, "case_rows": 10}), "critical")
     assert env.alert_type == "case_sensor_only"
     assert cov.case_only_alert({"rows": 10, "wall_rows": 1, "case_rows": 10}) is None
     assert cov.case_only_alert({"rows": 10, "wall_rows": 0, "case_rows": 0}) is None  # sensor_fault's case

@@ -36,6 +36,10 @@ def _warning(alert_type: str, sensor_id: str, category: str, message: str, detai
     }
 
 
+def _critical(alert_type: str, sensor_id: str, category: str, message: str, details: dict, metric=None, threshold=None):
+    return {**_warning(alert_type, sensor_id, category, message, details, metric, threshold), "severity": "critical"}
+
+
 # ── Gap 2: a forbidden relay pair held 5 minutes ─────────────────────────────
 # The furnace (heat2) with the vent open, or an exhaust fan with the vent closed, held 5 minutes (2 minutes would have
 # opened one row in 14 days: fan2 ran 3 min before the vent opened, 2026-11-05). Latest state per relay; the pair
@@ -122,7 +126,8 @@ SELECT count(*)::int AS rows,
 def case_only_alert(row: Mapping | None) -> dict | None:
     if not row or row["rows"] < 3 or row["wall_rows"] > 0 or row["case_rows"] == 0:
         return None
-    return _warning(
+    # Critical, it pages (ruling AA1): the owner's safeguard 2 of the last-resort thermometer note.
+    return _critical(
         "case_sensor_only",
         "climate.wall_probes",
         "sensor",
