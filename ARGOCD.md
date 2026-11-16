@@ -79,18 +79,18 @@ lives in `overlays/prod` and ships with the `verdify-prod-dark` sync.
 A merge to `main` runs the GitHub Actions `build` workflow (`.github/workflows/build.yml`)
 on this repository's ARC runners: Kaniko builds the path-impacted images into the zot
 origin (tag `gha-<sha12>`), and its `pin` job (estate-ci pin-bump, the only pin writer)
-opens one PR that records the api, mcp, ingestor, migrate and
-experiment-v2-orchestrator `registry.vallery.net/...@sha256:` identities as build
+opens one PR that records the api, mcp, ingestor and migrate
+`registry.vallery.net/...@sha256:` identities as build
 candidates in the `images:` block of `deploy/k8s/overlays/prod/kustomization.yaml`
 (and moves the dashboard-web digest in `deploy/k8s/dashboard/kustomization.yaml`).
 The in-cluster native pipeline that did this before is retired (#1397).
 The prod render runs the release pins instead: `release-pins.yaml`, a
-`transformers:` entry applied after `images:`, for those five images, and the
-hand-pinned `images:` entries for planner, setpoint-server and
+`transformers:` entry applied after `images:`, for those four images, and the
+hand-pinned `images:` entries for setpoint-server and
 lab-publisher-k3s. So `main` renders what production runs, and a build changes
 neither the render nor Argo's comparison with live (#808).
 
-Promotion is a digest-only commit that moves release pins (for the five, copy
+Promotion is a digest-only commit that moves release pins (for the four, copy
 the candidates into `release-pins.yaml` together), followed by
 `argocd app sync verdify-prod-dark` in the same attended session. Merging a pin
 changes Git only; no image build or pin authorizes that sync. The Lab web
@@ -106,7 +106,7 @@ Quartz cache PVC.
 - CI gate: `make ci` locally; on PRs the GitHub Actions `ci` workflow on ARC
   (`.github/workflows/ci.yml`; required contexts in the `main` branch rule).
 - Promotion follows the Promotion Model above: a digest-only release-pin
-  commit (`release-pins.yaml` for the five CI-built candidate images, the
-  `images:` entries for planner, setpoint-server and lab-publisher), then the
+  commit (`release-pins.yaml` for the four CI-built candidate images, the
+  `images:` entries for setpoint-server and lab-publisher), then the
   gated sync; commands in `docs/runbooks/laptop-operator.md` §2. Merge changes
   Git only. The manual prod sync remains safety-checked.

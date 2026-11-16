@@ -72,7 +72,7 @@ Everything below works from a kubectl-equipped pod or host.
   ```
   Pre-check: `kustomize build deploy/k8s/overlays/prod | kubectl diff -f -`; confirm
   the **ingestor Deployment** (the single device writer) only changes when intended.
-  The pin actuator records api/mcp/ingestor/migrate/experiment-v2-orchestrator
+  The pin actuator records api/mcp/ingestor/migrate
   build candidates; their release pins are `overlays/prod/release-pins.yaml`.
   Planner, setpoint-server and the Quartz Lab publisher remain hand-pinned. ArgoCD app
   `verdify-prod-dark` is **manual-sync, prune:false**. The Lab web Deployment
@@ -90,7 +90,7 @@ Everything below works from a kubectl-equipped pod or host.
 | Surface | Source of truth in git | Drift watch |
 |---|---|---|
 | k8s manifests | `deploy/k8s/overlays/prod` + components | `kustomize build … \| kubectl diff` |
-| Image digests | release pins: `overlays/prod/release-pins.yaml` for the five actuator-built images, `images:` in `overlays/prod/kustomization.yaml` for planner, setpoint-server and lab-publisher (the actuator's candidate entries there do not render) | live pod `@sha256` == rendered `overlays/prod` digests |
+| Image digests | release pins: `overlays/prod/release-pins.yaml` for the four actuator-built images, `images:` in `overlays/prod/kustomization.yaml` for setpoint-server and lab-publisher (the actuator's candidate entries there do not render) | live pod `@sha256` == rendered `overlays/prod` digests |
 | Grafana dashboards | `grafana/dashboards/*.json` → generated CMs | **UI edits do NOT sync back — always edit the JSON** |
 | DB migrations | `db/migrations/` (sequential) | applied by the `verdify-migrate` Job; CI `migration-rollback-safety` check |
 | Firmware (source) | `firmware/**` | `diagnostics.firmware_version` == intended (see §4) |

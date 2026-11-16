@@ -159,10 +159,6 @@ async def test_connect_then_immediate_stop_never_publishes_transport_generation(
         events.append("generation_published")
         raise AssertionError("a stopped connection must not advance the transport generation")
 
-    def reject_inventory_publish(*_args, **_kwargs):
-        events.append("inventory_published")
-        raise AssertionError("a stopped connection must not publish entity inventory")
-
     async def reject_dispatch(*_args, **_kwargs):
         events.append("setpoint_dispatched")
         raise AssertionError("a stopped connection must not dispatch setpoints")
@@ -171,7 +167,6 @@ async def test_connect_then_immediate_stop_never_publishes_transport_generation(
     monkeypatch.setattr(ingestor, "_writer_lease", None)
     monkeypatch.setattr(ingestor.asyncio, "sleep", end_after_backoff)
     monkeypatch.setattr(shared, "note_transport_connected", reject_generation_publish)
-    monkeypatch.setattr(ingestor, "record_component_entity_inventory", reject_inventory_publish)
     monkeypatch.setattr(ingestor_tasks, "setpoint_dispatcher", reject_dispatch)
     monkeypatch.setattr(ingestor, "refresh_latest_occupancy_state", AsyncMock())
 
@@ -179,7 +174,6 @@ async def test_connect_then_immediate_stop_never_publishes_transport_generation(
         await ingestor.esp32_loop(pool=None)
 
     assert "generation_published" not in events
-    assert "inventory_published" not in events
     assert "subscribe" not in events
     assert "setpoint_dispatched" not in events
     assert events[-1] == "disconnect"
@@ -645,17 +639,15 @@ async def test_failed_forced_dispatch_is_throttled_not_relaunched_each_tick():
     assert runs == 1
 
 
-def test_startup_archives_halted_runs_before_the_task_loop_and_polls_no_stage_approval():
-    # VD-62: ordinary dispatch reads no approval file. Start-up renames any
-    # halted-run custody into archived/ once, before the task loop starts.
+def test_task_loop_polls_no_approval_file():
+    # VD-62: ordinary dispatch reads no approval file; the drift probe and the
+    # C1 overlay, the last readers of one, are retired (#1649).
     assert not hasattr(ingestor, "_poll_stage_approval")
+    assert not hasattr(ingestor, "_poll_drift_approval")
     source = Path(ingestor.__file__).read_text()
-    main = source[source.index("async def main() -> None:") :]
-    archive = main.index("bounded_reconcile.archive_halted_runs(STATE_DIR)")
-    assert archive < main.index("task_loop(pool, component_pool, equipment_source_pool)")
-    assert main.count("archive_halted_runs(") == 1
+    assert "archive_halted_runs(" not in source
     loop = source[source.index("async def task_loop(") : source.index("async def main() -> None:")]
-    assert "approval_file_stamp" not in loop and "_poll_drift_approval(" in loop
+    assert "approval_file_stamp" not in loop and "c1_overlay" not in loop
 
 
 @pytest.mark.asyncio

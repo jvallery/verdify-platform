@@ -35,8 +35,8 @@ resources:
   # ANNOTATION -> EXCLUDED from build output (OpenAI key never emitted). Real
   # verdify-hermes via SOPS out-of-band. See hermes-secret.placeholder.yaml.
   - hermes-secret.placeholder.yaml
-  # PLACEHOLDER Cortex planner Secret (#1350), local-config ANNOTATION -> excluded from build
-  # output. Real verdify-planner-cortex/api_key.txt is live in verdify-prod (agents#6079 adopts it).
+  # PLACEHOLDER Cortex Secret (#1350), read by the greenhouse-brief CronJob; local-config ANNOTATION
+  # -> excluded from build output. Real verdify-planner-cortex/api_key.txt is live in verdify-prod (agents#6079 adopts it).
   - planner-cortex-secret.placeholder.yaml
   # DEVICE WRITE PATH: the SINGLE egress allow letting the prod ingestor reach the
   # live device VLAN. See allow-ingestor-device-egress.yaml.
@@ -72,9 +72,6 @@ resources:
   # writer. The fast-failover podSpec patch (priority/tolerations/cpu) is the
   # SEPARATE gated STAGED-ha3-fast-failover-patch.yaml, deliberately NOT listed.
   - ingestor-pdb.yaml
-  # #371: freeze only yesterday's declared native-route window at 00:30 local.
-  # Uses the existing DB-only outcome-freezer identity and network policy.
-  - native-panel-freezer.yaml
   # TWO-TIER TRAEFIK (#199 / D7): the shared apps Traefik (.7.10) tier-1
   # (verdify-tier1-forward) forwards *.verdify.ai to a dedicated in-namespace
   # verdify-traefik tier-2 (verdify-web entryPoint) which host-routes verdify-t2-*
@@ -98,9 +95,8 @@ resources:
   # inject a throttling CPU limit into the gated device path. See limitrange.yaml.
   - limitrange.yaml
 
-# verdify-planner (#117) + verdify-mqtt fan-out broker (#113) — referenced as
-# Components, NOT added to base, so future overlays must opt in explicitly. The
-# fan-out broker runs in PROD ONLY. The planner is NOT a device writer.
+# verdify-mqtt fan-out broker (#113) — referenced as a Component, NOT added to
+# base, so future overlays must opt in explicitly. It runs in PROD ONLY.
 # Reviewed physical-clone projection for the exact atomic 240–248 migration.
 # Argo creates this ConfigMap before the PreSync migrate Job; Kustomize rewrites
 # the Job volume reference to its content-hashed name.
@@ -128,9 +124,6 @@ components:
   # toolchain in a per-Job emptyDir; the unused toolchain-cache PVC was
   # retired on 2026-11-04 (Jason R10).
   - ../../components/firmware-builder
-  - ../../components/planner
-  # #1350 Cortex planner, SHADOW only: stores packs/attempts/proposals, dispatches nothing.
-  - ../../components/cortex-planner
   - ../../components/mqtt-broker
   # #118 verdify-setpoint-server — the grow-light writer + setpoint diagnostics.
   # PROD-ONLY: it is a DEVICE-AFFECTING writer (toggles the live grow lights via
@@ -139,12 +132,6 @@ components:
   # #119 hermes-iris — the sole planner gateway, ported from the compose `hermes`
   # profile. prod-anchored (run-state PVC + OpenAI key). Image digest preserved.
   - ../../components/hermes-iris
-  # Confirmed-component experiment v2 orchestration workers. The component's
-  # base ConfigMap is fail-closed (experiment/vector modes off and no active
-  # ID). #1351 local-only: the selector has no external endpoint, API key or
-  # internet egress, so this remains an inert, observable Gate-1 runtime.
-  # Shadow/randomized operation remains a later GitOps change.
-  - ../../components/experiment-v2-orchestrator
   # Gate 1 ordinary database-role cutover. The PreSync hook installs and proves
   # the two migration-217 logins before API/ingestor roll, then the pod patches
   # remove the database-owner credential from both ordinary containers. Merge
@@ -163,18 +150,9 @@ components:
   # #1346 verdify-greenhouse-brief: the greenhouse snapshot on Now, written by the local Cortex model every
   # 5 minutes as the dashboard login (verdify-api image, egress-local-only). Not a device writer.
   - ../../components/greenhouse-brief
-  # Gate 2 experiment credential activation. This remains non-actuating and
-  # uses a one-container wave-2 hook while capability and active ID stay off.
+  # Wave-2 PreSync hook: installs and attests the ingestor's equipment-source
+  # collector login (equipment_state). Reduced to that one login by #1649.
   - ../../components/experiment-v2-credential-bootstrap
-  # Accepted-risk direct-launch preparation. A one-container wave-3 hook creates
-  # only the exact feature-off draft and registers the three frozen profile
-  # vectors. It cannot enable the component, open admission, randomize, or write
-  # a device. Exact replay is idempotent after migration 221.
-  - ../../components/experiment-v2-direct-launch-bootstrap
-  # Direct physical proof is deliberately absent from ordinary production.
-  # A fresh attended attempt must use the separate, suspended activation render
-  # under deploy/k8s/activations/experiment-v2-direct-proof and be removed again
-  # after its append-only receipt. Ordinary convergence stays coarse-off.
   # #124 verdify-lab — the public Quartz research site (lab.verdify.ai). Pure web
   # tier with no device path. The publisher owns content; a content-free nginx
   # runtime serves its validated cache PVC.
@@ -220,9 +198,6 @@ patches:
   - path: db-storageclass-iscsi.yaml
   # DEVICE-WRITE INTERLOCK (#79): VERDIFY_DEVICE_WRITE_ENABLED=1 — prod only.
   - path: device-write-configmap.yaml
-  # Native callback capture is ingestor-only; use a narrow pod env patch so
-  # this activation Recreates only the sole writer, not all config consumers.
-  - path: native-panel-ledger-ingestor.patch.yaml
   # Numbered migrations run in the PreSync hook on the same exact revision,
   # before API/ingestor workloads can consume the new schema.
   - path: migration-ledger.patch.yaml
@@ -287,13 +262,13 @@ patches:
 # ghcr.io/verdifyconsultancy/verdify-*; each entry maps it to the zot origin at
 # an immutable @sha256 digest (never a tag).
 #
-# The api, mcp, ingestor, migrate and experiment-v2-orchestrator entries are
+# The api, mcp, ingestor and migrate entries are
 # BUILD CANDIDATES. The verdify-platform-ci pin actuator rewrites them after
 # every build of main, and they do not decide what production runs: the
 # release-pins.yaml transformer at the end of this file replaces their digests
-# in the render. Do not hand-edit those five entries or change their
+# in the render. Do not hand-edit those four entries or change their
 # name/newName/digest shape; the actuator fails unless each appears exactly once.
-# The planner, setpoint-server and lab-publisher-k3s entries are release pins,
+# The setpoint-server and lab-publisher-k3s entries are release pins,
 # advanced by hand.
   # Explicit audited runtime values; no data or first-party image changes.
   - path: source-owned-runtime-fields.patch.yaml
@@ -354,17 +329,6 @@ images:
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
     digest: sha256:aa8046700a890fa24a864d9f291d3b1af84c13d828d68b49517bdb9c69bbcd31
-  # Build candidate for the feature-off experiment-v2 orchestrator (its release
-  # digest is in release-pins.yaml). The component remains inert until its
-  # explicit GitOps feature gate.
-  - name: ghcr.io/verdifyconsultancy/verdify-experiment-v2-orchestrator
-    newName: registry.vallery.net/verdifyconsultancy/verdify-experiment-v2-orchestrator
-    digest: sha256:a11ace83b5513162647d130f99589690231a78e63fb732c07f1db0951af92861
-  # Hand-pinned planner: source eeeeabc1 (W6 release 6, #1458 anyio/certifi CVE lock), GHA build run
-  # 42349735728; rollback a02c2a36cd7c (00b53fe3, release 5).
-  - name: ghcr.io/verdifyconsultancy/verdify-planner
-    newName: registry.vallery.net/verdifyconsultancy/verdify-planner
-    digest: sha256:6484bed4d5de5860c25d059af7ef99e4625554ae661e8f5cd6584ead165e1de1
   # Hand-pinned grow-light writer: source 5ebe309308d5 (W7 release 8: #1494 relay_physical, #1495 per-setting
   # write lock), GHA build run 42415895024. Rollback: 0f40c6514b21 (source 130a954e0ce7, build run 42294583580). The #399 HA call allowlist confines
   # this prod-only writer to the declared main/grow light switches.
@@ -379,7 +343,7 @@ images:
     newName: registry.vallery.net/verdifyconsultancy/verdify-lab-publisher-k3s
     digest: sha256:68b24a5f603c49f631f4a813730465b522b11ed16306eed93f0d19e96f950a45
 
-# Release pins: the digests production runs for the five actuator-managed
+# Release pins: the digests production runs for the four actuator-managed
 # images. kustomize applies `transformers:` after `images:`, so these replace
 # the build-candidate digests above in every workload, CronJob and hook Job.
 # A build changes Git only; promotion is a digest-only edit of

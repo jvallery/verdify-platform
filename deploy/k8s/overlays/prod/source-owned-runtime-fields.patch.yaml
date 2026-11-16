@@ -55,15 +55,6 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: verdify-planner
-spec:
-  template:
-    spec:
-      tolerations: []
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: verdify-traefik
   namespace: verdify-prod
 spec:
@@ -82,13 +73,5 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: verdify-db-backup
-spec:
-  suspend: false
----
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: verdify-fixed-panel-native-freezer
-  namespace: verdify-prod
 spec:
   suspend: false

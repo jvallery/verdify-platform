@@ -167,6 +167,16 @@ def build_sheet(data: Gathered, at: datetime) -> dict[str, Any]:
         "leak_active": now.leak.active,
         "settings_not_yet_confirmed_by_controller": now.writer.differing,
     }
+    if now.law is not None:
+        # The climate law build (#1633 package 4.1): what the law is doing about drying, from its state record.
+        sheet["climate_law"] = {
+            "drying": now.law.drying,
+            "drying_refused_because": now.law.drying_refused_reason,
+            "drying_cost_kwh_per_kg": _round(now.law.drying_cost_kwh_per_kg, 2),
+            "drying_cost_limit_kwh_per_kg": _round(now.law.drying_cost_limit_kwh_per_kg, 2),
+            "band_repaired_by_controller": now.law.band_repaired,
+            "heaters_requested_by_law": [name for name in ("heat1", "heat2") if name in now.law.requests],
+        }
     if data.alert_page is not None:
         sheet["alerts"] = [
             {"severity": item.severity, "message": item.message[:160]} for item in data.alert_page.items[:MAX_ALERTS]

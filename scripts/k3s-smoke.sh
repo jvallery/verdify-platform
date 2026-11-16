@@ -288,11 +288,19 @@ try:
     body = json.load(sys.stdin)
     checks = body["checks"]
     assert body["status"] == "ok", "API data status is degraded"
-    for key in ("climate_age_seconds", "climate_action_log_age_seconds"):
-        age = checks[key]
-        assert isinstance(age, (int, float)) and 0 <= age <= 300, f"{key} stale/missing"
-    assert checks["climate_action_log_proof_missing"] == "", "controller action proof missing"
-    print("climate and controller action proof fresh (<=300s)")
+    age = checks["climate_age_seconds"]
+    assert isinstance(age, (int, float)) and 0 <= age <= 300, "climate_age_seconds stale/missing"
+    if checks.get("control_proof") == "law":
+        # The law build: its state record heartbeat is the controller proof (the API judged it <=120s).
+        law_age = checks["climate_law_state_age_seconds"]
+        assert isinstance(law_age, (int, float)) and 0 <= law_age <= 120, "climate_law_state stale/missing"
+        print("climate fresh; controller proof: the law state record (<=120s)")
+    else:
+        # A build before the law (or an API before the state record): the action log as before.
+        age = checks["climate_action_log_age_seconds"]
+        assert isinstance(age, (int, float)) and 0 <= age <= 300, "climate_action_log_age_seconds stale/missing"
+        assert checks["climate_action_log_proof_missing"] == "", "controller action proof missing"
+        print("climate and controller action proof fresh (<=300s)")
 except (ValueError, KeyError, AssertionError, TypeError) as exc:
     print(f"data freshness unavailable/degraded: {exc}")
     sys.exit(1)

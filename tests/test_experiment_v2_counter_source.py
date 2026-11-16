@@ -113,7 +113,6 @@ def _safe_equipment_source_attestation(**overrides: object) -> dict[str, object]
 @pytest.fixture(autouse=True)
 def _isolated_counter_source(monkeypatch):
     ingestor.state.pending_counter_samples.clear()
-    ingestor.state.pending_direct_state_snapshots.clear()
     ingestor.state.pending_equipment.clear()
     ingestor.state.pending_equipment_receipts.clear()
     ingestor.state.equipment.clear()
@@ -139,7 +138,6 @@ def _isolated_counter_source(monkeypatch):
     ingestor.state.counter_last_native_values.clear()
     ingestor.state.counter_generation_observations.clear()
     ingestor.state.counter_generation_ready = False
-    ingestor.state.last_direct_state_snapshot_local_date = None
     ingestor.state.equipment_source_last_receipt_at = None
     ingestor.state.equipment_source_last_device_observed_at = None
     ingestor.state.equipment_source_last_device_generation = 0
@@ -149,7 +147,6 @@ def _isolated_counter_source(monkeypatch):
     monkeypatch.setattr(ingestor.shared, "transport_generation", 7)
     yield
     ingestor.state.pending_counter_samples.clear()
-    ingestor.state.pending_direct_state_snapshots.clear()
     ingestor.state.pending_equipment.clear()
     ingestor.state.pending_equipment_receipts.clear()
     ingestor.state.equipment.clear()
@@ -229,18 +226,17 @@ def test_migration_is_append_only_function_bounded_and_never_backfills():
     assert "verdify-equipment-state-receipt-chain-v1" in sql
 
 
-def test_ingestor_manifest_uses_existing_optional_secret_for_both_exact_logins():
+def test_ingestor_manifest_uses_existing_optional_secret_for_the_collector_login():
     manifest = INGESTOR_MANIFEST.read_text()
     documentation = SECRETS_DOC.read_text()
     for key in (
-        "VERDIFY_EXPERIMENT_COMPONENT_DB_USER",
-        "VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD",
         "VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER",
         "VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD",
     ):
         assert f"- name: {key}" in manifest
         assert f"key: {key}" in manifest
         assert key in documentation
+    assert "VERDIFY_EXPERIMENT_COMPONENT_DB_" not in manifest
     source_section = manifest.split(
         "- name: VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER",
         1,
@@ -248,7 +244,6 @@ def test_ingestor_manifest_uses_existing_optional_secret_for_both_exact_logins()
     assert source_section.count("name: verdify-app-secrets") == 2
     assert source_section.count("optional: true") == 2
     assert "verdify_experiment_v2_equipment_source_collector_login" in manifest
-    assert "verdify_experiment_v2_component_executor_login" in manifest
 
 
 def test_source_unit_map_preserves_mister_hours_and_normal_relay_minutes():
@@ -270,9 +265,8 @@ def test_locked_source_map_hash_and_live_entity_parity():
     assert source_map["revision"] == "combined-normal-fertilized-misters-v1"
     assert source_map["timezone"] == "America/Denver"
     assert source_map["counter_publish_interval_seconds"] == 30
-    assert set(source_map["streams"]) == ingestor._EXPERIMENT_EQUIPMENT_STREAMS
+    assert set(source_map["streams"]) == {stream for stream, _unit in ingestor._COUNTER_SOURCE_BY_DAILY_COLUMN.values()}
 
-    physical: set[str] = set()
     for logical, row in source_map["streams"].items():
         collector_column = row["collector_column"]
         assert ingestor.DAILY_ACCUM_MAP[row["counter_object_id"]] == collector_column
@@ -286,7 +280,6 @@ def test_locked_source_map_hash_and_live_entity_parity():
         )
         expected = (logical, f"{logical}_fert") if logical in {"mister_south", "mister_west"} else (logical,)
         assert mapped == expected
-        physical.update(mapped)
         if row["native_unit"] == "minutes":
             assert row["to_minutes"] == "identity"
             assert row["state_reduce"] == "identity"
@@ -296,7 +289,6 @@ def test_locked_source_map_hash_and_live_entity_parity():
                 "identity",
                 "boolean_or_require_no_overlap",
             }
-    assert physical == ingestor._EXPERIMENT_DIRECT_STATE_COMPONENTS
     protocol = PROTOCOL.read_text()
     assert 'counter_source_map: "TO-LOCK' not in protocol
     assert source_map["revision"] in protocol
@@ -453,208 +445,6 @@ def test_counter_write_cancellation_requeues_exact_uuid():
         asyncio.run(ingestor.write_equipment_counter_samples(_Pool(cancel=True)))
 
     assert ingestor.state.pending_counter_samples == [original]
-
-
-def _install_direct_state_burst(
-    monkeypatch,
-    observed_at: datetime,
-    *,
-    extra_entities: tuple[tuple[int, str, str, object], ...] = (),
-) -> dict[str, bool]:
-    state_entities = {
-        "fan_1_running": ("binary", False),
-        "fan_2_running": ("binary", True),
-        "heat_1_running": ("binary", False),
-        "heat_2_running": ("binary", False),
-        "fog_running": ("binary", False),
-        "vent_open": ("binary", True),
-        "mister___south_wall": ("switch", False),
-        "mister___south_wall__fert__": ("switch", False),
-        "mister___west_wall": ("switch", False),
-        "mister___west_wall__fert__": ("switch", False),
-        "mister___center": ("switch", False),
-    }
-    keyed: list[SimpleNamespace] = []
-    key_to_object: dict[int, str] = {}
-    key_to_type: dict[int, str] = {}
-    expected: dict[str, bool] = {}
-    for key, (obj_id, (entity_type, value)) in enumerate(state_entities.items(), start=1):
-        key_to_object[key] = obj_id
-        key_to_type[key] = entity_type
-        stream = ingestor.EQUIPMENT_BINARY_MAP.get(obj_id) or ingestor.EQUIPMENT_SWITCH_MAP[obj_id]
-        expected[stream] = value
-        keyed.append(SimpleNamespace(key=key, state=value))
-    key_to_object[20] = "uptime"
-    key_to_type[20] = "sensor"
-    keyed.append(SimpleNamespace(key=20, state=3600.0))
-    key_to_object[21] = "firmware_version"
-    key_to_type[21] = "text"
-    keyed.append(SimpleNamespace(key=21, state="greenhouse-fw-a"))
-    for key, obj_id, entity_type, value in extra_entities:
-        key_to_object[key] = obj_id
-        key_to_type[key] = entity_type
-        keyed.append(SimpleNamespace(key=key, state=value))
-
-    monkeypatch.setattr(ingestor.state, "key_to_object_id", key_to_object)
-    monkeypatch.setattr(ingestor.state, "key_to_type", key_to_type)
-    monkeypatch.setattr(ingestor, "_equipment_source_now", lambda: observed_at)
-    client = object()
-    monkeypatch.setitem(ingestor.shared.esp32, "client", client)
-    monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_client", client)
-    monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_generation", 7)
-
-    removed = False
-
-    def request_burst(_client, callback):
-        for entity in keyed:
-            callback(entity)
-
-        def remove():
-            nonlocal removed
-            removed = True
-
-        return remove
-
-    monkeypatch.setattr(ingestor, "_request_current_state_burst", request_burst)
-    expected["_callback_removed"] = lambda: removed  # type: ignore[assignment]
-    return expected
-
-
-def test_direct_state_source_uses_one_fenced_read_burst_and_persists_all_eleven(monkeypatch):
-    local_now = datetime.now(ingestor.COUNTER_SOURCE_TIMEZONE).replace(hour=5, minute=59, second=0, microsecond=0)
-    observed_at = local_now.astimezone(UTC)
-    expected = _install_direct_state_burst(monkeypatch, observed_at)
-    removed = expected.pop("_callback_removed")
-    pool = _Pool()
-
-    asyncio.run(ingestor.equipment_direct_state_snapshot_source(pool))
-
-    assert removed()
-    assert ingestor.state.pending_direct_state_snapshots == []
-    assert ingestor.state.last_direct_state_snapshot_local_date == local_now.date()
-    query, rows = pool.connection.calls[0]
-    assert "fn_record_equipment_direct_state_snapshot" in query
-    assert len(rows) == 1
-    payload = json.loads(rows[0][4])
-    assert set(payload) == ingestor._EXPERIMENT_DIRECT_STATE_COMPONENTS
-    assert {stream: row["state"] for stream, row in payload.items()} == expected
-    assert {row["source_observed_at"] for row in payload.values()} == {observed_at.isoformat(timespec="microseconds")}
-    assert rows[0][6] == ingestor.COUNTER_SOURCE_RUNTIME_INSTANCE_ID
-    assert rows[0][7] == 7
-
-
-def test_scheduled_direct_state_source_uses_only_the_dedicated_pool(monkeypatch):
-    ordinary_pool = _Pool()
-    dedicated_pool = _Pool()
-    observed: list[object] = []
-
-    async def capture(pool) -> None:
-        observed.append(pool)
-
-    monkeypatch.setattr(ingestor, "equipment_direct_state_snapshot_source", capture)
-    asyncio.run(
-        ingestor.restricted_equipment_direct_state_snapshot_source(
-            ordinary_pool,
-            dedicated_pool,
-        )
-    )
-    assert observed == [dedicated_pool]
-
-    asyncio.run(
-        ingestor.restricted_equipment_direct_state_snapshot_source(
-            ordinary_pool,
-            None,
-        )
-    )
-    asyncio.run(
-        ingestor.restricted_equipment_direct_state_snapshot_source(
-            ordinary_pool,
-            ordinary_pool,
-        )
-    )
-    assert observed == [dedicated_pool]
-
-
-@pytest.mark.parametrize(
-    "duplicate",
-    (
-        (30, "fan_1_running", "binary", True),
-        (30, "uptime", "sensor", 3601.0),
-        (30, "firmware_version", "text", "greenhouse-fw-b"),
-    ),
-)
-def test_direct_state_source_rejects_conflicting_duplicate_observations(
-    monkeypatch,
-    duplicate,
-) -> None:
-    local_now = datetime.now(ingestor.COUNTER_SOURCE_TIMEZONE).replace(
-        hour=5,
-        minute=59,
-        second=0,
-        microsecond=0,
-    )
-    _install_direct_state_burst(
-        monkeypatch,
-        local_now.astimezone(UTC),
-        extra_entities=(duplicate,),
-    )
-    pool = _Pool()
-
-    asyncio.run(ingestor.equipment_direct_state_snapshot_source(pool))
-
-    assert pool.connection.calls == []
-    assert ingestor.state.pending_direct_state_snapshots == []
-    assert ingestor.state.last_direct_state_snapshot_local_date is None
-
-
-def test_direct_state_source_collapses_identical_duplicate_observations(monkeypatch) -> None:
-    local_now = datetime.now(ingestor.COUNTER_SOURCE_TIMEZONE).replace(
-        hour=5,
-        minute=59,
-        second=0,
-        microsecond=0,
-    )
-    _install_direct_state_burst(
-        monkeypatch,
-        local_now.astimezone(UTC),
-        extra_entities=(
-            (30, "fan_1_running", "binary", False),
-            (31, "uptime", "sensor", 3600.0),
-            (32, "firmware_version", "text", "greenhouse-fw-a"),
-        ),
-    )
-    pool = _Pool()
-
-    asyncio.run(ingestor.equipment_direct_state_snapshot_source(pool))
-
-    assert len(pool.connection.calls) == 1
-    payload = json.loads(pool.connection.calls[0][1][0][4])
-    assert set(payload) == ingestor._EXPERIMENT_DIRECT_STATE_COMPONENTS
-
-
-def test_direct_state_unknown_commit_requeues_exact_bundle(monkeypatch):
-    local_now = datetime.now(ingestor.COUNTER_SOURCE_TIMEZONE).replace(hour=5, minute=59, second=0, microsecond=0)
-    _install_direct_state_burst(monkeypatch, local_now.astimezone(UTC))
-    failed_pool = _Pool(fail=True)
-
-    with pytest.raises(OSError, match="database outage"):
-        asyncio.run(ingestor.equipment_direct_state_snapshot_source(failed_pool))
-    original = ingestor.state.pending_direct_state_snapshots[0]
-    assert failed_pool.connection.calls[0][1][0][0] == original.snapshot_id
-
-    recovered_pool = _Pool()
-    asyncio.run(ingestor.write_equipment_direct_state_snapshots(recovered_pool))
-    assert ingestor.state.pending_direct_state_snapshots == []
-    assert recovered_pool.connection.calls[0][1][0][0] == original.snapshot_id
-
-
-def test_direct_state_write_cancellation_requeues_exact_bundle(monkeypatch):
-    local_now = datetime.now(ingestor.COUNTER_SOURCE_TIMEZONE).replace(hour=5, minute=59, second=0, microsecond=0)
-    _install_direct_state_burst(monkeypatch, local_now.astimezone(UTC))
-    with pytest.raises(asyncio.CancelledError):
-        asyncio.run(ingestor.equipment_direct_state_snapshot_source(_Pool(cancel=True)))
-
-    assert len(ingestor.state.pending_direct_state_snapshots) == 1
 
 
 @pytest.mark.asyncio
@@ -1101,24 +891,16 @@ def test_durable_event_sealing_is_atomic_and_old_receipt_cannot_make_freshness(d
     assert ingestor._source_spool.rows() == []
 
 
-def test_durable_snapshot_roundtrip_retains_all_observation_times(durable_source):
-    at = datetime(2000, 1, 1, tzinfo=UTC)
-    original = ingestor.PendingEquipmentDirectStateSnapshot(
-        "11111111-1111-4111-8111-111111111111",
-        "22222222-2222-4222-8222-222222222222",
-        (("heat1", True, at),),
-        42,
-        "33333333-3333-4333-8333-333333333333",
-        2,
-        "old-fw",
-    )
-    assert ingestor._persist_source("snapshot", original.snapshot_id, original)
-    ingestor._source_spool.close()
+def test_durable_retired_direct_snapshot_row_is_acknowledged_and_dropped(durable_source):
+    # The experiment-v2 direct state snapshot is retired (#1649): a record a
+    # previous release left in the spool is acknowledged on restore, never replayed.
+    spool = ingestor._durable_source_spool()
+    spool.put("snapshot", "11111111-1111-4111-8111-111111111111", {"snapshot_id": "retired"})
+    spool.close()
     ingestor._source_spool = None
     ingestor._restore_source_spool()
-    assert ingestor.state.pending_direct_state_snapshots == [original]
-    asyncio.run(ingestor.write_equipment_direct_state_snapshots(_Pool()))
     assert ingestor._source_spool.rows() == []
+    assert not hasattr(ingestor.state, "pending_direct_state_snapshots")
 
 
 def test_durable_full_queue_rejects_new_event_without_losing_previous(durable_source, monkeypatch):

@@ -36,6 +36,17 @@ service_status = checks.get("service_climate_action_log")
 if status != "ok":
     failures.append(f"API status={status!r}")
 
+if checks.get("control_proof") == "law":
+    # The law build proves its decisions with its state record heartbeat; the action log is not required.
+    controller = checks.get("service_controller")
+    if controller != "ok":
+        failures.append(f"service_controller={controller!r}")
+    if failures:
+        print("✗ API health controller-proof check failed: " + "; ".join(failures), file=sys.stderr)
+        sys.exit(1)
+    print("✓ API health controller-proof check passed (the law state record)")
+    sys.exit(0)
+
 age = checks.get("climate_action_log_age_seconds")
 if not isinstance(age, (int, float)) or age >= 300:
     failures.append(f"climate_action_log_age_seconds={age!r}")

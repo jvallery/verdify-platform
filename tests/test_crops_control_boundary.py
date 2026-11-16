@@ -46,11 +46,7 @@ CROPS_READERS = {
 CONTROL_TASKS = (
     "ingestor/tasks/dispatcher.py",
     "ingestor/tasks/band_anchors.py",
-    "ingestor/tasks/policy_arbiter.py",
-    "ingestor/tasks/policy_delivery.py",
     "ingestor/tasks/irrigation.py",
-    "ingestor/tasks/c1_overlay.py",
-    "ingestor/tasks/bounded_reconcile.py",
 )
 
 

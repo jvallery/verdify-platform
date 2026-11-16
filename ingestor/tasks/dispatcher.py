@@ -7,7 +7,7 @@ surface so every `from tasks import X` still resolves.
 Plain convergence (VD-62): an ordinary pass sends at most
 ``MAX_RECONNECT_COMMANDS`` commands, oldest difference first, and wakes the
 next pass for the rest. It never stages, waits for an approval file or holds
-on halted-run custody; only the C1 qualification overlay still stages.
+on halted-run custody.
 
 Desired state (VD-33): each pass also reads ``v_desired_state_current`` and,
 through ``resolve_effective()``, lets a person's or an agent's value replace the
@@ -47,7 +47,7 @@ from verdify_schemas.tunable_registry import (
     desired_write_rule,
 )
 
-from . import band_anchors, bounded_reconcile, c1_overlay, drift_probe
+from . import band_anchors
 from ._common import (
     _PHYSICS_INVARIANTS,
     AI_MOISTURE_STRESS_POLICY_PARAMS,
@@ -308,10 +308,8 @@ def _pace_ordinary_changes(
     return batch, left, awaiting, wake
 
 
-def _dispatcher_stage_value(*, c1_phase: str, heap_deferred: bool, lease_held: bool, sent: int, pending: int) -> str:
+def _dispatcher_stage_value(*, heap_deferred: bool, lease_held: bool, sent: int, pending: int) -> str:
     """``ordinary``, ``paced <sent>/<pending>`` or ``held:<reason>`` for this pass."""
-    if c1_phase != "ordinary":
-        return "held:c1"
     if heap_deferred:
         return "held:heap"
     if not lease_held:
@@ -358,98 +356,6 @@ async def _record_blocked_readbacks(pool: asyncpg.Pool, missing: frozenset[str])
             await _record_dispatcher_stage(conn, HELD_READBACKS_STAGE)
     except Exception as error:  # the stage record never stops a dispatch pass
         log.warning("dispatcher_stage record failed stage=%r error=%s", HELD_READBACKS_STAGE, type(error).__name__)
-
-
-def _c1_policy_inputs(planned, anchors, origin, lighting, circuits, activity, safety, quiet, direct_wet, ai_moisture):
-    """Stable policy provenance; SQL function query timestamps are not identities.
-
-    The plan rows' ``created_at`` (read for desired-state resolution, VD-33)
-    stays out, so the C1 provenance is the one the source guard recomputes.
-    """
-    return {
-        "iris": [
-            {key: value for key, value in dict(row).items() if key != "created_at"}
-            for row in sorted(planned, key=lambda row: row["parameter"])
-        ],
-        "band_source": band_anchors.band_source(),
-        "crop_anchors": anchors,
-        "anchor_origin": origin,
-        "lighting_policy": {k: v for k, v in dict(lighting).items() if k != "ts"} if lighting else None,
-        "lighting_circuits": [{k: v for k, v in dict(row).items() if k != "ts"} for row in circuits or []],
-        "activity_defaults": activity,
-        "safety_defaults": safety,
-        "quiet_state": quiet,
-        "support": {"direct_wet": direct_wet, "ai_moisture": ai_moisture},
-    }
-
-
-async def _c1_source_guard(pool, selection):
-    """Fresh read-only policy/cap check after pacing, only for a C1 setter."""
-    if failure := c1_overlay.physical_fence(STATE_DIR, selection):
-        return failure
-    state = bounded_reconcile._read(STATE_DIR / c1_overlay.STATE_NAME)
-    worksheet = state["worksheet"]
-    async with pool.acquire() as conn:
-        planned = await conn.fetch(
-            "SELECT parameter, value, ts, plan_id, reason, trigger_id, planner_instance FROM v_active_plan"
-        )
-        anchors, origin = await band_anchors.crop_band_anchor_values(conn)
-        lighting = await conn.fetchrow("SELECT * FROM fn_lighting_policy(now())")
-        circuits = await conn.fetch("SELECT * FROM fn_lighting_minutes_policy(now()) ORDER BY light_key")
-        band = await conn.fetchrow("SELECT * FROM fn_band_setpoints(now())")
-        house = await conn.fetchrow("SELECT * FROM fn_house_vpd_control_band(now())")
-        control = _control_band_from_house_row(house)
-        caps = _vpd_high_moisture_guardrails(control, await _fetch_moisture_guard_context(conn) if control else None)
-        quiet = await _fetch_quiet_state(conn)
-    # Each query reads current committed inputs; no long snapshot transaction.
-    params = {}
-    for row in planned:
-        name = row["parameter"]
-        if name not in PLANNER_PUSHABLE_REG:
-            continue
-        value, _reason = _validate_physics(name, float(row["value"]))
-        if name in FORCED_ON_SWITCH_PARAMS and value < 0.5:
-            value = 1.0
-        params[name] = min(value, caps[name]) if name in caps else value
-    direct = _direct_wet_policy_supported()
-    activity = _direct_wet_defaults(lighting, circuits) if direct else {}
-    inputs = _c1_policy_inputs(
-        planned,
-        anchors,
-        origin,
-        lighting,
-        circuits,
-        activity,
-        {"safety_max": 100.0, "safety_min": 40.0},
-        quiet,
-        direct,
-        _ai_moisture_stress_policy_supported(),
-    )
-    source_inputs = json.loads(json.dumps(inputs, sort_keys=True, default=str))
-    defaults = {}
-    if band and control:
-        high = float(control["vpd_high"])
-        defaults = {
-            "mister_engage_kpa": round(high + 0.05, 2),
-            "mister_all_kpa": round(high + 0.25, 2),
-            "mister_engage_delay_s": 30,
-            "mister_all_delay_s": 60,
-            "mister_center_penalty": 0.5,
-        }
-    current = {
-        **worksheet["preview"],
-        "base_values": c1_overlay.ordinary_base48(params, defaults),
-        "base_inputs": source_inputs,
-        "base_inputs_sha256": bounded_reconcile._digest(source_inputs),
-    }
-    try:
-        c1_overlay.validate_worksheet(
-            worksheet, current, now=datetime.now(UTC), physics=_validate_physics, guardrails=caps, admitted=True
-        )
-    except (ValueError, KeyError, TypeError) as error:
-        log.warning("c1_qualification physical_source_guard=halt reason=%s", error)
-        return "c1_source_policy_or_guardrail_changed"
-    return c1_overlay.physical_fence(STATE_DIR, selection)
 
 
 def _apply_manual_overlay(changes: list[tuple[str, float]], overlay: dict[str, float]) -> set[str]:
@@ -1494,8 +1400,8 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
 
         # Desired state (VD-33, architecture §5.2). A person's or an agent's
         # value replaces what the plan, band and default blocks above put in
-        # changes for its parameter, through the same fences, before the dedupe,
-        # the drift probe, C1 and the 12-command limit. resolve_effective() is
+        # changes for its parameter, through the same fences, before the dedupe
+        # and the 12-command limit. resolve_effective() is
         # the one control rule: a manual row beats Iris's plan, a newer plan
         # beats a non-manual row, NULL releases. Only a plan row the dispatcher
         # admits (planner_params) counts as the plan.
@@ -1565,7 +1471,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         changes = list(deduped_changes.items())
 
         # Only current-generation cfg values may suppress an equivalent
-        # duration. Apply this before the drift probe, C1 and pacing.
+        # duration. Apply this before pacing.
         changes = _without_equivalent_duration_candidates(
             changes, shared.current_cfg_readbacks(reconnect_generation), grid_params
         )
@@ -1582,108 +1488,24 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             grid_params,
         )
 
-        probe_decision = await drift_probe.choose(
-            conn,
-            changes,
-            planned or [],
-            planner_params.get(drift_probe.PARAMETER),
-            reconnect_generation,
-            reconnect_pending,
-            STATE_DIR,
-        )
-        if probe_decision.action == "hold":
-            # A probe phase in flight holds this pass for at most its
-            # confirmation deadline; a halted probe no longer holds (VD-62).
-            shared.defer_failed_dispatch(reconnect_generation, drift_versions)
-            log.error("writer_drift_probe action=hold reason=%s", probe_decision.reason)
-            await _record_dispatcher_stage(conn, "held:drift_probe")
-            (STATE_DIR / "setpoint-dispatcher.log").touch()
-            return
-        if probe_decision.action == "send":
-            changes = list(probe_decision.changes)
-            log.info(
-                "writer_drift_probe action=%s run_id=%s generation=%d command_count=%d",
-                probe_decision.phase,
-                probe_decision.run_id,
-                reconnect_generation,
-                len(changes),
-            )
-        elif probe_decision.reason:
-            log.info("writer_drift_probe action=skipped reason=%s", probe_decision.reason)
-
-        # Staging remains only for the C1 qualification overlay and its
-        # restore; it runs through its own choose/physical_fence/finish files.
-        c1_selection = c1_overlay.Selection()
-        if probe_decision.action != "send":
-            c1_selection = await c1_overlay.choose(
-                conn,
-                changes,
-                base_values=c1_overlay.ordinary_base48(planner_params, mister_defaults),
-                base_inputs=_c1_policy_inputs(
-                    planned or [],
-                    anchor_values,
-                    anchor_origin,
-                    lighting_row,
-                    lighting_circuit_rows,
-                    direct_wet_defaults,
-                    safety_defaults,
-                    quiet_state,
-                    direct_wet_supported,
-                    ai_moisture_stress_supported,
-                ),
-                guardrails=moisture_guardrails,
-                physics=_validate_physics,
-                state_dir=STATE_DIR,
-                generation=reconnect_generation,
-            )
-            if c1_selection.phase in ("hold", "awaiting_confirmation"):
-                shared.defer_failed_dispatch(reconnect_generation, drift_versions)
-                log.warning("c1_qualification phase=%s reason=%s", c1_selection.phase, c1_selection.reason)
-                await _record_dispatcher_stage(conn, "held:c1")
-                return
-            if c1_selection.phase in ("send", "yield"):
-                changes = list(c1_selection.changes)
-            elif c1_selection.phase == "active":
-                # Keep explicit targets even when ordinary base would repair
-                # their temporary projection at the next drift callback.
-                changes = list(c1_selection.changes)
-
         # Where the 12-command check stood: an ordinary pass sends at most
         # MAX_RECONNECT_COMMANDS, oldest difference first, and wakes the next
         # pass for the rest. Nothing is staged, approved or halted.
-        pending_count = len(changes)
-        paced_unsent: list[tuple[str, float]] = []
-        paced_wake = False
-        awaiting_readback = 0
-        if c1_selection.phase == "ordinary" and probe_decision.action != "send":
-            changes, paced_unsent, awaiting_readback, paced_wake = _pace_ordinary_changes(
-                changes, reconnect_generation, pass_started, grid_params
-            )
-            pending_count = len(changes) + len(paced_unsent)
-            if paced_unsent or awaiting_readback:
-                log.info(
-                    "writer_reconcile reason=paced generation=%d action=paced trigger=%s "
-                    "command_count=%d pending=%d awaiting_readback=%d limit=%d",
-                    reconnect_generation,
-                    dispatch_reason,
-                    len(changes),
-                    pending_count,
-                    awaiting_readback,
-                    MAX_RECONNECT_COMMANDS,
-                )
-        if len(changes) > MAX_RECONNECT_COMMANDS:
-            # Unreachable: C1 and the drift probe select at most 12 commands by
-            # construction. Never enqueue more than the cap on any path.
-            shared.defer_failed_dispatch(reconnect_generation, drift_versions)
-            log.error(
-                "writer_dispatch reason=%s generation=%d action=cap_exceeded command_count=%d limit=%d",
-                dispatch_reason,
+        changes, paced_unsent, awaiting_readback, paced_wake = _pace_ordinary_changes(
+            changes, reconnect_generation, pass_started, grid_params
+        )
+        pending_count = len(changes) + len(paced_unsent)
+        if paced_unsent or awaiting_readback:
+            log.info(
+                "writer_reconcile reason=paced generation=%d action=paced trigger=%s "
+                "command_count=%d pending=%d awaiting_readback=%d limit=%d",
                 reconnect_generation,
+                dispatch_reason,
                 len(changes),
+                pending_count,
+                awaiting_readback,
                 MAX_RECONNECT_COMMANDS,
             )
-            (STATE_DIR / "setpoint-dispatcher.log").touch()
-            return
 
         if not changes:
             clamp_rows_written = await _write_clamp_audit_rows(conn, clamps_to_log, set())
@@ -1701,7 +1523,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             # Values still awaiting their readback wait for the 300 s cadence
             # or a readback drift; this pass does not wake itself for them.
             complete_dispatch_trigger()
-            await _record_dispatcher_stage(conn, "held:c1" if c1_selection.phase != "ordinary" else "ordinary")
+            await _record_dispatcher_stage(conn, "ordinary")
             (STATE_DIR / "setpoint-dispatcher.log").touch()
             return
 
@@ -1735,29 +1557,17 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         # A command is a desired-state value (source manual, past
         # component_authority_hold, no plan trigger) or a release (source band)
         # only when it carries the very value the desired-state block resolved
-        # (VD-33): a drift probe, a C1 target or a C1 restore of the same field
-        # is none of them.
-        outgoing_desired: frozenset[str] = frozenset()
-        outgoing_released: frozenset[str] = frozenset()
-        if probe_decision.action != "send":
-            outgoing = {param: float(value) for param, value in changes if param not in c1_selection.override_fields}
-            outgoing_desired = frozenset(
-                param for param, value in desired_values.items() if outgoing.get(param) == value
-            )
-            outgoing_released = frozenset(
-                param for param, value in released_values.items() if outgoing.get(param) == value
-            )
+        # (VD-33).
+        outgoing = {param: float(value) for param, value in changes}
+        outgoing_desired = frozenset(param for param, value in desired_values.items() if outgoing.get(param) == value)
+        outgoing_released = frozenset(param for param, value in released_values.items() if outgoing.get(param) == value)
 
         dispatchable_changes: list[tuple[str, float, str]] = []
         delivery_records: list[dict[str, object]] = []
         prequeue_failures: list[tuple[str, str]] = []
         skipped_heap_deferred = 0
         for param, val in changes:
-            source = (
-                "manual"
-                if probe_decision.phase == "probe" or param in c1_selection.override_fields
-                else _dispatch_source(param, planner_params, quiet_params, outgoing_desired, outgoing_released)
-            )
+            source = _dispatch_source(param, planner_params, quiet_params, outgoing_desired, outgoing_released)
             # A desired-state value or a release carries no plan's trigger (VD-33).
             plan_owned = param not in outgoing_desired and param not in outgoing_released
 
@@ -1796,9 +1606,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 meta = planner_meta.get(param, {}) if plan_owned else {}
                 change_trigger_id = meta.get("trigger_id")
                 change_planner_instance = meta.get("planner_instance")
-                if param in c1_selection.override_fields:
-                    change_trigger_id = c1_selection.worksheet_id
-                    change_planner_instance = None
                 SetpointChange(
                     ts=(requested_at := datetime.now(UTC)),
                     parameter=param,
@@ -1915,7 +1722,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 skipped_heap_deferred,
             )
         # Desired-state values pass component_authority_hold at the physical
-        # chokepoint (VD-33); a probe or C1 value for the same field does not.
+        # chokepoint (VD-33).
         desired_push = frozenset(param for param, _value, _source in dispatchable_changes if param in outgoing_desired)
         # Tier 1 #2: persist guardrail audit. Rows are written even when the
         # guardrail intentionally holds an unchanged applied value and no
@@ -1932,7 +1739,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         for row in clamps_to_log:
             shared.delivery_differing_since.pop(str(row["parameter"]), None)
         dispatcher_stage = _dispatcher_stage_value(
-            c1_phase=c1_selection.phase,
             heap_deferred=heap_defer_active,
             lease_held=shared.writer_lease_held(),
             sent=len(changes),
@@ -2013,7 +1819,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
 
     pending_records = list(delivery_records)
     terminal_failures: list[tuple[str, str]] = []
-    max_attempts = 1 if probe_decision.action == "send" else 3
+    max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         if not pending_records:
             break
@@ -2075,10 +1881,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             on_state=on_state,
             command_versions=[record["requested_at"].timestamp() for record in pending_records],
             expected_connection_generation=reconnect_generation,
-            source_fence=(lambda: c1_overlay.physical_fence(STATE_DIR, c1_selection))
-            if c1_selection.phase == "send"
-            else None,
-            source_guard=(lambda: _c1_source_guard(pool, c1_selection)) if c1_selection.phase == "send" else None,
             desired_params=desired_push,
         )
         if result.fatal_error:
@@ -2144,13 +1946,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         except Exception:
             log.exception("terminal-failure alert write failed; continuing to dispatch cleanup")
 
-    if c1_selection.phase in ("send", "yield"):
-        c1_overlay.finish(STATE_DIR, c1_selection, delivery_records, final_failures)
-        shared.defer_failed_dispatch(reconnect_generation, drift_versions)
-    elif probe_decision.action == "send":
-        drift_probe.finish(STATE_DIR, probe_decision, delivery_records, final_failures)
-        shared.defer_failed_dispatch(reconnect_generation, drift_versions)
-    elif not _dispatch_trigger_completed(final_failures):
+    if not _dispatch_trigger_completed(final_failures):
         shared.defer_failed_dispatch(reconnect_generation, drift_versions)
         log.error(
             "writer_reconcile reason=%s generation=%d action=incomplete failure_count=%d",

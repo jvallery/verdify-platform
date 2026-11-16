@@ -196,6 +196,11 @@ const controller = z.object({
 const snapshot = z.object({
   text, generated_at: text, as_of: text, model: text, stale: flag, stale_reason: maybe(code), outdated: flag,
 });
+/** The climate law's state record while it is fresh (#1633 package 4.1); null before the law build, absent from an older server. */
+const lawState = z.object({
+  observed_at: text, latches: z.array(text), requests: z.array(text), drying: choice(["running", "refused", "not_wanted"] as const, "not_wanted"),
+  drying_refused_reason: maybe(text), drying_cost_kwh_per_kg: maybe(num), drying_cost_limit_kwh_per_kg: num, band_repaired: flag,
+});
 const now = z.object({
   server_time: text,
   indoor: z.object({ temp_f: reading, rh_pct: reading, vpd_kpa: reading }),
@@ -212,6 +217,7 @@ const now = z.object({
   controller: controller.optional(),
   snapshot: snapshot.nullable().optional(),
   hydroponics: z.object({ ph: reading, ec_us_cm: reading, water_temp_f: reading, stale_after_s: int.positive() }).nullable().optional(),
+  law: lawState.nullable().optional(),
 });
 
 const metricDef = z.object({

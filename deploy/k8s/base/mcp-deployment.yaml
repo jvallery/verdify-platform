@@ -39,21 +39,18 @@ spec:
         # consumed via envFrom, so a ConfigMap edit alone does NOT restart this
         # pod. Maintained by scripts/gen-config-revision.sh — do NOT hand-edit
         # (the CI gate recomputes it).
-        verdify.io/config-revision: "92b0866e2221"
+        verdify.io/config-revision: "9e41c2e83474"
       labels:
         app.kubernetes.io/part-of: verdify
         app.kubernetes.io/component: mcp
     spec:
       serviceAccountName: verdify-mcp
       automountServiceAccountToken: false
-      # Private in-org images live at ghcr.io/verdifyconsultancy/*. The
-      # ghcr-jvallery-readonly secret in the namespace carries host-level
-      # (ghcr.io) auth that covers both orgs; reference it explicitly here so
+      # Images come from the zot origin (ADR-0021); reference its pull Secret explicitly so
       # the kubelet can pull the pinned @sha256 digests (the namespace default
       # SA has no imagePullSecrets, and we do not mutate it from the overlay).
       imagePullSecrets:
-        - name: zot-origin-cluster-pull  # zot origin (ADR-0021); ghcr kept during transition
-        - name: ghcr-jvallery-readonly
+        - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

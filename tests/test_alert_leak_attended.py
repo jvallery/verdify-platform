@@ -132,8 +132,6 @@ def replay(rows, start: datetime, end: datetime, *, step=timedelta(minutes=1)):
             ns["_sync_monitor_alerts"](
                 log,
                 [leak] if leak else [],
-                component_status_available=True,
-                component_closure_resolutions={},
                 refresh_only_keys=refresh_only,
                 now=when,
             )

@@ -7,7 +7,7 @@
 # 2026-07-11: GitHub Actions is removed from this repo (operator directive —
 # no external CI dependency). This script IS the gate the old workflows ran:
 #   ci.yml            -> lint, format, schema/logic/contract pytest suites,
-#                        migration rollback safety, twin vendored-src compile
+#                        migration rollback safety
 #   k8s-manifests.yml -> kustomize render of the prod overlay
 #   container-publish -> image builds run in GitHub Actions build.yml on ARC
 #                        (Kaniko -> zot origin; docs/runbooks/prod-promotion.md)
@@ -37,9 +37,10 @@ step() { printf '\n== %s ==\n' "$1"; }
 # is their aggregate. Unset or "all" runs every step in one process, as
 # `make ci` does. Steps stay serial inside each part, so wall-clock assertions
 # keep their own CPU (pytest-xdist broke them, #1448).
-#   containment-firmware  private component containment, firmware native tests,
-#                         twin compile, and the diff-scoped gates (rules 6, 7,
-#                         firmware replay diff)
+#   containment-firmware  firmware native tests and the diff-scoped gates
+#                         (rules 6, 7, firmware replay diff); the private
+#                         component containment proof retired with experiment
+#                         generation 2 (#1649)
 #   pure-logic-1/2        the pure-logic / contract pytest list, files dealt
 #                         round-robin across the two parts
 #   rest                  every other step
@@ -52,24 +53,18 @@ in_part() { [ "$VALIDATE_PART" = all ] || [[ " $* " == *" $VALIDATE_PART "* ]]; 
 
 if in_part rest; then
   step "ruff lint"
-  $RUFF check cortex_planner/ ingestor/ api/ experiment_orchestrator/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
+  $RUFF check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
     research/planner-efficacy/generate_v2_artifacts.py \
     research/planner-efficacy/switchback/v2_*.py \
     research/planner-efficacy/tests/test_protocol_template_contract.py \
     research/planner-efficacy/tests/test_switchback_v2_*.py
 
   step "ruff format"
-  $RUFF format --check cortex_planner/ ingestor/ api/ experiment_orchestrator/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
+  $RUFF format --check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
     research/planner-efficacy/generate_v2_artifacts.py \
     research/planner-efficacy/switchback/v2_*.py \
     research/planner-efficacy/tests/test_protocol_template_contract.py \
     research/planner-efficacy/tests/test_switchback_v2_*.py
-fi
-
-# The private PostgreSQL proof is cluster-only; no local fallback or ambient DB.
-if in_part containment-firmware && [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
-  step "private component containment (synthetic only)"
-  $PY scripts/qualify-component-containment.py
 fi
 
 if in_part rest; then
@@ -102,8 +97,7 @@ if in_part rest; then
     research/planner-efficacy/tests/test_pre_draw_sensitivity.py \
     research/planner-efficacy/tests/test_result_manifests.py \
     research/planner-efficacy/tests/test_switchback.py \
-    research/planner-efficacy/tests/test_warm_season_calendar_prereg.py \
-    research/planner-efficacy/tests/test_sql_export_analyzer.py
+    research/planner-efficacy/tests/test_warm_season_calendar_prereg.py
   $PY research/planner-efficacy/generate_v2_artifacts.py --check
 
   step "device write gate"
@@ -115,7 +109,6 @@ if in_part pure-logic-1 pure-logic-2; then
   PURE_LOGIC_TESTS=(
     tests/test_setpoint_listener_reconnect.py
     tests/test_portable_stateful_placement.py
-    tests/test_component_runtime_probe.py
     tests/test_275_c0_delivery.py
     tests/test_277_getter_delivery.py
     tests/test_279_source_clock_delivery.py
@@ -172,7 +165,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_dashboard_db_irrigation_writes.py
     tests/test_dashboard_db_forecast_engine.py
     tests/test_dashboard_db_next_reads.py
-    tests/test_bounded_reconcile.py
     tests/test_10_planner_routing.py
     tests/test_11_planner_milestones.py
     tests/test_13_grafana_band_traceability.py
@@ -201,8 +193,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_21_config_revision.py
     tests/test_component_grid_capture.py
     tests/test_c1_grid_projection.py
-    tests/test_c1_qualification_overlay.py
-    tests/test_c1_native_capture.py
     tests/test_control_band_wire.py
     tests/test_component_prefix_replay.py
     tests/test_component_prefix_inputs.py
@@ -235,65 +225,37 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_api_light_command_boundary.py
     tests/test_api_public_output_policy.py
     tests/test_climate_intent_replay_evaluator.py
-    tests/test_component_experiment_api.py
     tests/test_component_experiment_contract.py
-    tests/test_component_experiment_executor.py
     tests/test_component_experiment_observability.py
-    tests/test_component_alert_scope.py
     tests/test_alert_probe_offline_lifecycle.py
     tests/test_alert_leak_lifecycle.py
     tests/test_alert_silences.py
     tests/test_264_facility_safe_closure_delivery.py
-    tests/test_component_experiment_source.py
     tests/test_native_transport_liveness.py
     tests/test_k3s_smoke_device_monitor.py
     tests/test_k3s_smoke_g10.py
-    tests/test_component_experiment_store.py
     tests/test_component_experiment_writer.py
     tests/test_component_grid_qualification.py
     tests/test_qualify_component_containment.py
     tests/test_esp32_policy_transaction.py
-    tests/test_experiment_api.py
     tests/test_experiment_gather_mode.py
     tests/test_experiment_qualification_regimes.py
-    tests/test_experiment_qualification_scheduler.py
     tests/test_experiment_qualification_settling.py
     tests/test_experiment_qualification_spec.py
     tests/test_experiment_schema_migration.py
     tests/test_experiment_v2_counter_source.py
-    tests/test_experiment_v2_orchestrator_contracts.py
-    tests/test_experiment_v2_orchestrator_database.py
-    tests/test_experiment_v2_orchestrator_manifests.py
-    tests/test_experiment_v2_orchestrator_outcome.py
-    tests/test_experiment_v2_orchestrator_provider.py
-    tests/test_experiment_v2_orchestrator_runtime.py
-    tests/test_experiment_v2_orchestrator_service.py
-    tests/test_experiment_v2_orchestrator_stores.py
-    tests/test_experiment_v2_reconcile.py
-    tests/test_experiment_v2_reconcile_archive.py
-    tests/test_experiment_v2_capture_inputs.py
     tests/test_freeze_route_day_target.py
     tests/test_experiment_v2_restore_rehearsal.py
-    tests/test_experiment_v2_shadow_source_lock.py
     tests/test_experiment_v2_data_contract.py
     tests/test_experiment_v2_day1_authorization.py
     tests/test_experiment_v2_direct_launch_runtime.py
-    tests/test_experiment_v2_launch_artifacts.py
-    tests/test_experiment_v2_direct_proof_activation.py
     tests/test_experiment_v2_direct_proof_attempt_status.py
     tests/test_experiment_v2_direct_proof_recovery_range_rollover.py
     tests/test_experiment_v2_direct_proof_retry.py
-    tests/test_experiment_v2_gate_r_activation.py
-    tests/test_experiment_v2_gate_r_readiness_activation.py
-    tests/test_experiment_v2_proof_packet.py
-    tests/test_experiment_v2_wetting_disposition.py
-    tests/test_783_current_role_admission.py
-    tests/test_experiment_v2_readiness_guard.py
     tests/test_experiment_v2_emergency_recovery_retry.py
     tests/test_experiment_v2_recovery_generation_guard.py
     tests/test_experiment_v2_recovery_failure_boundary.py
     tests/test_experiment_verify.py
-    tests/test_experiment_workers.py
     tests/test_api_deferred_batch_patch.py
     tests/test_api_overflow_patch.py
     tests/test_api_heap_owner_counters.py
@@ -351,21 +313,12 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_knowledge_embeddings_contract.py
     tests/test_mqtt_fanout.py
     tests/test_no_hosted_runner_workflows.py
-    tests/test_planner_graph_contract.py
-    tests/test_planner_memory_ingest.py
-    tests/test_planner_runtime_db_boundary.py
-    tests/test_cortex_planner_pack.py
-    tests/test_cortex_planner_run.py
-    tests/test_planner_proposal_schema.py
     tests/test_six_runtime_role_bootstrap.py
     tests/test_maintenance_runtime_boundaries.py
     tests/test_policy_arbiter_migration.py
-    tests/test_policy_arbiter_worker.py
-    tests/test_policy_delivery_worker.py
     tests/test_prometheus_rule_source_guard.py
     tests/test_policy_writer_demotion.py
     tests/test_prepare_component_prefix_replay.py
-    tests/test_prepare_experiment_v2_shadow.py
     tests/test_prod_release_pins.py
     tests/test_psql_verdify_backend.py
     tests/test_publish_site_content_guard.py
@@ -377,6 +330,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_release_dockerfile_base_pins.py
     tests/test_route_only_crop_band.py
     tests/test_route_only_crop_band_reader.py
+    tests/test_evidence_snapshot_reader_unavailable.py
     tests/test_runtime_role_cutover_manifests.py
     tests/test_service_restart_drift_guard.py
     tests/test_setpoint_server_db_backend.py
@@ -386,9 +340,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_solar_band_anchors.py
     tests/test_solar_constants_check.py
     tests/test_tempest_sync.py
-    tests/test_twin_agreement_report.py
-    tests/test_twin_asof_migration.py
-    tests/test_twin_live_driver.py
     tests/test_verdify_services_reads.py
     tests/test_greenhouse_brief.py
     tests/test_verdify_services_irrigation_reads.py
@@ -470,18 +421,12 @@ if in_part rest; then
     tests/test_dli_availability.py \
     tests/test_dli_lesson_suppression.py \
     tests/test_experiment_v2_credential_bootstrap.py \
-    tests/test_experiment_v2_direct_bootstrap.py \
     tests/test_experiment_v2_direct_launch.py \
     tests/test_experiment_v2_direct_physical_proof.py \
     tests/test_experiment_v2_direct_proof_preclaim_raw_reset_rollover.py \
-    tests/test_experiment_v2_direct_proof_raw_reset_rollover.py \
-    tests/test_experiment_v2_direct_proof_startup_rollover.py \
     tests/test_experiment_v2_direct_proof_work_binding.py \
-    tests/test_experiment_v2_direct_proof_zero_exposure_seal.py \
     tests/test_experiment_v2_emergency_recovery_exposure_boundary.py \
-    tests/test_experiment_v2_observation_pair_recovery_retry.py \
     tests/test_experiment_v2_observation_window_bundle_join.py \
-    tests/test_experiment_v2_orphaned_preclaim_recovery.py \
     tests/test_experiment_v2_readiness_reader_grants.py \
     tests/test_firmware_sntp_servers.py \
     tests/test_fixed_panel.py \
@@ -516,7 +461,6 @@ if in_part rest; then
     tests/test_prompt_variants.py \
     tests/test_public_band_lineage.py \
     tests/test_qualify_migration_successor_prelock.py \
-    tests/test_recovery_only_soil_alerts.py \
     tests/test_replay_outdoor_coverage.py \
     tests/test_resource_endpoint.py \
     tests/test_resource_ledger.py \
@@ -529,27 +473,10 @@ if in_part rest; then
     tests/test_wetting_incident.py \
     tests/test_wetting_incident_join.py \
     tests/test_winter_feasibility.py \
-    tests/test_writer_drift_probe.py \
     --deselect tests/test_winter_feasibility.py::test_source_candidates_bind_current_bytes_without_false_qualification
 
-  step "planner_graph offline suite + planner scorecard context"
-  # The validate venv installs the dev/planner/api extras only; add the
-  # planner-graph extra (pyproject) when langgraph is missing.
-  if ! $PY -c 'import langgraph' >/dev/null 2>&1; then
-    PG_REQS=$($PY -c 'import tomllib; print(" ".join(tomllib.load(open("pyproject.toml","rb"))["project"]["optional-dependencies"]["planner-graph"]))')
-    if $PY -m pip --version >/dev/null 2>&1; then
-      # shellcheck disable=SC2086
-      $PY -m pip install -q $PG_REQS
-    else
-      # shellcheck disable=SC2086
-      uv pip install -q --python "$PY" $PG_REQS
-    fi
-  fi
-  # test_memory_postgres/test_store_postgres start a Postgres container (docker).
-  $PY -m pytest -q -rs planner_graph/tests \
-    --ignore=planner_graph/tests/test_memory_postgres.py \
-    --ignore=planner_graph/tests/test_store_postgres.py \
-    tests/test_scorecard_semantics.py
+  step "planner scorecard context"
+  $PY -m pytest -q -rs tests/test_scorecard_semantics.py
 
   # Intentionally NOT collected by this gate:
   # - Live stack / production (curl through Traefik, kubectl exec into
@@ -559,13 +486,10 @@ if in_part rest; then
   #   test_13_operational_recovery.py. Several mix in offline classes; split
   #   those out before adding them here.
   # - Private database fixtures run by other CI steps: tests/test_dashboard_db_*.py
-  #   (verdify-platform-ci campaign step, private TimescaleDB) and
-  #   tests/test_component_containment_postgres.py (qualify-component-containment.py).
+  #   (verdify-platform-ci campaign step, private TimescaleDB).
   # - Private PostgreSQL only, every test skips without a *_TEST_PG_BIN / DSN:
   #   tests/test_427_local_fallback.py, test_c0_release_rehearsal.py,
-  #   test_collector_lineage_sql.py, test_daily_climate_metric_revisions.py.
-  # - Docker Postgres: planner_graph/tests/test_memory_postgres.py,
-  #   planner_graph/tests/test_store_postgres.py.
+  #   test_daily_climate_metric_revisions.py.
   # - Own environment: research/planner-efficacy/tests/test_audit.py and
   #   test_epoch_analysis.py need scikit-learn (research/planner-efficacy/pyproject.toml).
   # - tests/test_15_lab_site_followup.py reads the Iris vault site content
@@ -615,18 +539,6 @@ if in_part containment-firmware; then
     else
       $PY firmware/test/climate_law_sim.py --quick
     fi
-  else
-    echo "SKIP: g++ not available on this host (required in the CI image)"
-  fi
-
-  step "twin follower source compiles (the twin image's exact build, #587)"
-  # The twin image (twin/Dockerfile; its k8s component was retired unbuilt, #1579)
-  # builds from these CANONICAL sources (the vendored src/ copies are gone), so
-  # syntax-check the exact -DREPLAY_EMIT_STREAM compile the image performs.
-  if command -v g++ >/dev/null; then
-    g++ -std=c++17 -fsyntax-only -DREPLAY_EMIT_STREAM \
-      -Ifirmware/lib \
-      firmware/test/replay_emit.cpp
   else
     echo "SKIP: g++ not available on this host (required in the CI image)"
   fi

@@ -25,8 +25,6 @@ def leak_cycle(ns, log, when, *, before_sync=None):
         ns["_sync_monitor_alerts"](
             log,
             [leak] if leak else [],
-            component_status_available=True,
-            component_closure_resolutions={},
             refresh_only_keys=refresh_only,
             now=when,
         )
@@ -136,11 +134,7 @@ def test_auto_resolve_never_closes_the_leak_row():
         message="Water flowing with every Verdify valve closed since 03:00",
         details={"since": local(0, 3).isoformat(), "stopped_at": None},
     )
-    asyncio.run(
-        ns["_sync_monitor_alerts"](
-            log, [], component_status_available=True, component_closure_resolutions={}, now=local(0, 4)
-        )
-    )
+    asyncio.run(ns["_sync_monitor_alerts"](log, [], now=local(0, 4)))
     assert row["resolved_at"] is None and log.writes == []
 
 

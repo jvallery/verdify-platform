@@ -113,57 +113,70 @@ if [[ ! "${climate_age:-}" =~ ^[0-9]+$ || "$climate_age" -gt 300 ]]; then
 fi
 pass "Climate telemetry fresh (${climate_age}s)"
 
-action_log_table="$("${DB[@]}" "SELECT CASE WHEN to_regclass('public.climate_action_log') IS NULL THEN 0 ELSE 1 END" | tr -d '[:space:]')"
-if [[ "$action_log_table" != "1" ]]; then
-    guard_or_fail "Climate action log table missing; no firmware OTA without controller-decision proof"
-fi
+# Controller-decision proof (climate refactor package 4.1): the law build's state record heartbeat, stored on every
+# receipt, proves the law is deciding; a build before the law has none, and the action log below is its proof.
+law_age="$("${DB[@]}" "/* preflight:law-heartbeat */ SELECT extract(epoch FROM now() - max(ts))::int FROM system_state WHERE entity = 'climate_law_state' AND ts > now() - interval '1 hour'" | tr -d '[:space:]')"
+if [[ "${law_age:-}" =~ ^[0-9]+$ && "$law_age" -le 120 ]]; then
+    pass "Climate law state record fresh (${law_age}s): controller-decision proof"
+    # Parity with the action-log gate's sensor proof: the law reports lost temperature or invalid humidity in dr. A fix
+    # flash during such a fault goes through the audited override.
+    law_dr="$("${DB[@]}" "/* preflight:law-dr */ SELECT value::jsonb->>'dr' FROM system_state WHERE entity = 'climate_law_state' ORDER BY ts DESC LIMIT 1" | tr -d '[:space:]')"
+    if [[ "$law_dr" == "no_temperature" || "$law_dr" == "humidity_invalid" ]]; then
+        guard_or_fail "Climate law reports ${law_dr}; no firmware OTA while the controller's inputs are invalid"
+    fi
+else
+    action_log_table="$("${DB[@]}" "SELECT CASE WHEN to_regclass('public.climate_action_log') IS NULL THEN 0 ELSE 1 END" | tr -d '[:space:]')"
+    if [[ "$action_log_table" != "1" ]]; then
+        guard_or_fail "Climate action log table missing; no firmware OTA without controller-decision proof"
+    fi
 
-action_age="$("${DB[@]}" "SELECT COALESCE(EXTRACT(EPOCH FROM now() - max(ts))::int, 2147483647) FROM climate_action_log" | tr -d '[:space:]')"
-if [[ ! "${action_age:-}" =~ ^[0-9]+$ || "$action_age" -gt 300 ]]; then
-    guard_or_fail "Climate action log stale or missing (${action_age:-no data}s); no firmware OTA without fresh controller-decision proof"
-fi
-pass "Climate action log fresh (${action_age}s)"
+    action_age="$("${DB[@]}" "SELECT COALESCE(EXTRACT(EPOCH FROM now() - max(ts))::int, 2147483647) FROM climate_action_log" | tr -d '[:space:]')"
+    if [[ ! "${action_age:-}" =~ ^[0-9]+$ || "$action_age" -gt 300 ]]; then
+        guard_or_fail "Climate action log stale or missing (${action_age:-no data}s); no firmware OTA without fresh controller-decision proof"
+    fi
+    pass "Climate action log fresh (${action_age}s)"
 
-action_proof_missing="$("${DB[@]}" \
-    "WITH latest AS (
-       SELECT *
-         FROM climate_action_log
-        ORDER BY ts DESC
-        LIMIT 1
-     )
-     SELECT concat_ws(',',
-            CASE WHEN climate_action IS NULL OR climate_action = '' THEN 'climate_action' END,
-            CASE WHEN priority_axis IS NULL OR priority_axis = '' THEN 'priority_axis' END,
-            CASE WHEN climate_intent_version IS NULL OR climate_intent_version = '' THEN 'climate_intent_version' END,
-            CASE WHEN temp_low_f IS NULL THEN 'temp_low_f' END,
-            CASE WHEN temp_target_f IS NULL THEN 'temp_target_f' END,
-            CASE WHEN temp_high_f IS NULL THEN 'temp_high_f' END,
-            CASE WHEN vpd_low_kpa IS NULL THEN 'vpd_low_kpa' END,
-            CASE WHEN vpd_target_kpa IS NULL THEN 'vpd_target_kpa' END,
-            CASE WHEN vpd_high_kpa IS NULL THEN 'vpd_high_kpa' END,
-            CASE WHEN temp_target_delta_f IS NULL THEN 'temp_target_delta_f' END,
-            CASE WHEN vpd_target_delta_kpa IS NULL THEN 'vpd_target_delta_kpa' END,
-            CASE WHEN temp_band_error_f IS NULL THEN 'temp_band_error_f' END,
-            CASE WHEN vpd_band_error_kpa IS NULL THEN 'vpd_band_error_kpa' END,
-            CASE WHEN relay_truth IS NULL OR jsonb_typeof(relay_truth) <> 'object' OR relay_truth = '{}'::jsonb THEN 'relay_truth' END,
-            CASE WHEN sensor_status IS NULL OR jsonb_typeof(sensor_status) <> 'object' OR sensor_status = '{}'::jsonb THEN 'sensor_status' END,
-            CASE WHEN sensor_status->>'latest_climate_ts' IS NULL OR sensor_status->>'latest_climate_ts' = '' THEN 'sensor_status.latest_climate_ts' END,
-            CASE
-                WHEN CASE
-                    WHEN sensor_status->>'latest_climate_age_s' ~ '^[0-9]+$'
-                    THEN (sensor_status->>'latest_climate_age_s')::int < 300
-                    ELSE false
-                END IS NOT true THEN 'sensor_status.latest_climate_age_s'
-            END,
-            CASE WHEN sensor_status->>'temp_avg_present' IS DISTINCT FROM 'true' THEN 'sensor_status.temp_avg_present' END,
-            CASE WHEN sensor_status->>'vpd_avg_present' IS DISTINCT FROM 'true' THEN 'sensor_status.vpd_avg_present' END,
-            CASE WHEN sensor_status->>'band_context_complete' IS DISTINCT FROM 'true' THEN 'sensor_status.band_context_complete' END
+    action_proof_missing="$("${DB[@]}" \
+        "WITH latest AS (
+           SELECT *
+             FROM climate_action_log
+            ORDER BY ts DESC
+            LIMIT 1
          )
-       FROM latest" | tr -d '[:space:]')"
-if [[ -n "$action_proof_missing" ]]; then
-    guard_or_fail "Climate action log proof incomplete (${action_proof_missing}); no firmware OTA without graphable target deltas and relay truth"
+         SELECT concat_ws(',',
+                CASE WHEN climate_action IS NULL OR climate_action = '' THEN 'climate_action' END,
+                CASE WHEN priority_axis IS NULL OR priority_axis = '' THEN 'priority_axis' END,
+                CASE WHEN climate_intent_version IS NULL OR climate_intent_version = '' THEN 'climate_intent_version' END,
+                CASE WHEN temp_low_f IS NULL THEN 'temp_low_f' END,
+                CASE WHEN temp_target_f IS NULL THEN 'temp_target_f' END,
+                CASE WHEN temp_high_f IS NULL THEN 'temp_high_f' END,
+                CASE WHEN vpd_low_kpa IS NULL THEN 'vpd_low_kpa' END,
+                CASE WHEN vpd_target_kpa IS NULL THEN 'vpd_target_kpa' END,
+                CASE WHEN vpd_high_kpa IS NULL THEN 'vpd_high_kpa' END,
+                CASE WHEN temp_target_delta_f IS NULL THEN 'temp_target_delta_f' END,
+                CASE WHEN vpd_target_delta_kpa IS NULL THEN 'vpd_target_delta_kpa' END,
+                CASE WHEN temp_band_error_f IS NULL THEN 'temp_band_error_f' END,
+                CASE WHEN vpd_band_error_kpa IS NULL THEN 'vpd_band_error_kpa' END,
+                CASE WHEN relay_truth IS NULL OR jsonb_typeof(relay_truth) <> 'object' OR relay_truth = '{}'::jsonb THEN 'relay_truth' END,
+                CASE WHEN sensor_status IS NULL OR jsonb_typeof(sensor_status) <> 'object' OR sensor_status = '{}'::jsonb THEN 'sensor_status' END,
+                CASE WHEN sensor_status->>'latest_climate_ts' IS NULL OR sensor_status->>'latest_climate_ts' = '' THEN 'sensor_status.latest_climate_ts' END,
+                CASE
+                    WHEN CASE
+                        WHEN sensor_status->>'latest_climate_age_s' ~ '^[0-9]+$'
+                        THEN (sensor_status->>'latest_climate_age_s')::int < 300
+                        ELSE false
+                    END IS NOT true THEN 'sensor_status.latest_climate_age_s'
+                END,
+                CASE WHEN sensor_status->>'temp_avg_present' IS DISTINCT FROM 'true' THEN 'sensor_status.temp_avg_present' END,
+                CASE WHEN sensor_status->>'vpd_avg_present' IS DISTINCT FROM 'true' THEN 'sensor_status.vpd_avg_present' END,
+                CASE WHEN sensor_status->>'band_context_complete' IS DISTINCT FROM 'true' THEN 'sensor_status.band_context_complete' END
+             )
+           FROM latest" | tr -d '[:space:]')"
+    if [[ -n "$action_proof_missing" ]]; then
+        guard_or_fail "Climate action log proof incomplete (${action_proof_missing}); no firmware OTA without graphable target deltas and relay truth"
+    fi
+    pass "Climate action log proof complete"
 fi
-pass "Climate action log proof complete"
 
 # #390: release deny checks for topology, cycling and outdoor inputs.
 # Irrigation topology: the device must run the confirmed desired program (lines,
@@ -224,9 +237,17 @@ if [[ -n "$cycling_bad" ]]; then
 fi
 pass "Relay cycling within the dwell bound"
 
-# Stale outdoor inputs: the controller's own outdoor freshness (Tempest UDP),
-# from the newest moisture-exchange row. An outdoor-blind controller cannot be
-# told apart from a regression after the flash.
+# Stale outdoor inputs. From the phase 2 build the controller reports the outdoor source it uses (station or the
+# intake probe, each under 600 s old, else none) every 300 s; with a row under 10 minutes old that is the test.
+# Before it, the controller's own outdoor freshness from the newest moisture-exchange row. An outdoor-blind
+# controller cannot be told apart from a regression after the flash.
+outdoor_source="$("${DB[@]}" "/* preflight:source-of-outdoor */ SELECT value FROM system_state WHERE entity = 'outdoor_source' AND ts > now() - interval '10 minutes' ORDER BY ts DESC LIMIT 1" | tr -d '[:space:]')"
+if [[ -n "$outdoor_source" ]]; then
+    if [[ "$outdoor_source" != "station" && "$outdoor_source" != "intake" ]]; then
+        guard_or_fail "The controller reports no outdoor reading (outdoor_source=${outdoor_source}); no firmware OTA while the controller is outdoor-blind"
+    fi
+    pass "Outdoor inputs on the controller: ${outdoor_source}"
+else
 outdoor_state="$("${DB[@]}" \
     "/* preflight:outdoor */
      SELECT coalesce((SELECT CASE
@@ -241,6 +262,7 @@ if [[ "$outdoor_state" != "ok" ]]; then
     guard_or_fail "Outdoor (Tempest) inputs stale on the controller (${outdoor_state:-query_failed}); no firmware OTA while the controller is outdoor-blind"
 fi
 pass "Outdoor (Tempest) inputs fresh on the controller"
+fi
 
 max_temp="$("${DB[@]}" "SELECT COALESCE(max(temp_f), -999) FROM weather_forecast WHERE ts > now() AND ts <= now() + interval '24 hours'" | tr -d '[:space:]')"
 if awk -v t="$max_temp" 'BEGIN { exit !(t > 85.0) }'; then

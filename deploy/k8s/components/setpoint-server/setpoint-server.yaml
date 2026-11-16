@@ -44,14 +44,13 @@ spec:
         # consumed via envFrom, so a ConfigMap edit alone does NOT restart this
         # pod. Maintained by scripts/gen-config-revision.sh — do NOT hand-edit
         # (the CI gate recomputes it).
-        verdify.io/config-revision: "92b0866e2221"
+        verdify.io/config-revision: "9e41c2e83474"
       labels:
         app.kubernetes.io/part-of: verdify
         app.kubernetes.io/component: setpoint-server
     spec:
       imagePullSecrets:
-        - name: zot-origin-cluster-pull  # zot origin (ADR-0021); ghcr kept during transition
-        - name: ghcr-jvallery-readonly
+        - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
       # The HA writer needs services-VLAN access but no GPU. Every worker is on
       # the services VLAN, so select any non-control-plane worker without
       # hard-pinning a hostname; node8 stays out through its untolerated

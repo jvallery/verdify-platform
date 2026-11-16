@@ -72,24 +72,6 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: verdify-planner
-spec:
-  template:
-    spec:
-      priorityClassName: verdify-serving
-      containers:
-        - name: planner
-          resources:
-            requests:
-              cpu: 250m
-              memory: 256Mi
-            limits:
-              cpu: "2"       # 8x request; >>observed 19m
-              memory: 1Gi
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: verdify-grafana
 spec:
   template:

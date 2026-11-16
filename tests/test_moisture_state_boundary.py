@@ -25,7 +25,7 @@ for key, value in {
 }.items():
     os.environ.setdefault(key, value)
 
-from test_experiment_workers import FakeConn, FakePool  # noqa: E402
+from scripted_db import FakeConn, FakePool  # noqa: E402
 
 import ingestor  # noqa: E402
 from verdify_schemas.telemetry import MX_COMPACT_WIRE_KEYS, expand_moisture_exchange_wire  # noqa: E402

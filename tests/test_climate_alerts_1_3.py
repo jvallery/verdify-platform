@@ -139,11 +139,7 @@ def test_an_acknowledged_warning_that_turns_critical_opens_again_so_it_pages():
     critical = alerts._setpoint_delivery_stuck_alert(stuck(("temp_low", 46 * MIN)))
 
     def sync(envelope):
-        asyncio.run(
-            ns["_sync_monitor_alerts"](
-                log, [envelope], component_status_available=True, component_closure_resolutions={}, now=log.now
-            )
-        )
+        asyncio.run(ns["_sync_monitor_alerts"](log, [envelope], now=log.now))
 
     sync(warning)
     [row] = log.of("setpoint_delivery_stuck", "dispatcher")
@@ -229,11 +225,7 @@ def test_open_per_column_rows_of_a_device_close_as_replaced():
         details={"type": "hydroponic", "staleness_ratio": None},
     )
     device = alerts._sensor_offline_alerts([staleness("climate.hydro_ph")])
-    asyncio.run(
-        ns["_sync_monitor_alerts"](
-            log, device, component_status_available=True, component_closure_resolutions={}, now=T0
-        )
-    )
+    asyncio.run(ns["_sync_monitor_alerts"](log, device, now=T0))
     assert column["resolution"] == "auto-resolved: replaced by the per-device alert"
     assert [row["resolved_at"] for row in log.of("sensor_offline", "device.hydro_probe")] == [None]
 

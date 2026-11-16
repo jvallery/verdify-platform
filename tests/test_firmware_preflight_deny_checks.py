@@ -24,6 +24,10 @@ STUB = textwrap.dedent(
       *"preflight:topology"*) printf '%s\n' "$STUB_TOPOLOGY" ;;
       *"preflight:cycling"*) printf '%s\n' "$STUB_CYCLING" ;;
       *"preflight:outdoor"*) printf '%s\n' "$STUB_OUTDOOR" ;;
+      *"preflight:law-heartbeat"*) printf '%s\n' "$STUB_LAW_AGE" ;;
+      *"preflight:law-dr"*) printf '%s\n' "$STUB_LAW_DR" ;;
+      *"preflight:source-of-outdoor"*) printf '%s\n' "$STUB_OUTDOOR_SOURCE" ;;
+      *"FROM climate_action_log"*"concat_ws"*) printf '%s\n' "$STUB_ACTION_PROOF" ;;
       *"FROM alert_log WHERE disposition"*) echo 0 ;;
       *"to_regclass"*) echo 1 ;;
       *"EXTRACT(EPOCH"*) echo 30 ;;
@@ -35,7 +39,9 @@ STUB = textwrap.dedent(
 ).lstrip()
 
 
-def run_preflight(tmp_path, topology="", cycling="", outdoor="ok"):
+def run_preflight(
+    tmp_path, topology="", cycling="", outdoor="ok", law_age="", outdoor_source="", action_proof="", law_dr="none"
+):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     stub = bin_dir / "psql"
@@ -57,6 +63,10 @@ def run_preflight(tmp_path, topology="", cycling="", outdoor="ok"):
             "STUB_TOPOLOGY": topology,
             "STUB_CYCLING": cycling,
             "STUB_OUTDOOR": outdoor,
+            "STUB_LAW_AGE": law_age,
+            "STUB_LAW_DR": law_dr,
+            "STUB_OUTDOOR_SOURCE": outdoor_source,
+            "STUB_ACTION_PROOF": action_proof,
         }
     )
     return subprocess.run(
@@ -88,3 +98,40 @@ def test_each_check_denies_the_release(tmp_path, kwargs, message):
     res = run_preflight(tmp_path, **kwargs)
     assert res.returncode != 0
     assert message in res.stderr, res.stdout + res.stderr
+
+
+# ── #1633 package 4.1: the law's state record and outdoor source are the gate's proof once they exist ──────
+
+
+def test_a_fresh_law_state_record_is_the_decision_proof_and_the_action_log_is_not_read(tmp_path):
+    res = run_preflight(tmp_path, law_age="45", action_proof="climate_action,priority_axis")
+    assert "✓ Climate law state record fresh (45s): controller-decision proof" in res.stdout, res.stdout + res.stderr
+    assert "Climate action log proof" not in res.stdout + res.stderr
+
+
+@pytest.mark.parametrize("law_dr", ["no_temperature", "humidity_invalid"])
+def test_a_law_state_record_with_invalid_inputs_refuses_the_flash(tmp_path, law_dr):
+    res = run_preflight(tmp_path, law_age="45", law_dr=law_dr)
+    assert f"Climate law reports {law_dr}" in res.stdout + res.stderr
+    assert res.returncode != 0
+
+
+@pytest.mark.parametrize("law_age", ["", "121"])
+def test_without_a_fresh_state_record_the_action_log_still_gates(tmp_path, law_age):
+    res = run_preflight(tmp_path, law_age=law_age, action_proof="climate_action")
+    assert "Climate action log proof incomplete (climate_action)" in res.stdout + res.stderr
+    assert res.returncode != 0
+    clean = run_preflight(tmp_path, law_age=law_age)
+    assert "✓ Climate action log proof complete" in clean.stdout
+
+
+@pytest.mark.parametrize("source", ["station", "intake"])
+def test_the_reported_outdoor_source_passes_the_outdoor_gate(tmp_path, source):
+    res = run_preflight(tmp_path, outdoor_source=source, outdoor="device_reports_stale")
+    assert f"✓ Outdoor inputs on the controller: {source}" in res.stdout, res.stdout + res.stderr
+
+
+def test_an_outdoor_source_of_none_is_outdoor_blind(tmp_path):
+    res = run_preflight(tmp_path, outdoor_source="none")
+    assert "The controller reports no outdoor reading (outdoor_source=none)" in res.stdout + res.stderr
+    assert res.returncode != 0

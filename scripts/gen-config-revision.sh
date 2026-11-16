@@ -4,18 +4,18 @@
 #
 # WHY: the fixed-name verdify-config ConfigMap is consumed via envFrom by
 # api / mcp / ingestor / migration-job / planner / setpoint-server /
-# lab-publisher, while the v2 orchestrator also consumes its
-# component ConfigMap and the mounted gather-script ConfigMap. Editing one of
+# lab-publisher, and the ingestor also consumes the mounted gather-script
+# ConfigMap. Editing one of
 # these ConfigMaps does NOT restart any pod — a
 # flag flip (e.g. VERDIFY_POLICY_VECTOR_MODE at a §8.10 rollout
 # step) would silently not take effect until some unrelated rollout. This
 # script maintains a deterministic content hash of every runtime ConfigMap
-# source as the `verdify.io/config-revision` pod-template annotation on the six
+# source as the `verdify.io/config-revision` pod-template annotation on the five
 # long-running env consumers, so a config edit changes the pod template and
 # the next ArgoCD sync rolls exactly those pods.
 #
-# HASH INPUT (canonical, no-arg invocation): the base ConfigMap, the v2
-# orchestrator component ConfigMap, the ingestor gather-script ConfigMap, PLUS every
+# HASH INPUT (canonical, no-arg invocation): the base ConfigMap, the ingestor
+# gather-script ConfigMap, PLUS every
 # overlay file that patches the verdify-config ConfigMap (device-write /
 # publish-all / hermes-url / gather-script-env / future experiment patches),
 # discovered by content, sorted, hashed via sha256sum of the file list. The
@@ -44,7 +44,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 BASE_CM="deploy/k8s/base/configmap.yaml"
-ORCHESTRATOR_CM="deploy/k8s/components/experiment-v2-orchestrator/configmap.yaml"
 GATHER_SCRIPT_CM="deploy/k8s/components/ingestor-gather-script/gather-script-configmap.yaml"
 OVERLAY_DIR="deploy/k8s/overlays"
 
@@ -55,9 +54,7 @@ ANNOTATED_FILES=(
   "deploy/k8s/base/api-deployment.yaml"
   "deploy/k8s/base/mcp-deployment.yaml"
   "deploy/k8s/base/ingestor-deployment.yaml"
-  "deploy/k8s/components/planner/planner-deployment.yaml"
   "deploy/k8s/components/setpoint-server/setpoint-server.yaml"
-  "deploy/k8s/components/experiment-v2-orchestrator/workloads.yaml"
 )
 
 ANNOTATION="verdify.io/config-revision"
@@ -85,7 +82,7 @@ discover_patches() {
       done
 }
 
-inputs=("$BASE_CM" "$ORCHESTRATOR_CM" "$GATHER_SCRIPT_CM")
+inputs=("$BASE_CM" "$GATHER_SCRIPT_CM")
 if [ "${#overlays[@]}" -eq 0 ]; then
   scope_dirs=("$OVERLAY_DIR")
 else

@@ -73,14 +73,8 @@ Service → Secret → key wiring as authored in `deploy/k8s/{base,components}`:
 | `verdify-app-secrets` | `ESP32_API_KEY` | ingestor (`secretKeyRef`); **device-affecting** | ref-only¹ | ref-only¹ | ✓ |
 | `verdify-app-secrets` | `VERDIFY_API_RUNTIME_DB_USER`, `VERDIFY_API_RUNTIME_DB_PASSWORD` | production ordinary API database identity (migration 217 exact login; required before the Gate-1 sync) | opt | opt | ✓ |
 | `verdify-app-secrets` | `VERDIFY_INGESTOR_RUNTIME_DB_USER`, `VERDIFY_INGESTOR_RUNTIME_DB_PASSWORD` | production ordinary ingestor and gather-subprocess database identity (migration 217 exact login; required before the Gate-1 sync) | opt | opt | ✓ |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER`, `VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD` | API v2 lifecycle/status surface (`secretKeyRef`, optional; exact function-only login required) | opt | opt | opt |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_API_TOKEN`, `VERDIFY_EXPERIMENT_OPERATOR_TOKEN` | API v2 command and blinded-safe operator surfaces (`secretKeyRef`, optional; distinct authorization boundaries) | opt | opt | opt |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_COMPONENT_DB_USER`, `VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD` | ingestor confirmed-component executor (`secretKeyRef`, optional; exact function-only login required) | opt | opt | opt |
 | `verdify-app-secrets` | `VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER`, `VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD` | ingestor append-only equipment source collector (`secretKeyRef`, optional; exact function-only login required) | opt | opt | opt |
 | `verdify-app-secrets` | `OPENAI_API_KEY` | planner (`secretKeyRef`, `optional: true`) | ✓ | — | ✓ |
-| `verdify-experiment-v2-shadow-scheduler-db` | `password` | v2 lifecycle scheduler (`secretKeyRef`, optional; username is the migration-owned exact login) | — | — | opt |
-| `verdify-experiment-v2-randomizer-db` | `password` | v2 selector/randomizer (`secretKeyRef`, optional; username is the migration-owned exact login) | — | — | opt |
-| `verdify-experiment-v2-outcome-freezer-db` | `password` | v2 outcome freezer (`secretKeyRef`, optional; username is the migration-owned exact login) | — | — | opt |
 | `verdify-mcp-runtime-db` | `password` | production MCP and its dedicated PreSync role bootstrap (`secretKeyRef`; username is migration-owned `verdify_mcp_runtime_login`) | — | — | ✓ |
 | `verdify-dashboard-runtime-db` | `password` | operator API `DB_PASS` (`secretKeyRef`, required; username is migration-owned `verdify_dashboard_runtime_login`) and the login's role bootstrap (`secretKeyRef`, optional); [operator API](#operator-api-verdify-operator-api-1148) | — | — | ✓ from #1143 |
 | `verdify-operator-api` | `operator-api-token` | operator API `OPERATOR_API_TOKEN` (`secretKeyRef`, required); the same value as `verdify-dashboard-web`'s key; [operator API](#operator-api-verdify-operator-api-1148) | — | — | ✓ from #1143 |
@@ -93,7 +87,7 @@ Service → Secret → key wiring as authored in `deploy/k8s/{base,components}`:
 | `verdify-grafana-secrets` | `GRAFANA_RENDERER_TOKEN` | API saved-public-panel PNG adapter (`secretKeyRef`, optional; fails closed when absent) | — | — | ✓ |
 | `verdify-grafana-secrets` | `GRAFANA_ADMIN_PASSWORD` | grafana (`secretKeyRef`, required; pod fails closed when absent) | — | — | ✓ |
 | `verdify-grafana-secrets` | `GRAFANA_RENDERER_TOKEN` | grafana + image-renderer (`secretKeyRef`, required shared token; pod fails closed when absent) | — | — | ✓ |
-| `ghcr-jvallery-readonly` | `.dockerconfigjson` | all workloads (`imagePullSecrets`) | ✓ | ✓ | ✓ |
+| `ghcr-jvallery-readonly` | `.dockerconfigjson` | none since vp#1543 (all images are zot-origin; token invalid, 401 on 2026-11-16); Secret removal pending | ✓ | ✓ | ✓ |
 | `verdify-agent-secrets` | `AGENT_RO_DSN` | dev/coding agent (read-only `agent_ro`/`pg_read_all_data`, migration 184; **read-only, no device path**) | — | — | ✓ |
 | `verdify-frigate-vision-auth` | `token` | Vision CronJob and public API camera reader, mounted read-only at `/vfrigate/token`; existing GET-only two-camera snapshot credential, values owned by agents KSOPS | — | — | ✓ |
 | `verdify-firmware-ota` | `ota_password`; during a rotation also `ota_password_next` / `ota_password_previous` (#1009, `scripts/firmware-ota-password-rotate.sh`) | signed builder and flasher Jobs (`scripts/firmware-release-job.py --ota-key`), `make firmware-deploy` ESPHome OTA upload + `firmware-rollback.sh`; **device-affecting** (flash gate) | — | — | ✓ |
@@ -118,16 +112,16 @@ any sync. `deploy/k8s/overlays/prod-runtime-role-boundary` is a compatibility
 review alias that renders byte-identically to the active `overlays/prod` source;
 it is not a second activation layer.
 
-Gate-2 experiment credential activation is separately owned by the
-`experiment-v2-credential-bootstrap` component. Before that component is
-merged/synced, the fleet authority must reconcile the three experiment
-username/password pairs and two API tokens listed above in
-`verdify-app-secrets`, plus the `password` key in each of the shadow-scheduler,
-randomizer, and outcome-freezer Secrets. The wave-2 hook requires 64-character
-lowercase-hex, pairwise-distinct activation values, installs all six database
-SCRAM verifiers transactionally, and attests each actual TCP login. It never
-reads or validates the optional selector-provider key; provider activation has
-its own exact official-OpenAI endpoint/model/identity gate.
+The `experiment-v2-credential-bootstrap` component (a wave-2 PreSync hook) installs
+and attests only the equipment-source collector login from
+`VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER` / `..._DB_PASSWORD` in
+`verdify-app-secrets` (64 lowercase hex, distinct from the owner and both ordinary
+runtime passwords). Since #1649 it no longer reads the other experiment-v2 keys or
+Secrets. No manifest references them any more, so the central KSOPS lane can retire
+`VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER`/`_PASSWORD`, `VERDIFY_EXPERIMENT_COMPONENT_DB_USER`/`_PASSWORD`,
+`VERDIFY_EXPERIMENT_API_TOKEN` and `VERDIFY_EXPERIMENT_OPERATOR_TOKEN` in `verdify-app-secrets`, and the
+Secrets `verdify-experiment-v2-shadow-scheduler-db`, `verdify-experiment-v2-randomizer-db` and
+`verdify-experiment-v2-outcome-freezer-db`.
 
 `verdify-lab-publisher-s3` is non-device but required before enabling the
 `verdify-lab-publisher` CronJob. The durable prod prefixes are
@@ -325,9 +319,9 @@ migration and other bootstrap owner credentials are unchanged.
 
 `verdify-vision-cortex` must contain `api_key.txt`, a dedicated inference-only Cortex identity limited to `llm.primary.longctx.mm`, owned and sealed in agents KSOPS. The vision CronJob mounts it at `/vcortex/api_key.txt`. The old `verdify-vision-key` Gemini Secret is retained without workload references; deleting or revoking it is outside this change.
 
-## Cortex planner (#1350)
+## Cortex planner key (#1350)
 
-`verdify-planner-cortex` must contain `api_key.txt`, a dedicated inference-only Cortex identity limited to the text routes `llm.primary.longctx` and `llm.qwen38u.longctx` (any image request belongs to `llm.primary.longctx.mm` under its own identity). It is live in `verdify-prod`; its adoption into agents KSOPS is jvallery/agents#6079. `verdify-cortex-planner` (components/cortex-planner) mounts it, `optional`, at `/vcortex-planner/api_key.txt`: without it the pod logs `FAIL CLOSED`, raises one `planner_failed` alert and idles instead of crash-looping. Its database login is the existing planner duty (`verdify-planner-runtime-db` / `password`). Placeholder: `overlays/prod/planner-cortex-secret.placeholder.yaml`.
+The cortex-planner shadow Deployment retired with #1652; the greenhouse-brief CronJob is this Secret's only reader now. `verdify-planner-cortex` must contain `api_key.txt`, a dedicated inference-only Cortex identity limited to the text routes `llm.primary.longctx` and `llm.qwen38u.longctx` (any image request belongs to `llm.primary.longctx.mm` under its own identity). It is live in `verdify-prod`; its adoption into agents KSOPS is jvallery/agents#6079. Placeholder: `overlays/prod/planner-cortex-secret.placeholder.yaml`.
 
 ## Verdify knowledge embeddings (#1351)
 

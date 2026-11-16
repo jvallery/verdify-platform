@@ -21,8 +21,6 @@ PROFILES = {
     "mcp": "mcp/Dockerfile",
     "ingestor": "ingestor/Dockerfile",
     "migrate": "db/Dockerfile.migrate",
-    "orchestrator": "experiment_orchestrator/Dockerfile",
-    "planner": "planner_graph/Dockerfile",
     "setpoint-server": "scripts/Dockerfile.setpoint-server",
     "lab-publisher": "scripts/Dockerfile.lab-publisher",
     # jvallery/agents#5994: the dashboard.verdify.ai web tier. Its Dockerfile copies only
@@ -211,7 +209,6 @@ def pin_only(root, base, head, paths):
                         "mcp",
                         "ingestor",
                         "migrate",
-                        "experiment-v2-orchestrator",
                     )
                 }
             if selected:
@@ -481,13 +478,7 @@ def workflow_receipt(workflow):
                 continue
             node = candidates[0]
             outputs = {x["name"]: x.get("value") for x in node.get("outputs", {}).get("parameters", [])}
-            image = (
-                "verdify-experiment-v2-orchestrator"
-                if profile == "orchestrator"
-                else "verdify-lab-publisher-k3s"
-                if profile == "lab-publisher"
-                else "verdify-" + profile
-            )
+            image = "verdify-lab-publisher-k3s" if profile == "lab-publisher" else "verdify-" + profile
             reference = outputs.get("image-ref", "")
             source = outputs.get("source-revision", outputs.get("resolved-revision"))
             valid = (

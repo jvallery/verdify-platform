@@ -58,8 +58,7 @@ spec:
           # swap then needs no manifest change). Same secret as the rest of the
           # workloads.
           imagePullSecrets:
-            - name: zot-origin-cluster-pull  # zot origin (ADR-0021); ghcr kept during transition
-            - name: ghcr-jvallery-readonly
+            - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
           securityContext:
             runAsNonRoot: true
             runAsUser: 999          # postgres uid in the timescaledb image

@@ -46,22 +46,6 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: verdify-planner
-  labels:
-    app.kubernetes.io/part-of: verdify
-    app.kubernetes.io/component: planner
-spec:
-  # replicas:1 as of 2026-07-11 (idle service, see ha-stateless-spread patch);
-  # maxUnavailable:1 so the single pod never wedges node drains the way a
-  # minAvailable:1 PDB on a 1-replica deployment would.
-  maxUnavailable: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/component: planner
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
   name: verdify-mcp
   labels:
     app.kubernetes.io/part-of: verdify
