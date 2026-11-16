@@ -643,8 +643,12 @@ def drying_refused_alert(row: Mapping | None) -> dict | None:
 
 
 # ── Gap 14: the wall probes disagreeing for 30 minutes ───────────────────────
-PROBE_SPREAD_F = 6.0
-PROBE_OFF_MEDIAN_F = 4.0
+# RULINGS (coordinator, 2026-11-16): 12 F spread sustained for 30 minutes, every probe included. The unshielded south
+# probe reads up to about 10 F above the other walls on sunny mornings (a standing condition, recorded for the owner);
+# a drifting or wild probe clears 12 F. 14-day backtest at 12 F: 0 of 673 half-hour windows (largest spread 14.4 F,
+# never sustained). The off-median list only names the probe(s) to look at; it does not trigger.
+PROBE_SPREAD_F = 12.0
+PROBE_OFF_MEDIAN_F = 6.0
 PROBE_MIN_ROWS = 20
 WALL_PROBES = ("temp_north", "temp_south", "temp_east", "temp_west")
 PROBES_SQL = """
@@ -662,7 +666,7 @@ def probes_alert(rows: Sequence[Mapping]) -> dict | None:
         median = statistics.median(values.values())
         spread = max(values.values()) - min(values.values())
         outliers = [p for p, v in values.items() if abs(v - median) > PROBE_OFF_MEDIAN_F]
-        if spread > PROBE_SPREAD_F or outliers:
+        if spread > PROBE_SPREAD_F:
             bad += 1
             spreads.append(spread)
             for p in outliers:

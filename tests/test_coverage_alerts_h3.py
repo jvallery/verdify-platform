@@ -76,12 +76,14 @@ def test_reviewer_write_is_critical_and_validates():
 
 def test_probes_need_most_of_the_half_hour():
     good = {"temp_north": 70, "temp_south": 70.5, "temp_east": 71, "temp_west": 70.2}
-    bad = {**good, "temp_west": 76}
+    bad = {**good, "temp_west": 83}
     assert cov.probes_alert([bad] * 17 + [good] * 3) is None  # 17 of 20 is under 90 %
     assert cov.probes_alert([bad] * 19) is None  # fewer than 20 judged rows
     env = cov.probes_alert([bad] * 27 + [good] * 3)
     AlertEnvelope.model_validate(env)
     assert env["details"]["off_median"] == ["temp_west"]
+    sun_on_south = {**good, "temp_south": 80.5}  # the unshielded south probe on a sunny morning: 10.5 F
+    assert cov.probes_alert([sun_on_south] * 30) is None
     two_probes = {"temp_north": 60, "temp_south": 80, "temp_east": None, "temp_west": None}
     assert cov.probes_alert([two_probes] * 30) is None  # fewer than three probes are not judged
 

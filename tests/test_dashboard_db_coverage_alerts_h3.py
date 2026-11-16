@@ -198,7 +198,7 @@ def test_utilities_drying_refusal_probes_and_owner_held(dsn):
 
         for m in range(25):
             await conn.execute(
-                "INSERT INTO climate (ts, temp_north, temp_south, temp_east, temp_west) VALUES ($1, 70, 70.5, 71, 77)",
+                "INSERT INTO climate (ts, temp_north, temp_south, temp_east, temp_west) VALUES ($1, 70, 70.5, 71, 83)",
                 t0 - m * MIN,
             )
         assert cov.probes_alert(await conn.fetch(cov.PROBES_SQL))["details"]["off_median"] == ["temp_west"]

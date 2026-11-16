@@ -910,7 +910,7 @@ class DryingRefusedAllDayDetails(_DetailsBase):
 
 
 class ProbesDisagreeDetails(_DetailsBase):
-    # 90 % of the last 30 minutes' rows: wall probe spread above 6 F or a probe more than 4 F off the median.
+    # 90 % of the last 30 minutes' rows with a wall probe spread above 12 F; off_median names probes over 6 F off.
     rows: int = Field(..., ge=0)
     disagreeing: int = Field(..., ge=0)
     max_spread_f: float
