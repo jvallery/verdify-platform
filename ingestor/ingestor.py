@@ -356,6 +356,12 @@ class State:
             ledger_enabled=os.environ.get("VERDIFY_FIXED_PANEL_NATIVE_LEDGER_ENABLED") == "1",
         )
         self.equipment: dict[str, bool] = {}
+        # RULINGS AF6: relay edges across a controller boot. The relays held ON when this connection began, each
+        # relay's first state on it, and the last uptime seen on any connection.
+        self.relay_generation = 0
+        self.relays_on_before_connection: set[str] = set()
+        self.relays_first_seen: dict[str, tuple[bool, datetime]] = {}
+        self.relay_last_uptime_s: float | None = None
         self.system: dict[str, str] = {}
         self.setpoints: dict[str, float] = {}
         self.diagnostics: dict[str, Any] = {}
@@ -2917,6 +2923,7 @@ def _record_diagnostic(
             state.diagnostics[col] = parsed_uptime
             state.counter_source_uptime_generation = generation
             state.counter_source_uptime_observed_at = observed_at
+            _relay_edges_across_boot(parsed_uptime, observed_at, generation)
             _rotate_counter_epoch_if_needed(parsed_uptime, observed_at, generation)
             _complete_counter_generation_if_ready()
             note_native_observation()
@@ -3148,6 +3155,49 @@ def _record_ordinary_equipment_callback(
     state.pending_ordinary_equipment.append((observed_at, equipment, value))
 
 
+def _note_relay_generation(generation: int) -> None:
+    """On the first callback of a new connection, keep the relays the previous one held ON (RULINGS AF6)."""
+    if generation == state.relay_generation:
+        return
+    state.relay_generation = generation
+    state.relays_on_before_connection = {
+        equipment
+        for equipment, value in state.equipment.items()
+        if value is True and equipment not in _ORDINARY_EQUIPMENT_STREAMS
+    }
+    state.relays_first_seen = {}
+
+
+def _relay_edges_across_boot(uptime_s: float, observed_at: datetime, generation: int) -> None:
+    """RULINGS AF6 (TEL-F4, RLY-F4): when the controller's uptime resets, every relay the host held ON dropped at
+    the boot. Write an OFF edge at the boot time (report time minus uptime) for each, an ON edge at its first report
+    for a relay that came back ON (the cache swallowed it as no change), and clear the cache of relays not yet
+    reported, so the first state after the boot is stored as an edge. The rows go through the ordinary view, as the
+    reconnect snapshot's do: they predate this connection's receipts."""
+    _note_relay_generation(generation)
+    previous = state.relay_last_uptime_s
+    state.relay_last_uptime_s = uptime_s
+    if previous is None or uptime_s + 1.0 >= previous:
+        return
+    boot_at = observed_at - timedelta(seconds=uptime_s)
+    held = state.relays_on_before_connection  # a boot always ends the API session, so a new connection came first
+    edges = [(boot_at, equipment, False) for equipment in sorted(held)]
+    for equipment in sorted(held):
+        first = state.relays_first_seen.get(equipment)
+        if first is not None and first[0] is True:
+            edges.append((max(first[1], boot_at), equipment, True))
+    for equipment in [e for e in state.equipment if e not in state.relays_first_seen]:
+        if equipment not in _ORDINARY_EQUIPMENT_STREAMS:
+            del state.equipment[equipment]
+    state.relays_on_before_connection = set()
+    room = EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS - len(state.pending_ordinary_equipment)
+    if len(edges) > room:
+        log.error("relay boot edges dropped at bounded buffer: %d of %d", len(edges) - max(room, 0), len(edges))
+        edges = edges[: max(room, 0)]
+    state.pending_ordinary_equipment.extend(edges)
+    log.info("controller boot at %s: %d relay edge(s) written for %s", boot_at.isoformat(), len(edges), sorted(held))
+
+
 def _record_equipment_callback(
     equipment: str,
     value: object,
@@ -3155,6 +3205,9 @@ def _record_equipment_callback(
     source_generation: int,
     source_clock_valid: bool,
 ) -> None:
+    _note_relay_generation(source_generation)
+    if type(value) is bool and equipment not in state.relays_first_seen:
+        state.relays_first_seen[equipment] = (value, observed_at)
     # VD-64: the irrigation bridge reads the wet relays' live states (and when each last read OFF) from here,
     # before any dedupe, so a new transport generation re-labels an unchanged state.
     shared.note_wet_relay(equipment, value, source_generation, observed_at)
