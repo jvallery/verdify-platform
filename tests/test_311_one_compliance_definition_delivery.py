@@ -251,4 +251,4 @@ def test_native_qualification_is_recorded():
     assert evidence["native_fixture_sha256"] == hashlib.sha256(NATIVE.read_bytes()).hexdigest()
     native = evidence["native_fixture"]
     assert native["all_passed"] is True
-    assert native["attested"] == {"matview_refresh": True}
+    assert native["attested"] == {"matview_refresh": True, "dashboard": True}

@@ -1,6 +1,6 @@
 {
   "migration": "310-daily-record.sql",
-  "final_migration_qualification_pending": true,
+  "final_migration_qualification_pending": false,
   "before": {
     "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
     "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
@@ -11,5 +11,149 @@
     "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
     "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
   },
-  "projection": "2026-11-16, read only, production at exact309 with the three seals above. 310 creates two verdify tables and one view with no ACL entry, four functions whose PUBLIC EXECUTE is revoked in the same transaction, and grants EXECUTE on the refresh entry point to the matview-refresh duty only (in its own schema, as 290 did), so no seal is expected to move. Read only on production, 2026-11-16: the interval repair for one day runs in 1.5 to 2.5 s (12 s for a summer day with many long fog runs) and a whole stored day about 15 s (the energy and water views scan their tables), so the fixture stores each day in its own statement; in 2026-10-17..2026-11-15 it repairs 11 runs: lost OFFs of heat2 (2026-10-25 02:25Z, 470 event minutes to 22.6, never before the previous OFF; 2026-11-06 17:47Z, 377 to 10.5), late OFFs after data gaps (fog and heat1 2026-11-05, heat1 and heat2 at the 2026-11-15 00:51Z reconnect) and four lost ONs the counter booked (heat2 929 s and 614 s on 2026-11-06, heat1 720 s, vent 272 s); on 2026-08-08 the flow rule still shortens mister_center. If the probe shows any digest moved, stop. Otherwise, with production at 309, run scripts/qualify-migration-successor.py db/migrations/310-daily-record.sql --native-fixture db/qualification/310-daily-record-fixture.sql --fixture tests/fixtures/310-daily-record-native-qualification.json."
+  "projection": "2026-11-16, read only, production at exact309 with the three seals above. 310 creates two verdify tables and one view with no ACL entry, four functions whose PUBLIC EXECUTE is revoked in the same transaction, and grants EXECUTE on the refresh entry point to the matview-refresh duty only (in its own schema, as 290 did), so no seal is expected to move. Read only on production, 2026-11-16: the interval repair for one day runs in 1.5 to 2.5 s (12 s for a summer day with many long fog runs) and a whole stored day about 15 s (the energy and water views scan their tables), so the fixture stores each day in its own statement; in 2026-10-17..2026-11-15 it repairs 11 runs: lost OFFs of heat2 (2026-10-25 02:25Z, 470 event minutes to 22.6, never before the previous OFF; 2026-11-06 17:47Z, 377 to 10.5), late OFFs after data gaps (fog and heat1 2026-11-05, heat1 and heat2 at the 2026-11-15 00:51Z reconnect) and four lost ONs the counter booked (heat2 929 s and 614 s on 2026-11-06, heat1 720 s, vent 272 s); on 2026-08-08 the flow rule still shortens mister_center. If the probe shows any digest moved, stop. Otherwise, with production at 309, run scripts/qualify-migration-successor.py db/migrations/310-daily-record.sql --native-fixture db/qualification/310-daily-record-fixture.sql --fixture tests/fixtures/310-daily-record-native-qualification.json.",
+  "measured_at": "2026-11-16T17:05:39Z",
+  "qualified_successor": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "after_rollback": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "exact_final_migration_sha256": "2f0aa50d6ff2401cc08e734214ca73fdac0ea279a495b1846f2b37fdabe3acd1",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "f0673aaae90184cbbb5ccb0d4c0387668b5e43d128dd85f24e7d073ca17f4b7c",
+  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
+  "native_fixture": {
+    "checks": [
+      "refresh_login_attests",
+      "refresh_runs",
+      "every_relay_has_a_row",
+      "today_incomplete",
+      "yesterday_complete",
+      "run_time_within_the_local_day",
+      "furnace_2026_10_24_25",
+      "heat1_2026_11_01_dst_day",
+      "fog_2026_11_05_late_off",
+      "furnace_2026_11_06_lost_on",
+      "repairs_exactly_where_reviewed",
+      "therms_from_repaired_hours",
+      "kwh_24h_null_under_70_pct",
+      "view_matches_tables",
+      "flow_rule_2026_08_08"
+    ],
+    "refreshed_days": 5,
+    "refresh_ms": 30424,
+    "days": [
+      [
+        "2026-10-24",
+        55.2,
+        37,
+        22.25,
+        28.54,
+        1.335,
+        4,
+        3.38
+      ],
+      [
+        "2026-10-25",
+        60.1,
+        26,
+        25.06,
+        31.98,
+        1.992,
+        5,
+        4.08
+      ],
+      [
+        "2026-11-01",
+        35,
+        24,
+        25.99,
+        34.21,
+        1.509,
+        1,
+        0.0
+      ],
+      [
+        "2026-11-05",
+        46.2,
+        58,
+        26.12,
+        29.67,
+        3.176,
+        10,
+        0.13
+      ],
+      [
+        "2026-11-06",
+        53.5,
+        63,
+        24.16,
+        28.17,
+        2.302,
+        33,
+        5.48
+      ],
+      [
+        "2026-11-12",
+        55.2,
+        61,
+        23.69,
+        28.75,
+        1.837,
+        32,
+        0.0
+      ],
+      [
+        "2026-11-13",
+        60.1,
+        70,
+        25.0,
+        29.84,
+        2.487,
+        33,
+        0.0
+      ],
+      [
+        "2026-11-14",
+        53.1,
+        110,
+        26.8,
+        29.95,
+        3.216,
+        31,
+        0.24
+      ],
+      [
+        "2026-11-15",
+        54.5,
+        149,
+        25.58,
+        24.73,
+        3.126,
+        46,
+        0.0
+      ],
+      [
+        "2026-11-16",
+        70.2,
+        65,
+        11.46,
+        null,
+        1.977,
+        38,
+        0.0
+      ]
+    ],
+    "all_passed": true,
+    "attested": {
+      "matview_refresh": true
+    }
+  },
+  "native_fixture_sha256": "f375fda262b809937a81b827920a564c711f36ba9f67e003dd029c4c55642f86"
 }
