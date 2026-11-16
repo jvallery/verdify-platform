@@ -22,7 +22,6 @@ IMAGES = {
     "mcp": ("verdifyconsultancy/verdify-mcp", True),
     "ingestor": ("verdifyconsultancy/verdify-ingestor", True),
     "migrate": ("verdifyconsultancy/verdify-migrate", False),
-    "planner": ("verdifyconsultancy/verdify-planner", True),
     "setpoint-server": ("verdifyconsultancy/verdify-setpoint-server", False),
     "lab-publisher": ("verdifyconsultancy/verdify-lab-publisher-k3s", False),
     "dashboard-web": ("verdifyconsultancy/verdify-dashboard-web", True),

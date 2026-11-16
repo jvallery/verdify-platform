@@ -5,6 +5,7 @@ usage: campaign_shard.py /usr/local/bin/verdify-campaign-ci
 CAMPAIGN_SHARD=i/n keeps every n-th file (from i, 1-based) of the tool's sorted
 selection; unset or empty runs the tool's full selection exactly as before.
 """
+
 import importlib.machinery
 import importlib.util
 import os
@@ -25,9 +26,8 @@ if shard:
 
     def selection(select=None):
         selected, missing = full_selection(select)
-        kept = selected[index - 1::count]
-        print(f"campaign shard {index}/{count}: {len(kept)} of {len(selected)} files: "
-              + ", ".join(kept), flush=True)
+        kept = selected[index - 1 :: count]
+        print(f"campaign shard {index}/{count}: {len(kept)} of {len(selected)} files: " + ", ".join(kept), flush=True)
         if not kept:
             raise ValueError(f"campaign shard {shard} selected no files")
         return kept, missing

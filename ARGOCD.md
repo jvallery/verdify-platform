@@ -86,7 +86,7 @@ candidates in the `images:` block of `deploy/k8s/overlays/prod/kustomization.yam
 The in-cluster native pipeline that did this before is retired (#1397).
 The prod render runs the release pins instead: `release-pins.yaml`, a
 `transformers:` entry applied after `images:`, for those four images, and the
-hand-pinned `images:` entries for planner, setpoint-server and
+hand-pinned `images:` entries for setpoint-server and
 lab-publisher-k3s. So `main` renders what production runs, and a build changes
 neither the render nor Argo's comparison with live (#808).
 
@@ -107,6 +107,6 @@ Quartz cache PVC.
   (`.github/workflows/ci.yml`; required contexts in the `main` branch rule).
 - Promotion follows the Promotion Model above: a digest-only release-pin
   commit (`release-pins.yaml` for the four CI-built candidate images, the
-  `images:` entries for planner, setpoint-server and lab-publisher), then the
+  `images:` entries for setpoint-server and lab-publisher), then the
   gated sync; commands in `docs/runbooks/laptop-operator.md` §2. Merge changes
   Git only. The manual prod sync remains safety-checked.

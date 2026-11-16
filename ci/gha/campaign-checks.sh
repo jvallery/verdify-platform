@@ -19,4 +19,4 @@ if [ -n "${CAMPAIGN_SHARD:-}" ]; then
 fi
 export CI_TEST_REPORT="$HOME/ci-test-report.json"
 # The registry's campaign-qualification command, unchanged.
-export PYTHONPATH="$PWD" && uv sync --python 3.12 --extra dev --extra api --extra planner --extra planner-graph && uv pip install --python .venv/bin/python -r ingestor/requirements-image.txt && python3 ci/gha/campaign_shard.py /usr/local/bin/verdify-campaign-ci
+export PYTHONPATH="$PWD" && uv sync --python 3.12 --extra dev --extra api --extra planner && uv pip install --python .venv/bin/python -r ingestor/requirements-image.txt && python3 ci/gha/campaign_shard.py /usr/local/bin/verdify-campaign-ci

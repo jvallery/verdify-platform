@@ -95,9 +95,8 @@ resources:
   # inject a throttling CPU limit into the gated device path. See limitrange.yaml.
   - limitrange.yaml
 
-# verdify-planner (#117) + verdify-mqtt fan-out broker (#113) — referenced as
-# Components, NOT added to base, so future overlays must opt in explicitly. The
-# fan-out broker runs in PROD ONLY. The planner is NOT a device writer.
+# verdify-mqtt fan-out broker (#113) — referenced as a Component, NOT added to
+# base, so future overlays must opt in explicitly. It runs in PROD ONLY.
 # Reviewed physical-clone projection for the exact atomic 240–248 migration.
 # Argo creates this ConfigMap before the PreSync migrate Job; Kustomize rewrites
 # the Job volume reference to its content-hashed name.
@@ -125,7 +124,6 @@ components:
   # toolchain in a per-Job emptyDir; the unused toolchain-cache PVC was
   # retired on 2026-11-04 (Jason R10).
   - ../../components/firmware-builder
-  - ../../components/planner
   # #1350 Cortex planner, SHADOW only: stores packs/attempts/proposals, dispatches nothing.
   - ../../components/cortex-planner
   - ../../components/mqtt-broker
@@ -272,7 +270,7 @@ patches:
 # release-pins.yaml transformer at the end of this file replaces their digests
 # in the render. Do not hand-edit those four entries or change their
 # name/newName/digest shape; the actuator fails unless each appears exactly once.
-# The planner, setpoint-server and lab-publisher-k3s entries are release pins,
+# The setpoint-server and lab-publisher-k3s entries are release pins,
 # advanced by hand.
   # Explicit audited runtime values; no data or first-party image changes.
   - path: source-owned-runtime-fields.patch.yaml
@@ -333,11 +331,6 @@ images:
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
     digest: sha256:411e51635c7e50ff53a88d366d0da88a81c30fd37aa6a5d6cfe18203392ba5dc
-  # Hand-pinned planner: source eeeeabc1 (W6 release 6, #1458 anyio/certifi CVE lock), GHA build run
-  # 42349735728; rollback a02c2a36cd7c (00b53fe3, release 5).
-  - name: ghcr.io/verdifyconsultancy/verdify-planner
-    newName: registry.vallery.net/verdifyconsultancy/verdify-planner
-    digest: sha256:6484bed4d5de5860c25d059af7ef99e4625554ae661e8f5cd6584ead165e1de1
   # Hand-pinned grow-light writer: source 5ebe309308d5 (W7 release 8: #1494 relay_physical, #1495 per-setting
   # write lock), GHA build run 42415895024. Rollback: 0f40c6514b21 (source 130a954e0ce7, build run 42294583580). The #399 HA call allowlist confines
   # this prod-only writer to the declared main/grow light switches.

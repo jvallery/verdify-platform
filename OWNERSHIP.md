@@ -43,7 +43,6 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-api` | 2 | verdify-api | Public and write API (`api.verdify.ai`). |
 | `verdify-operator-api` | 1 | verdify-api | Operator API for the dashboard BFF. |
 | `verdify-mcp` | 2 | verdify-mcp | MCP (`mcp.verdify.ai`). Uses the tokenless ServiceAccount `verdify-mcp` and NetworkPolicy `verdify-mcp-egress`. |
-| `verdify-planner` | 1 | verdify-planner | Iris planner. |
 | `verdify-cortex-planner` | 1 | verdify-ingestor | Cortex-backed planner path. |
 | `verdify-hermes-iris` | 1 | verdify-hermes-agent | Hermes agent; hand-pinned. |
 | `verdify-grafana` | 1 | grafana 12.4.14 mirror + verdify-grafana-image-renderer | Product Grafana (`graphs.verdify.ai`); dashboards are generated from `grafana/dashboards/` (R13 product exception). Version policy (D-325): this instance pins its own Grafana version by digest and upgrades it here on its own schedule; no version parity with the estate Grafana applies. |
@@ -109,7 +108,7 @@ The middlewares in `verdify-prod` are `verdify-api-inflight`, `verdify-api-rate-
 ## Policy, RBAC and cluster-scoped objects
 
 - NetworkPolicies: 44 in `verdify-prod` (46 once `allow-db-from-db-exporter` and `allow-db-exporter-metrics-from-observability` sync, monitoring-stack#1597), 4 in `verdify-dashboard` and 3 in `verdify-descheduler`, each delivered by that namespace's Application.
-- PodDisruptionBudgets in `verdify-prod`: `verdify-api`, `verdify-grafana`, `verdify-grafana-render-cache`, `verdify-ingestor`, `verdify-lab`, `verdify-mcp`, `verdify-planner` and `verdify-traefik`.
+- PodDisruptionBudgets in `verdify-prod`: `verdify-api`, `verdify-grafana`, `verdify-grafana-render-cache`, `verdify-ingestor`, `verdify-lab`, `verdify-mcp` and `verdify-traefik`.
 - ServiceAccounts: `verdify-ingestor`, `verdify-mcp`, `verdify-outbound`, `verdify-traefik`, `verdify-dashboard-web` and `descheduler`. The Role and RoleBinding `verdify-ingestor-writer-lease` and the Role and RoleBinding `descheduler` are this repo's. The `kepler-estate-operations` Role and RoleBinding in each namespace belong to jvallery/kepler.
 - PriorityClasses `verdify-batch` (1000), `verdify-serving` (100000), `verdify-data-critical` (800000000) and `verdify-device-writer` (900000000). They are cluster-scoped and owned here.
 

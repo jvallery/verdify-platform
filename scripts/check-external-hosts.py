@@ -35,7 +35,6 @@ SCAN_PATHS = (
     "hermes",
     "ingestor",
     "mcp",
-    "planner_graph",
     "scripts",
     "site/quartz",
     "site/quartz.config.ts",

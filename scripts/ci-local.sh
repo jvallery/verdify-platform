@@ -311,9 +311,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_knowledge_embeddings_contract.py
     tests/test_mqtt_fanout.py
     tests/test_no_hosted_runner_workflows.py
-    tests/test_planner_graph_contract.py
     tests/test_planner_memory_ingest.py
-    tests/test_planner_runtime_db_boundary.py
     tests/test_cortex_planner_pack.py
     tests/test_cortex_planner_run.py
     tests/test_planner_proposal_schema.py
@@ -479,24 +477,8 @@ if in_part rest; then
     tests/test_winter_feasibility.py \
     --deselect tests/test_winter_feasibility.py::test_source_candidates_bind_current_bytes_without_false_qualification
 
-  step "planner_graph offline suite + planner scorecard context"
-  # The validate venv installs the dev/planner/api extras only; add the
-  # planner-graph extra (pyproject) when langgraph is missing.
-  if ! $PY -c 'import langgraph' >/dev/null 2>&1; then
-    PG_REQS=$($PY -c 'import tomllib; print(" ".join(tomllib.load(open("pyproject.toml","rb"))["project"]["optional-dependencies"]["planner-graph"]))')
-    if $PY -m pip --version >/dev/null 2>&1; then
-      # shellcheck disable=SC2086
-      $PY -m pip install -q $PG_REQS
-    else
-      # shellcheck disable=SC2086
-      uv pip install -q --python "$PY" $PG_REQS
-    fi
-  fi
-  # test_memory_postgres/test_store_postgres start a Postgres container (docker).
-  $PY -m pytest -q -rs planner_graph/tests \
-    --ignore=planner_graph/tests/test_memory_postgres.py \
-    --ignore=planner_graph/tests/test_store_postgres.py \
-    tests/test_scorecard_semantics.py
+  step "planner scorecard context"
+  $PY -m pytest -q -rs tests/test_scorecard_semantics.py
 
   # Intentionally NOT collected by this gate:
   # - Live stack / production (curl through Traefik, kubectl exec into
@@ -510,8 +492,6 @@ if in_part rest; then
   # - Private PostgreSQL only, every test skips without a *_TEST_PG_BIN / DSN:
   #   tests/test_427_local_fallback.py, test_c0_release_rehearsal.py,
   #   test_daily_climate_metric_revisions.py.
-  # - Docker Postgres: planner_graph/tests/test_memory_postgres.py,
-  #   planner_graph/tests/test_store_postgres.py.
   # - Own environment: research/planner-efficacy/tests/test_audit.py and
   #   test_epoch_analysis.py need scikit-learn (research/planner-efficacy/pyproject.toml).
   # - tests/test_15_lab_site_followup.py reads the Iris vault site content

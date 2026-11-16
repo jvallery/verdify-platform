@@ -26,7 +26,6 @@ ANNOTATED = [
     "deploy/k8s/base/api-deployment.yaml",
     "deploy/k8s/base/mcp-deployment.yaml",
     "deploy/k8s/base/ingestor-deployment.yaml",
-    "deploy/k8s/components/planner/planner-deployment.yaml",
     "deploy/k8s/components/setpoint-server/setpoint-server.yaml",
 ]
 

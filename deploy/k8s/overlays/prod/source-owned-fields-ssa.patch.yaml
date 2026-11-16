@@ -77,18 +77,6 @@ metadata:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: verdify-planner
-  annotations:
-    argocd.argoproj.io/sync-options: ServerSideApply=true
-spec:
-  template:
-    metadata:
-      labels:
-        verdify.ai/rebalanceable: 'true'
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: verdify-traefik
   annotations:
     argocd.argoproj.io/sync-options: ServerSideApply=true
