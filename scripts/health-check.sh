@@ -169,11 +169,8 @@ if [ "$cr" -gt 0 ]; then check "Open: $oa ($cr CRITICAL)" "CRITICAL"
 elif [ "$oa" -gt 20 ]; then warn "Open alerts: $oa (high)"
 else check "Open alerts: $oa" true; fi
 
-# ── Planning ──
-echo "Planning:"
-pf=$(db "SELECT count(*) FROM setpoint_plan WHERE ts > now() AND parameter!='plan_metadata';" | tr -d ' ')
-check "Future waypoints: $pf" "$([ "$pf" -gt 0 ] && echo true || echo "no plan")"
-
+# ── Health score ── (the plan cycle and its waypoints are retired, climate refactor 4.2)
+echo "Health:"
 hs=$(db "SELECT fn_system_health();" | tr -d ' ')
 check "Health score: $hs/100 (≥50)" "$([ "$hs" -ge 50 ] && echo true || echo "LOW: $hs")"
 

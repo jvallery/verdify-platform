@@ -591,7 +591,11 @@ def daily_review_missed_alert(review_date: date, row: dict | None) -> dict:
 async def _daily_review_alert(conn: asyncpg.Connection, now_local: datetime) -> None:
     review_date = now_local.date() - _td(days=1)
     row = await conn.fetchrow(
-        "SELECT status, attempts, failure FROM planner_review WHERE kind = 'daily' AND review_date = $1",
+        """
+        SELECT status, attempts, failure,
+               (status IN ('requested', 'delivered') AND requested_at > now() - interval '60 minutes') AS in_flight
+          FROM planner_review WHERE kind = 'daily' AND review_date = $1
+        """,
         review_date,
     )
     # A manual review of the same day, written after a failed daily one, also resolves the alert (review m3).
@@ -613,6 +617,10 @@ async def _daily_review_alert(conn: asyncpg.Connection, now_local: datetime) -> 
         )
         return
     if now_local.time() < REVIEW_MISSED_LOCAL_TIME:
+        return
+    # A late start (the row is created on the first pass after 07:00, which may be after 10:00) gives the review
+    # its hour before it counts as missed (release 3 review PLANNER-02).
+    if row is not None and row.get("in_flight"):
         return
     env = AlertEnvelope.model_validate(daily_review_missed_alert(review_date, dict(row) if row else None))
     await conn.execute(
