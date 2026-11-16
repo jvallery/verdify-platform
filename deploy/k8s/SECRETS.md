@@ -73,14 +73,8 @@ Service → Secret → key wiring as authored in `deploy/k8s/{base,components}`:
 | `verdify-app-secrets` | `ESP32_API_KEY` | ingestor (`secretKeyRef`); **device-affecting** | ref-only¹ | ref-only¹ | ✓ |
 | `verdify-app-secrets` | `VERDIFY_API_RUNTIME_DB_USER`, `VERDIFY_API_RUNTIME_DB_PASSWORD` | production ordinary API database identity (migration 217 exact login; required before the Gate-1 sync) | opt | opt | ✓ |
 | `verdify-app-secrets` | `VERDIFY_INGESTOR_RUNTIME_DB_USER`, `VERDIFY_INGESTOR_RUNTIME_DB_PASSWORD` | production ordinary ingestor and gather-subprocess database identity (migration 217 exact login; required before the Gate-1 sync) | opt | opt | ✓ |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER`, `VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD` | API v2 lifecycle/status surface (`secretKeyRef`, optional; exact function-only login required) | opt | opt | opt |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_API_TOKEN`, `VERDIFY_EXPERIMENT_OPERATOR_TOKEN` | API v2 command and blinded-safe operator surfaces (`secretKeyRef`, optional; distinct authorization boundaries) | opt | opt | opt |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_COMPONENT_DB_USER`, `VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD` | ingestor confirmed-component executor (`secretKeyRef`, optional; exact function-only login required) | opt | opt | opt |
 | `verdify-app-secrets` | `VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER`, `VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD` | ingestor append-only equipment source collector (`secretKeyRef`, optional; exact function-only login required) | opt | opt | opt |
 | `verdify-app-secrets` | `OPENAI_API_KEY` | planner (`secretKeyRef`, `optional: true`) | ✓ | — | ✓ |
-| `verdify-experiment-v2-shadow-scheduler-db` | `password` | v2 lifecycle scheduler (`secretKeyRef`, optional; username is the migration-owned exact login) | — | — | opt |
-| `verdify-experiment-v2-randomizer-db` | `password` | v2 selector/randomizer (`secretKeyRef`, optional; username is the migration-owned exact login) | — | — | opt |
-| `verdify-experiment-v2-outcome-freezer-db` | `password` | v2 outcome freezer (`secretKeyRef`, optional; username is the migration-owned exact login) | — | — | opt |
 | `verdify-mcp-runtime-db` | `password` | production MCP and its dedicated PreSync role bootstrap (`secretKeyRef`; username is migration-owned `verdify_mcp_runtime_login`) | — | — | ✓ |
 | `verdify-dashboard-runtime-db` | `password` | operator API `DB_PASS` (`secretKeyRef`, required; username is migration-owned `verdify_dashboard_runtime_login`) and the login's role bootstrap (`secretKeyRef`, optional); [operator API](#operator-api-verdify-operator-api-1148) | — | — | ✓ from #1143 |
 | `verdify-operator-api` | `operator-api-token` | operator API `OPERATOR_API_TOKEN` (`secretKeyRef`, required); the same value as `verdify-dashboard-web`'s key; [operator API](#operator-api-verdify-operator-api-1148) | — | — | ✓ from #1143 |
@@ -123,7 +117,11 @@ and attests only the equipment-source collector login from
 `VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER` / `..._DB_PASSWORD` in
 `verdify-app-secrets` (64 lowercase hex, distinct from the owner and both ordinary
 runtime passwords). Since #1649 it no longer reads the other experiment-v2 keys or
-Secrets; those can be retired in the central KSOPS lane once no manifest references them.
+Secrets. No manifest references them any more, so the central KSOPS lane can retire
+`VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER`/`_PASSWORD`, `VERDIFY_EXPERIMENT_COMPONENT_DB_USER`/`_PASSWORD`,
+`VERDIFY_EXPERIMENT_API_TOKEN` and `VERDIFY_EXPERIMENT_OPERATOR_TOKEN` in `verdify-app-secrets`, and the
+Secrets `verdify-experiment-v2-shadow-scheduler-db`, `verdify-experiment-v2-randomizer-db` and
+`verdify-experiment-v2-outcome-freezer-db`.
 
 `verdify-lab-publisher-s3` is non-device but required before enabling the
 `verdify-lab-publisher` CronJob. The durable prod prefixes are

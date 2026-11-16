@@ -136,24 +136,6 @@ spec:
                 secretKeyRef:
                   name: verdify-app-secrets
                   key: POSTGRES_PASSWORD
-            # Optional until the confirmed-component capability is armed. The
-            # executor refuses the shared DB owner and claims zero work unless
-            # this is the exact
-            # verdify_experiment_v2_component_executor_login and is a
-            # non-superuser member of only the component-executor duty role
-            # from migration 214.
-            - name: VERDIFY_EXPERIMENT_COMPONENT_DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_COMPONENT_DB_USER
-                  optional: true
-            - name: VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD
-                  optional: true
             # Optional function-only source ledger login. Both values come
             # from the existing app Secret; the process additionally requires
             # verdify_experiment_v2_equipment_source_collector_login and exact
