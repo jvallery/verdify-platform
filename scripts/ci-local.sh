@@ -429,7 +429,6 @@ if in_part rest; then
     tests/test_dli_availability.py \
     tests/test_dli_lesson_suppression.py \
     tests/test_experiment_v2_credential_bootstrap.py \
-    tests/test_experiment_v2_direct_bootstrap.py \
     tests/test_experiment_v2_direct_launch.py \
     tests/test_experiment_v2_direct_physical_proof.py \
     tests/test_experiment_v2_direct_proof_preclaim_raw_reset_rollover.py \

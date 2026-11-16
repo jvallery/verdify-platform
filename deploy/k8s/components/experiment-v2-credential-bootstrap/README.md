@@ -1,51 +1,28 @@
-# Experiment-v2 credential bootstrap
+# Equipment-source collector credential bootstrap
 
-This component is the non-actuating credential prerequisite for Gate 2. It
-runs as Argo CD `PreSync` wave 2, after ledgered migrations (wave 0) and the
-ordinary API/ingestor bootstrap (wave 1). It never changes the experiment
-capability, active experiment ID, lifecycle, phase, admission, or device state.
+A one-container Argo CD `PreSync` hook (wave 2, after ledgered migrations at
+wave 0 and the ordinary API/ingestor bootstrap at wave 1). It installs the SCRAM
+verifier of one database login, `verdify_experiment_v2_equipment_source_collector_login`
+(duty `verdify_experiment_equipment_source_collector`), and then attests it over a
+real TCP session: exact login, sole non-admin duty membership, safe role
+attributes, no object ownership or direct relation/sequence ACL, and the exact
+three-function allowlist (`fn_record_equipment_counter_sample`,
+`fn_record_equipment_direct_state_snapshot`, `fn_record_equipment_state_source_receipt`).
+The ingestor writes `equipment_state` through this login and refuses to start in
+production without it.
 
-The fleet Secret authority must reconcile these names before this component is
-merged and synced. Values never belong in Git or rollout evidence.
-
-| Secret | key | exact database login / purpose |
+| Secret | key | purpose |
 | --- | --- | --- |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER` / `VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD` | `verdify_experiment_v2_lifecycle_login` → `verdify_experiment_lifecycle` |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_COMPONENT_DB_USER` / `VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD` | `verdify_experiment_v2_component_executor_login` → `verdify_experiment_component_executor` |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER` / `VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD` | `verdify_experiment_v2_equipment_source_collector_login` → `verdify_experiment_equipment_source_collector` |
-| `verdify-experiment-v2-shadow-scheduler-db` | `password` | `verdify_experiment_v2_shadow_scheduler_login` → `verdify_experiment_shadow_scheduler` |
-| `verdify-experiment-v2-randomizer-db` | `password` | `verdify_experiment_v2_randomizer_login` → `verdify_experiment_randomizer` |
-| `verdify-experiment-v2-outcome-freezer-db` | `password` | `verdify_experiment_v2_outcome_freezer_login` → `verdify_experiment_outcome_freezer` |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_API_TOKEN` | blinded lifecycle command authorization |
-| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_OPERATOR_TOKEN` | separately authorized safety/status surface |
+| `verdify-app-secrets` | `VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER` / `..._DB_PASSWORD` | the collector login |
+| `verdify-app-secrets` | `POSTGRES_PASSWORD`, `VERDIFY_API_RUNTIME_DB_PASSWORD`, `VERDIFY_INGESTOR_RUNTIME_DB_PASSWORD` | owner session, and reuse guards |
 
-Generate each of the six database passwords and both API tokens independently
-as 32 CSPRNG bytes encoded as 64 lowercase hexadecimal characters. They must be
-pairwise distinct and must not reuse the database owner or either ordinary
-runtime password. The hook enforces that shape before opening a DB connection,
-installs all six SCRAM verifiers in one transaction, then opens six actual TCP
-sessions and proves the exact login, sole non-admin duty membership, safe role
-attributes, no object ownership/direct relation or sequence ACL, and exact
-function allowlist. Its successful log receipt contains no credential material
-and is retained for 600 seconds.
+The password must be 64 lowercase hexadecimal characters and must not reuse the
+owner or either ordinary runtime password. Its successful log line contains no
+credential material.
 
-The blinded analyst is deliberately a `NOLOGIN` read-only duty in this fast
-path and therefore receives no runtime credential. Broader platform-wide role
-splitting remains deferred under #643; the six login boundaries above are the
-minimum P0 experiment-integrity contract and cannot be deferred.
-
-The selector-provider credential is independent of this database bootstrap.
-The selector reuses `verdify-hermes` / `OPENAI_API_KEY` only when the frozen
-selector identity and experiment capability are active. The adapter accepts
-only official `https://api.openai.com/v1` (normalized internally to
-`/v1/chat/completions`) or that exact completions URL and the locked
-`gpt-5.6-luna` / medium-reasoning contract. It sends the canonical
-`verdify-daily-selector-request-v2` document inside frozen system/user messages
-and admits only the locked model, `stop` finish, and canonical profile-only JSON
-response. Kubernetes allows selector TCP/443 egress because NetworkPolicy
-cannot name an FQDN; the application separately hard-locks the OpenAI authority
-and global DNS answers. With no key the selector records baseline fallback,
-which is safe for credential activation but is not provider qualification. The
-repository pod must not read, print, or transport the key. That provider key is
-intentionally exempt from this hook's 64-hex and pairwise-distinct activation
-checks.
+History: until #1649 this hook also installed the five other experiment-v2
+logins (lifecycle, component executor, shadow scheduler, randomizer, outcome
+freezer), validated two experiment API tokens and ran the direct-launch
+bootstrap. Those logins keep the verifiers they hold; they are dropped with the
+experiment tables. The component keeps its name so the live hook Job is the same
+object.

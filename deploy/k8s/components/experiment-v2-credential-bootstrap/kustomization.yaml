@@ -1,9 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
-# Gate-2 credential activation. Migration waves create and normalize the six
-# passwordless experiment LOGIN identities; this one-container PreSync hook
-# installs their protected verifiers while the experiment capability is off.
+# Wave-2 PreSync hook: installs and attests the equipment-source collector
+# login the ingestor writes equipment_state through (#1649 reduced it to this
+# one login).
 resources:
   - bootstrap-job.yaml
 
