@@ -859,8 +859,10 @@ def test_alert_monitor_avoids_greenhouse_state_hot_path_scans():
 
     assert "FROM v_greenhouse_state" not in body
     assert "FROM climate" in body
-    assert "fn_setpoint_at('temp_high', c.ts)" in body
-    assert "fn_equip_at('mister_center', c.ts)" in body
+    # The relay context reads the served band (RULINGS AF2), never the settings ledger; the mister_center read
+    # went with the retired vpd_* checks (RULINGS Q4).
+    assert "fn_band_setpoints(c.ts)" in body
+    assert "fn_setpoint_at(" not in body
 
 
 def test_mcp_set_tunable_treats_vpd_low_as_band_owned():

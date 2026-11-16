@@ -197,3 +197,33 @@ def test_furnace_saturation_links_its_issue():
     import inspect
 
     assert "issues/1670" in inspect.getsource(cov)
+
+
+def boot(minutes_ago, before, after, reason="Software reset", uptime=90.0):
+    ts = T0 - minutes_ago * MIN
+    return {"ts": ts, "boot_ts": ts, "uptime_s": uptime, "fw_before": before, "fw_after": after, "reset_reason": reason}
+
+
+def test_a_restart_on_the_same_firmware_warns_with_its_reason():
+    env = cov.reboot_alert([boot(20, "2026.11.16.a", "2026.11.16.a")])
+    AlertEnvelope.model_validate(env)
+    assert env["severity"] == "warning" and env["alert_type"] == "esp32_reboot"
+    assert env["details"]["reset_reason"] == "Software reset" and env["details"]["restarts_60m"] == 1
+
+
+def test_three_restarts_in_an_hour_page():
+    rows = [boot(m, "v1", "v1", reason=r) for m, r in ((50, "Software reset"), (30, "Task WDT"), (5, "Guru/Panic"))]
+    env = cov.reboot_alert(rows)
+    AlertEnvelope.model_validate(env)
+    assert env["severity"] == "critical" and env["details"]["restarts_60m"] == 3
+    assert env["details"]["reset_reason"] == "Guru/Panic"
+
+
+def test_a_flash_stays_quiet_and_an_unknown_version_waits():
+    assert cov.reboot_alert([boot(10, "v1", "v2")]) is None  # a flash
+    assert cov.reboot_alert([boot(1, "v1", None)]) is None  # version after the boot not stored yet
+    assert cov.reboot_alert([boot(1, None, "v1")]) is None  # nothing stored before it
+    assert cov.reboot_alert([]) is None
+    # a flash then two same-version restarts: two count, still a warning
+    env = cov.reboot_alert([boot(50, "v1", "v2"), boot(30, "v2", "v2"), boot(10, "v2", "v2")])
+    assert env["severity"] == "warning" and env["details"]["restarts_60m"] == 2

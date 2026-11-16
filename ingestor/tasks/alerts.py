@@ -63,6 +63,7 @@ from ._common import (
 from .coverage_alerts import (
     SOIL_OPEN_ROWS_SQL,
     coverage_cycle,
+    reboot_check,
     soil_dryout_hold,
     soil_probe_offline,
 )
@@ -1541,7 +1542,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         # v_relay_stuck is derived from commanded switch state, not independent
         # relay feedback. Treat long heater runtime as normal when current
         # climate still demands heat; only alert when heat remains commanded
-        # above the active band where it is physically contradictory.
+        # above the active band where it is physically contradictory. The band is the served one,
+        # fn_band_setpoints (RULINGS AF2): fn_setpoint_at is a settings-ledger read whose stale temp_high
+        # (72.4 F against a served 87.7 F) made heat1's daily reheat to target fire this (RLY-F7).
         relay_context = await conn.fetchrow(
             """
             WITH latest_climate AS (
@@ -1555,9 +1558,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
             )
             SELECT c.temp_avg,
                    c.vpd_avg,
-                   fn_setpoint_at('temp_high', c.ts) AS sp_temp_high,
-                   fn_setpoint_at('vpd_low', c.ts) AS sp_vpd_low,
-                   fn_setpoint_at('vpd_high', c.ts) AS sp_vpd_high,
+                   b.temp_high AS sp_temp_high,
+                   b.vpd_low AS sp_vpd_low,
+                   b.vpd_high AS sp_vpd_high,
                    fn_equip_at('heat1', c.ts) AS heat1,
                    fn_equip_at('heat2', c.ts) AS heat2,
                    fn_equip_at('vent', c.ts) AS vent,
@@ -1573,6 +1576,7 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                    ) AS greenhouse_mode,
                    c.ts
               FROM latest_climate c
+              LEFT JOIN LATERAL fn_band_setpoints(c.ts) b ON true
             """
         )
         for r in await conn.fetch(
@@ -1796,33 +1800,12 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         if leak is not None:
             alerts.append(leak)
 
-        # 6. ESP32 reboot
-        # Sprint 19 followup: suppress the alert when uptime_s < 600 s because
-        # an OTA is the expected reboot path and the alert auto-resolves anyway.
-        # Only fires for unexpected reboots where the ESP32 is still rebooting
-        # frequently (uptime < 300 s, which means a crash-loop scenario).
-        row = await conn.fetchrow(
-            "SELECT uptime_s, reset_reason FROM diagnostics WHERE ts >= now() - interval '10 minutes' AND uptime_s IS NOT NULL ORDER BY ts DESC LIMIT 1"
-        )
-        if row and row["uptime_s"] < 300:
-            # Check if this is likely an OTA-induced reboot (reset_reason or recent deploy)
-            reason = (row["reset_reason"] or "").lower()
-            if "ota" in reason or "software" in reason:
-                pass  # expected post-OTA reboot — no alert
-            else:
-                alerts.append(
-                    {
-                        "alert_type": "esp32_reboot",
-                        "severity": "info",
-                        "category": "system",
-                        "sensor_id": "diag.uptime_s",
-                        "zone": None,
-                        "message": f"ESP32 rebooted — uptime {row['uptime_s']:.0f}s (reset_reason={reason or 'unknown'})",
-                        "details": {"uptime_s": row["uptime_s"], "reset_reason": reason},
-                        "metric_value": None,
-                        "threshold_value": None,
-                    }
-                )
+        # 6. ESP32 reboot (RULINGS AF8): an uptime reset on an unchanged firmware version warns with its reset
+        # reason, three in 60 minutes page; a flash (version changed) stays quiet. coverage_alerts.reboot_check.
+        reboot, failed = await reboot_check(conn)
+        if reboot is not None:
+            alerts.append(reboot)
+        read_preserved |= failed
 
         # 6b. Climate action proof stale/incomplete. This is the controller
         # graph/OTA-readiness surface: fresh climate rows alone do not prove

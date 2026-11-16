@@ -210,7 +210,7 @@ CASES = {
     # no `error`) is round-tripped in test_alert_producer_payloads.py.
     "esp32_reboot": (
         ESP32RebootAlert,
-        {"uptime_s": 42.0, "reset_reason": "poweron"},
+        {"uptime_s": 42.0, "reset_reason": "Task WDT", "restarts_60m": 1, "firmware_version": "2026.11.16.a"},
     ),
     "firmware_relief_ceiling": (
         FirmwareReliefCeilingAlert,

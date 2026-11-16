@@ -359,6 +359,9 @@ class SiteContentStaleDetails(_DetailsBase):
 class ESP32RebootDetails(_DetailsBase):
     uptime_s: float = Field(..., ge=0)
     reset_reason: str = ""
+    # RULINGS AF8: restarts on an unchanged firmware version in the last 60 minutes (3 or more page) and that version.
+    restarts_60m: int | None = Field(None, ge=1)
+    firmware_version: str | None = None
 
 
 class PlannerStaleDetails(_DetailsBase):

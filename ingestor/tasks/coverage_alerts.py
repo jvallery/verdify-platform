@@ -890,6 +890,77 @@ def furnace_alert(row: Mapping | None) -> dict | None:
     )
 
 
+# ── Controller restarts (RULINGS AF8, verification finding OBS-F3; host release 3) ──────────────────────────────────
+# A restart is a diagnostics row whose uptime is below the previous row's, or below the time since it (the controller
+# booted after the previous report). Its boot time is the row's ts minus its uptime. The firmware version is the
+# newest non-NULL one before the boot (24 h) and the first after it (30 min): the same version before and after is an
+# unplanned restart, whatever the reset reason (the heap guard, the bus watchdog and the restart button all report
+# "Software reset"); a changed version is a flash and stays quiet. A restart whose version after the boot is not
+# stored yet, or with none stored in the 24 h before it, is not judged (the next pass judges it once the version
+# arrives). One restart in the last 60 minutes warns; three or more page.
+REBOOT_WINDOW_MIN = 60
+REBOOT_CRITICAL_COUNT = 3
+REBOOT_SQL = """
+WITH d AS (
+    SELECT ts, uptime_s, lag(ts) OVER w AS prev_ts, lag(uptime_s) OVER w AS prev_up
+      FROM diagnostics
+     WHERE ts > now() - interval '3 hours' AND uptime_s IS NOT NULL
+    WINDOW w AS (ORDER BY ts)
+), r AS (
+    SELECT ts, ts - make_interval(secs => uptime_s) AS boot_ts, uptime_s
+      FROM d
+     WHERE prev_ts IS NOT NULL AND ts > now() - make_interval(mins => $1)
+       AND (uptime_s < prev_up OR uptime_s + 30 < EXTRACT(EPOCH FROM ts - prev_ts))
+)
+SELECT r.ts, r.boot_ts, r.uptime_s,
+       (SELECT firmware_version FROM diagnostics
+         WHERE firmware_version IS NOT NULL AND ts < r.boot_ts AND ts > r.boot_ts - interval '24 hours'
+         ORDER BY ts DESC LIMIT 1) AS fw_before,
+       (SELECT firmware_version FROM diagnostics
+         WHERE firmware_version IS NOT NULL AND ts >= r.boot_ts AND ts <= r.boot_ts + interval '30 minutes'
+         ORDER BY ts LIMIT 1) AS fw_after,
+       (SELECT reset_reason FROM diagnostics
+         WHERE reset_reason IS NOT NULL AND ts >= r.boot_ts AND ts <= r.boot_ts + interval '30 minutes'
+         ORDER BY ts LIMIT 1) AS reset_reason
+  FROM r
+ ORDER BY r.ts
+"""
+
+
+def reboot_alert(rows: Sequence[Mapping]) -> dict | None:
+    unplanned = [r for r in rows if r["fw_before"] and r["fw_after"] and r["fw_before"] == r["fw_after"]]
+    if not unplanned:
+        return None
+    newest = unplanned[-1]
+    count = len(unplanned)
+    reason = newest["reset_reason"] or "unknown"
+    severity = "critical" if count >= REBOOT_CRITICAL_COUNT else "warning"
+    return _alert(
+        severity,
+        "esp32_reboot",
+        "diag.uptime_s",
+        "system",
+        f"Controller restarted without a flash ({reason}); {count} in the last {REBOOT_WINDOW_MIN} minutes on "
+        f"{newest['fw_after']}",
+        {
+            "uptime_s": max(float(newest["uptime_s"]), 0.0),
+            "reset_reason": reason,
+            "restarts_60m": count,
+            "firmware_version": newest["fw_after"],
+        },
+        float(count),
+        float(REBOOT_CRITICAL_COUNT),
+    )
+
+
+async def reboot_check(conn) -> tuple[dict | None, frozenset[str]]:
+    """The esp32_reboot envelope for alert_monitor block 6, and the types to keep open because the read failed."""
+    rows = await _read(conn, REBOOT_SQL, REBOOT_WINDOW_MIN, many=True)
+    if rows is _READ_FAILED:
+        return None, frozenset({"esp32_reboot"})
+    return reboot_alert(rows), frozenset()
+
+
 H3_TYPES = (
     "reviewer_wrote_climate",
     "law_state_stale",

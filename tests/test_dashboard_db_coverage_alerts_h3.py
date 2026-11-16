@@ -273,3 +273,25 @@ def test_furnace_saturation_integrates_heat2_from_the_row_before_the_hour(dsn):
         assert cov.furnace_alert(await conn.fetchrow(cov.FURNACE_SQL)) is None
 
     scenario(dsn, body)
+
+
+def test_reboot_sql_finds_restarts_and_the_versions_around_them(dsn):
+    async def body(conn, t0):
+        diag = "INSERT INTO diagnostics (ts, uptime_s, firmware_version, reset_reason) VALUES ($1, $2, $3, $4)"
+        # running on v1 for hours, a flash to v2 70 minutes ago (outside the window)
+        await conn.execute(diag, t0 - 100 * MIN, 50000.0, "v1", "Power-on")
+        await conn.execute(diag, t0 - 69 * MIN, 30.0, "v2", "Software reset")
+        await conn.execute(diag, t0 - 41 * MIN, 1700.0, "v2", None)
+        # a same-version restart 40 minutes ago (uptime 20 s), reported with its reason
+        await conn.execute(diag, t0 - 40 * MIN, 20.0, None, None)
+        await conn.execute(diag, t0 - 39 * MIN, 80.0, "v2", "Task WDT")
+        await conn.execute(diag, t0 - 2 * MIN, 2300.0, None, None)
+        rows = await conn.fetch(cov.REBOOT_SQL, cov.REBOOT_WINDOW_MIN)
+        assert len(rows) == 1 and rows[0]["fw_before"] == "v2" and rows[0]["fw_after"] == "v2"
+        env = cov.reboot_alert(rows)
+        assert env["severity"] == "warning" and env["details"]["reset_reason"] == "Task WDT"
+        # a long silence without a restart is not a restart: uptime grew with the gap
+        await conn.execute(diag, t0 - 1 * MIN, 2360.0, None, None)
+        assert len(await conn.fetch(cov.REBOOT_SQL, cov.REBOOT_WINDOW_MIN)) == 1
+
+    scenario(dsn, body)

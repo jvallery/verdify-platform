@@ -434,20 +434,12 @@ class TestHeapPressureObservability:
         assert "Same-severity updates intentionally stay quiet" in body
         assert "disposition IN ('open', 'acknowledged')" in body
 
-    def test_vpd_stress_alert_requires_recent_active_stress(self):
+    def test_retired_vpd_checks_have_no_producer(self):
+        # RULINGS Q4 / AF2(c): vpd_stress, vent_vpd_moisture_gap and vent_moisture_capacity_limit retired with the
+        # climate law; the alert monitor no longer produces them (their open rows resolve with no producer).
         body = _tasks_source()
-        assert "recent_high_fraction" in body
-        assert "last 15m" in body
-        assert 'float(row["recent_high_fraction"] or 0.0) >= 0.5' in body
-
-    def test_alert_monitor_separates_vent_moisture_gap_from_capacity_limit(self):
-        body = _tasks_source()
-        assert "vent_vpd_moisture_gap" in body
-        assert "vent_moisture_capacity_limit" in body
-        assert "high_no_moisture_samples" in body
-        assert "capacity_limited_samples" in body
-        assert "last 15m" in body
-        assert "last 30m" in body
+        for retired in ("vpd_stress", "vent_vpd_moisture_gap", "vent_moisture_capacity_limit"):
+            assert f'"alert_type": "{retired}"' not in body
 
 
 class TestBandFirstControlDiagnostics:
