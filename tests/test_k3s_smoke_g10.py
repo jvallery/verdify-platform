@@ -26,6 +26,13 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 import yaml
 
+from verdify_schemas.component_executor import CANONICAL_FIELD_ORDER
+from verdify_schemas.tunable_registry import THIRD_FLASH_INERT_WIRE_REG
+
+# Step 3 expects the canonical fields the controller still reads back (review F1): the third flash keeps the
+# THIRD_FLASH_INERT_WIRE_REG fields as inert wire slots with no readback.
+READBACK_FIELDS = sum(1 for name in CANONICAL_FIELD_ORDER if name not in THIRD_FLASH_INERT_WIRE_REG)
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/k3s-smoke.sh"
 SHA = "a" * 40
@@ -168,7 +175,7 @@ def test_g10_smoke_fails_closed(tmp_path, case, expected_code, expected_text):
             MOCK_PODS=str(pod_file),
             MOCK_MCP_OK="0" if case == "missing_tools" else "1",
             MOCK_MCP_STALL="1" if case == "stalled_tools" else "0",
-            MOCK_SNAPSHOT="900|47" if case == "stale_readbacks" else "10|48",
+            MOCK_SNAPSHOT=f"900|{READBACK_FIELDS - 1}" if case == "stale_readbacks" else f"10|{READBACK_FIELDS}",
             MOCK_OPERATOR_READY="0" if case == "operator_unready" else "1",
             MOCK_OPERATOR_IMAGE={
                 "operator_wrong_digest": IMAGE.replace("b" * 64, "e" * 64),
