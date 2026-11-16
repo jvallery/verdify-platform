@@ -1,0 +1,85 @@
+--- a/firmware/lib/greenhouse_logic.h
++++ b/firmware/lib/greenhouse_logic.h
+@@ -321,2 +321,8 @@
+ // is unchanged. Safety, cooling, sealing and the existing dehum path win.
++#ifndef SIM_DRYOUT_DAY
++#define SIM_DRYOUT_DAY 0
++#endif
++#ifndef SIM_DRYOUT_BOTH_FANS
++#define SIM_DRYOUT_BOTH_FANS 0
++#endif
+ enum NightDryoutPhase : uint8_t { DRYOUT_NONE = 0, DRYOUT_PULSE = 1, DRYOUT_REST = 2 };
+@@ -327,3 +333,12 @@
+ // heat2 latch takes over for temperature).
+-static constexpr float NIGHT_DRYOUT_START_MARGIN_F = 1.0f;
++#ifndef SIM_DRYOUT_START_MARGIN_F
++#define SIM_DRYOUT_START_MARGIN_F 1.0f
++#endif
++#ifndef SIM_HEAT2_ON_ABOVE_LOW_F
++#define SIM_HEAT2_ON_ABOVE_LOW_F 0.0f
++#endif
++#ifndef SIM_HEAT2_OFF_SHIFT_F
++#define SIM_HEAT2_OFF_SHIFT_F 0.0f
++#endif
++static constexpr float NIGHT_DRYOUT_START_MARGIN_F = SIM_DRYOUT_START_MARGIN_F;
+ // heat1 draw measured by the Shelly CT when on (#1365 research: 1.44 kW).
+@@ -332,3 +347,7 @@
++#ifndef SIM_DRYOUT_TARGET_MARGIN_KPA
++#define SIM_DRYOUT_TARGET_MARGIN_KPA 0.0f
++#endif
++// Simulation only: the dry-out works to this much above the floor that the nightly grade counts against.
+ inline float night_dryout_floor_kpa(const Setpoints& sp) noexcept {
+-    return std::max(sp.vpd_low, NIGHT_DRYOUT_MIN_FLOOR_KPA);
++    return std::max(sp.vpd_low, NIGHT_DRYOUT_MIN_FLOOR_KPA) + SIM_DRYOUT_TARGET_MARGIN_KPA;
+ }
+@@ -336,3 +355,3 @@
+ inline bool night_dryout_budget_left(const Setpoints& sp, const ControlState& state) noexcept {
+-    return state.dryout_reheat_wh < sp.night_dryout_kwh_cap * 1000.0f;
++    return SIM_DRYOUT_DAY || state.dryout_reheat_wh < sp.night_dryout_kwh_cap * 1000.0f;
+ }
+@@ -364,3 +383,3 @@
+     if (!sp.night_dryout_enabled) return "disabled";
+-    if (!is_night_phase(in)) return "day";
++    if (!SIM_DRYOUT_DAY && !is_night_phase(in)) return "day";
+     if (!vpd_control_trusted(in)) return "vpd_untrusted";
+@@ -381,3 +400,3 @@
+     if (!sp.night_dryout_enabled) return "disabled";
+-    if (!is_night_phase(in)) return "day";
++    if (!SIM_DRYOUT_DAY && !is_night_phase(in)) return "day";
+     if (!vpd_control_trusted(in)) return "vpd_untrusted";
+@@ -1645,3 +1664,3 @@
+         state.heat2_latched = stage2_escalation_latch(
+-            in.temp_f, sp.temp_low, heat_target, state.heat2_latched, /*high_side=*/false);
++            in.temp_f, sp.temp_low + SIM_HEAT2_ON_ABOVE_LOW_F, heat_target + SIM_HEAT2_OFF_SHIFT_F, state.heat2_latched, /*high_side=*/false);
+         // fan2 = HIGH side — latch when temp ≥ temp_high + cool_stage2_over_high_f,
+@@ -1807,3 +1826,3 @@
+         const uint8_t phase_before = state.dryout_phase;
+-        if (!is_night_phase(in)) {
++        if (!SIM_DRYOUT_DAY && !is_night_phase(in)) {
+             // A new solar night starts a fresh pulse count and kWh budget.
+@@ -1826,3 +1845,3 @@
+             state.dryout_timer_ms = sat_add(state.dryout_timer_ms, dt_ms);
+-            if (state.dryout_timer_ms >= sp.night_dryout_rest_s * 1000UL || !is_night_phase(in)) {
++            if (state.dryout_timer_ms >= sp.night_dryout_rest_s * 1000UL || (!SIM_DRYOUT_DAY && !is_night_phase(in))) {
+                 state.dryout_phase = DRYOUT_NONE;
+@@ -1846,3 +1865,3 @@
+             && sp.night_dryout_enabled
+-            && is_night_phase(in)
++            && (SIM_DRYOUT_DAY || is_night_phase(in))
+             && base_mode == IDLE
+@@ -2734,2 +2753,3 @@
+                 if (lead_is_fan1) out.fan1 = true; else out.fan2 = true;
++                if (SIM_DRYOUT_BOTH_FANS) { out.fan1 = true; out.fan2 = true; }  // simulation only
+                 out.heat1 = needs_heating_s1 || state.dryout_reheat_active;
+--- a/firmware/lib/greenhouse_types.h
++++ b/firmware/lib/greenhouse_types.h
+@@ -994,2 +994,5 @@
+     sp.night_dryout_pulse_s = std::max<uint32_t>(60u, std::min<uint32_t>(600u, sp.night_dryout_pulse_s));
++#ifdef SIM_DRYOUT_FREE_REST
++    sp.night_dryout_rest_s  = std::max<uint32_t>(10u, std::min<uint32_t>(3600u, sp.night_dryout_rest_s));
++#else
+     sp.night_dryout_rest_s  = std::max<uint32_t>(300u, std::min<uint32_t>(3600u, sp.night_dryout_rest_s));
+@@ -998,2 +1001,3 @@
+     }
++#endif
+     sp.night_dryout_dp_margin_f = std::max(1.0f, std::min(15.0f, sp.night_dryout_dp_margin_f));
