@@ -1922,10 +1922,10 @@ export interface components {
                 readonly vpd_kpa: components["schemas"]["Reading"];
             };
             readonly iris: {
-                /** @description Plan in force; null means band and defaults */
+                /** @description Always null since climate refactor 4.2: no plan applies, so band and defaults */
                 readonly plan_id: string | null;
                 /**
-                 * @description Newest MIDNIGHT, SUNRISE or SUNSET trigger
+                 * @description The daily review (5.1): missed or failed while its daily_review_missed alert is open, else ok; late no longer occurs
                  * @enum {string}
                  */
                 readonly required_trigger: "ok" | "late" | "missed" | "failed";

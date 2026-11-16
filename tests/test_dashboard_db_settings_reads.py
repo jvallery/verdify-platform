@@ -396,7 +396,7 @@ def test_api09_lists_every_registry_row_with_its_label_and_unit_and_the_band_in_
     scenario(dsn, body)
 
 
-def test_iris_48_75_shows_as_stored_and_confirms_from_the_readback(dsn):
+def test_a_plan_in_force_is_never_shown_or_applied_since_climate_refactor_4_2(dsn):
     async def body(conn, t0):
         await reporting_now(conn, t0)
         written = t0 - 2 * H
@@ -419,30 +419,10 @@ def test_iris_48_75_shows_as_stored_and_confirms_from_the_readback(dsn):
 
         rows = {item.param: item for item in (await as_role(conn, MCP_ROLE, reads.settings_rows)).items}
         delay = rows["mister_engage_delay_s"]
-        # The plan-only case: no desired row, so applied_from is plan (resolve_effective returns None).
-        assert (delay.desired, delay.applied_from, delay.state) == (None, "plan", "confirmed")
-        assert delay.plan.model_dump() == {
-            "value": 48.75,  # as stored, never snapped to the 30 s step
-            "plan_id": "iris-vd55-48",
-            "source": "iris",
-            "written_at": written,
-            "next": {"at": t0 + 3 * H, "value": 60.0, "source": "iris", "effective": True},
-        }
-        forecast = rows["sw_economiser_enabled"].plan
-        assert (forecast.source, forecast.plan_id, forecast.value, forecast.next) == (
-            "preemptive",
-            "preemptive-vd55",
-            1.0,
-            None,
-        )
+        # The plan rows stay, but no plan applies: no plan block, and the source is never plan.
+        assert (delay.desired, delay.plan) == (None, None) and delay.applied_from != "plan"
+        assert rows["sw_economiser_enabled"].plan is None and rows["sw_economiser_enabled"].applied_from != "plan"
         assert rows["mister_engage_kpa"].plan is None
-
-        await snapshot(conn, t0 - 20 * S, "mister_engage_delay_s", 42.0)  # the device reports something else
-        rows = {item.param: item for item in (await as_role(conn, MCP_ROLE, reads.settings_rows)).items}
-        assert (rows["mister_engage_delay_s"].state, rows["mister_engage_delay_s"].plan.value) == (
-            "not_confirmed",
-            48.75,
-        )
 
     scenario(dsn, body)
 

@@ -164,30 +164,15 @@ def test_band_verdict_is_unavailable_without_a_band_or_fresh_data(read, low, hig
     assert reads.band_position(read, low, high, AT, reporting=reporting).verdict == "unavailable"
 
 
-# ── Iris's required trigger ────────────────────────────────────────────────
+# ── Iris's tile: the daily review (climate refactor 5.1) ────────────────────
 
 
 @pytest.mark.parametrize(
-    ("status", "due_in_s", "expected"),
-    [
-        ("plan_written", -60, "ok"),
-        ("expected", 60, "ok"),
-        ("delivered", 60, "ok"),
-        ("expected", -1, "late"),
-        ("delivered", 0, "late"),
-        ("missed", -60, "missed"),
-        ("timed_out", -60, "failed"),
-        ("delivery_failed", -60, "failed"),
-        ("wrong_action", -60, "failed"),
-        ("neutral_fallback", -60, "failed"),
-        ("acked", -60, "failed"),
-        ("action_completed", -60, "failed"),
-        (None, None, "missed"),
-    ],
+    ("missed_status", "expected"),
+    [(None, "ok"), ("failed", "failed"), ("requested", "missed"), ("delivered", "missed"), ("none", "missed")],
 )
-def test_required_trigger_map(status, due_in_s, expected):
-    due = AT + timedelta(seconds=due_in_s) if due_in_s is not None else None
-    assert reads.required_trigger_state(status, due, AT) == expected
+def test_the_iris_tile_reads_the_open_daily_review_missed_alert(missed_status, expected):
+    assert reads.review_state(missed_status) == expected
 
 
 @pytest.mark.parametrize(
@@ -222,9 +207,15 @@ def test_a_humidify_burst_is_held_only_by_a_named_fog_block(reason, fog_on, held
     assert reads.humidify_held_reason(reason, fog_on) == held
 
 
-def test_required_trigger_reads_the_newest_fired_row_not_the_days_rows_ahead():
-    sql = reads._REQUIRED_TRIGGER_SQL
-    assert "expected_at <= now()" in sql and "interval '36 hours'" in sql
+def test_now_reads_no_plan_and_the_review_from_its_alert():
+    sql = reads._ALERT_FACTS_SQL
+    assert "alert_type = 'daily_review_missed'" in sql and alerts.OPEN_PREDICATE in sql
+    for gone in ("_PLAN_IN_FORCE_SQL", "_REQUIRED_TRIGGER_SQL", "_ACTIVE_PLAN_SQL", "_SETTING_PLANS_SQL"):
+        assert not hasattr(reads, gone), gone
+    # Settings, Now, API-07, API-09 and the API's /setpoints route read no active plan (climate refactor 4.2).
+    for path in ("verdify_services/settings.py", "verdify_services/reads.py", "api/main.py"):
+        code = "\n".join(line for line in (ROOT / path).read_text().splitlines() if not line.lstrip().startswith("#"))
+        assert "FROM v_active_plan" not in code, path
 
 
 # ── the leak: flow_stopped_at() is the shared VD-72 rule ────────────────────
@@ -317,15 +308,10 @@ def planner_params(count: int) -> list[str]:
         if spec.control_class == "planner_policy"
         and spec.esp_object_id
         and spec.push_owner != "dispatcher_default"
-        and name not in reads._LIGHTING_LUX_PARAMS
-        and name not in reads.BAND_OWNED_REG
+        and not name.endswith(("_lux_threshold", "_lux_hysteresis"))
     ]
     assert len(names) >= count
     return names[:count]
-
-
-def plan_record(param, value, took_force):
-    return {"parameter": param, "value": value, "ts": took_force, "created_at": took_force}
 
 
 def mismatch(param, value):
@@ -337,8 +323,8 @@ def test_differing_counts_values_unconfirmed_for_more_than_ten_minutes():
     at = den(2, 12)
     took = at - timedelta(hours=2)
     params = planner_params(26)
-    active = {param: plan_record(param, 1.0, took) for param in params}
-    values = reads.values_in_force({}, active, experiment_armed=False)
+    held = {param: desired_row(param=param, value=1.0, created_at=took) for param in params}
+    values = reads.values_in_force(held, experiment_armed=False)
     assert [item.param for item in values] == sorted(params)
     readbacks = {param: facts(mismatch(param, 1.0)) for param in params[:19]}
     readbacks |= {param: facts(mismatch(param, 1.0), clamped=True) for param in params[19:]}
@@ -361,29 +347,25 @@ def test_differing_waits_ten_minutes_and_counts_from_the_last_match():
     assert reads.count_differing([old], {param: just_drifted}, at) == (0, None)
 
 
-def test_values_in_force_resolve_desired_rows_and_leave_out_what_is_not_sent():
+def test_values_in_force_are_the_desired_rows_and_never_a_plan():
     at = den(2, 12)
     took = at - timedelta(hours=2)
     param = planner_params(1)[0]
     desired = {param: desired_row(param=param, value=2.0, created_at=took + timedelta(minutes=5))}
-    [value] = reads.values_in_force(desired, {param: plan_record(param, 1.0, took)}, experiment_armed=False)
+    [value] = reads.values_in_force(desired, experiment_armed=False)
     assert (value.value, value.since) == (2.0, took + timedelta(minutes=5))
-    # A released row hands the setting back to the plan.
+    # A release is left out: the dispatcher sends the default it returns to (no plan applies, climate refactor 4.2).
     released = {param: desired_row(param=param, value=None, created_at=took + timedelta(minutes=5))}
-    [value] = reads.values_in_force(released, {param: plan_record(param, 1.0, took)}, experiment_armed=False)
-    assert (value.value, value.since) == (1.0, took)
-    # A waypoint written after its time took force when it was written.
-    late = {"parameter": param, "value": 1.0, "ts": took, "created_at": took + timedelta(minutes=7)}
-    assert reads.values_in_force({}, {param: late}, experiment_armed=False)[0].since == took + timedelta(minutes=7)
-    # Plan rows the dispatcher never sends: band, legacy lighting, lux, dispatcher-derived, retired, unknown.
-    skipped = ["temp_low", "gl_lux_threshold", "gl_main_lux_threshold", "activity_start_hour", "not_a_tunable"]
-    rows = {name: plan_record(name, 1.0, took) for name in skipped}
-    assert reads.values_in_force({}, rows, experiment_armed=False) == []
+    assert reads.values_in_force(released, experiment_armed=False) == []
+    # Rows the dispatcher never sends from a desired row: read-only band scalars, retired and unknown names.
+    skipped = ["temp_low", "activity_start_hour", "not_a_tunable"]
+    rows = {name: desired_row(param=name, value=1.0, created_at=took) for name in skipped}
+    assert reads.values_in_force(rows, experiment_armed=False) == []
     # While an experiment is armed the 48 policy fields are left out.
-    wire = sorted(spec.name for spec in wire_fields())[:3]
-    rows = {name: plan_record(name, 1.0, took) for name in wire}
-    assert reads.values_in_force({}, rows, experiment_armed=True) == []
-    assert len(reads.values_in_force({}, rows, experiment_armed=False)) == 3
+    wire = sorted(spec.name for spec in wire_fields() if spec.control_class == "planner_policy")[:3]
+    rows = {name: desired_row(param=name, value=1.0, created_at=took) for name in wire}
+    assert reads.values_in_force(rows, experiment_armed=True) == []
+    assert len(reads.values_in_force(rows, experiment_armed=False)) == 3
 
 
 # ── equipment states ────────────────────────────────────────────────────────
@@ -1040,21 +1022,6 @@ def test_the_band_in_force_names_are_the_dispatchers_and_never_a_registry_row():
     assert reads.BAND_ROLES == ("temp_low", "temp_target", "temp_high", "vpd_low", "vpd_target", "vpd_high")
 
 
-def test_the_plan_block_keeps_iris_values_as_stored():
-    row = plan_db_row("mister_engage_delay_s", 48.75, AT - timedelta(hours=2), AT - timedelta(hours=2))
-    later = [reads.PlanWaypoint(at=AT + timedelta(hours=3), value=60.0, source="iris", effective=True)]
-    block = reads.setting_plan(row, later)
-    assert block.model_dump() == {
-        "value": 48.75,  # never snapped to the 30 s step
-        "plan_id": "iris-20261102-0634",
-        "source": "iris",
-        "written_at": AT - timedelta(hours=2),
-        "next": later[0].model_dump(),
-    }
-    assert reads.setting_plan({**row, "source": "preemptive"}, []).next is None
-    assert reads.setting_plan({**row, "source": "operator"}, later) is None  # not a value a plan applies
-
-
 def test_a_full_plan_row_is_superseded_once_a_newer_full_plan_was_written_by_its_time():
     full_plans = [(AT - timedelta(hours=8), "iris-20261102-0634"), (AT - timedelta(hours=5), "iris-newer")]
     row = plan_db_row("mister_engage_kpa", 1.5, AT - timedelta(hours=6), AT - timedelta(hours=8))
@@ -1136,9 +1103,8 @@ def test_plan_history_of_an_empty_window_sends_one_statement():
     assert asyncio.run(run()) == [] and len(conn.sent) == 1
 
 
-def test_settings_rows_adds_the_plan_block_the_next_waypoint_and_the_band_in_force(monkeypatch):
+def test_settings_rows_read_no_plan_block_and_add_the_band_in_force(monkeypatch):
     delay = "mister_engage_delay_s"
-    written = AT - timedelta(hours=2)
 
     async def fake_catalog(conn):
         assert conn.is_in_transaction()  # the catalog reads inside the same snapshot
@@ -1153,12 +1119,6 @@ def test_settings_rows_adds_the_plan_block_the_next_waypoint_and_the_band_in_for
     ]
     conn = ReadsConn(
         {
-            reads._SETTING_PLANS_SQL: [plan_db_row(delay, 48.75, written, written)],
-            reads._PLAN_WAYPOINTS_SQL: [
-                plan_db_row(delay, 48.75, AT, written),  # at now: not next
-                plan_db_row(delay, 60.0, AT + timedelta(hours=3), written),
-                plan_db_row(delay, 90.0, AT + timedelta(hours=9), written),
-            ],
             reads._DESIRED_SQL: [],
             reads._BAND_IN_FORCE_SQL: band,
         }
@@ -1166,21 +1126,14 @@ def test_settings_rows_adds_the_plan_block_the_next_waypoint_and_the_band_in_for
     result = asyncio.run(reads.settings_rows(conn))
     assert result.server_time == AT
     rows = {item.param: item for item in result.items}
-    assert rows[delay].plan == settings.SettingPlan(
-        value=48.75,
-        plan_id="iris-20261102-0634",
-        source="iris",
-        written_at=written,
-        next=settings.PlanWaypoint(at=AT + timedelta(hours=3), value=60.0, source="iris", effective=True),
-    )
-    assert rows["mister_engage_kpa"].plan is None
+    assert rows[delay].plan is None and rows["mister_engage_kpa"].plan is None  # no plan applies (4.2)
     assert [item.param for item in result.items[2:]] == [
         f"band_{zone}_{role}" for zone in reads.BAND_ZONES for role in reads.BAND_ROLES
     ]
     assert rows["band_west_vpd_high"].readback.reason == reads.NO_BAND_ROW
     assert rows["band_house_temp_low"].readback.value == 75.0
     sent = dict(conn.sent)
-    assert sent[reads._PLAN_WAYPOINTS_SQL] == (AT, AT + reads.NEXT_WAYPOINT_HORIZON, [delay])
+    assert not any("setpoint_plan" in sql or "v_active_plan" in sql for sql in sent)
     zones, roles, params, window = sent[reads._BAND_IN_FORCE_SQL]
     assert (len(zones), params[0], params[-1], window) == (
         30,
@@ -1332,22 +1285,21 @@ def test_plan_lanes_take_applied_from_and_the_desired_state_from_settings(monkey
     }
     conn = ReadsConn(
         {
-            reads._PLAN_IN_FORCE_SQL: [],
             reads._NO_PLAN_SINCE_SQL: [{"max": AT - timedelta(hours=1)}],
-            reads._ACTIVE_PLAN_SQL: [
-                plan_db_row("not_a_tunable", 1.0, AT - timedelta(hours=1), AT - timedelta(hours=1))
-            ],
             reads._DESIRED_SQL: [manual_row],
-            reads._PLAN_WAYPOINTS_SQL: [],
             reads._DEVICE_READBACKS_SQL: [],
             reads._HEALTH_SQL: [],
         }
     )
     result = asyncio.run(reads.plan(conn))
     lanes = {lane.param: lane for lane in result.lanes}
-    assert asked == [["not_a_tunable", "site_pressure_hpa"]]
+    assert asked == [["site_pressure_hpa"]]  # no plan lanes since climate refactor 4.2: only what a person holds
     assert lanes["site_pressure_hpa"].desired is held.desired and lanes["site_pressure_hpa"].applied_from == "manual"
-    assert (lanes["not_a_tunable"].applied_from, lanes["not_a_tunable"].desired) == ("plan", None)
+    assert (result.plan, result.no_plan_since, lanes["site_pressure_hpa"].waypoints) == (
+        None,
+        AT - timedelta(hours=1),
+        [],
+    )
     assert result.manual_count == 1
 
 

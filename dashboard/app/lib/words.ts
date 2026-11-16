@@ -193,7 +193,7 @@ const EQUIPMENT = {
 /** API-02 `overrides[].kind`: a burst the controller reads back as running. */
 const BURST = { fans: "Fans burst", humidify: "Humidify burst", vent_bypass: "Vent bypass" } as const satisfies Record<BurstKind, string>;
 
-/** API-02 `iris.required_trigger`: the newest required MIDNIGHT, SUNRISE or SUNSET trigger, as Now's Iris tile reads it. */
+/** API-02 `iris.required_trigger`: the daily review (climate refactor 5.1), as Now's Iris tile reads it. */
 const REQUIRED_TRIGGER = { ok: "OK", late: "Late", missed: "Missed", failed: "Failed" } as const satisfies Record<RequiredTrigger, string>;
 
 /** `BandPosition.verdict`: a reading against the band in force. */

@@ -402,7 +402,11 @@ def _dispatch_source(
 
     A desired-state value in force (``desired_params``, VD-33) is ``manual``;
     a release returned to its registry default (``released_params``) is
-    ``band``, like the dispatcher's own defaults.
+    ``band``, like the dispatcher's own defaults. Since climate refactor 4.2 no
+    plan reaches the dispatcher, so every other push (the anchor sync's
+    dawn/midday boost offsets included) is ``band``: the dispatcher never
+    writes ``plan`` or ``iris`` (lane MONITORING pages on either after the
+    cutover).
     """
     if param in quiet_params or param in desired_params:
         return "manual"
@@ -420,7 +424,7 @@ def _dispatch_source(
         return "band"
     if param in FORCED_ON_SWITCH_PARAMS:
         return "manual"
-    return "plan"
+    return "band"
 
 
 def _log_desired_skip_once(param: str, reason: str, *, warning: bool = False) -> None:

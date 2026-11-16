@@ -1039,3 +1039,18 @@ def test_desired_differs_uses_the_grid_not_the_dead_band():
 def test_every_dispatcher_default_set_is_one_dispatch_source_labels_band():
     for param in sorted(dispatcher.DISPATCHER_DEFAULT_PARAMS):
         assert dispatcher._dispatch_source(param, set()) == "band", param
+
+
+def test_the_dispatcher_never_labels_a_push_plan_or_iris():
+    """Climate refactor 4.2: no plan reaches the dispatcher. Lane MONITORING pages on a setpoint_changes row with
+    source plan or iris after the cutover, so no dispatcher path may produce either (the anchor sync's boost offsets
+    used to fall through to plan)."""
+    from verdify_schemas.tunable_registry import REGISTRY
+
+    params = set(REGISTRY) | set(band_anchors.ANCHOR_SYNC_PARAMS) | set(dispatcher.DISPATCHER_DEFAULT_PARAMS)
+    for param in sorted(params):
+        for desired, released in ((set(), set()), ({param}, set()), (set(), {param})):
+            assert dispatcher._dispatch_source(param, set(), desired, released) in {"band", "manual"}, param
+    source = Path(dispatcher.__file__).read_text()
+    for label in ('"plan"', "'plan'", '"iris"', "'iris'"):
+        assert f"return {label}" not in source and f"source = {label}" not in source, label

@@ -1454,10 +1454,10 @@ components:
           type: object
           required: [plan_id, required_trigger]
           properties:
-            plan_id: {type: [string, 'null'], description: Plan in force; null means band and defaults}
+            plan_id: {type: [string, 'null'], description: 'Always null since climate refactor 4.2: no plan applies, so band and defaults'}
             trigger: {type: [string, 'null']}
             valid_until: {type: [string, 'null'], format: date-time}
-            required_trigger: {type: string, enum: [ok, late, missed, failed], description: 'Newest MIDNIGHT, SUNRISE or SUNSET trigger'}
+            required_trigger: {type: string, enum: [ok, late, missed, failed], description: 'The daily review (5.1): missed or failed while its daily_review_missed alert is open, else ok; late no longer occurs'}
         alerts:
           type: object
           description: >-

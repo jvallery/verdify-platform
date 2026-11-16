@@ -311,7 +311,7 @@ class _Facts:
     """What one setting's state is computed from (architecture §7 Settings)."""
 
     desired: Mapping[str, Any] | None = None  # the v_desired_state_current row
-    plan: Mapping[str, Any] | None = None  # the v_active_plan row
+    plan: Mapping[str, Any] | None = None  # a plan row; never read since climate refactor 4.2, so always None
     readback: _Readback | None = None  # the newest readback (setpoint_snapshot, or the equipment mirror)
     last_push: Mapping[str, Any] | None = None  # the newest dispatcher push, for band and default rows
     push: _Push | None = None  # the newest push at or after the request
@@ -392,9 +392,9 @@ def _writable_desired(param: str, desired: Mapping[str, Any] | None) -> Mapping[
 
 
 def applied_from(spec: TunableDef, desired: Mapping[str, Any] | None, plan: Mapping[str, Any] | None) -> AppliedFrom:
-    """Whose value the dispatcher applies (§5.2): manual, desired or plan by ``resolve_effective()``; with no
-    desired row (or a released one), plan when a ``v_active_plan`` row exists, else band for a band or
-    schedule setting, else default."""
+    """Whose value the dispatcher applies (§5.2): manual or desired by ``resolve_effective()``; with no desired
+    row (or a released one), band for a band or schedule setting, else default. ``plan`` is always None since
+    climate refactor 4.2 (no plan row is read), so ``plan`` is never the answer."""
     desired = _writable_desired(spec.name, desired)
     resolved = resolve_effective(desired, plan)
     if resolved is not None:
@@ -561,10 +561,6 @@ SELECT id, param, value, manual, source, actor, reason, created_at
 _DESIRED_BY_ID_SQL = """
 SELECT id, param, value, manual, source, actor, reason, created_at FROM desired_state WHERE id = $1
 """
-
-_ACTIVE_PLAN_SQL = (
-    "SELECT parameter, value, ts, plan_id, created_at FROM v_active_plan WHERE parameter = ANY($1::text[])"
-)
 
 # The newest readback of each setting: cfg_* sensors and native Number/Switch states (not the band audit rows).
 _SNAPSHOT_SQL = """
@@ -739,12 +735,10 @@ async def _gather(
     shared = await _shared(conn, site=bool(site_specs))
     if desired_rows is None:
         desired_rows = {row["param"]: row for row in await conn.fetch(_DESIRED_SQL, GREENHOUSE_ID, names)}
-    plans = {row["parameter"]: row for row in await conn.fetch(_ACTIVE_PLAN_SQL, names)}
     readbacks = await _readbacks(conn, names)
-    facts = {
-        name: _Facts(desired=desired_rows.get(name), plan=plans.get(name), readback=readbacks.get(name))
-        for name in names
-    }
+    # Climate refactor 4.2: no plan reaches the controller, so no plan row is read (the dispatcher resolves with
+    # none); _Facts.plan stays None.
+    facts = {name: _Facts(desired=desired_rows.get(name), readback=readbacks.get(name)) for name in names}
     # A band or default setting with no desired row and no plan is judged against the newest push.
     unrequested = [
         name for name in names if _writable_desired(name, facts[name].desired) is None and facts[name].plan is None
@@ -1147,9 +1141,8 @@ def _refuse(code: str, detail: str, spec: TunableDef | None, current: float | No
 
 async def _validation_facts(conn: asyncpg.Connection, spec: TunableDef) -> _Facts:
     desired = await conn.fetchrow(_DESIRED_SQL, GREENHOUSE_ID, [spec.name])
-    plan = await conn.fetchrow(_ACTIVE_PLAN_SQL, [spec.name])
     readback = (await _readbacks(conn, [spec.name])).get(spec.name)
-    return _Facts(desired=desired, plan=plan, readback=readback)
+    return _Facts(desired=desired, readback=readback)
 
 
 async def _check_writable(

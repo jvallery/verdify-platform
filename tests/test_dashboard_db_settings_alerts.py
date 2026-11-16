@@ -199,7 +199,8 @@ def test_iris_s_plan_value_taken_manual_and_the_manual_rule(dsn):
             True,
             "released",
         )
-        assert (await settings.status(mcp, "mister_engage_delay_s")).applied_from == "plan"
+        # The plan row stays in setpoint_plan, but no plan applies since climate refactor 4.2.
+        assert (await settings.status(mcp, "mister_engage_delay_s")).applied_from != "plan"
 
     run(as_mcp(dsn, check))
 

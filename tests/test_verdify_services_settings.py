@@ -270,9 +270,6 @@ class FakeDB:
             _gh, names = args
             newest = self.newest_desired()
             return [newest[name] for name in names if name in newest]
-        if sql == settings._ACTIVE_PLAN_SQL:
-            (names,) = args
-            return [row for row in self.plans if row["parameter"] in names]
         if sql == settings._SNAPSHOT_SQL:
             _gh, names, window = args
             out = []
@@ -619,13 +616,12 @@ def test_snapping_is_half_to_even_and_an_on_grid_value_is_unchanged():
     assert (checked.value, checked.snapped_from) == (1.55, None)
 
 
-def test_taking_iris_s_plan_value_manual_keeps_it_as_is():
+def test_a_plan_row_is_not_the_current_value_since_climate_refactor_4_2():
     db = FakeDB()
-    db.add_plan(DELAY, 48.75, created_at=ago(hours=2))
+    db.add_plan(DELAY, 48.75, created_at=ago(hours=2))  # the last plan, never read
     db.snapshots.append((DELAY, ago(minutes=1), 42.0))
     checked = run(settings.validate(db, PERSON, DELAY, 48.75))
-    assert (checked.value, checked.snapped_from, checked.current) == (48.75, None, 48.75)
-    assert run(settings.validate(db, PERSON, DELAY, 50.0)).value == 60.0  # off the 30 s grid: snapped
+    assert (checked.value, checked.snapped_from, checked.current) == (60.0, 48.75, 42.0)  # snapped to the 30 s grid
 
 
 def test_the_device_value_is_kept_as_is_within_its_binary32_ulp_not_half_a_step():
@@ -650,15 +646,12 @@ def test_released_comes_first():
     assert (result.state, result.state_reason, result.desired.value) == ("released", None, None)
 
 
-def test_overridden_when_a_newer_plan_wins_a_non_manual_row_and_never_a_manual_one():
+def test_a_newer_plan_never_overrides_a_desired_row_since_climate_refactor_4_2():
     db = FakeDB()
     db.add_desired(KPA, 1.3, manual=False, at=ago(hours=2))
     db.add_plan(KPA, 1.45, created_at=ago(hours=1))
     result = status(db, KPA)
-    assert (result.state, result.applied_from, result.desired.state) == ("overridden", "plan", "overridden")
-    db.desired[-1]["manual"] = True  # the same row, manual: a newer plan never wins it
-    result = status(db, KPA)
-    assert (result.state, result.applied_from) == ("not_confirmed", "manual")
+    assert (result.state, result.applied_from, result.desired.state) == ("not_confirmed", "desired", "not_confirmed")
 
 
 def test_a_clamp_after_the_request_holds_it_with_the_applied_value_since_the_clamp_row():
@@ -1006,25 +999,23 @@ def test_the_reasons_come_in_their_order():
 # ── applied_from (§5.2) ──────────────────────────────────────────────────────
 
 
-def test_applied_from_the_plan_when_there_is_no_desired_row():
+def test_applied_from_is_never_the_plan_without_a_desired_row():
     db = FakeDB()
     db.add_plan(DELAY, 48.75, created_at=ago(hours=1))
     db.snapshots.append((DELAY, ago(minutes=1), 48.75))
     result = status(db, DELAY)
-    assert (result.applied_from, result.state, result.desired) == ("plan", "confirmed", None)
-    db.snapshots.append((DELAY, ago(seconds=10), 42.0))
-    assert status(db, DELAY).state == "not_confirmed"  # the plan value against the readback, 1 % dead-band
+    assert result.applied_from != "plan" and result.desired is None
 
 
 def test_applied_from_desired_manual_band_and_default():
     db = FakeDB()
-    db.add_plan(KPA, 1.45, created_at=ago(hours=2))
+    db.add_plan(KPA, 1.45, created_at=ago(hours=2))  # never read
     db.add_desired(KPA, 1.3, manual=False, at=ago(hours=1))
     assert status(db, KPA).applied_from == "desired"
     db.desired[-1]["manual"] = True
     assert status(db, KPA).applied_from == "manual"
-    db.add_desired(KPA, None, at=ago(minutes=1))  # released: the plan applies again
-    assert status(db, KPA).applied_from == "plan"
+    db.add_desired(KPA, None, at=ago(minutes=1))  # released: the band default applies, never the plan
+    assert status(db, KPA).applied_from in {"band", "default"}
     assert status(db, "band_temp_low_sr").applied_from == "band"  # push_owner band
     assert status(db, "gl_main_sunrise_hour").applied_from == "band"  # push_owner schedule
     assert status(db, PRESSURE).applied_from == "default"
@@ -1102,13 +1093,6 @@ def test_an_iris_write_to_a_manual_setting_is_refused_and_stores_nothing():
         write(db, IRIS, SWITCH, 0, False)
     assert refusal(excinfo).code == "manual"
     assert len(db.desired) == 1 and db.activity == []
-
-
-def test_taking_iris_s_48_75_manual_stores_48_75():
-    db = FakeDB()
-    db.add_plan(DELAY, 48.75, created_at=ago(hours=1))
-    result = write(db, PERSON, DELAY, 48.75, True)
-    assert (result.value.value, result.value.snapped_from, db.desired[-1]["value"]) == (48.75, None, 48.75)
 
 
 def test_a_band_value_write_moves_the_current_season_rows_only_and_names_them():
