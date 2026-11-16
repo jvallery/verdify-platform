@@ -417,6 +417,10 @@ def _post_review(run_id: str, kind: str, message: str) -> tuple[int, str | None]
 async def _ensure_daily_row(conn: asyncpg.Connection, now_local: datetime) -> None:
     if now_local.time() < REVIEW_LOCAL_TIME:
         return
+    review_date = now_local.date() - _td(days=1)
+    # Look first, so the minute loop does not spend an identity value on every conflict (review m7).
+    if await conn.fetchval("SELECT 1 FROM planner_review WHERE kind = 'daily' AND review_date = $1", review_date):
+        return
     await conn.execute(
         """
         INSERT INTO planner_review (run_id, kind, review_date, requested_by)
@@ -424,7 +428,7 @@ async def _ensure_daily_row(conn: asyncpg.Connection, now_local: datetime) -> No
         ON CONFLICT (review_date) WHERE kind = 'daily' DO NOTHING
         """,
         str(uuid.uuid4()),
-        now_local.date() - _td(days=1),
+        review_date,
     )
 
 
@@ -444,12 +448,25 @@ async def _deliver_due(pool: asyncpg.Pool) -> None:
     loop = asyncio.get_running_loop()
     for row in due:
         async with pool.acquire() as conn:
+            # Claim the attempt before the POST (review m1): a pass cut off by its timeout, or an ingestor restart,
+            # after Hermes accepted the POST but before the delivered UPDATE, then waits the full retry interval
+            # instead of posting the same review again the next minute. A row another pass claimed is skipped.
+            attempts = await conn.fetchval(
+                """
+                UPDATE planner_review SET attempts = attempts + 1
+                 WHERE run_id = $1::uuid AND status = 'requested' AND attempts = $2
+                RETURNING attempts
+                """,
+                row["run_id"],
+                row["attempts"],
+            )
+            if attempts is None:
+                continue
             context = await gather_review_context(conn, row["review_date"])
         message = build_review_prompt(
             run_id=row["run_id"], kind=row["kind"], review_date=row["review_date"], context=context
         )
         status, hermes_run_id = await loop.run_in_executor(None, _post_review, row["run_id"], row["kind"], message)
-        attempts = row["attempts"] + 1
         async with pool.acquire() as conn:
             if 200 <= status < 300:
                 await conn.execute(
@@ -489,6 +506,20 @@ async def _deliver_due(pool: asyncpg.Pool) -> None:
 async def _poll_runs(pool: asyncpg.Pool) -> None:
     """Record each delivered run's end and usage; fail a review whose run ended (or was lost) before review_write."""
     async with pool.acquire() as conn:
+        # The deadline runs on its own, with no poll window (review m2): a row delivered while the ingestor was
+        # down for more than the window still fails instead of staying delivered.
+        lost = await conn.fetch(
+            """
+            UPDATE planner_review SET status = 'failed', failure = 'hermes_run_failed'
+             WHERE status = 'delivered' AND delivered_at < now() - ($1::int * interval '1 minute')
+            RETURNING run_id::text AS run_id
+            """,
+            REVIEW_RUN_DEADLINE_MINUTES,
+        )
+        for row in lost:
+            log.warning(
+                "review %s: no terminal Hermes status within %d min", row["run_id"], REVIEW_RUN_DEADLINE_MINUTES
+            )
         rows = await conn.fetch(
             """
             SELECT run_id::text AS run_id, hermes_run_id, status, delivered_at
@@ -511,7 +542,6 @@ async def _poll_runs(pool: asyncpg.Pool) -> None:
             for row in rows
         )
     )
-    now = datetime.now(_DENVER)
     async with pool.acquire() as conn:
         for row, status in zip(rows, statuses, strict=True):
             terminal = status is not None and status.get("status") in _HERMES_RUN_TERMINAL_STATUSES
@@ -530,17 +560,6 @@ async def _poll_runs(pool: asyncpg.Pool) -> None:
                     usage.get("output_tokens"),
                     usage.get("total_tokens"),
                     _HERMES_RUN_FAILURE_CLASSES[str(status["status"])],
-                )
-            elif row["status"] == "delivered" and now - row["delivered_at"] > _td(minutes=REVIEW_RUN_DEADLINE_MINUTES):
-                await conn.execute(
-                    """
-                    UPDATE planner_review SET status = 'failed', failure = 'hermes_run_failed'
-                     WHERE run_id = $1::uuid AND status = 'delivered'
-                    """,
-                    row["run_id"],
-                )
-                log.warning(
-                    "review %s: no terminal Hermes status within %d min", row["run_id"], REVIEW_RUN_DEADLINE_MINUTES
                 )
 
 
@@ -574,7 +593,13 @@ async def _daily_review_alert(conn: asyncpg.Connection, now_local: datetime) -> 
         "SELECT status, attempts, failure FROM planner_review WHERE kind = 'daily' AND review_date = $1",
         review_date,
     )
-    written = row is not None and row["status"] == "written"
+    # A manual review of the same day, written after a failed daily one, also resolves the alert (review m3).
+    written = (row is not None and row["status"] == "written") or bool(
+        await conn.fetchval(
+            "SELECT 1 FROM planner_review WHERE kind = 'manual' AND review_date = $1 AND status = 'written' LIMIT 1",
+            review_date,
+        )
+    )
     if written:
         await conn.execute(
             """

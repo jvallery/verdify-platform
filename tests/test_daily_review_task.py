@@ -38,17 +38,24 @@ RUN_ID = "11111111-2222-4333-8444-555555555555"
 class Conn:
     """Records every statement; answers fetch/fetchrow from queues the test sets."""
 
-    def __init__(self, fetch=None, fetchrow=None):
+    def __init__(self, fetch=None, fetchrow=None, fetchval=None):
         self.executed: list[tuple[str, tuple]] = []
+        self.fetched: list[str] = []
         self.fetch_rows = list(fetch or [])
         self.fetchrow_value = fetchrow
+        self.fetchval_values = list(fetchval or [])
 
     async def execute(self, sql, *args):
         self.executed.append((" ".join(sql.split()), args))
         return "OK"
 
     async def fetch(self, sql, *args):
+        self.fetched.append(" ".join(sql.split()))
         return self.fetch_rows.pop(0) if self.fetch_rows else []
+
+    async def fetchval(self, sql, *args):
+        self.fetched.append(" ".join(sql.split()))
+        return self.fetchval_values.pop(0) if self.fetchval_values else None
 
     async def fetchrow(self, sql, *args):
         return self.fetchrow_value
@@ -78,15 +85,24 @@ def local(hour, minute=0):
 def test_no_daily_row_before_seven_and_yesterdays_row_after():
     conn = Conn()
     asyncio.run(heartbeat._ensure_daily_row(conn, local(6, 59)))
-    assert conn.executed == []
+    assert conn.executed == [] and conn.fetched == []
     asyncio.run(heartbeat._ensure_daily_row(conn, local(7, 0)))
     ((sql, args),) = conn.executed
     assert "INSERT INTO planner_review" in sql and "ON CONFLICT (review_date) WHERE kind = 'daily' DO NOTHING" in sql
     assert args[1] == date(2026, 11, 16)
 
 
+def test_an_existing_daily_row_is_looked_up_and_no_insert_is_tried():
+    conn = Conn(fetchval=[1])
+    asyncio.run(heartbeat._ensure_daily_row(conn, local(7, 1)))
+    assert conn.executed == []
+
+
 def _deliver(monkeypatch, status, hermes_run_id, attempts=0):
-    conn = Conn(fetch=[[{"run_id": RUN_ID, "kind": "daily", "review_date": date(2026, 11, 16), "attempts": attempts}]])
+    conn = Conn(
+        fetch=[[{"run_id": RUN_ID, "kind": "daily", "review_date": date(2026, 11, 16), "attempts": attempts}]],
+        fetchval=[attempts + 1],  # the claim
+    )
 
     async def context(_conn, review_date):
         assert review_date == date(2026, 11, 16)
@@ -100,7 +116,19 @@ def _deliver(monkeypatch, status, hermes_run_id, attempts=0):
     )
     asyncio.run(heartbeat._deliver_due(Pool(conn)))
     assert posted == [f"review {RUN_ID}"]
+    assert any(sql.startswith("UPDATE planner_review SET attempts = attempts + 1") for sql in conn.fetched)
     return conn.executed
+
+
+def test_an_attempt_another_pass_claimed_is_not_posted(monkeypatch):
+    conn = Conn(
+        fetch=[[{"run_id": RUN_ID, "kind": "daily", "review_date": date(2026, 11, 16), "attempts": 0}]],
+        fetchval=[None],
+    )
+    posted = []
+    monkeypatch.setattr(heartbeat, "_post_review", lambda *a: posted.append(a) or (202, "run_abc"))
+    asyncio.run(heartbeat._deliver_due(Pool(conn)))
+    assert posted == [] and conn.executed == []
 
 
 def test_an_accepted_delivery_records_the_hermes_run(monkeypatch):
@@ -123,7 +151,7 @@ def test_a_run_that_ended_without_review_write_fails_and_usage_is_kept(monkeypat
     rows = [
         {"run_id": RUN_ID, "hermes_run_id": "run_abc", "status": "delivered", "delivered_at": delivered},
     ]
-    conn = Conn(fetch=[rows])
+    conn = Conn(fetch=[[], rows])  # nothing past the deadline, then the poll window
     usage = {"input_tokens": 9000, "output_tokens": 800, "total_tokens": 9800}
     monkeypatch.setattr(heartbeat, "_fetch_hermes_run_status", lambda run_id: {"status": "completed", "usage": usage})
     asyncio.run(heartbeat._poll_runs(Pool(conn)))
@@ -133,13 +161,14 @@ def test_a_run_that_ended_without_review_write_fails_and_usage_is_kept(monkeypat
     assert args == (RUN_ID, 9000, 800, 9800, "completed_without_review")
 
 
-def test_a_delivered_run_with_no_terminal_status_is_lost_after_the_deadline(monkeypatch):
-    late = datetime.now(DENVER) - timedelta(minutes=heartbeat.REVIEW_RUN_DEADLINE_MINUTES + 1)
-    conn = Conn(fetch=[[{"run_id": RUN_ID, "hermes_run_id": "run_abc", "status": "delivered", "delivered_at": late}]])
+def test_the_deadline_fails_a_delivered_run_with_no_poll_window(monkeypatch):
+    conn = Conn(fetch=[[{"run_id": RUN_ID}], []])
     monkeypatch.setattr(heartbeat, "_fetch_hermes_run_status", lambda run_id: {"status": "running"})
     asyncio.run(heartbeat._poll_runs(Pool(conn)))
-    ((sql, args),) = conn.executed
-    assert "SET status = 'failed', failure = 'hermes_run_failed'" in sql and args == (RUN_ID,)
+    deadline = conn.fetched[0]
+    assert "SET status = 'failed', failure = 'hermes_run_failed'" in deadline
+    assert "WHERE status = 'delivered' AND delivered_at < now()" in deadline and "2 hours" not in deadline
+    assert conn.executed == []
 
 
 def test_the_missed_alert_waits_for_ten_and_a_written_review_resolves_it():
@@ -154,6 +183,13 @@ def test_the_missed_alert_waits_for_ten_and_a_written_review_resolves_it():
     asyncio.run(heartbeat._daily_review_alert(written, local(10, 30)))
     ((sql, args),) = written.executed
     assert "UPDATE alert_log" in sql and "disposition = 'resolved'" in sql and args == ("system.daily_review",)
+
+
+def test_a_written_manual_review_of_the_day_resolves_a_failed_daily_one():
+    conn = Conn(fetchrow={"status": "failed", "attempts": 6, "failure": "attempts_exhausted"}, fetchval=[1])
+    asyncio.run(heartbeat._daily_review_alert(conn, local(11, 0)))
+    ((sql, args),) = conn.executed
+    assert "UPDATE alert_log" in sql and "disposition = 'resolved'" in sql
 
 
 def test_the_missed_alert_payload_is_a_valid_envelope_with_no_free_text_failure():
