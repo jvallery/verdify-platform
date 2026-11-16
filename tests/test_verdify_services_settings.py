@@ -41,6 +41,8 @@ NOW = datetime(2026, 11, 2, 18, 0, tzinfo=UTC)
 PERSON = Actor.person("jason", "operator")
 IRIS = Actor.iris()
 AGENT = Actor.agent("steward")
+# Agents may write only an operator switch (climate refactor 4.2); the manual and range rules are shown on one.
+SWITCH = "sw_occupancy_inhibit"
 KPA = "mister_engage_kpa"  # planner_policy, a policy field, step 0.05, bounds 0.5-2.5 kPa, cfg readback
 DELAY = "mister_engage_delay_s"  # planner_policy, step 30 s
 PRESSURE = "site_pressure_hpa"  # controller_safety, not a policy field, step 1 hPa
@@ -583,22 +585,22 @@ def test_a_switch_takes_only_0_or_1():
 
 def test_iris_is_refused_on_a_manual_setting_and_everyone_else_may_overwrite_it():
     db = FakeDB()
-    db.add_desired(KPA, 1.3, manual=True, at=ago(hours=1))
+    db.add_desired(SWITCH, 1, manual=True, at=ago(hours=1))
     with pytest.raises(ServiceError) as excinfo:
-        run(settings.validate(db, IRIS, KPA, 1.4))
+        run(settings.validate(db, IRIS, SWITCH, 0))
     problem = refusal(excinfo)
-    assert (problem.code, problem.status, problem.retryable, problem.current) == ("manual", 422, False, 1.3)
-    assert run(settings.validate(db, AGENT, KPA, 1.4)).manual_before is True
-    assert run(settings.validate(db, PERSON, KPA, 1.4)).value == 1.4
-    db.add_desired(KPA, 1.3, manual=False, at=ago(minutes=30))  # a non-manual row on top: Iris may write again
-    assert run(settings.validate(db, IRIS, KPA, 1.4)).manual_before is False
+    assert (problem.code, problem.status, problem.retryable, problem.current) == ("manual", 422, False, 1.0)
+    assert run(settings.validate(db, AGENT, SWITCH, 0)).manual_before is True
+    assert run(settings.validate(db, PERSON, SWITCH, 0)).value == 0
+    db.add_desired(SWITCH, 1, manual=False, at=ago(minutes=30))  # a non-manual row on top: Iris may write again
+    assert run(settings.validate(db, IRIS, SWITCH, 0)).manual_before is False
 
 
 def test_the_first_failure_wins_range_before_manual():
     db = FakeDB()
-    db.add_desired(KPA, 1.3, manual=True, at=ago(hours=1))
+    db.add_desired(SWITCH, 1, manual=True, at=ago(hours=1))
     with pytest.raises(ServiceError) as excinfo:
-        run(settings.validate(db, IRIS, KPA, 9.0))
+        run(settings.validate(db, IRIS, SWITCH, 2))
     assert refusal(excinfo).code == "out_of_range"
 
 
@@ -1083,11 +1085,11 @@ def test_a_write_snaps_stores_manual_as_passed_and_logs_one_activity_row():
 
 def test_manual_has_no_default_and_an_agent_s_false_clears_a_manual_flag():
     db = FakeDB()
-    db.add_desired(KPA, 1.3, manual=True, at=ago(hours=1))
+    db.add_desired(SWITCH, 1, manual=True, at=ago(hours=1))
     with pytest.raises(ServiceError) as excinfo:
-        write(db, AGENT, KPA, 1.4, None)
+        write(db, AGENT, SWITCH, 0, None)
     assert (refusal(excinfo).code, refusal(excinfo).field) == ("invalid_request", "manual")
-    result = write(db, AGENT, KPA, 1.4, False)
+    result = write(db, AGENT, SWITCH, 0, False)
     assert (result.value.manual, result.value.manual_before) == (False, True)
     assert db.desired[-1]["manual"] is False
     assert db.activity[-1]["detail"]["manual"] == {"before": True, "after": False}
@@ -1095,9 +1097,9 @@ def test_manual_has_no_default_and_an_agent_s_false_clears_a_manual_flag():
 
 def test_an_iris_write_to_a_manual_setting_is_refused_and_stores_nothing():
     db = FakeDB()
-    db.add_desired(KPA, 1.3, manual=True, at=ago(hours=1))
+    db.add_desired(SWITCH, 1, manual=True, at=ago(hours=1))
     with pytest.raises(ServiceError) as excinfo:
-        write(db, IRIS, KPA, 1.4, False)
+        write(db, IRIS, SWITCH, 0, False)
     assert refusal(excinfo).code == "manual"
     assert len(db.desired) == 1 and db.activity == []
 
@@ -1147,11 +1149,11 @@ def test_a_house_anchor_write_maps_to_the_house_curve():
 def test_extra_detail_merges_into_the_activity_row_and_never_replaces_a_write_key():
     db = FakeDB()
     trigger = uuid.uuid4()
-    write(db, IRIS, KPA, 1.5, False, extra_detail={"trigger_id": trigger, "planner_instance": "iris-a"})
+    write(db, IRIS, SWITCH, 0, False, extra_detail={"trigger_id": trigger, "planner_instance": "iris-a"})
     detail = db.activity[-1]["detail"]
-    assert (detail["trigger_id"], detail["planner_instance"], detail["value"]) == (str(trigger), "iris-a", 1.5)
+    assert (detail["trigger_id"], detail["planner_instance"], detail["value"]) == (str(trigger), "iris-a", 0)
     with pytest.raises(ValueError, match="manual"):
-        write(db, IRIS, KPA, 1.5, False, extra_detail={"manual": "no"})
+        write(db, IRIS, SWITCH, 0, False, extra_detail={"manual": "no"})
 
 
 def test_a_retried_write_replays_the_stored_row():
@@ -1205,9 +1207,9 @@ def test_a_release_appends_a_null_row_and_logs_the_cleared_flag():
 
 def test_iris_cannot_release_a_manual_setting_and_read_only_rows_cannot_be_released():
     db = FakeDB()
-    db.add_desired(KPA, 1.3, manual=True, at=ago(hours=1))
+    db.add_desired(SWITCH, 1, manual=True, at=ago(hours=1))
     with pytest.raises(ServiceError) as excinfo:
-        release(db, IRIS, KPA)
+        release(db, IRIS, SWITCH)
     assert refusal(excinfo).code == "manual" and len(db.desired) == 1
     with pytest.raises(ServiceError) as excinfo:
         release(db, PERSON, "sw_onchip_band_enabled")
@@ -1388,3 +1390,27 @@ def test_desired_states_give_each_named_row_the_state_history_gives_it():
     history = run(settings.history(db, PRESSURE, ago(hours=9), NOW))
     assert {row.id: row for row in history.desired} == {row_id: states[row_id] for row_id in ids[:5]}
     assert run(settings.desired_states(db, [])) == {} and run(settings.desired_states(db, [999_999])) == {}
+
+
+# ── Climate refactor 4.2: an agent writes no climate value ──────────────────
+
+
+@pytest.mark.parametrize("actor", [IRIS, AGENT, Actor.agent("admin")], ids=lambda actor: actor.source)
+def test_an_agent_may_change_only_an_operator_switch(actor):
+    db = FakeDB()
+    for param in ("sw_occupancy_inhibit", "sw_gl_main_out_of_service", "sw_gl_grow_out_of_service"):
+        assert write(db, actor, param, 0, False).value.param == param
+    for param, value in ((KPA, 1.4), ("sw_summer_vent_enabled", 0)):
+        with pytest.raises(ServiceError) as excinfo:
+            write(db, actor, param, value, False)
+        assert (refusal(excinfo).code, refusal(excinfo).status) == ("forbidden", 403)
+        with pytest.raises(ServiceError) as excinfo:
+            release(db, actor, param)
+        assert refusal(excinfo).code == "forbidden"
+    assert not [row for row in db.desired if row["param"] in (KPA, "sw_summer_vent_enabled")]
+
+
+def test_the_operator_and_a_system_actor_still_write_a_climate_setting():
+    db = FakeDB()
+    assert write(db, PERSON, KPA, 1.4, False).value.value == 1.4
+    assert write(db, Actor.system("light_timer"), KPA, 1.5, False).value.value == 1.5

@@ -50,6 +50,7 @@ from verdify_schemas.setting_values import (
     snap_setting,
 )
 from verdify_schemas.tunable_registry import (
+    AGENT_SETTABLE_PARAMS,
     OWNER_ONLY_PARAMS,
     REGISTRY,
     SWITCH_READBACK_EQUIPMENT,
@@ -1186,6 +1187,19 @@ def check_owner(actor: Actor, param: str) -> None:
         )
 
 
+def check_agent_scope(actor: Actor, param: str) -> None:
+    """An agent writes no climate value (climate refactor 4.2): Iris and any MCP agent, the admin token included, may
+    write or release only ``AGENT_SETTABLE_PARAMS`` (the operator switches); anything else is ``forbidden``."""
+    if (actor.source == "iris" or actor.source.startswith("agent:")) and param not in AGENT_SETTABLE_PARAMS:
+        raise ServiceError(
+            problem(
+                "forbidden",
+                f"An agent may change only an operator switch; {setting_label(param)} is set from the dashboard",
+                field="param",
+            )
+        )
+
+
 def _check_manual(actor: Actor, spec: TunableDef, facts: _Facts) -> None:
     """§5.3 step 3: Iris never overwrites or releases a value a person holds manual (Q-02)."""
     desired = facts.desired
@@ -1250,6 +1264,7 @@ def _snap(spec: TunableDef, number: float, facts: _Facts) -> float:
 async def _validate(conn: asyncpg.Connection, actor: Actor, param: str, value: object) -> _Checked:
     spec, facts, target, anchor_ids = await _check_writable(conn, param)
     check_owner(actor, param)
+    check_agent_scope(actor, param)
     current = _current(spec, facts)
     number = _check_value(spec, value, current)
     _check_manual(actor, spec, facts)
@@ -1272,6 +1287,7 @@ async def validate(conn: asyncpg.Connection, actor: Actor, param: str, value: fl
     1. Known and writable (``unknown_target``; ``read_only`` with the reason, a crop-band setting included
        while ``crop_band_anchors`` holds none of its rows).
     1a. Owner only: a band row or the drying cost limit from anyone but a dashboard operator (``forbidden``).
+    1b. Agents: Iris or an MCP agent may write only an operator switch (``forbidden``).
     2. Type and range (``out_of_range`` with ``min`` and ``max``).
     3. Manual: an ``iris`` write to a setting whose newest row is manual (``manual``).
     4. Snap to the registry step, half to even, unless the value equals the value in force or the device
@@ -1517,6 +1533,7 @@ async def release(
         await _lock_and_guard(tx, param, expected_id)
         spec, facts, _target, _ids = await _check_writable(tx, param)
         check_owner(actor, param)
+        check_agent_scope(actor, param)
         _check_manual(actor, spec, facts)
         manual_before = bool(facts.desired is not None and facts.desired["manual"])
         current = _current(spec, facts)

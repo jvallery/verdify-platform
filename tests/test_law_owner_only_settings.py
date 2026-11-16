@@ -158,9 +158,9 @@ def test_anyone_but_the_owner_is_refused_and_nothing_is_stored(actor):
     assert db.activity == [] and not [row for row in db.desired if row["param"] in (LIMIT, "band_temp_low_sr")]
 
 
-def test_an_agent_still_writes_a_setting_that_is_not_owner_only():
+def test_an_agent_still_writes_an_operator_switch():
     db = FakeDB()
-    assert write(db, AGENT, "mister_engage_kpa", 1.5, False).value.value == 1.5
+    assert write(db, AGENT, "sw_occupancy_inhibit", 0, False).value.value == 0
 
 
 def test_the_owner_releases_the_limit():
