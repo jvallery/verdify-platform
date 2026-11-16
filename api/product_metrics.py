@@ -1,7 +1,7 @@
 """Product metrics for the estate Prometheus (package 6, contracts/metrics-coverage.md, RULINGS V1 to V5).
 
 The operator API's ``/metrics`` is the one place where database facts become Prometheus metrics. A background timer
-refreshes fixed query groups (60 s and 300 s) into an in-memory snapshot; ``/metrics`` renders that snapshot and never
+refreshes fixed query groups (60 s and 300 s; compliance and utilities read what migration 312 grants) into an in-memory snapshot; ``/metrics`` renders that snapshot and never
 queries. Each group runs on its own pooled connection checkout with a 5 s statement timeout, so a slow or failing group
 drops only its own series while ``verdify_metrics_refresh_age_seconds{group}`` keeps growing; the other groups keep
 serving.
@@ -26,8 +26,12 @@ execution, shared buffers hit, none read from disk):
   probes      300 s   PROBES_SQL               14.5 ms     0.8 ms    1,125
   flow        300 s   FLOW_SQL                 29.0 ms     2.2 ms    2,445
                       GAPS_SQL                  5.2 ms     0.4 ms      541
+  compliance  300 s   COMPLIANCE_SQL            4.3 ms     0.1 ms      509
+  utilities   300 s   METER_SQL                 9.0 ms     0.2 ms      848  (on energy; the view is a projection)
+                      DAILY_RECORD_SQL          primary-key lookup of one row; daily_record arrives with 310, so
+                                                tests/test_dashboard_db_metrics_312.py runs it on a private database
 
-About 130 ms of database time a minute plus about 50 ms every 5 minutes, all from shared buffers; planning (chunk
+About 130 ms of database time a minute plus about 65 ms every 5 minutes, all from shared buffers; planning (chunk
 exclusion over the hypertables) is most of it. For comparison v_sensor_staleness costs 1.45 s planning + 2.1 s
 execution and 152,786 buffers, which is why the probe ages read climate directly.
 """
@@ -166,6 +170,10 @@ DELIVERY_STATUSES = frozenset({"pending", "confirmed", "observed", "superseded",
 SETPOINT_SOURCES = frozenset({"band", "plan", "manual", "esp32"})
 GAP_STATUSES = frozenset({"none", "pending", "partial", "replayed", "not_applicable"})
 # ingestor/shared.py row-rejection tables (ingestor_counters "rj" keys)
+COMPLIANCE_WINDOWS = ("today", "yesterday")
+COMPLIANCE_AXES = ("temp", "vpd", "both")
+METER_CHANNELS = ("ch0", "ch1")
+METER_QUALITIES = frozenset({"ok", "stale", "future", "unavailable", "invalid", "nonfinite"})
 REJECTED_TABLES = frozenset(
     {
         "climate",
@@ -274,6 +282,20 @@ FAMILIES: dict[str, Family] = {
     "verdify_setpoint_oldest_unconfirmed_seconds": Family(
         "gauge", "Age of the oldest unconfirmed, unsuperseded setpoint row of the last 24 h (0 when none)."
     ),
+    # compliance (daily_band_compliance, 290/311; SELECT by 312)
+    "verdify_band_compliance_ratio": Family(
+        "gauge", "Share of graded minutes in the served band, per local day (today so far, yesterday) and axis."
+    ),
+    "verdify_band_compliance_graded_minutes": Family("gauge", "Graded minutes behind the ratio, per day and axis."),
+    # utilities (daily_record, 310; v_dashboard_energy, 312)
+    "verdify_utility_today": Family("gauge", "Use today so far: metered electricity (kWh today on the meter)."),
+    "verdify_utility_yesterday": Family(
+        "gauge", "Use yesterday from the daily record: metered kWh, estimated furnace therms, metered gallons."
+    ),
+    "verdify_meter_coverage_ratio": Family("gauge", "Share of yesterday the power meter reported (daily record)."),
+    "verdify_daily_record_complete": Family("gauge", "1 when yesterday's daily record row is complete."),
+    "verdify_meter_age_seconds": Family("gauge", "Seconds since a power-meter channel's source sample (1 h window)."),
+    "verdify_meter_quality": Family("gauge", "1 for the quality of a power-meter channel's newest row."),
     # deployment
     "verdify_release_pin_info": Family("gauge", "1 per image digest release-pins.yaml pins."),
     "verdify_firmware_pin_info": Family("gauge", "1 for the firmware version the ingestor's pin expects."),
@@ -421,6 +443,33 @@ SELECT coalesce(extract(epoch FROM now() - min(ts)), 0)::float8
   FROM setpoint_changes
  WHERE ts > now() - interval '24 hours' AND confirmed_at IS NULL
    AND coalesce(delivery_status, 'pending') NOT IN ('superseded', 'failed', 'expired', 'observed')
+"""
+
+
+# daily_band_compliance PK (date): two rows. The local day is America/Denver, as the store writes it.
+COMPLIANCE_SQL = """
+SELECT CASE WHEN date = (now() AT TIME ZONE 'America/Denver')::date THEN 'today' ELSE 'yesterday' END AS day,
+       temp_in_min, temp_graded_min, vpd_in_min, vpd_graded_min, both_in_min, both_graded_min
+  FROM daily_band_compliance
+ WHERE date BETWEEN (now() AT TIME ZONE 'America/Denver')::date - 1 AND (now() AT TIME ZONE 'America/Denver')::date
+"""
+
+# daily_record PK (date): one row.
+DAILY_RECORD_SQL = """
+SELECT complete, kwh_metered, therms_est, water_gal, meter_coverage_pct
+  FROM daily_record
+ WHERE date = (now() AT TIME ZONE 'America/Denver')::date - 1
+"""
+
+# energy (ts DESC) through 312's projection: the newest row in the last hour.
+METER_SQL = """
+SELECT extract(epoch FROM now() - ts)::float8 AS row_age_s, kwh_today,
+       extract(epoch FROM now() - ch0_source_ts)::float8 AS ch0_age_s, ch0_quality,
+       extract(epoch FROM now() - ch1_source_ts)::float8 AS ch1_age_s, ch1_quality
+  FROM public.v_dashboard_energy
+ WHERE ts > now() - interval '1 hour'
+ ORDER BY ts DESC
+ LIMIT 1
 """
 
 
@@ -616,6 +665,48 @@ def delivery_samples(rows: Sequence[Mapping[str, Any]], oldest_s: Any) -> list[S
     return out
 
 
+def compliance_samples(rows: Sequence[Mapping[str, Any]]) -> list[Sample]:
+    out: list[Sample] = []
+    for row in rows:
+        day = bounded(row["day"], COMPLIANCE_WINDOWS)
+        for axis in COMPLIANCE_AXES:
+            graded = _num(row[f"{axis}_graded_min"])
+            inside = _num(row[f"{axis}_in_min"])
+            if graded is None:
+                continue
+            out.append(sample("verdify_band_compliance_graded_minutes", graded, window=day, axis=axis))
+            if graded > 0 and inside is not None:
+                out.append(sample("verdify_band_compliance_ratio", inside / graded, window=day, axis=axis))
+    return out
+
+
+def utility_samples(record: Mapping[str, Any] | None, meter: Mapping[str, Any] | None) -> list[Sample]:
+    out: list[Sample] = []
+    if record is not None:
+        out.append(sample("verdify_daily_record_complete", 1.0 if record["complete"] else 0.0))
+        for utility, column in (
+            ("electric_kwh", "kwh_metered"),
+            ("gas_therm", "therms_est"),
+            ("water_gal", "water_gal"),
+        ):
+            if (value := _num(record[column])) is not None:
+                out.append(sample("verdify_utility_yesterday", value, utility=utility))
+        if (coverage := _num(record["meter_coverage_pct"])) is not None:
+            out.append(sample("verdify_meter_coverage_ratio", coverage / 100.0))
+    if meter is not None:
+        if (kwh := _num(meter["kwh_today"])) is not None:
+            out.append(sample("verdify_utility_today", kwh, utility="electric_kwh"))
+        for channel in METER_CHANNELS:
+            age = _num(meter[f"{channel}_age_s"])
+            out.append(sample("verdify_meter_age_seconds", 3600.0 if age is None else age, meter=channel))
+            quality = bounded(meter[f"{channel}_quality"], METER_QUALITIES)
+            out.append(sample("verdify_meter_quality", 1, meter=channel, quality=quality))
+    else:
+        for channel in METER_CHANNELS:
+            out.append(sample("verdify_meter_age_seconds", 3600.0, meter=channel))
+    return out
+
+
 def alert_tally(by_type: Mapping[tuple[str, str], int]) -> dict[tuple[str, str], int]:
     """Severity and alert_type mapped to their fixed lists; unknown values add up under ``other``."""
     tally: dict[tuple[str, str], int] = {}
@@ -686,6 +777,15 @@ async def _collect_flow(conn: Any, metrics: ProductMetrics) -> list[Sample]:
     return flow_samples(row, await conn.fetch(GAPS_SQL))
 
 
+async def _collect_compliance(conn: Any, metrics: ProductMetrics) -> list[Sample]:
+    return compliance_samples(await conn.fetch(COMPLIANCE_SQL))
+
+
+async def _collect_utilities(conn: Any, metrics: ProductMetrics) -> list[Sample]:
+    record = await conn.fetchrow(DAILY_RECORD_SQL)
+    return utility_samples(record, await conn.fetchrow(METER_SQL))
+
+
 @dataclass(frozen=True)
 class Group:
     name: str
@@ -704,6 +804,8 @@ GROUPS: tuple[Group, ...] = (
     Group("delivery", 60, _collect_delivery),
     Group("probes", 300, _collect_probes),
     Group("flow", 300, _collect_flow),
+    Group("compliance", 300, _collect_compliance),
+    Group("utilities", 300, _collect_utilities),
 )
 # verdify_alert_metrics_up is 1 only while the alert read is this fresh (3 periods), so the paging gauge never
 # serves an old count as current.

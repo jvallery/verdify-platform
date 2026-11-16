@@ -1108,6 +1108,32 @@ def sealed_sql_311():
     )
 
 
+OPERATOR_METRICS_READS_MIGRATION = (
+    312,
+    "312-operator-metrics-reads.sql",
+    "66e6bfe12302b2d2756514a2c9903f05e728b1326d6c21aee07362baeca7afa2",
+)
+# The operator API's metric reads (#1633, package 6): SELECT for the dashboard duty on daily_band_compliance,
+# daily_record and the new v_dashboard_energy projection. energy's own ACL is unchanged and no relation gains an api,
+# ingestor, MCP or PUBLIC entry, so every seal keeps 311's value
+# (tests/fixtures/312-operator-metrics-reads-native-qualification.json).
+SUCCESSOR_312 = dict(SUCCESSOR_311)
+
+
+def sealed_sql_312():
+    # Keep every 311 predicate and bind the exact 312 runner stamp with the unchanged seals.
+    predecessor = sealed_sql_311()
+    current = seal_profile_sql(311, SUCCESSOR_311)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(312, SUCCESSOR_312), 1)
+        + " AND "
+        + ledger_row_sql(*OPERATOR_METRICS_READS_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1174,6 +1200,8 @@ def sealed_sql():
         + sealed_sql_310()
         + " OR "
         + sealed_sql_311()
+        + " OR "
+        + sealed_sql_312()
         + ")"
     )
 

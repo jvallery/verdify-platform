@@ -124,6 +124,16 @@ class Conn:
             return {table: 20.0 for table in pm.FLOW_TABLES}
         if sql == pm.FLOW_SQL:
             return {table: 5 for table in pm.FLOW_TABLES}
+        if sql == pm.DAILY_RECORD_SQL:
+            return {
+                "complete": False,
+                "kwh_metered": None,
+                "therms_est": 0.8,
+                "water_gal": 90.0,
+                "meter_coverage_pct": 65.0,
+            }
+        if sql == pm.METER_SQL:
+            return None  # no meter row in the last hour
         raise AssertionError(sql)
 
     async def fetch(self, sql, *args):
@@ -142,6 +152,18 @@ class Conn:
                 {"status": "confirmed", "source": "band", "n": 300},
                 {"status": "confirmed", "source": "plan", "n": 250},
                 {"status": "weird", "source": "someone", "n": 2},
+            ]
+        if sql == pm.COMPLIANCE_SQL:
+            return [
+                {
+                    "day": "yesterday",
+                    "temp_in_min": 720,
+                    "temp_graded_min": 1440,
+                    "vpd_in_min": 0,
+                    "vpd_graded_min": 0,
+                    "both_in_min": 0,
+                    "both_graded_min": 0,
+                }
             ]
         if sql == pm.GAPS_SQL:
             return [{"status": "replayed", "n": 2, "seconds": 400.0}, {"status": "none", "n": 1, "seconds": 130.0}]
@@ -195,6 +217,13 @@ def test_every_group_serves_and_reports_its_age():
     assert got['verdify_ingestor_rows_rejected_total{table="climate"}'] == 3
     assert got["verdify_ingestor_reconnects_total"] == 2
     assert got['verdify_firmware_pin_info{version="2026.11.7.0133.9517acb6"}'] == 1
+    assert got['verdify_band_compliance_ratio{axis="temp",window="yesterday"}'] == 0.5
+    assert 'verdify_band_compliance_ratio{axis="vpd",window="yesterday"}' not in got  # nothing graded: no ratio
+    assert got['verdify_band_compliance_graded_minutes{axis="vpd",window="yesterday"}'] == 0
+    assert got["verdify_daily_record_complete"] == 0 and got["verdify_meter_coverage_ratio"] == 0.65
+    assert 'verdify_utility_yesterday{utility="electric_kwh"}' not in got  # NULL stays absent, never 0
+    assert got['verdify_utility_yesterday{utility="gas_therm"}'] == 0.8
+    assert got['verdify_meter_age_seconds{meter="ch1"}'] == 3600  # no row in the hour: the window's edge
 
 
 def test_the_law_state_decodes_its_masks_band_and_refusal():
@@ -376,6 +405,15 @@ def test_every_statement_is_time_bounded():
         bounds = re.findall(r"\b(?:ts|start_ts) > now\(\) - interval", sql)
         sources = [t for t in tables if t not in ("unnest", "now")]
         assert sources and len(bounds) >= len(sources), sql
+
+
+def test_the_daily_and_meter_statements_are_key_bounded():
+    # The daily tables are keyed by date (one or two rows); the meter reads 312's projection, never energy.
+    assert "WHERE date BETWEEN" in pm.COMPLIANCE_SQL and "FROM daily_band_compliance" in pm.COMPLIANCE_SQL
+    assert "WHERE date = (now() AT TIME ZONE 'America/Denver')::date - 1" in pm.DAILY_RECORD_SQL
+    assert "FROM public.v_dashboard_energy" in pm.METER_SQL and "ts > now() - interval '1 hour'" in pm.METER_SQL
+    assert "LIMIT 1" in pm.METER_SQL
+    assert {group.name: group.period_s for group in pm.GROUPS}.items() >= {"compliance": 300, "utilities": 300}.items()
 
 
 def test_release_pins_come_from_the_mounted_file(tmp_path):

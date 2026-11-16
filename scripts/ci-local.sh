@@ -140,6 +140,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_309_one_band_delivery.py
     tests/test_310_daily_record_delivery.py
     tests/test_311_one_compliance_definition_delivery.py
+    tests/test_312_operator_metrics_reads_delivery.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py
