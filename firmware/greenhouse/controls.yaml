@@ -2054,6 +2054,12 @@ interval:
             ESP_LOGW("heap", "Pre-OTA runtime floor violation: heap=%s loop_overruns=%u",
                      floor_met ? "PASS" : "FAIL", loop_overruns);
           }
+          // RULINGS W1/W2: the device's partition table, NVS use and flash chip (read-only).
+          const char* flash_parts = "";
+          const char* flash_nvs = "";
+          gh_flash_profile(&flash_parts, &flash_nvs);
+          ESP_LOGW("flash_profile", "parts=%s", flash_parts);
+          ESP_LOGW("flash_profile", "%s", flash_nvs);
 
 ################################################################################
 # END OF FILE
