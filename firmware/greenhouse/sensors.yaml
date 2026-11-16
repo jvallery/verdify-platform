@@ -113,6 +113,36 @@ sensor:
     update_interval: 60s
     lambda: 'return gh_nvs_entries(false);'
 
+  # RULINGS AF9(b): read-only health counters (names in contracts/metrics-coverage.md 2.1a). The host maps them
+  # in release 4; until then the ingestor ignores them.
+  - platform: template
+    id: loop_stack_high_water
+    name: "Loop Stack High Water"
+    unit_of_measurement: "B"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: 'return gh_loop_stack_high_water_bytes();'
+
+  - platform: template
+    id: wifi_disconnect_count_sensor
+    name: "WiFi Disconnect Count"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: 'return float(gh_wifi_disconnect_count());'
+
+  - platform: template
+    id: api_client_count
+    name: "API Client Count"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: |-
+      uint32_t n = 0;
+      for (const auto &c : id(ha_api).active_clients()) { (void) c; n++; }
+      return float(n);
+
   # --------------------------------------------------------------------------
   # 1‑B Analog – CO₂ & Light
   # --------------------------------------------------------------------------

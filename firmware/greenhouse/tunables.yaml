@@ -495,20 +495,19 @@ number:
           id(mister_hysteresis_kpa) = val;
           id(num_mister_hysteresis_kpa).publish_state(val);
 
-  # Dawn boost offset from sunrise (minutes).
+  # Minutes a manual press runs (RULINGS AF11: one range, 1-120, on this entity, the registry row and
+  # set_band_anchor; manual_override_minutes() is the clamp).
   - platform: template
     id: num_manual_override_timeout_min
     name: "Manual Override Timeout (min)"
     min_value: 1
-    max_value: 60
+    max_value: 120
     step: 1
     lambda: "return id(manual_override_timeout_min);"
     set_action:
       - lambda: |
           id(cfg_first_pull_ok) = true;
-          int val = int(roundf(x));
-          if(val < 1) val = 1;
-          if(val > 60) val = 60;
+          int val = manual_override_minutes(int(roundf(x)));
           id(manual_override_timeout_min) = val;
           id(num_manual_override_timeout_min).publish_state(val);
 

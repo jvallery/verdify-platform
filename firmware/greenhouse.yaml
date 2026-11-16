@@ -156,6 +156,8 @@ wifi:
     subnet:    255.255.255.0
     dns1:      192.168.10.1
   reboot_timeout: 0s  # never reboot for lost WiFi: the controller runs alone (decision 22)
+  on_disconnect:
+    - lambda: 'gh_note_wifi_disconnect();'  # RULINGS AF9(b) health counter
 
 # Disabled 2026-04-27: ESPHome web_server keeps several TCP sockets and
 # response buffers alive on a controller that is already seeing heap-pressure
@@ -254,7 +256,7 @@ api:
             else if (anchor_key == "zone_priority_south") { id(zone_priority_south) = value; }
             else if (anchor_key == "zone_priority_west") { id(zone_priority_west) = value; }
             else if (anchor_key == "zone_priority_east") { id(zone_priority_east) = value; }
-            else if (anchor_key == "manual_override_timeout_min") { id(manual_override_timeout_min) = value; }
+            else if (anchor_key == "manual_override_timeout_min") { id(manual_override_timeout_min) = manual_override_minutes(int(roundf(value))); }  // AF11
             else { ok = false; ESP_LOGW("band", "set_band_anchor: unknown key '%s'", anchor_key.c_str()); }
             if (ok) { ESP_LOGI("band", "set_band_anchor %s = %.3f", anchor_key.c_str(), value); }
 

@@ -66,6 +66,12 @@ inline uint32_t gh_take_control_loop_overrun_count() {
     return value;
 }
 
+// RULINGS AF9(b): WiFi drops since boot, counted by wifi on_disconnect. RAM only: the restart count and the uptime
+// reset tell a reader where a boot starts.
+inline uint32_t gh_wifi_disconnect_count_value = 0;
+inline void gh_note_wifi_disconnect() { gh_wifi_disconnect_count_value++; }
+inline uint32_t gh_wifi_disconnect_count() { return gh_wifi_disconnect_count_value; }
+
 inline bool gh_pre_ota_heap_floor_met(float free_kb, float largest_block_kb) {
     return free_kb >= GH_PRE_OTA_MIN_FREE_HEAP_KB
         && largest_block_kb >= GH_PRE_OTA_MIN_LARGEST_BLOCK_KB;
@@ -77,7 +83,15 @@ inline bool gh_pre_ota_heap_floor_met(float free_kb, float largest_block_kb) {
 #include "esp_flash.h"
 #include "esp_partition.h"
 #include "nvs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <cstdio>
+
+// RULINGS AF9(b): the fewest bytes of stack the calling task has ever had free (ESP-IDF counts StackType_t in
+// bytes). Called from a sensor update, which runs on ESPHome's loop task, the task that runs the control pass.
+inline float gh_loop_stack_high_water_bytes() {
+    return float(uxTaskGetStackHighWaterMark(nullptr));
+}
 
 inline float gh_free_heap_kb() {
     return esp_get_free_heap_size() / 1024.0f;
@@ -155,4 +169,5 @@ inline void gh_note_heap_sample() {}
 inline float gh_take_heap_free_minute_low_kb() { return 0.0f; }
 inline float gh_take_heap_block_minute_low_kb() { return 0.0f; }
 inline float gh_nvs_entries(bool) { return 0.0f; }
+inline float gh_loop_stack_high_water_bytes() { return 0.0f; }
 #endif

@@ -316,7 +316,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1412,
+          "line": 1442,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -361,7 +361,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1497,
+          "line": 1527,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -442,7 +442,7 @@
         },
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1509,
+          "line": 1539,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -488,7 +488,7 @@
         },
         {
           "file": "firmware/greenhouse.yaml",
-          "line": 504,
+          "line": 506,
           "category": "boot_or_diag",
           "access": "read",
           "migrated_to_snapshot": true
@@ -525,7 +525,7 @@
         },
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1430,
+          "line": 1460,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
@@ -570,21 +570,21 @@
       "sites": [
         {
           "file": "firmware/greenhouse/sensors.yaml",
-          "line": 1442,
+          "line": 1472,
           "category": "readback",
           "access": "read",
           "migrated_to_snapshot": true
         },
         {
           "file": "firmware/greenhouse/tunables.yaml",
-          "line": 591,
+          "line": 590,
           "category": "entity",
           "access": "read",
           "migrated_to_snapshot": true
         },
         {
           "file": "firmware/greenhouse/tunables.yaml",
-          "line": 595,
+          "line": 594,
           "category": "entity",
           "access": "write",
           "migrated_to_snapshot": false,
@@ -592,7 +592,7 @@
         },
         {
           "file": "firmware/greenhouse/tunables.yaml",
-          "line": 600,
+          "line": 599,
           "category": "entity",
           "access": "write",
           "migrated_to_snapshot": false,

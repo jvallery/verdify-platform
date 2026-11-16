@@ -2916,7 +2916,8 @@ inline const char* manual_fog_hold_reason(const FogForceOffInputs& in) noexcept 
 // (irrigation_engine.yaml) and the panel push buttons (greenhouse.yaml) are
 // their only writers besides the override layer's expiry in controls.yaml.
 // Minutes are clamped to 1-120, the bounds OverrideRequest (API-IRR-12) and
-// the manual_override_timeout_min row carry.
+// the manual_override_timeout_min row carry. RULINGS AF11: the setting's number
+// entity and set_band_anchor clamp with this too, so it has one range.
 inline int manual_override_minutes(int minutes) noexcept {
     if (minutes < 1) return 1;
     if (minutes > 120) return 120;
