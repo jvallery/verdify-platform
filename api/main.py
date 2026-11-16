@@ -1826,7 +1826,7 @@ async def health():
         "ok" if isinstance(action_age, (int, float)) and action_age < 300 and not action_proof_missing else "stale"
     )
     checks["service_controller"] = "ok" if checks.get("control_proof") in ("law", "action_log") else "stale"
-    # MCP server health is monitored by the ingestor (planning_heartbeat), not the API.
+    # MCP server health is monitored by the ingestor (the daily_review task), not the API.
     # The API can't reach localhost:8000 from inside Docker (MCP binds to 127.0.0.1 on host).
 
     return redact_public_data({"status": overall, "checks": checks})

@@ -12,8 +12,8 @@ Hermes is now the only production route for Iris planning cycles.
   allowlist tightens the toolset to Verdify's MCP server; `query` (raw SQL) is
   excluded.
 - `SOUL.md` — durable identity, authoritative-source priority order,
-  behavioral contract. Short by design — per-cycle context comes from
-  `gather-plan-context.sh` via the ingestor.
+  behavioral contract. Short by design — each review's context comes from
+  the ingestor's daily review task (`ingestor/review_prompt.py`).
 - Runtime state — **not in git**. Lives at `/var/lib/verdify/hermes/iris`
   and is bind-mounted as `/opt/data` in the container.
 - Runtime secrets — **not in git**. Live at `/etc/verdify/hermes-iris.env`

@@ -42,8 +42,8 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ----------------------------------------------------------------------------
-# Build stage: the full ingestor import-closure (incl. planner SDKs pulled in
-# transitively via tasks.py -> iris_planner) is compiled here.
+# Build stage: the full ingestor import-closure (and the planner SDKs the other
+# workloads on this image may import) is compiled here.
 # ----------------------------------------------------------------------------
 FROM base AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -61,9 +61,9 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 FROM base AS final
 WORKDIR /app/ingestor
 
-# psql for the planner gather path (#1458): gather-plan-context.sh (mounted from
-# ConfigMap verdify-ingestor-gather-script; GATHER_SCRIPT in iris_planner.py)
-# runs a bare `psql` against the PostgreSQL 16 server. Debian trixie ships only
+# psql (#1458; the planner gather path that needed it first retired with the plan
+# cycle, climate refactor 4.2): scripts on this image run a bare `psql` against
+# the PostgreSQL 16 server. Debian trixie ships only
 # client 17 (postgresql-client -> postgresql-client-17), which supports 16
 # servers. This replaces the prod overlay's install-psql initContainer, which
 # copied psql out of a postgres:16 mirror image carrying unfixed Critical CVEs.
@@ -84,20 +84,13 @@ COPY firmware/lib/greenhouse_solar.h /app/firmware/lib/greenhouse_solar.h
 COPY firmware/greenhouse/controls.yaml /app/firmware/greenhouse/controls.yaml
 COPY verdify_schemas/ /app/verdify_schemas/
 
-# B4: the forecast-action engine is launched as a subprocess by
-# ingestor/tasks/forecast.py:forecast_action_engine() every 900s. It must exist
-# IN the image — the legacy code pointed at /srv/verdify/scripts/... (the iris VM)
-# which does not exist here, so it raised FileNotFoundError every cycle. The
-# engine resolves REPO_ROOT = Path(__file__).resolve().parents[1] == /app, where
-# verdify_schemas/ (its only repo import) already lives, so
-# its imports resolve at this in-container location.
+# scripts/ for the Jobs that run on this image (the forecast-action engine that
+# first needed it retired with the plan cycle, climate refactor 4.2).
 COPY scripts/ /app/scripts/
 # scripts/embed-corpora.py (the verdify-knowledge-embed Job) reads models.embedding (#1351).
 COPY config/ai.yaml /app/config/ai.yaml
 
-# k3s cleanup (#339/#210 + #43/#400): docs/ is runtime for TWO consumers now.
-# (1) iris_planner.PLANNER_PLAYBOOK_PATH reads /app/docs/planner/greenhouse-playbook.md
-# (moved off the decommissioned iris-VM /mnt/agents mount). (2) The daily
+# k3s cleanup (#339/#210 + #43/#400): docs/ is runtime for the daily
 # site_content_refresh task (ingestor/tasks/ha.py) walks the populate-site-content
 # SITE_DOC_ROOTS — repointed to the in-repo docs tree after the iris-VM vault
 # mount (/mnt/iris/verdify-vault/website) died; without docs/ in the image the

@@ -55,9 +55,9 @@ models:
 
 # ── Prompts & Templates ─────────────────────────────────────────
 # All templates live in /srv/verdify/templates/.
-# Planner prompts are fully embedded in ingestor/iris_planner.py — the
-# legacy Jinja templates (planner-prompt.j2, planner-prompt.md) were
-# removed 2026-04-19 along with the cron-based planner.py they served.
+# The daily review's prompt is embedded in ingestor/review_prompt.py (climate
+# refactor 4.2 retired the plan prompts); the legacy Jinja planner templates
+# were removed 2026-04-19.
 templates:
   vision:
     prompt: vision-analysis.j2
@@ -65,9 +65,9 @@ templates:
 
 # ── Schedules ────────────────────────────────────────────────────
 # Cron expressions (MDT). Managed via crontab, documented here.
-# NOTE: the legacy cron-based `planner` schedule was removed 2026-04-11;
-# planning is now event-driven via ingestor/iris_planner.py →
-# Hermes /v1/runs. Keep schedules: only for tasks still run by cron.
+# NOTE: the legacy cron-based `planner` schedule was removed 2026-04-11; the
+# daily review is woken by the ingestor's daily_review task → Hermes /v1/runs.
+# Keep schedules: only for tasks still run by cron.
 schedules:
   vision:
     cron: "0 12,16,20,0 * * *"
@@ -79,52 +79,3 @@ schedules:
     cron: null  # The verdify-knowledge-embed CronJob is suspended; run its one-shot Job after a release.
     script: scripts/embed-corpora.py
     description: "Embed the knowledge corpus with Cortex embed.main (resumable, bounded)"
-
-# ── Context Gathering ────────────────────────────────────────────
-context:
-  gather_script: scripts/gather-plan-context.sh
-  static_builder: scripts/gather-static-context.sh
-  max_context_chars: 100000
-  max_static_chars: 50000
-
-# ── Planner Routing & SLA (Hermes audit labels, contract v1.5) ───
-# Runtime knobs for planner trigger severity and audit-label routing. Consumed by:
-#   - ingestor/planner_routing.py (classify_severity + pick_instance + sla_for)
-#   - ingestor/alert_monitor rule 7 (SLA-breach detection)
-# Contract spec: docs/iris-planner-contract.md §2.F (SLA) + §2.G (routing).
-# Live planning uses OpenAI GPT-6 Luna through Hermes's custom transport with
-# xhigh reasoning. The instance field remains an audit label only.
-planner_routing:
-  # Required full-plan cycles use the same Hermes/OpenAI profile as other
-  # triggers. This value is an audit label carried into plan_delivery_log.
-  required_full_plan_instance: opus
-
-  # Severity thresholds — ingestor.classify_severity returns "major" when any
-  # is exceeded; "minor" otherwise. Both severities route to local by default.
-  forecast_major_delta_vpd_kPa: 0.5    # |Δvpd_outdoor| above → major FORECAST
-  forecast_major_delta_temp_F: 10      # |Δtemp_F| above → major FORECAST
-  deviation_major_threshold: 0.15      # normalized band-excursion → major DEVIATION
-  deviation_prolonged_cycles: 3        # pending >= N cycles → major DEVIATION
-
-planner_sla:
-  # SLA in minutes, keyed by (instance, trigger_type). Absent = no SLA.
-  # local/opus are audit labels under Hermes. They no longer select different
-  # model backends.
-  local:
-    SUNRISE:    30
-    SUNSET:     30
-    SOLAR_MAX:  30
-    MIDNIGHT:   30
-    TRANSITION: 45
-    FORECAST:   90
-    DEVIATION:  20
-    FORECAST_DEVIATION: 20
-    HEARTBEAT:  15
-  opus:
-    SUNRISE:    15
-    SUNSET:     15
-    SOLAR_MAX:  15
-    MIDNIGHT:   15
-    FORECAST:   30
-    DEVIATION:  10
-    FORECAST_DEVIATION: 10

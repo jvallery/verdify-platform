@@ -495,9 +495,6 @@ if in_part rest; then
   step "solar site constants SSOT guard (#393)"
   $PY scripts/check-solar-constants.py
 
-  step "gather ConfigMap matches its source scripts"
-  $PY scripts/gen-gather-configmap.py --check
-
   step "config-revision annotations match verdify-config sources (#587)"
   bash scripts/gen-config-revision.sh --check
 

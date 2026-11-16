@@ -562,14 +562,15 @@ def _check_schedule_setpoint_confirmations(direct_db: bool) -> Check:
 
 
 def _check_planner_context_uses_canonical_irrigation() -> Check:
-    script_path = REPO_ROOT / "scripts" / "gather-plan-context.sh"
+    # Climate refactor 4.2: the plan-context gather is retired. The daily review reads water through Iris's
+    # irrigation tools (M3's line state, VD-60); its prompt and context builder name none of the retired sources.
+    paths = (REPO_ROOT / "ingestor" / "review_prompt.py", REPO_ROOT / "ingestor" / "tasks" / "heartbeat.py")
     try:
-        script = script_path.read_text()
+        sources = [path.read_text() for path in paths]
     except OSError as exc:
         return Check("planner context canonical irrigation source", "fail", str(exc))
 
-    # Section 11 is the ingestor's entry point over M3's line state (VD-60); these views and tables are retired.
-    required = ("-m tasks.irrigation context --hours 24",)
+    required = ("irrigation_status", "irrigation_history")
     forbidden = (
         "FROM irrigation_schedule",
         "FROM irrigation_log",
@@ -577,8 +578,8 @@ def _check_planner_context_uses_canonical_irrigation() -> Check:
         "v_irrigation_schedule_current",
         "v_irrigation_fertigation_runs",
     )
-    missing = [token for token in required if token not in script]
-    legacy = [token for token in forbidden if token in script]
+    missing = [token for token in required if token not in sources[0]]
+    legacy = [token for token in forbidden if any(token in source for source in sources)]
     status = "pass" if not missing and not legacy else "fail"
     return Check(
         "planner context canonical irrigation source",

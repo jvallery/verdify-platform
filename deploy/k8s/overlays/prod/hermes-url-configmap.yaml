@@ -1,7 +1,8 @@
 # HERMES GATEWAY URL (#212) — prod ONLY.
 #
-# The ingestor's iris_planner POSTs plan-context to the Hermes gateway at
-# config.HERMES_URL (ingestor/config.py:58). That default is the VM-era loopback
+# The ingestor's daily review task POSTs the review request to the Hermes gateway
+# at config.HERMES_URL (ingestor/config.py:58; the plan-context POST it replaced
+# retired with the plan cycle, climate refactor 4.2). That default is the VM-era loopback
 # http://127.0.0.1:8642 — correct when hermes ran as a sibling container on the
 # same host, but WRONG in k3s where hermes-iris is its own pod reached via the
 # ClusterIP Service verdify-hermes-iris:8642. With the default unset, the live

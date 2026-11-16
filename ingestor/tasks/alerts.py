@@ -2949,7 +2949,7 @@ async def _sync_monitor_alerts(
     # Sprint 25-omnibus (setpoint_unconfirmed lifecycle fix): only
     # consider alerts THIS monitor owns (source='system') for auto-resolve.
     # Alerts inserted by other monitors (setpoint_confirmation_monitor
-    # writes source='ingestor'; iris_planner writes source='iris_planner';
+    # writes source='ingestor'; the retired iris_planner wrote source='iris_planner';
     # dispatcher writes source='dispatcher') have their own lifecycle
     # — auto-resolving them here caused setpoint_unconfirmed to flap
     # open↔resolved every alert_monitor cycle.

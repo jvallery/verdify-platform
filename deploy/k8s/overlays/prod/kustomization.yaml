@@ -215,7 +215,7 @@ patches:
   # #113 publish-all: prod re-emits every flushed telemetry row onto the fan-out
   # bus (verdify-mqtt) so dev/stage subscribers mirror it. prod-only env.
   - path: publish-all-configmap.yaml
-  # #212 HERMES_URL: repoint the ingestor's iris_planner gateway POST off the
+  # #212 HERMES_URL: repoint the ingestor's Hermes gateway POST (the daily review) off the
   # VM-era loopback default (127.0.0.1:8642) onto the in-cluster hermes-iris
   # ClusterIP Service. Env-only override; no ingestor rebuild. See
   # hermes-url-configmap.yaml. (Restart to apply is a gated step — see PR.)
