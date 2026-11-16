@@ -242,6 +242,19 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '3600'
+  # Doubly blind restart (RULINGS Q2, doubly_blind_restart_step() in
+  # lib/running_alone.h): the control loop's judgement (-1 not judged yet: the
+  # boot wait; 0 no; 1 no valid indoor temperature and no outdoor reading), and
+  # the flag kept across the restart so the second and later restarts wait 60
+  # minutes. It changes only at a doubly blind restart and when a reading returns.
+  - id: doubly_blind_state
+    type: int8_t
+    restore_value: no
+    initial_value: '-1'
+  - id: doubly_blind_restarted
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
 
   # ─── Per-probe health timestamps (ms, A2) ───
   - id: last_north_ms

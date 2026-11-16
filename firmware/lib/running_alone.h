@@ -400,3 +400,41 @@ inline void fan_runtime_for_lead_ms(uint32_t fan1_run_s, uint32_t fan2_run_s, ui
 inline bool sensor_bus_restart_due(uint32_t now_ms, uint32_t last_probe_ms, uint32_t window_ms) noexcept {
     return (now_ms - last_probe_ms) > window_ms;
 }
+
+// Doubly blind (RULINGS Q2, contracts last-resort-thermometer): no valid indoor
+// temperature AND no outdoor reading, so every climate relay is already off and a
+// restart costs no control. Restart after 10 minutes of it the first time, then wait
+// 60 minutes between restarts while it lasts (`restarted_before` is a restore_value
+// flag kept across the restart, so restarts and flash writes stay bounded); either
+// reading returning clears the flag. `evaluated` is false until the control loop has
+// judged the state after boot (the boot wait), and an unjudged pass changes nothing.
+// These two windows are named here, outside the generated constants file, so the
+// frozen CONSTANTS_SHA256 the host release carries does not move.
+// DOUBLY_BLIND_FAST_RESTART is the one line to take out: false restores the plain
+// sensor-bus rule above.
+constexpr bool DOUBLY_BLIND_FAST_RESTART = true;
+constexpr uint32_t DOUBLY_BLIND_FIRST_RESTART_MS = 10u * 60u * 1000u;
+constexpr uint32_t DOUBLY_BLIND_REPEAT_RESTART_MS = 60u * 60u * 1000u;
+
+struct DoublyBlindRestart {
+    bool was_blind = false;
+    uint32_t since_ms = 0;
+};
+
+inline bool doubly_blind_restart_step(DoublyBlindRestart& s, bool& restarted_before, bool evaluated, bool blind,
+                                      uint32_t now_ms) noexcept {
+    if (!DOUBLY_BLIND_FAST_RESTART || !evaluated) return false;
+    if (!blind) {
+        s.was_blind = false;
+        restarted_before = false;
+        return false;
+    }
+    if (!s.was_blind) {
+        s.was_blind = true;
+        s.since_ms = now_ms;
+    }
+    const uint32_t window = restarted_before ? DOUBLY_BLIND_REPEAT_RESTART_MS : DOUBLY_BLIND_FIRST_RESTART_MS;
+    if ((now_ms - s.since_ms) <= window) return false;
+    restarted_before = true;
+    return true;
+}

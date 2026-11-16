@@ -742,6 +742,9 @@ interval:
               : law.hot ? SAFETY_COOL
               : law.cold ? SAFETY_HEAT
               : IDLE;
+          // RULINGS Q2: the doubly blind judgement for the bus watchdog below.
+          id(doubly_blind_state) = boot_wait ? int8_t(-1)
+              : int8_t(mode == SENSOR_FAULT && outdoor.source == OutdoorSource::kNone);
           climate_law::Output law_request = law;
           // The request as a relay table (lead fan first), for the consumers that read one.
           RelayOutputs relay_out = {law.heat1, law.heat2,
@@ -1971,13 +1974,28 @@ interval:
   # for > id(fallback_window_s) (3600 s), counted from boot if none ever did, the
   # controller restarts, so at most once an hour (sensor_bus_restart_due(),
   # lib/running_alone.h; unsigned millisecond arithmetic, wrap-safe).
+  # Doubly blind (no valid indoor temperature and no outdoor reading; RULINGS
+  # Q2): restart after 10 minutes the first time, then every 60 minutes while
+  # it lasts (doubly_blind_restart_step()). Every relay is already off then.
+  # Both restarts go through App.safe_reboot() (RULINGS Q1), which runs
+  # on_shutdown and saves the relay counters; esp_restart() skipped it.
   ################################################################################
   - interval: 60s
     then:
       - lambda: |-
+          static DoublyBlindRestart blind_restart;
+          const int8_t blind = id(doubly_blind_state);
+          const uint32_t blind_window_ms =
+              id(doubly_blind_restarted) ? DOUBLY_BLIND_REPEAT_RESTART_MS : DOUBLY_BLIND_FIRST_RESTART_MS;
+          if (doubly_blind_restart_step(blind_restart, id(doubly_blind_restarted), blind >= 0, blind == 1, millis())) {
+            ESP_LOGE("watchdog", "No indoor temperature and no outdoor reading for more than %u s - restarting",
+                     unsigned(blind_window_ms / 1000u));
+            App.safe_reboot();
+            return;
+          }
           if(sensor_bus_restart_due(millis(), id(last_external_update), id(fallback_window_s) * 1000UL)){
             ESP_LOGE("watchdog","No probe answered for more than %u s - restarting", id(fallback_window_s));
-            esp_restart();
+            App.safe_reboot();
           }
 
 
