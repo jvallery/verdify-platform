@@ -17,6 +17,8 @@ execution, shared buffers hit, none read from disk):
   group       period  statement              planning  execution  buffers
   alerts      60 s    alerts._OPEN_SQL          6.7 ms     8.9 ms      772
   controller  60 s    CONTROLLER_SQL           11.5 ms     0.2 ms    1,230
+  health      60 s    HEALTH_SQL               the nine migration 314 columns; same 15-minute range of diagnostics_ts_idx
+                                                as CONTROLLER_SQL, measured on a private database (columns not live)
   state       60 s    STATE_SQL                10.2 ms    10.5 ms    1,076
   relays      60 s    RELAYS_SQL               11.0 ms     0.8 ms    1,175
   house       60 s    HOUSE_SQL                 8.0 ms     0.2 ms      984
@@ -237,6 +239,26 @@ FAMILIES: dict[str, Family] = {
     "verdify_controller_reset_reason": Family("gauge", "1 for the controller's last reset reason."),
     "verdify_controller_firmware_info": Family("gauge", "1 for the firmware version the controller reports."),
     "verdify_controller_band_source": Family("gauge", "1 for the band source the controller uses."),
+    # controller hardware budget (diagnostics, migration 314; contracts/metrics-coverage.md section 2.1a)
+    "verdify_controller_heap_min_free_window_bytes": Family(
+        "gauge", "Controller lowest free heap in its last one-minute window."
+    ),
+    "verdify_controller_heap_largest_free_block_window_bytes": Family(
+        "gauge", "Controller smallest largest-free-block in its last one-minute window."
+    ),
+    "verdify_controller_loop_worst_seconds": Family("gauge", "Controller worst control-loop pass in its last minute."),
+    "verdify_controller_restarts_total": Family(
+        "counter", "Controller restarts, counted and persisted by the firmware."
+    ),
+    "verdify_controller_nvs_entries": Family("gauge", "Controller NVS entries (32 B) by state: used or free."),
+    "verdify_controller_nvs_write_worst_seconds": Family(
+        "gauge", "Controller worst NVS write in its last minute (0 = no write)."
+    ),
+    "verdify_controller_gap_log_armed": Family("gauge", "1 when the controller's gap log is armed."),
+    "verdify_controller_gap_log_state": Family("gauge", "1 for the controller's gap log state."),
+    "verdify_controller_sensor_degraded_active": Family(
+        "gauge", "1 when the controller does not run on the wall averages with a valid humidity."
+    ),
     # control (system_state, equipment_state, climate)
     "verdify_state_age_seconds": Family(
         "gauge", "Seconds since the newest system_state row of an entity (7 d window)."
@@ -372,6 +394,29 @@ SELECT extract(epoch FROM now() - ts)::float8 AS age_s, heap_bytes, heap_min_fre
  WHERE ts > now() - interval '15 minutes'
  ORDER BY ts DESC
  LIMIT 1
+"""
+
+# The nine budget readings (migration 314), each the newest non-NULL value of the last 15 minutes: a diagnostics row
+# carries only the columns observed fresh in its flush, so the newest row alone can miss a published reading. One
+# index range scan of diagnostics_ts_idx over about 15 to 60 rows.
+HEALTH_SQL = """
+SELECT (array_agg(heap_min_free_minute_kb ORDER BY ts DESC)
+            FILTER (WHERE heap_min_free_minute_kb IS NOT NULL))[1] AS heap_min_free_minute_kb,
+       (array_agg(heap_largest_block_minute_low_kb ORDER BY ts DESC)
+            FILTER (WHERE heap_largest_block_minute_low_kb IS NOT NULL))[1] AS heap_largest_block_minute_low_kb,
+       (array_agg(loop_worst_ms ORDER BY ts DESC) FILTER (WHERE loop_worst_ms IS NOT NULL))[1] AS loop_worst_ms,
+       (array_agg(restart_count ORDER BY ts DESC) FILTER (WHERE restart_count IS NOT NULL))[1] AS restart_count,
+       (array_agg(nvs_used_entries ORDER BY ts DESC)
+            FILTER (WHERE nvs_used_entries IS NOT NULL))[1] AS nvs_used_entries,
+       (array_agg(nvs_free_entries ORDER BY ts DESC)
+            FILTER (WHERE nvs_free_entries IS NOT NULL))[1] AS nvs_free_entries,
+       (array_agg(nvs_write_worst_ms ORDER BY ts DESC)
+            FILTER (WHERE nvs_write_worst_ms IS NOT NULL))[1] AS nvs_write_worst_ms,
+       (array_agg(gap_log_state ORDER BY ts DESC) FILTER (WHERE gap_log_state IS NOT NULL))[1] AS gap_log_state,
+       (array_agg(sensor_degraded_active ORDER BY ts DESC)
+            FILTER (WHERE sensor_degraded_active IS NOT NULL))[1] AS sensor_degraded_active
+  FROM diagnostics
+ WHERE ts > now() - interval '15 minutes'
 """
 
 # Newest row per entity through idx_system_state_entity (entity, ts DESC), 7 d of chunks at most.
@@ -512,6 +557,38 @@ def controller_samples(row: Mapping[str, Any] | None) -> list[Sample]:
         out.append(sample("verdify_controller_firmware_info", 1, version=firmware_label(row["firmware_version"])))
     if row["band_source"]:
         out.append(sample("verdify_controller_band_source", 1, source=bounded(row["band_source"], BAND_SOURCES)))
+    return out
+
+
+# lib/gap_log.h gap_log_state_name(): the six values the firmware publishes.
+GAP_LOG_STATES = frozenset(
+    {"armed", "off: nvs_small", "off: nvs_full", "off: nvs_slow", "off: nvs_error", "off: not_armed_yet"}
+)
+
+
+def health_samples(row: Mapping[str, Any] | None) -> list[Sample]:
+    """The nine budget readings (migration 314). A NULL column (every row before the third flash) gives no sample."""
+    if row is None:
+        return []
+    out: list[Sample] = []
+
+    def put(name: str, value: Any, scale: float = 1.0, **labels: str) -> None:
+        number = _num(value)
+        if number is not None:
+            out.append(sample(name, number * scale, **labels))
+
+    put("verdify_controller_heap_min_free_window_bytes", row["heap_min_free_minute_kb"], 1024.0)
+    put("verdify_controller_heap_largest_free_block_window_bytes", row["heap_largest_block_minute_low_kb"], 1024.0)
+    put("verdify_controller_loop_worst_seconds", row["loop_worst_ms"], 0.001)
+    put("verdify_controller_restarts_total", row["restart_count"])
+    put("verdify_controller_nvs_entries", row["nvs_used_entries"], state="used")
+    put("verdify_controller_nvs_entries", row["nvs_free_entries"], state="free")
+    put("verdify_controller_nvs_write_worst_seconds", row["nvs_write_worst_ms"], 0.001)
+    put("verdify_controller_sensor_degraded_active", row["sensor_degraded_active"])
+    if row["gap_log_state"] is not None:
+        state = bounded(row["gap_log_state"], GAP_LOG_STATES)
+        out.append(sample("verdify_controller_gap_log_armed", 1 if state == "armed" else 0))
+        out.append(sample("verdify_controller_gap_log_state", 1, state=state))
     return out
 
 
@@ -747,6 +824,10 @@ async def _collect_controller(conn: Any, metrics: ProductMetrics) -> list[Sample
     return controller_samples(await conn.fetchrow(CONTROLLER_SQL))
 
 
+async def _collect_health(conn: Any, metrics: ProductMetrics) -> list[Sample]:
+    return health_samples(await conn.fetchrow(HEALTH_SQL))
+
+
 async def _collect_state(conn: Any, metrics: ProductMetrics) -> list[Sample]:
     return state_samples(await conn.fetch(STATE_SQL, list(STATE_ENTITIES)), metrics.counters)
 
@@ -797,6 +878,7 @@ ALERTS_GROUP = "alerts"
 GROUPS: tuple[Group, ...] = (
     Group(ALERTS_GROUP, 60, _collect_alerts),
     Group("controller", 60, _collect_controller),
+    Group("health", 60, _collect_health),
     Group("state", 60, _collect_state),
     Group("relays", 60, _collect_relays),
     Group("house", 60, _collect_house),

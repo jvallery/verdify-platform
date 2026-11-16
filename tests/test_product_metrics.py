@@ -134,6 +134,8 @@ class Conn:
             }
         if sql == pm.METER_SQL:
             return None  # no meter row in the last hour
+        if sql == pm.HEALTH_SQL:
+            return dict.fromkeys(HEALTH_COLUMNS)  # before the third flash: every reading NULL
         raise AssertionError(sql)
 
     async def fetch(self, sql, *args):
@@ -172,6 +174,19 @@ class Conn:
         if sql == alerts._OPEN_SQL:
             return []
         raise AssertionError(sql)
+
+
+HEALTH_COLUMNS = (
+    "heap_min_free_minute_kb",
+    "heap_largest_block_minute_low_kb",
+    "loop_worst_ms",
+    "restart_count",
+    "nvs_used_entries",
+    "nvs_free_entries",
+    "nvs_write_worst_ms",
+    "gap_log_state",
+    "sensor_degraded_active",
+)
 
 
 class Pool:
@@ -425,3 +440,48 @@ def test_release_pins_come_from_the_mounted_file(tmp_path):
     assert {"verdify-api", "verdify-mcp", "verdify-ingestor", "verdify-migrate"} <= images
     assert all(re.search(r'digest="sha256:[0-9a-f]{64}"', name) for name in got)
     assert pm.read_release_pins(tmp_path / "missing.yaml") == []
+
+
+def test_health_readings_absent_give_no_sample():
+    assert pm.health_samples(None) == []
+    assert pm.health_samples(dict.fromkeys(HEALTH_COLUMNS)) == []
+    cache = metrics()
+    asyncio.run(cache.refresh_due(Pool()))
+    text = cache.render()
+    assert 'verdify_metrics_refresh_success{group="health"} 1' in text
+    for family in (
+        "verdify_controller_heap_min_free_window_bytes",
+        "verdify_controller_restarts_total",
+        "verdify_controller_nvs_entries",
+        "verdify_controller_gap_log_armed",
+        "verdify_controller_sensor_degraded_active",
+    ):
+        assert f"\n{family}" not in text and not text.startswith(family)
+
+
+def test_health_readings_scale_and_label():
+    row = {
+        "heap_min_free_minute_kb": 18.5,
+        "heap_largest_block_minute_low_kb": 30.0,
+        "loop_worst_ms": 120.0,
+        "restart_count": 7,
+        "nvs_used_entries": 900,
+        "nvs_free_entries": 2500,
+        "nvs_write_worst_ms": 0.0,
+        "gap_log_state": "off: nvs_slow",
+        "sensor_degraded_active": 0,
+    }
+    got = {(n, labels): v for n, labels, v in pm.health_samples(row)}
+    assert got[("verdify_controller_heap_min_free_window_bytes", ())] == 18.5 * 1024
+    assert got[("verdify_controller_heap_largest_free_block_window_bytes", ())] == 30 * 1024
+    assert got[("verdify_controller_loop_worst_seconds", ())] == 0.12
+    assert got[("verdify_controller_restarts_total", ())] == 7
+    assert got[("verdify_controller_nvs_entries", (("state", "used"),))] == 900
+    assert got[("verdify_controller_nvs_entries", (("state", "free"),))] == 2500
+    assert got[("verdify_controller_nvs_write_worst_seconds", ())] == 0.0  # 0 = no write: a real sample
+    assert got[("verdify_controller_gap_log_armed", ())] == 0
+    assert got[("verdify_controller_gap_log_state", (("state", "off: nvs_slow"),))] == 1
+    assert got[("verdify_controller_sensor_degraded_active", ())] == 0
+    one = pm.health_samples({**dict.fromkeys(HEALTH_COLUMNS), "gap_log_state": "something new"})
+    assert ("verdify_controller_gap_log_state", (("state", "other"),), 1.0) in one
+    assert ("verdify_controller_gap_log_armed", (), 0.0) in one
