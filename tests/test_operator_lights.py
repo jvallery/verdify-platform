@@ -848,12 +848,16 @@ def test_the_decision_entities_are_the_ones_the_ingestor_writes():
     entity_map = (ROOT / "ingestor/entity_map.py").read_text()
     for entity in lights.DECISION_ENTITIES.values():
         assert f'"{entity}": "{entity}"' in entity_map
-    # force_refresh: every publish is a row, so the newest row is a heartbeat
+    # force_refresh: every publish of a decision (reason) entity is a row, so the newest row is a heartbeat
     source = (ROOT / "ingestor/ingestor.py").read_text()
     block = source[source.index("force_refresh = entity in {") :]
     block = block[: block.index("}")]
-    for entity in ("gl_main_state", "gl_main_reason", "gl_grow_state", "gl_grow_reason"):
+    for entity in lights.DECISION_ENTITIES.values():
         assert f'"{entity}"' in block, entity
+    # The two light states are stored on change and on a 10-minute keyframe (#1662), inside the lighting views'
+    # 15-minute freshness; the keyframe resets at each controller connect.
+    assert 'LIGHT_STATE_KEYFRAME_ENTITIES = frozenset({"gl_main_state", "gl_grow_state"})' in source
+    assert "LIGHT_STATE_KEYFRAME_S = 600" in source
 
 
 @pytest.mark.parametrize("light", ["main", "grow"])
