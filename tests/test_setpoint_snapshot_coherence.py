@@ -400,3 +400,8 @@ async def test_af1_a_confirmation_after_a_later_boot_observation_restores_the_he
     own = dict(connection.newest_rows[0], newest_ts=pushed, newest_source="dispatcher")
     older = dict(connection.newest_rows[0], newest_ts=pushed - timedelta(seconds=5))
     assert ingestor.observed_rows_to_restore([same, own, older]) == []
+    # DISPATCHER-05: the restored row validates through SetpointChange; a value outside the registry never lands.
+    connection.restored = []
+    connection.newest_rows = [dict(connection.newest_rows[0], confirmed_value=1e9)]
+    await ingestor._publish_setpoint_snapshot(pool, day.replace(hour=19, minute=51, second=35))
+    assert connection.restored == []

@@ -2832,7 +2832,7 @@ _BOOT_WINDOW_S = 60
 
 # ESPHome number entities often echo a direct push on their next state
 # publish, which can arrive well after the command returns. Suppress those
-# delayed echoes so setpoint_changes does not notify-listener push them back.
+# delayed echoes so they are not recorded as controller-side changes.
 _PUSH_ECHO_SUPPRESS_S = 900
 
 
@@ -3647,7 +3647,7 @@ def _report_spool_health() -> None:
 
 # #1662 (package 4.4): readbacks are stored on change. The 60 s pass still reads the whole cache, confirms writes
 # against all of it and fans all of it out; a parameter's setpoint_snapshot row is inserted only when its value moved
-# beyond the readback tolerance (float32 noise never counts), a write, desired row or plan waypoint for it is newer
+# beyond the readback tolerance (float32 noise never counts), a write or desired row for it is newer
 # than its last stored row (so a write that repeats the value still gets a confirming row), the controller
 # reconnected (a parameter with no row from the current transport generation) or the ingestor restarted, a writer
 # admission asked for a complete batch (dormant: no production caller), or its hourly keyframe is due.
@@ -3677,9 +3677,6 @@ SELECT parameter, max(at) AS at FROM (
     UNION ALL
     SELECT param, created_at FROM v_desired_state_current
      WHERE greenhouse_id = $1 AND created_at > now() - interval '2 hours'
-    UNION ALL
-    SELECT parameter, ts FROM v_active_plan
-     WHERE ts > now() - interval '2 hours' AND ts <= now()
 ) AS w
  GROUP BY parameter
 """
@@ -3716,10 +3713,10 @@ def readbacks_to_store(
     *,
     now: datetime,
     generation: int,
-    written_at: dict[str, datetime] | None,
+    written_at: dict[str, datetime],
     complete: bool = False,
 ) -> set[str]:
-    """The parameters whose readback row this pass inserts (#1662). written_at None: the write query failed.
+    """The parameters whose readback row this pass inserts (#1662).
 
     A parameter with no row from the current transport generation is stored as soon as it is in the cache, so every
     parameter gets a post-boot row after a reconnect, including one the controller replays after the first pass.
@@ -3727,7 +3724,7 @@ def readbacks_to_store(
     production calls shared.request_setpoint_snapshot; its reader is bounded_reconcile._fresh_readbacks through the
     drift probe, which needs an approval file and is deleted with the P1 deletions (#1662 review m5, m10).
     """
-    if complete or written_at is None:
+    if complete:
         return set(frozen)
     chosen = set()
     for param, value in frozen.items():
@@ -3746,13 +3743,12 @@ def readbacks_to_store(
     return chosen
 
 
-async def _readback_writes(conn: asyncpg.Connection) -> dict[str, datetime] | None:
-    """The newest write, desired row or plan waypoint per parameter in the last two hours; None when unreadable."""
-    try:
-        rows = await conn.fetch(_READBACK_WRITES_SQL, GREENHOUSE_ID)
-    except Exception as error:  # fail dense: store every readback rather than miss a confirmation
-        log.warning("setpoint_snapshot write lookup failed (%s): storing every readback", type(error).__name__)
-        return None
+async def _readback_writes(conn: asyncpg.Connection) -> dict[str, datetime]:
+    """The newest write or desired row per parameter in the last two hours (plans are retired, #1633).
+
+    A failed read raises: the pass fails and the next one retries. Confirmations ride the same transaction, so a
+    pass that cannot read its writes stores nothing rather than every readback."""
+    rows = await conn.fetch(_READBACK_WRITES_SQL, GREENHOUSE_ID)
     return {row["parameter"]: row["at"] for row in rows if row["at"] is not None}
 
 
@@ -3797,10 +3793,28 @@ def observed_rows_to_restore(confirmed: list[Mapping[str, Any]]) -> list[tuple[s
     return restore
 
 
-async def _restore_confirmed_value_as_newest(conn, params: list[str]) -> None:
+async def _restore_confirmed_value_as_newest(conn, params: list[str], ts: datetime) -> None:
     if not params:
         return
-    restore = observed_rows_to_restore(await conn.fetch(CONFIRMED_NOW_SQL, params))
+    restore = []
+    for param, value in observed_rows_to_restore(await conn.fetch(CONFIRMED_NOW_SQL, params)):
+        try:
+            SetpointChange(
+                ts=ts,
+                parameter=param,
+                value=value,
+                source="esp32",
+                confirmed_at=ts,
+                delivery_status="observed",
+                greenhouse_id=GREENHOUSE_ID,
+            )
+        except ValidationError as error:
+            log.error(
+                "setpoint_changes restore skipped (validation failed: %s): param=%s value=%s", error, param, value
+            )
+            shared.note_row_rejected("setpoint_changes")
+            continue
+        restore.append((param, value))
     if restore:
         await conn.executemany(
             "INSERT INTO v_runtime_setpoint_changes_write "
@@ -3880,12 +3894,18 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
                             """,
                         [(param, val, readback_abs_tolerance(param)) for _ts, param, val in snapshot_rows],
                     )
-                    await _restore_confirmed_value_as_newest(conn, [param for _ts, param, _val in snapshot_rows])
+                    await _restore_confirmed_value_as_newest(conn, [param for _ts, param, _val in snapshot_rows], ts)
+                    marker = SystemStateRow(
+                        ts=ts,
+                        entity=READBACK_PASS_ENTITY,
+                        value=f"stored={len(stored_rows)} of={len(snapshot_rows)}",
+                        greenhouse_id=GREENHOUSE_ID,
+                    )
                     await conn.execute(
                         "INSERT INTO v_runtime_system_state_write (ts, entity, value) VALUES ($1, $2, $3)",
-                        ts,
-                        READBACK_PASS_ENTITY,
-                        f"stored={len(stored_rows)} of={len(snapshot_rows)}",
+                        marker.ts,
+                        marker.entity,
+                        marker.value,
                     )
     except BaseException:
         shared.fail_setpoint_snapshot_publication()
@@ -4699,14 +4719,14 @@ async def setpoint_listener(pool: asyncpg.Pool) -> None:
                 shared.setpoint_dispatch_requested.set()
                 shared.irrigation_sync_requested.set()
             connected_once = True
-            log.info("Setpoint listener: LISTEN on irrigation_changed and desired_state_changed channels")
+            log.info("Wake listener: LISTEN on irrigation_changed and desired_state_changed channels")
             if conn.is_closed():
                 disconnected.set()
             await disconnected.wait()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            log.warning("Setpoint listener unavailable: %s", type(exc).__name__)
+            log.warning("Wake listener unavailable: %s", type(exc).__name__)
         finally:
             if conn is not None:
                 conn.remove_termination_listener(_on_disconnect)
@@ -4714,7 +4734,7 @@ async def setpoint_listener(pool: asyncpg.Pool) -> None:
                     try:
                         await conn.close(timeout=5)
                     except Exception as exc:
-                        log.warning("Setpoint listener close failed: %s", type(exc).__name__)
+                        log.warning("Wake listener close failed: %s", type(exc).__name__)
         await asyncio.sleep(1)
 
 

@@ -1,14 +1,15 @@
 """Readbacks stored on change (#1662, package 4.4): the publisher's choice of rows, with in-memory fakes only.
 
 The 60 s pass still confirms writes against the whole cache and fans it all out. A parameter's setpoint_snapshot row
-is inserted when its value moved beyond the readback tolerance (float32 noise never counts), a write, desired row or
-plan waypoint for it is newer than its last stored row, the controller reconnected (a parameter with no row from the
+is inserted when its value moved beyond the readback tolerance (float32 noise never counts), a write or desired row
+for it is newer than its last stored row, the controller reconnected (a parameter with no row from the
 current transport generation) or the ingestor restarted, or its staggered hourly keyframe is due. Every pass stores
 one pass marker, and readers take freshness from it.
 """
 
 from __future__ import annotations
 
+import inspect
 import struct
 import sys
 from datetime import UTC, datetime, timedelta
@@ -90,11 +91,11 @@ def test_a_write_newer_than_the_stored_row_gets_a_row_even_when_the_value_repeat
     assert chosen == {"mister_all_kpa"}
 
 
-def test_an_unreadable_write_lookup_stores_every_readback():
-    frozen = {"temp_high": 80.0}
-    store = ingestor.ReadbackStore({"temp_high": (80.0, T0, 3)})
-    chosen = ingestor.readbacks_to_store(frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at=None)
-    assert chosen == {"temp_high"}
+def test_the_write_lookup_reads_no_plan_and_has_no_dense_fallback():
+    """DISPATCHER-06: plans are retired, and a failed lookup fails the pass instead of storing every readback."""
+    assert "v_active_plan" not in ingestor._READBACK_WRITES_SQL
+    source = inspect.getsource(ingestor._readback_writes)
+    assert "except" not in source and "return None" not in source
 
 
 def test_keyframes_are_hourly_and_staggered_across_the_passes():
@@ -165,12 +166,15 @@ async def test_a_write_that_repeats_the_current_value_gets_its_confirming_row(co
 
 
 @pytest.mark.asyncio
-async def test_a_failed_write_lookup_stores_every_readback(context):  # noqa: F811
-    values, connection, pool = context
+async def test_a_failed_write_lookup_fails_the_pass_and_stores_nothing(context):  # noqa: F811
+    """DISPATCHER-06: no dense fallback. The pass fails like any DB error and the next pass retries."""
+    _values, connection, pool = context
     await publish(pool, T0)
+    connection.rows = []
     connection.fail_writes = True
-    await publish(pool, T0 + timedelta(seconds=60))
-    assert stored_names(connection) == set(values)
+    with pytest.raises(RuntimeError):
+        await publish(pool, T0 + timedelta(seconds=60))
+    assert stored_names(connection) == set()
 
 
 @pytest.mark.asyncio

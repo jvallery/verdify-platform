@@ -585,9 +585,12 @@ async def test_a_setting_the_controller_does_not_list_is_skipped_and_sent_again_
 
 
 @pytest.mark.asyncio
-async def test_omitted_settings_never_fill_a_paced_batch(env, monkeypatch):
+async def test_omitted_settings_never_fill_a_paced_batch(env, monkeypatch, caplog):
     """DISPATCHER-02: thirteen settings the controller does not list (no readback, never pushed, the oldest
-    differences) are dropped before pacing, so the one real change goes out in the first batch with no wake."""
+    differences) are dropped before pacing, so the one real change goes out in the first batch with no wake.
+    DISPATCHER-07: the skip is logged once each, as a setting not sent, never as a desired_state skip."""
+    caplog.set_level(logging.INFO)
+    monkeypatch.setattr(dispatcher, "_DESIRED_SKIPS_LOGGED", set())
     omitted, real = KNOBS[:13], KNOBS[13]
     connect(env, [real])
     listed = {_common.PARAM_TO_ENTITY[knob.param]: index for index, knob in enumerate(KNOBS)}
@@ -605,6 +608,11 @@ async def test_omitted_settings_never_fill_a_paced_batch(env, monkeypatch):
     assert env.db.stage_rows == ["ordinary"]
     assert not any(knob.param in shared.delivery_differing_since for knob in omitted)
     assert all(env.db.rows_for(knob.param) == [] for knob in omitted)
+    messages = [record.getMessage() for record in caplog.records]
+    for knob in omitted:
+        line = f"setting not sent param={knob.param} reason=controller lists no setting entity"
+        assert messages.count(line) == 1, knob.param
+        assert not any(m.startswith(f"desired_state skipped param={knob.param} ") for m in messages)
 
 
 def test_the_omission_rule_needs_an_entity_list_and_a_number_or_switch_route(monkeypatch):

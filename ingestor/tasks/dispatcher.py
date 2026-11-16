@@ -432,6 +432,17 @@ def _log_desired_skip_once(param: str, reason: str, *, warning: bool = False) ->
     (log.warning if warning else log.info)("desired_state skipped param=%s reason=%s", param, reason)
 
 
+def _log_not_sent_once(param: str, reason: str) -> None:
+    """Log once per parameter and reason a setting the pass resolved (band, default or desired) but never sends.
+
+    The generic skip of #1633 phase 4: the controller lists no entity for it, or it is a set_band_anchor key the
+    host no longer sends. Not a desired_state skip, so it has its own message."""
+    if (param, reason) in _DESIRED_SKIPS_LOGGED:
+        return
+    _DESIRED_SKIPS_LOGGED.add((param, reason))
+    log.info("setting not sent param=%s reason=%s", param, reason)
+
+
 def _dispatcher_resolves(param: str, *, lighting_circuit: bool) -> bool:
     """Whether a band, lighting-policy or default block of a pass resolves ``param``.
 
@@ -1154,9 +1165,9 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         kept_changes: list[tuple[str, float]] = []
         for param, value in changes:
             if controller_omits_setting(param):
-                _log_desired_skip_once(param, "controller lists no setting entity")
+                _log_not_sent_once(param, "controller lists no setting entity")
             elif param in band_anchors.ANCHOR_KEYS_NOT_SENT:
-                _log_desired_skip_once(param, "set_band_anchor key no longer sent")
+                _log_not_sent_once(param, "set_band_anchor key no longer sent")
             else:
                 kept_changes.append((param, value))
         changes = kept_changes
@@ -1261,10 +1272,10 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             if controller_omits_setting(param):
                 # The connected controller has no entity for this setting (#1633 phase 4): no request row, no
                 # delivery failure. A controller that lists it again (a rollback) receives it on the next pass.
-                _log_desired_skip_once(param, "controller lists no setting entity")
+                _log_not_sent_once(param, "controller lists no setting entity")
                 continue
             if param in band_anchors.ANCHOR_KEYS_NOT_SENT:
-                _log_desired_skip_once(param, "set_band_anchor key no longer sent")
+                _log_not_sent_once(param, "set_band_anchor key no longer sent")
                 continue
             source = _dispatch_source(param, quiet_params, outgoing_desired, outgoing_released)
             plan_owned = False  # no plan writes a setting (climate refactor 4.2)
@@ -1343,8 +1354,9 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 skipped_heap_deferred += 1
                 _last_pushed.pop(param, None)
                 continue
-            # Separate request ownership from physical-sent evidence.  The
-            # LISTEN/NOTIFY claims only pending rows, so this explicit requested
+            # Separate request ownership from physical-sent evidence. The
+            # dispatcher is the only path that sends a setpoint_changes row (the
+            # NOTIFY push handler is retired, #1656), so this explicit requested
             # state cannot be double-delivered. recently_pushed/_last_pushed
             # move only after the API command returns successfully.
             # Lifecycle migration from the old pre-delivery row shape:
