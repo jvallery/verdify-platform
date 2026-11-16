@@ -33,10 +33,6 @@ REMOVED_RUNTIME_SHADOW_PATHS = (
 )
 SINGLE_PATH_POLICY_FILES = (
     REPO_ROOT / "docs" / "firmware-climate-intent-controller-final-design-2026-05-24.md",
-    REPO_ROOT / "docs" / "langgraph-planner-design.md",
-    REPO_ROOT / "docs" / "planner" / "langgraph-decisions.md",
-    REPO_ROOT / "docs" / "planner" / "langgraph-implementation-approach.md",
-    REPO_ROOT / "docs" / "planner" / "langgraph-external-implementation-context.md",
     REPO_ROOT / "firmware" / "greenhouse" / "tunables.yaml",
     REPO_ROOT / "firmware" / "greenhouse" / "globals.yaml",
     REPO_ROOT / "scripts" / "firmware-dwell-preview.sh",

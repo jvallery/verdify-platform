@@ -314,7 +314,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_knowledge_embeddings_contract.py
     tests/test_mqtt_fanout.py
     tests/test_no_hosted_runner_workflows.py
-    tests/test_planner_memory_ingest.py
     tests/test_cortex_planner_pack.py
     tests/test_cortex_planner_run.py
     tests/test_planner_proposal_schema.py

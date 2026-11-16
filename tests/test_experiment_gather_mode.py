@@ -11,15 +11,10 @@ Covers, with no live DB:
 - iris_planner: the experiment gather mode and its template-selection
   prompt retired with experiment generation 2 (#1649), so the planner always
   runs the plain gather, whatever the experiment environment says;
-- heartbeat quarantine: planner_memory_ingest_sync skips (structured log,
-  zero pool access) while experiment mode is armed.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-import logging
 import os
 import stat
 import subprocess
@@ -235,25 +230,6 @@ class TestIrisPlannerPlainGather:
         assert args[0] == ["/bin/bash", iris_planner.GATHER_SCRIPT]
         assert kwargs.get("env") is None
         assert not hasattr(iris_planner, "EXPERIMENT_MODE_ACK_MARKER")
-
-
-class TestHeartbeatQuarantine:
-    def test_planner_memory_ingest_skips_under_experiment_mode(self, monkeypatch, caplog):
-        from tasks.heartbeat import planner_memory_ingest_sync
-
-        _arm(monkeypatch)
-
-        class ForbiddenPool:
-            def acquire(self):
-                raise AssertionError("quarantined memory ingest must not touch the database")
-
-        with caplog.at_level(logging.INFO):
-            asyncio.run(planner_memory_ingest_sync(ForbiddenPool()))
-        quarantine = [json.loads(r.message) for r in caplog.records if "experiment_quarantine_skip" in r.message]
-        assert quarantine and quarantine[0]["phase"] == "planner_memory_ingest"
-
-
-# ─── migration 210 source contracts ───────────────────────────────────────
 
 
 class TestMigration210:
