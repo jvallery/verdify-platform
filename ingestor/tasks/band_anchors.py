@@ -280,9 +280,21 @@ def _round_for_push(param: str, value: float) -> float:
     return float(round(value))  # priorities + minute windows are integral
 
 
+# set_band_anchor keys the host no longer sends (#1633 phase 4): the law firmware reads none of them and the third
+# flash removes them, where the service would answer "unknown key". Their registry rows leave with the firmware
+# deletions in the third-flash pull request; until then they stay in ANCHOR_SYNC_PARAMS for the drift guard.
+ANCHOR_KEYS_NOT_SENT: frozenset[str] = frozenset(
+    {"wet_taper_before_sunset_min", "dawn_boost_offset_min", "midday_boost_offset_min"}
+)
+
+
 def desired_anchor_pushes(values: dict[str, float]) -> dict[str, float]:
-    """Push-ready (rounded) anchor tunable values in canonical order."""
-    return {param: _round_for_push(param, values[param]) for param in ANCHOR_SYNC_PARAMS}
+    """Push-ready (rounded) anchor tunable values in canonical order, without the keys the host no longer sends."""
+    return {
+        param: _round_for_push(param, values[param])
+        for param in ANCHOR_SYNC_PARAMS
+        if param not in ANCHOR_KEYS_NOT_SENT
+    }
 
 
 # ── Solar context ────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 import shared
-from entity_map import EQUIPMENT_SWITCH_MAP, SETPOINT_MAP
+from entity_map import EQUIPMENT_SWITCH_MAP, PARAM_TO_ENTITY, SETPOINT_MAP, SWITCH_TO_ENTITY
 
 from verdify_schemas.irrigation import (
     DEVICE_IDX,
@@ -31,6 +31,7 @@ from verdify_schemas.irrigation import (
     IrrigationCommandRow,
     program_chunks,
 )
+from verdify_schemas.tunable_registry import FIRMWARE_V2_STAGED_REG
 
 log = logging.getLogger("esp32_push")
 
@@ -356,6 +357,25 @@ def preserved_terminal_status(current_status: str | None, attempted_status: str)
     if current_status == "superseded" and attempted_status in {"sent", "failed", "cancelled", "superseded"}:
         return "superseded"
     return None
+
+
+def controller_omits_setting(param: str) -> bool:
+    """Whether the connected controller's entity list has arrived and names no setting entity for ``param``.
+
+    A host older or newer than the firmware must not fail delivery for a setting the controller does not have
+    (#1633 phase 4): the dispatcher, its reconcile, the band push and the notify listener send nothing for such a
+    parameter, and the confirmation monitor expects no readback for it. A controller that does list the entity is
+    unaffected, so a rollback to a build that still has the setting sends it again. Before the first entity list
+    arrives (no keys), nothing is omitted and the ordinary delivery path decides. A parameter with no number or
+    switch route, and no ``set_band_anchor`` key (they have number rows but go through the service), is never
+    omitted here.
+    """
+    keys = shared.esp32.get("keys") or {}
+    if not keys or param in FIRMWARE_V2_STAGED_REG:
+        # The staged anchors travel through the set_band_anchor service, not their (absent) number entities.
+        return False
+    object_id = SWITCH_TO_ENTITY.get(param) if param.startswith("sw_") else PARAM_TO_ENTITY.get(param)
+    return object_id is not None and object_id not in keys
 
 
 def _parameter_for(obj_id: str, entity_type: str) -> str:

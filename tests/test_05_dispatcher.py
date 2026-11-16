@@ -15,7 +15,7 @@ if INGESTOR_PATH not in sys.path:
 
 import shared  # noqa: E402
 from esp32_push import DeviceCommandOutcome  # noqa: E402
-from tasks import dispatcher  # noqa: E402
+from tasks import confirmation, dispatcher  # noqa: E402
 
 
 @pytest.mark.parametrize(
@@ -179,3 +179,41 @@ def test_expected_lifecycle_consumers_cover_full_state_vocabulary():
 def test_failed_reconcile_never_marks_transport_or_drift_trigger_complete():
     assert dispatcher._dispatch_trigger_completed([]) is True
     assert dispatcher._dispatch_trigger_completed([("mister_vpd_weight", "transport_disconnected")]) is False
+
+
+@pytest.mark.asyncio
+async def test_confirmation_awaits_no_readback_for_a_setting_the_controller_does_not_list(monkeypatch):
+    """#1633 phase 4 generic skip: the unconfirmed scan leaves out a parameter whose setting entity the connected
+    controller does not list, and keeps it while the controller lists it."""
+    from entity_map import PARAM_TO_ENTITY
+
+    param = "mister_vpd_weight"
+    scanned: list[list[str]] = []
+
+    class Connection:
+        async def fetch(self, query, *args):
+            if "sc.parameter = ANY($1::text[])" in query and "interval '1 hour'" in query:
+                scanned.append(list(args[0]))
+            return []
+
+        async def fetchval(self, *_args):
+            return None
+
+        async def execute(self, *_args):
+            return "UPDATE 0"
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    pool = MagicMock()
+    pool.acquire.side_effect = lambda: Acquire()
+    monkeypatch.setattr(shared, "esp32", {"client": object(), "keys": {"some_other_entity": 1}, "services": {}})
+    await confirmation.setpoint_confirmation_monitor(pool)
+    monkeypatch.setattr(shared, "esp32", {"client": object(), "keys": {PARAM_TO_ENTITY[param]: 1}, "services": {}})
+    await confirmation.setpoint_confirmation_monitor(pool)
+    assert len(scanned) == 2
+    assert param not in scanned[0] and param in scanned[1]

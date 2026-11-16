@@ -22,6 +22,7 @@ from esp32_push import (
     LifecyclePersistenceError,
     _experiment_hold_failure,
     component_bundle_hold,
+    controller_omits_setting,
     delivery_failure_retryable,
     delivery_transition_prior_statuses,
     experiment_policy_hold,
@@ -1263,6 +1264,14 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         prequeue_failures: list[tuple[str, str]] = []
         skipped_heap_deferred = 0
         for param, val in changes:
+            if controller_omits_setting(param):
+                # The connected controller has no entity for this setting (#1633 phase 4): no request row, no
+                # delivery failure. A controller that lists it again (a rollback) receives it on the next pass.
+                _log_desired_skip_once(param, "controller lists no setting entity")
+                continue
+            if param in band_anchors.ANCHOR_KEYS_NOT_SENT:
+                _log_desired_skip_once(param, "set_band_anchor key no longer sent")
+                continue
             source = _dispatch_source(param, quiet_params, outgoing_desired, outgoing_released)
             plan_owned = False  # no plan writes a setting (climate refactor 4.2)
 

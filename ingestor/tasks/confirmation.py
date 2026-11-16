@@ -5,6 +5,8 @@ original module. The tasks package __init__ re-exports the public
 surface so every `from tasks import X` still resolves.
 """
 
+from esp32_push import controller_omits_setting
+
 from ._common import (
     _READBACKABLE_PARAMS,
     FIRMWARE_HAS_PER_CIRCUIT_LIGHTING,
@@ -290,7 +292,8 @@ async def setpoint_confirmation_monitor(pool: asyncpg.Pool) -> None:
                )
              ORDER BY sc.ts DESC
             """,
-            _READBACKABLE_PARAMS,
+            # A setting the connected controller does not list has no readback to wait for (#1633 phase 4).
+            [param for param in _READBACKABLE_PARAMS if not controller_omits_setting(param)],
         )
         if not rows:
             return

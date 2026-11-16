@@ -560,6 +560,45 @@ async def test_a_desired_row_for_a_retired_unknown_or_read_only_parameter_never_
         assert sum(f"param={param} " in line for line in skipped) == 1, param  # logged once over two passes
 
 
+@pytest.mark.asyncio
+async def test_a_setting_the_controller_does_not_list_is_skipped_and_sent_again_when_it_is_listed(env, monkeypatch):
+    """#1633 phase 4 generic skip: a manual row for a setting whose entity the connected controller does not list
+    writes no request and raises no failure; a controller that lists it again (a rollback) gets it."""
+    manual, present = PLANNED[0], PLANNED[2]
+    connect(env, [manual, present])
+    listed = {_common.PARAM_TO_ENTITY[knob.param]: index for index, knob in enumerate(KNOBS)}
+    del listed[_common.PARAM_TO_ENTITY[manual.param]]
+    monkeypatch.setitem(shared.esp32, "keys", listed)
+    at = T0 - timedelta(minutes=1)
+    env.db.write(manual.param, manual.desired, at=at)
+    env.db.write(present.param, present.desired, at=at)
+
+    await env.run_pass()
+    await settle(env)
+    assert env.controller.sent_params() == [present.param]
+    assert env.db.rows_for(manual.param) == []
+    assert env.db.alert_types == [] and env.controller.refused == []
+
+    monkeypatch.setitem(shared.esp32, "keys", {_common.PARAM_TO_ENTITY[knob.param]: 0 for knob in KNOBS})
+    env.clock.advance(300)
+    await env.run_pass()
+    assert env.controller.sent_params()[1:] == [manual.param]
+
+
+def test_the_omission_rule_needs_an_entity_list_and_a_number_or_switch_route(monkeypatch):
+    knob = KNOBS[0]
+    monkeypatch.setattr(shared, "esp32", {"client": object(), "keys": {}, "services": {}})
+    assert not esp32_push.controller_omits_setting(knob.param)  # no entity list yet: the ordinary path decides
+    monkeypatch.setitem(shared.esp32, "keys", {"some_other_entity": 1})
+    assert esp32_push.controller_omits_setting(knob.param)
+    monkeypatch.setitem(shared.esp32, "keys", {_common.PARAM_TO_ENTITY[knob.param]: 1})
+    assert not esp32_push.controller_omits_setting(knob.param)
+    monkeypatch.setitem(shared.esp32, "keys", {"some_other_entity": 1})
+    anchor = sorted(band_anchors.ANCHOR_SYNC_PARAMS)[0]
+    assert not esp32_push.controller_omits_setting(anchor)  # a set_band_anchor key has no entity
+    assert not esp32_push.controller_omits_setting("no_such_setting")
+
+
 # ── AC 2: the control rule ────────────────────────────────────────────────────
 
 
