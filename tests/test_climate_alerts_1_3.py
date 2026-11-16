@@ -158,7 +158,7 @@ def test_an_acknowledged_warning_that_turns_critical_opens_again_so_it_pages():
 def test_a_plan_with_no_confirmed_write_after_it_raises_plan_not_delivered():
     created = T0 - timedelta(minutes=31)
     env = valid(alerts._plan_not_delivered_alert({"plan_created_at": created, "last_confirmed_at": None}))
-    assert (env.alert_type, env.severity) == ("plan_not_delivered", "critical")
+    assert (env.alert_type, env.severity) == ("plan_not_delivered", "warning")
     assert env.message.startswith("Iris's plan of 11:29 UTC has not reached the controller")
     assert alerts._plan_not_delivered_alert(None) is None
 

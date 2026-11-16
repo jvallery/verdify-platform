@@ -81,10 +81,15 @@ UTC", with `differing`, up to 20 `params` and `oldest_since`. Escalation re-open
 an acknowledged row, so the page is not lost to an earlier acknowledgement. It
 resolves when nothing differs. No dispatcher stage exempts it (the `held:c1`
 exemption is gone), and an ingestor restart cannot hide it; if the read fails, an
-open row stays open. A parameter with no readback in the last day is not judged.
+open row stays open. A parameter with no readback in the last day is not judged,
+and neither are the legacy band scalars (`temp_low`, `temp_high`, `vpd_low`,
+`vpd_high`) while `diagnostics.band_source` is `onchip_curve` or `corridor`: the
+controller does not use them then, and a restart leaves them on boot values. A
+controller restart opens nothing for a value the dispatcher re-pushes within 15
+minutes.
 The dashboard's stuck-delivery banner reads this alert.
 
-`plan_not_delivered` (critical, interim until plans end in packages 4.2 and 5.1)
+`plan_not_delivered` (warning, interim until plans end in packages 4.2 and 5.1)
 backs it up: the newest `setpoint_plan` is over 30 minutes old and no `plan` or
 `band` request was confirmed after it.
 

@@ -128,7 +128,7 @@ def every(t0, start, end, step=5 * MIN):
 
 
 async def delivery(conn) -> dict[str, float]:
-    rows = await conn.fetch(alerts._SETPOINT_DELIVERY_SQL, sorted(alerts.SECOND_READBACK_ABS_TOLERANCE_PARAMS))
+    rows = await conn.fetch(alerts._SETPOINT_DELIVERY_SQL, *alerts._setpoint_delivery_args())
     return {row["parameter"]: row["age_s"] for row in rows}
 
 
@@ -171,7 +171,7 @@ def test_delivery_reads_each_requested_value_against_its_readback(dsn):
         assert 44 * 60 <= ages["gl_main_sunset_hour"] <= 47 * 60
 
         env = alerts._setpoint_delivery_stuck_alert(
-            await conn.fetch(alerts._SETPOINT_DELIVERY_SQL, sorted(alerts.SECOND_READBACK_ABS_TOLERANCE_PARAMS))
+            await conn.fetch(alerts._SETPOINT_DELIVERY_SQL, *alerts._setpoint_delivery_args())
         )
         assert env["severity"] == "critical" and env["details"]["differing"] == 3
 
@@ -180,6 +180,78 @@ def test_delivery_reads_each_requested_value_against_its_readback(dsn):
         assert "temp_low" not in await delivery(conn)
 
     scenario(dsn, body)
+
+
+async def band_source(conn, ts, value):
+    await conn.execute("INSERT INTO diagnostics (ts, band_source) VALUES ($1, $2)", ts, value)
+
+
+def test_legacy_band_scalars_are_not_judged_while_the_controller_runs_its_own_band(dsn):
+    """K1: after the 2026-11-07 restart temp_low/temp_high/vpd_high sat on boot values for 9 days, unused."""
+
+    async def body(conn, t0):
+        for parameter, asked, boot in (("temp_low", 62.4, 45.0), ("temp_high", 79.3, 95.0), ("vpd_high", 1.4, 2.8)):
+            await request(conn, t0 - 3 * H, parameter, asked, confirmed_at=t0 - 3 * H + MIN)
+            await readbacks(conn, parameter, [(ts, asked if ts < t0 - 2 * H else boot) for ts in every(t0, 3 * H, MIN)])
+        await request(conn, t0 - 3 * H, "gl_main_sunset_hour", 20.0, confirmed_at=t0 - 3 * H + MIN)
+        await readbacks(
+            conn, "gl_main_sunset_hour", [(ts, 20.0 if ts < t0 - 2 * H else 19.0) for ts in every(t0, 3 * H, MIN)]
+        )
+        # Legacy band (or no diagnostics): the scalars are the band, so they count.
+        await band_source(conn, t0 - 2 * MIN, "dispatcher_legacy")
+        assert set(await delivery(conn)) == {"temp_low", "temp_high", "vpd_high", "gl_main_sunset_hour"}
+        for source in ("onchip_curve", "corridor"):
+            await band_source(conn, t0 - MIN if source == "onchip_curve" else t0, source)
+            assert set(await delivery(conn)) == {"gl_main_sunset_hour"}, source
+
+    scenario(dsn, body)
+
+
+def test_a_controller_restart_opens_nothing_for_values_the_dispatcher_re_pushes_within_15_minutes(dsn):
+    """K1: the restart reverts held settings to boot values; the dispatcher re-pushes them 3 to 10 minutes later."""
+    restart = 30 * MIN
+    held = {"gl_main_sunset_hour": (20.0, 19.0), "activity_start_hour": (7.0, 6.0), "mister_pulse_on_s": (30.0, 20.0)}
+    repushed_after = {"gl_main_sunset_hour": 3 * MIN, "activity_start_hour": 7 * MIN, "mister_pulse_on_s": 10 * MIN}
+
+    async def body(conn, t0):
+        for parameter, (asked, boot) in held.items():
+            back = t0 - restart + repushed_after[parameter]
+            await request(conn, t0 - 3 * H, parameter, asked, confirmed_at=t0 - 3 * H + MIN)
+            await request(conn, back - MIN, parameter, asked, confirmed_at=back)
+            await readbacks(
+                conn,
+                parameter,
+                [(ts, boot if t0 - restart <= ts < back else asked) for ts in every(t0, 3 * H, 0 * MIN, step=MIN)],
+            )
+        await band_source(conn, t0 - MIN, "onchip_curve")
+        assert await delivery(conn) == {}
+        assert (
+            alerts._setpoint_delivery_stuck_alert(
+                await conn.fetch(alerts._SETPOINT_DELIVERY_SQL, *alerts._setpoint_delivery_args())
+            )
+            is None
+        )
+
+    async def mid_restart(conn, t0):
+        # 12 minutes after a restart, before the slowest re-push lands: differing, but under the 15-minute floor.
+        for parameter, (asked, boot) in held.items():
+            await request(conn, t0 - 3 * H, parameter, asked, confirmed_at=t0 - 3 * H + MIN)
+            await readbacks(
+                conn,
+                parameter,
+                [(ts, boot if ts >= t0 - 12 * MIN else asked) for ts in every(t0, 3 * H, 0 * MIN, step=MIN)],
+            )
+        ages = await delivery(conn)
+        assert set(ages) == set(held) and max(ages.values()) < 13 * 60
+        assert (
+            alerts._setpoint_delivery_stuck_alert(
+                await conn.fetch(alerts._SETPOINT_DELIVERY_SQL, *alerts._setpoint_delivery_args())
+            )
+            is None
+        )
+
+    scenario(dsn, body)
+    scenario(dsn, mid_restart)
 
 
 def test_plan_not_delivered_waits_30_minutes_for_a_confirmed_write(dsn):

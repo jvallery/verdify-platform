@@ -81,6 +81,10 @@ ACTIVE_PLANTING_ZONES_SQL = (
 SETPOINT_DELIVERY_STUCK_AFTER = _td(minutes=15)
 SETPOINT_DELIVERY_CRITICAL_AFTER = _td(minutes=45)
 SETPOINT_DELIVERY_STUCK_MAX_PARAMS = 20
+# K1: the legacy pushed band scalars are not used while the controller runs its own band (diagnostics.band_source
+# onchip_curve or corridor); a restart leaves them on boot values for days, so they are not judged then ($2, $3).
+LEGACY_BAND_SCALARS = ("temp_high", "temp_low", "vpd_high", "vpd_low")
+ONCHIP_BAND_SOURCES = ("corridor", "onchip_curve")
 # The readback match is the snapshot confirmation's own (ingestor._publish_setpoint_snapshot): within 1 %, or
 # within 1 s for the quantized second-valued settings ($1).
 _READBACK_MATCH = """(abs({a} - {b}) / greatest(abs({b}), 1e-3) < 0.01
@@ -90,6 +94,10 @@ WITH requested AS (
     SELECT DISTINCT ON (parameter) parameter, ts, value, confirmed_at, delivery_status
       FROM setpoint_changes
      WHERE COALESCE(source, '') <> 'esp32' AND ts > now() - interval '60 days'
+       AND NOT (parameter = ANY($2::text[]) AND COALESCE((
+           SELECT d.band_source FROM diagnostics d
+            WHERE d.band_source IS NOT NULL AND d.ts > now() - interval '1 day'
+            ORDER BY d.ts DESC LIMIT 1), '') = ANY($3::text[]))
      ORDER BY parameter, ts DESC
 ), differing AS (
     SELECT q.parameter, q.value, q.confirmed_at
@@ -137,7 +145,9 @@ def _setpoint_delivery_stuck_alert(rows: Sequence[Mapping]) -> dict[str, object]
 
     ``rows`` are ``_SETPOINT_DELIVERY_SQL``'s: each differing setting, since when and its age in seconds by the
     database clock. Every pushed value counts, lighting and operator switches included; no dispatcher stage
-    exempts it.
+    exempts it. The one exception is K1's: the legacy band scalars while the controller runs its own band. A
+    controller restart opens nothing for a value the dispatcher re-pushes within 15 minutes: its age runs from the
+    first readback that differs, and the matching readback after the re-push ends it.
     """
     stuck = [row for row in rows if row["age_s"] > SETPOINT_DELIVERY_STUCK_AFTER.total_seconds()]
     if not stuck:
@@ -166,11 +176,17 @@ def _setpoint_delivery_stuck_alert(rows: Sequence[Mapping]) -> dict[str, object]
     }
 
 
+def _setpoint_delivery_args() -> tuple[list[str], list[str], list[str]]:
+    """``_SETPOINT_DELIVERY_SQL``'s parameters: the 1 s tolerance settings, the legacy band scalars, the on-chip
+    band sources."""
+    return sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS), list(LEGACY_BAND_SCALARS), list(ONCHIP_BAND_SOURCES)
+
+
 async def _setpoint_delivery_cycle(conn) -> tuple[dict | None, frozenset[str]]:
     """The stuck envelope, and the types to keep open: when the read fails the state is unknown, so an open row
     neither resolves nor is raised again."""
     try:
-        rows = await conn.fetch(_SETPOINT_DELIVERY_SQL, sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS))
+        rows = await conn.fetch(_SETPOINT_DELIVERY_SQL, *_setpoint_delivery_args())
     except Exception as e:
         log.warning("setpoint delivery check failed: %s", e)
         return None, frozenset({"setpoint_delivery_stuck"})
@@ -195,14 +211,14 @@ SELECT p.created_at AS plan_created_at,
 
 
 def _plan_not_delivered_alert(row: Mapping | None) -> dict | None:
-    """The critical plan_not_delivered envelope for ``_PLAN_NOT_DELIVERED_SQL``'s row, None without one."""
+    """The plan_not_delivered warning for ``_PLAN_NOT_DELIVERED_SQL``'s row, None without one."""
     if row is None:
         return None
     created = row["plan_created_at"]
     confirmed = row["last_confirmed_at"]
     return {
         "alert_type": "plan_not_delivered",
-        "severity": "critical",
+        "severity": "warning",
         "category": "system",
         "sensor_id": "planner",
         "zone": None,
