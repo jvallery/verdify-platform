@@ -393,6 +393,14 @@ def test_retired_irrigation_clocks_fert_cadence_and_center_bursts_are_not_writab
 # row's cfg_readback_object_id — #420.)
 
 
+# The host side of a firmware output ships before the flash that publishes it (climate refactor, RULINGS C6), so these
+# keys pass whether or not the firmware in this tree emits them yet, and the firmware PR need not edit this file.
+# Remove an entry once the build that publishes it is the last-good build.
+HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
+    "STATE_MAP": {"relay_counters", "outdoor_source"},
+}
+
+
 @pytest.mark.parametrize("map_name", MAP_NAMES)
 def test_entity_map_keys_exist_in_firmware(map_name, fw_ids, entity_map):
     """Every key in <map_name> must be a real firmware entity id, except
@@ -401,7 +409,7 @@ def test_entity_map_keys_exist_in_firmware(map_name, fw_ids, entity_map):
     if em_map is None:
         pytest.skip(f"{map_name} not present in entity_map")
     expected = set(em_map.keys())
-    allowed_drift = KNOWN_PRE_EXISTING_DRIFT.get(map_name, set())
+    allowed_drift = KNOWN_PRE_EXISTING_DRIFT.get(map_name, set()) | HOST_BEFORE_FIRMWARE.get(map_name, set())
     new_missing = sorted((expected - fw_ids) - allowed_drift)
     assert not new_missing, (
         f"{map_name} has {len(new_missing)} NEW entity id(s) the firmware doesn't emit: "

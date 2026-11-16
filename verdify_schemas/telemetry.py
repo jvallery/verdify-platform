@@ -259,7 +259,8 @@ class Diagnostics(BaseModel):
     last_sntp_sync_age_s: int | None = Field(default=None, ge=0)
     # Firmware-v2 (#327) text evidence surface — the device's own decision
     # telemetry. `band_source` = which band the device actually obeys
-    # ("onchip_curve" | "dispatcher_legacy"); `zone_wet_granted` = which zone the
+    # ("onchip_curve" | "dispatcher_legacy", and from the phase 2 build "corridor": the on-chip band while the
+    # controller's clock is not trusted, the widest edges of the anchors); `zone_wet_granted` = which zone the
     # priority arbiter granted wetting to this cycle ("none"|center|south|west|east).
     band_source: str | None = Field(default=None)
     zone_wet_granted: str | None = Field(default=None)
@@ -372,6 +373,31 @@ class EnergySample(BaseModel):
     ch1_entity_id: str | None = None
     ch0_quality: str | None = None
     ch1_quality: str | None = None
+
+
+_UINT32_MAX = 0xFFFFFFFF
+
+
+class RelayCounters(BaseModel):
+    """``relay_counters`` (phase 2 firmware, climate refactor plan section 10): lifetime counters the controller keeps
+    in RAM, saves to flash at most hourly and never resets at midnight. Starts of the electric heater (``h1``), the
+    furnace (``h2``), the two fans, the fogger (``fg``) and the vent (``vt``); on-seconds of the two fans.
+
+    Stored as the ``relay_counters`` row of ``system_state`` (on change). After a restart a counter may step back by
+    up to one hour's accumulation: a reader takes differences and counts a negative one as no count for that interval.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    v: Literal[1]
+    h1: int = Field(ge=0, le=_UINT32_MAX)
+    h2: int = Field(ge=0, le=_UINT32_MAX)
+    f1: int = Field(ge=0, le=_UINT32_MAX)
+    f2: int = Field(ge=0, le=_UINT32_MAX)
+    fg: int = Field(ge=0, le=_UINT32_MAX)
+    vt: int = Field(ge=0, le=_UINT32_MAX)
+    f1s: int = Field(ge=0, le=_UINT32_MAX)
+    f2s: int = Field(ge=0, le=_UINT32_MAX)
 
 
 class SystemStateRow(BaseModel):

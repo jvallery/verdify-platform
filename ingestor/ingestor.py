@@ -149,7 +149,7 @@ from verdify_schemas.experiment_config import (
 )
 from verdify_schemas.policy_transport import POLICY_IDENTITY_SENSOR
 from verdify_schemas.policy_vector import wire_fields
-from verdify_schemas.telemetry import expand_moisture_exchange_wire
+from verdify_schemas.telemetry import RelayCounters, expand_moisture_exchange_wire
 from verdify_schemas.tunable_registry import get as get_tunable
 
 # ──────────────────────────────────────────────────────────────
@@ -3720,6 +3720,12 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
                 except (ValueError, TypeError):
                     log.warning("Moisture-exchange detail has an unsupported wire shape")
                     val = '{"raw":"unsupported_moisture_exchange_detail"}'
+            elif obj_id == "relay_counters":
+                try:
+                    val = RelayCounters.model_validate_json(val).model_dump_json()
+                except ValidationError:
+                    log.warning("Relay counters payload rejected: not a version 1 counter object")
+                    return
             old = state.system.get(entity)
             force_refresh = entity in {"gl_main_state", "gl_main_reason", "gl_grow_state", "gl_grow_reason"}
             if old != val or force_refresh:

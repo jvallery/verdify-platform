@@ -496,6 +496,42 @@ _IRR_NO_OUTCOME_AFTER = _td(hours=2)
 _IRR_MISSED_WINDOW = _td(hours=24)
 _IRR_CLIMATE_GAP = _td(seconds=300)
 _IRR_NEWEST_STATE_WINDOW = "400 days"  # all three change rarely and system_state keeps every row
+# No valid indoor reading (climate refactor decision 7): the controller publishes its SENSOR_FAULT state and cannot raise
+# a host alert itself, so a state held this long opens a critical alert (phase 2 entities contract).
+SENSOR_FAULT_ALERT_AFTER_S = 120
+_SENSOR_FAULT_SQL = f"""
+SELECT s.ts AS since,
+       (SELECT value FROM system_state
+         WHERE entity = 'mode_reason' AND ts > now() - interval '{_IRR_NEWEST_STATE_WINDOW}'
+         ORDER BY ts DESC LIMIT 1) AS mode_reason
+  FROM (SELECT ts, value FROM system_state
+         WHERE entity = 'greenhouse_state' AND ts > now() - interval '{_IRR_NEWEST_STATE_WINDOW}'
+         ORDER BY ts DESC LIMIT 1) AS s
+ WHERE s.value = 'SENSOR_FAULT' AND s.ts <= now() - make_interval(secs => $1)
+"""
+
+
+async def _sensor_fault_alert(conn) -> dict | None:
+    """The sensor_fault alert while the controller's newest greenhouse_state is SENSOR_FAULT and has been for
+    SENSOR_FAULT_ALERT_AFTER_S, naming its mode_reason; None otherwise."""
+    fault = await conn.fetchrow(_SENSOR_FAULT_SQL, SENSOR_FAULT_ALERT_AFTER_S)
+    if fault is None:
+        return None
+    reason = fault["mode_reason"]
+    return {
+        "alert_type": "sensor_fault",
+        "severity": "critical",
+        "category": "sensor",
+        "sensor_id": "system.greenhouse_state",
+        "zone": None,
+        "message": "No valid indoor reading: the controller is acting on the outdoor air alone"
+        + (f" ({reason})" if reason else ""),
+        "details": {"since": fault["since"].isoformat(), "mode_reason": reason},
+        "metric_value": None,
+        "threshold_value": float(SENSOR_FAULT_ALERT_AFTER_S),
+    }
+
+
 _IRR_NEWEST_STATES_SQL = f"""
 SELECT e.entity, s.value
   FROM unnest($1::text[]) AS e(entity)
@@ -1600,6 +1636,11 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                         "threshold_value": 100.0,
                     }
                 )
+
+        # 4a. No valid indoor reading: the controller has been in SENSOR_FAULT for SENSOR_FAULT_ALERT_AFTER_S
+        fault = await _sensor_fault_alert(conn)
+        if fault is not None:
+            alerts.append(fault)
 
         # 4b. VPD extreme
         vpd_row = await conn.fetchrow(

@@ -331,6 +331,11 @@ STATE_MAP: dict[str, str] = {
     # What the running build takes, beside its version (#1343 follow-up): the API offers a fog run-once only while
     # this names fog_run for the firmware_version the controller reports.
     "irr_caps": "irr_caps",
+    # Phase 2 firmware (climate refactor, package 1.5): lifetime relay counters as one JSON object, validated by
+    # verdify_schemas.telemetry.RelayCounters before it is stored; and which outdoor reading the controller uses
+    # (station | intake | none).
+    "relay_counters": "relay_counters",
+    "outdoor_source": "outdoor_source",
 }
 
 # ──────────────────────────────────────────────────────────────

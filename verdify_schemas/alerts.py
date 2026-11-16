@@ -81,6 +81,7 @@ AlertType = Literal[
     "planner_tunable_range_drift",
     "relay_stuck",
     "safety_invalid",
+    "sensor_fault",
     "sensor_offline",
     "setpoint_delivery_stuck",
     "setpoint_unconfirmed",
@@ -136,6 +137,7 @@ ALERT_TYPES: tuple[str, ...] = (
     "planner_tunable_range_drift",
     "relay_stuck",
     "safety_invalid",
+    "sensor_fault",
     "sensor_offline",
     "setpoint_delivery_stuck",
     "setpoint_unconfirmed",
@@ -249,6 +251,15 @@ class VentMoistureCapacityLimitDetails(_DetailsBase):
 
 class TempSafetyDetails(_DetailsBase):
     temp_f: float
+
+
+class SensorFaultDetails(_DetailsBase):
+    """The controller's SENSOR_FAULT state (climate refactor decision 7, RULINGS B1): no valid indoor reading, so it
+    acts on the outdoor air alone. ``mode_reason`` says which branch: ``no_indoor_vent``, ``no_indoor_heat`` or
+    ``no_indoor_off`` from the phase 2 build, ``sensor_fault`` from earlier builds."""
+
+    since: AwareDatetime
+    mode_reason: str | None = None
 
 
 class VpdExtremeDetails(_DetailsBase):
@@ -659,6 +670,11 @@ class TempSafetyAlert(_AlertBase):
     details: TempSafetyDetails
 
 
+class SensorFaultAlert(_AlertBase):
+    alert_type: Literal["sensor_fault"]
+    details: SensorFaultDetails
+
+
 class VpdExtremeAlert(_AlertBase):
     alert_type: Literal["vpd_extreme"]
     details: VpdExtremeDetails
@@ -1020,6 +1036,7 @@ AlertEnvelopeUnion = Annotated[
     | PlannerTunableRangeDriftAlert
     | RelayStuckAlert
     | SafetyInvalidAlert
+    | SensorFaultAlert
     | SensorOfflineAlert
     | SetpointDeliveryStuckAlert
     | SetpointUnconfirmedAlert

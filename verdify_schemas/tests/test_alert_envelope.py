@@ -50,6 +50,7 @@ from verdify_schemas.alerts import (
     PlannerTunableRangeDriftAlert,
     RelayStuckAlert,
     SafetyInvalidAlert,
+    SensorFaultAlert,
     SensorOfflineAlert,
     SetpointDeliveryStuckAlert,
     SetpointUnconfirmedAlert,
@@ -478,6 +479,10 @@ CASES = {
             "samples": 1700,
             "occupancy": "occupied",
         },
+    ),
+    "sensor_fault": (
+        SensorFaultAlert,
+        {"since": "2026-11-16T05:00:00+00:00", "mode_reason": "no_indoor_heat"},
     ),
     "soil_sensor_offline": (
         SoilSensorOfflineAlert,
