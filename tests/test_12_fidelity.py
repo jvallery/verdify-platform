@@ -2251,6 +2251,8 @@ def test_law_humidity_rules_hold_on_the_case_sensor():
     assert "law_in.humidity_valid = law_temp_valid && indoor.humidity_valid;" not in controls
     # The press and the centre bursts keep indoor.humidity_valid; nothing else reads the law's validity.
     assert controls.count("law_in.humidity_valid") == 1
+    # The log says so on the case sensor (review AG1-1).
+    assert '"Wall averages missing: case probe alone (less %.1f°F); humidity control held (AG1)"' in controls
 
 
 def test_law_fog_dew_margin_hold_is_named_in_the_telemetry():

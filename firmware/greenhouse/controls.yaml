@@ -263,7 +263,7 @@ interval:
                 ESP_LOGW("sensor", "Indoor humidity invalid (%s temperature): humidity control held",
                          indoor.source == IndoorSource::kWall ? "wall" : "case");
               } else if (indoor.source == IndoorSource::kCase) {
-                ESP_LOGW("sensor", "Wall averages missing: case probe alone (less %.1f°F)",
+                ESP_LOGW("sensor", "Wall averages missing: case probe alone (less %.1f°F); humidity control held (AG1)",
                          running_alone_k::CASE_SENSOR_OFFSET_F);
               } else {
                 ESP_LOGI("sensor", "Wall averages in use");
