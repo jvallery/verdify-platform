@@ -718,6 +718,9 @@ interval:
           static climate_law::State law_state;
           bool law_band_repaired = false;
           const climate_law::Output law = climate_law::step_checked(law_state, law_in, &law_band_repaired);
+          // T6 S4/F6/I4/E-m3: every consumer of the band reads the band the law acted on
+          // (check_band() repaired), not the raw edges.
+          const climate_law::Band law_band = climate_law::check_band(law_in.band).band;
           Mode mode = boot_wait ? IDLE
               : !law_temp_valid ? SENSOR_FAULT
               : law.hot ? SAFETY_COOL
@@ -756,13 +759,15 @@ interval:
           no_indoor_prev = mode == SENSOR_FAULT;
           if (mode == SENSOR_FAULT) {
             static NoIndoorBranch no_indoor_last = NoIndoorBranch::kOff;
+            // T6 S4: a finite corridor low edge, else the checked band's low edge.
+            const float no_indoor_low = std::isfinite(corridor.temp_low) ? corridor.temp_low : float(law_band.low);
             const NoIndoorBranch no_indoor = no_indoor_branch(
-                outdoorT, outdoor_age, corridor.temp_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last);
+                outdoorT, outdoor_age, no_indoor_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last);
             relay_out = no_indoor_relays(no_indoor, leadIs1);
             law_request = climate_law::output_from_relays(relay_out);  // through the same relay layer
             if (no_indoor_entry || no_indoor != no_indoor_last) {
               ESP_LOGE("sensor_fault", "No indoor temperature: %s (outdoor %.1f°F, age %u s, corridor low %.1f°F)",
-                       no_indoor_reason(no_indoor), outdoorT, (unsigned) outdoor_age, corridor.temp_low);
+                       no_indoor_reason(no_indoor), outdoorT, (unsigned) outdoor_age, no_indoor_low);
             }
             no_indoor_last = no_indoor;
           }
@@ -811,7 +816,7 @@ interval:
           // and the law's cold-house guard (below the band's low edge).
           const char* manual_fog_safety_block =
               (law_in.humidity_valid && Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "dew_margin"
-              : (law_temp_valid && Tin < sv2_temp_low) ? "temp_low"
+              : (law_temp_valid && Tin < law_band.low) ? "temp_low"
               : "";
 
           // Phase 3: sw_fog_closes_vent and sw_mister_closes_vent are inert; the law
@@ -1060,7 +1065,7 @@ interval:
             // The zone gate's safety term (plan 8.7): no occupancy, no feed hold, house VPD
             // above the band's high edge, the compiled wetting dew margin; no clock term.
             const bool climate_wet_assist_safety_ok = climate_law::zone_gate_safety_ok(
-              occupancy_moisture_block, feed_hold_active, VPD, sv2_vpd_high, wet_dew_margin_f);
+              occupancy_moisture_block, feed_hold_active, VPD, law_band.vpd_high, wet_dew_margin_f);
             // F6 (#1161): one rule per mister zone (L04 center, L07 south, L09 west),
             // irr_climate_zone_allowed(): the demand and its safety term, the zone an
             // effective VPD member, not backing off or latched by the watchdog, its duty
@@ -1150,7 +1155,7 @@ interval:
             mister_in.zone_vpd[ZONE_SOUTH] = south_vpd;
             mister_in.zone_vpd[ZONE_WEST] = west_vpd;
             mister_in.zone_vpd[ZONE_EAST] = east_vpd;
-            mister_in.vpd_high = sv2_vpd_high;
+            mister_in.vpd_high = law_band.vpd_high;
             for (int z = 0; z < ZONE_COUNT; z++) mister_in.since_fire_ms[z] = mister_since_fire_ms[z];
             const uint32_t mister_min_off_ms = uint32_t(climate_law::MISTER_MIN_OFF_S * climate_law::MS_PER_S);
             mister_in.min_off_ready[ZONE_CENTER] = now_ms - id(last_off_center_ms) >= mister_min_off_ms;
@@ -1183,7 +1188,7 @@ interval:
                 id(mister_selected_zone) = legacy_zone;
                 id(mister_vpd_at_start) = avg_vpd;
                 ESP_LOGI("mister", "PULSE zone=%d %ums (VPD=%.2f, high=%.2f)", legacy_zone,
-                         (unsigned) mister_cmd.pulse_ms, avg_vpd, sv2_vpd_high);
+                         (unsigned) mister_cmd.pulse_ms, avg_vpd, law_band.vpd_high);
               } else {
                 id(mister_pulse_zone) = 0;
                 ESP_LOGI("mister", "MANIFOLD-HOLD zone=%d", legacy_zone);
@@ -1196,7 +1201,7 @@ interval:
             if (id(south_wall_mister).state || id(west_wall_mister).state || id(center_mister).state) {
               snprintf(moisture_block_reason, sizeof(moisture_block_reason), "served");
             } else if (!law.mist) {
-              snprintf(moisture_block_reason, sizeof(moisture_block_reason), "no_humidity_demand");
+              snprintf(moisture_block_reason, sizeof(moisture_block_reason), "no_vpd_demand");  // T6 C-m4: today's word
             } else if (budget_block) {
               snprintf(moisture_block_reason, sizeof(moisture_block_reason), "water_budget");
             } else if (occupancy_blocks) {
@@ -1276,21 +1281,42 @@ interval:
           /**************** 14 — Telemetry & debug *******************************/
           // Phase 3: the 11.1 label of the relays as they are (climate_law::legacy_state()),
           // so every consumer of the mode vocabulary keeps working; the boot grace stays IDLE.
+          // T3: the same label (published_label()) drives climate_action and the axis below.
+          climate_law::LegacyInputs legacy_in{};
+          legacy_in.sensor_fault = mode == SENSOR_FAULT;
+          legacy_in.T = Tin;
+          legacy_in.vpd = VPD;
+          legacy_in.band = law_band;
+          legacy_in.vent_on = id(vent_rly)->state;
+          legacy_in.fog_on = id(fog_rly)->state;
+          legacy_in.mister_on = id(south_wall_mister).state || id(west_wall_mister).state || id(center_mister).state;
+          legacy_in.heat1_on = id(heat1_rly)->state;
+          legacy_in.heat2_on = id(heat2_rly)->state;
+          legacy_in.drying = law.drying;
+          const climate_law::LegacyState legacy =
+              climate_law::published_label(climate_law::legacy_state(legacy_in), boot_wait);
+          if (!boot_wait) mode = legacy.mode;
+          ctl_state.mist_stage = legacy.mist_stage;  // the label's suffix only; nothing decides on it
+          // F9 (#1161): the force-off words come from the same rule as the fog gate and
+          // the relay (fog_force_off_reason()), so while survival fog runs in SAFETY_COOL
+          // this never reads irrigation, resource_budget or water_ceiling, and no leak.
+          // T3: computed here so climate_fog_block_reason (below) and fog_block_reason
+          // (OBS-1e) read the one ladder.
+          char fog_block_reason[64];
           {
-            climate_law::LegacyInputs legacy_in{};
-            legacy_in.sensor_fault = mode == SENSOR_FAULT;
-            legacy_in.T = Tin;
-            legacy_in.vpd = VPD;
-            legacy_in.band = law_in.band;
-            legacy_in.vent_on = id(vent_rly)->state;
-            legacy_in.fog_on = id(fog_rly)->state;
-            legacy_in.mister_on = id(south_wall_mister).state || id(west_wall_mister).state || id(center_mister).state;
-            legacy_in.heat1_on = id(heat1_rly)->state;
-            legacy_in.heat2_on = id(heat2_rly)->state;
-            legacy_in.drying = law.drying;
-            const climate_law::LegacyState legacy = climate_law::legacy_state(legacy_in);
-            if (!boot_wait) mode = legacy.mode;
-            ctl_state.mist_stage = legacy.mist_stage;  // the label's suffix only; nothing decides on it
+            const char* fog_forced_reason = fog_force_off_reason(mode, fog_rails);
+            if(fog_forced_reason[0] != '\0') {
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", fog_forced_reason);
+            } else if(manual_fog_requested && manual_fog_safety_block[0] != '\0') {
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", manual_fog_safety_block);
+            } else if(id(fog_rly)->state) {
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "served");
+            } else if(law_request.fog && !id(fog_rly)->state) {
+              // Phase 3: the law asks for fog and the fogger waits its minimum off time.
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "relay_min_off");
+            } else {
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "none");
+            }
           }
           // Phase 3 (contract phase3-entities): the drying meter, the law's state record
           // (on every change but the cost, and every 60 s), the meter (every 300 s) and the
@@ -1308,11 +1334,10 @@ interval:
             keyed.dry_cost = NAN;  // the cost alone does not trigger a publish
             char key[256];
             climate_law::format_state_record(key, sizeof(key), law_state, keyed, law_in.dry_cost_limit,
-                                             law_band_repaired, climate_law::check_band(law_in.band).band);
+                                             law_band_repaired, law_band);
             if (!law_record_sent || strcmp(key, law_record_key) != 0 || now_ms - law_record_ms >= 60000UL) {
               climate_law::format_state_record(law_record, sizeof(law_record), law_state, law,
-                                               law_in.dry_cost_limit, law_band_repaired,
-                                               climate_law::check_band(law_in.band).band);
+                                               law_in.dry_cost_limit, law_band_repaired, law_band);
               id(gh_climate_law_state).publish_state(law_record);
               snprintf(law_record_key, sizeof(law_record_key), "%s", key);
               law_record_ms = now_ms;
@@ -1350,7 +1375,10 @@ interval:
 
           /*** ClimateIntent controller decision — primary path telemetry ***/
           {
-            ClimateActionDecision climate_decision = describe_effective_climate_decision(mode, sensor_in, setpts, ctl_state, relay_out);
+            // T3: the law's label, drying run and fog threshold (climate_law_glue.h), not the
+            // mode machine's never-stepped ctl_state.
+            ClimateActionDecision climate_decision = climate_law::describe_law_decision(
+                legacy, sensor_in, setpts, ctl_state, law, law_band, law_in.out_ok, fog_block_reason);
             const char* climate_action = CLIMATE_ACTION_NAMES[climate_decision.climate_action];
             const char* priority_axis = CLIMATE_PRIORITY_AXIS_NAMES[climate_decision.priority_axis];
             const char* moisture_state = CLIMATE_MOISTURE_ASSIST_STATE_NAMES[climate_decision.moisture_assist_state];
@@ -1628,24 +1656,7 @@ interval:
               snprintf(last_overrides, sizeof(last_overrides), "%s", overrides);
             }
 
-            // F9 (#1161): the force-off words come from the same rule as the fog gate and
-            // the relay (fog_force_off_reason()), so while survival fog runs in SAFETY_COOL
-            // this never reads irrigation, resource_budget or water_ceiling, and no leak.
-            char fog_block_reason[64];
-            const char* fog_forced_reason = fog_force_off_reason(mode, fog_rails);
-            if(fog_forced_reason[0] != '\0') {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", fog_forced_reason);
-            } else if(manual_fog_requested && manual_fog_safety_block[0] != '\0') {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", manual_fog_safety_block);
-            } else if(id(fog_rly)->state) {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "served");
-            } else if(law_request.fog && !id(fog_rly)->state) {
-              // Phase 3: the law asks for fog and the fogger waits its minimum off time.
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "relay_min_off");
-            } else {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "none");
-            }
-
+            // fog_block_reason: the ladder computed with the label above (T3).
             static char last_fog_block_reason[64] = "";
             if(strcmp(last_fog_block_reason, fog_block_reason) != 0){
               id(gh_fog_block_reason).publish_state(fog_block_reason);

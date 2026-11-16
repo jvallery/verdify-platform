@@ -695,6 +695,49 @@ static void glue_fog_demand_and_sync() {
   CHECK(restarted_after >= int(FOG_MIN_OFF_S), "S2: the fogger waits its minimum off time after an outside cut");
 }
 
+// -- T3: the climate decision telemetry is the law's label, not the mode machine's ------------
+static void law_decision_telemetry() {
+  SensorInputs in{};
+  in.temp_f = 75.0f;
+  in.vpd_kpa = 1.6f;
+  Setpoints sp{};
+  sp.temp_low = 65.0f; sp.temp_high = 80.0f; sp.vpd_low = 0.8f; sp.vpd_high = 1.25f;
+  const ControlState st = initial_state();
+  L::LegacyInputs li{};
+  li.T = 75.0; li.vpd = 1.6; li.band = kBand;
+  L::Output law{};
+  auto decide = [&](const L::LegacyInputs& x, bool boot) {
+    return L::describe_law_decision(L::published_label(L::legacy_state(x), boot), in, sp, st, law, kBand, true,
+                                    "served");
+  };
+  li.vent_on = true; li.fog_on = true;
+  ClimateActionDecision d = decide(li, false);
+  CHECK(d.climate_action == CLIMATE_VENT_COOL_FOG_ASSIST, "T3: vent + fog publishes VENT_COOL_FOG_ASSIST");
+  CHECK(d.priority_axis == CLIMATE_PRIORITY_TEMP, "T3: its axis");
+  CHECK(std::strcmp(d.fog_block_reason, "none") == 0, "T3: climate_fog_block_reason none while the fogger runs");
+  li.fog_on = false; li.mister_on = true;
+  d = decide(li, false);
+  CHECK(d.climate_action == CLIMATE_VENT_COOL_MIST_ASSIST, "T3: vent + mister publishes VENT_COOL_MIST_ASSIST");
+  li = L::LegacyInputs{}; li.T = 66.0; li.vpd = 1.0; li.band = kBand; li.heat1_on = true;
+  d = decide(li, false);
+  CHECK(d.climate_action == CLIMATE_HEAT, "T3: a heater relay on (request off or not) publishes HEAT");
+  CHECK(d.priority_axis == CLIMATE_PRIORITY_TEMP, "T3: HEAT has the temperature axis (no heat_dehum override)");
+  d = decide(li, true);
+  CHECK(d.climate_action == CLIMATE_IDLE, "T3: IDLE during the boot grace");
+  li = L::LegacyInputs{}; li.T = 75.0; li.vpd = 0.6; li.band = kBand; li.vent_on = true; li.drying = true;
+  law = L::Output{}; law.drying = true; law.vent = true; law.fans = 1;
+  d = decide(li, false);
+  CHECK(d.climate_action == CLIMATE_DEHUM_VENT, "T3: a drying run publishes DEHUM_VENT");
+  CHECK(std::strcmp(d.moisture_exchange_action, "vent_dehum") == 0, "T3: moisture exchange = the drying run");
+  CHECK(d.moisture_outdoor_fresh, "T3: of = the law's outdoor validity");
+  law = L::Output{}; law.dry_refusal = L::DRY_NO_OUTDOOR;
+  d = L::describe_law_decision(L::LegacyState{IDLE, MIST_WATCH, CLIMATE_IDLE, CLIMATE_PRIORITY_VPD}, in, sp, st, law,
+                               kBand, false, "relay_min_off");
+  CHECK(std::strcmp(d.moisture_exchange_action, "none") == 0 && std::strcmp(d.moisture_exchange_reason, "no_outdoor") == 0,
+        "T3: no run: a = none, r = the law's refusal");
+  CHECK(std::strcmp(d.fog_block_reason, "relay_min_off") == 0, "T3: the ladder's other words pass through");
+}
+
 static void band_check() {
   L::BandCheck c = L::check_band({60.7, 83.8, 0.74, 1.29});
   CHECK(!c.repaired, "today's band passes unchanged");
@@ -1230,6 +1273,7 @@ int main() {
   relay_layer();
   protection_clears_overrides();
   glue_fog_demand_and_sync();
+  law_decision_telemetry();
   band_check();
   invariants();
   mister_request();
