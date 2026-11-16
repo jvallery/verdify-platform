@@ -1201,6 +1201,39 @@ def sealed_sql_314():
     )
 
 
+REPLAYED_GAPS_COUNTER_CHECK_MIGRATION = (
+    315,
+    "315-replayed-gaps-counter-check-and-health.sql",
+    "c5ab113f7d41fe893ba46d0cd798e937e30b40fa042357f0a433515b634fe754",
+)
+# Replayed gaps stop counting as missing, the relay counter check and three health columns (#1633, host release 4;
+# RULINGS AF7, AF9, AF10): v_data_trust_ledger and v_irrigation_day_coverage read v_data_gaps_unreplayed, the dashboard
+# and ingestor duties read v_relay_counter_reconciliation_daily, and three nullable diagnostics columns are appended to the ingestor's
+# write facade with INSERT for the ingestor duty, so the ingestor seal moves and the api and MCP seals are measured
+# again (record: tests/fixtures/315-replayed-gaps-counter-check-and-health-native-qualification.json). Until the probe
+# measures them, the literals are 314's (fail closed).
+SUCCESSOR_315 = {
+    **SUCCESSOR_314,
+    "api": "e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373",
+    "ingestor": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc",
+}
+
+
+def sealed_sql_315():
+    # Keep every 314 predicate and bind the exact 315 runner stamp with its successor seals.
+    predecessor = sealed_sql_314()
+    current = seal_profile_sql(314, SUCCESSOR_314)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(315, SUCCESSOR_315), 1)
+        + " AND "
+        + ledger_row_sql(*REPLAYED_GAPS_COUNTER_CHECK_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1273,6 +1306,8 @@ def sealed_sql():
         + sealed_sql_313()
         + " OR "
         + sealed_sql_314()
+        + " OR "
+        + sealed_sql_315()
         + ")"
     )
 

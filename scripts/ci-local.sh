@@ -166,6 +166,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_daily_review_task.py
     tests/test_314_controller_health_and_gap_ledger_delivery.py
     tests/test_observation_spool_projection.py
+    tests/test_315_replayed_gaps_counter_check_and_health_delivery.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py

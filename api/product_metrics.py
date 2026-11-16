@@ -519,9 +519,13 @@ FLOW_SQL = "SELECT " + ", ".join(
     f"(SELECT count(*) FROM {table} WHERE ts > now() - interval '5 minutes') AS {table}" for table in FLOW_TABLES
 )
 
+# Outage only: 314's view cuts the minutes the gap log replayed out of each gap (a fully replayed gap has no row,
+# a partly replayed one keeps its unreplayed pieces), so n counts gaps with an unreplayed piece and seconds the
+# unreplayed seconds (#1633, release review READERS-3).
 GAPS_SQL = """
-SELECT coalesce(backfill_status, 'none') AS status, count(*) AS n, coalesce(sum(duration_s), 0)::float8 AS seconds
-  FROM data_gaps
+SELECT coalesce(backfill_status, 'none') AS status, count(DISTINCT id) AS n,
+       coalesce(sum(duration_s), 0)::float8 AS seconds
+  FROM v_data_gaps_unreplayed
  WHERE start_ts > now() - interval '7 days'
  GROUP BY 1
 """
