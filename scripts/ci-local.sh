@@ -283,7 +283,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_sensor_health_modbus_native.py
     tests/test_sensor_health_sweep.py
     tests/test_probe_diagnostics_native.py
-    tests/test_policy_relay_dwell_refresh.py
     tests/test_firmware_builder_image.py
     tests/test_firmware_builder_admission.py
     tests/test_firmware_release.py

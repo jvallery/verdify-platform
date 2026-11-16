@@ -74,18 +74,9 @@ interval:
               verdify_policy::policy_engine().note_water_high_water(policy_day, id(mister_water_today));
           }
           /*************** CONFIG CONSTANTS **************************************/
-          const uint32_t MIN_HEAT_ON_MS    = uint32_t(pol(verdify_policy::kPF_min_heat_on_s, id(min_heat_on_s)))  * 1000UL;
-          const uint32_t MIN_HEAT_OFF_MS   = uint32_t(pol(verdify_policy::kPF_min_heat_off_s, id(min_heat_off_s))) * 1000UL;
-          const uint32_t MIN_FAN_ON_MS     = uint32_t(pol(verdify_policy::kPF_min_fan_on_s, id(min_fan_on_s)))   * 1000UL;
-          const uint32_t MIN_FAN_OFF_MS    = uint32_t(pol(verdify_policy::kPF_min_fan_off_s, id(min_fan_off_s)))  * 1000UL;
-          const uint32_t MIN_VENT_ON_MS    = uint32_t(pol(verdify_policy::kPF_min_vent_on_s, id(min_vent_on_s)))  * 1000UL;
-          const uint32_t MIN_VENT_OFF_MS   = uint32_t(pol(verdify_policy::kPF_min_vent_off_s, id(min_vent_off_s))) * 1000UL;
-          const uint32_t MIN_FOG_ON_MS     = uint32_t(pol(verdify_policy::kPF_min_fog_on_s,  id(min_fog_on_s)))  * 1000UL;
-          const uint32_t MIN_FOG_OFF_MS    = uint32_t(pol(verdify_policy::kPF_min_fog_off_s, id(min_fog_off_s))) * 1000UL;
-
-          const float    EXTRA_COOL_S3_DELTA_F = 2.0f;
-          const uint32_t LEAD_ROTATE_TIMEOUT_MS =
-                   std::max(uint32_t(id(lead_rotate_timeout_s)) * 1000UL, uint32_t(60000UL));
+          // Package 4.3: the relay minimum times, the lead rotation and the stage-3
+          // delta of the old controller are gone; the law's relay layer holds the
+          // compiled times (verdify_schemas/climate_law.yaml).
 
           // Enums (Mode) and structs (SensorInputs, Setpoints,
           // ControlState, RelayOutputs) defined in greenhouse_logic.h
@@ -123,66 +114,37 @@ interval:
             esphome::switch_::Switch *sw;
             uint32_t on_stamp_ms = 0;
             uint32_t runtime_ms = 0;
-            uint32_t min_on_ms;
-            uint32_t min_off_ms;
-            uint32_t last_on_ms = 0;
-            uint32_t last_off_ms = 0;
           };
 
           static RelayMeta R[] = {
-            { id(heat1_rly), 0,0, MIN_HEAT_ON_MS, MIN_HEAT_OFF_MS }, // H1
-            { id(heat2_rly), 0,0, MIN_HEAT_ON_MS, MIN_HEAT_OFF_MS }, // H2
-            { id(fan1_rly) , 0,0, MIN_FAN_ON_MS , MIN_FAN_OFF_MS  }, // F1
-            { id(fan2_rly) , 0,0, MIN_FAN_ON_MS , MIN_FAN_OFF_MS  }, // F2
-            { id(fog_rly)  , 0,0, MIN_FOG_ON_MS , MIN_FOG_OFF_MS  }, // Fog
-            { id(vent_rly) , 0,0, MIN_VENT_ON_MS, MIN_VENT_OFF_MS }  // Vent
+            { id(heat1_rly) }, // H1
+            { id(heat2_rly) }, // H2
+            { id(fan1_rly)  }, // F1
+            { id(fan2_rly)  }, // F2
+            { id(fog_rly)   }, // Fog
+            { id(vent_rly)  }  // Vent
           };
-
-          // Refresh policy/legacy dwell limits without resetting transition
-          // history: mid-cycle changes still measure from the original edge.
-          R[0].min_on_ms = R[1].min_on_ms = MIN_HEAT_ON_MS;
-          R[0].min_off_ms = R[1].min_off_ms = MIN_HEAT_OFF_MS;
-          R[2].min_on_ms = R[3].min_on_ms = MIN_FAN_ON_MS;
-          R[2].min_off_ms = R[3].min_off_ms = MIN_FAN_OFF_MS;
-          R[4].min_on_ms = MIN_FOG_ON_MS;
-          R[4].min_off_ms = MIN_FOG_OFF_MS;
-          R[5].min_on_ms = MIN_VENT_ON_MS;
-          R[5].min_off_ms = MIN_VENT_OFF_MS;
 
           // A relay found OFF with its interval still open was switched off by
           // something else (an OTA upload's on_begin close, #1276, then an
-          // aborted upload): book the interval and stamp the OFF edge here, so
-          // its minimum-off time still applies before the next ON (#1313).
+          // aborted upload): book the interval here. Its minimum off time is the
+          // relay layer's (climate_law::relay_sync() follows the physical relays).
           auto update_runtime = [&](RelayMeta &r){
             if(!r.sw->state && r.on_stamp_ms){
               r.runtime_ms += now_ms - r.on_stamp_ms;
               r.on_stamp_ms = 0;
-              r.last_off_ms = now_ms;
             }
           };
-          // Phase 2 (running alone): a relay with no edge since boot (stamp 0) is
-          // available at once, except the furnace, which waits one minimum off
-          // time after any boot so a crash loop cannot cycle it (RULINGS G4;
-          // relay_start_allowed(), lib/running_alone.h).
-          auto can_on  = [&](RelayMeta &r){
-            return relay_start_allowed(now_ms, r.last_off_ms, r.min_off_ms, &r == &R[1]);
-          };
-          auto can_off = [&](RelayMeta &r){ return relay_dwell_elapsed(now_ms, r.last_on_ms,  r.min_on_ms); };
-
-          auto set_relay = [&](RelayMeta &r,bool want,bool force_on,bool force_off=false){
+          // The driver: switches at once. Every minimum time, interlock and the
+          // furnace's boot wait are the relay layer's (section 11a); this books runtimes.
+          auto set_relay = [&](RelayMeta &r, bool want){
             update_runtime(r);
-            if(want){
-              if(!r.sw->state && (force_on || can_on(r))){
-                r.sw->turn_on();
-                r.last_on_ms = now_ms;
-                r.on_stamp_ms= now_ms;
-              }
-            }else{
-              if(r.sw->state && (force_off || can_off(r))){
-                r.sw->turn_off();
-                r.last_off_ms = now_ms;
-                update_runtime(r);
-              }
+            if(want && !r.sw->state){
+              r.sw->turn_on();
+              r.on_stamp_ms = now_ms;
+            }else if(!want && r.sw->state){
+              r.sw->turn_off();
+              update_runtime(r);
             }
           };
 
@@ -327,59 +289,9 @@ interval:
           // outdoor rule of decision 7 instead (section 8+9).
 
           /**************** 6 — set-points & thresholds ***************************/
-          const float Tlow  = id(target_temp_low_f)  + id(bias_heat_f);
-          const float Thigh = id(target_temp_high_f) + id(bias_cool_f);
-          const float HT    = pol(verdify_policy::kPF_temp_hysteresis, id(hyst_temp_f));
-          const float dH2   = id(stage2_heat_delta_f);
-          const float dC2   = id(stage2_cool_delta_f);
-          const float VPDlo = id(target_vpd_low_kpa);
-          const float VPDhi = id(target_vpd_high_kpa);
-          const float HV    = pol(verdify_policy::kPF_vpd_hysteresis, id(hyst_vpd_kpa));
-          // SAFETY SANITY: refuse invalid bounds — fall back to the hard
-          // guardrails, 40/100 °F (Jason 2026-11-05, #1333; kSafetyMinF/MaxF).
-          float TminSafe = id(safety_min_f);
-          float TmaxSafe = id(safety_max_f);
-          float VPDminSafe = id(safety_vpd_min_kpa);
-          float VPDmaxSafe = id(safety_vpd_max_kpa);
-          if(TminSafe < 30.0f || TminSafe > 70.0f || isnan(TminSafe)){
-            ESP_LOGE("safety","Invalid safety_min (%.1f) — reset to %.0f°F", TminSafe, kSafetyMinF);
-            id(safety_min_f) = kSafetyMinF; TminSafe = kSafetyMinF;
-          }
-          if(TmaxSafe < 70.0f || TmaxSafe > 120.0f || isnan(TmaxSafe)){
-            ESP_LOGE("safety","Invalid safety_max (%.1f) — reset to %.0f°F", TmaxSafe, kSafetyMaxF);
-            id(safety_max_f) = kSafetyMaxF; TmaxSafe = kSafetyMaxF;
-          }
-          if(TminSafe >= TmaxSafe){
-            id(safety_min_f) = kSafetyMinF; id(safety_max_f) = kSafetyMaxF;
-            TminSafe = kSafetyMinF; TmaxSafe = kSafetyMaxF;
-            ESP_LOGE("safety","Inverted safety bounds — reset to %.0f/%.0f°F", kSafetyMinF, kSafetyMaxF);
-          }
-          if(VPDminSafe < 0.0f || VPDmaxSafe < 1.0f || VPDminSafe >= VPDmaxSafe || isnan(VPDminSafe) || isnan(VPDmaxSafe)){
-            id(safety_vpd_min_kpa) = 0.3f; id(safety_vpd_max_kpa) = 3.0f;
-            VPDminSafe = 0.3f; VPDmaxSafe = 3.0f;
-            ESP_LOGE("safety","Invalid VPD safety bounds — reset to 0.3/3.0 kPa");
-          }
-
-          /* enthalpy gate (economiser) — persist across loops for deadband hysteresis */
-          bool econ_block = id(econ_block_state);
-          if(!id(economiser_enabled)){
-            econ_block = false;
-          } else if(isnan(dH)){
-            // Intake sensor offline — block venting to avoid blind decisions
-            if(!econ_block){
-              ESP_LOGW("econ","Intake sensor offline (dH=NaN) — blocking economiser venting");
-            }
-            econ_block = true;
-          } else {
-            // A8: log economiser transitions
-            bool was_blocked = econ_block;
-            if(dH <= pol(verdify_policy::kPF_enthalpy_open, id(enthalpy_open_kjkg)))  econ_block = false;
-            if(dH >= pol(verdify_policy::kPF_enthalpy_close, id(enthalpy_close_kjkg))) econ_block = true;
-            if(econ_block && !was_blocked)
-              ESP_LOGI("econ","Economiser BLOCKED (dH=%.1f >= %.1f)", dH, pol(verdify_policy::kPF_enthalpy_close, id(enthalpy_close_kjkg)));
-            if(!econ_block && was_blocked)
-              ESP_LOGI("econ","Economiser UNBLOCKED (dH=%.1f <= %.1f)", dH, pol(verdify_policy::kPF_enthalpy_open, id(enthalpy_open_kjkg)));
-          }
+          // Package 4.3: the old controller's thresholds, safety-limit sanity block
+          // and economiser gate are gone. The law takes the band (section 8+9) and
+          // its compiled numbers, the 40/100 F protection limits included.
 
                     /**************** 7 — runtime-aware lead/lag selection ****************/
           // Phase 2: the lifetime counters, restored once from flash at the first
@@ -570,118 +482,21 @@ interval:
               id(feed_hold_until_ms) != 0
               && (int32_t)(id(feed_hold_until_ms) - now_ms) > 0;
 
-          Setpoints setpts = {
-              // Firmware-v2: band edges come from the ON-CHIP solar curve
-              // (sv2_*) when sw_onchip_band_enabled, else the pushed scalars.
-              .temp_high = sv2_temp_high,
-              .temp_low = sv2_temp_low,
-              .vpd_high = id(sw_onchip_band_enabled) ? sv2_vpd_high : VPDhi,
-              .vpd_low = id(sw_onchip_band_enabled) ? sv2_vpd_low : VPDlo,
-              .bias_cool = id(bias_cool_f), .bias_heat = id(bias_heat_f),
-              .vpd_hysteresis = HV,
-              .temp_hysteresis = pol(verdify_policy::kPF_temp_hysteresis, id(hyst_temp_f)),
-              .heat_hysteresis = pol(verdify_policy::kPF_heat_hysteresis, id(heat_hysteresis_f)),
-              .dH2 = dH2, .dC2 = dC2,
-              .safety_max = TmaxSafe, .safety_min = TminSafe,
-              .vpd_max_safe = VPDmaxSafe, .vpd_min_safe = VPDminSafe,
-              .sealed_max_ms = uint32_t(pol(verdify_policy::kPF_mist_max_closed_vent_s, id(mist_max_closed_vent_s))) * 1000UL,
-              .relief_duration_ms = uint32_t(pol(verdify_policy::kPF_mist_thermal_relief_s, id(mist_thermal_relief_s))) * 1000UL,
-              .vpd_watch_dwell_ms = uint32_t(pol(verdify_policy::kPF_vpd_watch_dwell_s, id(vpd_watch_dwell_s))) * 1000UL,
-              .mist_s2_delay_ms =
-                  uint32_t(pol(verdify_policy::kPF_mister_all_delay_s, id(mister_all_delay_s))) * 1000UL,
-              .max_relief_cycles = (uint32_t)id(max_relief_cycles),
-              .fog_escalation_kpa = pol(verdify_policy::kPF_fog_escalation_kpa, id(fog_escalation_kpa)),
-              .fog_rh_ceiling = (float)id(fog_rh_ceiling_pct),
-              .fog_min_temp = (float)id(fog_min_temp_f),
-              .dehum_aggressive_kpa = id(dehum_aggressive_kpa),
-              .occupancy_inhibit = id(occupancy_inhibit_enabled) && id(greenhouse_occupied),
-              .econ_block = econ_block,
-              .vent_latch_timeout_ms = id(vent_latch_timeout_ms),
-              .safety_max_seal_margin_f = id(safety_max_seal_margin_f),
-              .econ_heat_margin_f = id(econ_heat_margin_f),
-              // sprint-15: summer thermal-driven vent gate.
-              .sw_summer_vent_enabled = polb(verdify_policy::kPF_sw_summer_vent_enabled, id(sw_summer_vent_enabled)),
-              .vent_prefer_temp_delta_f = pol(verdify_policy::kPF_vent_prefer_temp_delta_f, id(vent_prefer_temp_delta_f)),
-              .vent_prefer_dp_delta_f = pol(verdify_policy::kPF_vent_prefer_dp_delta_f, id(vent_prefer_dp_delta_f)),
-              .outdoor_staleness_max_s = (uint32_t)pol(verdify_policy::kPF_outdoor_staleness_max_s, id(outdoor_staleness_max_s)),
-              .summer_vent_min_runtime_s = (uint32_t)id(summer_vent_min_runtime_s),
-              // Phase-2 dwell gate.
-              .sw_dwell_gate_enabled = polb(verdify_policy::kPF_sw_dwell_gate_enabled, id(sw_dwell_gate_enabled)),
-              .dwell_gate_ms = (uint32_t)pol(verdify_policy::kPF_dwell_gate_ms, id(dwell_gate_ms)),
-              // Unified band-first controller compatibility field. The
-              // ESPHome control loop forces this ON so planner, dispatcher,
-              // and ESP32 share one live control path.
-              .sw_fsm_controller_enabled = id(sw_fsm_controller_enabled),
-              .cool_stage2_over_high_f = pol(verdify_policy::kPF_cool_stage2_over_high_f, id(cool_stage2_over_high_f)),
-              .cool_stage2_exit_hysteresis_f = pol(verdify_policy::kPF_cool_stage2_exit_hysteresis_f, id(cool_stage2_exit_hysteresis_f)),
-              .cool_exit_hysteresis_f = pol(verdify_policy::kPF_cool_exit_hysteresis_f, id(cool_exit_hysteresis_f)),
-              .cold_vent_guard_delta_f = pol(verdify_policy::kPF_cold_vent_guard_delta_f, id(cold_vent_guard_delta_f)),
-              .cool_all_fans_at_high_enabled =
-                  polb(verdify_policy::kPF_sw_cool_all_fans_at_high_enabled, id(cool_all_fans_at_high_enabled)),
-              // Firmware-v2: ONE stress-wetting rule (band-high + margin, dew-
-              // gated, solar-night-aware). Replaces the clock-window stress paths.
-              .direct_wet_stress_override_enabled = polb(verdify_policy::kPF_sw_direct_wet_stress_override_enabled, id(direct_wet_stress_override_enabled)),
-              .direct_wet_stress_vpd_margin_kpa = pol(verdify_policy::kPF_direct_wet_stress_vpd_margin_kpa, id(direct_wet_stress_vpd_margin_kpa)),
-              .direct_wet_stress_min_dew_margin_f = pol(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f)),
-              .mist_backoff_ms = (uint32_t)pol(verdify_policy::kPF_mist_backoff_s, id(mist_backoff_s)) * 1000UL,
-              // Firmware-v2: never heat-to-chase-humidity in the solar night.
-              .sw_night_econ_heat_suppress_enabled = id(sw_night_econ_heat_suppress_enabled),
-              // Firmware-v2: solar wet taper (replaces the dusk_cutoff clock rail).
-              .sw_wet_taper_enabled = id(sw_wet_taper_enabled),
-              .wet_taper_before_sunset_min = id(wet_taper_before_sunset_min),
-              // Firmware-v2: night emergency wetting (replaces CYC-4 micropulse).
-              .sw_night_stress_wet_enabled = id(sw_night_stress_wet_enabled),
-              .night_stress_min_dew_margin_f = id(night_stress_min_dew_margin_f),
-              // FRT-6 absorption hold (computed above from feed_hold_until_ms).
-              .feed_hold_active = feed_hold_active,
-              // Deliberate dawn/midday center watering is retired. Keep the
-              // compatibility fields inert; center mist uses the base VPD
-              // cadence only.
-              .sw_dawn_rehydrate_enabled = id(sw_dawn_rehydrate_enabled),
-              .dawn_boost_offset_min = id(dawn_boost_offset_min),
-              .dawn_rehydrate_window_min = id(dawn_rehydrate_window_min),
-              .dawn_rehydrate_on_s = id(dawn_rehydrate_on_s),
-              .dawn_rehydrate_gap_s = id(dawn_rehydrate_gap_s),
-              .sw_midday_drench_enabled = id(sw_midday_drench_enabled),
-              .midday_boost_offset_min = id(midday_boost_offset_min),
-              .midday_drench_window_min = id(midday_drench_window_min),
-              .midday_drench_on_s = id(midday_drench_on_s),
-              .midday_drench_gap_s = id(midday_drench_gap_s),
-              // Firmware-v2 served-band targets (telemetry + normalized arbitration).
-              .temp_target = id(sw_onchip_band_enabled) ? sv2_temp_tgt : (sv2_temp_low + sv2_temp_high) * 0.5f,
-              .vpd_target = id(sw_onchip_band_enabled) ? sv2_vpd_tgt : (VPDlo + VPDhi) * 0.5f,
-              // ADR-0004: default 0 floats inside the served crop corridor and acts
-              // only at the edges. Nonzero pinches toward the served target only for
-              // explicit operator diagnostics; C++ default_setpoints matches.
-              .band_track_fraction = pol(verdify_policy::kPF_band_track_fraction, id(band_track_fraction)),
-              // BC-13 (ADR0003 §6.4): moisture-exchange selector. vent_exchange_fraction
-              // is the AI-tunable single-cycle exchange fraction (Jason 2026-06-17, from
-              // the global/number). The gain margin + heat-assist min-dwell are device-side
-              // globals (match default_setpoints; not planner-pushable this sprint).
-              .dehum_vent_gain_margin_kpa = id(dehum_vent_gain_margin_kpa),
-              .dehum_heat_assist_min_dwell_ms = id(dehum_heat_assist_min_dwell_ms),
-              .vent_exchange_fraction = pol(verdify_policy::kPF_vent_exchange_fraction, id(vent_exchange_fraction)),
-              // #410: vent+reheat held-temp dehum enable (ships OFF; armed by a
-              // logged tunable push, readback cfg_dehum_vent_hold_enabled).
-              .dehum_vent_hold_enabled = id(dehum_vent_hold_enabled),
-              // #1365 night dry-out: vent + reheat pulses with confirmed-drier
-              // outdoor air, heat1 only (readbacks cfg_night_dryout_*).
-              .night_dryout_enabled = id(night_dryout_enabled),
-              .night_dryout_pulse_s = id(night_dryout_pulse_s),
-              .night_dryout_rest_s = id(night_dryout_rest_s),
-              .night_dryout_dp_margin_f = id(night_dryout_dp_margin_f),
-              .night_dryout_kwh_cap = id(night_dryout_kwh_cap)
-          };
-
+          // Package 4.3: Setpoints carries only what its readers still take: the
+          // manual fog safety block (manual_fog_safety_block_reason(): the HUMID
+          // press's dew margin, RH ceiling and minimum temperature) and, below, the
+          // band the law used and the served targets for the published telemetry.
+          Setpoints setpts = default_setpoints();
+          setpts.direct_wet_stress_min_dew_margin_f =
+              pol(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f));
+          setpts.fog_rh_ceiling = (float)id(fog_rh_ceiling_pct);
+          setpts.fog_min_temp = (float)id(fog_min_temp_f);
+          setpts.temp_target = id(sw_onchip_band_enabled) ? sv2_temp_tgt : (sv2_temp_low + sv2_temp_high) * 0.5f;
+          setpts.vpd_target = id(sw_onchip_band_enabled) ? sv2_vpd_tgt : (sv2_vpd_low + sv2_vpd_high) * 0.5f;
           validate_setpoints(setpts);
-          setpts.sw_fsm_controller_enabled = true;
-          if (!id(sw_fsm_controller_enabled)) {
-              id(sw_fsm_controller_enabled) = true;
-              id(sw_fsm_controller_enabled_switch).publish_state(true);
-          }
           // Phase 3 (#1671): the band-edge law (lib/climate_law.h, plan appendix A)
           // decides the climate relays; determine_mode()/resolve_equipment() are no
-          // longer called (their code stays for package 4.3). G3: during the boot
+          // longer called (package 4.3 removed their call-site leftovers). G3: during the boot
           // grace the law gets no temperature, so it requests nothing (mode_reason
           // "init"). `mode` is a label for the consumers that still read one (the fog
           // holds, the engine's sensor_fault input, telemetry); section 12 ends by
@@ -973,14 +788,13 @@ interval:
               id(fog_rly)->state, id(vent_rly)->state};
 
           /**************** 11 — APPLY RELAY OUTPUTS ******************************/
-          // The drivers switch, book runtimes and count; the timing is the relay
-          // layer's, so both force flags are set and their own dwell tests never gate.
-          set_relay(R[0], ov_out.heat1, true, true);
-          set_relay(R[1], ov_out.heat2, true, true);
-          set_relay(R[5], ov_out.vent, true, true);
-          set_relay(R[2], ov_out.fan1, true, true);
-          set_relay(R[3], ov_out.fan2, true, true);
-          set_relay(R[4], ov_out.fog, true, true);
+          // The drivers switch, book runtimes and count; the timing is the relay layer's.
+          set_relay(R[0], ov_out.heat1);
+          set_relay(R[1], ov_out.heat2);
+          set_relay(R[5], ov_out.vent);
+          set_relay(R[2], ov_out.fan1);
+          set_relay(R[3], ov_out.fan2);
+          set_relay(R[4], ov_out.fog);
           // The relay layer follows what is physically on (an override's edge, an OTA
           // on_begin close): minimum times count from that edge (#1313).
           climate_law::relay_sync(law_relays, RelayOutputs{
@@ -1392,7 +1206,7 @@ interval:
             // T3: the law's label, drying run and fog threshold (climate_law_glue.h), not the
             // mode machine's never-stepped ctl_state.
             ClimateActionDecision climate_decision = climate_law::describe_law_decision(
-                legacy, sensor_in, setpts, law, law_band, law_in.out_ok, fog_block_reason);
+                legacy, sensor_in, law, law_band, law_in.out_ok, fog_block_reason);
             const char* climate_action = CLIMATE_ACTION_NAMES[climate_decision.climate_action];
             const char* priority_axis = CLIMATE_PRIORITY_AXIS_NAMES[climate_decision.priority_axis];
             // X1 (P1): the assist state, zone and next mist come from the law and mister_step
@@ -1928,27 +1742,13 @@ interval:
                 }
               }
 
-          {
-              static uint8_t heat_diag_ctr = 0;
-              if (++heat_diag_ctr >= 60) {
-                  heat_diag_ctr = 0;
-                  float S1_thr = Tlow + setpts.heat_hysteresis;
-                  float S2_thr = Tlow - dH2;
-                  ESP_LOGD("heat_diag",
-                      "S1<%.1f S2<%.1f Tin=%.1f Tlow=%.1f hyst=%.1f dH2=%.1f H1:%d H2:%d",
-                      S1_thr, S2_thr, Tin, Tlow, setpts.heat_hysteresis, dH2,
-                      (int)willHeat1, (int)willHeat2);
-              }
-          }
-
-              // Expose runtime metrics and economiser state to global variables for HA sensors
+              // Expose runtime metrics to global variables for HA sensors
               id(runtime_heat1_ms) = R[0].runtime_ms;
               id(runtime_heat2_ms) = R[1].runtime_ms;
               id(runtime_fan1_ms)  = R[2].runtime_ms;
               id(runtime_fan2_ms)  = R[3].runtime_ms;
               id(runtime_fog_ms)   = R[4].runtime_ms;
               id(runtime_vent_ms)  = R[5].runtime_ms;
-              id(econ_block_state) = econ_block;
           gh_record_control_loop_duration_us(micros() - control_loop_started_us);
           App.feed_wdt();
   ################################################################################

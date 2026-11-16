@@ -97,58 +97,18 @@ esphome:
       - lambda: |-
           ESP_LOGI("boot","Validating restored globals...");
           int fixes = 0;
-          // Safety rails — CRITICAL
-          if(id(safety_min_f) < 30 || id(safety_min_f) > 70 || isnan(id(safety_min_f))){ id(safety_min_f) = kSafetyMinF; fixes++; ESP_LOGE("boot","safety_min invalid → 40°F"); }
-          if(id(safety_max_f) < 70 || id(safety_max_f) > 120 || isnan(id(safety_max_f))){ id(safety_max_f) = kSafetyMaxF; fixes++; ESP_LOGE("boot","safety_max invalid → 100°F"); }
-          if(id(safety_vpd_min_kpa) < 0 || isnan(id(safety_vpd_min_kpa))){ id(safety_vpd_min_kpa) = 0.3; fixes++; }
-          if(id(safety_vpd_max_kpa) < 1 || isnan(id(safety_vpd_max_kpa))){ id(safety_vpd_max_kpa) = 3.0; fixes++; }
-          // Timing — prevent 0 values
-          if(id(lead_rotate_timeout_s) < 60 || id(lead_rotate_timeout_s) > 7200){ id(lead_rotate_timeout_s) = 600; fixes++; ESP_LOGE("boot","lead_rotate invalid → 600s"); }
-          if(id(min_heat_on_s) < 10){ id(min_heat_on_s) = 120; fixes++; }
-          if(id(min_heat_off_s) < 30){ id(min_heat_off_s) = 300; fixes++; }
-          if(id(min_fan_on_s) < 10){ id(min_fan_on_s) = 120; fixes++; }
-          if(id(min_fan_off_s) < 10){ id(min_fan_off_s) = 90; fixes++; }
-          if(id(min_vent_on_s) < 5){ id(min_vent_on_s) = 30; fixes++; }
-          if(id(min_vent_off_s) < 5){ id(min_vent_off_s) = 30; fixes++; }
           // Setpoint sanity
           if(id(target_temp_low_f) < 40 || id(target_temp_low_f) > 80){ id(target_temp_low_f) = 58; fixes++; }
           if(id(target_temp_high_f) < 60 || id(target_temp_high_f) > 100){ id(target_temp_high_f) = 82; fixes++; }
           if(id(target_vpd_high_kpa) < 0.5 || id(target_vpd_high_kpa) > 4){ id(target_vpd_high_kpa) = 2.0; fixes++; }
           if(id(target_vpd_low_kpa) < 0.1 || id(target_vpd_low_kpa) > 2){ id(target_vpd_low_kpa) = 0.5; fixes++; }
           // VPD-primary state machine globals
-          if(id(vpd_watch_dwell_s) < 15 || id(vpd_watch_dwell_s) > 120){ id(vpd_watch_dwell_s) = 60; fixes++; }
-          if(id(mist_max_closed_vent_s) < 60){ id(mist_max_closed_vent_s) = 600; fixes++; }
-          if(id(mist_thermal_relief_s) < 15){ id(mist_thermal_relief_s) = 90; fixes++; }
-          if(id(fog_escalation_kpa) < 0.1 || id(fog_escalation_kpa) > 0.5){ id(fog_escalation_kpa) = 0.4; fixes++; }
-          if(id(mister_pulse_on_s) < 15){ id(mister_pulse_on_s) = 60; fixes++; }
-          if(id(mister_pulse_gap_s) < 5){ id(mister_pulse_gap_s) = 45; fixes++; }
-          if(id(mister_engage_kpa) < 0.5 || id(mister_engage_kpa) > 2.5){ id(mister_engage_kpa) = 1.6; fixes++; }
-          if(id(min_fog_on_s) < 10){ id(min_fog_on_s) = 60; fixes++; }
-          if(id(min_fog_off_s) < 10){ id(min_fog_off_s) = 60; fixes++; }
           if(id(fog_rh_ceiling_pct) < 50 || id(fog_rh_ceiling_pct) > 100){ id(fog_rh_ceiling_pct) = 90; fixes++; }
           if(id(fog_min_temp_f) < 30 || id(fog_min_temp_f) > 70){ id(fog_min_temp_f) = 55; fixes++; }
           // Additional VPD-primary globals
-          if(id(hyst_vpd_kpa) < 0.1 || id(hyst_vpd_kpa) > 0.5){ id(hyst_vpd_kpa) = 0.3; fixes++; }
-          if(id(mister_all_kpa) < 1.0 || id(mister_all_kpa) > 2.5){ id(mister_all_kpa) = 1.9; fixes++; }
-          if(id(mister_vpd_weight) < 0.5 || id(mister_vpd_weight) > 3){ id(mister_vpd_weight) = 1.5; fixes++; }
-          if(id(mist_vent_close_lead_s) < 0 || id(mist_vent_close_lead_s) > 60){ id(mist_vent_close_lead_s) = 15; fixes++; }
-          if(id(mist_vent_reopen_delay_s) < 0 || id(mist_vent_reopen_delay_s) > 120){ id(mist_vent_reopen_delay_s) = 45; fixes++; }
-          if(id(enthalpy_open_kjkg) < -5 || id(enthalpy_open_kjkg) > 0){ id(enthalpy_open_kjkg) = -2; fixes++; }
-          if(id(enthalpy_close_kjkg) < -5 || id(enthalpy_close_kjkg) > 20){ id(enthalpy_close_kjkg) = 1; fixes++; }
-          if(id(stage2_heat_delta_f) < 2 || id(stage2_heat_delta_f) > 15){ id(stage2_heat_delta_f) = 5; fixes++; }
-          if(id(stage2_cool_delta_f) < 2 || id(stage2_cool_delta_f) > 15){ id(stage2_cool_delta_f) = 3; fixes++; }
           if(id(mister_water_budget_gal) < 100 || id(mister_water_budget_gal) > 300){ id(mister_water_budget_gal) = 300; fixes++; }
-          if(id(bias_heat_f) < -10 || id(bias_heat_f) > 10){ id(bias_heat_f) = 0; fixes++; }
-          if(id(bias_cool_f) < -10 || id(bias_cool_f) > 10){ id(bias_cool_f) = 0; fixes++; }
           // State machine corruption protection
           if(id(mister_state) < 0 || id(mister_state) > 2){ id(mister_state) = 0; fixes++; ESP_LOGE("boot","mister_state corrupted → 0"); }
-          // Zone VPD targets — prevent division issues in mister stress scoring
-          if(id(vpd_target_south) < 0.1 || id(vpd_target_south) > 3){ id(vpd_target_south) = 1.3; fixes++; }
-          if(id(vpd_target_west) < 0.1 || id(vpd_target_west) > 3){ id(vpd_target_west) = 1.3; fixes++; }
-          if(id(vpd_target_east) < 0.1 || id(vpd_target_east) > 3){ id(vpd_target_east) = 1.3; fixes++; }
-          if(id(vpd_target_center) < 0.1 || id(vpd_target_center) > 3){ id(vpd_target_center) = 1.3; fixes++; }
-          if(id(mister_center_penalty) < 0 || id(mister_center_penalty) > 1){ id(mister_center_penalty) = 0.5; fixes++; }
-          if(id(east_adjacency_factor) < 0 || id(east_adjacency_factor) > 1){ id(east_adjacency_factor) = 0.3; fixes++; }
           if(fixes > 0){ ESP_LOGE("boot","Fixed %d corrupted globals", fixes); }
           else { ESP_LOGI("boot","All globals valid"); }
           ESP_LOGI("boot", "Firmware version: %s", "${fw_version}");
@@ -296,9 +256,6 @@ api:
             else if (anchor_key == "zone_priority_south") { id(zone_priority_south) = value; }
             else if (anchor_key == "zone_priority_west") { id(zone_priority_west) = value; }
             else if (anchor_key == "zone_priority_east") { id(zone_priority_east) = value; }
-            else if (anchor_key == "wet_taper_before_sunset_min") { id(wet_taper_before_sunset_min) = value; }
-            else if (anchor_key == "dawn_boost_offset_min") { id(dawn_boost_offset_min) = value; }
-            else if (anchor_key == "midday_boost_offset_min") { id(midday_boost_offset_min) = value; }
             else if (anchor_key == "manual_override_timeout_min") { id(manual_override_timeout_min) = value; }
             else { ok = false; ESP_LOGW("band", "set_band_anchor: unknown key '%s'", anchor_key.c_str()); }
             if (ok) { ESP_LOGI("band", "set_band_anchor %s = %.3f", anchor_key.c_str(), value); }
@@ -532,13 +489,6 @@ binary_sensor:
     name: "Vent Open"
     lambda: "return id(vent_rly).state;"
     device_class: opening
-
-  # Economiser gate status (true = economiser blocked / venting inhibited)
-  - platform: template
-    id: bs_econ_blocked
-    name: "Economiser Blocked"
-    lambda: "return id(econ_block_state);"
-    device_class: safety
 
 
   # Mister state machine indicators

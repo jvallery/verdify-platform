@@ -828,13 +828,11 @@ static void law_decision_telemetry() {
   SensorInputs in{};
   in.temp_f = 75.0f;
   in.vpd_kpa = 1.6f;
-  Setpoints sp{};
-  sp.temp_low = 65.0f; sp.temp_high = 80.0f; sp.vpd_low = 0.8f; sp.vpd_high = 1.25f;
   L::LegacyInputs li{};
   li.T = 75.0; li.vpd = 1.6; li.band = kBand;
   L::Output law{};
   auto decide = [&](const L::LegacyInputs& x, bool boot) {
-    return L::describe_law_decision(L::published_label(L::legacy_state(x), boot), in, sp, law, kBand, true,
+    return L::describe_law_decision(L::published_label(L::legacy_state(x), boot), in, law, kBand, true,
                                     "served");
   };
   li.vent_on = true; li.fog_on = true;
@@ -858,11 +856,19 @@ static void law_decision_telemetry() {
   CHECK(std::strcmp(d.moisture_exchange_action, "vent_dehum") == 0, "T3: moisture exchange = the drying run");
   CHECK(d.moisture_outdoor_fresh, "T3: of = the law's outdoor validity");
   law = L::Output{}; law.dry_refusal = L::DRY_NO_OUTDOOR;
-  d = L::describe_law_decision(L::LegacyState{IDLE, MIST_WATCH, CLIMATE_IDLE, CLIMATE_PRIORITY_VPD}, in, sp, law,
+  d = L::describe_law_decision(L::LegacyState{IDLE, MIST_WATCH, CLIMATE_IDLE, CLIMATE_PRIORITY_VPD}, in, law,
                                kBand, false, "relay_min_off");
   CHECK(std::strcmp(d.moisture_exchange_action, "none") == 0 && std::strcmp(d.moisture_exchange_reason, "no_outdoor") == 0,
         "T3: no run: a = none, r = the law's refusal");
   CHECK(std::strcmp(d.fog_block_reason, "relay_min_off") == 0, "T3: the ladder's other words pass through");
+  // 4.3: the band errors come from the band the law used (no Setpoints): 75 F in 65-80 is 0; 1.6 kPa over 1.25.
+  CHECK(d.temp_error_f == 0.0f && std::fabs(d.vpd_error_kpa - (1.6f - 1.25f)) < 1e-6f,
+        "4.3: band errors against the law's band");
+  in.vpd_kpa = NAN;
+  d = L::describe_law_decision(L::LegacyState{IDLE, MIST_WATCH, CLIMATE_IDLE, CLIMATE_PRIORITY_VPD}, in, law, kBand,
+                               false, "none");
+  CHECK(d.vpd_error_kpa == 0.0f && d.fog_margin_kpa == 0.0f, "4.3: no humidity, no VPD error and no fog margin");
+  in.vpd_kpa = 1.6f;
   // X4: the clear reports whether it cleared, so the controller logs once
   {
     uint32_t f = 5000, b = 0;

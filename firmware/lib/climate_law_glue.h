@@ -156,34 +156,34 @@ inline const char* climate_fog_block_word(const char* ladder) noexcept {
     return (ladder[0] == 's' && std::strcmp(ladder, "served") == 0) ? "none" : ladder;
 }
 
-// The decision fields published on the climate_* entities, from the law: the action and axis of the label (so vent +
-// fog is VENT_COOL_FOG_ASSIST and vent + mister VENT_COOL_MIST_ASSIST, IDLE with heat keyed on the physical
-// relays), the summary and cost of that action, the fog margin against the law's fog threshold, the moisture
-// exchange from the law's drying run (a = vent_dehum while it runs, r = its refusal, of = the law's outdoor
-// validity; the mode machine's projections publish their neutral values).
-inline ClimateActionDecision describe_law_decision(const LegacyState& label, const SensorInputs& in, const Setpoints& sp,
-                                                   const Output& law, const Band& band, bool out_ok,
+// The decision fields published on the climate_* entities, from the law alone (package 4.3: no Setpoints, no mode
+// machine state): the action and axis of the label (so vent + fog is VENT_COOL_FOG_ASSIST and vent + mister
+// VENT_COOL_MIST_ASSIST, IDLE with heat keyed on the physical relays), the band errors against the band the law used,
+// the summary and cost of that action, the fog margin against the law's fog threshold, the moisture exchange from the
+// law's drying run (a = vent_dehum while it runs, r = its refusal, of = the law's outdoor validity). The assist state,
+// zone and next mist are the caller's, from moisture_assist(); the old projections publish their neutral values.
+inline ClimateActionDecision describe_law_decision(const LegacyState& label, const SensorInputs& in, const Output& law,
+                                                   const Band& band, bool out_ok,
                                                    const char* fog_ladder_word) noexcept {
-    // X1: no mode-machine state: the fields it fed (assist state, next mist, heat assist) are the law's below or
-    // published by the caller from moisture_assist().
-    const ControlState neutral = initial_state();  // on the stack: no static RAM (U3)
-    ClimateActionDecision d = describe_climate_decision_for_action(label.action, label.axis, in, sp, neutral);
+    ClimateActionDecision d{};
+    d.climate_action = label.action;
+    d.priority_axis = label.axis;
+    d.temp_error_f = climate_band_error(in.temp_f, float(band.low), float(band.high));
+    d.vpd_error_kpa = std::isfinite(in.vpd_kpa) ? climate_band_error(in.vpd_kpa, float(band.vpd_low), float(band.vpd_high))
+                                                : 0.0f;  // RULINGS G2: no humidity, no VPD error
+    d.candidate_summary = climate_summary_for_action(label.action);
+    d.moisture_assist_state = CLIMATE_MOISTURE_INACTIVE;
+    d.moisture_zone = CLIMATE_ZONE_NONE;
+    d.next_mist_eligible_s = -1.0f;
     d.fog_margin_kpa = std::isfinite(in.vpd_kpa) ? float(in.vpd_kpa - (band.vpd_high + FOG_ON_ABOVE_VPD_HIGH_KPA))
                                                  : 0.0f;
     d.fog_block_reason = climate_fog_block_word(fog_ladder_word);
+    d.resource_cost_estimate = climate_resource_estimate(label.action);
     const unsigned dr = unsigned(law.dry_refusal);
     d.moisture_exchange_action = law.drying ? "vent_dehum" : "none";
     d.moisture_exchange_reason =
         dr < sizeof(DRY_REFUSAL_NAMES) / sizeof(DRY_REFUSAL_NAMES[0]) ? DRY_REFUSAL_NAMES[dr] : "none";
-    d.moisture_vent_vpd_gain_kpa = 0.0f;
-    d.moisture_vent_held_vpd_gain_kpa = 0.0f;
-    d.moisture_heat_vpd_gain_kpa = 0.0f;
     d.moisture_outdoor_fresh = out_ok;
-    d.moisture_vent_overcools = false;
-    d.moisture_heat_assist_corun = false;
-    d.moisture_hold_required = false;
-    d.moisture_heat_assist_active = false;
-    d.moisture_heat_assist_timer_ms = 0;
     return d;
 }
 
