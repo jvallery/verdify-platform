@@ -146,7 +146,7 @@ test-climate-law: ## The band-edge climate law (climate_law.h): equals the refer
 	cd firmware && g++ -std=c++17 -I lib -I ../docs/reviews/control-review-2026-11-15/sim -o test/test_climate_law test/test_climate_law.cpp && ./test/test_climate_law
 
 climate-law-sim: ## Closed-loop simulation: the firmware's law and relay layer reproduce the reference over the weather year (CI only; heavy)
-	python3 firmware/test/climate_law_sim.py
+	python3 firmware/test/climate_law_sim.py --full
 
 test-firmware: test-policy-vector test-policy-engine test-policy-recovery test-policy-injection test-zone-vpd test-irrigation-program test-greenhouse-logic test-running-alone test-climate-law ## Run native C++ logic tests + replay against golden CSV (same code as ESP32)
 	# OBS-1e (Sprint 16) — replay validation against 8 months of real telemetry.

@@ -604,11 +604,12 @@ if in_part containment-firmware; then
   fi
 
   step "climate law closed-loop simulation: the firmware's law reproduces the reference over the weather year (#1671)"
-  # The full weather year (about 80 simulated years, 3 to 6 minutes of one core) runs only in CI; a workstation
-  # `make ci` runs the two-week smoke of the same comparison.
+  # The full weather year (about 80 simulated years, 3 to 6 minutes of one core) runs only when the caller asks
+  # for it with CLIMATE_LAW_SIM=full (ci/gha/validate.sh does, and checks the receipt); a workstation `make ci`
+  # runs the two-week smoke of the same comparison. The mode is never inferred from the environment (G10).
   if command -v g++ >/dev/null; then
-    if [ -n "${CI:-}" ] || [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
-      $PY firmware/test/climate_law_sim.py
+    if [ "${CLIMATE_LAW_SIM:-quick}" = full ]; then
+      $PY firmware/test/climate_law_sim.py --full ${CLIMATE_LAW_SIM_RECEIPT:+--receipt "$CLIMATE_LAW_SIM_RECEIPT"}
     else
       $PY firmware/test/climate_law_sim.py --quick
     fi

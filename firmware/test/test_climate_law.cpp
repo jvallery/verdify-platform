@@ -488,8 +488,10 @@ static void relay_layer() {
   e = L::Output{};
   e.heat1 = e.heat2 = true; e.cold = true;
   L::relay_step(r, e, in);
-  CHECK(!r.vent.on && !r.fan1.on && !r.fan2.on && r.heat1.on && r.heat2.on,
-        "G1, 40 F: air off at once, both heaters on in the same pass");
+  CHECK(!r.vent.on && !r.fan1.on && !r.fan2.on && r.heat1.on && !r.heat2.on,
+        "G1, 40 F: air off at once, the electric heater on in the same pass");
+  L::relay_step(r, e, in);
+  CHECK(r.heat1.on && r.heat2.on, "G1c, 40 F: the furnace follows one pass after the air reads off");
   // G1, 40 F: the heaters ignore their minimum off time
   r = after_boot_wait();
   e = L::Output{};
@@ -500,6 +502,32 @@ static void relay_layer() {
   e.cold = true;
   L::relay_step(r, e, in);
   CHECK(r.heat1.on && r.heat2.on, "G1, 40 F: heaters start inside their minimum off time");
+  // G1b: at or below 40 F the furnace's boot wait does not apply
+  r = {};
+  e = L::Output{};
+  e.heat1 = e.heat2 = true; e.cold = true;
+  L::relay_step(r, e, in);
+  CHECK(r.heat1.on && r.heat2.on, "G1b, 40 F: both heaters at once after a boot");
+  // G1a: the fogger keeps its minimum times at 100 F and at 40 F
+  for (int lim = 0; lim < 2; ++lim) {
+    const char* at = lim ? "G1a, 40 F" : "G1a, 100 F";
+    r = after_boot_wait();
+    e = L::Output{};
+    e.fog = true;
+    L::relay_step(r, e, in);
+    CHECK(r.fog.on, "fog on");
+    L::Output lim_e{};
+    (lim ? lim_e.cold : lim_e.hot) = true;
+    L::relay_step(r, lim_e, in);
+    CHECK(r.fog.on, at);  // not stopped inside its minimum on time
+    for (uint32_t t = 1000; t < FOG_MIN_ON_S * MS_PER_S; t += 1000) L::relay_step(r, lim_e, in);
+    CHECK(!r.fog.on, at);  // stops when its minimum on time ends
+    lim_e.fog = true;
+    L::relay_step(r, lim_e, in);
+    CHECK(!r.fog.on, at);  // not restarted inside its minimum off time
+    for (uint32_t t = 1000; t < FOG_MIN_OFF_S * MS_PER_S; t += 1000) L::relay_step(r, lim_e, in);
+    CHECK(r.fog.on, at);  // restarts when its minimum off time ends
+  }
   // G1 keeps the interlocks: at 100 F with the furnace asked (impossible from the law) the air still wins
   r = after_boot_wait();
   e = L::Output{};

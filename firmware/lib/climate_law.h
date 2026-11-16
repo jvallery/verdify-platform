@@ -229,9 +229,10 @@ inline Output step_checked(State& s, Inputs u, bool* band_repaired = nullptr) no
 // minimum off time after any boot (ruling G4); a fan only with the vent open (the vent opens first, the fan follows on
 // the next pass, the vent stays open while a fan runs); the furnace and the vent never on together (the air waits for
 // the furnace to finish and stop; the furnace waits for the vent to close); the lead fan chosen only while both fans
-// are off. At a protection limit (100 F, 40 F) no minimum time applies to any relay and the interlocks still do
-// (ruling G1): at 100 F both heaters stop, the vent opens and the fans start in the same pass; at 40 F the fans stop,
-// the vent closes and both heaters start, the furnace in the same pass once the air is off.
+// are off. At a protection limit (100 F, 40 F) no minimum time applies to the heaters, the vent and the fans, and the
+// interlocks still do (rulings G1, G1a): at 100 F both heaters stop, the vent opens and the fans start in the same
+// pass; at 40 F the fans stop, the vent closes and the electric heater starts in the same pass, the furnace on the
+// next pass once the air reads off (G1c), with no boot wait (G1b). The fogger keeps its minimum times everywhere (G1a).
 struct Relay {
     bool on = false;
     bool switched = false;  // false until the relay first switches: available at once after boot
@@ -296,15 +297,18 @@ inline RelayStarts relay_step(RelayState& r, const Output& e, const RelayInputs&
     RelayStarts st{};
     st.heat1 = detail::relay_set(r.heat1, e.heat1, prot, prot, heat_on, heat_off);
     if (prot) {
-        // Ruling G1: no minimum time. The fans that are not wanted and the vent (when no fan is wanted) stop first,
-        // the vent opens before the fans in the same pass, and the furnace starts only with the air off.
+        // Ruling G1/G1a: no minimum time on the heaters, the vent and the fans. The fans that are not wanted and the
+        // vent (when no fan is wanted) stop first; the vent opens before the fans in the same pass, as the phase 2
+        // glue writes them. G1c: the furnace starts only with the air off at the start of the pass and after it,
+        // the one-pass wait of the phase 2 glue (its heat/vent hold reads the relays before it writes them); there
+        // is no actuator travel wait to keep. G1b: at or below 40 F the furnace's boot wait does not apply.
         if (!want_f1) detail::relay_set(r.fan1, false, false, true, fan_on, fan_off);
         if (!want_f2) detail::relay_set(r.fan2, false, false, true, fan_on, fan_off);
         st.vent = detail::relay_set(r.vent, want_vent || want_f1 || want_f2, true, true, vent_on, vent_off);
         st.fan1 = detail::relay_set(r.fan1, want_f1 && r.vent.on, true, true, fan_on, fan_off);
         st.fan2 = detail::relay_set(r.fan2, want_f2 && r.vent.on, true, true, fan_on, fan_off);
         const bool air_now = r.vent.on || r.fan1.on || r.fan2.on;
-        st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_now, true, true, heat_on, heat_off);
+        st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_on && !air_now, true, true, heat_on, heat_off);
     } else {
         st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_on, false, false, heat_on, heat_off);
         if (r.heat2.on) {  // defence in depth: the law never asks for the furnace and the air together
@@ -316,8 +320,9 @@ inline RelayStarts relay_step(RelayState& r, const Output& e, const RelayInputs&
         st.vent = detail::relay_set(r.vent, want_vent || want_f1 || want_f2 || r.fan1.on || r.fan2.on, false, false,
                                     vent_on, vent_off);
     }
-    st.fog = detail::relay_set(r.fog, e.fog && !in.fog_hold, prot && !in.fog_hold, in.fog_hold || prot,
-                               FOG_MIN_ON_S * MS_PER_S, FOG_MIN_OFF_S * MS_PER_S);
+    // G1a: the fogger keeps its minimum times at every temperature; only its hard holds stop it at once.
+    st.fog = detail::relay_set(r.fog, e.fog && !in.fog_hold, false, in.fog_hold, FOG_MIN_ON_S * MS_PER_S,
+                               FOG_MIN_OFF_S * MS_PER_S);
     return st;
 }
 

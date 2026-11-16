@@ -53,5 +53,17 @@ python3 -m venv .venv
 if [ "${VALIDATE_PART:-}" = pins ]; then
   bash ci/gha/pins-check.sh
 else
+  # G10: the closed-loop climate law simulation runs its full weather year here, asked for explicitly, and the
+  # job fails unless the full run wrote its receipt.
+  sim_full=0
+  case "${VALIDATE_PART:-all}" in all | containment-firmware) sim_full=1 ;; esac
+  if [ "$sim_full" = 1 ]; then
+    export CLIMATE_LAW_SIM=full CLIMATE_LAW_SIM_RECEIPT="$impact/climate_law_sim.receipt"
+  fi
   bash scripts/ci-local.sh
+  if [ "$sim_full" = 1 ]; then
+    grep -q '^mode=full ' "$CLIMATE_LAW_SIM_RECEIPT" 2>/dev/null \
+      || { echo "climate law simulation: the full-year run did not execute (no receipt)" >&2; exit 1; }
+    cat "$CLIMATE_LAW_SIM_RECEIPT"
+  fi
 fi

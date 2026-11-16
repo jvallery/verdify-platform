@@ -27,9 +27,10 @@ furnace's last switch-off is set one step before the start). G1 (no minimum time
 transcribed: instead every compared run must stay strictly between the two limits, which the harness asserts, so the
 rule never acts. The published-figures check uses the simulator exactly as committed.
 
-Heavy: about 80 simulated years (3 to 6 minutes of one core). It runs in CI (the validate-containment-firmware part);
-a workstation `make ci` runs it with --quick.
-Usage: python3 firmware/test/climate_law_sim.py [--quick]   (--quick: two weeks, for a smoke check of the harness)
+Heavy: about 80 simulated years (3 to 6 minutes of one core). CI asks for it explicitly (ci/gha/validate.sh sets
+CLIMATE_LAW_SIM=full for the validate-containment-firmware part and fails without the run's receipt); a workstation
+`make ci` runs it with --quick.
+Usage: python3 firmware/test/climate_law_sim.py (--full [--receipt PATH] | --quick)
 """
 
 from __future__ import annotations
@@ -263,8 +264,12 @@ def season_rows(text: str, season: str) -> list[dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--quick", action="store_true", help="two weeks of each season: a smoke check of the harness")
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--full", action="store_true", help="the weather year and the published-figures check (CI)")
+    mode.add_argument("--quick", action="store_true", help="two weeks of each season: a smoke check of the harness")
+    ap.add_argument("--receipt", type=Path, help="with --full: write a receipt here when the full run passes")
     args = ap.parse_args()
+    print(f"climate law closed-loop simulation: mode {'quick' if args.quick else 'full'}")
     winter_span = summer_span = (YEAR_START, YEAR_END, SCORE_FROM)
     if args.quick:
         winter_span = (YEAR_START, YEAR_START + 15 * 86400, SCORE_FROM)
@@ -314,18 +319,18 @@ def main() -> int:
         print(f"port vs reference: {compared} runs compared ({traced_minutes} relay-trace minutes), {failures} fail")
         # 2. the reference with its own defaults reproduces the published monthly figures of the law
         if not args.quick:
-            published = {}
+            published_rows = {}
             with RESULTS.open() as f:
                 for r in csv.DictReader(f):
                     if r["scenario"] == "law" and r["period"][:2] == "20":
-                        published[(r["set"], r["period"])] = r
+                        published_rows[(r["set"], r["period"])] = r
             checked = 0
             for set_name, sdef in SETS.items():
                 for season in ("winter", "summer"):
                     params, canopy = sdef[season]
                     out = run(published, forcing, "law", params, canopy, winter_span, {})
                     for r in season_rows(out, season):
-                        p = published.get((set_name, r["period"]))
+                        p = published_rows.get((set_name, r["period"]))
                         if p is None:
                             continue
                         checked += 1
@@ -343,6 +348,8 @@ def main() -> int:
                 failures += 1
                 print("FAIL: too few published months matched")
     print("climate law closed-loop simulation:", "FAIL" if failures else "PASS")
+    if args.full and args.receipt and not failures:
+        args.receipt.write_text(f"mode=full runs={compared} months_checked={checked}\n")
     return 1 if failures else 0
 
 
