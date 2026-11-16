@@ -244,56 +244,6 @@ async def _setpoint_delivery_cycle(conn) -> tuple[dict | None, frozenset[str]]:
     return envelope, frozenset()
 
 
-# Plans written but not delivered (#1636, interim warning): with a plan in the last week, a plan or band request
-# made after the newest plan is still unconfirmed after 30 minutes ($1), or no plan or band request was confirmed
-# for 90 minutes ($2; band rows naturally pause up to 71 minutes). A plan that changed nothing deliverable raises
-# nothing. Removed in the release that ends plan writing (packages 4.2 and 5.1).
-PLAN_NOT_DELIVERED_AFTER_S = 1800
-PLAN_NO_CONFIRMED_DELIVERY_S = 5400
-_PLAN_NOT_DELIVERED_SQL = """
-WITH p AS (
-    SELECT max(created_at) AS created_at FROM setpoint_plan
-     WHERE ts > now() - interval '8 days' AND created_at > now() - interval '7 days'
-), c AS (
-    SELECT max(confirmed_at) AS last_confirmed_at FROM setpoint_changes
-     WHERE source IN ('plan', 'band') AND ts > now() - interval '7 days'
-)
-SELECT p.created_at AS plan_created_at, c.last_confirmed_at
-  FROM p, c
- WHERE p.created_at IS NOT NULL
-   AND (EXISTS (
-           SELECT 1 FROM setpoint_changes sc
-            WHERE sc.source IN ('plan', 'band') AND sc.ts > p.created_at
-              AND sc.ts < now() - make_interval(secs => $1) AND sc.confirmed_at IS NULL
-              AND COALESCE(sc.delivery_status, '') NOT IN ('superseded', 'cancelled'))
-        OR (p.created_at < now() - make_interval(secs => $1)
-            AND COALESCE(c.last_confirmed_at, '-infinity') < now() - make_interval(secs => $2)))
-"""
-
-
-def _plan_not_delivered_alert(row: Mapping | None) -> dict | None:
-    """The plan_not_delivered warning for ``_PLAN_NOT_DELIVERED_SQL``'s row, None without one."""
-    if row is None:
-        return None
-    created = row["plan_created_at"]
-    confirmed = row["last_confirmed_at"]
-    return {
-        "alert_type": "plan_not_delivered",
-        "severity": "warning",
-        "category": "system",
-        "sensor_id": "planner",
-        "zone": None,
-        "message": f"Iris's plan of {created.astimezone(UTC):%Y-%m-%d %H:%M} UTC is not reaching the controller: "
-        "a plan or band setting is unconfirmed after 30 minutes, or none confirmed for 90",
-        "details": {
-            "plan_created_at": created.isoformat(),
-            "last_confirmed_at": confirmed.isoformat() if confirmed is not None else None,
-        },
-        "metric_value": None,
-        "threshold_value": float(PLAN_NOT_DELIVERED_AFTER_S),
-    }
-
-
 # The controller's clock (#1638): the band runs on it. Raised when the median offset from the row time over the
 # last 10 minutes exceeds this (baseline -52 to 0 s; the 2026 fault ran 690 to 7,060 s), or when every
 # diagnostics row of the last 30 minutes reports sntp_valid 0.
@@ -2709,18 +2659,6 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         stuck_alert, delivery_preserved = await _setpoint_delivery_cycle(conn)
         if stuck_alert is not None:
             alerts.append(stuck_alert)
-        # 15a. Plans written but nothing delivered (#1636, interim until plans end).
-        plan_row, failed = await _guarded_fetchrow(
-            conn,
-            frozenset({"plan_not_delivered"}),
-            _PLAN_NOT_DELIVERED_SQL,
-            PLAN_NOT_DELIVERED_AFTER_S,
-            PLAN_NO_CONFIRMED_DELIVERY_S,
-        )
-        read_preserved |= failed
-        plan_alert = None if plan_row is _READ_FAILED else _plan_not_delivered_alert(plan_row)
-        if plan_alert is not None:
-            alerts.append(plan_alert)
         # 15c. Alert coverage, host release 2 (contracts/alert-coverage.md): all warnings, each read guarded.
         coverage_alerts, failed = await coverage_cycle(conn)
         alerts.extend(coverage_alerts)

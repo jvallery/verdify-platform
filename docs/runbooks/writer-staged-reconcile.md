@@ -89,10 +89,9 @@ controller restart opens nothing for a value the dispatcher re-pushes within 15
 minutes.
 The dashboard's stuck-delivery banner reads this alert.
 
-`plan_not_delivered` (warning, interim until plans end in packages 4.2 and 5.1)
-backs it up: a `plan` or `band` request made after the newest plan is still
-unconfirmed after 30 minutes, or no `plan` or `band` request was confirmed for 90
-minutes. A plan that asks nothing new raises nothing.
+`plan_not_delivered` is retired with plan writing (packages 4.2 and 5.1): the
+daily review task resolves any open row once after the release and nothing raises
+it again.
 
 An open stuck row whose settings aged out of the 60-day request window stays open
 while the controller still differs. `activity_start_hour` and

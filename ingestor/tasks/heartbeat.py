@@ -63,6 +63,7 @@ RETIRED_PLANNER_ALERT_TYPES = (
     "plan_context_slow",
     "forecast_deviation",
     "forecast_action_alert",
+    "plan_not_delivered",
 )
 _retired_alerts_resolved = False
 _SESSION_ID = re.compile(r"[A-Za-z0-9:_\-.]+")
