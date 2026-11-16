@@ -83,6 +83,9 @@ if in_part rest; then
   step "irrigation program record golden vectors (#1151)"
   $PY scripts/gen-irrigation-program-vectors.py --check
 
+  step "climate law constants: generated outputs current, no typed literal in the law (#1633 package 1.7)"
+  $PY scripts/gen-climate-law-constants.py --check
+
   step "ClimateIntent controller contract audit"
   $PY scripts/audit-climate-intent-contract.py
 

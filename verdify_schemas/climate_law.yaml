@@ -1,0 +1,103 @@
+# The climate law's constants: the single source of every number in the law
+# (docs/design/climate-refactor-plan-2026-11-15.md, sections 4.4 and 9).
+#
+# Every other copy is generated from this file by scripts/gen-climate-law-constants.py:
+#   firmware/lib/climate_law_constants_generated.h   (the firmware)
+#   verdify_schemas/climate_law_constants.py         (the host)
+#   docs/climate-law-constants.md                    (the documentation table)
+# CI (verdify_schemas/tests/test_climate_law_constants.py) fails when a generated file is stale or when a number is
+# typed as a literal in one of the law's source files (LAW_SOURCES in the generator).
+#
+# Each entry: value (a number), unit, group, what. An entry with `sum_of` instead of `value` is derived: its value is
+# the sum of the named entries. Change a number here, regenerate, and the firmware reports a new CONSTANTS_SHA256.
+# Changing a compiled number is a firmware release.
+
+constants:
+  # ---- Rule 1: electric heater, F above the band's low edge
+  heat1_on_above_low_f: {value: 3.5, unit: F, group: temperature, what: "Electric heater on below low + this"}
+  heat1_off_above_low_f: {value: 4.5, unit: F, group: temperature, what: "Electric heater off above low + this"}
+  # ---- Rule 2: gas furnace
+  heat2_on_above_low_f: {value: 0.5, unit: F, group: temperature, what: "Furnace on below low + this"}
+  heat2_off_above_low_f: {value: 3.0, unit: F, group: temperature, what: "Furnace off at or above low + this"}
+  # ---- Rule 3: cooling (vent and lead fan), F relative to the band's high edge
+  cool_on_above_high_f: {value: 0.0, unit: F, group: temperature, what: "Cooling on above high + this"}
+  cool_off_below_high_f: {value: 2.0, unit: F, group: temperature, what: "Cooling off below high - this"}
+  # ---- Rule 4: second fan
+  fan2_on_above_high_f: {value: 1.5, unit: F, group: temperature, what: "Second fan on above high + this"}
+  fan2_off_above_high_f: {value: 0.0, unit: F, group: temperature, what: "Second fan off below high + this"}
+
+  # ---- Rule 5: fogger, kPa relative to the band's VPD high edge
+  fog_on_above_vpd_high_kpa: {value: 0.0, unit: kPa, group: humidity, what: "Fogger on above vpd_high + this"}
+  fog_off_below_vpd_high_kpa: {value: 0.15, unit: kPa, group: humidity, what: "Fogger off below vpd_high - this"}
+  # ---- Rule 6: misters opted in for VPD
+  mist_on_above_vpd_high_kpa: {value: 0.30, unit: kPa, group: humidity, what: "Misters join above vpd_high + this"}
+  mist_off_above_vpd_high_kpa: {value: 0.05, unit: kPa, group: humidity, what: "Misters leave below vpd_high + this"}
+  # ---- Rules 5 and 6: the cold-house guard (decision 20)
+  wet_min_above_low_f: {value: 0.0, unit: F, group: humidity, what: "No fog or mist while the house is below low + this"}
+  # ---- Rule 7: drying with outdoor air, kPa relative to the band's VPD low edge
+  dry_on_above_vpd_low_kpa: {value: 0.05, unit: kPa, group: drying, what: "Drying wanted below vpd_low + this (the drying line)"}
+  dry_off_above_vpd_low_kpa: {value: 0.20, unit: kPa, group: drying, what: "Drying no longer wanted above vpd_low + this"}
+  dry_start_above_low_f: {value: 1.5, unit: F, group: drying, what: "A drying run may start at or above low + this while its cost is within the limit"}
+  dry_stop_above_low_f: {value: 0.75, unit: F, group: drying, what: "A drying run stops below low + this"}
+  dry_dewpoint_start_margin_f: {value: 3.0, unit: F, group: drying, what: "Outdoor air counts as drier when its dew point is at least this far below the indoor dew point"}
+  dry_dewpoint_stop_margin_f: {value: 1.0, unit: F, group: drying, what: "Outdoor air stops counting as drier when its dew point is less than this far below"}
+  dry_min_moisture_diff_g_per_kg: {value: 0.1, unit: g/kg, group: drying, what: "Least humidity-ratio difference (indoor minus outdoor) for drying; guards the division in the cost"}
+  dry_cost_none_kwh_per_kg: {value: 1000000000.0, unit: kWh/kg, group: drying, what: "Cost reported when the moisture difference is below the least difference (never within the limit)"}
+  site_pressure_kpa: {value: 85.0, unit: kPa, group: drying, what: "Air pressure for the humidity ratio (the firmware's compiled site value)"}
+  # ---- The drying cost limit: a stored setting (owner, dashboard); these are its released default and range
+  dry_cost_limit_default_kwh_per_kg: {value: 0.7, unit: kWh/kg, group: drying, what: "Drying cost limit: released default, and the ROM value"}
+  dry_cost_limit_min_kwh_per_kg: {value: 0.0, unit: kWh/kg, group: drying, what: "Drying cost limit: lowest value"}
+  dry_cost_limit_max_kwh_per_kg: {value: 1.5, unit: kWh/kg, group: drying, what: "Drying cost limit: highest value"}
+  dry_cost_limit_step_kwh_per_kg: {value: 0.05, unit: kWh/kg, group: drying, what: "Drying cost limit: editor step"}
+
+  # ---- Physics used by the drying cost e = cp * max(0, dT_F / F_PER_K) / dw / (KJ_PER_KWH / G_PER_KG)
+  air_cp_kj_per_kg_k: {value: 1.006, unit: kJ/(kg K), group: physics, what: "Specific heat of dry air"}
+  f_per_k: {value: 1.8, unit: F/K, group: physics, what: "Degrees F per kelvin of temperature difference"}
+  kj_per_kwh: {value: 3600.0, unit: kJ/kWh, group: physics, what: "Kilojoules per kilowatt-hour"}
+  g_per_kg: {value: 1000.0, unit: g/kg, group: physics, what: "Grams per kilogram"}
+
+  # ---- Rules 8 and 9: protection limits, independent of the band (RULINGS B3: also the boot values)
+  safety_max_f: {value: 100.0, unit: F, group: protection, what: "At or above: vent open, both fans on, both heaters off"}
+  safety_min_f: {value: 40.0, unit: F, group: protection, what: "At or below: both heaters on, vent closed, fans, fogger and misters off"}
+
+  # ---- Relay layer (section 4.3): minimum on and off times
+  heat_min_on_s: {value: 300, unit: s, group: relay, what: "Electric heater and furnace: minimum on time"}
+  heat_min_off_s: {value: 300, unit: s, group: relay, what: "Electric heater and furnace: minimum off time"}
+  fan_min_on_s: {value: 300, unit: s, group: relay, what: "Fans: minimum on time"}
+  fan_min_off_s: {value: 300, unit: s, group: relay, what: "Fans: minimum off time"}
+  vent_min_on_s: {value: 300, unit: s, group: relay, what: "Vent: minimum on time"}
+  vent_min_off_s: {value: 300, unit: s, group: relay, what: "Vent: minimum off time"}
+  fog_min_on_s: {value: 120, unit: s, group: relay, what: "Fogger: minimum on time"}
+  fog_min_off_s: {value: 120, unit: s, group: relay, what: "Fogger: minimum off time"}
+
+  # ---- Misters opted in for VPD (section 4.8 with RULINGS B3 and B4)
+  mister_pulse_s: {value: 30, unit: s, group: misters, what: "Plain climate mister pulse length (RULINGS B3)"}
+  mister_gap_s: {value: 60, unit: s, group: misters, what: "Gap between climate mister pulses (RULINGS B3)"}
+  mister_long_pulse_factor: {value: 1.4, unit: ratio, group: misters, what: "Pulse length multiplier while the zone VPD is above the long-pulse ratio times vpd_high (RULINGS B4)"}
+  mister_long_pulse_vpd_ratio: {value: 1.2, unit: ratio, group: misters, what: "The longer pulse applies while zone VPD > this times the band's vpd_high (RULINGS B4)"}
+  mister_overdue_s: {value: 600, unit: s, group: misters, what: "Fairness: a stressed member zone with no pulse for this long goes first"}
+
+  # ---- Values the irrigation engine and lighting read, compiled (appendix E with RULINGS B3)
+  vpd_emergency_kpa: {value: 2.5, unit: kPa, group: irrigation, what: "VPD emergency: lifts the soft water budget hold"}
+  wet_dew_margin_f: {value: 8.0, unit: F, group: irrigation, what: "Dew-point margin for wetting (zone gate and scheduled misting), no night test"}
+  mister_min_off_s: {value: 45, unit: s, group: irrigation, what: "Mister line minimum off time (zone fence, gap floor)"}
+  zone_rank_center: {value: 1, unit: rank, group: irrigation, what: "Mister zone rank: centre"}
+  zone_rank_south: {value: 2, unit: rank, group: irrigation, what: "Mister zone rank: south"}
+  zone_rank_west: {value: 3, unit: rank, group: irrigation, what: "Mister zone rank: west"}
+  zone_rank_east: {value: 4, unit: rank, group: irrigation, what: "Mister zone rank: east"}
+  outdoor_max_age_s: {value: 600, unit: s, group: inputs, what: "Outdoor data maximum age, station and intake probe; also lighting's outdoor freshness limit"}
+
+  # ---- Inputs and running alone (section 4.9)
+  case_sensor_offset_f: {value: 1.6, unit: F, group: inputs, what: "Subtracted from the case sensor when it is the only indoor reading (30-day median, case minus wall probes, read 2026-11-16)"}
+  fan_runtime_save_interval_s: {value: 3600, unit: s, group: inputs, what: "Fan run seconds and relay counters saved to flash at most this often"}
+  sensor_bus_restart_s: {value: 3600, unit: s, group: inputs, what: "Sensor-bus restart after no probe update for this long, at most once per this"}
+  occupancy_expiry_s: {value: 3600, unit: s, group: inputs, what: "Occupancy state expires after this long"}
+
+  # ---- Band validity (section 4.1): the editor's limits and the controller's band check
+  band_temp_min_f: {value: 45.0, unit: F, group: band, what: "Lowest temperature edge the editor and the controller accept"}
+  band_temp_max_f: {value: 95.0, unit: F, group: band, what: "Highest temperature edge the editor and the controller accept"}
+  band_vpd_min_kpa: {value: 0.3, unit: kPa, group: band, what: "Lowest VPD edge the editor and the controller accept"}
+  band_vpd_max_kpa: {value: 3.0, unit: kPa, group: band, what: "Highest VPD edge the editor and the controller accept"}
+  band_min_width_f: {sum_of: [heat1_off_above_low_f, cool_off_below_high_f], unit: F, group: band, what: "Least temp_high - temp_low: the heater's off line at or below the cooling off line"}
+  band_min_width_kpa: {sum_of: [dry_off_above_vpd_low_kpa, fog_off_below_vpd_high_kpa], unit: kPa, group: band, what: "Least vpd_high - vpd_low: the drying off line at or below the fogger's off line"}
+  night_vpd_floor_kpa: {value: 0.74, unit: kPa, group: band, what: "Editor: the drying line (vpd_low + dry_on_above_vpd_low_kpa) at or above this at every point of the night"}
