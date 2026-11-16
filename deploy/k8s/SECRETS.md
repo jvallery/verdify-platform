@@ -321,7 +321,7 @@ migration and other bootstrap owner credentials are unchanged.
 
 ## Cortex planner key (#1350)
 
-The cortex-planner shadow Deployment retired with #1652; the greenhouse-brief CronJob is this Secret's only reader now. `verdify-planner-cortex` must contain `api_key.txt`, a dedicated inference-only Cortex identity limited to the text routes `llm.primary.longctx` and `llm.qwen38u.longctx` (any image request belongs to `llm.primary.longctx.mm` under its own identity). It is live in `verdify-prod`; its adoption into agents KSOPS is jvallery/agents#6079. `verdify-cortex-planner` (components/cortex-planner) mounts it, `optional`, at `/vcortex-planner/api_key.txt`: without it the pod logs `FAIL CLOSED`, raises one `planner_failed` alert and idles instead of crash-looping. Its database login is the existing planner duty (`verdify-planner-runtime-db` / `password`). Placeholder: `overlays/prod/planner-cortex-secret.placeholder.yaml`.
+The cortex-planner shadow Deployment retired with #1652; the greenhouse-brief CronJob is this Secret's only reader now. `verdify-planner-cortex` must contain `api_key.txt`, a dedicated inference-only Cortex identity limited to the text routes `llm.primary.longctx` and `llm.qwen38u.longctx` (any image request belongs to `llm.primary.longctx.mm` under its own identity). It is live in `verdify-prod`; its adoption into agents KSOPS is jvallery/agents#6079. Placeholder: `overlays/prod/planner-cortex-secret.placeholder.yaml`.
 
 ## Verdify knowledge embeddings (#1351)
 

@@ -64,7 +64,7 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-knowledge-embed` | suspended | verdify-ingestor | |
 | `verdify-firmware-builder`, `verdify-firmware-flasher` | suspended (`0 0 31 2 *`) | cosign / ESPHome 2026.6.5 mirrors | Templates for the signed firmware path (`docs/runbooks/firmware-signed-artifacts.md`); run only as attended Jobs. |
 
-The winter feasibility collector (CronJob `verdify-winter-feasibility`, its runner ConfigMap, two NetworkPolicies and the `verdify-winter-archive-init` hook) was retired by #1634; its archive PVC stays. The writer and DB watchdog CronJobs and `verdify-ha-gap-backfill` are no longer running.
+The winter feasibility collector (CronJob `verdify-winter-feasibility`, its runner ConfigMap, two NetworkPolicies and the `verdify-winter-archive-init` hook) was retired by #1634; its archive PVC stays. The experiment platform and the idle planners were retired by #1649, #1635 and #1652: Deployments `experiment-v2-lifecycle`, `experiment-v2-selector`, `experiment-v2-freezer`, `verdify-planner` and `verdify-cortex-planner`, CronJob `verdify-fixed-panel-native-freezer`, Service and PodDisruptionBudget `verdify-planner`, two ConfigMaps and four NetworkPolicies; their tables and roles stay until the drop package. The writer and DB watchdog CronJobs and `verdify-ha-gap-backfill` are no longer running.
 
 ### Other namespaces
 
@@ -106,7 +106,7 @@ The middlewares in `verdify-prod` are `verdify-api-inflight`, `verdify-api-rate-
 
 ## Policy, RBAC and cluster-scoped objects
 
-- NetworkPolicies: 44 in `verdify-prod` (46 once `allow-db-from-db-exporter` and `allow-db-exporter-metrics-from-observability` sync, monitoring-stack#1597), 4 in `verdify-dashboard` and 3 in `verdify-descheduler`, each delivered by that namespace's Application.
+- NetworkPolicies: 40 in `verdify-prod` (42 once `allow-db-from-db-exporter` and `allow-db-exporter-metrics-from-observability` sync, monitoring-stack#1597), 4 in `verdify-dashboard` and 3 in `verdify-descheduler`, each delivered by that namespace's Application.
 - PodDisruptionBudgets in `verdify-prod`: `verdify-api`, `verdify-grafana`, `verdify-grafana-render-cache`, `verdify-ingestor`, `verdify-lab`, `verdify-mcp` and `verdify-traefik`.
 - ServiceAccounts: `verdify-ingestor`, `verdify-mcp`, `verdify-outbound`, `verdify-traefik`, `verdify-dashboard-web` and `descheduler`. The Role and RoleBinding `verdify-ingestor-writer-lease` and the Role and RoleBinding `descheduler` are this repo's. The `kepler-estate-operations` Role and RoleBinding in each namespace belong to jvallery/kepler.
 - PriorityClasses `verdify-batch` (1000), `verdify-serving` (100000), `verdify-data-critical` (800000000) and `verdify-device-writer` (900000000). They are cluster-scoped and owned here.
@@ -142,6 +142,6 @@ The values come from the central KSOPS lane in jvallery/agents (planned for jval
 Each action is tracked as a GitHub issue; the issue is canonical.
 
 - Drop the retired D-16 hosts from the tier-1 route after jvallery/network-infra#602 ([#1001](https://github.com/jvallery/verdify-platform/issues/1001)): done in Git by [#1582](https://github.com/jvallery/verdify-platform/issues/1582); live once `verdify-prod-dark` syncs IngressRoute `verdify-prod/verdify-tier1-forward`.
-- `verdify-experiment-v2-selector-provider` is delivered but referenced by no manifest. Retire it in the central lane or wire a consumer.
+- Secrets `verdify-experiment-v2-selector-provider`, `verdify-experiment-v2-shadow-scheduler-db`, `verdify-experiment-v2-randomizer-db`, `verdify-experiment-v2-outcome-freezer-db`, `verdify-agent-secrets` and the experiment keys of `verdify-app-secrets` have no consumer after the retirement (#1649, #1634). Retire them in the central lane once that release has held; update the central record in the same change set.
 - `verdify-writer-watchdog-runtime-db` outlived its CronJob. Retire it in the central lane once the monitoring-stack `verdify.writer-ownership` alerts are confirmed (R13).
 - Keep this file in step with the central record and a fresh live readback whenever an Application, workload, Secret or route is added or retired.

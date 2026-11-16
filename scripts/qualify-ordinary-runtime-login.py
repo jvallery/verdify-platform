@@ -23,7 +23,6 @@ ROLES = {
         "api",
         "ingestor",
         "mcp",
-        "planner",
         "setpoint_server",
         "ha_backfill",
         "lab_publisher",
@@ -34,7 +33,6 @@ SOURCES = {
     "api": ("/app/main.py", "get_db_dsn"),
     "ingestor": ("/app/ingestor/config.py", "get_db_dsn"),
     "mcp": ("/app/mcp/server.py", None),
-    "planner": ("/app/planner_graph/config.py", "_build_postgres_dsn"),
     "setpoint_server": ("/app/scripts/setpoint-server.py", "get_db_url"),
     "ha_backfill": ("/scripts/backfill-ha-gaps.py", "build_db_dsn"),
     "vision": ("/vsrc/analyze-greenhouse-snapshot.py", "get_db_url"),
@@ -73,11 +71,6 @@ def application_dsn(duty, path):
         elif isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in names for t in node.targets):
             nodes.append(node)
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), "exec"), scope)  # noqa: S102 - only reviewed image DSN builders
-    if duty == "planner":
-        base = scope[function]()
-        dsns = [os.environ.get(name) or base for name in ("PLANNER_DB_DSN", "VERDIFY_DB_DSN", "PLANNER_MEMORY_DB_DSN")]
-        assert len(set(dsns)) == 1, "separate planner DSNs require distinct qualification"
-        return dsns[0]
     return scope[function]()
 
 
@@ -107,25 +100,13 @@ async def qualify(duty, path):
     assert urllib.parse.unquote(parsed.username or "") == ROLES[duty]
     assert parsed.hostname and parsed.hostname not in {"localhost", "127.0.0.1"}
     assert parsed.path == "/verdify", "production probe only; use separate restored qualification"
-    if duty == "planner":
-        import psycopg
-        from psycopg.rows import dict_row
+    import asyncpg
 
-        conn = await psycopg.AsyncConnection.connect(dsn, row_factory=dict_row, connect_timeout=10)
+    conn = await asyncpg.connect(dsn, timeout=10, server_settings={"application_name": "verdify-runtime-qualification"})
 
-        async def execute(sql):
-            cursor = await conn.execute(sql)
-            return await cursor.fetchall() if cursor.description else []
-    else:
-        import asyncpg
-
-        conn = await asyncpg.connect(
-            dsn, timeout=10, server_settings={"application_name": "verdify-runtime-qualification"}
-        )
-
-        async def execute(sql):
-            records = await conn.fetch(sql)
-            return [dict(row) for row in records]
+    async def execute(sql):
+        records = await conn.fetch(sql)
+        return [dict(row) for row in records]
 
     outcomes = []
     try:
@@ -149,12 +130,11 @@ async def qualify(duty, path):
             "base_delete": "DELETE FROM public.climate WHERE FALSE",
             "base_update": "UPDATE public.climate SET ts=ts WHERE FALSE",
         }
-        for other in ("planner", "setpoint_server", "ha_backfill", "vision", "lab_publisher", "grafana"):
+        for other in ("setpoint_server", "ha_backfill", "vision", "lab_publisher", "grafana"):
             if other != duty:
                 negatives[f"cross_schema_{other}"] = (
                     f"SELECT * FROM verdify_{other}_runtime."
                     + {
-                        "planner": "planner_graph_runs",
                         "setpoint_server": "v_runtime_equipment_state_write",
                         "ha_backfill": "climate",
                         "vision": "image_observations",
