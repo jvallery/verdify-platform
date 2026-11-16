@@ -64,11 +64,6 @@ spec:
             secretKeyRef:
               name: verdify-app-secrets
               key: POSTGRES_PASSWORD
-        - name: WRITER_WATCHDOG_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: verdify-writer-watchdog-runtime-db
-              key: password
         - name: MATVIEW_REFRESH_DB_PASSWORD
           valueFrom:
             secretKeyRef:

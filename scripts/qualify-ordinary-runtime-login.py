@@ -24,7 +24,6 @@ ROLES = {
         "ingestor",
         "mcp",
         "setpoint_server",
-        "ha_backfill",
         "lab_publisher",
         "vision",
     )
@@ -34,7 +33,6 @@ SOURCES = {
     "ingestor": ("/app/ingestor/config.py", "get_db_dsn"),
     "mcp": ("/app/mcp/server.py", None),
     "setpoint_server": ("/app/scripts/setpoint-server.py", "get_db_url"),
-    "ha_backfill": ("/scripts/backfill-ha-gaps.py", "build_db_dsn"),
     "vision": ("/vsrc/analyze-greenhouse-snapshot.py", "get_db_url"),
     "lab_publisher": ("/app/scripts/lab-publish-k3s.sh", None),
 }

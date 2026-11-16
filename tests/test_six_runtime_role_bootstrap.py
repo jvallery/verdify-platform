@@ -17,7 +17,7 @@ spec.loader.exec_module(module)
 def configured(monkeypatch):
     monkeypatch.setenv("DB_ADMIN_USER", "verdify")
     monkeypatch.setenv("DB_ADMIN_PASSWORD", "owner-private-fixture")
-    for index, duty in enumerate(module.DUTIES):
+    for index, duty in enumerate(module.ACTIVE_DUTIES):
         monkeypatch.setenv(duty.upper() + "_DB_PASSWORD", ("A_" + str(index) + "-").ljust(64, "z"))
     return monkeypatch
 
@@ -47,12 +47,12 @@ def test_initial_only_transaction_and_exact_six_targets(configured):
     assert "LOCK TABLE pg_catalog.pg_authid" in commands[0]
     assert "IS DISTINCT FROM TRUE" in commands[0]
     assert "admin_option" in commands[0]
-    assert commands[1:] == ["\\password verdify_" + d + "_runtime_login" for d in module.DUTIES]
+    assert commands[1:] == ["\\password verdify_" + d + "_runtime_login" for d in module.ACTIVE_DUTIES]
     assert all(
         "api_runtime_login" not in c and "ingestor_runtime_login" not in c and "mcp_runtime_login" not in c
         for c in commands[1:]
     )
-    for duty in module.DUTIES:
+    for duty in module.ACTIVE_DUTIES:
         secret = module.os.environ[duty.upper() + "_DB_PASSWORD"]
         assert secret not in str(commands)
         assert kwargs["password_input"].count(secret) == 2
@@ -62,7 +62,9 @@ def test_existing_verifiers_authenticate_without_reinstallation(configured):
     calls = executor(configured, absent=False)
     module.bootstrap()
     assert not any(c[2].get("transactional") for c in calls)
-    assert {c[0] for c in calls if c[0] != "verdify"} == {"verdify_" + d + "_runtime_login" for d in module.DUTIES}
+    assert {c[0] for c in calls if c[0] != "verdify"} == {
+        "verdify_" + d + "_runtime_login" for d in module.ACTIVE_DUTIES
+    }
 
 
 def test_mismatched_existing_secret_cannot_rotate(configured):
@@ -173,12 +175,12 @@ def test_native_hook_order_and_exact_secret_custody_contract():
         for e in container["env"]
         if e.get("valueFrom", {}).get("secretKeyRef")
     }
-    for duty in module.DUTIES:
+    for duty in module.ACTIVE_DUTIES:
         assert refs[duty.upper() + "_DB_PASSWORD"] == {
             "name": "verdify-" + duty.replace("_", "-") + "-runtime-db",
             "key": "password",
         }
-    assert set(refs) == {"DB_ADMIN_PASSWORD", *(d.upper() + "_DB_PASSWORD" for d in module.DUTIES)}
+    assert set(refs) == {"DB_ADMIN_PASSWORD", *(d.upper() + "_DB_PASSWORD" for d in module.ACTIVE_DUTIES)}
 
 
 @pytest.mark.parametrize("answer", ["f", "", "NULL"])
@@ -480,3 +482,13 @@ def test_maintenance_successor_whole_helper_matches_genuine_projected_native_rec
     }
     assert all(c["qualified"] is False for c in receipt["historical_failed_attempts"])
     assert len(receipt["private_proof_sha256"]) == 64
+
+
+def test_retired_ha_backfill_duty_stays_in_the_contract_without_custody(configured):
+    assert module.RETIRED_DUTIES == ("ha_backfill",) and "ha_backfill" in module.DUTIES
+    assert "verdify_ha_backfill_runtime_login" in module.admin_role_contract_sql()  # sealed contract unchanged
+    configured.setenv("HA_BACKFILL_DB_PASSWORD", "retired_fixture_".ljust(64, "h"))
+    calls = executor(configured)
+    module.bootstrap()
+    assert not any(c[0] == "verdify_ha_backfill_runtime_login" for c in calls)
+    assert "\\password verdify_ha_backfill_runtime_login" not in str(calls)

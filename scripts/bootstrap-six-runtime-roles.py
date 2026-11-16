@@ -10,6 +10,10 @@ import subprocess
 import tempfile
 
 DUTIES = ("grafana", "planner", "setpoint_server", "ha_backfill", "lab_publisher", "vision")
+# Duties whose login has no consumer (RULINGS R2): the role contract and seals still cover them unchanged, but the
+# hook no longer receives, installs or attests their credential, so their Secret can be removed after this sync.
+RETIRED_DUTIES = ("ha_backfill",)
+ACTIVE_DUTIES = tuple(d for d in DUTIES if d not in RETIRED_DUTIES)
 PREDECESSORS = {
     "api": "ad619765f93959500d7ed438f90000ceaf614b2f744553d4a4e269a7b15103d3",
     "ingestor": "8bf588e5381e236f68aabc6672f61d982321a444f418973089d6a10a5a1efcf6",
@@ -1274,10 +1278,10 @@ def admin_role_contract_sql():
 def bootstrap():
     if os.environ.get("DB_ADMIN_USER") != "verdify" or not os.environ.get("DB_ADMIN_PASSWORD"):
         raise BootstrapError("owner credential contract mismatch")
-    credentials = {d: os.environ.get(d.upper() + "_DB_PASSWORD", "") for d in DUTIES}
+    credentials = {d: os.environ.get(d.upper() + "_DB_PASSWORD", "") for d in ACTIVE_DUTIES}
     if any(not re.fullmatch("[A-Za-z0-9_-]{64}", value) for value in credentials.values()):
         raise BootstrapError("runtime credential shape mismatch")
-    if len(set(credentials.values())) != 6 or os.environ["DB_ADMIN_PASSWORD"] in credentials.values():
+    if len(set(credentials.values())) != len(ACTIVE_DUTIES) or os.environ["DB_ADMIN_PASSWORD"] in credentials.values():
         raise BootstrapError("runtime credentials must be distinct from each other and owner")
     admin = os.environ["DB_ADMIN_PASSWORD"]
     if psql("verdify", admin, ["SELECT " + sealed_sql() + " AND " + admin_role_contract_sql()]) != "t":
@@ -1303,10 +1307,10 @@ def bootstrap():
         if psql(login, credentials[duty], [query]) != "t":
             raise BootstrapError("actual runtime login/duty attestation refused")
 
-    for duty in DUTIES:
+    for duty in ACTIVE_DUTIES:
         if not state["verdify_" + duty + "_runtime_login"]:
             attest(duty)
-    missing = [d for d in DUTIES if state["verdify_" + d + "_runtime_login"]]
+    missing = [d for d in ACTIVE_DUTIES if state["verdify_" + d + "_runtime_login"]]
     if missing:
         # Lock the shared role catalog before rechecking state. Any competing
         # verifier installation stops this transaction rather than rotating it.
@@ -1326,12 +1330,12 @@ def bootstrap():
         commands = [guard] + ["\\password verdify_" + d + "_runtime_login" for d in missing]
         secret_input = "".join(credentials[d] + "\n" + credentials[d] + "\n" for d in missing)
         psql("verdify", admin, commands, password_input=secret_input, transactional=True)
-    for duty in DUTIES:
+    for duty in ACTIVE_DUTIES:
         attest(duty)
     if psql("verdify", admin, ["SELECT " + sealed_sql() + " AND " + admin_role_contract_sql()]) != "t":
         raise BootstrapError("existing ordinary seals changed")
     print(
-        "[six-runtime-role-bootstrap] six actual logins attested; initial-only verifiers; existing ordinary seals unchanged"
+        "[six-runtime-role-bootstrap] active logins attested; initial-only verifiers; existing ordinary seals unchanged"
     )
 
 
