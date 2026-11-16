@@ -444,7 +444,7 @@ SUCCESSOR_309_MCP_DIGEST = "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff66
 # refreshed by the matview-refresh duty. The relations keep no ACL entry and every new function's PUBLIC EXECUTE is
 # revoked, so no runtime seal moves and no receipt is re-sealed. It follows 309.
 SUCCESSOR_310 = "310-daily-record.sql"
-SUCCESSOR_310_SHA256 = "be63023b1b9d34e748252c3db991ab80f4ab262ff2f1707a8c486840eae9bb10"
+SUCCESSOR_310_SHA256 = "2f0aa50d6ff2401cc08e734214ca73fdac0ea279a495b1846f2b37fdabe3acd1"
 SUCCESSOR_310_DIGESTS = SUCCESSOR_309_DIGESTS
 SUCCESSOR_310_MCP_DIGEST = SUCCESSOR_309_MCP_DIGEST
 # Exact311 (#1667, plan section 9): one compliance definition. It stores August from the first day the band audit
@@ -452,7 +452,7 @@ SUCCESSOR_310_MCP_DIGEST = SUCCESSOR_309_MCP_DIGEST
 # dry-out minutes to v_daily_scorecard. The table keeps no ACL entry, the scorecard keeps its dashboard grant and
 # the new function's PUBLIC EXECUTE is revoked, so no runtime seal moves. It follows 310.
 SUCCESSOR_311 = "311-one-compliance-definition.sql"
-SUCCESSOR_311_SHA256 = "cad70bd741961988034f3b9799bed047e431f229716cf2589eb9c2bc6bb08760"
+SUCCESSOR_311_SHA256 = "b53904cde320fc4a2543017c4d5733bc31528fd4a4c57e8c68e940b394c935f7"
 SUCCESSOR_311_DIGESTS = SUCCESSOR_310_DIGESTS
 SUCCESSOR_311_MCP_DIGEST = SUCCESSOR_310_MCP_DIGEST
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this

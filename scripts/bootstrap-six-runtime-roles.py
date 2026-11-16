@@ -1061,7 +1061,7 @@ def sealed_sql_309():
 DAILY_RECORD_MIGRATION = (
     310,
     "310-daily-record.sql",
-    "be63023b1b9d34e748252c3db991ab80f4ab262ff2f1707a8c486840eae9bb10",
+    "2f0aa50d6ff2401cc08e734214ca73fdac0ea279a495b1846f2b37fdabe3acd1",
 )
 # The daily record (#1668, plan section 10): relay starts and run time with lost OFF events repaired, and the day's
 # utilities, in two verdify tables with no ACL entry and functions whose PUBLIC EXECUTE is revoked, so every seal keeps
@@ -1086,7 +1086,7 @@ def sealed_sql_310():
 COMPLIANCE_DEFINITION_MIGRATION = (
     311,
     "311-one-compliance-definition.sql",
-    "cad70bd741961988034f3b9799bed047e431f229716cf2589eb9c2bc6bb08760",
+    "b53904cde320fc4a2543017c4d5733bc31528fd4a4c57e8c68e940b394c935f7",
 )
 # One compliance definition (#1667): August stored on the served band, capacity-limited minutes and the scorecard's
 # two appended columns, on a table with no ACL entry and a view that keeps its dashboard grant, so every seal keeps

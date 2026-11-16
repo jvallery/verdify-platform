@@ -26,7 +26,7 @@ BEGIN
     IF current_user <> 'verdify'
         OR NOT EXISTS(SELECT 1 FROM public.schema_migrations WHERE source='db/migrations'
             AND seq=310 AND filename='db/migrations/310-daily-record.sql'
-            AND sha256='be63023b1b9d34e748252c3db991ab80f4ab262ff2f1707a8c486840eae9bb10'
+            AND sha256='2f0aa50d6ff2401cc08e734214ca73fdac0ea279a495b1846f2b37fdabe3acd1'
             AND stamp_method='runner')
         OR EXISTS(SELECT 1 FROM public.schema_migrations WHERE source='db/migrations' AND seq>310)
         OR (SELECT count(*) FROM public.runtime_ordinary_login_attestation_receipts)<>2

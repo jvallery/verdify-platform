@@ -8,8 +8,10 @@
 --   fn_relay_run_intervals(start, end)  each relay's ON intervals overlapping [start, end), repaired:
 --     * heat1, heat2, fan1, fan2, vent, fog: the firmware adds a run to its relay counter when the relay switches
 --       off (equipment_counter_samples, a sample every 30 s). A counter step whose two samples both lie inside an
---       event interval, more than 60 s from either end, proves the relay went off there; the interval is then rebuilt
---       from the counter's steps, each run ending at its step and as long as the step. The counter is not a run-time
+--       event interval, more than 60 s before its end, proves the relay went off there; so does a closing step that
+--       straddles a data gap and books 120 s or more less than the interval (an OFF recovered late). The interval is
+--       then rebuilt from the counter's steps, each run ending at its step and as long as the step, never before the
+--       relay's previous OFF. A step no interval explains is a lost ON and becomes a run of its own. The counter is not a run-time
 --       source on its own: today's firmware zeroes it at local midnight without the part of a run in progress
 --       (heat1 reads 2 to 7 h a day below its power meter), so an interval with no such step keeps its edges.
 --     * fog, misters and drips: an interval longer than 5 minutes ends at the first 3 minutes with no flow on the
@@ -26,8 +28,9 @@
 --                                       total, and the utilities: what the law is compared on;
 --   verdify_matview_refresh_runtime.fn_refresh_daily_record()
 --                                       the refresh the band-curve CronJob calls every 30 minutes: today, yesterday
---                                       and up to 8 missing days back to 2026-10-17 (the 30-day baseline before the
---                                       law, complete after four runs; about 3 s a day).
+--                                       and up to 3 missing days back to 2026-10-17 (the 30-day baseline before the
+--                                       law, complete after ten runs; about 15 s a day, mostly the energy and water
+--                                       views, which scan their tables).
 -- Nothing existing changes: v_equipment_runtime_daily, daily_summary and their readers (Grafana, the publisher, the
 -- deploy preflight) are untouched. No runtime seal moves: the relations are verdify's with no ACL entry, PUBLIC's
 -- EXECUTE is revoked from every new function, and the only EXECUTE goes to the matview-refresh duty, in its own
@@ -112,12 +115,15 @@ WITH relay AS (
                    lag(ob.state) OVER (PARTITION BY ob.equipment ORDER BY ob.ts) AS previous_state
               FROM observed ob) o
      WHERE o.previous_state IS DISTINCT FROM o.state
-), event AS (
+), event_all AS (
+    -- Every interval of the lookback, each with its relay's previous OFF: a counted run never starts before it.
     SELECT g.equipment, r.has_counter, r.wet, g.ts AS on_at,
-           COALESCE(g.next_ts, LEAST(now(), p_end + interval '1 day')) AS off_at
+           COALESCE(g.next_ts, LEAST(now(), p_end + interval '1 day')) AS off_at,
+           lag(g.next_ts) OVER (PARTITION BY g.equipment ORDER BY g.ts) AS previous_off_at
       FROM edge g JOIN relay r USING (equipment)
-     WHERE g.state AND g.ts < p_end
-       AND COALESCE(g.next_ts, LEAST(now(), p_end + interval '1 day')) > p_start
+     WHERE g.state
+), event AS (
+    SELECT ea.* FROM event_all ea WHERE ea.on_at < p_end AND ea.off_at > p_start
 ), sample AS (
     SELECT c.stream AS equipment, c.source_observed_at AS at, c.counter_value_minutes AS v,
            lag(c.counter_value_minutes) OVER w AS previous_v,
@@ -135,12 +141,24 @@ WITH relay AS (
       FROM sample s
      WHERE s.previous_v IS NOT NULL AND s.v - s.previous_v > 0.05
 ), counted AS (
-    SELECT ev.equipment, ev.on_at, ev.off_at,
+    -- A lost OFF is proved two ways. (1) A counter step whose two samples both lie inside the interval, more than
+    -- 60 s before its end: the relay went off inside it. (2) The OFF arrived late, after a data gap: the closing step's
+    -- samples straddle the gap and it books at least 120 s less than the interval. (2) is not trusted across local
+    -- midnight or a counter reset, where the counter books only part of a run.
+    SELECT ev.equipment, ev.on_at, ev.off_at, ev.previous_off_at,
            EXISTS (SELECT 1 FROM step b
                     WHERE b.equipment = ev.equipment
                       AND b.previous_at > ev.on_at
-                      AND b.at > ev.on_at + interval '60 seconds'
-                      AND b.at < ev.off_at - interval '60 seconds') AS lost_off
+                      AND b.at < ev.off_at - interval '60 seconds')
+           OR (EXISTS (SELECT 1 FROM step b
+                        WHERE b.equipment = ev.equipment
+                          AND b.at > ev.off_at - interval '60 seconds' AND b.at <= ev.off_at + interval '90 seconds'
+                          AND b.previous_at < ev.off_at - interval '120 seconds'
+                          AND b.run_s < extract(epoch FROM ev.off_at - ev.on_at) - 120)
+               AND (ev.on_at AT TIME ZONE 'America/Denver')::date = (ev.off_at AT TIME ZONE 'America/Denver')::date
+               AND NOT EXISTS (SELECT 1 FROM sample s
+                                WHERE s.equipment = ev.equipment AND s.v < s.previous_v
+                                  AND s.at > ev.on_at AND s.at <= ev.off_at + interval '90 seconds')) AS lost_off
       FROM event ev
      WHERE ev.has_counter
 ), flowed AS (
@@ -161,6 +179,11 @@ WITH relay AS (
      WHERE ev.wet AND ev.off_at - ev.on_at > interval '5 minutes'
        AND NOT EXISTS (SELECT 1 FROM counted k
                         WHERE k.equipment = ev.equipment AND k.on_at = ev.on_at AND k.lost_off)
+       -- A relay whose counter booked the whole interval at its OFF ran it, whatever the coarse flow meter showed.
+       AND NOT (ev.has_counter AND EXISTS (SELECT 1 FROM step b
+                    WHERE b.equipment = ev.equipment
+                      AND b.at > ev.off_at - interval '60 seconds' AND b.at <= ev.off_at + interval '90 seconds'
+                      AND b.run_s >= extract(epoch FROM ev.off_at - ev.on_at) - 60))
 ), run AS (
     SELECT ev.equipment, ev.on_at, ev.off_at, ev.on_at AS event_on_at, ev.off_at AS event_off_at, 'none'::text AS repair
       FROM event ev
@@ -169,15 +192,28 @@ WITH relay AS (
        AND NOT EXISTS (SELECT 1 FROM flowed f
                         WHERE f.equipment = ev.equipment AND f.on_at = ev.on_at AND f.dry_at IS NOT NULL)
     UNION ALL
-    SELECT k.equipment, GREATEST(k.on_at, b.at - b.run_s * interval '1 second'), b.at, k.on_at, k.off_at, 'counter'
+    -- Rebuilt from the steps: each run ends at its step and lasts what it booked, never before the relay's previous
+    -- OFF (the interval's own ON edge can be a late reconnect snapshot).
+    SELECT k.equipment,
+           GREATEST(COALESCE(k.previous_off_at, '-infinity'::timestamptz), b.at - b.run_s * interval '1 second'),
+           b.at, k.on_at, k.off_at, 'counter'
       FROM counted k
       JOIN step b ON b.equipment = k.equipment
-                 AND b.at > k.on_at + interval '45 seconds' AND b.at <= k.off_at + interval '90 seconds'
+                 AND (b.previous_at > k.on_at OR b.at > k.on_at + interval '45 seconds')
+                 AND b.at <= k.off_at + interval '90 seconds'
      WHERE k.lost_off
     UNION ALL
     SELECT f.equipment, f.on_at, f.dry_at, f.on_at, f.off_at, 'flow'
       FROM flowed f
      WHERE f.dry_at IS NOT NULL
+    UNION ALL
+    -- A run the counter booked with no ON interval to hold it (a lost ON): it ends at the step and lasts what it
+    -- booked. It has no event interval, so it adds to run_s and not to event_run_s.
+    SELECT b.equipment, b.at - b.run_s * interval '1 second', b.at, NULL, NULL, 'counter_orphan'
+      FROM step b
+     WHERE NOT EXISTS (SELECT 1 FROM event_all ea
+                        WHERE ea.equipment = b.equipment
+                          AND b.at > ea.on_at AND b.previous_at < ea.off_at + interval '90 seconds')
 )
 SELECT r.equipment, r.on_at, r.off_at, r.event_on_at, r.event_off_at, r.repair
   FROM run r
@@ -187,8 +223,9 @@ $intervals$;
 COMMENT ON FUNCTION public.fn_relay_run_intervals(timestamptz, timestamptz) IS
     'The ON intervals of the daily-record relays overlapping [p_start, p_end), lost OFF events repaired (310, #1668). '
     'event_on_at/event_off_at: the interval between equipment_state edges. repair none: kept as recorded; counter: '
-    'the firmware counter booked a run inside the interval, so it is rebuilt from the counter''s steps; flow: a wet '
-    'relay''s interval over 5 minutes ends at the first 3 minutes without flow. Unclipped: callers clip to their window.';
+    'the firmware counter proved a lost or late OFF, so it is rebuilt from the counter''s steps; flow: a wet '
+    'relay''s interval over 5 minutes ends at the first 3 minutes without flow; counter_orphan: a run the counter '
+    'booked with no interval (a lost ON), event columns NULL. Unclipped: callers clip to their window.';
 
 CREATE TABLE public.daily_relay_record (
     date          date NOT NULL,
@@ -217,18 +254,24 @@ CREATE TABLE public.daily_record (
     water_gal                   double precision,
     wetting_gal                 double precision,
     planning_water_gal          double precision,
+    house_water_gal             double precision,
     water_complete              boolean,
+    counter_sample_pct          double precision CHECK (counter_sample_pct >= 0 AND counter_sample_pct <= 100),
     drying_s                    double precision NOT NULL CHECK (drying_s >= 0 AND drying_s <= 90000),
     drying_runs                 integer NOT NULL CHECK (drying_runs >= 0),
     furnace_starts_after_drying integer NOT NULL CHECK (furnace_starts_after_drying >= 0),
     computed_at                 timestamptz NOT NULL DEFAULT now()
 );
 COMMENT ON TABLE public.daily_record IS
-    'Utilities and drying per America/Denver day (310, plan section 10). kwh_metered: the greenhouse power meter '
-    '(v_energy_daily.measured_kwh) over the hours it reported; kwh_metered_24h: its mean watts x 24 h, the day at full '
-    'coverage; therms_est: repaired heat2 hours x the furnace input of resource_coefficients / 100,000 BTU (no gas '
-    'meter, decision 14); water_gal, wetting_gal, planning_water_gal: v_water_attribution_daily, water_complete its '
-    'available_for_scoring; drying_s and drying_runs: the controller''s DEHUM_VENT action in climate_action_log (a gap '
+    'Utilities and drying per America/Denver day (310, plan section 10). kwh_metered: the two-channel Shelly meter '
+    '(v_energy_daily.measured_kwh; partial scope, not the whole greenhouse) over the hours it reported; '
+    'kwh_metered_24h: its mean watts x the day''s length, the day at full coverage, NULL when it reported under 70 % '
+    'of the day (every day before 2026-10-24); therms_est: repaired heat2 hours x the furnace input of '
+    'resource_coefficients / 100,000 BTU (no gas meter, decision 14); planning_water_gal: the water the law is '
+    'compared on (309); water_gal: all metered water, house_water_gal (hose and hand watering) included; '
+    'wetting_gal: v_water_attribution_daily climate wetting; water_complete its available_for_scoring; '
+    'counter_sample_pct: heat1 counter samples against one per 30 s, below 100 the lost-OFF repair was partly blind; '
+    'drying_s and drying_runs: the controller''s DEHUM_VENT action in climate_action_log (a gap '
     'over 3 minutes ends a run); furnace_starts_after_drying: heat2 starts within 15 minutes after a drying run.';
 
 CREATE FUNCTION public.fn_daily_record_store(p_day date)
@@ -250,7 +293,7 @@ BEGIN
     WITH run AS MATERIALIZED (
         SELECT * FROM public.fn_relay_run_intervals(v_start, v_end)
     ), event AS (
-        SELECT DISTINCT r.equipment, r.event_on_at, r.event_off_at FROM run r
+        SELECT DISTINCT r.equipment, r.event_on_at, r.event_off_at FROM run r WHERE r.event_on_at IS NOT NULL
     ), per_relay AS (
         SELECT x.equipment,
                (SELECT count(*) FROM run r
@@ -294,7 +337,11 @@ BEGIN
          ORDER BY rc.valid_from DESC, rc.id DESC
          LIMIT 1
     ), energy AS (
-        SELECT ed.measured_kwh::double precision AS kwh, (ed.avg_watts * 24 / 1000)::double precision AS kwh_24h,
+        -- The day at full coverage only when the meter reported at least 70 % of it (before 2026-10-24 it did not).
+        SELECT ed.measured_kwh::double precision AS kwh,
+               CASE WHEN ed.meter_coverage_pct >= 70
+                    THEN ed.avg_watts * extract(epoch FROM v_end - v_start) / 3600.0 / 1000.0 END::double precision
+                   AS kwh_24h,
                ed.meter_coverage_pct::double precision AS coverage
           FROM public.v_energy_daily ed
          WHERE ed.date = p_day AND ed.greenhouse_id = 'vallery'
@@ -302,20 +349,28 @@ BEGIN
         SELECT w.quality_filtered_meter_gal::double precision AS gal,
                w.climate_wetting_gal::double precision AS wetting,
                w.planning_water_gal::double precision AS planning,
+               w.manual_or_unattributed_gal::double precision AS house,
                w.available_for_scoring AS complete
           FROM public.v_water_attribution_daily w
          WHERE w.date = p_day AND w.greenhouse_id = 'vallery'
+    ), evidence AS (
+        -- The heat1 counter stream, one sample per 30 s: below 100 the lost-OFF detector was partly blind.
+        SELECT LEAST(100.0, count(*) * 30.0 * 100.0 / extract(epoch FROM LEAST(v_end, now()) - v_start))::double precision
+                   AS counter_sample_pct
+          FROM public.equipment_counter_samples c
+         WHERE c.greenhouse_id = 'vallery' AND c.stream = 'heat1'
+           AND c.source_observed_at >= v_start AND c.source_observed_at < v_end
     )
     INSERT INTO public.daily_record AS t (
         date, complete, kwh_metered, kwh_metered_24h, meter_coverage_pct, therms_est,
-        water_gal, wetting_gal, planning_water_gal, water_complete,
+        water_gal, wetting_gal, planning_water_gal, house_water_gal, water_complete, counter_sample_pct,
         drying_s, drying_runs, furnace_starts_after_drying, computed_at)
     SELECT p_day, now() >= v_end,
            (SELECT e.kwh FROM energy e), (SELECT e.kwh_24h FROM energy e), (SELECT e.coverage FROM energy e),
            (SELECT rr.run_s / 3600.0 * g.nominal_value::double precision / 100000.0
               FROM relay_rows rr, gas g WHERE rr.equipment = 'heat2'),
            (SELECT w.gal FROM water w), (SELECT w.wetting FROM water w), (SELECT w.planning FROM water w),
-           (SELECT w.complete FROM water w),
+           (SELECT w.house FROM water w), (SELECT w.complete FROM water w), (SELECT ev.counter_sample_pct FROM evidence ev),
            COALESCE((SELECT sum(GREATEST(extract(epoch FROM LEAST(d.until, v_end) - GREATEST(d.ts, v_start)), 0))
                        FROM dry_row d), 0),
            (SELECT count(*) FROM dry_run d WHERE d.began >= v_start)::integer,
@@ -328,7 +383,8 @@ BEGIN
         complete = EXCLUDED.complete, kwh_metered = EXCLUDED.kwh_metered,
         kwh_metered_24h = EXCLUDED.kwh_metered_24h, meter_coverage_pct = EXCLUDED.meter_coverage_pct,
         therms_est = EXCLUDED.therms_est, water_gal = EXCLUDED.water_gal, wetting_gal = EXCLUDED.wetting_gal,
-        planning_water_gal = EXCLUDED.planning_water_gal, water_complete = EXCLUDED.water_complete,
+        planning_water_gal = EXCLUDED.planning_water_gal, house_water_gal = EXCLUDED.house_water_gal,
+        water_complete = EXCLUDED.water_complete, counter_sample_pct = EXCLUDED.counter_sample_pct,
         drying_s = EXCLUDED.drying_s, drying_runs = EXCLUDED.drying_runs,
         furnace_starts_after_drying = EXCLUDED.furnace_starts_after_drying, computed_at = EXCLUDED.computed_at
     RETURNING t.* INTO stored;
@@ -337,8 +393,9 @@ END
 $store$;
 COMMENT ON FUNCTION public.fn_daily_record_store(date) IS
     'Recompute one America/Denver day of the daily record (310): daily_relay_record for every relay of '
-    'fn_daily_record_relays and the daily_record row. Operator backfill, as verdify: '
-    'SELECT public.fn_daily_record_store(d::date) FROM generate_series(DATE ''2026-10-17'', CURRENT_DATE, ''1 day'') d.';
+    'fn_daily_record_relays and the daily_record row, about 15 s. Operator backfill, as verdify, not while the '
+    'band-curve-refresh CronJob runs (it stores newest first): SELECT public.fn_daily_record_store(d::date) FROM '
+    'generate_series(CURRENT_DATE, DATE ''2026-10-17'', ''-1 day'') d.';
 
 CREATE FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() RETURNS integer
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $refresh$
@@ -350,17 +407,22 @@ CREATE FUNCTION verdify_matview_refresh_runtime.fn_refresh_daily_record() RETURN
   IF session_user <> 'verdify_matview_refresh_runtime_login' THEN
    RAISE EXCEPTION 'refresh caller outside duty' USING ERRCODE='42501';
   END IF;
-  -- Today and yesterday every run, so yesterday closes complete after midnight; then the newest 8 days back to
-  -- 2026-10-17 that have no row: the 30-day baseline before the climate law fills in four runs (two hours).
+  -- Today and yesterday every run, so yesterday closes complete after midnight; then the newest 3 days back to
+  -- 2026-10-17 that have no row: the 30-day baseline before the climate law fills in ten runs (five hours). A day
+  -- that fails is skipped with a warning, so one bad day never stops the rest.
   FOR v_day IN
    SELECT recent.d FROM (VALUES (v_today), (v_today - 1)) AS recent(d)
    UNION ALL
    (SELECT missing.d::date FROM generate_series(DATE '2026-10-17', v_today - 2, interval '1 day') AS missing(d)
      WHERE NOT EXISTS (SELECT 1 FROM public.daily_record r WHERE r.date = missing.d::date)
-     ORDER BY missing.d DESC LIMIT 8)
+     ORDER BY missing.d DESC LIMIT 3)
   LOOP
-   PERFORM public.fn_daily_record_store(v_day);
-   v_refreshed := v_refreshed + 1;
+   BEGIN
+    PERFORM public.fn_daily_record_store(v_day);
+    v_refreshed := v_refreshed + 1;
+   EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'daily record % not stored: %', v_day, SQLERRM;
+   END;
   END LOOP;
   RETURN v_refreshed;
  END $refresh$;
@@ -423,7 +485,8 @@ SELECT d.date,
        round(d.kwh_metered_24h::numeric, 2) AS kwh_metered_24h,
        d.meter_coverage_pct,
        round(d.therms_est::numeric, 3) AS therms_est,
-       d.water_gal, d.wetting_gal, d.planning_water_gal, d.water_complete,
+       d.planning_water_gal, d.water_gal, d.house_water_gal, d.wetting_gal, d.water_complete,
+       round(d.counter_sample_pct::numeric, 1) AS counter_sample_pct,
        round((d.drying_s / 3600.0)::numeric, 2) AS drying_h,
        d.drying_runs,
        d.furnace_starts_after_drying,
@@ -436,8 +499,10 @@ COMMENT ON VIEW public.v_daily_record IS
     'The daily record (310, plan section 10): one row per America/Denver day. Compliance from daily_band_compliance '
     '(290, fn_band_compliance_5m, the one definition); starts and run hours per relay after the lost-OFF repair, '
     'totals for the six climate relays (heat1, heat2, fan1, fan2, vent, fog) and the three misters (drips are '
-    'irrigation, in neither total); metered kWh, estimated therms, metered gallons; drying action hours and runs; '
-    'lost_off_h, the hours the repair removed. complete is false for the day in progress.';
+    'irrigation, in neither total); metered kWh (kwh_metered_24h NULL under 70 % coverage), estimated therms, '
+    'planning gallons (the compared figure) beside all metered and house gallons; drying action hours and runs; '
+    'lost_off_h, the hours the repair removed net of runs it restored; counter_sample_pct, the repair''s evidence. '
+    'Compliance is the stored grade only: a day 290 did not grade shows none. complete is false for the day in progress.';
 
 DO $successor$
 BEGIN

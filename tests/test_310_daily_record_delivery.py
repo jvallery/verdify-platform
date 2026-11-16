@@ -194,17 +194,26 @@ def test_the_relays_are_the_eleven_climate_and_wetting_relays():
 
 def test_the_repair_rules():
     fn = " ".join(function("public.fn_relay_run_intervals").split())
-    # A counter step whose two samples both lie inside the event interval, 60 s from either end, is a lost OFF.
-    assert (
-        "b.previous_at > ev.on_at AND b.at > ev.on_at + interval '60 seconds' AND b.at < ev.off_at - interval '60 seconds'"
-        in fn
-    )
+    # A counter step whose two samples both lie inside the event interval, over 60 s before its end, is a lost OFF.
+    assert "b.previous_at > ev.on_at AND b.at < ev.off_at - interval '60 seconds')" in fn
+    # So is a closing step that straddles a data gap and books 120 s less than the interval, on one local day and
+    # with no counter reset inside.
+    assert "AND b.previous_at < ev.off_at - interval '120 seconds'" in fn
+    assert "AND b.run_s < extract(epoch FROM ev.off_at - ev.on_at) - 120)" in fn
+    assert "(ev.on_at AT TIME ZONE 'America/Denver')::date = (ev.off_at AT TIME ZONE 'America/Denver')::date" in fn
+    assert "WHERE s.equipment = ev.equipment AND s.v < s.previous_v" in fn
     # A fall of the counter (midnight or a reboot) books nothing.
     assert "WHERE s.previous_v IS NOT NULL AND s.v - s.previous_v > 0.05" in fn
-    # The rebuilt runs end at each step and are as long as it, never before the event start.
-    assert "GREATEST(k.on_at, b.at - b.run_s * interval '1 second'), b.at" in fn
-    # Wet relays: an interval over 5 minutes ends at the first 3 minutes without flow, unless the counter repaired it.
+    # The rebuilt runs end at each step and are as long as it, never before the relay's previous OFF.
+    assert "GREATEST(COALESCE(k.previous_off_at, '-infinity'::timestamptz), b.at - b.run_s * interval '1 second')" in fn
+    assert "lag(g.next_ts) OVER (PARTITION BY g.equipment ORDER BY g.ts) AS previous_off_at" in fn
+    # A step no interval of the lookback explains is a lost ON: a run of its own, with no event interval.
+    assert "SELECT b.equipment, b.at - b.run_s * interval '1 second', b.at, NULL, NULL, 'counter_orphan'" in fn
+    assert "WHERE NOT EXISTS (SELECT 1 FROM event_all ea" in fn
+    # Wet relays: an interval over 5 minutes ends at the first 3 minutes without flow, unless the counter repaired it
+    # or booked the whole interval.
     assert "WHERE ev.wet AND ev.off_at - ev.on_at > interval '5 minutes'" in fn
+    assert "AND b.run_s >= extract(epoch FROM ev.off_at - ev.on_at) - 60))" in fn
     assert "c.flow_gpm < 0.1" in fn and "f.ts < c.ts + interval '3 minutes'" in fn
     # Callers get only intervals that overlap their window.
     assert "WHERE r.on_at < p_end AND r.off_at > p_start" in fn
@@ -221,13 +230,21 @@ def test_the_store_clips_to_the_local_day_and_prices_gas_from_the_coefficient():
     assert "a.climate_action = 'DEHUM_VENT'" in store
     assert "r.on_at >= d.ended AND r.on_at < d.ended + interval '15 minutes'" in store
     assert "now() >= v_end" in store  # complete
+    # Events come from the edges only; a lost-ON run has none.
+    assert "FROM run r WHERE r.event_on_at IS NOT NULL" in store
+    # kWh at full coverage: the local day's length, and none under 70 % coverage.
+    assert "CASE WHEN ed.meter_coverage_pct >= 70" in store
+    assert "ed.avg_watts * extract(epoch FROM v_end - v_start) / 3600.0 / 1000.0" in store
+    assert "w.manual_or_unattributed_gal::double precision AS house" in store
 
 
 def test_the_refresh_backfills_the_baseline_before_the_law():
     refresh = " ".join(function("verdify_matview_refresh_runtime.fn_refresh_daily_record").split())
     assert "(VALUES (v_today), (v_today - 1))" in refresh
     assert "generate_series(DATE '2026-10-17', v_today - 2, interval '1 day')" in refresh
-    assert "ORDER BY missing.d DESC LIMIT 8" in refresh
+    assert "ORDER BY missing.d DESC LIMIT 3" in refresh
+    # One failing day is skipped with a warning and never stops the others.
+    assert "EXCEPTION WHEN OTHERS THEN RAISE WARNING 'daily record % not stored: %', v_day, SQLERRM;" in refresh
 
 
 def test_the_view_reads_the_one_compliance_definition():
