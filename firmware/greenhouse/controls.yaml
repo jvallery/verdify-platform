@@ -400,7 +400,6 @@ interval:
           // seconds while both fans are off); this pass's request tables use the lead
           // as it stands, and section 11a publishes the one the relay layer runs.
           static climate_law::RelayState law_relays;
-          const bool leadIs1 = law_relays.lead_fan1;
 
           /**************** 8+9 — MODE + EQUIPMENT (via greenhouse_logic.h) *******/
           // Single source of truth: same code runs on ESP32 and in x86 tests.
@@ -736,11 +735,6 @@ interval:
             ESP_LOGW("manual", "Protection limit %s: FANS / VENT-BYPASS latch cleared", law.hot ? "hot" : "cold");
           }
           climate_law::Output law_request = law;
-          // The request as a relay table (lead fan first), for the consumers that read one.
-          RelayOutputs relay_out = {law.heat1, law.heat2,
-                                    leadIs1 ? law.fans >= 1 : law.fans >= 2,
-                                    leadIs1 ? law.fans >= 2 : law.fans >= 1,
-                                    law.fog, law.vent};
 
           // Decision 7 (RULINGS B1): with no valid indoor temperature (SENSOR_FAULT)
           // the controller acts on the outdoor reading against the corridor's low
@@ -760,8 +754,8 @@ interval:
             const float no_indoor_low = std::isfinite(corridor.temp_low) ? corridor.temp_low : float(law_band.low);
             const NoIndoorBranch no_indoor = no_indoor_branch(
                 outdoorT, outdoor_age, no_indoor_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last);
-            relay_out = no_indoor_relays(no_indoor, leadIs1);
-            law_request = climate_law::output_from_relays(relay_out);  // through the same relay layer
+            // X8 (MINOR-3): a fan count, not a named fan; relay_step() picks the lead.
+            law_request = climate_law::no_indoor_request(no_indoor);  // through the same relay layer
             if (no_indoor_entry || no_indoor != no_indoor_last) {
               ESP_LOGE("sensor_fault", "No indoor temperature: %s (outdoor %.1f°F, age %u s, corridor low %.1f°F)",
                        no_indoor_reason(no_indoor), outdoorT, (unsigned) outdoor_age, no_indoor_low);
@@ -926,7 +920,10 @@ interval:
           law_relay_in.fan1_run_s = relay_counters.fan_run_s[0];
           law_relay_in.fan2_run_s = relay_counters.fan_run_s[1];
           law_relay_in.fog_hold = fog_hold;
-          law_relay_in.dt_ms = dt_ms;
+          // F5: the law's layers count the wall-clock interval (now - last, unsigned), as the contract states; each
+          // saturates, so a stall counts as the time it lasted (a pulse closes on time, a minimum time is not
+          // stretched). Only the old dwell gates needed the 5 s clamp of dt_ms.
+          law_relay_in.dt_ms = raw_dt_ms;
           law_relay_in.cut_unwanted = no_indoor_entry;
           // The manual override layer on the relay layer's result, exactly as phase 2
           // (B1, G7): FANS forces both fans with the vent open, VENT-BYPASS both fans
@@ -952,7 +949,6 @@ interval:
               manual_ov, mode);
           const RelayOutputs ov_out = pass_out.out;
           const ManualForce manual_force = pass_out.force;
-          const bool manual_fan_force = manual_force.fans;
           const bool manual_fog_force = manual_force.fog;
           // T6 S3/F4/E-m1: one lead-fan chooser, the relay layer's; the published lead
           // is the fan that runs first.
@@ -1147,8 +1143,8 @@ interval:
             static climate_law::MisterState mister_law;
             static uint32_t mister_since_fire_ms[ZONE_COUNT] = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
             for (int z = 0; z < ZONE_COUNT; z++) {
-              mister_since_fire_ms[z] = UINT32_MAX - mister_since_fire_ms[z] < dt_ms ? UINT32_MAX
-                                                                                  : mister_since_fire_ms[z] + dt_ms;
+              mister_since_fire_ms[z] = UINT32_MAX - mister_since_fire_ms[z] < raw_dt_ms ? UINT32_MAX
+                                                                                      : mister_since_fire_ms[z] + raw_dt_ms;
             }
             climate_law::MisterInputs mister_in{};
             mister_in.request = mister_request;
@@ -1167,7 +1163,7 @@ interval:
             mister_in.min_off_ready[ZONE_SOUTH] = now_ms - id(last_off_south_ms) >= mister_min_off_ms;
             mister_in.min_off_ready[ZONE_WEST] = now_ms - id(last_off_west_ms) >= mister_min_off_ms;
             mister_in.min_off_ready[ZONE_EAST] = false;
-            mister_in.dt_ms = dt_ms;
+            mister_in.dt_ms = raw_dt_ms;  // F5
             const climate_law::MisterCommand mister_cmd = climate_law::mister_step(mister_law, mister_in);
             if (mister_cmd.close_all) {
               // T6 C-m3: the pulse's VPD effectiveness, as phase 2 published it at a pulse's end.
@@ -1195,6 +1191,8 @@ interval:
                 else if (legacy_zone == 2) { id(west_wall_mister).turn_on();  id(last_fire_west_ms)   = now_ms; id(cnt_mister_west_today)   += 1; }
                 else                       { id(center_mister).turn_on();     id(last_fire_center_ms) = now_ms; id(cnt_mister_center_today) += 1; }
                 climate_law::mister_opened(mister_law, z, mister_cmd.pulse_ms);
+                // I6: a pulse the fairness rule picked (an overdue stressed zone) is counted.
+                if (climate_law::mister_fairness_zone(mister_in) == z) id(cnt_mister_fairness_overrides_today) += 1;
                 mister_since_fire_ms[z] = 0;
                 id(mister_pulse_zone) = legacy_zone;
                 id(mister_selected_zone) = legacy_zone;
@@ -1338,7 +1336,7 @@ interval:
           {
             static climate_law::DryingMeter drying_meter;
             climate_law::drying_meter_step(drying_meter, law_state, law, id(vent_rly)->state,
-                                           id(fan1_rly)->state || id(fan2_rly)->state, law_in, dt_ms);
+                                           id(fan1_rly)->state || id(fan2_rly)->state, law_in, raw_dt_ms);  // F5
             static char law_record[256];
             static char law_record_key[256] = "";
             static uint32_t law_record_ms = 0;
@@ -1604,28 +1602,20 @@ interval:
           }
 
           /*** OBS-1e — Silent-override audit (Sprint 16) ***/
+          // C-m6 (package 4.3): the tags of the old mode machine's gates (fog RH/temp/window
+          // gates, relief cycles, seal and summer-vent gates, the VPD dry override, fog heat
+          // assist) are gone with it. Two still act under the law: the occupancy inhibit holding
+          // a wet request back, and a vent assist the label serves (fog or a mister with the vent).
           {
-            OverrideFlags of = evaluate_overrides(sensor_in, setpts, ctl_state, mode);
             char obuf[224]; obuf[0] = '\0'; size_t n = 0;
             auto add = [&](const char* tag){
               if(n > 0 && n + 1 < sizeof(obuf)) obuf[n++] = ',';
               size_t len = strlen(tag);
               if(n + len < sizeof(obuf)){ memcpy(obuf + n, tag, len); n += len; }
             };
-            if(of.occupancy_blocks_equipment) add("occupancy_blocks_equipment");
-            if(of.fog_gate_rh)               add("fog_gate_rh");
-            if(of.fog_gate_temp)             add("fog_gate_temp");
-            if(of.fog_gate_window)           add("fog_gate_window");
-            if(of.relief_cycle_breaker)      add("relief_cycle_breaker");
-            if(of.seal_blocked_temp)         add("seal_blocked_temp");
-            if(of.vpd_dry_override)          add("vpd_dry_override");
-            // Sprint-15.1 fix 1: wire the sprint-15 gate flag into
-            // active_overrides. Pre-fix the gate was invisible — no way to
-            // tell whether it was firing. Short tag "summer_vent" matches
-            // what ingestor override_events routing expects.
-            if(of.summer_vent_active)        add("summer_vent");
-            if(of.vent_mist_assist)          add("vent_mist_assist");
-            if(of.fog_heat_assist)           add("fog_heat_assist");
+            if(occupancy_moisture_block && (law.fog || law.mist)) add("occupancy_blocks_equipment");
+            if(legacy.action == CLIMATE_VENT_COOL_FOG_ASSIST || legacy.action == CLIMATE_VENT_COOL_MIST_ASSIST)
+              add("vent_mist_assist");
             obuf[n] = '\0';
             const char* overrides = n > 0 ? obuf : "none";
             static char last_overrides[224] = "";

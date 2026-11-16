@@ -142,18 +142,6 @@ globals:
     restore_value: no
     initial_value: '0.30'
 
-  # Legacy fallback band fields: unread since phase 3 (RULINGS T6 F1, X5 P9);
-  # the pushed-scalar band reads the _kpa twins. Nothing writes them either;
-  # package 4.3 removes them.
-  - id: target_vpd_low
-    type: float
-    restore_value: no
-    initial_value: '0.6'
-  - id: target_vpd_high
-    type: float
-    restore_value: no
-    initial_value: '1.2'
-
   # ─── Feed-forward biases & safety rails (°F & kPa) ───
   - id: bias_heat_f
     type: float

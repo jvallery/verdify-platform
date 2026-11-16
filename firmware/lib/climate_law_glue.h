@@ -37,7 +37,7 @@ struct RelayPass {
 //   relay switched off elsewhere keeps its minimum off time instead of being switched back on at once;
 // - relay_step(): minimum times, interlocks, the lead fan (published from RelayState::lead_fan1), G1/G4;
 // - apply_manual_overrides(): FANS, VENT-BYPASS, HUMID (a no-op in SAFETY_COOL/SAFETY_HEAT, effective in
-//   SENSOR_FAULT);
+//   SENSOR_FAULT); a vent the override keeps closed keeps its off time (E-m2);
 // - the interlocks over the result (RULINGS AE10, AG3): no heater with a manual fan run (FANS or VENT-BYPASS stops
 //   the electric heater as well as the furnace, as the phase 2 build did); the electric heater does not start into,
 //   and is cut at once by, an open vent or a running fan, except the law's own drying and the 40 F protection (at
@@ -60,10 +60,17 @@ inline void undo_held_start(Relay& r, const Relay& before, bool physical_on, boo
 inline RelayPass relay_pass(RelayState& r, const Output& request, const RelayInputs& in, const RelayOutputs& physical,
                             const ManualOverrides& ov, Mode mode) noexcept {
     relay_sync(r, physical);
-    const Relay heat1_before = r.heat1, heat2_before = r.heat2;
+    const Relay heat1_before = r.heat1, heat2_before = r.heat2, vent_before = r.vent;
     relay_step(r, request, in);
     RelayPass p{{r.heat1.on, r.heat2.on, r.fan1.on, r.fan2.on, r.fog.on, r.vent.on}, {false, false, false}};
     p.force = apply_manual_overrides(p.out, ov, mode);
+    // E-m2: VENT-BYPASS runs the fans with the vent closed; the relay layer opens the vent for those fans every pass
+    // and the override closes it again. The vent never moved, so it keeps its off time (relay_sync would otherwise
+    // restart it every pass, and cooling would wait up to the vent's minimum off time after the latch ends).
+    if (!vent_before.on && r.vent.on && !p.out.vent) {
+        r.vent = vent_before;
+        detail::relay_tick(r.vent, in.dt_ms);
+    }
     const bool air = p.out.vent || p.out.fan1 || p.out.fan2;
     // AG3a: the drying run's own air tail (its vent and fan finishing their minimum on after the run stops) keeps the
     // electric heater as the run did: no cut and no minimum-off stamp. The mark is set while the run asks for the
@@ -115,6 +122,17 @@ inline const char* law_fog_wait_word(bool law_fog, bool request_fog) noexcept {
     if (request_fog) return "relay_min_off";
     if (law_fog) return "dew_margin";
     return "none";
+}
+
+// X8 (MINOR-3): the no-indoor-temperature table (decision 7) as the relay layer's request: vent with one fan, or the
+// electric heater, or nothing. The fan is a count; relay_step() picks the lead from the run seconds, so the request is
+// not built from a lead read before the relay layer has chosen it this pass.
+inline Output no_indoor_request(NoIndoorBranch b) noexcept {
+    Output q;
+    q.vent = b == NoIndoorBranch::kVent;
+    q.fans = q.vent ? 1 : 0;
+    q.heat1 = b == NoIndoorBranch::kHeat;
+    return q;
 }
 
 // T4 (ruling C2): the irrigation engine's climate fog demand keeps today's terms: the law's fog request OR a HUMID

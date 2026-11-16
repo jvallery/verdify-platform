@@ -148,7 +148,8 @@ static Stats run_trace(const std::vector<Row>& rows, const char* name) {
             // noise: minimum times outside protection passes (the fogger keeps them always, G1a)
             const bool prot = q.hot || q.cold;
             for (int j = 0; j < 6; ++j) {
-                if (since_edge_ms[j] != UINT32_MAX) since_edge_ms[j] += 1000;  // this pass's tick, as the relay layer's
+                // this pass's tick, saturating as the relay layer's (E-m5: no wrap after 49.7 days without an edge)
+                since_edge_ms[j] = since_edge_ms[j] > UINT32_MAX - 1000 ? UINT32_MAX : since_edge_ms[j] + 1000;
                 if (on[j] != prev_on[j]) {
                     const uint32_t need = on[j] ? min_off_ms[j] : min_on_ms[j];
                     if ((!prot || j == 4) && since_edge_ms[j] != UINT32_MAX && since_edge_ms[j] < need)

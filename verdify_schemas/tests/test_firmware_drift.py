@@ -506,40 +506,24 @@ def test_firmware_v2_cfg_fixture_matches_every_exact_wire_slug(entity_map):
     assert not unrouted, f"firmware-v2 exact wire ids not routed to canonical params: {unrouted}"
 
 
-def _override_flag_fields() -> set[str]:
-    src = (REPO_ROOT / "firmware" / "lib" / "greenhouse_types.h").read_text()
-    block = re.search(r"struct\s+OverrideFlags\s*\{(?P<body>.*?)\};", src, re.S)
-    assert block, "OverrideFlags struct not found in greenhouse_types.h"
-    return set(re.findall(r"\bbool\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", block.group("body")))
-
-
-def _published_override_tags() -> dict[str, str]:
+def _published_override_tags() -> list[str]:
     src = (REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text()
-    return dict(re.findall(r"if\(of\.([A-Za-z_][A-Za-z0-9_]*)\)\s*add\(\"([^\"]+)\"\)", src))
+    block = src[src.index("/*** OBS-1e") : src.index("id(gh_overrides).publish_state(overrides);")]
+    return re.findall(r"add\(\"([^\"]+)\"\)", block)
 
 
 def test_override_event_schema_matches_firmware_published_tags():
-    """Override tags are a wire contract: firmware fields → controls.yaml
-    payloads → ingestor OverrideEvent schema. A rename in any layer must
-    force a coordinated update.
+    """Override tags are a wire contract: controls.yaml payloads -> ingestor OverrideEvent schema. Package 4.3
+    (C-m6) publishes only the tags that still act under the law; the schema keeps the retired tags so the rows of
+    the old controller still validate. A tag the firmware publishes must be one the schema accepts.
     """
-    aliases = {"summer_vent_active": "summer_vent"}
-    fields = _override_flag_fields()
     published = _published_override_tags()
-
-    expected_tags = {aliases.get(field, field) for field in fields}
-    assert set(published) == fields, (
-        "controls.yaml must publish exactly one tag for every OverrideFlags field. "
-        f"missing={sorted(fields - set(published))}, extra={sorted(set(published) - fields)}"
+    assert published == ["occupancy_blocks_equipment", "vent_mist_assist"], published
+    assert set(published) <= set(OVERRIDE_EVENT_TYPES), (
+        "verdify_schemas.telemetry.OVERRIDE_EVENT_TYPES must accept every firmware-published override tag. "
+        f"published={published}, schema={sorted(OVERRIDE_EVENT_TYPES)}"
     )
-    assert set(published.values()) == expected_tags, (
-        "controls.yaml override tags must match OverrideFlags names, except documented aliases. "
-        f"expected={sorted(expected_tags)}, got={sorted(published.values())}"
-    )
-    assert set(OVERRIDE_EVENT_TYPES) == expected_tags, (
-        "verdify_schemas.telemetry.OVERRIDE_EVENT_TYPES must match firmware-published override tags. "
-        f"expected={sorted(expected_tags)}, got={sorted(OVERRIDE_EVENT_TYPES)}"
-    )
+    assert "evaluate_overrides(" not in (REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text()
 
 
 # The nine Home Assistant buttons (irrigation §7 HA-01 to HA-03): eight template buttons by id,

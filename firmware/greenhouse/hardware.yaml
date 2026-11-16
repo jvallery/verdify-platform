@@ -68,19 +68,19 @@ text_sensor:
     update_interval: 5s
 
   # OBS-1e (Sprint 16): Firmware silent-override audit. Published by
-  # controls.yaml after every determine_mode() cycle. Value is a
-  # comma-separated list of currently-active override flags from
-  # evaluate_overrides() (e.g. "occupancy,fog_rh" or "none"). Ingestor
-  # diffs transitions and writes one row per start to override_events.
+  # controls.yaml every pass. Value is a comma-separated list of the
+  # override tags that act under the law (occupancy_blocks_equipment,
+  # vent_mist_assist) or "none" (package 4.3, C-m6). Ingestor diffs
+  # transitions and writes one row per start to override_events.
   - platform: template
     id: gh_overrides
     name: "Active Overrides"
     entity_category: diagnostic
     update_interval: 5s
 
-  # Sprint-15.1 fix 8: which branch of determine_mode() chose the current
-  # mode. Diagnostic-only — used to RCA gate/seal/idle decisions post-hoc.
-  # Updated by controls.yaml after each determine_mode() call.
+  # Sprint-15.1 fix 8: why the controller is in its state: init (boot
+  # grace), sensor_fault (no indoor temperature) or law (phase 3).
+  # Diagnostic-only; updated by controls.yaml every pass.
   - platform: template
     id: gh_mode_reason
     name: "Mode Reason"

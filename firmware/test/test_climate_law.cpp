@@ -791,6 +791,38 @@ static void glue_override_rails() {
   CHECK(phys.heat1 && phys.vent && (phys.fan1 || phys.fan2), "AE10: drying keeps the electric heater with the vent");
 }
 
+// -- Package 4.3 deferred items: X8 (MINOR-3) and E-m2 ----------------------------------------
+static void deferred_43() {
+  // X8: the no-indoor request is the table as a fan count, whichever fan the table names.
+  for (NoIndoorBranch b : {NoIndoorBranch::kOff, NoIndoorBranch::kVent, NoIndoorBranch::kHeat}) {
+    const L::Output q = L::no_indoor_request(b);
+    for (bool lead1 : {true, false}) {
+      const L::Output t = L::output_from_relays(no_indoor_relays(b, lead1));
+      CHECK(q.heat1 == t.heat1 && q.heat2 == t.heat2 && q.vent == t.vent && q.fog == t.fog && q.fans == t.fans &&
+                !q.mist,
+            "X8: no_indoor_request equals the table's request for either lead");
+    }
+  }
+  // E-m2: VENT-BYPASS latched while the law asks to cool; whenever the latch ends, the vent opens on the next pass,
+  // not up to its minimum off time later. Latch lengths across two vent minimum-off periods, so one of them ends just
+  // after the relay layer's periodic try to open the vent.
+  int worst = 0;
+  for (int len = int(VENT_MIN_OFF_S) - 2; len <= 2 * int(VENT_MIN_OFF_S) + 4; ++len) {
+    GluePass g;
+    g.bypass_until_ms = 600000;
+    for (int i = 0; i < len; ++i) g.run(kBand.high + 3.0);
+    CHECK(!g.phys.vent && g.phys.fan1 && g.phys.fan2, "E-m2 setup: VENT-BYPASS holds the vent closed, fans on");
+    g.bypass_until_ms = 0;
+    int opened_after = -1;
+    for (int i = 1; i <= int(VENT_MIN_OFF_S) + 2 && opened_after < 0; ++i) {
+      g.run(kBand.high + 3.0);
+      if (g.phys.vent) opened_after = i;
+    }
+    if (opened_after < 0 || opened_after > worst) worst = opened_after < 0 ? 1 << 30 : opened_after;
+  }
+  CHECK(worst == 1, "E-m2: the vent opens on the first pass after VENT-BYPASS ends, whatever the latch length");
+}
+
 // -- T3: the climate decision telemetry is the law's label, not the mode machine's ------------
 static void law_decision_telemetry() {
   SensorInputs in{};
@@ -1050,11 +1082,13 @@ static void mister_request() {
   m = mister_inputs(1.6);
   m.allowed[ZONE_SOUTH] = m.allowed[ZONE_WEST] = true;
   CHECK(L::mister_choose_zone(m) == ZONE_CENTER, "rank: centre first");
+  CHECK(L::mister_fairness_zone(m) == -1, "I6: no overdue zone, no fairness pick");
   m.zone_vpd[ZONE_CENTER] = 1.0;
   CHECK(L::mister_choose_zone(m) == ZONE_SOUTH, "rank: south when centre is not above the edge");
   m.zone_vpd[ZONE_CENTER] = 1.6;
   m.since_fire_ms[ZONE_WEST] = MISTER_OVERDUE_S * MS_PER_S + 1;
   CHECK(L::mister_choose_zone(m) == ZONE_WEST, "fairness: an overdue stressed zone goes first");
+  CHECK(L::mister_fairness_zone(m) == ZONE_WEST, "I6: the fairness pick is the zone counted");
   m.zone_vpd[ZONE_WEST] = 1.1;
   CHECK(L::mister_choose_zone(m) == ZONE_CENTER, "fairness only for a zone above the band's high edge");
   m.min_off_ready[ZONE_CENTER] = false;
@@ -1762,6 +1796,7 @@ int main() {
   glue_heater_air_interlock();
   glue_drying_tail();
   glue_review_t1_t2_t3();
+  deferred_43();
   law_decision_telemetry();
   band_check();
   invariants();

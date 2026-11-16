@@ -377,20 +377,28 @@ inline uint32_t mister_pulse_ms(double zone_vpd, double vpd_high) noexcept {
     return uint32_t(std::lround(long_pulse ? base * MISTER_LONG_PULSE_FACTOR : base));
 }
 
-inline int mister_choose_zone(const MisterInputs& in) noexcept {
+// The fairness rule alone: the allowed zone above the band's VPD high edge with no pulse for MISTER_OVERDUE_S, the
+// longest waiting first; -1 none. The controller counts the pulses it picks (I6: mister_fairness_overrides_today).
+inline int mister_fairness_zone(const MisterInputs& in) noexcept {
     static constexpr ZoneId kOrder[] = {ZONE_CENTER, ZONE_SOUTH, ZONE_WEST};
-    auto stressed = [&](int z) { return std::isfinite(in.zone_vpd[z]) && in.zone_vpd[z] > in.vpd_high; };
-    // fairness
     int zone = -1;
     uint32_t oldest = 0;
     for (ZoneId z : kOrder) {
-        if (!in.allowed[z] || !stressed(z)) continue;
+        const bool stressed = std::isfinite(in.zone_vpd[z]) && in.zone_vpd[z] > in.vpd_high;
+        if (!in.allowed[z] || !stressed) continue;
         const uint32_t age = in.since_fire_ms[z];
         if (age > MISTER_OVERDUE_S * MS_PER_S && age > oldest) {
             zone = z;
             oldest = age;
         }
     }
+    return zone;
+}
+
+inline int mister_choose_zone(const MisterInputs& in) noexcept {
+    static constexpr ZoneId kOrder[] = {ZONE_CENTER, ZONE_SOUTH, ZONE_WEST};
+    auto stressed = [&](int z) { return std::isfinite(in.zone_vpd[z]) && in.zone_vpd[z] > in.vpd_high; };
+    int zone = mister_fairness_zone(in);
     if (zone < 0) {
         // the engine's ranking, given the house band and the compiled ranks
         ZoneWetIntent intents[ZONE_COUNT];

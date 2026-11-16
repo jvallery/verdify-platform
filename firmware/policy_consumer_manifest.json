@@ -30,7 +30,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 657,
+          "line": 656,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -71,7 +71,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 619,
+          "line": 618,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -112,7 +112,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 618,
+          "line": 617,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -153,7 +153,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 617,
+          "line": 616,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -194,7 +194,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 616,
+          "line": 615,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -242,7 +242,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 626,
+          "line": 625,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -283,7 +283,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 625,
+          "line": 624,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -324,7 +324,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 611,
+          "line": 610,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -509,7 +509,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 594,
+          "line": 593,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -574,7 +574,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 584,
+          "line": 583,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1071,7 +1071,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 627,
+          "line": 626,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1112,7 +1112,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 588,
+          "line": 587,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1169,7 +1169,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 589,
+          "line": 588,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1226,7 +1226,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 592,
+          "line": 591,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1667,14 +1667,14 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 846,
+          "line": 840,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
         },
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 1285,
+          "line": 1283,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1780,14 +1780,14 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 607,
+          "line": 606,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
         },
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 1815,
+          "line": 1805,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1828,7 +1828,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 621,
+          "line": 620,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1919,7 +1919,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 624,
+          "line": 623,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -1968,7 +1968,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 610,
+          "line": 609,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -2101,7 +2101,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 604,
+          "line": 603,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -2157,7 +2157,7 @@
         },
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 583,
+          "line": 582,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -2198,7 +2198,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 664,
+          "line": 663,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -2239,7 +2239,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 606,
+          "line": 605,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -2280,7 +2280,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 605,
+          "line": 604,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -2393,7 +2393,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 590,
+          "line": 589,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true

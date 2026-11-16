@@ -205,22 +205,28 @@ if [[ -n "$topology_missing" ]]; then
 fi
 pass "Irrigation topology confirmed (device runs the newest confirmed program from NVS)"
 
-# Impossible cycling: more ON edges in the last hour than the live minimum
-# on+off dwell allows, for any of the six dwell-governed climate relays. The
-# bound is ceil(3600 / (min_on + min_off)) + 1; a missing setpoint uses 60 s.
+# Impossible cycling: more ON edges in the last hour than the law's compiled
+# minimum on+off times allow, for any of the six climate relays (C-m8,
+# package 4.3: the law's relay layer runs on verdify_schemas/climate_law.yaml,
+# not the retired min_* settings, whose readbacks gave a looser bound). The
+# bound is ceil(3600 / (min_on + min_off)) + 1.
+law_relay_s() {
+    awk -v k="  $1:" 'index($0, k) == 1 { sub(/.*value: */, ""); sub(/[^0-9].*/, ""); print; exit }' \
+        "$(dirname "${BASH_SOURCE[0]}")/../verdify_schemas/climate_law.yaml"
+}
+law_relay_rows=""
+for family in heat fan fog vent; do
+    on_s="$(law_relay_s "${family}_min_on_s")"; off_s="$(law_relay_s "${family}_min_off_s")"
+    [[ "$on_s" =~ ^[0-9]+$ && "$off_s" =~ ^[0-9]+$ ]] || fail "climate_law.yaml has no ${family} relay times"
+    law_relay_rows+="${law_relay_rows:+,}('${family}',${on_s},${off_s})"
+done
 cycling_bad="$("${DB[@]}" \
     "/* preflight:cycling */
-     WITH sp AS (SELECT DISTINCT ON (parameter) parameter, value FROM setpoint_snapshot
-                  WHERE ts > now() - interval '6 hours'
-                    AND parameter ~ '^min_(heat|fan|fog|vent)_(on|off)_s\$'
-                  ORDER BY parameter, ts DESC),
+     WITH law(family, on_s, off_s) AS (VALUES ${law_relay_rows}),
           relay(equipment, family) AS (VALUES ('heat1','heat'),('heat2','heat'),('fan1','fan'),
                                               ('fan2','fan'),('fog','fog'),('vent','vent')),
-          bound AS (SELECT r.equipment,
-                           ceil(3600.0 / GREATEST(
-                               COALESCE((SELECT value FROM sp WHERE parameter = 'min_' || r.family || '_on_s'), 60)
-                             + COALESCE((SELECT value FROM sp WHERE parameter = 'min_' || r.family || '_off_s'), 60), 1))::int + 1 AS max_starts
-                      FROM relay r),
+          bound AS (SELECT r.equipment, ceil(3600.0 / GREATEST(l.on_s + l.off_s, 1))::int + 1 AS max_starts
+                      FROM relay r JOIN law l USING (family)),
           e AS (SELECT equipment, ts, state,
                        lag(state) OVER (PARTITION BY equipment ORDER BY ts) AS prev
                   FROM equipment_state
