@@ -249,3 +249,14 @@ def test_grow_light_states_keyframe_every_ten_minutes(monkeypatch):
     forced = source.split("force_refresh = entity in {", 1)[1].split("}", 1)[0]
     assert '"gl_main_reason"' in forced and '"gl_grow_reason"' in forced
     assert '"gl_main_state"' not in forced and '"gl_grow_state"' not in forced
+
+
+def test_alert_windows_hold_sparse_readbacks():
+    source = (ROOT / "ingestor/tasks/alerts.py").read_text()
+    safety = source.split("# 8. Safety value sanity check", 1)[1].split('"""', 2)[1]
+    assert "ts > now() - interval '2 hours'" in safety
+    # Zero variance needs a week of keyframes (>= 24 rows, the oldest over 6 days), not 100 dense rows.
+    assert "HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24" in source
+    assert "count(*) > 100" not in source
+    # fn_heat_staging_inversion's 10-minute readback window is often empty now: its message tolerates no temp_low.
+    assert 'if staging_row["temp_low"] is not None' in source

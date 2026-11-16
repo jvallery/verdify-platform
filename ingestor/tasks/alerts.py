@@ -1917,13 +1917,14 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        # 8. Safety value sanity check — catch zeroed/invalid safety rails
+        # 8. Safety value sanity check — catch zeroed/invalid safety rails. Readbacks are stored on change with an
+        # hourly keyframe (#1662): a new value is stored at once, and two keyframes keep the current one in reach.
         for r in await conn.fetch(
             """
             SELECT DISTINCT ON (parameter) parameter, value
             FROM setpoint_snapshot
             WHERE parameter = ANY($1::text[])
-              AND ts > now() - interval '5 minutes'
+              AND ts > now() - interval '2 hours'
             ORDER BY parameter, ts DESC
         """,
             sorted(SAFETY_RAIL_PARAMS),
@@ -2141,7 +2142,13 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                     "message": (
                         f"STAGING INVERSION: heat2 (gas) ON for {dur:.0f}s while heat1 (electric) OFF. "
                         f"Temp={staging_row['temp_avg']:.1f}°F, "
-                        f"Tlow={staging_row['temp_low']:.1f}°F"
+                        # fn_heat_staging_inversion reads temp_low from a 10-minute readback window; readbacks are
+                        # stored on change (#1662), so it is often NULL there and the alert still stands.
+                        + (
+                            f"Tlow={staging_row['temp_low']:.1f}°F"
+                            if staging_row["temp_low"] is not None
+                            else "Tlow=n/a"
+                        )
                     ),
                     "details": {
                         "heat2_on_since": staging_row["heat2_on_since"].isoformat(),
@@ -2626,7 +2633,8 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
              WHERE parameter = ANY($1::text[])
                AND ts > now() - interval '7 days'
              GROUP BY parameter
-            HAVING count(*) > 100 AND (stddev(value) IS NULL OR stddev(value) = 0)
+            HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24
+               AND (stddev(value) IS NULL OR stddev(value) = 0)
             """,
             list(zero_var_params),
         ):
