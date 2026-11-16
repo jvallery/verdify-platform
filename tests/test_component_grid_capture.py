@@ -1195,6 +1195,7 @@ def test_consumed_setpoints_batch_is_fresh_and_marker_commits_last(tmp_path) -> 
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "running_alone.h"
 #define id(x) x
 struct Event { std::string name, text; float value; };
 std::vector<Event> events;
@@ -1211,9 +1212,10 @@ int main() {
  struct { float temp_low,temp_high,vpd_low,vpd_high,temp_target,vpd_target; }
  setpts{60,80,0.5f,1.5f,70,1.0f};
  struct { int64_t timestamp; } sntp_now{123456};
- bool sw_onchip_band_enabled=true,controller_time_valid=true;
+ bool sw_onchip_band_enabled=true,band_clock_trusted=true;
  uint32_t last_consumed_band_evidence_ms=0,climate_diag_now_ms=1000;
  auto tick=[&](){
+ const BandSource band_source=select_band_source(sw_onchip_band_enabled,band_clock_trusted);
 """
         + fragment
         + """
@@ -1233,19 +1235,22 @@ int main() {
  climate_diag_now_ms=15999;tick();assert(events.empty());
  setpts={61,81,0.6f,1.6f,71,1.1f};sntp_now.timestamp++;
  climate_diag_now_ms=16000;tick();verify("onchip_curve","123457");
- sw_onchip_band_enabled=false;controller_time_valid=false;
- climate_diag_now_ms=31000;tick();verify("dispatcher_legacy","");
+ // Phase 2: the on-chip band without a trusted clock is the corridor, with no sample marker.
+ band_clock_trusted=false;
+ climate_diag_now_ms=31000;tick();verify("corridor","");
+ sw_onchip_band_enabled=false;
+ climate_diag_now_ms=46000;tick();verify("dispatcher_legacy","");
  // Genuine computed tuple and marker remain one batch across unsigned wrap.
  last_consumed_band_evidence_ms=UINT32_MAX-9999;
  climate_diag_now_ms=4999;tick();assert(events.empty());
- controller_time_valid=true;sntp_now.timestamp=123458;
+ band_clock_trusted=true;sntp_now.timestamp=123458;
  setpts={62,82,0.7f,1.7f,72,1.2f};
  climate_diag_now_ms=5000;tick();verify("dispatcher_legacy","123458");
 }
 """
     )
     binary = tmp_path / "batch"
-    subprocess.run(["c++", "-std=c++17", str(source), "-o", str(binary)], check=True)
+    subprocess.run(["c++", "-std=c++17", "-I", str(ROOT / "firmware/lib"), str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 
 

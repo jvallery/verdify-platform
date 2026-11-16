@@ -31,6 +31,8 @@ esphome:
     - lib/probe_validity.h
     - lib/greenhouse_types.h
     - lib/greenhouse_solar.h
+    - lib/climate_law_constants_generated.h
+    - lib/running_alone.h
     - lib/zone_vpd.h
     - lib/greenhouse_logic.h
     # Lane E (#586): atomic policy engine — generated codec + ROM baseline +
@@ -48,6 +50,23 @@ esphome:
     - lib/irrigation_engine_esphome.h
   # Lutron LEAP TLS disabled (causes ESP32 crash — TLS heap exhaustion)
   # Grow lights use HA native service calls; no on-device HTTP client.
+  # Phase 2 (review-1703 minor 7): a planned shutdown (OTA, the restart service,
+  # App.safe_reboot) copies the RAM relay counters to their restore_value
+  # globals, which save on their own shutdown; a crash keeps the last copy.
+  on_shutdown:
+    then:
+      - lambda: |-
+          const RelayCounterStore& s = relay_counter_store();
+          if (s.restored) {
+            id(persist_starts_heat1) = s.counters.starts[0];
+            id(persist_starts_heat2) = s.counters.starts[1];
+            id(persist_starts_fan1)  = s.counters.starts[2];
+            id(persist_starts_fan2)  = s.counters.starts[3];
+            id(persist_starts_fog)   = s.counters.starts[4];
+            id(persist_starts_vent)  = s.counters.starts[5];
+            id(persist_fan1_run_s)   = s.counters.fan_run_s[0];
+            id(persist_fan2_run_s)   = s.counters.fan_run_s[1];
+          }
   # Cold-start safety: turn every relay OFF before the first control pass
   on_boot:
     priority: 600
@@ -175,7 +194,7 @@ wifi:
     gateway:   192.168.10.1
     subnet:    255.255.255.0
     dns1:      192.168.10.1
-  reboot_timeout: 300s  # Reboot if WiFi down for 5 minutes
+  reboot_timeout: 0s  # never reboot for lost WiFi: the controller runs alone (decision 22)
 
 # Disabled 2026-04-27: ESPHome web_server keeps several TCP sockets and
 # response buffers alive on a controller that is already seeing heap-pressure

@@ -3,7 +3,7 @@
  * invariants.h — firmware behavioral invariants enforced against replay
  * traces (originally 16; +#17-#20 Vanda band-compliance, +#21-#22 IRR-3/IRR-4
  * center-burst rails, +#24 curve-only fog gate, +#25 SAFETY_HEAT cold rail,
- * +#26 SENSOR_FAULT all-off). Each invariant is a pure function over a stream
+ * +#26 SENSOR_FAULT outdoor rule). Each invariant is a pure function over a stream
  * of per-minute TraceRow records. First breach fails the replay run.
  *
  * See plan file at .claude-agents/iris-dev/plans/yo-iris-dev-you-help-humming-stonebraker.md
@@ -475,23 +475,23 @@ inline bool check_25_safety_heat_engaged(const TraceRow& r, ReportFn report = de
     return true;
 }
 
-// #26: SENSOR_FAULT means ALL relays OFF. With no trustworthy sensor feedback
-// the controller drives nothing (greenhouse_logic.h:2007-2010), heat included;
-// no hardware thermostat is installed (accepted 2026-11-04, #1296), and no
-// blind software heat runs either. Any relay ON while the recorded mode is SENSOR_FAULT is a
-// fault. (Vacuous on corpora with no SENSOR_FAULT rows — a standing guard like
-// #18/#19; it pins the all-off contract so a future executor change cannot let
-// an actuator run during a sensor blackout.) #1161: every climate relay and
-// every mister relay, whatever opened it, L08 and L10 included (the irrigation
-// engine refuses all mist in SENSOR_FAULT); drips are outside it (D-IRP-02:
-// clean water fails open within its caps).
-inline bool check_26_sensor_fault_all_off(const TraceRow& r, ReportFn report = default_report) {
+// #26: SENSOR_FAULT (no valid indoor reading) runs only the outdoor rule of
+// decision 7 (RULINGS B1, no_indoor_relays() in running_alone.h): vent and the
+// lead fan, or the electric heater alone, or nothing. So in SENSOR_FAULT the
+// furnace (heat2) is never on, the electric heater never runs with the vent or a
+// fan, and no mister relay is on, whatever opened it, L08 and L10 included (the
+// irrigation engine refuses all mist in SENSOR_FAULT). The fogger is outside this
+// check: an operator's HUMID press stays effective in this state. Drips are outside
+// it too (D-IRP-02: clean water fails open within its caps). Vacuous on corpora
+// with no SENSOR_FAULT rows, a standing guard like #18/#19.
+inline bool check_26_sensor_fault_outdoor_rule(const TraceRow& r, ReportFn report = default_report) {
     if (r.greenhouse_state != "SENSOR_FAULT") return true;
-    if (r.eq_fog || r.eq_vent || r.eq_fan1 || r.eq_fan2 || r.eq_heat1 || r.eq_heat2
-        || r.eq_mister_south || r.eq_mister_west || r.eq_mister_center
-        || r.eq_mister_south_fert || r.eq_mister_west_fert) {
-        report(26, "sensor_fault_all_off", r,
-               "relay ON while mode == SENSOR_FAULT (must be all-off)");
+    const bool mister = r.eq_mister_south || r.eq_mister_west || r.eq_mister_center
+        || r.eq_mister_south_fert || r.eq_mister_west_fert;
+    const bool heat1_with_air = r.eq_heat1 && (r.eq_vent || r.eq_fan1 || r.eq_fan2);
+    if (r.eq_heat2 || mister || heat1_with_air) {
+        report(26, "sensor_fault_outdoor_rule", r,
+               "furnace, a mister, or the electric heater with air exchange ON while mode == SENSOR_FAULT");
         return false;
     }
     return true;
@@ -922,7 +922,7 @@ struct Runner {
         if (!check_24_fog_requires_curve_gate(r, report))           { failures++; ok = false; }
         // ── Cold-rail + sensor-fault safety rails (L2 #344 AC4 test-rail) ──
         if (!check_25_safety_heat_engaged(r, report))               { failures++; ok = false; }
-        if (!check_26_sensor_fault_all_off(r, report))              { failures++; ok = false; }
+        if (!check_26_sensor_fault_outdoor_rule(r, report))              { failures++; ok = false; }
         if (!check_27_heat_air_exchange_exclusive(r, report))       { failures++; ok = false; }
         // ── #1365 night dry-out bounds ──
         if (!check_28_night_dryout_bounded(c28, r, report))         { failures++; ok = false; }

@@ -160,8 +160,14 @@ interval:
               r.last_off_ms = now_ms;
             }
           };
-          auto can_on  = [&](RelayMeta &r){ return now_ms - r.last_off_ms >= r.min_off_ms; };
-          auto can_off = [&](RelayMeta &r){ return now_ms - r.last_on_ms  >= r.min_on_ms; };
+          // Phase 2 (running alone): a relay with no edge since boot (stamp 0) is
+          // available at once, except the furnace, which waits one minimum off
+          // time after any boot so a crash loop cannot cycle it (RULINGS G4;
+          // relay_start_allowed(), lib/running_alone.h).
+          auto can_on  = [&](RelayMeta &r){
+            return relay_start_allowed(now_ms, r.last_off_ms, r.min_off_ms, &r == &R[1]);
+          };
+          auto can_off = [&](RelayMeta &r){ return relay_dwell_elapsed(now_ms, r.last_on_ms,  r.min_on_ms); };
 
           auto set_relay = [&](RelayMeta &r,bool want,bool force_on,bool force_off=false){
             update_runtime(r);
@@ -215,12 +221,6 @@ interval:
           }
 
           /**************** 4 — sensor ingest & derived fields ********************/
-          auto vpd_calc = [&](float T,float RH){
-            float tc=(T-32.0f)*5.0f/9.0f;
-            if(fabs(tc + 237.3f) < 0.1f) return 1.0f;  // guard against division by ~zero
-            float es=0.6108f*expf((17.27f*tc)/(tc+237.3f));
-            return es*(1.0f-RH/100.0f);
-          };
 
           // Age pulled outdoor data — invalidate if >1 hour stale
           id(pulled_data_age_s) += dt_ms / 1000;
@@ -228,27 +228,53 @@ interval:
             id(pulled_outdoor_temp_f) = NAN;
             id(pulled_outdoor_rh_pct) = NAN;
           }
-          float Tin;
-          float RHin;
-          // Use average sensors if valid, otherwise fall back to case probe.
+          // Phase 2 (#1643, RULINGS G2): no substituted indoor value, and validity
+          // split into temperature and humidity (select_indoor_reading(),
+          // lib/running_alone.h). The temperature is the wall average, else the
+          // fresh case probe less the compiled offset; humidity only from the same
+          // source (else NaN: humidity control holds, temperature control runs).
+          // No valid temperature is SENSOR_FAULT and the outdoor rule of decision
+          // 7 below, after the boot grace (G3).
           bool avg_ok = !isnan(id(average_temperature).state) && !isnan(id(average_humidity).state);
-          bool case_ok_t = !isnan(id(case_temperature).state);
-          if(avg_ok){
-            Tin = id(average_temperature).state;
-            RHin = id(average_humidity).state;
-          }else if(case_ok_t){
-            Tin = id(case_temperature).state;
-            RHin = isnan(id(case_humidity).state) ? 50.0f : id(case_humidity).state;
-            ESP_LOGW("sensor","Average sensors NaN — using case probe (%.1f°F)", Tin);
-          }else{
-            Tin = 65.0f;  // safe mid-range assumption
-            RHin = 50.0f;
-            ESP_LOGE("sensor","ALL temperature probes NaN — using safe default 65°F");
+          const bool case_fresh = probe_sample_fresh(now_ms, id(last_case_ms), running_alone_k::INDOOR_PROBE_STALE_MS);
+          const IndoorReading indoor = select_indoor_reading(
+              id(average_temperature).state, id(average_humidity).state,
+              id(average_vpd_kpa).state, id(dewpoint_avg).state,
+              case_fresh, id(case_temperature).state, id(case_humidity).state);
+          const float Tin = indoor.temp_f;
+          const float RHin = indoor.rh_pct;
+          // G3: after a boot, wait for the first valid indoor temperature, at most
+          // 60 s: no climate relay is switched and the mode is not a sensor fault.
+          static BootGrace boot_grace{};
+          const bool boot_wait =
+              indoor_gate(boot_grace, indoor.source != IndoorSource::kNone, now_ms) == IndoorGate::kBootWait;
+          // No entity for the validity (RULINGS G2a): the host's staleness alert on the
+          // indoor humidity columns is the warning. The log names each change.
+          {
+            static int8_t indoor_logged = -1;
+            const int8_t indoor_now = boot_wait ? int8_t(-2)
+                : int8_t(int(indoor.source) * 2 + (indoor.humidity_valid ? 1 : 0));
+            if (indoor_now != indoor_logged) {
+              if (boot_wait) {
+                ESP_LOGI("sensor", "Boot: waiting up to 60 s for the first indoor temperature");
+              } else if (indoor.source == IndoorSource::kNone) {
+                ESP_LOGE("sensor", "No valid indoor temperature: SENSOR_FAULT, outdoor rule");
+              } else if (!indoor.humidity_valid) {
+                ESP_LOGW("sensor", "Indoor humidity invalid (%s temperature): humidity control held",
+                         indoor.source == IndoorSource::kWall ? "wall" : "case");
+              } else if (indoor.source == IndoorSource::kCase) {
+                ESP_LOGW("sensor", "Wall averages missing: case probe alone (less %.1f°F)",
+                         running_alone_k::CASE_SENSOR_OFFSET_F);
+              } else {
+                ESP_LOGI("sensor", "Wall averages in use");
+              }
+              indoor_logged = indoor_now;
+            }
           }
 
           // Track how long ALL probes have been offline
           static uint32_t all_probes_nan_ms = 0;
-          if(!avg_ok && !case_ok_t){
+          if(indoor.source == IndoorSource::kNone && !boot_wait){
             all_probes_nan_ms += dt_ms;
             if(all_probes_nan_ms > 300000 && (all_probes_nan_ms % 60000) < dt_ms){
               ESP_LOGE("health","ALL temperature probes offline for %.0f min!",
@@ -264,19 +290,9 @@ interval:
           static verdify_irr::IrrDegradedGrace degraded_grace{};
           const bool irr_degraded = verdify_irr::irr_degraded_after_grace(degraded_grace, avg_ok, now_ms);
 
-          // Sanity check: reject physically impossible indoor readings
-          if(Tin < -20.0f || Tin > 150.0f){
-            ESP_LOGE("sensor","Tin=%.1f out of range — clamping to 65°F", Tin);
-            Tin = 65.0f;
-          }
-
-          float VPD = id(average_vpd_kpa).state;
-          if(isnan(VPD) && !isnan(Tin) && !isnan(RHin)){
-            VPD = vpd_calc(Tin,RHin);
-          }
-          if(isnan(VPD)) VPD = 1.0f;  // safe mid-range if all else fails
-          if(VPD < 0.0f) VPD = 0.0f;
-          if(VPD > 10.0f) VPD = 10.0f;  // cap at physically reasonable max
+          // An implausible reading is not clamped to a made-up value: it fails
+          // sensors_plausible() and the controller is in SENSOR_FAULT.
+          const float VPD = indoor.vpd_kpa;
 
           // F8 (D-IRP-13): the wall probes for mister zone choice, read once per
           // tick with their last-callback stamps (lib/zone_vpd.h). A Modbus probe
@@ -305,35 +321,10 @@ interval:
             dH = NAN;
           }
 
-          /**************** 5 — apply safety rails & NaN handling (A6 graduated) */
-          bool tin_nan = isnan(Tin);
-          if(tin_nan){
-            // A6: 3-tier NaN fallback:
-            //   1) ha_outdoor_temp + indoor offset
-            //   2) binary assumption (cold or hot)
-            float ha_t = id(ha_outdoor_temp).state;
-            if(isnan(ha_t)) ha_t = id(pulled_outdoor_temp_f);
-            if(!isnan(ha_t)){
-              Tin = ha_t + id(indoor_offset_on_nan_f);
-              ESP_LOGW("nan","Tin NaN — using HA outdoor %.1f + offset %.1f = %.1f°F",
-                       ha_t, id(indoor_offset_on_nan_f), Tin);
-            } else if(id(assume_cold_on_nan)){
-              Tin = id(safety_min_f) - 10.0f;
-              ESP_LOGW("nan","Tin NaN — all sources failed, assuming cold %.1f°F", Tin);
-            }else{
-              Tin = id(safety_max_f) + 10.0f;
-              ESP_LOGW("nan","Tin NaN — all sources failed, assuming hot %.1f°F", Tin);
-            }
-          }
-          bool vpd_nan = isnan(VPD);
-          if(vpd_nan){
-            // approximate VPD from RH only if possible
-            if(!isnan(RHin)){
-              VPD = vpd_calc(Tin,RHin);
-            }else{
-              VPD = 0.0f;
-            }
-          }
+          /**************** 5 — no NaN fallback (phase 2, #1643) *****************/
+          // The A6 fallbacks (outdoor plus an offset, or an assumed cold or hot
+          // house) are gone: with no indoor reading the controller runs the
+          // outdoor rule of decision 7 instead (section 8+9).
 
           /**************** 6 — set-points & thresholds ***************************/
           const float Tlow  = id(target_temp_low_f)  + id(bias_heat_f);
@@ -391,14 +382,28 @@ interval:
           }
 
                     /**************** 7 — runtime-aware lead/lag selection ****************/
+          // Phase 2: the lifetime counters, restored once from flash at the first
+          // tick into the RAM store the shutdown hook also reads; the lead chooser
+          // balances the fans' lifetime run seconds, so the balance survives a
+          // restart (it was the day's runtime, lost at boot).
+          RelayCounterStore& counter_store = relay_counter_store();
+          if (!counter_store.restored) {
+            const uint32_t saved_starts[kCountedRelays] = {
+                id(persist_starts_heat1), id(persist_starts_heat2), id(persist_starts_fan1),
+                id(persist_starts_fan2), id(persist_starts_fog), id(persist_starts_vent)};
+            const uint32_t saved_fan_s[2] = {id(persist_fan1_run_s), id(persist_fan2_run_s)};
+            counter_store.counters = relay_counters_restore(saved_starts, saved_fan_s);
+            counter_store.restored = true;
+          }
+          RelayCounters& relay_counters = counter_store.counters;
           bool currentLeadIs1 = id(fan_lead_is_fan1);
           static uint32_t last_rotate_ms = millis();
           const bool wall_clock_rotate_due = now_ms - last_rotate_ms >= LEAD_ROTATE_TIMEOUT_MS;
           const bool any_fan_running = id(fan1_rly)->state || id(fan2_rly)->state;
-          uint32_t fan1_runtime_with_active_ms = relay_runtime_with_active_ms(
-            R[2].runtime_ms, id(fan1_rly)->state, R[2].on_stamp_ms, now_ms);
-          uint32_t fan2_runtime_with_active_ms = relay_runtime_with_active_ms(
-            R[3].runtime_ms, id(fan2_rly)->state, R[3].on_stamp_ms, now_ms);
+          uint32_t fan1_runtime_with_active_ms = 0;
+          uint32_t fan2_runtime_with_active_ms = 0;
+          fan_runtime_for_lead_ms(relay_counters.fan_run_s[0], relay_counters.fan_run_s[1],
+                                  fan1_runtime_with_active_ms, fan2_runtime_with_active_ms);
           bool leadIs1 = choose_runtime_balanced_fan_lead(
             currentLeadIs1,
             fan1_runtime_with_active_ms,
@@ -424,8 +429,15 @@ interval:
           // mist_telemetry replaced by ctl_state.mist_stage (the authority)  // 0=off, 1=S1, 2=S2
 
           auto sntp_now = id(sntp_time).now();
-          const bool controller_time_valid = sntp_now.is_valid() && !id(sntp_failed);
-          int local_hour = controller_time_valid ? sntp_now.hour : 12;
+          // Two clock tests (phase 2, RULINGS C3). wall_clock_valid is today's
+          // test and stays the test of lighting (sv2_solar) and of the irrigation
+          // engine's inputs (C2). The band trusts the clock only after an SNTP sync
+          // completed since this boot (sntp_acquisition_valid(), the sntp_valid
+          // entity's predicate): a soft reset keeps a clock that may be wrong.
+          const bool wall_clock_valid = sntp_now.is_valid() && !id(sntp_failed);
+          const bool band_clock_trusted =
+              sntp_acquisition_valid(id(sntp_acquired), sntp_now.is_valid(), id(sntp_failed));
+          int local_hour = wall_clock_valid ? sntp_now.hour : 12;
 
           // ── Firmware-v2: ON-CHIP solar ephemeris (offline-first) ──────────
           // Compute sunrise / solar-noon / sunset locally from the calendar
@@ -434,10 +446,10 @@ interval:
           // correct by construction. When time is invalid we fall back to a
           // representative day and the header's fallback phase keeps control
           // sane (degraded, not wrong).
-          int sv2_now_minute = controller_time_valid ? (sntp_now.hour * 60 + sntp_now.minute) : (local_hour * 60);
-          int sv2_doy = controller_time_valid ? sntp_now.day_of_year : 172;
+          int sv2_now_minute = wall_clock_valid ? (sntp_now.hour * 60 + sntp_now.minute) : (local_hour * 60);
+          int sv2_doy = wall_clock_valid ? sntp_now.day_of_year : 172;
           int sv2_utc_off = -360;  // MST/MDT fallback
-          if (controller_time_valid) {
+          if (wall_clock_valid) {
               auto utc_now = id(sntp_time).utcnow();
               if (utc_now.is_valid()) {
                   int local_tod = sntp_now.hour * 60 + sntp_now.minute;
@@ -449,6 +461,13 @@ interval:
           }
           SolarTimes sv2_solar = compute_greenhouse_solar_times(sv2_doy, sv2_utc_off);
           float sv2_phase = solar_phase(sv2_now_minute, sv2_solar);
+          // The climate's time of day: the wall clock's while the band trusts it,
+          // else today's no-clock values (hour 12 of a representative day), so no
+          // phase-gated climate rule acts on a clock the band does not trust.
+          const int cl_hour = band_clock_trusted ? local_hour : 12;
+          const int cl_now_minute = band_clock_trusted ? sv2_now_minute : 720;
+          const SolarTimes cl_solar = band_clock_trusted ? sv2_solar : compute_greenhouse_solar_times(172, -360);
+          const float cl_phase = band_clock_trusted ? sv2_phase : solar_phase(720, cl_solar);
 
           // ── Firmware-v2: deterministic band curve from NVS anchors ────────
           // The served band is a pure function of (crop anchors, solar phase),
@@ -465,13 +484,31 @@ interval:
           float sv2_vpd_low   = id(target_vpd_low);
           float sv2_vpd_high  = id(target_vpd_high);
           float sv2_vpd_tgt   = (sv2_vpd_low + sv2_vpd_high) * 0.5f;
+          const BandSource band_source = select_band_source(id(sw_onchip_band_enabled), band_clock_trusted);
+          const BandAnchors band_tl = {id(band_temp_low_sr), id(band_temp_low_sm), id(band_temp_low_ss), id(band_temp_low_mid)};
+          const BandAnchors band_th = {id(band_temp_high_sr), id(band_temp_high_sm), id(band_temp_high_ss), id(band_temp_high_mid)};
+          const BandAnchors band_vl = {id(band_vpd_low_sr), id(band_vpd_low_sm), id(band_vpd_low_ss), id(band_vpd_low_mid)};
+          const BandAnchors band_vh = {id(band_vpd_high_sr), id(band_vpd_high_sm), id(band_vpd_high_ss), id(band_vpd_high_mid)};
+          // The corridor: the lowest and highest anchor of each edge. It is the band
+          // without a trusted clock, and its low edge is the threshold of the
+          // no-indoor-reading rule (decision 7) whatever the clock.
+          const BandCorridor corridor = band_corridor(band_tl, band_th, band_vl, band_vh);
           if (id(sw_onchip_band_enabled)) {
+            if (band_source == BandSource::kCorridor) {
+              sv2_temp_low  = corridor.temp_low;
+              sv2_temp_tgt  = corridor.temp_target;
+              sv2_temp_high = corridor.temp_high;
+              sv2_vpd_low   = corridor.vpd_low;
+              sv2_vpd_tgt   = corridor.vpd_target;
+              sv2_vpd_high  = corridor.vpd_high;
+            } else {
               sv2_temp_low  = sv2_curve(id(band_temp_low_sr),   id(band_temp_low_sm),   id(band_temp_low_ss),   id(band_temp_low_mid));
               sv2_temp_tgt  = sv2_curve(id(band_temp_target_sr),id(band_temp_target_sm),id(band_temp_target_ss),id(band_temp_target_mid));
               sv2_temp_high = sv2_curve(id(band_temp_high_sr),  id(band_temp_high_sm),  id(band_temp_high_ss),  id(band_temp_high_mid));
               sv2_vpd_low   = sv2_curve(id(band_vpd_low_sr),    id(band_vpd_low_sm),    id(band_vpd_low_ss),    id(band_vpd_low_mid));
               sv2_vpd_tgt   = sv2_curve(id(band_vpd_target_sr), id(band_vpd_target_sm), id(band_vpd_target_ss), id(band_vpd_target_mid));
               sv2_vpd_high  = sv2_curve(id(band_vpd_high_sr),   id(band_vpd_high_sm),   id(band_vpd_high_ss),   id(band_vpd_high_mid));
+            }
           }
 
           // Item-4 night-dry lever (planner-pushable, clamped 0..0.25 kPa): raise
@@ -481,7 +518,9 @@ interval:
           // Lets the planner pre-empt a humid night without touching the anchors.
           {
             const float nbias = pol(verdify_policy::kPF_night_vpd_bias_kpa, id(night_vpd_bias_kpa));
-            if (nbias > 0.0f && sv2_phase >= 2.0f && sv2_phase <= 4.0f) {
+            // Not on the corridor: it is already the widest band, and the solar
+            // night is unknown without a trusted clock.
+            if (band_source != BandSource::kCorridor && nbias > 0.0f && sv2_phase >= 2.0f && sv2_phase <= 4.0f) {
               const float s = sinf(3.14159265f * (sv2_phase - 2.0f) * 0.5f);
               const float add = nbias * s * s;  // s^2: 0 at phase 2/4, 1 at phase 3
               sv2_vpd_low  += add;
@@ -490,41 +529,46 @@ interval:
             }
           }
 
-          // Sprint-15: outdoor temp + dewpoint feed the summer-vent gate.
-          // Sources:
-          //   - ha_outdoor_temp/ha_outdoor_rh from direct Tempest UDP
-          //   - pulled_outdoor_* remains a legacy fallback if present
-          //   - outdoor_data_age_s from the Tempest obs_st receive timestamp
-          // Outdoor dewpoint computed from temp+RH using the standard
-          // Magnus formula (matches the indoor dewpoint sensor convention).
-          // If either reading is NaN, force outdoor_data_age_s to a stale
-          // sentinel so the gate fails safe (disabled).
-          float outdoorT = id(ha_outdoor_temp).state;
-          float outdoorRH = id(ha_outdoor_rh).state;
-          float outdoor_dp = NAN;
-          if (!isnan(outdoorT) && !isnan(outdoorRH) && outdoorRH > 0.0f) {
-              // Magnus: a=17.27, b=237.7°C; convert °F → °C → DP °C → DP °F.
-              float Tc = (outdoorT - 32.0f) * (5.0f / 9.0f);
-              float gamma = (17.27f * Tc) / (237.7f + Tc) + log(outdoorRH / 100.0f);
-              float dp_c = (237.7f * gamma) / (17.27f - gamma);
-              outdoor_dp = dp_c * (9.0f / 5.0f) + 32.0f;
-          }
-          uint32_t outdoor_age = uint32_t(99999);
-          if (!isnan(outdoorT) && !isnan(outdoorRH)) {
-              uint32_t last_obs = id(tempest_last_obs_ms);
-              outdoor_age = last_obs > 0 ? (now_ms - last_obs) / 1000 : id(pulled_data_age_s);
+          // Phase 2: one outdoor reading for every outdoor-dependent decision: the
+          // weather station (Tempest UDP) first, the wired exterior intake probe
+          // second, each with its own age stamp and the same 600 s maximum age
+          // (select_outdoor_reading(), lib/running_alone.h). Neither fresh: NaN and
+          // the stale sentinel age, so the summer-vent gate, the cold-vent guard,
+          // drying with outdoor air and the no-indoor rule all see no outdoor data.
+          // A stamp older than the maximum age is cleared, so a source silent for
+          // 49.7 days cannot look fresh again when millis() wraps.
+          expire_sample_stamp(id(tempest_last_obs_ms), now_ms, running_alone_k::OUTDOOR_MAX_AGE_S * 1000UL);
+          expire_sample_stamp(id(last_intake_ms), now_ms, running_alone_k::OUTDOOR_MAX_AGE_S * 1000UL);
+          const OutdoorReading outdoor = select_outdoor_reading(
+              now_ms,
+              id(ha_outdoor_temp).state, id(ha_outdoor_rh).state, id(tempest_last_obs_ms),
+              id(exterior_intake_temperature).state, id(exterior_intake_humidity).state, id(last_intake_ms));
+          const float outdoorT = outdoor.temp_f;
+          const float outdoor_dp = outdoor.dew_point_f;
+          const uint32_t outdoor_age = outdoor.age_s;
+          {
+            static int8_t outdoor_source_pub = -1;
+            static uint32_t outdoor_source_pub_ms = 0;
+            if (int8_t(outdoor.source) != outdoor_source_pub || now_ms - outdoor_source_pub_ms >= 300000UL) {
+              if (int8_t(outdoor.source) != outdoor_source_pub && outdoor_source_pub >= 0) {
+                ESP_LOGW("outdoor", "Outdoor source -> %s", outdoor_source_name(outdoor.source));
+              }
+              id(gh_outdoor_source).publish_state(outdoor_source_name(outdoor.source));
+              outdoor_source_pub = int8_t(outdoor.source);
+              outdoor_source_pub_ms = now_ms;
+            }
           }
 
           SensorInputs sensor_in = {
               .temp_f = Tin, .vpd_kpa = VPD, .rh_pct = RHin,
-              .dew_point_f = isnan(id(dewpoint_avg).state) ? Tin - 10.0f : id(dewpoint_avg).state,
-              .outdoor_rh_pct = isnan(id(ha_outdoor_rh).state) ? 30.0f : id(ha_outdoor_rh).state,
+              .dew_point_f = indoor.dew_point_f,
+              .outdoor_rh_pct = isnan(outdoor.rh_pct) ? 30.0f : outdoor.rh_pct,
               .enthalpy_delta = isnan(dH) ? -5.0f : dH,
               .solar_w_m2 = isnan(id(tempest_solar_w_m2)) ? 0.0f : id(tempest_solar_w_m2),
               .vpd_south = id(vpd_south).state,
               .vpd_west = id(vpd_west).state,
               .vpd_east = id(vpd_east).state,
-              .local_hour = local_hour,
+              .local_hour = cl_hour,
               .occupied = id(greenhouse_occupied),
               .outdoor_temp_f = outdoorT,
               .outdoor_dewpoint_f = outdoor_dp,
@@ -540,13 +584,14 @@ interval:
               // value is implausible. No grace here (#1271): this gate only holds
               // VPD wetting back, so it trips at once; irr_degraded, which can open
               // a mister, is what waits.
-              .sensor_degraded = !avg_ok,
-              // Firmware-v2 on-chip solar inputs (offline-first time-of-day).
-              .now_minute = sv2_now_minute,
-              .sunrise_min = sv2_solar.sunrise_min,
-              .solar_noon_min = sv2_solar.solar_noon_min,
-              .sunset_min = sv2_solar.sunset_min,
-              .solar_phase = sv2_phase
+              .sensor_degraded = indoor_reading_degraded(indoor),
+              // Firmware-v2 on-chip solar inputs (offline-first time-of-day), on the
+              // band's clock (phase 2: today's no-clock values without trust).
+              .now_minute = cl_now_minute,
+              .sunrise_min = cl_solar.sunrise_min,
+              .solar_noon_min = cl_solar.solar_noon_min,
+              .sunset_min = cl_solar.sunset_min,
+              .solar_phase = cl_phase
           };
 
           // FRT-6: absorption hold active while now_ms is before the armed
@@ -667,23 +712,42 @@ interval:
               id(sw_fsm_controller_enabled) = true;
               id(sw_fsm_controller_enabled_switch).publish_state(true);
           }
-          Mode mode = determine_mode(sensor_in, setpts, ctl_state, dt_ms);
-          RelayOutputs relay_out = resolve_equipment(mode, sensor_in, setpts, ctl_state, leadIs1);
+          // G3: during the boot grace the controller decides nothing: the mode stays
+          // IDLE (mode_reason "init") and every climate relay request is off, so
+          // nothing is switched (the relays are off since on_boot).
+          Mode mode = boot_wait ? IDLE : determine_mode(sensor_in, setpts, ctl_state, dt_ms);
+          RelayOutputs relay_out = boot_wait
+              ? RelayOutputs{false, false, false, false, false, false}
+              : resolve_equipment(mode, sensor_in, setpts, ctl_state, leadIs1);
+
+          // Decision 7 (RULINGS B1): with no valid indoor temperature (SENSOR_FAULT)
+          // the controller acts on the outdoor reading against the corridor's low
+          // edge (the lowest temp_low anchor): at or above it, vent open with the
+          // lead fan; once venting, back below that edge less 1.0 F (G5), vent
+          // closed and the electric heater on (never the furnace); no fresh outdoor
+          // reading, every relay off. Fog and misters stay off (the fog lock and the
+          // engine's sensor_fault input); the manual overrides stay effective.
+          // Relays the table drops are cut on the entry tick only; after that the
+          // normal dwell times apply.
+          static bool no_indoor_prev = false;
+          const bool no_indoor_entry = mode == SENSOR_FAULT && !no_indoor_prev;
+          no_indoor_prev = mode == SENSOR_FAULT;
+          if (mode == SENSOR_FAULT) {
+            static NoIndoorBranch no_indoor_last = NoIndoorBranch::kOff;
+            const NoIndoorBranch no_indoor = no_indoor_branch(
+                outdoorT, outdoor_age, corridor.temp_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last);
+            relay_out = no_indoor_relays(no_indoor, leadIs1);
+            if (no_indoor_entry || no_indoor != no_indoor_last) {
+              ESP_LOGE("sensor_fault", "No indoor temperature: %s (outdoor %.1f°F, age %u s, corridor low %.1f°F)",
+                       no_indoor_reason(no_indoor), outdoorT, (unsigned) outdoor_age, corridor.temp_low);
+            }
+            no_indoor_last = no_indoor;
+          }
 
           bool willHeat1 = relay_out.heat1, willHeat2 = relay_out.heat2;
           bool willFan1 = relay_out.fan1, willFan2 = relay_out.fan2;
           bool willFog = relay_out.fog, willVent = relay_out.vent;
 
-          const bool sensor_fault_relay_lock = mode == SENSOR_FAULT;
-
-          auto fog_safety_block_reason = [&]() -> const char* {
-            if(!controller_time_valid) return "time_invalid";
-            if(dew_margin_f(sensor_in) < setpts.direct_wet_stress_min_dew_margin_f) return "dew_margin";
-            if(!fog_hour_permitted(sensor_in, setpts)) return "time_window";
-            if(sensor_in.rh_pct > setpts.fog_rh_ceiling) return "rh_ceiling";
-            if(sensor_in.temp_f < setpts.fog_min_temp) return "temp_low";
-            return "";
-          };
           // ── Firmware-v2 BUTTON OVERRIDE LAYER (deadline latches) ──────────
           // FANS / HUMID / VENT-BYPASS are LATCHES with a deadline
           // (manual_*_until_ms): the momentary panel push buttons toggle them
@@ -717,13 +781,20 @@ interval:
           const bool manual_fog_eff    = manual_fog_latched || irr_fog_run();
           const bool vent_bypass_eff   = vent_bypass_latched;
           const bool manual_fog_requested = manual_fog_eff;
-          const char* manual_fog_safety_block = fog_safety_block_reason();
+          // SENSOR_FAULT locks the fogger off unless an operator latched HUMID
+          // (RULINGS G7; an engine run-once is refused by the engine's own hold).
+          // The HUMID press's safety block skips the tests it cannot evaluate: no
+          // dew-point margin or RH ceiling without a humidity reading (G2, G7). No
+          // clock term (phase 2: fog follows the corridor without a trusted clock).
+          const bool sensor_fault_relay_lock = sensor_fault_fog_lock(mode, manual_fog_latched);
+          const char* manual_fog_safety_block = manual_fog_safety_block_reason(sensor_in, setpts);
 
           // Resolve the absolute-priority override through the pure, unit-tested
           // apply_manual_overrides() (greenhouse_logic.h) so this relay table
-          // matches the native tests exactly. Safety modes (SENSOR_FAULT /
-          // SAFETY_COOL / SAFETY_HEAT) are a no-op there — a manual press never
-          // fights a safety rail. Otherwise FANS/VENT-BYPASS force BOTH fans
+          // matches the native tests exactly. The temperature rails
+          // (SAFETY_COOL / SAFETY_HEAT) are a no-op there — a manual press never
+          // fights a safety rail; in SENSOR_FAULT the overrides stay effective
+          // (RULINGS B1). Otherwise FANS/VENT-BYPASS force BOTH fans
           // (vent OPEN, or CLOSED under bypass — the winter house-air pull) and
           // HUMID forces the fogger unless a genuine fog safety block is up.
           // ManualForce.fans/.fog feed set_relay's force_on below so a press
@@ -746,18 +817,18 @@ interval:
           const bool manual_fog_force = manual_force.fog;
           /**************** 11a — RELAY CONFLICT ARBITRATION (#370) **************/
           // One pure resolver, arbitrate_relay_conflicts() (greenhouse_logic.h),
-          // decides every equipment conflict between the requested relay table
-          // and the relays' physical state, in order: the SENSOR_FAULT all-off
-          // lock (above the manual overrides), the fan/vent hold, the heat<->air
-          // suppression (SAFETY_HEAT and DEHUM_VENT exempt), the heat-stage rule
-          // and the heater force-offs. The pure state machine keeps fans and vent
-          // logically consistent, but relay dwell timers are physical state: on a
-          // VENTILATE->sealed transition fan min_on can keep a fan running after
+          // decides every equipment conflict between the requested relay table and
+          // the relays' physical state, in order: the fan/vent hold, the heat<->air
+          // suppression (SAFETY_HEAT and DEHUM_VENT exempt), the heat-stage rule and
+          // the heater force-offs. SENSOR_FAULT's request is the decision-7 table
+          // above, arbitrated like any other. The pure state machine keeps fans and
+          // vent logically consistent, but relay dwell timers are physical state: on
+          // a VENTILATE->sealed transition fan min_on can keep a fan running after
           // the vent may close, so the vent holds open until the fan dwell clears.
-          // VENT-BYPASS (#290) is the deliberate fans-on / vent-CLOSED carve-out
-          // and SAFETY_HEAT runs the lead fan with the vent shut to keep heat in
-          // (fan_requires_open_vent()). The native suite checks the resolver
-          // against the former inline rules over every input combination.
+          // VENT-BYPASS (#290) is the deliberate fans-on / vent-CLOSED carve-out and
+          // SAFETY_HEAT runs the lead fan with the vent shut to keep heat in
+          // (fan_requires_open_vent()). The native suite checks the resolver against
+          // the former inline rules over every input combination.
           const RelayOutputs relay_physical = {
               id(heat1_rly)->state, id(heat2_rly)->state,
               id(fan1_rly)->state, id(fan2_rly)->state,
@@ -904,12 +975,11 @@ interval:
           // F9 (#1161): the fog force-off is one pure rule, fog_force_off_reason() in
           // greenhouse_logic.h, which this gate, the fog relay's force-off (11) and the
           // fog_block_reason ladder (14) all read. Every mode keeps SENSOR_FAULT's lock,
-          // confirmed occupancy, SAF-5, a drip relay reading OFF and a valid clock; outside
+          // confirmed occupancy, SAF-5 and a drip relay reading OFF; outside
           // SAFETY_COOL an engine drip, the soft budget and SAF-4 also hold fog, while
           // survival fog runs past them (D-IRP-03, D-IRP-04).
           const FogForceOffInputs fog_rails{
               sensor_fault_relay_lock,
-              controller_time_valid,
               occupancy_moisture_block,
               fert_master_on,
               drip_relay_open,
@@ -922,7 +992,9 @@ interval:
           FogForceOffInputs fog_rails_but_drips = fog_rails;
           fog_rails_but_drips.drip_relay_open = false;
           fog_rails_but_drips.irrigation_water_conflict = false;
-          const bool climate_fog_wanted = willFog && !fog_forced_off(mode, fog_rails_but_drips);
+          fog_rails_but_drips.sensor_fault_relay_lock = mode == SENSOR_FAULT;  // C2: today's term
+          // C2: the engine's input keeps today's clock term exactly.
+          const bool climate_fog_wanted = willFog && !fog_forced_off(mode, fog_rails_but_drips) && wall_clock_valid;
           if (fog_forced_off(mode, fog_rails)) {
               willFog = false;
           }
@@ -947,14 +1019,14 @@ interval:
               id(fog_rly)->state, id(vent_rly)->state};
 
           /**************** 11 — APPLY RELAY OUTPUTS ******************************/
-          set_relay(R[0], willHeat1, false, force_heat_off);
-          set_relay(R[1], willHeat2, false, force_heat2_off);
-          set_relay(R[5], willVent, fan_requires_vent, sensor_fault_relay_lock);
+          set_relay(R[0], willHeat1, false, force_heat_off || no_indoor_entry);
+          set_relay(R[1], willHeat2, false, force_heat2_off || no_indoor_entry);
+          set_relay(R[5], willVent, fan_requires_vent, no_indoor_entry);
           // #289 fix: pass manual_fan_force so a FANS / VENT-BYPASS press forces
           // the fans on THIS tick, bypassing the fan min-off dwell that silently
           // swallowed manual presses before.
-          set_relay(R[2], willFan1, manual_fan_force, sensor_fault_relay_lock);
-          set_relay(R[3], willFan2, manual_fan_force, sensor_fault_relay_lock);
+          set_relay(R[2], willFan1, manual_fan_force, no_indoor_entry);
+          set_relay(R[3], willFan2, manual_fan_force, no_indoor_entry);
           set_relay(
               R[4],
               willFog,
@@ -973,6 +1045,46 @@ interval:
           if(!relay_was_on[3] && id(fan2_rly)->state)  id(cnt_fan2_today) += 1;
           if(!relay_was_on[4] && id(fog_rly)->state)   id(cnt_fog_today) += 1;
           if(!relay_was_on[5] && id(vent_rly)->state)  id(cnt_vent_today) += 1;
+
+          // Phase 2: lifetime relay starts and fan run seconds (Relay Counters).
+          // Counted in RAM every tick, copied to the restore_value globals ten
+          // minutes after a boot, then at most once an hour (so flash is written at
+          // most hourly), and on a planned shutdown (greenhouse.yaml on_shutdown);
+          // restored at boot.
+          {
+            const bool relay_is_on[kCountedRelays] = {
+                id(heat1_rly)->state, id(heat2_rly)->state,
+                id(fan1_rly)->state, id(fan2_rly)->state,
+                id(fog_rly)->state, id(vent_rly)->state};
+            relay_counters_tick(relay_counters, relay_was_on, relay_is_on, raw_dt_ms);
+            if (relay_counters_save_due(now_ms, counter_store.last_save_ms, counter_store.saved_since_boot)) {
+              id(persist_starts_heat1) = relay_counters.starts[0];
+              id(persist_starts_heat2) = relay_counters.starts[1];
+              id(persist_starts_fan1)  = relay_counters.starts[2];
+              id(persist_starts_fan2)  = relay_counters.starts[3];
+              id(persist_starts_fog)   = relay_counters.starts[4];
+              id(persist_starts_vent)  = relay_counters.starts[5];
+              id(persist_fan1_run_s)   = relay_counters.fan_run_s[0];
+              id(persist_fan2_run_s)   = relay_counters.fan_run_s[1];
+              counter_store.last_save_ms = now_ms;
+              counter_store.saved_since_boot = true;
+            }
+            static uint32_t counters_pub_ms = 0;
+            static bool counters_published = false;
+            if ((!counters_published && now_ms >= 15000UL) ||
+                (counters_published && now_ms - counters_pub_ms >= 300000UL)) {
+              static char counters_json[160];
+              snprintf(counters_json, sizeof(counters_json),
+                       "{\"v\":1,\"h1\":%lu,\"h2\":%lu,\"f1\":%lu,\"f2\":%lu,\"fg\":%lu,\"vt\":%lu,\"f1s\":%lu,\"f2s\":%lu}",
+                       (unsigned long) relay_counters.starts[0], (unsigned long) relay_counters.starts[1],
+                       (unsigned long) relay_counters.starts[2], (unsigned long) relay_counters.starts[3],
+                       (unsigned long) relay_counters.starts[4], (unsigned long) relay_counters.starts[5],
+                       (unsigned long) relay_counters.fan_run_s[0], (unsigned long) relay_counters.fan_run_s[1]);
+              id(gh_relay_counters).publish_state(counters_json);
+              counters_pub_ms = now_ms;
+              counters_published = true;
+            }
+          }
 
           /**************** 12 — MISTER STATE MACHINE *****************************/
           // Runs only for SEALED_MIST or explicit VENTILATE assist. Zone stress
@@ -1014,19 +1126,15 @@ interval:
                   ((mode == SEALED_MIST) && fsm_escalated_to_misters) || ctl_state.vent_mist_assist_active;
               bool humidity_demand = climate_wet_assist_demand && mister_vent_ok;
 
-            auto now_for_wet_gate = id(sntp_time).now();
-            const bool wet_time_valid = now_for_wet_gate.is_valid() && !id(sntp_failed);
-            const int wet_now_minute = wet_time_valid
-              ? local_minute_of_day(now_for_wet_gate.hour, now_for_wet_gate.minute)
-              : 0;
             const float wet_dew_margin_f = (!isnan(Tin) && !isnan(id(dewpoint_avg).state))
               ? Tin - id(dewpoint_avg).state
               : -999.0f;
             // Firmware-v2: defer to the header's single-source wet-assist gate
             // (solar wet taper + stress rule + feed-hold + dew margin). No
             // controls.yaml-side wall-clock recompute — same code as the FSM.
+            // Phase 2: no clock term; the misters work on the corridor without one.
             const bool climate_wet_assist_safety_ok =
-              wet_time_valid && climate_wet_assist_permitted(sensor_in, setpts);
+              climate_wet_assist_permitted(sensor_in, setpts);
             // F6 (#1161): one rule per mister zone (L04 center, L07 south, L09 west),
             // irr_vpd_zone_allowed() in lib/irrigation_program.h: the climate demand and
             // its safety gate, the zone an effective VPD member of the irrigation program
@@ -1168,9 +1276,7 @@ interval:
                       : "no_humidity_demand");
                 } else if(!any_mister_wet_allowed) {
                   if(climate_wet_assist_demand) {
-                    if(!wet_time_valid) {
-                      snprintf(moisture_block_reason, sizeof(moisture_block_reason), "direct_wet_time_invalid");
-                    } else if(VPD <= (VPDhi + pol(verdify_policy::kPF_direct_wet_stress_vpd_margin_kpa, id(direct_wet_stress_vpd_margin_kpa)))) {
+                    if(VPD <= (VPDhi + pol(verdify_policy::kPF_direct_wet_stress_vpd_margin_kpa, id(direct_wet_stress_vpd_margin_kpa)))) {
                       snprintf(moisture_block_reason, sizeof(moisture_block_reason), "below_threshold");
                     } else if(wet_dew_margin_f < pol(verdify_policy::kPF_direct_wet_stress_min_dew_margin_f, id(direct_wet_stress_min_dew_margin_f))) {
                       snprintf(moisture_block_reason, sizeof(moisture_block_reason), "dew_margin");
@@ -1181,8 +1287,6 @@ interval:
                     }
                   } else if(!polb(verdify_policy::kPF_sw_direct_wet_gate_enabled, id(direct_wet_gate_enabled))) {
                     snprintf(moisture_block_reason, sizeof(moisture_block_reason), "no_zone_available");
-                  } else if(!wet_time_valid) {
-                    snprintf(moisture_block_reason, sizeof(moisture_block_reason), "direct_wet_time_invalid");
                   } else if(id(direct_wet_min_temp_f) > 0.0f && (isnan(Tin) || Tin < id(direct_wet_min_temp_f))) {
                     snprintf(moisture_block_reason, sizeof(moisture_block_reason), "direct_wet_temp");
                   } else {
@@ -1433,10 +1537,10 @@ interval:
                 // (none0/south1/west2/center3). EAST has no mister relay.
                 auto select_arbiter_zone = [&]() -> int {
                   ZoneBand zb[ZONE_COUNT];
-                  zb[ZONE_CENTER] = zone_band_at_phase({id(zone_vpd_target_center_sr),id(zone_vpd_target_center_sm),id(zone_vpd_target_center_ss),id(zone_vpd_target_center_mid)}, id(zone_vpd_width_below_center), id(zone_vpd_width_above_center), sv2_phase);
-                  zb[ZONE_SOUTH]  = zone_band_at_phase({id(zone_vpd_target_south_sr),id(zone_vpd_target_south_sm),id(zone_vpd_target_south_ss),id(zone_vpd_target_south_mid)}, id(zone_vpd_width_below_south), id(zone_vpd_width_above_south), sv2_phase);
-                  zb[ZONE_WEST]   = zone_band_at_phase({id(zone_vpd_target_west_sr),id(zone_vpd_target_west_sm),id(zone_vpd_target_west_ss),id(zone_vpd_target_west_mid)}, id(zone_vpd_width_below_west), id(zone_vpd_width_above_west), sv2_phase);
-                  zb[ZONE_EAST]   = zone_band_at_phase({id(zone_vpd_target_east_sr),id(zone_vpd_target_east_sm),id(zone_vpd_target_east_ss),id(zone_vpd_target_east_mid)}, id(zone_vpd_width_below_east), id(zone_vpd_width_above_east), sv2_phase);
+                  zb[ZONE_CENTER] = zone_band_at_phase({id(zone_vpd_target_center_sr),id(zone_vpd_target_center_sm),id(zone_vpd_target_center_ss),id(zone_vpd_target_center_mid)}, id(zone_vpd_width_below_center), id(zone_vpd_width_above_center), cl_phase);
+                  zb[ZONE_SOUTH]  = zone_band_at_phase({id(zone_vpd_target_south_sr),id(zone_vpd_target_south_sm),id(zone_vpd_target_south_ss),id(zone_vpd_target_south_mid)}, id(zone_vpd_width_below_south), id(zone_vpd_width_above_south), cl_phase);
+                  zb[ZONE_WEST]   = zone_band_at_phase({id(zone_vpd_target_west_sr),id(zone_vpd_target_west_sm),id(zone_vpd_target_west_ss),id(zone_vpd_target_west_mid)}, id(zone_vpd_width_below_west), id(zone_vpd_width_above_west), cl_phase);
+                  zb[ZONE_EAST]   = zone_band_at_phase({id(zone_vpd_target_east_sr),id(zone_vpd_target_east_sm),id(zone_vpd_target_east_ss),id(zone_vpd_target_east_mid)}, id(zone_vpd_width_below_east), id(zone_vpd_width_above_east), cl_phase);
                   float zvpd[ZONE_COUNT];  // F8: same fallback values the relays use
                   for (int z = 0; z < ZONE_COUNT; z++) zvpd[z] = zone_vpd_with_fallback(ZoneId(z), zp, VPD, now_ms).vpd_kpa;
                   ZoneWetIntent zi[ZONE_COUNT];
@@ -1665,8 +1769,10 @@ interval:
               irr_in.sensor_degraded = irr_degraded;
               irr_in.vpd_emergency = climate_vpd_emergency;
               // Climate wetting that only a drip holds back (the climate yield, D-IRP-03).
+              // C2: the engine's input keeps today's clock term exactly.
               const bool climate_mist_wanted = zone_mister_demand && any_mister_wet_allowed
-                  && (any_zone_stressed || global_stressed) && !budget_block && !occupancy_blocks;
+                  && (any_zone_stressed || global_stressed) && !budget_block && !occupancy_blocks
+                  && wall_clock_valid;
               irr_in.climate_demand = climate_mist_wanted || climate_fog_wanted;
               irr_in.occupied = occupancy_moisture_block;
               // The RH ceiling and the dew margin read the measured indoor air: the average
@@ -1838,9 +1944,9 @@ interval:
               id(gh_consumed_vpd_high_kpa).publish_state(setpts.vpd_high);
               id(gh_house_temp_target).publish_state(setpts.temp_target);
               id(gh_house_vpd_target).publish_state(setpts.vpd_target);
-              id(gh_band_source).publish_state(id(sw_onchip_band_enabled) ? "onchip_curve" : "dispatcher_legacy");
+              id(gh_band_source).publish_state(band_source_name(band_source));
               id(gh_consumed_band_sample_epoch).publish_state(
-                controller_time_valid ? std::to_string(sntp_now.timestamp) : "");
+                band_clock_trusted ? std::to_string(sntp_now.timestamp) : "");
               last_consumed_band_evidence_ms = climate_diag_now_ms;
             }
 
@@ -1854,13 +1960,13 @@ interval:
             if (climate_band_diag_due) {
               auto zcurve = [&](float sr, float sm, float ss, float mid) -> float {
                 BandAnchors a = {sr, sm, ss, mid};
-                return band_value_at_phase(a, sv2_phase);
+                return band_value_at_phase(a, cl_phase);
               };
               ZoneBand zb[ZONE_COUNT];
-              zb[ZONE_CENTER] = zone_band_at_phase({id(zone_vpd_target_center_sr),id(zone_vpd_target_center_sm),id(zone_vpd_target_center_ss),id(zone_vpd_target_center_mid)}, id(zone_vpd_width_below_center), id(zone_vpd_width_above_center), sv2_phase);
-              zb[ZONE_SOUTH]  = zone_band_at_phase({id(zone_vpd_target_south_sr),id(zone_vpd_target_south_sm),id(zone_vpd_target_south_ss),id(zone_vpd_target_south_mid)}, id(zone_vpd_width_below_south), id(zone_vpd_width_above_south), sv2_phase);
-              zb[ZONE_WEST]   = zone_band_at_phase({id(zone_vpd_target_west_sr),id(zone_vpd_target_west_sm),id(zone_vpd_target_west_ss),id(zone_vpd_target_west_mid)}, id(zone_vpd_width_below_west), id(zone_vpd_width_above_west), sv2_phase);
-              zb[ZONE_EAST]   = zone_band_at_phase({id(zone_vpd_target_east_sr),id(zone_vpd_target_east_sm),id(zone_vpd_target_east_ss),id(zone_vpd_target_east_mid)}, id(zone_vpd_width_below_east), id(zone_vpd_width_above_east), sv2_phase);
+              zb[ZONE_CENTER] = zone_band_at_phase({id(zone_vpd_target_center_sr),id(zone_vpd_target_center_sm),id(zone_vpd_target_center_ss),id(zone_vpd_target_center_mid)}, id(zone_vpd_width_below_center), id(zone_vpd_width_above_center), cl_phase);
+              zb[ZONE_SOUTH]  = zone_band_at_phase({id(zone_vpd_target_south_sr),id(zone_vpd_target_south_sm),id(zone_vpd_target_south_ss),id(zone_vpd_target_south_mid)}, id(zone_vpd_width_below_south), id(zone_vpd_width_above_south), cl_phase);
+              zb[ZONE_WEST]   = zone_band_at_phase({id(zone_vpd_target_west_sr),id(zone_vpd_target_west_sm),id(zone_vpd_target_west_ss),id(zone_vpd_target_west_mid)}, id(zone_vpd_width_below_west), id(zone_vpd_width_above_west), cl_phase);
+              zb[ZONE_EAST]   = zone_band_at_phase({id(zone_vpd_target_east_sr),id(zone_vpd_target_east_sm),id(zone_vpd_target_east_ss),id(zone_vpd_target_east_mid)}, id(zone_vpd_width_below_east), id(zone_vpd_width_above_east), cl_phase);
               // Zone VPD readings resolved as zone choice resolves them (F8): own
               // probe while fresh, else peers, else house; center → house.
               float zvpd[ZONE_COUNT];
@@ -2338,40 +2444,18 @@ interval:
           gh_record_control_loop_duration_us(micros() - control_loop_started_us);
           App.feed_wdt();
   ################################################################################
-  # Per-probe watchdog — only reboot if ALL probes silent (not just case)
-  # Case probe: 120s timeout. Wall probes: 300s. Only reboot if all 5 fail.
+  # Sensor-bus watchdog (phase 2): one restart rule, independent of the clock.
+  # Every probe on the bus (case, four walls, exterior intake) stamps
+  # last_external_update (millis()) when it answers. When no probe has answered
+  # for > id(fallback_window_s) (3600 s), counted from boot if none ever did, the
+  # controller restarts, so at most once an hour (sensor_bus_restart_due(),
+  # lib/running_alone.h; unsigned millisecond arithmetic, wrap-safe).
   ################################################################################
   - interval: 60s
     then:
       - lambda: |-
-          if(!id(sntp_time).now().is_valid()) return;
-          uint32_t now_ms = millis();
-          bool case_ok   = (id(last_case_ms) > 0 && (now_ms - id(last_case_ms)) < 120000);
-          bool north_ok  = (id(last_north_ms) > 0 && (now_ms - id(last_north_ms)) < 300000);
-          bool west_ok   = (id(last_west_ms) > 0 && (now_ms - id(last_west_ms)) < 300000);
-          bool south_ok  = (id(last_south_ms) > 0 && (now_ms - id(last_south_ms)) < 300000);
-          bool east_ok   = (id(last_east_ms) > 0 && (now_ms - id(last_east_ms)) < 300000);
-          bool any_ok = case_ok || north_ok || west_ok || south_ok || east_ok;
-          if(!case_ok && id(last_case_ms) > 0){
-            ESP_LOGW("watchdog","Case probe stale >120s");
-          }
-          if(!any_ok && id(last_case_ms) > 0){
-            ESP_LOGE("watchdog","ALL probes silent — rebooting");
-            esp_restart();
-          }
-
-
-  ################################################################################
-  # External probe watchdog – reboot if *all* probes silent > fallback_window_s
-  ################################################################################
-  - interval: 60s
-    then:
-      - lambda: |-
-          uint32_t now = millis()/1000;
-          if(id(last_external_update) > 0 &&
-             now > id(last_external_update) &&
-             (now - id(last_external_update)) > id(fallback_window_s)){
-            ESP_LOGE("watchdog","No probe update >%u s – rebooting", id(fallback_window_s));
+          if(sensor_bus_restart_due(millis(), id(last_external_update), id(fallback_window_s) * 1000UL)){
+            ESP_LOGE("watchdog","No probe answered for more than %u s - restarting", id(fallback_window_s));
             esp_restart();
           }
 

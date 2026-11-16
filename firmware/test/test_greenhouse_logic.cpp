@@ -141,6 +141,14 @@ static SensorInputs make_inputs(float temp, float vpd, float rh = 60.0f) {
              .outdoor_data_age_s = 9999u };
 }
 
+// RULINGS G6: with no outdoor reading the cold-vent guard assumes cold. Tests about
+// something else that need the warm-outdoor cooling thresholds give the outdoor air
+// the house temperature (no cooling advantage, not cold).
+static SensorInputs outdoor_as_indoor(SensorInputs in) {
+    in.outdoor_temp_f = in.temp_f;
+    return in;
+}
+
 // ── Firmware-v2 solar helper ────────────────────────────────────────────
 // Time-of-day gating now keys on SOLAR PHASE, not wall-clock hour. This sets
 // SensorInputs' on-chip ephemeris from a representative summer day (DOY 172,
@@ -1195,7 +1203,7 @@ TEST(climate_decision_drives_hot_dry_to_vent_mist_assist) {
     sp.direct_wet_stress_override_enabled = true;
     sp.direct_wet_stress_vpd_margin_kpa = 0.05f;
     auto s = initial_state();
-    auto in = make_inputs(sp.temp_high + 4.0f, sp.vpd_high + 0.25f);
+    auto in = outdoor_as_indoor(make_inputs(sp.temp_high + 4.0f, sp.vpd_high + 0.25f));
     in.dew_point_f = in.temp_f - 12.0f;
     ClimateActionDecision d = evaluate_climate_decision(in, sp, s);
     ASSERT_EQ(d.climate_action, CLIMATE_VENT_COOL_MIST_ASSIST);
@@ -1211,7 +1219,7 @@ TEST(climate_decision_selects_mist_assist_from_band_error_even_when_ai_switch_of
     sp.sw_fsm_controller_enabled = true;
     sp.direct_wet_stress_override_enabled = false;
     auto s = initial_state();
-    auto in = make_inputs(sp.temp_high + 4.0f, sp.vpd_high + 0.25f);
+    auto in = outdoor_as_indoor(make_inputs(sp.temp_high + 4.0f, sp.vpd_high + 0.25f));
     in.dew_point_f = in.temp_f - 12.0f;
 
     ClimateActionDecision d = evaluate_climate_decision(in, sp, s);
@@ -1224,7 +1232,7 @@ TEST(climate_decision_blocks_wet_assist_when_occupied) {
     auto sp = band_setpoints();
     sp.sw_fsm_controller_enabled = true;
     auto s = initial_state();
-    auto in = make_inputs(sp.temp_high + 4.0f, sp.vpd_high + 0.25f);
+    auto in = outdoor_as_indoor(make_inputs(sp.temp_high + 4.0f, sp.vpd_high + 0.25f));
     in.occupied = true;
     sp.occupancy_inhibit = true;
     ClimateActionDecision d = evaluate_climate_decision(in, sp, s);
@@ -1475,10 +1483,23 @@ TEST(fix8_nan_temp) {
     PASS();
 }
 
+// RULINGS G2: a valid temperature without humidity is not a sensor fault. The
+// temperature rules and the protection limits run; humidity control holds.
 TEST(fix8_nan_vpd) {
     auto s = initial_state();
-    auto in = make_inputs(72, NAN);
-    ASSERT_EQ(determine_mode(in, default_setpoints(), s, 5000), SENSOR_FAULT);
+    auto in = make_inputs(72, NAN, NAN);
+    in.dew_point_f = NAN;
+    in.sensor_degraded = true;
+    ASSERT_TRUE(sensors_plausible(in));
+    ASSERT_TRUE(determine_mode(in, default_setpoints(), s, 5000) != SENSOR_FAULT);
+    auto hot = make_inputs(101, NAN, NAN);
+    hot.dew_point_f = NAN;
+    hot.sensor_degraded = true;
+    auto s2 = initial_state();
+    ASSERT_EQ(determine_mode(hot, default_setpoints(), s2, 5000), SAFETY_COOL);
+    // A humidity that is present must still be in range.
+    ASSERT_FALSE(sensors_plausible(make_inputs(72, 0.9f, 120.0f)));
+    ASSERT_FALSE(sensors_plausible(make_inputs(72, INFINITY, 50.0f)));
     PASS();
 }
 
@@ -3305,7 +3326,7 @@ TEST(band_first_cooling_enters_at_raw_temp_high) {
     sp.bias_cool = 2.0f;  // legacy offset must not move band-first controller outside the band
     auto s = initial_state();
 
-    Mode m = determine_mode(make_inputs(sp.temp_high + 0.1f, 0.9f), sp, s, 5000);
+    Mode m = determine_mode(outdoor_as_indoor(make_inputs(sp.temp_high + 0.1f, 0.9f)), sp, s, 5000);
     ASSERT_EQ(m, VENTILATE);
     ASSERT_TRUE(std::string(s.last_mode_reason) == "temp_high");
     PASS();
@@ -3452,10 +3473,10 @@ TEST(band_first_cooling_exit_uses_explicit_ai_hysteresis) {
     s.mode = VENTILATE;
     s.mode_prev = VENTILATE;
 
-    Mode hold = determine_mode(make_inputs(sp.temp_high - 0.4f, 0.9f), sp, s, 5000);
+    Mode hold = determine_mode(outdoor_as_indoor(make_inputs(sp.temp_high - 0.4f, 0.9f)), sp, s, 5000);
     ASSERT_EQ(hold, VENTILATE);
 
-    Mode clear = determine_mode(make_inputs(sp.temp_high - 0.6f, 0.9f), sp, s, 5000);
+    Mode clear = determine_mode(outdoor_as_indoor(make_inputs(sp.temp_high - 0.6f, 0.9f)), sp, s, 5000);
     ASSERT_EQ(clear, IDLE);
     PASS();
 }
@@ -3512,7 +3533,7 @@ TEST(band_first_temp_compliance_preempts_dehum_dwell_hold) {
     s.mode_prev = DEHUM_VENT;
     s.last_transition_tick_ms = 10000;
 
-    Mode m = determine_mode(make_inputs(sp.temp_high + 1.0f, sp.vpd_high + 0.2f), sp, s, 5000);
+    Mode m = determine_mode(outdoor_as_indoor(make_inputs(sp.temp_high + 1.0f, sp.vpd_high + 0.2f)), sp, s, 5000);
 
     ASSERT_EQ(m, VENTILATE);
     ASSERT_TRUE(std::string(s.last_mode_reason) == "vent_mist_assist");
@@ -3532,7 +3553,7 @@ TEST(band_first_temp_compliance_preempts_sealed_dwell_hold) {
     s.vpd_watch_timer_ms = sp.vpd_watch_dwell_ms;
     s.mist_stage = MIST_S1;
 
-    Mode m = determine_mode(make_inputs(sp.temp_high + 1.0f, sp.vpd_high + 0.2f), sp, s, 5000);
+    Mode m = determine_mode(outdoor_as_indoor(make_inputs(sp.temp_high + 1.0f, sp.vpd_high + 0.2f)), sp, s, 5000);
 
     ASSERT_EQ(m, VENTILATE);
     ASSERT_TRUE(std::string(s.last_mode_reason) == "vent_mist_assist");
@@ -5228,10 +5249,11 @@ TEST(vent_bypass_runs_fans_with_vent_closed) {
 }
 
 TEST(manual_overrides_never_fight_safety_rails) {
-    // All buttons pressed; in every safety mode the relay table is untouched and
-    // no force is asserted (a FANS press must not throw the vent open and dump
-    // heat during a cold-rail SAFETY_HEAT).
-    for (Mode m : {SENSOR_FAULT, SAFETY_COOL, SAFETY_HEAT}) {
+    // All buttons pressed; in both temperature rails the relay table is untouched
+    // and no force is asserted (a FANS press must not throw the vent open and dump
+    // heat during a cold-rail SAFETY_HEAT). SENSOR_FAULT is no longer a rail for
+    // the overrides (decision 7, RULINGS B1): test_running_alone.cpp covers it.
+    for (Mode m : {SAFETY_COOL, SAFETY_HEAT}) {
         RelayOutputs out = {true, true, false, false, false, false};  // heaters on
         const RelayOutputs before = out;
         ManualOverrides ov = {true, true, true, false};
@@ -5314,7 +5336,7 @@ TEST(fan_requires_open_vent_carves_out_bypass_and_safety) {
     ASSERT_TRUE(fan_requires_open_vent(VENTILATE, true, false));    // normal: vent forced open
     ASSERT_FALSE(fan_requires_open_vent(VENTILATE, true, true));    // bypass carve-out (#290)
     ASSERT_FALSE(fan_requires_open_vent(SAFETY_HEAT, true, false)); // lead-fan, vent shut to keep heat
-    ASSERT_FALSE(fan_requires_open_vent(SENSOR_FAULT, true, false));// all off elsewhere
+    ASSERT_TRUE(fan_requires_open_vent(SENSOR_FAULT, true, false)); // decision 7: lead fan with the vent open
     ASSERT_FALSE(fan_requires_open_vent(IDLE, false, false));       // no fan wanted
     PASS();
 }
@@ -5322,7 +5344,9 @@ TEST(fan_requires_open_vent_carves_out_bypass_and_safety) {
 // ── #370: relay conflict arbitration ─────────────────────────────────────
 // The oracle is the controls.yaml section 11a code as it stood before #370
 // moved it into arbitrate_relay_conflicts(), copied verbatim apart from the
-// id(...)->state reads becoming `phys` fields. The exhaustive sweep covers
+// id(...)->state reads becoming `phys` fields, less the SENSOR_FAULT all-off
+// lock that phase 2 removed (its request is now the decision-7 table, which
+// these rules arbitrate like any other). The exhaustive sweep covers
 // every mode x requested table x physical table x heat1 dwell x bypass
 // (8 x 64 x 64 x 4 x 2 = 262,144 cases), so the move changes no decision.
 struct ArbOracle {
@@ -5335,11 +5359,6 @@ static ArbOracle arb_oracle(Mode mode, RelayOutputs req, RelayOutputs phys,
                             bool can_on_h1, bool can_off_h1, bool vent_bypass_eff) {
     bool willHeat1 = req.heat1, willHeat2 = req.heat2, willFan1 = req.fan1;
     bool willFan2 = req.fan2, willFog = req.fog, willVent = req.vent;
-    const bool sensor_fault_relay_lock = mode == SENSOR_FAULT;
-    if (sensor_fault_relay_lock) {
-        willHeat1 = false; willHeat2 = false; willFan1 = false;
-        willFan2 = false; willFog = false; willVent = false;
-    }
     const bool fan_physically_on = phys.fan1 || phys.fan2;
     const bool fan_wanted = willFan1 || willFan2;
     const bool fan_requires_vent = fan_requires_open_vent(mode, fan_physically_on || fan_wanted, vent_bypass_eff);
@@ -5356,7 +5375,7 @@ static ArbOracle arb_oracle(Mode mode, RelayOutputs req, RelayOutputs phys,
     const bool heat1_available = willHeat1 && (phys.heat1 || can_on_h1);
     const bool heat_stage_interlock_active = willHeat2 && !heat1_available;
     if (heat_stage_interlock_active) willHeat2 = false;
-    const bool force_heat_off = heat_air_exchange_interlock_active || sensor_fault_relay_lock;
+    const bool force_heat_off = heat_air_exchange_interlock_active;
     const bool heat1_will_be_on_after_apply =
         (willHeat1 && (phys.heat1 || can_on_h1))
         || (phys.heat1 && !force_heat_off && !can_off_h1);
@@ -5399,7 +5418,6 @@ TEST(relay_arbitration_matches_the_former_inline_rules_exhaustively) {
         const RelayArbitration a = arbitrate_relay_conflicts(mode, r, p, can_on_h1, can_off_h1, bypass);
         const ArbOracle o = arb_oracle(mode, r, p, can_on_h1, can_off_h1, bypass);
         ASSERT_TRUE(relays_equal(a.out, o.out));
-        ASSERT_EQ(a.sensor_fault_lock, mode == SENSOR_FAULT);
         ASSERT_EQ(a.fan_requires_vent, o.fan_requires_vent);
         ASSERT_EQ(a.fan_vent_hold, o.fan_vent_hold);
         ASSERT_EQ(a.heat_vent_block, o.heat_vent);
@@ -5430,20 +5448,12 @@ TEST(relay_arbitration_never_energizes_incompatible_relays) {
         const bool on1 = dwell & 1, off1 = dwell & 2, on_other = dwell & 4, off_other = dwell & 8;
         const RelayArbitration a = arbitrate_relay_conflicts(mode, r, p, on1, off1, bypass);
         const bool exempt = mode == SAFETY_HEAT || mode == DEHUM_VENT;
-        const bool sf = a.sensor_fault_lock;
         const bool h1 = relay_after_apply(a.out.heat1, p.heat1, on1, off1, false, a.force_heat_off);
         const bool h2 = relay_after_apply(a.out.heat2, p.heat2, on_other, off_other, false, a.force_heat2_off);
-        const bool f1 = relay_after_apply(a.out.fan1, p.fan1, on_other, off_other, false, sf);
-        const bool f2 = relay_after_apply(a.out.fan2, p.fan2, on_other, off_other, false, sf);
-        const bool v = relay_after_apply(a.out.vent, p.vent, on_other, off_other, a.fan_requires_vent, sf);
+        const bool f1 = relay_after_apply(a.out.fan1, p.fan1, on_other, off_other, false, false);
+        const bool f2 = relay_after_apply(a.out.fan2, p.fan2, on_other, off_other, false, false);
+        const bool v = relay_after_apply(a.out.vent, p.vent, on_other, off_other, a.fan_requires_vent, false);
 
-        // SENSOR_FAULT: the request is all off and nothing turns on.
-        if (sf) {
-            ASSERT_TRUE(relays_equal(a.out, RelayOutputs{false, false, false, false, false, false}));
-            ASSERT_TRUE(a.force_heat_off && a.force_heat2_off);
-            ASSERT_FALSE((h1 && !p.heat1) || (h2 && !p.heat2) || (f1 && !p.fan1) || (f2 && !p.fan2) || (v && !p.vent));
-            ASSERT_EQ(std::string(a.block_reason), std::string("sensor_fault"));
-        }
         // Outside the sanctioned heat+air states the arbitrated request never
         // pairs a heater with an open or opening vent or a running or wanted fan.
         if (!exempt && (a.out.heat1 || a.out.heat2)) {
@@ -5455,9 +5465,9 @@ TEST(relay_arbitration_never_energizes_incompatible_relays) {
         }
         // heat2 never runs without heat1 after the tick, whatever is on now.
         if (h2) ASSERT_TRUE(h1);
-        // A fan running or wanted keeps the vent open, except SAFETY_HEAT,
-        // SENSOR_FAULT and VENT-BYPASS.
-        if (!sf && mode != SAFETY_HEAT && !bypass && (f1 || f2 || p.fan1 || p.fan2)) ASSERT_TRUE(v);
+        // A fan running or wanted keeps the vent open, except SAFETY_HEAT and
+        // VENT-BYPASS.
+        if (mode != SAFETY_HEAT && !bypass && (f1 || f2 || p.fan1 || p.fan2)) ASSERT_TRUE(v);
         // Any change to the request names the rule that made it.
         if (!relays_equal(a.out, r)) ASSERT_TRUE(a.block_reason[0] != '\0');
     }
@@ -5803,9 +5813,10 @@ TEST(mist_arbiter_picks_center_at_rank_1_whatever_the_retired_switch) {
 
 // F9: survival fog. In SAFETY_COOL the fog force-off drops the engine's drip, the soft budget and
 // SAF-4 (D-IRP-03, D-IRP-04); every mode keeps SENSOR_FAULT's lock, confirmed occupancy, SAF-5
-// (L03), a drip relay reading ON and a valid clock. There is no leak input (Q-05).
+// (L03) and a drip relay reading ON. There is no leak input (Q-05), and since phase 2 no clock
+// term: without a trusted clock fog follows the corridor.
 TEST(survival_fog_runs_past_the_drip_the_soft_budget_and_saf4) {
-    FogForceOffInputs in{false, true, false, false, false, true, true, true};
+    FogForceOffInputs in{false, false, false, false, true, true, true};
     ASSERT_FALSE(fog_forced_off(SAFETY_COOL, in));
     ASSERT_EQ(std::string(fog_force_off_reason(SAFETY_COOL, in)), std::string(""));
     // Outside SAFETY_COOL each one still holds fog, in the ladder's order.
@@ -5821,25 +5832,24 @@ TEST(survival_fog_runs_past_the_drip_the_soft_budget_and_saf4) {
     PASS();
 }
 
-TEST(survival_fog_still_waits_for_l03_occupancy_a_drip_relay_the_clock_and_sensor_fault) {
+TEST(survival_fog_still_waits_for_l03_occupancy_a_drip_relay_and_sensor_fault) {
     struct Term { const char* word; void (*set)(FogForceOffInputs&); };
     const Term terms[] = {
         {"sensor_fault", [](FogForceOffInputs& i) { i.sensor_fault_relay_lock = true; }},
         {"occupancy", [](FogForceOffInputs& i) { i.occupancy_block = true; }},
         {"fert_master", [](FogForceOffInputs& i) { i.fert_master_on = true; }},
         {"irrigation", [](FogForceOffInputs& i) { i.drip_relay_open = true; }},
-        {"time_invalid", [](FogForceOffInputs& i) { i.controller_time_valid = false; }},
     };
     for (const Term& t : terms) {
         for (Mode m : {SAFETY_COOL, IDLE, SEALED_MIST, VENTILATE}) {
-            FogForceOffInputs in{false, true, false, false, false, false, false, false};
+            FogForceOffInputs in{false, false, false, false, false, false, false};
             t.set(in);
             ASSERT_TRUE(fog_forced_off(m, in));
             ASSERT_EQ(std::string(fog_force_off_reason(m, in)), std::string(t.word));
         }
     }
     // Survival fog with every water cap reached still stops for confirmed occupancy and L03.
-    FogForceOffInputs capped{false, true, true, false, false, true, true, true};
+    FogForceOffInputs capped{false, true, false, false, true, true, true};
     ASSERT_EQ(std::string(fog_force_off_reason(SAFETY_COOL, capped)), std::string("occupancy"));
     capped.occupancy_block = false;
     capped.fert_master_on = true;
@@ -5856,10 +5866,10 @@ static_assert(!FogInputsHaveLeak<FogForceOffInputs>::value,
 
 TEST(fog_force_off_reasons_keep_the_ladder_order) {
     // Everything at once: SENSOR_FAULT's lock first; then occupancy, SAF-5, a drip, the
-    // engine's drip, the soft budget, SAF-4 and the clock, as the published ladder reads.
-    FogForceOffInputs in{true, false, true, true, true, true, true, true};
+    // engine's drip, the soft budget and SAF-4, as the published ladder reads.
+    FogForceOffInputs in{true, true, true, true, true, true, true};
     const char* order[] = {"sensor_fault", "occupancy", "fert_master", "irrigation", "irrigation",
-                           "resource_budget", "water_ceiling", "time_invalid"};
+                           "resource_budget", "water_ceiling"};
     for (const char* expected : order) {
         ASSERT_EQ(std::string(fog_force_off_reason(IDLE, in)), std::string(expected));
         if (in.sensor_fault_relay_lock) in.sensor_fault_relay_lock = false;
@@ -5868,8 +5878,7 @@ TEST(fog_force_off_reasons_keep_the_ladder_order) {
         else if (in.drip_relay_open) in.drip_relay_open = false;
         else if (in.irrigation_water_conflict) in.irrigation_water_conflict = false;
         else if (in.climate_water_budget_block) in.climate_water_budget_block = false;
-        else if (in.mister_volume_hard_block) in.mister_volume_hard_block = false;
-        else in.controller_time_valid = true;
+        else in.mister_volume_hard_block = false;
     }
     ASSERT_FALSE(fog_forced_off(IDLE, in));
     PASS();
@@ -5896,25 +5905,40 @@ TEST(invariant_2_and_15_exempt_engine_mist) {
     PASS();
 }
 
-TEST(invariant_26_every_mister_off_in_sensor_fault_drips_outside_it) {
+TEST(invariant_26_sensor_fault_runs_only_the_outdoor_rule) {
     invariants::TraceRow r{};
     r.greenhouse_state = "SENSOR_FAULT";
-    ASSERT_TRUE(invariants::check_26_sensor_fault_all_off(r, silent_report));
+    ASSERT_TRUE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
+    // The three branches of decision 7 pass: vent + lead fan, the electric heater alone, nothing.
+    r.eq_vent = 1; r.eq_fan2 = 1;
+    ASSERT_TRUE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
+    r.eq_vent = 0; r.eq_fan2 = 0; r.eq_heat1 = 1;
+    ASSERT_TRUE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
+    // The electric heater never with air exchange; the furnace never.
+    r.eq_fan1 = 1;
+    ASSERT_FALSE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
+    r.eq_fan1 = 0; r.eq_heat1 = 0; r.eq_heat2 = 1;
+    ASSERT_FALSE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
+    r.eq_heat2 = 0;
+    // An operator's HUMID press stays effective: the fogger alone passes.
+    r.eq_fog = 1;
+    ASSERT_TRUE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
+    r.eq_fog = 0;
     r.eq_mister_south_fert = 1;  // L08
-    ASSERT_FALSE(invariants::check_26_sensor_fault_all_off(r, silent_report));
+    ASSERT_FALSE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
     r.eq_mister_south_fert = 0;
     r.eq_mister_west_fert = 1;  // L10
-    ASSERT_FALSE(invariants::check_26_sensor_fault_all_off(r, silent_report));
+    ASSERT_FALSE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
     r.eq_mister_west_fert = 0;
     r.eq_mister_center = 1;
     r.mister_engine_cause = true;  // no cause exempts a mister in SENSOR_FAULT
-    ASSERT_FALSE(invariants::check_26_sensor_fault_all_off(r, silent_report));
+    ASSERT_FALSE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
     r.eq_mister_center = 0;
     r.mister_engine_cause = false;
     // Drips are outside #26 (D-IRP-02): the row has no drip column, and fertilizer master alone
     // is the SAF-5 invariants' concern.
     r.eq_fertilizer_master = 1;
-    ASSERT_TRUE(invariants::check_26_sensor_fault_all_off(r, silent_report));
+    ASSERT_TRUE(invariants::check_26_sensor_fault_outdoor_rule(r, silent_report));
     PASS();
 }
 

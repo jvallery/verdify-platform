@@ -244,6 +244,19 @@ text_sensor:
     update_interval: never
     lambda: |-
       return { id(fan_lead_is_fan1) ? "Fan 1" : "Fan 2" };
+  # Phase 2 (contracts/phase2-entities.md): lifetime relay starts and fan run
+  # seconds as one JSON object, and the outdoor source the controller uses.
+  # Both are published by the control loop (controls.yaml).
+  - platform: template
+    id: gh_relay_counters
+    name: "Relay Counters"
+    entity_category: diagnostic
+    update_interval: never
+  - platform: template
+    id: gh_outdoor_source
+    name: "Outdoor Source"
+    entity_category: diagnostic
+    update_interval: never
 
 # ───────────────────── I²C / UART / Modbus ─────────────────────
 i2c:

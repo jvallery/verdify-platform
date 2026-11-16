@@ -30,8 +30,10 @@ FIRMWARE_SOURCES = {
     # path; #1385's night dry-out joins them. #1333's 40/100 °F SAFETY SANITY
     # fallbacks change only the safety-limit reset values. #370 moves section 11a's
     # relay interlocks into arbitrate_relay_conflicts() with no decision change.
-    # Solar/band expressions are unchanged.
-    "firmware/greenhouse/controls.yaml": "ad22fdcb099302124c9e66745da6b2105a973d6a211dc2f6bab0ad9bee5018c6",
+    # Solar/band expressions are unchanged. Phase 2 (running alone, #1643/#1638)
+    # serves the corridor (band_source `corridor`) while the clock is not trusted;
+    # the trusted-clock curve expressions are unchanged.
+    "firmware/greenhouse/controls.yaml": "e56539f588ced291f28a065991a78c53e54cfea1e931c97835f532913a4ae965",
 }
 SERIES = ("temp_low", "temp_high", "temp_target", "vpd_low", "vpd_high", "vpd_target")
 ANCHORS = ("sr", "sm", "ss", "mid")

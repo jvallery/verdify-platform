@@ -256,6 +256,49 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  # Phase 2: the wired exterior intake probe's own sample stamp (millis(), 0 = none
+  # since boot), the second outdoor source after the weather station.
+  - id: last_intake_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+  # ─── Phase 2: relay start counters and fan run seconds (lifetime) ───
+  # Kept in RAM by the control loop and copied here at most once an hour
+  # (relay_counters_save_due(), lib/running_alone.h), so flash is written at
+  # most hourly. Restored at boot; published as the Relay Counters JSON.
+  - id: persist_starts_heat1
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
+  - id: persist_starts_heat2
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
+  - id: persist_starts_fan1
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
+  - id: persist_starts_fan2
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
+  - id: persist_starts_fog
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
+  - id: persist_starts_vent
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
+  - id: persist_fan1_run_s
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
+  - id: persist_fan2_run_s
+    type: uint32_t
+    restore_value: yes
+    initial_value: '0'
 
   # ─── Controller time failure detection (A3) ───
   - id: sntp_acquired
@@ -274,12 +317,6 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
-
-  # ─── Graduated NaN fallback indoor offset (A6) ───
-  - id: indoor_offset_on_nan_f
-    type: float
-    restore_value: no
-    initial_value: '15.0'
 
   # ─── B13 / M2: CO2 inverted-diurnal fix + plausibility calibration ───
   # The analog CO2 module on GPIO36 outputs a voltage that DECREASES as CO2
@@ -1047,12 +1084,6 @@ globals:
     restore_value: no
     initial_value: 'false'
 
-  # ─── Behaviour when temperature is NaN: assume cold or hot ───
-  - id: assume_cold_on_nan
-    type: bool
-    restore_value: no
-    initial_value: 'true'
-
   # ─── Lead/lag rotation timeout (s) ───
   - id: lead_rotate_timeout_s
     type: int
@@ -1180,9 +1211,11 @@ globals:
     restore_value: no
     initial_value: '420'
 
+  # #1641, decision 11: the soft water budget is kept across a restart (it was
+  # 300 again after every boot until the dispatcher pushed it).
   - id: mister_water_budget_gal
     type: float
-    restore_value: no
+    restore_value: yes
     initial_value: '300.0'
 
   # ─── IRR-2: mister VPD hysteresis floor (kPa) ───
