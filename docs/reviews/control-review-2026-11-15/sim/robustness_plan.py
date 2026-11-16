@@ -50,7 +50,7 @@ def find(name):
 
 def main():
     only = [x.split("=", 1)[1] for x in sys.argv[1:] if x.startswith("--only=")]
-    names = [x for x in sys.argv[1:] if not x.startswith("--")] or ["fw_live", "fwp_all_day_best", "law", "law_e0.7"]
+    names = [x for x in sys.argv[1:] if not x.startswith("--")] or ["fw_live", "fwp_all_day_best", "law", "law_nodry"]
     out = []
     t0 = time.time()
     for pname, mult in PERTURB.items():

@@ -462,7 +462,7 @@ int main(int argc, char** argv) {
     k.pre_heat_gap = cfgd("edge.pre_heat_gap", k.pre_heat_gap); k.pre_cool_gap = cfgd("edge.pre_cool_gap", k.pre_cool_gap);
     k.c_off_min = cfgd("edge.c_off_min", k.c_off_min); k.pre_dry_kpa = cfgd("edge.pre_dry_kpa", k.pre_dry_kpa);
     k.pre_heat_shift_f = cfgd("edge.pre_heat_shift_f", k.pre_heat_shift_f);
-    k.hold_f = cfgd("edge.hold_f", k.hold_f); k.hold_stack = cfgb("edge.hold_stack", k.hold_stack); k.hold_dry = cfgb("edge.hold_dry", k.hold_dry);
+    k.hold_f = cfgd("edge.hold_f", k.hold_f); k.hold_stack = cfgb("edge.hold_stack", k.hold_stack); k.hold_dry = cfgb("edge.hold_dry", k.hold_dry); k.dry_spare = cfgb("edge.dry_spare", k.dry_spare);
     k.ec_on = cfgd("edge.ec_on", k.ec_on); k.ec_off = cfgd("edge.ec_off", k.ec_off);
     k.ec_v_on = cfgd("edge.ec_v_on", k.ec_v_on); k.ec_v_off = cfgd("edge.ec_v_off", k.ec_v_off);
     k.safe_max = cfgd("edge.safe_max", k.safe_max); k.safe_min = cfgd("edge.safe_min", k.safe_min);

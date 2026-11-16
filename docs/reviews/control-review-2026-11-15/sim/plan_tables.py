@@ -72,8 +72,8 @@ CTRL = [
     ("fw_settings_300", "Review step 1 (five settings, no code)"),
     ("fwp_all_day_best", "Review step 2 (patched firmware)"),
     ("kiss_strict_minabove0.5", "Review step 4 (the review's two-axis controller)"),
-    ("law", "**The law** (drying cost limit 0)"),
-    ("law_e0.7", "The law with the drying cost limit at 0.7 kWh/kg (decision 1)"),
+    ("law", "**The law** (drying cost limit 0.7 kWh/kg, the default)"),
+    ("law_nodry", "The law, never drying with outdoor air"),
 ]
 COLS = [
     ("both_in_pct", "Both in band %", 1),
@@ -184,80 +184,79 @@ for per in ("year", "winter", "summer"):
     )
     table(f"relays_{per}", ["Relay", "Starts/day today", "Starts/day law", "Hours/day today", "Hours/day law"], rows)
 
-# C8: the drying cost cap
+# C8: the drying cost limit, the owner's number
 EM = [
     ("law_nodry", "Never dry with outdoor air"),
-    ("law", "**Limit 0: drying starts on spare heat only (proposed)**"),
-    ("law_e0.5", "Limit 0.5 kWh/kg"),
-    ("law_e0.7", "Limit 0.7 kWh/kg"),
-    ("law_e1.0", "Limit 1.0 kWh/kg"),
+    ("law_e0", "Limit 0: only while the outdoor air is at least as warm as the house"),
+    ("law_e0.2", "Limit 0.2 kWh/kg"),
+    ("law_e0.3", "Limit 0.3"),
+    ("law_e0.4", "Limit 0.4"),
+    ("law_e0.5", "Limit 0.5"),
+    ("law_e0.6", "Limit 0.6"),
+    ("law", "**Limit 0.7 (the default)**"),
+    ("law_e0.85", "Limit 0.85"),
+    ("law_e1.0", "Limit 1.0"),
+    ("law_e1.5", "Limit 1.5 (the top of the range)"),
     ("law_eall", "No limit"),
 ]
-for per in ("year", "winter"):
-    table(
-        f"emax_{per}",
-        [
-            "Drying rule",
-            "Both in band %",
-            "Nights dried %",
-            "Therms/day",
-            "kWh/day",
-            "Furnace starts/day",
-            "Vent starts/day",
-            "Drying hours/day",
-            "Water carried out kg/day",
-            "Heat carried out kWh/day",
-        ],
-        [
-            [
-                label,
-                ab(s, per, "both_in_pct"),
-                ab(s, per, "dryout_pass_pct", 0),
-                ab(s, per, "therms_day", 2),
-                ab(s, per, "kwh_day", 1),
-                ab(s, per, "heat2_starts_day", 1),
-                ab(s, per, "vent_starts_day", 1),
-                ab(s, per, "dry_h_day", 2),
-                ab(s, per, "dry_kg_day", 1),
-                ab(s, per, "dry_kwh_day", 1),
-            ]
-            for s, label in EM
-        ],
-    )
+EMH = [
+    "Both in band %",
+    "Nights dried %",
+    "Too humid %",
+    "Therms/day",
+    "kWh/day",
+    "Relay starts/day",
+    "Furnace starts/day",
+    "Vent starts/day",
+    "Drying hours/day",
+    "Water carried out kg/day",
+    "Heat carried out kWh/day",
+]
 
-# where drying on spare heat stops (limit 0)
+
+def emrow(s, label, per):
+    return [
+        label,
+        ab(s, per, "both_in_pct"),
+        ab(s, per, "dryout_pass_pct", 0),
+        ab(s, per, "vpd_below_pct", 1),
+        ab(s, per, "therms_day", 2),
+        ab(s, per, "kwh_day", 1),
+        ab(s, per, "starts_day", 1),
+        ab(s, per, "heat2_starts_day", 1),
+        ab(s, per, "vent_starts_day", 1),
+        ab(s, per, "dry_h_day", 2),
+        ab(s, per, "dry_kg_day", 1),
+        ab(s, per, "dry_kwh_day", 1),
+    ]
+
+
+for per in ("year", "winter"):
+    table(f"emax_{per}", ["Drying cost limit"] + EMH, [emrow(s, label, per) for s, label in EM])
+table(
+    "emax_band2",
+    ["Drying cost limit, band 2, year"] + EMH,
+    [
+        emrow(s, label, "year")
+        for s, label in [
+            ("econ2_e0", "Limit 0"),
+            ("econ2_e0.5", "Limit 0.5"),
+            ("econ2", "**Limit 0.7 (the default)**"),
+            ("econ2_e1.0", "Limit 1.0"),
+        ]
+    ],
+)
+
+# the lines of a drying run at the default limit
 DS = [
-    ("law_nodry", "Never dry with outdoor air"),
-    ("law", "**Stop at low+0.75 (proposed)**"),
-    ("law_dstop1.5", "Stop at low+1.5"),
-    ("law_dstop2.0", "Stop at low+2.0"),
-    ("law_dstop3.0", "Stop at low+3.0, the furnace's off line"),
+    ("law", "**Start at or above low+1.5, stop below low+0.75 (the law)**"),
+    ("law_gas_from1.0", "Start at or above low+1.0"),
+    ("law_gas_from2.0", "Start at or above low+2.0"),
+    ("s_dry_stop1.0", "Stop below low+1.0"),
+    ("law_spare", "Study: a run may also start at or above low+3.5 whatever its cost"),
 ]
 for per in ("year", "winter"):
-    table(
-        f"dstop_{per}",
-        [
-            "Drying on spare heat, limit 0",
-            "Both in band %",
-            "Nights dried %",
-            "Therms/day",
-            "Furnace starts/day",
-            "Vent starts/day",
-            "Drying hours/day",
-        ],
-        [
-            [
-                label,
-                ab(s, per, "both_in_pct"),
-                ab(s, per, "dryout_pass_pct", 0),
-                ab(s, per, "therms_day", 3),
-                ab(s, per, "heat2_starts_day", 1),
-                ab(s, per, "vent_starts_day", 1),
-                ab(s, per, "dry_h_day", 2),
-            ]
-            for s, label in DS
-        ],
-    )
+    table(f"drylines_{per}", ["Drying run"] + EMH, [emrow(s, label, per) for s, label in DS])
 
 # C5: electric first, and C6: fan wear
 table(
@@ -286,10 +285,7 @@ table(
         for s, label in [
             ("fw_live", "Today's firmware"),
             ("law", "The law: electric heater first"),
-            (
-                "law_h1_not_first",
-                "Reference: electric heater on at low+1.0, off at low+2.0 (not ahead of the furnace; drying still starts at low+3.5)",
-            ),
+            ("law_h1_not_first", "Reference: electric heater on at low+1.0, off at low+2.0 (not ahead of the furnace)"),
         ]
     ],
 )
@@ -316,13 +312,13 @@ SENS = [
     ("s_furnace_off2.5_h1_3.0", "Furnace off at low+2.5 and electric heater 3.0/4.0 (narrower furnace swing)"),
     ("s_furnace_off3.5_h1_4.0", "Furnace off at low+3.5 and electric heater 4.0/5.0 (wider furnace swing)"),
     ("s_h1_4.0", "Electric heater 4.0/5.0, furnace unchanged"),
-    ("s_h1_3.0", "Electric heater 3.0/4.0, furnace and drying start unchanged"),
-    ("s_h1_2.5", "Electric heater 2.5/3.5, furnace and drying start unchanged"),
+    ("s_h1_3.0", "Electric heater 3.0/4.0, furnace unchanged"),
+    ("s_h1_2.5", "Electric heater 2.5/3.5, furnace unchanged"),
     ("s_furnace_on0.25", "Furnace on at low+0.25"),
     ("s_stack_low", "Whole heating stack 1 F lower: electric heater 2.5/3.5, furnace off at low+2.0"),
-    ("s_h1_wide", "Electric heater on at low+1.5, off at low+3.5 (a 2 F swing; drying still starts at low+3.5)"),
+    ("s_h1_wide", "Electric heater on at low+1.5, off at low+3.5 (a 2 F swing)"),
     ("s_heat_min180", "Heaters minimum on/off 180 s"),
-    ("law_h1_not_first", "Electric heater 1.0/2.0 (not ahead of the furnace; drying still starts at low+3.5)"),
+    ("law_h1_not_first", "Electric heater 1.0/2.0 (not ahead of the furnace)"),
     ("s_fog_exit0.10", "Fog exit margin 0.10 kPa"),
     ("s_fog_exit0.20", "Fog exit margin 0.20 kPa"),
     ("s_fog_min60", "Fog minimum on/off 60 s"),
@@ -620,20 +616,14 @@ PRE = [
     ("hold_sun_h0_f1_heater", "Hold back: electric heater lines 1 F lower while the sun is on the house (no forecast)"),
     (
         "hold_sun_h0_f1_stack",
-        "Hold back: heater lines, drying start and furnace off line 1 F lower while the sun is on the house (no forecast)",
+        "Hold back: heater lines and furnace off line 1 F lower while the sun is on the house (no forecast)",
     ),
     ("hold_sun_h3_f0.5_heater", "Hold back: electric heater lines 0.5 F lower from 3 h ahead of sun"),
     ("hold_sun_h3_f1_heater", "Hold back: electric heater lines 1 F lower, 3 h ahead"),
-    (
-        "hold_sun_h3_f2",
-        "Hold back: electric heater lines and drying start 2 F lower, 3 h ahead (inside the furnace's swing)",
-    ),
+    ("hold_sun_h3_f2", "Hold back: electric heater lines 2 F lower, 3 h ahead (inside the furnace's swing)"),
     ("hold_sun_h3_f2_stack", "Hold back: the same with the furnace's off line 1.5 F lower"),
-    ("hold_sun_h3_f1_stack", "Hold back: heater lines, drying start and furnace off line 1 F lower, 3 h ahead"),
-    (
-        "hold_sun_h6_f2_stack",
-        "Hold back: heater lines and drying start 2 F and furnace off line 1.5 F lower, 6 h ahead",
-    ),
+    ("hold_sun_h3_f1_stack", "Hold back: heater lines and furnace off line 1 F lower, 3 h ahead"),
+    ("hold_sun_h6_f2_stack", "Hold back: heater lines 2 F and furnace off line 1.5 F lower, 6 h ahead"),
 ]
 PCOL = [
     ("prestage_pct", "Share of time active %", 1),
@@ -652,6 +642,27 @@ table(
         [label] + [ab(s, "year", PCOL[0][0], PCOL[0][2])] + [dab(s, "law", "year", c, nd) for c, _, nd in PCOL[1:]]
         for s, label in PRE
     ],
+)
+
+# decisions 2 and 15 on band 2: difference from the law on band 2
+B2 = [
+    ("econ2_s_furnace_off2.5_h1_3.0", "Furnace off at low+2.5 and electric heater 3.0/4.0 (one step lower)"),
+    (
+        "econ2_s_stack_low",
+        "Whole heating stack 1 F lower: electric heater 2.5/3.5, furnace off at low+2.0 (two steps lower)",
+    ),
+    ("econ2_s_furnace_off3.5_h1_4.0", "Furnace off at low+3.5 and electric heater 4.0/5.0 (one step higher)"),
+    (
+        "econ2_hold_h0_f1_heater",
+        "Hold back: electric heater lines 1 F lower while the sun is on the house (no forecast)",
+    ),
+    ("econ2_hold_h3_f1_heater", "Hold back: electric heater lines 1 F lower, 3 h ahead"),
+    ("econ2_hold_h3_f1_stack", "Hold back: heater lines and furnace off line 1 F lower, 3 h ahead"),
+]
+table(
+    "band2_lines",
+    ["Change to one rule (band 2, year, difference from the law on band 2)"] + [c[1] for c in SC],
+    [[label] + [dab(s, "econ2", "year", c, nd) for c, _, nd in SC] for s, label in B2],
 )
 
 # robustness
@@ -684,7 +695,7 @@ if (D.perturbation != "-").any():
                 ab("fw_live", "year", "both_in_pct", 1, p),
                 ab("fwp_all_day_best", "year", "both_in_pct", 1, p),
                 ab("law", "year", "both_in_pct", 1, p),
-                ab("law_e0.7", "year", "both_in_pct", 1, p),
+                ab("law_nodry", "year", "both_in_pct", 1, p),
                 ab("fw_live", "year", "starts_day", 0, p),
                 ab("law", "year", "starts_day", 0, p),
                 "relay time only" if p == "furnace_dead" else ab("law", "year", "therms_day", 2, p),
@@ -698,7 +709,7 @@ if (D.perturbation != "-").any():
             "Both % today",
             "Both % step 2",
             "Both % law",
-            "Both % law, limit 0.7",
+            "Both % law, never drying",
             "Starts/day today",
             "Starts/day law",
             "Therms/day law",

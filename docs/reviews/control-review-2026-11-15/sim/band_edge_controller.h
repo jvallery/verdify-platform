@@ -36,16 +36,18 @@ struct EdgeConst {
   double w_on = 0.0, w_off = 0.15;    // fog: on above vpd_high+w_on, off below vpd_high-w_off
   double m_on = 0.30, m_off = 0.05;   // misters join above vpd_high+m_on, leave below vpd_high+m_off
   double d_on = 0.05, d_off = 0.20;   // drying (vent + lead fan): on below vpd_low+d_on, off above vpd_low+d_off
-  // ---- drying is allowed only while the house has heat to spare
-  double dt_start = 3.5;              // start only at or above low+dt_start (the electric heater's on line, h1_on)
-  double dt_start_gas = 1.0;          // while the drying cost is within e_max: start at or above low+dt_start_gas
+  // ---- drying with outdoor air: where a run may start and where it stops
+  double dt_start_gas = 1.5;          // a run may start at or above low+dt_start_gas while its cost is within e_max
+  bool dry_spare = false;             // study option: a run may also start at or above low+dt_start whatever its cost
+  double dt_start = 3.5;              //   (the electric heater's on line; the two-part rule studied first, not adopted)
   double dt_stop = 0.75;              // stop below low+dt_stop (above the furnace's on line, h2_on)
   // ---- outdoor air "within reason" (only while outdoor data is fresh)
   double dp_margin_f = 3.0;           // start only while the outdoor dew point is this far below the indoor dew point
   double dp_stop_f = 1.0;             // stop once it is less than this far below
-  double e_max = 0.0;                 // drying cost limit, kWh of heat carried out per kg of water carried out: below low+dt_start
-                                      // drying may start only while its cost is at or below this. 0 = only when outdoor air is
-                                      // at least as warm as the house, so drying never draws on furnace heat
+  double e_max = 0.7;                 // drying cost limit, kWh of heat carried out per kg of water carried out: a run may start
+                                      // only while its cost is at or below this. The owner's number (stored on the controller,
+                                      // edited on the dashboard, 0 to 1.5). 0 = only when outdoor air is at least as warm as the
+                                      // house, which is close to never; 1.5 behaves as no limit
   // ---- protection limits (absolute, independent of the band)
   double safe_max = 100, safe_min = 40;
 
@@ -64,7 +66,7 @@ struct EdgeConst {
   double c_off_min = 0.5;
   double pre_dry_kpa = 0.10;
   double hold_f = 0.0;                // forecast hold-back: the electric heater's lines (and the drying start generated from them)
-  bool hold_dry = true;               // with hold_dry off the drying start line stays where it is during the hold-back
+  bool hold_dry = true;               // with dry_spare: whether the spare-heat start line moves down with the hold-back
   bool hold_stack = false;            // this much lower while the sun is forecast to carry the house; with hold_stack the furnace's
                                       // off line moves down with them
 };
@@ -129,7 +131,7 @@ struct EdgeController {
     if (V < u.vlo - k.d2_on) dry2 = true;
     else if (V >= u.vlo + k.d_on) dry2 = false;
     // is outdoor air worth bringing in?
-    bool air_ok, gas_ok = false;
+    bool air_ok, cost_ok = false;
     if (u.out_ok) {
       const double dw = u.w_in - u.w_out;   // g/kg
       if (u.out_dp_f <= u.dp_f - k.dp_margin_f) air = true;
@@ -137,7 +139,7 @@ struct EdgeController {
       air_ok = air && dw > 0.1;
       // heat carried out per kg of water carried out: cp * dT / dw, the air flow cancels (kJ/g = MJ/kg; /3.6 = kWh/kg)
       q.dry_cost = dw > 0.1 ? 1.006 * std::max(0.0, (T - u.out_T) / 1.8) / dw / 3.6 : 1e9;
-      gas_ok = air_ok && q.dry_cost <= k.e_max;
+      cost_ok = air_ok && q.dry_cost <= k.e_max;
       probe_rest = 0; probed = true;
     } else if (k.effect_check) {
       air_ok = probe_rest <= 0;             // study option: try it and judge by the effect on the indoor dew point
@@ -147,7 +149,7 @@ struct EdgeController {
     const bool cooling = cool || hot;
     const bool was_run = run;
     if (!dry || !air_ok || cooling || h2 || T < u.tlo + k.dt_stop) run = false;
-    else if (T >= u.tlo + (gas_ok ? k.dt_start_gas : k.dt_start - (k.hold_dry ? hold : 0.0))) run = true;
+    else if (cost_ok ? T >= u.tlo + k.dt_start_gas : (k.dry_spare && T >= u.tlo + k.dt_start - (k.hold_dry ? hold : 0.0))) run = true;
     if (!u.out_ok && k.effect_check) {
       if (run && !was_run) { probe_t = 0; probe_dp0 = u.dp_f; probed = false; }
       if (run && !probed) {

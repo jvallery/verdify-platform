@@ -16,6 +16,8 @@ import scenarios as S2  # noqa: E402
 
 YEAR = S2.YEAR
 EDGE_BASE = {}  # the law's constants are the defaults of band_edge_controller.h
+if os.environ.get("LAW_E_MAX"):  # study aid: run every law scenario at another default drying cost limit
+    EDGE_BASE = {"edge__e_max": float(os.environ["LAW_E_MAX"])}
 
 
 def run_scn(name, ctrl, season_cfg, kv):
@@ -71,8 +73,9 @@ GROUPS["ref"] = [
 # ---- the law, its options and one-at-a-time sensitivities
 GROUPS["law"] = [
     E("law"),
+    E("law_e0", edge__e_max=0),
+    E("law_e0.3", edge__e_max=0.3),
     E("law_e0.5", edge__e_max=0.5),
-    E("law_e0.7", edge__e_max=0.7),
     E("law_e1.0", edge__e_max=1.0),
     E("law_eall", edge__e_max=1000),
     E("law_nodry", edge__dry=0),
@@ -80,9 +83,9 @@ GROUPS["law"] = [
     E("law_mist1", edge__mist_zones=1),
     E("law_lead_fixed", edge__lead_by_runtime=0),
     E("law_h1_not_first", edge__h1_on=1.0, edge__h1_off=2.0),  # reference: the electric heater not ahead of the furnace
-    E("s_furnace_off2.5_h1_3.0", edge__h2_off=2.5, edge__h1_on=3.0, edge__h1_off=4.0, edge__dt_start=3.0),
-    E("s_furnace_off3.5_h1_4.0", edge__h2_off=3.5, edge__h1_on=4.0, edge__h1_off=5.0, edge__dt_start=4.0),
-    E("s_h1_4.0", edge__h1_on=4.0, edge__h1_off=5.0, edge__dt_start=4.0),
+    E("s_furnace_off2.5_h1_3.0", edge__h2_off=2.5, edge__h1_on=3.0, edge__h1_off=4.0),
+    E("s_furnace_off3.5_h1_4.0", edge__h2_off=3.5, edge__h1_on=4.0, edge__h1_off=5.0),
+    E("s_h1_4.0", edge__h1_on=4.0, edge__h1_off=5.0),
     E("s_furnace_on0.25", edge__h2_on=0.25),
     E("s_fog_exit0.10", edge__w_off=0.10),
     E("s_fog_exit0.20", edge__w_off=0.20),
@@ -101,11 +104,13 @@ GROUPS["law"] = [
     E("s_dry_on0.00", edge__d_on=0.0),
     E("s_dewpoint_2_2", edge__dp_margin_f=2, edge__dp_stop_f=2),
     E("s_dewpoint_4_1", edge__dp_margin_f=4, edge__dp_stop_f=1),
-    E("e0.7_gas_from1.5", edge__e_max=0.7, edge__dt_start_gas=1.5),
-    E("e0.7_gas_from2.0", edge__e_max=0.7, edge__dt_start_gas=2.0),
+    E("law_gas_from1.0", edge__dt_start_gas=1.0),
+    E("law_gas_from2.0", edge__dt_start_gas=2.0),
+    E("s_dry_stop1.0", edge__dt_stop=1.0),
     E(
-        "s_stack_low", edge__h2_off=2.0, edge__h1_on=2.5, edge__h1_off=3.5, edge__dt_start=2.5
-    ),  # the whole heating stack 1 F lower
+        "law_spare", edge__dry_spare=1
+    ),  # study: the two-part rule (also start on spare heat at low+3.5 whatever the cost)
+    E("s_stack_low", edge__h2_off=2.0, edge__h1_on=2.5, edge__h1_off=3.5),  # the whole heating stack 1 F lower
     E("s_h1_wide", edge__h1_on=1.5, edge__h1_off=3.5),  # the electric heater with a 2 F swing
     E("s_heat_min180", dwell__heat_on=180, dwell__heat_off=180),
     E("s_dry_two_fans", edge__dry_two_fans=1),
@@ -173,10 +178,18 @@ GROUPS["lprice"] = [
 ECON1 = dict(band__temp_low=anch(A_LO, (0, -2, -2, 0)), band__vpd_high_shift=0.10)
 ECON2 = dict(ECON1, band__temp_high=anch(A_HI, (0, 2, 2, 0)))
 ECON3 = dict(ECON2, band__temp_low=anch(A_LO, (0, -4, -4, 0)))
+HOLD = dict(pre__sun_wm2=300, pre__sun_h=3)
 GROUPS["lecon"] = [
     E("econ1", **ECON1),
     E("econ2", **ECON2),
     E("econ3", **ECON3),
+    E("econ2_e0", **ECON2, edge__e_max=0),
+    E("econ2_hold_h0_f1_heater", **ECON2, **dict(HOLD, pre__sun_h=0), edge__hold_f=1),
+    E("econ2_hold_h3_f1_heater", **ECON2, **HOLD, edge__hold_f=1),
+    E("econ2_hold_h3_f1_stack", **ECON2, **HOLD, edge__hold_f=1, edge__hold_stack=1),
+    E("econ2_s_furnace_off2.5_h1_3.0", **ECON2, edge__h2_off=2.5, edge__h1_on=3.0, edge__h1_off=4.0),
+    E("econ2_s_furnace_off3.5_h1_4.0", **ECON2, edge__h2_off=3.5, edge__h1_on=4.0, edge__h1_off=5.0),
+    E("econ2_s_stack_low", **ECON2, edge__h2_off=2.0, edge__h1_on=2.5, edge__h1_off=3.5),
     F("fw_econ1", **ECON1),
     F("fw_econ2", **ECON2),
     F("fw_econ3", **ECON3),
@@ -198,12 +211,7 @@ GROUPS["lpre"] = [
 # ---- follow-ups to the second review of the plan: a higher stop line for drying on spare heat, the cost-limited start line
 #      at a limit of 0, a forecast hold-back (the electric heater's lines lower while the sun is forecast within the horizon)
 #      and the price of leaving dry nights alone
-HOLD = dict(pre__sun_wm2=300, pre__sun_h=3)
 GROUPS["lrev"] = [
-    E("law_dstop1.5", edge__dt_stop=1.5),
-    E("law_dstop2.0", edge__dt_stop=2.0),
-    E("law_dstop3.0", edge__dt_stop=3.0),
-    E("law_gas_from1.5", edge__dt_start_gas=1.5),
     E("hold_sun_h3_f2", **HOLD, edge__hold_f=2),
     E("hold_sun_h3_f2_stack", **HOLD, edge__hold_f=2, edge__hold_stack=1),
     E("hold_sun_h3_f1_stack", **HOLD, edge__hold_f=1, edge__hold_stack=1),
@@ -212,10 +220,20 @@ GROUPS["lrev"] = [
     # the electric heater's lines lower with the furnace's swing and the drying start line left alone: at every hour, and ahead of sun only
     E("s_h1_3.0", edge__h1_on=3.0, edge__h1_off=4.0),
     E("s_h1_2.5", edge__h1_on=2.5, edge__h1_off=3.5),
-    E("hold_sun_h3_f0.5_heater", **HOLD, edge__hold_f=0.5, edge__hold_dry=0),
-    E("hold_sun_h3_f1_heater", **HOLD, edge__hold_f=1, edge__hold_dry=0),
-    E("hold_sun_h0_f1_heater", **dict(HOLD, pre__sun_h=0), edge__hold_f=1, edge__hold_dry=0),
+    E("hold_sun_h3_f0.5_heater", **HOLD, edge__hold_f=0.5),
+    E("hold_sun_h3_f1_heater", **HOLD, edge__hold_f=1),
+    E("hold_sun_h0_f1_heater", **dict(HOLD, pre__sun_h=0), edge__hold_f=1),
     E("hold_sun_h0_f1_stack", **dict(HOLD, pre__sun_h=0), edge__hold_f=1, edge__hold_stack=1),
+]
+
+GROUPS["ldec"] = [
+    E("law_e0.2", edge__e_max=0.2),
+    E("law_e0.4", edge__e_max=0.4),
+    E("law_e0.6", edge__e_max=0.6),
+    E("law_e0.85", edge__e_max=0.85),
+    E("law_e1.5", edge__e_max=1.5),
+    E("econ2_e0.5", **ECON2, edge__e_max=0.5),
+    E("econ2_e1.0", **ECON2, edge__e_max=1.0),
 ]
 
 

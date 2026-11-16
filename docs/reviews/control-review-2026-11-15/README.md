@@ -29,12 +29,12 @@ refresh indexes the Markdown files under `docs/`.
 | `results/measured_monthly.csv` | Measured compliance by month, 2026-05-25 to 2026-11-15, against the served band of the time, with the out-of-band minutes split into capacity-limited and control-limited. |
 | `results/replay_monthly.csv` | The same record scored by the simulator's metric code against today's band (`validate.py replay`). This is the definition the simulated figures use; table A2 of the review compares on it. |
 | `results/night_checks.csv` | The output of `night_checks.py`: one value per check, model variant and item. |
-| `sim/band_edge_controller.h` | The plan's control law, as a reference implementation of about 170 lines. Its default constants are the law of section 4 of the plan; the members marked as study options (the effect check, fog forced at the 100 F limit, fog as a cooling stage, a second fan while drying, pre-staging and the hold-back while sun is on the house or forecast, `hold_f` / `hold_stack` / `hold_dry`) are off by default and are not part of it. It is not product code. |
+| `sim/band_edge_controller.h` | The plan's control law, as a reference implementation of about 170 lines. Its default constants are the law of section 4 of the plan; the members marked as study options (the effect check, fog forced at the 100 F limit, fog as a cooling stage, a second fan while drying, a second start line for drying at any cost `dry_spare`, pre-staging and the hold-back while sun is on the house or forecast, `hold_f` / `hold_stack` / `hold_dry`) are off by default and are not part of it. It is not product code. |
 | `sim/closed_loop2.cpp` | `closed_loop.cpp` with the law as a further controller (`controller=edge`) and its relay layer, three mister zones, a runtime-balanced lead fan, a drying meter (hours, water and heat carried out), totals of relay starts and run hours, perfect-foresight pre-staging and hold-back ahead of sun (`pre.sun_wm2`, `pre.sun_h`; a horizon of 0 hours is the present sun alone), degraded modes (no outdoor data, a wrong clock, no clock) and a bias on the outdoor reading (`outdoor.bias_dp_f`, `outdoor.bias_t_f`). Its model of today's firmware differs from `closed_loop.cpp` in one thing: humidity misting has no daytime window and no temperature limit, because the firmware has none. `mister.min_temp_f=65`, `mister.start_offset_min=120` and `mister.drydown_min=180` give the model of `closed_loop.cpp` again. |
-| `sim/scenarios_plan.py`, `sim/robustness_plan.py` | The plan's scenario groups (`ref`, `law`, `ldeg`, `lprice`, `lecon`, `lpre`, `lrev`) and its one-factor robustness runs, which add a dead electric heater and a dead furnace. Group `lrev` holds the follow-up runs: higher stop lines for drying on spare heat (`edge.dt_stop`), a higher cost-limited start line, the electric heater's lines alone 0.5 and 1 F lower, the hold-back on the present sun and on the forecast, and the night VPD edge. |
+| `sim/scenarios_plan.py`, `sim/robustness_plan.py` | The plan's scenario groups (`ref`, `law`, `ldeg`, `lprice`, `lecon`, `lpre`, `lrev`, `ldec`) and its one-factor robustness runs, which add a dead electric heater and a dead furnace. Group `lrev` holds the follow-up runs: the electric heater's lines alone 0.5 and 1 F lower, the hold-back on the present sun and on the forecast, and the night VPD edge. Group `ldec` holds the runs behind the default of the drying cost limit: further values of the limit on today's band and on band 2. |
 | `sim/plan_tables.py` | Builds every table in the plan from `results/plan_scenarios.csv` and `results/plan_robustness.csv`. |
 | `results/plan_scenarios.csv` | Every scenario of the plan, both model variants, by year and season; today's firmware (`fw_live`) and the law (`law`) by month as well. |
-| `results/plan_robustness.csv` | Today's firmware, the review's step 2, the law and the law with the drying cost limit at 0.7 kWh per kg, under fifteen one-factor changes to the physics, by year and season. |
+| `results/plan_robustness.csv` | Today's firmware, the review's step 2, the law (drying cost limit 0.7 kWh per kg) and the law with drying switched off, under fifteen one-factor changes to the physics, by year and season. |
 
 In the result files `set` is the model variant (A or B, section 9.1 of the review) and `period` is `year`,
 `winter` (October to April), `summer` (May to September) or a month. The three `dryout_*` columns score the
@@ -92,14 +92,15 @@ python scenarios_plan.py law law ldeg                       # results_law.csv
 python scenarios_plan.py lpp lprice lpre                    # results_lpp.csv
 python scenarios_plan.py lecon lecon                        # results_lecon.csv
 python scenarios_plan.py lrev lrev                          # results_lrev.csv
+python scenarios_plan.py ldec ldec                          # results_ldec.csv
 python robustness_plan.py                                   # results_robust3.csv
 python plan_tables.py ../results tables_plan                # the plan's tables, from the committed results
 ```
 
-`results/plan_scenarios.csv` is `results_ref.csv`, `results_law.csv`, `results_lpp.csv`, `results_lecon.csv` and
-`results_lrev.csv` together, and `results/plan_robustness.csv` is `results_robust3.csv`, with the numbers rounded to five decimals
+`results/plan_scenarios.csv` is `results_ref.csv`, `results_law.csv`, `results_lpp.csv`, `results_lecon.csv`,
+`results_lrev.csv` and `results_ldec.csv` together, and `results/plan_robustness.csv` is `results_robust3.csv`, with the numbers rounded to five decimals
 and the monthly rows kept only for `fw_live` and `law`. `plan_tables.py` run on them reproduces the plan's tables
-exactly. A scenario of the plan is four runs of about one second; the whole set is 106 scenarios and 60
+exactly. A scenario of the plan is four runs of about one second; the whole set is 119 scenarios and 60
 robustness runs.
 
 The review's own result files (`scenarios_base.csv`, `scenarios_matrix.csv`, `robustness.csv`,
