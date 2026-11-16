@@ -12,6 +12,13 @@
 #   the other four               verdify-platform-ci-tools (agents-ci-tools)
 . "$(dirname "$0")/lib.sh"
 step="${1:?usage: registry-step.sh <step>}"
+# VERDIFY_IMPACTED (ci.yml, from the path-impact job's outputs): false passes the
+# step as "not impacted" so its required context still reports; true or unset runs it.
+case "${VERDIFY_IMPACTED:-true}" in
+  true) ;;
+  false) echo "path impact: ${step} not required for this change"; exit 0 ;;
+  *) echo "VERDIFY_IMPACTED must be true or false" >&2; exit 2 ;;
+esac
 case "$step" in
   platform-static)
     uv sync --python 3.12 --extra dev --extra api --extra planner --extra planner-graph && uv run ruff check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_schemas/ && uv run ruff format --check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_schemas/

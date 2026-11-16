@@ -176,6 +176,7 @@ def test_web_runs_no_pod_until_its_digest_is_pinned(rendered):
     # Replicas 0 and no digest until R1's pin PR (#1143) sets the first digest and count 1.
     pinned = re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is not None
     assert pinned or not digest
+    assert digest != "sha256:" + "0" * 64, "the dashboard web pin is the all-zero digest"
     assert (deployment["spec"]["replicas"], pinned) in {(0, False), (1, True)}
 
 

@@ -35,6 +35,7 @@ ACTUATOR_IMAGES = {
     "verdify-experiment-v2-orchestrator",
 }
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+ZERO_DIGEST = "sha256:" + "0" * 64
 
 
 def _release_pins() -> dict[str, str]:
@@ -48,6 +49,7 @@ def _release_pins() -> dict[str, str]:
         image = tag["name"].removeprefix(ZOT)
         assert image not in pins, f"{image} is pinned twice"
         assert DIGEST.fullmatch(tag["digest"])
+        assert tag["digest"] != ZERO_DIGEST, f"{image} release pin is the all-zero digest"
         pins[image] = tag["digest"]
     return pins
 
@@ -91,11 +93,19 @@ def test_candidates_keep_the_actuator_shape_and_release_pins_apply_last() -> Non
         (entry,) = [row for row in kustomization["images"] if row["name"] == CANONICAL + image]
         assert entry == {"name": CANONICAL + image, "newName": ZOT + image, "digest": entry["digest"]}
         assert DIGEST.fullmatch(entry["digest"])
+        assert entry["digest"] != ZERO_DIGEST, f"{image} candidate is the all-zero digest"
     # The actuator rewrites any `  - name: .../<image>` line in this file, so a
     # second entry for a managed image anywhere in `images:` would break it.
     text = KUSTOMIZATION.read_text()
     for image in ACTUATOR_IMAGES:
         assert len(re.findall(rf"^  - name: .*/{re.escape(image)}$", text, flags=re.M)) == 1
+
+
+def test_no_pin_file_carries_the_all_zero_digest() -> None:
+    """A zero digest matches the shape but cannot be pulled (CI audit 2026-11-16: the
+    pin-only light path runs this file, so the guard must not live only elsewhere)."""
+    for path in (KUSTOMIZATION, RELEASE_PINS):
+        assert ZERO_DIGEST not in path.read_text(), f"{path.name} carries the all-zero digest"
 
 
 def _assert_release_images(rendered: str, pins: dict[str, str]) -> None:

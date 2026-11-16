@@ -18,7 +18,7 @@ seconds).
 | `ci / path-impact` | required | 0.2 / 0.3 | |
 | `ci / validate` | required | aggregate | parts: containment-firmware 10.4 / 14.1, pure-logic-1 8.7 / 10.0, pure-logic-2 11.8 / 13.5, rest 5.5 / 6.8 |
 | `ci / dashboard` | required | 0.2 / 0.4 | |
-| `ci / campaign` | required | aggregate | four shards, each p90 at most 10.7 |
+| `ci / campaign` | required | aggregate | since 2026-11-16 (CI audit) aggregates the `campaign-qualification-<i>of4` shards, whose selection already holds every `tests/test_dashboard_db_*.py` file the old four `campaign-<i>of4` shards ran a second time |
 | `ci / lint` | required | 0.2 / 0.2 | |
 | `ci / platform-static` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 0.3 / 0.4 | 12 of 12 main runs green since 2026-11-09 |
 | `ci / platform-tests` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 2.2 / 2.5 | 12 of 12 main runs green since 2026-11-09 |
@@ -42,6 +42,28 @@ shard's p50 is within 15 minutes (re-read 2026-11-15, above), so both STD-CI-03 
 were removed. Watch list, not exceptions: `validate-pure-logic-2` (p50 13.2, p90 15.6
 over the same 10 runs) and `ci / dashboard` when its path impact runs it (13.1-16.4 on
 the 3 such runs) sit near the line.
+
+## Light paths (CI audit 2026-11-16)
+
+The `ci / path-impact` job (a direct job, so its outputs reach the other jobs; it
+runs `trusted-precheck.sh` itself and starts beside `ci / trusted-precheck`)
+classifies the change with `ci/gha/verdify_path_impact.py`. Every required context
+still reports; a check that the class does not need passes as "not impacted":
+
+| Class | When | What runs |
+|---|---|---|
+| `pins` | every changed path is `deploy/k8s/overlays/prod/kustomization.yaml`, `deploy/k8s/overlays/prod/release-pins.yaml` or `deploy/k8s/dashboard/kustomization.yaml`, and only `sha256:` digest values or comment lines differ | the validate `pins` part (`ci/gha/pins-check.sh`: both renders, zero `kind: Secret` in the prod render, the pin-shape and release-pin tests), secret-scan, lint, buildcheck |
+| `docs` | every changed path is Markdown whose file name no file under `tests/`, `verdify_schemas/tests/`, `scripts/`, `ci/`, `.github/` or the `Makefile` mentions | secret-scan, lint, buildcheck (the ingestor image copies `docs/`), dashboard when its own flag selects it |
+| full | anything else, and every classifier fallback | everything, as before |
+
+Independently, `firmware-check` (the firmware tree, `ci/esphome-ci.Dockerfile`,
+`ci/gha/**` or `.github/workflows/**` changed) selects the two
+`firmware-secretless-compile` shards and `firmware-logic`. The firmware native tests,
+replay invariants and the rule 6, rule 7 and replay-diff gates stay in the validate
+`containment-firmware` part of every full run. Skipped shard matrices are never
+required contexts: their aggregates fail unless `path-impact` succeeded and either
+every shard succeeded or the class skipped the matrix (`ci/gha/require-success.sh`,
+`tests/test_gha_ci_light_paths.py`).
 
 ## STD-CI-03 exceptions
 

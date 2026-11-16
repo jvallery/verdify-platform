@@ -4,7 +4,9 @@
 # (python:3.13-bookworm, the job image of the verdify-platform-ci set), same
 # dependency bootstrap, same gate: scripts/ci-local.sh with CI_BASE_REF set, so
 # the diff gates (rules 6 and 7, firmware replay diff) run. VALIDATE_PART (set
-# per matrix job in .github/workflows/ci.yml) selects one parallel part (#1459).
+# per matrix job in .github/workflows/ci.yml) selects one parallel part (#1459);
+# VALIDATE_PART=pins is the pin-only light path (ci/gha/pins-check.sh), which
+# ci.yml selects instead of the four parts when every change is a digest pin.
 . "$(dirname "$0")/lib.sh"
 
 # Assert instead of install: ci-local.sh skips the g++ gates when the compiler
@@ -22,8 +24,9 @@ if [ "${GITHUB_EVENT_NAME:-}" = push ]; then
 else
   ci_classify "$impact" >/dev/null
 fi
-# A digest-only pin push to main skips validation, as natively.
-if [ "$(cat "$impact/mode")" = skip ]; then
+# A digest-only pin push to main skips the full parts, as natively; the pins
+# part still proves the render and the pin shape.
+if [ "$(cat "$impact/mode")" = skip ] && [ "${VALIDATE_PART:-}" != pins ]; then
   echo "path impact: digest-only pin diff; validation not required"
   exit 0
 fi
@@ -47,4 +50,8 @@ print("\n".join(reqs))
 PY
 python3 -m venv .venv
 .venv/bin/pip -q install -r "$impact/reqs.txt" paho-mqtt 'mcp[cli]' pydantic-settings pytest pytest-asyncio
-bash scripts/ci-local.sh
+if [ "${VALIDATE_PART:-}" = pins ]; then
+  bash ci/gha/pins-check.sh
+else
+  bash scripts/ci-local.sh
+fi
