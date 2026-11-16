@@ -98,7 +98,9 @@ esphome:
       - switch.turn_off: fertilizer_master_valve
       # Boot-time validation: catch corrupted restore_value globals
       - lambda: |-
-          id(restart_count) += 1;  // package 2.4
+          // Package 2.4 with reviews GL-4/F3-UR-5: +1 and committed to NVS here (one write per boot), so a crash in
+          // the first minute is counted and the gap log's boot id is never reused.
+          id(restart_count) = gap_log_dev::count_restart();
           gap_log_dev::boot(uint16_t(id(restart_count)));  // package 2.3: arming check and ring scan
           ESP_LOGI("boot","Validating restored globals...");
           int fixes = 0;

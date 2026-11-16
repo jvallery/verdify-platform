@@ -52,6 +52,20 @@ constexpr size_t REPLAY_LINE_MAX = 240;
 constexpr uint8_t TRANSITIONS_PER_LINE = 12;
 constexpr uint8_t CLIMATE_PER_LINE = 5;  // one 5-minute part (W11)
 
+// The recorder (review GL-1): the API client whose session the log keys on. Liveness (Q_LIVE), the 60 s
+// connected-and-quiet condition and the replay session follow THAT client's connection, never "any client": Home
+// Assistant is a standing client (the grow lights), so "any client" would mark an ingestor outage live. A client is
+// the recorder when the client_info of its Hello is exactly "aioesphomeapi" (the library default; the release 3
+// ingestor sends no client_info of its own) or starts with "verdify-ingestor". Home Assistant sends "Home Assistant
+// <version>". This is the one list; the API patch's recorder_snapshot() takes this function as its test.
+constexpr const char* RECORDER_EXACT = "aioesphomeapi";
+constexpr const char* RECORDER_PREFIX = "verdify-ingestor";
+inline bool is_recorder_client(const char* client_info) {
+    if (client_info == nullptr) return false;
+    if (std::strcmp(client_info, RECORDER_EXACT) == 0) return true;
+    return std::strncmp(client_info, RECORDER_PREFIX, std::strlen(RECORDER_PREFIX)) == 0;
+}
+
 struct Climate {
     uint16_t dt = 0;
     uint8_t flags = 0;
@@ -302,18 +316,21 @@ inline LogState after_write(WriteHealth& h, bool ok, uint32_t write_us, uint32_t
 
 // ---- replay ----
 struct ReplayConditions {
-    bool connected = false;
-    uint32_t connected_ms = 0;      // how long the API has had a client without a break
-    uint32_t api_pending_bytes = 0;
+    uint32_t recorder_id = 0;       // the recorder's connection id (unique per connection, never reused); 0 = absent
+    bool connected = false;         // the recorder is attached (replay_step() fills it from recorder_id)
+    uint32_t connected_ms = 0;      // how long this recorder connection has been up (replay_step() fills it)
+    uint32_t api_pending_bytes = 0;  // the recorder connection's
     uint32_t api_overflow_bytes = 0;
-    uint32_t api_syncing = 0;       // clients in their initial state sync
+    uint32_t api_syncing = 0;       // 1 while the recorder is in its initial state sync
+    uint32_t api_batch_items = 0;   // the recorder's queued batch items (GL-3: the last line has left the batch)
     uint32_t free_bytes = 0;
     uint32_t minute_low_bytes = 0;  // the last published per-minute low
 };
 
 inline bool replay_may_send(const ReplayConditions& c) {
     return c.connected && c.connected_ms >= REPLAY_SESSION_MS && c.api_pending_bytes == 0 &&
-           c.api_overflow_bytes == 0 && c.api_syncing == 0 && c.free_bytes >= REPLAY_MIN_FREE_BYTES &&
+           c.api_overflow_bytes == 0 && c.api_syncing == 0 && c.api_batch_items == 0 &&
+           c.free_bytes >= REPLAY_MIN_FREE_BYTES &&
            c.minute_low_bytes >= REPLAY_MIN_MINUTE_LOW_BYTES;
 }
 
@@ -329,6 +346,10 @@ struct Pending {
 
 // The oldest qseq still in the ring when the next to be written is `next_qseq`.
 inline uint32_t ring_first(uint32_t next_qseq) { return next_qseq > QUARTERS ? next_qseq - QUARTERS : 0; }
+
+// Whether quarter `qseq`'s ring slot still holds it when the next to be written is `next_qseq` (review GL-2: a slot
+// overwritten by a later quarter carries that quarter's pending bit, which a settle must not clear).
+inline bool slot_holds(uint32_t qseq, uint32_t next_qseq) { return qseq + QUARTERS >= next_qseq; }
 
 // The first quarter a pass sends: after the drained mark and still in the ring.
 inline uint32_t replay_from(uint32_t drained, bool any_drained, uint32_t next_qseq) {

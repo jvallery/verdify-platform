@@ -2,7 +2,9 @@ import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -20,6 +22,34 @@ COMPILERS = frozenset(
 # job has a fresh container. Without it (the plain ESPHome image) a private core
 # directory downloads them, as before.
 BAKED_CORE = Path("/opt/verdify-platformio")
+# Static DRAM gate (#1633 RULINGS W9a, review F3-UR-4): the greenhouse image's static RAM, as PlatformIO's size check
+# prints it ("RAM: [...] x% (used N bytes from M bytes)"), may not exceed phase 2's measured 114,128 B. The gate
+# prints one FIRMWARE_STATIC_DRAM line per target; the coordinator reads it before the merge and from the signed
+# build's log before the flash.
+STATIC_DRAM_LIMIT = {"greenhouse": 114128}
+RAM_LINE = re.compile(rb"RAM:\s+\[[^\]]*\]\s+[0-9.]+%\s+\(used (\d+) bytes from (\d+) bytes\)")
+
+
+def static_dram_gate(target, output):
+    """Parse the compile output's RAM line, print the gate line, and fail above the target's limit."""
+    found = RAM_LINE.findall(output or b"")
+    limit = STATIC_DRAM_LIMIT.get(target)
+    if not found:
+        if limit is not None:
+            raise RuntimeError(f"FIRMWARE_STATIC_DRAM: no RAM line in the {target} compile output")
+        return None
+    used, total = (int(x) for x in found[-1])
+    verdict = "PASS" if limit is None or used <= limit else "FAIL"
+    print(
+        f"FIRMWARE_STATIC_DRAM target={target} used={used} limit={limit if limit is not None else 'none'} "
+        f"of={total} {verdict}",
+        flush=True,
+    )
+    if verdict == "FAIL":
+        raise RuntimeError(f"static DRAM {used} B above the {limit} B limit (RULINGS W9a)")
+    return used
+
+
 DUMMY = "wifi_ssid: CI-NONDEPLOYABLE\nwifi_password: CI-NONDEPLOYABLE-NOT-A-WLAN-PASSWORD\nota_password: CI-NONDEPLOYABLE-NOT-AN-OTA-PASSWORD\napi_encryption_key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
 
 
@@ -154,7 +184,14 @@ def main():
             config = firmware / (target + ".yaml")
             cmd = ["esphome", "-s", "fw_version", "CI-NONDEPLOYABLE-" + source[:12]]
             subprocess.run(cmd + ["config", str(config)], cwd=tree, env=env, check=True)
-            subprocess.run(cmd + ["compile", str(config)], cwd=tree, env=env, check=True)
+            compiled = subprocess.run(
+                cmd + ["compile", str(config)], cwd=tree, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
+            sys.stdout.write((compiled.stdout or b"").decode(errors="replace"))
+            sys.stdout.flush()
+            if compiled.returncode != 0:
+                raise subprocess.CalledProcessError(compiled.returncode, compiled.args)
+            static_dram = static_dram_gate(target, compiled.stdout)
             binary = firmware / ".esphome/build/greenhouse/.pioenvs/greenhouse/firmware.ota.bin"
             if not binary.is_file() or not binary.stat().st_size:
                 raise RuntimeError("compiler succeeded without OTA-format binary")
@@ -171,6 +208,7 @@ def main():
                     "platformio_ini_sha256": digest(firmware / ".esphome/build/greenhouse/platformio.ini"),
                     "binary_sha256": digest(binary),
                     "binary_bytes": binary.stat().st_size,
+                    "static_dram_bytes": static_dram,
                     "result": "compiled",
                     "deployable": False,
                 }

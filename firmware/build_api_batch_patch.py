@@ -101,6 +101,18 @@ def transform(name: str, text: str) -> str:
         )
     if name == "api_connection.h":
         text = replace_once(text, "#include <vector>", "#include <cstdlib>\n#include <cstring>\n#include <type_traits>")
+        text = replace_once(
+            text,
+            "  bool is_marked_for_removal() const { return this->flags_.remove; }",
+            "  bool is_marked_for_removal() const { return this->flags_.remove; }\n"
+            "  // Verdify gap log (review GL-1): a unique id per connection object, never reused (an address can be);\n"
+            "  // APIServer::recorder_snapshot() reports the recorder's, so a reconnect is a new replay session.\n"
+            "  static uint32_t next_verdify_connection_id_() {\n"
+            "    static uint32_t last = 0;\n"
+            "    return ++last == 0 ? ++last : last;\n"
+            "  }\n"
+            "  uint32_t verdify_connection_id_{next_verdify_connection_id_()};",
+        )
         start = text.index("  // Generic batching mechanism for both state updates and entity info")
         end = text.index("\n  };", start) + len("\n  };")
         text = text[:start] + replacement_batch().rstrip() + text[end:]
@@ -242,10 +254,10 @@ def apply(project: Path) -> None:
 PATCHED_HASHES = {
     "api_buffer.h": "6c5b083ae0b491eea76d01c71b1f3fbb55d73e8dadcb26559dd6e237261f1948",
     "api_frame_helper.h": "5c16bfe0f51ec1c3afe233d0e54abb716193f2fcf4756ea6d41fd34779bd7966",
-    "api_server.h": "7c3a515f1f551c30ce058eda114ec76c2d783d5439e40a4ed5e5bc2ea53f1c8e",
+    "api_server.h": "f10f6422eb4b7346936909af09823cacce90e2705a089c7378ad67fbf1dfbbdd",
     "api_overflow_buffer.cpp": "370db5e67ad5c4145e6f1f7d93558a1502cb9680064f4cf28bbdae511d289003",
     "api_overflow_buffer.h": "efe581f47eacaa5edd12914cacc112b5f02f99c0f3df89f6b65fe950bce266f8",
-    "api_connection.h": "eb5bd763e06e73ad50c6f96e1c0563315892628d2f8e713d97863198e821bfb1",
+    "api_connection.h": "d440d47068e314d6372e7e1295837bf0803b42959ae2e526257411ab7c041390",
     "api_connection.cpp": "29c45da79cf5d6a8c3db0eb1c91f4997ed6c04fc0bc83687d4e200a542fbde9d",
 }
 

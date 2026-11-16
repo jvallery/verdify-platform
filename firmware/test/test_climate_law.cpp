@@ -1053,6 +1053,25 @@ static void deferred_43() {
     if (opened_after < 0 || opened_after > worst) worst = opened_after < 0 ? 1 << 30 : opened_after;
   }
   CHECK(worst == 1, "E-m2: the vent opens on the first pass after the vent-closed latch ends, whatever its length");
+  // Review CL-1: the vent-closed run ends while the house is in band (no law air on the end pass), and the law asks
+  // to cool N passes later, N under the vent's minimum off time: the vent never opened, so it opens at once.
+  int late = 0;
+  for (int len : {int(VENT_MIN_OFF_S) - 2, int(VENT_MIN_OFF_S) + 7, 2 * int(VENT_MIN_OFF_S) + 3}) {
+    for (int n : {1, 5, int(VENT_MIN_OFF_S) / 2, int(VENT_MIN_OFF_S) - 10}) {
+      GluePass g;
+      g.fans_until_ms = 6000000;
+      g.vent_closed = true;
+      for (int i = 0; i < len; ++i) g.run(kBand.high + 3.0);
+      CHECK(!g.phys.vent && g.phys.fan1 && g.phys.fan2, "CL-1 setup: the latch holds the vent closed, fans on");
+      g.fans_until_ms = 0;
+      g.run(kBand.low + 2.0);  // the end pass: in band, the law asks for no air
+      CHECK(!g.phys.vent && !g.phys.fan1 && !g.phys.fan2, "CL-1: the end pass stops the fans, the vent stays closed");
+      for (int i = 1; i < n; ++i) g.run(kBand.low + 2.0);
+      g.run(kBand.high + 3.0);  // the law asks to cool
+      if (!g.phys.vent) ++late;
+    }
+  }
+  CHECK(late == 0, "CL-1: the vent opens on the first cooling pass after a vent-closed run ended in band");
 }
 
 // -- T3: the climate decision telemetry is the law's label, not the mode machine's ------------

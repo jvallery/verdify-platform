@@ -34,9 +34,10 @@ struct Runtime {
     uint32_t to = 0, cur = 0, n_sent = 0, last_sent = 0, first_sent = 0;
     uint8_t part = 0;
     uint32_t settle_since_ms = 0;
-    bool was_connected = false;
+    uint32_t recorder_id = 0;         // the recorder connection the replay session belongs to (0 = none)
     uint32_t connected_since_ms = 0;
     uint32_t session = 0, pass_session = 0;
+    uint32_t tick_recorder_id = 0;    // the recorder connection the last control pass saw (liveness)
 };
 
 inline Runtime& rt() {
@@ -86,6 +87,21 @@ inline bool load(uint32_t qseq, Header& h) {
     size_t len = sizeof(r.blob);
     if (nvs_get_blob(r.nvs, key, r.blob, &len) != ESP_OK) return false;
     return decode_header(r.blob, len, h) && h.qseq == qseq;
+}
+
+// on_boot, first (reviews GL-4, F3-UR-5): the restart count, +1 and committed to NVS at once in its own key, so a
+// crash inside the first minute neither reuses the gap log's boot id nor hides from Restart Count. One write per
+// boot. Returns 0 when NVS cannot be opened or written (the log then has no unique boot id either).
+inline uint32_t count_restart() {
+    nvs_handle_t h = 0;
+    if (nvs_open("gaplog", NVS_READWRITE, &h) != ESP_OK) return 0;
+    uint32_t n = 0;
+    if (nvs_get_u32(h, "restarts", &n) != ESP_OK) n = 0;  // missing on the first boot of this build
+    ++n;
+    const bool ok = nvs_set_u32(h, "restarts", n) == ESP_OK && nvs_commit(h) == ESP_OK;
+    nvs_close(h);
+    if (!ok) ESP_LOGW("gap_log", "restart count %lu not stored", (unsigned long) n);
+    return ok ? n : 0;
 }
 
 // on_boot: the W9b arming check, then the ring scan (the next sequence number and the quarters to replay).
@@ -146,9 +162,13 @@ inline void write_open() {
     set_state(after_write(r.health, ok, us, free_e, total_e));
 }
 
-// Each control pass (1 s), after the relays are set.
-inline void tick(const Stamp& now, bool connected, uint32_t relay_mask, const Climate& snap) {
+// Each control pass (1 s), after the relays are set. `recorder_id` is the recorder's connection id (0 = absent): a
+// pass counts as live only while the same recorder connection is up, so a reconnect between two passes (a new id)
+// clears the quarter's live flag as an absence does (GL-1).
+inline void tick(const Stamp& now, uint32_t recorder_id, uint32_t relay_mask, const Climate& snap) {
     Runtime& r = rt();
+    const bool connected = recorder_id != 0 && (r.tick_recorder_id == 0 || r.tick_recorder_id == recorder_id);
+    r.tick_recorder_id = recorder_id;
     if (r.state != LogState::ARMED) return;
     const Close why = collect(r.col, now, connected, relay_mask, snap);
     if (why == Close::NONE) return;
@@ -164,14 +184,20 @@ inline void shutdown() {
     write_open();
 }
 
-// Every 250 ms: the next replay line to publish, or nullptr. `c.connected_ms` is filled here.
+// Every 250 ms: the next replay line to publish, or nullptr. `c.recorder_id` is the caller's; `c.connected` and
+// `c.connected_ms` are filled here. A new recorder connection (a new id) is a new session: a pass in progress stops,
+// nothing is settled for the old session, and the next pass starts again from its first quarter once the new
+// connection has been up 60 s (GL-1).
 inline const char* replay_step(uint32_t now_ms, ReplayConditions c, const Stamp& now) {
     Runtime& r = rt();
-    if (c.connected && !r.was_connected) {
-        ++r.session;
-        r.connected_since_ms = now_ms;
+    if (c.recorder_id != r.recorder_id) {
+        if (c.recorder_id != 0) {
+            ++r.session;
+            r.connected_since_ms = now_ms;
+        }
+        r.recorder_id = c.recorder_id;
     }
-    r.was_connected = c.connected;
+    c.connected = c.recorder_id != 0;
     c.connected_ms = c.connected ? now_ms - r.connected_since_ms : 0;
     if (!r.nvs_open) return nullptr;
     if (r.phase != Phase::IDLE && (!c.connected || r.session != r.pass_session)) {
@@ -181,7 +207,11 @@ inline const char* replay_step(uint32_t now_ms, ReplayConditions c, const Stamp&
     if (r.phase == Phase::SETTLE) {
         if (now_ms - r.settle_since_ms < DRAINED_SETTLE_MS) return nullptr;
         if (r.n_sent > 0) {
-            for (uint32_t q = r.first_sent; q <= r.last_sent; ++q) r.pending.clear(q);
+            // GL-2: only a slot that still holds the quarter sent; a slot a later quarter has overwritten keeps that
+            // quarter's bit, and the next pass sends it (its qseq is above the new mark).
+            for (uint32_t q = r.first_sent; q <= r.last_sent; ++q) {
+                if (slot_holds(q, r.col.next_qseq)) r.pending.clear(q);
+            }
             r.drained = r.last_sent;
             r.any_drained = true;
             write_meta();

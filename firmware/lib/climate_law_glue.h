@@ -70,7 +70,15 @@ inline RelayPass relay_pass(RelayState& r, const Output& request, const RelayInp
     // AB12 (note section 3): an end stops the run's relays at once, past their minimum on times, as a press starts
     // them past their minimum off times.
     if (ov.fans_ended && request.fans == 0 && !request.vent) {
-        for (Relay* x : {&r.fan1, &r.fan2, &r.vent}) detail::relay_set(*x, false, false, true, 0, 0);
+        for (Relay* x : {&r.fan1, &r.fan2}) detail::relay_set(*x, false, false, true, 0, 0);
+        // Review CL-1: a vent the run kept closed never moved, so it keeps its off time (as E-m2 below); only a vent
+        // that was open is switched off and stamped.
+        if (physical.vent) {
+            detail::relay_set(r.vent, false, false, true, 0, 0);
+        } else {
+            r.vent = vent_before;
+            detail::relay_tick(r.vent, in.dt_ms);
+        }
     }
     if (ov.fog_ended && !request.fog) detail::relay_set(r.fog, false, false, true, 0, 0);
     RelayPass p{{r.heat1.on, r.heat2.on, r.fan1.on, r.fan2.on, r.fog.on, r.vent.on}, {false, false, false}, false};

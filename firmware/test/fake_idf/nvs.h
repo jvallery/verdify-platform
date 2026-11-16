@@ -36,6 +36,19 @@ inline esp_err_t nvs_set_blob(nvs_handle_t, const char* key, const void* v, size
     return ESP_OK;
 }
 inline esp_err_t nvs_commit(nvs_handle_t) { return ESP_OK; }
+inline void nvs_close(nvs_handle_t) {}
+inline int fake_u32_commits = 0;
+inline esp_err_t nvs_get_u32(nvs_handle_t h, const char* key, uint32_t* out) {
+    size_t len = sizeof(*out);
+    const esp_err_t e = nvs_get_blob(h, key, out, &len);
+    return e == ESP_OK && len == sizeof(*out) ? ESP_OK : (e == ESP_OK ? ESP_FAIL : e);
+}
+inline esp_err_t nvs_set_u32(nvs_handle_t, const char* key, uint32_t v) {
+    if (fake_fail_writes) return ESP_FAIL;
+    ++fake_u32_commits;
+    fake_nvs[key] = std::vector<uint8_t>((const uint8_t*) &v, (const uint8_t*) &v + sizeof(v));
+    return ESP_OK;
+}
 inline esp_err_t nvs_get_stats(const char*, nvs_stats_t* st) {
     size_t used = fake_other_used;
     for (auto& kv : fake_nvs) used += 2 + (kv.second.size() + 31) / 32;

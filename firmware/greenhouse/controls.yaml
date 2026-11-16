@@ -1749,8 +1749,10 @@ interval:
             gap_snap.tout = gap_log::tenths(outdoorT);
             const float water_gal = id(water_total_used).state;
             gap_snap.water = (water_gal >= 0.0f && water_gal < 4.0e8f) ? uint32_t(water_gal * 10.0f + 0.5f) : 0u;
+            // Live means the recorder's own connection (review GL-1), not any client: Home Assistant stays attached.
             gap_log_dev::tick(gap_log::stamp(band_clock_trusted, uint32_t(sntp_now.timestamp), millis() / 1000u),
-                              id(ha_api).is_connected(), gap_relays, gap_snap);
+                              id(ha_api).recorder_snapshot(gap_log::is_recorder_client).connection_id, gap_relays,
+                              gap_snap);
           }
           gh_record_control_loop_duration_us(micros() - control_loop_started_us);
           gh_note_heap_sample();
@@ -1820,12 +1822,14 @@ interval:
   - interval: 250ms
     then:
       - lambda: |-
-          const auto api = id(ha_api).heap_snapshot();
+          // The recorder's connection only (review GL-1): its id, its initial sync and its own send backlog and batch.
+          const auto rec = id(ha_api).recorder_snapshot(gap_log::is_recorder_client);
           gap_log::ReplayConditions c;
-          c.connected = id(ha_api).is_connected();
-          c.api_pending_bytes = uint32_t(api.pending_bytes);
-          c.api_overflow_bytes = uint32_t(api.overflow_bytes);
-          c.api_syncing = uint32_t(api.syncing);
+          c.recorder_id = rec.connection_id;
+          c.api_pending_bytes = uint32_t(rec.pending_bytes);
+          c.api_overflow_bytes = uint32_t(rec.overflow_bytes);
+          c.api_syncing = uint32_t(rec.syncing);
+          c.api_batch_items = uint32_t(rec.batch_items);
           c.free_bytes = esp_get_free_heap_size();
           c.minute_low_bytes = gh_heap_free_minute_low_last_bytes;
           const auto sn = id(sntp_time).now();

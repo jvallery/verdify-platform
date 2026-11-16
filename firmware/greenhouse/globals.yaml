@@ -79,11 +79,13 @@ globals:
     type: bool
     restore_value: yes
     initial_value: 'false'
-  # Package 2.4: restarts since this global first existed (+1 in on_boot; one NVS write per boot). Published as
-  # Restart Count; a step without a flash is a restart the host alerts on.
+  # Package 2.4: restarts since the count first existed. Stored by gap_log_dev::count_restart() in its own NVS key
+  # (namespace gaplog, key restarts), +1 and committed in on_boot (reviews GL-4, F3-UR-5: one write per boot, not
+  # the 60 s preference flush), so this global only mirrors it. Published as Restart Count; a step without a flash
+  # is a restart the host alerts on. 0 = NVS could not store it.
   - id: restart_count
     type: uint32_t
-    restore_value: yes
+    restore_value: no
     initial_value: '0'
 
   # ─── Per-probe health timestamps (ms, A2) ───
