@@ -253,7 +253,7 @@ def test_in_prod_the_release_pins_reach_the_operator_api(prod):
     pod = one(prod, "Deployment", NAME)["spec"]["template"]["spec"]
     (volume,) = [v for v in pod["volumes"] if v["name"] == "release-pins"]
     generated = one(prod, "ConfigMap", volume["configMap"]["name"])
-    assert generated["metadata"]["name"].startswith("verdify-release-pins-")
+    assert generated["metadata"]["name"] == "verdify-release-pins"  # ROLLOUT-6: no hash, no orphan per promotion
     assert generated["data"]["release-pins.yaml"] == (PROD / "release-pins.yaml").read_text()
     (mount,) = [m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "release-pins"]
     source = (ROOT / "api/product_metrics.py").read_text()
