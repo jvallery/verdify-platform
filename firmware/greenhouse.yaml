@@ -27,6 +27,8 @@ esphome:
       - pre:../../../build_api_batch_patch.py
   includes:
     - lib/heap_diagnostics.h
+    - lib/gap_log.h              # package 2.3 (contracts/gap-log.md): the gap log's format and rules
+    - lib/gap_log_esphome.h      # its NVS side and replay
     - lib/sntp_acquisition.h
     - lib/probe_validity.h
     - lib/greenhouse_types.h
@@ -70,6 +72,7 @@ esphome:
             id(persist_fan1_run_s)   = s.counters.fan_run_s[0];
             id(persist_fan2_run_s)   = s.counters.fan_run_s[1];
           }
+          gap_log_dev::shutdown();  // the open quarter, as a partial one (contracts/gap-log.md)
   # Cold-start safety: turn every relay OFF before the first control pass
   on_boot:
     priority: 600
@@ -96,6 +99,7 @@ esphome:
       # Boot-time validation: catch corrupted restore_value globals
       - lambda: |-
           id(restart_count) += 1;  // package 2.4
+          gap_log_dev::boot(uint16_t(id(restart_count)));  // package 2.3: arming check and ring scan
           ESP_LOGI("boot","Validating restored globals...");
           int fixes = 0;
           // Setpoint sanity

@@ -37,6 +37,7 @@ struct GhMinuteLow {
 
 inline GhMinuteLow gh_heap_free_minute_low;
 inline GhMinuteLow gh_heap_block_minute_low;
+inline uint32_t gh_heap_free_minute_low_last_bytes = 0;  // the last published low (the gap log's replay gate)
 inline uint32_t gh_control_loop_minute_max_us_value = 0;
 
 inline void gh_record_control_loop_duration_us(uint32_t duration_us) {
@@ -113,7 +114,8 @@ inline void gh_note_heap_sample() {
 }
 
 inline float gh_take_heap_free_minute_low_kb() {
-    return gh_heap_free_minute_low.take(esp_get_free_heap_size()) / 1024.0f;
+    gh_heap_free_minute_low_last_bytes = gh_heap_free_minute_low.take(esp_get_free_heap_size());
+    return gh_heap_free_minute_low_last_bytes / 1024.0f;
 }
 
 inline float gh_take_heap_block_minute_low_kb() {

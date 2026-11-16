@@ -66,6 +66,9 @@ case "$step" in
       }
       greenhouse() { g++ -std=c++17 -I lib -o test/test_greenhouse test/test_greenhouse_logic.cpp && ./test/test_greenhouse; }
       running_alone() { g++ -std=c++17 -I lib -o test/test_running_alone test/test_running_alone.cpp && ./test/test_running_alone; }
+      gap_log() { g++ -std=c++17 -I lib -o test/test_gap_log test/test_gap_log.cpp && ./test/test_gap_log; }
+      gap_log_f1() { g++ -std=c++17 -DGAP_LOG_FORMAT=1 -I lib -o test/test_gap_log_f1 test/test_gap_log.cpp && ./test/test_gap_log_f1; }
+      gap_log_device() { g++ -std=c++17 -DESP_PLATFORM -I test/fake_idf -I lib -o test/test_gap_log_device test/test_gap_log_device.cpp && ./test/test_gap_log_device; }
       climate_law() { g++ -std=c++17 -I lib -I ../docs/reviews/control-review-2026-11-15/sim -o test/test_climate_law test/test_climate_law.cpp && ./test/test_climate_law; }
       replay_overrides() { g++ -std=c++17 -O2 -I lib -o test/replay_overrides test/replay_overrides.cpp && ./test/replay_overrides test/data/replay_overrides.csv | tail -30; }
       replay_invariants() {
@@ -80,6 +83,9 @@ case "$step" in
       }
       check test_greenhouse_logic greenhouse
       check test_running_alone running_alone
+      check test_gap_log gap_log
+      check test_gap_log_f1 gap_log_f1
+      check test_gap_log_device gap_log_device
       check test_climate_law climate_law
       check replay_overrides replay_overrides
       check replay_invariants replay_invariants

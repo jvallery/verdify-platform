@@ -264,6 +264,17 @@ text_sensor:
     name: "Climate Law State"
     entity_category: diagnostic
     update_interval: never
+  # Package 2.3 gap log (contracts/gap-log.md section 9): the replay channel and the log's state.
+  - platform: template
+    id: gh_gap_replay
+    name: "Gap Replay"
+    entity_category: diagnostic
+    update_interval: never
+  - platform: template
+    id: gh_gap_log_state
+    name: "Gap Log State"
+    entity_category: diagnostic
+    update_interval: never
   - platform: template
     id: gh_climate_drying_meter
     name: "Climate Drying Meter"

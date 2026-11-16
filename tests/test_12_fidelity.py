@@ -2253,8 +2253,9 @@ def test_law_humidity_rules_hold_on_the_case_sensor():
     valid = _inline_fn(glue, "inline bool law_humidity_valid(")
     assert "return law_temp_valid && indoor.humidity_valid && !indoor_reading_degraded(indoor);" in valid
     assert "law_in.humidity_valid = law_temp_valid && indoor.humidity_valid;" not in controls
-    # The press and the centre bursts keep indoor.humidity_valid; nothing else reads the law's validity.
-    assert controls.count("law_in.humidity_valid") == 1
+    # The press and the centre bursts keep indoor.humidity_valid; nothing else reads the law's validity (the gap log
+    # records it, `law_in.humidity_valid ?`).
+    assert len(re.findall(r"law_in\.humidity_valid(?! \?)", controls)) == 1
     # The log says so on the case sensor (review AG1-1).
     assert '"Wall averages missing: case probe alone (less %.1f°F); humidity control held (AG1)"' in controls
 

@@ -159,7 +159,11 @@ def test_new_header_sources_exact_and_idempotent():
 def test_counter_logs_only_existing_snapshot_events():
     config = (ROOT / "firmware/greenhouse.yaml").read_text()
     controls = (ROOT / "firmware/greenhouse/controls.yaml").read_text()
-    assert config.count("heap_snapshot()") == controls.count("heap_snapshot()") == 1
+    assert config.count("heap_snapshot()") == 1
+    # The 15-minute heap_profile log, and the gap log's replay gate (package 2.3: pending/overflow bytes and the
+    # initial sync must be zero before a replay line goes out). The snapshot is allocation-free and read-only.
+    assert controls.count("heap_snapshot()") == 2
+    assert controls.count("gap_log::ReplayConditions c;") == 1
     assert "return heap_kb < 15.0f;" in config
     assert "gh_take_control_loop_overrun_count()" in controls
     for text in [config, controls]:

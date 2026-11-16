@@ -1725,6 +1725,33 @@ interval:
               id(runtime_fan2_ms)  = R[3].runtime_ms;
               id(runtime_fog_ms)   = R[4].runtime_ms;
               id(runtime_vent_ms)  = R[5].runtime_ms;
+          // Package 2.3 gap log (contracts/gap-log.md): this pass's relays and a climate snapshot; a quarter that
+          // closes is written to NVS. Relay bits in the host contract's order (9.3); appended, never reused.
+          {
+            const uint32_t gap_relays =
+                (uint32_t(id(heat1_rly)->state) << 0) | (uint32_t(id(heat2_rly)->state) << 1) |
+                (uint32_t(id(fan1_rly)->state) << 2) | (uint32_t(id(fan2_rly)->state) << 3) |
+                (uint32_t(id(fog_rly)->state) << 4) | (uint32_t(id(vent_rly)->state) << 5) |
+                (uint32_t(id(south_wall_mister).state) << 6) | (uint32_t(id(south_wall_mister_fertilized).state) << 7) |
+                (uint32_t(id(west_wall_mister).state) << 8) | (uint32_t(id(west_wall_mister_fertilized).state) << 9) |
+                (uint32_t(id(center_mister).state) << 10) | (uint32_t(id(wall_drips).state) << 11) |
+                (uint32_t(id(wall_drips_fertilized).state) << 12) | (uint32_t(id(center_drips).state) << 13) |
+                (uint32_t(id(center_drips_fertilized).state) << 14) | (uint32_t(id(fertilizer_master_valve).state) << 15) |
+                (uint32_t(id(grow_light_main).state) << 16) | (uint32_t(id(grow_light_grow).state) << 17);
+            gap_log::Climate gap_snap;
+            gap_snap.flags = uint8_t((law_in.temp_valid ? gap_log::C_TEMP : 0) | (law_in.humidity_valid ? gap_log::C_HUM : 0) |
+                                     (law_in.out_ok ? gap_log::C_OUT : 0) | (law.cooling ? gap_log::C_COOLING : 0) |
+                                     (law.drying ? gap_log::C_DRYING : 0) | (law.hot ? gap_log::C_HOT : 0) |
+                                     (law.cold ? gap_log::C_COLD : 0));
+            gap_snap.mode = uint8_t(mode);
+            gap_snap.tin = law_in.temp_valid ? gap_log::tenths(Tin) : gap_log::NO_VALUE;
+            gap_snap.tdp = law_in.humidity_valid ? gap_log::tenths(indoor.dew_point_f) : gap_log::NO_VALUE;
+            gap_snap.tout = gap_log::tenths(outdoorT);
+            const float water_gal = id(water_total_used).state;
+            gap_snap.water = (water_gal >= 0.0f && water_gal < 4.0e8f) ? uint32_t(water_gal * 10.0f + 0.5f) : 0u;
+            gap_log_dev::tick(gap_log::stamp(band_clock_trusted, uint32_t(sntp_now.timestamp), millis() / 1000u),
+                              id(ha_api).is_connected(), gap_relays, gap_snap);
+          }
           gh_record_control_loop_duration_us(micros() - control_loop_started_us);
           gh_note_heap_sample();
           App.feed_wdt();
@@ -1785,6 +1812,33 @@ interval:
   # mister watchdog (irr_mister_watchdog(), F10) each second, and never closes a
   # relay the engine's own run holds. leak_detected holds and cancels nothing (Q-05).
   ################################################################################
+
+################################################################################
+# GAP LOG REPLAY (package 2.3, contracts/gap-log.md section 9): one line every 250 ms
+# while the replay conditions hold; the state text on a change.
+################################################################################
+  - interval: 250ms
+    then:
+      - lambda: |-
+          const auto api = id(ha_api).heap_snapshot();
+          gap_log::ReplayConditions c;
+          c.connected = id(ha_api).is_connected();
+          c.api_pending_bytes = uint32_t(api.pending_bytes);
+          c.api_overflow_bytes = uint32_t(api.overflow_bytes);
+          c.api_syncing = uint32_t(api.syncing);
+          c.free_bytes = esp_get_free_heap_size();
+          c.minute_low_bytes = gh_heap_free_minute_low_last_bytes;
+          const auto sn = id(sntp_time).now();
+          const bool trusted = sntp_acquisition_valid(id(sntp_acquired), sn.is_valid(), id(sntp_failed));
+          const char* line = gap_log_dev::replay_step(
+              millis(), c, gap_log::stamp(trusted, uint32_t(sn.timestamp), millis() / 1000u));
+          if (line != nullptr) id(gh_gap_replay).publish_state(line);
+          static const char* shown = nullptr;
+          const char* state = gap_log_dev::state_text();
+          if (state != shown) {
+            id(gh_gap_log_state).publish_state(state);
+            shown = state;
+          }
 
 ################################################################################
 # HEAP PROFILE — low-rate fallback fragmentation telemetry.

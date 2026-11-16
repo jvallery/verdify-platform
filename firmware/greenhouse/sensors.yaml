@@ -113,6 +113,16 @@ sensor:
     update_interval: 60s
     lambda: 'return gh_nvs_entries(false);'
 
+  # Package 2.3: the slowest gap-log quarter write this minute (0 = none); RULINGS W9 stops the log at 3 x 200 ms.
+  - platform: template
+    id: nvs_write_worst_minute
+    name: "NVS Write Worst Minute"
+    unit_of_measurement: "ms"
+    entity_category: diagnostic
+    accuracy_decimals: 1
+    update_interval: 60s
+    lambda: 'return gap_log_dev::take_write_worst_us() / 1000.0f;'
+
   # RULINGS AF9(b): read-only health counters (names in contracts/metrics-coverage.md 2.1a). The host maps them
   # in release 4; until then the ingestor ignores them.
   - platform: template
