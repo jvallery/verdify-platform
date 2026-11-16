@@ -1,6 +1,6 @@
 {
   "migration": "314-controller-health-and-gap-ledger.sql",
-  "final_migration_qualification_pending": true,
+  "final_migration_qualification_pending": false,
   "before": {
     "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
     "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
@@ -11,5 +11,83 @@
     "api": "e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373",
     "ingestor": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
     "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
-  }
+  },
+  "measured_at": "2026-11-16T22:18:53Z",
+  "qualified_successor": {
+    "api": "e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373",
+    "ingestor": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+  },
+  "after_rollback": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "exact_final_migration_sha256": "568e0f739d735693c019c7e0bd673820ca5a1eff318e57cc23e6d409c5be680f",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "c5251ed4801bf441b4e7b26132336af1ea7201d52084aae2e2dfbc0db21a5487",
+  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
+  "applied_first": [
+    {
+      "migration": "312-operator-metrics-reads.sql",
+      "seq": 312,
+      "sha256": "66e6bfe12302b2d2756514a2c9903f05e728b1326d6c21aee07362baeca7afa2"
+    },
+    {
+      "migration": "313-planner-review.sql",
+      "seq": 313,
+      "sha256": "933d856e07503d36115b744eea09b4208e688ad2bbec06f48692e2a850d58e0b"
+    }
+  ],
+  "applied_first_seals": {
+    "api": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
+    "ingestor": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+  },
+  "prelock": [
+    [
+      "public.diagnostics",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.mcp_runtime_boundary_receipt",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.planner_review",
+      "SHARE"
+    ],
+    [
+      "public.runtime_ordinary_login_attestation_receipts",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.schema_migrations",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.v_runtime_diagnostics_write",
+      "ACCESS EXCLUSIVE"
+    ]
+  ],
+  "native_fixture": {
+    "checks": [
+      "nine_diagnostics_columns_typed",
+      "ingestor_inserts_the_nine_through_the_facade",
+      "ingestor_reads_and_inserts_the_ledger_only",
+      "api_mcp_and_public_denied",
+      "ingestor_login_writes_health_row",
+      "one_ledger_row_per_quarter",
+      "placed_quarter_needs_records",
+      "dashboard_reads_gaps_without_replayed_minutes",
+      "af4_ingestor_reads_daily_record_only",
+      "af10_refresh_stores_three_days",
+      "af11_change_only_rows_inactive",
+      "spool_admits_the_nine_with_values_and_null",
+      "spool_function_keeps_267_security"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "cf662fde76c9bc52ab151a118cc6c5ee012741772ef2efeac434f229ebd62e6f"
 }
