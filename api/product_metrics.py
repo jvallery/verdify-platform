@@ -403,15 +403,24 @@ class Accumulator:
 
 # ── statements ──────────────────────────────────────────────────────────────
 
-# Index scan of diagnostics_ts_idx, newest chunk only.
+# Each column the newest non-NULL value of the last 15 minutes (release 3 review ALERTS-5): readings are stored on
+# change, so the newest diagnostics row alone often lacks them. Index range scan of diagnostics_ts_idx.
 CONTROLLER_SQL = """
-SELECT extract(epoch FROM now() - ts)::float8 AS age_s, heap_bytes, heap_min_free_kb, heap_largest_free_block_kb,
-       wifi_rssi, uptime_s, reset_reason, firmware_version, sntp_valid, sntp_miss_count, last_sntp_sync_age_s,
-       active_probe_count, band_source
+SELECT extract(epoch FROM now() - max(ts))::float8 AS age_s,
+       (array_agg(heap_bytes ORDER BY ts DESC) FILTER (WHERE heap_bytes IS NOT NULL))[1] AS heap_bytes,
+       (array_agg(heap_min_free_kb ORDER BY ts DESC) FILTER (WHERE heap_min_free_kb IS NOT NULL))[1] AS heap_min_free_kb,
+       (array_agg(heap_largest_free_block_kb ORDER BY ts DESC) FILTER (WHERE heap_largest_free_block_kb IS NOT NULL))[1] AS heap_largest_free_block_kb,
+       (array_agg(wifi_rssi ORDER BY ts DESC) FILTER (WHERE wifi_rssi IS NOT NULL))[1] AS wifi_rssi,
+       (array_agg(uptime_s ORDER BY ts DESC) FILTER (WHERE uptime_s IS NOT NULL))[1] AS uptime_s,
+       (array_agg(reset_reason ORDER BY ts DESC) FILTER (WHERE reset_reason IS NOT NULL))[1] AS reset_reason,
+       (array_agg(firmware_version ORDER BY ts DESC) FILTER (WHERE firmware_version IS NOT NULL))[1] AS firmware_version,
+       (array_agg(sntp_valid ORDER BY ts DESC) FILTER (WHERE sntp_valid IS NOT NULL))[1] AS sntp_valid,
+       (array_agg(sntp_miss_count ORDER BY ts DESC) FILTER (WHERE sntp_miss_count IS NOT NULL))[1] AS sntp_miss_count,
+       (array_agg(last_sntp_sync_age_s ORDER BY ts DESC) FILTER (WHERE last_sntp_sync_age_s IS NOT NULL))[1] AS last_sntp_sync_age_s,
+       (array_agg(active_probe_count ORDER BY ts DESC) FILTER (WHERE active_probe_count IS NOT NULL))[1] AS active_probe_count,
+       (array_agg(band_source ORDER BY ts DESC) FILTER (WHERE band_source IS NOT NULL))[1] AS band_source
   FROM diagnostics
  WHERE ts > now() - interval '15 minutes'
- ORDER BY ts DESC
- LIMIT 1
 """
 
 # The nine budget readings (migration 314) and the three third-flash counters (migration 315), each the newest non-NULL value of the last 15 minutes: a diagnostics row

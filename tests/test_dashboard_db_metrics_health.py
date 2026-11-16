@@ -166,3 +166,25 @@ def test_device_reads_take_the_newest_state_and_the_lead_from_a_one_fan_start(ds
         assert (await conn.fetchrow(pm.ENGINE_SQL))["value"] == "true"
 
     scenario(dsn, body)
+
+
+def test_controller_read_takes_each_reading_from_its_newest_non_null_row(dsn):
+    # Release 3 review ALERTS-5: the newest diagnostics row often carries only the readings that changed.
+    async def body(conn, t0):
+        await conn.execute(
+            "INSERT INTO diagnostics (ts, heap_bytes, wifi_rssi, firmware_version) VALUES ($1, 70, -61, 'v9')",
+            t0 - 3 * MIN,
+        )
+        await conn.execute("INSERT INTO diagnostics (ts, uptime_s) VALUES ($1, 5000)", t0 - MIN)
+        await conn.execute(f"SET ROLE {ROLE}")
+        try:
+            row = await conn.fetchrow(pm.CONTROLLER_SQL)
+        finally:
+            await conn.execute("RESET ROLE")
+        got = {(n, labels): v for n, labels, v in pm.controller_samples(row)}
+        assert got[("verdify_controller_wifi_rssi_dbm", ())] == -61
+        assert got[("verdify_controller_uptime_seconds", ())] == 5000
+        assert got[("verdify_controller_heap_free_bytes", ())] == 70 * 1024
+        assert 50 < got[("verdify_controller_sample_age_seconds", ())] < 70
+
+    scenario(dsn, body)
