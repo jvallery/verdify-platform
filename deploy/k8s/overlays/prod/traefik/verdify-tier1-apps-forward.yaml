@@ -66,4 +66,22 @@ spec:
       services:
         - name: verdify-traefik
           port: 80
+    # network-infra#1104: the public product hosts get the shared HSTS/nosniff/
+    # frame/referrer baseline. graphs.verdify.ai is deliberately NOT listed: its
+    # /d-solo panels are iframed cross-origin by lab.verdify.ai, which the
+    # baseline's X-Frame-Options SAMEORIGIN would break. Same backend as the
+    # catch-all; only the response headers differ.
+    - kind: Rule
+      match: >-
+        Host(`api.verdify.ai`)
+        || Host(`lab.verdify.ai`)
+        || Host(`labs.verdify.ai`)
+        || Host(`mcp.verdify.ai`)
+      priority: 60
+      middlewares:
+        - name: baseline-headers-app-csp
+          namespace: network-infra
+      services:
+        - name: verdify-traefik
+          port: 80
   tls: {}

@@ -1,0 +1,26 @@
+# network-infra#1104: api.verdify.ai on the Cloudflare-connector-only
+# tunnelclient listener, forwarded to the isolated tier-2 verdify-tunnel port
+# where rate limits key on Cf-Connecting-Ip. Takes traffic only once cloudflared
+# maps api.verdify.ai to traefik-tunnel-client (network-infra). Do not attach this
+# route to web/websecure or the trusted HA hatunnel listener.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: verdify-api-tunnel-forward
+  namespace: verdify-prod
+  labels:
+    app.kubernetes.io/part-of: verdify
+    app.kubernetes.io/component: edge-forward
+spec:
+  entryPoints: [tunnelclient]
+  routes:
+    - kind: Rule
+      match: Host(`api.verdify.ai`)
+      middlewares:
+        # HSTS + nosniff + frame/referrer baseline (network-infra#1104).
+        - name: baseline-headers-app-csp
+          namespace: network-infra
+      services:
+        - name: verdify-traefik
+          port: 81
+  tls: {}
