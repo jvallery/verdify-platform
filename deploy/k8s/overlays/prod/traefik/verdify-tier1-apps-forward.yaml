@@ -84,4 +84,16 @@ spec:
       services:
         - name: verdify-traefik
           port: 80
+    # network-infra#1104: graphs.verdify.ai gets HSTS only (network-infra
+    # Middleware hsts-only: no X-Frame-Options, CSP or Referrer-Policy), so lab's
+    # cross-origin /d-solo iframes keep working. Same backend as the catch-all.
+    - kind: Rule
+      match: Host(`graphs.verdify.ai`)
+      priority: 60
+      middlewares:
+        - name: hsts-only
+          namespace: network-infra
+      services:
+        - name: verdify-traefik
+          port: 80
   tls: {}
