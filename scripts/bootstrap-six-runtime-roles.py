@@ -1058,6 +1058,31 @@ def sealed_sql_309():
     )
 
 
+DAILY_RECORD_MIGRATION = (
+    310,
+    "310-daily-record.sql",
+    "be63023b1b9d34e748252c3db991ab80f4ab262ff2f1707a8c486840eae9bb10",
+)
+# The daily record (#1668, plan section 10): relay starts and run time with lost OFF events repaired, and the day's
+# utilities, in two verdify tables with no ACL entry and functions whose PUBLIC EXECUTE is revoked, so every seal keeps
+# 309's value (tests/fixtures/310-daily-record-native-qualification.json).
+SUCCESSOR_310 = dict(SUCCESSOR_309)
+
+
+def sealed_sql_310():
+    # Keep every 309 predicate and bind the exact 310 runner stamp with the unchanged seals.
+    predecessor = sealed_sql_309()
+    current = seal_profile_sql(309, SUCCESSOR_309)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(310, SUCCESSOR_310), 1)
+        + " AND "
+        + ledger_row_sql(*DAILY_RECORD_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1120,6 +1145,8 @@ def sealed_sql():
         + sealed_sql_308()
         + " OR "
         + sealed_sql_309()
+        + " OR "
+        + sealed_sql_310()
         + ")"
     )
 

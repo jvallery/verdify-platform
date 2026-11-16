@@ -14,6 +14,11 @@
 # yesterday, graded against the band the controller served, copied into
 # daily_summary's legacy compliance and stress-hour columns, plus up to 31
 # missing days back to 2026-09-01 per run (the backfill; ~0.1-0.2 s a day).
+#
+# Then the daily record (migration 310, plan section 10, #1668): relay starts and
+# run time with lost OFF events repaired, metered kWh, furnace therms, metered
+# gallons and drying time, for today and yesterday plus up to 8 missing days
+# back to 2026-10-17 per run (the baseline before the climate law; ~3 s a day).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -96,6 +101,8 @@ spec:
                   echo "mv_daily_kpi refreshed $(date -u +%FT%TZ)"
                   days="$(psql -X --no-password -v ON_ERROR_STOP=1 -t -A -q -c 'SELECT verdify_matview_refresh_runtime.fn_refresh_band_compliance()')"
                   echo "daily_band_compliance refreshed ${days} days $(date -u +%FT%TZ)"
+                  days="$(psql -X --no-password -v ON_ERROR_STOP=1 -t -A -q -c 'SELECT verdify_matview_refresh_runtime.fn_refresh_daily_record()')"
+                  echo "daily_record refreshed ${days} days $(date -u +%FT%TZ)"
               env:
                 - name: PGHOST
                   valueFrom:

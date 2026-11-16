@@ -1,0 +1,15 @@
+{
+  "migration": "310-daily-record.sql",
+  "final_migration_qualification_pending": true,
+  "before": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "projected_successor": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "projection": "2026-11-16, read only, production at exact309 with the three seals above. 310 creates two verdify tables and one view with no ACL entry, four functions whose PUBLIC EXECUTE is revoked in the same transaction, and grants EXECUTE on the refresh entry point to the matview-refresh duty only (in its own schema, as 290 did), so no seal is expected to move. Read only on production, 2026-11-16: the interval repair for one day runs in 1.5 to 2.5 s (12 s for a summer day with many long fog runs); in 2026-10-17..2026-11-15 it repairs exactly two intervals, both heat2 (2026-10-25 02:25Z, 470 event minutes to 12; 2026-11-06 17:47Z, 377 to 10.5); on 2026-09-06 it shortens the fog interval from 18:29 MDT (#1668) by the flow rule, and on 2026-08-08 mister_center from 641 to 149 minutes. If the probe shows any digest moved, stop. Otherwise, with production at 309, run scripts/qualify-migration-successor.py db/migrations/310-daily-record.sql --native-fixture db/qualification/310-daily-record-fixture.sql --fixture tests/fixtures/310-daily-record-native-qualification.json."
+}

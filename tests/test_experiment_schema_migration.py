@@ -383,6 +383,8 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "308-dli-canopy-ppfd.sql",
         # The one-band retirement (served-band score, planning water, retired objects and columns) runs forward only.
         "309-one-band-retirement.sql",
+        # The daily record (relay starts and run time with lost OFF events repaired, utilities) runs forward only.
+        "310-daily-record.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(
