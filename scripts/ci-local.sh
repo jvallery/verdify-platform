@@ -460,6 +460,7 @@ if in_part rest; then
     tests/test_selector_context_bounded_migration.py \
     tests/test_setpoint_snapshot_coherence.py \
     tests/test_setpoint_snapshot_on_change.py \
+    tests/test_daily_summary_daily_record.py \
     tests/test_sops_secret_metadata_receipt.py \
     tests/test_verdify_services_lighting.py \
     tests/test_wetting_incident.py \
