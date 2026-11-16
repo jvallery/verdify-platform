@@ -1,17 +1,18 @@
 {
   "schema": "verdify.replay-accepted-divergence/v1",
-  "pr": 1405,
-  "issues": [1333, 1392],
-  "base_ref": "f5c45246023c0afa2c0abbf7b363fce8331c9eb0",
-  "logic_sha256": "09a86e3da1d765e13f1a0a461194d84980662131685fff088e9164eb9b76d303",
+  "pr": 1703,
+  "issues": [1643, 1633],
+  "base_ref": "5ec69354cc2fcddaf014e56415cfeda1c83214ff",
+  "logic_sha256": "a584fdff548795ce1f7f20a73f447bde913ebb58a88f40a6c800477b21d62f80",
   "logic_hash_rule": "scripts/replay-accepted-threshold.py: SHA-256 over the sorted git ls-files of firmware/lib/*.h, firmware/lib/*.cpp, firmware/greenhouse/controls.yaml, tunables.yaml and globals.yaml (path, NUL, length, NUL, bytes per file)",
-  "max_pct": 2.6,
-  "rows": {"divergent": 7609, "total": 296698, "pct": 2.56},
+  "max_pct": 0.07,
+  "rows": {"divergent": 181, "total": 296698, "pct": 0.061},
   "buckets": [
-    {"rows": 6984, "what": "corpus rows 2025-10..2026-04 with no sp_* columns replay default_setpoints(); the default band low moved 40 -> 45 F, so heat_stage1 is selected for 40-45 F"},
-    {"rows": 611, "what": "2026-04-10..12 rows with safety_max 80 F; the band is now clamped under 75 F instead of the rail moving up, so venting or SAFETY_COOL starts earlier"},
-    {"rows": 14, "what": "2026-05-05 rows at safety 95/45 F"}
+    {"rows": 99, "what": "VENTILATE -> IDLE, 2025-08-05..08-21, 93.5-100.0 F, no outdoor reading: the cold-vent guard now holds, so cooling waits for temp_high plus its entry margin"},
+    {"rows": 76, "what": "VENTILATE -> SEALED_MIST, 2025-08-05..08-21, 93.8-100.0 F, no outdoor reading: same guard; with cooling not yet due, the high-VPD demand fogs sealed instead of venting with fog assist"},
+    {"rows": 5, "what": "SEALED_MIST -> IDLE, 2025-08-20..08-21, 92.3-93.1 F, no outdoor reading: mist backoff state carried from earlier guarded rows of the same episode"},
+    {"rows": 1, "what": "IDLE -> VENTILATE, 2026-03-25 19:11, 92.9 F, no outdoor reading: the guard's wider cooling exit hysteresis keeps an earlier cooling run going"}
   ],
-  "zero_divergence_note": "none of the 121,564 rows served at 40/100 F diverge",
-  "reason": "Intended behaviour change: Jason's 2026-11-05 decision that 40 F and 100 F are the hard temperature guardrails (#1333); #1405 makes the firmware fall back to 40/100 and clamp the band inside the rails instead of letting a band edge push a rail outward. Reviewed and accepted by the dashboard program supervisor under Jason's delegation."
+  "zero_divergence_note": "every divergent row has no outdoor temperature (95,424 such rows in the corpus); no row with an outdoor reading diverges, and no row lacks indoor temperature, humidity or VPD, so the G2 validity split changes no corpus row",
+  "reason": "Intended behaviour change, RULINGS G6 (with no outdoor reading the cold-vent guard assumes cold, the side with fewer vent starts), part of the running-alone package (#1643, #1633 package 2.1). Measured with scripts/firmware-replay-diff.sh 5ec69354..96974031 (RULINGS M1, M2). Replaces the #1405 record (40/100 F guardrails), whose logic hash no longer matches. Reviewer: the climate program coordinator under the owner's delegation of 2026-11-16."
 }
