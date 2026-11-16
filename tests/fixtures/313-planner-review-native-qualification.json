@@ -6,5 +6,10 @@
     "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
     "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
   },
-  "projection": "313 creates planner_review and grants the ingestor duty SELECT, a column INSERT and the delivery-column UPDATE on it plus SELECT on v_daily_record, and the MCP duty SELECT, a column INSERT and the review-column UPDATE, so the ingestor and MCP seals move and the api seal keeps its value. With production at the last merged migration before 313, run scripts/qualify-migration-successor.py db/migrations/313-planner-review.sql --probe-only (naming any merged but unapplied predecessor with --apply-first), write the measured ingestor and MCP literals into the successor block, the three bootstrap/delivery registrations and this file's projected_successor, then run it again with --native-fixture db/qualification/313-planner-review-fixture.sql --fixture tests/fixtures/313-planner-review-native-qualification.json."
+  "projection": "313 creates planner_review and grants the ingestor duty SELECT, a column INSERT and the delivery-column UPDATE on it plus SELECT on v_daily_record, and the MCP duty SELECT, a column INSERT and the review-column UPDATE. The rolled-back production probe (production at 311, --apply-first 312) measured all three seals moving; the file carries those literals and re-seals all three receipts. The final run is scripts/qualify-migration-successor.py db/migrations/313-planner-review.sql --apply-first db/migrations/312-operator-metrics-reads.sql --native-fixture db/qualification/313-planner-review-fixture.sql --fixture tests/fixtures/313-planner-review-native-qualification.json.",
+  "projected_successor": {
+    "api": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
+    "ingestor": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+  }
 }

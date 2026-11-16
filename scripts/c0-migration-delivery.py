@@ -463,16 +463,16 @@ SUCCESSOR_312 = "312-operator-metrics-reads.sql"
 SUCCESSOR_312_SHA256 = "66e6bfe12302b2d2756514a2c9903f05e728b1326d6c21aee07362baeca7afa2"
 SUCCESSOR_312_DIGESTS = SUCCESSOR_311_DIGESTS
 SUCCESSOR_312_MCP_DIGEST = SUCCESSOR_311_MCP_DIGEST
-# Exact313 (#1659, climate refactor 5.1): the daily review's own table, planner_review. The ingestor duty's grants on
-# it and on v_daily_record move the ingestor seal and the MCP duty's grants move the MCP seal; both receipts are
-# re-sealed. PENDING native qualification: the literals are 310's until the probe measures them. It follows 312.
+# Exact313 (#1659, climate refactor 5.1): the daily review's own table, planner_review, with the ingestor and MCP
+# duties' grants on it and the ingestor's on v_daily_record. All three seals move and all three receipts are
+# re-sealed with the rolled-back production probe's literals. It follows 312.
 SUCCESSOR_313 = "313-planner-review.sql"
-SUCCESSOR_313_SHA256 = "682f77d14b56c241d828b7b39afe20152344b550777cd89c78687ce835997005"
+SUCCESSOR_313_SHA256 = "933d856e07503d36115b744eea09b4208e688ad2bbec06f48692e2a850d58e0b"
 SUCCESSOR_313_DIGESTS = {
-    "verdify_api_runtime_login": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
-    "verdify_ingestor_runtime_login": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "verdify_api_runtime_login": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
+    "verdify_ingestor_runtime_login": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
 }
-SUCCESSOR_313_MCP_DIGEST = "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+SUCCESSOR_313_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.

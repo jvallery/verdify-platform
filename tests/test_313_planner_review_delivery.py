@@ -1,10 +1,9 @@
-"""Exact313 delivery: ordered admission, the review table, the moved ingestor and MCP seals, the pending native gate.
+"""Exact313 delivery: ordered admission, the review table, the three moved seals, the native gate.
 
 Climate refactor packages 4.2 and 5.1 (#1659, #1660, #1661): the planner is a daily reviewer that writes one row per
 review to its own table. The ingestor duty inserts the daily request and records the delivery to Hermes; the MCP
-duty inserts a manual request and stores the review. Their grants move the ingestor and MCP seals and both receipts
-are re-sealed; the api seal keeps 312's value. test_native_qualification_is_recorded is the merge gate: the literals
-are measured by the rolled-back production qualification.
+duty inserts a manual request and stores the review. The rolled-back production probe measured all three seals
+moving, so all three receipts are re-sealed. test_native_qualification_is_recorded is the merge gate.
 """
 
 import hashlib
@@ -99,16 +98,19 @@ def test_predecessor_binds_exact312_with_its_registered_seals():
         assert block.count(f"'hex') IS DISTINCT FROM '{digest}'") == 1, seal
 
 
-def test_successor_reseals_the_ingestor_and_mcp_receipts_and_keeps_the_api_seal():
+def test_successor_reseals_all_three_receipts_with_the_probe_literals():
     literals = qualifier.successor_literals(SOURCE)
     assert literals == registered(313) == {k: six.SUCCESSOR_313[k] for k in ("api", "ingestor", "mcp")}
-    assert literals["api"] == registered(PREDECESSOR)["api"]
-    assert SUCCESSOR_BLOCK.count("UPDATE public.runtime_ordinary_login_attestation_receipts") == 1
-    assert f"decode('{literals['ingestor']}','hex'), captured_at=clock_timestamp() WHERE login_name='{INGESTOR}'" in (
-        SUCCESSOR_BLOCK
-    )
+    for seal in ("api", "ingestor", "mcp"):
+        assert literals[seal] != registered(PREDECESSOR)[seal], seal
+    assert json.loads(FIXTURE.read_text())["projected_successor"] == literals
+    assert SUCCESSOR_BLOCK.count("UPDATE public.runtime_ordinary_login_attestation_receipts") == 2
+    for login in (API, INGESTOR):
+        seal = "api" if login == API else "ingestor"
+        assert f"decode('{literals[seal]}','hex'), captured_at=clock_timestamp() WHERE login_name='{login}'" in (
+            SUCCESSOR_BLOCK
+        )
     assert f"decode('{literals['mcp']}','hex') WHERE singleton;" in SUCCESSOR_BLOCK
-    assert API not in SUCCESSOR_BLOCK.split("THEN RAISE EXCEPTION '313 refuses an unqualified successor'")[1]
 
 
 def test_body_grants_exactly_the_ingestor_and_mcp_duties():

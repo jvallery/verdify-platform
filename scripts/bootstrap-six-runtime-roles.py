@@ -1137,16 +1137,16 @@ def sealed_sql_312():
 PLANNER_REVIEW_MIGRATION = (
     313,
     "313-planner-review.sql",
-    "682f77d14b56c241d828b7b39afe20152344b550777cd89c78687ce835997005",
+    "933d856e07503d36115b744eea09b4208e688ad2bbec06f48692e2a850d58e0b",
 )
 # The daily review (#1659, climate refactor 5.1): planner_review with ingestor and MCP duty grants and the ingestor's
-# SELECT on v_daily_record, so the ingestor and MCP seals move and the api seal keeps its value. PENDING native
-# qualification (tests/fixtures/313-planner-review-native-qualification.json): the literals are 310's until measured.
+# SELECT on v_daily_record move all three seals; the literals are the rolled-back production probe's
+# (tests/fixtures/313-planner-review-native-qualification.json).
 SUCCESSOR_313 = {
     **SUCCESSOR_312,
-    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
-    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
-    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22",
+    "api": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
+    "ingestor": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc",
 }
 
 

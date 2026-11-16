@@ -8,11 +8,10 @@
 -- HTTP status, a fixed failure class, the run's end and its token usage); MCP's review_run inserts a manual request
 -- and review_write stores the review. Readers: the ingestor (the task's state and the daily_review_missed alert, and
 -- v_daily_record for the review's context) and MCP.
--- Seals: the ingestor duty's grants on planner_review and v_daily_record add to fn_runtime_ordinary_boundary_digest
--- for the ingestor login, and the MCP duty's grants to fn_mcp_runtime_boundary_digest, so both move and both receipts
--- are re-sealed; the api login reaches neither relation and keeps its value. The successor literals are measured by
--- the rolled-back native qualification (tests/fixtures/313-planner-review-native-qualification.json); until then the
--- file carries the predecessor's values and its successor block refuses to finish (fail closed).
+-- Seals: the new relation and the duties' grants on planner_review and v_daily_record move all three digests (the
+-- ordinary digest of the api login and of the ingestor login, and fn_mcp_runtime_boundary_digest), so all three
+-- receipts are re-sealed. The successor literals were measured by the rolled-back native qualification's probe
+-- (tests/fixtures/313-planner-review-native-qualification.json); any other result stops the file (fail closed).
 SET LOCAL search_path=pg_catalog,public,pg_temp;
 LOCK TABLE public.schema_migrations,public.runtime_ordinary_login_attestation_receipts,
     public.mcp_runtime_boundary_receipt IN SHARE ROW EXCLUSIVE MODE;
@@ -86,18 +85,19 @@ GRANT SELECT ON public.planner_review TO verdify_mcp_runtime;
 GRANT INSERT (run_id, kind, review_date, requested_by) ON public.planner_review TO verdify_mcp_runtime;
 GRANT UPDATE (status, written_at, summary, band_proposal) ON public.planner_review TO verdify_mcp_runtime;
 
--- Successor seals: the api digest keeps 312's value; the ingestor and MCP digests take in their grants above and
--- both receipts are re-sealed. PENDING: the ingestor and MCP literals below are 312's until the native
--- qualification's probe measures them, so an unqualified file stops here and rolls back.
+-- Successor seals, measured by the rolled-back native qualification's probe: all three digests move and all three
+-- receipts are re-sealed; any other result stops the file and rolls it back.
 DO $successor$
 BEGIN
-    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM 'f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e'
-        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM '41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443'
-        OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM '16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22'
+    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM '4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820'
+        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM 'ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f'
+        OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM '5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc'
     THEN RAISE EXCEPTION '313 refuses an unqualified successor'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
+    IF NOT FOUND THEN RAISE EXCEPTION '313 missing api receipt'; END IF;
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '313 missing ingestor receipt'; END IF;
-    UPDATE public.mcp_runtime_boundary_receipt SET boundary_sha256=decode('16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22','hex') WHERE singleton;
+    UPDATE public.mcp_runtime_boundary_receipt SET boundary_sha256=decode('5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc','hex') WHERE singleton;
     IF NOT FOUND THEN RAISE EXCEPTION '313 missing mcp receipt'; END IF;
     IF EXISTS(SELECT 1 FROM public.runtime_ordinary_login_attestation_receipts r
             WHERE r.boundary_sha256 IS DISTINCT FROM public.fn_runtime_ordinary_boundary_digest(r.login_name))
