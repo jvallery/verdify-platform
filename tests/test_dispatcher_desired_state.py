@@ -585,6 +585,29 @@ async def test_a_setting_the_controller_does_not_list_is_skipped_and_sent_again_
     assert env.controller.sent_params()[1:] == [manual.param]
 
 
+@pytest.mark.asyncio
+async def test_omitted_settings_never_fill_a_paced_batch(env, monkeypatch):
+    """DISPATCHER-02: thirteen settings the controller does not list (no readback, never pushed, the oldest
+    differences) are dropped before pacing, so the one real change goes out in the first batch with no wake."""
+    omitted, real = KNOBS[:13], KNOBS[13]
+    connect(env, [real])
+    listed = {_common.PARAM_TO_ENTITY[knob.param]: index for index, knob in enumerate(KNOBS)}
+    for knob in omitted:
+        del listed[_common.PARAM_TO_ENTITY[knob.param]]
+    monkeypatch.setitem(shared.esp32, "keys", listed)
+    for knob in omitted:
+        env.db.write(knob.param, knob.desired, at=T0 - timedelta(hours=2))
+        shared.delivery_differing_since[knob.param] = env.clock.now - timedelta(hours=2)
+    env.db.write(real.param, real.desired, at=T0 - timedelta(minutes=1))
+
+    await env.run_pass()
+    assert env.controller.sent_params() == [real.param]
+    assert not shared.setpoint_dispatch_requested.is_set()
+    assert env.db.stage_rows == ["ordinary"]
+    assert not any(knob.param in shared.delivery_differing_since for knob in omitted)
+    assert all(env.db.rows_for(knob.param) == [] for knob in omitted)
+
+
 def test_the_omission_rule_needs_an_entity_list_and_a_number_or_switch_route(monkeypatch):
     knob = KNOBS[0]
     monkeypatch.setattr(shared, "esp32", {"client": object(), "keys": {}, "services": {}})

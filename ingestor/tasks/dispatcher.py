@@ -1167,6 +1167,20 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             deduped_changes[param] = float(value)
         changes = list(deduped_changes.items())
 
+        # DISPATCHER-02: a setting the connected controller does not list (#1633 phase 4) or a set_band_anchor key
+        # no longer sent never gets a readback. Left in, it would keep the oldest difference, sort first and fill
+        # every paced batch, so band, anchor and lighting changes would never go out. Drop them before the
+        # difference bookkeeping and pacing; the skip in the send loop below stays as a backstop.
+        kept_changes: list[tuple[str, float]] = []
+        for param, value in changes:
+            if controller_omits_setting(param):
+                _log_desired_skip_once(param, "controller lists no setting entity")
+            elif param in band_anchors.ANCHOR_KEYS_NOT_SENT:
+                _log_desired_skip_once(param, "set_band_anchor key no longer sent")
+            else:
+                kept_changes.append((param, value))
+        changes = kept_changes
+
         # Only current-generation cfg values may suppress an equivalent
         # duration. Apply this before pacing.
         changes = _without_equivalent_duration_candidates(
