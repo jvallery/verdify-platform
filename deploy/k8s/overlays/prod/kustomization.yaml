@@ -154,14 +154,9 @@ components:
   # #1346 verdify-greenhouse-brief: the greenhouse snapshot on Now, written by the local Cortex model every
   # 5 minutes as the dashboard login (verdify-api image, egress-local-only). Not a device writer.
   - ../../components/greenhouse-brief
-  # Gate 2 experiment credential activation. This remains non-actuating and
-  # uses a one-container wave-2 hook while capability and active ID stay off.
+  # Wave-2 PreSync hook: installs and attests the ingestor's equipment-source
+  # collector login (equipment_state). Reduced to that one login by #1649.
   - ../../components/experiment-v2-credential-bootstrap
-  # Accepted-risk direct-launch preparation. A one-container wave-3 hook creates
-  # only the exact feature-off draft and registers the three frozen profile
-  # vectors. It cannot enable the component, open admission, randomize, or write
-  # a device. Exact replay is idempotent after migration 221.
-  - ../../components/experiment-v2-direct-launch-bootstrap
   # #124 verdify-lab — the public Quartz research site (lab.verdify.ai). Pure web
   # tier with no device path. The publisher owns content; a content-free nginx
   # runtime serves its validated cache PVC.

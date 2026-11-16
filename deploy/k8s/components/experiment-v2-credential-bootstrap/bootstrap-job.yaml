@@ -47,24 +47,9 @@ spec:
 
               [ "${DB_ADMIN_USER}" = "verdify" ] \
                 || fail "database administrator username contract mismatch"
-              [ "${VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER}" = \
-                  "verdify_experiment_v2_lifecycle_login" ] \
-                || fail "lifecycle username contract mismatch"
-              [ "${VERDIFY_EXPERIMENT_COMPONENT_DB_USER}" = \
-                  "verdify_experiment_v2_component_executor_login" ] \
-                || fail "component-executor username contract mismatch"
               [ "${VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER}" = \
                   "verdify_experiment_v2_equipment_source_collector_login" ] \
                 || fail "equipment-source username contract mismatch"
-              [ "${VERDIFY_EXPERIMENT_SHADOW_SCHEDULER_DB_USER}" = \
-                  "verdify_experiment_v2_shadow_scheduler_login" ] \
-                || fail "shadow-scheduler username contract mismatch"
-              [ "${VERDIFY_EXPERIMENT_RANDOMIZER_DB_USER}" = \
-                  "verdify_experiment_v2_randomizer_login" ] \
-                || fail "randomizer username contract mismatch"
-              [ "${VERDIFY_EXPERIMENT_OUTCOME_FREEZER_DB_USER}" = \
-                  "verdify_experiment_v2_outcome_freezer_login" ] \
-                || fail "outcome-freezer username contract mismatch"
               [ -n "${DB_ADMIN_PASSWORD}" ] \
                 || fail "database administrator credential is empty"
               [ -n "${ORDINARY_API_DB_PASSWORD}" ] \
@@ -96,60 +81,23 @@ spec:
                 seen_credentials="${seen_credentials}${CREDENTIAL_TO_REGISTER}:"
               }
 
-              CREDENTIAL_LABEL=lifecycle
-              CREDENTIAL_TO_REGISTER="${VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD}"
-              register_activation_credential
-              CREDENTIAL_LABEL=component-executor
-              CREDENTIAL_TO_REGISTER="${VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD}"
-              register_activation_credential
               CREDENTIAL_LABEL=equipment-source
               CREDENTIAL_TO_REGISTER="${VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD}"
               register_activation_credential
-              CREDENTIAL_LABEL=shadow-scheduler
-              CREDENTIAL_TO_REGISTER="${VERDIFY_EXPERIMENT_SHADOW_SCHEDULER_DB_PASSWORD}"
-              register_activation_credential
-              CREDENTIAL_LABEL=randomizer
-              CREDENTIAL_TO_REGISTER="${VERDIFY_EXPERIMENT_RANDOMIZER_DB_PASSWORD}"
-              register_activation_credential
-              CREDENTIAL_LABEL=outcome-freezer
-              CREDENTIAL_TO_REGISTER="${VERDIFY_EXPERIMENT_OUTCOME_FREEZER_DB_PASSWORD}"
-              register_activation_credential
-              CREDENTIAL_LABEL=experiment-api-token
-              CREDENTIAL_TO_REGISTER="${VERDIFY_EXPERIMENT_API_TOKEN}"
-              register_activation_credential
-              CREDENTIAL_LABEL=experiment-operator-token
-              CREDENTIAL_TO_REGISTER="${VERDIFY_EXPERIMENT_OPERATOR_TOKEN}"
-              register_activation_credential
               unset CREDENTIAL_LABEL CREDENTIAL_TO_REGISTER seen_credentials
 
-              # psql's non-echoing \password prompts derive SCRAM verifiers on
-              # the client. One connection and --single-transaction install all
-              # six verifiers or none. The shell builtin pipe keeps cleartext
-              # out of SQL, files, subprocess argv, and logs.
-              if ! printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
-                  "${VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD}" \
+              # psql's non-echoing \password prompt derives the SCRAM verifier on
+              # the client. The shell builtin pipe keeps cleartext out of SQL,
+              # files, subprocess argv, and logs.
+              if ! printf '%s\n%s\n' \
                   "${VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_SHADOW_SCHEDULER_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_SHADOW_SCHEDULER_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_RANDOMIZER_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_RANDOMIZER_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_OUTCOME_FREEZER_DB_PASSWORD}" \
-                  "${VERDIFY_EXPERIMENT_OUTCOME_FREEZER_DB_PASSWORD}" |
+                  "${VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD}" |
                 PGPASSWORD="${DB_ADMIN_PASSWORD}" \
                   psql -X --no-password --quiet --set=ON_ERROR_STOP=1 \
                     --single-transaction \
                     -h "${DB_HOST}" -p "${DB_PORT}" -U verdify -d "${DB_NAME}" \
                     --command="SET password_encryption = 'scram-sha-256'" \
-                    --command='\password verdify_experiment_v2_lifecycle_login' \
-                    --command='\password verdify_experiment_v2_component_executor_login' \
-                    --command='\password verdify_experiment_v2_equipment_source_collector_login' \
-                    --command='\password verdify_experiment_v2_shadow_scheduler_login' \
-                    --command='\password verdify_experiment_v2_randomizer_login' \
-                    --command='\password verdify_experiment_v2_outcome_freezer_login'
+                    --command='\password verdify_experiment_v2_equipment_source_collector_login'
               then
                 fail "transactional experiment credential installation failed"
               fi
@@ -171,71 +119,9 @@ spec:
                       -U "${expected_login}" -d "${DB_NAME}" <<'SQL'
               WITH expected_functions(duty_name, function_signature) AS (
                   VALUES
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_configure(uuid,text,text,text,text,text,text,uuid,text,bigint,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_lock_design(uuid,date,integer,time without time zone,text,text,text,text,text,text,text,text,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_register_state(uuid,text,smallint,bytea,bytea,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_record_approval(uuid,text,text,integer,text,text,tstzrange,timestamptz,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_transition(uuid,text,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_set_admission(uuid,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_record_facility_safe_closure(uuid,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_create_work(uuid,text,text,tstzrange,timestamptz,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_request_recovery(uuid,uuid,tstzrange,timestamptz,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_complete(uuid,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_api_status(uuid)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_launch_lock(uuid,date,integer,time without time zone,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,tstzrange,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_launch_approve_day1(uuid,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_begin(uuid,text,tstzrange,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_open_aggressive(uuid,uuid,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_begin_baseline_after(uuid,uuid,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_finish(uuid,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_resolve_emergency(uuid,uuid,text,bigint,text,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_begin_emergency_recovery(uuid,uuid,text,bigint,tstzrange,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_retry_emergency_recovery(uuid,uuid,uuid,text,bigint,tstzrange,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_finish_emergency_recovery(uuid,uuid,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_attempt_status(uuid)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_proof_resolve_startup_rollover(uuid,uuid,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_direct_launch_commit(uuid,date,integer,time without time zone,text,text,text,text,text,text,text,text,text,text,text)'),
-                    ('verdify_experiment_lifecycle', 'public.fn_experiment_v2_terminalize_legacy_expired_recovery(uuid,uuid,bigint,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_resolve_readiness(uuid,uuid,bigint)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_resolve_randomized(uuid,uuid,bigint)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_resolve_recovery(uuid,uuid,bigint)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_executor_runtime(uuid,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_claim_executor_candidate(uuid,text,bigint,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_read_observation_window(uuid,uuid,uuid,text,bigint)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_record_work_event(uuid,uuid,text,jsonb,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_begin_delivery_bundle(uuid,uuid,uuid,text,text,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_read_delivery_bundle(uuid,uuid,text,text,bigint)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_record_component_outcome(uuid,uuid,uuid,integer,text,text,bigint,bigint,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_record_delivery_bundle(uuid,uuid,uuid,timestamptz,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_register_runtime_instance(uuid,text,uuid,bigint,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_record_observation_epoch(uuid,uuid,uuid,uuid,bytea,jsonb,text,text,text,text,bigint,bigint,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_record_preexposure_mismatch(uuid,uuid,uuid,text,uuid,bytea,jsonb,text,text,text,text,uuid,bigint,bigint,bigint,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_record_runtime_snapshot(uuid,text,uuid,bytea,jsonb,text,text,text,text,uuid,bigint,bigint,boolean,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_monitor_open_exposure(uuid,text,bigint)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_open_exposure(uuid,uuid,text,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_close_exposure(uuid,text,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_request_recovery(uuid,uuid,tstzrange,timestamptz,text,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_report_runtime_fault(uuid,text,uuid,bigint,uuid,bigint,bigint,text,text,text)'),
-                    ('verdify_experiment_component_executor', 'public.fn_experiment_v2_safe_startup_attestation(text,uuid)'),
                     ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_counter_sample(uuid,timestamp with time zone,text,text,text,double precision,text,uuid,double precision,uuid,bigint,text)'),
                     ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)'),
-                    ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_state_source_receipt(uuid,timestamp with time zone,text,text,jsonb,boolean,uuid,bigint,text)'),
-                    ('verdify_experiment_shadow_scheduler', 'public.fn_experiment_v2_schedule_shadow_cycle(uuid,date,timestamp with time zone,text,text,text,text,text,text)'),
-                    ('verdify_experiment_shadow_scheduler', 'public.fn_experiment_v2_due_shadow_cycle(uuid)'),
-                    ('verdify_experiment_shadow_scheduler', 'public.fn_experiment_v2_due_assignment(uuid)'),
-                    ('verdify_experiment_shadow_scheduler', 'public.fn_experiment_v2_boundary_cycle(uuid,text)'),
-                    ('verdify_experiment_shadow_scheduler', 'public.fn_experiment_v2_direct_launch_cycle(uuid,text)'),
-                    ('verdify_experiment_randomizer', 'public.fn_experiment_v2_finalize_randomization(uuid,text)'),
-                    ('verdify_experiment_randomizer', 'public.fn_experiment_v2_selector_cycle(uuid)'),
-                    ('verdify_experiment_randomizer', 'public.fn_experiment_v2_record_selector_choice(uuid,uuid,text,text,text,text,text,text,text[],text,text)'),
-                    ('verdify_experiment_randomizer', 'public.fn_experiment_v2_record_shadow_choice(uuid,uuid,text,text,text,text,text,text,text[],text,text)'),
-                    ('verdify_experiment_randomizer', 'public.fn_experiment_v2_reveal(uuid,text)'),
-                    ('verdify_experiment_outcome_freezer', 'public.fn_experiment_v2_outcome_source_cycle(uuid)'),
-                    ('verdify_experiment_outcome_freezer', 'public.fn_experiment_v2_freeze_outcome(uuid,uuid,jsonb,boolean,boolean,boolean,boolean,boolean,text)'),
-                    ('verdify_experiment_outcome_freezer', 'public.fn_experiment_v2_freeze_day_evidence(uuid,uuid,jsonb,jsonb,jsonb,text)'),
-                    ('verdify_experiment_outcome_freezer', 'public.fn_experiment_v2_freeze_export(uuid,text,text)'),
-                    ('verdify_experiment_outcome_freezer', 'public.fn_experiment_v2_record_shadow_outcome_preview(uuid,uuid,jsonb,text)'),
-                    ('verdify_experiment_outcome_freezer', 'public.fn_freeze_fixed_panel_native_previous_day()')
+                    ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_state_source_receipt(uuid,timestamp with time zone,text,text,jsonb,boolean,uuid,bigint,text)')
               ), expected AS (
                   SELECT function_signature
                     FROM expected_functions
@@ -370,46 +256,15 @@ spec:
                   || fail "${expected_login} exact-duty attestation failed"
               }
 
-              ATTEST_PASSWORD="${VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD}"
-              attest_login verdify_experiment_v2_lifecycle_login \
-                verdify_experiment_lifecycle
-              ATTEST_PASSWORD="${VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD}"
-              attest_login verdify_experiment_v2_component_executor_login \
-                verdify_experiment_component_executor
               ATTEST_PASSWORD="${VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD}"
               attest_login verdify_experiment_v2_equipment_source_collector_login \
                 verdify_experiment_equipment_source_collector
-              ATTEST_PASSWORD="${VERDIFY_EXPERIMENT_SHADOW_SCHEDULER_DB_PASSWORD}"
-              attest_login verdify_experiment_v2_shadow_scheduler_login \
-                verdify_experiment_shadow_scheduler
-              ATTEST_PASSWORD="${VERDIFY_EXPERIMENT_RANDOMIZER_DB_PASSWORD}"
-              attest_login verdify_experiment_v2_randomizer_login \
-                verdify_experiment_randomizer
-              ATTEST_PASSWORD="${VERDIFY_EXPERIMENT_OUTCOME_FREEZER_DB_PASSWORD}"
-              attest_login verdify_experiment_v2_outcome_freezer_login \
-                verdify_experiment_outcome_freezer
-
-              # Reuse this already-proven one-container sandbox for the
-              # feature-off direct bootstrap. A separate wave-3 Pod repeatedly
-              # failed before acquiring an IP even though this exact image and
-              # node had just succeeded. The Python transaction remains the
-              # same immutable ConfigMap payload and runs only after all six
-              # credential attestations above pass.
-              python /etc/verdify/direct-bootstrap/bootstrap.py
-
               unset ATTEST_PASSWORD attested expected_login expected_duty \
                 DB_ADMIN_PASSWORD ORDINARY_API_DB_PASSWORD \
                 ORDINARY_INGESTOR_DB_PASSWORD \
-                VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD \
-                VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD \
-                VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD \
-                VERDIFY_EXPERIMENT_SHADOW_SCHEDULER_DB_PASSWORD \
-                VERDIFY_EXPERIMENT_RANDOMIZER_DB_PASSWORD \
-                VERDIFY_EXPERIMENT_OUTCOME_FREEZER_DB_PASSWORD \
-                VERDIFY_EXPERIMENT_API_TOKEN \
-                VERDIFY_EXPERIMENT_OPERATOR_TOKEN
+                VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD
               printf '%s\n' \
-                '[experiment-v2-credential-bootstrap] six database logins installed and attested; API token shapes validated'
+                '[experiment-v2-credential-bootstrap] equipment-source collector login installed and attested'
           env:
             - name: DB_HOST
               valueFrom:
@@ -441,46 +296,11 @@ spec:
                 secretKeyRef:
                   name: verdify-app-secrets
                   key: VERDIFY_API_RUNTIME_DB_PASSWORD
-            - name: ORDINARY_API_DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_API_RUNTIME_DB_USER
             - name: ORDINARY_INGESTOR_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: verdify-app-secrets
                   key: VERDIFY_INGESTOR_RUNTIME_DB_PASSWORD
-            - name: VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER
-            - name: VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD
-            - name: LIFECYCLE_DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_LIFECYCLE_DB_USER
-            - name: LIFECYCLE_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_LIFECYCLE_DB_PASSWORD
-            - name: VERDIFY_EXPERIMENT_COMPONENT_DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_COMPONENT_DB_USER
-            - name: VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_COMPONENT_DB_PASSWORD
             - name: VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_USER
               valueFrom:
                 secretKeyRef:
@@ -491,42 +311,6 @@ spec:
                 secretKeyRef:
                   name: verdify-app-secrets
                   key: VERDIFY_EXPERIMENT_EQUIPMENT_SOURCE_COLLECTOR_DB_PASSWORD
-            - name: VERDIFY_EXPERIMENT_SHADOW_SCHEDULER_DB_USER
-              value: verdify_experiment_v2_shadow_scheduler_login
-            - name: VERDIFY_EXPERIMENT_SHADOW_SCHEDULER_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-experiment-v2-shadow-scheduler-db
-                  key: password
-            - name: VERDIFY_EXPERIMENT_RANDOMIZER_DB_USER
-              value: verdify_experiment_v2_randomizer_login
-            - name: VERDIFY_EXPERIMENT_RANDOMIZER_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-experiment-v2-randomizer-db
-                  key: password
-            - name: VERDIFY_EXPERIMENT_OUTCOME_FREEZER_DB_USER
-              value: verdify_experiment_v2_outcome_freezer_login
-            - name: VERDIFY_EXPERIMENT_OUTCOME_FREEZER_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-experiment-v2-outcome-freezer-db
-                  key: password
-            - name: VERDIFY_EXPERIMENT_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_API_TOKEN
-            - name: VERDIFY_EXPERIMENT_OPERATOR_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-app-secrets
-                  key: VERDIFY_EXPERIMENT_OPERATOR_TOKEN
-            - name: MCP_IRIS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: verdify-hermes
-                  key: VERDIFY_MCP_TOKEN
             - name: PGAPPNAME
               value: verdify-experiment-v2-credential-bootstrap
           securityContext:
@@ -542,15 +326,9 @@ spec:
               cpu: "250m"
               memory: "128Mi"
           volumeMounts:
-            - name: direct-launch-bootstrap
-              mountPath: /etc/verdify/direct-bootstrap
-              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: direct-launch-bootstrap
-          configMap:
-            name: experiment-v2-direct-launch-bootstrap
         - name: tmp
           emptyDir:
             sizeLimit: 16Mi
