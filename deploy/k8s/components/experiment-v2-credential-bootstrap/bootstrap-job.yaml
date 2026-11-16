@@ -117,15 +117,18 @@ spec:
                       --set=expected_duty="${expected_duty}" \
                       -h "${DB_HOST}" -p "${DB_PORT}" \
                       -U "${expected_login}" -d "${DB_NAME}" <<'SQL'
-              WITH expected_functions(duty_name, function_signature) AS (
+              WITH expected_functions(duty_name, function_signature, need) AS (
                   VALUES
-                    ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_counter_sample(uuid,timestamp with time zone,text,text,text,double precision,text,uuid,double precision,uuid,bigint,text)'),
-                    ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)'),
-                    ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_state_source_receipt(uuid,timestamp with time zone,text,text,jsonb,boolean,uuid,bigint,text)')
-              ), expected AS (
-                  SELECT function_signature
+                    ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_counter_sample(uuid,timestamp with time zone,text,text,text,double precision,text,uuid,double precision,uuid,bigint,text)', 'required'),
+                    ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_state_source_receipt(uuid,timestamp with time zone,text,text,jsonb,boolean,uuid,bigint,text)', 'required'),
+                    -- Retired (#1633 release 4, rule 5): tolerated, not required, until a later release revokes it.
+                    ('verdify_experiment_equipment_source_collector', 'public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)', 'tolerated')
+              ), listed AS (
+                  SELECT function_signature, need
                     FROM expected_functions
                    WHERE duty_name = :'expected_duty'
+              ), expected AS (
+                  SELECT function_signature FROM listed WHERE need = 'required'
               ), login AS (
                   SELECT oid, rolcanlogin, rolinherit, rolsuper, rolcreatedb,
                          rolcreaterole, rolreplication, rolbypassrls
@@ -245,7 +248,7 @@ spec:
                             current_user, candidate.oid, 'EXECUTE'
                           )
                           AND NOT EXISTS (
-                            SELECT 1 FROM expected allowed
+                            SELECT 1 FROM listed allowed
                              WHERE to_regprocedure(allowed.function_signature) =
                                    candidate.oid
                           )

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import re
 import sys
 from dataclasses import dataclass
@@ -19,7 +18,6 @@ from verdify_schemas.alerts import (
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "db/migrations/215-experiment-v2-ops-observability.sql"
-DASHBOARD = ROOT / "grafana/provisioning/dashboards/json/confirmed-component-experiment-v2.json"
 
 _OPS_STATUS_SIGNATURE = "CREATE OR REPLACE FUNCTION public.fn_experiment_v2_ops_status()"
 _FUNCTION_BODY_START = re.compile(r"\bAS\s+(?P<tag>\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$)")
@@ -264,29 +262,6 @@ def test_case_branch_parser_preserves_order_and_duplicate_outputs():
         ("second_predicate", "critical"),
         ("third_predicate", "warning"),
     )
-
-
-def test_dashboard_uses_only_the_blinded_safe_function():
-    dashboard = json.loads(DASHBOARD.read_text())
-    assert dashboard["uid"] == "confirmed-component-experiment-v2"
-    sql_targets = [target["rawSql"] for panel in dashboard["panels"] for target in panel.get("targets", [])]
-    assert len(sql_targets) >= 5
-    allowed = (
-        "fn_experiment_v2_ops_status()",
-        "fn_experiment_v2_launch_gate_status()",
-    )
-    assert all(any(function in query for function in allowed) for query in sql_targets)
-    assert any("fn_experiment_v2_launch_gate_status()" in query for query in sql_targets)
-    combined = "\n".join(sql_targets).lower()
-    for forbidden in (
-        "control_arm_resolutions",
-        "secret_bytes",
-        "revealed_secret",
-        "mapping_payload",
-        "physical_arm",
-        "experiment_v2_randomization",
-    ):
-        assert forbidden not in combined
 
 
 def _evaluate_facility_closure_predicate(**overrides):

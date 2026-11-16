@@ -149,13 +149,16 @@ def test_script_is_transactional_nonlogging_and_exact_duty_locked(rendered: list
 
 def test_collector_allowlist_is_lockstep_with_ledgered_grants(rendered: list[dict]) -> None:
     script = _script(rendered)
-    pairs = re.findall(r"^\s*\('([^']+)', '([^']+)'\),?$", script, re.MULTILINE)
-    assert {duty for duty, _ in pairs} == {COLLECTOR_DUTY}
-    assert {signature for _, signature in pairs} == {
-        "public.fn_record_equipment_counter_sample(uuid,timestamp with time zone,text,text,text,double precision,text,uuid,double precision,uuid,bigint,text)",
-        "public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)",
-        "public.fn_record_equipment_state_source_receipt(uuid,timestamp with time zone,text,text,jsonb,boolean,uuid,bigint,text)",
+    rows = re.findall(r"^\s*\('([^']+)', '([^']+)', '([^']+)'\),?$", script, re.MULTILINE)
+    assert {duty for duty, _, _ in rows} == {COLLECTOR_DUTY}
+    assert {signature: need for _, signature, need in rows} == {
+        "public.fn_record_equipment_counter_sample(uuid,timestamp with time zone,text,text,text,double precision,text,uuid,double precision,uuid,bigint,text)": "required",
+        "public.fn_record_equipment_state_source_receipt(uuid,timestamp with time zone,text,text,jsonb,boolean,uuid,bigint,text)": "required",
+        # Rule 5 (#1633 release 4): retired, tolerated until a later release revokes and drops it.
+        "public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)": "tolerated",
     }
+    assert "SELECT function_signature FROM listed WHERE need = 'required'" in script
+    assert "SELECT 1 FROM listed allowed" in script
 
 
 _PASSWORD_KEYS = (

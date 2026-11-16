@@ -783,8 +783,12 @@ _EQUIPMENT_SOURCE_COLLECTOR_LOGIN = "verdify_experiment_v2_equipment_source_coll
 _EQUIPMENT_SOURCE_COLLECTOR_DUTY = "verdify_experiment_equipment_source_collector"
 _EQUIPMENT_SOURCE_COLLECTOR_FUNCTIONS = (
     "public.fn_record_equipment_counter_sample(uuid,timestamp with time zone,text,text,text,double precision,text,uuid,double precision,uuid,bigint,text)",
-    "public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)",
     "public.fn_record_equipment_state_source_receipt(uuid,timestamp with time zone,text,text,jsonb,boolean,uuid,bigint,text)",
+)
+# Retired with the experiment (#1633 release 4, contracts phase4-drops rule 5): nothing calls it, so it is no longer
+# required, but the duty may still hold EXECUTE on it until a later release revokes and drops it.
+_EQUIPMENT_SOURCE_COLLECTOR_TOLERATED_FUNCTIONS = (
+    "public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)",
 )
 _EQUIPMENT_SOURCE_ROLE_ATTESTATION_SQL = """
 WITH login AS (
@@ -797,8 +801,12 @@ WITH login AS (
            rolcreaterole, rolreplication, rolbypassrls
       FROM pg_roles
      WHERE rolname = $1::text
-), allowed_functions(function_signature) AS (
+), required_functions(function_signature) AS (
     SELECT unnest($2::text[])
+), allowed_functions(function_signature) AS (
+    SELECT function_signature FROM required_functions
+    UNION ALL
+    SELECT unnest($3::text[])
 )
 SELECT current_user::text AS current_user_name,
        session_user::text AS session_user_name,
@@ -905,7 +913,7 @@ SELECT current_user::text AS current_user_name,
               )
        ) AS has_unexpected_function_execute,
        NOT EXISTS (
-           SELECT 1 FROM allowed_functions required
+           SELECT 1 FROM required_functions required
             WHERE to_regprocedure(required.function_signature) IS NULL
                OR NOT has_function_privilege(
                    current_user,
@@ -985,6 +993,7 @@ async def create_equipment_source_pool() -> asyncpg.Pool | None:
                 _EQUIPMENT_SOURCE_ROLE_ATTESTATION_SQL,
                 duty,
                 list(_EQUIPMENT_SOURCE_COLLECTOR_FUNCTIONS),
+                list(_EQUIPMENT_SOURCE_COLLECTOR_TOLERATED_FUNCTIONS),
             )
         if not _equipment_source_role_attestation_passes(attestation, expected_user):
             raise RuntimeError("equipment source collector database authority mismatch")

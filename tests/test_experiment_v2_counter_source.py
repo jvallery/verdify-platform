@@ -473,8 +473,13 @@ async def test_equipment_source_pool_attests_exact_login_role_and_function_surfa
             assert args == (
                 ingestor._EQUIPMENT_SOURCE_COLLECTOR_DUTY,
                 list(ingestor._EQUIPMENT_SOURCE_COLLECTOR_FUNCTIONS),
+                list(ingestor._EQUIPMENT_SOURCE_COLLECTOR_TOLERATED_FUNCTIONS),
             )
             assert any("jsonb,boolean,uuid,bigint,text" in signature for signature in args[1])
+            # Rule 5 (#1633 release 4): the retired direct-snapshot function is tolerated, never required.
+            assert not any("direct_state_snapshot" in signature for signature in args[1])
+            assert [s for s in args[2] if "direct_state_snapshot" in s] == list(args[2])
+            assert "SELECT 1 FROM required_functions required" in query
             return _safe_equipment_source_attestation()
 
     class AttestationPool:
