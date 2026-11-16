@@ -729,6 +729,167 @@ def owner_held_alert(rows: Sequence[Mapping]) -> dict | None:
     )
 
 
+# ── Safeguard 2 of contracts/last-resort-thermometer.md (RULINGS AA1; host release 3) ─────────────────────────────
+# The note's table (section 4): "Outdoor source none | `Outdoor Source` = `none` | none | **page** when combined with
+# any indoor degradation; warning alone", and the first failure it pairs with: "Indoor running on the case probe only
+# (walls lost) | `sensor_degraded_active` true; each wall probe's columns go stale | ... | **page** on
+# `sensor_degraded_active` for 10 min, or two or more wall probes stale". "Any indoor degradation" is read here as
+# fewer than the full set of wall probes valid (Active Probe Count below 4, the firmware's count of fresh wall probes
+# behind Avg Temp, on every diagnostics row of the 10 minutes) or the case probe alone (no wall probe value in the
+# 10 minutes of climate rows). `sensor_degraded_active` itself is published by the controller but not stored by the
+# host (no entity_map row), so its humidity-invalid leg is not judged here. The page needs both held 10 minutes; the
+# warning alone (outdoor_source_none) and the case-only page (case_sensor_only, HOST-LAW) stay as they are.
+# No row opens while a reading is absent or unknown: the newest outdoor_source row must be at most 600 s old (it is
+# stored on every receipt, every 300 s) with a value the contract names, and every diagnostics row of the window must
+# carry a probe count (a reconnect or a build before phase 2 publishes nothing, so nothing opens).
+OUTDOOR_SOURCES = ("station", "intake", "none")
+OUTDOOR_FRESH_S = 600.0
+BLIND_HELD_S = 600.0
+OUTDOOR_BLIND_SQL = """
+WITH r AS (
+    SELECT ts, value FROM system_state WHERE entity = 'outdoor_source' AND ts > now() - interval '2 hours'
+), ok AS (SELECT max(ts) AS t FROM r WHERE value <> 'none'),
+d AS (SELECT count(*)::int AS diag_rows,
+             count(*) FILTER (WHERE active_probe_count IS NULL)::int AS diag_unknown,
+             count(*) FILTER (WHERE active_probe_count < 4)::int AS diag_short,
+             min(active_probe_count)::int AS fewest
+        FROM diagnostics WHERE ts > now() - interval '10 minutes'),
+c AS (SELECT count(*)::int AS rows,
+             count(*) FILTER (WHERE COALESCE(temp_north, temp_south, temp_east, temp_west) IS NOT NULL)::int AS wall_rows,
+             count(temp_case)::int AS case_rows
+        FROM climate WHERE ts > now() - interval '10 minutes')
+SELECT (SELECT value FROM r ORDER BY ts DESC LIMIT 1) AS current,
+       EXTRACT(EPOCH FROM now() - (SELECT max(ts) FROM r))::double precision AS newest_age_s,
+       EXTRACT(EPOCH FROM now() - (SELECT min(r.ts) FROM r, ok
+                                    WHERE r.value = 'none' AND r.ts > COALESCE(ok.t, '-infinity')))::double precision
+           AS none_age_s,
+       d.diag_rows, d.diag_unknown, d.diag_short, d.fewest, c.rows, c.wall_rows, c.case_rows
+  FROM d, c
+"""
+
+
+def _outdoor_known(row: Mapping) -> bool:
+    return (
+        row["current"] in OUTDOOR_SOURCES
+        and row["newest_age_s"] is not None
+        and float(row["newest_age_s"]) <= OUTDOOR_FRESH_S
+    )
+
+
+def outdoor_blind_alert(row: Mapping | None) -> dict | None:
+    if not row or not _outdoor_known(row) or row["current"] != "none" or row["none_age_s"] is None:
+        return None
+    if float(row["none_age_s"]) < BLIND_HELD_S:
+        return None
+    walls_short = row["diag_rows"] >= 3 and row["diag_unknown"] == 0 and row["diag_short"] == row["diag_rows"]
+    case_only = row["rows"] >= 3 and row["wall_rows"] == 0 and row["case_rows"] > 0
+    if not (walls_short or case_only):
+        return None
+    fewest = None if row["diag_unknown"] or row["fewest"] is None else int(row["fewest"])
+    which = "case probe only" if case_only else f"{fewest} of 4 wall probes valid"
+    return _alert(
+        "critical",
+        "outdoor_none_indoor_degraded",
+        "system.outdoor_source",
+        "sensor",
+        "No outdoor reading and the indoor probes degraded for 10 minutes: one more failure leaves the controller "
+        + f"blind ({which})",
+        {"none_s": round(float(row["none_age_s"]), 1), "fewest_wall_probes": fewest, "case_only": case_only},
+        round(float(row["none_age_s"]), 1),
+        BLIND_HELD_S,
+    )
+
+
+# The note's table: "Outdoor on the intake probe only (station lost) | `Outdoor Source` = `intake` | none | warning
+# after 30 min (the station or WiFi path is down, so only the bus is left)".
+INTAKE_ONLY_AFTER_S = 1800.0
+INTAKE_ONLY_SQL = """
+WITH r AS (
+    SELECT ts, value FROM system_state WHERE entity = 'outdoor_source' AND ts > now() - interval '2 hours'
+), other AS (SELECT max(ts) AS t FROM r WHERE value <> 'intake')
+SELECT (SELECT value FROM r ORDER BY ts DESC LIMIT 1) AS current,
+       EXTRACT(EPOCH FROM now() - (SELECT max(ts) FROM r))::double precision AS newest_age_s,
+       EXTRACT(EPOCH FROM now() - (SELECT min(r.ts) FROM r, other
+                                    WHERE r.value = 'intake' AND r.ts > COALESCE(other.t, '-infinity')))::double precision
+           AS intake_age_s
+"""
+
+
+def intake_only_alert(row: Mapping | None) -> dict | None:
+    if not row or not _outdoor_known(row) or row["current"] != "intake" or row["intake_age_s"] is None:
+        return None
+    if float(row["intake_age_s"]) < INTAKE_ONLY_AFTER_S:
+        return None
+    return _warning(
+        "outdoor_intake_only",
+        "system.outdoor_source",
+        "sensor",
+        "Weather station broadcast missing for 30 minutes: the outdoor reading comes from the intake probe only, on "
+        "the same sensor bus as every indoor probe",
+        {"intake_s": round(float(row["intake_age_s"]), 1)},
+        round(float(row["intake_age_s"]), 1),
+        INTAKE_ONLY_AFTER_S,
+    )
+
+
+# The note's third row ("Bus watchdog restarts | uptime resets, logs | none | warning on two restarts within an
+# hour") is not built: the host cannot tell a sensor-bus watchdog restart from any other software restart. Every
+# restart path (the bus watchdog, the doubly blind restart, an OTA, the restart button, the heap guard) goes through
+# esp_restart()/App.safe_reboot(), so Reset Reason reads "Software reset" for all of them, and the watchdog's
+# ESP_LOGE line is written just before the restart and is not stored (esp32_logs holds WARN lines only). The missing
+# reading is a restart cause the controller keeps across the restart and publishes after boot. Note also that the
+# firmware cannot make two bus restarts within one hour: the plain rule waits 3,600 s, the doubly blind rule 10 min
+# for the first and 60 min for each next one (lib/running_alone.h).
+
+
+# ── vp#1670: the gas furnace cannot hold the band (RULINGS AA6; host release 3) ──────────────────────────────────
+# https://github.com/jvallery/verdify-platform/issues/1670 . One warning when heat2 (the gas furnace, the backup
+# behind the electric heat1) was on for at least 90 % of the last hour and the house's 10-minute mean is more than 1 F
+# below the served band's low edge. heat2 rows are stored on change, so the state at the start of the hour comes
+# from the newest row before it (within 7 days, else unknown and nothing opens), and the controller must be
+# reporting (3 or more climate rows in 10 minutes), so a dark controller's last "on" does not count as running.
+# Backtest (2026-11-16, 5-minute ticks): 2026-01-23 to 01-26, 199 of 1,153 ticks in 9 episodes; the 30 days to
+# 2026-11-16, none of 8,641.
+FURNACE_ON_FRACTION = 0.9
+FURNACE_BELOW_BAND_F = 1.0
+FURNACE_SQL = """
+WITH prior AS (
+    SELECT state FROM equipment_state
+     WHERE equipment = 'heat2' AND ts <= now() - interval '1 hour' AND ts > now() - interval '7 days'
+     ORDER BY ts DESC LIMIT 1
+), ev AS (
+    SELECT now() - interval '1 hour' AS ts, state FROM prior
+    UNION ALL
+    SELECT ts, state FROM equipment_state WHERE equipment = 'heat2' AND ts > now() - interval '1 hour'
+), iv AS (SELECT ts, state, COALESCE(lead(ts) OVER (ORDER BY ts), now()) AS nxt FROM ev),
+h AS (SELECT avg(temp_avg) AS house, count(*)::int AS house_rows
+        FROM climate WHERE ts > now() - interval '10 minutes' AND temp_avg IS NOT NULL)
+SELECT EXISTS (SELECT 1 FROM prior) AS known,
+       (COALESCE((SELECT sum(EXTRACT(EPOCH FROM nxt - ts)) FROM iv WHERE state), 0) / 3600.0)::double precision
+           AS on_fraction,
+       fn_crop_band_value('house', 'temp_low', now()) AS lo, h.house, h.house_rows
+  FROM h
+"""
+
+
+def furnace_alert(row: Mapping | None) -> dict | None:
+    if not row or not row["known"] or row["lo"] is None or row["house"] is None or row["house_rows"] < 3:
+        return None
+    frac, house, lo = float(row["on_fraction"]), float(row["house"]), float(row["lo"])
+    if frac < FURNACE_ON_FRACTION or house >= lo - FURNACE_BELOW_BAND_F:
+        return None
+    return _warning(
+        "furnace_saturated",
+        "equipment.heat2",
+        "equipment",
+        f"Gas furnace on {frac:.0%} of the last hour and the house still {lo - house:.1f} F below the band's low "
+        f"edge ({house:.1f} F, band low {lo:.1f} F)",
+        {"on_fraction": round(min(frac, 1.0), 3), "house_f": round(house, 2), "band_low_f": round(lo, 2)},
+        round(lo - house, 2),
+        FURNACE_BELOW_BAND_F,
+    )
+
+
 H3_TYPES = (
     "reviewer_wrote_climate",
     "law_state_stale",
@@ -739,6 +900,9 @@ H3_TYPES = (
     "drying_refused_all_day",
     "probes_disagree",
     "owner_value_changed",
+    "outdoor_none_indoor_degraded",
+    "outdoor_intake_only",
+    "furnace_saturated",
 )
 
 
@@ -770,6 +934,9 @@ async def coverage_cycle_h3(conn) -> tuple[list[dict], frozenset[str]]:
     judge("drying_refused_all_day", await _read(conn, DRYING_REFUSED_SQL), drying_refused_alert)
     judge("probes_disagree", await _read(conn, PROBES_SQL, many=True), probes_alert)
     judge("owner_value_changed", await _read(conn, OWNER_HELD_SQL, many=True), owner_held_alert)
+    judge("outdoor_none_indoor_degraded", await _read(conn, OUTDOOR_BLIND_SQL), outdoor_blind_alert)
+    judge("outdoor_intake_only", await _read(conn, INTAKE_ONLY_SQL), intake_only_alert)
+    judge("furnace_saturated", await _read(conn, FURNACE_SQL), furnace_alert)
     return alerts, frozenset(failed)
 
 

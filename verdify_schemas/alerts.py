@@ -80,6 +80,9 @@ AlertType = Literal[
     "drying_refused_all_day",
     "probes_disagree",
     "owner_value_changed",
+    "outdoor_none_indoor_degraded",
+    "outdoor_intake_only",
+    "furnace_saturated",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
@@ -158,6 +161,9 @@ ALERT_TYPES: tuple[str, ...] = (
     "drying_refused_all_day",
     "probes_disagree",
     "owner_value_changed",
+    "outdoor_none_indoor_degraded",
+    "outdoor_intake_only",
+    "furnace_saturated",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
@@ -922,6 +928,27 @@ class OwnerValueChangedDetails(_DetailsBase):
     changed: dict[str, list[float]] = Field(..., min_length=1)
 
 
+class OutdoorNoneIndoorDegradedDetails(_DetailsBase):
+    # Safeguard 2 of the last-resort thermometer note: no outdoor reading together with an indoor degradation, both
+    # held 10 min. `fewest_wall_probes` is the lowest Active Probe Count of the window (4 = all walls valid);
+    # `case_only` is true when no wall probe reported in the window.
+    none_s: float = Field(..., ge=0)
+    fewest_wall_probes: int | None = Field(None, ge=0, le=4)
+    case_only: bool
+
+
+class OutdoorIntakeOnlyDetails(_DetailsBase):
+    # Seconds the controller's outdoor reading has come from the intake probe alone (the station broadcast missing).
+    intake_s: float = Field(..., ge=0)
+
+
+class FurnaceSaturatedDetails(_DetailsBase):
+    # vp#1670: the gas furnace's (heat2) share of the last hour, the house's 10-min mean and the band's low edge (F).
+    on_fraction: float = Field(..., ge=0, le=1)
+    house_f: float
+    band_low_f: float
+
+
 class ReviewerWroteClimateAlert(_AlertBase):
     alert_type: Literal["reviewer_wrote_climate"]
     details: ReviewerWroteClimateDetails
@@ -965,6 +992,21 @@ class ProbesDisagreeAlert(_AlertBase):
 class OwnerValueChangedAlert(_AlertBase):
     alert_type: Literal["owner_value_changed"]
     details: OwnerValueChangedDetails
+
+
+class OutdoorNoneIndoorDegradedAlert(_AlertBase):
+    alert_type: Literal["outdoor_none_indoor_degraded"]
+    details: OutdoorNoneIndoorDegradedDetails
+
+
+class OutdoorIntakeOnlyAlert(_AlertBase):
+    alert_type: Literal["outdoor_intake_only"]
+    details: OutdoorIntakeOnlyDetails
+
+
+class FurnaceSaturatedAlert(_AlertBase):
+    alert_type: Literal["furnace_saturated"]
+    details: FurnaceSaturatedDetails
 
 
 class LawConstantsMismatchAlert(_AlertBase):
@@ -1357,6 +1399,9 @@ AlertEnvelopeUnion = Annotated[
     | DryingRefusedAllDayAlert
     | ProbesDisagreeAlert
     | OwnerValueChangedAlert
+    | OutdoorNoneIndoorDegradedAlert
+    | OutdoorIntakeOnlyAlert
+    | FurnaceSaturatedAlert
     | LeakDetectedAlert
     | LightingCfgThresholdDriftAlert
     | ClimateActionProofStaleAlert

@@ -55,7 +55,7 @@ def ddl() -> list[str]:
     )
     out.append(
         f"CREATE FUNCTION {SCHEMA}.fn_crop_band_value(text, text, timestamptz) RETURNS double precision "
-        "LANGUAGE sql AS $$ SELECT CASE $2 WHEN 'vpd_low' THEN 0.6 END $$"
+        "LANGUAGE sql AS $$ SELECT CASE $2 WHEN 'vpd_low' THEN 0.6 WHEN 'temp_low' THEN 58.0 END $$"
     )
     return out
 
@@ -214,5 +214,62 @@ def test_utilities_drying_refusal_probes_and_owner_held(dsn):
         assert cov.owner_held_alert(rows)["details"]["changed"] == {"mister_min_off_s": [30.0, 45.0]}
         await change(conn, t0 - 20 * MIN, "mister_min_off_s", 45.0, "band", t0 - 19 * MIN)
         assert cov.owner_held_alert(await conn.fetch(cov.OWNER_HELD_SQL)) is None  # newest desired is not the owner's
+
+    scenario(dsn, body)
+
+
+def test_safeguard_two_reads_outdoor_source_probe_count_and_wall_columns(dsn):
+    async def body(conn, t0):
+        # Before the phase 2 flash: no outdoor_source row, so nothing opens.
+        assert cov.outdoor_blind_alert(await conn.fetchrow(cov.OUTDOOR_BLIND_SQL)) is None
+        for m in (25, 20, 15, 10, 5, 1):
+            await state(conn, t0 - m * MIN, "outdoor_source", "intake" if m >= 20 else "none")
+        for m in range(1, 10):
+            await conn.execute("INSERT INTO diagnostics (ts, active_probe_count) VALUES ($1, 3)", t0 - m * MIN)
+            await conn.execute("INSERT INTO climate (ts, temp_north, temp_case) VALUES ($1, 70, 71)", t0 - m * MIN)
+        env = cov.outdoor_blind_alert(await conn.fetchrow(cov.OUTDOOR_BLIND_SQL))
+        assert env["severity"] == "critical" and env["details"]["fewest_wall_probes"] == 3
+        assert 890 < env["details"]["none_s"] < 960
+        # One diagnostics row in the window with all four walls valid: not held, no page.
+        await conn.execute(
+            "INSERT INTO diagnostics (ts, active_probe_count) VALUES ($1, 4)", t0 - 30 * timedelta(seconds=1)
+        )
+        assert cov.outdoor_blind_alert(await conn.fetchrow(cov.OUTDOOR_BLIND_SQL)) is None
+        # The intake leg: intake 25 and 20 minutes ago, then none, so no intake warning.
+        assert cov.intake_only_alert(await conn.fetchrow(cov.INTAKE_ONLY_SQL)) is None
+
+    scenario(dsn, body)
+
+
+def test_intake_only_after_half_an_hour_and_not_on_a_stale_row(dsn):
+    async def body(conn, t0):
+        for m in (40, 35, 30, 25, 20, 15, 10, 5):
+            await state(conn, t0 - m * MIN, "outdoor_source", "intake")
+        await state(conn, t0 - 45 * MIN, "outdoor_source", "station")
+        env = cov.intake_only_alert(await conn.fetchrow(cov.INTAKE_ONLY_SQL))
+        assert env["severity"] == "warning" and 2390 < env["details"]["intake_s"] < 2460
+        await conn.execute("DELETE FROM system_state WHERE ts > $1", t0 - 12 * MIN)  # receipts stopped: a reconnect
+        assert cov.intake_only_alert(await conn.fetchrow(cov.INTAKE_ONLY_SQL)) is None
+
+    scenario(dsn, body)
+
+
+def test_furnace_saturation_integrates_heat2_from_the_row_before_the_hour(dsn):
+    async def body(conn, t0):
+        heat = "INSERT INTO equipment_state (ts, equipment, state) VALUES ($1, 'heat2', $2)"
+        for m in range(1, 10):
+            await conn.execute("INSERT INTO climate (ts, temp_avg) VALUES ($1, 56.0)", t0 - m * MIN)
+        await conn.execute(heat, t0 - 30 * MIN, True)  # no row before the hour: state unknown
+        assert cov.furnace_alert(await conn.fetchrow(cov.FURNACE_SQL)) is None
+        await conn.execute(heat, t0 - 90 * MIN, True)
+        await conn.execute(heat, t0 - 40 * MIN, False)
+        await conn.execute(heat, t0 - 37 * MIN, True)  # off 3 of 60 minutes
+        row = await conn.fetchrow(cov.FURNACE_SQL)
+        env = cov.furnace_alert(row)
+        assert env["severity"] == "warning" and 0.94 < env["details"]["on_fraction"] < 0.96
+        assert env["details"]["band_low_f"] == 58.0
+        await conn.execute(heat, t0 - 20 * MIN, False)
+        await conn.execute(heat, t0 - 10 * MIN, True)  # off 13 of 60 minutes
+        assert cov.furnace_alert(await conn.fetchrow(cov.FURNACE_SQL)) is None
 
     scenario(dsn, body)

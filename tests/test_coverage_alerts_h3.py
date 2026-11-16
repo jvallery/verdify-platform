@@ -34,7 +34,7 @@ def meter(ts, s):
 
 def test_every_h3_type_is_registered_and_validates():
     assert set(cov.H3_TYPES) <= set(ALERT_TYPES)
-    assert len(set(cov.H3_TYPES)) == 9
+    assert len(set(cov.H3_TYPES)) == 12
 
 
 def test_a_drying_run_with_a_flat_meter_and_no_restart_is_a_fault():
@@ -128,3 +128,72 @@ def test_the_h3_checks_ride_the_registered_cycle():
     import inspect
 
     assert "coverage_cycle_h3(conn)" in inspect.getsource(cov.coverage_cycle)
+
+
+BLIND = {
+    "current": "none",
+    "newest_age_s": 120.0,
+    "none_age_s": 700.0,
+    "diag_rows": 10,
+    "diag_unknown": 0,
+    "diag_short": 10,
+    "fewest": 3,
+    "rows": 10,
+    "wall_rows": 10,
+    "case_rows": 10,
+}
+
+
+def test_no_outdoor_with_a_wall_probe_lost_pages_after_ten_minutes():
+    env = cov.outdoor_blind_alert(BLIND)
+    AlertEnvelope.model_validate(env)
+    assert env["severity"] == "critical" and env["details"]["fewest_wall_probes"] == 3
+    assert cov.outdoor_blind_alert({**BLIND, "none_age_s": 500.0}) is None  # not held 10 minutes
+    assert cov.outdoor_blind_alert({**BLIND, "diag_short": 9}) is None  # one row had all four walls
+    assert cov.outdoor_blind_alert({**BLIND, "current": "intake"}) is None
+
+
+def test_no_outdoor_with_the_case_probe_only_pages():
+    row = {**BLIND, "diag_rows": 0, "diag_short": 0, "fewest": None, "wall_rows": 0}
+    env = cov.outdoor_blind_alert(row)
+    AlertEnvelope.model_validate(env)
+    assert env["details"]["case_only"] is True and env["details"]["fewest_wall_probes"] is None
+
+
+def test_safeguard_two_opens_nothing_while_a_reading_is_absent_or_unknown():
+    assert cov.outdoor_blind_alert({**BLIND, "current": None, "newest_age_s": None, "none_age_s": None}) is None
+    assert cov.outdoor_blind_alert({**BLIND, "newest_age_s": 900.0}) is None  # stale: a reconnect
+    assert cov.outdoor_blind_alert({**BLIND, "current": "unknown"}) is None
+    assert cov.outdoor_blind_alert({**BLIND, "diag_unknown": 1}) is None  # a probe count missing, walls valid
+    assert cov.outdoor_blind_alert({**BLIND, "diag_rows": 2, "diag_short": 2}) is None
+    intake = {"current": "intake", "newest_age_s": 900.0, "intake_age_s": 4000.0}
+    assert cov.intake_only_alert(intake) is None
+
+
+def test_intake_only_warns_after_half_an_hour():
+    row = {"current": "intake", "newest_age_s": 60.0, "intake_age_s": 1900.0}
+    env = cov.intake_only_alert(row)
+    AlertEnvelope.model_validate(env)
+    assert env["severity"] == "warning"
+    assert cov.intake_only_alert({**row, "intake_age_s": 1700.0}) is None
+    assert cov.intake_only_alert({**row, "current": "station"}) is None
+
+
+FURNACE = {"known": True, "on_fraction": 0.95, "lo": 58.0, "house": 56.5, "house_rows": 10}
+
+
+def test_furnace_saturated_warns_only_on_both_legs():
+    env = cov.furnace_alert(FURNACE)
+    AlertEnvelope.model_validate(env)
+    assert env["severity"] == "warning" and env["sensor_id"] == "equipment.heat2"
+    assert cov.furnace_alert({**FURNACE, "on_fraction": 0.85}) is None
+    assert cov.furnace_alert({**FURNACE, "house": 57.2}) is None  # within 1 F of the band
+    assert cov.furnace_alert({**FURNACE, "known": False}) is None
+    assert cov.furnace_alert({**FURNACE, "house_rows": 2}) is None  # controller dark
+    assert cov.furnace_alert({**FURNACE, "lo": None}) is None
+
+
+def test_furnace_saturation_links_its_issue():
+    import inspect
+
+    assert "issues/1670" in inspect.getsource(cov)
