@@ -95,7 +95,6 @@ from tasks import (
     ingestor_heartbeat,
     irrigation_sync,
     matview_refresh,
-    planner_memory_ingest_sync,
     planning_heartbeat,
     readback_abs_tolerance,
     record_engine_capability,
@@ -4130,7 +4129,6 @@ async def task_loop(pool: asyncpg.Pool) -> None:
         ("alert_monitor", 300, alert_monitor),
         # #297: unavailable until measured saturation targets and alert adapter exist.
         ("soil_saturation_status", 3600, saturation_evaluation_status),
-        ("planner_memory_ingest", 300, planner_memory_ingest_sync),
         # Daily RAG-snapshot refresh: re-materialize the vault/docs corpus into
         # site_content so Iris retrieval doesn't silently drift stale (#43).
         # Read/embed side only — no device path. 86400s = daily cadence.
