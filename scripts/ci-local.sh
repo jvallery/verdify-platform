@@ -218,6 +218,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_action_log_policy_identity.py
     tests/test_moisture_state_boundary.py
     tests/test_anchor_service_sync.py
+    tests/test_gap_replay.py
     tests/test_api_light_command_boundary.py
     tests/test_api_public_output_policy.py
     tests/test_climate_intent_replay_evaluator.py

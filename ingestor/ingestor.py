@@ -34,6 +34,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import asyncpg
+import gap_replay
 import shared
 from aioesphomeapi import APIClient, APIConnectionError, LogLevel
 from aioesphomeapi.model import (
@@ -3353,6 +3354,11 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
             shared.policy_readback[POLICY_IDENTITY_SENSOR] = val
             return
 
+        # #1633 release 3: the gap-log replay lines (contracts gap-log section 9), never a system_state row.
+        if obj_id == gap_replay.GAP_REPLAY_SENSOR:
+            gap_replay.host.receive(val)
+            return
+
         if _record_diagnostic(obj_id, val, source_observed_at, native_generation if source_clock_valid else None):
             return
 
@@ -3797,6 +3803,13 @@ async def flush_loop(
                 except Exception as error:
                     shared.fail_setpoint_snapshot_publication()
                     log.error("setpoint_snapshot write error: %s", error)
+
+        # Gap-log replay passes the controller finished sending (each quarter in its own transaction).
+        if gap_replay.host.pending:
+            try:
+                await gap_replay.host.write_pending(pool)
+            except Exception as e:
+                log.error("gap replay write error: %s", e)
 
         # Equipment events (flush immediately)
         try:
