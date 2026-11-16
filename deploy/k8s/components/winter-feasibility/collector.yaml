@@ -22,7 +22,7 @@ metadata:
   name: verdify-winter-archive-init
   annotations:
     argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
   labels:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: winter-feasibility
