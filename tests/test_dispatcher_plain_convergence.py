@@ -28,7 +28,6 @@ import shared  # noqa: E402
 from esp32_push import DeviceCommandOutcome, PushBatchResult  # noqa: E402
 from tasks import (  # noqa: E402
     _common,
-    alerts,
     band_anchors,
     bounded_reconcile,
     c1_overlay,
@@ -37,7 +36,6 @@ from tasks import (  # noqa: E402
     drift_probe,
 )
 
-from verdify_schemas.alerts import AlertEnvelope  # noqa: E402
 from verdify_schemas.tunable_registry import (  # noqa: E402
     PLANNER_PUSHABLE_REG,
     REGISTRY,
@@ -523,98 +521,6 @@ async def test_refused_values_wake_only_until_each_was_sent_once(plain, caplog, 
         assert any("action=wait" in record.getMessage() for record in caplog.records)
 
 
-class AlertLog:
-    """alert_log rows that _sync_monitor_alerts reads and writes."""
-
-    def __init__(self) -> None:
-        self.rows: list[dict] = []
-        self.inserts = 0
-
-    async def fetch(self, sql, *_args):
-        assert "FROM alert_log" in sql
-        return [dict(row) for row in self.rows if row["resolved_at"] is None]
-
-    async def execute(self, sql, *args):
-        if sql.startswith("INSERT INTO alert_log"):
-            alert_type, severity, _category, sensor_id, _zone, message, details = args[:7]
-            self.inserts += 1
-            self.rows.append(
-                {
-                    "id": len(self.rows) + 1,
-                    "alert_type": alert_type,
-                    "severity": severity,
-                    "sensor_id": sensor_id,
-                    "disposition": "open",
-                    "resolved_at": None,
-                    "message": message,
-                    "details": json.loads(details),
-                }
-            )
-        elif "SET severity" in sql:
-            row = next(row for row in self.rows if row["id"] == args[5])
-            row["message"], row["details"] = args[1], json.loads(args[2])
-        elif "SET disposition" in sql:
-            row = next(row for row in self.rows if row["id"] == args[0])
-            row["disposition"], row["resolved_at"] = args[1], T0
-        else:
-            raise AssertionError(sql)
-
-
-@pytest.fixture
-def alert_log_only():
-    """#1352: the monitor has no sender; alert_log is its only delivery."""
-    assert not hasattr(alerts, "_load_token")
-
-
-async def _sync(log: AlertLog, stuck: dict | None, **kwargs) -> None:
-    await alerts._sync_monitor_alerts(
-        log,
-        [stuck] if stuck else [],
-        component_status_available=True,
-        component_closure_resolutions={},
-        **kwargs,
-    )
-
-
-@pytest.mark.asyncio
-async def test_settings_differing_sixteen_minutes_raise_stuck_once_and_resolve(plain, alert_log_only):
-    plan = _load(plain, PARAMS[:2])
-    plain.controller.refuses = set(plan)
-    await plain.run_pass()
-    assert set(shared.delivery_differing_since) == set(plan)
-
-    def stuck_alert():
-        return alerts._setpoint_delivery_stuck_alert(
-            shared.delivery_differing_since, shared.dispatcher_stage, plain.clock.now
-        )
-
-    plain.clock.advance(14 * 60)
-    assert stuck_alert() is None
-    plain.clock.advance(2 * 60)
-    await plain.run_pass()  # the 300 s cadence retries; still not taken
-    alert = stuck_alert()
-    envelope = AlertEnvelope.model_validate(alert)
-    assert envelope.alert_type == "setpoint_delivery_stuck" and envelope.sensor_id == "dispatcher"
-    assert (envelope.severity, envelope.category) == ("warning", "system")
-    assert envelope.message == "2 settings not reaching the controller since 12:00 UTC"
-    assert envelope.details["differing"] == 2 and envelope.details["params"] == sorted(plan)
-
-    log = AlertLog()
-    await _sync(log, alert)
-    plain.clock.advance(300)
-    await _sync(log, stuck_alert())  # still stuck: refreshed in place, not raised again
-    assert log.inserts == 1 and len(log.rows) == 1 and log.rows[0]["resolved_at"] is None
-
-    plain.controller.refuses.clear()
-    await plain.run_pass()
-    plain.controller.publish(plain.db)
-    plain.clock.advance(30)
-    await plain.run_pass()
-    assert shared.delivery_differing_since == {} and stuck_alert() is None
-    await _sync(log, stuck_alert())
-    assert log.rows[0]["disposition"] == "resolved" and log.inserts == 1
-
-
 @pytest.mark.asyncio
 async def test_clamped_and_experiment_held_settings_alone_raise_nothing(plain, monkeypatch):
     clamped = next(p for p, _d, _n in PARAMS if (_common._PHYSICS_INVARIANTS.get(p) or (None, None))[1] is not None)
@@ -633,10 +539,6 @@ async def test_clamped_and_experiment_held_settings_alone_raise_nothing(plain, m
     plain.clock.advance(16 * 60)
     await plain.run_pass()
     assert shared.delivery_differing_since == {}
-    assert (
-        alerts._setpoint_delivery_stuck_alert(shared.delivery_differing_since, shared.dispatcher_stage, plain.clock.now)
-        is None
-    )
 
 
 @pytest.mark.asyncio
@@ -729,8 +631,6 @@ async def test_stage_records_heap_lease_and_c1_holds_and_writes_only_on_change(p
     plain.clock.advance(300)
     await plain.run_pass()
     assert plain.controller.sent == [] and plain.db.stage_rows[-1] == "held:c1"
-    old = {param: plain.clock.now - timedelta(hours=1) for param in plan}
-    assert alerts._setpoint_delivery_stuck_alert(old, "held:c1", plain.clock.now) is None
 
     monkeypatch.setattr(dispatcher.c1_overlay, "choose", real_choose)
     plain.clock.advance(300)
@@ -883,91 +783,6 @@ def test_paced_order_is_oldest_difference_first_then_name(monkeypatch):
     assert [name for name, _value in left] == [names[12]] and not wake
 
 
-@pytest.mark.asyncio
-async def test_unknown_dispatcher_state_keeps_an_open_stuck_alert(alert_log_only):
-    log = AlertLog()
-    alert = alerts._setpoint_delivery_stuck_alert({"temp_low": T0}, "paced 1/2", T0 + timedelta(minutes=20))
-    assert alert["message"] == "1 setting not reaching the controller since 12:00 UTC"
-    await _sync(log, alert)
-    # Before this process's first dispatcher pass nothing is known: keep it open.
-    await _sync(log, None, preserve_open_types=alerts._setpoint_delivery_stuck_preserved({}, None))
-    assert log.rows[0]["resolved_at"] is None
-    await _sync(log, None, preserve_open_types=alerts._setpoint_delivery_stuck_preserved({}, "ordinary"))
-    assert log.rows[0]["disposition"] == "resolved"
-
-
-@pytest.mark.asyncio
-async def test_stuck_alert_stays_open_across_a_restart_until_none_differ(plain, alert_log_only):
-    plan = _load(plain, PARAMS[:2])
-    plain.controller.refuses = set(plan)
-    await plain.run_pass()
-    plain.clock.advance(16 * 60)
-    await plain.run_pass()
-    log = AlertLog()
-
-    async def monitor_cycle():
-        await _sync(
-            log,
-            alerts._setpoint_delivery_stuck_alert(
-                shared.delivery_differing_since, shared.dispatcher_stage, plain.clock.now
-            ),
-            preserve_open_types=alerts._setpoint_delivery_stuck_preserved(
-                shared.delivery_differing_since, shared.dispatcher_stage
-            ),
-        )
-
-    await monitor_cycle()
-    assert log.inserts == 1 and log.rows[0]["resolved_at"] is None
-
-    # An ingestor restart forgets since when the settings differ. They still
-    # differ, so the open alert neither resolves nor is raised a second time.
-    shared.delivery_differing_since.clear()
-    shared.dispatcher_stage = None
-    dispatcher._last_pushed.clear()
-    dispatcher._last_sent_at.clear()
-    await monitor_cycle()  # before the new process's first pass
-    plain.controller.connect({param: device for param, device, _plan in PARAMS[:2]})
-    plain.clock.advance(60)
-    await plain.run_pass()
-    assert set(shared.delivery_differing_since) == set(plan)
-    await monitor_cycle()  # differing for one minute in this process: kept open
-    assert log.inserts == 1 and log.rows[0]["resolved_at"] is None
-    plain.clock.advance(16 * 60)
-    await plain.run_pass()
-    await monitor_cycle()  # stuck again in this process: refreshed in place
-    assert log.inserts == 1 and log.rows[0]["resolved_at"] is None
-
-    # The C1 overlay holding the pass on purpose resolves it.
-    assert alerts._setpoint_delivery_stuck_preserved(shared.delivery_differing_since, "held:c1") == frozenset()
-
-    plain.controller.refuses.clear()
-    plain.clock.advance(300)
-    await plain.run_pass()
-    plain.controller.publish(plain.db)
-    plain.clock.advance(30)
-    await plain.run_pass()
-    assert shared.delivery_differing_since == {}
-    await monitor_cycle()
-    assert log.rows[0]["disposition"] == "resolved" and log.inserts == 1
-
-
-def test_stuck_alert_lists_at_most_twenty_settings():
-    differing = {f"param_{index:02d}": T0 - timedelta(minutes=30) for index in range(25)}
-    alert = alerts._setpoint_delivery_stuck_alert(differing, "ordinary", T0)
-    assert alert["details"]["differing"] == 25 and len(alert["details"]["params"]) == 20
-    AlertEnvelope.model_validate(alert)
-    with pytest.raises(ValueError):
-        AlertEnvelope.model_validate({**alert, "details": {**alert["details"], "params": [f"p{i}" for i in range(21)]}})
-
-
-def test_alert_monitor_raises_the_stuck_alert_from_shared_state():
-    source = (ROOT / "ingestor" / "tasks" / "alerts.py").read_text()
-    monitor = source[source.index("async def alert_monitor(") : source.index("async def _sync_monitor_alerts(")]
-    assert "_setpoint_delivery_stuck_alert(" in monitor
-    assert "preserve_open_types=_setpoint_delivery_stuck_preserved(" in monitor
-    assert "shared.delivery_differing_since" in monitor and "shared.dispatcher_stage" in monitor
-
-
 def _connect_with_replay_held_back(env, held_back: frozenset[str]) -> dict[str, float]:
     """A connection whose readback replay never delivers ``held_back``."""
     values = {param: device for param, device, _plan in PARAMS[:2]} | SAFETY_READBACKS
@@ -981,8 +796,9 @@ def _connect_with_replay_held_back(env, held_back: frozenset[str]) -> dict[str, 
 
 
 @pytest.mark.asyncio
-async def test_blocked_readbacks_record_a_stage_and_raise_the_stuck_alert(plain):
-    """#1275: the replay gate returned before any stage row and any delivery entry: a silent freeze."""
+async def test_blocked_readbacks_record_a_stage_and_a_delivery_entry(plain):
+    """#1275: the replay gate returned before any stage row and any delivery entry: a silent freeze. The stuck
+    alert itself reads the database since #1636 (tests/test_climate_alerts_1_3.py)."""
     missing = PARAMS[0][0]
     values = _connect_with_replay_held_back(plain, frozenset({missing}))
 
@@ -992,45 +808,24 @@ async def test_blocked_readbacks_record_a_stage_and_raise_the_stuck_alert(plain)
     since = plain.clock.now
     assert shared.delivery_differing_since == {missing: since}
 
-    def stuck_alert():
-        return alerts._setpoint_delivery_stuck_alert(
-            shared.delivery_differing_since, shared.dispatcher_stage, plain.clock.now
-        )
-
-    # Normal for a few minutes after a connect: nothing is raised yet.
-    plain.clock.advance(14 * 60)
+    plain.clock.advance(16 * 60)
     await plain.run_pass()
-    assert stuck_alert() is None
     assert plain.db.stage_rows == ["held:readbacks"], "one row per stage change, however many passes"
-
-    plain.clock.advance(2 * 60)
-    await plain.run_pass()
-    envelope = AlertEnvelope.model_validate(stuck_alert())
-    assert envelope.alert_type == "setpoint_delivery_stuck" and envelope.details["params"] == [missing]
-    assert envelope.message == "1 setting not reaching the controller since 12:00 UTC"
-    assert alerts._setpoint_delivery_stuck_preserved(shared.delivery_differing_since, shared.dispatcher_stage) == {
-        "setpoint_delivery_stuck"
-    }
+    assert shared.delivery_differing_since == {missing: since}
 
     # The replay completes: the next pass names its real stage and the entry leaves by itself.
     shared.note_cfg_readback_observed(missing, values[missing], plain.controller.generation)
     await plain.run_pass()
     assert plain.db.stage_rows == ["held:readbacks", "ordinary"] and shared.delivery_differing_since == {}
-    assert stuck_alert() is None
-    assert alerts._setpoint_delivery_stuck_preserved(shared.delivery_differing_since, "ordinary") == frozenset()
 
 
 @pytest.mark.asyncio
-async def test_a_connection_with_no_readback_inventory_alerts_instead_of_freezing_silently(plain):
+async def test_a_connection_with_no_readback_inventory_is_recorded_instead_of_freezing_silently(plain):
     plain.db.plan = {}
     shared.note_transport_connected(frozenset())  # stays unready for good, with nothing "missing"
     await plain.run_pass()
     assert plain.db.stage_rows == ["held:readbacks"]
-    plain.clock.advance(16 * 60)
-    envelope = AlertEnvelope.model_validate(
-        alerts._setpoint_delivery_stuck_alert(shared.delivery_differing_since, shared.dispatcher_stage, plain.clock.now)
-    )
-    assert envelope.details["params"] == [dispatcher.NO_READBACK_INVENTORY] and envelope.details["differing"] == 1
+    assert set(shared.delivery_differing_since) == {dispatcher.NO_READBACK_INVENTORY}
 
 
 @pytest.mark.asyncio

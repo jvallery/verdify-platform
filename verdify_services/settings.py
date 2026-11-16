@@ -37,6 +37,7 @@ import asyncpg
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from verdify_schemas.activity import ActivityLogRow
+from verdify_schemas.band_profile import HOUSE_PARAMS
 from verdify_schemas.band_rows import BandRows, band_rows, rows_in_force
 from verdify_schemas.policy_vector import wire_fields
 from verdify_schemas.setting_help import SettingHelp, setting_help, setting_label, source_params
@@ -49,6 +50,7 @@ from verdify_schemas.setting_values import (
     snap_setting,
 )
 from verdify_schemas.tunable_registry import (
+    OWNER_ONLY_PARAMS,
     REGISTRY,
     SWITCH_READBACK_EQUIPMENT,
     TunableDef,
@@ -1171,6 +1173,19 @@ async def _check_writable(
     return spec, facts, target, anchor_ids
 
 
+def check_owner(actor: Actor, param: str) -> None:
+    """Only the owner writes or releases an ``OWNER_ONLY_PARAMS`` setting (the band rows and the drying cost limit):
+    a signed-in dashboard operator. Any other actor (an MCP agent, Iris, the system) is refused with ``forbidden``."""
+    if param in OWNER_ONLY_PARAMS and not (actor.source == "dashboard" and actor.role == "operator"):
+        raise ServiceError(
+            problem(
+                "forbidden",
+                f"Only the owner sets {setting_label(param)}, from the dashboard; {actor.source} may not",
+                field="param",
+            )
+        )
+
+
 def _check_manual(actor: Actor, spec: TunableDef, facts: _Facts) -> None:
     """§5.3 step 3: Iris never overwrites or releases a value a person holds manual (Q-02)."""
     desired = facts.desired
@@ -1234,6 +1249,7 @@ def _snap(spec: TunableDef, number: float, facts: _Facts) -> float:
 
 async def _validate(conn: asyncpg.Connection, actor: Actor, param: str, value: object) -> _Checked:
     spec, facts, target, anchor_ids = await _check_writable(conn, param)
+    check_owner(actor, param)
     current = _current(spec, facts)
     number = _check_value(spec, value, current)
     _check_manual(actor, spec, facts)
@@ -1255,6 +1271,7 @@ async def validate(conn: asyncpg.Connection, actor: Actor, param: str, value: fl
 
     1. Known and writable (``unknown_target``; ``read_only`` with the reason, a crop-band setting included
        while ``crop_band_anchors`` holds none of its rows).
+    1a. Owner only: a band row or the drying cost limit from anyone but a dashboard operator (``forbidden``).
     2. Type and range (``out_of_range`` with ``min`` and ``max``).
     3. Manual: an ``iris`` write to a setting whose newest row is manual (``manual``).
     4. Snap to the registry step, half to even, unless the value equals the value in force or the device
@@ -1435,9 +1452,21 @@ async def write(
     request = {"value": _hashable(value), "manual": flag, "reason": reason}
 
     async def perform(tx: asyncpg.Connection) -> tuple[DesiredSetting, dict[str, Any]]:
+        if param in HOUSE_PARAMS:
+            # The house band lock before the setting's own lock, in the same order as the band editor's Save, so the
+            # two never deadlock; check_stored below then sees every band write committed before this one.
+            from verdify_services import band_profile
+
+            await tx.execute(band_profile.HOUSE_BAND_LOCK_SQL)
         checked, row, anchor_rows, stored = await write_in_transaction(
             tx, actor, param, value, flag, reason, expected_id
         )
+        if param in HOUSE_PARAMS and anchor_rows:
+            # The band editor's checks hold for one anchor too (climate refactor plan 4.1). Imported here because
+            # band_profile imports this module.
+            from verdify_services import band_profile
+
+            await band_profile.check_stored(tx)
         detail: dict[str, Any] = {
             **extra,
             "ref": {"table": "desired_state", "id": row["id"]},
@@ -1487,6 +1516,7 @@ async def release(
     async def perform(tx: asyncpg.Connection) -> tuple[DesiredSetting, dict[str, Any]]:
         await _lock_and_guard(tx, param, expected_id)
         spec, facts, _target, _ids = await _check_writable(tx, param)
+        check_owner(actor, param)
         _check_manual(actor, spec, facts)
         manual_before = bool(facts.desired is not None and facts.desired["manual"])
         current = _current(spec, facts)

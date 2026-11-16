@@ -62,14 +62,19 @@ AlertType = Literal[
     "heap_pressure_critical",
     "heap_pressure_warning",
     "heat_manual_override",
+    "heat_no_power",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
+    "law_constants_mismatch",
     "leak_detected",
+    "payload_rejected",
     "lighting_cfg_threshold_drift",
     "climate_action_proof_stale",
+    "clock_unconfirmed",
     "component_experiment_integrity",
     "plan_context_failed",
+    "plan_not_delivered",
     "planner_band_ownership_drift",
     "planner_evaluation_missed",
     "planner_gateway_delivery_failed",
@@ -81,6 +86,7 @@ AlertType = Literal[
     "planner_tunable_range_drift",
     "relay_stuck",
     "safety_invalid",
+    "sensor_fault",
     "sensor_offline",
     "setpoint_delivery_stuck",
     "setpoint_unconfirmed",
@@ -117,14 +123,19 @@ ALERT_TYPES: tuple[str, ...] = (
     "heap_pressure_critical",
     "heap_pressure_warning",
     "heat_manual_override",
+    "heat_no_power",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
+    "law_constants_mismatch",
     "leak_detected",
+    "payload_rejected",
     "lighting_cfg_threshold_drift",
     "climate_action_proof_stale",
+    "clock_unconfirmed",
     "component_experiment_integrity",
     "plan_context_failed",
+    "plan_not_delivered",
     "planner_band_ownership_drift",
     "planner_evaluation_missed",
     "planner_gateway_delivery_failed",
@@ -136,6 +147,7 @@ ALERT_TYPES: tuple[str, ...] = (
     "planner_tunable_range_drift",
     "relay_stuck",
     "safety_invalid",
+    "sensor_fault",
     "sensor_offline",
     "setpoint_delivery_stuck",
     "setpoint_unconfirmed",
@@ -181,6 +193,8 @@ class _ProbeOfflineLifecycle(_DetailsBase):
 class SensorOfflineDetails(_ProbeOfflineLifecycle):
     type: str
     staleness_ratio: float | None = None
+    # One row per silent device (#1664): the registry sensors of that device that are stale.
+    columns: list[str] | None = None
 
 
 class IrrigationFeedbackGapDetails(_DetailsBase):
@@ -249,6 +263,26 @@ class VentMoistureCapacityLimitDetails(_DetailsBase):
 
 class TempSafetyDetails(_DetailsBase):
     temp_f: float
+
+
+class SensorFaultDetails(_DetailsBase):
+    """The controller's SENSOR_FAULT state (climate refactor decision 7, RULINGS B1): no valid indoor reading, so it
+    acts on the outdoor air alone. The branch shows in ``outdoor_source`` (``none`` is the off branch) and in the
+    relays on (vent and the lead fan, or heat1 alone, or nothing); ``mode_reason`` is the controller's, unchanged."""
+
+    since: AwareDatetime
+    mode_reason: str | None = None
+    outdoor_source: str | None = None
+    relays_on: list[str] = Field(default_factory=list)
+
+
+class LawConstantsMismatchDetails(_DetailsBase):
+    """The controller's compiled climate-law constants (``climate_law_constants``, phase 3 firmware) differ from the
+    constants of the host's own revision: ``reported`` and ``expected`` are SHA-256 hex digests."""
+
+    reported: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reported_at: AwareDatetime
 
 
 class VpdExtremeDetails(_DetailsBase):
@@ -398,6 +432,15 @@ class SafetyInvalidDetails(_DetailsBase):
 
 class HeatManualOverrideDetails(_DetailsBase):
     watts: int = Field(..., ge=0)
+    samples: int | None = Field(default=None, ge=1)
+
+
+class HeatNoPowerDetails(_DetailsBase):
+    # heat1 commanded on for at least 15 min while every fresh heater-circuit sample of that window read
+    # below 500 W (#1637). ``on_since`` is heat1's newest on event; ``max_watts`` the highest fresh sample.
+    on_since: AwareDatetime
+    samples: int = Field(..., ge=1)
+    max_watts: float = Field(..., ge=0)
 
 
 class SoilSensorOfflineDetails(_ProbeOfflineLifecycle):
@@ -535,12 +578,26 @@ class SetpointUnconfirmedDetails(_DetailsBase):
 
 
 class SetpointDeliveryStuckDetails(_DetailsBase):
-    # Plain convergence (VD-62): settings whose outgoing value has differed
-    # from the controller's readback for more than 15 min. Clamped and
-    # experiment-policy-held settings are left out by the dispatcher.
+    # Settings whose newest requested value (setpoint_changes) has differed from the controller's
+    # readback (setpoint_snapshot) for more than 15 min; critical after 45 min (#1636). Read from
+    # database tables only.
     differing: int = Field(..., ge=1)
     params: list[str] = Field(..., min_length=1, max_length=20)
     oldest_since: AwareDatetime
+
+
+class PlanNotDeliveredDetails(_DetailsBase):
+    # The newest setpoint_plan is older than 30 min and no plan or band setpoint_changes row was confirmed
+    # after it (#1636; interim, removed when plans end).
+    plan_created_at: AwareDatetime
+    last_confirmed_at: AwareDatetime | None = None
+
+
+class ClockUnconfirmedDetails(_DetailsBase):
+    # The controller's clock (#1638): the median of controller_time_epoch minus the row time over the last
+    # 10 min, and whether every diagnostics row of the last 30 min reported sntp_valid 0.
+    offset_s: float | None = None
+    sntp_invalid_30m: bool
 
 
 class ESP32PushFailedDetails(_DetailsBase):
@@ -570,9 +627,12 @@ class BandDeviceDbDivergenceDetails(_DetailsBase):
     # The device's resolved on-chip band drifted from the DB-served band beyond
     # the firmware-approximation tolerance, or the device band readback is stale
     # (data-path review issue 2; from v_band_device_divergence).
-    max_temp_abs_diff: float = Field(..., ge=0)
-    max_vpd_abs_diff: float = Field(..., ge=0)
+    # The edge differences are NULL in on-chip mode (migration 250); the served temperature target
+    # difference is the input that reads there (#1638).
+    max_temp_abs_diff: float | None = Field(default=None, ge=0)
+    max_vpd_abs_diff: float | None = Field(default=None, ge=0)
     device_age_s: float = Field(..., ge=0)
+    temp_target_abs_diff: float | None = Field(default=None, ge=0)
 
 
 class PlanContextFailedDetails(_DetailsBase):
@@ -657,6 +717,32 @@ class VentMoistureCapacityLimitAlert(_AlertBase):
 class TempSafetyAlert(_AlertBase):
     alert_type: Literal["temp_safety"]
     details: TempSafetyDetails
+
+
+class PayloadRejectedDetails(_DetailsBase):
+    """A versioned JSON payload from the controller (``relay_counters``, ``climate_law_state``,
+    ``climate_drying_meter``, ``climate_law_constants``) has failed its contract on every receipt since ``since``,
+    so nothing of it is stored; ``rejections`` counts them. A law build whose state record is rejected reads as
+    "law not running"."""
+
+    entity: str
+    since: AwareDatetime
+    rejections: int = Field(ge=1)
+
+
+class PayloadRejectedAlert(_AlertBase):
+    alert_type: Literal["payload_rejected"]
+    details: PayloadRejectedDetails
+
+
+class LawConstantsMismatchAlert(_AlertBase):
+    alert_type: Literal["law_constants_mismatch"]
+    details: LawConstantsMismatchDetails
+
+
+class SensorFaultAlert(_AlertBase):
+    alert_type: Literal["sensor_fault"]
+    details: SensorFaultDetails
 
 
 class VpdExtremeAlert(_AlertBase):
@@ -758,6 +844,11 @@ class HeatManualOverrideAlert(_AlertBase):
     details: HeatManualOverrideDetails
 
 
+class HeatNoPowerAlert(_AlertBase):
+    alert_type: Literal["heat_no_power"]
+    details: HeatNoPowerDetails
+
+
 class SoilSensorOfflineAlert(_AlertBase):
     alert_type: Literal["soil_sensor_offline"]
     details: SoilSensorOfflineDetails
@@ -826,6 +917,16 @@ class SetpointUnconfirmedAlert(_AlertBase):
 class SetpointDeliveryStuckAlert(_AlertBase):
     alert_type: Literal["setpoint_delivery_stuck"]
     details: SetpointDeliveryStuckDetails
+
+
+class PlanNotDeliveredAlert(_AlertBase):
+    alert_type: Literal["plan_not_delivered"]
+    details: PlanNotDeliveredDetails
+
+
+class ClockUnconfirmedAlert(_AlertBase):
+    alert_type: Literal["clock_unconfirmed"]
+    details: ClockUnconfirmedDetails
 
 
 class ESP32PushFailedAlert(_AlertBase):
@@ -1001,9 +1102,12 @@ AlertEnvelopeUnion = Annotated[
     | HeapPressureCriticalAlert
     | HeapPressureWarningAlert
     | HeatManualOverrideAlert
+    | HeatNoPowerAlert
     | HeatStagingInversionAlert
     | HouseBandDriftAlert
     | IrrigationFeedbackGapAlert
+    | LawConstantsMismatchAlert
+    | PayloadRejectedAlert
     | LeakDetectedAlert
     | LightingCfgThresholdDriftAlert
     | ClimateActionProofStaleAlert
@@ -1020,8 +1124,11 @@ AlertEnvelopeUnion = Annotated[
     | PlannerTunableRangeDriftAlert
     | RelayStuckAlert
     | SafetyInvalidAlert
+    | SensorFaultAlert
     | SensorOfflineAlert
     | SetpointDeliveryStuckAlert
+    | PlanNotDeliveredAlert
+    | ClockUnconfirmedAlert
     | SetpointUnconfirmedAlert
     | SiteContentStaleAlert
     | SoilDryoutAlert

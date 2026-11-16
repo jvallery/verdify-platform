@@ -1,0 +1,229 @@
+{
+  "migration": "311-one-compliance-definition.sql",
+  "final_migration_qualification_pending": false,
+  "before": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "projected_successor": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "projection": "2026-11-16, read only, production at exact309 (310 is seal-neutral). daily_band_compliance is verdify's with relacl NULL, so no digest takes it in, and a column and a CHECK move none. v_daily_scorecard is granted to verdify_dashboard_runtime alone (not an api, ingestor or MCP role), and 290 replaced it without moving a seal. fn_band_full_cooling_min is created verdify's with PUBLIC EXECUTE revoked in the same transaction; fn_band_compliance_store is replaced in place and keeps its ACL. All three seals are expected to stay 309's. Read only on production, 2026-11-16: band_house_* audit rows start 2026-08-13 00:01Z; fn_band_compliance_day for 2026-08-13..08-31 grades every day 1440 minutes with 0 to 50 reconstructed, both-in-band 16 to 66 % (mean about 44 %) against legacy daily_summary 10 to 32 %; the capacity function gives 2026-09-04 295 of 420 minutes above, 2026-09-08 285 of 535, 2026-11-11 0, in about 1.3 s for a hot day and 0.4 s for a winter day; daily_band_compliance 2026-11-11 holds night_dryout_min 210. If the probe shows any digest moved, stop. Otherwise run scripts/qualify-migration-successor.py db/migrations/311-one-compliance-definition.sql (with --apply-first db/migrations/310-daily-record.sql while production is at 309) --native-fixture db/qualification/311-one-compliance-definition-fixture.sql --fixture tests/fixtures/311-one-compliance-definition-native-qualification.json.",
+  "measured_at": "2026-11-16T17:07:47Z",
+  "qualified_successor": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "after_rollback": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "exact_final_migration_sha256": "b53904cde320fc4a2543017c4d5733bc31528fd4a4c57e8c68e940b394c935f7",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "e698c48e36c1dda97a6120dbf7aa9f88c94d3e58a3bae5100e8e6aed9ada96d8",
+  "qualification_source_sha256": "d82e336c7531dbc8723636f89491cf2cd41264583b8b92c3d0a27429fd344699",
+  "applied_first": [
+    {
+      "migration": "310-daily-record.sql",
+      "seq": 310,
+      "sha256": "2f0aa50d6ff2401cc08e734214ca73fdac0ea279a495b1846f2b37fdabe3acd1"
+    }
+  ],
+  "applied_first_seals": {
+    "api": "f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e",
+    "ingestor": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
+    "mcp": "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+  },
+  "prelock": [
+    [
+      "public.daily_band_compliance",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.greenhouses",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.mcp_runtime_boundary_receipt",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.runtime_ordinary_login_attestation_receipts",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.schema_migrations",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.v_daily_scorecard",
+      "ACCESS EXCLUSIVE"
+    ]
+  ],
+  "native_fixture": {
+    "checks": [
+      "refresh_login_attests",
+      "refresh_runs",
+      "no_break_from_08_20",
+      "august_graded_on_audit_rows",
+      "summary_copied",
+      "august_mean_served_band",
+      "capacity_filled_and_bounded",
+      "capacity_2026_09_04",
+      "capacity_2026_09_08",
+      "capacity_zero_without_heat",
+      "dashboard_login_attests",
+      "dashboard_login_reads_every_column",
+      "night_minutes_2026_11_11"
+    ],
+    "refreshed_days": 2,
+    "first_stored_day": "2026-08-13",
+    "august": [
+      [
+        "2026-08-13",
+        39.6,
+        0,
+        520,
+        15
+      ],
+      [
+        "2026-08-14",
+        16.3,
+        0,
+        245,
+        35
+      ],
+      [
+        "2026-08-15",
+        30.6,
+        0,
+        55,
+        0
+      ],
+      [
+        "2026-08-16",
+        33.7,
+        0,
+        235,
+        90
+      ],
+      [
+        "2026-08-17",
+        28.1,
+        0,
+        240,
+        125
+      ],
+      [
+        "2026-08-18",
+        51,
+        40,
+        370,
+        185
+      ],
+      [
+        "2026-08-19",
+        43.8,
+        0,
+        275,
+        90
+      ],
+      [
+        "2026-08-20",
+        33.3,
+        0,
+        445,
+        275
+      ],
+      [
+        "2026-08-21",
+        42.7,
+        0,
+        515,
+        270
+      ],
+      [
+        "2026-08-22",
+        45.5,
+        0,
+        415,
+        370
+      ],
+      [
+        "2026-08-23",
+        45.1,
+        0,
+        315,
+        175
+      ],
+      [
+        "2026-08-24",
+        64.2,
+        0,
+        195,
+        85
+      ],
+      [
+        "2026-08-25",
+        59.7,
+        0,
+        55,
+        0
+      ],
+      [
+        "2026-08-26",
+        49.3,
+        0,
+        50,
+        10
+      ],
+      [
+        "2026-08-27",
+        40.6,
+        0,
+        60,
+        25
+      ],
+      [
+        "2026-08-28",
+        55.9,
+        0,
+        235,
+        75
+      ],
+      [
+        "2026-08-29",
+        40.3,
+        50,
+        705,
+        310
+      ],
+      [
+        "2026-08-30",
+        66.3,
+        10,
+        70,
+        0
+      ],
+      [
+        "2026-08-31",
+        65.3,
+        0,
+        55,
+        5
+      ]
+    ],
+    "all_passed": true,
+    "attested": {
+      "matview_refresh": true,
+      "dashboard": true
+    }
+  },
+  "native_fixture_sha256": "3f10a8a21995094ffaebbf3ca884b3b8c3ac6983dec37b092ac0af2a1988156d"
+}

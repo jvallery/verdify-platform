@@ -5422,7 +5422,10 @@ async def set_setting(
     Refusals are Problem JSON with isError: `unknown_target`; `read_only` with the reason; `out_of_range` with min,
     max and current; `manual` when Iris writes or releases a setting whose newest row is manual (a person's value
     stays; other agents' writes win); `request_id_reused` when the same request_id carries another payload;
-    `invalid_request` when request_id or trigger_id is not a UUID; `forbidden` when the call has no resolved caller.
+    `invalid_request` when request_id or trigger_id is not a UUID; `forbidden` when the call has no resolved caller,
+    and for an owner-only setting, which only the owner sets from the dashboard: the band rows, the zone VPD curves,
+    the zone priorities, the manual override timeout and the drying cost limit (get_settings still lists them as
+    writable, because the owner can write them).
 
     trigger_id and planner_instance only annotate the activity log; it does not count as your plan for a trigger:
     Iris still ends every trigger with set_plan or acknowledge_trigger."""
@@ -5629,8 +5632,10 @@ async def band_profile_preview(
     temperature field recompiles the temperature series with sunrise and sunset at the midpoint of noon and midnight,
     any VPD field the VPD series; anchors then override single raw anchors. Returns current and draft (profile, anchors,
     simple), changed (the anchors a Save would write), both curves over the day at 10-min steps of t, vpd.device (the
-    draft with the controller's night bias), findings (error: band_order, guardrail, night_floor, the 0.74 kPa night
-    dry-out floor; warning: overshoot, dewpoint_unreached), the night heat estimate for both, the expected night VPD,
+    draft with the controller's night bias), findings (error: band_order, guardrail, band_width (narrower than the
+    control law's minimum widths anywhere in the day), night_floor (the law's drying line, vpd_low plus its drying
+    margin, under the night floor anywhere in the night; guardrails carries the numbers); warning: overshoot,
+    dewpoint_unreached), the night heat estimate for both, the expected night VPD,
     measured (the last 24 h of the house average on t) and forecast (outdoor). Unknown values are null, never 0.
 
     There is no band write tool: the band is operator-owned and is saved on the dashboard (Control → Band). Refusals

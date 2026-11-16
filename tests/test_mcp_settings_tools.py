@@ -1080,6 +1080,16 @@ def test_a_refused_set_tunable_appends_nothing(server, planner_conn):
     assert planner_conn.activity_rows() == []
 
 
+@pytest.mark.parametrize("parameter", ["dry_cost_limit_kwh_per_kg", "band_temp_low_sr", "band_vpd_low_mid"])
+def test_set_tunable_refuses_the_owner_only_settings(server, planner_conn, parameter):
+    """Climate refactor 1.5b: an agent's set_tunable to the drying cost limit or a band row writes nothing."""
+    for actor in (iris(server), steward(server)):
+        reply = call_set_tunable(server, actor, parameter=parameter, value=0.7 if "cost" in parameter else 1.0)
+        assert reply["error"] == f"'{parameter}' is not planner-pushable in the tunable registry"
+        assert parameter not in reply["allowed"]
+    assert planner_conn.activity_rows() == [] and planner_conn.plan_rows() == []
+
+
 def transitions(server) -> str:
     intent = server.ClimateIntent().model_dump(mode="json")
     start = datetime.now(UTC) - timedelta(minutes=1)

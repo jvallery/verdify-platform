@@ -30,7 +30,7 @@ from verdify_schemas.tunable_registry import (
     ZONE_VPD_TARGET_PARAMS,
     desired_write_rule,
 )
-from verdify_services import activity, reads, settings
+from verdify_services import activity, reads, series, settings
 from verdify_services.actor import Actor
 from verdify_services.irrigation import program
 from verdify_services.problems import ServiceError
@@ -74,6 +74,9 @@ class FakeTransaction:
         self.db = db
 
     async def __aenter__(self):
+        if self.db.depth == 0:
+            self.db.tx_locks = 0
+            self.db.band_locked = False
         self.db.depth += 1
         self.saved = copy.deepcopy(self.db.state())
         return self
@@ -94,6 +97,8 @@ class FakeDB:
         self.climate_at: datetime | None = ago(seconds=60)
         self.armed: uuid.UUID | None = None
         self.locks: list[tuple] = []
+        self.band_locked = False
+        self.tx_locks = 0
         self.season = "fall"
         self.desired: list[dict] = []
         self.plans: list[dict] = []
@@ -181,10 +186,17 @@ class FakeDB:
         return rows[0] if rows else None
 
     async def execute(self, sql, *args):
-        # the per-setting write lock every desired_state write takes first (#1360); only inside a transaction
-        assert sql == settings._PARAM_LOCK_SQL and self.depth > 0, sql
+        # the per-setting write lock every desired_state write takes first (#1360), and for a house band anchor the
+        # house band lock before it (#1633 package 1.6); only inside a transaction
+        assert sql in (settings._PARAM_LOCK_SQL, "SELECT pg_advisory_xact_lock(hashtext('verdify.house_band'))"), sql
+        assert self.depth > 0, sql
         self.sql.append(sql)
-        self.locks.append(args)
+        if sql == settings._PARAM_LOCK_SQL:
+            self.locks.append(args)
+            self.tx_locks += 1
+        else:
+            assert not self.tx_locks or self.band_locked, "the house band lock comes before the setting's lock"
+            self.band_locked = True
         return "SELECT 1"
 
     async def fetchval(self, sql, *args):
@@ -335,6 +347,13 @@ class FakeDB:
             return out
         if sql == settings._ANCHOR_ROWS_SQL:
             return [{k: row[k] for k in ("id", "crop_type", "series", "anchor", "season")} for row in self.anchors]
+        if sql == series.ANCHOR_ROWS_SQL:
+            _, crop, wanted = args
+            return [
+                {**row, "current_season": self.season}
+                for row in self.anchors
+                if row["crop_type"] == crop and row["series"] in wanted and row["season"] in (self.season, "all")
+            ]
         if sql.startswith("UPDATE crop_band_anchors SET "):
             assert self.depth > 0
             column = sql.removeprefix("UPDATE crop_band_anchors SET ").split(" ", 1)[0]
@@ -1106,7 +1125,7 @@ def test_a_band_value_write_moves_the_current_season_rows_only_and_names_them():
 def test_a_width_write_moves_that_column_on_all_four_rows_at_the_best_score():
     db = FakeDB()
     rows = orchid_rows(db)
-    write(db, AGENT, "zone_vpd_width_below_center", 0.25, False)
+    write(db, PERSON, "zone_vpd_width_below_center", 0.25, False)
     assert {key: row["width_below"] for key, row in rows.items()} == {
         **{("all", a): 0.20 for a in ("sr", "sm", "ss", "mid")},
         **{("fall", a): 0.25 for a in ("sr", "sm", "ss", "mid")},

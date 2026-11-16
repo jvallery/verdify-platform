@@ -276,9 +276,9 @@ def test_stale_sensor_flaps_keep_one_row_but_the_forecast_feed_keeps_its_lifecyc
     ns = load_alert_lifecycle()
     log = AlertLog(local(0, 8))
     for day in range(5):
-        cycle(ns, log, local(day, 8), extra=[stale_sensor("climate.hydro_ph", "hydroponic"), forecast_stale()])
+        cycle(ns, log, local(day, 8), extra=[stale_sensor("device.hydro_probe", "hydroponic"), forecast_stale()])
         cycle(ns, log, local(day, 9))
-    [hydro] = log.of("sensor_offline", "climate.hydro_ph")
+    [hydro] = log.of("sensor_offline", "device.hydro_probe")
     assert hydro["details"]["count"] == 5 and seen(hydro) == local(4, 8)
     assert hydro["resolution"] == "auto-resolved: probe reporting again"
     forecast = log.of("sensor_offline", "system.weather_forecast")

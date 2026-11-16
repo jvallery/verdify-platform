@@ -406,6 +406,8 @@ def test_registry_bindings_follow_the_issue():
         "daily.vpd_below_band_pct": None,
         "daily.vpd_in_band_day_pct": None,
         "daily.vpd_in_band_night_pct": None,
+        "daily.night_dryout_min": None,
+        "daily.temp_above_full_cooling_min": None,
         "daily.water_gal": "water_reason",
         "daily.iris_required_written": None,
         "daily.iris_required_missed": None,
@@ -444,8 +446,8 @@ def test_target_deltas_read_as_the_distance_from_target():
 
 
 def test_the_scorecard_view_has_every_bound_column():
-    # The newest definition of the view: 290 replaced 285's (#1358).
-    sql = (ROOT / "db/migrations/290-band-compliance.sql").read_text()
+    # The newest definition of the view: 290 replaced 285's (#1358), 311 appended two columns (#1667).
+    sql = (ROOT / "db/migrations/311-one-compliance-definition.sql").read_text()
     body = sql.split("CREATE OR REPLACE VIEW public.v_daily_scorecard AS", 1)[1].split(";\n", 1)[0]
     for binding in s.METRICS.values():
         if binding.daily is not None and binding.daily.view == s.SCORECARD_VIEW:

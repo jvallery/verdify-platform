@@ -40,6 +40,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel
 
+from verdify_schemas import climate_law_constants as _K
+
 # ── Policy wire schema (Lane A, #582) ────────────────────────────────────────
 # WIRE_SCHEMA_VERSION versions the canonical policy-vector wire encoding
 # (header layout, per-field wire_id/kind/scale assignments). Bump it only for
@@ -164,6 +166,12 @@ class TunableDef(BaseModel):
 # operator toggles, safety rails, irrigation schedule knobs, readback-only
 # inputs, and retired aliases) is tier=2 context and MCP rejects planner writes.
 # ─────────────────────────────────────────────────────────────────────────────
+
+# The drying cost limit's names (see its row), as the phase 3 build publishes them: the number "Dry Cost Limit kWh per
+# kg" and its readback "Cfg Dry Cost Limit kWh per kg".
+DRY_COST_LIMIT_PARAM = "dry_cost_limit_kwh_per_kg"
+DRY_COST_LIMIT_OBJECT_ID = "dry_cost_limit_kwh_per_kg"
+DRY_COST_LIMIT_READBACK_ID = "cfg_dry_cost_limit_kwh_per_kg"
 
 REGISTRY: dict[str, TunableDef] = {
     # ─────────────────────────────────────────────────────────────────────
@@ -2041,6 +2049,29 @@ REGISTRY: dict[str, TunableDef] = {
         tier=2,
         notes="Site barometric pressure. The firmware uses it only for the inside/outside air enthalpy that feeds the economiser (sensors.yaml inside_enthalpy, outside_enthalpy); VPD does not use it. Site constant, not planner-pushable.",
     ),
+    # The drying cost limit (climate refactor, package 1.5b): the law's one stored drying setting. Only the owner
+    # writes it, from the dashboard (OWNER_ONLY_PARAMS); the dispatcher sends it only to a controller that lists its
+    # entity and readback (phase 3 firmware). No fw_clamp until that build's tunables.yaml carries the entity: the
+    # range, step and default are the constants module's, and the drift guards then hold the entity to them.
+    DRY_COST_LIMIT_PARAM: TunableDef(
+        name=DRY_COST_LIMIT_PARAM,
+        kind="numeric",
+        min=_K.DRY_COST_LIMIT_MIN_KWH_PER_KG,
+        max=_K.DRY_COST_LIMIT_MAX_KWH_PER_KG,
+        default=_K.DRY_COST_LIMIT_DEFAULT_KWH_PER_KG,
+        esp_object_id=DRY_COST_LIMIT_OBJECT_ID,
+        cfg_readback_object_id=DRY_COST_LIMIT_READBACK_ID,
+        push_owner="operator",
+        planner_pushable=False,
+        tier=2,
+        notes=(
+            "Drying cost limit: a drying run may start only while the reheat it costs, per kg of water it removes, "
+            "is at or below this. Owner-only (dashboard); agents, Iris and the planner are refused."
+        ),
+        step=_K.DRY_COST_LIMIT_STEP_KWH_PER_KG,
+        label="Drying Cost Limit",
+        unit="kWh/kg",
+    ),
     "sw_economiser_enabled": TunableDef(
         name="sw_economiser_enabled",
         kind="switch",
@@ -3743,6 +3774,35 @@ assert len(LEGACY_WIDE_LIMIT_PARAMS) == 4 and all(
 assert len(ZONE_VPD_TARGET_PARAMS) == 4 and all(
     REGISTRY[name].control_class == "crop_band" for name in ZONE_VPD_TARGET_PARAMS
 ), "the zone VPD targets drifted"
+
+
+# Settings only the owner writes (climate refactor plan, the law's stored settings): the drying cost limit and every
+# crop-band row (the band). verdify_services.settings refuses a write or release of one from any actor but a
+# signed-in dashboard operator (``forbidden``), so MCP set_setting, the planner study runner and any agent path are
+# refused; none of them is planner-pushable, so MCP set_tunable and set_plan refuse them too.
+# Named member by member (RULINGS G9), so the set cannot grow silently: the house band (24 anchors), the zone VPD
+# curves (16 anchors, 8 widths), the legacy band rows (8, read-only), the zone priorities, the manual override
+# timeout and the drying cost limit. The assert below holds it to every crop_band row plus the limit.
+_BAND_ANCHORS = ("sr", "sm", "ss", "mid")
+_ZONES = ("center", "south", "west", "east")
+OWNER_ONLY_PARAMS: frozenset[str] = frozenset(
+    {DRY_COST_LIMIT_PARAM, "manual_override_timeout_min"}
+    | {
+        f"band_{axis}_{edge}_{a}"
+        for axis in ("temp", "vpd")
+        for edge in ("low", "target", "high")
+        for a in _BAND_ANCHORS
+    }
+    | {f"zone_vpd_target_{zone}_{a}" for zone in _ZONES for a in _BAND_ANCHORS}
+    | {f"zone_vpd_width_{side}_{zone}" for side in ("below", "above") for zone in _ZONES}
+    | {f"zone_priority_{zone}" for zone in ("center", "south", "west")}
+    | {"temp_low", "temp_high", "vpd_low", "vpd_high"}
+    | {f"vpd_target_{zone}" for zone in _ZONES}
+)
+assert OWNER_ONLY_PARAMS == {DRY_COST_LIMIT_PARAM} | {
+    name for name, spec in REGISTRY.items() if spec.control_class == "crop_band"
+}, "the owner-only set and the crop_band rows differ: name the change in OWNER_ONLY_PARAMS"
+assert not OWNER_ONLY_PARAMS & PLANNER_PUSHABLE_REG, "an owner-only setting is planner-pushable"
 
 
 def desired_write_kind(name: str) -> str | None:

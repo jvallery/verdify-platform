@@ -36,6 +36,7 @@ from tasks.experiment_assignments import EXPERIMENT_OWNED_PARAMS  # noqa: E402
 
 from verdify_schemas.setting_values import readback_matches, snap_setting  # noqa: E402
 from verdify_schemas.tunable_registry import (  # noqa: E402
+    DRY_COST_LIMIT_PARAM,
     PLANNER_PUSHABLE_REG,
     REGISTRY,
     desired_write_rule,
@@ -72,6 +73,7 @@ def _knobs() -> list[Knob]:
         | _common.SECOND_READBACK_ABS_TOLERANCE_PARAMS
         | frozenset(band_anchors.ANCHOR_SYNC_PARAMS)
         | frozenset({drift_probe.PARAMETER, SITE_PRESSURE})
+        | frozenset({DRY_COST_LIMIT_PARAM})  # gated on the phase 3 entity
     )
     selected = []
     for param in sorted(REGISTRY):

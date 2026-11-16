@@ -439,6 +439,22 @@ SUCCESSOR_309_DIGESTS = {
     "verdify_ingestor_runtime_login": "41ad8abfea5bbfb587b882e69e08af3832dd33b9b1a1d536b3b48a95aadff443",
 }
 SUCCESSOR_309_MCP_DIGEST = "16ece5c6457f67f7865da99a3534452d9d8c2b9f0bb35e58ff664030a489ad22"
+# Exact310 (#1668, plan section 10): the daily record of relay starts and run time with lost OFF events repaired,
+# metered kWh, furnace therms, metered gallons and drying time (daily_relay_record, daily_record, v_daily_record),
+# refreshed by the matview-refresh duty. The relations keep no ACL entry and every new function's PUBLIC EXECUTE is
+# revoked, so no runtime seal moves and no receipt is re-sealed. It follows 309.
+SUCCESSOR_310 = "310-daily-record.sql"
+SUCCESSOR_310_SHA256 = "2f0aa50d6ff2401cc08e734214ca73fdac0ea279a495b1846f2b37fdabe3acd1"
+SUCCESSOR_310_DIGESTS = SUCCESSOR_309_DIGESTS
+SUCCESSOR_310_MCP_DIGEST = SUCCESSOR_309_MCP_DIGEST
+# Exact311 (#1667, plan section 9): one compliance definition. It stores August from the first day the band audit
+# rows still cover, adds the capacity-limited minutes to daily_band_compliance and appends them and the night
+# dry-out minutes to v_daily_scorecard. The table keeps no ACL entry, the scorecard keeps its dashboard grant and
+# the new function's PUBLIC EXECUTE is revoked, so no runtime seal moves. It follows 310.
+SUCCESSOR_311 = "311-one-compliance-definition.sql"
+SUCCESSOR_311_SHA256 = "b53904cde320fc4a2543017c4d5733bc31528fd4a4c57e8c68e940b394c935f7"
+SUCCESSOR_311_DIGESTS = SUCCESSOR_310_DIGESTS
+SUCCESSOR_311_MCP_DIGEST = SUCCESSOR_310_MCP_DIGEST
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
@@ -507,6 +523,8 @@ def reviewed_post_254(later, files=None):
         SUCCESSOR_307,
         SUCCESSOR_308,
         SUCCESSOR_309,
+        SUCCESSOR_310,
+        SUCCESSOR_311,
     )
     require(successors == list(reviewed[: len(successors)]), "unreviewed post-254 receipt successor")
     if successors:
@@ -564,6 +582,8 @@ def reviewed_post_254(later, files=None):
                 SUCCESSOR_307_SHA256,
                 SUCCESSOR_308_SHA256,
                 SUCCESSOR_309_SHA256,
+                SUCCESSOR_310_SHA256,
+                SUCCESSOR_311_SHA256,
             ),
             strict=True,
         ):
@@ -860,6 +880,8 @@ COMMIT;"""
         (SUCCESSOR_307, SUCCESSOR_307_DIGESTS),
         (SUCCESSOR_308, SUCCESSOR_308_DIGESTS),
         (SUCCESSOR_309, SUCCESSOR_309_DIGESTS),
+        (SUCCESSOR_310, SUCCESSOR_310_DIGESTS),
+        (SUCCESSOR_311, SUCCESSOR_311_DIGESTS),
     ):
         if name in later:
             expected["api"] = expected["api_receipt"] = digests["verdify_api_runtime_login"]
@@ -979,6 +1001,10 @@ COMMIT;"""
             expected_mcp = SUCCESSOR_308_MCP_DIGEST
         if SUCCESSOR_309 in later:
             expected_mcp = SUCCESSOR_309_MCP_DIGEST
+        if SUCCESSOR_310 in later:
+            expected_mcp = SUCCESSOR_310_MCP_DIGEST
+        if SUCCESSOR_311 in later:
+            expected_mcp = SUCCESSOR_311_MCP_DIGEST
         if hotfix_predecessor_263:
             require(
                 mcp_state.get("mcp")

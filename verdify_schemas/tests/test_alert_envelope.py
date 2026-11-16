@@ -17,6 +17,7 @@ from verdify_schemas.alerts import (
     BandDeviceDbDivergenceAlert,
     BandFnNullAlert,
     ClimateActionProofStaleAlert,
+    ClockUnconfirmedAlert,
     ComponentExperimentIntegrityAlert,
     DeployOverrideAlert,
     ESP32PushFailedAlert,
@@ -29,15 +30,18 @@ from verdify_schemas.alerts import (
     HeapPressureCriticalAlert,
     HeapPressureWarningAlert,
     HeatManualOverrideAlert,
+    HeatNoPowerAlert,
     HeatStagingInversionAlert,
     HouseBandDriftAlert,
     IrrigationFeedbackGapAlert,
     IrrigationFenceBreachAlert,
     IrrigationLineFaultedAlert,
     IrrigationRunMissedAlert,
+    LawConstantsMismatchAlert,
     LeakDetectedAlert,
     LightingCfgThresholdDriftAlert,
     McpUnreachableAlert,
+    PayloadRejectedAlert,
     PlanContextFailedAlert,
     PlannerBandOwnershipDriftAlert,
     PlannerEvaluationMissedAlert,
@@ -48,8 +52,10 @@ from verdify_schemas.alerts import (
     PlannerToolDependencyFailedAlert,
     PlannerTriggerSlaTimeoutAlert,
     PlannerTunableRangeDriftAlert,
+    PlanNotDeliveredAlert,
     RelayStuckAlert,
     SafetyInvalidAlert,
+    SensorFaultAlert,
     SensorOfflineAlert,
     SetpointDeliveryStuckAlert,
     SetpointUnconfirmedAlert,
@@ -265,7 +271,19 @@ CASES = {
     ),
     "heat_manual_override": (
         HeatManualOverrideAlert,
-        {"watts": 1200},
+        {"watts": 1200, "samples": 3},
+    ),
+    "heat_no_power": (
+        HeatNoPowerAlert,
+        {"on_since": NOW, "samples": 3, "max_watts": 19.0},
+    ),
+    "plan_not_delivered": (
+        PlanNotDeliveredAlert,
+        {"plan_created_at": NOW, "last_confirmed_at": None},
+    ),
+    "clock_unconfirmed": (
+        ClockUnconfirmedAlert,
+        {"offset_s": 690.0, "sntp_invalid_30m": False},
     ),
     "heat_staging_inversion": (
         HeatStagingInversionAlert,
@@ -404,6 +422,14 @@ CASES = {
         PlannerEvaluationMissedAlert,
         {"plan_id": "iris-20260509-0551", "age_hours": 27},
     ),
+    "payload_rejected": (
+        PayloadRejectedAlert,
+        {"entity": "climate_law_state", "since": "2026-11-16T05:00:00+00:00", "rejections": 11},
+    ),
+    "law_constants_mismatch": (
+        LawConstantsMismatchAlert,
+        {"reported": "a" * 64, "expected": "b" * 64, "reported_at": "2026-11-16T05:00:00+00:00"},
+    ),
     "lighting_cfg_threshold_drift": (
         LightingCfgThresholdDriftAlert,
         {
@@ -477,6 +503,15 @@ CASES = {
             "duration_h": 2.4,
             "samples": 1700,
             "occupancy": "occupied",
+        },
+    ),
+    "sensor_fault": (
+        SensorFaultAlert,
+        {
+            "since": "2026-11-16T05:00:00+00:00",
+            "mode_reason": "sensor_fault",
+            "outdoor_source": "none",
+            "relays_on": [],
         },
     ),
     "soil_sensor_offline": (

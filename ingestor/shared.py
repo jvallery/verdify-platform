@@ -563,6 +563,10 @@ setpoint_dispatch_lock = asyncio.Lock()
 # blocked on an incomplete readback replay adds each missing readback.
 # alert_monitor raises setpoint_delivery_stuck from it.
 delivery_differing_since: dict[str, datetime] = {}
+# Versioned controller payloads (relay_counters, climate_law_state, ...) failing their contract: object id ->
+# (first rejection of the current run, rejections since). The ingestor logs the first at WARNING and the rest at
+# DEBUG; it leaves on the next accepted payload. alert_monitor raises payload_rejected after 10 minutes.
+payload_rejected_since: dict[str, tuple[datetime, int]] = {}
 # Last dispatcher stage written to system_state (entity dispatcher_stage):
 # "ordinary", "paced <sent>/<pending>" or "held:<c1|heap|lease|drift_probe|readbacks>".
 # None until the first pass of this process records one.

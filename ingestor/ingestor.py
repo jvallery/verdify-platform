@@ -149,7 +149,7 @@ from verdify_schemas.experiment_config import (
 )
 from verdify_schemas.policy_transport import POLICY_IDENTITY_SENSOR
 from verdify_schemas.policy_vector import wire_fields
-from verdify_schemas.telemetry import expand_moisture_exchange_wire
+from verdify_schemas.telemetry import LAW_CONSTANTS_HASH, VERSIONED_TEXT_PAYLOADS, expand_moisture_exchange_wire
 from verdify_schemas.tunable_registry import get as get_tunable
 
 # ──────────────────────────────────────────────────────────────
@@ -3535,6 +3535,14 @@ def _record_equipment_callback(
     )
 
 
+def _payload_rejected(obj_id: str, why: str) -> None:
+    """Count a rejected versioned payload: the first of a run at WARNING, the rest at DEBUG (payload_rejected
+    alerts on the run after 10 minutes)."""
+    first, count = shared.payload_rejected_since.get(obj_id, (datetime.now(UTC), 0))
+    shared.payload_rejected_since[obj_id] = (first, count + 1)
+    (log.warning if count == 0 else log.debug)("%s payload rejected: %s", obj_id, why)
+
+
 def on_state_change(entity_state, *, native_generation: int | None = None) -> None:
     """Called by aioesphomeapi on any entity state change."""
     source_observed_at = _equipment_source_now()
@@ -3720,8 +3728,32 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
                 except (ValueError, TypeError):
                     log.warning("Moisture-exchange detail has an unsupported wire shape")
                     val = '{"raw":"unsupported_moisture_exchange_detail"}'
+            elif obj_id in VERSIONED_TEXT_PAYLOADS:
+                try:
+                    val = VERSIONED_TEXT_PAYLOADS[obj_id].model_validate_json(val).model_dump_json()
+                except ValidationError:
+                    _payload_rejected(obj_id, "not a version 1 object of its contract")
+                    return
+                shared.payload_rejected_since.pop(obj_id, None)
+            elif obj_id == "climate_law_constants":
+                val = val.strip()
+                if not LAW_CONSTANTS_HASH.fullmatch(val):
+                    _payload_rejected(obj_id, "not 64 lowercase hex characters")
+                    return
+                shared.payload_rejected_since.pop(obj_id, None)
             old = state.system.get(entity)
-            force_refresh = entity in {"gl_main_state", "gl_main_reason", "gl_grow_state", "gl_grow_reason"}
+            # climate_law_state (60 s heartbeat), outdoor_source (every 300 s) and climate_law_constants (hourly)
+            # are stored on every receipt: the newest row's age shows the law is running, how old the controller's
+            # outdoor reading choice is, and that the constants hash belongs to the build running now.
+            force_refresh = entity in {
+                "gl_main_state",
+                "gl_main_reason",
+                "gl_grow_state",
+                "gl_grow_reason",
+                "climate_law_state",
+                "outdoor_source",
+                "climate_law_constants",
+            }
             if old != val or force_refresh:
                 if _observation_spool_enabled():
                     events = [("system_state", {"entity": entity, "value": val})]

@@ -848,10 +848,12 @@ def test_the_decision_entities_are_the_ones_the_ingestor_writes():
     entity_map = (ROOT / "ingestor/entity_map.py").read_text()
     for entity in lights.DECISION_ENTITIES.values():
         assert f'"{entity}": "{entity}"' in entity_map
-    assert (
-        '{"gl_main_state", "gl_main_reason", "gl_grow_state", "gl_grow_reason"}'
-        in (ROOT / "ingestor/ingestor.py").read_text()
-    )  # force_refresh: every publish is a row, so the newest row is a heartbeat
+    # force_refresh: every publish is a row, so the newest row is a heartbeat
+    source = (ROOT / "ingestor/ingestor.py").read_text()
+    block = source[source.index("force_refresh = entity in {") :]
+    block = block[: block.index("}")]
+    for entity in ("gl_main_state", "gl_main_reason", "gl_grow_state", "gl_grow_reason"):
+        assert f'"{entity}"' in block, entity
 
 
 @pytest.mark.parametrize("light", ["main", "grow"])

@@ -205,6 +205,7 @@ def test_the_cronjob_runs_the_refresh_after_the_matviews():
         "verdify_matview_refresh_runtime.fn_refresh_mv_equipment_runtime_daily",
         "verdify_matview_refresh_runtime.fn_refresh_mv_daily_kpi",
         "verdify_matview_refresh_runtime.fn_refresh_band_compliance",
+        "verdify_matview_refresh_runtime.fn_refresh_daily_record",  # 310 (#1668), after the rollup
     ]
     assert job["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"] == 300
 

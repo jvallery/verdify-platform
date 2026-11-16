@@ -90,9 +90,15 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS public.mv_zone_band_grade AS SELECT now()
 
 
 def band_compliance_sql() -> str:
-    """Migration 290 between its predecessor and successor blocks, which compare production digests."""
-    migration = (ROOT / "db/migrations/290-band-compliance.sql").read_text()
-    return BAND_PREREQUISITES + migration.split("END $predecessor$;", 1)[1].split("DO $successor$", 1)[0]
+    """Migrations 290, 305 and 311 between their predecessor and successor blocks, which compare production digests.
+
+    305 adds the night dry-out minutes and 311 the capacity-limited minutes; 311 appends both to the scorecard view.
+    """
+    bodies = []
+    for name in ("290-band-compliance.sql", "305-band-nightly-dryout.sql", "311-one-compliance-definition.sql"):
+        migration = (ROOT / "db/migrations" / name).read_text()
+        bodies.append(migration.split("END $predecessor$;", 1)[1].split("DO $successor$", 1)[0])
+    return BAND_PREREQUISITES + "\n".join(bodies)
 
 
 def climate_columns_sql() -> str:
@@ -439,9 +445,11 @@ def test_the_scorecard_returns_every_day_with_its_reasons_inside_the_timeout(db)
 
     async def work(conn):
         started = time.perf_counter()
-        first = await s.series(conn, keys[:8], from_, to, points=31, now=db.now)
-        second = await s.series(conn, keys[8:], from_, to, points=31, now=db.now)
-        return time.perf_counter() - started, {**first.series, **second.series}, first.t
+        answers = [
+            await s.series(conn, keys[i : i + 8], from_, to, points=31, now=db.now) for i in range(0, len(keys), 8)
+        ]
+        merged = {key: value for answer in answers for key, value in answer.series.items()}
+        return time.perf_counter() - started, merged, answers[0].t
 
     elapsed, columns, axis = run(_with_connection(work))
     assert elapsed < 2.0

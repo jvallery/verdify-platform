@@ -217,7 +217,7 @@ def test_band_writes_move_the_current_season_rows_and_name_them(dsn):
 
         for anchor in ("sr", "sm", "ss", "mid"):
             written = (
-                await settings.write(mcp, AGENT, f"zone_vpd_target_center_{anchor}", 1.23, False, None, None)
+                await settings.write(mcp, PERSON, f"zone_vpd_target_center_{anchor}", 1.23, False, None, None)
             ).value
             _, detail = await activity_detail(mcp, written.id)
             assert detail["anchor_rows"] == [current[anchor]]

@@ -61,7 +61,12 @@ export type ActivityPage = Lenient<Schemas["ActivityPage"]>;
 export type ActivityEntry = Lenient<Schemas["ActivityEntry"]>;
 export type BandPreview = Lenient<Schemas["BandPreview"]>;
 export type BandProfile = Lenient<Schemas["BandProfile"]>;
-export type BandProfilePreview = Lenient<Schemas["BandProfilePreview"]>;
+/** The law's three guardrails (#1633 package 1.6) are null from an API synced before them: the web can ship first. */
+type LawGuardrails = "min_width_f" | "min_width_kpa" | "dry_on_above_vpd_low_kpa";
+type ProfileGuardrails = Schemas["BandProfilePreview"]["guardrails"];
+export type BandProfilePreview = Lenient<Omit<Schemas["BandProfilePreview"], "guardrails"> & {
+  guardrails: Omit<ProfileGuardrails, LawGuardrails> & { [K in LawGuardrails]: ProfileGuardrails[K] | null };
+}>;
 export type BandWrite = Lenient<Schemas["BandWrite"]>;
 export type LightCommand = Lenient<Schemas["LightCommand"]>;
 export type SoilTarget = Lenient<Schemas["SoilTarget"]>;
@@ -260,7 +265,8 @@ const bandProfilePreview = z.object({
   temp: z.object({ current: bandCurve, draft: bandCurve }),
   vpd: z.object({ current: bandCurve, draft: bandCurve, device: bandCurve, expected_low: nullableNumbers, expected_high: nullableNumbers }),
   night_vpd_bias_kpa: maybe(num),
-  guardrails: z.object({ temp_min_f: num, temp_max_f: num, margin_f: num, vpd_min_kpa: num, vpd_max_kpa: num, night_vpd_floor_kpa: num }),
+  guardrails: z.object({ temp_min_f: num, temp_max_f: num, margin_f: num, vpd_min_kpa: num, vpd_max_kpa: num, night_vpd_floor_kpa: num,
+    min_width_f: maybe(num), min_width_kpa: maybe(num), dry_on_above_vpd_low_kpa: maybe(num) }),
   overshoot: z.record(z.string(), num),
   night_heat_kwh: z.object({ current: maybe(num), draft: maybe(num) }),
   envelope: maybe(z.object({ hours: int, days: int, rmse_f: num, dewpoint_p10_f: num })),

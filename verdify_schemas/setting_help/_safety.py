@@ -313,6 +313,22 @@ ENTRIES: dict[str, HelpEntry] = {
         caution="Set it once for the site's elevation; it is not a tuning knob.",
         refs=(f"{_SENSORS}::float P  = id(site_pressure_hpa);",),
     ),
+    "dry_cost_limit_kwh_per_kg": HelpEntry(
+        summary="The most electric reheat the controller may spend per kilogram of water a drying vent removes.",
+        effect=(
+            "When the house is too humid, the controller vents to dry it only while the cost of that drying is at "
+            "or below this limit: the heat the vent loses, made up by the electric heater, for each kilogram of "
+            "water the outdoor air carries away. Drier and warmer outdoor air costs less. Only you set it, from "
+            "the dashboard; agents and the planner cannot change it."
+        ),
+        raise_="Dries more often, also on nights when it costs more heat: drier air, more electricity.",
+        lower="Dries only when the outdoor air makes it cheap; at 0, only free drying: less electricity, wetter air.",
+        caution="Takes effect once the controller runs a build that reports this setting; until then it is stored only.",
+        refs=(
+            "verdify_schemas/climate_law.yaml::dry_cost_limit_default_kwh_per_kg",
+            "ingestor/tasks/dispatcher.py::firmware has no drying cost limit",
+        ),
+    ),
     "sw_economiser_enabled": HelpEntry(
         summary="Lets outdoor air conditions block venting for humidity control.",
         effect=(

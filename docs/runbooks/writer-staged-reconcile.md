@@ -66,22 +66,45 @@ scripts/verdify-db.sh prod -c "SELECT ts, value FROM system_state WHERE entity =
 
 ## Stuck-delivery alert
 
-`alert_monitor` raises `setpoint_delivery_stuck` (warning, category `system`,
-`sensor_id` `dispatcher`) while any setting has differed from the controller
-for more than 15 minutes: "N settings not reaching the controller since HH:MM
-UTC". Its details carry `differing`, up to 20 `params` and `oldest_since`. It is
-raised once, stays open while any setting still differs and resolves when none
-differs. An ingestor restart forgets since when settings differ, so an open
-alert stays open through the restart (and before the first dispatcher pass,
-while the delivery state is not known) instead of resolving and being raised
-again. Clamped settings and settings under
-`experiment_policy_hold` never count, and nothing is raised while the stage is
-`held:c1`. Heap deferral and a lost Lease do count, because then settings
-really are not reaching the controller. A pass held on `held:readbacks` counts
-each missing readback as a setting that differs, from the first such pass, because
-a replay that never completes would otherwise freeze the dispatcher silently. A
-connection that enumerated no writable value lists `no_cfg_readbacks_enumerated`
-in `params`. The dashboard's stuck-delivery banner reads this alert.
+`alert_monitor` raises `setpoint_delivery_stuck` (category `system`, `sensor_id`
+`dispatcher`) from database tables alone (#1636): for every parameter, the newest
+value the host asked for (`setpoint_changes`, any source but `esp32`; a superseded
+or cancelled newest request does not count) against the controller's newest
+readback in `setpoint_snapshot`, with the snapshot confirmation's own tolerance
+(1 %, or 1 s for the second-valued mister and fog settings). A value not taken yet
+differs from the first request after the last confirmed one; a value taken and
+then lost (a restart reverts what the controller does not keep) differs from the
+first readback after the last one that matched. Lighting values, band anchors and
+operator switches count like any other. It is a warning after 15 minutes and
+critical (it pages) after 45: "N settings not reaching the controller since HH:MM
+UTC", with `differing`, up to 20 `params` and `oldest_since`. Escalation re-opens
+an acknowledged row, so the page is not lost to an earlier acknowledgement. It
+resolves when nothing differs. No dispatcher stage exempts it (the `held:c1`
+exemption is gone), and an ingestor restart cannot hide it; if the read fails, an
+open row stays open. A parameter with no readback in the last day is not judged,
+and neither are the legacy band scalars (`temp_low`, `temp_high`, `vpd_low`,
+`vpd_high`) while `diagnostics.band_source` is `onchip_curve` or `corridor`: the
+controller does not use them then, and a restart leaves them on boot values. A
+controller restart opens nothing for a value the dispatcher re-pushes within 15
+minutes.
+The dashboard's stuck-delivery banner reads this alert.
+
+`plan_not_delivered` (warning, interim until plans end in packages 4.2 and 5.1)
+backs it up: a `plan` or `band` request made after the newest plan is still
+unconfirmed after 30 minutes, or no `plan` or `band` request was confirmed for 90
+minutes. A plan that asks nothing new raises nothing.
+
+An open stuck row whose settings aged out of the 60-day request window stays open
+while the controller still differs. `activity_start_hour` and
+`gl_main_sunset_hour` read one hour early from 2026-11-02 to 11-03 local midnight,
+probably the daylight-saving change; expect the same at the next change until the
+controller's handling of these hours is confirmed.
+
+Since `sensor_offline` is raised per device for the hydro probe and the
+controller diagnostics, its first pass after the release opens one
+`device.hydro_probe` row (the long-silent probe columns) and closes the per-column
+rows as replaced. A silence whose `sensor_pattern` names a column no longer
+matches that device row.
 
 When it fires, read `dispatcher_stage`, then the writer logs and the device:
 
