@@ -257,6 +257,23 @@ text_sensor:
     name: "Outdoor Source"
     entity_category: diagnostic
     update_interval: never
+  # Phase 3 (#1671, contract phase3-entities): the law's state record, the drying
+  # meter and the hash of the compiled constants.
+  - platform: template
+    id: gh_climate_law_state
+    name: "Climate Law State"
+    entity_category: diagnostic
+    update_interval: never
+  - platform: template
+    id: gh_climate_drying_meter
+    name: "Climate Drying Meter"
+    entity_category: diagnostic
+    update_interval: never
+  - platform: template
+    id: gh_climate_law_constants
+    name: "Climate Law Constants"
+    entity_category: diagnostic
+    update_interval: never
 
 # ───────────────────── I²C / UART / Modbus ─────────────────────
 i2c:

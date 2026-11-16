@@ -600,7 +600,7 @@ if in_part containment-firmware; then
   # replay-corpus invariants run here and gate every firmware PR. Later suites
   # append their make targets to this list.
   if command -v g++ >/dev/null; then
-    make test-policy-engine test-policy-recovery test-zone-vpd test-greenhouse-logic test-running-alone firmware-invariants test-irrigation-program test-climate-law
+    make test-policy-engine test-policy-recovery test-zone-vpd test-greenhouse-logic test-running-alone firmware-invariants test-irrigation-program test-climate-law climate-law-replay
   else
     echo "SKIP: g++ not available on this host (required in the CI image)"
   fi

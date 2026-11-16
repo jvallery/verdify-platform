@@ -33,7 +33,9 @@ FIRMWARE_SOURCES = {
     # Solar/band expressions are unchanged. Phase 2 (running alone, #1643/#1638)
     # serves the corridor (band_source `corridor`) while the clock is not trusted;
     # the trusted-clock curve expressions are unchanged.
-    "firmware/greenhouse/controls.yaml": "e56539f588ced291f28a065991a78c53e54cfea1e931c97835f532913a4ae965",
+    # Phase 3 (#1671) replaces the mode machine's call sites with the band-edge law; the
+    # served-band expressions (curve and corridor) are unchanged.
+    "firmware/greenhouse/controls.yaml": "1bffed7285a85455a799300ad4d7613f66af91a8070afbcbec7abb7b01e35f79",
 }
 SERIES = ("temp_low", "temp_high", "temp_target", "vpd_low", "vpd_high", "vpd_target")
 ANCHORS = ("sr", "sm", "ss", "mid")
