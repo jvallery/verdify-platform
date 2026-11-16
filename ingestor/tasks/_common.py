@@ -723,7 +723,7 @@ DEFAULT_ELECTRIC_WATTAGES = {
 }
 
 
-HEAT2_BTU, THERM_BTU = 75000, 100000
+THERM_BTU = 100000
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -900,7 +900,6 @@ __all__ = [
     "_FORECAST_URL",
     "_GL_SQL",
     "DEFAULT_ELECTRIC_WATTAGES",
-    "HEAT2_BTU",
     "THERM_BTU",
     "_FORECAST_STALE_SENSOR_ID",
     "_FORECAST_STALE_THRESHOLD_S",

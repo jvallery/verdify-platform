@@ -101,7 +101,6 @@ WATTAGES = {
     "grow_light_main": 630,
     "grow_light_grow": 816,
 }
-HEAT2_BTU_PER_HOUR = 75000  # Lennox LF24-75A-5 nameplate
 BTU_PER_THERM = 100000
 
 # ── Utility rates ($/unit) ───────────────────────────────────────
