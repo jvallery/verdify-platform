@@ -110,6 +110,7 @@ from verdify_schemas import (  # noqa: E402
     ZoneDetail,
     ZoneListItem,
 )
+from verdify_schemas.control_proof import LAW_STATE_AGE_SQL, control_proof  # noqa: E402
 from verdify_schemas.experiment_config import (  # noqa: E402
     active_experiment_id,
     component_experiment_gate,
@@ -2105,12 +2106,13 @@ async def health():
 
         action_age = await conn.fetchval("SELECT extract(epoch FROM now() - max(ts))::int FROM climate_action_log")
         checks["climate_action_log_age_seconds"] = action_age
-        if action_age is None or action_age > 300:
-            overall = "degraded"
-
         action_proof_missing = await conn.fetchval(CLIMATE_ACTION_PROOF_MISSING_SQL)
         checks["climate_action_log_proof_missing"] = action_proof_missing or ""
-        if action_proof_missing:
+        # The law's state record proves the controller is deciding; today's action log does while it is absent.
+        law_age = await conn.fetchval(LAW_STATE_AGE_SQL)
+        checks["climate_law_state_age_seconds"] = law_age
+        checks["control_proof"] = control_proof(law_age, action_age, action_proof_missing)
+        if checks["control_proof"] == "missing":
             overall = "degraded"
 
         # Active alerts
@@ -2138,6 +2140,7 @@ async def health():
     checks["service_climate_action_log"] = (
         "ok" if isinstance(action_age, (int, float)) and action_age < 300 and not action_proof_missing else "stale"
     )
+    checks["service_controller"] = "ok" if checks.get("control_proof") in ("law", "action_log") else "stale"
     # MCP server health is monitored by the ingestor (planning_heartbeat), not the API.
     # The API can't reach localhost:8000 from inside Docker (MCP binds to 127.0.0.1 on host).
 

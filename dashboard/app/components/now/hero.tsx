@@ -96,6 +96,15 @@ function sourceItem(term: string, source: Freshness): KvItem {
   return { key: term, term, value, reason: "never seen" };
 }
 
+/** The climate law's drying state in words: running, refused with the controller's reason, or not wanted; with the cost against the limit. */
+export function lawDryingText(law: NonNullable<Now["law"]>): string {
+  const state = law.drying === "running" ? "Drying run on"
+    : law.drying === "refused" ? `Drying wanted, refused: ${(law.drying_refused_reason ?? "no reason").replaceAll("_", " ")}`
+      : law.drying_refused_reason ? `No drying: ${law.drying_refused_reason.replaceAll("_", " ")}` : "No drying wanted";
+  const cost = finite(law.drying_cost_kwh_per_kg) ? `${law.drying_cost_kwh_per_kg.toFixed(2)}` : "no price";
+  return `${state} · cost ${cost} of limit ${law.drying_cost_limit_kwh_per_kg.toFixed(2)} kWh/kg${law.band_repaired ? " · band repaired by the controller" : ""}`;
+}
+
 /** Every reading with its source and time, the band in force, and the mode as the controller reports it (raw). */
 function AllReadings({ now, clock }: { now: Now; clock: number }) {
   const { band, mode, freshness, writer } = now;
@@ -111,6 +120,10 @@ function AllReadings({ now, clock }: { now: Now; clock: number }) {
       value: <><span className="mono">{mode.code}</span>{mode.stage && <> · stage <span className="mono">{mode.stage}</span></>}{validTime(mode.since) && <> · since <LocalTime at={mode.since} /></>}</>,
     },
     { key: "mode_reason", term: "Mode reason", value: mode.reason ? <span className="mono">{mode.reason}</span> : null, reason: "none reported" },
+    ...(now.law ? [
+      { key: "law_drying", term: "Climate law: drying", value: <>{lawDryingText(now.law)}{at(now.law.observed_at)}</> },
+      { key: "law_latches", term: "Climate law: latches", value: now.law.latches.length ? <span className="mono">{now.law.latches.join(" ")}</span> : null, reason: "none set" },
+    ] : []),
     sourceItem("Newest climate row", freshness.climate),
     sourceItem("Ingestor heartbeat", freshness.ingestor),
     sourceItem("Newest diagnostics row", freshness.diagnostics),

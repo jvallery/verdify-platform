@@ -1813,6 +1813,30 @@ export interface components {
                 };
             };
         };
+        /** @description The climate law's newest state record while it is fresh (its 60 s heartbeat, at most 120 s old). Latches and requests are named in bit order; drying is running, refused (the house wants drying and none runs, with the controller's first reason) or not_wanted. */
+        readonly LawState: {
+            /** @description True when the controller's band check changed the band it received */
+            readonly band_repaired: boolean;
+            /** @enum {string} */
+            readonly drying: "running" | "refused" | "not_wanted";
+            /** @description kWh of heat per kg of water; null without outdoor data or when the outdoor air is not drier */
+            readonly drying_cost_kwh_per_kg: number | null;
+            /** @description The drying cost limit in force on the controller */
+            readonly drying_cost_limit_kwh_per_kg: number;
+            /**
+             * @description The controller's reason while no run is on: why a wanted run is refused, or why drying is held
+             * @example cost
+             * @example not_drier
+             * @example no_outdoor
+             * @example humidity_invalid
+             * @example no_temperature
+             */
+            readonly drying_refused_reason: string | null;
+            readonly latches: readonly ("h1" | "h2" | "cool" | "cool2" | "wet" | "mist" | "dry" | "air" | "run")[];
+            /** Format: date-time */
+            readonly observed_at: string;
+            readonly requests: readonly ("heat1" | "heat2" | "vent" | "fog" | "mist" | "fan1" | "fan2" | "cooling" | "drying" | "hot" | "cold")[];
+        };
         /** @description leak_detected: flow on the one site meter with every Verdify valve closed, so also the hose, sink or hydro. It raises the leak alert ("Water flowing with every Verdify valve closed") and nothing else: nothing latches, and the engine firmware forces nothing off (Round 2 #3, Q-05). Until that release the current firmware keeps its fog, mister and drip interlock. The flow banner shows while alert_id is set and reads "Flow stopped at HH:MM" once stopped_at is set, never an all clear */
         readonly Leak: {
             readonly active: boolean | null;
@@ -2071,6 +2095,8 @@ export interface components {
                 /** Format: date-time */
                 readonly valid_until?: string | null;
             };
+            /** @description The climate law's state record while it is fresh; null before the law build (the mode then says what the controller does) */
+            readonly law?: components["schemas"]["LawState"] | null;
             readonly leak: components["schemas"]["Leak"];
             readonly mode: {
                 /**

@@ -1439,11 +1439,30 @@ components:
         heap_largest_block_kb: {type: [number, 'null']}
         rssi_dbm: {type: [number, 'null']}
         observed_at: {type: [string, 'null'], format: date-time}
+    LawState:
+      type: object
+      description: >-
+        The climate law's newest state record while it is fresh (its 60 s heartbeat, at most 120 s old). Latches and
+        requests are named in bit order; drying is running, refused (the house wants drying and none runs, with the
+        controller's first reason) or not_wanted.
+      required: [observed_at, latches, requests, drying, drying_refused_reason, drying_cost_kwh_per_kg, drying_cost_limit_kwh_per_kg, band_repaired]
+      properties:
+        observed_at: {type: string, format: date-time}
+        latches: {type: array, items: {type: string, enum: [h1, h2, cool, cool2, wet, mist, dry, air, run]}}
+        requests: {type: array, items: {type: string, enum: [heat1, heat2, vent, fog, mist, fan1, fan2, cooling, drying, hot, cold]}}
+        drying: {type: string, enum: [running, refused, not_wanted]}
+        drying_refused_reason: {type: [string, 'null'], description: "The controller's reason while no run is on: why a wanted run is refused, or why drying is held", examples: [cost, not_drier, no_outdoor, humidity_invalid, no_temperature]}
+        drying_cost_kwh_per_kg: {type: [number, 'null'], description: 'kWh of heat per kg of water; null without outdoor data or when the outdoor air is not drier'}
+        drying_cost_limit_kwh_per_kg: {type: number, description: The drying cost limit in force on the controller}
+        band_repaired: {type: boolean, description: "True when the controller's band check changed the band it received"}
     Now:
       type: object
       required: [server_time, indoor, outdoor, band, mode, iris, alerts, running, overrides, leak, freshness, writer]
       properties:
         server_time: {type: string, format: date-time}
+        law:
+          description: The climate law's state record while it is fresh; null before the law build (the mode then says what the controller does)
+          anyOf: [{$ref: '#/components/schemas/LawState'}, {type: 'null'}]
         hydroponics:
           type: [object, 'null']
           description: Latest actual reservoir samples, independently timestamped; polled with Now, not chart averages.

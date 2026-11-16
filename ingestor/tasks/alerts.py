@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from verdify_schemas.climate_law_constants import CONSTANTS_SHA256 as LAW_CONSTANTS_SHA256
+from verdify_schemas.control_proof import LAW_STATE_AGE_SQL, law_fresh
 from verdify_schemas.irrigation import (
     DEVICE_IDX,
     REASON_WORDS,
@@ -2253,7 +2254,9 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         proof_age_s = action_proof["age_s"] if action_proof else None
         proof_missing = action_proof["proof_missing"] if action_proof else "missing"
         latest_ts = action_proof["latest_ts"] if action_proof else None
-        if proof_age_s is None or proof_age_s > 300 or proof_missing:
+        # The law build proves its decisions with its state record heartbeat; the action log is then not needed.
+        law_age_s = await conn.fetchval(LAW_STATE_AGE_SQL)
+        if not law_fresh(law_age_s) and (proof_age_s is None or proof_age_s > 300 or proof_missing):
             reason_parts = []
             if proof_age_s is None:
                 reason_parts.append("missing")
@@ -2261,6 +2264,8 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 reason_parts.append(f"stale {proof_age_s}s")
             if proof_missing:
                 reason_parts.append(f"incomplete: {proof_missing}")
+            if law_age_s is not None:
+                reason_parts.append(f"law state record stale {law_age_s}s")
             alerts.append(
                 {
                     "alert_type": "climate_action_proof_stale",

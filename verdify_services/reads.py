@@ -45,10 +45,13 @@ from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Fiel
 
 from verdify_schemas.alerts import flow_stopped_at
 from verdify_schemas.band_rows import HOUSE_SERIES, ZONES
+from verdify_schemas.climate_law_constants import DRY_COST_NONE_KWH_PER_KG
+from verdify_schemas.control_proof import LAW_STATE_ENTITY, law_fresh
 from verdify_schemas.irrigation import purpose_of
 from verdify_schemas.policy_vector import wire_fields
 from verdify_schemas.setting_help import band_in_force_help, band_in_force_sources, setting_label
 from verdify_schemas.setting_values import readback_matches, readback_tolerance, resolve_effective
+from verdify_schemas.telemetry import ClimateLawState
 from verdify_schemas.tunable_registry import BAND_OWNED_REG, LIGHTING_CIRCUIT_DEFAULT_REG, desired_write_rule
 from verdify_schemas.tunable_registry import get as registry_get
 from verdify_services import activity, alerts, brief, settings
@@ -117,7 +120,7 @@ LEAK_FLAG = "leak_detected"
 _EQUIPMENT_KEYS = tuple(name for name, _ in EQUIPMENT_LIST) + tuple(GROW_LIGHT_INTENTS.values())
 _NOW_EQUIPMENT_KEYS = _EQUIPMENT_KEYS + tuple(BURSTS) + (LEAK_FLAG,)
 MODE_ENTITY = "greenhouse_state"
-_NOW_NEWEST_ENTITIES = ("mister_state", "mode_reason", "fog_block_reason")
+_NOW_NEWEST_ENTITIES = ("mister_state", "mode_reason", "fog_block_reason", LAW_STATE_ENTITY)
 # API-13's reasons (entity_map's controller text entities): which branch chose the mode, what holds fog (L11) off and
 # what holds the misters off.
 REASON_ENTITIES = ("mode_reason", "fog_block_reason", "moisture_block_reason")
@@ -292,6 +295,62 @@ class Controller(_Model):
     observed_at: datetime | None
 
 
+# The law's state record (phase 3 firmware; verdify_schemas.telemetry.ClimateLawState): the names of its latch and
+# request bits, in bit order.
+LAW_LATCHES = ("h1", "h2", "cool", "cool2", "wet", "mist", "dry", "air", "run")
+LAW_REQUESTS = ("heat1", "heat2", "vent", "fog", "mist", "fan1", "fan2", "cooling", "drying", "hot", "cold")
+_LAW_DRY, _LAW_RUN = 1 << LAW_LATCHES.index("dry"), 1 << LAW_LATCHES.index("run")
+
+
+class LawState(_Model):
+    """The climate law's newest state record while it is fresh (its 60 s heartbeat, at most
+    ``control_proof.LAW_HEARTBEAT_MAX_AGE_S`` old); ``Now.law`` is None before the law build, and the mode is then
+    the controller's state as before.
+
+    ``drying`` is ``running`` while a drying run is on, ``refused`` while the house wants drying (the ``dry`` latch)
+    and none runs, and ``not_wanted`` otherwise. ``drying_refused_reason`` is the controller's reason whenever no run
+    is on and it names one: why a wanted run is refused (``cost``, ``not_drier``, ``no_outdoor``, ...), or why drying
+    is held without being wanted (``humidity_invalid``, ``no_temperature``). ``drying_cost_kwh_per_kg`` is null
+    without outdoor data or when the outdoor air is not drier."""
+
+    observed_at: datetime
+    latches: list[str]
+    requests: list[str]
+    drying: Literal["running", "refused", "not_wanted"]
+    drying_refused_reason: str | None
+    drying_cost_kwh_per_kg: float | None
+    drying_cost_limit_kwh_per_kg: float
+    band_repaired: bool
+
+
+def law_state(value: str | None, observed_at: datetime | None, at: datetime) -> LawState | None:
+    """``Now.law`` from the newest ``climate_law_state`` row: None when there is none, it is not fresh, or it does
+    not parse (the ingestor stores only valid rows)."""
+    if value is None or observed_at is None or not law_fresh((at - observed_at).total_seconds()):
+        return None
+    try:
+        record = ClimateLawState.model_validate_json(value)
+    except ValueError:
+        return None
+    if record.l & _LAW_RUN:
+        drying = "running"
+    elif record.l & _LAW_DRY:
+        drying = "refused"
+    else:
+        drying = "not_wanted"
+    cost = record.e if record.e is not None and record.e < DRY_COST_NONE_KWH_PER_KG else None
+    return LawState(
+        observed_at=observed_at,
+        latches=[name for bit, name in enumerate(LAW_LATCHES) if record.l >> bit & 1],
+        requests=[name for bit, name in enumerate(LAW_REQUESTS) if record.o >> bit & 1],
+        drying=drying,
+        drying_refused_reason=record.dr if drying != "running" and record.dr != "none" else None,
+        drying_cost_kwh_per_kg=cost,
+        drying_cost_limit_kwh_per_kg=record.lim,
+        band_repaired=bool(record.br),
+    )
+
+
 class Now(_Model):
     server_time: datetime
     indoor: Indoor
@@ -310,6 +369,8 @@ class Now(_Model):
     # older than 2 h (verdify_services.brief).
     snapshot: brief.Snapshot | None = None
     hydroponics: Hydroponics | None = None
+    # The climate law's state record while it is fresh; None before the law build (climate refactor package 4.1).
+    law: LawState | None = None
 
 
 TriggerOutcome = Literal[
@@ -1575,10 +1636,11 @@ async def now(conn: asyncpg.Connection) -> Now:
             _BAND_SQL, list(HOUSE_BAND_ROLES), [f"band_house_{role}" for role in HOUSE_BAND_ROLES]
         )
         mode_track = (await _tracks(conn, _SYSTEM_TRACKS_SQL, (MODE_ENTITY,)))[MODE_ENTITY]
-        texts = {
-            row["entity"]: row["value"]
+        newest_texts = {
+            row["entity"]: row
             for row in await conn.fetch(_NEWEST_STATES_SQL, list(_NOW_NEWEST_ENTITIES), NEWEST_ROW_WINDOW)
         }
+        texts = {entity: row["value"] for entity, row in newest_texts.items()}
         tracks = await _tracks(conn, _EQUIPMENT_TRACKS_SQL, _NOW_EQUIPMENT_KEYS)
         plan_row = await conn.fetchrow(_PLAN_IN_FORCE_SQL)
         required = await conn.fetchrow(_REQUIRED_TRIGGER_SQL, list(REQUIRED_TRIGGERS))
@@ -1665,8 +1727,10 @@ async def now(conn: asyncpg.Connection) -> Now:
         observed_at=diagnostics["ts"] if diagnostics else None,
     )
 
+    law_row = newest_texts.get(LAW_STATE_ENTITY)
     return Now(
         server_time=at,
+        law=law_state(law_row["value"], law_row["ts"], at) if law_row is not None else None,
         hydroponics=Hydroponics(
             **{
                 key: _reading(
