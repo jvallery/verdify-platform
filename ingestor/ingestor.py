@@ -2842,6 +2842,24 @@ def _same_pushed_value(param: str, value: float) -> bool:
     return abs(pushed_value - value) / max(abs(value), 1e-3) < 0.01
 
 
+# DISPATCHER-08: after a reboot the controller can report a setting's pre-push value a few seconds after the dispatcher
+# pushed it (law boot 2026-11-16 22:02:51Z: pushes at 22:04:51Z, old-value 'esp32' rows at 22:04:53-58Z, and the
+# confirming echo then suppressed as a same-value echo), so the ledger's newest row named a value the controller no
+# longer held. A report that differs from a value this connection pushed under _PUSH_RACE_S ago is that race: it is
+# not recorded and does not update the comparison cache, so a later report of the same value still is.
+_PUSH_RACE_S = 30
+
+
+def _report_races_push(param: str, value: float, now: float | None = None) -> bool:
+    pushed_at = shared.recently_pushed.get(param, 0.0)
+    connected_at = shared.esp32_connected_at
+    if not pushed_at or connected_at <= 0 or pushed_at < connected_at:
+        return False
+    if (time.time() if now is None else now) - pushed_at >= _PUSH_RACE_S:
+        return False
+    return not _same_pushed_value(param, value)
+
+
 # F10 (Sprint 24-alignment): firmware emits mister_state + mister_selected_zone
 # as numeric template sensors (state_class=measurement), not text. Map the int
 # codes to human-readable names before routing to system_state so Grafana
@@ -3409,6 +3427,9 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
             _mirror_irrigation_number_readback(param, val)
             if not _accept_setpoint(param, val):
                 return
+            if _report_races_push(param, val):
+                log.info("setpoint_changes: %s=%s races this connection's push; not recorded", param, val)
+                return
             old = state.setpoints.get(param)
             if old != val:
                 if _observation_spool_enabled():
@@ -3591,6 +3612,9 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
             # suppresses firmware defaults from the historical DB write path.
             _mirror_irrigation_number_readback(param, val)
             if not _accept_setpoint(param, val):
+                return
+            if _report_races_push(param, val):
+                log.info("setpoint_changes: %s=%s races this connection's push; not recorded", param, val)
                 return
             old = state.setpoints.get(param)
             if old != val:

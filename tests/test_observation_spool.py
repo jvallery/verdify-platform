@@ -293,6 +293,43 @@ def test_suppressed_number_echo_updates_native_cache_without_acceptance(monkeypa
     assert ingestor._get_observation_spool().queue.rows() == []
 
 
+@pytest.mark.parametrize("etype", ["number", "sensor"])
+def test_dispatcher_08_a_pre_push_report_after_the_push_is_not_recorded(monkeypatch, etype):
+    """DISPATCHER-08, the law boot's order: connect, the dispatcher pushes 30, the controller then reports its boot
+    value 45 (sampled before the push), then the pushed value. The ledger's newest row stays the push; a report of
+    another value after the race window is a real change and is recorded."""
+    import time as time_module
+
+    param = "mister_engage_delay_s"
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr(time_module, "time", lambda: clock["now"])
+    ingestor.state.key_to_object_id[1] = "test_setting"
+    ingestor.state.key_to_type[1] = etype
+    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_setting", param)
+    monkeypatch.setattr(ingestor, "_accept_setpoint", lambda *_: True)
+    monkeypatch.setattr(ingestor, "_mirror_irrigation_number_readback", lambda *_: None)
+    monkeypatch.setattr(ingestor.shared, "esp32_connected_at", 1_000.0)
+    monkeypatch.setitem(ingestor.state.setpoints, param, 30.0)  # the value held before the reboot
+    clock["now"] = 1_120.0  # the reconnect dispatch pushes 30
+    monkeypatch.setitem(ingestor.shared.recently_pushed, param, clock["now"])
+    monkeypatch.setitem(ingestor.shared.recently_pushed_values, param, 30.0)
+    clock["now"] = 1_122.0  # the boot value, sampled before the push, arrives after it
+    ingestor.on_state_change(SimpleNamespace(key=1, state=45.0))
+    assert ingestor._get_observation_spool().queue.rows() == []
+    assert ingestor.state.setpoints[param] == 30.0
+    clock["now"] = 1_180.0  # the controller holds the pushed value: nothing new to record
+    ingestor.on_state_change(SimpleNamespace(key=1, state=30.0))
+    assert ingestor._get_observation_spool().queue.rows() == []
+    clock["now"] = 1_200.0  # past the race window, a different value is a real change
+    ingestor.on_state_change(SimpleNamespace(key=1, state=45.0))
+    [row] = ingestor._get_observation_spool().queue.rows()
+    assert row[2]["payload"] == {"parameter": param, "value": 45.0}
+    assert ingestor._report_races_push(param, 45.0, now=1_121.0)
+    assert not ingestor._report_races_push(param, 30.0, now=1_121.0)
+    monkeypatch.setattr(ingestor.shared, "esp32_connected_at", 1_130.0)  # a push from an earlier connection
+    assert not ingestor._report_races_push(param, 45.0, now=1_131.0)
+
+
 def test_diagnostic_snapshot_excludes_stale_old_generation_and_unfenced_cache(monkeypatch):
     monkeypatch.setattr(ingestor.shared, "transport_generation", 7)
     monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_generation", 7)
