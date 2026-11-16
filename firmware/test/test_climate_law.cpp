@@ -14,6 +14,7 @@
 
 #include "climate_law.h"
 #include "climate_law_payload.h"
+#include "climate_law_glue.h"
 #include "greenhouse_logic.h"  // mixing_ratio_g_kg(), the device psychrometrics the law's must agree with
 
 #include "band_edge_controller.h"
@@ -601,6 +602,99 @@ static void relay_layer() {
 }
 
 // -- 4.1: the band check -------------------------------------------------
+// -- T1: the FANS and VENT-BYPASS latches are cleared at a protection limit -------------
+// The controller's glue (climate_law_glue.h) pass by pass: the law, the latch clear, the label the override layer
+// keys on, the relay layer and the override layer, the physical relays fed back. The temperature dithers across the
+// limit at every pass (worse than the 15 s probe cadence).
+struct GluePass {
+  L::State s;
+  L::RelayState r = after_boot_wait();
+  RelayOutputs phys{false, false, false, false, false, false};
+  bool fans_latched = false, bypass_latched = false;
+  int vent_edges = 0;
+  void run(double T) {
+    L::Inputs u = base_inputs(T, 1.0);
+    const L::Output law = L::step_checked(s, u, nullptr);
+    if (L::protection_clears_latches(law)) fans_latched = bypass_latched = false;
+    const Mode mode = law.hot ? SAFETY_COOL : law.cold ? SAFETY_HEAT : IDLE;
+    const ManualOverrides ov{fans_latched, bypass_latched, false, false};
+    const L::RelayPass p = L::relay_pass(r, law, L::RelayInputs{0, 0, false, 1000}, phys, ov, mode);
+    if (p.out.vent != phys.vent) ++vent_edges;
+    phys = p.out;
+    L::relay_sync(r, phys);
+  }
+};
+
+static void protection_clears_overrides() {
+  {
+    GluePass g;
+    g.fans_latched = true;
+    for (int i = 0; i < 30; ++i) g.run(41.0);  // FANS latched in a cold house: vent and both fans forced
+    CHECK(g.phys.vent && g.phys.fan1 && g.phys.fan2 && !g.phys.heat2, "T1 setup: FANS forces the air at 41 F");
+    g.vent_edges = 0;
+    bool furnace_started = false, furnace_dropped = false;
+    for (int i = 0; i < 600; ++i) {
+      g.run(i % 2 ? SAFETY_MIN_F + 0.1 : SAFETY_MIN_F);
+      if (g.phys.heat2) furnace_started = true;
+      else if (furnace_started) furnace_dropped = true;
+      CHECK(!(g.phys.heat2 && (g.phys.vent || g.phys.fan1 || g.phys.fan2)), "T1: furnace never with the air");
+    }
+    CHECK(!g.fans_latched, "T1: the FANS latch is cleared at 40 F");
+    CHECK(g.vent_edges <= 1, "T1: at most one vent edge across a 40.0/40.1 dither with FANS latched");
+    CHECK(furnace_started && !furnace_dropped, "T1: the furnace starts and stays on");
+  }
+  {
+    GluePass g;
+    g.bypass_latched = true;
+    for (int i = 0; i < 30; ++i) g.run(SAFETY_MAX_F - 1.0);  // VENT-BYPASS: fans with the vent closed
+    CHECK(!g.phys.vent && g.phys.fan1 && g.phys.fan2, "T1 setup: VENT-BYPASS runs the fans with the vent closed");
+    g.vent_edges = 0;
+    for (int i = 0; i < 600; ++i) g.run(i % 2 ? SAFETY_MAX_F : SAFETY_MAX_F - 0.1);
+    CHECK(!g.bypass_latched, "T1: the VENT-BYPASS latch is cleared at 100 F");
+    CHECK(g.vent_edges <= 1, "T1: at most one vent edge across a 99.9/100.0 dither with VENT-BYPASS latched");
+    CHECK(g.phys.vent && g.phys.fan1 && g.phys.fan2, "T1: vent open and both fans on after the clear");
+  }
+}
+
+// -- T4: a HUMID press or run-once is climate fog demand for the engine (ruling C2) ------
+// -- T6 S2: a relay switched off outside the loop keeps its minimum off time -------------
+static void glue_fog_demand_and_sync() {
+  L::RelayState r = after_boot_wait();
+  const RelayOutputs off{false, false, false, false, false, false};
+  const L::Output none{};
+  L::RelayPass p = L::relay_pass(r, none, L::RelayInputs{0, 0, false, 1000}, off,
+                                 ManualOverrides{false, false, true, false}, IDLE);
+  CHECK(p.force.fog && p.out.fog, "T4: HUMID forces the fogger");
+  CHECK(L::climate_fog_wanted(none, p.force, false, true), "T4: HUMID alone is climate fog demand (a drip yields)");
+  CHECK(!L::climate_fog_wanted(none, p.force, true, true), "T4: a rail other than the drips holds it");
+  CHECK(!L::climate_fog_wanted(none, p.force, false, false), "T4: today's clock term holds it");
+  p = L::relay_pass(r, none, L::RelayInputs{0, 0, false, 1000}, off, ManualOverrides{false, false, true, true}, IDLE);
+  CHECK(!p.force.fog && !L::climate_fog_wanted(none, p.force, false, true), "T4: a blocked HUMID is no demand");
+  p = L::relay_pass(r, none, L::RelayInputs{0, 0, false, 1000}, off, ManualOverrides{false, false, true, false},
+                    SAFETY_COOL);
+  CHECK(!p.force.fog, "T4: no HUMID force at a protection limit");
+  L::Output fog{};
+  fog.fog = true;
+  CHECK(L::climate_fog_wanted(fog, L::RelayPass{}.force, false, true), "T4: the law's fog request is demand");
+  // S2: the fogger runs, an OTA on_begin turns it off outside the loop; the next pass must not restart it before
+  // its minimum off time.
+  r = after_boot_wait();
+  RelayOutputs phys = off;
+  for (int i = 0; i < int(FOG_MIN_ON_S) + 2; ++i) {
+    p = L::relay_pass(r, fog, L::RelayInputs{0, 0, false, 1000}, phys, ManualOverrides{false, false, false, false}, IDLE);
+    phys = p.out;
+  }
+  CHECK(phys.fog, "S2 setup: the fogger runs");
+  phys.fog = false;  // switched off outside the loop
+  int restarted_after = -1;
+  for (int i = 1; i <= int(FOG_MIN_OFF_S) + 2 && restarted_after < 0; ++i) {
+    p = L::relay_pass(r, fog, L::RelayInputs{0, 0, false, 1000}, phys, ManualOverrides{false, false, false, false}, IDLE);
+    phys = p.out;
+    if (phys.fog) restarted_after = i;
+  }
+  CHECK(restarted_after >= int(FOG_MIN_OFF_S), "S2: the fogger waits its minimum off time after an outside cut");
+}
+
 static void band_check() {
   L::BandCheck c = L::check_band({60.7, 83.8, 0.74, 1.29});
   CHECK(!c.repaired, "today's band passes unchanged");
@@ -1134,6 +1228,8 @@ int main() {
   rule7_drying();
   protection_limits();
   relay_layer();
+  protection_clears_overrides();
+  glue_fog_demand_and_sync();
   band_check();
   invariants();
   mister_request();
