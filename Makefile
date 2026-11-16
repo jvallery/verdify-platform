@@ -46,7 +46,7 @@ HERMES_IRIS_ENV_FILE ?= /etc/verdify/hermes-iris.env
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-ci: ## Run the FULL pre-merge validation gate (lint+format+schema+logic tests, migrations, twin compile, overlay render); CI_BASE_REF=<ref> adds diff gates
+ci: ## Run the FULL pre-merge validation gate (lint+format+schema+logic tests, migrations, overlay render); CI_BASE_REF=<ref> adds diff gates
 	bash scripts/ci-local.sh
 
 setup: ## Create/update the repo-local Python tooling venv
@@ -160,21 +160,6 @@ test-firmware: test-policy-vector test-policy-engine test-policy-recovery test-p
 test-replay-overrides: ## Validate evaluate_overrides() against full history + synthetic self-test (OBS-1e)
 	bash scripts/export-replay-overrides.sh
 	cd firmware && g++ -std=c++17 -O2 -I lib -o test/replay_overrides test/replay_overrides.cpp && ./test/replay_overrides test/data/replay_overrides.csv
-
-firmware-replay-stream-check: ## TWIN-1/2: build the gated replay_emit_follow (--stream + climate_action) and smoke it; prove stock batch output byte-identical
-	gzip -cd $(REPLAY_CORPUS_GZ) > $(REPLAY_CORPUS_TMP)
-	cd firmware && g++ -std=c++17 -O2 -I lib -o test/replay_emit test/replay_emit.cpp
-	cd firmware && g++ -std=c++17 -O2 -DREPLAY_EMIT_STREAM -I lib -o test/replay_emit_follow test/replay_emit.cpp
-	# stock batch header is the unchanged 11-column schema (rule-8 gate intact)
-	REPLAY_EMIT_FORCE_FSM=1 ./firmware/test/replay_emit $(REPLAY_CORPUS_TMP) 2>/dev/null | head -1 \
-	    | grep -qx 'ts	mode	relay_fog	relay_vent	relay_fan1	relay_fan2	relay_heat1	relay_heat2	mist_stage	reason	override_bits' \
-	    && echo "batch header byte-identical (11 cols) ✓"
-	# stream build emits the additive climate_action column via describe_effective_climate_decision()
-	REPLAY_EMIT_FORCE_FSM=1 sh -c 'tail -n +2 $(REPLAY_CORPUS_TMP) | head -50 | ./firmware/test/replay_emit_follow --stream --header-from $(REPLAY_CORPUS_TMP)' \
-	    | head -1 | grep -q 'climate_action' \
-	    && echo "stream header carries climate_action column ✓"
-	REPLAY_EMIT_FORCE_FSM=1 sh -c 'tail -n +2 $(REPLAY_CORPUS_TMP) | head -50 | ./firmware/test/replay_emit_follow --stream --header-from $(REPLAY_CORPUS_TMP)' \
-	    | tail -n +2 | awk -F"\t" 'NF==12{ok++} END{ if(ok>0){print "stream emitted "ok" decision rows w/ 12 cols ✓"} else {print "FAIL: no stream rows"; exit 1} }'
 
 firmware-invariants: ## Phase-0: run 16 invariants from invariants.h against the replay corpus (pass = bulletproof gate green)
 	gzip -cd $(REPLAY_CORPUS_GZ) > $(REPLAY_CORPUS_TMP)

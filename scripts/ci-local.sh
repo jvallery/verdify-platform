@@ -7,7 +7,7 @@
 # 2026-07-11: GitHub Actions is removed from this repo (operator directive —
 # no external CI dependency). This script IS the gate the old workflows ran:
 #   ci.yml            -> lint, format, schema/logic/contract pytest suites,
-#                        migration rollback safety, twin vendored-src compile
+#                        migration rollback safety
 #   k8s-manifests.yml -> kustomize render of the prod overlay
 #   container-publish -> image builds run in GitHub Actions build.yml on ARC
 #                        (Kaniko -> zot origin; docs/runbooks/prod-promotion.md)
@@ -38,8 +38,8 @@ step() { printf '\n== %s ==\n' "$1"; }
 # `make ci` does. Steps stay serial inside each part, so wall-clock assertions
 # keep their own CPU (pytest-xdist broke them, #1448).
 #   containment-firmware  private component containment, firmware native tests,
-#                         twin compile, and the diff-scoped gates (rules 6, 7,
-#                         firmware replay diff)
+#                         and the diff-scoped gates (rules 6, 7, firmware
+#                         replay diff)
 #   pure-logic-1/2        the pure-logic / contract pytest list, files dealt
 #                         round-robin across the two parts
 #   rest                  every other step
@@ -386,9 +386,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_solar_band_anchors.py
     tests/test_solar_constants_check.py
     tests/test_tempest_sync.py
-    tests/test_twin_agreement_report.py
-    tests/test_twin_asof_migration.py
-    tests/test_twin_live_driver.py
     tests/test_verdify_services_reads.py
     tests/test_greenhouse_brief.py
     tests/test_verdify_services_irrigation_reads.py
@@ -615,18 +612,6 @@ if in_part containment-firmware; then
     else
       $PY firmware/test/climate_law_sim.py --quick
     fi
-  else
-    echo "SKIP: g++ not available on this host (required in the CI image)"
-  fi
-
-  step "twin follower source compiles (the twin image's exact build, #587)"
-  # The twin image (twin/Dockerfile; its k8s component was retired unbuilt, #1579)
-  # builds from these CANONICAL sources (the vendored src/ copies are gone), so
-  # syntax-check the exact -DREPLAY_EMIT_STREAM compile the image performs.
-  if command -v g++ >/dev/null; then
-    g++ -std=c++17 -fsyntax-only -DREPLAY_EMIT_STREAM \
-      -Ifirmware/lib \
-      firmware/test/replay_emit.cpp
   else
     echo "SKIP: g++ not available on this host (required in the CI image)"
   fi
