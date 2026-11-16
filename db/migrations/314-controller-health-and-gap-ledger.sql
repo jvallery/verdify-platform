@@ -9,7 +9,10 @@
 -- gap_replay_quarters is the ledger of replayed gap-log quarters (contracts gap-log section 9, AE8): one row per
 -- (boot, qseq), written in the same transaction as the quarter's climate and equipment_state rows, so a quarter
 -- already in the ledger is skipped and its minutes are known to be replayed, not seen live. climate and
--- equipment_state are unchanged. The ingestor duty reads the ledger and inserts into it; nothing else reaches it.
+-- equipment_state are unchanged. The ingestor duty reads the ledger and inserts into it.
+-- v_data_gaps_unreplayed is data_gaps with the ledger's replayed spans cut out (a gap fully replayed has no row, a
+-- partly replayed one keeps its unreplayed pieces), so a reader of outages does not show replayed minutes as a gap
+-- and the ingestor needs no UPDATE on data_gaps. The dashboard duty reads it (series.py), as 308 granted its views.
 -- Seals: the ingestor duty's new facade columns and its ledger grants move the ingestor seal; the api and MCP seals
 -- are re-measured too (both read diagnostics). The successor literals are measured by the rolled-back native
 -- qualification (tests/fixtures/314-controller-health-and-gap-ledger-native-qualification.json); until then the file
@@ -42,6 +45,8 @@ BEGIN
         OR (SELECT reloptions FROM pg_catalog.pg_class WHERE oid='public.v_runtime_diagnostics_write'::regclass)
             IS DISTINCT FROM ARRAY['security_barrier=true','security_invoker=false']
         OR to_regclass('public.gap_replay_quarters') IS NOT NULL
+        OR to_regclass('public.v_data_gaps_unreplayed') IS NOT NULL
+        OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='verdify_dashboard_runtime' AND NOT rolcanlogin)
         OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='verdify_ingestor_runtime' AND NOT rolcanlogin)
     THEN RAISE EXCEPTION '314 refuses an unqualified predecessor'; END IF;
 END $predecessor$;
@@ -131,6 +136,30 @@ COMMENT ON COLUMN public.gap_replay_quarters.format_version IS
 GRANT SELECT ON public.gap_replay_quarters TO verdify_ingestor_runtime;
 GRANT INSERT (boot, qseq, first_ts, last_ts, climate_rows, transition_rows, format_version)
     ON public.gap_replay_quarters TO verdify_ingestor_runtime;
+
+-- A quarter's span is [first_ts, last_ts + one record interval): its records sit at t0, t0 + 60, ... t0 + 840.
+CREATE VIEW public.v_data_gaps_unreplayed WITH (security_barrier=true) AS
+SELECT g.id,
+       lower(piece.span) AS start_ts,
+       upper(piece.span) AS end_ts,
+       extract(epoch FROM upper(piece.span) - lower(piece.span))::double precision AS duration_s,
+       g.reason,
+       g.backfill_status,
+       g.created_at
+  FROM public.data_gaps g
+  CROSS JOIN LATERAL unnest(
+      tstzmultirange(tstzrange(g.start_ts, g.end_ts))
+      - COALESCE((SELECT range_agg(tstzrange(q.first_ts, q.last_ts + CASE q.format_version
+                                                                      WHEN 1 THEN interval '5 minutes'
+                                                                      ELSE interval '1 minute' END))
+                    FROM public.gap_replay_quarters q
+                   WHERE q.first_ts < g.end_ts AND q.last_ts + interval '5 minutes' > g.start_ts),
+                 '{}'::tstzmultirange)) AS piece(span)
+ WHERE NOT isempty(piece.span);
+COMMENT ON VIEW public.v_data_gaps_unreplayed IS
+    'data_gaps without the minutes the gap log replayed (gap_replay_quarters spans; 314, #1633, RULINGS AE8): one row '
+    'per remaining piece of a gap, with the gap''s id and reason. Read this, not data_gaps, to show outages.';
+GRANT SELECT ON public.v_data_gaps_unreplayed TO verdify_dashboard_runtime;
 
 -- Successor seals: the probe of the rolled-back native qualification measures them, and each receipt is re-sealed.
 -- PENDING: the literals below are 313's until the probe measures them, so an unqualified file stops here.

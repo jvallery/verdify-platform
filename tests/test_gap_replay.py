@@ -229,6 +229,7 @@ async def test_a_live_row_is_never_overwritten_and_blocks_a_replayed_one():
     conn.equipment.append((_at(EPOCH + 33), "fan1", True))  # the live transition, 3 s off
     (result,) = await _replay(gap_replay.GapReplayHost(), conn, _pass_lines())
     assert (result.climate_rows, result.transition_rows) == (5, 1)
+    assert conn.ledger[(7, 41)] == (_at(EPOCH), _at(EPOCH + 300), 6, 2, 2)  # the quarter as sent
     assert conn.climate[0] == (_at(EPOCH + 80), live)
     assert not any(ts == _at(EPOCH + 120) for ts, _ in conn.climate)
 

@@ -82,9 +82,29 @@ BEGIN
 END $ingestor$;
 RESET SESSION AUTHORIZATION;
 
+-- A one-hour outage whose middle quarter was replayed reads as two pieces, without the replayed minutes.
+INSERT INTO public.data_gaps (start_ts, end_ts, duration_s, reason, backfill_status)
+VALUES ('2026-11-16 10:00+00', '2026-11-16 11:00+00', 3600, 'ingestor_restart', 'snapshot_taken');
+INSERT INTO public.gap_replay_quarters (boot, qseq, first_ts, last_ts, climate_rows, transition_rows, format_version)
+VALUES (315, 7, '2026-11-16 10:15+00', '2026-11-16 10:29+00', 15, 0, 2);
+SET SESSION AUTHORIZATION verdify_dashboard_runtime_login;
+DO $dashboard$
+BEGIN
+    IF (SELECT array_agg(tstzrange(start_ts, end_ts) ORDER BY start_ts)
+          FROM public.v_data_gaps_unreplayed WHERE start_ts >= '2026-11-16 09:00+00' AND end_ts <= '2026-11-16 12:00+00')
+        IS DISTINCT FROM ARRAY[tstzrange('2026-11-16 10:00+00', '2026-11-16 10:15+00'),
+                               tstzrange('2026-11-16 10:30+00', '2026-11-16 11:00+00')] THEN
+        RAISE EXCEPTION '314 v_data_gaps_unreplayed does not cut the replayed quarter out of the gap';
+    END IF;
+    IF has_table_privilege('public.gap_replay_quarters', 'SELECT') THEN
+        RAISE EXCEPTION '314 dashboard login reads the ledger directly';
+    END IF;
+END $dashboard$;
+RESET SESSION AUTHORIZATION;
+
 SELECT 'QUALIFY native_fixture ' || json_build_object(
     'checks', json_build_array('nine_diagnostics_columns_typed', 'ingestor_inserts_the_nine_through_the_facade',
                                'ingestor_reads_and_inserts_the_ledger_only', 'api_mcp_and_public_denied',
                                'ingestor_login_writes_health_row', 'one_ledger_row_per_quarter',
-                               'placed_quarter_needs_records'),
+                               'placed_quarter_needs_records', 'dashboard_reads_gaps_without_replayed_minutes'),
     'all_passed', true)::text;

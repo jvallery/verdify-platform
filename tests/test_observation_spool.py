@@ -312,6 +312,31 @@ def test_diagnostic_snapshot_excludes_stale_old_generation_and_unfenced_cache(mo
     assert ingestor._get_observation_spool().queue.rows() == before
 
 
+def test_an_on_change_state_is_carried_into_every_row_of_its_connection(monkeypatch):
+    """#1633 release 3: sensor_degraded_active and gap_log_state are published on change; every row carries them."""
+    monkeypatch.setattr(ingestor.shared, "transport_generation", 7)
+    monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_generation", 7)
+    ingestor.state.diagnostics.update(
+        uptime_s=30, sensor_degraded_active=1, gap_log_state="armed", heap_min_free_minute_kb=40.0, restart_count=9
+    )
+    old = TS - timedelta(minutes=20)
+    ingestor.state.diagnostic_observations.update(
+        uptime_s=(TS, 7),
+        sensor_degraded_active=(old, 7),
+        gap_log_state=(old, 7),
+        heap_min_free_minute_kb=(old, 7),  # a per-minute window: never carried
+        restart_count=(old, 6),  # received in an earlier connection: not carried
+    )
+    asyncio.run(ingestor.write_diagnostics(Pool(), TS + timedelta(seconds=1)))
+    row = ingestor._get_observation_spool().queue.rows()[0][2]
+    assert row["observed_at"] == TS.isoformat()
+    assert (row["payload"]["sensor_degraded_active"], row["payload"]["gap_log_state"]) == (1, "armed")
+    assert row["payload"].get("heap_min_free_minute_kb") is None and row["payload"].get("restart_count") is None
+    before = ingestor._get_observation_spool().queue.rows()
+    asyncio.run(ingestor.write_diagnostics(Pool(), TS + timedelta(seconds=30)))
+    assert ingestor._get_observation_spool().queue.rows() == before  # carried values alone never make a row
+
+
 def test_diagnostic_provenance_requires_native_subscription_and_valid_callback(monkeypatch):
     monkeypatch.setattr(ingestor.shared, "transport_generation", 7)
     monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_generation", 7)

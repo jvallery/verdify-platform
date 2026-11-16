@@ -161,6 +161,7 @@ def test_body_grants_exactly_the_ingestor_duty():
         f"GRANT INSERT ({', '.join(HEALTH_COLUMNS)}) ON public.v_runtime_diagnostics_write TO {ING_DUTY};",
         f"GRANT SELECT ON public.gap_replay_quarters TO {ING_DUTY};",
         f"GRANT INSERT ({LEDGER_INSERT}) ON public.gap_replay_quarters TO {ING_DUTY};",
+        "GRANT SELECT ON public.v_data_gaps_unreplayed TO verdify_dashboard_runtime;",
     ]
     assert not re.search(r"\bTO PUBLIC\b|DEFAULT PRIVILEGES|\bOWNER TO\b|\bDROP\b|\bTRUNCATE\b|\bREVOKE\b", BODY)
     # climate and equipment_state are unchanged (RULINGS AE8): no index, no column, no grant.
@@ -214,8 +215,18 @@ def test_native_fixture_writes_as_the_ingestor_login():
     text = NATIVE.read_text()
     qualifier.native_checks(NATIVE)
     assert "SET SESSION AUTHORIZATION verdify_ingestor_runtime_login;" in text
-    assert text.count("RESET SESSION AUTHORIZATION;") == 1
+    assert text.count("RESET SESSION AUTHORIZATION;") == 2
+    assert "SET SESSION AUTHORIZATION verdify_dashboard_runtime_login;" in text
     assert "INSERT INTO public.v_runtime_diagnostics_write" in text and "INSERT INTO public.gap_replay_quarters" in text
+
+
+def test_outage_readers_see_gaps_without_replayed_minutes():
+    """A replayed outage must not read as a gap: the view cuts the ledger's spans out and the graphs read it."""
+    view = flat(BODY.split("CREATE VIEW public.v_data_gaps_unreplayed", 1)[1].split(";", 1)[0])
+    assert "FROM public.data_gaps g" in view and "FROM public.gap_replay_quarters q" in view
+    assert "tstzmultirange(tstzrange(g.start_ts, g.end_ts))" in view and "range_agg(" in view
+    series = (ROOT / "verdify_services" / "series.py").read_text()
+    assert "FROM public.v_data_gaps_unreplayed" in series and "FROM public.data_gaps" not in series
 
 
 def test_the_projection_is_the_files_literals():

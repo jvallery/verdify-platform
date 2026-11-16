@@ -901,8 +901,9 @@ def forecast_rows_sql(columns: Sequence[str]) -> str:
     )
 
 
+# Outages without the minutes the controller's gap log replayed afterwards (migration 314, #1633 release 3).
 GAPS_SQL = (
-    "SELECT start_ts, end_ts, reason FROM public.data_gaps "
+    "SELECT start_ts, end_ts, reason FROM public.v_data_gaps_unreplayed "
     "WHERE start_ts < $2::timestamptz AND end_ts > $1::timestamptz ORDER BY start_ts, id"
 )
 

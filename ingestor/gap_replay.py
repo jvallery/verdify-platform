@@ -11,7 +11,9 @@ line per publish (``verdify_schemas.gap_replay``). This module:
   time; 300 s for format 1), equipment_state rows where no row of that equipment with the same state lies within 5 s,
   then one ``gap_replay_quarters`` ledger row. A quarter already in the ledger is skipped whole. A quarter that came
   in short (a pass broken mid-quarter) or has records it cannot place is written as far as it goes but gets no ledger
-  row, so a later pass can complete it; the row checks keep that idempotent.
+  row, so a later pass can complete it; the row checks keep that idempotent. The ledger row records the quarter as
+  sent (its records and transitions and the placed span of all of them), not how many rows were new, so the span
+  marks replayed minutes even where a live row already stood.
 
 Live rows are never changed. Rows that already exist count as written by someone else, not by the replay.
 """
@@ -207,7 +209,7 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
             return QuarterResult(header.boot, header.qseq, skipped=True)
 
         spacing = RECORD_SPACING_S.get(header.ver, 60)
-        written: list[datetime] = []
+        placed: list[datetime] = []  # every placed record and transition: the ledger's span
         unplaced = 0
         climate_rows = 0
         for record in quarter.records:
@@ -215,6 +217,7 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
             if ts is None:
                 unplaced += 1
                 continue
+            placed.append(ts)
             if await conn.fetchval(
                 "SELECT 1 FROM climate WHERE ts > $1 - make_interval(secs => $2) AND ts <= $1 LIMIT 1", ts, spacing
             ):
@@ -233,7 +236,6 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
                 record.water_gal,
             )
             climate_rows += 1
-            written.append(ts)
 
         transition_rows = 0
         for transition in quarter.transitions:
@@ -242,6 +244,7 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
             if equipment is None or ts is None:
                 unplaced += 1
                 continue
+            placed.append(ts)
             if await conn.fetchval(
                 "SELECT 1 FROM equipment_state WHERE equipment = $1 AND state = $2 "
                 "AND ts BETWEEN $3 - make_interval(secs => $4) AND $3 + make_interval(secs => $4) LIMIT 1",
@@ -258,7 +261,6 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
                 transition.on,
             )
             transition_rows += 1
-            written.append(ts)
 
         ledgered = quarter.complete and unplaced == 0
         if ledgered:
@@ -268,10 +270,10 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
                 "VALUES ($1, $2, $3, $4, $5, $6, $7)",
                 header.boot,
                 header.qseq,
-                min(written) if written else None,
-                max(written) if written else None,
-                climate_rows,
-                transition_rows,
+                min(placed) if placed else None,
+                max(placed) if placed else None,
+                len(quarter.records),
+                len(quarter.transitions),
                 header.ver,
             )
     return QuarterResult(header.boot, header.qseq, False, ledgered, climate_rows, transition_rows, unplaced)

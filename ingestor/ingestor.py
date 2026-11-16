@@ -2421,10 +2421,18 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
             for col, (moment, gen) in state.diagnostic_observations.items()
             if gen == generation and 0 <= (ts - moment).total_seconds() <= DIAG_FLUSH_INTERVAL
         }
-        d = {col: value for col, value in d.items() if col in fresh}
-        if not d or fresh == state.diagnostic_accepted_observations:
+        if not fresh or fresh == state.diagnostic_accepted_observations:
             return
-        ts = max(fresh[col][0] for col in d)
+        flush_ts = ts
+        ts = max(moment for moment, _ in fresh.values())
+        # A state the controller publishes only when it changes is carried from its last receipt in this connection
+        # into every row, so the newest row always holds it; a new connection starts without it.
+        carried = {
+            col
+            for col, (moment, gen) in state.diagnostic_observations.items()
+            if col in CARRIED_DIAGNOSTIC_COLUMNS and col not in fresh and gen == generation and moment <= flush_ts
+        }
+        d = {col: value for col, value in d.items() if col in fresh or col in carried}
     if not d:
         return
     try:
@@ -2888,6 +2896,12 @@ INTEGER_DIAGNOSTIC_COLUMNS = {
     "nvs_free_entries",
     "sensor_degraded_active",
 }
+
+# Diagnostics the controller publishes on change, not every minute (#1633 release 3): each row carries the last value
+# received in this connection. Per-minute windows (the minute lows and worst times) are never carried.
+CARRIED_DIAGNOSTIC_COLUMNS = frozenset(
+    {"sensor_degraded_active", "gap_log_state", "restart_count", "nvs_used_entries", "nvs_free_entries"}
+)
 
 # The controller's own health (migration 314). A NaN (a failed nvs_get_stats) or another unusable reading is stored
 # as NULL, never as the last value and never as 0, and never fails the whole diagnostics row.
