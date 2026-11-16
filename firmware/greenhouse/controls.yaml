@@ -293,11 +293,11 @@ interval:
           // and economiser gate are gone. The law takes the band (section 8+9) and
           // its compiled numbers, the 40/100 F protection limits included.
 
-                    /**************** 7 — runtime-aware lead/lag selection ****************/
+                    /**************** 7 — fan run seconds and the lead ****************/
           // Phase 2: the lifetime counters, restored once from flash at the first
-          // tick into the RAM store the shutdown hook also reads; the lead chooser
-          // balances the fans' lifetime run seconds, so the balance survives a
-          // restart (it was the day's runtime, lost at boot).
+          // tick into the RAM store the shutdown hook also reads. They are
+          // telemetry; the lead alternates by episode (ruling AB8), and the run
+          // seconds pick only the first lead after a restart.
           RelayCounterStore& counter_store = relay_counter_store();
           if (!counter_store.restored) {
             const uint32_t saved_starts[kCountedRelays] = {

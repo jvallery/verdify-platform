@@ -125,7 +125,7 @@ inline const char* law_fog_wait_word(bool law_fog, bool request_fog) noexcept {
 }
 
 // X8 (MINOR-3): the no-indoor-temperature table (decision 7) as the relay layer's request: vent with one fan, or the
-// electric heater, or nothing. The fan is a count; relay_step() picks the lead from the run seconds, so the request is
+// electric heater, or nothing. The fan is a count; relay_step() picks the lead (alternating, AB8), so the request is
 // not built from a lead read before the relay layer has chosen it this pass.
 inline Output no_indoor_request(NoIndoorBranch b) noexcept {
     Output q;

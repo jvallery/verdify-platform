@@ -164,7 +164,7 @@ static void port_equals_simulator_relay_layer() {
     F1.min_on = F2.min_on = FAN_MIN_ON_S; F1.min_off = F2.min_off = FAN_MIN_OFF_S;
     VENT.min_on = VENT_MIN_ON_S; VENT.min_off = VENT_MIN_OFF_S;
     FOG.min_on = FOG_MIN_ON_S; FOG.min_off = FOG_MIN_OFF_S;
-    bool lead1 = true;
+    bool lead1 = true, led_once = false, last1 = true;
     double f1_s = r.uni(0, 1000), f2_s = r.uni(0, 1000);
     L::RelayState rs;
     const double dt = 5.0;
@@ -179,7 +179,12 @@ static void port_equals_simulator_relay_layer() {
         if (e.vent) e.heat2 = false;  // the law never asks for both (q.heat2 needs !q.vent)
       }
       // simulator
-      if (!F1.on && !F2.on) lead1 = f1_s <= f2_s;
+      const bool fans_off = !F1.on && !F2.on;
+      if (fans_off) {  // AB8 alternation with the m7 hand-over (closed_loop2.cpp carries the same rule)
+        const bool m1 = F1.can_on(now), m2 = F2.can_on(now);
+        const bool turn1 = led_once ? !last1 : f1_s <= f2_s;
+        lead1 = m1 != m2 ? m1 : turn1;
+      }
       bool want_f1 = lead1 ? e.fans >= 1 : e.fans >= 2, want_f2 = lead1 ? e.fans >= 2 : e.fans >= 1;
       bool want_vent = e.vent;
       if (H2.on && !e.hot) { want_vent = false; want_f1 = want_f2 = false; }
@@ -188,6 +193,7 @@ static void port_equals_simulator_relay_layer() {
       H2.set(now, e.heat2 && !air_on, e.hot);
       F1.set(now, want_f1 && VENT.on, false);
       F2.set(now, want_f2 && VENT.on, false);
+      if (fans_off && (F1.on || F2.on)) { last1 = F1.on && F2.on ? lead1 : F1.on; led_once = true; }
       VENT.set(now, want_vent || want_f1 || want_f2 || F1.on || F2.on, false);
       FOG.set(now, e.fog, false);
       // port
@@ -413,6 +419,96 @@ static L::RelayState after_boot_wait() {  // a relay state past the furnace's bo
   return r;
 }
 
+// Ruling AB8 with review m7: the lead fan alternates by episode; a resting fan hands its turn to the other, and the
+// order continues from the fan that actually led; escalation to both fans does not change the turn; a restart takes
+// the first turn by fewer persisted run seconds, once.
+static L::RelayState vent_open_state() {
+  L::RelayState r = after_boot_wait();
+  r.vent.on = true; r.vent.switched = true; r.vent.since_ms = 600000;
+  return r;
+}
+
+// One episode: fans as asked until a fan starts, run 60 s, then off and rested. Returns 1 or 2, the fan that led.
+static int episode(L::RelayState& r, int fans, const L::RelayInputs& in) {
+  L::Output e{};
+  e.vent = true; e.fans = fans;
+  L::relay_step(r, e, in);
+  const int led = r.fan1.on && r.fan2.on ? (r.lead_fan1 ? 1 : 2) : (r.fan1.on ? 1 : (r.fan2.on ? 2 : 0));
+  L::RelayInputs run = in;
+  run.dt_ms = FAN_MIN_ON_S * MS_PER_S;
+  L::relay_step(r, e, run);
+  L::Output off{};
+  off.vent = true;
+  L::relay_step(r, off, in);
+  run.dt_ms = FAN_MIN_OFF_S * MS_PER_S;
+  L::relay_step(r, off, run);  // both fans rested: either may start
+  return led;
+}
+
+static void lead_fan_alternates() {
+  const uint32_t rest_ms = FAN_MIN_OFF_S * MS_PER_S;
+  // strict alternation over many episodes, whatever the run seconds say
+  L::RelayState r = vent_open_state();
+  const L::RelayInputs lopsided{100, 900000, false, 1000};  // fan 1 has far fewer run seconds throughout
+  int prev = 0, swaps = 0, n1 = 0;
+  for (int k = 0; k < 40; ++k) {
+    const int led = episode(r, 1, lopsided);
+    if (k == 0) CHECK(led == 1, "AB8: the first turn after boot goes to fewer run seconds (fan 1)");
+    if (prev && led != prev) ++swaps;
+    n1 += led == 1;
+    prev = led;
+  }
+  CHECK(swaps == 39 && n1 == 20, "AB8: 40 episodes alternate strictly, 20 each, no catch-up for fan 1's fewer seconds");
+  // escalation to both fans does not change whose turn is next
+  r = vent_open_state();
+  CHECK(episode(r, 1, lopsided) == 1, "AB8: fan 1 leads episode 1");
+  CHECK(episode(r, 2, lopsided) == 2 && r.last_led_fan1 == false, "AB8: episode 2 runs both fans, fan 2 led it");
+  CHECK(episode(r, 1, lopsided) == 1, "AB8: episode 3 is fan 1's turn again");
+  // escalation inside an episode: fan 1 leads, fan 2 joins, fan 1 stops first; the turn is still fan 2's
+  r = vent_open_state();
+  L::Output one{}, two{}, off{};
+  one.vent = two.vent = off.vent = true; one.fans = 1; two.fans = 2;
+  L::RelayInputs step{100, 900000, false, FAN_MIN_ON_S * MS_PER_S};
+  L::relay_step(r, one, step);
+  L::relay_step(r, two, step);
+  CHECK(r.fan1.on && r.fan2.on && r.lead_fan1, "AB8: escalation adds fan 2 behind fan 1");
+  L::relay_step(r, off, step);
+  step.dt_ms = rest_ms;
+  L::relay_step(r, off, step);
+  CHECK(episode(r, 1, lopsided) == 2, "AB8: after an escalated episode led by fan 1, fan 2 leads");
+  // a resting turn hands over, and the order continues from who actually led
+  r = vent_open_state();
+  CHECK(episode(r, 1, lopsided) == 1, "m7: fan 1 leads episode 1");
+  r.fan2.switched = true; r.fan2.since_ms = 60000;  // fan 2 (whose turn it is) stopped 60 s ago
+  L::Output cool{};
+  cool.vent = true; cool.fans = 1;
+  L::relay_step(r, cool, L::RelayInputs{100, 900000, false, 1000});
+  CHECK(r.fan1.on && !r.fan2.on && r.lead_fan1, "m7: fan 2 rests, so fan 1 leads now instead of waiting");
+  L::RelayInputs run{100, 900000, false, FAN_MIN_ON_S * MS_PER_S};
+  L::relay_step(r, cool, run);
+  L::relay_step(r, off, run);
+  run.dt_ms = rest_ms;
+  L::relay_step(r, off, run);
+  CHECK(episode(r, 1, lopsided) == 2, "m7: fan 1 took the turn, so fan 2 leads next");
+  CHECK(episode(r, 1, lopsided) == 1, "m7: and the alternation continues");
+  // both resting: the turn holds and waits, then that fan starts
+  r = vent_open_state();
+  CHECK(episode(r, 1, lopsided) == 1, "both resting: fan 1 leads episode 1");
+  r.fan1.switched = r.fan2.switched = true; r.fan1.since_ms = 10000; r.fan2.since_ms = 20000;
+  L::relay_step(r, cool, L::RelayInputs{100, 900000, false, 1000});
+  CHECK(!r.lead_fan1 && !r.fan1.on && !r.fan2.on, "both resting: fan 2's turn holds and waits");
+  r.fan2.since_ms = rest_ms;
+  L::relay_step(r, cool, L::RelayInputs{100, 900000, false, 1000});
+  CHECK(r.fan2.on && !r.lead_fan1, "both resting: fan 2 starts when its rest ends");
+  L::relay_step(r, cool, L::RelayInputs{0, 99999999, false, 1000});
+  CHECK(r.fan2.on && !r.fan1.on && !r.lead_fan1, "no swap during a run");
+  // a restart (RAM state lost): fewer persisted run seconds takes the first turn once, then alternation
+  r = vent_open_state();
+  const L::RelayInputs fan2_fewer{900000, 100, false, 1000};
+  CHECK(episode(r, 1, fan2_fewer) == 2 && episode(r, 1, fan2_fewer) == 1 && episode(r, 1, fan2_fewer) == 2,
+        "restart: fewer run seconds (fan 2) first, then alternation");
+}
+
 static void relay_layer() {
   L::RelayState r;
   L::Output e{};
@@ -599,6 +695,7 @@ static void relay_layer() {
   L::RelayInputs f1_less{100, 900, false, 1000};
   L::relay_step(r, e, f1_less);
   CHECK(r.fan2.on && !r.fan1.on, "no swap during a run");
+  lead_fan_alternates();
 }
 
 // -- 4.1: the band check -------------------------------------------------

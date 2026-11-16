@@ -232,7 +232,7 @@ inline Output step_checked(State& s, Inputs u, bool* band_repaired = nullptr) no
 // minimum off time after any boot (ruling G4); a fan only with the vent open (the vent opens first, the fan follows on
 // the next pass, the vent stays open while a fan runs); the furnace and the vent never on together (the air waits for
 // the furnace to finish and stop; the furnace waits for the vent to close); the lead fan chosen only while both fans
-// are off. At a protection limit (100 F, 40 F) no minimum time applies to the heaters, the vent and the fans, and the
+// are off, alternating by episode (ruling AB8). At a protection limit (100 F, 40 F) no minimum time applies to the heaters, the vent and the fans, and the
 // interlocks still do (rulings G1, G1a): at 100 F both heaters stop, the vent opens and the fans start in the same
 // pass; at 40 F the fans stop, the vent closes and the electric heater starts in the same pass, the furnace on the
 // next pass once the air reads off (G1c), with no boot wait (G1b). The fogger keeps its minimum times everywhere (G1a).
@@ -244,12 +244,14 @@ struct Relay {
 
 struct RelayState {
     Relay heat1, heat2{false, true, 0}, fan1, fan2, fog, vent;  // the furnace counts as just switched off at boot
-    bool lead_fan1 = true;
-    bool drying_air = false;  // glue bookkeeping (RULINGS AG3a): the air that is on was opened by the drying run
+    bool lead_fan1 = true;      // the lead of the running episode, or of the next one while both fans are off
+    bool led_once = false;      // an episode has started since boot (RAM only: AB8, no flash write)
+    bool last_led_fan1 = true;  // which fan actually led the last episode
+    bool drying_air = false;    // glue bookkeeping (RULINGS AG3a): the air that is on was opened by the drying run
 };
 
 struct RelayInputs {
-    double fan1_run_s, fan2_run_s;  // accumulated run seconds (persisted); non-finite counts as 0
+    double fan1_run_s, fan2_run_s;  // persisted run seconds: only the first lead after a restart; non-finite counts as 0
     bool fog_hold;                  // a hold of section 4.3 forces the fogger off at once
     uint32_t dt_ms;                 // since the last call
     bool cut_unwanted = false;      // force off at once every relay not requested (entry to the no-indoor state)
@@ -285,7 +287,19 @@ inline RelayStarts relay_step(RelayState& r, const Output& e, const RelayInputs&
     for (Relay* x : {&r.heat1, &r.heat2, &r.fan1, &r.fan2, &r.fog, &r.vent}) detail::relay_tick(*x, in.dt_ms);
     const double run1 = std::isfinite(in.fan1_run_s) ? in.fan1_run_s : 0.0;
     const double run2 = std::isfinite(in.fan2_run_s) ? in.fan2_run_s : 0.0;
-    if (!r.fan1.on && !r.fan2.on) r.lead_fan1 = run1 <= run2;
+    const bool fans_were_off = !r.fan1.on && !r.fan2.on;
+    if (fans_were_off) {
+        // Ruling AB8: balanced use. The lead alternates by episode (a stretch with at least one fan running): the
+        // turn is the fan that did not lead the last episode. Run seconds no longer choose (no catch-up after one fan
+        // was out); after a restart the fan with fewer persisted run seconds takes the first turn, once.
+        // Review m7 (AA5): a fan inside its minimum off time cannot start this pass, so the other leads now, and the
+        // turn order continues from the fan that actually led. When neither may start, the turn holds and waits.
+        const bool turn1 = r.led_once ? !r.last_led_fan1 : run1 <= run2;
+        const uint32_t fan_rest_ms = FAN_MIN_OFF_S * MS_PER_S;
+        const bool may1 = !r.fan1.switched || r.fan1.since_ms >= fan_rest_ms;
+        const bool may2 = !r.fan2.switched || r.fan2.since_ms >= fan_rest_ms;
+        r.lead_fan1 = may1 != may2 ? may1 : turn1;
+    }
     bool want_f1 = r.lead_fan1 ? e.fans >= 1 : e.fans >= 2;
     bool want_f2 = r.lead_fan1 ? e.fans >= 2 : e.fans >= 1;
     bool want_vent = e.vent;
@@ -332,6 +346,10 @@ inline RelayStarts relay_step(RelayState& r, const Output& e, const RelayInputs&
         st.fan2 = detail::relay_set(r.fan2, want_f2 && vent_was_open, false, false, fan_on, fan_off);
         st.vent = detail::relay_set(r.vent, want_vent || want_f1 || want_f2 || r.fan1.on || r.fan2.on, false, false,
                                     vent_on, vent_off);
+    }
+    if (fans_were_off && (r.fan1.on || r.fan2.on)) {  // an episode started: record who actually led it
+        r.last_led_fan1 = r.fan1.on && r.fan2.on ? r.lead_fan1 : r.fan1.on;
+        r.led_once = true;
     }
     // G1a: the fogger keeps its minimum times at every temperature; only its hard holds stop it at once.
     st.fog = detail::relay_set(r.fog, e.fog && !in.fog_hold, false, in.fog_hold, fog_on, fog_off);
