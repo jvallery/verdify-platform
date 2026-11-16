@@ -168,7 +168,7 @@ SP_MEMBER_ALIASES: dict[str, str] = {
 _SP_ASSIGN = re.compile(r'assign_[a-z_]*\(\s*"(?P<column>sp_[a-z0-9_]+)"\s*,\s*sp\.(?P<member>[a-z0-9_]+)')
 
 
-# Phase 3 (#1671, RULINGS P1): the band-edge law leaves these policy fields with no control read by design
+# Phase 3 (#1671, RULINGS P1, T2): the band-edge law leaves these policy fields with no control read by design
 # (contracts phase3-wiring section 7a). They are recorded as inert instead of refusing the report; package
 # 4.3's host counterpart deletes this tooling with the mode machine.
 PHASE3_INERT_FIELDS = frozenset(
@@ -181,6 +181,7 @@ PHASE3_INERT_FIELDS = frozenset(
         "mister_pulse_gap_s",
         "mister_pulse_on_s",
         "mister_vpd_weight",
+        "night_vpd_bias_kpa",  # RULINGS T2: inert, no longer reaches the band
         "sw_direct_wet_gate_enabled",
         "sw_fog_closes_vent",
         "sw_mister_closes_vent",

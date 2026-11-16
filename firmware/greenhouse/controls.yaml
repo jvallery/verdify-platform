@@ -462,8 +462,9 @@ interval:
           float sv2_temp_low  = id(target_temp_low_f);
           float sv2_temp_high = id(target_temp_high_f);
           float sv2_temp_tgt  = (sv2_temp_low + sv2_temp_high) * 0.5f;
-          float sv2_vpd_low   = id(target_vpd_low);
-          float sv2_vpd_high  = id(target_vpd_high);
+          // T6 F1: the pushed VPD edges (target_vpd_*_kpa), not the dead globals.
+          float sv2_vpd_low   = id(target_vpd_low_kpa);
+          float sv2_vpd_high  = id(target_vpd_high_kpa);
           float sv2_vpd_tgt   = (sv2_vpd_low + sv2_vpd_high) * 0.5f;
           const BandSource band_source = select_band_source(id(sw_onchip_band_enabled), band_clock_trusted);
           const BandAnchors band_tl = {id(band_temp_low_sr), id(band_temp_low_sm), id(band_temp_low_ss), id(band_temp_low_mid)};
@@ -492,23 +493,9 @@ interval:
             }
           }
 
-          // Item-4 night-dry lever (planner-pushable, clamped 0..0.25 kPa): raise
-          // the VPD band overnight so the dryer keeps running, weighted by a smooth
-          // sin^2 bump that PEAKS at solar midnight and is exactly 0 at sunset (phase
-          // 2) and sunrise (phase 4) — so it can never re-introduce a slope corner.
-          // Lets the planner pre-empt a humid night without touching the anchors.
-          {
-            const float nbias = pol(verdify_policy::kPF_night_vpd_bias_kpa, id(night_vpd_bias_kpa));
-            // Not on the corridor: it is already the widest band, and the solar
-            // night is unknown without a trusted clock.
-            if (band_source != BandSource::kCorridor && nbias > 0.0f && sv2_phase >= 2.0f && sv2_phase <= 4.0f) {
-              const float s = sinf(3.14159265f * (sv2_phase - 2.0f) * 0.5f);
-              const float add = nbias * s * s;  // s^2: 0 at phase 2/4, 1 at phase 3
-              sv2_vpd_low  += add;
-              sv2_vpd_tgt  += add;
-              sv2_vpd_high += add;
-            }
-          }
+          // RULINGS T2 (F2): night_vpd_bias_kpa no longer reaches the band the law, the
+          // zone gate and mister_step receive. The setting still takes pushes and reads
+          // back (cfg_night_vpd_bias_kpa), inert until package 4.3 removes it.
 
           // Phase 2: one outdoor reading for every outdoor-dependent decision: the
           // weather station (Tempest UDP) first, the wired exterior intake probe
