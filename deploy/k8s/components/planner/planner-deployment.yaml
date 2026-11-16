@@ -50,8 +50,7 @@ spec:
     spec:
       # Same in-org pull secret as the other workloads (ghcr.io host-level auth).
       imagePullSecrets:
-        - name: zot-origin-cluster-pull  # zot origin (ADR-0021); ghcr kept during transition
-        - name: ghcr-jvallery-readonly
+        - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

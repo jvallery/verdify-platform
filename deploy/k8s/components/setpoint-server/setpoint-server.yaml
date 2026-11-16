@@ -50,8 +50,7 @@ spec:
         app.kubernetes.io/component: setpoint-server
     spec:
       imagePullSecrets:
-        - name: zot-origin-cluster-pull  # zot origin (ADR-0021); ghcr kept during transition
-        - name: ghcr-jvallery-readonly
+        - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
       # The HA writer needs services-VLAN access but no GPU. Every worker is on
       # the services VLAN, so select any non-control-plane worker without
       # hard-pinning a hostname; node8 stays out through its untolerated

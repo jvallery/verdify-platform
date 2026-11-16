@@ -93,7 +93,7 @@ Service → Secret → key wiring as authored in `deploy/k8s/{base,components}`:
 | `verdify-grafana-secrets` | `GRAFANA_RENDERER_TOKEN` | API saved-public-panel PNG adapter (`secretKeyRef`, optional; fails closed when absent) | — | — | ✓ |
 | `verdify-grafana-secrets` | `GRAFANA_ADMIN_PASSWORD` | grafana (`secretKeyRef`, required; pod fails closed when absent) | — | — | ✓ |
 | `verdify-grafana-secrets` | `GRAFANA_RENDERER_TOKEN` | grafana + image-renderer (`secretKeyRef`, required shared token; pod fails closed when absent) | — | — | ✓ |
-| `ghcr-jvallery-readonly` | `.dockerconfigjson` | all workloads (`imagePullSecrets`) | ✓ | ✓ | ✓ |
+| `ghcr-jvallery-readonly` | `.dockerconfigjson` | none since vp#1543 (all images are zot-origin; token invalid, 401 on 2026-11-16); Secret removal pending | ✓ | ✓ | ✓ |
 | `verdify-agent-secrets` | `AGENT_RO_DSN` | dev/coding agent (read-only `agent_ro`/`pg_read_all_data`, migration 184; **read-only, no device path**) | — | — | ✓ |
 | `verdify-frigate-vision-auth` | `token` | Vision CronJob and public API camera reader, mounted read-only at `/vfrigate/token`; existing GET-only two-camera snapshot credential, values owned by agents KSOPS | — | — | ✓ |
 | `verdify-firmware-ota` | `ota_password`; during a rotation also `ota_password_next` / `ota_password_previous` (#1009, `scripts/firmware-ota-password-rotate.sh`) | signed builder and flasher Jobs (`scripts/firmware-release-job.py --ota-key`), `make firmware-deploy` ESPHome OTA upload + `firmware-rollback.sh`; **device-affecting** (flash gate) | — | — | ✓ |
