@@ -58,7 +58,6 @@ jobs:
       mcp: ${{ steps.impact.outputs.mcp }}
       ingestor: ${{ steps.impact.outputs.ingestor }}
       migrate: ${{ steps.impact.outputs.migrate }}
-      planner: ${{ steps.impact.outputs.planner }}
       setpoint-server: ${{ steps.impact.outputs.setpoint-server }}
       lab-publisher: ${{ steps.impact.outputs.lab-publisher }}
       dashboard-web: ${{ steps.impact.outputs.dashboard-web }}
@@ -116,16 +115,6 @@ jobs:
       image: verdifyconsultancy/verdify-migrate
       dockerfile: db/Dockerfile.migrate
       push: true
-
-  planner:
-    needs: [impact]
-    if: ${{ needs.impact.outputs.planner == 'true' }}
-    uses: jvallery/estate-ci/.github/workflows/image-build.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
-    with:
-      image: verdifyconsultancy/verdify-planner
-      dockerfile: planner_graph/Dockerfile
-      push: true
-      build-args: GIT_SHA=${{ github.sha }}
 
   setpoint-server:
     needs: [impact]
@@ -198,7 +187,7 @@ jobs:
       push: true
 
   pin:
-    needs: [impact, api, mcp, ingestor, migrate, planner, setpoint-server, lab-publisher, dashboard-web]
+    needs: [impact, api, mcp, ingestor, migrate, setpoint-server, lab-publisher, dashboard-web]
     # Native pin-digests pins whatever built; a failed build leaves its line empty.
     if: ${{ !cancelled() && vars.VERDIFY_GHA_BUILD == 'true' && needs.impact.outputs.mode == 'build' }}
     permissions:

@@ -21,7 +21,6 @@ PROFILES = {
     "mcp": "mcp/Dockerfile",
     "ingestor": "ingestor/Dockerfile",
     "migrate": "db/Dockerfile.migrate",
-    "planner": "planner_graph/Dockerfile",
     "setpoint-server": "scripts/Dockerfile.setpoint-server",
     "lab-publisher": "scripts/Dockerfile.lab-publisher",
     # jvallery/agents#5994: the dashboard.verdify.ai web tier. Its Dockerfile copies only

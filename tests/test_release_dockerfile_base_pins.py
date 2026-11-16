@@ -39,7 +39,6 @@ PIP_FREE_RUNTIME_DOCKERFILES = (
     "ingestor/Dockerfile",
     "mcp/Dockerfile",
     "scripts/Dockerfile.setpoint-server",
-    "planner_graph/Dockerfile",
 )
 
 

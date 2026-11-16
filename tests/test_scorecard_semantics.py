@@ -99,25 +99,6 @@ def test_public_consumers_use_shared_projection():
     assert "observed_minute" not in source
 
 
-def test_standalone_planner_reads_contract_3_and_missing_stays_absent():
-    from planner_graph.clients.db import scorecard_context
-
-    assert "compliance_pct" not in scorecard_context({"compliance_pct": 85.8})
-    context = scorecard_context(
-        {
-            "scorecard_contract_version": 3,
-            "planner_score": 0,
-            "compliance_pct": 0,
-            "vpd_compliance_pct": None,
-        }
-    )
-    assert context["compliance_pct"] == 0 == context["planner_score"]
-    assert "vpd_compliance_pct" not in context
-    assert not any("graded" in key or "compliance_v2" in key for key in context)
-    assert "Coverage unverified" in context["measurement_basis"]
-    assert "Never widen" in context["score_basis"]
-
-
 @pytest.fixture
 def isolated_pg(tmp_path, *, preload=None):
     bin_dir = os.environ.get("SCORECARD_TEST_PG_BIN")

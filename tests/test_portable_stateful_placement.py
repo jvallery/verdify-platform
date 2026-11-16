@@ -41,10 +41,7 @@ def test_database_runs_on_data_tier_priority_sized_to_use(workloads):
     }
 
 
-def test_single_replica_planner_has_no_spread_and_replicated_tiers_honor_taints(workloads):
-    planner = workloads["Deployment", "verdify-planner"]["spec"]
-    assert planner["replicas"] == 1
-    assert "topologySpreadConstraints" not in planner["template"]["spec"]
+def test_replicated_tiers_honor_taints(workloads):
     for name in ("verdify-api", "verdify-lab", "verdify-mcp", "verdify-traefik", "verdify-grafana-render-cache"):
         constraints = workloads["Deployment", name]["spec"]["template"]["spec"]["topologySpreadConstraints"]
         assert constraints and all(c["nodeTaintsPolicy"] == "Honor" for c in constraints)

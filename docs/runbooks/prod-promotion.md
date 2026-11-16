@@ -45,7 +45,7 @@ before you promote either one.
    images' build source. CI, build provenance and the final Argo/runtime
    adoption need their own receipts. The command does no cluster, secret or
    device operation.
-3. The planner, setpoint-server and lab-publisher-k3s release pins are edited by
+3. The setpoint-server and lab-publisher-k3s release pins are edited by
    hand in `kustomization.yaml`.
 4. Commit the digest-only change, let `ci` pass, and merge it.
 5. In the same attended session, run the gated `verdify-prod-dark` sync. This is
