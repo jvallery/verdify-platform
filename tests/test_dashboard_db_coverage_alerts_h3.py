@@ -114,22 +114,44 @@ async def change(conn, ts, parameter, value, source, confirmed_at=None):
     )
 
 
-def test_reviewer_write_is_judged_only_after_312_plus_the_grace(dsn):
+def test_reviewer_write_is_judged_after_the_first_counters_row_plus_the_grace_as_the_ingestor_role(dsn):
+    """ALERTS-1: the cutover is release 3's first ingestor_counters row plus 10 min, read with only what the
+    ingestor runtime role holds in production (system_state and setpoint_changes, not schema_migrations)."""
+    role = "coverage_h3_ingestor"
+
+    async def read(conn):
+        await conn.execute(f"SET ROLE {role}")
+        try:
+            return await conn.fetchrow(cov.REVIEWER_WRITE_SQL)
+        finally:
+            await conn.execute("RESET ROLE")
+
     async def body(conn, t0):
-        await change(conn, t0 - 5 * MIN, "vpd_high", 1.2, "iris")
-        row = await conn.fetchrow(cov.REVIEWER_WRITE_SQL)
-        assert row["cutover"] is None and cov.reviewer_write_alert(row) is None  # before H3: nothing judged
-        await conn.execute(
-            "INSERT INTO schema_migrations (source, seq, applied_at) VALUES ('db/migrations', 312, $1)", t0 - 60 * MIN
-        )
-        await change(conn, t0 - 55 * MIN, "temp_high", 80.0, "plan")  # inside the 10 min grace: the old pods
-        await change(conn, t0 - 3 * MIN, "fan_stage", 2.0, "band")
-        await change(conn, t0 - 2 * MIN, "mister_min_off_s", 30.0, "manual")
-        env = cov.reviewer_write_alert(await conn.fetchrow(cov.REVIEWER_WRITE_SQL))
-        assert env["severity"] == "critical" and env["details"]["rows"] == 1
-        assert env["details"]["sources"] == ["iris"] and env["details"]["parameters"] == ["vpd_high"]
-        await conn.execute("DELETE FROM setpoint_changes WHERE source = 'iris'")
-        assert cov.reviewer_write_alert(await conn.fetchrow(cov.REVIEWER_WRITE_SQL)) is None
+        if not await conn.fetchval("SELECT 1 FROM pg_roles WHERE rolname = $1", role):
+            await conn.execute(f"CREATE ROLE {role} NOLOGIN")
+        await conn.execute(f"GRANT USAGE ON SCHEMA {SCHEMA} TO {role}")
+        await conn.execute(f"GRANT SELECT ON {SCHEMA}.system_state, {SCHEMA}.setpoint_changes TO {role}")
+        try:
+            await change(conn, t0 - 70 * MIN, "vpd_high", 1.1, "plan")  # the release 2 dispatcher
+            row = await read(conn)
+            assert row["cutover"] is None and cov.reviewer_write_alert(row) is None  # before release 3: nothing
+            await state(conn, t0 - 60 * MIN, "ingestor_counters", '{"v":1,"rc":0,"pr":0}')
+            await state(conn, t0 - 59 * MIN, "ingestor_counters", '{"v":1,"rc":1,"pr":0}')
+            await change(conn, t0 - 55 * MIN, "temp_high", 80.0, "plan")  # inside the 10 min grace
+            await change(conn, t0 - 5 * MIN, "vpd_high", 1.2, "iris")
+            await change(conn, t0 - 3 * MIN, "fan_stage", 2.0, "band")
+            await change(conn, t0 - 2 * MIN, "mister_min_off_s", 30.0, "manual")
+            row = await read(conn)
+            assert row["cutover"] == t0 - 50 * MIN
+            env = cov.reviewer_write_alert(row)
+            assert env["severity"] == "critical" and env["details"]["rows"] == 1
+            assert env["details"]["sources"] == ["iris"] and env["details"]["parameters"] == ["vpd_high"]
+            await conn.execute("DELETE FROM setpoint_changes WHERE source = 'iris'")
+            assert cov.reviewer_write_alert(await read(conn)) is None
+        finally:
+            await conn.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {SCHEMA} FROM {role}")
+            await conn.execute(f"REVOKE USAGE ON SCHEMA {SCHEMA} FROM {role}")
+            await conn.execute(f"DROP ROLE {role}")
 
     scenario(dsn, body)
 

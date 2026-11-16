@@ -391,14 +391,17 @@ SELECT ts, uptime_s FROM diagnostics WHERE ts > now() - interval '35 minutes' AN
 
 # ── Gap 9: the reviewer wrote a climate value (CRITICAL, pages) ──────────────
 # contracts/reviewer.md "Retired setpoint_changes sources": after the H3 sync no code writes source 'plan' or 'iris'.
-# The H3 sync is when migration 312 (TRAIN H3) is applied by the PreSync hook; the pods roll right after it, so the
-# cutover is its ledger time plus 10 minutes. Before 312 is applied nothing is judged. Rows stay in view for 7 days.
-REVIEWER_CUTOVER_MIGRATION = 312
+# The cutover is the first ingestor_counters row in system_state, which only release 3 ingestor code writes (its
+# liveness pass), plus a 10 minute grace: a plan row the release 2 dispatcher wrote before its pod stopped is never
+# judged. The ingestor runtime role reads system_state and setpoint_changes; it cannot read schema_migrations
+# (ALERTS-1). Before the first counters row nothing is judged. The marker is searched over 8 days, past the 7 days
+# rows stay in view, so the read stays bounded on the (entity, ts) index.
+REVIEWER_CUTOVER_ENTITY = "ingestor_counters"
 REVIEWER_CUTOVER_GRACE = "10 minutes"
 REVIEWER_WRITE_SQL = f"""
 WITH cut AS (
-    SELECT applied_at + interval '{REVIEWER_CUTOVER_GRACE}' AS t FROM schema_migrations
-     WHERE source = 'db/migrations' AND seq = {REVIEWER_CUTOVER_MIGRATION}
+    SELECT min(ts) + interval '{REVIEWER_CUTOVER_GRACE}' AS t FROM system_state
+     WHERE entity = '{REVIEWER_CUTOVER_ENTITY}' AND ts > now() - interval '8 days'
 )
 SELECT (SELECT t FROM cut) AS cutover, count(c.ts)::int AS n, max(c.ts) AS newest,
        array_remove(array_agg(DISTINCT c.parameter), NULL) AS parameters,
