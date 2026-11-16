@@ -67,7 +67,6 @@ const DESCRIPTIONS: Partial<Record<ViewId, string>> = {
   "control-equipment": "Inspect device health and operate available equipment controls.",
   "planner-plan": "Review the planner's next actions alongside the settings in force.",
   "planner-history": "Inspect previous plans and the decisions behind them.",
-  "planner-experiments": "Compare planner runs and review the evidence from each study.",
 };
 
 export function PageHeader({ view, title, status, statusShort, actions, tabsEnd, stickyTabs = false }: PageHeaderProps) {

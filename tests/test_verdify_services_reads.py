@@ -587,8 +587,6 @@ def test_the_routes_are_the_committed_operations():
         ("/activity", "GET", "API-17"),
         ("/water/daily", "GET", "API-21"),  # VD-57
         ("/planner/history", "GET", "API-25"),  # #1361
-        ("/planner/experiments", "GET", "API-26"),
-        ("/planner/experiments/{id}", "GET", "API-27"),
         ("/soil-targets", "GET", "API-SOIL-01"),  # #1345
     }
     for path, method, operation_id in served:

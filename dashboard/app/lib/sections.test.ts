@@ -9,7 +9,7 @@ test("seven sections at every width, in this order, each defaulting to its first
   expect(SECTIONS.map((section) => section.to)).toEqual(["/", "/water", "/hydroponics", "/crops", "/graphs", "/activity", "/settings", "/plan"]);
   for (const section of SECTIONS) expect(section.views[0].path, section.id).toBe(section.to);
   expect(SECTIONS.map((section) => section.views.map((view) => view.tab))).toEqual([
-    ["Now"], ["Today", "Schedules", "History"], ["Overview"], ["Map", "History"], ["Climate", "Zones", "Lighting", "Statistics"], ["Alerts", "Log"], ["Settings", "Band", "Equipment"], ["Plan", "History", "Experiments"],
+    ["Now"], ["Today", "Schedules", "History"], ["Overview"], ["Map", "History"], ["Climate", "Zones", "Lighting", "Statistics"], ["Alerts", "Log"], ["Settings", "Band", "Equipment"], ["Plan", "History"],
   ]);
 });
 
@@ -33,7 +33,6 @@ test("§2.1's h1 and document title for every view; a title that names its secti
     ["control-equipment", "Equipment", "Equipment · Control · Verdify dashboard"],
     ["planner-plan", "Plan", "Plan · Planner · Verdify dashboard"],
     ["planner-history", "Plan history", "Plan history · Planner · Verdify dashboard"],
-    ["planner-experiments", "Experiments", "Experiments · Planner · Verdify dashboard"],
   ];
   for (const [id, h1, title] of table) {
     expect(viewOf(id).title, id).toBe(h1);
@@ -52,7 +51,7 @@ test("a section owns every path under its views; the longest view path wins; not
     ["/graphs/statistics", "graphs", "graphs-statistics"], ["/graphs/scorecard", "graphs", "graphs-climate"], ["/activity", "activity", "activity-alerts"],
     ["/activity/log", "activity", "activity-log"], ["/settings", "control", "control-settings"], ["/band", "control", "control-band"], ["/plan", "planner", "planner-plan"],
     ["/equipment", "control", "control-equipment"], ["/planner", "planner", "planner-plan"], ["/planner/history", "planner", "planner-history"],
-    ["/planner/experiments", "planner", "planner-experiments"], ["/planner/nothing", null, null], ["/more", null, null], ["/plants", null, null], ["/auth/login", null, null], ["/waterfall", null, null],
+    ["/planner/experiments", null, null], ["/planner/nothing", null, null], ["/more", null, null], ["/plants", null, null], ["/auth/login", null, null], ["/waterfall", null, null],
   ];
   for (const [path, section, view] of owned) {
     expect(sectionFor(path)?.id ?? null, path).toBe(section);

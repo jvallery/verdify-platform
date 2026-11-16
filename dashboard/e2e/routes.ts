@@ -5,7 +5,7 @@
  */
 export const ROUTES = [
   "/", "/water", "/water/schedules", "/water/history", "/hydroponics", "/crops", "/crops/history", "/graphs", "/graphs/zones", "/graphs/lighting", "/graphs/statistics", "/activity", "/activity/log", "/settings", "/band",
-  "/plan", "/equipment", "/planner/history", "/planner/experiments",
+  "/plan", "/equipment", "/planner/history",
 ] as const;
 export type RoutePath = (typeof ROUTES)[number];
 

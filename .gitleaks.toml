@@ -40,11 +40,3 @@ description = "lowercase identifiers matched by generic-api-key"
 targetRules = ["generic-api-key"]
 regexTarget = "secret"
 regexes = ['''^[a-z][a-z0-9]*([._/-][a-z0-9]+)+$''']
-
-[[allowlists]]
-description = "planner_study Postgres advisory lock key (int64 hex literal)"
-targetRules = ["generic-api-key"]
-condition = "AND"
-regexTarget = "secret"
-regexes = ['''^0x[0-9A-Fa-f]{16}$''']
-paths = ['''^verdify_services/planner_study\.py$''']

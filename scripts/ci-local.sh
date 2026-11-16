@@ -142,6 +142,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_311_one_compliance_definition_delivery.py
     tests/test_312_operator_metrics_reads_delivery.py
     tests/test_313_planner_review_delivery.py
+    tests/test_daily_review_task.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py
@@ -341,9 +342,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_operator_api_auth.py
     tests/test_operator_writes.py
     tests/test_operator_lights.py
-    tests/test_verdify_services_planner.py
-    tests/test_verdify_services_planner_study.py
-    tests/test_planner_study_preregister.py
     tests/test_setpoint_server_ingress.py
     tests/test_public_api_operator_paths.py
     tests/test_1611_health_latency.py
@@ -438,6 +436,7 @@ if in_part rest; then
     tests/test_irrigation_run_any_mister.py \
     tests/test_lessons_state_machine.py \
     tests/test_mcp_band_tools.py \
+    tests/test_mcp_review_tools.py \
     tests/test_mcp_security_acceptance.py \
     tests/test_mcp_client_attribution.py \
     tests/test_mcp_tool_audit.py \

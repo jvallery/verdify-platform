@@ -70,13 +70,13 @@ for (const path of [...ROUTES, ...CARD_PAGES.map((card) => card.path)]) {
 }
 
 // ---------------------------------------------------------------------------------------------------- the shell
-test("1440 px: the header lists the eight sections; Control opens Settings and is current on Settings and Equipment, Planner on Plan, History and Experiments", async ({ page, request }) => {
+test("1440 px: the header lists the eight sections; Control opens Settings and is current on Settings and Equipment, Planner on Plan and History", async ({ page, request }) => {
   await useFixture(request, "alerts-merged");
   await page.setViewportSize(DESKTOP);
   await load(page, "/");
   await expect(sectionsNav(page).getByRole("link")).toHaveText(SECTION_LINKS);
   await expect(sectionsNav(page).getByRole("link", { name: /^Control/ })).toHaveAttribute("href", "/settings");
-  for (const [path, section] of [["/settings", "Control"], ["/equipment", "Control"], ["/plan", "Planner"], ["/planner/history", "Planner"], ["/planner/experiments", "Planner"]]) {
+  for (const [path, section] of [["/settings", "Control"], ["/equipment", "Control"], ["/plan", "Planner"], ["/planner/history", "Planner"]]) {
     await load(page, path);
     await expect(sectionsNav(page).locator("[aria-current=page]"), path).toHaveText(section);
     await expect(page.getByRole("navigation", { name: `${section} views` }).locator("[aria-current=page]"), path).toHaveAttribute("href", path);

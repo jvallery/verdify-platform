@@ -68,7 +68,6 @@ from operator_routes import (  # noqa: E402
     irrigation_writes,
     light_resync,
     light_timer,
-    planner_study_runner,
     reads,
     writes,
 )
@@ -534,7 +533,7 @@ def log_resyncs() -> None:
     """light_resync logs one INFO line per resync (light_timer one per timer), but uvicorn configures only its own loggers and Python's last-resort
     handler drops anything below WARNING, so that logger writes JSON log lines here. Once per process, however many
     apps a test makes."""
-    for name in (light_resync.__name__, light_timer.__name__, planner_study_runner.__name__):
+    for name in (light_resync.__name__, light_timer.__name__):
         resync_log = logging.getLogger(name)
         if not any(isinstance(handler, LogLines) for handler in resync_log.handlers):
             resync_log.addHandler(LogLines())
@@ -688,9 +687,6 @@ def _lifespan(settings: Settings | None, pool: Any | None) -> Callable[[FastAPI]
         # Timed manual lights (operator_routes.light_timer, #1335): a sweep that sends the controller's intent once a
         # manual switch's minutes are up. The timer is the API-20 row, so a restart loses none.
         app.state.light_timers = light_timer.Timers(app.state.resyncs)
-        # The planner study's boundaries (operator_routes.planner_study_runner, #1360): a sweep that holds or releases
-        # the 48 planner settings for the arm in force. The run is its activity rows, so a restart loses nothing.
-        app.state.study_runner = planner_study_runner.Runner()
         # Package 6: the product metrics' timer. /metrics renders its cache; the groups run one at a time on the pool.
         app.state.product_metrics = product_metrics.ProductMetrics(
             on_failure=lambda group, error: emit(
@@ -700,11 +696,10 @@ def _lifespan(settings: Settings | None, pool: Any | None) -> Callable[[FastAPI]
         purge = asyncio.create_task(purge_expired_sessions(database))
         metrics_timer = asyncio.create_task(app.state.product_metrics.run(database))
         timers = asyncio.create_task(app.state.light_timers.run(database, config.setpoint_server_url))
-        study = asyncio.create_task(app.state.study_runner.run(database))
         try:
             yield
         finally:
-            for task in (purge, timers, study, metrics_timer):
+            for task in (purge, timers, metrics_timer):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
