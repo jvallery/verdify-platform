@@ -1620,6 +1620,48 @@ static void glue_heater_air_interlock() {
   }
 }
 
+// -- RULINGS AG3a: the drying run's own air tail keeps the electric heater -----------------------------
+static void glue_drying_tail() {
+  L::Output drying{};
+  drying.drying = drying.vent = drying.heat1 = true;
+  drying.fans = 1;
+  L::Output heat{};
+  heat.heat1 = true;
+  // A short drying run (60 s, under the air's 300 s minimum on) stops; the house wants heat1 only. The vent and fan
+  // finish their minimum on; heat1 keeps running through that tail: no cut, no edge, no minimum-off stamp.
+  {
+    RelayRig g;
+    for (int i = 0; i < 60; ++i) g.step(drying);
+    CHECK(g.phys.heat1 && g.phys.vent && (g.phys.fan1 || g.phys.fan2), "AG3a setup: drying with heat1");
+    bool tail_seen = false, heat_kept = true;
+    for (int i = 0; i < int(VENT_MIN_ON_S) + int(FAN_MIN_ON_S); ++i) {
+      g.step(heat);
+      if (g.phys.vent || g.phys.fan1 || g.phys.fan2) tail_seen = true;
+      heat_kept = heat_kept && g.phys.heat1;
+    }
+    CHECK(tail_seen && heat_kept && !g.phys.vent && !g.phys.fan1 && !g.phys.fan2,
+          "AG3a: heat1 runs through the drying run's air tail, which then closes");
+    CHECK(g.heat1_edges == 1 && g.c.starts[0] == 1 && !g.r.drying_air, "AG3a: no heat1 cut or restart; mark cleared");
+  }
+  // The same tail taken over by cooling: the air is now the cooling's, heat1 (in its minimum on) is cut at once.
+  {
+    RelayRig g;
+    for (int i = 0; i < 60; ++i) g.step(drying);
+    L::Output cool{};
+    cool.cooling = cool.vent = true;
+    cool.fans = 1;
+    g.step(cool);
+    CHECK(!g.phys.heat1 && g.phys.vent && !g.r.drying_air, "AG3a: cooling after drying cuts heat1 at once");
+  }
+  // A FANS press in the tail: AE10 cuts both heaters, and the mark clears (the press's air is not the drying's).
+  {
+    RelayRig g;
+    for (int i = 0; i < 60; ++i) g.step(drying);
+    g.step(heat, IDLE, ManualOverrides{true, false, false, false});
+    CHECK(!g.phys.heat1 && !g.r.drying_air, "AG3a: a FANS press in the tail cuts heat1 and clears the mark");
+  }
+}
+
 int main() {
   port_equals_reference_law();
   port_equals_simulator_relay_layer();
@@ -1633,6 +1675,7 @@ int main() {
   law_case_sensor_holds_humidity_rules();
   law_fog_wet_rails();
   glue_heater_air_interlock();
+  glue_drying_tail();
   law_decision_telemetry();
   band_check();
   invariants();

@@ -245,6 +245,7 @@ struct Relay {
 struct RelayState {
     Relay heat1, heat2{false, true, 0}, fan1, fan2, fog, vent;  // the furnace counts as just switched off at boot
     bool lead_fan1 = true;
+    bool drying_air = false;  // glue bookkeeping (RULINGS AG3a): the air that is on was opened by the drying run
 };
 
 struct RelayInputs {

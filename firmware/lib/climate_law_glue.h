@@ -42,7 +42,8 @@ struct RelayPass {
 //   the electric heater as well as the furnace, as the phase 2 build did); the electric heater does not start into,
 //   and is cut at once by, an open vent or a running fan, except the law's own drying and the 40 F protection (at
 //   40 F the override is a no-op, T1 has cleared the latch and the relay layer has stopped the air, so the
-//   protection heats); the furnace never with the air; the fog holds win.
+//   protection heats); AG3a: the drying run's own air tail counts as drying; the furnace never with the air; the
+//   fog holds win.
 // A cut is not a start: a heater the relay layer would have started this pass and an interlock holds off keeps the
 // relay layer's state from before the pass (its off time keeps counting), so a held start moves no switch time, no
 // counter and no physical relay.
@@ -64,8 +65,13 @@ inline RelayPass relay_pass(RelayState& r, const Output& request, const RelayInp
     RelayPass p{{r.heat1.on, r.heat2.on, r.fan1.on, r.fan2.on, r.fog.on, r.vent.on}, {false, false, false}};
     p.force = apply_manual_overrides(p.out, ov, mode);
     const bool air = p.out.vent || p.out.fan1 || p.out.fan2;
+    // AG3a: the drying run's own air tail (its vent and fan finishing their minimum on after the run stops) keeps the
+    // electric heater as the run did: no cut and no minimum-off stamp. The mark is set while the run asks for the
+    // air and cleared when the air is off or something else asks for it (cooling, the no-indoor table, a press).
+    if (request.drying && air) r.drying_air = true;
+    else if (!air || p.force.fans || (!request.drying && (request.vent || request.fans > 0))) r.drying_air = false;
     if (p.force.fans) p.out.heat1 = p.out.heat2 = false;
-    if (p.out.heat1 && air && !request.drying && !request.cold) p.out.heat1 = false;
+    if (p.out.heat1 && air && !request.drying && !request.cold && !r.drying_air) p.out.heat1 = false;
     if (p.out.heat2 && air) p.out.heat2 = false;
     detail::undo_held_start(r.heat1, heat1_before, physical.heat1, p.out.heat1, in.dt_ms);
     detail::undo_held_start(r.heat2, heat2_before, physical.heat2, p.out.heat2, in.dt_ms);
