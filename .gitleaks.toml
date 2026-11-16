@@ -1,0 +1,50 @@
+title = "verdify-platform secret scanning (verdify-platform#1542, STD-EXP-13)"
+
+[extend]
+useDefault = true
+
+# Content-addressed identifiers, not credentials: image/manifest digests and
+# receipt hashes (sha256), git commit SHAs and UUIDs. Reviewed value-blind
+# 2026-11-16: every generic-api-key hit of these shapes was one of them.
+[[allowlists]]
+description = "digests, commit SHAs and UUIDs"
+regexTarget = "secret"
+regexes = [
+  '''^(sha256:)?[0-9a-f]{64}$''',
+  '''^[0-9a-f]{40}$''',
+  '''^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$''',
+]
+
+# Grafana public-dashboard share tokens. These are public by design: they are
+# embedded in the public site's dashboard links and grant read access to that
+# one shared dashboard only.
+[[allowlists]]
+description = "Grafana public dashboard share tokens"
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''^[0-9a-f]{32}$''']
+paths = [
+  '''^site/quartz/plugins/transformers/grafana-public-shares\.json$''',
+  '''^verdify_public/grafana_catalog\.json$''',
+]
+
+[[allowlists]]
+description = "vendored and cache directories"
+paths = ['''(^|/)(node_modules|\.venv|\.git|\.mypy_cache|\.pytest_cache|\.ruff_cache)/''']
+
+# generic-api-key only: lowercase dotted, snake, kebab or path identifiers
+# (metric keys, Secret and route names, SQL column refs) assigned to *_KEY or
+# *_SECRET names. A provider token keeps its own rule, which this does not touch.
+[[allowlists]]
+description = "lowercase identifiers matched by generic-api-key"
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = ['''^[a-z][a-z0-9]*([._/-][a-z0-9]+)+$''']
+
+[[allowlists]]
+description = "planner_study Postgres advisory lock key (int64 hex literal)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''^0x[0-9A-Fa-f]{16}$''']
+paths = ['''^verdify_services/planner_study\.py$''']

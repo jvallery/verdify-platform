@@ -49,6 +49,15 @@ jobs:
       run: ci/gha/trusted-precheck.sh
       timeout-minutes: 5
 
+  secret-scan:
+    name: ci
+    needs: [trusted-precheck]
+    uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
+    with:
+      name: secret-scan
+      run: ci/gha/gitleaks.sh
+      timeout-minutes: 10
+
   path-impact:
     name: ci
     needs: [trusted-precheck]
