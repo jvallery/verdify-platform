@@ -541,6 +541,34 @@ inline LegacyState legacy_state(const LegacyInputs& in) noexcept {
             temp_out ? CLIMATE_PRIORITY_TEMP : (vpd_out ? CLIMATE_PRIORITY_VPD : CLIMATE_PRIORITY_RESOURCE)};
 }
 
+// -- Inputs the controller derives ---------------------------------------
+// The humidity ratio (g/kg) from a dew point (F) at the site pressure, with the device VPD's Magnus coefficients:
+// the vapour pressure is the saturation pressure at the dew point, so it holds for the wall and the case reading.
+inline double humidity_ratio_g_per_kg(double dew_point_f) noexcept {
+    const double c = (dew_point_f - F_AT_ZERO_C) / F_PER_K;
+    const double e = SAT_VP_A_KPA * std::exp(SAT_VP_B * c / (c + SAT_VP_C_C));
+    const double dry = SITE_PRESSURE_KPA - e;
+    return dry > 0 ? WATER_AIR_G_PER_KG * e / dry : std::numeric_limits<double>::quiet_NaN();
+}
+
+// The relays as they are after the caller's override layer (or anything else that switched one): a relay whose
+// physical state differs takes it with a fresh switch time, so its minimum times count from that edge (#1313).
+inline void relay_sync(RelayState& r, const RelayOutputs& physical) noexcept {
+    auto sync = [](Relay& x, bool on) {
+        if (x.on != on) {
+            x.on = on;
+            x.switched = true;
+            x.since_ms = 0;
+        }
+    };
+    sync(r.heat1, physical.heat1);
+    sync(r.heat2, physical.heat2);
+    sync(r.fan1, physical.fan1);
+    sync(r.fan2, physical.fan2);
+    sync(r.fog, physical.fog);
+    sync(r.vent, physical.vent);
+}
+
 // -- The no-indoor-temperature table (FW-INFRA's no_indoor_relays(), decision 7) as a request ----------
 // The table goes through the same relay layer, so the interlocks and the boot rule apply to it.
 inline Output output_from_relays(const RelayOutputs& t) noexcept {

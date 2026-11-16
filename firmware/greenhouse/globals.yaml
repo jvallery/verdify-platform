@@ -119,6 +119,14 @@ globals:
     restore_value: no
     initial_value: '10.0'
 
+  # Phase 3 (#1671, rule 7): the drying cost limit, kWh of heat carried out per kg of
+  # water. Owner-only; climate_law::dry_cost_limit() clamps it and turns an unreadable
+  # value into the compiled default.
+  - id: dry_cost_limit
+    type: float
+    restore_value: yes
+    initial_value: '0.7'
+
   # ─── Humidity / VPD (kPa) ───
   # Wide defaults — see comment on target_temp_low_f.
   - id: target_vpd_low_kpa

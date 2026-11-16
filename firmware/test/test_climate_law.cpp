@@ -14,6 +14,7 @@
 
 #include "climate_law.h"
 #include "climate_law_payload.h"
+#include "greenhouse_logic.h"  // mixing_ratio_g_kg(), the device psychrometrics the law's must agree with
 
 #include "band_edge_controller.h"
 
@@ -1026,6 +1027,21 @@ static void stage_b_payloads() {
   L::relay_step(r, L::Output{}, L::RelayInputs{0, 0, false, 1000});
   CHECK(r.fan1.on && r.vent.on, "after the entry pass the minimum times apply again");
 
+  // the humidity ratio from the dew point agrees with the device's mixing ratio at saturation (greenhouse_logic.h)
+  for (double dp : {20.0, 45.0, 60.0, 75.0}) {
+    const double w = L::humidity_ratio_g_per_kg(dp);
+    CHECK(std::fabs(w - double(mixing_ratio_g_kg(float(dp), 100.0f))) < 0.01, "humidity ratio from dew point");
+  }
+  CHECK(std::isnan(L::humidity_ratio_g_per_kg(NAN)), "humidity ratio of NaN is NaN");
+  // relay_sync: an override's edge restarts the minimum times
+  {
+    L::RelayState rs2 = after_boot_wait();
+    RelayOutputs phys{false, false, true, true, false, true};  // a FANS press: vent and both fans
+    L::relay_sync(rs2, phys);
+    CHECK(rs2.fan1.on && rs2.fan2.on && rs2.vent.on && rs2.fan1.since_ms == 0, "sync takes the pressed relays");
+    L::relay_step(rs2, L::Output{}, L::RelayInputs{0, 0, false, 1000});
+    CHECK(rs2.fan1.on && rs2.vent.on, "after a sync the fans keep their minimum on time");
+  }
   // a drying run, 30 minutes, through law, relay layer and meter
   L::State s;
   L::RelayState rs = after_boot_wait();

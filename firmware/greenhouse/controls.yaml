@@ -712,13 +712,42 @@ interval:
               id(sw_fsm_controller_enabled) = true;
               id(sw_fsm_controller_enabled_switch).publish_state(true);
           }
-          // G3: during the boot grace the controller decides nothing: the mode stays
-          // IDLE (mode_reason "init") and every climate relay request is off, so
-          // nothing is switched (the relays are off since on_boot).
-          Mode mode = boot_wait ? IDLE : determine_mode(sensor_in, setpts, ctl_state, dt_ms);
-          RelayOutputs relay_out = boot_wait
-              ? RelayOutputs{false, false, false, false, false, false}
-              : resolve_equipment(mode, sensor_in, setpts, ctl_state, leadIs1);
+          // Phase 3 (#1671): the band-edge law (lib/climate_law.h, plan appendix A)
+          // decides the climate relays; determine_mode()/resolve_equipment() are no
+          // longer called (their code stays for package 4.3). G3: during the boot
+          // grace the law gets no temperature, so it requests nothing (mode_reason
+          // "init"). `mode` is a label for the consumers that still read one (the fog
+          // holds, the engine's sensor_fault input, telemetry); section 12 ends by
+          // setting it to the 11.1 label of the relays (climate_law::legacy_state()).
+          const bool law_temp_valid = !boot_wait && indoor.source != IndoorSource::kNone;
+          climate_law::Inputs law_in{};
+          law_in.T = Tin;
+          law_in.vpd = VPD;
+          law_in.dp_f = indoor.dew_point_f;
+          law_in.band = {sv2_temp_low, sv2_temp_high, sv2_vpd_low, sv2_vpd_high};
+          law_in.temp_valid = law_temp_valid;
+          law_in.humidity_valid = law_temp_valid && indoor.humidity_valid;
+          law_in.out_ok = outdoor.source != OutdoorSource::kNone && outdoor_data_fresh(outdoor.age_s);
+          law_in.out_T = outdoorT;
+          law_in.out_dp_f = outdoor_dp;
+          // FW-INFRA note 4: the humidity ratio from the dew point (right on the case sensor too).
+          law_in.w_in = climate_law::humidity_ratio_g_per_kg(indoor.dew_point_f);
+          law_in.w_out = climate_law::humidity_ratio_g_per_kg(outdoor_dp);
+          law_in.dry_cost_limit = climate_law::dry_cost_limit(id(dry_cost_limit));
+          static climate_law::State law_state;
+          bool law_band_repaired = false;
+          const climate_law::Output law = climate_law::step_checked(law_state, law_in, &law_band_repaired);
+          Mode mode = boot_wait ? IDLE
+              : !law_temp_valid ? SENSOR_FAULT
+              : law.hot ? SAFETY_COOL
+              : law.cold ? SAFETY_HEAT
+              : IDLE;
+          climate_law::Output law_request = law;
+          // The request as a relay table (lead fan first), for the consumers that read one.
+          RelayOutputs relay_out = {law.heat1, law.heat2,
+                                    leadIs1 ? law.fans >= 1 : law.fans >= 2,
+                                    leadIs1 ? law.fans >= 2 : law.fans >= 1,
+                                    law.fog, law.vent};
 
           // Decision 7 (RULINGS B1): with no valid indoor temperature (SENSOR_FAULT)
           // the controller acts on the outdoor reading against the corridor's low
@@ -737,16 +766,13 @@ interval:
             const NoIndoorBranch no_indoor = no_indoor_branch(
                 outdoorT, outdoor_age, corridor.temp_low, no_indoor_entry ? NoIndoorBranch::kOff : no_indoor_last);
             relay_out = no_indoor_relays(no_indoor, leadIs1);
+            law_request = climate_law::output_from_relays(relay_out);  // through the same relay layer
             if (no_indoor_entry || no_indoor != no_indoor_last) {
               ESP_LOGE("sensor_fault", "No indoor temperature: %s (outdoor %.1f°F, age %u s, corridor low %.1f°F)",
                        no_indoor_reason(no_indoor), outdoorT, (unsigned) outdoor_age, corridor.temp_low);
             }
             no_indoor_last = no_indoor;
           }
-
-          bool willHeat1 = relay_out.heat1, willHeat2 = relay_out.heat2;
-          bool willFan1 = relay_out.fan1, willFan2 = relay_out.fan2;
-          bool willFog = relay_out.fog, willVent = relay_out.vent;
 
           // ── Firmware-v2 BUTTON OVERRIDE LAYER (deadline latches) ──────────
           // FANS / HUMID / VENT-BYPASS are LATCHES with a deadline
@@ -789,101 +815,8 @@ interval:
           const bool sensor_fault_relay_lock = sensor_fault_fog_lock(mode, manual_fog_latched);
           const char* manual_fog_safety_block = manual_fog_safety_block_reason(sensor_in, setpts);
 
-          // Resolve the absolute-priority override through the pure, unit-tested
-          // apply_manual_overrides() (greenhouse_logic.h) so this relay table
-          // matches the native tests exactly. The temperature rails
-          // (SAFETY_COOL / SAFETY_HEAT) are a no-op there — a manual press never
-          // fights a safety rail; in SENSOR_FAULT the overrides stay effective
-          // (RULINGS B1). Otherwise FANS/VENT-BYPASS force BOTH fans
-          // (vent OPEN, or CLOSED under bypass — the winter house-air pull) and
-          // HUMID forces the fogger unless a genuine fog safety block is up.
-          // ManualForce.fans/.fog feed set_relay's force_on below so a press
-          // bypasses relay min-off dwell and engages within one tick — the #289
-          // fix (manual_fan_force was previously computed but NEVER passed to the
-          // fan set_relay calls, so the FANS button stuck behind the fan min-off
-          // timer while the vent moved: the exact "pressed fans, nothing happened"
-          // signature).
-          RelayOutputs ov_out = {willHeat1, willHeat2, willFan1, willFan2, willFog, willVent};
-          const ManualOverrides manual_ov = {
-              manual_fans_eff,                     // fans_active
-              vent_bypass_eff,                     // vent_bypass_active
-              manual_fog_eff,                      // humid_active
-              manual_fog_safety_block[0] != '\0'   // fog_safety_blocked
-          };
-          const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);
-          willFan1 = ov_out.fan1; willFan2 = ov_out.fan2;
-          willFog  = ov_out.fog;  willVent = ov_out.vent;
-          const bool manual_fan_force = manual_force.fans;
-          const bool manual_fog_force = manual_force.fog;
-          /**************** 11a — RELAY CONFLICT ARBITRATION (#370) **************/
-          // One pure resolver, arbitrate_relay_conflicts() (greenhouse_logic.h),
-          // decides every equipment conflict between the requested relay table and
-          // the relays' physical state, in order: the fan/vent hold, the heat<->air
-          // suppression (SAFETY_HEAT and DEHUM_VENT exempt), the heat-stage rule and
-          // the heater force-offs. SENSOR_FAULT's request is the decision-7 table
-          // above, arbitrated like any other. The pure state machine keeps fans and
-          // vent logically consistent, but relay dwell timers are physical state: on
-          // a VENTILATE->sealed transition fan min_on can keep a fan running after
-          // the vent may close, so the vent holds open until the fan dwell clears.
-          // VENT-BYPASS (#290) is the deliberate fans-on / vent-CLOSED carve-out and
-          // SAFETY_HEAT runs the lead fan with the vent shut to keep heat in
-          // (fan_requires_open_vent()). The native suite checks the resolver against
-          // the former inline rules over every input combination.
-          const RelayOutputs relay_physical = {
-              id(heat1_rly)->state, id(heat2_rly)->state,
-              id(fan1_rly)->state, id(fan2_rly)->state,
-              id(fog_rly)->state, id(vent_rly)->state};
-          const RelayArbitration arb = arbitrate_relay_conflicts(
-              mode,
-              RelayOutputs{willHeat1, willHeat2, willFan1, willFan2, willFog, willVent},
-              relay_physical,
-              can_on(R[0]),
-              can_off(R[0]),
-              vent_bypass_eff);
-          willHeat1 = arb.out.heat1; willHeat2 = arb.out.heat2;
-          willFan1  = arb.out.fan1;  willFan2  = arb.out.fan2;
-          willFog   = arb.out.fog;   willVent  = arb.out.vent;
-          const bool fan_requires_vent = arb.fan_requires_vent;
-          const bool vent_is_open = relay_physical.vent;
-          const bool force_heat_off = arb.force_heat_off;
-          const bool force_heat2_off = arb.force_heat2_off;
-
-          static bool fan_vent_interlock_prev = false;
-          if (arb.fan_vent_hold != fan_vent_interlock_prev) {
-              if (arb.fan_vent_hold) {
-                  ESP_LOGI("interlock","Fan/vent: holding vent open until fan dwell clears");
-              } else {
-                  ESP_LOGI("interlock","Fan/vent: fan dwell clear, releasing vent hold");
-              }
-              fan_vent_interlock_prev = arb.fan_vent_hold;
-          }
-          static bool heat_vent_interlock_prev = false;
-          static bool heat_fan_interlock_prev = false;
-          if (arb.heat_vent_block != heat_vent_interlock_prev) {
-              if (arb.heat_vent_block) {
-                  ESP_LOGI("interlock","Heat/vent: suppressing non-safety heat until vent closes");
-              } else {
-                  ESP_LOGI("interlock","Heat/vent: vent closed, releasing heat hold");
-              }
-              heat_vent_interlock_prev = arb.heat_vent_block;
-          }
-          if (arb.heat_fan_block != heat_fan_interlock_prev) {
-              if (arb.heat_fan_block) {
-                  ESP_LOGI("interlock","Heat/fan: suppressing non-safety heat until fan dwell clears");
-              } else {
-                  ESP_LOGI("interlock","Heat/fan: fan dwell clear, releasing heat hold");
-              }
-              heat_fan_interlock_prev = arb.heat_fan_block;
-          }
-          static bool heat_stage_interlock_prev = false;
-          if (arb.heat_stage_block != heat_stage_interlock_prev) {
-              if (arb.heat_stage_block) {
-                  ESP_LOGI("interlock","Heat stage: suppressing heat2 until heat1 is available");
-              } else {
-                  ESP_LOGI("interlock","Heat stage: heat1 available, releasing heat2 hold");
-              }
-              heat_stage_interlock_prev = arb.heat_stage_block;
-          }
+          // The physical vent before this pass's writes (the mister gate in section 12 reads it).
+          const bool vent_is_open = id(vent_rly)->state;
 
           // Fog + misters follow their existing vent-policy tunables. Pre-sprint-15.1,
           // 74% of fog-on-time and 12% of mister-on-time had vent still open
@@ -994,10 +927,8 @@ interval:
           fog_rails_but_drips.irrigation_water_conflict = false;
           fog_rails_but_drips.sensor_fault_relay_lock = mode == SENSOR_FAULT;  // C2: today's term
           // C2: the engine's input keeps today's clock term exactly.
-          const bool climate_fog_wanted = willFog && !fog_forced_off(mode, fog_rails_but_drips) && wall_clock_valid;
-          if (fog_forced_off(mode, fog_rails)) {
-              willFog = false;
-          }
+          const bool climate_fog_wanted = law.fog && !fog_forced_off(mode, fog_rails_but_drips) && wall_clock_valid;
+          const bool fog_hold = fog_forced_off(mode, fog_rails);
           if (occupancy_moisture_block != occupancy_water_interlock_prev) {
               if (occupancy_moisture_block) {
                   ESP_LOGW("interlock","Occupancy confirmed: holding fog and every mist (drips run)");
@@ -1006,9 +937,40 @@ interval:
               }
               occupancy_water_interlock_prev = occupancy_moisture_block;
           }
-          if (polb(verdify_policy::kPF_sw_fog_closes_vent, id(fog_closes_vent)) && vent_is_open && !open_vent_fog_assist) {
-              willFog = false;
-          }
+          // sw_fog_closes_vent is inert in phase 3: the law decides fog with the vent.
+
+          /**************** 11a — RELAY LAYER, THEN THE OVERRIDES (phase 3) ********/
+          // climate_law::relay_step() owns the minimum times, the interlocks (a fan
+          // only with the vent open, the furnace never with the air), the lead fan, the
+          // furnace's boot wait (G4) and the protection limits (G1, G1a-c). On the
+          // entry to the no-indoor state it cuts what the table drops (decision 7).
+          static climate_law::RelayState law_relays;
+          climate_law::RelayInputs law_relay_in{};
+          law_relay_in.fan1_run_s = relay_counters.fan_run_s[0];
+          law_relay_in.fan2_run_s = relay_counters.fan_run_s[1];
+          law_relay_in.fog_hold = fog_hold;
+          law_relay_in.dt_ms = dt_ms;
+          law_relay_in.cut_unwanted = no_indoor_entry;
+          climate_law::relay_step(law_relays, law_request, law_relay_in);
+          // The manual override layer on the relay layer's result, exactly as phase 2
+          // (B1, G7): FANS forces both fans with the vent open, VENT-BYPASS both fans
+          // with the vent closed, HUMID the fogger unless a fog safety block is up; a
+          // no-op at the protection limits (mode SAFETY_COOL / SAFETY_HEAT); effective
+          // in SENSOR_FAULT. A press acts this pass, past minimum off times.
+          RelayOutputs ov_out = {law_relays.heat1.on, law_relays.heat2.on, law_relays.fan1.on,
+                                 law_relays.fan2.on, law_relays.fog.on, law_relays.vent.on};
+          const ManualOverrides manual_ov = {
+              manual_fans_eff,                     // fans_active
+              vent_bypass_eff,                     // vent_bypass_active
+              manual_fog_eff,                      // humid_active
+              manual_fog_safety_block[0] != '\0'   // fog_safety_blocked
+          };
+          const ManualForce manual_force = apply_manual_overrides(ov_out, manual_ov, mode);
+          const bool manual_fan_force = manual_force.fans;
+          const bool manual_fog_force = manual_force.fog;
+          // The interlocks hold over a press: the furnace never with the air; the fog holds win.
+          if (ov_out.heat2 && (ov_out.vent || ov_out.fan1 || ov_out.fan2)) ov_out.heat2 = false;
+          if (fog_hold) ov_out.fog = false;
 
           /**************** 10 — CYCLE COUNTERS ***********************************/
           // #367: count accepted relay edges after dwell and overrides apply
@@ -1019,25 +981,23 @@ interval:
               id(fog_rly)->state, id(vent_rly)->state};
 
           /**************** 11 — APPLY RELAY OUTPUTS ******************************/
-          set_relay(R[0], willHeat1, false, force_heat_off || no_indoor_entry);
-          set_relay(R[1], willHeat2, false, force_heat2_off || no_indoor_entry);
-          set_relay(R[5], willVent, fan_requires_vent, no_indoor_entry);
-          // #289 fix: pass manual_fan_force so a FANS / VENT-BYPASS press forces
-          // the fans on THIS tick, bypassing the fan min-off dwell that silently
-          // swallowed manual presses before.
-          set_relay(R[2], willFan1, manual_fan_force, no_indoor_entry);
-          set_relay(R[3], willFan2, manual_fan_force, no_indoor_entry);
-          set_relay(
-              R[4],
-              willFog,
-              // CYC-4: force_on bypasses MIN_FOG_OFF_MS so a ≤5s micro-pulse can
-              // start even if the fogger toggled recently; force_off bypasses
-              // MIN_FOG_ON_MS so the pulse is cut at its ≤5s cap (and on any
-              // safety interlock). F9 (#1161): the force-off is the shared fog
-              // rule, so survival fog in SAFETY_COOL runs past an engine drip,
-              // the soft budget and SAF-4, and no leak signal forces it off.
-              manual_fog_force,
-              fog_forced_off(mode, fog_rails));
+          // The drivers switch, book runtimes and count; the timing is the relay
+          // layer's, so both force flags are set and their own dwell tests never gate.
+          set_relay(R[0], ov_out.heat1, true, true);
+          set_relay(R[1], ov_out.heat2, true, true);
+          set_relay(R[5], ov_out.vent, true, true);
+          set_relay(R[2], ov_out.fan1, true, true);
+          set_relay(R[3], ov_out.fan2, true, true);
+          set_relay(R[4], ov_out.fog, true, true);
+          // The relay layer follows what is physically on (an override's edge, an OTA
+          // on_begin close): minimum times count from that edge (#1313).
+          climate_law::relay_sync(law_relays, RelayOutputs{
+              id(heat1_rly)->state, id(heat2_rly)->state, id(fan1_rly)->state,
+              id(fan2_rly)->state, id(fog_rly)->state, id(vent_rly)->state});
+          // What this pass commanded (the telemetry and logs below read these names).
+          const bool willHeat1 = ov_out.heat1, willHeat2 = ov_out.heat2;
+          const bool willFan1 = ov_out.fan1, willFan2 = ov_out.fan2;
+          const bool willFog = ov_out.fog, willVent = ov_out.vent;
 
           if(!relay_was_on[0] && id(heat1_rly)->state) id(cnt_heat1_today) += 1;
           if(!relay_was_on[1] && id(heat2_rly)->state) id(cnt_heat2_today) += 1;
