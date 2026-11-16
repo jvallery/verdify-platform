@@ -1027,6 +1027,69 @@ def law_band_alert(rows: Sequence[Mapping]) -> tuple[dict | None, bool]:
     )
 
 
+# ── relay_counter_mismatch (RULINGS AF7): the controller's own relay counters against the stored edges ──────────────
+# v_relay_counter_reconciliation_daily (migration 315) holds, per local day and relay, the starts (fans: and run
+# seconds) summed from relay_counters deltas beside daily_relay_record's figures from the stored edges. The daily
+# record stays the source; this only says the two disagree. Yesterday's complete rows only, so each relay warns at
+# most once a day and the row closes at the next local midnight. Tolerance: the live data from the phase 2 flash
+# (2026-11-16 19:48Z to 21:58Z: fog 3 and 3, heat1 1 and 1, the rest 0 and 0, fan run 0 and 0) agreed exactly; the
+# allowance covers a start or a run that straddles midnight against the counters' sample cadence (about 25 min)
+# and a restart's lost increments. A day with fewer than 2 counter rows is not judged.
+COUNTER_STARTS_ABS = 2
+COUNTER_RUN_S_ABS = 1800
+COUNTER_REL = 0.10
+COUNTER_MIN_ROWS = 2
+COUNTER_RECONCILE_SQL = """
+SELECT date, equipment, counter_starts, record_starts, starts_difference,
+       counter_run_s, record_run_s, run_s_difference, counter_rows
+  FROM v_relay_counter_reconciliation_daily
+ WHERE greenhouse_id = 'vallery' AND comparison = 'complete'
+   AND date = (now() AT TIME ZONE 'America/Denver')::date - 1
+ ORDER BY equipment
+"""
+
+
+def counter_mismatch_alerts(rows: Sequence[Mapping]) -> list[dict]:
+    """One relay_counter_mismatch warning per relay whose counter figures for yesterday are outside the tolerance."""
+    out = []
+    for r in rows:
+        if r["counter_rows"] is None or int(r["counter_rows"]) < COUNTER_MIN_ROWS or r["record_starts"] is None:
+            continue
+        rec_starts = int(r["record_starts"])
+        d_starts = abs(int(r["starts_difference"] or 0))
+        starts_tol = max(COUNTER_STARTS_ABS, COUNTER_REL * rec_starts)
+        d_run = abs(float(r["run_s_difference"])) if r["run_s_difference"] is not None else 0.0
+        run_tol = max(COUNTER_RUN_S_ABS, COUNTER_REL * float(r["record_run_s"] or 0))
+        if d_starts <= starts_tol and d_run <= run_tol:
+            continue
+        day, eq = str(r["date"]), str(r["equipment"])
+        run = (
+            f"; run {int(r['counter_run_s'])} s against {round(float(r['record_run_s'] or 0))} s"
+            if r["counter_run_s"] is not None
+            else ""
+        )
+        out.append(
+            _warning(
+                "relay_counter_mismatch",
+                f"equipment.{eq}.counters.{day}",
+                "equipment",
+                f"{eq} on {day}: the controller counted {int(r['counter_starts'])} starts, the stored edges "
+                f"{rec_starts}{run} (missed or extra relay events in the record)",
+                {
+                    "day": day,
+                    "equipment": eq,
+                    "counter_starts": int(r["counter_starts"]),
+                    "record_starts": rec_starts,
+                    "counter_run_s": int(r["counter_run_s"]) if r["counter_run_s"] is not None else None,
+                    "record_run_s": round(float(r["record_run_s"]), 1) if r["record_run_s"] is not None else None,
+                },
+                round(max(d_starts / starts_tol, d_run / run_tol), 3),
+                1.0,
+            )
+        )
+    return out
+
+
 H3_TYPES = (
     "reviewer_wrote_climate",
     "law_state_stale",
@@ -1040,6 +1103,7 @@ H3_TYPES = (
     "outdoor_none_indoor_degraded",
     "outdoor_intake_only",
     "furnace_saturated",
+    "relay_counter_mismatch",
 )
 
 
@@ -1074,6 +1138,11 @@ async def coverage_cycle_h3(conn) -> tuple[list[dict], frozenset[str]]:
     judge("outdoor_none_indoor_degraded", await _read(conn, OUTDOOR_BLIND_SQL), outdoor_blind_alert)
     judge("outdoor_intake_only", await _read(conn, INTAKE_ONLY_SQL), intake_only_alert)
     judge("furnace_saturated", await _read(conn, FURNACE_SQL), furnace_alert)
+    counters = await _read(conn, COUNTER_RECONCILE_SQL, many=True)
+    if counters is _READ_FAILED:
+        failed.add("relay_counter_mismatch")
+    else:
+        alerts.extend(counter_mismatch_alerts(counters))
     return alerts, frozenset(failed)
 
 

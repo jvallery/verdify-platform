@@ -2135,9 +2135,6 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                         "duration_s": dur,
                         "temp_avg": float(staging_row["temp_avg"]) if staging_row["temp_avg"] else None,
                         "temp_low": float(staging_row["temp_low"]) if staging_row["temp_low"] else None,
-                        "d_heat_stage_2": float(staging_row["d_heat_stage_2"])
-                        if staging_row["d_heat_stage_2"]
-                        else None,
                     },
                     "metric_value": dur,
                     "threshold_value": 60.0,
@@ -2148,9 +2145,8 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         # Sprint 18 added relief_cycle_count + vent_latch_timer_s to
         # diagnostics but alert_monitor didn't read them, so the planner had
         # no warning before firmware force-latched VENTILATE. Thresholds
-        # chosen against the firmware default max_relief_cycles=3 (range 1–10
-        # per greenhouse_types.h:171); if the planner raises the cap, these
-        # warn a touch early but don't misfire.
+        # were chosen against the firmware's relief-cycle cap of 3 (a fixed
+        # constant since the third flash; the setting is retired).
         obs3_row = await conn.fetchrow(
             """
             SELECT relief_cycle_count, vent_latch_timer_s, ts
@@ -2585,27 +2581,10 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        # 14. Tunable zero-variance detection (Sprint 24.9, G-9).
-        # Firmware sprint-13 30-day scan flagged vpd_target_west pinned at
-        # 1.2 kPa across 33k samples — either fn_zone_vpd_targets has a
-        # west-zone default/bug or the west zone has no active crop. Catching
-        # this class of issue automatically (any dispatcher-owned tunable with
-        # stddev=0 over 7 days) surfaces the condition without waiting for
-        # an operator to notice.
-        active_crop_zones = {str(r["zone"]) for r in await conn.fetch(ACTIVE_PLANTING_ZONES_SQL)}
-        zone_target_params = {
-            "vpd_target_south": "south",
-            "vpd_target_west": "west",
-            "vpd_target_east": "east",
-            "vpd_target_center": "center",
-        }
-        zero_var_params = [
-            "temp_low",
-            "temp_high",
-            "vpd_low",
-            "vpd_high",
-            *[param for param, zone in zone_target_params.items() if zone in active_crop_zones],
-        ]
+        # 14. Tunable zero-variance detection (Sprint 24.9, G-9): a dispatcher-owned band value with
+        # stddev=0 over 7 days. The per-zone VPD targets it also read are retired with the third flash
+        # (contracts/phase4-firmware-deletions-host.md section 3).
+        zero_var_params = ["temp_low", "temp_high", "vpd_low", "vpd_high"]
         for r in await conn.fetch(
             """
             SELECT parameter, count(*) AS n, stddev(value) AS sd, avg(value) AS mean

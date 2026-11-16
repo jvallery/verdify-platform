@@ -342,3 +342,24 @@ def test_law_band_sql_reads_the_newest_three_records_against_the_band_at_their_t
         assert cov.law_band_alert(rows) == (None, True)
 
     scenario(dsn, body)
+
+
+def test_counter_reconcile_sql_reads_yesterdays_complete_rows(dsn):
+    # A stand-in with the columns of migration 315's v_relay_counter_reconciliation_daily.
+    async def body(conn, t0):
+        await conn.execute("DROP VIEW IF EXISTS v_relay_counter_reconciliation_daily")
+        await conn.execute(
+            f"""CREATE VIEW v_relay_counter_reconciliation_daily AS
+            SELECT d AS date, 'vallery'::text AS greenhouse_id, e AS equipment, 9::bigint AS counter_starts,
+                   3::bigint AS record_starts, 6::bigint AS starts_difference, NULL::bigint AS counter_run_s,
+                   NULL::double precision AS record_run_s, NULL::double precision AS run_s_difference,
+                   60 AS counter_rows, c AS comparison
+              FROM (VALUES ({YESTERDAY}, 'heat1', 'complete'), ({YESTERDAY}, 'heat2', 'no_record'),
+                           ({YESTERDAY} - 1, 'fog', 'complete'), ({YESTERDAY} + 1, 'vent', 'partial')) v(d, e, c)"""
+        )
+        rows = await conn.fetch(cov.COUNTER_RECONCILE_SQL)
+        assert [r["equipment"] for r in rows] == ["heat1"]
+        assert [a["sensor_id"].split(".")[1] for a in cov.counter_mismatch_alerts(rows)] == ["heat1"]
+        await conn.execute("DROP VIEW v_relay_counter_reconciliation_daily")
+
+    scenario(dsn, body)

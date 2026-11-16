@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +34,7 @@ def meter(ts, s):
 
 def test_every_h3_type_is_registered_and_validates():
     assert set(cov.H3_TYPES) <= set(ALERT_TYPES)
-    assert len(set(cov.H3_TYPES)) == 12
+    assert len(set(cov.H3_TYPES)) == 13
 
 
 def test_a_drying_run_with_a_flat_meter_and_no_restart_is_a_fault():
@@ -267,3 +267,56 @@ def test_law_band_vpd_edge_alone_opens():
     rows = [law_band_row(10 + 60 * i, [62.0, 80.0, 0.75, 1.2]) for i in range(3)]
     env, _ = cov.law_band_alert(rows)
     assert env is not None and env["details"]["max_vpd_abs_diff"] == 0.15
+
+
+# ── relay_counter_mismatch (RULINGS AF7) ────────────────────────────────────────────────────────────────────────────
+def recon(equipment, counter_starts, record_starts, counter_run_s=None, record_run_s=None, rows=60):
+    run_d = None if counter_run_s is None or record_run_s is None else counter_run_s - record_run_s
+    return {
+        "date": date(2026, 11, 17),
+        "equipment": equipment,
+        "counter_starts": counter_starts,
+        "record_starts": record_starts,
+        "starts_difference": counter_starts - record_starts,
+        "counter_run_s": counter_run_s,
+        "record_run_s": record_run_s,
+        "run_s_difference": run_d,
+        "counter_rows": rows,
+    }
+
+
+def test_counter_mismatch_inside_the_tolerance_is_quiet():
+    rows = [
+        recon("heat1", 12, 10),  # 2 starts: the absolute allowance
+        recon("fog", 44, 40),  # 4 of 40: inside 10 %
+        recon("fan1", 30, 30, 9000, 7300.0),  # 1700 s: inside 1800 s
+        recon("vent", 9, 0, rows=1),  # one counter row: not judged
+    ]
+    assert cov.counter_mismatch_alerts(rows) == []
+
+
+def test_counter_mismatch_warns_once_per_relay_and_day():
+    rows = [recon("heat2", 5, 1), recon("fan2", 30, 30, 12000, 9000.0), recon("fog", 3, 3)]
+    alerts = cov.counter_mismatch_alerts(rows)
+    assert [a["sensor_id"] for a in alerts] == [
+        "equipment.heat2.counters.2026-11-17",
+        "equipment.fan2.counters.2026-11-17",
+    ]
+    for env in alerts:
+        assert env["severity"] == "warning" and env["alert_type"] == "relay_counter_mismatch"
+        AlertEnvelope.model_validate(env)
+    assert alerts[0]["metric_value"] == 2.0 and alerts[1]["details"]["counter_run_s"] == 12000
+
+
+def test_a_failing_counter_read_keeps_only_its_type_open():
+    class Conn:
+        async def fetchrow(self, sql, *args):
+            return None
+
+        async def fetch(self, sql, *args):
+            if sql == cov.COUNTER_RECONCILE_SQL:
+                raise OSError("no such view")
+            return []
+
+    alerts, failed = asyncio.run(cov.coverage_cycle_h3(Conn()))
+    assert alerts == [] and failed == frozenset({"relay_counter_mismatch"})

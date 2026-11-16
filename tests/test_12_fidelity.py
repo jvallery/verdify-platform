@@ -229,28 +229,13 @@ def test_daily_summary_live_uses_scoring_eligible_meter_conservation_only():
 # ── S24.9.5 — zero-variance rule param list ────────────────────────
 
 
-def test_zero_variance_rule_covers_vpd_target_west():
-    """Firmware sprint-13 30-day scan surfaced vpd_target_west stuck at
-    1.2 kPa for 33k samples. The new alert rule must cover this param so
-    the same condition auto-alerts in future."""
-    # Rule lives inside alert_monitor's body. We verify the param appears
-    # in the tasks.py file as a string literal — coarser than ideal but
-    # doesn't require the full async DB path.
-
-    tasks_source = _tasks_src()
-    assert '"vpd_target_west"' in tasks_source or "'vpd_target_west'" in tasks_source
-    # All four zone targets should be in the zero-variance scan list
-    for param in ("vpd_target_south", "vpd_target_west", "vpd_target_east", "vpd_target_center"):
-        assert f'"{param}"' in tasks_source, f"zero-variance rule missing {param}"
-
-
-def test_zero_variance_rule_skips_empty_zone_target_fallbacks():
-    """A zone target pinned at its fallback is expected when that zone has no active crop."""
-
-    tasks_source = _tasks_src()
-    assert "active_crop_zones" in tasks_source
-    assert "zone_target_params" in tasks_source
-    assert "if zone in active_crop_zones" in tasks_source
+def test_zero_variance_rule_reads_only_the_band_edges():
+    """The per-zone VPD targets are retired with the third flash (contracts/phase4-firmware-deletions-host.md
+    section 3); the zero-variance rule scans the four band edges only."""
+    alerts_source = (REPO_ROOT / "ingestor" / "tasks" / "alerts.py").read_text()
+    block = alerts_source[alerts_source.index("# 14. Tunable zero-variance") : alerts_source.index("# 15. Setpoint")]
+    assert 'zero_var_params = ["temp_low", "temp_high", "vpd_low", "vpd_high"]' in block
+    assert "vpd_target_" not in block and "active_crop_zones" not in block
 
 
 def test_zero_variance_rule_also_covers_band_params():

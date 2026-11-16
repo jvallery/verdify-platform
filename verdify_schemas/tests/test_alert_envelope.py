@@ -68,6 +68,7 @@ from verdify_schemas.alerts import (
     PlanNotDeliveredAlert,
     PowerMeterStaleAlert,
     ProbesDisagreeAlert,
+    RelayCounterMismatchAlert,
     RelayCountersBackstepAlert,
     RelayPairForbiddenAlert,
     RelayStartsHighAlert,
@@ -336,6 +337,17 @@ CASES = {
     ),
     "outdoor_intake_only": (OutdoorIntakeOnlyAlert, {"intake_s": 1900.0}),
     "furnace_saturated": (FurnaceSaturatedAlert, {"on_fraction": 0.95, "house_f": 55.2, "band_low_f": 58.0}),
+    "relay_counter_mismatch": (
+        RelayCounterMismatchAlert,
+        {
+            "day": "2026-11-17",
+            "equipment": "fan1",
+            "counter_starts": 40,
+            "record_starts": 31,
+            "counter_run_s": 9000,
+            "record_run_s": 8100.0,
+        },
+    ),
     "plan_not_delivered": (
         PlanNotDeliveredAlert,
         {"plan_created_at": NOW, "last_confirmed_at": None},
