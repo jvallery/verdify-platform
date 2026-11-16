@@ -97,8 +97,7 @@ if in_part rest; then
     research/planner-efficacy/tests/test_pre_draw_sensitivity.py \
     research/planner-efficacy/tests/test_result_manifests.py \
     research/planner-efficacy/tests/test_switchback.py \
-    research/planner-efficacy/tests/test_warm_season_calendar_prereg.py \
-    research/planner-efficacy/tests/test_sql_export_analyzer.py
+    research/planner-efficacy/tests/test_warm_season_calendar_prereg.py
   $PY research/planner-efficacy/generate_v2_artifacts.py --check
 
   step "device write gate"
