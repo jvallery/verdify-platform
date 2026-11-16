@@ -293,3 +293,28 @@ def test_a_payload_rejected_for_ten_minutes_opens_a_warning_and_an_accepted_one_
     assert AlertEnvelope.model_validate(alert).alert_type == "payload_rejected"
     observe("climate_law_state", json.dumps(LAW_STATE))
     assert "climate_law_state" not in ingestor.shared.payload_rejected_since
+
+
+# ── the law lane's real payloads (its native test's output, copied from the lane contract) ──────────
+
+SAMPLES = ROOT / "tests/fixtures/climate_law_samples"
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted(SAMPLES.glob("climate_law_state.*.json")) + [SAMPLES / "climate_drying_meter.json"],
+    ids=lambda p: p.stem,
+)
+def test_every_sample_payload_of_the_law_is_validated_and_stored(path):
+    entity = path.name.split(".")[0]
+    raw = path.read_text().strip()
+    observe(entity, raw)
+    assert ingestor.state.pending_states and ingestor.state.pending_states[-1][0] == entity, path.name
+    assert json.loads(ingestor.state.pending_states[-1][1]) == json.loads(raw)
+    assert entity not in ingestor.shared.payload_rejected_since
+
+
+def test_the_sample_constants_hash_is_stored():
+    raw = (SAMPLES / "climate_law_constants.txt").read_text()
+    observe("climate_law_constants", raw)
+    assert ingestor.state.pending_states == [("climate_law_constants", raw.strip())]

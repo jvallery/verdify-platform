@@ -57,6 +57,7 @@ from ._common import (
     log,
     re,
     registry_value_error,
+    shared,
     soil_dryout_probes,
 )
 from .daily import (
