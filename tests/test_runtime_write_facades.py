@@ -216,8 +216,8 @@ def test_enabled_runtime_code_has_zero_direct_dml_on_facade_bases():
             combined,
             re.IGNORECASE,
         ), facade
-    assert "FROM v_runtime_setpoint_changes_write" in combined
-    assert "FOR UPDATE SKIP LOCKED" in combined
+    # The setpoint NOTIFY delivery CAS (the only locked read of the setpoint_changes facade) retired with #1656.
+    assert "FROM v_runtime_setpoint_changes_write" not in combined
 
 
 def test_every_runtime_view_dml_target_is_in_the_closed_contract():

@@ -1035,7 +1035,7 @@ def test_rendered_prod_mcp_uses_only_dedicated_ordinary_db_secret() -> None:
 
 
 IRRIGATION_WRITE_TOOLS = ("irrigation_run", "irrigation_stop")
-NO_PLAN = "Changes watering only; it does not count as your plan for this trigger."
+NO_PLAN = "Changes watering only; it writes no climate value and is not a review."
 
 
 @pytest.fixture()
