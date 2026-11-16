@@ -4,7 +4,7 @@ Regenerate with: python3 scripts/gen-climate-law-constants.py
 CI (verdify_schemas/tests/test_climate_law_constants.py) fails when this file is stale.
 """
 
-CONSTANTS_SHA256 = "9ab82e581e84997f7ec0f79ba65b1e69317d2f9ff65bb6941a1588bcc999c81f"
+CONSTANTS_SHA256 = "4250fb1da7d5460388c144f8124dfcc736e0e49077a5cb34496eff3a17120be6"
 
 # ---- temperature
 # Electric heater on below low + this [F]
@@ -72,6 +72,23 @@ KJ_PER_KWH = 3600.0
 G_PER_KG = 1000.0
 # Milliseconds per second [ms/s]
 MS_PER_S = 1000
+# Watt-hours per kilowatt-hour [Wh/kWh]
+WH_PER_KWH = 1000.0
+# Degrees F at 0 C (dew point F to C for the humidity ratio) [F]
+F_AT_ZERO_C = 32.0
+# Magnus saturation vapour pressure at 0 C, as the device's VPD (the humidity ratio from the dew point) [kPa]
+SAT_VP_A_KPA = 0.6108
+# Magnus coefficient b, as the device's VPD [ratio]
+SAT_VP_B = 17.27
+# Magnus coefficient c, as the device's VPD (not the 237.7 of the dew point inversion) [C]
+SAT_VP_C_C = 237.3
+# Molar mass ratio of water to dry air, times 1000 (humidity ratio = this * e / (P - e)) [g/kg]
+WATER_AIR_G_PER_KG = 621.97
+# ---- drying
+# Drying meter: air exchange with the vent open and no fan. The vent has no rated flow (passive); this is the control review's fitted MV_VENT (params_W2, W1 and S1), the simulator's meter [kg/s]
+DRY_METER_VENT_KG_PER_S = 0.005
+# Drying meter: additional exchange with the lead fan; the control review's fitted MV_FAN1 (the same in W2, W1 and S1), the simulator's meter. The fans' rating is 2,450 CFM each (about 1.1 kg/s at the site's air density); the house is intake-limited, so the fitted exchange is used. A drying run uses one fan [kg/s]
+DRY_METER_FAN_KG_PER_S = 0.25
 # ---- protection
 # At or above: vent open, both fans on, both heaters off [F]
 SAFETY_MAX_F = 100.0

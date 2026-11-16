@@ -56,6 +56,14 @@ constants:
   kj_per_kwh: {value: 3600.0, unit: kJ/kWh, group: physics, what: "Kilojoules per kilowatt-hour"}
   g_per_kg: {value: 1000.0, unit: g/kg, group: physics, what: "Grams per kilogram"}
   ms_per_s: {value: 1000, unit: ms/s, group: physics, what: "Milliseconds per second"}
+  wh_per_kwh: {value: 1000.0, unit: Wh/kWh, group: physics, what: "Watt-hours per kilowatt-hour"}
+  f_at_zero_c: {value: 32.0, unit: F, group: physics, what: "Degrees F at 0 C (dew point F to C for the humidity ratio)"}
+  sat_vp_a_kpa: {value: 0.6108, unit: kPa, group: physics, what: "Magnus saturation vapour pressure at 0 C, as the device's VPD (the humidity ratio from the dew point)"}
+  sat_vp_b: {value: 17.27, unit: ratio, group: physics, what: "Magnus coefficient b, as the device's VPD"}
+  sat_vp_c_c: {value: 237.3, unit: C, group: physics, what: "Magnus coefficient c, as the device's VPD (not the 237.7 of the dew point inversion)"}
+  water_air_g_per_kg: {value: 621.97, unit: g/kg, group: physics, what: "Molar mass ratio of water to dry air, times 1000 (humidity ratio = this * e / (P - e))"}
+  dry_meter_vent_kg_per_s: {value: 0.005, unit: kg/s, group: drying, what: "Drying meter: air exchange with the vent open and no fan. The vent has no rated flow (passive); this is the control review's fitted MV_VENT (params_W2, W1 and S1), the simulator's meter"}
+  dry_meter_fan_kg_per_s: {value: 0.25, unit: kg/s, group: drying, what: "Drying meter: additional exchange with the lead fan; the control review's fitted MV_FAN1 (the same in W2, W1 and S1), the simulator's meter. The fans' rating is 2,450 CFM each (about 1.1 kg/s at the site's air density); the house is intake-limited, so the fitted exchange is used. A drying run uses one fan"}
 
   # ---- Rules 8 and 9: protection limits, independent of the band (RULINGS B3: also the boot values)
   safety_max_f: {value: 100.0, unit: F, group: protection, what: "At or above: vent open, both fans on, both heaters off"}
