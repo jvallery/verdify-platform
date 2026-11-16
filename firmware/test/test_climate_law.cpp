@@ -695,6 +695,55 @@ static void glue_fog_demand_and_sync() {
   CHECK(restarted_after >= int(FOG_MIN_OFF_S), "S2: the fogger waits its minimum off time after an outside cut");
 }
 
+// -- The override rails of the phase 2 build, kept through relay_pass() (tests/test_12_fidelity.py guards the
+// controller's call sites; contracts/fidelity-guards-phase3.md maps each rule) ----------------------------------
+static void glue_override_rails() {
+  const RelayOutputs off{false, false, false, false, false, false};
+  const L::Output none{};
+  const L::RelayInputs plain{0, 0, false, 1000};
+  L::RelayInputs held = plain;
+  held.fog_hold = true;
+  // A fog hold (the SENSOR_FAULT lock, occupancy, SAF-5, a drip, outside 100 F the soft budget and SAF-4) beats a
+  // HUMID press or a fog run-once: the press is applied, the hold after it.
+  L::RelayState r = after_boot_wait();
+  L::RelayPass p = L::relay_pass(r, none, held, off, ManualOverrides{false, false, true, false}, IDLE);
+  CHECK(!p.out.fog, "rails: a fog hold wins over a HUMID press");
+  p = L::relay_pass(r, none, held, off, ManualOverrides{false, false, true, false}, SENSOR_FAULT);
+  CHECK(!p.out.fog, "rails: a fog hold wins over a HUMID press in SENSOR_FAULT too");
+  // At 40 F (SAFETY_HEAT) a FANS or VENT-BYPASS press is a no-op: no fan, the vent stays closed (decision 12: no fan
+  // at the 40 F limit; the furnace has its own blower).
+  L::Output cold{};
+  cold.cold = true;
+  cold.heat1 = cold.heat2 = true;
+  for (const ManualOverrides ov : {ManualOverrides{true, false, false, false}, ManualOverrides{false, true, false, false}}) {
+    r = after_boot_wait();
+    p = L::relay_pass(r, cold, plain, off, ov, SAFETY_HEAT);
+    CHECK(!p.force.fans && !p.out.fan1 && !p.out.fan2 && !p.out.vent && p.out.heat1,
+          "rails: no manual fan and no vent at 40 F");
+  }
+  // In SENSOR_FAULT the overrides stay effective over the no-indoor table (B1): FANS runs both fans with the vent
+  // open, VENT-BYPASS both fans with the vent closed.
+  const L::Output heat_row = L::output_from_relays(RelayOutputs{true, false, false, false, false, false});
+  r = after_boot_wait();
+  p = L::relay_pass(r, heat_row, plain, off, ManualOverrides{true, false, false, false}, SENSOR_FAULT);
+  CHECK(p.force.fans && p.out.fan1 && p.out.fan2 && p.out.vent, "rails: FANS effective in SENSOR_FAULT");
+  r = after_boot_wait();
+  p = L::relay_pass(r, heat_row, plain, off, ManualOverrides{false, true, false, false}, SENSOR_FAULT);
+  CHECK(p.force.fans && p.out.fan1 && p.out.fan2 && !p.out.vent, "rails: VENT-BYPASS effective in SENSOR_FAULT");
+  // A FANS press ends a furnace run before its minimum on time (T7 item 5): the furnace never runs with the air.
+  L::Output furnace{};
+  furnace.heat1 = furnace.heat2 = true;
+  r = after_boot_wait();
+  RelayOutputs phys = off;
+  for (int i = 0; i < 3; ++i) {
+    p = L::relay_pass(r, furnace, plain, phys, ManualOverrides{false, false, false, false}, IDLE);
+    phys = p.out;
+  }
+  CHECK(phys.heat2, "rails setup: the furnace runs");
+  p = L::relay_pass(r, furnace, plain, phys, ManualOverrides{true, false, false, false}, IDLE);
+  CHECK(!p.out.heat2 && p.out.fan1 && p.out.fan2 && p.out.vent, "rails: a FANS press ends a furnace run at once");
+}
+
 // -- T3: the climate decision telemetry is the law's label, not the mode machine's ------------
 static void law_decision_telemetry() {
   SensorInputs in{};
@@ -1326,6 +1375,7 @@ int main() {
   relay_layer();
   protection_clears_overrides();
   glue_fog_demand_and_sync();
+  glue_override_rails();
   law_decision_telemetry();
   band_check();
   invariants();
