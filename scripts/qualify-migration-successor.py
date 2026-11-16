@@ -310,9 +310,16 @@ def run(psql: list[str], sql: str) -> dict[str, dict]:
         )
         if result.returncode == 0:
             break
-        # The database error names the failed statement; it carries no secret.
-        error = result.stderr.strip()[-2000:]
-        if attempt == LOCK_ATTEMPTS or not LOCK_FAILURE.search(error):
+        # The database error names the failed statement; it carries no secret. Classify on the whole
+        # text: an error raised inside a DO block's EXECUTE is followed by a CONTEXT that quotes the
+        # statement (a view definition runs to several thousand characters), so the last 2000
+        # characters alone can hold neither the ERROR line nor the words that mark a lock failure.
+        stderr = result.stderr.strip()
+        first_error = next((line.strip() for line in stderr.splitlines() if "ERROR:" in line), "")
+        error = stderr[-2000:]
+        if first_error and first_error not in error:
+            error = f"{first_error[:500]} [...] {error}"
+        if attempt == LOCK_ATTEMPTS or not LOCK_FAILURE.search(stderr):
             raise QualificationError(f"psql session failed (attempt {attempt} of {LOCK_ATTEMPTS}): {error}")
         print(f"psql session lost a lock wait (attempt {attempt} of {LOCK_ATTEMPTS}); retrying", file=sys.stderr)
         time.sleep(LOCK_BACKOFF_SECONDS * 2 ** (attempt - 1))
