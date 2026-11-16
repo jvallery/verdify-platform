@@ -118,6 +118,12 @@ pass "Climate telemetry fresh (${climate_age}s)"
 law_age="$("${DB[@]}" "/* preflight:law-heartbeat */ SELECT extract(epoch FROM now() - max(ts))::int FROM system_state WHERE entity = 'climate_law_state' AND ts > now() - interval '1 hour'" | tr -d '[:space:]')"
 if [[ "${law_age:-}" =~ ^[0-9]+$ && "$law_age" -le 120 ]]; then
     pass "Climate law state record fresh (${law_age}s): controller-decision proof"
+    # Parity with the action-log gate's sensor proof: the law reports lost temperature or invalid humidity in dr. A fix
+    # flash during such a fault goes through the audited override.
+    law_dr="$("${DB[@]}" "/* preflight:law-dr */ SELECT value::jsonb->>'dr' FROM system_state WHERE entity = 'climate_law_state' ORDER BY ts DESC LIMIT 1" | tr -d '[:space:]')"
+    if [[ "$law_dr" == "no_temperature" || "$law_dr" == "humidity_invalid" ]]; then
+        guard_or_fail "Climate law reports ${law_dr}; no firmware OTA while the controller's inputs are invalid"
+    fi
 else
     action_log_table="$("${DB[@]}" "SELECT CASE WHEN to_regclass('public.climate_action_log') IS NULL THEN 0 ELSE 1 END" | tr -d '[:space:]')"
     if [[ "$action_log_table" != "1" ]]; then

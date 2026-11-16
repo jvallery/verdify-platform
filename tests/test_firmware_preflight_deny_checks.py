@@ -25,6 +25,7 @@ STUB = textwrap.dedent(
       *"preflight:cycling"*) printf '%s\n' "$STUB_CYCLING" ;;
       *"preflight:outdoor"*) printf '%s\n' "$STUB_OUTDOOR" ;;
       *"preflight:law-heartbeat"*) printf '%s\n' "$STUB_LAW_AGE" ;;
+      *"preflight:law-dr"*) printf '%s\n' "$STUB_LAW_DR" ;;
       *"preflight:source-of-outdoor"*) printf '%s\n' "$STUB_OUTDOOR_SOURCE" ;;
       *"FROM climate_action_log"*"concat_ws"*) printf '%s\n' "$STUB_ACTION_PROOF" ;;
       *"FROM alert_log WHERE disposition"*) echo 0 ;;
@@ -38,7 +39,9 @@ STUB = textwrap.dedent(
 ).lstrip()
 
 
-def run_preflight(tmp_path, topology="", cycling="", outdoor="ok", law_age="", outdoor_source="", action_proof=""):
+def run_preflight(
+    tmp_path, topology="", cycling="", outdoor="ok", law_age="", outdoor_source="", action_proof="", law_dr="none"
+):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     stub = bin_dir / "psql"
@@ -61,6 +64,7 @@ def run_preflight(tmp_path, topology="", cycling="", outdoor="ok", law_age="", o
             "STUB_CYCLING": cycling,
             "STUB_OUTDOOR": outdoor,
             "STUB_LAW_AGE": law_age,
+            "STUB_LAW_DR": law_dr,
             "STUB_OUTDOOR_SOURCE": outdoor_source,
             "STUB_ACTION_PROOF": action_proof,
         }
@@ -103,6 +107,13 @@ def test_a_fresh_law_state_record_is_the_decision_proof_and_the_action_log_is_no
     res = run_preflight(tmp_path, law_age="45", action_proof="climate_action,priority_axis")
     assert "✓ Climate law state record fresh (45s): controller-decision proof" in res.stdout, res.stdout + res.stderr
     assert "Climate action log proof" not in res.stdout + res.stderr
+
+
+@pytest.mark.parametrize("law_dr", ["no_temperature", "humidity_invalid"])
+def test_a_law_state_record_with_invalid_inputs_refuses_the_flash(tmp_path, law_dr):
+    res = run_preflight(tmp_path, law_age="45", law_dr=law_dr)
+    assert f"Climate law reports {law_dr}" in res.stdout + res.stderr
+    assert res.returncode != 0
 
 
 @pytest.mark.parametrize("law_age", ["", "121"])

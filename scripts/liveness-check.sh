@@ -33,7 +33,7 @@ check "ingestor" "$([ -n "$CLIMATE_AGE" ] && [ "$CLIMATE_AGE" -lt 300 ] && echo 
 
 # 3-4. Controller decision proof: the law's state record heartbeat (<=120s, the law build), else today's action log.
 LAW_AGE=$(db "SELECT extract(epoch FROM now() - max(ts))::int FROM system_state WHERE entity = 'climate_law_state' AND ts > now() - interval '1 hour';" 2>/dev/null)
-if [ -n "$LAW_AGE" ] && [ "$LAW_AGE" -le 120 ] 2>/dev/null; then
+if [ -n "$LAW_AGE" ] && [ "$LAW_AGE" -ge 0 ] 2>/dev/null && [ "$LAW_AGE" -le 120 ]; then
     check "climate-law-state" ok
 else
     # 3. Climate action-log decision snapshots fresh

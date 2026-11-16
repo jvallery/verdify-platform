@@ -8,7 +8,7 @@ const law = {
 
 describe("the climate law's drying state (#1633 package 4.1)", () => {
   it("names a refusal with the controller's reason and the limit", () => {
-    expect(lawDryingText(law)).toBe("Drying wanted, refused: not drier · cost no price of limit 0.70 kWh/kg");
+    expect(lawDryingText(law)).toBe("Drying wanted, refused: not drier · outdoor air not drier, limit 0.70 kWh/kg");
   });
   it("shows a running run with its cost and a repaired band", () => {
     expect(lawDryingText({ ...law, drying: "running", drying_refused_reason: null, drying_cost_kwh_per_kg: 0.412, band_repaired: true }))

@@ -47,6 +47,7 @@ RECORD = {
         (None, 300, "", "missing"),
         (None, 30, "relay_truth", "missing"),
         (500, None, "missing", "missing"),
+        (-5, 30, "", "action_log"),
     ],
 )
 def test_the_law_heartbeat_proves_first_and_the_action_log_is_the_fallback(law_age, action_age, missing, proof):
@@ -95,6 +96,23 @@ def test_the_drying_state(update, drying, reason, cost):
 
 
 @pytest.mark.parametrize(
+    ("update", "latches", "requests", "drying", "reason"),
+    [
+        # Bits the decoder does not know (a later build) are ignored, not refused.
+        ({"l": 0x40 | 0x1000, "o": 0x1 | 0x4000}, ["dry"], ["heat1"], "refused", "cost"),
+        # A reason word this host does not know yet still decodes and is passed on as the controller wrote it.
+        ({"dr": "a_later_reason"}, ["dry", "air"], ["heat1", "vent"], "refused", "a_later_reason"),
+        # The dry latch with no reason: refused, and the reason is null (the page says "no reason").
+        ({"dr": "none"}, ["dry", "air"], ["heat1", "vent"], "refused", None),
+    ],
+)
+def test_the_decoder_tolerates_what_it_does_not_know(update, latches, requests, drying, reason):
+    law = reads.law_state(json.dumps({**RECORD, **update}), AT, AT)
+    assert law is not None
+    assert (law.latches, law.requests, law.drying, law.drying_refused_reason) == (latches, requests, drying, reason)
+
+
+@pytest.mark.parametrize(
     ("value", "observed_at"),
     [
         (None, None),
@@ -121,7 +139,7 @@ def test_the_brief_carries_the_law_state_only_while_it_is_fresh():
         "drying_cost_kwh_per_kg": 0.91,
         "drying_cost_limit_kwh_per_kg": 0.7,
         "band_repaired_by_controller": False,
-        "heaters_requested": ["heat1"],
+        "heaters_requested_by_law": ["heat1"],
     }
     assert "climate_law" not in job.build_sheet(job.Gathered(now=now_model()), BRIEF_AT)
 

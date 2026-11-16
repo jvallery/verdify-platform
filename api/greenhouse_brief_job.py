@@ -175,7 +175,7 @@ def build_sheet(data: Gathered, at: datetime) -> dict[str, Any]:
             "drying_cost_kwh_per_kg": _round(now.law.drying_cost_kwh_per_kg, 2),
             "drying_cost_limit_kwh_per_kg": _round(now.law.drying_cost_limit_kwh_per_kg, 2),
             "band_repaired_by_controller": now.law.band_repaired,
-            "heaters_requested": [name for name in ("heat1", "heat2") if name in now.law.requests],
+            "heaters_requested_by_law": [name for name in ("heat1", "heat2") if name in now.law.requests],
         }
     if data.alert_page is not None:
         sheet["alerts"] = [

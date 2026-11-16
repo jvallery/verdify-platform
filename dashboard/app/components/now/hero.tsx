@@ -101,8 +101,11 @@ export function lawDryingText(law: NonNullable<Now["law"]>): string {
   const state = law.drying === "running" ? "Drying run on"
     : law.drying === "refused" ? `Drying wanted, refused: ${(law.drying_refused_reason ?? "no reason").replaceAll("_", " ")}`
       : law.drying_refused_reason ? `No drying: ${law.drying_refused_reason.replaceAll("_", " ")}` : "No drying wanted";
-  const cost = finite(law.drying_cost_kwh_per_kg) ? `${law.drying_cost_kwh_per_kg.toFixed(2)}` : "no price";
-  return `${state} · cost ${cost} of limit ${law.drying_cost_limit_kwh_per_kg.toFixed(2)} kWh/kg${law.band_repaired ? " · band repaired by the controller" : ""}`;
+  // The firmware prices drying at its "no cost" sentinel when the outdoor air is not drier; the API maps it to null.
+  const limit = law.drying_cost_limit_kwh_per_kg.toFixed(2);
+  const cost = finite(law.drying_cost_kwh_per_kg) ? `cost ${law.drying_cost_kwh_per_kg.toFixed(2)} of limit ${limit}`
+    : law.drying_refused_reason === "not_drier" ? `outdoor air not drier, limit ${limit}` : `cost no price of limit ${limit}`;
+  return `${state} · ${cost} kWh/kg${law.band_repaired ? " · band repaired by the controller" : ""}`;
 }
 
 /** Every reading with its source and time, the band in force, and the mode as the controller reports it (raw). */

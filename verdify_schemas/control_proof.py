@@ -21,12 +21,6 @@ LAW_STATE_AGE_SQL = (
     "SELECT extract(epoch FROM now() - max(ts))::int FROM system_state "
     "WHERE entity = 'climate_law_state' AND ts > now() - interval '1 hour'"
 )
-# The newest outdoor source the controller reports (phase 2 and later; stored on change), or NULL before phase 2.
-OUTDOOR_SOURCE_SQL = (
-    "SELECT value FROM system_state WHERE entity = 'outdoor_source' AND ts > now() - interval '400 days' "
-    "ORDER BY ts DESC LIMIT 1"
-)
-OUTDOOR_SOURCES_WITH_DATA = frozenset({"station", "intake"})
 
 ControlProof = Literal["law", "action_log", "missing"]
 
