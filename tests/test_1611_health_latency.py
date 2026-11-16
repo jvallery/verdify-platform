@@ -34,6 +34,8 @@ class _Conn:
             return 0
         if "setpoint_changes" in sql:
             return 30
+        if sql == main.LAW_STATE_AGE_SQL:
+            return None  # no climate law state record: a build before the law, the action log is the proof
         if "system_state" in sql:
             return "normal"
         return None  # proof-missing: nothing missing
