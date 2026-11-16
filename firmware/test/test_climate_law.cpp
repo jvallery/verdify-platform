@@ -1505,6 +1505,18 @@ static void law_fog_wet_rails() {
   CHECK(!fog_on, "AG2: no fog relay inside the margin");
   CHECK(!L::climate_fog_wanted(req, ManualForce{false, false, false}, false, true),
         "AG2: the engine's fog demand reads the same gated request");
+  // The telemetry reads the same gated request: fog_block_reason names the hold, and the vent-assist status (vent
+  // open for cooling, nothing wet on) is not "blocked" on a fog the margin dropped.
+  CHECK(std::strcmp(L::law_fog_wait_word(law.fog, req.fog), "dew_margin") == 0, "AG2: the ladder says dew_margin");
+  CHECK(std::strcmp(L::law_fog_wait_word(true, true), "relay_min_off") == 0 &&
+            std::strcmp(L::law_fog_wait_word(false, false), "none") == 0,
+        "AG2: the ladder's other rungs keep their words");
+  L::LegacyInputs vx{};
+  vx.T = T; vx.vpd = 1.3; vx.band = kBand; vx.vent_on = true;
+  CHECK(law.vent && L::vent_assist_status(L::legacy_state(vx), true, law, false) == L::VentAssistStatus::kBlocked,
+        "AG2 setup: on the ungated request the vent-assist status reads blocked");
+  CHECK(L::vent_assist_status(L::legacy_state(vx), true, req, false) == L::VentAssistStatus::kInactive,
+        "AG2: on the gated request the vent-assist status is inactive, not blocked:none");
   CHECK(L::climate_fog_wanted(law, ManualForce{false, false, false}, false, true),
         "AG2 setup: the ungated request would have asked the engine");
 }

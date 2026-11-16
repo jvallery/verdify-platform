@@ -1327,11 +1327,11 @@ interval:
               snprintf(fog_block_reason, sizeof(fog_block_reason), "%s", manual_fog_safety_block);
             } else if(id(fog_rly)->state) {
               snprintf(fog_block_reason, sizeof(fog_block_reason), "served");
-            } else if(law_request.fog && !id(fog_rly)->state) {
-              // Phase 3: the law asks for fog and the fogger waits its minimum off time.
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "relay_min_off");
             } else {
-              snprintf(fog_block_reason, sizeof(fog_block_reason), "none");
+              // Phase 3: the law's fog waiting the fogger's minimum off time, held by the
+              // dew-point margin (RULINGS AG2, phase 2's "dew_margin"), or not asked for.
+              snprintf(fog_block_reason, sizeof(fog_block_reason), "%s",
+                       climate_law::law_fog_wait_word(law.fog, law_request.fog));
             }
           }
           // Phase 3 (contract phase3-entities): the drying meter, the law's state record
@@ -1679,17 +1679,18 @@ interval:
 
           /*** AI-control diagnostics — requested vs served actuator paths ***/
           {
-            // X6 (P3): keyed on the published label and the law's wet request.
+            // X6 (P3): keyed on the published label and the law's wet request after the
+            // dew-point margin (AG2: the gated law_request, as the relays and the engine read it).
             const bool wet_on = id(fog_rly)->state || id(south_wall_mister).state
                 || id(west_wall_mister).state || id(center_mister).state;
             const climate_law::VentAssistStatus vent_assist =
-                climate_law::vent_assist_status(legacy, id(vent_rly)->state, law, wet_on);
+                climate_law::vent_assist_status(legacy, id(vent_rly)->state, law_request, wet_on);
             char vent_status[128];
             if(vent_assist == climate_law::VentAssistStatus::kServed) {
               snprintf(vent_status, sizeof(vent_status), "served");
             } else if(vent_assist == climate_law::VentAssistStatus::kBlocked) {
               snprintf(vent_status, sizeof(vent_status), "blocked:%s",
-                       law.fog && !law.mist ? fog_block_reason : moisture_block_reason);
+                       law_request.fog && !law_request.mist ? fog_block_reason : moisture_block_reason);
             } else {
               snprintf(vent_status, sizeof(vent_status), "inactive");
             }

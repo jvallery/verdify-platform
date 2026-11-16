@@ -94,6 +94,15 @@ inline bool law_fog_dew_margin_ok(Mode mode, double temp_f, double dew_point_f) 
     return mode == SENSOR_FAULT || (temp_f - dew_point_f >= WET_DEW_MARGIN_F);
 }
 
+// The fog_block_reason ladder's last rungs (after the rails, the press's safety block and `served`): the law's fog
+// waiting the fogger's minimum off time, the law's fog held by the dew-point margin (RULINGS AG2; phase 2's word), or
+// no fog asked for. `request_fog` is the gated law_request.fog.
+inline const char* law_fog_wait_word(bool law_fog, bool request_fog) noexcept {
+    if (request_fog) return "relay_min_off";
+    if (law_fog) return "dew_margin";
+    return "none";
+}
+
 // T4 (ruling C2): the irrigation engine's climate fog demand keeps today's terms: the law's fog request OR a HUMID
 // press / fog run-once the override layer forced (apply_manual_overrides already honours the safety block and the
 // protection limits), held back only by the rails other than the drips, and today's clock term.

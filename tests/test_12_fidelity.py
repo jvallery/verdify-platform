@@ -2247,6 +2247,24 @@ def test_law_humidity_rules_hold_on_the_case_sensor():
     assert controls.count("law_in.humidity_valid") == 1
 
 
+def test_law_fog_dew_margin_hold_is_named_in_the_telemetry():
+    """RULINGS AG2 (review finding AG2-telemetry): a dew-margin hold of the law's fog is named `dew_margin` in
+    fog_block_reason, as phase 2 did, and the vent-assist status and its reason selector read the gated request.
+    Native test: law_fog_wet_rails."""
+    controls = Path("firmware/greenhouse/controls.yaml").read_text()
+    glue = Path("firmware/lib/climate_law_glue.h").read_text()
+    fog_start = controls.index("char fog_block_reason")
+    fog_block = controls[fog_start : controls.index("static char last_fog_block_reason", fog_start)]
+    assert "climate_law::law_fog_wait_word(law.fog, law_request.fog));" in fog_block
+    assert fog_block.index('"served"') < fog_block.index("law_fog_wait_word")
+    word = _inline_fn(glue, "inline const char* law_fog_wait_word(")
+    assert word.index('if (request_fog) return "relay_min_off";') < word.index('if (law_fog) return "dew_margin";')
+    assert "climate_law::vent_assist_status(legacy, id(vent_rly)->state, law_request, wet_on);" in controls
+    assert "law_request.fog && !law_request.mist ? fog_block_reason : moisture_block_reason);" in controls
+    for retired in ("vent_assist_status(legacy, id(vent_rly)->state, law, wet_on)", "law.fog && !law.mist ?"):
+        assert retired not in controls, retired
+
+
 def test_heap_guard_is_all_or_nothing_for_dispatcher_snapshot():
     import tasks
 
