@@ -2630,13 +2630,20 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
             """
             SELECT parameter, count(*) AS n, stddev(value) AS sd, avg(value) AS mean
               FROM setpoint_snapshot
-             WHERE parameter = ANY($1::text[])
+             WHERE parameter = ANY($1::text[]) AND band_role IS NULL
                AND ts > now() - interval '7 days'
+               -- K1: the legacy band scalars sit on boot values while the controller runs its own band.
+               AND NOT (parameter = ANY($2::text[]) AND COALESCE((
+                   SELECT d.band_source FROM diagnostics d
+                    WHERE d.band_source IS NOT NULL AND d.ts > now() - interval '1 day'
+                    ORDER BY d.ts DESC LIMIT 1), '') = ANY($3::text[]))
              GROUP BY parameter
             HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24
                AND (stddev(value) IS NULL OR stddev(value) = 0)
             """,
             list(zero_var_params),
+            list(LEGACY_BAND_SCALARS),
+            list(ONCHIP_BAND_SOURCES),
         ):
             alerts.append(
                 {

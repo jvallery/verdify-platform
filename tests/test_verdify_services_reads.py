@@ -294,8 +294,10 @@ def test_waypoint_effective_is_resolve_effective_picking_the_plan_row():
     assert reads.waypoint_effective("temp_low", desired_row(param="temp_low", manual=True), waypoint) is True
 
 
-def facts(newest=None, last=None, clamped=False, newest_at=None):
-    return reads.ReadbackFacts(newest_value=newest, newest_at=newest_at, last_match_at=last, clamped=clamped)
+def facts(newest=None, last=None, clamped=False, newest_at=None, first_differ=None):
+    return reads.ReadbackFacts(
+        newest_value=newest, newest_at=newest_at, last_match_at=last, clamped=clamped, first_differ_at=first_differ
+    )
 
 
 # ── writer.differing ──────────────────────────────────────────────────────
@@ -345,6 +347,20 @@ def test_differing_waits_ten_minutes_and_counts_from_the_last_match():
     assert reads.count_differing([old], {param: drifted}, at) == (1, at - timedelta(minutes=30))
     just_drifted = facts(mismatch(param, 1.0), last=at - timedelta(minutes=2))
     assert reads.count_differing([old], {param: just_drifted}, at) == (0, None)
+
+
+def test_differing_counts_from_the_first_row_after_the_last_match_with_keyframe_only_history():
+    # Readbacks are stored on change with an hourly keyframe (#1662): the last matching row is a keyframe 50 min
+    # old and the controller restarted to a boot default 1 min ago (stored at once). Rule K1: no count yet.
+    at = den(2, 12)
+    param = planner_params(1)[0]
+    old = reads.InForce(param=param, value=1.0, since=at - timedelta(hours=3))
+    restarted = facts(mismatch(param, 1.0), last=at - timedelta(minutes=50), first_differ=at - timedelta(minutes=1))
+    assert reads.count_differing([old], {param: restarted}, at) == (0, None)
+    assert reads.count_differing([old], {param: restarted}, at + timedelta(minutes=10)) == (
+        1,
+        at - timedelta(minutes=1),
+    )
 
 
 def test_values_in_force_are_the_desired_rows_and_never_a_plan():

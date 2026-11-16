@@ -30,7 +30,7 @@ def query(bounds: tuple[datetime, datetime] | None, *, all_history: bool = False
     the configuration in force (newest per parameter), and the seed carries every parameter's value at the start. Every
     parameter has an hourly keyframe, so two days of seed lookback hold each one that still exists.
     """
-    where = "greenhouse_id = 'vallery'"
+    where = "greenhouse_id = 'vallery' AND band_role IS NULL"  # readbacks only, not the band audit rows
     if all_history:
         return _copy(f"SELECT greenhouse_id, ts, parameter, value FROM setpoint_snapshot WHERE {where}")
     if bounds is None:

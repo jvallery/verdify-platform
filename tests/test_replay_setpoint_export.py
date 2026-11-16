@@ -23,20 +23,21 @@ def moment(hour):
 
 
 @pytest.mark.parametrize("seed", [True, False])
-def test_native_bounded_batches_give_newest_per_parameter_and_skip_other_site(isolated_pg, seed):
+def test_native_bounded_batches_give_newest_per_parameter_and_skip_other_site_and_band_rows(isolated_pg, seed):
     q = isolated_pg
     q("""CREATE TABLE setpoint_snapshot (
-        greenhouse_id text, ts timestamptz, parameter text, value double precision);
+        greenhouse_id text, ts timestamptz, parameter text, value double precision, band_role text);
         INSERT INTO setpoint_snapshot VALUES
-        ('vallery','2026-10-02T00:00Z','temp_high',80),
-        ('vallery','2026-10-02T00:00Z','temp_low',60),
-        ('vallery','2026-10-02T01:00Z','temp_high',81),
-        ('vallery','2026-10-02T01:00Z','temp_low',61),
-        ('vallery','2026-10-02T02:00Z','temp_low',999),
-        ('other','2026-10-02T03:00Z','temp_high',999),
-        ('vallery','2026-10-02T04:00Z','temp_high',84),
-        ('vallery','2026-10-02T04:00Z','temp_low',64),
-        ('vallery','2026-10-02T06:00Z','temp_high',86);""")
+        ('vallery','2026-10-02T00:00Z','temp_high',80,NULL),
+        ('vallery','2026-10-02T00:00Z','temp_low',60,NULL),
+        ('vallery','2026-10-02T01:00Z','temp_high',81,NULL),
+        ('vallery','2026-10-02T01:00Z','temp_low',61,NULL),
+        ('vallery','2026-10-02T02:00Z','temp_low',999,NULL),
+        ('other','2026-10-02T03:00Z','temp_high',999,NULL),
+        ('vallery','2026-10-02T03:30Z','band_house_temp_high',77,'house'),
+        ('vallery','2026-10-02T04:00Z','temp_high',84,NULL),
+        ('vallery','2026-10-02T04:00Z','temp_low',64,NULL),
+        ('vallery','2026-10-02T06:00Z','temp_high',86,NULL);""")
     if not seed:
         q("DELETE FROM setpoint_snapshot WHERE greenhouse_id='vallery' AND ts<'2026-10-02T03:00Z';")
 
@@ -61,6 +62,8 @@ def test_native_bounded_batches_give_newest_per_parameter_and_skip_other_site(is
     assert asof(bounded, moment(4)) == {"temp_high": 84, "temp_low": 64}
     assert asof(original, moment(6)) == {"temp_high": 86, "temp_low": 64}
     assert "other" not in {row["greenhouse_id"] for row in original}
+    # The band audit rows (band_role set) are not readbacks and stay out of the replay configuration.
+    assert not any("band_house_temp_high" in row["config_payload"] for row in original + bounded)
 
 
 def test_climate_bounds_are_original_utc_and_empty_input_queries_nothing(tmp_path):

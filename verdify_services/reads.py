@@ -674,12 +674,13 @@ def waypoint_effective(param: str, desired: Any | None, plan_row: Any, *, supers
 
 @dataclass(frozen=True)
 class ReadbackFacts:
-    """Readbacks of one value since a time: the newest, and the last that matches it."""
+    """Readbacks of one value since a time: the newest, the last that matches it, and the first after that one."""
 
     newest_value: float | None
     newest_at: datetime | None
     last_match_at: datetime | None
     clamped: bool
+    first_differ_at: datetime | None = None
 
 
 def superseded_at(plan_row: Mapping[str, Any], full_plans: Sequence[tuple[datetime, str]]) -> bool:
@@ -783,9 +784,12 @@ def count_differing(
 
     A value differs while its newest readback since it took force does not
     match (``readback_matches``; none at all counts as not matching). It has
-    differed since its last matching readback, or since it took force when
-    none matched. A value the dispatcher clamped after it took force (a
-    ``setpoint_clamps`` row) is held on purpose and left out.
+    differed since the first readback after its last matching one, or since it
+    took force when none matched. Readbacks are stored on change with an hourly
+    keyframe (#1662), so the last match can be an hour old while the value
+    changed a minute ago; the first row after it is when the difference began.
+    A value the dispatcher clamped after it took force (a ``setpoint_clamps``
+    row) is held on purpose and left out.
     """
     count = 0
     oldest: datetime | None = None
@@ -797,7 +801,7 @@ def count_differing(
             continue
         since = item.since
         if fact is not None and fact.last_match_at is not None:
-            since = max(since, fact.last_match_at)
+            since = max(since, fact.first_differ_at or fact.last_match_at)
         if at - since > DIFFERING_AFTER:
             count += 1
             oldest = since if oldest is None else min(oldest, since)
@@ -1026,9 +1030,17 @@ SELECT id, param, value, manual, source, actor, reason, created_at
 
 
 # Readbacks of each value since it took force. The last match is the newest
-# readback when that matches, and is only searched for when it does not. (A
-# desired row's confirmed_at is settings.status's, VD-55.)
+# readback when that matches, and is only searched for when it does not; the
+# first readback after it is when the difference began (rows are stored on
+# change, #1662, as _SETPOINT_DELIVERY_SQL measures it). (A desired row's
+# confirmed_at is settings.status's, VD-55.)
 _READBACK_FACTS_SQL = """
+SELECT f.param, f.newest_value, f.newest_at, f.last_match_at, f.clamped,
+       CASE WHEN f.last_match_at IS NOT NULL AND f.last_match_at < f.newest_at THEN
+           (SELECT min(s.ts) FROM setpoint_snapshot AS s
+             WHERE s.parameter = f.param AND s.band_role IS NULL AND s.ts > f.last_match_at)
+       END AS first_differ_at
+  FROM (
 SELECT c.param, newest.value AS newest_value, newest.ts AS newest_at,
        CASE WHEN abs(newest.value - c.value) <= c.tol THEN newest.ts ELSE
            (SELECT s.ts FROM setpoint_snapshot AS s
@@ -1041,6 +1053,7 @@ SELECT c.param, newest.value AS newest_value, newest.ts AS newest_at,
   LEFT JOIN LATERAL (SELECT s.value, s.ts FROM setpoint_snapshot AS s
                       WHERE s.parameter = c.param AND s.band_role IS NULL AND s.ts >= c.since
                       ORDER BY s.ts DESC LIMIT 1) AS newest ON true
+  ) AS f
 """
 
 _DEVICE_READBACKS_SQL = """
@@ -1166,6 +1179,7 @@ async def _readback_facts(
             newest_at=row["newest_at"],
             last_match_at=row["last_match_at"],
             clamped=row["clamped"],
+            first_differ_at=row["first_differ_at"],
         )
         for row in rows
     }

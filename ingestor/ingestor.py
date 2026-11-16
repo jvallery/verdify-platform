@@ -3494,7 +3494,8 @@ def _report_spool_health() -> None:
 # against all of it and fans all of it out; a parameter's setpoint_snapshot row is inserted only when its value moved
 # beyond the readback tolerance (float32 noise never counts), a write, desired row or plan waypoint for it is newer
 # than its last stored row (so a write that repeats the value still gets a confirming row), the controller
-# reconnected or the ingestor restarted, a writer admission asked for a complete batch, or its hourly keyframe is due.
+# reconnected (a parameter with no row from the current transport generation) or the ingestor restarted, a writer
+# admission asked for a complete batch (dormant: no production caller), or its hourly keyframe is due.
 # Keyframes are staggered by a hash of the name so every pass stores a few. Each pass stores one system_state row
 # (READBACK_PASS_ENTITY): readers take freshness from it, not from the newest readback.
 READBACK_KEYFRAME_S = 3600
@@ -3531,10 +3532,9 @@ SELECT parameter, max(at) AS at FROM (
 
 @dataclass
 class ReadbackStore:
-    """What the publisher last stored per parameter: (value, batch time), and the generation it stored on."""
+    """What the publisher last stored per parameter: (value, batch time, transport generation of that row)."""
 
-    stored: dict[str, tuple[float, datetime]] = field(default_factory=dict)
-    generation: int | None = None
+    stored: dict[str, tuple[float, datetime, int]] = field(default_factory=dict)
 
 
 _readback_store = ReadbackStore()
@@ -3562,18 +3562,25 @@ def readbacks_to_store(
     now: datetime,
     generation: int,
     written_at: dict[str, datetime] | None,
-    complete: bool,
+    complete: bool = False,
 ) -> set[str]:
-    """The parameters whose readback row this pass inserts (#1662). written_at None: the write query failed."""
-    if complete or written_at is None or store.generation != generation:
+    """The parameters whose readback row this pass inserts (#1662). written_at None: the write query failed.
+
+    A parameter with no row from the current transport generation is stored as soon as it is in the cache, so every
+    parameter gets a post-boot row after a reconnect, including one the controller replays after the first pass.
+    complete: a writer admission's demand publication stores every readback as one batch. Dormant: nothing in
+    production calls shared.request_setpoint_snapshot; its reader is bounded_reconcile._fresh_readbacks through the
+    drift probe, which needs an approval file and is deleted with the P1 deletions (#1662 review m5, m10).
+    """
+    if complete or written_at is None:
         return set(frozen)
     chosen = set()
     for param, value in frozen.items():
         previous = store.stored.get(param)
-        if previous is None:
+        if previous is None or previous[2] != generation:
             chosen.add(param)
             continue
-        stored_value, stored_at = previous
+        stored_value, stored_at, _generation = previous
         written = written_at.get(param)
         if (
             not readback_unchanged(param, stored_value, value)
@@ -3673,16 +3680,14 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
         shared.fail_setpoint_snapshot_publication()
         raise
     for _ts, param, val in stored_rows:
-        _readback_store.stored[param] = (val, ts)
-    if chosen == {param for _ts, param, _val in snapshot_rows}:
-        _readback_store.generation = generation
+        _readback_store.stored[param] = (val, ts, generation)
     # Both statements have committed. A confirmation failure cannot broadcast
     # rolled-back snapshots or acknowledge a batch that never became durable.
     for snap_ts, param, val in snapshot_rows:
         _fanout_publish("setpoint_snapshot", {"ts": snap_ts, "parameter": param, "value": val})
     published = {param: val for _ts, param, val in snapshot_rows}
     # A writer admission reads the canonical fields back as one stored batch: only a pass that stored all of them
-    # can be reused for it (the demand publication stores every readback).
+    # can be reused for it (the demand publication stores every readback; dormant, see readbacks_to_store).
     shared.finish_setpoint_snapshot_publication(
         generation,
         published,
@@ -4014,6 +4019,8 @@ async def esp32_loop(pool: asyncpg.Pool = None) -> None:
             connection_generation = shared.note_transport_connected(expected_cfg_readbacks)
             state.fixed_panel_native.mark_connected(connection_generation, datetime.now(UTC))
             state.cfg_readback.clear()
+            # The grow-light states repeat after the firmware start, not up to 10 minutes later (#1662 review m2).
+            _light_state_stored_at.clear()
             shared.esp32_connected_at = _time_mod.time()
             log.info(
                 "writer_reconcile reason=transport_reconnect generation=%d "

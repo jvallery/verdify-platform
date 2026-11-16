@@ -2,9 +2,9 @@
 
 The 60 s pass still confirms writes against the whole cache and fans it all out. A parameter's setpoint_snapshot row
 is inserted when its value moved beyond the readback tolerance (float32 noise never counts), a write, desired row or
-plan waypoint for it is newer than its last stored row, the controller reconnected or the ingestor restarted, a
-writer admission asked for a complete batch, or its staggered hourly keyframe is due. Every pass stores one pass
-marker, and readers take freshness from it.
+plan waypoint for it is newer than its last stored row, the controller reconnected (a parameter with no row from the
+current transport generation) or the ingestor restarted, or its staggered hourly keyframe is due. Every pass stores
+one pass marker, and readers take freshness from it.
 """
 
 from __future__ import annotations
@@ -47,16 +47,14 @@ async def publish(pool, at, reason="periodic"):
 def test_first_pass_and_a_restart_store_every_readback():
     frozen = {"temp_high": 80.0, "mister_all_kpa": 1.25}
     store = ingestor.ReadbackStore()
-    chosen = ingestor.readbacks_to_store(frozen, store, now=T0, generation=3, written_at={}, complete=False)
+    chosen = ingestor.readbacks_to_store(frozen, store, now=T0, generation=3, written_at={})
     assert chosen == set(frozen)
 
 
 def test_unchanged_values_are_not_stored_again():
     frozen = {"temp_high": 80.0, "mister_all_kpa": 1.25}
-    store = ingestor.ReadbackStore({name: (value, T0) for name, value in frozen.items()}, generation=3)
-    chosen = ingestor.readbacks_to_store(
-        frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at={}, complete=False
-    )
+    store = ingestor.ReadbackStore({name: (value, T0, 3) for name, value in frozen.items()})
+    chosen = ingestor.readbacks_to_store(frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at={})
     assert chosen == set()
 
 
@@ -68,57 +66,48 @@ def test_float32_noise_is_not_a_change_and_a_real_change_is():
     # Second-quantized readbacks keep their registry tolerance of one second.
     assert ingestor.readback_unchanged("mister_pulse_on_s", 10.0, 10.6)
     assert not ingestor.readback_unchanged("mister_pulse_on_s", 10.0, 11.5)
-    store = ingestor.ReadbackStore({"mister_all_kpa": (1.6, T0)}, generation=3)
+    store = ingestor.ReadbackStore({"mister_all_kpa": (1.6, T0, 3)})
     chosen = ingestor.readbacks_to_store(
-        {"mister_all_kpa": float32(1.6)},
-        store,
-        now=T0 + timedelta(minutes=1),
-        generation=3,
-        written_at={},
-        complete=False,
+        {"mister_all_kpa": float32(1.6)}, store, now=T0 + timedelta(minutes=1), generation=3, written_at={}
     )
     assert chosen == set()
 
 
 def test_a_reconnect_stores_every_readback():
     frozen = {"temp_high": 80.0, "mister_all_kpa": 1.25}
-    store = ingestor.ReadbackStore({name: (value, T0) for name, value in frozen.items()}, generation=3)
-    chosen = ingestor.readbacks_to_store(
-        frozen, store, now=T0 + timedelta(seconds=60), generation=4, written_at={}, complete=False
-    )
+    store = ingestor.ReadbackStore({name: (value, T0, 3) for name, value in frozen.items()})
+    chosen = ingestor.readbacks_to_store(frozen, store, now=T0 + timedelta(seconds=60), generation=4, written_at={})
     assert chosen == set(frozen)
 
 
 def test_a_write_newer_than_the_stored_row_gets_a_row_even_when_the_value_repeats():
     frozen = {"temp_high": 80.0, "mister_all_kpa": 1.25}
-    store = ingestor.ReadbackStore({name: (value, T0) for name, value in frozen.items()}, generation=3)
+    store = ingestor.ReadbackStore({name: (value, T0, 3) for name, value in frozen.items()})
     written = {"mister_all_kpa": T0 + timedelta(seconds=20), "temp_high": T0 - timedelta(minutes=5)}
     chosen = ingestor.readbacks_to_store(
-        frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at=written, complete=False
+        frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at=written
     )
     assert chosen == {"mister_all_kpa"}
 
 
 def test_an_unreadable_write_lookup_stores_every_readback():
     frozen = {"temp_high": 80.0}
-    store = ingestor.ReadbackStore({"temp_high": (80.0, T0)}, generation=3)
-    chosen = ingestor.readbacks_to_store(
-        frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at=None, complete=False
-    )
+    store = ingestor.ReadbackStore({"temp_high": (80.0, T0, 3)})
+    chosen = ingestor.readbacks_to_store(frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at=None)
     assert chosen == {"temp_high"}
 
 
 def test_keyframes_are_hourly_and_staggered_across_the_passes():
     names = sorted({spec.name for spec in wire_fields()} | {f"extra_{i}" for i in range(150)})
     frozen = dict.fromkeys(names, 1.0)
-    store = ingestor.ReadbackStore({name: (1.0, T0) for name in names}, generation=3)
+    store = ingestor.ReadbackStore({name: (1.0, T0, 3) for name in names})
     per_pass = []
     stored_count = dict.fromkeys(names, 0)
     for minute in range(1, 121):  # two hours of 60 s passes
         now = T0 + timedelta(minutes=minute)
-        chosen = ingestor.readbacks_to_store(frozen, store, now=now, generation=3, written_at={}, complete=False)
+        chosen = ingestor.readbacks_to_store(frozen, store, now=now, generation=3, written_at={})
         for name in chosen:
-            store.stored[name] = (1.0, now)
+            store.stored[name] = (1.0, now, 3)
             stored_count[name] += 1
         per_pass.append(len(chosen))
     # Every parameter gets one keyframe an hour: two in two hours.
@@ -196,19 +185,56 @@ async def test_a_reconnect_stores_every_readback(context, monkeypatch):  # noqa:
 
 
 @pytest.mark.asyncio
+async def test_a_partial_cache_at_reconnect_still_gives_every_parameter_a_post_boot_row(context, monkeypatch):  # noqa: F811
+    values, connection, pool = context
+    await publish(pool, T0)
+    # Reconnect: the cache is cleared and the controller replays its states over the next seconds.
+    full = dict(values)
+    late = sorted(full)[: len(full) // 2]
+    monkeypatch.setattr(shared, "transport_generation", 4)
+    monkeypatch.setattr(shared, "transport_readbacks_generation", 4)
+    monkeypatch.setattr(shared, "cfg_readback_generation", dict.fromkeys(full, 4))
+    for name in late:
+        del values[name]
+    await publish(pool, T0 + timedelta(seconds=60))
+    assert stored_names(connection) == set(full) - set(late)
+    # The rest arrive with the values they had before the reconnect: each still gets its post-boot row.
+    values.update({name: full[name] for name in late})
+    await publish(pool, T0 + timedelta(seconds=120))
+    assert stored_names(connection) == set(late)
+    await publish(pool, T0 + timedelta(seconds=180))
+    assert connection.rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_clamped_write_stores_what_the_controller_reads_back(context):  # noqa: F811
+    values, connection, pool = context
+    await publish(pool, T0)
+    # Asked for 2.0; the controller clamps and keeps 1.25. The row after the write is the readback, and the
+    # confirmation runs against 1.25, which the request's 2.0 does not match, so it stays unconfirmed.
+    connection.writes = [("mister_all_kpa", T0 + timedelta(seconds=30))]
+    await publish(pool, T0 + timedelta(seconds=60))
+    assert connection.rows == [(T0 + timedelta(seconds=60), "mister_all_kpa", 1.25)]
+    assert ("mister_all_kpa", 1.25, 0.0) in connection.confirmations
+    # Clamped to a new value instead: stored at once as a change.
+    values["mister_all_kpa"] = 1.75
+    await publish(pool, T0 + timedelta(seconds=120))
+    assert connection.rows == [(T0 + timedelta(seconds=120), "mister_all_kpa", 1.75)]
+
+
+@pytest.mark.asyncio
 async def test_only_a_pass_that_stored_every_canonical_field_serves_a_writer_admission(context):  # noqa: F811
     values, connection, pool = context
     now = datetime.now(UTC)
-    await publish(pool, now - timedelta(seconds=60))
+    await publish(pool, now - timedelta(seconds=60))  # first pass after a restart stores every readback
+    assert shared.setpoint_snapshot_is_current(3)
     values["mister_all_kpa"] = 1.5
     await publish(pool, now)
     assert stored_names(connection) == {"mister_all_kpa"}
     assert not shared.setpoint_snapshot_is_current(3)  # a request would ask for a complete batch
-    await publish(pool, now, reason="writer_admission")
+    await publish(pool, now, reason="writer_admission")  # dormant in production (no caller)
     assert stored_names(connection) == set(values)
     assert shared.setpoint_snapshot_is_current(3)
-    canonical = {spec.name for spec in wire_fields()}
-    assert canonical <= stored_names(connection) and len({ts for ts, _n, _v in connection.rows}) == 1
 
 
 # The readers.
@@ -258,5 +284,66 @@ def test_alert_windows_hold_sparse_readbacks():
     # Zero variance needs a week of keyframes (>= 24 rows, the oldest over 6 days), not 100 dense rows.
     assert "HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24" in source
     assert "count(*) > 100" not in source
+    zero = source.split("SELECT parameter, count(*) AS n, stddev(value) AS sd", 1)[1].split("alerts.append", 1)[0]
+    # K1: the legacy band scalars are left out while the controller runs its own band; still a warning.
+    assert "AND NOT (parameter = ANY($2::text[])" in zero and "list(LEGACY_BAND_SCALARS)" in zero
+    assert "list(ONCHIP_BAND_SOURCES)" in zero and "band_role IS NULL" in zero
     # fn_heat_staging_inversion's 10-minute readback window is often empty now: its message tolerates no temp_low.
     assert 'if staging_row["temp_low"] is not None' in source
+
+
+# The irrigation and lighting acceptance scripts on keyframe-only history (#1662 review MAJOR-2, MAJOR-3).
+
+
+def _load_script(name: str):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_"), ROOT / "scripts" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _window_s(sql: str) -> float:
+    import re
+
+    number, unit = re.search(r"interval '(\d+) (minutes|hours)'", sql).groups()
+    return int(number) * (60 if unit == "minutes" else 3600)
+
+
+def test_lighting_audit_sees_a_readback_whose_keyframe_is_fifty_minutes_old(monkeypatch):
+    audit = _load_script("audit-lighting-automation")
+    ages = dict.fromkeys(audit.CFG_READBACK_PARAMS, 50 * 60)  # every row is a keyframe 50 min old
+    ages[audit.CFG_READBACK_PARAMS[0]] = 3 * 3600  # one parameter has no row in the last keyframe gap
+
+    def psql_json(sql, timeout=30):
+        window = _window_s(sql)
+        return [{"parameter": name} for name, age in ages.items() if age < window]
+
+    monkeypatch.setattr(audit, "psql_json", psql_json)
+    assert audit.live_cfg_readback_params() == set(audit.CFG_READBACK_PARAMS[1:])
+
+
+def test_irrigation_stack_check_takes_freshness_from_the_pass_and_rows_from_two_hours():
+    stack = _load_script("validate-irrigation-stack")
+    n = str(len(stack.IRRIGATION_SCHEDULE_PARAMS))
+    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "42").status == "pass"
+    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "900").status == "fail"  # no pass for 15 min
+    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "-").status == "fail"
+    short = str(len(stack.IRRIGATION_SCHEDULE_PARAMS) - 1)
+    assert stack._schedule_cfg_readbacks_verdict(n, short, "a", "b", "-", "42").status == "fail"
+
+
+def test_irrigation_stack_check_reads_the_pass_marker_and_a_two_hour_window(monkeypatch):
+    stack = _load_script("validate-irrigation-stack")
+    seen = []
+
+    def psql(sql, *, direct_db=False):
+        seen.append(sql)
+        n = str(len(stack.IRRIGATION_SCHEDULE_PARAMS))
+        return [[n, n, "a", "b", "-", "30"]]
+
+    monkeypatch.setattr(stack, "_psql", psql)
+    assert stack._check_schedule_cfg_readbacks(True).status == "pass"
+    assert "entity = 'setpoint_snapshot_pass'" in seen[0] and "l.ts >= now() - interval '2 hours'" in seen[0]

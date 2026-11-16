@@ -128,6 +128,25 @@ def run(cmd: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
 
 
+# Readbacks are stored on change with an hourly keyframe (#1662): a per-circuit readback the firmware supports has a
+# row within two hours (the longest gap is one hour plus a pass), not within 15 minutes.
+CFG_READBACK_WINDOW = "2 hours"
+
+
+def live_cfg_readback_params() -> set[str]:
+    """The per-circuit cfg readbacks the controller reports: a row within CFG_READBACK_WINDOW."""
+    rows = psql_json(
+        f"""
+        SELECT DISTINCT parameter
+          FROM setpoint_snapshot
+         WHERE parameter = ANY(ARRAY{list(CFG_READBACK_PARAMS)!r}::text[])
+           AND band_role IS NULL
+           AND ts > now() - interval '{CFG_READBACK_WINDOW}'
+        """
+    )
+    return {row["parameter"] for row in rows}
+
+
 def psql_json(sql: str, timeout: int = 30) -> list[dict[str, Any]]:
     wrapped = f"SELECT COALESCE(json_agg(row_to_json(q)), '[]'::json) FROM ({sql}) q"
     proc = run(
@@ -747,15 +766,7 @@ def live_checks(audit: Audit, require_ota: bool) -> None:
         f"timeline incomplete: {timeline}",
     )
 
-    support_rows = psql_json(
-        f"""
-        SELECT DISTINCT parameter
-          FROM setpoint_snapshot
-         WHERE parameter = ANY(ARRAY{list(CFG_READBACK_PARAMS)!r}::text[])
-           AND ts > now() - interval '15 minutes'
-        """
-    )
-    supported_params = {row["parameter"] for row in support_rows}
+    supported_params = live_cfg_readback_params()
     missing_support = sorted(set(CFG_READBACK_PARAMS) - supported_params)
     if not missing_support:
         audit.add(
@@ -870,16 +881,7 @@ def live_checks(audit: Audit, require_ota: bool) -> None:
     except (TimeoutError, UnicodeDecodeError, urllib.error.URLError) as exc:
         audit.add("live public website pages", "FAIL", str(exc))
 
-    readbacks = psql_json(
-        f"""
-        SELECT parameter, max(ts) AS latest_ts
-          FROM setpoint_snapshot
-         WHERE parameter = ANY(ARRAY{list(CFG_READBACK_PARAMS)!r}::text[])
-           AND ts > now() - interval '15 minutes'
-         GROUP BY parameter
-        """
-    )
-    readback_params = {row["parameter"] for row in readbacks}
+    readback_params = live_cfg_readback_params()
     missing = sorted(set(CFG_READBACK_PARAMS) - readback_params)
     firmware_support_live = not missing
     audit.add(

@@ -608,6 +608,37 @@ def test_writer_counts_differing_settings_and_leaves_clamped_ones_out(dsn):
     scenario(dsn, clamped)
 
 
+def test_writer_differing_counts_from_the_first_row_after_the_last_match_with_keyframe_only_history(dsn):
+    # Readbacks are stored on change with an hourly keyframe (#1662). The last matching row is a keyframe 50 min
+    # old; a controller restart to a boot default was stored 1 min ago. Rule K1: a restart does not count yet.
+    params = candidate_params(1)
+
+    async def restarted(conn, t0):
+        await reporting_now(conn, t0)
+        took = t0 - 3 * H
+        await plan_in_force(conn, "iris-1662-keyframe", took, t0 + 2 * D)
+        await waypoints(conn, "iris-1662-keyframe", took, t0 + 2 * D, [(took, params[0], 1.0)])
+        await snapshot(conn, t0 - 110 * MIN, params[0], 1.0)
+        await snapshot(conn, t0 - 50 * MIN, params[0], 1.0)
+        await snapshot(conn, t0 - 1 * MIN, params[0], mismatch(params[0], 1.0))
+        writer = (await as_reader(conn, reads.now)).writer
+        assert (writer.differing, writer.oldest_since) == (0, None)
+
+    async def lost(conn, t0):
+        await reporting_now(conn, t0)
+        took = t0 - 3 * H
+        await plan_in_force(conn, "iris-1662-lost", took, t0 + 2 * D)
+        await waypoints(conn, "iris-1662-lost", took, t0 + 2 * D, [(took, params[0], 1.0)])
+        await snapshot(conn, t0 - 50 * MIN, params[0], 1.0)
+        await snapshot(conn, t0 - 20 * MIN, params[0], mismatch(params[0], 1.0))
+        await snapshot(conn, t0 - 2 * MIN, params[0], mismatch(params[0], 1.0))  # its keyframe
+        writer = (await as_reader(conn, reads.now)).writer
+        assert (writer.differing, writer.oldest_since) == (1, t0 - 20 * MIN)
+
+    scenario(dsn, restarted)
+    scenario(dsn, lost)
+
+
 # ── API-07: the plan, lanes and planner health ──────────────────────────────
 
 
