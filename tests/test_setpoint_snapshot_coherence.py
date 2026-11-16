@@ -69,6 +69,9 @@ class Connection:
         self.fail_confirmation = False
         self.after_insert = None
         self.during_fetch = None
+        self.writes = []  # (parameter, at) rows the write lookup returns
+        self.passes = []  # (ts, entity, value) pass markers
+        self.fail_writes = False
 
     def is_in_transaction(self):
         return self.active
@@ -107,7 +110,17 @@ class Connection:
                 raise RuntimeError("in-memory confirmation failure")
             self.confirmations = list(rows)
 
+    async def execute(self, query, *args):
+        assert "INSERT INTO v_runtime_system_state_write (ts, entity, value)" in query
+        self.events.append("pass")
+        self.passes.append(args)
+
     async def fetch(self, query, *_args):
+        if query == ingestor._READBACK_WRITES_SQL:
+            assert not self.active  # read before the publication transaction
+            if self.fail_writes:
+                raise RuntimeError("in-memory write lookup failure")
+            return [{"parameter": name, "at": at} for name, at in self.writes]
         assert "FROM setpoint_snapshot" in query
         if self.during_fetch:
             self.during_fetch()
@@ -151,6 +164,7 @@ def context(monkeypatch):
     monkeypatch.setattr(shared, "writer_lease_strictly_held", lambda: True)
     monkeypatch.setattr(shared, "is_shadow_mode", lambda: False)
     monkeypatch.setenv("VERDIFY_DEVICE_WRITE_ENABLED", "1")
+    monkeypatch.setattr(ingestor, "_readback_store", ingestor.ReadbackStore())
     connection = Connection()
 
     def fanout(_table, _row):
@@ -179,8 +193,8 @@ async def test_snapshot_confirmation_and_fanout_use_one_committed_immutable_map(
     assert snapshot == confirmed and snapshot["mister_all_kpa"] == 1.25
     assert snapshot["safety_max"] == 100.0
     assert len({ts for ts, _name, _value in connection.rows}) == 1
-    assert connection.events[:4] == ["begin", "insert", "confirm", "commit"]
-    assert connection.events[4:] == ["fanout"] * len(snapshot)
+    assert connection.events[:5] == ["begin", "insert", "confirm", "pass", "commit"]
+    assert connection.events[5:] == ["fanout"] * len(snapshot)
     assert not shared.setpoint_snapshot_is_current(3)  # Live values advanced during INSERT.
 
 

@@ -20,6 +20,7 @@ import sys
 import time
 import unicodedata
 import urllib.request
+import zlib
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -3387,16 +3388,16 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
             old = state.system.get(entity)
             # climate_law_state (60 s heartbeat), outdoor_source (every 300 s) and climate_law_constants (hourly)
             # are stored on every receipt: the newest row's age shows the law is running, how old the controller's
-            # outdoor reading choice is, and that the constants hash belongs to the build running now.
+            # outdoor reading choice is, and that the constants hash belongs to the build running now. The two
+            # grow-light reasons too (the light timer and resync read a reason within 120 s). The two grow-light
+            # states are stored on change and on a 10-minute keyframe (#1662), inside the lighting views' 15 minutes.
             force_refresh = entity in {
-                "gl_main_state",
                 "gl_main_reason",
-                "gl_grow_state",
                 "gl_grow_reason",
                 "climate_law_state",
                 "outdoor_source",
                 "climate_law_constants",
-            }
+            } or light_state_keyframe_due(entity, time.monotonic())
             if old != val or force_refresh:
                 if _observation_spool_enabled():
                     events = [("system_state", {"entity": entity, "value": val})]
@@ -3411,6 +3412,8 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
                 else:
                     state.pending_states.append((entity, val))
                 state.system[entity] = val
+                if entity in LIGHT_STATE_KEYFRAME_ENTITIES:
+                    _light_state_stored_at[entity] = time.monotonic()
                 if old != val:
                     log.info(f"state: {entity} → {val}")
                     # #1370: activity rows for the controller's occupancy lights.
@@ -3487,6 +3490,110 @@ def _report_spool_health() -> None:
             log.error("ingestor_spool_health_failed queue=%s reason=%s", name, type(exc).__name__)
 
 
+# #1662 (package 4.4): readbacks are stored on change. The 60 s pass still reads the whole cache, confirms writes
+# against all of it and fans all of it out; a parameter's setpoint_snapshot row is inserted only when its value moved
+# beyond the readback tolerance (float32 noise never counts), a write, desired row or plan waypoint for it is newer
+# than its last stored row (so a write that repeats the value still gets a confirming row), the controller
+# reconnected or the ingestor restarted, a writer admission asked for a complete batch, or its hourly keyframe is due.
+# Keyframes are staggered by a hash of the name so every pass stores a few. Each pass stores one system_state row
+# (READBACK_PASS_ENTITY): readers take freshness from it, not from the newest readback.
+READBACK_KEYFRAME_S = 3600
+LIGHT_STATE_KEYFRAME_S = 600
+LIGHT_STATE_KEYFRAME_ENTITIES = frozenset({"gl_main_state", "gl_grow_state"})
+_light_state_stored_at: dict[str, float] = {}
+
+
+def light_state_keyframe_due(entity: str, now: float) -> bool:
+    """A grow-light state repeats into system_state once its last stored row is 10 minutes old (#1662)."""
+    if entity not in LIGHT_STATE_KEYFRAME_ENTITIES:
+        return False
+    stored_at = _light_state_stored_at.get(entity)
+    return stored_at is None or now - stored_at >= LIGHT_STATE_KEYFRAME_S
+
+
+READBACK_PASS_ENTITY = "setpoint_snapshot_pass"
+_READBACK_REL_TOLERANCE = 1e-6  # float32 carries about 7 significant digits
+
+_READBACK_WRITES_SQL = """
+SELECT parameter, max(at) AS at FROM (
+    SELECT parameter, ts AS at FROM setpoint_changes
+     WHERE ts > now() - interval '2 hours' AND COALESCE(source, '') <> 'esp32'
+    UNION ALL
+    SELECT param, created_at FROM v_desired_state_current
+     WHERE greenhouse_id = $1 AND created_at > now() - interval '2 hours'
+    UNION ALL
+    SELECT parameter, ts FROM v_active_plan
+     WHERE ts > now() - interval '2 hours' AND ts <= now()
+) AS w
+ GROUP BY parameter
+"""
+
+
+@dataclass
+class ReadbackStore:
+    """What the publisher last stored per parameter: (value, batch time), and the generation it stored on."""
+
+    stored: dict[str, tuple[float, datetime]] = field(default_factory=dict)
+    generation: int | None = None
+
+
+_readback_store = ReadbackStore()
+
+
+def readback_unchanged(param: str, stored: float, value: float) -> bool:
+    """Same readback: within the parameter's readback tolerance or float32 resolution."""
+    return math.isclose(
+        float(value), float(stored), rel_tol=_READBACK_REL_TOLERANCE, abs_tol=readback_abs_tolerance(param)
+    )
+
+
+def readback_keyframe_due(param: str, last_at: datetime, now: datetime) -> bool:
+    """True once the parameter's staggered hourly slot has passed since its last stored row."""
+    slot = zlib.crc32(param.encode()) % READBACK_KEYFRAME_S
+    epoch = now.timestamp()
+    boundary = math.floor((epoch - slot) / READBACK_KEYFRAME_S) * READBACK_KEYFRAME_S + slot
+    return last_at.timestamp() < boundary
+
+
+def readbacks_to_store(
+    frozen: dict[str, float],
+    store: ReadbackStore,
+    *,
+    now: datetime,
+    generation: int,
+    written_at: dict[str, datetime] | None,
+    complete: bool,
+) -> set[str]:
+    """The parameters whose readback row this pass inserts (#1662). written_at None: the write query failed."""
+    if complete or written_at is None or store.generation != generation:
+        return set(frozen)
+    chosen = set()
+    for param, value in frozen.items():
+        previous = store.stored.get(param)
+        if previous is None:
+            chosen.add(param)
+            continue
+        stored_value, stored_at = previous
+        written = written_at.get(param)
+        if (
+            not readback_unchanged(param, stored_value, value)
+            or (written is not None and written > stored_at)
+            or readback_keyframe_due(param, stored_at, now)
+        ):
+            chosen.add(param)
+    return chosen
+
+
+async def _readback_writes(conn: asyncpg.Connection) -> dict[str, datetime] | None:
+    """The newest write, desired row or plan waypoint per parameter in the last two hours; None when unreadable."""
+    try:
+        rows = await conn.fetch(_READBACK_WRITES_SQL, GREENHOUSE_ID)
+    except Exception as error:  # fail dense: store every readback rather than miss a confirmation
+        log.warning("setpoint_snapshot write lookup failed (%s): storing every readback", type(error).__name__)
+        return None
+    return {row["parameter"]: row["at"] for row in rows if row["at"] is not None}
+
+
 async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason: str = "periodic") -> None:
     """Commit one immutable cached-readback batch before fanout or admission ACK."""
     if shared.is_shadow_mode():
@@ -3509,10 +3616,20 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
     try:
         async with asyncio.timeout(shared.SETPOINT_SNAPSHOT_WAIT_SECONDS):
             async with pool.acquire() as conn:
+                written_at = await _readback_writes(conn)
+                chosen = readbacks_to_store(
+                    {param: val for _ts, param, val in snapshot_rows},
+                    _readback_store,
+                    now=ts,
+                    generation=generation,
+                    written_at=written_at,
+                    complete=reason == "writer_admission",
+                )
+                stored_rows = [row for row in snapshot_rows if row[1] in chosen]
                 async with conn.transaction():
                     await conn.executemany(
                         "INSERT INTO v_runtime_setpoint_snapshot_write (ts, parameter, value) VALUES ($1, $2, $3)",
-                        snapshot_rows,
+                        stored_rows,
                     )
                     # FW-4 uses the SAME immutable values as this committed batch.
                     # Its existing tolerance and superseding-request predicates stay unchanged.
@@ -3546,27 +3663,40 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
                             """,
                         [(param, val, readback_abs_tolerance(param)) for _ts, param, val in snapshot_rows],
                     )
+                    await conn.execute(
+                        "INSERT INTO v_runtime_system_state_write (ts, entity, value) VALUES ($1, $2, $3)",
+                        ts,
+                        READBACK_PASS_ENTITY,
+                        f"stored={len(stored_rows)} of={len(snapshot_rows)}",
+                    )
     except BaseException:
         shared.fail_setpoint_snapshot_publication()
         raise
+    for _ts, param, val in stored_rows:
+        _readback_store.stored[param] = (val, ts)
+    if chosen == {param for _ts, param, _val in snapshot_rows}:
+        _readback_store.generation = generation
     # Both statements have committed. A confirmation failure cannot broadcast
     # rolled-back snapshots or acknowledge a batch that never became durable.
     for snap_ts, param, val in snapshot_rows:
         _fanout_publish("setpoint_snapshot", {"ts": snap_ts, "parameter": param, "value": val})
     published = {param: val for _ts, param, val in snapshot_rows}
+    # A writer admission reads the canonical fields back as one stored batch: only a pass that stored all of them
+    # can be reused for it (the demand publication stores every readback).
     shared.finish_setpoint_snapshot_publication(
         generation,
         published,
         ts,
         canonical_complete=shared.transport_readbacks_ready(generation)
-        and {field.name for field in wire_fields()} <= published.keys(),
+        and {spec.name for spec in wire_fields()} <= {param for _ts, param, _val in stored_rows},
     )
     log.info(
-        "setpoint_snapshot publication=committed reason=%s generation=%d rows=%d "
+        "setpoint_snapshot publication=committed reason=%s generation=%d rows=%d stored=%d "
         "batch_at=%s elapsed_ms=%.1f current_content=%s",
         reason,
         generation,
         len(snapshot_rows),
+        len(stored_rows),
         ts.isoformat(),
         (asyncio.get_event_loop().time() - started) * 1000,
         shared.setpoint_snapshot_is_current(generation),

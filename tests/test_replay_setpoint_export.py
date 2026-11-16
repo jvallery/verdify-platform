@@ -1,4 +1,4 @@
-"""Real isolated SQL proves bounded batches preserve the original as-of policy."""
+"""Real isolated SQL proves bounded batches give each parameter's newest value, as the full history does (#1662)."""
 
 import csv
 import importlib.util
@@ -23,7 +23,7 @@ def moment(hour):
 
 
 @pytest.mark.parametrize("seed", [True, False])
-def test_native_bounded_batches_preserve_asof_and_skip_partial_or_other_site(isolated_pg, seed):
+def test_native_bounded_batches_give_newest_per_parameter_and_skip_other_site(isolated_pg, seed):
     q = isolated_pg
     q("""CREATE TABLE setpoint_snapshot (
         greenhouse_id text, ts timestamptz, parameter text, value double precision);
@@ -47,17 +47,20 @@ def test_native_bounded_batches_preserve_asof_and_skip_partial_or_other_site(iso
     bounded = exported(module.query((moment(3), moment(5))))
 
     def asof(rows, ts):
+        # export-replay-overrides.sh merges each batch into the configuration in force.
         current = {}
         for row in rows:
             if datetime.fromisoformat(row["ts"]) <= ts:
-                current = json.loads(row["config_payload"])
+                current.update(json.loads(row["config_payload"]))
         return current
 
     assert [asof(bounded, moment(h)) for h in (3, 4, 5)] == [asof(original, moment(h)) for h in (3, 4, 5)]
-    assert len(bounded) == (2 if seed else 1)
     assert all(datetime.fromisoformat(row["ts"]) <= moment(5) for row in bounded)
-    assert asof(bounded, moment(3)) == ({"temp_high": 81, "temp_low": 61} if seed else {})
+    # A batch holding one changed parameter (02:00) is the newest value of that parameter, not a partial to skip.
+    assert asof(bounded, moment(3)) == ({"temp_high": 81, "temp_low": 999} if seed else {})
     assert asof(bounded, moment(4)) == {"temp_high": 84, "temp_low": 64}
+    assert asof(original, moment(6)) == {"temp_high": 86, "temp_low": 64}
+    assert "other" not in {row["greenhouse_id"] for row in original}
 
 
 def test_climate_bounds_are_original_utc_and_empty_input_queries_nothing(tmp_path):

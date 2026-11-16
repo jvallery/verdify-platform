@@ -168,7 +168,7 @@ def test_g10_smoke_fails_closed(tmp_path, case, expected_code, expected_text):
             MOCK_PODS=str(pod_file),
             MOCK_MCP_OK="0" if case == "missing_tools" else "1",
             MOCK_MCP_STALL="1" if case == "stalled_tools" else "0",
-            MOCK_SNAPSHOT="900|0" if case == "stale_readbacks" else "10|1",
+            MOCK_SNAPSHOT="900|47" if case == "stale_readbacks" else "10|48",
             MOCK_OPERATOR_READY="0" if case == "operator_unready" else "1",
             MOCK_OPERATOR_IMAGE={
                 "operator_wrong_digest": IMAGE.replace("b" * 64, "e" * 64),

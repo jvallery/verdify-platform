@@ -69,8 +69,10 @@ HEARTBEAT_STALE_S = 180
 # The controller reports while the heartbeat is fresh and the newest climate row
 # is at most this old (the GET /health threshold in api/main.py).
 CLIMATE_REPORTING_S = 300
-# Climate, diagnostics and the cfg_* readback snapshot arrive every 60 s; a
-# reading older than twice that is stale and gets no band verdict.
+# Climate, diagnostics and the cfg_* readback pass arrive every 60 s; a
+# reading older than twice that is stale and gets no band verdict. Readbacks are
+# stored on change (#1662), so their freshness is the newest pass marker
+# (system_state setpoint_snapshot_pass) or the newest readback, whichever is later.
 SENSOR_CADENCE_S = 60
 SENSOR_STALE_S = 120
 # Home Assistant polls the Lutron readback every 300 s: two missed polls is unknown.
@@ -822,8 +824,10 @@ SELECT now() AS at,
        (SELECT max(ts) FROM system_state WHERE entity = $1 AND ts > now() - interval '1 day') AS heartbeat_at,
        (SELECT max(ts) FROM climate WHERE ts > now() - interval '1 day') AS climate_at,
        (SELECT max(ts) FROM diagnostics WHERE ts > now() - interval '1 day') AS diagnostics_at,
-       (SELECT max(ts) FROM setpoint_snapshot
-         WHERE ts > now() - interval '1 day' AND band_role IS NULL) AS readback_at,
+       GREATEST((SELECT max(ts) FROM setpoint_snapshot
+                  WHERE ts > now() - interval '1 day' AND band_role IS NULL),
+                (SELECT max(ts) FROM system_state
+                  WHERE entity = 'setpoint_snapshot_pass' AND ts > now() - interval '1 day')) AS readback_at,
        (SELECT ts FROM setpoint_changes ORDER BY ts DESC LIMIT 1) AS writer_at,
        (SELECT round(sum(delta_gal))::int FROM water_meter_events
          WHERE ts > now() - interval '10 minutes' AND event_type = 'delta' AND quality_flag = 'ok') AS gal_10min,

@@ -1,4 +1,4 @@
-"""Bound complete replay batches to actual climate rows, retaining the as-of seed."""
+"""Bound replay readback batches to actual climate rows, seeded with each parameter's newest value."""
 
 from __future__ import annotations
 
@@ -24,35 +24,41 @@ def climate_bounds(path: Path) -> tuple[datetime, datetime] | None:
 
 
 def query(bounds: tuple[datetime, datetime] | None, *, all_history: bool = False) -> str:
-    prefix = ""
+    """Every stored readback batch in the window, each parameter's newest row before it as the seed.
+
+    Readbacks are stored on change (#1662), so a batch holds only what changed: the consumer merges each batch into
+    the configuration in force (newest per parameter), and the seed carries every parameter's value at the start. Every
+    parameter has an hourly keyframe, so two days of seed lookback hold each one that still exists.
+    """
     where = "greenhouse_id = 'vallery'"
-    if not all_history:
-        if bounds is None:
-            where += " AND false"
-        else:
-            start, end = bounds
-            if any(t.tzinfo is None or t.utcoffset() is None for t in bounds) or end < start:
-                raise ValueError("invalid replay timestamp bounds")
-            # Canonical datetime output is the only interpolated input. A batch
-            # qualifies by the same temp_high predicate as the original export.
-            start, end = (t.astimezone(UTC).isoformat() for t in bounds)
-            prefix = f"""WITH seed AS (
-    SELECT ts FROM setpoint_snapshot
-    WHERE greenhouse_id = 'vallery' AND parameter = 'temp_high'
-      AND ts <= TIMESTAMPTZ '{start}'
-    ORDER BY ts DESC LIMIT 1
-)
-"""
-            where += f"""
-    AND ts >= COALESCE((SELECT ts FROM seed), TIMESTAMPTZ '{start}')
-    AND ts <= TIMESTAMPTZ '{end}'"""
+    if all_history:
+        return _copy(f"SELECT greenhouse_id, ts, parameter, value FROM setpoint_snapshot WHERE {where}")
+    if bounds is None:
+        return _copy(f"SELECT greenhouse_id, ts, parameter, value FROM setpoint_snapshot WHERE {where} AND false")
+    start, end = bounds
+    if any(t.tzinfo is None or t.utcoffset() is None for t in bounds) or end < start:
+        raise ValueError("invalid replay timestamp bounds")
+    # Canonical datetime output is the only interpolated input.
+    start, end = (t.astimezone(UTC).isoformat() for t in bounds)
+    return _copy(
+        f"""SELECT * FROM (
+        SELECT DISTINCT ON (parameter) greenhouse_id, ts, parameter, value FROM setpoint_snapshot
+         WHERE {where} AND ts <= TIMESTAMPTZ '{start}' AND ts > TIMESTAMPTZ '{start}' - interval '2 days'
+         ORDER BY parameter, ts DESC
+    ) AS seed
+    UNION ALL
+    SELECT greenhouse_id, ts, parameter, value FROM setpoint_snapshot
+     WHERE {where} AND ts > TIMESTAMPTZ '{start}' AND ts <= TIMESTAMPTZ '{end}'"""
+    )
+
+
+def _copy(rows: str) -> str:
     return f"""COPY (
-    {prefix}SELECT greenhouse_id, ts,
+    WITH rows AS ({rows})
+    SELECT greenhouse_id, ts,
         jsonb_object_agg(parameter, to_jsonb(value) ORDER BY parameter) AS config_payload
-    FROM setpoint_snapshot
-    WHERE {where}
+    FROM rows
     GROUP BY greenhouse_id, ts
-    HAVING bool_or(parameter = 'temp_high')
     ORDER BY ts
 ) TO STDOUT WITH (FORMAT csv, DELIMITER E'\\t', HEADER, NULL '')
 """

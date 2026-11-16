@@ -71,8 +71,8 @@ if TYPE_CHECKING:  # reads imports this module; _shared() imports reads when it 
 GREENHOUSE_ID = "vallery"
 # A stored write reads requested this long before it reads not_confirmed (§5.5).
 REQUESTED_FOR = timedelta(minutes=5)
-# setpoint_snapshot holds every cfg_* sensor and native Number/Switch state each 60 s, so a readback older than
-# this is no readback now. equipment_state records changes only, so its window is the readback retention.
+# setpoint_snapshot holds every cfg_* sensor and native Number/Switch state on change, after each write, desired row
+# or plan waypoint, and at least hourly (#1662), so a readback older than this is no readback now. equipment_state records changes only, so its window is the readback retention.
 READBACK_WINDOW = timedelta(hours=24)
 EQUIPMENT_WINDOW = timedelta(days=90)
 # A band or default setting with no desired row and no plan is judged against the dispatcher's newest push.
