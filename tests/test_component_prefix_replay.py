@@ -515,8 +515,10 @@ def test_source_coverage_reports_real_consumers_and_local_include_closure() -> N
     assert len(report["unimposed_fields"]) == 21
     assert report["compiled_safety_qualification_supported"] is False
     assert len(report["missing_path_evidence"]) == 4
+    # Phase 3 (RULINGS P1): exactly the eleven fields the law leaves without a control read are inert.
+    assert {row["name"] for row in report["fields"] if row["phase3_inert"]} == tool.PHASE3_INERT_FIELDS
     for row in report["fields"]:
-        assert row["control_read_sites"]
+        assert row["control_read_sites"] or row["phase3_inert"]
         assert row["native_path_qualification"] == "not_established_by_source_scan"
         for site in row["control_read_sites"]:
             assert site["migrated_to_snapshot"]

@@ -10,6 +10,13 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Phase 3 (#1671, RULINGS P1): the band-edge law replaces the phase 2 fog/vent glue this extractor reads
+# (relay_physical, the fog-closes-vent gate, open_vent_fog_assist). With the law wired there is no consumer to
+# extract; package 4.3's host counterpart deletes this tooling.
+PHASE3_LAW_WIRED = "climate_law::relay_step(" in (ROOT / "firmware/greenhouse/controls.yaml").read_text()
+if PHASE3_LAW_WIRED:
+    pytest.skip("phase 3: the fog/vent consumer is retired (RULINGS P1)", allow_module_level=True)
 SPEC = importlib.util.spec_from_file_location("fog_vent_consumer", ROOT / "scripts/fog_vent_consumer.py")
 fog = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(fog)
