@@ -694,7 +694,9 @@ interval:
           law_in.dp_f = indoor.dew_point_f;
           law_in.band = {sv2_temp_low, sv2_temp_high, sv2_vpd_low, sv2_vpd_high};
           law_in.temp_valid = law_temp_valid;
-          law_in.humidity_valid = law_temp_valid && indoor.humidity_valid;
+          // RULINGS AG1 (plan 4.2): the humidity rules run on the wall averages only; on the
+          // case sensor they hold (no fog, mist or drying on the case air, 100 F included).
+          law_in.humidity_valid = climate_law::law_humidity_valid(law_temp_valid, indoor);
           law_in.out_ok = outdoor.source != OutdoorSource::kNone && outdoor_data_fresh(outdoor.age_s);
           law_in.out_T = outdoorT;
           law_in.out_dp_f = outdoor_dp;
@@ -810,7 +812,10 @@ interval:
           // setting: the compiled wetting dew margin (skipped with no humidity reading, G7)
           // and the law's cold-house guard (below the band's low edge).
           const char* manual_fog_safety_block =
-              (law_in.humidity_valid && Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "dew_margin"
+              // AG1: the press keeps the case dew point (indoor.humidity_valid, G2), not the law's
+              // wall-only humidity validity.
+              (law_temp_valid && indoor.humidity_valid &&
+               Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "dew_margin"
               : (law_temp_valid && Tin < law_band.low) ? "temp_low"
               : "";
 
@@ -916,6 +921,10 @@ interval:
           // only with the vent open, the furnace never with the air), the lead fan, the
           // furnace's boot wait (G4) and the protection limits (G1, G1a-c). On the
           // entry to the no-indoor state it cuts what the table drops (decision 7).
+          // RULINGS AG2: the law's own fog keeps the phase 2 dew-point margin (outside
+          // SENSOR_FAULT, under WET_DEW_MARGIN_F the request drops); the engine's fog demand
+          // below reads the same gated request.
+          if (!climate_law::law_fog_dew_margin_ok(mode, Tin, indoor.dew_point_f)) law_request.fog = false;
           climate_law::RelayInputs law_relay_in{};
           law_relay_in.fan1_run_s = relay_counters.fan_run_s[0];
           law_relay_in.fan2_run_s = relay_counters.fan_run_s[1];
@@ -929,8 +938,10 @@ interval:
           // cleared FANS and VENT-BYPASS there); effective in SENSOR_FAULT. A press acts
           // this pass, past minimum off times. climate_law::relay_pass()
           // (lib/climate_law_glue.h) first syncs the relay layer to the physical relays
-          // (T6 S2), runs relay_step(), the overrides, and the interlocks over a press
-          // (the furnace never with the air; the fog holds win).
+          // (T6 S2), runs relay_step(), the overrides, and the interlocks over the result
+          // (AE10, AG3: no heater with a manual fan run; the electric heater never with the
+          // air except the law's drying and 40 F; the furnace never with the air; the fog
+          // holds win).
           const ManualOverrides manual_ov = {
               manual_fans_eff,                     // fans_active
               vent_bypass_eff,                     // vent_bypass_active
@@ -958,7 +969,7 @@ interval:
           // law's fog OR a HUMID press / run-once the override layer forced, after the
           // override layer, with the rails but the drips and today's clock term.
           const bool climate_fog_wanted = climate_law::climate_fog_wanted(
-              law, manual_force, fog_forced_off(mode, fog_rails_but_drips), wall_clock_valid);
+              law_request, manual_force, fog_forced_off(mode, fog_rails_but_drips), wall_clock_valid);
 
           /**************** 10 — CYCLE COUNTERS ***********************************/
           // #367: count accepted relay edges after dwell and overrides apply

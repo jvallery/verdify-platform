@@ -38,20 +38,54 @@ struct RelayPass {
 // - relay_step(): minimum times, interlocks, the lead fan (published from RelayState::lead_fan1), G1/G4;
 // - apply_manual_overrides(): FANS, VENT-BYPASS, HUMID (a no-op in SAFETY_COOL/SAFETY_HEAT, effective in
 //   SENSOR_FAULT);
-// - the interlocks over a press: no heater with a manual fan run (RULINGS AE10: FANS or VENT-BYPASS stops the
-//   electric heater as well as the furnace, as the phase 2 build did; at 40 F the override is a no-op and T1 has
-//   cleared the latch, so the protection heats); the furnace never with the air; the fog holds win.
+// - the interlocks over the result (RULINGS AE10, AG3): no heater with a manual fan run (FANS or VENT-BYPASS stops
+//   the electric heater as well as the furnace, as the phase 2 build did); the electric heater does not start into,
+//   and is cut at once by, an open vent or a running fan, except the law's own drying and the 40 F protection (at
+//   40 F the override is a no-op, T1 has cleared the latch and the relay layer has stopped the air, so the
+//   protection heats); the furnace never with the air; the fog holds win.
+// A cut is not a start: a heater the relay layer would have started this pass and an interlock holds off keeps the
+// relay layer's state from before the pass (its off time keeps counting), so a held start moves no switch time, no
+// counter and no physical relay.
 // The caller switches the drivers to `out`, then calls relay_sync() again with the physical states.
+namespace detail {
+inline void undo_held_start(Relay& r, const Relay& before, bool physical_on, bool out_on, uint32_t dt_ms) noexcept {
+    if (r.on && !physical_on && !out_on) {
+        r = before;
+        relay_tick(r, dt_ms);
+    }
+}
+}  // namespace detail
+
 inline RelayPass relay_pass(RelayState& r, const Output& request, const RelayInputs& in, const RelayOutputs& physical,
                             const ManualOverrides& ov, Mode mode) noexcept {
     relay_sync(r, physical);
+    const Relay heat1_before = r.heat1, heat2_before = r.heat2;
     relay_step(r, request, in);
     RelayPass p{{r.heat1.on, r.heat2.on, r.fan1.on, r.fan2.on, r.fog.on, r.vent.on}, {false, false, false}};
     p.force = apply_manual_overrides(p.out, ov, mode);
+    const bool air = p.out.vent || p.out.fan1 || p.out.fan2;
     if (p.force.fans) p.out.heat1 = p.out.heat2 = false;
-    if (p.out.heat2 && (p.out.vent || p.out.fan1 || p.out.fan2)) p.out.heat2 = false;
+    if (p.out.heat1 && air && !request.drying && !request.cold) p.out.heat1 = false;
+    if (p.out.heat2 && air) p.out.heat2 = false;
+    detail::undo_held_start(r.heat1, heat1_before, physical.heat1, p.out.heat1, in.dt_ms);
+    detail::undo_held_start(r.heat2, heat2_before, physical.heat2, p.out.heat2, in.dt_ms);
     if (in.fog_hold) p.out.fog = false;
     return p;
+}
+
+// RULINGS AG1 (plan 4.2): the law's humidity rules (5 fog, 6 misters, 7 drying) run only on the wall averages with a
+// valid humidity; on the case sensor they hold and rules 1 to 4, 8 and 9 run. No exception at 100 F: the
+// protection's vent and fans run, the law's fog does not. The HUMID press and the centre bursts keep reading
+// indoor.humidity_valid (the case dew point, G2).
+inline bool law_humidity_valid(bool law_temp_valid, const IndoorReading& indoor) noexcept {
+    return law_temp_valid && indoor.humidity_valid && !indoor_reading_degraded(indoor);
+}
+
+// RULINGS AG2: the law's own fog keeps the phase 2 dew-point margin: outside SENSOR_FAULT it is dropped while the
+// indoor temperature minus the dew point is under WET_DEW_MARGIN_F (the misters' zone gate margin); no reading is no
+// margin. The caller drops law_request.fog before relay_pass() and feeds the same request to climate_fog_wanted().
+inline bool law_fog_dew_margin_ok(Mode mode, double temp_f, double dew_point_f) noexcept {
+    return mode == SENSOR_FAULT || (temp_f - dew_point_f >= WET_DEW_MARGIN_F);
 }
 
 // T4 (ruling C2): the irrigation engine's climate fog demand keeps today's terms: the law's fog request OR a HUMID

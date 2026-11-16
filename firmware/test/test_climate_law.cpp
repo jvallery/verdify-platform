@@ -1413,6 +1413,213 @@ static void stage_b_payloads() {
   write_sample("climate_law_constants.txt", L::constants_hash());
 }
 
+// -- RULINGS AG1: the case sensor holds the humidity rules, through the wiring's own input path -----------
+// The controller builds the law's inputs from select_indoor_reading() (running_alone.h) and law_humidity_valid()
+// (the glue); this test does the same with the wall probes lost and a finite case humidity.
+static L::Inputs law_inputs_from(const IndoorReading& in) {
+  L::Inputs u = base_inputs(in.temp_f, in.vpd_kpa);
+  u.dp_f = in.dew_point_f;
+  u.w_in = L::humidity_ratio_g_per_kg(in.dew_point_f);
+  u.humidity_valid = L::law_humidity_valid(true, in);
+  return u;
+}
+
+static void law_case_sensor_holds_humidity_rules() {
+  const float off = running_alone_k::CASE_SENSOR_OFFSET_F;
+  // Dry air in the band: on the wall averages the law wets; on the case sensor (same air) it does not.
+  const IndoorReading wall = select_indoor_reading(75.0f, 25.0f, NAN, NAN, false, NAN, NAN);
+  CHECK(wall.source == IndoorSource::kWall && L::law_humidity_valid(true, wall), "AG1 setup: wall humidity valid");
+  L::State s;
+  L::Output q = L::step(s, law_inputs_from(wall));
+  CHECK(q.fog && q.mist, "AG1 setup: dry air on the wall averages fogs and mists");
+  const IndoorReading dry_case = select_indoor_reading(NAN, NAN, NAN, NAN, true, 75.0f + off, 25.0f);
+  CHECK(dry_case.source == IndoorSource::kCase && dry_case.humidity_valid && std::isfinite(dry_case.vpd_kpa),
+        "AG1 setup: the case sensor alone gives a finite case humidity");
+  CHECK(!L::law_humidity_valid(true, dry_case), "AG1: the law's humidity is not valid on the case sensor");
+  s = {};
+  q = L::step(s, law_inputs_from(dry_case));
+  CHECK(!q.fog && !q.mist && !q.drying, "AG1: no fog and no mist on the case air");
+  // Wet air: no drying on the case air (the wall averages would dry with the same outdoor air).
+  const IndoorReading wet_wall = select_indoor_reading(72.0f, 97.0f, NAN, NAN, false, NAN, NAN);
+  L::Inputs u = law_inputs_from(wet_wall);
+  u.out_ok = true;
+  u.out_T = 60.0;
+  u.out_dp_f = wet_wall.dew_point_f - 15.0;
+  u.w_out = L::humidity_ratio_g_per_kg(u.out_dp_f);
+  s = {};
+  q = L::step(s, u);
+  CHECK(q.drying && q.vent && q.fans == 1, "AG1 setup: wet air on the wall averages dries");
+  const IndoorReading wet_case = select_indoor_reading(NAN, NAN, NAN, NAN, true, 72.0f + off, 97.0f);
+  L::Inputs uc = law_inputs_from(wet_case);
+  uc.out_ok = true;
+  uc.out_T = u.out_T;
+  uc.out_dp_f = u.out_dp_f;
+  uc.w_out = u.w_out;
+  s = {};
+  q = L::step(s, uc);
+  CHECK(!q.drying && !q.vent && q.fans == 0 && q.dry_refusal == L::DRY_HUMIDITY_INVALID,
+        "AG1: no drying vent on the case air");
+  // The temperature rules run on the case sensor.
+  s = {};
+  q = L::step(s, law_inputs_from(select_indoor_reading(NAN, NAN, NAN, NAN, true, 60.0f + off, 25.0f)));
+  CHECK(q.heat1 && q.heat2 && !q.fog && !q.mist, "AG1: a cold house heats on the case sensor, no wetting");
+  s = {};
+  q = L::step(s, law_inputs_from(select_indoor_reading(NAN, NAN, NAN, NAN, true, 88.0f + off, 25.0f)));
+  CHECK(q.cooling && q.vent && q.fans >= 1 && !q.fog && !q.mist, "AG1: a hot house cools on the case sensor, no wetting");
+  // No exception at 100 F: the protection's vent and both fans run, the law's fog does not.
+  s = {};
+  q = L::step(s, law_inputs_from(select_indoor_reading(NAN, NAN, NAN, NAN, true, float(SAFETY_MAX_F) + off, 25.0f)));
+  CHECK(q.hot && q.vent && q.fans == 2 && !q.fog && !q.mist, "AG1: at 100 F on the case sensor, air but no fog");
+  // The HUMID press keeps the case dew point: the case reading's own humidity stays valid for it.
+  CHECK(dry_case.humidity_valid && std::isfinite(dry_case.dew_point_f), "AG1: the press still reads the case dew point");
+}
+
+// -- RULINGS AG2: the law's own fog keeps the 8 F dew-point margin ---------------------------------
+static void law_fog_wet_rails() {
+  CHECK(!L::law_fog_dew_margin_ok(IDLE, 90.0, 82.5), "AG2: under 8 F of margin, no fog");
+  CHECK(L::law_fog_dew_margin_ok(IDLE, 90.0, 90.0 - WET_DEW_MARGIN_F), "AG2: at 8 F of margin, fog");
+  CHECK(!L::law_fog_dew_margin_ok(IDLE, 90.0, NAN), "AG2: no dew point, no margin, no fog");
+  CHECK(!L::law_fog_dew_margin_ok(SAFETY_COOL, SAFETY_MAX_F, SAFETY_MAX_F - 7.0), "AG2: at 100 F the margin holds");
+  CHECK(L::law_fog_dew_margin_ok(SENSOR_FAULT, NAN, NAN), "AG2: SENSOR_FAULT is the fog lock's, not the margin's");
+  // The controller's path: the law asks for fog with a 6.6 F margin (99 F, VPD 1.3 kPa); the gated request reaches
+  // neither the relay nor the engine's fog demand.
+  const double T = 99.0;
+  const float rh = 100.0f * (1.0f - 1.3f / indoor_vpd_kpa(float(T), 0.0f));  // 0 % RH: the saturation pressure
+  L::Inputs u = base_inputs(T, 1.3);
+  u.dp_f = dew_point_magnus_f(float(T), rh);
+  L::State s;
+  const L::Output law = L::step(s, u);
+  CHECK(law.fog && T - u.dp_f < WET_DEW_MARGIN_F, "AG2 setup: the law fogs inside the margin");
+  L::Output req = law;
+  if (!L::law_fog_dew_margin_ok(IDLE, T, u.dp_f)) req.fog = false;
+  L::RelayState r = after_boot_wait();
+  RelayOutputs phys{false, false, false, false, false, false};
+  bool fog_on = false;
+  for (int i = 0; i < 30; ++i) {
+    const L::RelayPass p = L::relay_pass(r, req, L::RelayInputs{0, 0, false, 1000}, phys,
+                                         ManualOverrides{false, false, false, false}, IDLE);
+    phys = p.out;
+    L::relay_sync(r, phys);
+    fog_on = fog_on || phys.fog;
+  }
+  CHECK(!fog_on, "AG2: no fog relay inside the margin");
+  CHECK(!L::climate_fog_wanted(req, ManualForce{false, false, false}, false, true),
+        "AG2: the engine's fog demand reads the same gated request");
+  CHECK(L::climate_fog_wanted(law, ManualForce{false, false, false}, false, true),
+        "AG2 setup: the ungated request would have asked the engine");
+}
+
+// -- RULINGS AG3: the electric heater never with the air (except drying and 40 F); a cut is not a start ----------
+struct RelayRig {
+  L::RelayState r = after_boot_wait();
+  RelayOutputs phys{false, false, false, false, false, false};
+  RelayCounters c{};
+  int heat1_edges = 0;        // physical heat1 switches, either way
+  int heat1_off_resets = 0;   // the relay layer's heat1 switch time moved while heat1 stayed physically off
+  int overlap = 0;            // passes with heat1 and the air on outside drying and 40 F
+  int pass = 0, air_off_pass = -1, heat1_on_pass = -1;
+  void step(const L::Output& req, Mode mode = IDLE, ManualOverrides ov = ManualOverrides{false, false, false, false}) {
+    const bool was[6] = {phys.heat1, phys.heat2, phys.fan1, phys.fan2, phys.fog, phys.vent};
+    const uint32_t since_before = r.heat1.since_ms;
+    const L::RelayPass p = L::relay_pass(r, req, L::RelayInputs{double(c.fan_run_s[0]), double(c.fan_run_s[1]),
+                                                                false, 1000}, phys, ov, mode);
+    if (p.out.heat1 != phys.heat1) ++heat1_edges;
+    const bool air_was = phys.vent || phys.fan1 || phys.fan2;
+    phys = p.out;
+    L::relay_sync(r, phys);  // the controller's call after the drivers switch
+    const bool is[6] = {phys.heat1, phys.heat2, phys.fan1, phys.fan2, phys.fog, phys.vent};
+    if (!was[0] && !is[0] && r.heat1.since_ms < since_before) ++heat1_off_resets;
+    relay_counters_tick(c, was, is, 1000);
+    const bool air = phys.vent || phys.fan1 || phys.fan2;
+    if (phys.heat1 && air && !req.drying && !req.cold) ++overlap;
+    if (air_was && !air && air_off_pass < 0) air_off_pass = pass;
+    if (!was[0] && is[0]) heat1_on_pass = pass;
+    ++pass;
+  }
+};
+
+static void glue_heater_air_interlock() {
+  L::Output heat{};
+  heat.heat1 = true;
+  L::Output cool{};
+  cool.cooling = cool.vent = true;
+  cool.fans = 1;
+  const int tail = int(VENT_MIN_ON_S) + int(FAN_MIN_ON_S) + int(HEAT_MIN_OFF_S) + 30;
+  // (a) Cooling starts inside heat1's minimum on: heat1 is cut the pass the vent opens and stays off; it comes back
+  // the pass the air is off (its minimum off long passed), with one start each way.
+  {
+    RelayRig g;
+    for (int i = 0; i < 10; ++i) g.step(heat);
+    CHECK(g.phys.heat1 && g.r.heat1.since_ms < HEAT_MIN_ON_S * MS_PER_S, "AG3 (a) setup: heat1 inside its minimum on");
+    g.step(cool);
+    CHECK(g.phys.vent && !g.phys.heat1, "AG3 (a): heat1 cut the pass the vent opens");
+    for (int i = 0; i < int(HEAT_MIN_OFF_S) + 60; ++i) g.step(cool);
+    g.air_off_pass = g.heat1_on_pass = -1;
+    for (int i = 0; i < tail && g.heat1_on_pass < 0; ++i) g.step(heat);
+    CHECK(g.air_off_pass > 0 && g.heat1_on_pass == g.air_off_pass, "AG3 (a): heat1 starts the pass the air is off");
+    CHECK(g.overlap == 0 && g.c.starts[0] == 2 && g.heat1_edges == 3 && g.heat1_off_resets == 0,
+          "AG3 (a): no overlap, two starts, no tick-by-tick toggling, no held start moved the off time");
+  }
+  // (b) The no-indoor table flips heat to vent and back (SENSOR_FAULT, not the entry tick).
+  {
+    const L::Output heat_row = L::output_from_relays(RelayOutputs{true, false, false, false, false, false});
+    const L::Output vent_row = L::output_from_relays(RelayOutputs{false, false, true, false, false, true});
+    RelayRig g;
+    for (int i = 0; i < 10; ++i) g.step(heat_row, SENSOR_FAULT);
+    CHECK(g.phys.heat1, "AG3 (b) setup: the table's heat row runs heat1");
+    g.step(vent_row, SENSOR_FAULT);
+    CHECK(g.phys.vent && !g.phys.heat1, "AG3 (b): the flip to vent cuts heat1 at once");
+    for (int i = 0; i < int(HEAT_MIN_OFF_S) + 60; ++i) g.step(vent_row, SENSOR_FAULT);
+    g.air_off_pass = g.heat1_on_pass = -1;
+    for (int i = 0; i < tail && g.heat1_on_pass < 0; ++i) g.step(heat_row, SENSOR_FAULT);
+    CHECK(g.air_off_pass > 0 && g.heat1_on_pass == g.air_off_pass, "AG3 (b): heat1 waits for the air, then starts");
+    CHECK(g.overlap == 0 && g.c.starts[0] == 2 && g.heat1_edges == 3 && g.heat1_off_resets == 0,
+          "AG3 (b): no overlap across the flips, no toggling, no moved off time");
+  }
+  // (c) heat1 wanted during the air's minimum-on tail after cooling: held, no internal start, then at once.
+  {
+    RelayRig g;
+    for (int i = 0; i < 10; ++i) g.step(cool);
+    CHECK(g.phys.vent && (g.phys.fan1 || g.phys.fan2), "AG3 (c) setup: the air runs");
+    int held = 0;
+    for (int i = 0; i < tail && g.heat1_on_pass < 0; ++i) {
+      g.step(heat);
+      if (!g.phys.heat1) ++held;
+    }
+    CHECK(held > 200, "AG3 (c): heat1 held through the air's minimum-on tail");
+    CHECK(g.heat1_on_pass == g.air_off_pass, "AG3 (c): heat1 starts the pass the air is off");
+    CHECK(g.overlap == 0 && g.c.starts[0] == 1 && g.heat1_edges == 1 && g.heat1_off_resets == 0,
+          "AG3 (c): one start, no toggling, the held start moved no counter and no switch time");
+  }
+  // (d) heat1 wanted after a short manual fan run: the latch ends before the fans' minimum on; the fans finish it with
+  // the vent open and heat1 waits for them.
+  {
+    RelayRig g;
+    for (int i = 0; i < 30; ++i) g.step(heat, IDLE, ManualOverrides{true, false, false, false});
+    CHECK(!g.phys.heat1 && g.phys.fan1 && g.phys.fan2 && g.phys.vent, "AG3 (d) setup: FANS runs, heat1 held");
+    g.air_off_pass = -1;
+    int held = 0;
+    for (int i = 0; i < tail && g.heat1_on_pass < 0; ++i) {
+      g.step(heat);
+      if (!g.phys.heat1) ++held;
+    }
+    CHECK(held > 200, "AG3 (d): heat1 held while the fans finish their minimum on");
+    CHECK(g.heat1_on_pass == g.air_off_pass, "AG3 (d): heat1 starts the pass the air is off");
+    CHECK(g.overlap == 0 && g.c.starts[0] == 1 && g.heat1_edges == 1 && g.heat1_off_resets == 0,
+          "AG3 (d): one start, no toggling, no moved switch time");
+  }
+  // The exceptions: the law's drying keeps heat1 with the vent and its fan; at 40 F heat1 runs (the air is stopped).
+  {
+    L::Output drying{};
+    drying.drying = drying.vent = drying.heat1 = true;
+    drying.fans = 1;
+    RelayRig g;
+    for (int i = 0; i < 20; ++i) g.step(drying);
+    CHECK(g.phys.heat1 && g.phys.vent && g.c.starts[0] == 1 && g.heat1_edges == 1,
+          "AG3: drying keeps the electric heater beside the open vent");
+  }
+}
+
 int main() {
   port_equals_reference_law();
   port_equals_simulator_relay_layer();
@@ -1423,6 +1630,9 @@ int main() {
   protection_clears_overrides();
   glue_fog_demand_and_sync();
   glue_override_rails();
+  law_case_sensor_holds_humidity_rules();
+  law_fog_wet_rails();
+  glue_heater_air_interlock();
   law_decision_telemetry();
   band_check();
   invariants();

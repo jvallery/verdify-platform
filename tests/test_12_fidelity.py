@@ -1065,9 +1065,16 @@ def test_controller_time_failure_is_final_fog_rail():
     # The engine's climate fog demand keeps today's clock term (C2), after the override layer (T4).
     assert (
         "climate_law::climate_fog_wanted(\n"
-        "              law, manual_force, fog_forced_off(mode, fog_rails_but_drips), wall_clock_valid);"
+        "              law_request, manual_force, fog_forced_off(mode, fog_rails_but_drips), wall_clock_valid);"
     ) in final_gate
+    # RULINGS AG2: the law's own fog keeps the 8 F dew-point margin (outside SENSOR_FAULT), dropped from the request
+    # before relay_pass(); the engine's demand above reads the same gated request. Native test: law_fog_wet_rails.
+    dew_gate = "if (!climate_law::law_fog_dew_margin_ok(mode, Tin, indoor.dew_point_f)) law_request.fog = false;"
+    assert final_gate.index(dew_gate) < final_gate.index("const climate_law::RelayPass pass_out")
+    assert "law, manual_force, fog_forced_off(" not in controls
     glue = Path("firmware/lib/climate_law_glue.h").read_text()
+    margin = _inline_fn(glue, "inline bool law_fog_dew_margin_ok(")
+    assert "return mode == SENSOR_FAULT || (temp_f - dew_point_f >= WET_DEW_MARGIN_F);" in margin
     fog_wanted = _inline_fn(glue, "inline bool climate_fog_wanted(")
     assert "return (law.fog || force.fog) && !rails_but_drips_force_off && wall_clock_valid;" in fog_wanted
     assert "&& wall_clock_valid;" in controls[controls.index("const bool climate_mist_wanted =") :]
@@ -3284,7 +3291,10 @@ def test_manual_fog_cannot_bypass_final_fog_safety_rails():
     # its time_window test was already inert (fog_phase_permitted() returns true).
     assert (
         "const char* manual_fog_safety_block =\n"
-        "              (law_in.humidity_valid && Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "
+        "              // AG1: the press keeps the case dew point (indoor.humidity_valid, G2), not the law's\n"
+        "              // wall-only humidity validity.\n"
+        "              (law_temp_valid && indoor.humidity_valid &&\n"
+        "               Tin - indoor.dew_point_f < climate_law::WET_DEW_MARGIN_F) ? "
         '"dew_margin"\n'
         '              : (law_temp_valid && Tin < law_band.low) ? "temp_low"\n'
         '              : "";'
@@ -3506,7 +3516,16 @@ def test_sensor_fault_is_final_relay_lock_above_manual_overrides():
     # The furnace never with the air (G1), also over a press (T7 item 5).
     assert "st.heat2 = detail::relay_set(r.heat2, e.heat2 && !air_on, false, false, heat_on, heat_off);" in step
     relay_pass = _relay_pass()
-    assert "if (p.out.heat2 && (p.out.vent || p.out.fan1 || p.out.fan2)) p.out.heat2 = false;" in relay_pass
+    assert "if (p.out.heat2 && air) p.out.heat2 = false;" in relay_pass
+    # RULINGS AG3: the electric heater does not start into, and is cut at once by, an open vent or a running fan,
+    # except the law's own drying and the 40 F protection; a held start is undone (no switch time, counter or
+    # physical edge). Native test: glue_heater_air_interlock.
+    assert "const bool air = p.out.vent || p.out.fan1 || p.out.fan2;" in relay_pass
+    heat1_cut = "if (p.out.heat1 && air && !request.drying && !request.cold) p.out.heat1 = false;"
+    assert relay_pass.index("p.force = apply_manual_overrides(p.out, ov, mode);") < relay_pass.index(heat1_cut)
+    for relay in ("heat1", "heat2"):
+        undo = f"detail::undo_held_start(r.{relay}, {relay}_before, physical.{relay}, p.out.{relay}, in.dt_ms);"
+        assert relay_pass.index(heat1_cut) < relay_pass.index(undo)
     # RULINGS AE10: a manual fan run (FANS or VENT-BYPASS) stops the electric heater as well as the furnace, after
     # the override layer (a no-op at 40 F, where T1 has cleared the latch and the protection heats). The law's own
     # requests keep the rule in step(): heat1 only when not cooling, the vent only to cool or dry. Native test:
@@ -3524,6 +3543,20 @@ def test_sensor_fault_is_final_relay_lock_above_manual_overrides():
         assert f"set_relay(R[{n}], ov_out.{relay}, true, true);" in relay_apply
     for retired in ("arbitrate_relay_conflicts(", "force_heat_off", "force_heat2_off", "set_relay(R[0], willHeat1"):
         assert retired not in controls, retired
+
+
+def test_law_humidity_rules_hold_on_the_case_sensor():
+    """RULINGS AG1 (plan 4.2): the law's humidity rules (fog, misters, drying) run on the wall averages only; on the
+    case sensor (a wall-probe fault) they hold, 100 F included, while the HUMID press keeps the case dew point. Native
+    test: law_case_sensor_holds_humidity_rules (through select_indoor_reading())."""
+    controls = Path("firmware/greenhouse/controls.yaml").read_text()
+    glue = Path("firmware/lib/climate_law_glue.h").read_text()
+    assert "law_in.humidity_valid = climate_law::law_humidity_valid(law_temp_valid, indoor);" in controls
+    valid = _inline_fn(glue, "inline bool law_humidity_valid(")
+    assert "return law_temp_valid && indoor.humidity_valid && !indoor_reading_degraded(indoor);" in valid
+    assert "law_in.humidity_valid = law_temp_valid && indoor.humidity_valid;" not in controls
+    # The press and the centre bursts keep indoor.humidity_valid; nothing else reads the law's validity.
+    assert controls.count("law_in.humidity_valid") == 1
 
 
 def test_heap_guard_is_all_or_nothing_for_dispatcher_snapshot():
