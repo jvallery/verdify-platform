@@ -1204,19 +1204,19 @@ def sealed_sql_314():
 REPLAYED_GAPS_COUNTER_CHECK_MIGRATION = (
     315,
     "315-replayed-gaps-counter-check-and-health.sql",
-    "c5ab113f7d41fe893ba46d0cd798e937e30b40fa042357f0a433515b634fe754",
+    "fd8c29416817e87c702557b7431e0bc7c581cc2109953afd7ea7134b442fe453",
 )
 # Replayed gaps stop counting as missing, the relay counter check and three health columns (#1633, host release 4;
 # RULINGS AF7, AF9, AF10): v_data_trust_ledger and v_irrigation_day_coverage read v_data_gaps_unreplayed, the dashboard
 # and ingestor duties read v_relay_counter_reconciliation_daily, and three nullable diagnostics columns are appended to the ingestor's
 # write facade with INSERT for the ingestor duty, so the ingestor seal moves and the api and MCP seals are measured
-# again (record: tests/fixtures/315-replayed-gaps-counter-check-and-health-native-qualification.json). Until the probe
-# measures them, the literals are 314's (fail closed).
+# again (record: tests/fixtures/315-replayed-gaps-counter-check-and-health-native-qualification.json). Measured by the
+# native probe of 2026-11-16: all three seals move.
 SUCCESSOR_315 = {
     **SUCCESSOR_314,
-    "api": "e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373",
-    "ingestor": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
-    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc",
+    "api": "7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc",
+    "ingestor": "3ead905daede269bd598b38c86c0477d33e1b51c425a2efc7d5c16c042a745f2",
+    "mcp": "ae8180a5fc5dc400fc0f9c49fc6f069c89af033a9b9425ef52a14bf85b202256",
 }
 
 

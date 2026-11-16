@@ -487,12 +487,15 @@ SUCCESSOR_314_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c12
 # Exact315 (#1633, host release 4; RULINGS AF7, AF9, AF10): v_data_trust_ledger and v_irrigation_day_coverage read
 # 314's replay-aware gaps, the relay counter reconciliation view for the dashboard and ingestor duties, and three nullable
 # diagnostics health columns on the ingestor's write facade. The ingestor duty's grants move its seal; the api and MCP
-# seals are measured again. Until the native probe measures them, the literals are 314's (fail closed). It follows
-# 314.
+# seals are measured again. Measured by the native probe of 2026-11-16: all three move (the MCP duty reads
+# v_irrigation_day_coverage). It follows 314.
 SUCCESSOR_315 = "315-replayed-gaps-counter-check-and-health.sql"
-SUCCESSOR_315_SHA256 = "c5ab113f7d41fe893ba46d0cd798e937e30b40fa042357f0a433515b634fe754"
-SUCCESSOR_315_DIGESTS = SUCCESSOR_314_DIGESTS
-SUCCESSOR_315_MCP_DIGEST = SUCCESSOR_314_MCP_DIGEST
+SUCCESSOR_315_SHA256 = "fd8c29416817e87c702557b7431e0bc7c581cc2109953afd7ea7134b442fe453"
+SUCCESSOR_315_DIGESTS = {
+    "verdify_api_runtime_login": "7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc",
+    "verdify_ingestor_runtime_login": "3ead905daede269bd598b38c86c0477d33e1b51c425a2efc7d5c16c042a745f2",
+}
+SUCCESSOR_315_MCP_DIGEST = "ae8180a5fc5dc400fc0f9c49fc6f069c89af033a9b9425ef52a14bf85b202256"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
