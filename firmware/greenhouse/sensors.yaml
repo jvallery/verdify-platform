@@ -1362,8 +1362,9 @@ sensor:
     entity_category: diagnostic
     update_interval: 30s
     lambda: |-
-      if (!id(cfg_first_pull_ok)) return NAN;
-      return id(dry_cost_limit);
+      // T6 C-m10: an owner value restored at boot, published from the first update
+      // (no host pull needed), as the law uses it (clamped, unreadable -> default).
+      return float(climate_law::dry_cost_limit(id(dry_cost_limit)));
 
   - platform: template
     id: cfg_cold_vent_guard_delta_f

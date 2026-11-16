@@ -1152,6 +1152,13 @@ interval:
             mister_in.dt_ms = dt_ms;
             const climate_law::MisterCommand mister_cmd = climate_law::mister_step(mister_law, mister_in);
             if (mister_cmd.close_all) {
+              // T6 C-m3: the pulse's VPD effectiveness, as phase 2 published it at a pulse's end.
+              if (id(mister_pulse_zone) > 0 && !isnan(id(mister_vpd_at_start)) && !isnan(avg_vpd)) {
+                const float delta = avg_vpd - id(mister_vpd_at_start);
+                id(mister_vpd_delta).publish_state(delta);
+                ESP_LOGI("mister", "Pulse done: zone=%d delta=%.3f kPa (%.2f -> %.2f)", id(mister_pulse_zone), delta,
+                         id(mister_vpd_at_start), avg_vpd);
+              }
               close_climate_misters();
               id(mister_pulse_zone) = 0;
             }
@@ -1319,10 +1326,15 @@ interval:
             static bool law_record_sent = false;
             climate_law::Output keyed = law;
             keyed.dry_cost = NAN;  // the cost alone does not trigger a publish
-            char key[256];
+            static char key[256];
             climate_law::format_state_record(key, sizeof(key), law_state, keyed, law_in.dry_cost_limit,
                                              law_band_repaired, law_band);
-            if (!law_record_sent || strcmp(key, law_record_key) != 0 || now_ms - law_record_ms >= 60000UL) {
+            // T6 F8/C-m1: nothing during the boot grace (the law has no temperature yet).
+            // T6 C-m7: on a change at most every 5 s, and the 60 s heartbeat; never every second.
+            const bool record_changed = strcmp(key, law_record_key) != 0;
+            if (!boot_wait
+                && (!law_record_sent || (record_changed && now_ms - law_record_ms >= 5000UL)
+                    || now_ms - law_record_ms >= 60000UL)) {
               climate_law::format_state_record(law_record, sizeof(law_record), law_state, law,
                                                law_in.dry_cost_limit, law_band_repaired, law_band);
               id(gh_climate_law_state).publish_state(law_record);
