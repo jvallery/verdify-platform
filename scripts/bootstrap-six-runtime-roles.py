@@ -1171,18 +1171,18 @@ def sealed_sql_313():
 CONTROLLER_HEALTH_GAP_LEDGER_MIGRATION = (
     314,
     "314-controller-health-and-gap-ledger.sql",
-    "f116d5a51cddbf76c2dbeb5eded41b0964e186c433217cf8bd1dcf38e11c0849",
+    "ecbdac5fface9a9eb3c8456b8cebc99319d653112db6561c0f3b782f00a76a18",
 )
 # The controller health columns and the gap-replay ledger (#1633, host release 3; RULINGS AE1, AE3, AE8): nine
 # nullable diagnostics columns appended to the ingestor's write facade with INSERT for the ingestor duty, and
 # gap_replay_quarters with SELECT and a column INSERT for it, so the ingestor seal moves and the api and MCP seals are
-# measured again. PENDING native qualification
-# (tests/fixtures/314-controller-health-and-gap-ledger-native-qualification.json): the literals are 313's until
-# measured.
+# measured again. Measured by the native probe of 2026-11-16 (record:
+# tests/fixtures/314-controller-health-and-gap-ledger-native-qualification.json): the api and ingestor seals move,
+# the MCP seal is 313's.
 SUCCESSOR_314 = {
     **SUCCESSOR_313,
-    "api": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
-    "ingestor": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
+    "api": "4a75f42c556c5ad177d01fdf7f38ca3cb25b51ef0a9870812709648e3fe6bee8",
+    "ingestor": "d60b193039724542139baea3aca4a9c4f9209763177240aa9cb8078ce1040600",
     "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc",
 }
 

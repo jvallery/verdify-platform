@@ -211,16 +211,16 @@ UPDATE public.sensor_registry SET active = false
  WHERE sensor_id IN ('state.lead_fan', 'equipment.sntp_status') AND active;
 
 -- Successor seals: the probe of the rolled-back native qualification measures them, and each receipt is re-sealed.
--- PENDING: the literals below are 313's until the probe measures them, so an unqualified file stops here.
+-- Measured by the native probe of 2026-11-16: the api and ingestor seals move, the MCP seal is 313's.
 DO $successor$
 BEGIN
-    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM '4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820'
-        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM 'ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f'
+    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM '4a75f42c556c5ad177d01fdf7f38ca3cb25b51ef0a9870812709648e3fe6bee8'
+        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM 'd60b193039724542139baea3aca4a9c4f9209763177240aa9cb8078ce1040600'
         OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM '5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc'
     THEN RAISE EXCEPTION '314 refuses an unqualified successor'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('4a75f42c556c5ad177d01fdf7f38ca3cb25b51ef0a9870812709648e3fe6bee8','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '314 missing api receipt'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('d60b193039724542139baea3aca4a9c4f9209763177240aa9cb8078ce1040600','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '314 missing ingestor receipt'; END IF;
     UPDATE public.mcp_runtime_boundary_receipt SET boundary_sha256=decode('5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc','hex') WHERE singleton;
     IF NOT FOUND THEN RAISE EXCEPTION '314 missing mcp receipt'; END IF;

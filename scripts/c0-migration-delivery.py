@@ -475,13 +475,13 @@ SUCCESSOR_313_DIGESTS = {
 SUCCESSOR_313_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
 # Exact314 (#1633, host release 3): nine nullable diagnostics columns for the controller's own health on the
 # ingestor's write facade, and gap_replay_quarters, the ledger of replayed gap-log quarters. The ingestor duty's
-# grants move its seal; the api and MCP seals are measured again. PENDING native qualification: the literals are 313's
-# until the probe measures them. It follows 313.
+# grants move its seal; the api and MCP seals are measured again. Measured by the native probe of 2026-11-16: the
+# api and ingestor seals move, the MCP seal is 313's. It follows 313.
 SUCCESSOR_314 = "314-controller-health-and-gap-ledger.sql"
-SUCCESSOR_314_SHA256 = "f116d5a51cddbf76c2dbeb5eded41b0964e186c433217cf8bd1dcf38e11c0849"
+SUCCESSOR_314_SHA256 = "ecbdac5fface9a9eb3c8456b8cebc99319d653112db6561c0f3b782f00a76a18"
 SUCCESSOR_314_DIGESTS = {
-    "verdify_api_runtime_login": "4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820",
-    "verdify_ingestor_runtime_login": "ca2eea00fdfbbef0ddc34a8d29471d5ffc98c299e17b0772f9ee583fdb5e831f",
+    "verdify_api_runtime_login": "4a75f42c556c5ad177d01fdf7f38ca3cb25b51ef0a9870812709648e3fe6bee8",
+    "verdify_ingestor_runtime_login": "d60b193039724542139baea3aca4a9c4f9209763177240aa9cb8078ce1040600",
 }
 SUCCESSOR_314_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
