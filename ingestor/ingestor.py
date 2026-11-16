@@ -85,9 +85,8 @@ from source_spool import SourceSpool
 from tasks import (
     BAND_DRIVEN_PARAMS,
     alert_monitor,
+    daily_review,
     daily_summary_live,
-    forecast_action_engine,
-    forecast_deviation_check,
     forecast_sync,
     grow_light_daily,
     ha_sensor_sync,
@@ -95,7 +94,6 @@ from tasks import (
     ingestor_heartbeat,
     irrigation_sync,
     matview_refresh,
-    planning_heartbeat,
     readback_abs_tolerance,
     record_engine_capability,
     setpoint_confirmation_monitor,
@@ -4145,11 +4143,8 @@ async def task_loop(pool: asyncpg.Pool) -> None:
         # the 1800s interval (the 2026-07-11 120s timeouts were the retired
         # graded per-reading loop, #1623).
         "daily_summary_live": 600,
-        # gather-plan-context.sh alone can exceed 120s; killing the heartbeat
-        # mid-gather burned a required-trigger retry attempt without a single
-        # gateway POST (observed 2026-07-11 20:15Z). Budget above worst-case
-        # gather + Hermes POST.
-        "planning_heartbeat": 300,
+        # The review's context reads and up to two 30 s Hermes POSTs, plus the run-status polls.
+        "daily_review": 180,
         # VD-42: above push_policy_transaction's 120 s budget, so a timeout never cancels a program push between
         # irr_program_begin and irr_program_commit.
         "irrigation_sync": 150,
@@ -4177,18 +4172,16 @@ async def task_loop(pool: asyncpg.Pool) -> None:
         # site_content so Iris retrieval doesn't silently drift stale (#43).
         # Read/embed side only — no device path. 86400s = daily cadence.
         ("site_content_refresh", 86400, site_content_refresh),
-        # reactive_planner removed in Sprint 5 P6 — replaced by forecast deviation monitor
         ("setpoint_dispatch", 300, setpoint_dispatcher),
         ("setpoint_confirmation", 300, setpoint_confirmation_monitor),
         # VD-42 (irrigation §6.1): commands every 5 s, which bounds their latency. NOTIFY irrigation_changed sets a
         # flag the pass reads itself: a forced launch could come only once per 30 s (_FORCED_TASK_RETRY_MIN_S).
         ("irrigation_sync", 5, irrigation_sync),
         ("forecast_sync", 3600, forecast_sync),
-        ("forecast_actions", 900, forecast_action_engine),
-        ("deviation_check", 900, forecast_deviation_check),
         ("daily_summary_live", 1800, daily_summary_live),
         ("grow_light_daily", 86400, grow_light_daily),
-        ("planning_heartbeat", 60, planning_heartbeat),
+        # Climate refactor 5.1: the daily review (and the manual one MCP review_run requests) and the MCP probe.
+        ("daily_review", 60, daily_review),
     ]
     last_run: dict[str, float] = {name: 0.0 for name, _, _ in TASKS}
     running: dict[str, asyncio.Task[None]] = {}

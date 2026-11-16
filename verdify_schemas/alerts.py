@@ -127,6 +127,7 @@ AlertType = Literal[
     "irrigation_line_faulted",
     "mcp_unreachable",
     "forecast_action_alert",
+    "daily_review_missed",
 ]
 
 ALERT_TYPES: tuple[str, ...] = (
@@ -208,6 +209,7 @@ ALERT_TYPES: tuple[str, ...] = (
     "irrigation_line_faulted",
     "mcp_unreachable",
     "forecast_action_alert",
+    "daily_review_missed",
 )
 
 
@@ -1347,6 +1349,22 @@ class McpUnreachableAlert(_AlertBase):
     details: McpUnreachableDetails
 
 
+class DailyReviewMissedDetails(_DetailsBase):
+    """The daily review of ``review_date`` was not written by 10:00 America/Denver (climate refactor 5.1): the one
+    planner alert left. ``status``, ``attempts`` and ``failure`` are the daily ``planner_review`` row's, or ``None``,
+    0 and ``None`` when no row exists."""
+
+    review_date: date
+    status: Literal["requested", "delivered", "written", "failed"] | None = None
+    attempts: int = Field(0, ge=0)
+    failure: str | None = None
+
+
+class DailyReviewMissedAlert(_AlertBase):
+    alert_type: Literal["daily_review_missed"]
+    details: DailyReviewMissedDetails
+
+
 class ForecastActionAlertDetails(_DetailsBase):
     """A fired forecast_action_rules row whose action is ``alert`` (#1352): replaces its former chat-only post."""
 
@@ -1367,6 +1385,7 @@ class ForecastActionAlert(_AlertBase):
 
 AlertEnvelopeUnion = Annotated[
     AlertValidationFailedAlert
+    | DailyReviewMissedAlert
     | BandAnchorDbReadFailedAlert
     | BandDeviceDbDivergenceAlert
     | BandFnNullAlert

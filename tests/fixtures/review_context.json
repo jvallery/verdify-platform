@@ -1,0 +1,19 @@
+{
+  "record": [
+    {"date": "2026-11-16", "complete": true, "both_in_band_pct": 91.2, "temp_in_band_pct": 95.0, "vpd_in_band_pct": 93.1,
+     "night_dried_out": true, "starts_climate": 44, "run_h_climate": 23.1, "heat1_starts": 9, "heat1_run_h": 15.2,
+     "heat2_starts": 2, "heat2_run_h": 0.4, "fan1_run_h": 1.1, "fan2_run_h": 0.2, "vent_run_h": 2.5, "fog_starts": 6,
+     "fog_run_h": 0.6, "starts_misters": 3, "run_h_misters": 0.1, "kwh_metered": 27.4, "therms_est": 0.31,
+     "water_gal": 21, "drying_h": 1.5, "drying_runs": 3, "furnace_starts_after_drying": 0, "lost_off_h": 0.0},
+    {"date": "2026-11-15", "complete": true, "both_in_band_pct": 64.0, "temp_in_band_pct": 80.0, "vpd_in_band_pct": 71.0,
+     "night_dried_out": false, "starts_climate": 131, "run_h_climate": 26.0, "heat1_starts": 30, "heat1_run_h": 16.0,
+     "heat2_starts": 8, "heat2_run_h": 1.2, "fan1_run_h": 1.3, "fan2_run_h": 0.4, "vent_run_h": 3.1, "fog_starts": 40,
+     "fog_run_h": 1.1, "starts_misters": 12, "run_h_misters": 0.3, "kwh_metered": 28.9, "therms_est": 0.92,
+     "water_gal": 48, "drying_h": 0.0, "drying_runs": 0, "furnace_starts_after_drying": 0, "lost_off_h": 0.3}
+  ],
+  "band": {"band_temp_low_sr": 64.0, "band_temp_high_sr": 72.0, "band_vpd_low_sr": 0.45, "band_vpd_high_sr": 0.9},
+  "drying": {"none": 90.0, "not_drier": 35.0, "cost": 12.0},
+  "drying_meter": "{\"v\":1,\"s\":5400,\"g\":1200,\"wh\":800,\"rw\":2820}",
+  "alerts": [["sensor_offline", "warning", 2, 0], ["vpd_stress", "info", 1, 1]],
+  "forecast": [["2026-11-17", 28.0, 55.0, 18], ["2026-11-18", 31.0, 60.0, 22], ["2026-11-19", 30.0, 58.0, 25]]
+}

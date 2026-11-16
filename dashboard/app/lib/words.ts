@@ -382,6 +382,7 @@ const ALERT_TYPE = {
   leak_detected: "Water flowing with every Verdify valve closed",
   law_constants_mismatch: "The controller runs other climate-law numbers than this release",
   payload_rejected: "The controller sends a status record this release cannot read",
+  daily_review_missed: "Iris did not write yesterday's review",
   lighting_cfg_threshold_drift: "Grow light thresholds drifted on the controller",
   climate_action_proof_stale: "Climate control evidence is out of date",
   clock_unconfirmed: "The controller's clock is wrong or not synced",

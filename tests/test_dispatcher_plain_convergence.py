@@ -32,8 +32,8 @@ from tasks import (  # noqa: E402
 )
 
 from verdify_schemas.tunable_registry import (  # noqa: E402
-    PLANNER_PUSHABLE_REG,
     REGISTRY,
+    desired_write_rule,
     planner_effective_bounds,
     registry_value_error,
 )
@@ -43,7 +43,11 @@ SAFETY_READBACKS = {"safety_max": 100.0, "safety_min": 40.0}
 
 
 def _plain_planner_params() -> list[tuple[str, float, float]]:
-    """Plan-only numeric knobs with a cfg route: (parameter, device value, plan value)."""
+    """Writable numeric settings no dispatcher block resolves, with a cfg route: (parameter, device value, value).
+
+    Climate refactor 4.2: no plan reaches the controller, so the values that differ arrive as manual
+    desired_state rows (``Database.plan`` keeps its name: the values a person set).
+    """
     excluded = (
         _common.BAND_DRIVEN_PARAMS
         | _common.LIGHTING_CIRCUIT_DEFAULT_PARAMS
@@ -60,8 +64,12 @@ def _plain_planner_params() -> list[tuple[str, float, float]]:
         | frozenset(band_anchors.ANCHOR_SYNC_PARAMS)
     )
     selected = []
-    for param in sorted(PLANNER_PUSHABLE_REG):
+    for param in sorted(REGISTRY):
         spec = REGISTRY[param]
+        if not desired_write_rule(param)[0] or spec.control_class in dispatcher.DESIRED_OTHER_PATH_CLASSES:
+            continue
+        if param == dispatcher.DRY_COST_LIMIT_PARAM:  # sent only once the firmware reads it back
+            continue
         if param in excluded or param.startswith(("plan_", "sw_")) or spec.kind != "numeric":
             continue
         if param not in _common.PARAM_TO_ENTITY:
@@ -102,17 +110,9 @@ class Database:
         self.alert_types: list[str] = []
         self.heap_alert_open = False
 
-    def plan_rows(self) -> list[dict]:
+    def desired_rows(self) -> list[dict]:
         return [
-            {
-                "parameter": param,
-                "value": value,
-                "ts": T0 - timedelta(hours=1),
-                "plan_id": "iris-vd62",
-                "reason": "test",
-                "trigger_id": None,
-                "planner_instance": None,
-            }
+            {"param": param, "value": value, "manual": True, "created_at": T0 - timedelta(hours=1)}
             for param, value in sorted(self.plan.items())
         ]
 
@@ -128,11 +128,11 @@ class Database:
 
     async def fetch(self, sql, *_args):
         if "FROM v_active_plan" in sql:
-            return self.plan_rows()
+            raise AssertionError("the dispatcher reads no plan (climate refactor 4.2)")
         if "fn_lighting_minutes_policy" in sql or "FROM system_state" in sql or "FROM equipment_state" in sql:
             return []
         if "FROM v_desired_state_current" in sql:
-            return []  # tests/test_dispatcher_desired_state.py covers desired state (VD-33)
+            return self.desired_rows()
         raise AssertionError(sql)
 
     async def fetchrow(self, sql, *_args):
@@ -593,9 +593,10 @@ def test_retired_parameters_have_no_row_and_no_route():
 
 
 @pytest.mark.asyncio
-async def test_a_plan_row_naming_a_retired_parameter_is_skipped_without_an_error(plain, caplog):
-    """After the platform sync a stale plan row naming one is never pushed and never fails unroutable."""
+async def test_a_desired_row_naming_a_retired_parameter_is_skipped_without_an_error(plain, caplog, monkeypatch):
+    """A stale desired_state row naming one is never pushed and never fails unroutable."""
     caplog.set_level(logging.INFO)
+    monkeypatch.setattr(dispatcher, "_DESIRED_SKIPS_LOGGED", set())
     (param, _device, plan_value), *_ = PARAMS
     _load(plain, PARAMS[:1])
     plain.db.plan.update(dict.fromkeys(VD47_RETIRED_PARAMS | L01_BRIDGE_RETIRED_PARAMS, 1.0))
@@ -605,9 +606,9 @@ async def test_a_plan_row_naming_a_retired_parameter_is_skipped_without_an_error
     assert [(row["parameter"], row["value"]) for row in plain.db.changes] == [(param, plan_value)]
     assert not [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
     skipped = {
-        record.getMessage().rsplit(": ", 1)[1]
+        record.getMessage().split("param=", 1)[1].split(" ", 1)[0]
         for record in caplog.records
-        if record.getMessage().startswith("Dispatcher skipping retired unroutable param from plan row: ")
+        if record.getMessage().startswith("desired_state skipped param=")
     }
     assert skipped == VD47_RETIRED_PARAMS | L01_BRIDGE_RETIRED_PARAMS
     assert not any("reason=unroutable" in record.getMessage() for record in caplog.records)

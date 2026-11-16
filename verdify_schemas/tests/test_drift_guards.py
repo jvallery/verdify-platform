@@ -30,7 +30,6 @@ from verdify_schemas.crop_profiles import CropTargetProfile
 from verdify_schemas.crops import Crop, CropEvent, CropTaskRow, Observation
 from verdify_schemas.daily import DailySummaryRow
 from verdify_schemas.forecast import ForecastHour
-from verdify_schemas.forecast_ops import ForecastActionLog, ForecastActionRule
 from verdify_schemas.greenhouse_brief import GreenhouseBriefRow
 from verdify_schemas.irrigation import IrrigationCommandRow, IrrigationLedgerRow, IrrigationPushRow
 from verdify_schemas.lessons import PlannerLesson
@@ -215,8 +214,6 @@ DB_BACKED = [
     (MaintenanceLog, "maintenance_log"),
     (ConsumablesLog, "consumables_log"),
     (CropTargetProfile, "crop_target_profiles"),
-    (ForecastActionLog, "forecast_action_log"),
-    (ForecastActionRule, "forecast_action_rules"),
     (UtilityCost, "utility_cost"),
     (ImageObservation, "image_observations"),
     (SensorRegistry, "sensor_registry"),

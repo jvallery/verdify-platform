@@ -419,9 +419,8 @@ data:
       # Hermes reads reasoning effort from agent.reasoning_effort. Placing it
       # under model is silently ignored and falls back to medium.
       reasoning_effort: xhigh
-      # Iris's longest cycles (SUNRISE/SUNSET) read ~6-10 MCP tools in sequence
-      # plus write a plan. 30 turns is generous; over that, suspect a tool-call
-      # loop and surface as a Hermes alert instead of letting the cycle run away.
+      # A daily review reads a few MCP tools and writes one review. 30 turns is
+      # generous; over that, suspect a tool-call loop.
       max_turns: 30
       # Hermes-side capabilities Verdify doesn't want in the production planner.
       # Memory: Verdify already has TimescaleDB-backed plan_journal + planner_lessons.
@@ -450,7 +449,6 @@ data:
             - equipment_state
             - forecast
             - get_setpoints
-            - plan_status
             - history
             - alerts
             - irrigation_status
@@ -469,14 +467,10 @@ data:
             - position_current
             - crop_history
             - crop_lifecycle
-            # Writes — all carry trigger_id + planner_instance audit
-            - set_plan
-            - set_tunable
-            - set_setting          # desired_state; never satisfies a trigger
-            - acknowledge_trigger
-            - plan_evaluate
+            # Writes (climate refactor 5.1: the daily reviewer writes no climate value)
+            - review_write         # the one review per wake-up, in planner_review
             - lessons_manage
-            # Water writes — change watering only; never count as a plan for a trigger
+            # Water writes — change watering only; the review passes its run id as trigger_id
             - irrigation_schedule_set
             - irrigation_line_set
             - irrigation_run
@@ -488,9 +482,9 @@ data:
           prompts: false
 
     skills:
-      # Hermes own skill system is dormant for Verdify — Iris's identity + tactics
-      # come from gather-plan-context.sh + _STANDING_DIRECTIVES + _PLANNER_CORE
-      # in ingestor/iris_planner.py. Guarding new skills protects against drift.
+      # Hermes own skill system is dormant for Verdify — Iris's identity comes from
+      # SOUL.md and each wake-up's record (ingestor/review_prompt.py). Guarding new
+      # skills protects against drift.
       guard_agent_created: true
 
     # API server: loopback only. The ingestor calls /v1/runs from the same host.

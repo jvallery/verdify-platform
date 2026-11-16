@@ -212,7 +212,7 @@ class Database:
 
     async def fetch(self, sql, *args):
         if "FROM v_active_plan" in sql:
-            return [dict(row) for _param, row in sorted(self.plan.items())]
+            raise AssertionError("the dispatcher reads no plan (climate refactor 4.2)")
         if "FROM v_desired_state_current" in sql:
             assert "WHERE greenhouse_id = $1" in sql and args == ("vallery",)
             if self.desired_error is not None:
@@ -579,7 +579,8 @@ async def test_a_manual_row_beats_a_newer_plan(env):
 
 
 @pytest.mark.asyncio
-async def test_a_non_manual_row_loses_to_a_newer_plan_and_beats_an_older_one(env):
+async def test_a_non_manual_row_is_in_force_whatever_a_plan_row_says(env):
+    """Climate refactor 4.2: no plan competes, so a newer plan row no longer wins over a non-manual row."""
     newer_plan, older_plan = PLANNED[0], PLANNED[1]
     connect(env, [newer_plan, older_plan])
     env.db.set_plan(newer_plan.param, newer_plan.plan, created_at=T0 - timedelta(minutes=10))
@@ -588,13 +589,12 @@ async def test_a_non_manual_row_loses_to_a_newer_plan_and_beats_an_older_one(env
     env.db.write(older_plan.param, older_plan.desired, manual=False, at=T0 - timedelta(minutes=10))
     await env.run_pass()
     sent = {item.param: (item.value, item.desired) for item in env.controller.sent}
-    assert sent == {newer_plan.param: (newer_plan.plan, False), older_plan.param: (older_plan.desired, True)}
-    assert env.db.rows_for(newer_plan.param)[0]["source"] == "plan"
-    assert env.db.rows_for(older_plan.param)[0]["source"] == "manual"
+    assert sent == {newer_plan.param: (newer_plan.desired, True), older_plan.param: (older_plan.desired, True)}
+    assert {row["source"] for row in env.db.changes} == {"manual"}
 
 
 @pytest.mark.asyncio
-async def test_a_release_returns_the_plan_value(env):
+async def test_a_release_never_returns_a_plan_value(env):
     knob = PLANNED[0]
     connect(env, [knob])
     env.db.set_plan(knob.param, knob.plan, created_at=T0 - timedelta(hours=2))
@@ -606,8 +606,8 @@ async def test_a_release_returns_the_plan_value(env):
     env.db.release(knob.param, at=T0)
     env.clock.advance(30)
     await env.run_pass()
-    assert [(sent.value, sent.desired) for sent in env.controller.sent[1:]] == [(knob.plan, False)]
-    assert env.db.rows_for(knob.param)[-1]["source"] == "plan"
+    assert knob.plan not in [sent.value for sent in env.controller.sent[1:]]
+    assert {row["source"] for row in env.db.rows_for(knob.param)[1:]} <= {"band"}
 
 
 @pytest.mark.asyncio
@@ -793,26 +793,26 @@ def _between(knob: Knob, a: float, b: float) -> float:
 
 
 @pytest.mark.asyncio
-async def test_a_desired_value_passes_the_physics_and_moisture_fences_with_audits(env, monkeypatch):
+async def test_a_desired_value_passes_the_physics_fence_with_its_audit_and_no_moisture_guardrail(env, monkeypatch):
     physics, moisture = KNOBS[0], KNOBS[1]
     connect(env, [physics, moisture])
     limit = _between(physics, physics.device, physics.desired)
     upper = physics.desired > physics.device
     monkeypatch.setitem(dispatcher._PHYSICS_INVARIANTS, physics.param, (None, limit) if upper else (limit, None))
-    cap = _between(moisture, moisture.device, moisture.desired)
-    assert moisture.desired > cap  # the moisture guardrail is a ceiling
-    monkeypatch.setattr(dispatcher, "_vpd_high_moisture_guardrails", lambda *_args: {moisture.param: cap})
+    assert not hasattr(dispatcher, "_vpd_high_moisture_guardrails")  # retired, climate refactor 4.2
     env.db.write(physics.param, physics.desired, at=T0 - timedelta(minutes=1))
     env.db.write(moisture.param, moisture.desired, at=T0 - timedelta(minutes=1))
 
     await env.run_pass()
-    assert {item.param: item.value for item in env.controller.sent} == {physics.param: limit, moisture.param: cap}
+    assert {item.param: item.value for item in env.controller.sent} == {
+        physics.param: limit,
+        moisture.param: moisture.desired,
+    }
     clamps = {row["parameter"]: row for row in env.db.clamp_rows}
     side = "above" if upper else "below"
     expected_physics = (f"invariant_violation:{side}_{limit}", limit, None, "guardrailed")
     assert tuple(clamps[physics.param][key] for key in ("reason", "applied", "plan_id", "status")) == expected_physics
-    expected_moisture = ("vpd_high_moisture_guardrail", cap, None, "guardrailed")
-    assert tuple(clamps[moisture.param][key] for key in ("reason", "applied", "plan_id", "status")) == expected_moisture
+    assert moisture.param not in clamps
     assert {row["source"] for row in env.db.changes} == {"manual"}
 
 
@@ -842,14 +842,14 @@ async def test_a_winning_desired_value_carries_no_plan_trigger_and_drops_the_pla
 
 
 @pytest.mark.asyncio
-async def test_an_unreadable_desired_state_view_leaves_plans_band_and_defaults_alone(env, caplog):
+async def test_an_unreadable_desired_state_view_leaves_band_and_defaults_alone_and_sends_no_plan(env, caplog):
     caplog.set_level(logging.INFO)
     knob = PLANNED[0]
     connect(env, [knob])
     env.db.set_plan(knob.param, knob.plan, created_at=T0 - timedelta(minutes=10))
     env.db.desired_error = asyncpg.UndefinedTableError('relation "v_desired_state_current" does not exist')
     await env.run_pass()
-    assert [(sent.param, sent.value) for sent in env.controller.sent] == [(knob.param, knob.plan)]
+    assert env.controller.sent == []
     assert any(
         record.levelno == logging.WARNING and "v_desired_state_current unreadable" in record.getMessage()
         for record in caplog.records
@@ -974,82 +974,20 @@ async def test_a_held_desired_value_is_not_fenced_until_the_hold_ends(env, monke
     assert [(row["parameter"], row["applied"]) for row in env.db.clamp_rows] == [(knob.param, limit)]
 
 
-# ── VD-65: a forecast-rule plan row, off the NOTIFY fast path ─────────────────
+# ── Climate refactor 4.2: no plan row reaches the controller ──────────────────
 
 
 @pytest.mark.asyncio
-async def test_a_manual_row_beats_a_newer_forecast_rule_row(env):
-    """heat_misting never pushes a MANUAL mister_pulse_on_s to another value (US-SET-04)."""
-    param = "mister_pulse_on_s"
-    connect(env, KNOBS[:1], **{param: 45.0})
-    env.db.write(param, 45.0, manual=True, at=T0 - timedelta(hours=1))
-    env.db.set_plan(param, 90.0, created_at=T0 - timedelta(minutes=1), plan_id=FORECAST_PLAN)
+@pytest.mark.parametrize("plan_id", ["iris-vd33", FORECAST_PLAN])
+async def test_no_plan_row_reaches_the_controller(env, plan_id):
+    """Neither Iris's rows nor the retired forecast rules' rows are read, sent or audited."""
+    param = "sw_economiser_enabled"
+    connect(env, KNOBS[:1], **{param: 1.0})
+    env.db.set_plan(param, 0.0, created_at=T0 - timedelta(minutes=1), plan_id=plan_id)
+    env.db.set_plan("mister_pulse_on_s", 90.0, created_at=T0 - timedelta(minutes=1), plan_id=plan_id)
     await env.run_pass()
     await settle(env)
-    assert env.controller.sent == [] and env.db.rows_for(param) == [] and env.db.clamp_rows == []
-
-
-@pytest.mark.asyncio
-async def test_a_non_manual_row_loses_to_a_newer_forecast_rule_row(env):
-    param = "mister_pulse_on_s"
-    connect(env, KNOBS[:1], **{param: 45.0})
-    env.db.write(param, 60.0, manual=False, at=T0 - timedelta(hours=1))
-    env.db.set_plan(param, 90.0, created_at=T0 - timedelta(minutes=1), plan_id=FORECAST_PLAN)
-    await env.run_pass()
-    assert [(sent.param, sent.value, sent.desired) for sent in env.controller.sent] == [(param, 90.0, False)]
-    assert env.db.rows_for(param)[0]["source"] == "plan"
-
-
-@pytest.mark.asyncio
-async def test_a_forecast_rule_row_reaches_a_writable_switch_that_is_not_planner_pushable(env):
-    """A forecast rule's sw_economiser_enabled goes out with source plan, under no misleading audit row."""
-    param = "sw_economiser_enabled"
-    assert param not in PLANNER_PUSHABLE_REG and desired_write_rule(param)[0]
-    connect(env, KNOBS[:1], **{param: 1.0})
-    env.db.set_plan(param, 0.0, created_at=T0 - timedelta(minutes=1), plan_id=FORECAST_PLAN)
-    await env.run_pass()
-    assert [(sent.param, sent.value, sent.desired) for sent in env.controller.sent] == [(param, 0.0, False)]
-    assert env.db.rows_for(param)[0]["source"] == "plan"
-    assert env.db.clamp_rows == []
-
-
-@pytest.mark.asyncio
-async def test_a_forecast_rule_value_passes_the_fences_with_its_clamp_recorded(env, monkeypatch):
-    """Before VD-65 the fences never saw a non-pushable plan value: the later loop sent it raw."""
-    knob = next(knob for knob in KNOBS if knob.param not in PLANNER_PUSHABLE_REG)
-    connect(env, [knob])
-    limit = _between(knob, knob.device, knob.plan)
-    upper = knob.plan > knob.device
-    monkeypatch.setitem(dispatcher._PHYSICS_INVARIANTS, knob.param, (None, limit) if upper else (limit, None))
-    env.db.set_plan(knob.param, knob.plan, created_at=T0 - timedelta(minutes=1), plan_id=FORECAST_PLAN)
-    await env.run_pass()
-    assert [(sent.param, sent.value) for sent in env.controller.sent] == [(knob.param, limit)]
-    assert env.db.rows_for(knob.param)[0]["source"] == "plan"
-    side = "above" if upper else "below"
-    assert [(row["parameter"], row["reason"], row["applied"], row["plan_id"]) for row in env.db.clamp_rows] == [
-        (knob.param, f"invariant_violation:{side}_{limit}", limit, FORECAST_PLAN)
-    ]
-
-
-@pytest.mark.asyncio
-async def test_a_forecast_rule_row_for_a_read_only_setting_never_reaches_the_controller(env):
-    """bias_cool is the retired target of the disabled test_trigger rule: the fences cannot see it, so nothing goes out."""
-    param = "bias_cool"
-    assert not desired_write_rule(param)[0] and param not in _common.RETIRED_UNROUTABLE_PARAMS
-    connect(env, KNOBS[:1])
-    env.db.set_plan(param, 1.0, created_at=T0 - timedelta(minutes=1), plan_id=FORECAST_PLAN)
-    await env.run_pass()
-    assert env.controller.sent == [] and env.db.rows_for(param) == []
-    assert [(row["parameter"], row["reason"]) for row in env.db.clamp_rows] == [(param, "planner_param_not_pushable")]
-
-
-@pytest.mark.asyncio
-async def test_an_iris_row_for_a_writable_switch_keeps_the_planner_filter(env):
-    param = "sw_economiser_enabled"
-    connect(env, KNOBS[:1], **{param: 1.0})
-    env.db.set_plan(param, 0.0, created_at=T0 - timedelta(minutes=1))
-    await env.run_pass()
-    assert [(row["parameter"], row["reason"]) for row in env.db.clamp_rows] == [(param, "planner_param_not_pushable")]
+    assert env.controller.sent == [] and env.db.changes == [] and env.db.clamp_rows == []
 
 
 # ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -1084,11 +1022,9 @@ def test_only_values_a_dispatcher_block_resolves_count_as_dispatcher_defaults():
 
 def test_dispatch_source_labels_desired_values_manual_and_releases_band():
     knob = PLANNED[0]
-    planner = {knob.param: knob.plan}
-    assert dispatcher._dispatch_source(knob.param, planner, set()) == "plan"
-    assert dispatcher._dispatch_source(knob.param, planner, set(), {knob.param}) == "manual"
-    assert dispatcher._dispatch_source(SITE_PRESSURE, {}, set(), released_params={SITE_PRESSURE}) == "band"
-    assert dispatcher._dispatch_source("temp_low", {}, set()) == "band"  # unchanged defaults
+    assert dispatcher._dispatch_source(knob.param, set(), {knob.param}) == "manual"
+    assert dispatcher._dispatch_source(SITE_PRESSURE, set(), released_params={SITE_PRESSURE}) == "band"
+    assert dispatcher._dispatch_source("temp_low", set()) == "band"  # unchanged defaults
 
 
 def test_desired_differs_uses_the_grid_not_the_dead_band():
@@ -1102,4 +1038,4 @@ def test_desired_differs_uses_the_grid_not_the_dead_band():
 
 def test_every_dispatcher_default_set_is_one_dispatch_source_labels_band():
     for param in sorted(dispatcher.DISPATCHER_DEFAULT_PARAMS):
-        assert dispatcher._dispatch_source(param, {}, set()) == "band", param
+        assert dispatcher._dispatch_source(param, set()) == "band", param

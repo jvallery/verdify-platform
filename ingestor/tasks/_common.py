@@ -274,46 +274,6 @@ def soil_dryout_probes(rows) -> list[tuple[str, str, str, str, float]]:
 SOIL_DRYOUT_MIN_SAMPLES = 60
 
 
-VPD_HIGH_GUARD_MARGIN_KPA = 0.02
-
-
-VPD_MOISTURE_DEW_MARGIN_F = 7.0
-
-
-VPD_MOISTURE_RECOVERY_WINDOW_MIN = 15
-
-
-VPD_MOISTURE_RECOVERY_FRACTION = 0.50
-
-
-VPD_DRY_AIR_OUTDOOR_RH_PCT = 25.0
-
-
-VPD_VENT_FOG_ESCALATION_KPA = 0.20
-
-
-VPD_HOT_DRY_FOG_ESCALATION_KPA = 0.15
-
-
-VPD_VENT_MIN_FOG_OFF_S = 60.0
-
-
-VPD_HOT_DRY_MIN_FOG_OFF_S = 45.0
-
-
-VPD_HIGH_MOISTURE_GUARDRAIL_PARAMS = frozenset(
-    {
-        "mister_engage_kpa",
-        "mister_all_kpa",
-        "mister_engage_delay_s",
-        "mister_all_delay_s",
-        "mister_pulse_gap_s",
-        "min_fog_off_s",
-        "fog_escalation_kpa",
-    }
-)
-
-
 def _expected_firmware_version() -> str | None:
     """Return the firmware version pin alert_monitor should enforce."""
     if EXPECTED_FIRMWARE_VERSION.strip():
@@ -767,188 +727,19 @@ HEAT2_BTU, THERM_BTU = 75000, 100000
 
 
 # ═════════════════════════════════════════════════════════════════
-# 11. FORECAST ACTION ENGINE (every 900s = 15 min)
+# 11-12. The forecast-action engine and the forecast-deviation trigger are retired (climate refactor 4.2).
+# alert_monitor keeps the stale-forecast alert below.
 # ═════════════════════════════════════════════════════════════════
-import subprocess as _sp
-
-# ═════════════════════════════════════════════════════════════════
-# 12. FORECAST DEVIATION CHECK (every 900s = 15 min)
-# ═════════════════════════════════════════════════════════════════
-_FORECAST_DEVIATION_DEFAULTS: dict[str, dict[str, float | int | str | bool]] = {
-    "temp_f": {"threshold": 8.0, "unit": "F", "cooldown_min": 60, "enabled": True},
-    "rh_pct": {"threshold": 25.0, "unit": "%", "cooldown_min": 60, "enabled": True},
-    "vpd_kpa": {"threshold": 0.35, "unit": "kPa", "cooldown_min": 60, "enabled": True},
-    "solar_w_m2": {"threshold": 300.0, "unit": "W/m2", "cooldown_min": 120, "enabled": True},
-    "wind_speed_mph": {"threshold": 12.0, "unit": "mph", "cooldown_min": 60, "enabled": True},
-    "wind_gust_mph": {"threshold": 18.0, "unit": "mph", "cooldown_min": 60, "enabled": True},
-    "precip_in": {"threshold": 0.03, "unit": "in/h", "cooldown_min": 60, "enabled": True},
-    "cloud_cover_pct": {"threshold": 40.0, "unit": "%", "cooldown_min": 60, "enabled": True},
-}
-
-
 _FORECAST_STALE_SENSOR_ID = "system.weather_forecast"
 
 
 _FORECAST_STALE_THRESHOLD_S = 2 * 60 * 60
 
 
-_FORECAST_DEVIATION_SIGMA_MULTIPLIER = 1.5
-
-
-_FORECAST_DEVIATION_SIGMA_HISTORY_DAYS = 7
-
-
 # ═════════════════════════════════════════════════════════════════
-# 15. PLANNING HEARTBEAT (every 60s) — Iris event-driven planner
+# 15. THE DAILY REVIEW (every 60s, tasks.review): climate refactor 5.1. The trigger matrix, the solar milestones and
+# the plan routing are retired; the review keeps two triggers, DAILY_REVIEW and MANUAL.
 # ═════════════════════════════════════════════════════════════════
-
-from astral import LocationInfo
-from astral.sun import sun as _sun
-from iris_planner import CONTEXT_GATHER_FAILED_SENTINEL, gather_context, prepare_delivery_result, send_to_iris
-from planner_routing import (
-    SeverityContext,
-    classify_severity,
-    pick_instance,
-    sla_for,
-)
-
-_LOCATION = LocationInfo("Longmont", "USA", "America/Denver", 40.1672, -105.1019)
-
-
-_DENVER = ZoneInfo("America/Denver")
-
-
-# Milestone state — persisted to disk across restarts
-_milestones_cache: dict[str, datetime] = {}
-
-
-_milestones_fired: dict[str, bool] = {}
-
-
-_milestones_date: str = ""
-
-
-_last_forecast_fetch: str = ""
-
-
-_MILESTONE_STATE_FILE = STATE_DIR / "milestones-fired.json"
-
-
-@dataclass(frozen=True)
-class PlannerTriggerSpec:
-    """Canonical contract for planner trigger emission and resolution."""
-
-    event_type: str
-    event_label: str
-    due_source: str
-    expected_action: str
-    required_plan: bool
-    normal_window_seconds: int | None
-    catchup_seconds: int | None
-    hermes_route: str = "hermes-iris"
-    severity_event_type: str | None = None
-    materialize_expected: bool = False
-
-
-PLANNER_TRIGGER_MATRIX: dict[str, PlannerTriggerSpec] = {
-    "MIDNIGHT": PlannerTriggerSpec(
-        event_type="MIDNIGHT",
-        event_label="End-of-day review and reset",
-        due_source="local.midnight_review",
-        expected_action="set_plan",
-        required_plan=True,
-        normal_window_seconds=300,
-        catchup_seconds=7200,
-        materialize_expected=True,
-    ),
-    "SUNRISE": PlannerTriggerSpec(
-        event_type="SUNRISE",
-        event_label="Morning planning cycle",
-        due_source="solar.sunrise",
-        expected_action="set_plan",
-        required_plan=True,
-        normal_window_seconds=300,
-        catchup_seconds=7200,
-        materialize_expected=True,
-    ),
-    # Weekly deep performance review (L4 #346 AC6). Fires once per week on the
-    # review weekday (heartbeat._WEEKLY_REVIEW_WEEKDAY, default Monday) at a
-    # quiet local hour, asking the planner for a strategy-level review of the
-    # prior week's outcome scores / lessons / trends rather than a tactical
-    # daily plan. It is materialized only on the review weekday (gated in
-    # _compute_milestones, since the milestone cache is rebuilt per-day);
-    # required_plan=False keeps it off the hard daily-cycle SLA paging while
-    # still expecting a set_plan and recording it in the trigger ledger.
-    "WEEKLY": PlannerTriggerSpec(
-        event_type="WEEKLY",
-        event_label="Weekly deep performance review and strategy adjustment",
-        due_source="local.weekly_review",
-        expected_action="set_plan",
-        required_plan=False,
-        normal_window_seconds=300,
-        catchup_seconds=14400,
-        materialize_expected=True,
-    ),
-    "SOLAR_MAX": PlannerTriggerSpec(
-        event_type="SOLAR_MAX",
-        event_label="Solar peak planning checkpoint",
-        due_source="solar.noon",
-        expected_action="any",
-        required_plan=False,
-        normal_window_seconds=300,
-        catchup_seconds=7200,
-        materialize_expected=True,
-    ),
-    "TRANSITION:peak_stress": PlannerTriggerSpec(
-        event_type="TRANSITION",
-        event_label="Peak Stress",
-        due_source="solar.noon+2h",
-        expected_action="any",
-        required_plan=False,
-        normal_window_seconds=300,
-        catchup_seconds=7200,
-        materialize_expected=True,
-    ),
-    "TRANSITION:decline": PlannerTriggerSpec(
-        event_type="TRANSITION",
-        event_label="Decline",
-        due_source="solar.sunset-1h",
-        expected_action="any",
-        required_plan=False,
-        normal_window_seconds=300,
-        catchup_seconds=7200,
-        materialize_expected=True,
-    ),
-    "SUNSET": PlannerTriggerSpec(
-        event_type="SUNSET",
-        event_label="Evening planning cycle",
-        due_source="solar.sunset",
-        expected_action="set_plan",
-        required_plan=True,
-        normal_window_seconds=300,
-        catchup_seconds=7200,
-        materialize_expected=True,
-    ),
-    "FORECAST_DEVIATION": PlannerTriggerSpec(
-        event_type="FORECAST_DEVIATION",
-        event_label="Observed-vs-forecast breach",
-        due_source="forecast_deviation_check",
-        expected_action="set_plan",
-        required_plan=True,
-        normal_window_seconds=None,
-        catchup_seconds=300,
-        severity_event_type="DEVIATION",
-    ),
-    "MANUAL": PlannerTriggerSpec(
-        event_type="MANUAL",
-        event_label="Ad-hoc planning cycle via MCP plan_run",
-        due_source="mcp.plan_run",
-        expected_action="any",
-        required_plan=False,
-        normal_window_seconds=None,
-        catchup_seconds=None,
-    ),
-}
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -1053,16 +844,6 @@ __all__ = [
     "SOIL_DRYOUT_TARGETS_SQL",
     "soil_dryout_probes",
     "SOIL_DRYOUT_MIN_SAMPLES",
-    "VPD_HIGH_GUARD_MARGIN_KPA",
-    "VPD_MOISTURE_DEW_MARGIN_F",
-    "VPD_MOISTURE_RECOVERY_WINDOW_MIN",
-    "VPD_MOISTURE_RECOVERY_FRACTION",
-    "VPD_DRY_AIR_OUTDOOR_RH_PCT",
-    "VPD_VENT_FOG_ESCALATION_KPA",
-    "VPD_HOT_DRY_FOG_ESCALATION_KPA",
-    "VPD_VENT_MIN_FOG_OFF_S",
-    "VPD_HOT_DRY_MIN_FOG_OFF_S",
-    "VPD_HIGH_MOISTURE_GUARDRAIL_PARAMS",
     "_expected_firmware_version",
     "_ha_state",
     "_fetch_ha_entity",
@@ -1121,29 +902,7 @@ __all__ = [
     "DEFAULT_ELECTRIC_WATTAGES",
     "HEAT2_BTU",
     "THERM_BTU",
-    "_sp",
-    "_FORECAST_DEVIATION_DEFAULTS",
     "_FORECAST_STALE_SENSOR_ID",
     "_FORECAST_STALE_THRESHOLD_S",
-    "_FORECAST_DEVIATION_SIGMA_MULTIPLIER",
-    "_FORECAST_DEVIATION_SIGMA_HISTORY_DAYS",
-    "LocationInfo",
-    "_sun",
-    "CONTEXT_GATHER_FAILED_SENTINEL",
-    "gather_context",
-    "prepare_delivery_result",
-    "send_to_iris",
-    "SeverityContext",
-    "classify_severity",
-    "pick_instance",
-    "sla_for",
-    "_LOCATION",
-    "_milestones_cache",
-    "_milestones_fired",
-    "_milestones_date",
-    "_last_forecast_fetch",
-    "_MILESTONE_STATE_FILE",
-    "PlannerTriggerSpec",
-    "PLANNER_TRIGGER_MATRIX",
     "_READBACKABLE_PARAMS",
 ]

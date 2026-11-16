@@ -17,8 +17,6 @@ from verdify_schemas import (
     CropTargetProfile,
     DataGap,
     ESP32LogRow,
-    ForecastActionLog,
-    ForecastActionRule,
     Harvest,
     HarvestCreate,
     ImageObservation,
@@ -276,31 +274,6 @@ class TestCropTargetProfile:
                 vpd_stress_low=0.2,
                 vpd_stress_high=2.5,
             )
-
-
-class TestForecastActionRuleAndLog:
-    def test_rule(self):
-        r = ForecastActionRule(
-            name="pre_heat_cold_morning",
-            condition="temp < 40F overnight",
-            metric="temp_f",
-            operator="<",
-            threshold=40,
-            param="bias_heat",
-            adjustment_value=1,
-            action_type="setpoint",
-        )
-        assert r.priority == 50
-
-    def test_log(self):
-        log = ForecastActionLog(
-            rule_name="pre_heat_cold_morning",
-            action_taken="bias_heat +1",
-            param="bias_heat",
-            old_value=0,
-            new_value=1,
-        )
-        assert log.param == "bias_heat"
 
 
 class TestUtilityCost:

@@ -22,6 +22,7 @@ from verdify_schemas.alerts import (
     ClockUnconfirmedAlert,
     ComponentExperimentIntegrityAlert,
     DailyRecordMissingAlert,
+    DailyReviewMissedAlert,
     DeployOverrideAlert,
     DryingMeterFaultAlert,
     DryingRefusedAllDayAlert,
@@ -483,6 +484,10 @@ CASES = {
     "payload_rejected": (
         PayloadRejectedAlert,
         {"entity": "climate_law_state", "since": "2026-11-16T05:00:00+00:00", "rejections": 11},
+    ),
+    "daily_review_missed": (
+        DailyReviewMissedAlert,
+        {"review_date": "2026-11-16", "status": "failed", "attempts": 6, "failure": "attempts_exhausted"},
     ),
     "law_constants_mismatch": (
         LawConstantsMismatchAlert,

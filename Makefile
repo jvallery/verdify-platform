@@ -493,7 +493,7 @@ greenhouse-quiet-status: ## Show recording quiet-mode status
 planner-publish: ## Publish today's plan to lab.verdify.ai
 	bash scripts/publish-daily-plan.sh
 
-planner-dry: ## Dry-run planner prompts — render every event type and assert G2/G4/G7 invariants
+planner-dry: ## Render the daily review's prompt from a fixture (no DB, no API call) and check its invariants
 	@$(PYTHON) scripts/planner-dry.py
 
 # ── Hermes ─────────────────────────────────────────────────────────
