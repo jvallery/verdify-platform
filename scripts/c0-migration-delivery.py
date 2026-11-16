@@ -447,6 +447,14 @@ SUCCESSOR_310 = "310-daily-record.sql"
 SUCCESSOR_310_SHA256 = "be63023b1b9d34e748252c3db991ab80f4ab262ff2f1707a8c486840eae9bb10"
 SUCCESSOR_310_DIGESTS = SUCCESSOR_309_DIGESTS
 SUCCESSOR_310_MCP_DIGEST = SUCCESSOR_309_MCP_DIGEST
+# Exact311 (#1667, plan section 9): one compliance definition. It stores August from the first day the band audit
+# rows still cover, adds the capacity-limited minutes to daily_band_compliance and appends them and the night
+# dry-out minutes to v_daily_scorecard. The table keeps no ACL entry, the scorecard keeps its dashboard grant and
+# the new function's PUBLIC EXECUTE is revoked, so no runtime seal moves. It follows 310.
+SUCCESSOR_311 = "311-one-compliance-definition.sql"
+SUCCESSOR_311_SHA256 = "cad70bd741961988034f3b9799bed047e431f229716cf2589eb9c2bc6bb08760"
+SUCCESSOR_311_DIGESTS = SUCCESSOR_310_DIGESTS
+SUCCESSOR_311_MCP_DIGEST = SUCCESSOR_310_MCP_DIGEST
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
@@ -516,6 +524,7 @@ def reviewed_post_254(later, files=None):
         SUCCESSOR_308,
         SUCCESSOR_309,
         SUCCESSOR_310,
+        SUCCESSOR_311,
     )
     require(successors == list(reviewed[: len(successors)]), "unreviewed post-254 receipt successor")
     if successors:
@@ -574,6 +583,7 @@ def reviewed_post_254(later, files=None):
                 SUCCESSOR_308_SHA256,
                 SUCCESSOR_309_SHA256,
                 SUCCESSOR_310_SHA256,
+                SUCCESSOR_311_SHA256,
             ),
             strict=True,
         ):
@@ -871,6 +881,7 @@ COMMIT;"""
         (SUCCESSOR_308, SUCCESSOR_308_DIGESTS),
         (SUCCESSOR_309, SUCCESSOR_309_DIGESTS),
         (SUCCESSOR_310, SUCCESSOR_310_DIGESTS),
+        (SUCCESSOR_311, SUCCESSOR_311_DIGESTS),
     ):
         if name in later:
             expected["api"] = expected["api_receipt"] = digests["verdify_api_runtime_login"]
@@ -992,6 +1003,8 @@ COMMIT;"""
             expected_mcp = SUCCESSOR_309_MCP_DIGEST
         if SUCCESSOR_310 in later:
             expected_mcp = SUCCESSOR_310_MCP_DIGEST
+        if SUCCESSOR_311 in later:
+            expected_mcp = SUCCESSOR_311_MCP_DIGEST
         if hotfix_predecessor_263:
             require(
                 mcp_state.get("mcp")

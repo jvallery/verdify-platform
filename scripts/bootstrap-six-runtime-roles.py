@@ -1083,6 +1083,31 @@ def sealed_sql_310():
     )
 
 
+COMPLIANCE_DEFINITION_MIGRATION = (
+    311,
+    "311-one-compliance-definition.sql",
+    "cad70bd741961988034f3b9799bed047e431f229716cf2589eb9c2bc6bb08760",
+)
+# One compliance definition (#1667): August stored on the served band, capacity-limited minutes and the scorecard's
+# two appended columns, on a table with no ACL entry and a view that keeps its dashboard grant, so every seal keeps
+# 310's value (tests/fixtures/311-one-compliance-definition-native-qualification.json).
+SUCCESSOR_311 = dict(SUCCESSOR_310)
+
+
+def sealed_sql_311():
+    # Keep every 310 predicate and bind the exact 311 runner stamp with the unchanged seals.
+    predecessor = sealed_sql_310()
+    current = seal_profile_sql(310, SUCCESSOR_310)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(311, SUCCESSOR_311), 1)
+        + " AND "
+        + ledger_row_sql(*COMPLIANCE_DEFINITION_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1147,6 +1172,8 @@ def sealed_sql():
         + sealed_sql_309()
         + " OR "
         + sealed_sql_310()
+        + " OR "
+        + sealed_sql_311()
         + ")"
     )
 
