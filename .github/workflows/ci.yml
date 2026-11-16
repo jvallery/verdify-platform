@@ -5,10 +5,22 @@
 # the only copy of these checks (the native in-cluster pipeline is retired).
 # Required and advisory contexts, and STD-CI-03 exceptions: docs/ci/ci-contexts.md.
 # Every caller job is named "ci", so each check context is "ci / <check>" (for
-# example "ci / validate"). No check job is skipped by an `if:`: a check that its
-# path impact does not select passes as "not impacted", so every context always
-# reports (only the PR build-check's helper jobs are conditional; "ci /
-# buildcheck" always reports).
+# example "ci / validate"). No required context is skipped by an `if:` (a skipped
+# reusable-workflow caller reports no "ci / <check>" context and would block the
+# merge): a check that path impact does not select passes as "not impacted", so
+# every context always reports. Only shard matrices and the PR build-check's
+# helper jobs are conditional; their aggregate contexts always report.
+#
+# Light paths (CI audit 2026-11-16): the path-impact job classifies the change
+# (ci/gha/verdify_path_impact.py) and its outputs select the checks:
+#   light=pins  every change is a digest (or comment) line of a pin file: only the
+#               validate "pins" part (both renders, zero Secret, pin shape) runs
+#   light=docs  every change is Markdown no test, script or CI file names: no
+#               validate part, campaign-qualification or platform check runs
+#   full=true   anything else: every check, as before
+#   firmware-check  the ESPHome compile and firmware-logic run only when the
+#               firmware tree or the CI plumbing changes
+# secret-scan, lint, dashboard (its own impact flag) and buildcheck run as before.
 #
 # Scale sets (estate-ci runners.yaml, repository jvallery/verdify-platform):
 #   verdify-platform-ci            job image python:3.13-bookworm (native validate image)
@@ -58,26 +70,39 @@ jobs:
       run: ci/gha/gitleaks.sh
       timeout-minutes: 10
 
+  # A direct job (not the reusable checks workflow) so the other jobs can read its
+  # outputs; its name keeps the required context "ci / path-impact". It runs the
+  # precheck itself, so it starts beside trusted-precheck instead of after it.
   path-impact:
-    name: ci
-    needs: [trusted-precheck]
-    uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
-    with:
-      name: path-impact
-      run: ci/gha/path-impact.sh
-      timeout-minutes: 10
+    name: ci / path-impact
+    runs-on: verdify-platform-ci
+    timeout-minutes: 10
+    outputs:
+      light: ${{ steps.impact.outputs.light }}
+      full: ${{ steps.impact.outputs.full }}
+      validate-parts: ${{ steps.impact.outputs.validate-parts }}
+      firmware-check: ${{ steps.impact.outputs.firmware-check }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - id: impact
+        shell: bash
+        run: ci/gha/trusted-precheck.sh && ci/gha/path-impact.sh
 
   # Native `validate`: scripts/ci-local.sh with the diff gates, run as four
   # parallel parts (VALIDATE_PART, #1459); each part stays serial inside so the
   # wall-clock assertions keep their own CPU. The required context
   # "ci / validate" is the aggregate, which fails unless every part succeeded.
+  # Path impact lists the parts: the four, only "pins" (pin-only), or none (docs-only).
   validate-part:
     name: ci
     needs: [trusted-precheck, path-impact]
+    if: ${{ needs.path-impact.outputs.validate-parts != '[]' }}
     strategy:
       fail-fast: false
       matrix:
-        part: [containment-firmware, pure-logic-1, pure-logic-2, rest]
+        part: ${{ fromJSON(needs.path-impact.outputs.validate-parts) }}
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: validate-${{ matrix.part }}
@@ -93,7 +118,7 @@ jobs:
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: validate
-      run: bash ci/gha/require-success.sh validate-parts=${{ needs.validate-part.result }}
+      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} validate-parts=${{ needs.path-impact.outputs.light == 'docs' && 'not-impacted' || needs.validate-part.result }}
       runner: verdify-platform-ci-tools
       timeout-minutes: 5
 
@@ -104,7 +129,7 @@ jobs:
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: platform-static
-      run: ci/gha/registry-step.sh platform-static
+      run: VERDIFY_IMPACTED=${{ needs.path-impact.outputs.full }} ci/gha/registry-step.sh platform-static
       runner: verdify-platform-ci-tools
       in-job-image: true
       timeout-minutes: 20
@@ -115,17 +140,21 @@ jobs:
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: platform-tests
-      run: ci/gha/registry-step.sh platform-tests
+      run: VERDIFY_IMPACTED=${{ needs.path-impact.outputs.full }} ci/gha/registry-step.sh platform-tests
       runner: verdify-platform-ci-tools
       in-job-image: true
       timeout-minutes: 30
 
-  # campaign-qualification runs the tool's default selection (about 27 files, about
-  # 40 min serially) as four parallel shards (CAMPAIGN_SHARD, #1535, STD-CI-03); the
-  # context "ci / campaign-qualification" is the aggregate, the same pattern as campaign.
+  # campaign-qualification runs the tool's default selection (38 files, among them
+  # every tests/test_dashboard_db_*.py, about 40 min serially) as four parallel
+  # shards (CAMPAIGN_SHARD, #1535, STD-CI-03). Two required contexts aggregate the
+  # same shards: "ci / campaign-qualification" and "ci / campaign" (the old campaign
+  # job ran the dashboard-db subset of this selection a second time; CI audit
+  # 2026-11-16). A light (docs or pins) change runs no shard.
   campaign-qualification-shard:
     name: ci
     needs: [trusted-precheck, path-impact]
+    if: ${{ needs.path-impact.outputs.full == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -145,7 +174,7 @@ jobs:
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: campaign-qualification
-      run: bash ci/gha/require-success.sh campaign-qualification-shards=${{ needs.campaign-qualification-shard.result }}
+      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} campaign-qualification-shards=${{ needs.path-impact.outputs.full == 'false' && 'not-impacted' || needs.campaign-qualification-shard.result }}
       runner: verdify-platform-ci-tools
       timeout-minutes: 5
 
@@ -155,7 +184,7 @@ jobs:
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: firmware-logic
-      run: ci/gha/registry-step.sh firmware-logic
+      run: VERDIFY_IMPACTED=${{ needs.path-impact.outputs.firmware-check }} ci/gha/registry-step.sh firmware-logic
       runner: verdify-platform-ci-tools
       in-job-image: true
       timeout-minutes: 20
@@ -163,10 +192,12 @@ jobs:
   # The two firmware targets compile as two parallel shards on the baked
   # verdify-esphome-ci image (FIRMWARE_TARGET, #1535, STD-CI-03); the greenhouse
   # shard also runs the generated-cpp negative. "ci / firmware-secretless-compile"
-  # is the aggregate.
+  # is the aggregate. Only a change to the firmware tree or the CI plumbing
+  # (path impact firmware-check) compiles.
   firmware-secretless-compile-target:
     name: ci
     needs: [trusted-precheck, path-impact]
+    if: ${{ needs.path-impact.outputs.firmware-check == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -186,12 +217,12 @@ jobs:
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: firmware-secretless-compile
-      run: bash ci/gha/require-success.sh firmware-secretless-compile-targets=${{ needs.firmware-secretless-compile-target.result }}
+      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} firmware-secretless-compile-targets=${{ needs.path-impact.outputs.firmware-check == 'false' && 'not-impacted' || needs.firmware-secretless-compile-target.result }}
       runner: verdify-platform-ci-tools
       timeout-minutes: 5
 
-  # Native `dashboard` and `campaign`: classification in the runner container,
-  # checks in the set's job image (ci/gha/dashboard.sh, ci/gha/campaign.sh).
+  # Native `dashboard`: classification in the runner container, checks in the
+  # set's job image (ci/gha/dashboard.sh).
   dashboard:
     name: ci
     needs: [trusted-precheck, path-impact]
@@ -202,31 +233,17 @@ jobs:
       runner: verdify-platform-ci-dashboard
       timeout-minutes: 50
 
-  # campaign runs its dashboard-db files (one private TimescaleDB each) as four
-  # parallel shards (CAMPAIGN_SHARD, D-55); the required context "ci / campaign"
-  # is the aggregate, which fails unless every shard finished success.
-  campaign-shard:
-    name: ci
-    needs: [trusted-precheck, path-impact]
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
-    with:
-      name: campaign-${{ matrix.shard }}of4
-      run: CAMPAIGN_SHARD=${{ matrix.shard }}/4 ci/gha/campaign.sh
-      runner: verdify-platform-ci-tools
-      timeout-minutes: 50
-
+  # "ci / campaign" (required): the tests/test_dashboard_db_*.py files, each on its
+  # own private TimescaleDB. They are part of the campaign-qualification selection,
+  # so this context aggregates the same shards instead of running them again.
   campaign:
     name: ci
-    needs: [trusted-precheck, path-impact, campaign-shard]
+    needs: [trusted-precheck, path-impact, campaign-qualification-shard]
     if: ${{ !cancelled() }}
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: campaign
-      run: bash ci/gha/require-success.sh campaign-shards=${{ needs.campaign-shard.result }}
+      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} campaign-qualification-shards=${{ needs.path-impact.outputs.full == 'false' && 'not-impacted' || needs.campaign-qualification-shard.result }}
       runner: verdify-platform-ci-tools
       timeout-minutes: 5
 

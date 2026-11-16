@@ -51,23 +51,32 @@ CHECKS = {
         "verdify_schemas/alerts.py",
         "firmware/lib/greenhouse_types.h",
     ),
-    # tests/test_dashboard_db_*.py and the code they exercise on a private TimescaleDB.
-    "dashboard-db": (
-        "tests/test_dashboard_db_*.py",
-        # The campaign check's own scripts (sharding, D-55) re-run the check.
-        "ci/gha/campaign*.sh",
-        "db/**",
-        "verdify_services/**",
-        "verdify_schemas/**",
-        "api/**",
-        "mcp/**",
-        "ingestor/**",
-        "scripts/forecast-action-engine.py",
-        "scripts/c0-migration-delivery.py",
-        "scripts/bootstrap-*-runtime-roles.py",
+    # The ESPHome secretless compile and the registry firmware-logic step: the
+    # firmware tree, the compile program and its job image, and the CI plumbing
+    # that runs them.
+    "firmware-check": (
+        "firmware/**",
+        "ci/esphome-ci.Dockerfile",
+        "ci/gha/**",
+        ".github/workflows/**",
     ),
 }
 PIN_PATH = "deploy/k8s/overlays/prod/kustomization.yaml"
+# Light paths (CI audit 2026-11-16): a PR or push whose every changed path is in
+# one of these classes runs only the checks that prove that class; every other
+# required context passes as "not impacted". Any other path selects the full run.
+# pins: digest lines of the image pin files (and comment lines, which do not render).
+LIGHT_PIN_PATHS = (
+    PIN_PATH,
+    "deploy/k8s/overlays/prod/release-pins.yaml",
+    "deploy/k8s/dashboard/kustomization.yaml",
+)
+# docs: Markdown that no test, script, CI file or generator names. A changed
+# Markdown file whose basename appears in any of these trees is "coupled" (a test
+# or generator reads it) and selects the full run.
+LIGHT_DOC_REFERENCE_ROOTS = ("tests", "verdify_schemas/tests", "scripts", "ci", ".github", "Makefile")
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+FULL_VALIDATE_PARTS = ["containment-firmware", "pure-logic-1", "pure-logic-2", "rest"]
 # One authentic next-main event repairs builds missed before the accepted pin
 # checkpoint. These Git object IDs are trusted owner source, never caller inputs.
 RECOVERY_EVENT_BASE = "daaa05f366017e38206f6b59e7c7bfa79ed9db94"
@@ -207,6 +216,55 @@ def pin_only(root, base, head, paths):
     return old != new and normalize(old) == normalize(new)
 
 
+def _without_digests(text):
+    """Drop comment-only lines and blank every sha256 digest (pin-only comparison)."""
+    return [DIGEST.sub("sha256:<digest>", line) for line in text.splitlines() if not line.lstrip().startswith("#")]
+
+
+def light_pins(root, base, head, paths):
+    """Every path is a pin file whose only change is digest values or comments."""
+    if not paths or any(path not in LIGHT_PIN_PATHS for path in paths):
+        return False
+    for path in paths:
+        try:
+            old, new = blob(root, base, path), blob(root, head, path)
+        except subprocess.CalledProcessError:
+            return False  # added or deleted: not a digest-only change
+        if _without_digests(old) != _without_digests(new):
+            return False
+    return True
+
+
+def _doc_references(root, head):
+    """Text of every file under LIGHT_DOC_REFERENCE_ROOTS at head (read as data)."""
+    listing = git(root, "ls-tree", "-r", "-z", "--name-only", head, "--", *LIGHT_DOC_REFERENCE_ROOTS)
+    texts = []
+    for name in listing.decode().split("\0"):
+        if not name or name.endswith((".gz", ".png", ".jpg", ".bin", ".csv")):
+            continue
+        try:
+            texts.append(blob(root, head, name))
+        except (subprocess.CalledProcessError, UnicodeDecodeError):
+            continue
+    return "\n".join(texts)
+
+
+def light_docs(root, head, paths):
+    """Every path is Markdown that no test, script or CI file names."""
+    if not paths or any(not path.endswith(".md") for path in paths):
+        return False
+    references = _doc_references(root, head)
+    return not any(PurePosixPath(path).name in references for path in paths)
+
+
+def light_class(root, base, head, paths):
+    if light_pins(root, base, head, paths):
+        return "pins"
+    if light_docs(root, head, paths):
+        return "docs"
+    return "none"
+
+
 def classify(root, base, head):
     if not SHA.fullmatch(head):
         raise ValueError("source must be exact lowercase SHA")
@@ -220,6 +278,7 @@ def classify(root, base, head):
         "profiles": list(PROFILES),
         "reasons": {},
         "checks": dict.fromkeys(CHECKS, True),
+        "light": "none",
         "paths_sha256": None,
     }
     if not SHA.fullmatch(base or "") or set(base) == {"0"}:
@@ -232,6 +291,7 @@ def classify(root, base, head):
         )
         result["paths_sha256"] = hashlib.sha256(json.dumps(paths, separators=(",", ":")).encode()).hexdigest()
         checks = checks_for(paths)
+        result["light"] = light_class(root, base, head, paths)
         if pin_only(root, base, head, paths):
             result.update(
                 mode="skip",
@@ -274,6 +334,7 @@ def classify(root, base, head):
     ):
         result["fallback"] = "unavailable base/input or unsupported syntax; build all profiles"
         result["checks"] = dict.fromkeys(CHECKS, True)
+        result["light"] = "none"
     return result
 
 
@@ -471,6 +532,13 @@ def main():
         (args.output / name).write_text("true" if name in receipt["profiles"] else "false")
     for name in CHECKS:
         (args.output / name).write_text("true" if receipt["checks"][name] is True else "false")
+    # Light path outputs (CI audit 2026-11-16): ci.yml skips or narrows its checks
+    # from these; "none" (the fallback) runs everything.
+    light = receipt.get("light", "none")
+    (args.output / "light").write_text(light)
+    parts = {"pins": ["pins"], "docs": []}.get(light, FULL_VALIDATE_PARTS)
+    (args.output / "validate-parts").write_text(json.dumps(parts, separators=(",", ":")))
+    (args.output / "full").write_text("true" if light == "none" else "false")
     print("VERDIFY_PATH_IMPACT=" + json.dumps(receipt, sort_keys=True))
 
 

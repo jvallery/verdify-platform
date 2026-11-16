@@ -9,18 +9,23 @@
 # pipeline is retired (#1397), so this repository's copy is the only one.
 #
 # Prints VERDIFY_PATH_IMPACT=<receipt>. When GITHUB_OUTPUT is set, appends mode,
-# every profile flag and every check flag, so build.yml can select its builds.
+# every profile flag, every check flag and the light-path outputs (light,
+# validate-parts, full), so build.yml selects its builds and ci.yml its checks.
 . "$(dirname "$0")/lib.sh"
 ci_fetch_history
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 ci_classify "$out" "$@"
-for flag in dashboard-check dashboard-db; do
+for flag in dashboard-check firmware-check full; do
   case "$(cat "$out/$flag")" in
     true|false) ;;
     *) echo "path impact wrote no boolean ${flag}" >&2; exit 1 ;;
   esac
 done
+case "$(cat "$out/light")" in
+  none|docs|pins) echo "path impact light class: $(cat "$out/light")" ;;
+  *) echo "path impact wrote no light class" >&2; exit 1 ;;
+esac
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   for f in "$out"/*; do
     name="$(basename "$f")"
