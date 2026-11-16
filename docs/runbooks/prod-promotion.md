@@ -12,8 +12,8 @@ A merge to `main` runs the GitHub Actions `build` workflow
 Kaniko and pushes each path-impacted image to the zot origin as
 `registry.vallery.net/verdifyconsultancy/<image>`, tagged `gha-<sha12>` and
 recorded by digest. Its `pin` job (estate-ci pin-bump, the only pin writer) opens
-one PR. That PR records the api, mcp, ingestor, migrate and
-experiment-v2-orchestrator digests as build candidates in the `images:` block of
+one PR. That PR records the api, mcp, ingestor and migrate
+digests as build candidates in the `images:` block of
 `deploy/k8s/overlays/prod/kustomization.yaml`, which do not render, and moves the
 dashboard-web digest. Do not hand-edit the candidate entries. If the push build
 missed an image, run `build.yml` by `workflow_dispatch` from `main` and set the
@@ -33,14 +33,14 @@ before you promote either one.
 1. Merge the candidate pin PR. This changes Git only.
 2. Copy the candidate digests into `deploy/k8s/overlays/prod/release-pins.yaml`,
    the digests production runs, with `scripts/promote-release-pins.py` (#808).
-   It copies all five by default, because the migrate hook carries the schema
+   It copies all four by default, because the migrate hook carries the schema
    that the others expect. For an immutable source-only receipt, run this from
    clean tracked source:
    `python3 scripts/promote-release-pins.py --receipt /private/path/new-promotion.json`.
    The helper refuses an existing receipt path or a malformed candidate digest
    before it changes any release pin. The receipt records the exact
    promotion-input Git SHA, the candidate file hash, the release-pin hashes
-   before and after, the selected changes and all five rollback pins. Keep the
+   before and after, the selected changes and all four rollback pins. Keep the
    receipt with the release. Its Git SHA identifies the pin inputs, not the
    images' build source. CI, build provenance and the final Argo/runtime
    adoption need their own receipts. The command does no cluster, secret or

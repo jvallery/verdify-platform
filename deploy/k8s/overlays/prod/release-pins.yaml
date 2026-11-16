@@ -1,11 +1,11 @@
 # Release 3 (main e136a4fb2bb3): api, mcp, ingestor and migrate from build
 # verdify-platform-ci-m4vp9; orchestrator from verdify-platform-ci-tnds6 (a7e0b49f0838).
 # Includes migrations 293, 294, 296, 301 and 302 and every merge through #1399.
-# Release pins: the digests production runs for the five images that the
-# verdify-platform-ci pin actuator manages (api, mcp, ingestor, migrate and
-# experiment-v2-orchestrator).
+# Release pins: the digests production runs for the four images that the
+# verdify-platform-ci pin actuator manages (api, mcp, ingestor and migrate;
+# the experiment-v2 orchestrator was retired by #1649).
 #
-# The actuator rewrites those five entries in kustomization.yaml `images:` after
+# The actuator rewrites those four entries in kustomization.yaml `images:` after
 # every build of `main`. Those entries are build candidates: this file is listed
 # under `transformers:`, which kustomize runs after the `images:` field, so the
 # digests below replace the candidate digests in every rendered workload, CronJob
@@ -15,7 +15,7 @@
 # Promote: `python3 scripts/promote-release-pins.py` copies the candidate
 # digests into this file. Commit that digest-only change, merge it, then run the
 # gated `verdify-prod-dark` sync in the same attended session
-# (docs/runbooks/laptop-operator.md §2). Promote all five together unless the
+# (docs/runbooks/laptop-operator.md §2). Promote all four together unless the
 # schema allows otherwise: the migrate hook carries the migrations the api, mcp
 # and ingestor digests expect.
 apiVersion: builtin
@@ -49,11 +49,3 @@ metadata:
 imageTag:
   name: registry.vallery.net/verdifyconsultancy/verdify-migrate
   digest: sha256:411e51635c7e50ff53a88d366d0da88a81c30fd37aa6a5d6cfe18203392ba5dc
----
-apiVersion: builtin
-kind: ImageTagTransformer
-metadata:
-  name: release-pin-verdify-experiment-v2-orchestrator
-imageTag:
-  name: registry.vallery.net/verdifyconsultancy/verdify-experiment-v2-orchestrator
-  digest: sha256:a11ace83b5513162647d130f99589690231a78e63fb732c07f1db0951af92861

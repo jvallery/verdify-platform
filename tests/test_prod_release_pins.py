@@ -1,7 +1,7 @@
 """Production renders its release pins, never the pin actuator's build candidates (#808).
 
-The fleet `verdify-platform-ci` pin actuator rewrites the api, mcp, ingestor,
-migrate and experiment-v2-orchestrator entries of the prod overlay's `images:`
+The fleet `verdify-platform-ci` pin actuator rewrites the api, mcp, ingestor
+and migrate entries of the prod overlay's `images:`
 block after every build of `main`. Those entries are build candidates. The
 digests production runs are in `release-pins.yaml`, a `transformers:` entry that
 kustomize applies after `images:`. These tests keep a build from changing the
@@ -32,7 +32,6 @@ ACTUATOR_IMAGES = {
     "verdify-mcp",
     "verdify-ingestor",
     "verdify-migrate",
-    "verdify-experiment-v2-orchestrator",
 }
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -170,7 +169,7 @@ def test_malformed_candidate_leaves_every_release_pin_unchanged(tmp_path: Path) 
     candidate = prod / "kustomization.yaml"
     value = yaml.safe_load(candidate.read_text())
     for row in value["images"]:
-        if row["name"] == CANONICAL + "verdify-experiment-v2-orchestrator":
+        if row["name"] == CANONICAL + "verdify-migrate":
             row["digest"] = "sha256:not-a-digest"
     candidate.write_text(yaml.safe_dump(value))
     result = subprocess.run(

@@ -136,12 +136,6 @@ components:
   # #119 hermes-iris — the sole planner gateway, ported from the compose `hermes`
   # profile. prod-anchored (run-state PVC + OpenAI key). Image digest preserved.
   - ../../components/hermes-iris
-  # Confirmed-component experiment v2 orchestration workers. The component's
-  # base ConfigMap is fail-closed (experiment/vector modes off and no active
-  # ID). #1351 local-only: the selector has no external endpoint, API key or
-  # internet egress, so this remains an inert, observable Gate-1 runtime.
-  # Shadow/randomized operation remains a later GitOps change.
-  - ../../components/experiment-v2-orchestrator
   # Gate 1 ordinary database-role cutover. The PreSync hook installs and proves
   # the two migration-217 logins before API/ingestor roll, then the pod patches
   # remove the database-owner credential from both ordinary containers. Merge
@@ -168,10 +162,6 @@ components:
   # vectors. It cannot enable the component, open admission, randomize, or write
   # a device. Exact replay is idempotent after migration 221.
   - ../../components/experiment-v2-direct-launch-bootstrap
-  # Direct physical proof is deliberately absent from ordinary production.
-  # A fresh attended attempt must use the separate, suspended activation render
-  # under deploy/k8s/activations/experiment-v2-direct-proof and be removed again
-  # after its append-only receipt. Ordinary convergence stays coarse-off.
   # #124 verdify-lab — the public Quartz research site (lab.verdify.ai). Pure web
   # tier with no device path. The publisher owns content; a content-free nginx
   # runtime serves its validated cache PVC.
@@ -281,11 +271,11 @@ patches:
 # ghcr.io/verdifyconsultancy/verdify-*; each entry maps it to the zot origin at
 # an immutable @sha256 digest (never a tag).
 #
-# The api, mcp, ingestor, migrate and experiment-v2-orchestrator entries are
+# The api, mcp, ingestor and migrate entries are
 # BUILD CANDIDATES. The verdify-platform-ci pin actuator rewrites them after
 # every build of main, and they do not decide what production runs: the
 # release-pins.yaml transformer at the end of this file replaces their digests
-# in the render. Do not hand-edit those five entries or change their
+# in the render. Do not hand-edit those four entries or change their
 # name/newName/digest shape; the actuator fails unless each appears exactly once.
 # The planner, setpoint-server and lab-publisher-k3s entries are release pins,
 # advanced by hand.
@@ -348,12 +338,6 @@ images:
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
     digest: sha256:411e51635c7e50ff53a88d366d0da88a81c30fd37aa6a5d6cfe18203392ba5dc
-  # Build candidate for the feature-off experiment-v2 orchestrator (its release
-  # digest is in release-pins.yaml). The component remains inert until its
-  # explicit GitOps feature gate.
-  - name: ghcr.io/verdifyconsultancy/verdify-experiment-v2-orchestrator
-    newName: registry.vallery.net/verdifyconsultancy/verdify-experiment-v2-orchestrator
-    digest: sha256:a11ace83b5513162647d130f99589690231a78e63fb732c07f1db0951af92861
   # Hand-pinned planner: source eeeeabc1 (W6 release 6, #1458 anyio/certifi CVE lock), GHA build run
   # 42349735728; rollback a02c2a36cd7c (00b53fe3, release 5).
   - name: ghcr.io/verdifyconsultancy/verdify-planner
@@ -373,7 +357,7 @@ images:
     newName: registry.vallery.net/verdifyconsultancy/verdify-lab-publisher-k3s
     digest: sha256:68b24a5f603c49f631f4a813730465b522b11ed16306eed93f0d19e96f950a45
 
-# Release pins: the digests production runs for the five actuator-managed
+# Release pins: the digests production runs for the four actuator-managed
 # images. kustomize applies `transformers:` after `images:`, so these replace
 # the build-candidate digests above in every workload, CronJob and hook Job.
 # A build changes Git only; promotion is a digest-only edit of

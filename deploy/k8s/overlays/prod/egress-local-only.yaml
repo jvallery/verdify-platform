@@ -30,9 +30,6 @@ spec:
         operator: NotIn
         values:
           # Components with their own Egress allowlist (the list the vendored deny excluded before).
-          - experiment-v2-freezer
-          - experiment-v2-lifecycle
-          - experiment-v2-selector
           - firmware-artifact-verifier
           - firmware-builder
           - firmware-flasher

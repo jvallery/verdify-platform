@@ -7,7 +7,6 @@ SELECTED_DOCKERFILES = (
     "api/Dockerfile",
     "mcp/Dockerfile",
     "ingestor/Dockerfile",
-    "experiment_orchestrator/Dockerfile",
 )
 
 

@@ -2,13 +2,6 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: experiment-v2-lifecycle
-  annotations:
-    argocd.argoproj.io/sync-options: ServerSideApply=true
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: verdify-api
   annotations:
     argocd.argoproj.io/sync-options: ServerSideApply=true
