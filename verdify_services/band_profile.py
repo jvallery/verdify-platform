@@ -3,8 +3,8 @@
 API-23 reads the 24 house anchors as ``fn_crop_band_value`` resolves them, overlays a draft (simple profile fields,
 which recompile their axis with midpoint shoulders, and Advanced raw anchors) and evaluates both with the harmonic
 the controller runs at 10-min steps of the day's ``fn_solar_phase``, so the preview is the device's curve. It adds
-what the controller adds on top (``night_vpd_bias_kpa``'s night bump), the guardrails, the checks of
-``verdify_schemas.band_profile.findings``, an expected night VPD ribbon and the night heat estimate.
+the guardrails, the checks of ``verdify_schemas.band_profile.findings``, an expected night VPD ribbon and the night
+heat estimate.
 
 API-24 stores the anchors a Save changes through the settings writer, one ``desired_state`` row and its
 ``crop_band_anchors`` rows per anchor, under one ``activity_log`` row (``band.write``) in one transaction. The
@@ -52,7 +52,6 @@ from verdify_schemas.band_profile import (
     findings,
     harmonic,
     is_simple,
-    night_bias,
     overshoot,
     series_points,
     snap,
@@ -76,7 +75,6 @@ from verdify_services.problems import ServiceError, problem
 from verdify_services.series import BandCurve
 
 GREENHOUSE_ID = "vallery"
-NIGHT_BIAS_PARAM = "night_vpd_bias_kpa"
 HEAT_LOSS_KW_PER_F = 0.19  # research §3, measured
 ACTION = "band.write"
 TARGET = "house band"
@@ -130,7 +128,6 @@ class AxisPreview(_Model):
 
 
 class VpdPreview(AxisPreview):
-    device: BandCurve = Field(description="The draft as the controller runs it: night_vpd_bias_kpa added at night")
     expected_low: list[float | None] = Field(
         description="Achievable night VPD (verdify_schemas.vpd_envelope), p25; null by day or without a forecast"
     )
@@ -196,7 +193,6 @@ class BandProfilePreview(_Model):
     changed: list[str]
     temp: AxisPreview
     vpd: VpdPreview
-    night_vpd_bias_kpa: float | None
     guardrails: Guardrails
     overshoot: dict[str, float]
     night_heat_kwh: NightHeat
@@ -269,11 +265,10 @@ def state_of(anchors: Mapping[str, float]) -> ProfileState:
     return ProfileState(profile=decompose(anchors), anchors=dict(anchors), simple=is_simple(anchors))
 
 
-def axis_curve(anchors: Mapping[str, float], axis: str, phases: Sequence[float], bias: float = 0.0) -> BandCurve:
+def axis_curve(anchors: Mapping[str, float], axis: str, phases: Sequence[float]) -> BandCurve:
     names = (f"{axis}_low", f"{axis}_target", f"{axis}_high")
     low, target, high = (
-        [round(harmonic(*series_points(anchors, name), phase) + night_bias(phase, bias), 4) for phase in phases]
-        for name in names
+        [round(harmonic(*series_points(anchors, name), phase), 4) for phase in phases] for name in names
     )
     return BandCurve(low=low, target=target, high=high)
 
@@ -505,14 +500,6 @@ async def check_stored(conn: asyncpg.Connection) -> None:
             )
 
 
-async def _night_bias(conn: asyncpg.Connection) -> float | None:
-    """The bias the controller reports running, else none."""
-    status = (await settings.statuses(conn, [NIGHT_BIAS_PARAM])).get(NIGHT_BIAS_PARAM)
-    if status is None or status.readback is None or status.readback.value is None:
-        return None
-    return float(status.readback.value)
-
-
 async def preview(
     conn: asyncpg.Connection,
     patch: BandProfilePatch | None = None,
@@ -527,7 +514,6 @@ async def preview(
     start = series.denver_midnight(day)
     end = series.denver_midnight(day + timedelta(days=1))
     last = end - timedelta(seconds=series.PREVIEW_STEP_S)
-    bias = await _night_bias(conn)
     async with series._read_transaction(conn):
         current = await _current_anchors(conn)
         phase_rows = await conn.fetch(series.PREVIEW_PHASES_SQL, start, last)
@@ -551,7 +537,7 @@ async def preview(
     forecast = _forecast_map(forecast_rows)
     temp_current, temp_draft = axis_curve(current, "temp", phases), axis_curve(draft, "temp", phases)
     expected_low, expected_high = expected_vpd(fit, t, phases, temp_draft.target, forecast)
-    vpd_device = axis_curve(draft, "vpd", phases, bias or 0.0)
+    vpd_draft = axis_curve(draft, "vpd", phases)
     return BandProfilePreview(
         day=day,
         step_s=series.PREVIEW_STEP_S,
@@ -563,12 +549,10 @@ async def preview(
         temp=AxisPreview(current=temp_current, draft=temp_draft),
         vpd=VpdPreview(
             current=axis_curve(current, "vpd", phases),
-            draft=axis_curve(draft, "vpd", phases),
-            device=vpd_device,
+            draft=vpd_draft,
             expected_low=expected_low,
             expected_high=expected_high,
         ),
-        night_vpd_bias_kpa=bias,
         guardrails=Guardrails(),
         overshoot=overshoot(draft),
         night_heat_kwh=NightHeat(
@@ -578,7 +562,7 @@ async def preview(
         envelope=None
         if fit is None
         else EnvelopeFit(hours=fit.hours, days=ENVELOPE_DAYS, rmse_f=fit.rmse_f, dewpoint_p10_f=fit.dewpoint_p10_f),
-        findings=all_findings(draft, fit, vpd_device.low, expected_high),
+        findings=all_findings(draft, fit, vpd_draft.low, expected_high),
         measured=measured_overlay(t, measured_rows, measured_start, measured_end),
         forecast=forecast_overlay(t, forecast_rows),
     )

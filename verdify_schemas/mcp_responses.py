@@ -268,7 +268,6 @@ class OutcomeKpiCoverage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     served_corridor: OutcomeMetricStatus = "available"
-    pinched_corridor: OutcomeMetricStatus = "available"
     vpd_misses: OutcomeMetricStatus = "available"
     actuator_cycles_runtime: OutcomeMetricStatus = "available"
     dew_margin: OutcomeMetricStatus = "available"
@@ -313,7 +312,6 @@ class OutcomeKpiResponse(BaseModel):
     semantics: str
     coverage: OutcomeKpiCoverage = Field(default_factory=OutcomeKpiCoverage)
     served_corridor: dict[str, float | None] = Field(default_factory=dict)
-    pinched_corridor: dict[str, float | int | None] = Field(default_factory=dict)
     vpd_misses_h: dict[str, float | None] = Field(default_factory=dict)
     actuator_cycles: dict[str, int | None] = Field(default_factory=dict)
     actuator_runtime: dict[str, float | None] = Field(default_factory=dict)

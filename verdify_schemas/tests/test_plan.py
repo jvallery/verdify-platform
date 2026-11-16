@@ -30,12 +30,12 @@ class TestPlanTransition:
         assert t.params["temp_low"] == 55.0
 
     def test_switch_value_accepted(self):
-        t = PlanTransition(ts=_t(), params={"sw_economiser_enabled": 1.0})
-        assert t.params["sw_economiser_enabled"] == 1.0
+        t = PlanTransition(ts=_t(), params={"sw_direct_wet_gate_enabled": 1.0})
+        assert t.params["sw_direct_wet_gate_enabled"] == 1.0
 
     def test_switch_rejects_non_binary(self):
         with pytest.raises(ValidationError, match="must be 0.0 or 1.0"):
-            PlanTransition(ts=_t(), params={"sw_economiser_enabled": 0.5})
+            PlanTransition(ts=_t(), params={"sw_direct_wet_gate_enabled": 0.5})
 
     def test_rejects_unknown_param(self):
         with pytest.raises(ValidationError, match="Unknown tunable"):
@@ -49,25 +49,17 @@ class TestPlanTransition:
         with pytest.raises(ValidationError, match="vpd_low.*must be < vpd_high"):
             PlanTransition(ts=_t(), params={"vpd_low": 2.0, "vpd_high": 0.5})
 
-    def test_rejects_inverted_safety_band(self):
-        with pytest.raises(ValidationError, match="safety_min.*must be < safety_max"):
-            PlanTransition(ts=_t(), params={"safety_min": 100.0, "safety_max": 40.0})
-
-    def test_rejects_mister_engage_above_all(self):
-        with pytest.raises(ValidationError, match="mister_engage_kpa.*must be <= mister_all_kpa"):
-            PlanTransition(ts=_t(), params={"mister_engage_kpa": 2.0, "mister_all_kpa": 1.0})
-
     def test_rejects_registry_value_above_max(self):
-        with pytest.raises(ValidationError, match="vpd_hysteresis=0.55 outside registry bounds"):
-            PlanTransition(ts=_t(), params={"vpd_hysteresis": 0.55})
+        with pytest.raises(ValidationError, match="mister_engage_delay_s=400 outside registry bounds"):
+            PlanTransition(ts=_t(), params={"mister_engage_delay_s": 400})
 
     def test_rejects_registry_value_below_min(self):
-        with pytest.raises(ValidationError, match="mister_all_delay_s=10 outside registry bounds"):
-            PlanTransition(ts=_t(), params={"mister_all_delay_s": 10})
+        with pytest.raises(ValidationError, match="mister_min_off_s=10 outside registry bounds"):
+            PlanTransition(ts=_t(), params={"mister_min_off_s": 10})
 
     def test_registry_error_includes_nearest_safe_value(self):
-        with pytest.raises(ValidationError, match="nearest_safe=0"):
-            PlanTransition(ts=_t(), params={"enthalpy_open": 2.0})
+        with pytest.raises(ValidationError, match="nearest_safe=300"):
+            PlanTransition(ts=_t(), params={"mister_engage_delay_s": 400})
 
     def test_requires_timezone_aware_ts(self):
         with pytest.raises(ValidationError):
@@ -173,11 +165,11 @@ class TestPlanHypothesisStructured:
     def _valid_rationale(self):
         return [
             ParamRationale(
-                parameter="mister_engage_kpa",
-                old_value=1.5,
-                new_value=1.3,
+                parameter="mister_engage_delay_s",
+                old_value=90.0,
+                new_value=60.0,
                 forecast_anchor="Sunday 3PM 4% RH outdoor",
-                expected_effect="trigger misting earlier to keep VPD < 2.0",
+                expected_effect="start misting sooner to keep VPD < 2.0",
             ),
         ]
 

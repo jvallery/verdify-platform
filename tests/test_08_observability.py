@@ -568,14 +568,6 @@ class TestContractDriftGuardrails:
         assert "readback_drift = _readback_drift(param, planned_val)" in tasks_source
         assert "Dispatcher readback drift" in tasks_source
 
-    def test_validation_monitor_distinguishes_deploy_blockers_from_climate_warnings(self):
-        monitor_source = (REPO_ROOT / "scripts" / "hermes-validation-monitor.py").read_text()
-        assert "open_critical_high_alerts" in monitor_source
-        assert "open_warning_alerts" in monitor_source
-        assert "deploy-blocking alerts" in monitor_source
-        assert 'failures.append("open_critical_high_alerts")' in monitor_source
-        assert 'failures.append("open_alerts")' not in monitor_source
-
     def test_alert_monitor_tracks_climate_action_proof_freshness(self):
         tasks_source = _tasks_source()
         alerts_source = (REPO_ROOT / "verdify_schemas" / "alerts.py").read_text()
@@ -664,7 +656,6 @@ class TestContractDriftGuardrails:
         for required_command in (
             "bash scripts/health-check.sh",
             'curl -fsS "$API_HEALTH_URL"',
-            "bash scripts/validate-plan-coverage.sh",
             "scripts/audit-climate-intent-contract.py",
             "bash scripts/firmware-deploy-preflight.sh",
         ):

@@ -1453,9 +1453,8 @@ async def outcome_kpi(target_date: str = "") -> str:
     not an instruction to target-hug while the crop is already inside the
     served corridor.
 
-    Pinched corridor compliance, DIF, and solar-phase buckets are computed on
-    demand from one-minute climate samples plus the active setpoint/readback
-    state. Moisture-estimator buckets are computed from
+    DIF and solar-phase buckets are computed on demand from one-minute climate
+    samples against the served house band. Moisture-estimator buckets are computed from
     climate_action_log.source_system_state->climate_moisture_exchange when the
     OTA/deploy path has produced rows; #327 makes that context first-class:
     per-(action, reason) buckets now include the #410 held-temp fields
@@ -1647,21 +1646,15 @@ async def outcome_kpi(target_date: str = "") -> str:
             WHERE greenhouse_id = $2
             ORDER BY decisions DESC, climate_action
             """
-        pinched_phase_sql = """
+        phase_sql = """
             WITH bounds AS (
                 SELECT
                     ($1::date::timestamp AT TIME ZONE 'America/Denver') AS start_ts,
                     (($1::date + 1)::timestamp AT TIME ZONE 'America/Denver') AS end_ts
             ),
-            -- #387: ONE 1-minute climate scan and ONE 6-way LATERAL
-            -- setpoint/band resolution feed BOTH the pinched-corridor and
-            -- solar-phase sections (each previously ran this fan-out
-            -- independently). resolved_samples is referenced twice below, so
-            -- PostgreSQL materializes it once. Row-set fidelity: the pinched
-            -- section reads the unprefixed bucket averages (rows with
-            -- temp/vpd present); the solar-phase section additionally
-            -- requires solar_phase IS NOT NULL per row, which the FILTERed
-            -- ph_* averages and the ph_sample_rows guard reproduce exactly.
+            -- #387: ONE 1-minute climate scan and ONE LATERAL band resolution feed the solar-phase
+            -- section; its rows require solar_phase IS NOT NULL per row, which the FILTERed ph_*
+            -- averages and the ph_sample_rows guard reproduce exactly.
             samples AS (
                 SELECT
                     time_bucket('1 minute', c.ts) AS bucket,
@@ -1700,15 +1693,7 @@ async def outcome_kpi(target_date: str = "") -> str:
                     COALESCE(temp_low.value, band.temp_low) AS temp_low_f,
                     COALESCE(temp_high.value, band.temp_high) AS temp_high_f,
                     COALESCE(vpd_low.value, house.house_vpd_low) AS vpd_low_kpa,
-                    COALESCE(vpd_high.value, house.house_vpd_high) AS vpd_high_kpa,
-                    GREATEST(
-                        0.0,
-                        LEAST(
-                            1.0,
-                            COALESCE(btf_readback.value, btf_change.value, 0.0)
-                        )
-                    ) AS band_track_fraction,
-                    btf_readback.value IS NOT NULL AS has_fraction_readback
+                    COALESCE(vpd_high.value, house.house_vpd_high) AS vpd_high_kpa
                 FROM samples s
                 CROSS JOIN LATERAL fn_band_setpoints(s.bucket) AS band
                 CROSS JOIN LATERAL fn_house_vpd_control_band(s.bucket) AS house
@@ -1736,87 +1721,6 @@ async def outcome_kpi(target_date: str = "") -> str:
                       AND ts <= s.bucket
                     ORDER BY ts DESC LIMIT 1
                 ) vpd_high ON true
-                LEFT JOIN LATERAL (
-                    SELECT value FROM setpoint_snapshot
-                    WHERE greenhouse_id = $2
-                      AND parameter = 'band_track_fraction'
-                      AND ts <= s.bucket
-                    ORDER BY ts DESC LIMIT 1
-                ) btf_readback ON true
-                LEFT JOIN LATERAL (
-                    SELECT value FROM setpoint_changes
-                    WHERE greenhouse_id = $2
-                      AND parameter = 'band_track_fraction'
-                      AND ts <= s.bucket
-                      AND (expired_at IS NULL OR expired_at > s.bucket)
-                    ORDER BY ts DESC LIMIT 1
-                ) btf_change ON true
-            ),
-            pinched_eligible AS (
-                SELECT
-                    *,
-                    temp_low_f + band_track_fraction
-                        * (LEAST(GREATEST(temp_target_f, temp_low_f), temp_high_f) - temp_low_f)
-                        AS pinched_temp_low_f,
-                    temp_high_f - band_track_fraction
-                        * (temp_high_f - LEAST(GREATEST(temp_target_f, temp_low_f), temp_high_f))
-                        AS pinched_temp_high_f,
-                    vpd_low_kpa + band_track_fraction
-                        * (LEAST(GREATEST(vpd_target_kpa, vpd_low_kpa), vpd_high_kpa) - vpd_low_kpa)
-                        AS pinched_vpd_low_kpa,
-                    vpd_high_kpa - band_track_fraction
-                        * (vpd_high_kpa - LEAST(GREATEST(vpd_target_kpa, vpd_low_kpa), vpd_high_kpa))
-                        AS pinched_vpd_high_kpa
-                FROM resolved_samples
-                WHERE temp_target_f IS NOT NULL
-                  AND vpd_target_kpa IS NOT NULL
-                  AND temp_low_f IS NOT NULL
-                  AND temp_high_f IS NOT NULL
-                  AND vpd_low_kpa IS NOT NULL
-                  AND vpd_high_kpa IS NOT NULL
-            ),
-            pinched_scored AS (
-                SELECT
-                    *,
-                    GREATEST(pinched_temp_low_f - temp_avg, temp_avg - pinched_temp_high_f, 0.0)
-                        AS temp_pinched_miss_f,
-                    GREATEST(pinched_vpd_low_kpa - vpd_avg, vpd_avg - pinched_vpd_high_kpa, 0.0)
-                        AS vpd_pinched_miss_kpa,
-                    temp_avg BETWEEN pinched_temp_low_f AND pinched_temp_high_f AS temp_pinched_in_band,
-                    vpd_avg BETWEEN pinched_vpd_low_kpa AND pinched_vpd_high_kpa AS vpd_pinched_in_band
-                FROM pinched_eligible
-            ),
-            pinched AS (
-            SELECT
-                count(*)::int AS sample_min,
-                count(*) FILTER (WHERE has_fraction_readback)::int AS samples_with_fraction_readback,
-                round(avg(band_track_fraction)::numeric, 3)::double precision
-                    AS avg_band_track_fraction,
-                round(min(band_track_fraction)::numeric, 3)::double precision
-                    AS min_band_track_fraction,
-                round(max(band_track_fraction)::numeric, 3)::double precision
-                    AS max_band_track_fraction,
-                round((100.0 * count(*) FILTER (WHERE temp_pinched_in_band)
-                    / NULLIF(count(*), 0))::numeric, 2)::double precision AS temp_pct,
-                round((100.0 * count(*) FILTER (WHERE vpd_pinched_in_band)
-                    / NULLIF(count(*), 0))::numeric, 2)::double precision AS vpd_pct,
-                round((100.0 * count(*) FILTER (WHERE temp_pinched_in_band AND vpd_pinched_in_band)
-                    / NULLIF(count(*), 0))::numeric, 2)::double precision AS both_pct,
-                round((100.0 * count(*) FILTER (
-                        WHERE solar_phase < 2.0 AND temp_pinched_in_band AND vpd_pinched_in_band
-                    ) / NULLIF(count(*) FILTER (WHERE solar_phase < 2.0), 0))::numeric, 2)::double precision
-                    AS day_pct,
-                round((100.0 * count(*) FILTER (
-                        WHERE solar_phase >= 2.0 AND temp_pinched_in_band AND vpd_pinched_in_band
-                    ) / NULLIF(count(*) FILTER (WHERE solar_phase >= 2.0), 0))::numeric, 2)::double precision
-                    AS night_pct,
-                round((percentile_cont(0.95) WITHIN GROUP (
-                    ORDER BY temp_pinched_miss_f
-                ))::numeric, 2)::double precision AS p95_temp_miss_f,
-                round((percentile_cont(0.95) WITHIN GROUP (
-                    ORDER BY vpd_pinched_miss_kpa
-                ))::numeric, 3)::double precision AS p95_vpd_miss_kpa
-            FROM pinched_scored
             ),
             phase_resolved AS (
                 SELECT
@@ -1843,26 +1747,12 @@ async def outcome_kpi(target_date: str = "") -> str:
                     s.temp_low_f,
                     s.temp_high_f,
                     s.vpd_low_kpa,
-                    s.vpd_high_kpa,
-                    s.band_track_fraction
+                    s.vpd_high_kpa
                 FROM resolved_samples s
                 WHERE s.ph_sample_rows > 0
             ),
             phase_scored AS (
-                SELECT
-                    *,
-                    temp_low_f + band_track_fraction
-                        * (LEAST(GREATEST(temp_target_f, temp_low_f), temp_high_f) - temp_low_f)
-                        AS pinched_temp_low_f,
-                    temp_high_f - band_track_fraction
-                        * (temp_high_f - LEAST(GREATEST(temp_target_f, temp_low_f), temp_high_f))
-                        AS pinched_temp_high_f,
-                    vpd_low_kpa + band_track_fraction
-                        * (LEAST(GREATEST(vpd_target_kpa, vpd_low_kpa), vpd_high_kpa) - vpd_low_kpa)
-                        AS pinched_vpd_low_kpa,
-                    vpd_high_kpa - band_track_fraction
-                        * (vpd_high_kpa - LEAST(GREATEST(vpd_target_kpa, vpd_low_kpa), vpd_high_kpa))
-                        AS pinched_vpd_high_kpa
+                SELECT *
                 FROM phase_resolved
                 WHERE temp_target_f IS NOT NULL
                   AND vpd_target_kpa IS NOT NULL
@@ -1887,10 +1777,6 @@ async def outcome_kpi(target_date: str = "") -> str:
                           AND vpd_avg BETWEEN vpd_low_kpa AND vpd_high_kpa
                     ) / NULLIF(count(*), 0))::numeric, 2)::double precision AS served_both_pct,
                 round((100.0 * count(*) FILTER (
-                        WHERE temp_avg BETWEEN pinched_temp_low_f AND pinched_temp_high_f
-                          AND vpd_avg BETWEEN pinched_vpd_low_kpa AND pinched_vpd_high_kpa
-                    ) / NULLIF(count(*), 0))::numeric, 2)::double precision AS pinched_both_pct,
-                round((100.0 * count(*) FILTER (
                         WHERE vpd_avg > vpd_high_kpa
                     ) / NULLIF(count(*), 0))::numeric, 2)::double precision AS vpd_high_miss_pct,
                 round((100.0 * count(*) FILTER (
@@ -1900,33 +1786,19 @@ async def outcome_kpi(target_date: str = "") -> str:
                 GROUP BY phase_order, phase_bucket
             )
             SELECT
-                p.sample_min,
-                p.samples_with_fraction_readback,
-                p.avg_band_track_fraction,
-                p.min_band_track_fraction,
-                p.max_band_track_fraction,
-                p.temp_pct,
-                p.vpd_pct,
-                p.both_pct,
-                p.day_pct,
-                p.night_pct,
-                p.p95_temp_miss_f,
-                p.p95_vpd_miss_kpa,
-                ph.phase_bucket AS ph_phase_bucket,
-                ph.sample_min AS ph_sample_min,
-                ph.phase_min AS ph_phase_min,
-                ph.phase_max AS ph_phase_max,
-                ph.temp_avg_f AS ph_temp_avg_f,
-                ph.vpd_avg_kpa AS ph_vpd_avg_kpa,
-                ph.min_dp_margin_f AS ph_min_dp_margin_f,
-                ph.avg_solar_w_m2 AS ph_avg_solar_w_m2,
-                ph.served_both_pct AS ph_served_both_pct,
-                ph.pinched_both_pct AS ph_pinched_both_pct,
-                ph.vpd_high_miss_pct AS ph_vpd_high_miss_pct,
-                ph.vpd_low_miss_pct AS ph_vpd_low_miss_pct
-            FROM pinched p
-            LEFT JOIN phase ph ON true
-            ORDER BY ph.phase_order
+                phase_bucket,
+                sample_min,
+                phase_min,
+                phase_max,
+                temp_avg_f,
+                vpd_avg_kpa,
+                min_dp_margin_f,
+                avg_solar_w_m2,
+                served_both_pct,
+                vpd_high_miss_pct,
+                vpd_low_miss_pct
+            FROM phase
+            ORDER BY phase_order
             """
         dif_sql = """
             WITH bounds AS (
@@ -2253,59 +2125,18 @@ async def outcome_kpi(target_date: str = "") -> str:
 
         # #387: the fetches above are mutually independent single-day reads.
         # They used to run as ~13 serial awaits (~27-30 s cold on prod, ~12 s
-        # of it the duplicated pinched/phase scan); they now run concurrently,
+        # of it the duplicated phase scan); they now run concurrently,
         # grouped per connection so queries over the same base table share a
         # warm buffer cache. asyncpg connections cannot multiplex queries, so
         # the fan-out borrows from the small bounded module pool
         # (_kpi_fanout_pool_get) while the heaviest unit — the combined
-        # pinched-corridor + solar-phase statement — runs on this call's own
+        # solar-phase statement — runs on this call's own
         # connection. Response content is byte-identical to the serial
         # version; this is a latency-only change (see the PR #387 golden
         # equivalence runs for the warm-cache benchmark).
-        pinched_corridor_columns = (
-            "sample_min",
-            "samples_with_fraction_readback",
-            "avg_band_track_fraction",
-            "min_band_track_fraction",
-            "max_band_track_fraction",
-            "temp_pct",
-            "vpd_pct",
-            "both_pct",
-            "day_pct",
-            "night_pct",
-            "p95_temp_miss_f",
-            "p95_vpd_miss_kpa",
-        )
-        solar_phase_bucket_columns = (
-            "phase_bucket",
-            "sample_min",
-            "phase_min",
-            "phase_max",
-            "temp_avg_f",
-            "vpd_avg_kpa",
-            "min_dp_margin_f",
-            "avg_solar_w_m2",
-            "served_both_pct",
-            "pinched_both_pct",
-            "vpd_high_miss_pct",
-            "vpd_low_miss_pct",
-        )
-
-        async def _pinched_phase_task(c: asyncpg.Connection):
-            # One statement returns the single pinched aggregate row joined
-            # against the 0-4 phase-bucket rows; split it back into the two
-            # shapes the response builder has always consumed. Dict key order
-            # matches the historical per-query SELECT column order — it is
-            # visible in the serialized response.
-            rows = await c.fetch(pinched_phase_sql, d, greenhouse_id)
-            first = rows[0] if rows else None
-            pinched = {col: first[col] for col in pinched_corridor_columns} if first else {}
-            phase_rows = [
-                {col: row[f"ph_{col}"] for col in solar_phase_bucket_columns}
-                for row in rows
-                if row["ph_phase_bucket"] is not None
-            ]
-            return pinched, phase_rows
+        async def _phase_task(c: asyncpg.Connection):
+            # The solar-phase bucket rows, in the historical column order (visible in the response).
+            return [dict(row) for row in await c.fetch(phase_sql, d, greenhouse_id)]
 
         async def _summary_resources_task(c: asyncpg.Connection):
             summary_row = await c.fetchrow(summary_sql, d, greenhouse_id)
@@ -2354,7 +2185,7 @@ async def outcome_kpi(target_date: str = "") -> str:
         # sibling leaks a mid-flight query; the first failure is then
         # re-raised to keep the serial version's fail-loud behavior.
         results = await asyncio.gather(
-            _pinched_phase_task(conn),
+            _phase_task(conn),
             _on_pool(_summary_resources_task),
             _on_pool(_equipment_task),
             _on_pool(_dif_task),
@@ -2365,7 +2196,7 @@ async def outcome_kpi(target_date: str = "") -> str:
             if isinstance(result, BaseException):
                 raise result
         (
-            (pinched, phase_rows),
+            phase_rows,
             (summary_row, dli_evidence, water_resource_row, energy_resource_row),
             (cycle_rows, cycle_read_path, dryout_rows),
             dif_row,
@@ -2574,20 +2405,6 @@ async def outcome_kpi(target_date: str = "") -> str:
                     "below_vpd_h": summary.get("stress_hours_vpd_low"),
                     "above_vpd_h": summary.get("stress_hours_vpd_high"),
                 },
-                pinched_corridor={
-                    "sample_min": pinched.get("sample_min"),
-                    "samples_with_fraction_readback": pinched.get("samples_with_fraction_readback"),
-                    "avg_band_track_fraction": pinched.get("avg_band_track_fraction"),
-                    "min_band_track_fraction": pinched.get("min_band_track_fraction"),
-                    "max_band_track_fraction": pinched.get("max_band_track_fraction"),
-                    "both_pct": pinched.get("both_pct"),
-                    "temp_pct": pinched.get("temp_pct"),
-                    "vpd_pct": pinched.get("vpd_pct"),
-                    "p95_temp_miss_f": pinched.get("p95_temp_miss_f"),
-                    "p95_vpd_miss_kpa": pinched.get("p95_vpd_miss_kpa"),
-                    "day_pct": pinched.get("day_pct"),
-                    "night_pct": pinched.get("night_pct"),
-                },
                 vpd_misses_h={
                     "high_stress_h": summary.get("stress_hours_vpd_high"),
                     "low_stress_h": summary.get("stress_hours_vpd_low"),
@@ -2703,7 +2520,6 @@ async def outcome_kpi(target_date: str = "") -> str:
                     "details": json.loads(e.json()),
                     "raw": {
                         "summary": summary,
-                        "pinched_corridor": pinched,
                         "dif": dif,
                         "solar_phase_buckets": [dict(row) for row in phase_rows],
                         "action_scorecard": [dict(row) for row in action_rows],
@@ -3774,8 +3590,7 @@ async def band_profile(day: Annotated[str | None, Field(description=_BAND_DAY_DE
 
     It only reads. Returns current (profile: day and night targets, the temperature ± widths and the VPD range below
     and above; the 24 raw anchors; simple), the day's curve at 10-min steps of t (temp and vpd low, target and high,
-    as the controller evaluates them), vpd.device (with the night_vpd_bias_kpa the controller reports running), the
-    sun times, the guardrails, overshoot, the night heat estimate, the expected night VPD ribbon and its fit, findings,
+    as the controller evaluates them), the sun times, the guardrails, overshoot, the night heat estimate, the expected night VPD ribbon and its fit, findings,
     measured (the last 24 h of house temp_avg and vpd_avg on t by local clock time: today's before now, yesterday's
     after) and forecast (the day's outdoor temperature and VPD). draft equals current and changed is empty. Unknown
     values are null, never 0.
@@ -3815,8 +3630,7 @@ async def band_profile_preview(
     It only reads: nothing is stored and nothing reaches the controller. A field left out keeps the band's value; any
     temperature field recompiles the temperature series with sunrise and sunset at the midpoint of noon and midnight,
     any VPD field the VPD series; anchors then override single raw anchors. Returns current and draft (profile, anchors,
-    simple), changed (the anchors a Save would write), both curves over the day at 10-min steps of t, vpd.device (the
-    draft with the controller's night bias), findings (error: band_order, guardrail, band_width (narrower than the
+    simple), changed (the anchors a Save would write), both curves over the day at 10-min steps of t, findings (error: band_order, guardrail, band_width (narrower than the
     control law's minimum widths anywhere in the day), night_floor (the law's drying line, vpd_low plus its drying
     margin, under the night floor anywhere in the night; guardrails carries the numbers); warning: overshoot,
     dewpoint_unreached), the night heat estimate for both, the expected night VPD,

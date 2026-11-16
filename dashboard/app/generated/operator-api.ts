@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * The house band as stored and as drafted in the band editor, over one day, before Save
-         * @description Read-only (#1334). Reads the 24 house anchors as fn_crop_band_value resolves them and overlays the draft: any simple temperature field recompiles the six temperature anchors from day (solar noon) and night (solar midnight) values with sunrise and sunset at their midpoint, so the curve is a pure sinusoid that never leaves its noon and midnight values; any VPD field does the same for the VPD anchors; then each anchor= item sets one raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase; vpd.device adds night_vpd_bias_kpa's night bump as the controller does. findings with severity error are what API-24 refuses. The expected night VPD ribbon is a 14-day indoor dewpoint fit on quiet deep-night hours and the forecast; night_heat_kwh is 0.19 kW/°F over the forecast's night hours. Codes: unknown_target (anchor not a house band anchor), out_of_range (outside planner_effective_bounds), read_only (no complete anchor set).
+         * @description Read-only (#1334). Reads the 24 house anchors as fn_crop_band_value resolves them and overlays the draft: any simple temperature field recompiles the six temperature anchors from day (solar noon) and night (solar midnight) values with sunrise and sunset at their midpoint, so the curve is a pure sinusoid that never leaves its noon and midnight values; any VPD field does the same for the VPD anchors; then each anchor= item sets one raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase, so the draft is the curve the controller runs. findings with severity error are what API-24 refuses. The expected night VPD ribbon is a 14-day indoor dewpoint fit on quiet deep-night hours and the forecast; night_heat_kwh is 0.19 kW/°F over the forecast's night hours. Codes: unknown_target (anchor not a house band anchor), out_of_range (outside planner_effective_bounds), read_only (no complete anchor set).
          */
         readonly get: operations["API-23"];
         /**
@@ -1279,8 +1279,6 @@ export interface components {
                 readonly current: number | null;
                 readonly draft: number | null;
             };
-            /** @description The bias the controller reports running */
-            readonly night_vpd_bias_kpa: number | null;
             /** @description By series, how far the draft curve leaves its anchor range */
             readonly overshoot: {
                 readonly [key: string]: number;
@@ -1302,7 +1300,6 @@ export interface components {
             };
             readonly vpd: {
                 readonly current: components["schemas"]["BandCurve"];
-                readonly device: components["schemas"]["BandCurve"];
                 readonly draft: components["schemas"]["BandCurve"];
                 readonly expected_high: components["schemas"]["NullableNumbers"];
                 readonly expected_low: components["schemas"]["NullableNumbers"];

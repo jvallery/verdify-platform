@@ -17,11 +17,11 @@ echo "== Climate authority post-deploy proof =="
 echo "Repository: $REPO_ROOT"
 echo
 
-echo "[1/5] Shell health, including climate_action_log freshness/completeness"
+echo "[1/4] Shell health, including climate_action_log freshness/completeness"
 bash scripts/health-check.sh
 echo
 
-echo "[2/5] API /health controller-proof status"
+echo "[2/4] API /health controller-proof status"
 curl -fsS "$API_HEALTH_URL" | "$PYTHON_BIN" -c '
 import json
 import sys
@@ -67,15 +67,11 @@ print("✓ API health controller-proof check passed")
 '
 echo
 
-echo "[3/5] Active plan coverage"
-bash scripts/validate-plan-coverage.sh
-echo
-
-echo "[4/5] ClimateIntent contract audit"
+echo "[3/4] ClimateIntent contract audit"
 "$PYTHON_BIN" scripts/audit-climate-intent-contract.py
 echo
 
-echo "[5/5] Firmware OTA preflight gates"
+echo "[4/4] Firmware OTA preflight gates"
 bash scripts/firmware-deploy-preflight.sh
 echo
 

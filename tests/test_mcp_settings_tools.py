@@ -45,7 +45,7 @@ STUB_MODULES = (*_MCP_STUB_MODULES, "mcp.types")
 TRIGGER_ID = "00000000-0000-4000-8000-000000000001"
 REQUEST_ID = "00000000-0000-4000-8000-000000000002"
 CREATED = datetime(2026, 11, 2, 18, tzinfo=UTC)
-PARAM = "mister_engage_kpa"
+PARAM = "mister_engage_delay_s"
 ALL_GROUPS = (
     "planner_policy",
     "scheduled_policy",

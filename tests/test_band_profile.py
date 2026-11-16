@@ -28,7 +28,6 @@ from verdify_schemas.band_profile import (
     findings,
     harmonic,
     is_simple,
-    night_bias,
     overshoot,
     series_points,
 )
@@ -210,13 +209,6 @@ def test_the_night_floor_is_checked_on_the_drying_line_of_the_curve():
     assert errors(dipping) == [("night_floor", "vpd_below_night")]
 
 
-def test_night_bias_is_the_controller_s_sin_squared_bump():
-    assert night_bias(1.5, 0.2) == 0.0 and night_bias(2.0, 0.2) == 0.0
-    assert night_bias(3.0, 0.2) == pytest.approx(0.2)
-    assert night_bias(2.5, 0.2) == pytest.approx(0.1)
-    assert night_bias(3.0, 0.0) == 0.0
-
-
 # ── the draft ───────────────────────────────────────────────────────────────
 
 
@@ -336,11 +328,7 @@ class Transaction:
         return False
 
 
-def test_the_preview_overlays_the_draft_adds_the_night_bias_and_matches_its_schema(monkeypatch):
-    async def bias(conn):
-        return 0.1
-
-    monkeypatch.setattr(bp, "_night_bias", bias)
+def test_the_preview_overlays_the_draft_and_matches_its_schema():
     phases = [index * 4.0 / 144 for index in range(144)]
     conn = Conn(phases)
     answer = asyncio.run(bp.preview(conn, bp.BandProfilePatch(temp_night=67.7), None, date(2026, 11, 5), now=NOW))
@@ -350,9 +338,8 @@ def test_the_preview_overlays_the_draft_adds_the_night_bias_and_matches_its_sche
     # Noon (73.79 -> 73.8) is within half a step, so only the shoulders and midnight change.
     assert answer.changed == [n for n in HOUSE_PARAMS if n.startswith("band_temp_") and not n.endswith("_sm")]
     assert answer.vpd.draft == answer.vpd.current
-    midnight = phases.index(3.0)
-    assert answer.vpd.device.low[midnight] == pytest.approx(answer.vpd.draft.low[midnight] + 0.1)
-    assert answer.vpd.device.low[0] == answer.vpd.draft.low[0]
+    # The night VPD bias is retired (RULINGS AE7a): the preview carries no device curve and no bias.
+    assert "device" not in answer.vpd.model_dump() and "night_vpd_bias_kpa" not in answer.model_dump()
     assert answer.envelope is None and answer.vpd.expected_low == [None] * 144
     assert answer.night_heat_kwh.draft > answer.night_heat_kwh.current > 0
     assert answer.temp.current.target[36] == pytest.approx(harmonic(*series_points(LIVE, "temp_target"), 1.0), abs=1e-4)

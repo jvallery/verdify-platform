@@ -221,7 +221,6 @@ class TestOutcomeKpi:
             semantics="ADR-0004 outcome view",
             coverage=OutcomeKpiCoverage(moisture_estimator="available", vpd_policy_sequences="available"),
             served_corridor={"both_pct": 91.2, "temp_pct": 84.0},
-            pinched_corridor={"both_pct": None},
             vpd_misses_h={"high_stress_h": 2.4, "low_stress_h": 0.0},
             actuator_cycles={"fan1": 14, "fog": 3},
             actuator_runtime={"fan1_min": 185.5, "fog_min": 8.0},
@@ -311,7 +310,7 @@ class TestOutcomeKpi:
 
         dumped = r.model_dump()
         assert dumped["coverage"]["served_corridor"] == "available"
-        assert dumped["coverage"]["pinched_corridor"] == "available"
+        assert "pinched_corridor" not in dumped["coverage"] and "pinched_corridor" not in dumped
         assert dumped["coverage"]["dif"] == "available"
         assert dumped["coverage"]["solar_phase_buckets"] == "available"
         assert dumped["coverage"]["moisture_estimator"] == "available"
