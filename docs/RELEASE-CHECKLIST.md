@@ -213,6 +213,9 @@ the current sprint's survey and release status.
       view refreshes and the daily review (timing in that section), MCP, the API and the operator API paused, and a health
       check of the ingestor, planner, API and MCP right after. Keep the number
       of production runs to the minimum.
+- [ ] Any migration that changes a function-seal digest adds the new exact
+      anchored `.gitleaks.toml` allowlist entry in the same PR, reviewed by
+      SEC-A, so main never goes red.
 
 ## F. Documentation and evidence
 

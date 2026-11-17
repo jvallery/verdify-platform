@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import subprocess
 import sys
 import time
@@ -63,15 +64,16 @@ def test_a_blocked_event_loop_fails(tmp_path, monkeypatch):
         beater = asyncio.ensure_future(liveness.event_loop_heartbeat())
         await asyncio.sleep(0.2)
         liveness.beat(liveness.TASK_SUPERVISOR)
-        assert _probe(tmp_path, "--max-age", "1.0").returncode == 0
-        time.sleep(1.5)  # the loop is blocked: neither beat advances
-        result = _probe(tmp_path, "--max-age", "1.0")
+        # The probe runs while this coroutine blocks the loop, so its limit leaves room for a slow interpreter start.
+        assert _probe(tmp_path, "--max-age", "3.0").returncode == 0
+        time.sleep(4.0)  # the loop is blocked: neither beat advances
+        result = _probe(tmp_path, "--max-age", "3.0")
         beater.cancel()
         return result
 
     result = asyncio.run(run_then_block())
     assert result.returncode == 1
-    assert "event_loop=" in result.stderr
+    assert re.search(r"STALE .*event_loop=\d+s", result.stderr), result.stderr
 
 
 def test_a_stopped_task_supervisor_fails(tmp_path):
@@ -79,10 +81,16 @@ def test_a_stopped_task_supervisor_fails(tmp_path):
     _write(tmp_path, liveness.EVENT_LOOP, now - 5)
     _write(tmp_path, liveness.TASK_SUPERVISOR, now - 600)
     result = _probe(tmp_path)
-    assert result.returncode == 1 and "task_supervisor=600s" in result.stderr
+    # Wall time moves between stamping and probing, so match the shape and bound the age instead of an exact value.
+    match = re.search(r"STALE task_supervisor=(\d+)s \(limit 90s\)", result.stderr)
+    assert result.returncode == 1 and match, result.stderr
+    assert 600 <= int(match.group(1)) < 660
+    assert "event_loop" not in result.stderr
     (tmp_path / liveness.TASK_SUPERVISOR).unlink()
     result = _probe(tmp_path)
-    assert result.returncode == 1 and "task_supervisor=missing" in result.stderr
+    assert result.returncode == 1 and re.search(r"STALE task_supervisor=missing \(limit 90s\)", result.stderr), (
+        result.stderr
+    )
 
 
 def test_beats_are_wired_into_the_event_loop_and_the_task_supervisor():
