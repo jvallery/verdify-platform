@@ -37,6 +37,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import asyncpg
 import gap_replay
+import process_liveness
 import shared
 from aioesphomeapi import APIClient, APIConnectionError, LogLevel
 from aioesphomeapi.model import (
@@ -413,6 +414,9 @@ class State:
         self.counter_generation_ready = False
         self.equipment_source_last_receipt_at: datetime | None = None
         self.equipment_source_last_device_observed_at: datetime | None = None
+        # Host time of the newest ESPHome state callback of any entity (#1666): a readback pass stores rows only
+        # when the controller sent something since the previous pass.
+        self.device_value_at: datetime | None = None
         self.equipment_source_last_device_generation = 0
         self.pending_equipment_receipts: list[PendingEquipmentStateReceipt] = []
         # A monotonic generation makes source gaps sticky across async DB I/O.
@@ -1136,6 +1140,11 @@ async def write_climate(pool: asyncpg.Pool, ts: datetime) -> None:
 
     This prevents phantom data (zombie ingestor stale values from hours ago)
     while preserving legitimate current values from sensors that publish on-change.
+
+    No row is written when no fresh value arrived since the last flush (#1775):
+    a row of copies after the controller falls silent would hide the silence
+    from every freshness reader and block the gap replay, which never changes
+    an existing row, from storing the controller's own records for those minutes.
     """
     STALENESS_TIMEOUT = 600  # 10 minutes — sensors not seen in 10 min are excluded
 
@@ -1149,9 +1158,9 @@ async def write_climate(pool: asyncpg.Pool, ts: datetime) -> None:
     # Step 2: Overlay fresh values (always take precedence)
     merged.update(state.climate)
 
-    # Step 5: Validate + write merged row
+    # Step 5: Validate + write merged row. A flush with no fresh value writes nothing (#1775).
     cols = list(merged.keys())
-    if not cols:
+    if not cols or not state.climate:
         if _climate_event_spool_enabled():
             try:
                 await _drain_climate_event_spool(pool)
@@ -3413,6 +3422,7 @@ def _payload_rejected(obj_id: str, why: str) -> None:
 
 def on_state_change(entity_state, *, native_generation: int | None = None) -> None:
     """Called by aioesphomeapi on any entity state change."""
+    state.device_value_at = datetime.now(UTC)
     source_observed_at = _equipment_source_now()
     source_generation = shared.transport_generation
     source_clock_valid = bool(
@@ -3728,6 +3738,10 @@ def _report_spool_health() -> None:
 # admission asked for a complete batch (dormant: no production caller), or its hourly keyframe is due.
 # Keyframes are staggered by a hash of the name so every pass stores a few. Each pass stores one system_state row
 # (READBACK_PASS_ENTITY): readers take freshness from it, not from the newest readback.
+# #1666: a pass runs only when the controller sent a value since the previous committed pass. While it is silent,
+# the cache is memory, not a readback: no row, no confirmation and no pass marker come from it (2026-11-17: 27 rows
+# stored from memory 11:11-11:27Z while the controller was cut off). A connected controller sends climate every
+# minute, so a connected pass always qualifies; after a reconnect the new generation stores every parameter.
 READBACK_KEYFRAME_S = 3600
 LIGHT_STATE_KEYFRAME_S = 600
 LIGHT_STATE_KEYFRAME_ENTITIES = frozenset({"gl_main_state", "gl_grow_state"})
@@ -3762,9 +3776,16 @@ class ReadbackStore:
     """What the publisher last stored per parameter: (value, batch time, transport generation of that row)."""
 
     stored: dict[str, tuple[float, datetime, int]] = field(default_factory=dict)
+    # state.device_value_at as the last committed pass saw it (#1666).
+    device_value_seen: datetime | None = None
 
 
 _readback_store = ReadbackStore()
+
+
+def device_value_since(device_at: datetime | None, seen: datetime | None) -> bool:
+    """True when the controller sent a value after the one the last committed readback pass saw (#1666)."""
+    return device_at is not None and (seen is None or device_at > seen)
 
 
 def readback_unchanged(param: str, stored: float, value: float) -> bool:
@@ -3908,6 +3929,11 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
     if not shared.owns_setpoint_snapshot_publication():
         raise RuntimeError("setpoint snapshot publication belongs to flush_loop")
     started = asyncio.get_event_loop().time()
+    device_at = state.device_value_at
+    if not device_value_since(device_at, _readback_store.device_value_seen):
+        shared.fail_setpoint_snapshot_publication()
+        log.info("setpoint_snapshot publication=skipped reason=%s: no controller value since the last pass", reason)
+        return
     generation = int(shared.transport_generation)
     frozen = dict(state.cfg_readback)
     snapshot_rows: list[tuple[datetime, str, float]] = []
@@ -3987,6 +4013,7 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
         raise
     for _ts, param, val in stored_rows:
         _readback_store.stored[param] = (val, ts, generation)
+    _readback_store.device_value_seen = device_at
     # Both statements have committed. A confirmation failure cannot broadcast
     # rolled-back snapshots or acknowledge a batch that never became durable.
     for snap_ts, param, val in snapshot_rows:
@@ -4641,6 +4668,8 @@ async def task_loop(pool: asyncpg.Pool) -> None:
     try:
         while True:
             await asyncio.sleep(1)
+            # #1748: process-health liveness, not data freshness.
+            process_liveness.beat(process_liveness.TASK_SUPERVISOR)
             now = asyncio.get_running_loop().time()
             # Ordinary dispatch reads no approval file (VD-62).
             forced = {"setpoint_dispatch"} if shared.setpoint_dispatch_requested.is_set() else set()
@@ -4675,7 +4704,7 @@ async def write_fanout_row(pool: asyncpg.Pool, table: str, greenhouse_id: str, r
     carries no ESP32 client.
     """
     cols = [c for c in row if c != "greenhouse_id"]
-    if not cols:
+    if not cols or not state.climate:
         return
     values = [_coerce_fanout_value(c, row[c]) for c in cols]
     # All five fan-out tables carry greenhouse_id (migration 075). Stamp it.
@@ -5145,6 +5174,8 @@ async def main() -> None:
         log.info("Signal handlers unavailable; lease will expire on hard stop")
 
     main_tasks = asyncio.gather(
+        # #1748: the liveness probe (ingestor-liveness.py) reads this beat and the task supervisor's.
+        process_liveness.event_loop_heartbeat(),
         esp32_loop(pool),
         flush_loop(pool, equipment_source_pool),
         task_loop(pool),

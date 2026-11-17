@@ -174,6 +174,9 @@ def context(monkeypatch):
     monkeypatch.setattr(shared, "is_shadow_mode", lambda: False)
     monkeypatch.setenv("VERDIFY_DEVICE_WRITE_ENABLED", "1")
     monkeypatch.setattr(ingestor, "_readback_store", ingestor.ReadbackStore())
+    # These passes model a connected controller (#1666: a pass needs a controller value since the last one);
+    # test_setpoint_snapshot_on_change.py tests the silent case with the real rule.
+    monkeypatch.setattr(ingestor, "device_value_since", lambda _at, _seen: True)
     connection = Connection()
 
     def fanout(_table, _row):

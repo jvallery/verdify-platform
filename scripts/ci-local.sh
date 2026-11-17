@@ -311,6 +311,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_ingestor_gap_snapshot.py
     tests/test_source_spool.py
     tests/test_climate_event_spool.py
+    tests/test_1748_ingestor_liveness.py
     tests/test_observation_spool.py
     tests/test_observational_source_migration.py
     tests/test_lab_generator_standardization.py
