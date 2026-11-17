@@ -28,7 +28,7 @@ BEGIN
     IF current_user <> 'verdify'
         OR NOT EXISTS(SELECT 1 FROM public.schema_migrations WHERE source='db/migrations'
             AND seq=317 AND filename='db/migrations/317-served-band-readers-and-relay-record.sql'
-            AND sha256='562d0aa594481e9de9913edd28fa8703ce910142c5aeaacdb3b89004d515242a'
+            AND sha256='01a785794ce3475f954a658c2ca63bc83f32f02dc17916b71e43e9d4f93102a4'
             AND stamp_method='runner')
         OR EXISTS(SELECT 1 FROM public.schema_migrations WHERE source='db/migrations' AND seq>317)
         OR (SELECT count(*) FROM public.runtime_ordinary_login_attestation_receipts)<>2

@@ -519,7 +519,7 @@ SUCCESSOR_317_MCP_DIGEST = SUCCESSOR_316_MCP_DIGEST
 # Exact318 (#1633, host release 5; #1734, review C-9): the 27 planner lessons that teach the retired plan cycle are set
 # inactive. Data only, so its seals are 317's. It follows 317.
 SUCCESSOR_318 = "318-retire-plan-cycle-lessons.sql"
-SUCCESSOR_318_SHA256 = "060f25a248f9327f0d577c1011db9749744f02ea5c8d578d83921ecf616ea4df"
+SUCCESSOR_318_SHA256 = "b76100b250cb2a206c11e8067d16a7a7b9b49728f4341313f47a44958fbb7930"
 SUCCESSOR_318_DIGESTS = SUCCESSOR_317_DIGESTS
 SUCCESSOR_318_MCP_DIGEST = SUCCESSOR_317_MCP_DIGEST
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this

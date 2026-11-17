@@ -1298,7 +1298,7 @@ def sealed_sql_317():
 RETIRE_PLAN_CYCLE_LESSONS_MIGRATION = (
     318,
     "318-retire-plan-cycle-lessons.sql",
-    "060f25a248f9327f0d577c1011db9749744f02ea5c8d578d83921ecf616ea4df",
+    "b76100b250cb2a206c11e8067d16a7a7b9b49728f4341313f47a44958fbb7930",
 )
 # Host release 5 (#1633, #1734, review C-9): the 27 planner lessons that teach the retired plan cycle are set inactive.
 # Data only: no catalog object changes, so the seals are 317's (they move together if 317's are re-measured).
