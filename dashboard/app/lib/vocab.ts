@@ -14,11 +14,11 @@ const everyMember = <T extends string>() => <const V extends readonly [T, ...T[]
 
 /** `ReadbackState`: computed by the API on every read (architecture §5.5); display only. */
 export type ReadbackState = Schemas["ReadbackState"];
-export const READBACK_STATES = everyMember<ReadbackState>()(["requested", "confirmed", "not_confirmed", "held", "no_readback", "overridden", "released"]);
+export const READBACK_STATES = everyMember<ReadbackState>()(["requested", "confirmed", "not_confirmed", "no_readback", "overridden", "released"]);
 
-/** `StateReason.code`: why a value is held or not confirmed, when the platform knows. */
+/** `StateReason.code`: why a value is not confirmed, when the platform knows. */
 export type StateReasonCode = Schemas["StateReason"]["code"];
-export const STATE_REASON_CODES = everyMember<StateReasonCode>()(["clamped", "experiment", "deferred", "push_failed", "writer_down", "controller_not_reporting", "no_engine", "no_match"]);
+export const STATE_REASON_CODES = everyMember<StateReasonCode>()(["clamped", "deferred", "push_failed", "writer_down", "controller_not_reporting", "no_engine", "no_match"]);
 
 /** `ProblemCode`: why a request was refused, shared with MCP. */
 export type ProblemCode = Schemas["ProblemCode"];
@@ -26,7 +26,7 @@ export const PROBLEM_CODES = everyMember<ProblemCode>()([
   "invalid_request", "unauthenticated", "forbidden", "origin_mismatch", "not_found", "writes_disabled", "query_timeout", "unavailable", "window_too_large",
   "unknown_target", "read_only", "out_of_range", "manual", "request_id_reused", "check_required", "too_close", "too_many_schedules", "line_disabled",
   "line_paused", "line_faulted", "not_schedule_member", "line_busy", "manifold_busy", "cap_reached", "position_occupied",
-  "ambiguous_position", "planting_ended", "study_state",
+  "ambiguous_position", "planting_ended",
 ]);
 
 /** `LineState.code`: an irrigation line's state. */

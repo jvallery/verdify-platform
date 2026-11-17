@@ -19,8 +19,6 @@ type Codes<T> = Exclude<T, null | undefined>;
  */
 const STATE_REASON = {
   clamped: "Changed to fit its limits",
-  // The experiment platform is gone (migration 316); an old row still reads, in words that name no study.
-  experiment: "Kept back by the host",
   deferred: "Waiting: the controller is short of memory",
   push_failed: "Sending failed",
   writer_down: "Ingestor not running",
@@ -81,8 +79,6 @@ const PROBLEM_CODE = {
   position_occupied: "Something is already planted there",
   ambiguous_position: "That place could mean more than one spot; be more specific",
   planting_ended: "That planting has already ended",
-  // Release C retires the code with the experiment platform; until then a refusal still reads.
-  study_state: "That can't be changed right now",
 } as const satisfies Record<ProblemCode, string>;
 
 /** Every `LineState.code`: an irrigation line's state, with its reason beside it in words (`LineState.reason`). */

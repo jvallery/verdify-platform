@@ -118,9 +118,6 @@ const METRICS = [
   ["forecast.rh_pct", "Forecast relative humidity", "outdoor", "%", 3600, 400, "DERIVED", null, false],
   ["forecast.vpd_kpa", "Forecast VPD", "outdoor", "kPa", 3600, 400, "DERIVED", null, false],
   ["forecast.solar_w_m2", "Forecast solar radiation", "outdoor", "W/m²", 3600, 400, "DERIVED", null, false],
-  // The controller's on-chip targets, a cross-check for API-06 (house for north, which has no zone band).
-  ["climate.house_vpd_target", "House VPD target", "targets", "kPa", 60, 365, "DERIVED", "house", false],
-  ...["center", "south", "west", "east"].map((zone) => [`climate.vpd_target_${zone}`, `${zone[0].toUpperCase()}${zone.slice(1)} VPD target`, "targets", "kPa", 60, 365, "DERIVED", zone, false]),
   // The case probe inside the controller's enclosure, which Now's probes block reads (series.py's "controller" group).
   ["climate.temp_case", "Case temperature", "controller", "°F", 60, 365, "MEASURED", null, false, "Inside the controller enclosure"],
   ["climate.rh_case", "Case relative humidity", "controller", "%", 60, 365, "MEASURED", null, false, "Inside the controller enclosure"],
@@ -149,8 +146,6 @@ const METRICS = [
   ["daily.time_in_band_day_pct", "Time in band, day", "daily", "%", 86_400, 400, "DERIVED", null, true],
   ["daily.time_in_band_night_pct", "Time in band, night", "daily", "%", 86_400, 400, "DERIVED", null, true],
   ["daily.water_gal", "Water used", "daily", "gal", 86_400, 400, "MEASURED", null, true],
-  ["daily.iris_required_written", "Iris required plans written", "daily", "count", 86_400, 400, "DERIVED", null, true],
-  ["daily.iris_required_missed", "Iris required plans missed", "daily", "count", 86_400, 400, "DERIVED", null, true],
   ["daily.alerts_critical", "Critical alerts raised", "daily", "count", 86_400, 400, "DERIVED", null, true],
   ["daily.alerts_warning", "Warning alerts raised", "daily", "count", 86_400, 400, "DERIVED", null, true],
   ["daily.alerts_info", "Info alerts raised", "daily", "count", 86_400, 400, "DERIVED", null, true],
@@ -208,10 +203,6 @@ function inBand(now) {
   const at = clock(now);
   const written = at("07:02");
   const planId = `iris-${local(written).date.replaceAll("-", "")}-${hhmm(written)}`;
-  const waypoint = (time, value) => ({ at: iso(time), value, source: "iris", effective: true });
-  const kpaNext = waypoint(at("13:00"), 720);
-  const gapNext = waypoint(at("16:30"), 55);
-  const device = (value, minutes) => reading(value, now - minutes * MINUTE);
   const line = (id, fields = {}) => {
     const info = lineInfo(id);
     return {
@@ -240,8 +231,6 @@ function inBand(now) {
     // Metric keys that read null over a span, a probe out: {keys, from, to} in epoch ms (south-probe-out).
     outages: [],
     band: { temp_f: { low: 62.0, high: 70.0, verdict: "in" }, vpd_kpa: { low: 0.45, high: 0.8, verdict: "in" }, rh_pct: null, observed_at: iso(now - 4 * MINUTE) },
-    mode: { code: "IDLE", stage: null, reason: "idle", since: iso(at("09:55")) },
-    iris: { plan_id: planId, trigger: "SUNRISE", valid_until: iso(at("17:30")), required_trigger: "ok" },
     overrides: [],
     leak: { active: false, since: null, flow_gpm: 0, gal_last_10min: 0, alert_id: null, stopped_at: null },
     freshness: { climate: freshness(now, 20, 60), diagnostics: freshness(now, 45, 60), readback: freshness(now, 30, 60), ingestor: freshness(now, 20, 60, 180) },
@@ -274,39 +263,13 @@ function inBand(now) {
       item("grow_light_grow", "Grow", "light", at("19:00", -1), { intent: "off", auto_reason: "lux_sufficient", observed_at: iso(now - LUTRON_POLL_AGE) }),
     ],
     reasons: {
-      mode_reason: { code: "idle", since: iso(at("09:55")), observed_at: iso(at("09:55")) },
       fog_block_reason: { code: "none", since: iso(at("05:16")), observed_at: iso(at("05:16")) },
       moisture_block_reason: { code: "no_humidity_demand", since: iso(at("07:12")), observed_at: iso(at("07:12")) },
     },
     alerts: [],
     metrics: structuredClone(METRICS),
-    plan: {
-      plan: {
-        plan_id: planId, trigger: "SUNRISE", written_at: iso(written), valid_from: iso(written), valid_until: iso(at("17:30")), status: "active",
-        hypothesis: "Hot, dry afternoon: engage misting earlier from 13:00 and widen the pulse gap at dusk.", experiment: null,
-        expected_outcome: "VPD stays under 0.80 kPa through the afternoon peak.", conditions_summary: "Clear, 58 °F high outside, RH falling to 20%.",
-        outcome_score: null, lesson: null,
-        detail: { climate_intents: [{ param: "outdoor_staleness_max_s", rationale: "Engage earlier before the 13:00 dry spell." }, { param: "mister_min_off_s", rationale: "Longer evaporation dwell at dusk." }] },
-      },
-      no_plan_since: null,
-      lanes: [
-        { param: "outdoor_staleness_max_s", label: "Outdoor Staleness Max", unit: "s", device: device(660, 2), waypoints: [kpaNext], desired: null, applied_from: "plan" },
-        { param: "mister_min_off_s", label: "Mister Min Off", unit: "s", device: device(45, 1), waypoints: [gapNext], desired: null, applied_from: "plan" },
-        { param: "mister_engage_delay_s", label: "Mister Engage Delay", unit: "s", device: device(60, 3), waypoints: [], desired: null, applied_from: "plan" },
-      ],
-      manual_count: 0,
-      health: [
-        ["MIDNIGHT", true, at("00:15", -1), "plan_written"], ["SUNRISE", true, at("07:00", -1), "plan_written"], ["SOLAR_MAX", false, at("12:41", -1), "plan_written"],
-        ["SUNSET", true, at("16:50", -1), "plan_written"], ["MIDNIGHT", true, at("00:15"), "plan_written"], ["SUNRISE", true, at("07:00"), "plan_written"],
-        ["SOLAR_MAX", false, at("12:41"), "expected"], ["SUNSET", true, at("16:50"), "expected"], ["MIDNIGHT", true, at("00:15", 1), "expected"],
-      ].map(([trigger, required, expected, outcome]) => ({
-        trigger, required, expected_at: iso(expected), due_at: iso(expected + 30 * MINUTE), outcome,
-        resolved_at: outcome === "expected" ? null : iso(expected + 2 * MINUTE), failure_class: null,
-      })),
-    },
-    // Every registry row and the Band in force rows, rendered from the registry (settings.json); Iris's plan rows carry
-    // this world's plan id.
-    settings: baseSettings(now).map((row) => (row.plan?.source === "iris" ? { ...row, plan: { ...row.plan, plan_id: planId } } : row)),
+    // Every registry row and the Band in force rows, rendered from the registry (settings.json).
+    settings: baseSettings(now),
     activity: [
       { id: 14, ts: iso(written), actor: actor("iris", "iris"), action: "plan.write", target: planId, detail: { trigger: "SUNRISE", changes: [{ param: "outdoor_staleness_max_s", at: iso(at("13:00")), value: 720 }, { param: "mister_min_off_s", at: iso(at("16:30")), value: 55 }] }, reason: "Hot, dry afternoon: engage misting earlier from 13:00 and widen the pulse gap at dusk.", state: "confirmed", confirmed_at: iso(written + 2 * MINUTE), experiment_id: null, request_id: null },
       { id: 13, ts: iso(at("06:30")), actor: actor("system", "forecast-engine"), action: "setting.write", target: "mister_min_off_s", detail: { before: 45, value: 50 }, reason: "Forecast rule: hot afternoon", state: "confirmed", confirmed_at: iso(at("06:31")), experiment_id: null, request_id: null },
@@ -402,7 +365,6 @@ function scorecardRows(now) {
       temp_in_band_pct: tenths(91.5 - (ago % 5) * 1.5), vpd_in_band_pct: tenths(84 + (ago % 4) * 2.5),
       time_in_band_day_pct: graded ? tenths(88.4 - ago * 1.2) : null, time_in_band_night_pct: graded ? tenths(79.6 + ago * 2.1) : null,
       band_reason: graded ? null : "band grade kept 3 days", water_gal, water_reason,
-      iris_required_written: ago === 0 || ago === 9 ? 2 : 3, iris_required_missed: ago === 9 ? 1 : 0,
       alerts_critical: ago === 14 ? 1 : 0, alerts_warning: ago % 4 === 1 ? 2 : 1, alerts_info: ago % 3,
     });
   }
@@ -413,7 +375,6 @@ function scorecardRows(now) {
 export const lineOf = (world, id) => world.lines.find((line) => line.line_id === id);
 export const itemOf = (world, equipment) => world.equipment.find((item) => item.equipment === equipment);
 export const settingOf = (world, param) => world.settings.find((row) => row.param === param);
-export const laneOf = (world, param) => world.plan.lanes.find((lane) => lane.param === param);
 export const nextId = (rows, floor = 1) => rows.reduce((max, row) => Math.max(max, Number(row.id) || 0), floor - 1) + 1;
 
 /** A line starts: its state, its relay and today's count. */
@@ -562,7 +523,9 @@ export const FIXTURES = {
   // its rule, plus an acknowledgement and the base's run on L01.
   "activity-mixed": (world) => {
     const at = clock(world.now);
-    const plan = world.plan.plan;
+    // The retired planner's 07:02 plan (release C), as an old activity row still names it.
+    const written = at("07:02");
+    const plan = { plan_id: `iris-${local(written).date.replaceAll("-", "")}-${hhmm(written)}`, written_at: iso(written) };
     const entry = (row) => ({ detail: {}, reason: null, state: null, confirmed_at: null, experiment_id: null, request_id: null, ...row });
     world.activity = [
       ...world.activity.filter((row) => row.action === "irrigation.run").slice(0, 1),
@@ -590,7 +553,7 @@ export const FIXTURES = {
           ],
           trigger_id: "5f0c6a1e-2b7d-4c9a-8e3f-1d2c3b4a5e6f", planner_instance: "iris",
         },
-        reason: plan.hypothesis,
+        reason: "Hot, dry afternoon: engage misting earlier from 13:00 and widen the pulse gap at dusk.",
       }),
       entry({
         id: 25, ts: iso(at("07:41")), actor: JASON, action: "setting.write", target: "outdoor_staleness_max_s",
@@ -683,7 +646,7 @@ export const FIXTURES = {
       zone: "center", details: { line_id: "L04", fault: "mister_fault" }, first_seen_at: iso(world.now - 25 * MINUTE),
     });
   },
-  // #1139: iris asked for 660 at 07:02, then Jason took it manual at 630 at 08:00, so the 13:00 waypoint is held off.
+  // #1139: iris asked for 660 at 07:02, then Jason took it manual at 630 at 08:00.
   "setting-history": (world) => {
     const at = clock(world.now);
     const row = settingOf(world, "outdoor_staleness_max_s");
@@ -693,9 +656,7 @@ export const FIXTURES = {
     const newest = asked(202, 630, true, JASON, at("08:00"), at("08:01"), "Vandas drying");
     world.desiredLog[row.param] = [asked(201, 660, false, actor("iris", "iris"), at("07:02"), at("07:03"), null), newest];
     world.readbackLog[row.param] = [{ at: iso(at("05:40", -1)), value: 600 }, { at: iso(at("07:03")), value: 660 }, { at: iso(at("08:01")), value: 630 }];
-    Object.assign(row, { desired: newest, applied_from: "manual", state: "confirmed", readback: reading(630, at("08:01")), plan: { ...row.plan, next: { ...row.plan.next, effective: false } } });
-    const lane = laneOf(world, row.param);
-    Object.assign(lane, { desired: newest, applied_from: "manual", device: reading(630, at("08:01")), waypoints: lane.waypoints.map((point) => ({ ...point, effective: false })) });
+    Object.assign(row, { desired: newest, applied_from: "manual", state: "confirmed", readback: reading(630, at("08:01")) });
   },
   // #1139: as setting-history, but the row before Jason's is a release, so Revert goes back to auto.
   "setting-history-release": (world) => {
@@ -714,7 +675,6 @@ export const FIXTURES = {
     const readback = reading(630, at("08:01", -9));
     world.readbackLog.outdoor_staleness_max_s = [{ at: iso(at("05:40", -13)), value: 600 }, { at: iso(at("07:03", -12)), value: 660 }, { at: iso(at("08:01", -9)), value: 630 }];
     settingOf(world, "outdoor_staleness_max_s").readback = readback;
-    laneOf(world, "outdoor_staleness_max_s").device = readback;
   },
   "schedules-paused": (world) => {
     const at = clock(world.now);

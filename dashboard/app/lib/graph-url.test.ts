@@ -118,9 +118,13 @@ test("the law's retired keys are never drawn: a target, a plan count, the reserv
   expect(retiredReason(metric("climate.hydro_battery_pct"))).toMatch(/^not reported/);
   expect(retiredReason(metric("daily.dli_mol", "daily"))).toMatch(/daily light integral/);
   expect(retiredReason(metric("climate.temp_avg"))).toBeNull();
-  const resolved = resolveView(view("m=climate.house_vpd_target"), METRICS, SETTINGS);
+  // The API before release C still lists the key: it drops with its reason. Release C's registry has no such key.
+  const before = [...METRICS, metric("climate.house_vpd_target", "targets")];
+  const resolved = resolveView(view("m=climate.house_vpd_target"), before, SETTINGS);
   expect(resolved.picked).toEqual([]);
   expect(resolved.notices).toEqual(["Removed climate.house_vpd_target: the controller follows the band alone"]);
+  expect(METRICS.some((item) => item.group === "targets" || item.key.startsWith("daily.iris_"))).toBe(false);
+  expect(resolveView(view("m=climate.house_vpd_target"), METRICS, SETTINGS).picked).toEqual([]);
   // A setting nothing on this controller reads is never drawn as steps.
   expect(settingProblem({ ...SETTINGS.find((row) => row.param === "mister_hysteresis_kpa")!, effect: "none" }, ["kPa"])).toBe("nothing reads it on this controller");
 });

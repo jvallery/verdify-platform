@@ -58,7 +58,7 @@ test("spans older than the band's 90 days draw the stored band", () => {
   expect(runs.map((run) => [run.source, iso(run.t[0]), iso(run.t[run.t.length - 1])])).toEqual([["crop", "06:00", "09:00"], ["band", "09:00", "10:00"]]);
 });
 
-test("steps: the device holds each readback, a request is dashed until confirmed or now, and API-12's plan draws nothing", () => {
+test("steps: the device holds each readback, and a request is dashed until confirmed or now", () => {
   const history = load<SettingHistory>(historyFixture);
   const steps = settingSteps({ history }, "kPa", NOW, END);
   const view = steps.map((step) => [step.kind, new Date(step.start * 1000).toISOString().slice(11, 16), new Date(step.end * 1000).toISOString().slice(11, 16), step.label]);
@@ -68,8 +68,6 @@ test("steps: the device holds each readback, a request is dashed until confirmed
     // Confirmed rows are the device line's; the requested one runs from its request to now.
     ["requested", "09:45", "10:00", kpa("1.55") + " REQUESTED"],
   ]);
-  // The fixture's four waypoints are not drawn: the plan markers are retired (screens.md 7.1).
-  expect(load<SettingHistory>(historyFixture).plan).toHaveLength(4);
   expect(steps.every((step) => step.kind === "device" || step.kind === "requested")).toBe(true);
   expect(steps.find((step) => step.kind === "requested")!.detail).toBe(`mister_engage_kpa REQUESTED ${kpa("1.55")} · jason`);
   const groups = groupSteps(steps);
@@ -78,15 +76,15 @@ test("steps: the device holds each readback, a request is dashed until confirmed
   expect(stepsAt(groups, epoch("2026-11-01T14:00:00Z"))).toEqual([]);
 });
 
-test("a request ends at its confirmation or the next request; not confirmed and held say so, with the reason", () => {
+test("a request ends at its confirmation or the next request; not confirmed says so, with the clamp's reason", () => {
   const history = load<SettingHistory>(historyFixture);
   history.desired = [
     { ...history.desired[1], id: 50, state: "not_confirmed", created_at: "2026-11-01T08:00:00Z" },
-    { ...history.desired[1], id: 51, value: 1.4, state: "held", created_at: "2026-11-01T09:00:00Z", confirmed_at: "2026-11-01T09:20:00Z", state_reason: { code: "clamped", detail: "VPD-high moisture guardrail", applied_value: 1.45 } },
+    { ...history.desired[1], id: 51, value: 1.4, state: "not_confirmed", created_at: "2026-11-01T09:00:00Z", confirmed_at: "2026-11-01T09:20:00Z", state_reason: { code: "clamped", detail: "VPD-high moisture guardrail", applied_value: 1.45 } },
   ];
   const requested = settingSteps({ history, label: "VPD Mister Engage" }, "kPa", NOW, END).filter((step) => step.kind === "requested");
-  expect(requested.map((step) => [step.label, new Date(step.end * 1000).toISOString().slice(11, 16)])).toEqual([[kpa("1.55") + " NOT CONFIRMED", "09:00"], [kpa("1.40") + " HELD", "09:20"]]);
-  expect(requested[1].detail).toBe(`VPD Mister Engage HELD ${kpa("1.40")} · jason · VPD-high moisture guardrail, applied ${kpa("1.45")}`);
+  expect(requested.map((step) => [step.label, new Date(step.end * 1000).toISOString().slice(11, 16)])).toEqual([[kpa("1.55") + " NOT CONFIRMED", "09:00"], [kpa("1.40") + " NOT CONFIRMED", "09:20"]]);
+  expect(requested[1].detail).toBe(`VPD Mister Engage NOT CONFIRMED ${kpa("1.40")} · jason · VPD-high moisture guardrail, applied ${kpa("1.45")}`);
   // Released rows (value null) and confirmed rows draw nothing.
   history.desired = [{ ...history.desired[0], value: null, state: "released" }];
   expect(settingSteps({ history }, "kPa", NOW, END).some((step) => step.kind === "requested")).toBe(false);
@@ -123,7 +121,7 @@ test("the y range is the union of traces, band and steps in view, padded 5%", ()
 test("allRequests: every desired row draws as a request labelled with who asked, up to the next row or now, and a release ends the one before it", () => {
   const asked = (id: number, value: number | null, created_at: string, source: string, name: string, state: string, reason: string | null = null) => ({ id, param: "mister_engage_kpa", value, manual: false, state, actor: { source, name }, reason, created_at });
   const history = {
-    param: "mister_engage_kpa", unit: "kPa", min: 0.5, max: 2.5, from: "2026-11-01T06:00:00Z", to: "2026-11-01T22:00:00Z", plan: [], readback: [],
+    param: "mister_engage_kpa", unit: "kPa", min: 0.5, max: 2.5, from: "2026-11-01T06:00:00Z", to: "2026-11-01T22:00:00Z", readback: [],
     desired: [
       asked(1, 1.5, "2026-11-01T05:00:00Z", "system", "forecast-engine", "confirmed"),
       asked(2, 1.55, "2026-11-01T07:00:00Z", "dashboard", "Jason", "confirmed", "drier nights"),
@@ -156,7 +154,7 @@ test("allRequests: readings that print alike are one device step, a gap stays a 
   const point = (hour: number, value: number | null) => ({ at: `2026-11-01T${String(hour).padStart(2, "0")}:00:00Z`, value });
   const epoch = (hour: number) => Date.parse(point(hour, null).at) / 1000;
   const history = {
-    param: "mister_engage_kpa", unit: "kPa", from: "2026-11-01T00:00:00Z", to: "2026-11-01T22:00:00Z", plan: [], desired: [],
+    param: "mister_engage_kpa", unit: "kPa", from: "2026-11-01T00:00:00Z", to: "2026-11-01T22:00:00Z", desired: [],
     // The ingestor's value and the snapshot's binary32 reading of it alternate.
     readback: [point(1, 0.83), point(2, 0.8299999833106995), point(3, 0.83), point(4, 0.84), point(5, null), point(6, 0.84), point(7, 0.8199999928474426), point(8, 0.82)],
   };

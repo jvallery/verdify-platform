@@ -104,7 +104,7 @@ test("stale readbacks: the value muted with the stale age; never Confirmed-looki
 
 test("no retired words in a row: no plan, planner, Iris changed, manual or held", () => {
   for (const param of ["outdoor_staleness_max_s", "band_temp_target_sm", "temp_low", "sw_gl_main_auto_mode", "mister_engage_delay_s"]) {
-    draw(row(param, { state: "held", desired: desired({ param, state: "held" }) }));
+    draw(row(param, { state: "not_confirmed", desired: desired({ param, state: "not_confirmed", state_reason: { code: "clamped", applied_value: 1 } }) }));
     expect(text(document.querySelector(".setting-row")), param).not.toMatch(/\b(plan|planned|planner|Iris changed|manual|held|target)\b/i);
     cleanup();
   }
@@ -132,7 +132,7 @@ test("bounds and step, the value in force and the state, without rendering", () 
   // A release has nothing standing: the controller's value is the one in force.
   expect(valueInForce({ ...base, state: "released", desired: desired({ value: null, state: "released" }) })).toBe(660);
   expect(settingState({ ...base, state: "released" }).kind).toBe("reported");
-  expect(settingState({ ...base, state: "held", desired: desired({ state: "held" }) })).toMatchObject({ kind: "not_confirmed", status: "serious" });
+  expect(settingState({ ...base, state: "not_confirmed", desired: desired({ state: "not_confirmed" }) })).toMatchObject({ kind: "not_confirmed", status: "serious" });
   expect(settingState(row("band_house_temp_low")).kind).toBe("derived");
   // A legacy wide limit has nothing to confirm: the host stopped sending it, so a stale push never reads not confirmed.
   const legacy = row("temp_low", { state: "not_confirmed", desired: null });

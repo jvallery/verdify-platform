@@ -1748,7 +1748,7 @@ components:
         step_s: {type: integer, minimum: 300}
         t: {type: array, items: {type: integer}, description: Epoch seconds}
         band: {$ref: '#/components/schemas/BandColumns', description: 'In force (DERIVED band rows of the requested zone); null beyond 90 days'}
-        crop: {$ref: '#/components/schemas/BandColumns', description: 'Reconstructed from today''s anchors (API-06 says how per zone)'}
+        crop: {$ref: '#/components/schemas/BandColumns', description: 'Reconstructed from today''s anchors (API-06 says how)'}
         achievable:
           description: 'Asked for with achievable: the house''s achievable VPD band and grades; null otherwise, for a zone or past 35 days'
           anyOf: [{$ref: '#/components/schemas/AchievableColumns'}, {type: 'null'}]

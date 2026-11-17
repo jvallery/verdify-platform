@@ -69,10 +69,10 @@ export type SettingStateKind = "confirmed" | "not_confirmed" | "not_reported" | 
 export type SettingStateView = {
   readonly kind: SettingStateKind; readonly status: BadgeStatus; readonly since: string | null; readonly reason: string | null;
 };
-const PENDING: readonly string[] = ["requested", "not_confirmed", "held"];
+const PENDING: readonly string[] = ["requested", "not_confirmed"];
 
 /**
- * The API's readback state in the page's words. requested, not_confirmed and held read "Not confirmed since" the time the
+ * The API's readback state in the page's words. requested and not_confirmed read "Not confirmed since" the time the
  * value was sent (the newest desired row's, else the reason's); no_readback reads Not reported; a row whose newest write
  * is a release has nothing to confirm, so it reads Reported while the controller reports a value. A Band in force row is
  * worked out by the host. A legacy wide limit (`read_only_kind` "legacy_wide_limit") has nothing to confirm: the host

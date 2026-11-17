@@ -138,7 +138,7 @@ export function useLightControl({ light, equipment, autoParam }: (typeof LIGHTS)
     /** This control's own write: CONFIRMED reads on the row for as long as it stands. */
     writeId: automatic?.writeId ?? null,
     /** The write has been sent and API-09 has neither confirmed nor refused it yet. */
-    awaitingConfirm: automatic?.resync === "waiting" && setting?.state !== "not_confirmed" && setting?.state !== "held",
+    awaitingConfirm: automatic?.resync === "waiting" && setting?.state !== "not_confirmed",
     unread: automatic?.resync === "unread",
   };
 }

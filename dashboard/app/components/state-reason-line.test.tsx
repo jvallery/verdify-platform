@@ -10,11 +10,10 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(denver("06:10")
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const SINCE = denver("06:02");
-const DETAIL: Partial<Record<StateReasonCode, string>> = { clamped: "VPD-high moisture guardrail", experiment: "e-vanda-night", push_failed: "timeout" };
+const DETAIL: Partial<Record<StateReasonCode, string>> = { clamped: "VPD-high moisture guardrail", push_failed: "timeout" };
 // The words each code reads, with `since` at 06:02 and with `since` null (design system §4.2; VD-03).
 const WITH_SINCE: Record<StateReasonCode, string> = {
   clamped: "Changed to 1.15 kPa to fit its limits: VPD-high moisture guardrail",
-  experiment: "Kept back by the host: sent once it is released",
   deferred: "Sent 06:02; waiting: the controller is short of memory",
   push_failed: "Sent 06:02; sending failed: timeout",
   writer_down: "Ingestor not running since 06:02",
@@ -35,9 +34,9 @@ const reason = (code: StateReasonCode, since: string | null): StateReason => ({ 
 const OLD_REQUEST = denver("06:08");
 const line = (props: Parameters<typeof StateReasonLine>[0]) => renderUi(<StateReasonLine unit="kPa" requestedAt={OLD_REQUEST} {...props} />).container;
 
-test("under REQUESTED, NOT CONFIRMED and HELD every StateReason code reads in words, never as its raw code", () => {
+test("under REQUESTED and NOT CONFIRMED every StateReason code reads in words, never as its raw code", () => {
   expect(Object.keys(WITH_SINCE).sort()).toEqual([...STATE_REASON_CODES].sort());
-  for (const state of ["requested", "not_confirmed", "held"]) {
+  for (const state of ["requested", "not_confirmed"]) {
     for (const code of STATE_REASON_CODES) {
       for (const [since, words] of [[SINCE, WITH_SINCE[code]], [null, WITHOUT_SINCE[code]]] as const) {
         const container = line({ state, reason: reason(code, since) });
@@ -54,7 +53,7 @@ test("no_match reads \"Sent 06:02; no matching readback yet\", and with since nu
   cleanup();
   expect(text(line({ state: "not_confirmed", reason: { code: "no_match", since: null } }))).toBe("No matching readback yet");
   cleanup();
-  expect(text(line({ state: "held", reason: null }))).toBe("No matching readback yet");
+  expect(text(line({ state: "not_confirmed", reason: null }))).toBe("No matching readback yet");
   cleanup();
   // A code this build has no words for still never shows raw.
   const unknown = line({ state: "not_confirmed", reason: { code: "brownout" as StateReasonCode, since: SINCE } });
@@ -96,13 +95,13 @@ test("reasonShows and reasonParts follow the same rules without rendering", () =
   expect(reasonShows("requested", null, denver("06:09", 1), now)).toBe(false);
   expect(reasonShows("requested", null, denver("06:09", 0), now)).toBe(true);
   expect(reasonShows("requested", { code: "no_engine" }, denver("06:10"), now)).toBe(true);
-  expect(reasonShows("held", null, null, now)).toBe(true);
+  expect(reasonShows("not_confirmed", null, null, now)).toBe(true);
+  expect(reasonShows("held", null, null, now)).toBe(false); // release C retired held; the parser reads it not_confirmed
   expect(reasonShows("confirmed", { code: "no_match" }, denver("06:00"), now)).toBe(false);
   // A clamp without its unit keeps the applied value's digits; a clamp without an applied value or detail says only that.
   expect(reasonParts({ code: "clamped", applied_value: 1.15, detail: null })).toEqual(["Changed to 1.15 to fit its limits"]);
   expect(reasonParts({ code: "clamped", applied_value: -0.4, detail: null }, "°F")).toEqual([`Changed to −0.4${NBSP}°F to fit its limits`]);
   expect(reasonParts({ code: "clamped" })).toEqual(["Changed to fit its limits"]);
-  expect(reasonParts({ code: "experiment", detail: "  " })).toEqual(["Kept back by the host: sent once it is released"]);
   // An unparseable since drops out like a null one.
   expect(reasonParts({ code: "writer_down", since: "not a time" })).toEqual(["Ingestor not running"]);
 });

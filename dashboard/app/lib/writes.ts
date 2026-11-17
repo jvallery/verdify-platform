@@ -18,7 +18,7 @@
  * A non-GET is never retried, and there is no Send again: the dispatcher re-sends on its own. Last write wins, and
  * `manual` is the only control flag: edit forms always send it (ticked unless unticked), inline switches send true,
  * and Run, Stop, Pause, Resume and Clear fault send none. The client checks only min and max; validation, snapping and
- * the readback state (`requested`, `confirmed`, `not_confirmed` after 5 min, `held`) are the server's.
+ * the readback state (`requested`, `confirmed`, `not_confirmed` after 5 min) are the server's.
  */
 import { createElement, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -93,8 +93,6 @@ function problemWords(problem: Problem, units: FieldUnits): string {
   if (problem.code === "manifold_busy") return manifoldBusyText(problem);
   // A planting refusal's own sentence names the cells and who holds them, or the places a text could mean (#1330).
   if ((problem.code === "position_occupied" || problem.code === "ambiguous_position") && problem.detail) return problem.detail;
-  // A planner study refusal's own sentence says why: not pre-registered, a run already in force, the settings held manual (#1360).
-  if (problem.code === "study_state" && problem.detail) return problem.detail;
   if (hasWords("problem_code", problem.code)) return words("problem_code", problem.code);
   return problem.detail || problem.code;
 }
@@ -186,7 +184,7 @@ export function settingToast(saved: Pick<DesiredSetting, "value" | "snapped_from
  * **S**: change or release one setting (API-10 `PUT /v1/settings/{param}`, API-11 `DELETE`), the three site caps
  * (`mister_daily_volume_max_gal`, `sched_mist_rh_max_pct`, `climate_yield_min`) included. Save always sends `manual`.
  * On a 200 it toasts, calls `onSaved` (the drawer closes) and refetches API-09, whose row then reads REQUESTED and is
- * read every 5 s (`useSettingsRead`) until the API says `confirmed`, `not_confirmed` or `held`; a site cap before the
+ * read every 5 s (`useSettingsRead`) until the API says `confirmed` or `not_confirmed`; a site cap before the
  * irrigation firmware stays REQUESTED with `no_engine`. A refusal keeps the form open with `error` beside its field.
  */
 export function useSettingWrite(setting: SettingInfo, { onSaved }: { onSaved?: (saved: DesiredSetting) => void } = {}) {

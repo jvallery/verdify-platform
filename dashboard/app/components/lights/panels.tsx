@@ -114,7 +114,7 @@ export function SwitchingPanel({ items, equipment, now }: { items: readonly (Lig
 }
 
 // ---------------------------------------------------------------------------------------------------- settings
-const PENDING: Readonly<Record<string, "requested" | "not_confirmed" | "held">> = { requested: "requested", not_confirmed: "not_confirmed", held: "held" };
+const PENDING: Readonly<Record<string, "requested" | "not_confirmed">> = { requested: "requested", not_confirmed: "not_confirmed" };
 
 /** The twelve settings of each circuit (L-05, L-06) in four groups; each row opens that setting's drawer on Settings. */
 export function SettingsPanel({ items, read }: { items: readonly Setting[] | null; read: PanelRead<unknown> }) {

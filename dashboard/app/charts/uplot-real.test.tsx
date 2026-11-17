@@ -79,7 +79,7 @@ test("uPlot takes the options: x is the window, y the padded union, the nulls st
   expect(plot).toBeTruthy();
   expect([plot.width, plot.height]).toEqual([1200, 320]);
   expect([plot.scales.x.min, plot.scales.x.max]).toEqual([RANGE.from, RANGE.to]);
-  // The crop band dips to 0.51 kPa: the y range holds it; the plan's 1.80 does not stretch it (#1354).
+  // The crop band dips to 0.51 kPa: the y range holds it (#1354).
   expect(plot.scales.y.min!).toBeLessThan(0.51);
   expect(plot.scales.y.max!).toBeLessThan(1.8);
   expect(plot.series[1].spanGaps).toBe(false);
@@ -98,7 +98,7 @@ test("a settings-only chart: uPlot takes no data at all, ranges y from the steps
   const UPlot = (await import("uplot")).default;
   const [plot] = UPlot.sync(KEY).plots as uPlot[];
   expect([plot.scales.x.min, plot.scales.x.max]).toEqual([RANGE.from, RANGE.to]);
-  // The lowest step is 1.50 kPa and the highest 1.60 (no plan waypoint draws): the y range holds both, padded 5%.
+  // The lowest step is 1.50 kPa and the highest 1.60: the y range holds both, padded 5%.
   expect(plot.scales.y.min).toBeCloseTo(1.5 - 0.1 * 0.05, 9);
   expect(plot.scales.y.max).toBeCloseTo(1.6 + 0.1 * 0.05, 9);
   const painted = contexts.flatMap((context) => context.texts.map((text) => text.text));

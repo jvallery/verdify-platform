@@ -78,11 +78,11 @@ function ChangeLine({ entry, setting, me }: { entry: ChangeEntry; setting: Setti
 
 /**
  * The history as the chart draws it: its unit as the panel prints it, people by name, no device line without a readback,
- * and none of the old planner's values, which the law retired (a server before release C still serves them).
+ * and no plan values (release C retired them; the parser drops them from a server before it).
  */
 function drawnHistory(history: SettingHistory, me: ReturnType<typeof useMe>, noReadback: boolean): SettingHistory {
   return {
-    ...history, unit: unitLabel(history.unit), readback: noReadback ? [] : history.readback, plan: [],
+    ...history, unit: unitLabel(history.unit), readback: noReadback ? [] : history.readback,
     desired: history.desired.map((row) => ({ ...row, actor: shownActor(row.actor, me) })),
   };
 }
