@@ -227,7 +227,9 @@ def test_the_same_write_twice_creates_one_row_and_another_payload_is_request_id_
     )
     assert tuple(logged)[:6] == ("dashboard", "jason", "setting.write", KPA, "campaign", uuid.UUID(key))
     assert logged["request_sha256"] == activity.request_hash(
-        "API-10", KPA, {"value": 640, "manual": True, "reason": "campaign"}
+        "API-10",
+        KPA,
+        {"value": 640.0, "manual": True, "reason": "campaign"},  # the service hashes a number as a float
     )
     assert logged["experiment_id"] is None
     assert json.loads(logged["detail"])["manual"] == {"before": False, "after": True}
