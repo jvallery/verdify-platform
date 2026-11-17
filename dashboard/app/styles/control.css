@@ -17,7 +17,8 @@
 /* The filter by what reads a setting, and its one-line definition. */
 .ctl-settings-tools{display:grid;gap:var(--space-2);margin:0 0 var(--space-4);min-width:0}
 .ctl-filter-note{margin:0}
-.ctl-filter-count{font-variant-numeric:tabular-nums;color:var(--text-3)}
+/* The count sits on the segmented control's --surface-3, where --text-3 is 4.45:1 in the light theme: --text-2 there. */
+.ctl-filter-count{font-variant-numeric:tabular-nums;color:var(--text-2)}
 .segmented [aria-current=page] .ctl-filter-count{color:inherit}
 
 /* The catalogue: one table inside its panel, a sticky head per group. It is never a scroll container, so the group heads stick to the page under the header. */
