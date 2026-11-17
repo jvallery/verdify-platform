@@ -411,8 +411,8 @@ New keys, bound to stored columns, all `MEASURED`, bucketed like their neighbour
 | controller | `diagnostics.heap_min_free_kb`, `diagnostics.heap_minute_low_kb`, `diagnostics.heap_largest_block_minute_low_kb`, `diagnostics.loop_worst_ms`, `diagnostics.loop_stack_free_min_b`, `diagnostics.nvs_used_entries`, `diagnostics.nvs_free_entries`, `diagnostics.nvs_write_worst_ms`, `diagnostics.wifi_disconnects`, `diagnostics.api_clients`, `diagnostics.restart_count`, `diagnostics.active_probes`, `diagnostics.sntp_sync_age_s` |
 | power (new group) | `energy.ch0_power_w`, `energy.ch1_power_w` from `v_dashboard_energy`. Channel 1 is stored negative because its clamp is reversed (#1369); the key serves the magnitude and its note says so |
 
-Notes to add on existing keys: `climate.co2_ppm` is marked unreliable; `climate.hydro_battery_pct` is marked "not
-reported: the meter runs on mains power". Nothing is removed in release A.
+Two metrics that exist gain a note: `climate.co2_ppm` is marked unreliable, and `climate.hydro_battery_pct` is marked
+"not reported: the meter runs on mains power". Nothing is removed in release A.
 
 ## 6. Migration 320: dashboard projections
 

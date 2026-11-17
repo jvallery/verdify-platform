@@ -13,7 +13,7 @@ const series = (key: string, avg: (number | null)[], bucket = 600): Series => ({
 }) as unknown as Series;
 
 test("a zone's keys come from its probe column and only the keys the registry serves", () => {
-  const registry = [{ key: "climate.soil_moisture_south_1" }, { key: "climate.soil_ec_south_1" }];
+  const registry = ["climate.soil_moisture_south_1", "climate.soil_ec_south_1"].map((key) => ({ key }));
   expect(soilKeys({ probe: "soil_moisture_south_1" }, registry)).toEqual({ moisture: "climate.soil_moisture_south_1", ec: "climate.soil_ec_south_1" });
   expect(soilKeys({ probe: "soil_moisture_west" }, registry)).toEqual({});
   expect(soilKeys({ probe: null }, registry)).toEqual({});
