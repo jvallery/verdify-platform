@@ -185,9 +185,11 @@ spec:
               drop: ["ALL"]
           resources:
             # From compose deploy.resources.limits (4G / 2 cpu).
+            # proxmox-infrastructure#960 (N-1 trim, 2026-11-17): 7-day p99 working set
+            # 570 MiB (14-day max 571 MiB); request = p99 + 25 % -> 720Mi. Limit unchanged.
             requests:
               cpu: "500m"
-              memory: "1Gi"
+              memory: "720Mi"
             limits:
               cpu: "2"
               memory: "4Gi"
