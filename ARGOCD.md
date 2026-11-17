@@ -1,6 +1,6 @@
 # Verdify Platform ArgoCD
 
-Last updated: 2026-11-09
+Last updated: 2026-11-16
 
 Agent name: `verdify-platform`
 
@@ -28,30 +28,25 @@ Verdify is single-env as of 2026-06-16.
 - Sync model: manual, behind the device-write gate.
 - Canonical branch: `main`.
 
-`verdify-dev`, staging, `live/platform-main`, and the former isolated Lab canary
-are retired/deleted. Do not add work under deleted dev/staging overlays or
-revive the old branch model.
-
 ## Applications
 
 | App | Namespace | Source path | Sync policy | Notes |
 |---|---|---|---|---|
 | `verdify-prod-dark` | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual | Legacy name meaning production (D-277); the real production writer. Sync uses the release preflight and rollback checks. |
-| `verdify-dashboard` | `verdify-dashboard` | `deploy/k8s/dashboard` | Automated, self-heal, prune off | The dashboard web tier, declared in jvallery/agents (jvallery/agents#5994). The web ships when its digest-pin PR to `deploy/k8s/dashboard/kustomization.yaml` merges, and the app never touches `verdify-prod`. Runbook: `docs/runbooks/dashboard.md`. |
-| `verdify-descheduler` | `verdify-descheduler` | `deploy/k8s/descheduler` | Manual, prune off, pinned to an exact commit | The hourly descheduler CronJob ([#802](https://github.com/jvallery/verdify-platform/issues/802)), declared in jvallery/agents under `agent-fleet-local-prod-apps`. A source change here reaches the cluster only when that pin moves and the app is synced. |
+| `verdify-dashboard` | `verdify-dashboard` | `deploy/k8s/dashboard` | Automated, self-heal, prune off | The dashboard web tier, declared in jvallery/estate-platform `gitops/applications/local-prod/` (adopted in jvallery/agents#5994). The web ships when its digest-pin PR to `deploy/k8s/dashboard/kustomization.yaml` merges, and the app never touches `verdify-prod`. Runbook: `docs/runbooks/dashboard.md`. |
+| `verdify-descheduler` | `verdify-descheduler` | `deploy/k8s/descheduler` | Manual, prune off, pinned to an exact commit | The hourly descheduler CronJob ([#802](https://github.com/jvallery/verdify-platform/issues/802)), declared in jvallery/estate-platform `gitops/applications/local-prod/` under `agent-fleet-local-prod-apps`. A source change here reaches the cluster only when that pin moves (in the consolidated pin PR in jvallery/estate-platform) and the app is synced. |
 
-These are the three Applications that sync this repository's paths (live readback 2026-11-09). The agents-owned `verdify-prod-secrets-local-prod` and `verdify-dashboard-secrets` (central KSOPS) and `verdify-tenant-bounds` also deliver into these namespaces from jvallery/agents.
+These are the three Applications that sync this repository's paths; all three read it through the in-cluster git mirror, so after a merge Argo may need a hard refresh before it compares against the new commit. `verdify-prod-secrets-local-prod` and `verdify-dashboard-secrets` (central KSOPS; their Secret sources stay in jvallery/agents `platform/gitops/secrets-ksops/`) and `verdify-tenant-bounds` also deliver into these namespaces; their declarations are in jvallery/estate-platform too.
 
-The live production Application declaration is owned by [jvallery/agents](https://github.com/jvallery/agents/blob/main/platform/gitops/applications/local-prod/verdify-prod-dark.yaml) and reconciled by `agent-fleet-local-prod-apps`. Adoption preserved its UID, full spec, manual sync and storage ignores. Change its policy in that owner; this repo owns `deploy/k8s/overlays/prod` and its rendered resources. The inactive product-side declaration was removed after live parenting verification. The former
-`verdify-platform-lab-stage` Application/AppProject and its source overlay were
-retired with the abandoned alternate Lab generator on 2026-08-30.
+The live production Application declaration is owned by [jvallery/estate-platform](https://github.com/jvallery/estate-platform/blob/main/gitops/applications/local-prod/verdify-prod-dark.yaml) and reconciled by `agent-fleet-local-prod-apps`, whose source is `gitops/applications/local-prod` in that repository since the Application catalog moved from jvallery/agents on 2026-11-15 (the agents copy is frozen). Adoption preserved its UID, full spec, manual sync and storage ignores. Change its policy in that owner; this repo owns `deploy/k8s/overlays/prod` and its rendered resources.
 
-`verdify-dashboard` and its AppProject are declared in jvallery/agents
-(`platform/gitops/applications/local-prod/verdify-dashboard.yaml`, with
+`verdify-dashboard` and its AppProject are declared in jvallery/estate-platform
+(`gitops/applications/local-prod/verdify-dashboard.yaml` and
+`gitops/projects/verdify-dashboard.yaml`, with
 `CreateNamespace=false` and `ServerSideApply=true`). The AppProject admits only
 Namespace `verdify-dashboard`, Deployment, Service, ServiceAccount, ConfigMap,
 NetworkPolicy and IngressRoute, and denies Secret: Secret `verdify-dashboard-web`
-comes from the agents KSOPS Application `verdify-dashboard-secrets`. Prune is
+comes from the central KSOPS Application `verdify-dashboard-secrets`. Prune is
 off, so a superseded generated ConfigMap stays; its `IgnoreExtraneous`
 annotation keeps the app Synced. The tier-1 exclusion for `dashboard.verdify.ai`
 lives in `overlays/prod` and ships with the `verdify-prod-dark` sync.
@@ -64,6 +59,9 @@ lives in `overlays/prod` and ships with the `verdify-prod-dark` sync.
 - Dashboard web tier: `deploy/k8s/dashboard/` (Argo app `verdify-dashboard`).
 - Secret names and key contracts: `deploy/k8s/SECRETS.md` plus placeholder
   manifests marked local-config.
+- PreSync hooks of the prod sync: the ledgered `verdify-migrate` Job and the
+  runtime-role bootstrap Jobs (`deploy/k8s/base`, `components/runtime-role-boundary`,
+  `components/experiment-v2-credential-bootstrap`).
 - CNPG/migration runbooks and experimental manifests: `deploy/k8s/cnpg/`.
 
 ## Out Of Scope
@@ -83,11 +81,13 @@ opens one PR that records the api, mcp, ingestor and migrate
 `registry.vallery.net/...@sha256:` identities as build
 candidates in the `images:` block of `deploy/k8s/overlays/prod/kustomization.yaml`
 (and moves the dashboard-web digest in `deploy/k8s/dashboard/kustomization.yaml`).
-The in-cluster native pipeline that did this before is retired (#1397).
 The prod render runs the release pins instead: `release-pins.yaml`, a
 `transformers:` entry applied after `images:`, for those four images, and the
 hand-pinned `images:` entries for setpoint-server and
-lab-publisher-k3s. So `main` renders what production runs, and a build changes
+lab-publisher-k3s. The hermes-agent, timescaledb and grafana-image-renderer
+images are built by the same workflow but are not in the pin job; their digests
+are hand-pinned in their manifests, and a timescaledb repin restarts the
+database, so it is an attended release of its own. So `main` renders what production runs, and a build changes
 neither the render nor Argo's comparison with live (#808).
 
 Promotion is a digest-only commit that moves release pins (for the four, copy
@@ -96,6 +96,14 @@ the candidates into `release-pins.yaml` together), followed by
 changes Git only; no image build or pin authorizes that sync. The Lab web
 runtime uses a pinned content-free nginx image and serves only the validated
 Quartz cache PVC.
+
+The sync runs with prune off, so a manifest removed from Git leaves its live
+object in place. The pull request that removes a workload lists the exact live
+objects (kind and name) and what must stay; they are deleted by exact name after
+the sync. Database objects are never removed by a sync: a drop is its own
+numbered migration, applied by the `verdify-migrate` hook after the release that
+removed its last reader and after an archive of the dropped data is written and
+checked.
 
 ## Verification
 

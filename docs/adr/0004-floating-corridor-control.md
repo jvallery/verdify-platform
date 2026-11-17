@@ -1,6 +1,9 @@
 # ADR-0004 — Floating-corridor control: float within crop tolerance, act at the edges
 
-**Status:** Accepted (2026-06-18). **Supersedes ADR-0003** (band-compliance / track-the-target).
+> **Superseded in part by [ADR-0013](0013-climate-law-replaces-the-mode-machine.md) (2026-11-17)** for how climate is decided; the stance still holds: float inside
+> the band and act only at its edges, which the band-edge law implements.
+
+**Status:** Superseded in part by ADR-0013 (2026-11-17); accepted 2026-06-18. **Supersedes ADR-0003** (band-compliance / track-the-target).
 **Basis:** `docs/reviews/greenhouse-physics-model-floating-control-2026-06-18.md` (first-principles
 physics model) + the 2026-06-18 nature-alignment data (`band-single-source-of-truth`).
 

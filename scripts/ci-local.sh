@@ -168,6 +168,8 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_observation_spool_projection.py
     tests/test_315_replayed_gaps_counter_check_and_health_delivery.py
     tests/test_316_experiment_v2_and_shadow_drops_delivery.py
+    tests/test_317_served_band_readers_and_relay_record_delivery.py
+    tests/test_318_retire_plan_cycle_lessons_delivery.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py
@@ -245,6 +247,8 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_anchor_service_sync.py
     tests/test_gap_replay.py
     tests/test_relay_boot_edges.py
+    tests/test_forecast_fetch_retry.py
+    tests/test_esp32_log_tag.py
     tests/test_api_light_command_boundary.py
     tests/test_api_public_output_policy.py
     tests/test_climate_intent_replay_evaluator.py

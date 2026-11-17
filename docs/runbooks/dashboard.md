@@ -1,11 +1,11 @@
 # Dashboard runbook (dashboard.verdify.ai)
 
 The dashboard's web tier, `verdify-dashboard-web` (the BFF), runs in namespace `verdify-dashboard` and ships
-through its own Argo app `verdify-dashboard`: automated, self-heal, prune off, declared in jvallery/agents. It
-never rides the `verdify-prod-dark` sync. The BFF calls the private operator API, `verdify-operator-api` in
+through its own Argo app `verdify-dashboard`: automated, self-heal, prune off, declared in the estate's Argo catalog
+(`ARGOCD.md`). It never rides the `verdify-prod-dark` sync. The BFF calls the private operator API, `verdify-operator-api` in
 `verdify-prod` (ClusterIP :8090, no route), which reads and writes `verdify-db`. Manifests:
 `deploy/k8s/dashboard/`. Secret names and keys: `deploy/k8s/SECRETS.md`. Design:
-`docs/design/dashboard/architecture.md` §2, §4, §5.7, §10 and §11.
+`docs/design/dashboard/architecture.md` sections 2, 4, 5.7, 10 and 11.
 
 Every command below runs from any kubectl host and prints no secret value, cookie or token. Read Secrets by key
 name only (`kubectl describe secret` prints names and sizes); never `get secret -o yaml` or `-o json`. Change the
@@ -36,10 +36,22 @@ scripts/dashboard-smoke.sh --expected-web-sha <build commit of the pinned digest
 `API-01` prints what `writes_enabled` reads and passes when it equals the pod's `DASHBOARD_WRITES_ENABLED`, so the same
 line records the first `true` after the flag merges and the `false` after a rollback.
 
+## The daily review and the band
+
+The controller decides climate alone; the dashboard shows its state and is where the owner changes the band and
+the drying cost limit (`/band`). No agent can write either. Iris, the daily reviewer, writes one review a day to
+`planner_review` (`docs/planner/planner-io-schema.md`):
+
+- The Iris tile on `/now` reads `ok`, `failed` or `missed` from the open `daily_review_missed` alert (raised after
+  10:00 America/Denver when yesterday's review is not written).
+- The review's summary and any band proposal are shown on the dashboard, with a warning row while a proposal waits.
+  A proposal names band rows, their values and the price it quotes; the owner enters it in the band editor, or does
+  not. Nothing applies it automatically.
+
 ## Live checks
 
 `scripts/dashboard-smoke.sh` runs from any kubectl host and works inside the web pod through the BFF. It prints only
-check names, statuses and PASS, FAIL or HELD, never a cookie, token or body, and it exits non-zero on any FAIL or HELD.
+check names, statuses and PASS or FAIL, never a cookie, token or body, and it exits non-zero on any FAIL.
 With no flag it runs the check above; a flag runs that one leg instead (`/readyz`, the leg and its session rows), so
 nothing below runs unless it is named. All of them take `--expected-web-sha`.
 
@@ -51,7 +63,8 @@ nothing below runs unless it is named. All of them take `--expected-web-sha`.
 | `scripts/dashboard-smoke.sh --role operator --revert [--param <setting>]` | `dashboard-smoke` operator | three writes within one grid step, manual, released | `writes_enabled: true` | #1186 |
 | `scripts/dashboard-smoke.sh --role operator --lights` | `dashboard-smoke` operator | **switches the main light once each way**; `sw_gl_main_auto_mode` 1, released | `writes_enabled: true` | #1186 |
 
-`<setting>` defaults to `mister_engage_delay_s` (30-300 s, step 30): one step makes the controller wait 30 s longer before misting until the check releases it.
+`<setting>` defaults to the script's `DEFAULT_PARAM`, an operator setting with a readback; name another with
+`--param`.
 
 **The sweep** reads every served read through the BFF and expects 200, then compares MCP with the Water read. It only
 reads, so it can run at any time.
@@ -59,7 +72,7 @@ reads, so it can run at any time.
 - A failure prints the id and the status. A 500 on a row is usually a relation or function that
   `verdify_dashboard_runtime_login` was never granted, and the fix is a migration.
 - `API-IRR-10` reads 2025-08-05 to 2025-09-03, the first 30 days of wet-relay `equipment_state` rows (`irrigation.md`
-  §6.2), and each day must carry minutes. An earlier window reads `no_data` for good: 2024-11-17 is the first grow-light
+  section 6.2), and each day must carry minutes. An earlier window reads `no_data` for good: 2024-11-17 is the first grow-light
   row, not the first water.
 - Parity runs `irrigation_status` inside a `verdify-mcp` pod with the Iris token already in its environment and
   `/api/v1/irrigation` in the web pod, at the same second. Each pod prints one hash per field, and the host compares them
@@ -77,17 +90,15 @@ asks. Each moves a setting by one grid step at most, and they keep these rules:
   otherwise. `--agent-write` does not: the flag gates only the BFF.
 - Before it releases, a leg re-reads the newest desired row, the agent Job included, because an agent's release takes
   any row. Another writer's row stays, and a FAIL says so.
-- `FAIL` after 5 minutes means the setting did not read `confirmed`; the leg still released it. `HELD` means an armed
-  experiment serves that field (API-10's own answer then reads `held`), so repeat the leg after disarm or with another
-  `--param`.
+- `FAIL` after 5 minutes means the setting did not read `confirmed`; the leg still released it.
 - `--lights` runs Back to automatic even after a failed readback, so it ends with the light at the controller's intent,
   unless a person wrote `sw_gl_main_auto_mode` meanwhile or API-09 cannot show that nobody did; then it touches neither
   again. Its first call goes through `allow-setpoint-from-operator-api`, so when a sync adds that policy, hold the
   edge-write lock through this leg (#1186).
-- `--agent-write` without the key fails with that message and creates nothing. Jason seals the key in jvallery/agents
-  (jvallery/agents#6017), and MCP admits it within 3 minutes. The host reads the Secret's key names only, with
-  `kubectl describe secret`. The Job prints the state `set_setting` answers (`requested`, or `held` under an armed
-  experiment) and waits for no readback, so `HELD` is not a result of this leg.
+- `--agent-write` without the key fails with that message and creates nothing. The owner seals the key in the
+  central KSOPS lane (jvallery/agents#6017), and MCP admits it within 3 minutes. The host reads the Secret's key names
+  only, with `kubectl describe secret`. The Job prints the state `set_setting` answers (`requested`) and waits for no
+  readback. An agent reaches only the operator switches: any other setting answers `forbidden`.
 
 **If a write leg did not finish** (the run prints "did not finish", or its host died): the program in the pod keeps
 running on its own deadlines and releases what it wrote, within 25 minutes at most, unless the web pod itself restarted.
@@ -113,25 +124,26 @@ is the `request_id` of the web pod's log line for that request.
 | An Authentik error page before the dashboard comes back | Authentik refused the authorize request, usually a redirect URI it does not list | The provider's redirect URIs |
 | The "No dashboard access" card (403 at `/auth/callback`), or Authentik's own permission page | The account is in neither dashboard group | The person's groups |
 
-The discovery URL fetched from the web pod must print 200 (this is also R1's live check):
+The discovery URL fetched from the web pod must print 200 (this is also R1's live check). The issuer is
+`OIDC_ISSUER` in the generated ConfigMap:
 
 ```bash
 kubectl -n verdify-dashboard exec deploy/verdify-dashboard-web -- node -e \
-  'fetch("https://auth.vallery.net/application/o/verdify-dashboard/.well-known/openid-configuration")
+  'fetch(process.env.OIDC_ISSUER + ".well-known/openid-configuration")
      .then(r => console.log(r.status), e => { console.log(e.cause?.code ?? e.name); process.exitCode = 1 })'
 ```
 
-- A 404 means Authentik has no provider or application with the slug `verdify-dashboard` (jvallery/agents
-  identity lane). A timeout or `ENOTFOUND` is the network path: `auth.vallery.net` resolves to traefik-apps
-  (192.168.7.10), which lies outside the management set that `egress-deny-management` refuses, and DNS goes through
+- A 404 means Authentik has no provider or application with the slug `verdify-dashboard` (the estate identity
+  lane). A timeout or `ENOTFOUND` is the network path: the issuer's host resolves to the shared traefik-apps
+  ingress, which lies outside the management set that `egress-deny-management` refuses, and DNS goes through
   kube-dns. Check `kubectl -n verdify-dashboard get networkpolicy` against `deploy/k8s/dashboard/`.
 - Redirect URI: Authentik matches it strictly (estate rule L8). The provider must list exactly
   `https://dashboard.verdify.ai/auth/callback`, and `https://dashboard.verdify.ai/` as the post-logout redirect.
   The BFF builds both from `PUBLIC_ORIGIN` in the generated ConfigMap, which must be exactly
   `https://dashboard.verdify.ai`.
 - Client secret: a secret regenerated in Authentik but not re-sealed fails every code exchange. Confirm the key is
-  present with `kubectl -n verdify-dashboard describe secret verdify-dashboard-web`; Jason re-seals it in the
-  jvallery/agents KSOPS lane, and once that has synced, delete the web pod
+  present with `kubectl -n verdify-dashboard describe secret verdify-dashboard-web`; the owner re-seals it in the
+  central KSOPS lane, and once that has synced, delete the web pod
   (`kubectl -n verdify-dashboard delete pod -l app.kubernetes.io/name=verdify-dashboard-web`) so it restarts with
   the new value. A new `cookie-secret` voids only sign-ins in progress; sessions survive.
 - No access: membership of `verdify-dashboard-operators` (operator) or `verdify-dashboard-viewers` (viewer) in
@@ -142,8 +154,9 @@ kubectl -n verdify-dashboard exec deploy/verdify-dashboard-web -- node -e \
 
 ## Writes-flag rollback
 
-`DASHBOARD_WRITES_ENABLED` turns every dashboard write off without a release (architecture §5.7). It gates only the
-BFF: MCP and Iris writes are unaffected.
+`DASHBOARD_WRITES_ENABLED` turns every dashboard write off without a release (architecture section 5.7). It gates only the
+BFF: MCP writes (a named agent's operator switches and irrigation writes, Iris's review and irrigation writes) are
+unaffected.
 
 1. Merge a one-line PR that sets `DASHBOARD_WRITES_ENABLED=false` in the `configMapGenerator` of
    `deploy/k8s/dashboard/kustomization.yaml`. No image pin and no `verdify-prod-dark` sync are involved.
@@ -206,7 +219,7 @@ kubectl -n verdify-dashboard exec deploy/verdify-dashboard-web -- node -e \
   ```
 
   A mismatch is not visible value-blind; `scripts/dashboard-smoke.sh` proves the shared token through
-  INT-01. Jason re-seals both in one jvallery/agents PR; once both have synced, delete both pods
+  INT-01. The owner re-seals both in one central KSOPS change; once both have synced, delete both pods
   (`kubectl -n verdify-dashboard delete pod -l app.kubernetes.io/name=verdify-dashboard-web` and
   `kubectl -n verdify-prod delete pod -l app.kubernetes.io/component=operator-api`).
 
@@ -226,9 +239,6 @@ writes flag instead.
    kubectl -n verdify-dashboard get pods -l app.kubernetes.io/name=verdify-dashboard-web \
      -o jsonpath='{range .items[*]}{.status.containerStatuses[0].imageID}{"\n"}{end}'
    ```
-
-3. Reverting R1's first pin (#1143) also returns the Deployment to 0 replicas, which takes the dashboard offline:
-   traefik-apps answers 503 for the host while the Service has no endpoints.
 
 `verdify-prod` (the operator API, migrations and the tier-1 route) rolls back separately, through a digest-only
 `release-pins.yaml` commit to the promotion receipt's rollback pins and the gated full sync

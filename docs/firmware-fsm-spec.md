@@ -1,690 +1,406 @@
-# Firmware FSM + Relay-Transition Specification
+# Firmware Control Specification: the Band-Edge Law and its Relay Layer
 
-**Scope:** the deterministic ESP32 controller — its state machine, the per-mode
-relay map, the safety rails AI cannot override, the diurnal band, hysteresis and
-dwell, the energy-waste guards, offline (72-hour) operation, and the green-band
-compliance model. This is the **single authoritative spec** for what the firmware
-does and why; `docs/CONTROL-ARCHITECTURE.md` is the 4-layer system overview and
-`docs/firmware-control-contract.md` is the schema/tunable contract.
+This is the part of the control document [`CONTROL-ARCHITECTURE.md`](CONTROL-ARCHITECTURE.md) that gives the
+state machine and its invariants; its other part is [`firmware-control-contract.md`](firmware-control-contract.md)
+(who may write what).
 
-It is the canonical artifact for lane **L2 Firmware Core (#344)** and the firmware
-half of **L3 Climate Control (#345)**. Section 11 maps every acceptance criterion
-to where it is realized in code and which test pins it. Code is the source of
-truth; if this doc and the code disagree, the code wins — update this doc.
+**Scope:** what the controller does every second to the six climate relays and the climate mister pulses: its
+inputs, the band-edge law, the relay layer, the holds, the manual runs, the states with missing inputs, the gap log,
+what it publishes, and the tests that pin it. The design is
+[`design/climate-refactor-plan-2026-11-15.md`](design/climate-refactor-plan-2026-11-15.md) (the plan), sections 4.1
+to 4.9 and appendix A; the generated constants are in [`climate-law-constants.md`](climate-law-constants.md).
+[`CONTROL-ARCHITECTURE.md`](CONTROL-ARCHITECTURE.md) is the system overview and
+[`firmware-control-contract.md`](firmware-control-contract.md) is the contract for values and manual runs.
 
-Verified against `firmware/lib/greenhouse_logic.h`, `greenhouse_solar.h`,
-`greenhouse_types.h`, `firmware/greenhouse/{globals,tunables,controls}.yaml`,
-and `firmware/test/{invariants.h,test_greenhouse_logic.cpp}` (2026-06-17).
+Code is the source of truth; if this document and the code disagree, the code wins: fix this document. Verified
+against `firmware/lib/climate_law.h`, `climate_law_glue.h`, `running_alone.h`, `gap_log.h`, `greenhouse_solar.h`,
+`greenhouse_logic.h` and `firmware/greenhouse/controls.yaml` of the third climate flash (#1731).
 
 ---
 
 ## 1. The control loop
 
-- **Cadence: ~1 s** (`firmware/greenhouse/controls.yaml:22`, `interval: 1s` — "was 5 s").
-- **`dt_ms`-based, tick-rate-invariant.** Every timer accrues *real elapsed
-  milliseconds* via `sat_add(timer, dt_ms)` (saturating add, `greenhouse_types.h`),
-  with `dt_ms` clamped to 5000 to absorb multi-second hiccups (`controls.yaml`).
-  Behavior is therefore identical whether the loop ticks at 1 s or jitters — the
-  cadence is an implementation detail, not a control constant. Older docs said
-  "5-second loop"; the *behavior* never depended on the number.
-- **Single relay path.** The control loop is the only actuator path. The two
-  pure functions are `determine_mode()` (mutates `ControlState` — timers,
-  `mode_prev`, `mist_stage`) and `resolve_equipment()` (pure; reads only). Same
-  compiled C++ runs on the ESP32, the native unit tests, and the replay harness.
+- **Cadence: 1 s** (`firmware/greenhouse/controls.yaml`, `interval: 1s`). Timers accrue real elapsed milliseconds,
+  so behaviour does not depend on the tick rate. The relay layer and the mister pulse request take the raw, wrap-safe
+  elapsed time.
+- **One pass**, in order: the occupancy expiry; the indoor and outdoor readings (`running_alone.h`); the band (curve
+  or corridor); the indoor gate (boot grace, run, or no indoor temperature); `climate_law::step_checked()` (the band
+  check, then the law); the protection clear of the manual latches; the no-indoor table when there is no indoor
+  temperature; the fog dew-margin gate; `climate_law::relay_pass()` (the relay layer, then the manual runs and the
+  interlocks over the result); the relay drivers; the mister pulse request to the irrigation engine; the relay
+  counters and the drying meter; the gap log's collection; the published state.
+- **Pure core.** The law, the relay layer, the mister request, the input selection and the gap log's format and rules
+  are pure functions over plain structs, with no ESPHome type, no clock and no hour, season or zone branch in the
+  law. The same code runs on the ESP32 and in the host tests.
 
-## 2. Layer boundary — what firmware owns (and does not)
+## 2. Layer boundary
 
-Firmware owns exactly three control surfaces — **climate, lighting, irrigation** —
-plus the safety floor. It is **crop-agnostic**: it knows sensors, relays,
-thresholds, setpoints, and numeric bands; it does **not** know crops.
+The firmware owns real-time relay control for climate, irrigation and lighting, the protection limits and offline
+operation. It does not own the band's values (the house anchors in `crop_band_anchors`, stored in flash), crop
+identity, or any policy: it is crop-agnostic (`tests/test_firmware_crop_agnostic_guard.py`). The only climate values
+it takes from the host are the band anchors, the drying cost limit and the operator switches; every law number is
+compiled from `verdify_schemas/climate_law.yaml`.
 
-| Firmware OWNS | Firmware does NOT own |
+## 3. Inputs
+
+### 3.1 Indoor reading (`select_indoor_reading()`)
+
+| Source | Temperature | Humidity, VPD, dew point |
+|---|---|---|
+| Wall probes (north, west, south, east), averaged | the average, if inside -20 to 140 F | from the average; an averaged humidity above 100 % and up to 110 % reads as 100 % (a sensor at saturation); outside 0 to 110 %: no humidity |
+| Case sensor, while fresh (the walls invalid) | the case reading less the compiled offset, 1.6 F (`CASE_SENSOR_OFFSET_F`) | from the case probe's own temperature and humidity |
+| Neither | none: the state of section 7 | none |
+
+- **Temperature and humidity are valid apart.** A valid temperature is all rules 1 to 4, 8 and 9 need. With no
+  valid humidity, fog, misters and drying hold and nothing is substituted.
+- **The law's humidity rules run on the wall average only** (`law_humidity_valid()`): on the case sensor alone rules
+  5 to 7 hold, at 100 F included; rules 1 to 4, 8 and 9 run.
+- **No substituted values.** A missing reading is missing. A plausible but wrong wall probe stays in the average;
+  `probe_validity.h` reports a probe that steps more than 6 F between samples (JUMP) or holds an identical reading for
+  60 minutes (FLAT) in `probe_health`, as text only.
+- Per-zone VPD for the mister zone choice uses `zone_vpd_with_fallback()` (`firmware/lib/zone_vpd.h`): the zone's
+  own fresh probe, else the mean of the fresh peer probes, else the house average; the centre always uses the house
+  average.
+
+### 3.2 Outdoor reading (`select_outdoor_reading()`)
+
+The weather station's LAN broadcast first, then the wired intake probe on the controller's sensor bus, each with its
+own age stamp. A source counts only with a finite temperature and humidity younger than 600 s
+(`OUTDOOR_MAX_AGE_S`); a stamp older than that is cleared, so a silent source cannot look fresh after `millis()`
+wraps. With neither, there is no outdoor data. The source is published as `station`, `intake` or `none`.
+
+### 3.3 Band
+
+`sv2_temp_low`, `sv2_temp_high`, `sv2_vpd_low`, `sv2_vpd_high`: the on-chip curve of section 10 while the clock is
+trusted, else the corridor (section 9.1). The controller's band check (section 4.4) applies on every pass.
+
+### 3.4 Derived inputs
+
+The humidity ratios `w_in` and `w_out` (g/kg) come from the dew points at the compiled site pressure of 85 kPa
+(`humidity_ratio_g_per_kg()`), never from an offset temperature and a humidity, so they are right for the wall and
+the case reading. The drying cost limit is the stored value clamped to 0 to 1.5, or 0.7 when it cannot be read.
+
+## 4. The law (`climate_law::step()`)
+
+Nine latches (`State`: `h1`, `h2`, `cool`, `cool2`, `wet`, `mist`, `dry`, `air`, `run`), one per rule and condition,
+each with an on line and an off line. No modes. The same rules apply at every hour and in every season. `T` is the
+indoor temperature, `V` the indoor VPD; the band is `low`, `high`, `vpd_low`, `vpd_high`.
+
+### 4.1 Rules
+
+| Rule | Latch | On | Off |
+|---|---|---|---|
+| 1 Electric heater | `h1` | `T < low + 3.5` | `T > low + 4.5` |
+| 2 Gas furnace | `h2` | `T < low + 0.5` | `T >= low + 3.0` |
+| 3 Cooling (vent, lead fan) | `cool` | `T > high` | `T < high - 2.0` |
+| 4 Second fan | `cool2` | `T > high + 1.5` | `T < high` |
+| 5 Fogger | `wet` | `V > vpd_high` | `V < vpd_high - 0.15` |
+| 6 Misters opted in for VPD | `mist` | `V > vpd_high + 0.30` | `V < vpd_high + 0.05` |
+| 7 Drying wanted | `dry` | `V < vpd_low + 0.05` | `V > vpd_low + 0.20` |
+| 7 Outdoor air drier | `air` | outdoor dew point at least 3 F below indoor | less than 1 F below |
+| 7 Drying run | `run` | `dry`, `air` with more than 0.1 g/kg less water outdoors, cost within the limit, `T >= low + 1.5`, not cooling, furnace latch off | any of `dry`, `air` or the moisture difference lost, cooling, the furnace latch, or `T < low + 0.75` |
+| 8 Hot limit | | `T >= 100 F` | |
+| 9 Cold limit | | `T <= 40 F` | |
+
+### 4.2 Requests
+
+- `cooling` = `cool` or the hot limit; `drying` = `run` and not cooling; `vent` = cooling or drying.
+- Fans: 2 while cooling with `cool2` or at the hot limit, 1 while cooling otherwise or drying, else 0. Drying uses the
+  lead fan only.
+- `fog` = `wet`, the house at or above `low` (the cold-house guard, plan decision 20), not drying, not at the cold
+  limit. `mist` likewise from `mist`.
+- `heat1` = `h1` and not cooling, or the cold limit. Drying does not stop the electric heater.
+- `heat2` = `h2` and the vent not requested, or the cold limit. The furnace never runs with the vent open.
+- At the cold limit the vent, the fans, cooling and drying are dropped.
+- At the hot limit the fogger keeps following rule 5 and the misters rule 6, so the misters may pulse at 95 F and
+  above; the irrigation engine still decides each mister pulse.
+- With no valid humidity the `wet`, `mist` and `dry` latches are cleared. With no valid temperature every latch is
+  cleared and the law requests nothing (the state of section 7 is the caller's).
+- **The law's own fog keeps the 8 F dew-point margin** (`law_fog_dew_margin_ok()`): outside the no-indoor state the
+  fog request is dropped while the indoor temperature minus the dew point is under `WET_DEW_MARGIN_F`. The same gated
+  request feeds the irrigation engine's climate demand.
+
+### 4.3 The drying cost
+
+`e = 1.006 x max(0, (T - T_out) / 1.8) / (w_in - w_out) / 3.6` kWh of heat per kg of water. The air flow cancels, so
+the controller computes it from its own readings every second. When the moisture difference is 0.1 g/kg or less the
+cost reads as never within the limit. A run starts only while `e` is within the stored limit; a running run continues
+if the outdoor air turns colder, until a stop condition. The state record carries `e`, the limit and, while drying is
+wanted and not running, the first refusal that applies: `no_outdoor`, `cooling`, `furnace`, `not_drier`,
+`too_cold`, `cost`; or `humidity_invalid`, `no_temperature`.
+
+### 4.4 The band check (`check_band()`, `step_checked()`)
+
+Every pass, before the law: each edge is clamped to 45 to 95 F and 0.3 to 3.0 kPa; a pair narrower than 6.5 F or
+0.35 kPa is widened about its middle (which also repairs an inverted band) and moved back inside the limits; a
+non-finite edge takes the other edge less or plus the minimum width; a pair with no finite edge takes the limits. The
+state record's `br` flag says when the band was repaired. The law has no floor or width of its own, so a corrupted
+anchor cannot make two opposing actions latch together.
+
+## 5. The relay layer (`climate_law::relay_step()`, `relay_pass()`)
+
+### 5.1 Minimum times
+
+| Relay | Minimum on | Minimum off |
+|---|---|---|
+| Electric heater, furnace | 300 s | 300 s |
+| Fan 1, fan 2 | 300 s | 300 s |
+| Vent | 300 s | 300 s |
+| Fogger | 120 s | 120 s |
+
+These are compiled; the relay drivers in `controls.yaml` apply no dwell of their own.
+
+### 5.2 At boot
+
+Every relay is available at once except the furnace, which counts as just switched off at boot and waits one minimum
+off time (300 s) after any boot, whatever the reset reason, so a crash loop cannot cycle it. At or below 40 F the
+furnace starts at once. No climate relay is switched during the boot grace (section 7.1).
+
+### 5.3 Interlocks
+
+- **A fan only with the vent open.** The vent opens first and the fan follows on the next pass; the vent stays open
+  while a fan runs. A manual fan run with the vent closed is the one exception.
+- **The furnace and the vent never together.** While the furnace runs, the vent and fans wait for it to finish its
+  minimum on time and stop; the furnace waits until the air reads off. The furnace is never cut short for drying or
+  cooling, and finishes its minimum on time even when the electric heater stops.
+- **The electric heater and the air.** The electric heater does not start into, and is cut at once by, an open vent
+  or a running fan, except during the law's own drying and at the 40 F limit. The drying run's own vent and fan
+  finishing their minimum on time after the run stops count as drying: the heater keeps running through that tail
+  and gets no minimum-off stamp. The mark is cleared when the air is off or something else asks for it (cooling, the
+  no-indoor table, a manual run). A start also waits for the physical air to read off. A cut is not a start: it moves
+  no relay counter and no switch time.
+- **Manual fan runs** stop both heaters, vent open or closed.
+
+### 5.4 When a minimum time is cut short
+
+| Case | What is cut |
 |---|---|
-| Real-time relay control (climate/lighting/irrigation) | The target band's *values* (DB `crop_band_anchors` → 4 NVS float anchors) |
-| Safety rails + equipment protection (§5) | Crop identity / crop strategy (lives above firmware) |
-| On-chip band reconstruction from anchors (§6) | Tactical *tunables* authorship (the planner/AI sets those, bounded — §5.2) |
-| Offline-first 72 h operation (§9) | Plant-risk limits / emergency authoring by AI |
+| 100 F limit | Both heaters off at once; the vent opens and both fans start in the same pass. No minimum time applies to the heaters, vent and fans; the interlocks do. |
+| 40 F limit | The fans stop and the vent closes at once; the electric heater starts in the same pass and the furnace on the next pass once the air reads off, with no boot wait. |
+| Entry to the no-indoor state | The heaters, fans and vent the table drops stop at once (`cut_unwanted`). |
+| The fertiliser master or the fertigation line holding, a drip relay on, occupancy, the no-indoor fog lock | The fogger off at once (`fog_hold`), in every state. |
+| An engine drip in progress, the soft water budget (not in a VPD emergency), the daily water ceiling | The fogger off at once, except at the 100 F limit, where fog is counted and not capped. |
+| A manual run starts | Its relays start past their minimum off times. |
+| A manual run ends | Its relays stop at once, unless the law asks for them. A vent the run kept closed keeps its off time. |
 
-**Crop-agnostic boundary (L2 #344 AC5).** The only crop knowledge on-chip is a
-band the device follows, expressed as `BandAnchors{sr, sm, ss, mid}` — four plain
-floats (`greenhouse_solar.h:152-157`). There is **no** crop enum, struct, string,
-or branch in the shipped firmware (`firmware/lib/*.h`, `firmware/greenhouse/*.yaml`).
-Crop strategy is isolated above firmware: `band_defaults.yaml` (zone→crop map) →
-DB `crop_band_anchors` → dispatcher anchor-sync → NVS anchors. The guard
-`tests/test_firmware_crop_agnostic_guard.py` fails if any crop name appears in
-non-comment firmware code/config (comments may explain the agronomy; code may not).
+The fogger keeps its minimum times at every temperature; only its holds stop it at once. A relay switched outside the
+loop (an OTA `on_begin` close, a manual run) is taken into the relay layer with a fresh switch time by
+`relay_sync()`, so its minimum times count from that edge.
 
-## 3. The 8-mode state machine
+### 5.5 The lead fan (section 4.7 of the plan)
 
-### 3.1 Modes (`greenhouse_types.h:17-26`, `MistStage` at :31)
+The lead is chosen only while both fans are off, at the start of an episode (a stretch with at least one fan
+running), so there is no swap during a run. It alternates per episode: the lead is the fan that did not lead the last
+episode; if that fan is inside its minimum off time, the other fan leads now and that counts as its turn. The last
+lead is kept in RAM only; after a restart the fan with fewer persisted run seconds leads once. Run seconds are
+telemetry and do not choose the lead otherwise, so nothing catches up after an outage. The second fan joins on
+rule 4.
 
-Priority/precedence order = enum order. `IDLE == 7` is `static_assert`-pinned.
+## 6. Wetting: the fogger and the climate misters
 
-| # | Mode | One-line role | Vent | Fans | Heat | Wetting |
-|---|------|---------------|------|------|------|---------|
-| 0 | `SENSOR_FAULT` | implausible sensors → fail safe | — | — | — | — (ALL off) |
-| 1 | `SAFETY_COOL` | `temp ≥ safety_max` | open | both | — | fog if dry |
-| 2 | `SAFETY_HEAT` | `temp ≤ safety_min` | **closed** | lead only | both | — |
-| 3 | `SEALED_MIST` | VPD too high → humidify | closed | off | stage if cold | misters/fog |
-| 4 | `THERMAL_RELIEF` | sealed too long → purge | open | both | — | — |
-| 5 | `VENTILATE` | too hot → cool | open | lead (+2nd if hot) | — | fog assist if dry |
-| 6 | `DEHUM_VENT` | VPD too low → dump humidity | open | lead (+both if very wet) | h1 co-run iff estimator-armed (BC-13/#410; never h2) | — |
-| 7 | `IDLE` | in band | closed | off | stage if cold | econ-rescue heat |
+### 6.1 Fog holds (`fog_force_off_reason()`)
 
-Mist sub-stages: `MIST_WATCH → MIST_S1 (targeted) → MIST_S2 (rotating) → MIST_FOG
-(escalation)`. S2 is only reachable from S1 (no level-skipping; invariant #12).
+In order: the no-indoor fog lock (`sensor_fault`), confirmed occupancy (`occupancy`), the fertiliser master valve or
+the fertigation line (`fert_master`, SAF-5), a drip relay on (`irrigation`); outside the 100 F limit also an engine
+drip run (`irrigation`), the soft water budget (`resource_budget`, lifted in a VPD emergency over 2.5 kPa) and the
+daily water ceiling (`water_ceiling`, SAF-4). The leak signal is not a hold: it raises the leak alert only.
 
-### 3.2 Entry/exit — the decision ladder (`determine_mode`)
+`fog_block_reason` publishes the hold's word, `served` while the fogger runs, `relay_min_off` while the law asks for
+fog and the fogger waits its minimum off time, `dew_margin` while the law's fog is held by the dew-point margin, or
+`none`.
 
-A strict preempt ladder runs before any climate arbitration
-(`greenhouse_logic.h:683-691`):
+### 6.2 The climate mister pulse request (`mister_step()`)
 
-1. **`!sensors_plausible(in)` → `SENSOR_FAULT`** (NaN/inf/out-of-range; all timers
-   zeroed; reason `sensor_fault`).
-2. **`temp_f ≥ safety_max` → `SAFETY_COOL`** (reason `safety_cool`).
-3. **`temp_f ≤ safety_min` → `SAFETY_HEAT`** (reason `safety_heat`).
-4. **Otherwise → climate candidate** chosen by **normalized delta-error
-   arbitration**: temp error and VPD error are each divided by their band
-   half-width, and the axis with the larger normalized error leads candidate
-   ordering (`greenhouse_logic.h:667-691`). Candidates: heat / ventilate(+mist/fog
-   assist) / sealed-humidify / sealed-fog / dehum-vent / idle.
+The law never switches a mister valve. While the mister request holds and a member line is allowed, it asks the
+irrigation engine for one pulse at a time through `irr_vpd_grant()`:
 
-After the climate pick, two **VPD safety rails** can still override:
-`vpd_kpa > vpd_max_safe` forces `SEALED_MIST` (reason `dry_override`);
-`vpd_kpa < vpd_min_safe` (in IDLE/SEALED, econ permitting) forces `DEHUM_VENT`
-(reason `vpd_min_safe_rescue`). Then sealed entry/exit, the optional dwell gate
-(§7.3), and mist-stage escalation resolve.
+- **Pulse** 30 s, 1.4 times longer while the zone's VPD is above 1.2 times `vpd_high`; **gap** 60 s. A refused pulse
+  is asked for again one pulse length later; the fogger carries on meanwhile. A pulse cut short still owes its gap.
+- **Zone choice:** the fairness rule (an allowed zone above `vpd_high` with no pulse for 600 s, the longest waiting
+  first), then the engine's ranking `irr_rank_vpd_zone()` on the house band with the compiled ranks (centre 1, south
+  2, west 3, east 4), then the first allowed zone. A zone inside the 45 s mister line minimum off time gives way to
+  another ready zone, or the pulse waits.
+- **Allowed** is `irr_climate_zone_allowed()` per zone, with the zone gate's safety term
+  `zone_gate_safety_ok()`: no occupancy, no feed hold, house VPD above `vpd_high`, dew margin at least 8 F.
+- The engine's watchdog (`irr_mister_watchdog()`), daily caps, soft budget and interlocks apply unchanged. The
+  misters are not relays of this layer: their re-fire fence is the engine's.
 
-**Dehum candidate selection (BC-13 estimator + #410 hold flavor).** The
-`DEHUM_VENT` candidate only arms when `estimate_moisture_exchange()` returns
-`MX_VENT_DEHUM`. Its too-wet ladder (ADR-0003 §6.4 + addendum) is:
-(1) **cooled** vent candidate — projected gain at the mixed temperature `T_mix`
-clears the margin and does not over-cool below `temp_low` (legacy semantics,
-including the heat1 co-run after the min-dwell);
-(2) **held** vent candidate (`vent_plus_heat_hold`, gated on the
-`dehum_vent_hold_enabled` tunable, ships OFF) — the gain at the heat1-HELD
-current temperature clears the margin AND the measured temp is at/above the
-heat-demand line (`band_heat_target_f + heat_hysteresis`). Selecting it sets
-`hold_required`: the heat1 co-run arms **without** the min-dwell and reheats up
-to the served `temp_target` while venting (heat1 is the electric stage; heat2
-never participates);
-(3) closed-vent **heat assist** (`MX_HEAT_ASSIST`); (4) nothing effective.
-A hold-flavor candidate may only **enter** `DEHUM_VENT` once temp has recovered
-`GH_DEHUM_HOLD_REENTRY_F` (1.0 °F) above the heat-demand line (anti-chatter;
-continuation and the `vpd_min_safe` rescue are exempt — the rescue arms the
-hold-reheat on the same cycle it forces the vent).
+## 7. Missing inputs
 
-**Night dry-out (#1365).** Jason, 2026-11-05: the house must dry out overnight
-(roots, algae on the floor), and heating the colder outdoor air is accepted
-energy. The #410 held candidate cannot arm at night (it needs the house at or
-above the heat line, which is where heat1 holds it), so the dry-out is its own
-pulse machine in `determine_mode_band_first`, on top of an `IDLE` base decision
-only (safety, cooling, sealing, the estimator's dehum and the heat2 latch win):
-- **Start a pulse** when `night_dryout_enabled` (ships ON), solar night, VPD
-  trusted and below the dry-out floor `max(vpd_low, 0.74 kPa)` (never below
-  today's floor), no occupancy block, heat2 not latched, temp ≥ `temp_low + 1 °F`,
-  fresh Tempest data with outdoor DP ≤ indoor DP − `night_dryout_dp_margin_f`
-  (default 3 °F: confirmed drier in absolute terms), and tonight's heat1 reheat
-  estimate under `night_dryout_kwh_cap` (default 10 kWh; heat1 1.44 kW × the time
-  the dry-out wants it).
-- **PULSE** (`night_dryout_pulse`, `night_dryout_pulse_s`, default 120 s):
-  `DEHUM_VENT`, vent + lead fan, heat1 holds `hold = clamp(start temp,
-  band_heat_target_f + heat_hysteresis, temp_target)`. Aborts on day, occupancy,
-  heat2 latch, temp ≤ `temp_low`, stale or no-longer-drier outdoor air, or a
-  busier base mode.
-- **REST** (`night_dryout_reheat`, `night_dryout_rest_s`, default 780 s): vent
-  closed, heat1 reheats to `hold`. Pulse + rest ≥ 900 s (validate_setpoints), so
-  at most 4 pulses an hour. heat2 never runs for humidity; ENV-2 (no heat-only
-  humidity chasing) is unchanged. Pulse starts and ends bypass the dwell gate.
-- The pulse count and kWh budget reset each solar day and live in RAM (a reboot
-  starts a fresh budget). Invariant #28 bounds it in replay.
+### 7.1 Boot grace
 
-### 3.2a Probe plausibility: degraded quorum versus SENSOR_FAULT (#368)
+After a boot the controller waits (`indoor_gate()` in `firmware/lib/running_alone.h`). From the fourth flash
+(#1738) the boot grace ends when the indoor temperature is valid and every wall average the law reads was last
+computed over all four wall probes, or 60 seconds after boot, whichever comes first; before it, at the first valid
+indoor temperature or 60 seconds. Until then no climate relay is switched. Meanwhile the label is not a sensor fault (so the irrigation engine sees none), no
+alert is raised and no state record is published; the manual runs still act. After the grace, a missing indoor
+temperature is the state of section 7.2 at once.
 
-Three separate things answer "is this probe good?", and only one of them changes
-what the relays do on its own:
+### 7.2 No valid indoor temperature (plan decision 7; `no_indoor_branch()`)
 
-| Layer | Trigger | Effect |
-|---|---|---|
-| **Aggregate membership** | a probe field stale (300 s) or NaN/±Inf | that field leaves `average_*`; the others keep averaging. No mode change |
-| **Degraded quorum** | the indoor averages are not live (`avg_ok` false), so the controller's VPD is a fallback value | `sensor_degraded`: VPD-chasing wetting is suppressed (`vpd_control_trusted`), temperature control and the timed bursts continue. Zones fall back to a peer probe, then the house average, with the provenance shown on Now (D-IRP-13, #1394). The irrigation engine's `irr_degraded` waits out a grace before it can open a mister (#1271) |
-| **SENSOR_FAULT** | `sensors_plausible()` fails on the value the controller uses: NaN/±Inf or outside -20..140 °F, 0..100 % RH, 0..10 kPa | Mode 0: every climate and mister relay off, heat included (invariants #7/#25/#26) |
-| **Plausibility diagnostics** | a fresh, finite probe steps more than 6 °F between ~60 s samples (JUMP, reported for 10 minutes), or its temperature and RH stay identical for 60 minutes (FLAT); `probe_validity.h` `probe_trend_update` | `probe_health` text only (`North JUMP`, `East FLAT`). No aggregate, fallback or mode reads it |
+| Outdoor reading | Relays |
+|---|---|
+| Fresh, at or above the corridor's low edge (the lowest low-edge anchor) | Vent open and one fan (the relay layer picks the lead) |
+| Fresh, colder | Electric heater on; vent closed; furnace off. Back to the vent branch only at or above the edge, and out of it only below the edge less 1.0 F |
+| No fresh reading | Every climate relay off |
 
-A plausible-but-wrong probe therefore never drives SENSOR_FAULT: one bad wall probe
-out of four must not turn the heat off (the three-probe quorum). JUMP and FLAT make
-that probe visible so an operator, the sensor-health sweep (#1274) or a later
-reviewed change can exclude it; excluding it automatically is a control change and
-would go through the replay gate. The thresholds come from 30 days of history
-(2026-11-06): the largest real step was 3.2 °F (99.99th percentile 1.8 °F), the
-East fault of 2026-10-27 stepped 24-26 °F for one sample, and the longest real
-identical run was 14 minutes. RH is not jump-checked: misting legitimately moves a
-wall probe's RH by about 30 % in one sample.
+The fogger and the misters are off in every branch; the request goes through the same relay layer, so the interlocks
+and the boot rule apply. The manual runs stay effective (a fogger press without the dew-point margin, which cannot be
+computed there); a fog run-once of the irrigation engine is refused by the engine's own sensor-fault hold. A critical
+alert is raised. The published label is `SENSOR_FAULT` with `mode_reason` `sensor_fault`.
 
-### 3.3 Per-mode relay map (`resolve_equipment`, `greenhouse_logic.h:2006-2122`)
+### 7.3 Doubly blind (`doubly_blind_restart_step()`)
 
-`resolve_equipment` is pure: `(mode, inputs, setpoints, state, lead_is_fan1) →
-RelayOutputs{vent, fan1, fan2, fog, heat1, heat2}`. Climate VPD misters are driven from
-`controls.yaml` off `mist_stage` (mist path below); scheduled, run-now and fertilizer mist are
-the irrigation engine's own runs. Exact outputs:
+No valid indoor temperature and no outdoor reading: every climate relay is already off, so a restart costs no
+control. The sensor-bus restart comes after 10 minutes of it the first time, then at most every 60 minutes while it
+lasts; the flag that chooses the window is kept across the restart and clears after 60 minutes of continuous
+readings. A due restart waits while a wet relay is open or an irrigation run is active. Restarts go through
+`App.safe_reboot()`, which saves the relay counters and the open gap log quarter. Outside this state, one restart
+rule applies: no probe answer on the sensor bus for 3,600 s, at most once an hour, independent of the clock.
 
-| Mode | vent | fan1 / fan2 | fog | heat1 / heat2 |
-|------|------|-------------|-----|---------------|
-| `SENSOR_FAULT` | off | off / off | off | off / off |
-| `SAFETY_COOL` | **on** | on / on | on iff `fog_assist_permitted ∧ vpd>vpd_high_eff` | off / off |
-| `SAFETY_HEAT` | **off** (retain heat) | lead on / other off | off | **on / on** |
-| `SEALED_MIST` | off | off / off | on iff `mist_stage==MIST_FOG ∧ permitted` | s1 iff cold; s1+s2 iff `heat2_latched` |
-| `THERMAL_RELIEF` | **on** | on / on | off | off / off |
-| `VENTILATE` | **on** | lead on / 2nd on iff `temp>Thigh+stage2_delta` | on iff `vpd>vpd_high_eff+fog_escalation_kpa ∧ permitted` | off / off |
-| `DEHUM_VENT` | **on** | lead on / both iff `vpd<vpd_low_eff−dehum_aggressive_kpa` | off | h1 iff `dehum_heat_assist_active ∧ (needs_heating_s1 ∨ (hold_required ∧ temp<temp_target))` (BC-13 co-run; #410 hold, flag-gated); h2 **never** |
-| `IDLE` | off | off / off | off | s1 iff cold; s1+s2 iff `heat2_latched`; econ-rescue s1 (§8.1) |
+## 8. Manual runs
 
-**Safety/override overlays (applied after the per-mode map):**
-- **`SENSOR_FAULT` → all relays off, heat included.** No actuator runs without
-  sensor feedback. **No hardware thermostat is installed** (Jason accepted this on
-  2026-11-04, #1296), so nothing heats the house in a sensor fault or with a dead
-  controller (`greenhouse_logic.h:17-20, 2007-2010`).
-- **`SAFETY_HEAT` runs the lead fan with the vent CLOSED** for canopy circulation
-  without dumping heat — a deliberate "fan without vent" the invariant whitelists
-  (`:2019-2028`).
-- **Occupancy air-block** (`air_blocked_by_occupancy`, `:2115-2119`): when occupied
-  and inhibit is set, forces `fan1/fan2/fog` off — **except** `SAFETY_COOL`,
-  `SAFETY_HEAT`, `SENSOR_FAULT`, which are exempt (people-comfort never overrides
-  the temperature/fault rails).
-- **Fog force-off** (`fog_force_off_reason()`, `greenhouse_logic.h`; irrigation F9, #1161):
-  the one rule `controls.yaml`'s fog gate, fog relay and `fog_block_reason` ladder share. In
-  every mode it holds fog for the SENSOR_FAULT lock, confirmed occupancy, L03 open or about
-  to open (SAF-5), a drip relay reading ON and an invalid clock; outside `SAFETY_COOL` also
-  for an engine drip run, the soft water budget and SAF-4. **Survival fog** in `SAFETY_COOL`
-  runs past those three (its water still counts, D-IRP-04). `leak_detected` is not a term
-  (Q-05): it raises the leak alert only.
+The contract (actions, timeouts, what ends a run, the holds kept above a press) is
+[`firmware-control-contract.md`](firmware-control-contract.md) section 7. At the relay level (`relay_pass()`):
 
-**The mist path** (`controls.yaml` section 12; irrigation F6, F10, #1161). Each mister zone
-(L04 center, L07 south, L09 west) takes climate VPD pulses by one rule,
-`irr_vpd_zone_allowed()` (`irrigation_program.h`): climate demand and its safety gate, an
-effective VPD member of the irrigation program (VPD-member bit and line enable), no watchdog
-back-off or latch, the zone's duty cap (`daily_cap_min`, every mister second on the zone) and
-SAF-4. With no program the ROM default makes L04 the only member, so center misting runs as
-before. With more than one zone allowed the rank arbiter (`arbitrate_wet_zone()`, center rank 1)
-picks the zone after the 10 min fairness override; the retired `sw_arbiter_zone_enabled` decides
-nothing. Each pulse asks the engine for its zone's grant (`irr_vpd_grant()`), which alternates
-VPD and scheduled pulses at the boundary and puts VPD first in an emergency. The D-IRP-19
-watchdog (`irr_watchdog_step()`) forces OFF a wet relay ON without its grant and a mister ON
-past its commanded length + 30 s (300 s unknown): a VPD-member zone backs off 10 then 30 min
-and latches on its third fault of the day; any other mister, L08 and L10 included, latches on
-its first. A latch holds until local midnight or `clear_fault`; `irr_state` carries each end.
+- At a protection limit `clear_latches_at_protection()` clears every latch before the pass, logged once.
+- `apply_manual_overrides()` runs on the relay layer's result: the fan latch sets both fans on and the vent open or
+  closed by its flag; the fogger latch sets the fogger on unless `manual_fog_hold_reason()` names a hold. It is a
+  no-op at the protection limits.
+- A run's relays start past their minimum off times (`ManualForce`). A fan latch with the vent closed leaves the
+  vent's off time running, so cooling does not wait after the run ends.
+- No heater runs during a manual fan run.
+- A press works in the no-indoor state; the fogger press is then not held by the no-indoor fog lock.
 
-### 3.4 Auditability — `mode_reason`
+## 9. Running alone
 
-Every transition stamps a `mode_reason` string so any relay change is traceable
-(invariant #10 fails an unattributed relay toggle). Vocabulary includes
-`sensor_fault, safety_cool, safety_heat, heat_stage1/2, idle, summer_vent,
-temp_high, vent_mist_assist, vent_fog_assist, humidify_enter/continue/resolved,
-fog_enter/continue, dehum_continue, vpd_low/too_low, dry_override,
-vpd_min_safe_rescue, mist_backoff, moisture_blocked, seal_enter/continue/exit,
-relief_cycle_breaker, thermal_relief(_forced), dwell_hold` (`greenhouse_logic.h`;
-the full set is enumerated in `firmware/test/invariants.h` check #10).
+### 9.1 Clock and corridor
 
-## 4. Manual button-override layer (FANS / HUMID / VENT-BYPASS)
+The band's solar phase is trusted only after an SNTP sync has completed since the last boot
+(`sntp_acquisition_valid()`, published as `sntp_valid`); a soft reset keeps the ESP32's clock and can step it, so a
+retained clock is not trusted for the band. Without trust the band is the corridor (`band_corridor()`): the lowest
+anchor of each low edge and the highest of each high edge, with fog and misters allowed. The band source is
+published as `onchip_curve` or `corridor`; the on-chip band switch `sw_onchip_band_enabled` defaults on and is
+read-only on the host. Irrigation and lighting keep their own clock tests.
 
-Three deadline latches (`manual_fans_until_ms` / `manual_fog_until_ms` /
-`vent_bypass_until_ms`; 0 = no burst) carry the FANS, HUMID and VENT-BYPASS
-overrides. They have exactly two writers besides the override layer's own expiry
-(irrigation F12, VD-47):
+### 9.2 What needs no network
 
-- **The panel push buttons** (PCF8574 `pcf_in_2`: PB • Fan Burst, PB • Vent
-  Bypass, PB • Fog Burst, `greenhouse.yaml`). Each press toggles its latch in its
-  own `on_press`: a running burst clears, otherwise it runs for
-  `manual_override_timeout_min` minutes (`manual_latch_toggle()`).
-- **The `manual_override(kind, minutes)` API service** (`irrigation_engine.yaml`),
-  which the ingestor calls for API-IRR-12's `override` command rows. `fans`,
-  `humidify` and `vent_bypass` set their latch to now + minutes
-  (`manual_override_deadline_ms()`); `clear` zeroes all three; `restart` calls
-  `App.safe_reboot()`; any other kind logs and changes nothing.
+The law's constants are compiled; the anchors and the drying cost limit are in flash; the ephemeris is computed
+on-chip; the outdoor reading has a local second source (the intake probe). WiFi loss causes no restart
+(`wifi.reboot_timeout: 0s`). The relay counters and fan run seconds are copied to flash 10 minutes after a boot, then
+at most once an hour and on a planned shutdown, and restored at boot. The drying meter is not persisted; it counts
+from 0 at every boot.
 
-Both clamp minutes to 1-120 (OverrideRequest's bounds) and store a deadline
-that wraps to exactly 0 as 1, because 0 means no burst. Neither touches a relay
-or occupancy: a burst never lifts the occupancy hold, so mist and fog still wait
-while someone is inside. Home Assistant has no buttons on the controller (the old
-burst, RUN CLEAN and restart buttons, their timer scripts and the 60-minute
-occupancy quiet override are gone). `bs_manual_fan`, `bs_vent_lock` and
-`bs_manual_fog` (`fan_burst_active`, `vent_bypass_active`, `fog_burst_active`)
-read true while their latch is set and still ahead (`manual_latch_active()`).
+### 9.3 The gap log (`gap_log.h`, `gap_log_esphome.h`)
 
-Each cycle, `controls.yaml` builds a `ManualOverrides` from the latches alone +
-whether a real fog safety block is up, and applies the override through the
-**pure, unit-tested `apply_manual_overrides()`** (`greenhouse_logic.h`) on top of
-the resolved relay table:
+While the host is away there is no anchor reconciliation and no live telemetry. The gap log keeps the record:
 
-| Button | Effect | Forced (bypasses min-off dwell) |
-|---|---|---|
-| **FANS** | both fans ON, vent OPEN | fans, vent |
-| **VENT-BYPASS** | both fans ON, vent **CLOSED** (winter house-air pull); *implies fans* | fans |
-| **HUMID** | fogger ON, unless a genuine fog safety block (dew/RH/temp/time) or the fog force-off (§3.3) holds it | fog |
+- **Format.** Version 2: one climate record a minute (indoor temperature and dew point, outdoor temperature, the
+  relay mask, the water total, the mode label and validity flags) and every transition of 18 relays and outputs, kept
+  per quarter hour. Format 1 (one climate record every 5 minutes) is a build option (`GAP_LOG_FORMAT`); the version
+  byte of each quarter tells the host which it receives.
+- **Storage.** The open quarter is collected in RAM and written once into its own NVS key (namespace `gaplog`) when
+  it closes (15 minutes, a change of time basis, or 64 transitions) or at a clean shutdown. 96 keys make a 24-hour
+  ring. A power cut or panic loses at most the open quarter; a clean restart loses nothing.
+- **Time.** A quarter written while the clock is trusted carries epoch seconds and the offset from uptime; one
+  written without a trusted clock carries uptime seconds, and the host places it from an offset of the same boot.
+- **Liveness.** The recorder is the API client whose `client_info` is exactly the library default (`aioesphomeapi`)
+  or starts with `verdify-ingestor`, keyed on its connection id; Home Assistant is not the recorder. A quarter is
+  live when the same recorder connection was up for all of it. Live quarters are never replayed.
+- **Replay.** A pass starts while there is a quarter to send and the recorder has been connected for 60 s, its
+  connection has nothing queued, and the free heap is at least 20 KB with a minute low of at least 24 KB. It sends
+  `G1` lines (a begin line, each quarter's header, climate and transition lines, an end line) on the text sensor
+  "Gap Replay", one line every 250 ms or slower, each at most 240 characters. After the end line the controller waits
+  for the connection to stay up 60 s more, then moves its drained mark; a break sends the same quarters again, so the
+  host receives each at least once and must be idempotent.
+- **Host.** `ingestor/gap_replay.py` writes each placed climate record where no `climate` row stands within its
+  slot, and each transition where no `equipment_state` row of that output with the same state lies within 5 s;
+  live rows are never changed. A complete quarter is recorded in `gap_replay_quarters` (migration 314) in the same
+  transaction, and a quarter already in the ledger is skipped. `v_data_gaps_unreplayed` is `data_gaps` with the
+  replayed spans cut out.
+- **Arming and stopping.** At boot the log arms only with an NVS partition of at least 400 KB and at least 25 % free
+  entries; it stops under 15 % free entries, after three quarter writes in a row over 200 ms, or on an NVS error.
+  "Gap Log State" publishes `armed`, or `off:` with `not_armed_yet`, `nvs_small`, `nvs_full`, `nvs_slow` or
+  `nvs_error`.
 
-**Precedence: absolute safety wins.** `apply_manual_overrides()` is a no-op in
-`SENSOR_FAULT` / `SAFETY_COOL` / `SAFETY_HEAT` — a press never fights a safety rail
-(a FANS press cannot throw the vent open and dump heat during a cold-rail
-SAFETY_HEAT). Below the rails it supersedes all climate automation; only a
-re-press, the deadline timeout, or a safety rail interrupts it.
+## 10. The band curve
 
-The returned `ManualForce` flags feed `set_relay`'s `force_on=` so a press engages
-within one loop tick — **the #289 fix** (the force flag was previously computed but
-never wired to the fan relays, so a FANS press stuck behind the fan min-off dwell
-while the vent moved — the "pressed fans, nothing happened" signature).
-`fan_requires_open_vent()` carves out VENT-BYPASS (and SAFETY_HEAT) from the
-fan→vent interlock so bypass can actually hold the vent shut — **the #290 fix**.
+- **Solar phase** in [0, 4): 0 sunrise, 1 solar noon, 2 sunset, 3 solar midnight, from the on-chip NOAA ephemeris
+  (`greenhouse_solar.h`, `solar_phase()`), C1-smooth across the anchors.
+- **Band value** (`band_value_at_phase()`): the 4-anchor harmonic interpolation through `{sr, sm, ss, mid}`,
+  `c0 + c1*cos(theta) + s1*sin(theta) + c2*cos(2*theta)` with `theta = pi*phi/2`; it passes exactly through each
+  anchor and is smooth everywhere.
+- **One curve per runtime**, tested against the same vectors: firmware `band_value_at_phase()`, Python
+  `verdify_schemas/band_profile.py` and `ingestor/solar.py`, SQL `fn_band_setpoints`. Pinned by the goldens in
+  `firmware/test/test_greenhouse_logic.cpp` and by `tests/test_solar_band_anchors.py`.
+- Only the house temperature and VPD edges drive the law; temperature is one house-wide curve.
 
-**Pinned by** native tests (`test_greenhouse_logic.cpp`): per-button relay
-outcomes, the safety-rail no-op, the fog-safety block, the interlock carve-out,
-and (VD-47) the latch helpers' clamp, wrap and toggle. The source check
-`test_home_assistant_buttons_and_the_quiet_override_are_gone`
-(`verdify_schemas/tests/test_firmware_drift.py`) pins that the
-`manual_override` lambda writes only the three latches and (#1335) the two
-per-circuit light holds (`gl_<c>_hold_until_ms`, `gl_<c>_hold_on`; see
-`docs/firmware-control-contract.md`, "Timed manual light hold").
-The replay corpus never presses a button, so a replay-diff is **0** (automatic
-control is unchanged) — these native tests are the required positive evidence.
-**Live status:** OTA-deployed 2026-06-17 (firmware `2026.6.17.0134.6a3b35a`);
-post-deploy sensor-health sweep 27/0/0. Closes #289, #290. The VD-47 service and
-push-button toggles (and the Home Assistant button removal) ship in the irrigation
-engine release's R3 OTA (#1164).
+## 11. What the controller publishes
 
-## 5. Safety rails — the AI cannot override them (L2 #344 AC4)
+### 11.1 The law state record (`climate_law_state`)
 
-### 5.1 The hard rails
+JSON, at most 200 characters (`climate_law_payload.h`), on change at most every 5 s and on a 60 s heartbeat, never
+during the boot grace:
 
-| Rail | Condition / default | Effect | Pinned by |
+| Key | Meaning |
+|---|---|
+| `v` | format version, 1 |
+| `l` | latch bits, bit 0 first: `h1`, `h2`, `cool`, `cool2`, `wet`, `mist`, `dry`, `air`, `run` |
+| `o` | request bits: heat1, heat2, vent, fog, mist, one fan, two fans, cooling, drying, hot (100 F), cold (40 F) |
+| `dr` | the drying refusal (section 4.3) |
+| `e`, `lim` | the drying cost (kWh/kg, `null` with no outdoor data) and the limit in force |
+| `br` | 1 when the band check repaired the band |
+| `b` | the band the law used: `low`, `high`, `vpd_low`, `vpd_high` |
+
+### 11.2 Other records
+
+- `climate_drying_meter`: `s` seconds of a drying run with the vent open, `g` grams of water and `wh` watt-hours of
+  heat carried out (with the compiled air exchange), `rw` seconds drying was wanted and not running. Not persisted.
+- `relay_counters`: lifetime starts of heat1, heat2, fan1, fan2, fog and vent, and fan run seconds; persisted. A
+  start is an OFF-to-ON edge after the relay layer has run.
+- `outdoor_source`, `band_source`, `sntp_valid`, and `climate_law_constants` (the hash of the compiled constants).
+- **Controller health**, every 60 s: Free Heap Minute Low and Largest Heap Block Minute Low (kB), Control Loop Worst
+  Minute (ms), NVS Write Worst Minute (ms, 0 when nothing was written), each over its own one-minute window; Restart
+  Count (persisted); NVS Used Entries and NVS Free Entries; Loop Stack High Water (bytes never used); WiFi Disconnect
+  Count (since boot); API Client Count. A `heap_profile` and a `flash_profile` log line every 15 minutes.
+- Gap Log State and Gap Replay (section 9.3).
+
+### 11.3 Labels for host readers that predate the law (`legacy_state()`)
+
+The mode, action and priority axis are derived from the relays, the first row that applies:
+
+| State | Mode label | Action | Axis |
 |---|---|---|---|
-| Sensor-fault | `!sensors_plausible` (temp∉(−20,140)°F, rh∉[0,100], vpd∉[0,10), hour∉[0,23]) | all relays off | inv #26, native tests |
-| Cold rail | `temp_f ≤ safety_min` (default and fallback 40 °F) | `SAFETY_HEAT` (both heaters) | inv #25 |
-| Hot rail | `temp_f ≥ safety_max` (default and fallback 100 °F) | `SAFETY_COOL` (vent+both fans) | inv #7 |
-| VPD over-dry | `vpd_kpa > vpd_max_safe` (default 2.5 kPa) | forced `SEALED_MIST` | determine_mode |
-| VPD over-wet | `vpd_kpa < vpd_min_safe` (default 0.3 kPa) | forced `DEHUM_VENT` | determine_mode |
-| Dew-margin veto | every wetting path gated on `temp_f − dew_point_f` | no crown condensation | inv #2/#24 |
-| Relay protection | min-on/min-off (heat 300/300 s, fan 60/30, fog 60/60, vent 30/30), heat2 anti-chatter latch | wear/chatter limit | `controls.yaml` |
-| Daily water ceiling | SAF-4 (`mister_daily_volume_max_gal` in the irrigation program) and each mister zone's duty cap | immune to VPD emergencies; survival fog runs past SAF-4 and the soft budget, still counted | `irr_vpd_zone_allowed()`, `fog_force_off_reason()` native tests |
-| Mister watchdog (D-IRP-19) | a mister ON past its commanded pulse + 30 s (300 s unknown), or any wet relay ON without its engine grant | forced OFF; the zone backs off 10/30 min, then latches (a non-member, L08 or L10 at once) | `test_irrigation_program.cpp` watchdog traces |
-| Leak signal | flow with every Verdify valve closed (one site meter: hose, sink, hydro) | the leak alert only; no force-off, no cancel (Q-05) | `test_12_fidelity.py`, the fog consumer scenarios |
+| No valid indoor temperature | `SENSOR_FAULT` | `SENSOR_FAULT` | safety |
+| At or above 100 F | `SAFETY_COOL` | `SAFETY_COOL` | safety |
+| At or below 40 F | `SAFETY_HEAT` | `SAFETY_HEAT` | safety |
+| Vent open, fogger on | `VENTILATE` | `VENT_COOL_FOG_ASSIST` | temp |
+| Vent open, a mister on | `VENTILATE` | `VENT_COOL_MIST_ASSIST` | temp |
+| Vent open for drying | `DEHUM_VENT` | `DEHUM_VENT` | vpd |
+| Vent open otherwise | `VENTILATE` | `VENT_COOL` | temp |
+| Vent closed, fogger on | `SEALED_MIST` (stage `FOG`) | `SEALED_FOG` | vpd |
+| Vent closed, a mister on | `SEALED_MIST` (stage `S1`) | `SEALED_HUMIDIFY` | vpd |
+| A heater on | `IDLE` | `HEAT` | temp |
+| None of these | `IDLE` | `IDLE` | temp or vpd when that reading is outside the band, else resource |
 
-The rails preempt **before** any AI-influenced candidate is considered
-(`greenhouse_logic.h:683-691`). The cold rail and the all-off fault were previously
-unpinned by the always-run replay suite; they are now invariants **#25** and **#26**
-(`firmware/test/invariants.h`).
+During the boot grace the label is `IDLE`. A manual fan run with the vent closed reads `IDLE`. `mode_reason` is
+`init` during the boot grace, `sensor_fault` in the no-indoor state and `law` otherwise.
 
-### 5.2 Why AI tunables cannot move a rail or the FSM (the 5-layer defense)
+## 12. Tests and the gate for a firmware change
 
-The planner sets *tunables* (how hard to chase the band), never the rails or the
-state machine. Five independent layers enforce this:
+| Check | What it pins |
+|---|---|
+| `make test-climate-law` (`firmware/test/test_climate_law.cpp`) | The law equals the reference implementation (`docs/reviews/control-review-2026-11-15/sim/band_edge_controller.h`) on one vector set; the rules, the band check, the relay layer, the lead fan, the mister request, the glue, the manual runs and the interlocks |
+| `make climate-law-sim` (`firmware/test/climate_law_sim.py --full`, CI only) | The firmware's law and relay layer reproduce the reference's per-minute relay trajectory over the whole weather year |
+| `make climate-law-replay` (`firmware/test/test_climate_law_replay.cpp`) | The law over the recorded corpus: the furnace and the vent never together, no fan without the vent, the furnace's boot wait, the 100 F and 40 F rules on injected traces, a NaN trace requests nothing, no latch changes faster than its relay allows |
+| `make test-running-alone` | Input selection, the clock trust and corridor, the no-indoor table, the boot grace, the counters, the sensor-bus and doubly blind restarts |
+| `make test-gap-log` (`firmware/test/test_gap_log.cpp`) | The gap log's format, ring, clockless stamping, arming and stopping, the recorder test, replay, in both record formats |
+| `make test-irrigation-program`, `make test-greenhouse-logic`, `make test-zone-vpd` | The irrigation engine, lighting, the fog holds, the manual run helpers, the band curve goldens, the zone VPD fallback |
+| `verdify_schemas/tests/test_climate_law_constants.py` | The generated constants are fresh and no law source holds a literal |
+| `make firmware-check` | The ESPHome compile |
 
-1. **Registry** — safety/FSM keys are `planner_pushable=False`
-   (`verdify_schemas/tunable_registry.py`); the planner has no tool to author them.
-2. **MCP gate** — the tool surface refuses non-pushable keys (`mcp/server.py`).
-3. **Registry bounds** — every pushable tunable has a validated min/max.
-4. **ESPHome number min/max** — the device clamps each accepted value
-   (`firmware/greenhouse/tunables.yaml`).
-5. **On-device sanity** — `validate_setpoints()` re-clamps relationally
-   (`greenhouse_types.h`), and `sw_fsm_controller_enabled` is force-locked on.
-
-The rails read fixed `safety_min/safety_max/vpd_*_safe` setpoints that are not in
-the planner-pushable set. 40 °F and 100 °F are the hard temperature guardrails (Jason
-2026-11-05, #1333): every firmware default and invalid-value fallback uses them
-(`kSafetyMinF`/`kSafetyMaxF`), and `validate_setpoints()` clamps the temperature band
-inside them (`temp_low ≥ safety_min + 5`, `temp_high ≤ safety_max − 5`); a band edge
-never moves a rail. Tested by `verdify_schemas/tests/test_tunable_registry.py`
-and the native suite.
-
-### 5.3 Enforcement — the invariant suite
-
-`make firmware-invariants` runs property invariants #1–#26 over the replay corpus
-(193,525 rows); first breach fails. They are the executable form of this spec:
-fog/vent and fog/heat exclusivity (#1/#11), heat-off-when-hot (#3), the hot/cold/
-fault rails (#7/#25/#26: every climate and mister relay off in SENSOR_FAULT, L08 and L10
-included; drips outside it), mode↔relay consistency (#15; #2 and #15 exempt a mister whose
-irrigation-engine cause is schedule, run_now, fallback, feed, prewet or flush),
-heat2-requires-heat1 (#16),
-the ≥10 °F day/night drop (#17), the fertilizer/feed interlocks (#18–#22), the
-curve-only fog gate (#24), and the night dry-out bounds (#28: at most 4 pulses an
-hour, never heat2 on a dry-out row, no pulse at or below `temp_low`; dry-out
-pulses are bounded there rather than counted by #14's cold-day vent cap). `make test-firmware` adds 222 native unit tests of the
-same code.
-
-## 6. The diurnal band curve — the deterministic target (L3 #345 AC1)
-
-The served band is a **pure function of solar phase**, reconstructed on-chip from
-4 NVS anchors — it stretches/compresses automatically as day length drifts.
-
-- **Solar phase** ∈ [0,4): 0=sunrise, 1=solar-noon, 2=sunset, 3=solar-midnight,
-  computed by a **C1-smooth piecewise-cubic-Hermite** over the on-chip NOAA
-  ephemeris (`greenhouse_solar.h:91-130`). C1 continuity kills the slope kink the
-  old piecewise-linear phase put at sunrise/sunset.
-- **Band value** = a **4-anchor harmonic (discrete-Fourier) interpolation** through
-  `{sr, sm, ss, mid}` at phase 0/1/2/3 (`greenhouse_solar.h:159-175`): passes
-  *exactly* through each anchor yet is C-∞ smooth (no lumpy plateaus). One curve,
-  not four stitched eases.
-- **Cross-implementation alignment.** The identical math lives in three places kept
-  in lockstep: firmware `band_value_at_phase`, ingestor `solar.py`, and DB
-  `fn_crop_band_value` (migration 170). Pinned by absolute goldens in
-  `firmware/test/test_greenhouse_logic.cpp` (`band_value_at_phase_matches_canonical_harmonic_goldens`,
-  `solar_phase_c1_smooth_and_hits_anchors`) and mirrored by
-  `tests/test_solar_band_anchors.py`. `make firmware-replay-band` is the behavioral
-  gate for any curve change (the stock replay is corpus-fed and would miss it).
-
-## 7. Bands + hysteresis (L3 #345 AC2)
-
-### 7.1 Day/night/season bands
-
-The band's day/night shape *is* the four anchors (sunrise/noon/sunset/midnight)
-interpolated by solar phase (§6). Season enters through the anchor *values* the
-dispatcher syncs (DB `crop_band_anchors`, season-aware) — firmware interpolates
-whatever anchors are in NVS. The ≥10 °F day/night temperature drop is a hard
-property of the served band, pinned by invariant **#17** (night `temp_low` must sit
-≥10 °F below the day-peak `temp_high`).
-
-### 7.2 Hysteresis constants (whipsaw reduction)
-
-Defaults from `default_setpoints()` (`greenhouse_types.h`) / `globals.yaml`:
-
-| Constant | Default | Gates | Exit-widening rule |
-|---|---|---|---|
-| `temp_hysteresis` | 1.5 °F | VENTILATE entry/exit band | exit threshold widened when `was_cooling` (`mode_prev`) |
-| `cool_exit_hysteresis_f` | 1.5 °F | VENTILATE exit | widened to ≥3.0 °F when outdoor is cold-for-vent |
-| `heat_hysteresis` | 1.0 °F | IDLE/sealed heat-stage 1 entry; heat2-latch clear | clears the heat2 latch at `Tlow + heat_hysteresis` |
-| `vpd_hysteresis` | 0.3 kPa | SEALED exit / DEHUM entry | structurally capped at 33 % of band width (no entry/exit inversion) |
-| `dH2` | 5.0 °F | heat-stage-2 latch entry (`temp < Tlow − dH2`) | latched; clears via `heat_hysteresis` |
-| `cool_stage2_over_high_f` | 1.0 °F | fan1→fan2 escalation **entry** (`temp_high + this`) | **latched** (BC-8) — see §7.5 |
-| `cool_stage2_exit_hysteresis_f` | 1.0 °F | fan1→fan2 de-escalation: latch clears at `entry − this` | symmetric twin of heat2 |
-| `fog_escalation_kpa` | 0.4 kPa | MIST_FOG entry; VENTILATE fog assist | threshold only |
-| `dehum_aggressive_kpa` | 0.3 kPa | DEHUM both-fans entry | threshold only |
-| `bias_heat` / `bias_cool` | 0.0 °F | symmetric target offset (planner-tunable) | no hysteresis |
-| `band_track_fraction` | **0.0** (float — ADR-0004) | pinches the CONTROL band toward `temp_target`/`vpd_target` when pushed non-zero | per-axis width floor (see §7.4) |
-
-### 7.4 Band-tracking pinch — optional diagnostic transform (float is the default, ADR-0004; reverses BC-3/ADR0003 §6.1)
-
-`climate_band_error()` (`greenhouse_logic.h`) is a **do-nothing envelope**: it returns
-`0.0` for any value inside `[low, high]`. By itself that means the controller *floats*
-anywhere in the band. **`apply_band_track_pinch()`** closes that gap: at the controller
-entry (`determine_mode`) and in `resolve_equipment` it moves the **control** band toward
-the served target by `band_track_fraction` — `low += f·(target−low)`, `high −= f·(high−target)`
-— so the pinched width is `served_width·(1−f)` and every non-safety axis is driven *onto*
-the target curve, not merely kept inside the band. The **served band and the safety rails
-(`safety_min/max`, `vpd_*_safe`) are untouched** — the wide band stays the safety bound.
-
-- **Default 0.0 — FLOAT is the default (ADR-0004; supersedes the BC-3 "pinch by
-  default" claim that stood here).** The authoritative device value is set in the
-  `controls.yaml` setpts initializer (`.band_track_fraction =
-  id(band_track_fraction)`, global default `0.0`, `restore_value: no`);
-  `default_setpoints()` matches (0.0) so the native tests and replay exercise the
-  float corridor. It remains a **bounded planner knob** ([0,1], registry
-  `planner_pushable`): the live device value is whatever the planner last pushed
-  (0.25 as of 2026-07-03 — a #377 trial value; ADR-0004's direction is 0), so a
-  reboot/OTA boots 0.0 until the next push. Nonzero is an explicit
-  operator/diagnostic escape hatch, not the operating default.
-- **Demand-overlap width floor.** Because `band_heat_target_f = low + 0.25·max(2,W)` and
-  heat-stage-1 fires at `+ heat_hysteresis`, a too-narrow pinched band could make the heat
-  trigger meet the cooling edge (heat+cool demanded at one temp → thrash). The pinch caps
-  the per-axis effective fraction so the pinched temp width never drops below
-  `heat_hysteresis/0.75` (≥2) or `0.5+heat_hysteresis` — provably keeping
-  `band_heat_target_f(pinched)+heat_hysteresis ≤ pinched.temp_high` (pinned by
-  `bc3_pinch_never_inverts_or_overlaps_demand`).
-- **Proving a change.** The stock corpus has no per-row target column, so the stock replay
-  and `make firmware-invariants` re-sim **un-pinched** (they record historical float
-  operation); the pinch is exercised and proven by **`make firmware-replay-band`** (which
-  derives a real target curve) plus the native `bc3_*` tests. Arming 0.50 diverges ~43 % of
-  band-derive replay rows from float — the behavioral proof the stock corpus is blind to.
-
-Hysteresis behavior is tested directly (`test_greenhouse_logic.cpp` fix3 temp/heat,
-fix4 dehum-sticky) and bounded so a planner push cannot invert an entry/exit pair.
-
-### 7.5 Symmetric two-stage escalation (BC-8, ADR0003 §6.5)
-
-Every two-stage actuator escalates through **one shared, two-sided latch**
-(`stage2_escalation_latch`, direction-parameterized) so stage 2 cannot chatter at its
-threshold — the per-relay min-on/min-off dwell is a *time* floor, not a temperature
-hysteresis, so a bare threshold whipsaws stage 2 when the value parks near it.
-
-| Stage | Latch (entry → exit) | Tunables |
-|---|---|---|
-| heat1→**heat2** (low side) | set `temp < temp_low`; clear `temp ≥ band_heat_target_f` | (geometry preserved; was the only latched stage) |
-| fan1→**fan2** (high side) | set `temp ≥ temp_high + cool_stage2_over_high_f`; clear at `entry − cool_stage2_exit_hysteresis_f` | `cool_stage2_over_high_f`, `cool_stage2_exit_hysteresis_f` |
-
-`fan2_latched` lives in `ControlState` next to `heat2_latched`, is **set in
-`determine_mode`** and **read (const) in `resolve_equipment`** — identical contract to
-heat2. It is evaluated on the **pinched** band edge (so §7.4 tighter tracking preserves the
-hysteresis *width*) and reset whenever the controller leaves the cooling context, so it
-cannot stale-latch into a later VENTILATE entry. `cool_all_fans_at_high_enabled` is an
-explicit operator override that still forces both fans immediately above the band edge,
-bypassing the latch. Pinned by `fan2_latches_and_does_not_chatter`,
-`stage2_escalation_latch_is_symmetric`, `cool_all_fans_at_high_overrides_fan2_latch`; the
-heat2 refactor is replay-identical (0 divergence).
-
-### 7.6 Fog-first wetting ladder (BC-14, ADR0003 §6.6)
-
-Humidification is **fog-first, ordered by water GPM** (AquaFog ≈ 0.26 GPM is the lowest
-water; misters ≈ 1 GPM/zone). The `MistStage` enum is inverted to
-`WATCH → FOG(entry) → S1(misters) → S2(all-zone)` (the string literals WATCH/FOG/S1/S2
-are unchanged so replay/grafana keep parsing; `static_assert(MIST_S2==3)` locks it). On
-sealed entry the ladder seeds **MIST_FOG** — fog leads as the gentle evaporative touch —
-and escalates **up to the misters** only when fog can't hold: `vpd > vpd_high +
-fog_escalation_kpa` sustained for the planner-pushable fog-only dwell (`mist_s2_delay_ms`),
-or immediately if fog is physically gated (RH ceiling / dew / time). De-escalation uses a
-symmetric hysteresis (`MISTER_DEESCALATE_KPA`, WS-B style) so the fog↔mister boundary can't
-chatter (rewritten invariant #12 enforces no-skip: misters reachable only after fog).
-**LAYERED** (Jason 2026-06-17): fog **persists** through the mister stages — `resolve_equipment`
-drives `out.fog` at FOG/S1/S2, and the `controls.yaml` zone-mister machine engages only once
-the FSM has escalated past fog (`mist_stage >= MIST_S1`). Invariant #11 broadened so fog+heat
-is legal across the active humidification stages. The mister **zone arbiter, fertigation,
-fairness, and feed-hold/salt-fogger interlocks (inv #18–22) are untouched** — only the
-climate-humidification escalation ORDER changed. Proven by 5 native `band_first_*` fog-first
-tests + `make firmware-replay-band` (11.6% behavioral diff vs the old misters-first ladder).
-
-### 7.3 Dwell / timer mechanics
-
-| Timer / gate | Default | Effect |
-|---|---|---|
-| `vpd_watch_dwell_ms` | 60 s | VPD must stay high this long before humidify fires |
-| `sealed_max_ms` | 10 min | SEALED_MIST hard timeout → IDLE + mist-backoff (inv #4) |
-| `relief_duration_ms` | 90 s | THERMAL_RELIEF purge burst (inv #8; ≤ `sealed_max_ms`) |
-| `mist_backoff_ms` | 10 min | lockout suppressing new SEALED entries after a timeout (livelock breaker) |
-| `mist_s2_delay_ms` | 5 min | dwell before MIST_S1→S2 (inv #12 no skip) |
-| Phase-2 **dwell gate** | **default OFF** (`sw_dwell_gate_enabled=false`); 5 min | when on, holds non-safety transitions to cut whipsaw (compliance can preempt) |
-| `vent_latch_timeout_ms` | 30 min | relief-cycle breaker; retries seal entry |
-| heat2 anti-chatter latch | — | prevents gas-valve chatter; set `temp<Tlow−dH2`, clear `temp≥Tlow+heat_hysteresis` |
-
-Mode-transition rate is additionally bounded by invariant #6 (≤30 transitions/hr in
-stable conditions).
-
-### 7.3a Final relay dwell authority and cycle evidence (#367, #299)
-
-The mode, engage and optional Phase-2 gates above decide intent; they do not
-switch a relay. In `controls.yaml`, `RelayMeta` and `set_relay` are the single
-final transition authority for heat1/2, fan1/2, fog and vent. A turn-on waits for
-`now_ms - last_off_ms >= min_off_ms`; a turn-off waits for
-`now_ms - last_on_ms >= min_on_ms`. The eight snapshot/legacy durations refresh
-every tick while the original edge timestamps and accumulated runtime stay intact,
-and unsigned elapsed arithmetic survives the `millis()` rollover. After a reboot the
-static metadata starts at zero and `millis()` restarts near zero, so an ordinary ON
-waits the full minimum-off time from boot; only a force bypasses that.
-
-Only the explicit caller flags bypass the dwell waits:
-
-| Relay | Force ON | Force OFF |
-|---|---|---|
-| Heat1 | none | sensor fault or the heat/air-exchange interlock |
-| Heat2 | none | heat1's force-OFF conditions, or retiring heat2 when heat1 will not run after this tick |
-| Fans | an accepted manual FANS / VENT-BYPASS latch (`manual_fan_force`) | sensor fault |
-| Vent | the fan/open-vent interlock (`fan_requires_vent`) | sensor fault |
-| Fog | an accepted manual HUMID latch (`manual_fog_force`) | the shared fog rule `fog_forced_off(mode, fog_rails)` (`greenhouse_logic.h`) |
-
-A force-OFF still stamps the OFF edge, so a later ordinary ON waits the full
-minimum-off from it. Daily relay cycles (`cnt_*_today`) count observed OFF-to-ON
-edges **after** `set_relay` has run, forced starts included: an ON request refused
-by minimum-off adds no cycle, and a sustained ON adds no further cycle. This is
-switch-state evidence, not proof that a contact or valve moved.
-
-The misters are not `RelayMeta` relays. Since the irrigation engine (#1160) they
-have their own final owner in `irrigation_program.h`: a per-zone re-fire fence
-(`mister_min_off_s`, `zone_fenced`) stamped at the relay's own close
-(`stamp_close`) or at the next tick's falling edge, so cancellation, a watchdog
-stop and a pulse train's gap all count from the real close. Every origin goes
-through it: a VPD request, a scheduled window pulse and a manual run-now wait
-until the fence expires (`mister_refire_fence_by_origin_and_reset` in
-`test_irrigation_program.cpp`). The fence lives in engine RAM, not in the RTC
-block, so **a reset clears it**: after a reboot a zone may re-fire before
-`mister_min_off_s` has passed since its last close. The reboot itself (boot,
-Wi-Fi, the first 5 s engine tick) is the only spacing then.
-
-A newly armed climate mister pulse keeps its complete requested duration: the
-tick's `dt_ms` elapsed before the pulse was armed and is not charged to it. The
-engine's continuous runs (drips, prewets, feeds, flushes) start accounting at
-`open_since_ms`, so they are never charged for time before their admission
-either. Hard safety cancellation still closes water at once. Physical re-fire,
-starts/runtime and rollback observations remain candidate-specific #390
-acceptance.
-
-## 8. Mechanical transitions, energy-waste avoidance, outdoor air (L3 #345 AC3/AC4)
-
-### 8.1 No contradictory actuator combinations by default
-
-Modes are mutually exclusive, so most "dumb" combinations are structurally
-impossible. The few cross-mode overlaps are explicitly bounded and pinned:
-- **No heat while venting / no fog while venting** except an explicit, demand-justified
-  assist envelope (`fog+vent` only as FW-9b high-VPD assist or SAFETY_COOL emergency
-  — invariant #1; `fog+heat` only inside the SEALED cold/dry assist envelope —
-  invariant #11). Outside those envelopes the combination fails the replay gate.
-- **Never heat to chase humidity at night** (`night_econ_heat_suppressed`,
-  `greenhouse_logic.h:119-124`): the IDLE econ-rescue heat path — the only
-  heat-to-dry path — is suppressed overnight so it cannot erase the day/night drop.
-- **Heat off when hot** (#3), **heat2 never without heat1** (#16).
-
-### 8.2 Outdoor-air-aware strategy
-
-The controller uses Tempest outdoor temperature/RH (when fresh) before spending
-energy: the **summer-vent economizer gate** opens for free cooling only when outdoor
-air is genuinely **cooler and drier** than indoor, with a staleness guard so stale
-outdoor data can never trigger it (`greenhouse_logic.h:583-598`, invariant #9). A
-`DEHUM_VENT` economizer path and a cold-outdoor vent-cooling-exit widening complete
-the outdoor-aware set. Tested at `test_greenhouse_logic.cpp` (s15 gate).
-
-### 8.3 Equipment roles
-
-Fan **lead/lag rotation** balances runtime across fan1/fan2 (verified ~5 % balance
-over 14 d). Fogger and **center** misters are the core humidity tools. A mister zone takes
-climate VPD pulses only while it is a VPD member of the irrigation program (center in the ROM
-default); with more than one member the zone-priority arbiter (`greenhouse_solar.h:236`, via
-`irr_rank_vpd_zone()`) picks, center at rank 1.
-Zone choice reads each zone's VPD through the **peer-probe fallback**
-(`zone_vpd_with_fallback()`, `firmware/lib/zone_vpd.h`; irrigation F8, D-IRP-13): a
-zone uses its own wall probe while the reading is fresh (a probe callback within
-300 s) and finite, otherwise the mean of the fresh peer probes (south, west, east),
-otherwise the house average; center has no probe and always uses the house average.
-A Modbus probe that stops answering keeps its last value, so a stale VPD reading never
-feeds the stress scores, east's adjacency boost, the fairness watchdog, the S2 pulse
-weight, the rank arbiter or the published `gh_zone_wet_granted` and
-`gh_zone_vpd_delta_*`; while a probe is out, its `gh_zone_vpd_delta_*` reports the
-resolved (peer or house) value, not the probe's own reading. `determine_mode()`
-inputs, the FW-9 emergency merge and the stress scores' wall-temperature term keep
-the raw probe readings. Tested in `firmware/test/test_zone_vpd.cpp`.
-Vent is coupled to fan behavior per mode (§3.3).
-
-## 9. 72-hour disconnected / offline-first operation (L2 #344 AC3)
-
-The controller is designed to run **safely and deterministically for ≥72 hours with
-zero network**, because all control inputs it needs are on-chip:
-
-- **On-chip ephemeris** — sunrise/solar-noon/sunset computed locally from the NOAA
-  approximation each cycle (`greenhouse_solar.h:37-84`); the diurnal program never
-  depends on the dispatcher.
-- **NVS-persisted band anchors** — the served band is reconstructed from 4 floats in
-  NVS (`globals.yaml` `restore_value` anchors); a dispatcher anchor-sync is an
-  *update*, not a control-loop dependency.
-- **Graceful clock fallback** — if there is no time source at all,
-  `fallback_solar_phase(local_hour)` supplies a fixed-day phase so the controller
-  degrades rather than mis-gates (`greenhouse_solar.h:145-148`,
-  `effective_solar_phase` at `greenhouse_logic.h:42-48`).
-
-**What degrades over a long disconnect:** no live anchor reconciliation (the device
-holds its last NVS anchors), no telemetry capture or gap-backfill until reconnect,
-and — only if the RTC/SNTP clock is *also* lost — the band rides the fixed fallback
-day instead of the true ephemeris. None of these defeats safety: the rails (§5) and
-the band reconstruction run entirely on-chip.
-
-**Tested** (`firmware/test/test_greenhouse_logic.cpp`):
-`disconnected_72h_run_is_deterministic_and_safe` (3 days × 96 samples, on-chip
-ephemeris + NVS anchors only; two boots produce an identical mode trace and never
-trip a safety/fault rail while in band), `no_time_source_fallback_phase_stays_safe`
-(NaN phase → fallback across all 24 h stays finite and safe), and
-`reboot_persisted_anchors_reproduce_identical_band` (a power cycle reproduces
-byte-identical setpoints).
-
-## 10. Green-band compliance — controller-miss vs physical-impossibility (L3 #345 AC5)
-
-Compliance is **off the live control path** (the dispatcher never reads it) and is
-**graded + feasibility-aware**, not binary:
-- **Graded credit** — `fn_grade_credit` gives full credit inside the ideal band,
-  linear partial credit out to the stress edge, zero beyond
-  (`db/migrations/146-compliance-rearchitecture.sql`).
-- **Feasibility decomposition** — every miss is classified **controller** (corrective
-  authority was available and unused) vs **unachievable** (e.g. an exhaust-only box
-  cannot cool below ambient with the vent saturated and both fans on) vs
-  `feasibility_unknown` (before relay coverage). The rule is `fn_zone_band_grade`'s
-  CASE (`146:259-278`); both a raw and a controller-attributable compliance are
-  emitted, so the planner reward is never penalized for the weather (verified: 73.4 %
-  of historical hot-misses were physically unachievable).
-
-The decomposition rule is pinned offline by
-`tests/test_compliance_feasibility_classifier.py` (a faithful Python mirror over
-synthetic rows + a guard that migration 146 still carries the predicates). The live
-SQL evaluation over production data is DB-gated.
-
-### 10.1 Cross-surface seams (the deliberate couplings)
-
-Two seams cross the otherwise-clean climate/lighting/irrigation separation and are
-named here so they are not mistaken for leaks:
-- **Lighting** — the firmware's on-chip `evaluate_lighting` owns the grow-light
-  decision; `scripts/setpoint-server.py` is the HA-token-holding **proxy** that
-  actuates the Lutron switches on the firmware's behalf (it is *not* an independent
-  controller). Both key off the same `gl_main_*`/`gl_grow_*` tunables, so they cannot
-  diverge in thresholds. (Hardening this with an explicit auto-vs-manual write test
-  is a tracked follow-up.)
-- **Irrigation↔climate** — one mist manifold, shared by climate VPD pulses and the
-  irrigation engine's windows and feeds: every wet relay opens only with the engine's grant,
-  the climate asks for it per pulse (`irr_vpd_grant()`), the zone's VPD membership comes from
-  the irrigation program (`irr_vpd_zone_allowed()`), occupancy is one rule for all mist and fog
-  (drips ignore it), and the D-IRP-19 watchdog's faults hold both sides. The salt-to-fogger
-  interlock (SAF-5) and the shared caps (SAF-4, the soft budget, each zone's duty cap) couple
-  fertigation and climate wetting deliberately (invariants #18–#22 enforce that fertilizer never
-  reaches the fogger and that no clean wetting fires during the post-feed absorption hold).
-
-## 11. Acceptance-criteria traceability
-
-**L2 Firmware Core (#344)**
-
-| AC | Where realized | Pinned by |
-|---|---|---|
-| Responsibilities = climate/lighting/irrigation only | §2, §3 | this spec + `test_firmware_crop_agnostic_guard.py` |
-| Relay transitions + safety override explicit | §3.2, §3.3, §5.1 | inv #1/#3/#7/#11/#15/#16/#25/#26 |
-| 72-hour disconnected defined AND tested | §9 | `disconnected_72h_*`, `no_time_source_*`, `reboot_persisted_*` |
-| AI tunables cannot override rails or FSM | §5.2 | `test_tunable_registry.py` + 5-layer defense |
-| Crop-specific assumptions removed/isolated | §2 | `test_firmware_crop_agnostic_guard.py` |
-
-**L3 Climate Control (#345)**
-
-| AC | Where realized | Pinned by |
-|---|---|---|
-| Diurnal curve math formalized + tested | §6 | harmonic/C1 goldens + `make firmware-replay-band` |
-| Bands + hysteresis documented | §7 | fix3/fix4 hysteresis tests + inv #17 |
-| Mechanical transitions avoid energy-waste by default | §8.1 | inv #1/#3/#11/#16 |
-| Outdoor-air use explicit | §8.2 | inv #9 + s15 gate test |
-| Compliance distinguishes controller-miss vs impossibility | §10 | `test_compliance_feasibility_classifier.py` (live eval DB-gated) |
-
-## 12. Changing the firmware — the gate
-
-Any change under `firmware/lib/**`, `firmware/greenhouse/**`, `verdify_schemas/**`,
-`ingestor/entity_map.py`, or `mcp/server.py` follows the verification order in
-`AGENTS.md`: `make test-firmware`, `make firmware-invariants`, the replay diff
-(`make firmware-replay`, plus `make firmware-replay-band` for any band-curve change),
-and `make firmware-check`. The **OTA itself is safety-checked** (no OTA on an open
-critical alert or stale telemetry, or without a rollback binary; there is no bake or
-weekly limit). This spec's invariants + native tests +
-replay are the offline proving ground that gates the OTA.
+`make test-firmware` runs the native suites. Any change under `firmware/lib/**` or `firmware/greenhouse/**` runs
+these, then ships through the signed flash path behind `scripts/firmware-deploy-preflight.sh`
+([`runbooks/firmware-signed-artifacts.md`](runbooks/firmware-signed-artifacts.md)): no flash on an open critical
+alert, stale telemetry or a missing rollback image; there is no bake or timing gate. Changing a compiled constant is a
+change to `verdify_schemas/climate_law.yaml` and a firmware release; the controller then reports a new constants hash.

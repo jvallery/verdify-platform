@@ -110,7 +110,7 @@ def test_snap_rejects_non_finite_values_and_bad_steps(value: float, step: float 
         ("band_temp_low_sr", 61.26, 61.3),
         ("zone_priority_center", 2.4, 2.0),
         ("sw_direct_wet_gate_enabled", 1, 1.0),
-        ("fog_time_window_start", 7.3, 7.3),  # no entity, no step
+        ("feed_start_hour", 7.3, 7.3),  # no entity, no step
     ],
 )
 def test_snap_setting_uses_the_registry_step_and_bounds(name: str, value: float, expected: float) -> None:
@@ -213,7 +213,7 @@ def test_binary32_ulp_rejects_values_binary32_cannot_hold(x: float) -> None:
         ("mister_engage_delay_s", 60.0, 15.0),
         ("band_vpd_low_sr", 0.73, 0.005),  # anchor push quantum 0.01
         ("sw_direct_wet_gate_enabled", 1.0, 0.5),
-        ("fog_time_window_start", 1.6, 2.0**-23),  # no step: the binary32 ULP
+        ("feed_start_hour", 1.6, 2.0**-23),  # no step: the binary32 ULP
         ("not_a_setting", 1.6, 2.0**-23),
     ],
 )
@@ -231,9 +231,9 @@ def test_readback_tolerance(param: str, value: float, tolerance: float) -> None:
         ("mister_hysteresis_kpa", _float32(0.3), 0.3, True),
         ("mister_hysteresis_kpa", _float32(0.29), 0.3, False),
         # The binary32 ULP term confirms a transport-rounded value with no step.
-        ("fog_time_window_start", _float32(1.6), 1.6, True),
+        ("feed_start_hour", _float32(1.6), 1.6, True),
         ("not_a_setting", 1.600000023841858, 1.6, True),
-        ("fog_time_window_start", _next_float32(1.6), 1.6, False),
+        ("feed_start_hour", _next_float32(1.6), 1.6, False),
         ("mister_engage_delay_s", 30.0, 60.0, False),
         ("mister_engage_delay_s", 44.0, 45.0, True),
         ("band_vpd_low_sr", _float32(0.73), 0.73, True),

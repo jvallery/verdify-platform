@@ -499,7 +499,8 @@ class IngestorCounters(BaseModel):
     heartbeat task and exposed by the operator API's metrics timer. Counts start at 0 with the ingestor process.
 
     ``rc`` ESP32 reconnects, ``pr`` rejected versioned controller payloads, ``rj`` device rows dropped by schema
-    validation per table, ``fw`` the firmware version pin the ingestor enforces (empty when none)."""
+    validation per table, ``fw`` the firmware version pin the ingestor enforces (empty when none), ``gr`` failed
+    gap replay pass writes (absent in rows written before #1633 release 5)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -508,6 +509,7 @@ class IngestorCounters(BaseModel):
     pr: int = Field(ge=0)
     rj: dict[Literal[INGESTOR_REJECTED_TABLES], int] = Field(default_factory=dict)  # type: ignore[valid-type]
     fw: str = Field(default="", max_length=64, pattern=r"^([A-Za-z0-9][A-Za-z0-9._-]{0,63})?$")
+    gr: int = Field(default=0, ge=0)
 
     @field_validator("rj")
     @classmethod

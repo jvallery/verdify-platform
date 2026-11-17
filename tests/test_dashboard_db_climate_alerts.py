@@ -218,8 +218,8 @@ def test_legacy_band_scalars_are_not_judged_while_the_controller_runs_its_own_ba
 def test_a_controller_restart_opens_nothing_for_values_the_dispatcher_re_pushes_within_15_minutes(dsn):
     """K1: the restart reverts held settings to boot values; the dispatcher re-pushes them 3 to 10 minutes later."""
     restart = 30 * MIN
-    held = {"gl_main_sunset_hour": (20.0, 19.0), "activity_start_hour": (7.0, 6.0), "mister_pulse_on_s": (30.0, 20.0)}
-    repushed_after = {"gl_main_sunset_hour": 3 * MIN, "activity_start_hour": 7 * MIN, "mister_pulse_on_s": 10 * MIN}
+    held = {"gl_main_sunset_hour": (20.0, 19.0), "gl_grow_sunset_hour": (21.0, 20.0), "mister_min_off_s": (30.0, 20.0)}
+    repushed_after = {"gl_main_sunset_hour": 3 * MIN, "gl_grow_sunset_hour": 7 * MIN, "mister_min_off_s": 10 * MIN}
 
     async def body(conn, t0):
         for parameter, (asked, boot) in held.items():
@@ -279,6 +279,42 @@ def test_an_open_stuck_row_stays_open_while_a_setting_aged_out_of_60_days_still_
         # Taken: the row may resolve.
         await readbacks(conn, "gl_grow_sunset_hour", [(t0, 21.0)])
         assert await alerts._setpoint_delivery_cycle(conn) == (None, frozenset())
+
+    scenario(dsn, body)
+
+
+def test_deleted_settings_are_not_judged_and_an_open_row_naming_only_them_resolves(dsn):
+    """Alert 14169 (2026-11-17): band requests for three settings the third flash deleted went out before the boot
+    and stayed 'sent' against stale readbacks. Nothing pushes them again, so they are not judged; a live setting
+    in the same state still raises."""
+    retired = ("mister_all_kpa", "mister_engage_kpa", "vpd_target_south")
+    assert not set(retired) & set(alerts._pushable_params())
+    assert "mister_pulse_on_s" not in alerts._pushable_params()
+    assert {"temp_low", "gl_main_sunset_hour", "dry_cost_limit_kwh_per_kg"} <= set(alerts._pushable_params())
+
+    async def body(conn, t0):
+        for parameter, asked, stale in zip(retired, (1.6, 1.2, 0.9), (1.4, 1.0, 1.1), strict=True):
+            await request(conn, t0 - 90 * MIN, parameter, asked)
+            await readbacks(conn, parameter, [(ts, stale) for ts in every(t0, 2 * H, MIN)])
+        # The mister_pulse_on_s shape: confirmed at 33.75, the controller reads back whole seconds (33), and the
+        # 1 s tolerance no longer covers it once release 4 drops it from SECOND_READBACK_ABS_TOLERANCE_PARAMS.
+        await request(conn, t0 - 2 * H, "mister_pulse_on_s", 33.75, confirmed_at=t0 - 2 * H + MIN)
+        await readbacks(conn, "mister_pulse_on_s", [(ts, 33.0) for ts in every(t0, 2 * H, MIN)])
+        assert await delivery(conn) == {}
+        await conn.execute(
+            "INSERT INTO alert_log (id, alert_type, severity, message, details, disposition) VALUES "
+            "(1, 'setpoint_delivery_stuck', 'critical', 'm', $1, 'open')",
+            '{"params": ["mister_all_kpa", "mister_engage_kpa", "vpd_target_south"]}',
+        )
+        # The open row names only deleted settings: nothing raises and nothing keeps it open.
+        assert await alerts._setpoint_delivery_cycle(conn) == (None, frozenset())
+
+        # A live setting in the same state still raises.
+        await request(conn, t0 - 90 * MIN, "gl_main_sunset_hour", 20.0)
+        await readbacks(conn, "gl_main_sunset_hour", [(ts, 19.0) for ts in every(t0, 2 * H, MIN)])
+        assert set(await delivery(conn)) == {"gl_main_sunset_hour"}
+        envelope, keep = await alerts._setpoint_delivery_cycle(conn)
+        assert keep == frozenset() and envelope["details"]["params"] == ["gl_main_sunset_hour"]
 
     scenario(dsn, body)
 

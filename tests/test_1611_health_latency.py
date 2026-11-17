@@ -121,3 +121,9 @@ def test_a_stale_scorecard_is_served_and_refreshed_in_the_background():
 
     asyncio.run(run())
     assert _scorecard_reads(pool) == 2
+
+
+def test_the_scorecard_reads_the_greenhouse_local_day_not_the_utc_day():
+    """TEL-26: with CURRENT_DATE the UTC day turned over at 17:00 MST and /health lost both numbers each evening."""
+    assert "CURRENT_DATE" not in main.HEALTH_SCORECARD_SQL
+    assert main.HEALTH_SCORECARD_SQL.endswith("WHERE date = (now() AT TIME ZONE 'America/Denver')::date")

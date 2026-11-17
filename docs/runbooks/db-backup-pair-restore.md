@@ -14,6 +14,9 @@ credentials must be provisioned separately through the authorized Secret
 owner. The CronJob reads the production database and writes only the backup
 PVC; it does not write production database rows.
 
+Objects that migration 316 dropped are restored from their own archive, not from a pair:
+[`phase4-drop-316-restore.md`](phase4-drop-316-restore.md).
+
 ## Restore a named pair
 
 Use a committed source checkout and an exact stem from a completed backup Job.

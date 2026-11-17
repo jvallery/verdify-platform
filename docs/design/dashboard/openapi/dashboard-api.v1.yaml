@@ -349,7 +349,7 @@ paths:
           schema: {type: string}
         - name: target
           in: query
-          description: Exact target, e.g. L01 or mister_engage_kpa
+          description: Exact target, e.g. L01 or gl_main_lux_threshold
           schema: {type: string}
         - {name: from, in: query, schema: {type: string, format: date-time}}
         - {name: to, in: query, schema: {type: string, format: date-time}}
@@ -1118,7 +1118,7 @@ components:
       in: path
       required: true
       description: tunable_registry name
-      schema: {type: string, pattern: '^[a-z][a-z0-9_]*$', examples: [mister_engage_kpa]}
+      schema: {type: string, pattern: '^[a-z][a-z0-9_]*$', examples: [gl_main_lux_threshold]}
     AlertId: {name: id, in: path, required: true, schema: {type: integer}}
     SlotId: {name: slot_id, in: path, required: true, schema: {type: integer, minimum: 1, maximum: 65535}}
     LineId: {name: line_id, in: path, required: true, schema: {$ref: '#/components/schemas/LineId'}}
@@ -1909,7 +1909,7 @@ components:
       description: One tunable_registry row, or a read-only Band in force row, as the Settings screen shows it
       required: [param, label, control_class, group, kind, writable, readback_via, readback, desired, plan, applied_from, state]
       properties:
-        param: {type: string, examples: [mister_engage_kpa]}
+        param: {type: string, examples: [gl_main_lux_threshold]}
         label: {type: string, description: 'For a registry row, TunableDef.label (VD-29), filled from the setting''s entity name in firmware/greenhouse/tunables.yaml and drift-tested'}
         control_class: {type: string, enum: [planner_policy, scheduled_policy, controller_safety, crop_band, irrigation_site, readback_context, retired]}
         group:

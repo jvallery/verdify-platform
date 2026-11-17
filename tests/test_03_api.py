@@ -176,9 +176,9 @@ class TestAPISetpoints:
         data = self._parse_setpoints(body)
         row = db_query_rows(
             """
-            SELECT round(house_vpd_low::numeric, 2)::text,
-                   round(house_vpd_high::numeric, 2)::text
-              FROM fn_house_vpd_control_band(now())
+            SELECT round(vpd_low::numeric, 2)::text,
+                   round(vpd_high::numeric, 2)::text
+              FROM fn_band_setpoints(now())
             """
         )[0]
         expected_low, expected_high = [float(v) for v in row.split("|")]

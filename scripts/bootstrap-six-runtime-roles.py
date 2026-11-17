@@ -1266,6 +1266,64 @@ def sealed_sql_316():
     )
 
 
+SERVED_BAND_READERS_MIGRATION = (
+    317,
+    "317-served-band-readers-and-relay-record.sql",
+    "83aed4a2c57f9a70225b70ecaa44bdc89ca9f8fe5e4bfac9b41da70c1880eed4",
+)
+# Host release 5 (#1633, #1734): the band readers read the served band, v_setpoint_forward goes, the retired irrigation
+# readback counts read NULL, and the relay counter check gains boots and the early-record rule. fn_heat_staging_inversion
+# (ordinary digest), the ingestor duty's schedule and counter views and MCP's scorecard function change, so the seals
+# are measured by the native probe (record: tests/fixtures/317-served-band-readers-and-relay-record-native-qualification.json).
+# Until then, the literals are 316's (fail closed).
+SUCCESSOR_317 = {
+    **SUCCESSOR_316,
+    "api": "956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d",
+    "ingestor": "d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718",
+}
+
+
+def sealed_sql_317():
+    # Keep every 316 predicate and bind the exact 317 runner stamp with its successor seals.
+    predecessor = sealed_sql_316()
+    current = seal_profile_sql(316, SUCCESSOR_316)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(317, SUCCESSOR_317), 1)
+        + " AND "
+        + ledger_row_sql(*SERVED_BAND_READERS_MIGRATION)
+        + ")"
+    )
+
+
+RETIRE_PLAN_CYCLE_LESSONS_MIGRATION = (
+    318,
+    "318-retire-plan-cycle-lessons.sql",
+    "58910b66c5f9bcc2b771d7b3ae43e084e122e990095bd083f60647860f9368b3",
+)
+# Host release 5 (#1633, #1734, review C-9): the 27 planner lessons that teach the retired plan cycle are set inactive.
+# Data only: no catalog object changes, so the seals are 317's (they move together if 317's are re-measured).
+SUCCESSOR_318 = {
+    **SUCCESSOR_317,
+}
+
+
+def sealed_sql_318():
+    # Keep every 317 predicate and bind the exact 318 runner stamp with its successor seals.
+    predecessor = sealed_sql_317()
+    current = seal_profile_sql(317, SUCCESSOR_317)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(318, SUCCESSOR_318), 1)
+        + " AND "
+        + ledger_row_sql(*RETIRE_PLAN_CYCLE_LESSONS_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1342,6 +1400,10 @@ def sealed_sql():
         + sealed_sql_315()
         + " OR "
         + sealed_sql_316()
+        + " OR "
+        + sealed_sql_317()
+        + " OR "
+        + sealed_sql_318()
         + ")"
     )
 

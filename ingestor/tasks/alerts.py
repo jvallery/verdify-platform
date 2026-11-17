@@ -9,6 +9,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from entity_map import SETPOINT_MAP
+
 from verdify_schemas.climate_law_constants import CONSTANTS_SHA256 as LAW_CONSTANTS_SHA256
 from verdify_schemas.control_proof import LAW_STATE_AGE_SQL, law_fresh
 from verdify_schemas.irrigation import (
@@ -36,6 +38,7 @@ from ._common import (
     HEAP_CRITICAL_RECOVERY_SAMPLES,
     PROBE_OFFLINE_ALERT_TYPES,
     PROBE_OFFLINE_RESOLVE_DAYS,
+    RETIRED_UNROUTABLE_PARAMS,
     SECOND_READBACK_ABS_TOLERANCE_PARAMS,
     SOIL_DRYOUT_MIN_DURATION_H,
     SOIL_DRYOUT_TARGETS_SQL,
@@ -89,6 +92,11 @@ LEGACY_BAND_SCALARS = ("temp_high", "temp_low", "vpd_high", "vpd_low")
 ONCHIP_BAND_SOURCES = ("corridor", "onchip_curve")
 # The readback match is the snapshot confirmation's own (ingestor._publish_setpoint_snapshot): within 1 %, or
 # within 1 s for the quantized second-valued settings ($1).
+# Only the settings the host still pushes are judged ($4 here, $2 in _DELIVERY_STILL_DIFFERS_SQL): a deleted
+# setting's last request stays 'sent' and its readback keeps a boot or stale value (alert 14169, 2026-11-17), and
+# nothing will ever push it again. The pushable set is the dispatcher's own: the settings with a number or switch
+# route (SETPOINT_MAP, the registry's; the staged settings and the gated dry-cost limit are in it) less the
+# retired unroutable ones.
 _READBACK_MATCH = """(abs({a} - {b}) / greatest(abs({b}), 1e-3) < 0.01
          OR abs({a} - {b}) <= CASE WHEN {param} = ANY($1::text[]) THEN 1.0 ELSE 0.0 END)"""
 _SETPOINT_DELIVERY_SQL = f"""
@@ -96,6 +104,7 @@ WITH requested AS (
     SELECT DISTINCT ON (parameter) parameter, ts, value, confirmed_at, delivery_status
       FROM setpoint_changes
      WHERE COALESCE(source, '') <> 'esp32' AND ts > now() - interval '60 days'
+       AND parameter = ANY($4::text[])
        AND NOT (parameter = ANY($2::text[]) AND COALESCE((
            SELECT d.band_source FROM diagnostics d
             WHERE d.band_source IS NOT NULL AND d.ts > now() - interval '1 day'
@@ -194,13 +203,24 @@ async def _guarded_fetchrow(conn, types: frozenset[str], sql: str, *args) -> tup
         return _READ_FAILED, types
 
 
-def _setpoint_delivery_args() -> tuple[list[str], list[str], list[str]]:
+def _pushable_params() -> list[str]:
+    """The settings the dispatcher still pushes: a number or switch route, and not retired."""
+    return sorted(frozenset(SETPOINT_MAP.values()) - RETIRED_UNROUTABLE_PARAMS)
+
+
+def _setpoint_delivery_args() -> tuple[list[str], list[str], list[str], list[str]]:
     """``_SETPOINT_DELIVERY_SQL``'s parameters: the 1 s tolerance settings, the legacy band scalars, the on-chip
-    band sources."""
-    return sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS), list(LEGACY_BAND_SCALARS), list(ONCHIP_BAND_SOURCES)
+    band sources, the pushable settings."""
+    return (
+        sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS),
+        list(LEGACY_BAND_SCALARS),
+        list(ONCHIP_BAND_SOURCES),
+        _pushable_params(),
+    )
 
 
-# The settings an open stuck row names, newest request without an age bound, still differing from the readback.
+# The settings an open stuck row names and the host still pushes ($2), newest request without an age bound, still
+# differing from the readback. A row that names only deleted settings finds none and resolves.
 _DELIVERY_STILL_DIFFERS_SQL = f"""
 WITH named AS (
     SELECT DISTINCT jsonb_array_elements_text(details->'params') AS parameter
@@ -210,7 +230,7 @@ WITH named AS (
 ), requested AS (
     SELECT DISTINCT ON (sc.parameter) sc.parameter, sc.value, sc.delivery_status
       FROM setpoint_changes sc JOIN named n USING (parameter)
-     WHERE COALESCE(sc.source, '') <> 'esp32'
+     WHERE COALESCE(sc.source, '') <> 'esp32' AND sc.parameter = ANY($2::text[])
      ORDER BY sc.parameter, sc.ts DESC
 )
 SELECT q.parameter
@@ -235,7 +255,7 @@ async def _setpoint_delivery_cycle(conn) -> tuple[dict | None, frozenset[str]]:
         rows = await conn.fetch(_SETPOINT_DELIVERY_SQL, *_setpoint_delivery_args())
         envelope = _setpoint_delivery_stuck_alert(rows)
         if envelope is None and await conn.fetchrow(
-            _DELIVERY_STILL_DIFFERS_SQL, sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS)
+            _DELIVERY_STILL_DIFFERS_SQL, sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS), _pushable_params()
         ):
             return None, keep
     except Exception as e:
@@ -2122,8 +2142,8 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                     "message": (
                         f"STAGING INVERSION: heat2 (gas) ON for {dur:.0f}s while heat1 (electric) OFF. "
                         f"Temp={staging_row['temp_avg']:.1f}°F, "
-                        # fn_heat_staging_inversion reads temp_low from a 10-minute readback window; readbacks are
-                        # stored on change (#1662), so it is often NULL there and the alert still stands.
+                        # fn_heat_staging_inversion's temp_low is the served band's low edge (fn_band_setpoints since
+                        # migration 317); the message still tolerates a NULL there, and the alert stands without it.
                         + (
                             f"Tlow={staging_row['temp_low']:.1f}°F"
                             if staging_row["temp_low"] is not None
@@ -2581,50 +2601,7 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        # 14. Tunable zero-variance detection (Sprint 24.9, G-9): a dispatcher-owned band value with
-        # stddev=0 over 7 days. The per-zone VPD targets it also read are retired with the third flash
-        # (contracts/phase4-firmware-deletions-host.md section 3).
-        zero_var_params = ["temp_low", "temp_high", "vpd_low", "vpd_high"]
-        for r in await conn.fetch(
-            """
-            SELECT parameter, count(*) AS n, stddev(value) AS sd, avg(value) AS mean
-              FROM setpoint_snapshot
-             WHERE parameter = ANY($1::text[]) AND band_role IS NULL
-               AND ts > now() - interval '7 days'
-               -- K1: the legacy band scalars sit on boot values while the controller runs its own band.
-               AND NOT (parameter = ANY($2::text[]) AND COALESCE((
-                   SELECT d.band_source FROM diagnostics d
-                    WHERE d.band_source IS NOT NULL AND d.ts > now() - interval '1 day'
-                    ORDER BY d.ts DESC LIMIT 1), '') = ANY($3::text[]))
-             GROUP BY parameter
-            HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24
-               AND (stddev(value) IS NULL OR stddev(value) = 0)
-            """,
-            list(zero_var_params),
-            list(LEGACY_BAND_SCALARS),
-            list(ONCHIP_BAND_SOURCES),
-        ):
-            alerts.append(
-                {
-                    "alert_type": "tunable_zero_variance",
-                    "severity": "warning",
-                    "category": "system",
-                    "sensor_id": f"setpoint.{r['parameter']}",
-                    "zone": None,
-                    "message": (
-                        f"Tunable `{r['parameter']}` has zero variance over 7 days "
-                        f"(n={r['n']}, pinned at {float(r['mean']):.3f}). "
-                        "Check dispatcher source (band / zone function / crop profile)."
-                    ),
-                    "details": {
-                        "parameter": r["parameter"],
-                        "sample_count": int(r["n"]),
-                        "pinned_value": float(r["mean"]),
-                    },
-                    "metric_value": 0.0,
-                    "threshold_value": None,
-                }
-            )
+        # 14. (Tunable zero-variance) deleted with the setpoint_snapshot band scalars it read (#1734 C-7).
 
         # Reactive trigger marker removed in Sprint 5 P6 — deviation monitor handles replans
 

@@ -300,9 +300,29 @@ async def test_a_broken_pass_is_not_written_and_a_failed_write_stays_queued():
 
     for line in _pass_lines():
         host.receive(line)
-    with pytest.raises(RuntimeError):
-        await host.write_pending(FakePool(Failing()))
-    assert len(host.pending) == 1
+    assert await host.write_pending(FakePool(Failing())) == []
+    assert len(host.pending) == 1 and host.failures == 1
     conn = FakeConn()
     await host.write_pending(FakePool(conn))
     assert not host.pending and (7, 41) in conn.ledger
+    assert host.failures == 1  # a count since process start, for verdify_ingestor_gap_replay_failures_total
+
+
+@pytest.mark.asyncio
+async def test_a_failing_pass_is_counted_every_flush_and_logged_at_most_once_a_minute(caplog):
+    now = [1000.0]
+    host = gap_replay.GapReplayHost(clock=lambda: now[0])
+
+    class Failing(FakeConn):
+        async def execute(self, sql, *args):
+            raise RuntimeError("operator does not exist")
+
+    for line in _pass_lines():
+        host.receive(line)
+    caplog.set_level("ERROR", logger="ingestor.gap_replay")
+    for _ in range(13):  # one minute of 5 s flushes
+        await host.write_pending(FakePool(Failing()))
+        now[0] += 5.0
+    assert host.failures == 13 and len(host.pending) == 1
+    assert [r.levelname for r in caplog.records].count("ERROR") == 2  # the first, then once 60 s later
+    assert "13 time(s) in a row" in caplog.records[-1].getMessage()

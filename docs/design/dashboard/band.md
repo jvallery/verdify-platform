@@ -53,11 +53,13 @@ between the noon and midnight values, with no overshoot.
 
 ## Who may change what
 
-- **The band (the 24 anchors)** is set only by an operator: Control → Band, a single setting in Settings, or an operator
-  agent through the operator API. Iris (the planner) may not write it: `set_plan` drops anchors, and API-24 refuses Iris.
-- **Night dry-out bias** (`night_vpd_bias_kpa`, 0–0.25 kPa) is the planner's lever. The controller adds
-  `bias·sin²(π(phase−2)/2)` to VPD low, target and high from sunset to sunrise, peaking at solar midnight. The editor
-  shows it dotted ("As the controller runs it").
+- **The band (the 24 anchors)** is set only by a signed-in dashboard operator: Control -> Band, or a single setting
+  in Settings. No agent may write it: the settings service refuses every other actor, Iris included
+  (`tests/test_law_owner_only_settings.py`).
+- **The drying cost limit** (`dry_cost_limit_kwh_per_kg`, 0 to 1.5 kWh of heat per kg of water, default 0.7) is the
+  owner's one price beside the band: a drying run with outdoor air starts only while the heat it carries out per
+  kilogram of water is within it. Like the band, only a signed-in operator writes it; no agent may. Nothing shifts
+  the band at night: the night VPD floor above is the band's own.
 - **Zones** ride their own VPD target curves for the misters. They are not part of this editor yet.
 
 ## The editor (Control → Band)

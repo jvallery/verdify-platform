@@ -215,7 +215,7 @@ function LogFilters({ view, params, me }: { view: ActivityView; params: URLSearc
         <option value="">All</option>
         {what.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select></label>
-      <label className="act-target">Target<input name="target" type="search" value={targetField} onChange={(event) => setTargetField(event.currentTarget.value)} autoComplete="off" placeholder="Wall drip or mister_engage_kpa"
+      <label className="act-target">Target<input name="target" type="search" value={targetField} onChange={(event) => setTargetField(event.currentTarget.value)} autoComplete="off" placeholder="Wall drip or gl_main_lux_threshold"
         onBlur={(event) => applyTarget(event.currentTarget.value)} onKeyDown={onTargetKey} /></label>
       <label className="act-date">From<input name="from" type="date" max={view.dates.to} {...onDate("from", fromField, setFromField)} /></label>
       <label className="act-date">To<input name="to" type="date" min={view.dates.from} {...onDate("to", toField, setToField)} /></label>

@@ -22850,7 +22850,7 @@ data:
                 "uid": "verdify-tsdb",
                 "type": "grafana-postgresql-datasource"
               },
-              "rawSql": "SELECT zone_path, enabled, start_time, clean_duration_min, fert_duration_min, flush_min, days_mask, fert_days_mask, schedule_source, stale_readback_count, readback_drift_count, notes FROM v_irrigation_schedule_current ORDER BY schedule_id",
+              "rawSql": "SELECT zone_path, enabled, start_time, clean_duration_min, fert_duration_min, flush_min, days_mask, fert_days_mask, schedule_source, notes FROM v_irrigation_schedule_current ORDER BY schedule_id",
               "format": "table",
               "refId": "A"
             }

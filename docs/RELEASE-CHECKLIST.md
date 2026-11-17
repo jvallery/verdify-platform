@@ -1,9 +1,9 @@
 # Verdify Release Checklist
 
-Updated 2026-11-05. Production is the single `verdify-prod` environment, delivered
+Updated 2026-11-16. Production is the single `verdify-prod` environment, delivered
 by the manual-sync Argo application `verdify-prod-dark` from `main`. Use this
 checklist with [the operating contract](../AGENTS.md),
-[service delivery](runbooks/laptop-operator.md#2-cicd-merge-publishes-promotion-pins-the-gated-sync-deploys-single-env)
+[service delivery](runbooks/laptop-operator.md#2-cicd-merge-builds-promotion-pins-the-gated-sync-deploys)
 and [signed firmware operations](runbooks/firmware-signed-artifacts.md).
 
 Apply only the sections relevant to the requested change and honor the active
@@ -19,14 +19,14 @@ the current sprint's survey and release status.
 - [ ] Preserve unrelated work; prepare the smallest owner change from current
       `origin/main` in an isolated checkout when needed.
 - [ ] Run the relevant checks through the supported in-cluster CI path. Full
-      suites, image builds and other intensive work run in `vallery`, not on the
-      Mac. `make test` and `make check` can touch production; they are not generic
-      offline checks. Use the existing private fixtures for isolated qualification.
-- [ ] Require the exact PR head's `Verdify Platform / Argo PR CI` commit status
-      to pass, plus any other enforced branch checks. Read commit statuses with
-      `gh api repos/jvallery/verdify-platform/commits/<sha>/status`;
-      this repository has no hosted Actions workflows or check-runs. Retain the
-      selected test results and their limits; a skipped case is not acceptance.
+      suites, image builds and other intensive work run in the cluster, not on
+      a workstation. `make test` and `make check` can touch production; they
+      are not generic offline checks. Use the existing private fixtures for
+      isolated qualification.
+- [ ] Require the exact PR head's required `ci / ...` GitHub Actions checks
+      (`docs/ci/ci-contexts.md`) to pass on this repository's ARC runners. Read
+      them with `gh pr checks <n>`. Retain the selected test results and their
+      limits; a skipped case is not acceptance.
 - [ ] Land schema contracts and numbered migrations before or with their
       consumers. Run the relevant drift guards. For `verdify_schemas/**`,
       `ingestor/entity_map.py` or `mcp/server.py`, name affected service rollouts
@@ -37,17 +37,20 @@ the current sprint's survey and release status.
 
 - [ ] Match the successful exact-main build to its published image digests.
       The registered merge pipeline builds with Kaniko and publishes to the
-      zot origin `registry.vallery.net`. Its five actuator-managed entries in
+      zot origin. Its four actuator-managed entries (api, mcp, ingestor and
+      migrate) in
       `deploy/k8s/overlays/prod/kustomization.yaml` are build candidates; the
       later `release-pins.yaml` transformer determines their production images.
       Do not hand-edit those candidate entries or treat their update as deployment.
 - [ ] When the change requires promotion, use
       `scripts/promote-release-pins.py` and preserve its source/digest receipt.
-      Its default promotes all five related images, including the migration
-      hook; review that complete change. Planner, setpoint-server and
-      lab-publisher pins use their exact successful build outputs in the
-      overlay's separate `images:` entries. Follow the current owner runbook
-      for an image outside the registered build set.
+      Its default promotes all four related images, including the migration
+      hook; review that complete change. Setpoint-server and lab-publisher pins
+      use their exact successful build outputs in the overlay's separate
+      `images:` entries; the planner (Hermes), Grafana image renderer and
+      timescaledb digests are edited in their own manifests. Follow
+      [the promotion runbook](runbooks/prod-promotion.md) for an image outside
+      the registered build set.
 - [ ] Before a requested production sync, render and inspect the complete
       pending diff with `kustomize build deploy/k8s/overlays/prod` and
       `kubectl diff`. Check every pending resource, the single ingestor's
@@ -55,12 +58,19 @@ the current sprint's survey and release status.
       A full sync applies other pending drift too. A render-identical source or
       candidate-only change needs no sync or workload restart.
 - [ ] For an authorized sync, use the exact revision and the atomic operation
-      procedure in [laptop-operator §2](runbooks/laptop-operator.md#2-cicd-merge-publishes-promotion-pins-the-gated-sync-deploys-single-env):
+      procedure in [laptop-operator section 2](runbooks/laptop-operator.md#2-cicd-merge-builds-promotion-pins-the-gated-sync-deploys):
       clear the prior terminal operation state and submit a full sync with
       `prune: false` and no resource selector. Immediately confirm the new
       operation's `sync.resources` is absent or empty. Stop and preserve the
       result if a selector, stale hook result or unexpectedly short resource
       set appears. Do not prune the database StatefulSet or either retained PVC.
+- [ ] When the release carries a migration that takes exclusive locks, pause
+      `verdify-mcp`, `verdify-api` and `verdify-operator-api` for the hook as
+      [laptop-operator section 2](runbooks/laptop-operator.md#exclusive-lock-windows-a-migrate-hook-or-a-migration-qualification)
+      describes: ask the holder of the planned-maintenance Lease and wait for
+      the admit, pre-check `pg_stat_activity`, scale them to 0 about 15 s after
+      an ingestor view refresh, and scale them back by hand first if a hook
+      fails. Recreate the planner pod once MCP is back.
 - [ ] Verify Argo `Synced` + `Healthy` at the intended revision, newly executed
       migration/bootstrap/readiness hooks when applicable, and actual running
       imageIDs/source identities against the release receipt. Run the
@@ -83,7 +93,9 @@ the current sprint's survey and release status.
       supported cluster lane. Bind the old and new source revisions and the
       corpus identity. For band-curve changes also retain the dedicated band
       replay result; ordinary corpus parity alone does not exercise that change.
-      Every new tunable needs its `cfg_*` readback. Secretless dummy-credential
+      A law constant changes only in `verdify_schemas/climate_law.yaml` and
+      its generated files. Every new tunable needs its `cfg_*` readback.
+      Secretless dummy-credential
       compiler outputs remain nondeployable.
 - [ ] Build/archive/sign the selected full SHA with the suspended
       `verdify-firmware-builder` path described in
@@ -112,9 +124,10 @@ the current sprint's survey and release status.
       evidence remains missing; it is not replaced with a green software test.
 - [ ] Run the unchanged `scripts/firmware-deploy-preflight.sh` with the kube DB
       backend in the attended release window: no unresolved critical/legacy-high
-      alerts, fresh climate/action telemetry and complete action proof, and
-      verified available rollback bytes. There is no bake, minimum-age or weekly
-      gate (Jason, 2026-11-05): new builds ship as often as needed. Forecast heat
+      alerts, fresh climate telemetry, the law's `climate_law_state` record
+      under 120 s old, a fresh outdoor source, and verified available rollback
+      bytes. There is no bake, minimum-age or weekly gate (the owner,
+      2026-11-05): new builds ship as often as needed. Forecast heat
       is context, not a new blocker. Follow the existing reason-logged override
       semantics only when the requested scope covers the relevant exception.
 
@@ -131,12 +144,14 @@ the current sprint's survey and release status.
       single-writer evidence without an additional native API client. Execute
       the predeclared recovery path if a failure requires it and the release
       scope covers that action; retain the failed candidate's evidence.
-- [ ] Verify the intended candidate's `band_track_fraction`,
-      `dehum_vent_hold_enabled` and related config through current readbacks.
+- [ ] Verify that the law runs the release's constants: `climate_law_state`
+      rows resume within a minute, `climate_law_constants` equals the release's
+      constants hash and no `law_constants_mismatch` row is open, and the band
+      edges, drying cost limit and soft water budget read back unchanged.
       Record actual door/screen state and other envelope conditions. Do not
-      infer them from July firmware defaults, widen tunable bounds, or inject a
-      setpoint merely to match an old checklist. Record any intervention and its
-      effect on the observation window.
+      widen setting bounds or inject a setting merely to match an old
+      checklist. Record any intervention and its effect on the observation
+      window.
 - [ ] Retain exact pre/post firmware, configuration and raw-transition evidence,
       including starts/dwell, separate software/watchdog reset counts and the
       declared runtime canaries. Incomplete coverage is not a pass. Promote
@@ -151,7 +166,7 @@ the current sprint's survey and release status.
       (#1536) only keeps it from holding the app OutOfSync. Once the new hash is
       Synced and no Pod or unexpired `fw-*` Job mounts the old name, export a
       custody copy and delete the old ConfigMap by name with a UID precondition,
-      under `inflight/NS-verdify-prod.lock`. Record the deleted name and UID in
+      under the namespace write lock. Record the deleted name and UID in
       the release receipt. Zero prune-pending objects is the target (STD-IAC-02).
 
 ## C. Dashboards (Grafana)
@@ -171,7 +186,7 @@ the current sprint's survey and release status.
 - [ ] Apply [the web lane's checks](agents/web.md) for changed generators,
       content, theme, plugins or routes. Run intensive Quartz builds and broad
       suites in the supported cluster lane, not on the Mac.
-- [ ] Verify the actual S3 content → publisher → validated PVC generation →
+- [ ] Verify the actual S3 content -> publisher -> validated PVC generation ->
       nginx path with [the publication runbook](runbooks/lab-content-pipeline.md),
       including the live generation and affected pages/embeds. Merging an image
       or source change alone does not prove publication.
@@ -189,14 +204,22 @@ the current sprint's survey and release status.
 - [ ] Bind migration and consumer image digests, ledger outcomes and runtime
       adoption to the same release. Declare the required service rollouts as
       above; do not add an unconditional post-migration bounce.
+- [ ] A qualification on the live database
+      (`scripts/qualify-migration-successor.py`) holds ACCESS EXCLUSIVE prelocks
+      for 15 to 30 s per run and stalls the runtimes. Run it only with the
+      exclusive-lock procedure in
+      [laptop-operator section 2](runbooks/laptop-operator.md#exclusive-lock-windows-a-migrate-hook-or-a-migration-qualification):
+      a `pg_stat_activity` pre-check, clear of the compression jobs, the
+      view refreshes and the daily review (timing in that section), MCP, the API and the operator API paused, and a health
+      check of the ingestor, planner, API and MCP right after. Keep the number
+      of production runs to the minimum.
 
 ## F. Documentation and evidence
 
 - [ ] Update the owning runbook and relevant issue with delivered behavior,
       exact source/build/runtime evidence and remaining limitations.
-- [ ] Edit `planning/backlog.yaml` and regenerate its board/dependency views;
-      do not hand-edit generated planning files. Update actual ownership records
-      when ownership changes.
+- [ ] Track the work in the owning GitHub issue; `planning/` holds dated
+      history only. Update actual ownership records when ownership changes.
 - [ ] Review the final diff and preserve unrelated files and recovery evidence.
       A documentation correction does not itself deploy, release a hold or
       satisfy physical acceptance.

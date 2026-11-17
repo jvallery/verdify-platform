@@ -395,8 +395,8 @@ const ages = () => [...document.querySelectorAll(".setting-device .setting-age")
 
 test("every row shows exactly one age: reported as the drawer says it, Derived for Band in force, else changed, else age unknown", () => {
   const all = rows();
-  // Release 4 (#1633) deleted 43 rows: 147 remain in the rendered fixture.
-  expect(all.length).toBeGreaterThan(140);
+  // Release 4 (#1633) deleted 43 rows and release 5 (#1734) 12 more: 135 remain in the rendered fixture.
+  expect(all.length).toBeGreaterThan(130);
   for (const setting of all) {
     draw(setting);
     const found = ages();

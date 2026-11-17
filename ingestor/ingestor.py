@@ -16,12 +16,13 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 import time
 import unicodedata
 import urllib.request
 import zlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -184,6 +185,10 @@ DIAG_FLUSH_INTERVAL = 60  # seconds between diagnostics row writes
 # observation landing between two windows was never written (a lost per-minute low is a lost minute).
 DIAG_OBSERVATION_MAX_AGE_S = 180
 DIAG_PENDING_PER_COLUMN = 4
+# One row per publish batch (#1734 C-10): observations are taken oldest first, and a row closes at the first one more
+# than this after the row's first, or of a column the row already holds. A row no longer pairs the i-th pending value
+# of every column, which put an older value of one column beside a newer value of another.
+DIAG_BATCH_SPAN_S = 5.0
 LOG_FLUSH_INTERVAL = 10  # seconds between log batch writes
 COUNTER_SAMPLE_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_COUNTER_SAMPLE_BUFFER_MAX_ROWS", "50000")))
 EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS", "50000")))
@@ -362,10 +367,14 @@ class State:
         )
         self.equipment: dict[str, bool] = {}
         # RULINGS AF6: relay edges across a controller boot. The relays held ON when this connection began, each
-        # relay's first state on it, and the last uptime seen on any connection.
+        # relay's first state on it, the relays whose first state the receipt path stored, the boot this connection
+        # follows (once its uptime showed it), and the last uptime seen on any connection.
         self.relay_generation = 0
         self.relays_on_before_connection: set[str] = set()
         self.relays_first_seen: dict[str, tuple[bool, datetime]] = {}
+        self.relays_first_recorded: set[str] = set()
+        self.relay_boot_at: datetime | None = None
+        self.relays_boot_on: set[str] = set()  # relays given an ON edge by the boot repair, until their next OFF
         self.relay_last_uptime_s: float | None = None
         self.system: dict[str, str] = {}
         self.setpoints: dict[str, float] = {}
@@ -2060,8 +2069,8 @@ def _climate_fog_assist_status(
 # feature-off path; the POLICY rendering adds the device-confirmed vector
 # identity join (latest policy_exposures interval covering the tick, falling
 # back to the latest policy_device_snapshots echo at or before it) into the
-# migration-208 nullable columns. The legacy plan_context heuristic keeps
-# populating plan_id/trigger_id/planner_instance for continuity either way.
+# migration-208 nullable columns. plan_id, trigger_id and planner_instance are NULL: no plan applies since
+# climate refactor 4.2, and the plan_context read of setpoint_plan is gone (#1734 C-7).
 _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
             WITH latest_climate AS (
                 SELECT c.*
@@ -2086,16 +2095,6 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                     bs.temp_target AS temp_target_f,
                     bs.vpd_target  AS vpd_target_kpa
                 FROM fn_band_setpoints(COALESCE((SELECT ts FROM latest_climate), $2)) AS bs
-            ),
-            plan_context AS (
-                SELECT sp.plan_id, sp.trigger_id, sp.planner_instance
-                  FROM setpoint_plan sp
-                 WHERE COALESCE(sp.greenhouse_id, $1) = $1
-                   AND sp.is_active = true
-                   AND sp.parameter <> 'plan_metadata'
-                   AND sp.ts <= COALESCE((SELECT ts FROM latest_climate), $2)
-                 ORDER BY sp.ts DESC, sp.created_at DESC
-                 LIMIT 1
             ){policy_identity_ctes}
             INSERT INTO v_runtime_climate_action_log_write (
                 ts,
@@ -2164,9 +2163,9 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                 $13::jsonb,
                 $14::jsonb,
                 $15,
-                pc.plan_id,
-                pc.trigger_id,
-                pc.planner_instance,
+                NULL,
+                NULL,
+                NULL,
                 jsonb_strip_nulls(
                     $16::jsonb || jsonb_build_object(
                         'latest_climate_ts', lc.ts,
@@ -2187,8 +2186,7 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                 $17,
                 $18::jsonb{policy_identity_vals}
             FROM band
-            LEFT JOIN latest_climate lc ON true
-            LEFT JOIN plan_context pc ON true{policy_identity_join}
+            LEFT JOIN latest_climate lc ON true{policy_identity_join}
             """
 
 _CLIMATE_ACTION_LOG_INSERT_LEGACY = _CLIMATE_ACTION_LOG_INSERT_TEMPLATE.format(
@@ -2424,6 +2422,23 @@ async def write_setpoint_changes(pool: asyncpg.Pool, ts: datetime) -> None:
     log.debug(f"setpoint_changes: {len(validated)} changes written")
 
 
+def _diagnostic_batches(
+    queues: Mapping[str, Sequence[tuple[datetime, int, Any]]],
+) -> list[dict[str, tuple[datetime, int, Any]]]:
+    """The pending observations of every column as rows, one per publish batch, oldest first (DIAG_BATCH_SPAN_S)."""
+    batches: list[dict[str, tuple[datetime, int, Any]]] = []
+    first: datetime | None = None
+    for col, entry in sorted(
+        ((col, entry) for col, queue in queues.items() for entry in queue), key=lambda item: (item[1][0], item[0])
+    ):
+        moment = entry[0]
+        if not batches or col in batches[-1] or (moment - first).total_seconds() > DIAG_BATCH_SPAN_S:
+            batches.append({})
+            first = moment
+        batches[-1][col] = entry
+    return batches
+
+
 async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
     """Write a diagnostics row."""
     d = state.diagnostics
@@ -2433,7 +2448,8 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
             return
         # Retained caches are not current-generation native observations. Each value of this connection is
         # written once: only when it is newer than the one last written for its column (DIAG-WINDOW). Values
-        # that arrived between two ticks become one row each, oldest first, so a tick never drops one.
+        # that arrived between two ticks are grouped by publish batch (DIAG_BATCH_SPAN_S), oldest first, so a tick
+        # never drops one and a row is stamped with the newest moment of its own batch.
         accepted = state.diagnostic_accepted_observations
 
         def unwritten(col: str, moment: datetime, gen: int) -> bool:
@@ -2453,8 +2469,7 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
         if not queues:
             return
         rows = []
-        for i in range(max(len(queue) for queue in queues.values())):
-            fresh = {col: queue[i] for col, queue in queues.items() if i < len(queue)}
+        for fresh in _diagnostic_batches(queues):
             row_ts = max(moment for moment, _, _ in fresh.values())
             # A state the controller publishes only when it changes is carried from its last receipt in this
             # connection into every row, so the newest row always holds it; a new connection starts without it.
@@ -2786,10 +2801,11 @@ async def write_esp32_logs(pool: asyncpg.Pool) -> None:
     log.debug(f"esp32_logs: {len(validated)} messages written")
 
 
+_LOG_TAG_PREFIX = re.compile(r"\[[A-Z]\]\[([A-Za-z0-9_.]+)(?::\d+)?\]:")
+
+
 def on_log_message(msg) -> None:
     """Callback for ESP32 log messages via aioesphomeapi."""
-    import re
-
     level = LOG_LEVEL_MAP.get(msg.level, "UNKNOWN")
     tag = msg.tag if hasattr(msg, "tag") else None
     raw = msg.message if hasattr(msg, "message") else str(msg)
@@ -2799,6 +2815,10 @@ def on_log_message(msg) -> None:
     if isinstance(tag, bytes):
         tag = tag.decode("utf-8", errors="replace")
     message = re.sub(r"\x1b\[[0-9;]*m", "", raw)  # Strip ANSI colors
+    if not tag:
+        # This ESPHome version sends no tag; it is in the text, as "[W][heap_profile:1864]: ...".
+        prefix = _LOG_TAG_PREFIX.match(message)
+        tag = prefix.group(1) if prefix else None
     if msg.level <= ESP32_LOG_LEVEL:
         if _observation_spool_enabled():
             _accept_observations([("esp32_log", {"level": level, "tag": tag, "message": message})], datetime.now(UTC))
@@ -3279,35 +3299,51 @@ def _note_relay_generation(generation: int) -> None:
         if value is True and equipment not in _ORDINARY_EQUIPMENT_STREAMS
     }
     state.relays_first_seen = {}
+    state.relays_first_recorded = set()
+    state.relay_boot_at = None
+    state.relays_boot_on = set()
+
+
+def _queue_relay_boot_edges(edges: list[tuple[datetime, str, bool]]) -> list[tuple[datetime, str, bool]]:
+    room = EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS - len(state.pending_ordinary_equipment)
+    if len(edges) > room:
+        log.error("relay boot edges dropped at bounded buffer: %d of %d", len(edges) - max(room, 0), len(edges))
+        edges = edges[: max(room, 0)]
+    state.pending_ordinary_equipment.extend(edges)
+    return edges
 
 
 def _relay_edges_across_boot(uptime_s: float, observed_at: datetime, generation: int) -> None:
     """RULINGS AF6 (TEL-F4, RLY-F4): when the controller's uptime resets, every relay the host held ON dropped at
-    the boot. Write an OFF edge at the boot time (report time minus uptime) for each, an ON edge at its first report
-    for a relay that came back ON (the cache swallowed it as no change), and clear the cache of relays not yet
-    reported, so the first state after the boot is stored as an edge. The rows go through the ordinary view, as the
-    reconnect snapshot's do: they predate this connection's receipts."""
+    the boot. Write an OFF edge at the boot time (report time minus uptime) for each, and one ON edge at
+    max(first report, boot) for every relay first reported ON after the boot whose first state the receipt path did
+    not store: the cache swallowed it as no change, or the callback came before this connection's firmware lineage
+    (a relay OFF before the boot and switched on by the law right after it, 2026-11-17). Clear the cache of relays
+    not yet reported; one reported after this (the uptime callback can come first) gets its ON edge from
+    _record_equipment_callback. The rows go through the ordinary view: they predate this connection's receipts."""
     _note_relay_generation(generation)
     previous = state.relay_last_uptime_s
     state.relay_last_uptime_s = uptime_s
     if previous is None or uptime_s + 1.0 >= previous:
         return
     boot_at = observed_at - timedelta(seconds=uptime_s)
+    state.relay_boot_at = boot_at
     held = state.relays_on_before_connection  # a boot always ends the API session, so a new connection came first
     edges = [(boot_at, equipment, False) for equipment in sorted(held)]
-    for equipment in sorted(held):
-        first = state.relays_first_seen.get(equipment)
-        if first is not None and first[0] is True:
-            edges.append((max(first[1], boot_at), equipment, True))
+    for equipment, (value, first_at) in sorted(state.relays_first_seen.items()):
+        if (
+            value is True
+            and state.equipment.get(equipment) is True  # an unstored OFF since would leave a stale ON (review TEL-2)
+            and equipment not in state.relays_first_recorded
+            and equipment not in _ORDINARY_EQUIPMENT_STREAMS
+        ):
+            edges.append((max(first_at, boot_at), equipment, True))
+            state.relays_boot_on.add(equipment)
     for equipment in [e for e in state.equipment if e not in state.relays_first_seen]:
         if equipment not in _ORDINARY_EQUIPMENT_STREAMS:
             del state.equipment[equipment]
     state.relays_on_before_connection = set()
-    room = EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS - len(state.pending_ordinary_equipment)
-    if len(edges) > room:
-        log.error("relay boot edges dropped at bounded buffer: %d of %d", len(edges) - max(room, 0), len(edges))
-        edges = edges[: max(room, 0)]
-    state.pending_ordinary_equipment.extend(edges)
+    edges = _queue_relay_boot_edges(edges)
     log.info("controller boot at %s: %d relay edge(s) written for %s", boot_at.isoformat(), len(edges), sorted(held))
 
 
@@ -3319,7 +3355,8 @@ def _record_equipment_callback(
     source_clock_valid: bool,
 ) -> None:
     _note_relay_generation(source_generation)
-    if type(value) is bool and equipment not in state.relays_first_seen:
+    first = type(value) is bool and equipment not in state.relays_first_seen
+    if first:
         state.relays_first_seen[equipment] = (value, observed_at)
     # VD-64: the irrigation bridge reads the wet relays' live states (and when each last read OFF) from here,
     # before any dedupe, so a new transport generation re-labels an unchanged state.
@@ -3333,24 +3370,36 @@ def _record_equipment_callback(
         return
     old = state.equipment.get(equipment)
     state.equipment[equipment] = value
-    if old == value or source_generation < 1:
-        return
-    if not source_clock_valid:
-        return
-    firmware_revision = state.diagnostics.get("firmware_version")
-    if not _valid_source_firmware(firmware_revision) or state.counter_source_firmware_generation != source_generation:
-        _mark_equipment_source_gap("equipment_event_lineage_unavailable")
-        return
-    _append_pending_equipment_event(
-        PendingEquipmentStateEvent(
-            observed_at,
-            equipment,
-            value,
-            COUNTER_SOURCE_RUNTIME_INSTANCE_ID,
-            source_generation,
-            firmware_revision,
-        )
-    )
+    recorded = False
+    if old != value and source_generation >= 1 and source_clock_valid:
+        firmware_revision = state.diagnostics.get("firmware_version")
+        if (
+            not _valid_source_firmware(firmware_revision)
+            or state.counter_source_firmware_generation != source_generation
+        ):
+            _mark_equipment_source_gap("equipment_event_lineage_unavailable")
+        else:
+            recorded = _append_pending_equipment_event(
+                PendingEquipmentStateEvent(
+                    observed_at,
+                    equipment,
+                    value,
+                    COUNTER_SOURCE_RUNTIME_INSTANCE_ID,
+                    source_generation,
+                    firmware_revision,
+                )
+            )
+    if first and recorded:
+        state.relays_first_recorded.add(equipment)
+    elif first and value is True and state.relay_boot_at is not None:
+        # The boot is already known (its uptime came first): the first ON state after it is an edge.
+        _queue_relay_boot_edges([(max(observed_at, state.relay_boot_at), equipment, True)])
+        state.relays_boot_on.add(equipment)
+    elif value is False and equipment in state.relays_boot_on:
+        # The OFF that ends a repaired ON edge: stored here when the receipt path could not (review TEL-2).
+        state.relays_boot_on.discard(equipment)
+        if not recorded and old is True:
+            _queue_relay_boot_edges([(observed_at, equipment, False)])
 
 
 def _payload_rejected(obj_id: str, why: str) -> None:
@@ -4547,6 +4596,8 @@ async def task_loop(pool: asyncpg.Pool) -> None:
         "irrigation_sync": 150,
         # The hydro reader retries for up to 240 s inside its 300 s cadence (tasks/hydro.py).
         "hydro_probe_sync": 270,
+        # Four 30 s fetches and 1800 s of retry waits inside the 3600 s cadence (tasks/forecast.py).
+        "forecast_sync": 2100,
     }
     TASKS = [
         # (name, interval_seconds, coroutine_factory)

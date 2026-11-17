@@ -49,6 +49,7 @@ OFFSET_MEMORY_S = 24 * 3600
 EQUIPMENT_MATCH_S = 5
 MAX_PENDING_PASSES = 4
 MAX_PASS_QUARTERS = 96 * 2  # two days of quarters: more than the ring holds
+FAILURE_LOG_INTERVAL_S = 60.0
 
 
 @dataclass
@@ -101,6 +102,11 @@ class GapReplayHost:
         self._pass: ReplayPass | None = None
         self._boot_offsets: dict[int, tuple[int, float]] = {}
         self.pending: deque[ReplayPass] = deque()
+        # Failed pass writes since the process started (ingestor_counters "gr", verdify_ingestor_gap_replay_failures_total),
+        # the failures of the current run, and when the last one was logged.
+        self.failures = 0
+        self._failure_run = 0
+        self._failure_logged_at = 0.0
 
     # ── assembly ─────────────────────────────────────────────────────────────
     def _learn_offset(self, boot: int, off: int) -> None:
@@ -191,12 +197,34 @@ class GapReplayHost:
 
     # ── writes ───────────────────────────────────────────────────────────────
     async def write_pending(self, pool) -> list[QuarterResult]:
-        """Write every queued pass, oldest first; a failure keeps that pass queued for the next flush."""
+        """Write every queued pass, oldest first. A failure keeps that pass (and the ones behind it) queued for the
+        next flush, counts in ``failures``, and is logged at ERROR on the first failure of a run and then at most once
+        a minute. The queue holds at most MAX_PENDING_PASSES; receive() drops the oldest at ERROR when it is full."""
         results: list[QuarterResult] = []
         while self.pending:
             replay = self.pending[0]
-            results.extend(await write_pass(pool, replay))
+            try:
+                results.extend(await write_pass(pool, replay))
+            except Exception as error:  # noqa: BLE001 - the pass stays queued; the next flush retries it
+                self.failures += 1
+                self._failure_run += 1
+                now = self._clock()
+                if self._failure_run == 1 or now - self._failure_logged_at >= FAILURE_LOG_INTERVAL_S:
+                    self._failure_logged_at = now
+                    log.error(
+                        "gap replay pass of boot %s failed (%d time(s) in a row, %d pass(es) queued of at most %d); "
+                        "kept for the next flush: %s",
+                        replay.begin.boot,
+                        self._failure_run,
+                        len(self.pending),
+                        MAX_PENDING_PASSES,
+                        error,
+                    )
+                return results
             self.pending.popleft()
+            if self._failure_run:
+                log.info("gap replay pass of boot %s written after %d failure(s)", replay.begin.boot, self._failure_run)
+                self._failure_run = 0
         return results
 
 

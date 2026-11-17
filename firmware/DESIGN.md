@@ -1,3 +1,5 @@
+> **Status: history.** This describes the removed control stack. Superseded by [docs/CONTROL-ARCHITECTURE.md](../docs/CONTROL-ARCHITECTURE.md) and [docs/firmware-fsm-spec.md](../docs/firmware-fsm-spec.md).
+
 # Verdify Firmware Design
 
 Status: v1.0 reference candidate, 2026-05-10.
