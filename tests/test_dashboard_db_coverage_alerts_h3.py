@@ -371,7 +371,7 @@ def test_law_band_sql_reads_the_newest_three_records_against_the_band_at_their_t
 
 
 def test_counter_reconcile_sql_reads_yesterdays_complete_rows(dsn):
-    # A stand-in with the columns of migration 315's v_relay_counter_reconciliation_daily.
+    # A stand-in with the columns of migration 317's v_relay_counter_reconciliation_daily.
     async def body(conn, t0):
         await conn.execute("DROP VIEW IF EXISTS v_relay_counter_reconciliation_daily")
         await conn.execute(
@@ -379,7 +379,8 @@ def test_counter_reconcile_sql_reads_yesterdays_complete_rows(dsn):
             SELECT d AS date, 'vallery'::text AS greenhouse_id, e AS equipment, 9::bigint AS counter_starts,
                    3::bigint AS record_starts, 6::bigint AS starts_difference, NULL::bigint AS counter_run_s,
                    NULL::double precision AS record_run_s, NULL::double precision AS run_s_difference,
-                   60 AS counter_rows, c AS comparison
+                   60 AS counter_rows, c AS comparison, 0 AS boots,
+                   NULL::timestamptz AS record_computed_at
               FROM (VALUES ({YESTERDAY}, 'heat1', 'complete'), ({YESTERDAY}, 'heat2', 'no_record'),
                            ({YESTERDAY} - 1, 'fog', 'complete'), ({YESTERDAY} + 1, 'vent', 'partial')) v(d, e, c)"""
         )
