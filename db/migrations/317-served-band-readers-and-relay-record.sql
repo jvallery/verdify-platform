@@ -19,6 +19,8 @@
 --     sp_temp_target/sp_vpd_target are the served targets (they were the edges' midpoint); the eight retired settings'
 --     columns read NULL. Columns unchanged. Reader: scripts/export-replay-data.sh.
 --   v_heating_staging: setpoint_temp_low is the served low edge at the furnace's start. Reader: v_heating_staging_summary.
+--   Every reader above grades a past instant on today's served band curve evaluated at that time: the anchors keep
+--   no history, so days before the law flash are not graded on the widened band the controller ran then.
 --   fn_heat_staging_inversion: temp_low is the served low edge now (it read a 10-minute readback window that
 --     on-change storage leaves empty); d_heat_stage_2 reads NULL. Reader: the ingestor's heat_staging_inversion alert.
 --   v_setpoint_forward is dropped: it projected the retired plan settings (v_active_plan, setpoint_plan) and nothing
@@ -126,11 +128,7 @@ DECLARE
     attempt integer;
 BEGIN
     FOR rec IN SELECT * FROM (VALUES
--- (f) The refused-drying record, appended (no reader selects by position: v_daily_record names its columns).
-        ('public.daily_record', $record$
-ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb
-$record$),
--- (a) The live definition (217) with the served band in place of the settings ledger.
+-- (a) The live definition (141) with the served band in place of the settings ledger.
         ('public.v_greenhouse_state', $state$
 CREATE OR REPLACE VIEW public.v_greenhouse_state AS
  WITH state_base AS (
@@ -451,16 +449,19 @@ WITH relays(equipment, starts_key, run_key) AS (
       FROM steps
      GROUP BY date, greenhouse_id, equipment
 ), uptime AS (
-    -- A controller boot is a diagnostics row whose uptime is below the row before it (317). The hour before the
-    -- window start only seeds lag(); a boot lands on the local day of the first row after it.
+    -- A controller boot is a diagnostics row whose uptime is more than 60 s short of the previous row's uptime plus
+    -- the time between the rows (317; the test of the ingestor's restarted_between), so a boot during a gap counts.
+    -- The hour before the window start only seeds lag(); a boot lands on the local day of the first row after it.
     SELECT d.ts, COALESCE(d.greenhouse_id, 'vallery') AS greenhouse_id, d.uptime_s,
-           lag(d.uptime_s) OVER (PARTITION BY COALESCE(d.greenhouse_id, 'vallery') ORDER BY d.ts) AS previous_uptime_s
+           lag(d.uptime_s) OVER (PARTITION BY COALESCE(d.greenhouse_id, 'vallery') ORDER BY d.ts) AS previous_uptime_s,
+           lag(d.ts) OVER (PARTITION BY COALESCE(d.greenhouse_id, 'vallery') ORDER BY d.ts) AS previous_ts
       FROM public.diagnostics d
      WHERE d.ts >= TIMESTAMPTZ '2026-11-16 18:48:00+00' AND d.uptime_s IS NOT NULL
 ), booted AS (
     SELECT (u.ts AT TIME ZONE 'America/Denver')::date AS date, u.greenhouse_id, count(*)::integer AS boots
       FROM uptime u
-     WHERE u.ts >= TIMESTAMPTZ '2026-11-16 19:48:00+00' AND u.uptime_s < u.previous_uptime_s
+     WHERE u.ts >= TIMESTAMPTZ '2026-11-16 19:48:00+00'
+       AND u.uptime_s < u.previous_uptime_s + extract(epoch FROM u.ts - u.previous_ts) - 60
      GROUP BY 1, 2
 ), frame AS (
     SELECT d.d::date AS date, g.greenhouse_id, r.equipment, r.run_key IS NOT NULL AS has_run_counter,
@@ -494,7 +495,13 @@ $recon$),
 -- (a) Unread: the retired plan settings' projection.
         ('public.v_setpoint_forward', $forward$
 DROP VIEW public.v_setpoint_forward RESTRICT
-$forward$)
+$forward$),
+-- (f) The refused-drying record, appended (no reader selects by position: v_daily_record names its columns). Last,
+-- so the table's exclusive lock is held only from here to the commit, not through the views' retries; nothing above
+-- reads the new column.
+        ('public.daily_record', $record$
+ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb
+$record$)
     ) AS v(target, ddl) LOOP
         attempt := 0;
         LOOP
@@ -818,7 +825,8 @@ WITH base AS (
         ORDER BY c.ts ASC
         LIMIT 1
     ) c1 ON true
-    -- The served band (fn_band_setpoints, RULINGS AF2) at the after-sample, as the controller held it (317).
+    -- The served band (fn_band_setpoints, RULINGS AF2) at the after-sample (317). The anchors keep no history: a past
+    -- instant is graded on today's served band curve evaluated at that time, not the band the controller ran then.
     LEFT JOIN LATERAL fn_band_setpoints(COALESCE(c1.ts, l.ts)) ab ON true
     WHERE l.ts >= now() - interval '14 days'
 ),
@@ -1317,11 +1325,15 @@ BEGIN
         -- running ('none' while it runs).
         SELECT s.ts,
                LEAST(COALESCE(lead(s.ts) OVER (ORDER BY s.ts), LEAST(v_end, now())), s.ts + interval '3 minutes') AS until,
-               ((s.value::jsonb ->> 'l')::integer & 64) <> 0 AS wanted,
+               ((s.value::jsonb ->> 'l')::bigint & 64) <> 0 AS wanted,
                COALESCE(s.value::jsonb ->> 'dr', 'unknown') AS reason
           FROM public.system_state s
          WHERE s.entity = 'climate_law_state' AND s.ts >= v_start - interval '3 minutes' AND s.ts < v_end
            AND s.value LIKE '{"v":1,%'
+           -- One malformed record is skipped, not fatal to the day: the JSON must parse and l must be digits (the
+           -- contract allows up to 2^32 - 1, so bigint). CASE keeps the casts behind the checks.
+           AND CASE WHEN pg_catalog.pg_input_is_valid(s.value, 'jsonb')
+                    THEN (s.value::jsonb ->> 'l') ~ '^[0-9]{1,18}$' ELSE false END
     ), law_reason AS (
         SELECT l.reason,
                sum(GREATEST(extract(epoch FROM LEAST(l.until, v_end) - GREATEST(l.ts, v_start)), 0)) AS covered_s,

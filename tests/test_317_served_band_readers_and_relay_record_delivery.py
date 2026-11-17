@@ -320,9 +320,10 @@ def test_the_run_columns_carry_one_definition():
 
 def test_the_views_go_first_in_a_bounded_retry():
     block = flat(BODY[BODY.index("DO $views$") : BODY.index("END $views$;")])
-    assert block.index(
+    assert block.index("('public.v_setpoint_forward', $forward$") < block.index(
         "('public.daily_record', $record$ ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb $record$)"
-    ) < block.index("('public.v_greenhouse_state'")
+    )
+    assert block.rstrip().count("$record$)") == 1 and "$record$) ) AS v(target, ddl) LOOP" in block
     for name, tag in (
         ("v_greenhouse_state", "state"),
         ("v_heating_staging", "staging"),
@@ -364,7 +365,11 @@ def test_the_daily_record_stores_the_laws_refused_drying_by_reason():
     text = text.split("$store$;", 1)[0]
     body = flat(text)
     assert "FROM public.system_state s WHERE s.entity = 'climate_law_state'" in body
-    assert "((s.value::jsonb ->> 'l')::integer & 64) <> 0 AS wanted" in body
+    assert "((s.value::jsonb ->> 'l')::bigint & 64) <> 0 AS wanted" in body
+    assert (
+        "AND CASE WHEN pg_catalog.pg_input_is_valid(s.value, 'jsonb') THEN (s.value::jsonb ->> 'l') ~ '^[0-9]{1,18}$' ELSE false END"
+        in body
+    )
     assert "COALESCE(s.value::jsonb ->> 'dr', 'unknown') AS reason" in body
     assert "s.ts + interval '3 minutes'" in body and "s.value LIKE '{\"v\":1,%'" in body
     assert "FILTER (WHERE r.reason <> 'none' AND r.wanted_s > 0)" in body
