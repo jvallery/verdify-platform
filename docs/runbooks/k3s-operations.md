@@ -117,8 +117,9 @@ and a `secrets.yaml` reconstructed outside the repo (mode 0600, from the `verdif
   `ota.on_begin` closes every wet relay (L01 to L10 and fog). Fans, vent and heat keep their state until the
   reboot.
 - **What a flash resets.** The controller's relays drop at the reboot. Under the law no climate relay is switched
-  until the boot grace ends (a valid indoor temperature and every wall average computed over all four wall probes,
-  or 60 s after boot, whichever comes first); then every relay is available except the furnace, which waits one minimum off time (300 s; not at or below 40 F). The band
+  until the boot grace ends (from the fourth flash, #1738: a valid indoor temperature and every wall average
+  computed over all four wall probes, or 60 s after boot, whichever comes first; before it, the first valid indoor
+  temperature or 60 s); then every relay is available except the furnace, which waits one minimum off time (300 s; not at or below 40 F). The band
   edges, the drying cost limit and the soft water budget are kept in the controller's flash, and the law's
   constants are compiled, so a flash loses no climate setting. The ingestor writes an OFF edge at the boot
   time for every relay it held on, and one ON edge at max(first report, boot) for every relay first reported ON
@@ -196,8 +197,10 @@ and a `secrets.yaml` reconstructed outside the repo (mode 0600, from the `verdif
   them, not a second source. `fn_refresh_daily_record` stores today, yesterday and the day before on every run.
 - **Outages are replayed.** The controller's gap log stores climate records and relay transitions in flash across a
   network outage and replays them on reconnect; the ingestor places them and writes one `gap_replay_quarters` row
-  per replayed quarter. `v_data_gaps_unreplayed` is `data_gaps` with the replayed minutes cut out. A failed write
-  logs `gap replay write error` in the ingestor and leaves no ledger row; check after an outage with
+  per replayed quarter. `v_data_gaps_unreplayed` is `data_gaps` with the replayed minutes cut out. A failed pass
+  stays queued and is retried; the ingestor logs `gap replay pass of boot ... failed` (at most once a minute),
+  `verdify_ingestor_gap_replay_failures_total` counts the failures, and the pass leaves no ledger row until it
+  writes. Check after an outage with
   `scripts/verdify-db.sh prod -c "SELECT boot, qseq, first_ts, last_ts, climate_rows, transition_rows FROM gap_replay_quarters ORDER BY received_at DESC LIMIT 20;"`.
 - **Exclusive locks stall the runtimes.** A migration qualification or a migrate hook that takes ACCESS EXCLUSIVE
   locks deadlocks with the MCP and API login attestation, and a lock held past about 15 s stops the ingestor. Pause

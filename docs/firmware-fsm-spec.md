@@ -229,9 +229,10 @@ irrigation engine for one pulse at a time through `irr_vpd_grant()`:
 
 ### 7.1 Boot grace
 
-After a boot the controller waits. The boot grace ends when the indoor temperature is valid and every wall average
-the law reads was last computed over all four wall probes, or 60 seconds after boot, whichever comes first; until
-then no climate relay is switched. Meanwhile the label is not a sensor fault (so the irrigation engine sees none), no
+After a boot the controller waits (`indoor_gate()` in `firmware/lib/running_alone.h`). From the fourth flash
+(#1738) the boot grace ends when the indoor temperature is valid and every wall average the law reads was last
+computed over all four wall probes, or 60 seconds after boot, whichever comes first; before it, at the first valid
+indoor temperature or 60 seconds. Until then no climate relay is switched. Meanwhile the label is not a sensor fault (so the irrigation engine sees none), no
 alert is raised and no state record is published; the manual runs still act. After the grace, a missing indoor
 temperature is the state of section 7.2 at once.
 

@@ -208,7 +208,7 @@ holds that protect equipment and water (the fertiliser master, a drip, the daily
 |---|---|
 | WiFi down | Keeps running; no restart (`wifi.reboot_timeout: 0s`). A stuck WiFi stack stays stuck until a manual restart, with the house still controlled. |
 | Ingestor, API or reviewer down | No effect on climate. |
-| Reboot | Constants compiled; anchors and the drying cost limit from flash; every relay but the furnace available at once, the furnace after 300 s; no climate relay switched until the boot grace ends (a valid indoor temperature and every wall average the law reads computed over all four wall probes, or 60 s, whichever comes first); fan run seconds and relay counters restored; no manual run survives. |
+| Reboot | Constants compiled; anchors and the drying cost limit from flash; every relay but the furnace available at once, the furnace after 300 s; no climate relay switched until the boot grace ends (from the fourth flash, #1738: a valid indoor temperature and every wall average the law reads computed over all four wall probes, or 60 s, whichever comes first; before it, the first valid indoor temperature or 60 s); fan run seconds and relay counters restored; no manual run survives. |
 | Clock not trusted (no SNTP sync since boot) | The corridor band; fog and misters work. Irrigation and lighting keep their own clock tests. |
 | No outdoor data | The intake probe on the controller's own sensor bus takes over from the weather station; with neither fresh (600 s) there is no drying with outdoor air. |
 | Wall probes invalid | The case sensor, less its 1.6 F offset, for the temperature rules; fog, misters and drying hold. |
