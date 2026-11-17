@@ -87,6 +87,19 @@ BEGIN
         OR (SELECT p.prosrc FROM pg_catalog.pg_proc p
               WHERE p.oid='public.fn_daily_record_store(date)'::regprocedure) !~ 'climate_law_state'
     THEN RAISE EXCEPTION '317 daily record lacks the refused drying'; END IF;
+    IF (SELECT array_agg(a.attname::text || ' ' || format_type(a.atttypid, a.atttypmod) ORDER BY a.attnum)
+          FROM pg_catalog.pg_attribute a
+         WHERE a.attrelid='public.daily_record'::regclass AND NOT a.attisdropped
+           AND a.attname IN ('drying_water_g', 'drying_heat_wh', 'drying_meter_lower_bound'))
+        IS DISTINCT FROM ARRAY['drying_water_g double precision', 'drying_heat_wh double precision',
+                               'drying_meter_lower_bound boolean']
+        OR (SELECT array_agg(a.attname::text ORDER BY a.attnum) FROM pg_catalog.pg_attribute a
+              WHERE a.attrelid='public.v_daily_record'::regclass AND a.attnum>48 AND NOT a.attisdropped)
+            IS DISTINCT FROM ARRAY['drying_water_g', 'drying_heat_wh', 'drying_meter_lower_bound']
+        OR (SELECT p.prosrc FROM pg_catalog.pg_proc p
+              WHERE p.oid='public.fn_daily_record_store(date)'::regprocedure) !~ 'climate_drying_meter'
+        OR NOT has_table_privilege('verdify_ingestor_runtime', 'public.v_daily_record', 'SELECT')
+    THEN RAISE EXCEPTION '317 daily record lacks the drying meter''s day'; END IF;
     IF (SELECT array_agg(a.attname::text ORDER BY a.attnum) FROM pg_catalog.pg_attribute a
           WHERE a.attrelid=to_regclass('verdify_grafana_runtime.planner_review') AND a.attnum>0 AND NOT a.attisdropped)
         IS DISTINCT FROM ARRAY['id', 'kind', 'review_date', 'status', 'requested_at', 'written_at']
@@ -146,8 +159,11 @@ BEGIN
       CROSS JOIN LATERAL public.fn_house_vpd_control_band(s.ts) h
       CROSS JOIN LATERAL verdify_setpoint_server_runtime.fn_house_vpd_control_band(s.ts) w;
     IF n <> 3 OR bad <> 0 THEN RAISE EXCEPTION '317 house VPD band rows: % of % wrong', bad, n; END IF;
-    -- Yesterday stored again (the rollback undoes it): complete, with law records, and no more refused than wanted.
+    -- Yesterday stored again (the rollback undoes it): complete, with law records, and no more refused than wanted;
+    -- the meter's day present (the meter publishes at least hourly), never negative, flagged or not.
     SELECT count(*) FILTER (WHERE NOT r.complete OR r.dry_refusal IS NULL
+               OR r.drying_water_g IS NULL OR r.drying_heat_wh IS NULL OR r.drying_meter_lower_bound IS NULL
+               OR r.drying_water_g < 0 OR r.drying_heat_wh < 0
                OR (r.dry_refusal->>'covered_s')::numeric <= 0
                OR (r.dry_refusal->>'wanted_s')::numeric > (r.dry_refusal->>'covered_s')::numeric
                OR jsonb_typeof(r.dry_refusal->'refused_s') <> 'object'
@@ -165,6 +181,8 @@ BEGIN
     PERFORM * FROM public.fn_heat_staging_inversion();
     PERFORM house_vpd_low, house_vpd_high FROM public.fn_house_vpd_control_band(now());
     PERFORM 1 FROM public.v_irrigation_schedule_current LIMIT 1;
+    PERFORM drying_water_g, drying_heat_wh, drying_meter_lower_bound FROM public.v_daily_record
+      WHERE date > (now() AT TIME ZONE 'America/Denver')::date - 7;
     PERFORM 1 FROM public.v_relay_counter_reconciliation_daily
       WHERE greenhouse_id = 'vallery' AND comparison = 'complete'
         AND date = (now() AT TIME ZONE 'America/Denver')::date - 1;
@@ -209,7 +227,7 @@ SELECT 'QUALIFY native_fixture ' || json_build_object(
                                'views_read_the_served_band', 'timeline_keeps_56_columns', 'counter_check_exact',
                                'run_columns_defined', 'grants_and_dependants_kept', 'timeline_rows_on_the_law',
                                'greenhouse_state_rows_on_the_band', 'schedule_readback_counts_null',
-                               'house_vpd_band_shape', 'daily_record_refused_drying', 'house_vpd_band_rows_served',
+                               'house_vpd_band_shape', 'daily_record_refused_drying', 'daily_record_drying_meter', 'house_vpd_band_rows_served',
                                'yesterday_refused_drying_stored', 'ingestor_reads_its_objects',
                                'mcp_runs_the_scorecard', 'grafana_reads_the_review_facade',
                                'dashboard_reads_counter_check'),

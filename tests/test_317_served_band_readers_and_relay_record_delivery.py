@@ -145,7 +145,10 @@ def test_file_is_wrap_safe_appends_one_column_and_drops_one_unread_view():
         "REVOKE ALL ON verdify_grafana_runtime.planner_review FROM PUBLIC",
         "GRANT SELECT ON verdify_grafana_runtime.planner_review TO verdify_grafana_runtime",
     ]
-    assert re.findall(r"\bALTER\b[^;$]*", BODY) == ["ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb\n"]
+    assert [flat(a) for a in re.findall(r"\bALTER\b[^;$]*", BODY)] == [
+        "ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb, ADD COLUMN drying_water_g double precision, "
+        "ADD COLUMN drying_heat_wh double precision, ADD COLUMN drying_meter_lower_bound boolean"
+    ]
     for name, sql in qualifier.sessions(SOURCE, (), qualifier.native_checks(NATIVE)).items():
         assert sql.startswith("BEGIN") and sql.endswith("ROLLBACK;\n"), name
 
@@ -320,10 +323,10 @@ def test_the_run_columns_carry_one_definition():
 
 def test_the_views_go_first_in_a_bounded_retry():
     block = flat(BODY[BODY.index("DO $views$") : BODY.index("END $views$;")])
-    assert block.index("('public.v_setpoint_forward', $forward$") < block.index(
-        "('public.daily_record', $record$ ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb $record$)"
-    )
-    assert block.rstrip().count("$record$)") == 1 and "$record$) ) AS v(target, ddl) LOOP" in block
+    record = "('public.daily_record', $record$ ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb,"
+    daily = "('public.v_daily_record', $daily$ CREATE OR REPLACE VIEW public.v_daily_record AS"
+    assert block.index("('public.v_setpoint_forward', $forward$") < block.index(record) < block.index(daily)
+    assert "$daily$) ) AS v(target, ddl) LOOP" in block
     for name, tag in (
         ("v_greenhouse_state", "state"),
         ("v_heating_staging", "staging"),
@@ -373,8 +376,14 @@ def test_the_daily_record_stores_the_laws_refused_drying_by_reason():
     assert "COALESCE(s.value::jsonb ->> 'dr', 'unknown') AS reason" in body
     assert "s.ts + interval '3 minutes'" in body and "s.value LIKE '{\"v\":1,%'" in body
     assert "FILTER (WHERE r.reason <> 'none' AND r.wanted_s > 0)" in body
-    assert "furnace_starts_after_drying, dry_refusal, computed_at)" in body
-    assert "CASE WHEN now() >= v_end THEN (SELECT rf.doc FROM refusal rf) END, now()" in body
+    assert (
+        "furnace_starts_after_drying, dry_refusal, drying_water_g, drying_heat_wh, drying_meter_lower_bound, "
+        "computed_at)" in body
+    )
+    assert (
+        "CASE WHEN now() >= v_end THEN (SELECT rf.doc FROM refusal rf) END, (SELECT md.water_g FROM meter_day md),"
+        in body
+    )
     assert "dry_refusal = EXCLUDED.dry_refusal," in body
     old = (ROOT / "db/migrations" / GUARDED["fn_daily_record_store"]).read_text()
     old_body = old.split("CREATE FUNCTION public.fn_daily_record_store(p_day date)", 1)[1].split("$store$;", 1)[0]
@@ -401,6 +410,30 @@ def test_the_grafana_review_facade_exposes_status_and_times_only():
     for hidden in ("summary", "band_proposal", "tokens", "failure", "run_id", "hermes_run_id", "requested_by"):
         assert hidden not in create.group(1), hidden
     assert BODY.count("verdify_grafana_runtime.planner_review") == 4
+
+
+def test_the_daily_record_carries_the_drying_meters_day():
+    """RLY-70 (plan section 10 item 3): the meter's day, boot-aware, NULL with no row, flagged when a boot lost counts."""
+    text = SOURCE.split("CREATE OR REPLACE FUNCTION public.fn_daily_record_store(p_day date)", 1)[1]
+    body = flat(uncommented(text.split("$store$;", 1)[0]))
+    assert "WHERE m.entity = 'climate_drying_meter'" in body
+    assert "sum(CASE WHEN z.rebooted THEN z.g ELSE z.g - z.previous_g END)::double precision AS water_g" in body
+    assert "sum(CASE WHEN z.rebooted THEN z.wh ELSE z.wh - z.previous_wh END)::double precision AS heat_wh" in body
+    assert "OR EXISTS (SELECT 1 FROM boot b WHERE b.at > y.previous_ts AND b.at <= y.ts)) AS rebooted" in body
+    assert "THEN ((l.value::jsonb ->> 'l')::bigint & 256) <> 0 ELSE false END)) AS lower_bound" in body
+    assert "FROM meter_step z HAVING count(*) > 0" in body
+    assert "drying_meter_lower_bound = EXCLUDED.drying_meter_lower_bound" in body
+    assert "300 s until the fourth flash (vp#1738)" in SOURCE
+    # v_daily_record: 310's text with the three columns appended after computed_at.
+    old = (ROOT / "db/migrations/310-daily-record.sql").read_text()
+    old_view = old.split("CREATE VIEW public.v_daily_record AS\n", 1)[1].split(";\n", 1)[0]
+    new_view = SOURCE.split("CREATE OR REPLACE VIEW public.v_daily_record AS\n", 1)[1].split("\n$daily$", 1)[0]
+    assert new_view == old_view.replace(
+        "       d.computed_at\n",
+        "       d.computed_at,\n       d.drying_water_g,\n       d.drying_heat_wh,\n       d.drying_meter_lower_bound\n",
+    )
+    for column in ("drying_water_g", "drying_heat_wh", "drying_meter_lower_bound"):
+        assert f"COMMENT ON COLUMN public.daily_record.{column} IS" in BODY, column
 
 
 def test_the_native_fixture_reads_as_each_runtime_and_reports_once():

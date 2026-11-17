@@ -49,6 +49,12 @@
 --     climate_law_state (l bit 6 drying wanted, dr the refusal), each record held until the next and at most 3
 --     minutes; set when the day is complete, NULL for a day with no law record (every day before the law flash).
 --     fn_daily_record_store writes it; the refresh job restores today and the two days before every run.
+--     drying_water_g and drying_heat_wh (plan section 10 item 3, RLY-70): the day's steps of the controller's drying
+--     meter (climate_drying_meter, running totals since its boot), boot-aware, NULL with no meter row;
+--     drying_meter_lower_bound marks a day where a boot lost counts (a drying run after the last meter row before the
+--     boot). The meter is held in RAM and was published every 300 s until the fourth flash (vp#1738); since then
+--     when a run ends and every 60 s during one, so a boot loses at most 60 s of a run. v_daily_record shows all
+--     three. No backfill before the law flash: the meter did not exist.
 -- (g) verdify_grafana_runtime.planner_review: a security-barrier facade over public.planner_review (313) with id,
 --     kind, review_date, status, requested_at and written_at only (no summary, band proposal, token counts, failure
 --     text or run identifiers), SELECT to verdify_grafana_runtime alone. Readers: the four lab public-share panels
@@ -98,7 +104,11 @@ BEGIN
             AND attname IN ('id', 'kind', 'review_date', 'status', 'requested_at', 'written_at') AND NOT attisdropped)<>6
         OR to_regclass('verdify_grafana_runtime.planner_review') IS NOT NULL
         OR EXISTS(SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid='public.daily_record'::regclass
-            AND attname='dry_refusal' AND NOT attisdropped)
+            AND attname IN ('dry_refusal', 'drying_water_g', 'drying_heat_wh', 'drying_meter_lower_bound')
+            AND NOT attisdropped)
+        -- v_daily_record is 310's 48 columns.
+        OR (SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=to_regclass('public.v_daily_record')
+            AND attnum>0 AND NOT attisdropped)<>48
         OR to_regclass('public.v_greenhouse_state') IS NULL OR to_regclass('public.v_heating_staging') IS NULL
         OR to_regclass('public.v_irrigation_schedule_current') IS NULL
         -- 315's counter check, not yet extended.
@@ -496,12 +506,82 @@ $recon$),
         ('public.v_setpoint_forward', $forward$
 DROP VIEW public.v_setpoint_forward RESTRICT
 $forward$),
--- (f) The refused-drying record, appended (no reader selects by position: v_daily_record names its columns). Last,
--- so the table's exclusive lock is held only from here to the commit, not through the views' retries; nothing above
--- reads the new column.
+-- (f) The refused-drying record and the drying meter's day, appended (no reader selects by position: v_daily_record
+-- names its columns). Last, so the table's exclusive lock is held only from here to the commit, not through the
+-- views' retries; nothing above reads the new columns.
         ('public.daily_record', $record$
-ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb
-$record$)
+ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb, ADD COLUMN drying_water_g double precision,
+    ADD COLUMN drying_heat_wh double precision, ADD COLUMN drying_meter_lower_bound boolean
+$record$),
+-- (f) The live definition (310) with the drying meter's three columns appended.
+        ('public.v_daily_record', $daily$
+CREATE OR REPLACE VIEW public.v_daily_record AS
+WITH relay AS (
+    SELECT r.date,
+           sum(r.starts) FILTER (WHERE r.equipment IN ('heat1', 'heat2', 'fan1', 'fan2', 'vent', 'fog'))::integer
+               AS starts_climate,
+           round((sum(r.run_s) FILTER (WHERE r.equipment IN ('heat1', 'heat2', 'fan1', 'fan2', 'vent', 'fog'))
+               / 3600.0)::numeric, 2) AS run_h_climate,
+           sum(r.starts) FILTER (WHERE r.equipment IN ('mister_south', 'mister_west', 'mister_center'))::integer AS starts_misters,
+           round((sum(r.run_s) FILTER (WHERE r.equipment IN ('mister_south', 'mister_west', 'mister_center')) / 3600.0)::numeric, 2) AS run_h_misters,
+           round((sum(r.event_run_s - r.run_s) / 3600.0)::numeric, 2) AS lost_off_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'heat1') AS heat1_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'heat1') / 3600.0)::numeric, 2) AS heat1_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'heat2') AS heat2_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'heat2') / 3600.0)::numeric, 2) AS heat2_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'fan1') AS fan1_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'fan1') / 3600.0)::numeric, 2) AS fan1_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'fan2') AS fan2_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'fan2') / 3600.0)::numeric, 2) AS fan2_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'vent') AS vent_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'vent') / 3600.0)::numeric, 2) AS vent_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'fog') AS fog_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'fog') / 3600.0)::numeric, 2) AS fog_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'mister_south') AS mister_south_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'mister_south') / 3600.0)::numeric, 2) AS mister_south_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'mister_west') AS mister_west_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'mister_west') / 3600.0)::numeric, 2) AS mister_west_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'mister_center') AS mister_center_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'mister_center') / 3600.0)::numeric, 2) AS mister_center_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'drip_wall') AS drip_wall_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'drip_wall') / 3600.0)::numeric, 2) AS drip_wall_run_h,
+           max(r.starts) FILTER (WHERE r.equipment = 'drip_center') AS drip_center_starts,
+           round((max(r.run_s) FILTER (WHERE r.equipment = 'drip_center') / 3600.0)::numeric, 2) AS drip_center_run_h
+      FROM public.daily_relay_record r
+     GROUP BY r.date
+)
+SELECT d.date,
+       d.complete,
+       b.both_in_band_pct,
+       b.temp_in_band_pct,
+       b.vpd_in_band_pct,
+       b.graded_min,
+       b.night_dried_out,
+       r.starts_climate, r.run_h_climate, r.starts_misters, r.run_h_misters,
+       r.heat1_starts, r.heat1_run_h, r.heat2_starts, r.heat2_run_h,
+       r.fan1_starts, r.fan1_run_h, r.fan2_starts, r.fan2_run_h,
+       r.vent_starts, r.vent_run_h, r.fog_starts, r.fog_run_h,
+       r.mister_south_starts, r.mister_south_run_h, r.mister_west_starts, r.mister_west_run_h,
+       r.mister_center_starts, r.mister_center_run_h,
+       r.drip_wall_starts, r.drip_wall_run_h, r.drip_center_starts, r.drip_center_run_h,
+       round(d.kwh_metered::numeric, 2) AS kwh_metered,
+       round(d.kwh_metered_24h::numeric, 2) AS kwh_metered_24h,
+       d.meter_coverage_pct,
+       round(d.therms_est::numeric, 3) AS therms_est,
+       d.planning_water_gal, d.water_gal, d.house_water_gal, d.wetting_gal, d.water_complete,
+       round(d.counter_sample_pct::numeric, 1) AS counter_sample_pct,
+       round((d.drying_s / 3600.0)::numeric, 2) AS drying_h,
+       d.drying_runs,
+       d.furnace_starts_after_drying,
+       r.lost_off_h,
+       d.computed_at,
+       d.drying_water_g,
+       d.drying_heat_wh,
+       d.drying_meter_lower_bound
+  FROM public.daily_record d
+  LEFT JOIN relay r ON r.date = d.date
+  LEFT JOIN public.daily_band_compliance b ON b.date = d.date
+$daily$)
     ) AS v(target, ddl) LOOP
         attempt := 0;
         LOOP
@@ -525,6 +605,17 @@ $record$)
         RAISE EXCEPTION '317 left lock_timeout changed';
     END IF;
 END $views$;
+
+COMMENT ON VIEW public.v_daily_record IS
+    'The daily record (310, plan section 10): one row per America/Denver day. Compliance from daily_band_compliance '
+    '(290, fn_band_compliance_5m, the one definition); starts and run hours per relay after the lost-OFF repair, '
+    'totals for the six climate relays (heat1, heat2, fan1, fan2, vent, fog) and the three misters (drips are '
+    'irrigation, in neither total); metered kWh (kwh_metered_24h NULL under 70 % coverage), estimated therms, '
+    'planning gallons (the compared figure) beside all metered and house gallons; drying action hours and runs; '
+    'lost_off_h, the hours the repair removed net of runs it restored; counter_sample_pct, the repair''s evidence. '
+    'Compliance is the stored grade only: a day 290 did not grade shows none. complete is false for the day in progress.'
+    ' drying_water_g and drying_heat_wh: the controller''s drying meter for the day (317), grams of water and watt-hours '
+    'of heat the drying runs carried out; drying_meter_lower_bound: a boot lost meter counts, so both are lower bounds.';
 
 COMMENT ON VIEW public.v_greenhouse_state IS
     'Rolling 14-day climate, relay and band state per climate row. The band columns (sp_temp_low/high, sp_vpd_low/high, '
@@ -1349,11 +1440,71 @@ BEGIN
                                              FILTER (WHERE r.reason <> 'none' AND r.wanted_s > 0), '{}'::jsonb)) AS doc
           FROM law_reason r
         HAVING sum(r.covered_s) > 0
+    ), meter_raw AS (
+        -- The controller's drying meter (contract phase3-entities, climate_drying_meter): running totals since its
+        -- boot, held in RAM. g: grams of water and wh: watt-hours of heat the drying runs carried out (a step adds only
+        -- what was carried out); s: seconds of a run with the vent open; rw: seconds wanted with no run. Published
+        -- within 15 s of a boot, then every 300 s until the fourth flash (vp#1738), which publishes when a run ends and
+        -- every 60 s during one; the host stores a row when the value changes, with keyframes. The last row before the
+        -- day (within a day) is the first step's base.
+        SELECT m.ts, (m.value::jsonb ->> 'g')::bigint AS g, (m.value::jsonb ->> 'wh')::bigint AS wh,
+               (m.value::jsonb ->> 's')::bigint AS s, (m.value::jsonb ->> 'rw')::bigint AS rw
+          FROM public.system_state m
+         WHERE m.entity = 'climate_drying_meter' AND m.ts < v_end
+           AND m.ts >= COALESCE((SELECT max(b.ts) FROM public.system_state b
+                                  WHERE b.entity = 'climate_drying_meter' AND b.ts < v_start
+                                    AND b.ts >= v_start - interval '1 day'), v_start)
+           AND m.value LIKE '{"v":1,%'
+           AND CASE WHEN pg_catalog.pg_input_is_valid(m.value, 'jsonb')
+                    THEN (m.value::jsonb ->> 'g') ~ '^[0-9]{1,18}$' AND (m.value::jsonb ->> 'wh') ~ '^[0-9]{1,18}$'
+                         AND (m.value::jsonb ->> 's') ~ '^[0-9]{1,18}$' AND (m.value::jsonb ->> 'rw') ~ '^[0-9]{1,18}$'
+                    ELSE false END
+    ), boot AS (
+        -- Controller boots from diagnostics (uptime more than 60 s short of the previous uptime plus the time between
+        -- the rows, as v_relay_counter_reconciliation_daily), at the instant the uptime started.
+        SELECT x.ts - make_interval(secs => x.uptime_s) AS at
+          FROM (SELECT d.ts, d.uptime_s, lag(d.uptime_s) OVER (ORDER BY d.ts) AS previous_uptime_s,
+                       lag(d.ts) OVER (ORDER BY d.ts) AS previous_ts
+                  FROM public.diagnostics d
+                 WHERE d.uptime_s IS NOT NULL AND d.ts < v_end
+                   AND d.ts >= COALESCE((SELECT min(r.ts) FROM meter_raw r), v_start) - interval '1 hour') x
+         WHERE x.previous_ts IS NOT NULL
+           AND x.uptime_s < x.previous_uptime_s + extract(epoch FROM x.ts - x.previous_ts) - 60
+    ), meter_step AS (
+        -- A row after a boot (a total fell, or a boot lies between the two rows) counts its whole value; otherwise
+        -- the difference from the row before. A row is the day's when it falls in the day.
+        SELECT y.ts, y.previous_ts,
+               (y.previous_ts IS NULL OR y.g < y.previous_g OR y.wh < y.previous_wh OR y.s < y.previous_s
+                OR y.rw < y.previous_rw
+                OR EXISTS (SELECT 1 FROM boot b WHERE b.at > y.previous_ts AND b.at <= y.ts)) AS rebooted,
+               y.g, y.wh, y.previous_g, y.previous_wh
+          FROM (SELECT r.*, lag(r.ts) OVER w AS previous_ts, lag(r.g) OVER w AS previous_g,
+                       lag(r.wh) OVER w AS previous_wh, lag(r.s) OVER w AS previous_s, lag(r.rw) OVER w AS previous_rw
+                  FROM meter_raw r WINDOW w AS (ORDER BY r.ts)) y
+         WHERE y.ts >= v_start
+    ), meter_day AS (
+        -- Lower bound: after a boot, the law's state record shows a drying run (l bit 8) between the last meter row
+        -- before the boot and the boot itself (or the next meter row when no boot instant is known): the counts since
+        -- that row were never published. A day with no meter row stays NULL.
+        SELECT sum(CASE WHEN z.rebooted THEN z.g ELSE z.g - z.previous_g END)::double precision AS water_g,
+               sum(CASE WHEN z.rebooted THEN z.wh ELSE z.wh - z.previous_wh END)::double precision AS heat_wh,
+               bool_or(z.rebooted AND z.previous_ts IS NOT NULL AND EXISTS (
+                   SELECT 1 FROM public.system_state l
+                    WHERE l.entity = 'climate_law_state' AND l.ts >= z.previous_ts
+                      AND l.ts < COALESCE((SELECT min(b.at) FROM boot b WHERE b.at > z.previous_ts AND b.at <= z.ts),
+                                          z.ts)
+                      AND l.value LIKE '{"v":1,%'
+                      AND CASE WHEN pg_catalog.pg_input_is_valid(l.value, 'jsonb')
+                                    AND (l.value::jsonb ->> 'l') ~ '^[0-9]{1,18}$'
+                               THEN ((l.value::jsonb ->> 'l')::bigint & 256) <> 0 ELSE false END)) AS lower_bound
+          FROM meter_step z
+        HAVING count(*) > 0
     )
     INSERT INTO public.daily_record AS t (
         date, complete, kwh_metered, kwh_metered_24h, meter_coverage_pct, therms_est,
         water_gal, wetting_gal, planning_water_gal, house_water_gal, water_complete, counter_sample_pct,
-        drying_s, drying_runs, furnace_starts_after_drying, dry_refusal, computed_at)
+        drying_s, drying_runs, furnace_starts_after_drying, dry_refusal, drying_water_g, drying_heat_wh,
+        drying_meter_lower_bound, computed_at)
     SELECT p_day, now() >= v_end,
            (SELECT e.kwh FROM energy e), (SELECT e.kwh_24h FROM energy e), (SELECT e.coverage FROM energy e),
            (SELECT rr.run_s / 3600.0 * g.nominal_value::double precision / 100000.0
@@ -1368,6 +1519,8 @@ BEGIN
                AND EXISTS (SELECT 1 FROM dry_run d
                             WHERE r.on_at >= d.ended AND r.on_at < d.ended + interval '15 minutes'))::integer,
            CASE WHEN now() >= v_end THEN (SELECT rf.doc FROM refusal rf) END,
+           (SELECT md.water_g FROM meter_day md), (SELECT md.heat_wh FROM meter_day md),
+           (SELECT md.lower_bound FROM meter_day md),
            now()
     ON CONFLICT (date) DO UPDATE SET
         complete = EXCLUDED.complete, kwh_metered = EXCLUDED.kwh_metered,
@@ -1377,11 +1530,23 @@ BEGIN
         water_complete = EXCLUDED.water_complete, counter_sample_pct = EXCLUDED.counter_sample_pct,
         drying_s = EXCLUDED.drying_s, drying_runs = EXCLUDED.drying_runs,
         furnace_starts_after_drying = EXCLUDED.furnace_starts_after_drying, dry_refusal = EXCLUDED.dry_refusal,
-        computed_at = EXCLUDED.computed_at
+        drying_water_g = EXCLUDED.drying_water_g, drying_heat_wh = EXCLUDED.drying_heat_wh,
+        drying_meter_lower_bound = EXCLUDED.drying_meter_lower_bound, computed_at = EXCLUDED.computed_at
     RETURNING t.* INTO stored;
     RETURN stored;
 END
 $store$;
+COMMENT ON COLUMN public.daily_record.drying_water_g IS
+    'Grams of water the drying runs carried out in the day (317, plan section 10 item 3): the sum of the steps of the '
+    'controller''s drying meter (climate_drying_meter g, a running total since its boot) over the day, a row after a '
+    'boot counting its whole value. NULL for a day with no meter row (every day before the law flash). A lower bound '
+    'when drying_meter_lower_bound.';
+COMMENT ON COLUMN public.daily_record.drying_heat_wh IS
+    'Watt-hours of heat the drying runs carried out in the day (317), from the drying meter''s wh as drying_water_g.';
+COMMENT ON COLUMN public.daily_record.drying_meter_lower_bound IS
+    'True when a controller boot lost drying-meter counts: the law''s state record shows a drying run after the last '
+    'meter row before the boot, so drying_water_g and drying_heat_wh are lower bounds (317). The meter is held in RAM '
+    'and was published every 300 s until the fourth flash (vp#1738), every 60 s during a run since. NULL with no meter row.';
 COMMENT ON COLUMN public.daily_record.dry_refusal IS
     'The climate law''s drying record for the day (317, TEL-65), from climate_law_state, each record held until the '
     'next and at most 3 minutes: covered_s, the seconds with a law record; wanted_s, the seconds drying was wanted '
