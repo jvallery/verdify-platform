@@ -105,7 +105,7 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
   const expected = SETTING_GROUPS.map(([group]) => [group, items.filter((row) => row.group === group).map((row) => row.param)] as const).filter(([, list]) => list.length);
   const groups = [...document.querySelectorAll("tbody[data-group]")].map((body) => [body.getAttribute("data-group"), [...body.querySelectorAll("tr.setting-row")].map((row) => row.getAttribute("data-param"))]);
   expect(groups).toEqual(expected);
-  expect(groups.map(([group]) => group)).toEqual(["planner_policy", "scheduled_policy", "controller_safety", "crop_band", "site_water_caps", "band_in_force", "read_only"]);
+  expect(groups.map(([group]) => group)).toEqual(["scheduled_policy", "controller_safety", "crop_band", "site_water_caps", "band_in_force", "read_only"]);
   // Each group head names its group and count; the Band in force head says once why its rows are read-only.
   const band = items.filter((row) => row.group === "band_in_force");
   expect([...document.querySelectorAll(".table-group th")].map((heading) => text(heading))).toEqual(expected.map(([group, list]) => {
@@ -210,7 +210,7 @@ test("the rail's filters count and filter the rows and survive a reload of the U
   const byAgent = ["mister_engage_delay_s", "mister_water_budget_gal", "mister_min_off_s", "outdoor_staleness_max_s"];
   expect(shown()).toEqual(byAgent);
   // The groups count the rows that show; a group with none is no link.
-  expect(railGroups()).toEqual(SETTING_GROUPS.map(([group, label]) => (group === "planner_policy" ? [`${label} 4`, "a"] : [`${label} 0`, "span"])));
+  expect(railGroups()).toEqual(SETTING_GROUPS.map(([group, label]) => (group === "controller_safety" ? [`${label} 4`, "a"] : [`${label} 0`, "span"])));
   // A reload of the URL shows the same rows under the same filter.
   cleanup();
   stopFixtureApi();
@@ -271,12 +271,13 @@ test("Changed in the last 24 h counts any write in force, Iris plans too; 7 d wi
   await open("/settings?filter=recent", { patch });
   expect(chips()[2]).toEqual(["Changed in the last 24 h 5", "true"]);
   // Iris's plan values written today, the 20 h old write and the agent's writes; not the write 6 days old.
-  expect(shown()).toEqual(["mister_engage_delay_s", "mister_water_budget_gal", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled", "sw_gl_main_solar_phasing"]);
+  // The scheduled-policy group now leads: the four operator settings sit in Controller safety after it (#1785).
+  expect(shown()).toEqual(["sw_gl_main_solar_phasing", "mister_engage_delay_s", "mister_water_budget_gal", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled"]);
   fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "7 d" }));
   await settle();
   expect(here()).toBe("/settings?filter=recent&window=7d");
   expect(chips()[2]).toEqual(["Changed in the last 7 d 6", "true"]);
-  expect(shown()).toEqual(["mister_engage_delay_s", "mister_water_budget_gal", "mister_min_off_s", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled", "sw_gl_main_solar_phasing"]);
+  expect(shown()).toEqual(["sw_gl_main_solar_phasing", "mister_engage_delay_s", "mister_water_budget_gal", "mister_min_off_s", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled"]);
   cleanup();
   stopFixtureApi();
   // Desired rows with no readable write time: the filter is left out, and its URL falls back to All.
@@ -294,14 +295,14 @@ test("at 860 px and below the same choices are two selects: Show navigates to it
   await settle();
   expect(here()).toBe("/settings?filter=agent");
   const group = screen.getByRole("combobox", { name: "Group" }) as HTMLSelectElement;
-  expect([...group.options].map((option) => option.textContent)).toEqual(["Jump to…", "Planner policy (4)"]);
-  fireEvent.change(group, { target: { value: "planner_policy" } });
-  expect(document.activeElement).toBe(document.getElementById("group-planner_policy"));
-  expect(document.activeElement!.closest("tbody")!.getAttribute("data-group")).toBe("planner_policy");
+  expect([...group.options].map((option) => option.textContent)).toEqual(["Jump to…", "Controller safety (4)"]);
+  fireEvent.change(group, { target: { value: "controller_safety" } });
+  expect(document.activeElement).toBe(document.getElementById("group-controller_safety"));
+  expect(document.activeElement!.closest("tbody")!.getAttribute("data-group")).toBe("controller_safety");
   // The desktop anchors jump the same way, without a history entry.
   (document.activeElement as HTMLElement).blur();
-  fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "Planner policy 4" }));
-  expect(document.activeElement).toBe(document.getElementById("group-planner_policy"));
+  fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "Controller safety 4" }));
+  expect(document.activeElement).toBe(document.getElementById("group-controller_safety"));
   expect(here()).toBe("/settings?filter=agent");
 });
 
@@ -370,7 +371,7 @@ test("/settings?edit=outdoor_staleness_max_s opens with Manual ticked; 640 saves
   const api = await open("/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s", { fixture: "requested-to-confirmed" });
   expect(drawerOpen()).toBe(true);
   expect(text(within(dialog()).getByRole("heading", { level: 2 }))).toBe("Edit setting");
-  expect(text(dialog().querySelector(".drawer-body > .eyebrow"))).toBe("Planner policy · outdoor_staleness_max_s");
+  expect(text(dialog().querySelector(".drawer-body > .eyebrow"))).toBe("Controller safety · outdoor_staleness_max_s");
   expect(text(dialog().querySelector(".drawer-heading"))).toBe("Outdoor Staleness Max");
   expect(text(dialog().querySelector(".drawer-status .setting-value"))).toBe("660 s · reported 2 min ago");
   // The drawer's state: the bounds bar, Iris's writer line and the next plan; then "Activity for this setting ›".

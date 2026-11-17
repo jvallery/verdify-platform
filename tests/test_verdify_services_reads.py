@@ -307,7 +307,8 @@ def planner_params(count: int) -> list[str]:
     names = [
         name
         for name, spec in sorted(REGISTRY.items())
-        if spec.control_class == "planner_policy"
+        if spec.wire_id is not None  # the five live policy-wire settings, operator-owned since AR42
+        and spec.control_class == "controller_safety"
         and spec.esp_object_id
         and spec.push_owner != "dispatcher_default"
         and not name.endswith(("_lux_threshold", "_lux_hysteresis"))
@@ -378,7 +379,7 @@ def test_values_in_force_are_the_desired_rows_and_never_a_plan():
     rows = {name: desired_row(param=name, value=1.0, created_at=took) for name in skipped}
     assert reads.values_in_force(rows, experiment_armed=False) == []
     # While an experiment is armed the five live policy fields are left out (release 4: the other 43 are reserved).
-    wire = sorted(spec.name for spec in live_wire_fields() if spec.control_class == "planner_policy")[:3]
+    wire = sorted(spec.name for spec in live_wire_fields() if spec.control_class == "controller_safety")[:3]
     rows = {name: desired_row(param=name, value=1.0, created_at=took) for name in wire}
     assert reads.values_in_force(rows, experiment_armed=True) == []
     assert len(reads.values_in_force(rows, experiment_armed=False)) == 3

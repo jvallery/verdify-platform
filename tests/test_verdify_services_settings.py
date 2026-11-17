@@ -43,7 +43,9 @@ AGENT = Actor.agent("steward")
 # Agents may write only an operator switch (climate refactor 4.2); the manual and range rules are shown on one.
 SWITCH = "sw_occupancy_inhibit"
 KPA = "mister_hysteresis_kpa"  # controller_safety, step 0.01, bounds 0.05-0.5 kPa, cfg readback (release 4, #1633)
-POLICY = "outdoor_staleness_max_s"  # planner_policy, one of the five live policy-wire fields, step 30 s
+POLICY = (
+    "outdoor_staleness_max_s"  # controller_safety (operator, AR42), one of the five live policy-wire fields, step 30 s
+)
 DELAY = "mister_engage_delay_s"  # planner_policy, step 30 s
 PRESSURE = "site_pressure_hpa"  # controller_safety, not a policy field, step 1 hPa
 ECON = "sw_occupancy_inhibit"  # a switch read back through its equipment_state mirror (the third flash kept it)
@@ -1250,7 +1252,11 @@ def test_catalog_groups_and_read_only_reasons():
     db = FakeDB()
     orchid_rows(db)
     rows = catalog(db)
-    assert (rows[POLICY].group, rows[POLICY].writable, rows[POLICY].read_only_reason) == ("planner_policy", True, None)
+    assert (rows[POLICY].group, rows[POLICY].writable, rows[POLICY].read_only_reason) == (
+        "controller_safety",
+        True,
+        None,
+    )
     assert rows["sched_mist_rh_max_pct"].group == "site_water_caps"
     assert rows["zone_vpd_target_center_sm"].group == "crop_band"
     assert rows["zone_vpd_target_east_sm"].group == "read_only"  # no pepper rows in this fixture
