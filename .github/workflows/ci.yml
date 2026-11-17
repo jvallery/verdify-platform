@@ -119,7 +119,7 @@ jobs:
     with:
       name: validate
       run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} validate-parts=${{ needs.path-impact.outputs.light == 'docs' && 'not-impacted' || needs.validate-part.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   # The five validation steps from the retired native repo-validate profile (ci/gha/registry-step.sh).
@@ -175,7 +175,7 @@ jobs:
     with:
       name: campaign-qualification
       run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} campaign-qualification-shards=${{ needs.path-impact.outputs.full == 'false' && 'not-impacted' || needs.campaign-qualification-shard.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   firmware-logic:
@@ -218,7 +218,7 @@ jobs:
     with:
       name: firmware-secretless-compile
       run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} firmware-secretless-compile-targets=${{ needs.path-impact.outputs.firmware-check == 'false' && 'not-impacted' || needs.firmware-secretless-compile-target.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   # Native `dashboard`: classification in the runner container, checks in the
@@ -244,7 +244,7 @@ jobs:
     with:
       name: campaign
       run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} campaign-qualification-shards=${{ needs.path-impact.outputs.full == 'false' && 'not-impacted' || needs.campaign-qualification-shard.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   # PR image build-check (#1534, STD-CI-12): every image whose Dockerfile inputs
@@ -289,7 +289,7 @@ jobs:
     with:
       name: buildcheck
       run: bash ci/gha/buildcheck-result.sh impact=${{ needs.buildcheck-impact.result }} images=${{ needs.buildcheck-image.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   # Estate rules R1-R3 on this repository's workflows: context "ci / lint".

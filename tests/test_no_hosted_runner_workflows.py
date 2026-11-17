@@ -184,6 +184,7 @@ def test_label_classifiers():
     for label in (
         "verdify-platform-ci",
         "verdify-platform-ci-tools",
+        "verdify-platform-ci-gate",
         "verdify-platform-ci-dashboard",
         "verdify-platform-build",
     ):
