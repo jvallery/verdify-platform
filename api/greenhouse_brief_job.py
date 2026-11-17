@@ -1,7 +1,8 @@
 """CronJob verdify-greenhouse-brief (#1346): write the greenhouse snapshot with the local Cortex model.
 
-Every 5 minutes, as the dashboard login (the reads API-02, API-07, API-13, API-14 and API-IRR-01 serve, so the facts
-are what Now shows), this builds a fact sheet and decides:
+Every 5 minutes, as the dashboard login (the reads API-02, API-13, API-14 and API-IRR-01 serve, so the facts are what
+Now shows, plus the climate mode and the next planner runs, which the operator API stopped serving in release C), this
+builds a fact sheet and decides:
 - the band verdicts or the open alerts changed since the newest ``ok`` snapshot: mark that row outdated and write a
   new one now; a mode change or a run starting or stopping also writes one now;
 - the sheet is unchanged (same sha256, its time aside): confirm the newest row (``checked_at``) and call nothing;
@@ -98,8 +99,9 @@ def _round(value: float | None, places: int) -> float | int | None:
 @dataclass(frozen=True)
 class Gathered:
     now: reads.Now
+    mode: reads.Mode
     equipment: reads.Equipment | None = None
-    plan: reads.Plan | None = None
+    planner: Sequence[reads.PlannerRun] | None = None
     irrigation: irrigation_reads.IrrigationStatus | None = None
     alert_page: alerts.AlertPage | None = None
     forecast: Sequence[Mapping[str, Any]] | None = None
@@ -153,10 +155,10 @@ def build_sheet(data: Gathered, at: datetime) -> dict[str, Any]:
             "relative_humidity_pct": _round(now.outdoor.rh_pct.value, 0),
         },
         "climate_mode": {
-            "mode": now.mode.code,
-            "stage": now.mode.stage,
-            "reason": now.mode.reason,
-            "since": _local(now.mode.since),
+            "mode": data.mode.code,
+            "stage": data.mode.stage,
+            "reason": data.mode.reason,
+            "since": _local(data.mode.since),
         },
         "running_now": [
             {"equipment": labels.get(item.equipment, item.equipment), "cause": item.cause, "since": _local(item.since)}
@@ -185,17 +187,15 @@ def build_sheet(data: Gathered, at: datetime) -> dict[str, Any]:
         sheet["lights"] = [
             {"light": item.label, "state": item.state} for item in data.equipment.items if item.group == "light"
         ]
-    if data.plan is not None:
-        record = data.plan.plan
-        upcoming = sorted(
-            (trigger for trigger in data.plan.health if trigger.expected_at > at), key=lambda t: t.expected_at
-        )
+    if data.planner is not None:
+        # No plan is in force since climate refactor 4.2, so the three plan facts are constant.
+        upcoming = sorted((run for run in data.planner if run.expected_at > at), key=lambda run: run.expected_at)
         sheet["planner"] = {
-            "plan_in_force": record is not None,
-            "plan_trigger": record.trigger if record else None,
-            "plan_valid_until": _local(record.valid_until) if record else None,
+            "plan_in_force": False,
+            "plan_trigger": None,
+            "plan_valid_until": None,
             "next_planner_runs": [
-                {"trigger": trigger.trigger, "at": _local(trigger.expected_at)} for trigger in upcoming[:MAX_NEXT]
+                {"trigger": run.trigger, "at": _local(run.expected_at)} for run in upcoming[:MAX_NEXT]
             ],
         }
     if data.irrigation is not None:
@@ -223,9 +223,9 @@ def event_of(now: reads.Now) -> dict[str, Any]:
     return brief.event_key(now.band.temp_f.verdict, now.band.vpd_kpa.verdict, now.alerts.open, now.alerts.critical)
 
 
-def trigger_of(now: reads.Now) -> dict[str, Any]:
+def trigger_of(data: Gathered) -> dict[str, Any]:
     """Changes that write a new snapshot at once (they do not make the old one outdated)."""
-    return {"mode": now.mode.code, "running": sorted(item.equipment for item in now.running)}
+    return {"mode": data.mode.code, "running": sorted(item.equipment for item in data.now.running)}
 
 
 def decide(newest: brief.Newest | None, event: Mapping, trigger: Mapping, sha: str, at: datetime) -> str:
@@ -358,8 +358,9 @@ async def gather(conn: asyncpg.Connection) -> tuple[datetime, Gathered]:
     )
     return at, Gathered(
         now=now,
+        mode=await reads.climate_mode(conn),
         equipment=await _optional("equipment", reads.equipment(conn)),
-        plan=await _optional("plan", reads.plan(conn, hours=FORECAST_HOURS)),
+        planner=await _optional("planner", reads.planner_runs(conn, MAX_NEXT)),
         irrigation=await _optional("irrigation", irrigation_reads.status(conn, None)),
         alert_page=await _optional("alerts", alerts.list(conn, "open", limit=MAX_ALERTS)),
         forecast=None if forecast is None else [dict(row) for row in forecast],
@@ -393,7 +394,7 @@ async def run_once(
     if len(brief.canonical(sheet)) > MAX_SHEET_CHARS:
         sheet.pop("alerts", None)
     sha = brief.facts_sha256(sheet)
-    event, trigger = event_of(data.now), trigger_of(data.now)
+    event, trigger = event_of(data.now), trigger_of(data)
     newest = await brief.newest(conn)
     await conn.execute(RETENTION_SQL, at - brief.RETENTION)
     if newest is not None and newest.event is not None and newest.event != event:

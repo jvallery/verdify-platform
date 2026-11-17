@@ -190,8 +190,6 @@ def now_model(**update):
             "rh_pct": None,
             "observed_at": AT,
         },
-        "mode": {"code": "IDLE", "stage": None, "reason": "idle", "since": AT - timedelta(minutes=45)},
-        "iris": {"plan_id": "iris-1", "trigger": "SUNRISE", "valid_until": AT, "required_trigger": "ok"},
         "alerts": {"open": 1, "critical": 0, "warning": 1, "info": 0},
         "running": [{"equipment": "fan1", "line_id": None, "cause": None, "since": AT - timedelta(minutes=3)}],
         "overrides": [],
@@ -224,12 +222,15 @@ def now_model(**update):
     return reads.Now.model_validate(body)
 
 
+MODE = reads.Mode(code="IDLE", stage=None, reason="idle", since=AT - timedelta(minutes=45))
+
+
 def test_the_sheet_rounds_uses_local_times_and_keeps_out_what_it_must():
     rows = [
         {"ts": AT + timedelta(hours=h), "temp_f": 40 + h, "wind_gust_mph": 10.4 + h, "precip_prob_pct": 5.0}
         for h in range(12)
     ]
-    sheet = job.build_sheet(job.Gathered(now=now_model(), forecast=rows), AT)
+    sheet = job.build_sheet(job.Gathered(now=now_model(), mode=MODE, forecast=rows), AT)
     assert sheet["as_of_local"] == "11:50"
     assert sheet["indoor"] == {"temperature_f": 78.0, "relative_humidity_pct": 66, "vpd_kpa": 1.12}
     assert sheet["band"]["temperature_f"] == {"low": 73.9, "high": 83.9, "verdict": "in"}
@@ -248,7 +249,23 @@ def test_the_sheet_rounds_uses_local_times_and_keeps_out_what_it_must():
     for excluded in ("co2", "par", "south", "crop", "plant", "orchid", "vanda"):
         assert f'"{excluded}' not in text, excluded
     assert job.event_of(now_model()) == brief.event_key("in", "in", 1, 0)
-    assert job.trigger_of(now_model()) == {"mode": "IDLE", "running": ["fan1"]}
+    assert job.trigger_of(job.Gathered(now=now_model(), mode=MODE)) == {"mode": "IDLE", "running": ["fan1"]}
+
+
+def test_the_planner_facts_list_the_next_runs_and_no_plan_in_force():
+    runs = [
+        reads.PlannerRun(trigger="SUNSET", expected_at=AT + timedelta(hours=5)),
+        reads.PlannerRun(trigger="TRANSITION", expected_at=AT + timedelta(minutes=113)),
+        reads.PlannerRun(trigger="MIDNIGHT", expected_at=AT - timedelta(minutes=1)),
+    ]
+    sheet = job.build_sheet(job.Gathered(now=now_model(), mode=MODE, planner=runs), AT)
+    assert sheet["planner"] == {
+        "plan_in_force": False,
+        "plan_trigger": None,
+        "plan_valid_until": None,
+        "next_planner_runs": [{"trigger": "TRANSITION", "at": "13:43"}, {"trigger": "SUNSET", "at": "16:50"}],
+    }
+    assert "planner" not in job.build_sheet(job.Gathered(now=now_model(), mode=MODE), AT)
 
 
 # ── One run against fakes ───────────────────────────────────────────────────
@@ -271,7 +288,7 @@ class FakeConn:
 
 def run(monkeypatch, tmp_path, conn, handler, key="sk-test", now=None):
     async def gather(_conn):
-        return AT, job.Gathered(now=now or now_model())
+        return AT, job.Gathered(now=now or now_model(), mode=MODE)
 
     async def newest_of(_conn):
         return conn.newest_row
@@ -348,7 +365,7 @@ def test_the_forecast_window_is_a_fact_so_next_12_hours_passes_the_number_check(
     # 2026-11-06/07: 11 briefs were rejected with "number 12 is not in the facts" for "the next 12 hours":
     # the 12 lived only in the key outdoor_forecast_next_12h. A number the model works out is still rejected.
     rows = [{"ts": AT + timedelta(hours=h), "temp_f": 36 + h, "precip_prob_pct": 0.0} for h in range(12)]
-    sheet = job.build_sheet(job.Gathered(now=now_model(), forecast=rows), AT)
+    sheet = job.build_sheet(job.Gathered(now=now_model(), mode=MODE, forecast=rows), AT)
     text = (
         "The greenhouse air is at 78.0 °F and 66% relative humidity, inside its band. "
         "The next 12-hour forecast shows a high of 47 °F at 22:50 and a low of 36 °F at 11:50. "
@@ -380,7 +397,7 @@ def test_a_missing_key_fails_closed_without_a_call(monkeypatch, tmp_path):
 
 
 def test_an_unchanged_sheet_confirms_without_a_call_and_a_change_marks_outdated(monkeypatch, tmp_path):
-    sheet = job.build_sheet(job.Gathered(now=now_model()), AT)
+    sheet = job.build_sheet(job.Gathered(now=now_model(), mode=MODE), AT)
     same = newest(facts_sha256=brief.facts_sha256(sheet), event=brief.event_key("in", "in", 1, 0))
     same = brief.Newest(**{**same.__dict__, "trigger": {"mode": "IDLE", "running": ["fan1"]}})
     conn = FakeConn(same)

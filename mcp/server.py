@@ -3492,16 +3492,16 @@ async def settings(
     REST twins: API-09 `GET /v1/settings` and API-12 `GET /v1/settings/{param}/history`.
 
     With no window: API-09's `{items, server_time}`, filtered by param, group, writable_only and manual_only. Each
-    row carries applied_from (whose value is in force: manual, desired, plan, band or default), min, max, step,
-    its desired row, its plan value and its readback state, and `help`: what the setting is (summary), what the
+    row carries applied_from (whose value is in force: manual, desired, band or default), min, max, step,
+    its desired row and its readback state, and `help`: what the setting is (summary), what the
     controller does with it (effect), what raising and lowering it does (raise, lower; for a switch, turning it on and
     off) and any caution, the same words the dashboard shows; a guardrail row has guardrail true. A read-only row
     carries read_only_kind, and a derived row source_params, the writable settings it is computed from. Explain a
     change with that text. Narrow it: the whole catalog is large.
 
-    With param, since and until all given: API-12's SettingHistory over [since, until), the desired rows, plan
-    values and readback change points; since and until map to API-12's from and to, and the other filters do not
-    apply. since or until without the other two is `invalid_request`. An unknown param in a history read is
+    With param, since and until all given: API-12's SettingHistory over [since, until), the desired rows and readback
+    change points, plus `plan`, the setting's past plan values (API-12 no longer serves them; none are written since
+    the climate law); since and until map to API-12's from and to, and the other filters do not apply. since or until without the other two is `invalid_request`. An unknown param in a history read is
     `not_found`. Refusals are Problem JSON with isError."""
     if since is None and until is None:
         async with _service_connection() as conn:
@@ -3518,7 +3518,7 @@ async def settings(
         )
     from_, to = _time_argument("since", since), _time_argument("until", until)
     async with _service_connection() as conn:
-        return _tool_ok(await reads_service.setting_history(conn, param, from_, to))
+        return _tool_ok(await reads_service.setting_history_with_plan(conn, param, from_, to))
 
 
 @mcp.tool()

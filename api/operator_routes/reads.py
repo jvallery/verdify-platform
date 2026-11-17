@@ -1,10 +1,10 @@
-"""The operator reads: API-02, API-07 and API-13 (VD-54); API-09, API-12, API-14 and API-17 (VD-55); API-21 (VD-57);
-API-25, the Planner section's plan history (#1361; the study reads API-26 and API-27 retired with the planner's
-write role, climate refactor 4.2).
+"""The operator reads: API-02 and API-13 (VD-54); API-09, API-12, API-14 and API-17 (VD-55); API-21 (VD-57). The plan
+read API-07 and the Planner section's history API-25 retired in release C (dashboard v2 API spec section 7), as the
+study reads API-26 and API-27 did with the planner's write role (climate refactor 4.2).
 
 No auth and no SQL: ``api/operator_api.py`` (#1148) includes ``router`` under
 ``/v1`` with its bearer, session and role dependencies, and each route calls
-one ``verdify_services.reads`` function, ``alerts.list`` for API-14, or ``planner`` for API-25.
+one ``verdify_services.reads`` function, or ``alerts.list`` for API-14.
 ``connection`` lends one connection from the operator API's asyncpg pool,
 ``app.state.pool``; the operator API may override it with
 ``app.dependency_overrides``. Query values pass through unchanged: the services
@@ -21,7 +21,7 @@ from typing import Annotated
 import asyncpg
 from fastapi import APIRouter, Depends, Query, Request
 
-from verdify_services import activity, alerts, planner, reads, soil
+from verdify_services import activity, alerts, reads, soil
 
 router = APIRouter()
 
@@ -39,14 +39,8 @@ OptionalFrom = Annotated[datetime | None, Query(alias="from")]
 
 @router.get("/now", operation_id="API-02", tags=["now"], response_model=reads.Now)
 async def get_now(conn: Connection) -> reads.Now:
-    """Now hero: climate against the band, mode, Iris, running equipment, the leak, alerts, freshness, writer."""
+    """Now: climate against the band, the law, the daily review, running equipment, the leak, alerts, freshness, writer."""
     return await reads.now(conn)
-
-
-@router.get("/plan", operation_id="API-07", tags=["plan"], response_model=reads.Plan)
-async def get_plan(conn: Connection, hours: reads.PlanHours = 24) -> reads.Plan:
-    """Plan in force, one lane per planned setting over 24 h (or 72 h), manual settings and planner health."""
-    return await reads.plan(conn, hours=hours)
 
 
 @router.get("/equipment", operation_id="API-13", tags=["equipment"], response_model=reads.Equipment)
@@ -61,15 +55,9 @@ async def get_water_daily(conn: Connection, days: reads.WaterDays = 30) -> reads
     return await reads.water_daily(conn, days=days)
 
 
-@router.get("/planner/history", operation_id="API-25", tags=["planner"], response_model=planner.PlannerHistory)
-async def get_planner_history(conn: Connection, days: planner.HistoryDays = 30) -> planner.PlannerHistory:
-    """Plans per day (written, required, failed, late), dispatched changes, cost per day and the newest plans."""
-    return await planner.history(conn, days=days)
-
-
 @router.get("/settings", operation_id="API-09", tags=["settings"], response_model=reads.SettingRows)
 async def get_settings(conn: Connection) -> reads.SettingRows:
-    """Every registry row with its device value, desired row, plan value and state, and the Band in force rows."""
+    """Every registry row with its device value, desired row and state, and the Band in force rows."""
     return await reads.settings_rows(conn)
 
 
@@ -87,7 +75,7 @@ async def get_soil_targets(conn: Connection) -> soil.SoilTargets:
     response_model=reads.SettingHistory,
 )
 async def get_setting_history(conn: Connection, param: str, from_: From, to: datetime) -> reads.SettingHistory:
-    """Desired rows, plan values and readback steps over [from, to): the Graphs setting steps."""
+    """Desired rows and readback steps over [from, to): the Graphs setting steps."""
     return await reads.setting_history(conn, param, from_, to)
 
 

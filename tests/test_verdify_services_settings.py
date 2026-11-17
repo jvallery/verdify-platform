@@ -656,14 +656,14 @@ def test_a_newer_plan_never_overrides_a_desired_row_since_climate_refactor_4_2()
     assert (result.state, result.applied_from, result.desired.state) == ("not_confirmed", "desired", "not_confirmed")
 
 
-def test_a_clamp_after_the_request_holds_it_with_the_applied_value_since_the_clamp_row():
+def test_a_clamp_after_the_request_reads_not_confirmed_at_once_with_the_applied_value_since_the_clamp_row():
     db = FakeDB()
-    db.add_desired(PRESSURE, 845.0, at=ago(minutes=10))
-    clamp_at = ago(minutes=9)
+    db.add_desired(PRESSURE, 845.0, at=ago(minutes=2))  # younger than the 5 min requested window
+    clamp_at = ago(minutes=1)
     db.clamps.append({"parameter": PRESSURE, "ts": clamp_at, "applied": 840.0, "reason": "guard_x"})
-    db.snapshots.append((PRESSURE, ago(minutes=1), 840.0))
+    db.snapshots.append((PRESSURE, ago(seconds=30), 840.0))
     result = status(db, PRESSURE)
-    assert result.state == "held"
+    assert result.state == "not_confirmed"  # release C retired held
     assert result.state_reason.model_dump() == {
         "code": "clamped",
         "detail": "guard_x",
@@ -684,21 +684,15 @@ def test_a_clamp_before_the_request_does_not_count_and_one_the_device_moved_past
     assert (result.state, result.state_reason) == ("confirmed", None)
 
 
-def test_an_armed_experiment_holds_the_five_live_policy_fields_only():
+def test_an_armed_experiment_holds_nothing_since_release_c():
     db = FakeDB()
     db.armed = uuid.uuid4()
     db.add_desired(POLICY, 660.0, at=ago(minutes=10))
     db.snapshots.append((POLICY, ago(minutes=1), 660.0))
-    result = status(db, POLICY)
-    assert (result.state, result.state_reason.code, result.state_reason.since) == ("held", "experiment", None)
     assert POLICY in {spec.name for spec in live_wire_fields()}
-    # Release 4 (#1633): a setting outside the live slots is not held, a kPa one or the site pressure.
-    db.add_desired(KPA, 0.15, at=ago(minutes=10))
-    db.snapshots.append((KPA, ago(minutes=1), 0.15))
-    assert status(db, KPA).state == "confirmed"
-    db.add_desired(PRESSURE, 845.0, at=ago(minutes=10))
-    db.snapshots.append((PRESSURE, ago(minutes=1), 845.0))
-    assert status(db, PRESSURE).state == "confirmed"
+    result = status(db, POLICY)
+    assert (result.state, result.state_reason) == ("confirmed", None)
+    assert activity.ARMED_EXPERIMENT_SQL not in db.sql  # a read no longer asks whether one is armed
 
 
 def test_confirmed_by_a_matching_readback_at_or_after_the_request_with_its_first_match():
@@ -1294,7 +1288,6 @@ def test_the_models_carry_the_openapi_fields():
         (settings.StateReason, "StateReason"),
         (settings.Reading, "Reading"),
         (settings.TimedValue, "TimedValue"),
-        (settings.PlanWaypoint, "PlanWaypoint"),
     ):
         assert {field.alias or key for key, field in model.model_fields.items()} == set(schemas[name]["properties"])
     history = {field.alias or key for key, field in settings.SettingHistory.model_fields.items()}
@@ -1331,7 +1324,8 @@ def test_history_returns_the_rows_from_the_one_in_force_and_the_readback_steps()
         (ago(hours=5, minutes=-1), 845.0),
         (ago(hours=3), 840.0),
     ]
-    assert (result.unit, result.min, result.max, result.plan) == ("hPa", 700.0, 1100.0, [])
+    assert (result.unit, result.min, result.max) == ("hPa", 700.0, 1100.0)
+    assert "plan" not in result.model_dump()  # release C
     assert openapi_errors("SettingHistory", body) == []
 
 
@@ -1342,7 +1336,7 @@ def test_history_refuses_a_backwards_or_naive_window():
         assert refusal(excinfo).code == "invalid_request"
 
 
-# ── Batched reads for API-07 and API-17 (VD-55) ─────────────────────────────
+# ── Batched reads for API-17 (VD-55) ────────────────────────────────────────
 
 
 def test_statuses_is_status_for_each_setting_in_one_batch_and_leaves_unknown_names_out():
@@ -1358,7 +1352,7 @@ def test_statuses_is_status_for_each_setting_in_one_batch_and_leaves_unknown_nam
     db.sql.clear()
     batched = run(settings.statuses(db, [KPA, DELAY, "no_such_setting", PRESSURE, KPA]))
     assert batched == expected
-    assert [result.state for result in batched.values()] == ["confirmed", "confirmed", "held"]
+    assert [result.state for result in batched.values()] == ["confirmed", "confirmed", "not_confirmed"]
     assert db.sql.count(reads._REPORTING_SQL) == 1  # one gather for all three
     assert run(settings.statuses(db, ["no_such_setting"])) == {}
 

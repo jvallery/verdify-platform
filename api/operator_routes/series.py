@@ -81,14 +81,14 @@ async def lighting_days(conn: Connection, from_: WindowStart, to: WindowEnd) -> 
 @router.get(
     "/band",
     operation_id="API-06",
-    summary="Band in force and the reconstructed crop band, for the house or one zone",
+    summary="The house band in force and the reconstructed crop band",
     response_model=service.BandTimeline,
 )
 async def band(
     conn: Connection,
     from_: WindowStart,
     to: WindowEnd,
-    zone: Annotated[service.BandZone, Query(description="North has no zone band and is not offered")] = "house",
+    zone: Annotated[service.BandZone, Query(description="house: the law has one band; zones are probes")] = "house",
     achievable: Annotated[
         bool, Query(description="The house's achievable VPD band and its nightly grades (#1433); windows up to 35 days")
     ] = False,
@@ -105,7 +105,7 @@ async def band(
 )
 async def band_preview(
     conn: Connection,
-    param: Annotated[str, Query(description="A crop-band anchor or width")],
+    param: Annotated[str, Query(description="A house band anchor")],
     value: Annotated[float, Query(description="The draft value, in the setting's unit")],
     day: Annotated[date | None, Query(description="America/Denver day; default today")] = None,
 ) -> service.BandPreview:

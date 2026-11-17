@@ -164,15 +164,7 @@ def test_band_verdict_is_unavailable_without_a_band_or_fresh_data(read, low, hig
     assert reads.band_position(read, low, high, AT, reporting=reporting).verdict == "unavailable"
 
 
-# ── Iris's tile: the daily review (climate refactor 5.1) ────────────────────
-
-
-@pytest.mark.parametrize(
-    ("missed_status", "expected"),
-    [(None, "ok"), ("failed", "failed"), ("requested", "missed"), ("delivered", "missed"), ("none", "missed")],
-)
-def test_the_iris_tile_reads_the_open_daily_review_missed_alert(missed_status, expected):
-    assert reads.review_state(missed_status) == expected
+# ── the greenhouse snapshot job's climate mode (not served since release C) ──
 
 
 @pytest.mark.parametrize(
@@ -207,12 +199,40 @@ def test_a_humidify_burst_is_held_only_by_a_named_fog_block(reason, fog_on, held
     assert reads.humidify_held_reason(reason, fog_on) == held
 
 
-def test_now_reads_no_plan_and_the_review_from_its_alert():
-    sql = reads._ALERT_FACTS_SQL
-    assert "alert_type = 'daily_review_missed'" in sql and alerts.OPEN_PREDICATE in sql
-    for gone in ("_PLAN_IN_FORCE_SQL", "_REQUIRED_TRIGGER_SQL", "_ACTIVE_PLAN_SQL", "_SETTING_PLANS_SQL"):
+def test_climate_mode_reads_the_mode_track_and_its_reason_in_one_snapshot():
+    """The greenhouse snapshot job's mode: what Now.mode served before release C."""
+    rows = {
+        reads._SYSTEM_TRACKS_SQL: [
+            {"key": "greenhouse_state", "ts": den(2, 9), "state": "IDLE", "newest_at": den(2, 13)},
+            {"key": "greenhouse_state", "ts": den(2, 11), "state": "SEALED_MIST_FOG", "newest_at": den(2, 13)},
+        ],
+        reads._NEWEST_STATES_SQL: [
+            {"entity": "mister_state", "value": "WATCH", "ts": den(2, 13)},
+            {"entity": "mode_reason", "value": "vpd_high", "ts": den(2, 13)},
+        ],
+    }
+    conn = ReadsConn(rows)  # every statement asserts it runs inside the read's snapshot
+    mode = asyncio.run(reads.climate_mode(conn))
+    assert mode == reads.Mode(code="SEALED_MIST", stage="FOG", reason="vpd_high", since=den(2, 11))
+    assert dict(conn.sent)[reads._NEWEST_STATES_SQL][0] == ["mister_state", "mode_reason"]
+
+
+def test_planner_runs_are_the_ledger_rows_ahead_soonest_first():
+    conn = ReadsConn({reads._PLANNER_RUNS_SQL: [{"event_type": "SUNSET", "expected_at": den(2, 17)}]})
+    conn.depth = 1  # the job reads it outside a snapshot of its own
+    assert asyncio.run(reads.planner_runs(conn, 3)) == [reads.PlannerRun(trigger="SUNSET", expected_at=den(2, 17))]
+    assert conn.sent == [(reads._PLANNER_RUNS_SQL, (3,))]
+    assert "expected_at > now()" in reads._PLANNER_RUNS_SQL and "ORDER BY expected_at" in reads._PLANNER_RUNS_SQL
+
+
+def test_now_reads_no_plan_no_mode_and_no_experiment():
+    for gone in ("_PLAN_IN_FORCE_SQL", "_REQUIRED_TRIGGER_SQL", "_ACTIVE_PLAN_SQL", "_SETTING_PLANS_SQL", "plan"):
         assert not hasattr(reads, gone), gone
-    # Settings, Now, API-07, API-09 and the API's /setpoints route read no active plan (climate refactor 4.2).
+    # Release C: Now reads neither the mode nor the review's alert, and the writer check no armed experiment.
+    assert "daily_review_missed" not in reads._ALERT_FACTS_SQL
+    assert "fn_mcp_armed_assignment_context" not in reads._CLOCK_SQL
+    assert "mode_reason" not in reads._NOW_NEWEST_ENTITIES and "mode_reason" not in reads.REASON_ENTITIES
+    # Settings, Now, API-09 and the API's /setpoints route read no active plan (climate refactor 4.2).
     for path in ("verdify_services/settings.py", "verdify_services/reads.py", "api/main.py"):
         code = "\n".join(line for line in (ROOT / path).read_text().splitlines() if not line.lstrip().startswith("#"))
         assert "FROM v_active_plan" not in code, path
@@ -255,24 +275,17 @@ def desired_row(param="outdoor_staleness_max_s", value=660.0, manual=False, crea
     }
 
 
-def plan_row(value=750.0, created_at=None, ts=None):
-    return {"value": value, "created_at": created_at or den(2, 7, 2), "ts": ts or den(2, 7, 2)}
-
-
-def test_lane_applied_from_is_the_settings_rule():
-    """API-07's lanes take applied_from from settings.status (VD-55), the dispatcher's §5.2 order."""
+def test_applied_from_is_the_settings_rule_with_no_plan():
+    """applied_from is settings.status's (VD-55): the dispatcher's §5.2 order, with no plan since 4.2."""
     spec = REGISTRY["outdoor_staleness_max_s"]
-    assert settings.applied_from(spec, desired_row(manual=True), plan_row(created_at=den(2, 9))) == "manual"
-    # A plan written 07:02 and a non-manual desired row at 08:00: the desired row applies.
-    assert settings.applied_from(spec, desired_row(), plan_row()) == "desired"
-    assert settings.applied_from(spec, desired_row(), plan_row(created_at=den(2, 9))) == "plan"
-    assert settings.applied_from(spec, desired_row(value=None), plan_row()) == "plan"
-    assert settings.applied_from(spec, None, plan_row()) == "plan"
+    assert settings.applied_from(spec, desired_row(manual=True)) == "manual"
+    assert settings.applied_from(spec, desired_row()) == "desired"
+    assert settings.applied_from(spec, desired_row(value=None)) == "default"
     assert REGISTRY["temp_low"].push_owner == "band"
-    assert settings.applied_from(REGISTRY["temp_low"], None, None) == "band"
+    assert settings.applied_from(REGISTRY["temp_low"], None) == "band"
     assert REGISTRY["gl_main_lux_threshold"].push_owner == "schedule"
-    assert settings.applied_from(REGISTRY["gl_main_lux_threshold"], None, None) == "band"
-    assert settings.applied_from(spec, None, None) == "default"
+    assert settings.applied_from(REGISTRY["gl_main_lux_threshold"], None) == "band"
+    assert settings.applied_from(spec, None) == "default"
 
 
 def test_waypoint_effective_is_resolve_effective_picking_the_plan_row():
@@ -327,7 +340,7 @@ def test_differing_counts_values_unconfirmed_for_more_than_ten_minutes():
     took = at - timedelta(hours=2)
     params = planner_params(5)  # release 4 (#1633): the five live policy-wire settings are the planner rows
     held = {param: desired_row(param=param, value=1.0, created_at=took) for param in params}
-    values = reads.values_in_force(held, experiment_armed=False)
+    values = reads.values_in_force(held)
     assert [item.param for item in values] == sorted(params)
     readbacks = {param: facts(mismatch(param, 1.0)) for param in params[:3]}
     readbacks |= {param: facts(mismatch(param, 1.0), clamped=True) for param in params[3:]}
@@ -369,20 +382,19 @@ def test_values_in_force_are_the_desired_rows_and_never_a_plan():
     took = at - timedelta(hours=2)
     param = planner_params(1)[0]
     desired = {param: desired_row(param=param, value=2.0, created_at=took + timedelta(minutes=5))}
-    [value] = reads.values_in_force(desired, experiment_armed=False)
+    [value] = reads.values_in_force(desired)
     assert (value.value, value.since) == (2.0, took + timedelta(minutes=5))
     # A release is left out: the dispatcher sends the default it returns to (no plan applies, climate refactor 4.2).
     released = {param: desired_row(param=param, value=None, created_at=took + timedelta(minutes=5))}
-    assert reads.values_in_force(released, experiment_armed=False) == []
+    assert reads.values_in_force(released) == []
     # Rows the dispatcher never sends from a desired row: read-only band scalars, retired and unknown names.
     skipped = ["temp_low", "activity_start_hour", "not_a_tunable"]
     rows = {name: desired_row(param=name, value=1.0, created_at=took) for name in skipped}
-    assert reads.values_in_force(rows, experiment_armed=False) == []
-    # While an experiment is armed the five live policy fields are left out (release 4: the other 43 are reserved).
+    assert reads.values_in_force(rows) == []
+    # Release C: an armed experiment no longer leaves the five live policy fields out.
     wire = sorted(spec.name for spec in live_wire_fields() if spec.control_class == "controller_safety")[:3]
     rows = {name: desired_row(param=name, value=1.0, created_at=took) for name in wire}
-    assert reads.values_in_force(rows, experiment_armed=True) == []
-    assert len(reads.values_in_force(rows, experiment_armed=False)) == 3
+    assert len(reads.values_in_force(rows)) == 3
 
 
 # ── equipment states ────────────────────────────────────────────────────────
@@ -561,7 +573,7 @@ def _compare(model, model_root, spec, spec_root, path, problems):
         _compare(model["properties"][name], model_root, spec["properties"][name], spec_root, f"{path}.{name}", problems)
 
 
-@pytest.mark.parametrize("name", ["Now", "Plan", "Equipment"])
+@pytest.mark.parametrize("name", ["Now", "Equipment"])
 def test_models_follow_the_committed_openapi(name):
     spec_root = yaml.safe_load(OPENAPI.read_text())
     model_root = getattr(reads, name).model_json_schema()
@@ -577,7 +589,6 @@ def test_the_routes_are_the_committed_operations():
     served = {(route.path, method, route.operation_id) for route in routes.router.routes for method in route.methods}
     assert served == {
         ("/now", "GET", "API-02"),
-        ("/plan", "GET", "API-07"),
         ("/equipment", "GET", "API-13"),
         # VD-55 (tests/test_operator_routes_reads.py covers these four).
         ("/settings", "GET", "API-09"),
@@ -585,7 +596,6 @@ def test_the_routes_are_the_committed_operations():
         ("/alerts", "GET", "API-14"),
         ("/activity", "GET", "API-17"),
         ("/water/daily", "GET", "API-21"),  # VD-57
-        ("/planner/history", "GET", "API-25"),  # #1361
         ("/soil-targets", "GET", "API-SOIL-01"),  # #1345
     }
     for path, method, operation_id in served:
@@ -606,22 +616,17 @@ def test_the_route_module_carries_no_auth_and_no_sql():
         assert dependencies == {routes.connection}, route.path
 
 
-def test_routes_call_the_services_and_validate_hours(monkeypatch):
+def test_routes_call_the_services_and_validate_days(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from operator_routes import reads as routes
 
     calls = []
 
-    async def fake_plan(conn, hours=24):
-        calls.append((conn, hours))
-        return reads.Plan(plan=None, no_plan_since=AT, lanes=[], manual_count=0, health=[])
-
     async def fake_equipment(conn):
         reason = reads.reason_state(None, reporting())
         return reads.Equipment(
             items=reads._equipment_items({}, reporting()),
-            mode_reason=reason,
             fog_block_reason=reason,
             moisture_block_reason=reason,
         )
@@ -633,17 +638,13 @@ def test_routes_call_the_services_and_validate_hours(monkeypatch):
     async def fake_connection():
         yield "conn"
 
-    monkeypatch.setattr(reads, "plan", fake_plan)
     monkeypatch.setattr(reads, "equipment", fake_equipment)
     monkeypatch.setattr(reads, "water_daily", fake_water)
     app = FastAPI()
     app.include_router(routes.router, prefix="/v1")
     app.dependency_overrides[routes.connection] = fake_connection
     client = TestClient(app)
-    assert client.get("/v1/plan").json()["no_plan_since"] == AT.isoformat().replace("+00:00", "Z")
-    assert client.get("/v1/plan?hours=72").status_code == 200
-    assert calls == [("conn", 24), ("conn", 72)]
-    assert client.get("/v1/plan?hours=48").status_code == 422
+    assert client.get("/v1/plan").status_code == 404  # release C
     body = client.get("/v1/equipment").json()
     assert body["items"][0] == {
         "equipment": "fan1",
@@ -660,8 +661,8 @@ def test_routes_call_the_services_and_validate_hours(monkeypatch):
         "auto_reason": None,
     }
     empty = {"code": None, "since": None, "observed_at": None}
-    assert (body["mode_reason"], body["fog_block_reason"], body["moisture_block_reason"]) == (empty, empty, empty)
-    calls.clear()
+    assert (body["fog_block_reason"], body["moisture_block_reason"]) == (empty, empty)
+    assert "mode_reason" not in body
     assert client.get("/v1/water/daily").json() == {"from": "2026-11-01", "to": "2026-11-02", "days": []}
     assert client.get("/v1/water/daily?days=90").status_code == 200
     assert calls == [("conn", 30), ("conn", 90)]
@@ -695,11 +696,11 @@ def test_a_reason_with_no_row_is_null_throughout():
         assert (state.code, state.since, state.observed_at) == (None, None, None)
 
 
-def test_equipment_reads_the_three_reasons_in_its_snapshot():
+def test_equipment_reads_the_two_reasons_in_its_snapshot():
     clock = {"heartbeat_at": AT - timedelta(seconds=30), "climate_at": AT - timedelta(seconds=20), "at": AT}
     reason_edges = [
-        {"key": "mode_reason", "ts": den(2, 9), "state": "seal_enter", "newest_at": den(2, 13)},
-        {"key": "mode_reason", "ts": den(2, 10), "state": "temp_high", "newest_at": den(2, 13)},
+        {"key": "moisture_block_reason", "ts": den(2, 9), "state": "occupancy", "newest_at": den(2, 13)},
+        {"key": "moisture_block_reason", "ts": den(2, 10), "state": "water_budget", "newest_at": den(2, 13)},
     ]
     conn = ReadsConn(
         {
@@ -735,11 +736,12 @@ def test_equipment_reads_the_three_reasons_in_its_snapshot():
     assert lights == {"grow_light_main": AT + timedelta(minutes=9), "grow_light_grow": None}
     timers = next(args for sql, args in conn.sent if sql == reads._LIGHT_TIMERS_SQL)
     assert timers == (reads.GREENHOUSE_ID, ["grow_light_main", "grow_light_grow"], reads.LIGHT_TIMER_WINDOW)
-    assert (result.mode_reason.code, result.mode_reason.since) == ("temp_high", den(2, 10))
-    assert result.mode_reason.observed_at == den(2, 13)
+    # Release C retired mode_reason: API-30 says why each relay runs.
+    assert "mode_reason" not in reads.Equipment.model_fields
+    assert (result.moisture_block_reason.code, result.moisture_block_reason.since) == ("water_budget", den(2, 10))
+    assert result.moisture_block_reason.observed_at == den(2, 13)
     assert (result.fog_block_reason.code, result.fog_block_reason.since) == ("none", None)
     assert result.fog_block_reason.observed_at == den(1, 9)
-    assert result.moisture_block_reason.model_dump() == {"code": None, "since": None, "observed_at": None}
     sent = next(args for sql, args in conn.sent if sql == reads._SYSTEM_TRACKS_SQL)
     assert sent == (list(reads.REASON_ENTITIES), reads.STATE_WINDOW)  # bounded by the state window
     # Served as the committed OpenAPI says.
@@ -985,7 +987,7 @@ def catalog_row(param, **update):
         readback_via="cfg",
         readback=None,
         desired=None,
-        applied_from="plan",
+        applied_from="default",
         state="confirmed",
     )
     return row.model_copy(update=update)
@@ -1019,9 +1021,8 @@ def test_a_band_in_force_row_is_read_only_derived_with_its_own_label_and_unit(zo
     assert (row.param, row.label, row.unit) == (f"band_{zone}_{role}", label, unit)
     assert (row.group, row.control_class, row.kind) == ("band_in_force", "crop_band", "numeric")
     assert (row.writable, row.read_only_reason) == (False, "derived by the dispatcher from the crop band anchors")
-    assert (row.readback_via, row.desired, row.plan, row.applied_from, row.state) == (
+    assert (row.readback_via, row.desired, row.applied_from, row.state) == (
         "none",
-        None,
         None,
         "band",
         "no_readback",
@@ -1143,7 +1144,7 @@ def test_settings_rows_read_no_plan_block_and_add_the_band_in_force(monkeypatch)
     result = asyncio.run(reads.settings_rows(conn))
     assert result.server_time == AT
     rows = {item.param: item for item in result.items}
-    assert rows[delay].plan is None and rows["outdoor_staleness_max_s"].plan is None  # no plan applies (4.2)
+    assert "plan" not in rows[delay].model_dump()  # release C: API-09 serves no plan block
     assert [item.param for item in result.items[2:]] == [
         f"band_{zone}_{role}" for zone in reads.BAND_ZONES for role in reads.BAND_ROLES
     ]
@@ -1161,7 +1162,7 @@ def test_settings_rows_read_no_plan_block_and_add_the_band_in_force(monkeypatch)
     assert _compare_model(reads.SettingRows, response_schema_of("/v1/settings")) == []
 
 
-def test_setting_history_adds_the_plan_values_over_the_same_window(monkeypatch):
+def test_setting_history_serves_no_plan_and_the_mcp_history_adds_it_over_the_same_window(monkeypatch):
     start, end = AT - timedelta(days=1), AT + timedelta(hours=12)
     calls = []
 
@@ -1185,12 +1186,15 @@ def test_setting_history_adds_the_plan_values_over_the_same_window(monkeypatch):
         "outdoor_staleness_max_s", 750.0, AT - timedelta(hours=3), AT - timedelta(hours=3), "preemptive-x", "preemptive"
     )
     conn = ReadsConn({reads._PLAN_HISTORY_SQL: [row], reads._FULL_PLANS_SQL: []})
-    result = asyncio.run(reads.setting_history(conn, "outdoor_staleness_max_s", start, end))
-    assert calls == [("outdoor_staleness_max_s", start, end)]
+    served = asyncio.run(reads.setting_history(conn, "outdoor_staleness_max_s", start, end))
+    assert "plan" not in served.model_dump() and conn.sent == []  # API-12 reads no plan (release C)
+    result = asyncio.run(reads.setting_history_with_plan(conn, "outdoor_staleness_max_s", start, end))
+    assert calls == [("outdoor_staleness_max_s", start, end)] * 2
     assert result.plan == [
-        settings.PlanWaypoint(at=AT - timedelta(hours=3), value=750.0, source="preemptive", effective=True)
+        reads.PlanWaypoint(at=AT - timedelta(hours=3), value=750.0, source="preemptive", effective=True)
     ]
     assert (result.from_, result.to) == (start, end)
+    assert result.model_dump(mode="json")["from"] == served.model_dump(mode="json")["from"]
 
 
 def test_activity_page_fills_the_readback_state_of_setting_writes_only(monkeypatch):
@@ -1264,62 +1268,6 @@ def test_activity_page_fills_the_readback_state_of_setting_writes_only(monkeypat
     assert result.next_cursor == "next"
 
 
-def test_plan_lanes_take_applied_from_and_the_desired_state_from_settings(monkeypatch):
-    held = settings.SettingStatus(
-        param="site_pressure_hpa",
-        applied_from="manual",
-        state="held",
-        state_reason=settings.StateReason(code="clamped", applied_value=840.0, since=AT - timedelta(minutes=9)),
-        readback_via="cfg",
-        readback=None,
-        desired=settings.DesiredSetting(
-            id=12,
-            param="site_pressure_hpa",
-            value=845.0,
-            manual=True,
-            state="held",
-            state_reason=settings.StateReason(code="clamped", applied_value=840.0, since=AT - timedelta(minutes=9)),
-            actor=ActorRef(source="dashboard", name="jason"),
-            created_at=AT - timedelta(minutes=10),
-        ),
-    )
-    asked = []
-
-    async def fake_statuses(conn, params):
-        asked.append(list(params))
-        return {"site_pressure_hpa": held}
-
-    monkeypatch.setattr(settings, "statuses", fake_statuses)
-    manual_row = {
-        "id": 12,
-        "param": "site_pressure_hpa",
-        "value": 845.0,
-        "manual": True,
-        "source": "dashboard",
-        "actor": "jason",
-        "reason": None,
-        "created_at": AT - timedelta(minutes=10),
-    }
-    conn = ReadsConn(
-        {
-            reads._NO_PLAN_SINCE_SQL: [{"max": AT - timedelta(hours=1)}],
-            reads._DESIRED_SQL: [manual_row],
-            reads._DEVICE_READBACKS_SQL: [],
-            reads._HEALTH_SQL: [],
-        }
-    )
-    result = asyncio.run(reads.plan(conn))
-    lanes = {lane.param: lane for lane in result.lanes}
-    assert asked == [["site_pressure_hpa"]]  # no plan lanes since climate refactor 4.2: only what a person holds
-    assert lanes["site_pressure_hpa"].desired is held.desired and lanes["site_pressure_hpa"].applied_from == "manual"
-    assert (result.plan, result.no_plan_since, lanes["site_pressure_hpa"].waypoints) == (
-        None,
-        AT - timedelta(hours=1),
-        [],
-    )
-    assert result.manual_count == 1
-
-
 def test_the_one_open_alert_count_is_alerts_open_count():
     assert reads.AlertCounts is alerts.AlertCounts
     assert reads.Now.model_fields["alerts"].annotation is alerts.AlertCounts
@@ -1328,8 +1276,7 @@ def test_the_one_open_alert_count_is_alerts_open_count():
 
 
 def test_one_model_per_openapi_schema():
-    assert reads.DesiredSetting is settings.DesiredSetting and reads.PlanWaypoint is settings.PlanWaypoint
-    assert reads.PlanLane.model_fields["desired"].annotation == settings.DesiredSetting | None
+    assert reads.DesiredSetting is settings.DesiredSetting and reads.SettingHistory is settings.SettingHistory
     assert reads.ActorRef is ActorRef
 
 
@@ -1471,8 +1418,10 @@ def test_now_controller_values_are_the_newest_non_null_up_to_the_newest_row():
 
 
 def test_now_keeps_every_existing_field_and_adds_the_new_ones_as_optional():
-    for name in ("server_time", "indoor", "outdoor", "band", "mode", "iris", "alerts", "running", "overrides"):
+    for name in ("server_time", "indoor", "outdoor", "band", "alerts", "running", "overrides"):
         assert reads.Now.model_fields[name].is_required(), name
+    # Release C retired Now.mode and Now.iris: law and review replace them.
+    assert not {"mode", "iris"} & set(reads.Now.model_fields)
     for model, names in (
         (reads.Now, ("review", "law")),
         (reads.Outdoor, ("source",)),

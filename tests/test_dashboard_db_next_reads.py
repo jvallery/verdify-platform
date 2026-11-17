@@ -232,38 +232,18 @@ def as_login(work):
     return run(session())
 
 
-# ── API-06: zone=south ──────────────────────────────────────────────────────
+# ── API-06: the house band only (release C retired the zone bands) ───────
 
 
-def test_zone_south_reads_south_band_rows_and_its_crop_band(world):
+def test_the_house_band_is_the_one_band_served(world):
     from_, to = world.now - timedelta(hours=1), world.now
 
     async def work(conn):
-        south = await s.band(conn, from_, to, "south", now=world.now)
-        house = await s.band(conn, from_, to, now=world.now)
-        steps = [datetime.fromtimestamp(t, world.now.tzinfo) for t in south.t]
-        rows = await conn.fetch(
-            """SELECT b.temp_low, b.temp_high, z.vpd_target_south AS target
-                 FROM unnest($1::timestamptz[]) WITH ORDINALITY AS step(ts, ord)
-                CROSS JOIN LATERAL public.fn_band_setpoints(step.ts) AS b
-                CROSS JOIN LATERAL public.fn_zone_vpd_targets(step.ts) AS z
-                ORDER BY step.ord""",
-            steps,
-        )
-        return south, house, rows
+        return await s.band(conn, from_, to, now=world.now)
 
-    south, house, rows = as_login(work)
-    assert south.step_s == 300 and len(south.t) >= 12
-    assert {value for value in south.band.temp_low if value is not None} == {60.0}
-    assert {value for value in south.band.vpd_high if value is not None} == {1.0}
+    house = as_login(work)
+    assert house.step_s == 300 and len(house.t) >= 12
     assert {value for value in house.band.temp_low if value is not None} == {70.0}
-    assert south.band.temp_low[0] is not None
-    for index, row in enumerate(rows):
-        assert south.crop.temp_low[index] == pytest.approx(row["temp_low"])
-        assert south.crop.temp_high[index] == pytest.approx(row["temp_high"])
-        assert south.crop.vpd_low[index] == pytest.approx(row["target"] - 0.18)
-        assert south.crop.vpd_high[index] == pytest.approx(row["target"] + 0.22)
-    assert south.crop.temp_low == house.crop.temp_low  # one air mass
 
 
 # ── API-19: current against fn_crop_band_value at every step ────────────────
@@ -300,21 +280,6 @@ def test_a_house_previews_current_equals_fn_crop_band_value_at_every_step(world)
     # The draft moves its own series around solar noon and nothing else.
     assert max(result.draft.low) > max(result.current.low)
     assert result.draft.target == result.current.target and result.draft.high == result.current.high
-
-
-def test_a_zone_previews_current_is_the_function_and_its_widths_and_the_draft_a_width_moves_one_side(world):
-    async def work(conn):
-        target = await s.band_preview(conn, "zone_vpd_target_south_sm", 1.6, world.today, now=world.now)
-        width = await s.band_preview(conn, "zone_vpd_width_below_south", 0.3, world.today, now=world.now)
-        return target, width, await _function_values(conn, "cannabis", "vpd_target", target.t, world.now.tzinfo)
-
-    target, width, function = as_login(work)
-    assert target.unit == "kPa"
-    assert target.current.target == pytest.approx(function, abs=1e-9)
-    assert target.current.low == pytest.approx([value - 0.18 for value in function], abs=1e-9)
-    assert target.current.high == pytest.approx([value + 0.22 for value in function], abs=1e-9)
-    assert width.draft.target == width.current.target and width.draft.high == width.current.high
-    assert width.draft.low == pytest.approx([value - 0.3 for value in function], abs=1e-9)
 
 
 def test_a_preview_writes_nothing(world):
@@ -412,9 +377,9 @@ async def _reason_rows(conn, now: datetime) -> None:
         "INSERT INTO public.system_state (ts, entity, value) VALUES ($1, $2, $3)",
         [
             (now, "ingestor_heartbeat", "alive"),
-            (now - timedelta(hours=3), "mode_reason", "seal_enter"),
-            (now - timedelta(hours=2), "mode_reason", "temp_high"),
-            (now - timedelta(hours=1), "mode_reason", "temp_high"),
+            (now - timedelta(hours=3), "moisture_block_reason", "occupancy"),
+            (now - timedelta(hours=2), "moisture_block_reason", "water_budget"),
+            (now - timedelta(hours=1), "moisture_block_reason", "water_budget"),
             (now - timedelta(hours=1), "fog_block_reason", "none"),
         ],
     )
@@ -433,12 +398,11 @@ def test_the_reasons_read_their_newest_value_and_when_it_began(world):
 
     now = run(fill())
     result = as_login(reads.equipment)
-    assert result.mode_reason.code == "temp_high"
-    assert result.mode_reason.since == now - timedelta(hours=2)
-    assert result.mode_reason.observed_at == now - timedelta(hours=1)
+    assert result.moisture_block_reason.code == "water_budget"
+    assert result.moisture_block_reason.since == now - timedelta(hours=2)
+    assert result.moisture_block_reason.observed_at == now - timedelta(hours=1)
     assert (result.fog_block_reason.code, result.fog_block_reason.since) == ("none", None)
     assert result.fog_block_reason.observed_at == now - timedelta(hours=1)
-    assert result.moisture_block_reason.model_dump() == {"code": None, "since": None, "observed_at": None}
 
 
 def test_while_the_controller_is_silent_a_reason_keeps_only_its_newest_time(world):
@@ -457,7 +421,7 @@ def test_while_the_controller_is_silent_a_reason_keeps_only_its_newest_time(worl
             await conn.close()
 
     now, result = run(silent())
-    assert result.mode_reason.model_dump() == {
+    assert result.moisture_block_reason.model_dump() == {
         "code": None,
         "since": None,
         "observed_at": now - timedelta(hours=1),

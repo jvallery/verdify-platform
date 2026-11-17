@@ -690,7 +690,6 @@ def board(intent: str | None, state: str, light: str = "main") -> reads.Equipmen
     reason = reads.ReasonState(code=None, since=None, observed_at=None)
     return reads.Equipment(
         items=[item(f"grow_light_{light}", intent, state), item(f"grow_light_{other}", "on", "on")],
-        mode_reason=reason,
         fog_block_reason=reason,
         moisture_block_reason=reason,
     )
@@ -1063,8 +1062,8 @@ def test_a_decision_inside_its_two_minutes_lets_it_send(quick, monkeypatch, fake
 
 @pytest.mark.parametrize(
     "answer",
-    [status("requested"), status("held"), status("not_confirmed"), HANG],
-    ids=["requested", "held", "not_confirmed", "a read that never answers"],
+    [status("requested"), status("not_confirmed"), HANG],
+    ids=["requested", "not_confirmed", "a read that never answers"],
 )
 def test_not_confirmed_in_the_window_sends_none_and_records_nothing(quick, monkeypatch, fake, db, caplog, answer):
     world = Greenhouse(monkeypatch, states=[answer], boards=[board("off", "on")])

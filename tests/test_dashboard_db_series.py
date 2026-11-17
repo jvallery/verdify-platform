@@ -484,11 +484,6 @@ def test_the_scorecard_returns_every_day_with_its_reasons_inside_the_timeout(db)
     assert cell("daily.temp_below_band_pct", db.today - timedelta(days=3)) == (67.0, 1, None)
     assert cell("daily.vpd_in_band_day_pct", db.today - timedelta(days=3)) == (100.0, 1, None)
     assert cell("daily.vpd_in_band_night_pct", db.today - timedelta(days=3)) == (26.0, 1, None)
-    assert cell("daily.iris_required_written", db.missed_day)[0] == 1.0
-    assert cell("daily.iris_required_missed", db.missed_day)[0] == 2.0
-    assert cell("daily.iris_required_written", db.today - timedelta(days=4))[0] == 3.0
-    assert cell("daily.iris_required_missed", db.today - timedelta(days=4))[0] == 0.0
-    assert cell("daily.iris_required_written", db.ledger_from - timedelta(days=1)) == (None, 0, None)
     assert cell("daily.alerts_critical", db.today - timedelta(days=12))[0] == 1.0
     assert cell("daily.alerts_warning", db.today - timedelta(days=4))[0] == 2.0
     assert cell("daily.alerts_info", db.today - timedelta(days=4))[0] == 0.0

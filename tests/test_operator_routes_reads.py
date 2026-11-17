@@ -156,13 +156,6 @@ def setting_rows() -> reads.SettingRows:
         readback_via="cfg",
         readback=settings.Reading(value=630.0, observed_at=AT - timedelta(seconds=40)),
         desired=desired(),
-        plan=settings.SettingPlan(
-            value=648.75,
-            plan_id="iris-20261102-1240",
-            source="iris",
-            written_at=AT - timedelta(hours=2),
-            next=settings.PlanWaypoint(at=AT + timedelta(hours=5), value=660.0, source="iris", effective=False),
-        ),
         applied_from="manual",
         state="confirmed",
     )
@@ -180,10 +173,6 @@ def history() -> settings.SettingHistory:
             "from": AT - timedelta(days=1),
             "to": AT,
             "desired": [desired(state="not_confirmed")],
-            "plan": [
-                settings.PlanWaypoint(at=AT - timedelta(hours=3), value=720.0, source="preemptive", effective=True),
-                settings.PlanWaypoint(at=AT + timedelta(hours=1), value=648.75, source="iris", effective=False),
-            ],
             "readback": [settings.TimedValue(at=AT - timedelta(hours=6), value=660.0)],
         }
     )
@@ -260,7 +249,7 @@ def test_api09_returns_settings_rows(monkeypatch):
     body = response.json()
     assert openapi_errors(response_schema("/settings"), body) == []
     assert [item["param"] for item in body["items"]] == ["outdoor_staleness_max_s", "band_west_vpd_high"]
-    assert body["items"][0]["plan"]["value"] == 648.75  # as stored
+    assert "plan" not in body["items"][0]  # release C
     band = body["items"][1]
     assert (band["group"], band["writable"], band["label"], band["unit"]) == (
         "band_in_force",
@@ -282,10 +271,7 @@ def test_api12_passes_the_param_and_the_window(monkeypatch):
     body = response.json()
     assert openapi_errors(response_schema("/settings/{param}/history"), body) == []
     assert "from" in body and "from_" not in body
-    assert [(point["source"], point["effective"]) for point in body["plan"]] == [
-        ("preemptive", True),
-        ("iris", False),
-    ]
+    assert "plan" not in body  # release C
     [(args, kwargs)] = calls
     assert args[1:] == (
         "outdoor_staleness_max_s",
