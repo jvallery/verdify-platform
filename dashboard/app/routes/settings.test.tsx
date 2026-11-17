@@ -208,7 +208,10 @@ test("a band point and the drying cost limit open read-only with a link to their
 test("a viewer sees every row with Details and no write control; ?edit= opens the drawer read-only", async () => {
   await open("/settings?edit=outdoor_staleness_max_s", { session: "viewer-session" });
   expect(document.querySelector("main [data-write-control]")).toBeNull();
-  expect(screen.queryAllByRole("link", { name: /^Edit (?!on Band)/ })).toEqual([]);
+  expect(screen.queryAllByRole("link", { name: /^Edit\b/ })).toEqual([]);
+  // The band's group links to Band with the viewer's word: a viewer reads the band there, an operator edits it.
+  const band = panel("settings-in-use").querySelector('section.ctl-group[data-group="crop_band"]')!;
+  expect(within(band as HTMLElement).getByRole("link", { name: "See on Band" }).getAttribute("href")).toBe("/band");
   expect(screen.getAllByRole("link", { name: /^Details of / }).length).toBeGreaterThan(0);
   expect(drawerOpen()).toBe(true);
   expect(screen.queryByLabelText("New value")).toBeNull();

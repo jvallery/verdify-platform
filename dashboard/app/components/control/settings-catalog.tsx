@@ -2,6 +2,7 @@
 import { Link } from "react-router";
 import type { Setting } from "../../lib/operator-api";
 import { groupLabel, groupRows } from "../../lib/settings-context";
+import { useRole } from "../../lib/session";
 import { cls } from "../common";
 import { Chevron } from "../layout/chevron";
 import { SettingRow, settingState } from "../setting-row";
@@ -10,7 +11,7 @@ import { SettingRow, settingState } from "../setting-row";
  * The catalogue (dashboard v2 screens §10.4, review B5). In use, each group is a disclosure, closed by default, whose head
  * names the group with its count and a state summary ("16 confirmed", or "2 not confirmed" in the warning tone); a group
  * holding a value the controller has not confirmed opens by default, and so does every group a search or a filter
- * narrows to. The band's group carries "Edit on Band ›" and stays closed: its rows are the Band page's job. The settings
+ * narrows to. The band's group carries "Edit on Band ›" ("See on Band ›" for a viewer, who cannot edit the band) and stays closed: its rows are the Band page's job. The settings
  * nothing reads are one table with a head per group (`CatalogTable` with `heads`). Rows are `SettingRow`s; the card
  * around them (its loading, empty, stale and failed states) is the route's `Panel`.
  */
@@ -39,8 +40,8 @@ export function groupSummary(rows: readonly Setting[], readbackStale = false): G
   return { text: parts.join(" · "), tone: counts.confirmed === rows.length ? "ok" : "muted", pending: 0 };
 }
 
-/** The page that owns every row of a group, for its head's link: the band's points are changed on Band. */
-const GROUP_OWNER: Readonly<Record<string, { readonly to: string; readonly label: string }>> = { crop_band: { to: "/band", label: "Edit on Band" } };
+/** The page that owns every row of a group, for its head's link: the band's points are changed on Band. The label follows the role, as the Band page's own editor does: a viewer only sees them there. */
+const GROUP_OWNER: Readonly<Record<string, { readonly to: string; readonly operator: string; readonly viewer: string }>> = { crop_band: { to: "/band", operator: "Edit on Band", viewer: "See on Band" } };
 
 /** Whether a group starts open: a value not confirmed in it, or the reader narrowed the list (search, or one group). The band's group never does. */
 export function groupOpen(group: string, summary: GroupSummary, narrowed: boolean): boolean {
@@ -80,6 +81,7 @@ export type CatalogProps = {
 /** The settings in use as group disclosures, in the fixed group order. */
 export function SettingsCatalog({ rows, caption, readbackStale, editTo, narrowed = false }: CatalogProps) {
   const groups = groupRows(rows);
+  const role = useRole();
   const open = narrowed || groups.length === 1;
   return <div className="ctl-groups">
     {groups.map(([group, list]) => {
@@ -93,7 +95,7 @@ export function SettingsCatalog({ rows, caption, readbackStale, editTo, narrowed
           </summary>
           <CatalogTable rows={list} caption={`${groupLabel(group)}: ${caption}`} readbackStale={readbackStale} editTo={editTo} />
         </details>
-        {owner && <Link className="ctl-group-link" to={owner.to}>{owner.label}<Chevron /></Link>}
+        {owner && <Link className="ctl-group-link" to={owner.to}>{owner[role]}<Chevron /></Link>}
       </section>;
     })}
   </div>;

@@ -291,7 +291,8 @@ The daily run-time chart moves to Record → Equipment; the controller card move
 
 The catalogue grouped by what a setting is for, each row with its value, the controller's readback and its
 state. Three filters by effect: read by the controller; used by the host; stored and not used (collapsed, and
-read-only in wording: changing one changes nothing on this controller). The band's edges appear read-only with
-a link to Band; the drying cost limit links to Drying; the soil targets link to Soil. The setting drawer keeps
+read-only in wording: changing one changes nothing on this controller). The band's edges appear read-only, in a
+group that stays closed, with a link to Band whose words follow the role: "Edit on Band" for an operator, "See on
+Band" for a viewer, who cannot change the band (screens §1.3: a viewer sees no write control); the drying cost limit links to Drying; the soil targets link to Soil. The setting drawer keeps
 value, bounds, history and release. Retired: the plan column, "Let Iris change this", held-by-experiment states.
 Reads API-09, API-12; writes API-10, API-11.
