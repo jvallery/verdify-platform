@@ -170,6 +170,18 @@ const UNITS: Record<string, { label: string; digits: number }> = {
   dBm: { label: "dBm", digits: 0 },
   "°": { label: "°", digits: 0 }, deg: { label: "°", digits: 0 },
   kB: { label: "kB", digits: 0 },
+  // The daily record, drying and the controller's health (dashboard v2).
+  kWh: { label: "kWh", digits: 1 },
+  "kWh/kg": { label: "kWh/kg", digits: 2 },
+  therms: { label: "therms", digits: 2 },
+  kg: { label: "kg", digits: 2 },
+  g: { label: "g", digits: 0 },
+  W: { label: "W", digits: 0 },
+  ms: { label: "ms", digits: 1 },
+  B: { label: "B", digits: 0 },
+  h: { label: "h", digits: 1 },
+  // A count (starts, restarts, rows): a whole number with no unit label.
+  count: { label: "", digits: 0 },
 };
 const NUMBERS = [0, 1, 2].map((digits) => new Intl.NumberFormat("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits, signDisplay: "negative" }));
 function fixed(value: number, digits: number): string {
@@ -191,7 +203,8 @@ function minutes(value: number): string {
 }
 /**
  * A value in its fixed unit: °F and % 1 dp, kPa 2 dp, gal 0 dp, minutes whole ("h min" from 120), gal/min, lux, W/m²,
- * ppm, dBm, angles and kB 0 dp, any other unit 1 dp. A no-break space precedes every unit but %, negatives use a true
+ * ppm, dBm, angles and kB 0 dp; kWh, ms and h 1 dp; kWh/kg, therms and kg 2 dp; g, W, B and counts 0 dp (a count
+ * prints no label); any other unit 1 dp. A no-break space precedes every unit but %, negatives use a true
  * minus, and a missing value is "—", never 0.
  */
 export function formatValue(value: number | null | undefined, unit: string | null | undefined): string {

@@ -5,13 +5,14 @@
  * from the shell's API-02 and the engine flag from API-IRR-01) and refetches it after (a Save shows REQUESTED at once).
  * Screens and the shell read through these hooks, never under a key of their own.
  *
- * Cadence: API-02, API-13 and API-IRR-01 every 15 s, settings, schedules and the equipment lanes every 60 s, and every
+ * Cadence: API-02, API-13, API-IRR-01, the law (API-30) and the controller's health (API-35) every 15 s, settings,
+ * schedules, the equipment and law lanes, the daily record, the reviews, data continuity and delivery every 60 s, and every
  * 5 s while a write in them is still settling (a REQUESTED setting or program item). An item that waits for the
  * irrigation firmware cannot settle before it ships, so it keeps the slow cadence.
  */
 import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { useServerSkew } from "../components/freshness";
-import { apiGet, type BandTimeline, type IrrigationStatus, type ParamsOf, type Parsed, type ReadOperationId, type ActivityPage, type ScheduleAgenda, type Series, type Settings, type StateLanes } from "./operator-api";
+import { apiGet, type BandTimeline, type IrrigationStatus, type LawHistory, type ParamsOf, type Parsed, type ReadOperationId, type ActivityPage, type ScheduleAgenda, type Series, type Settings, type StateLanes } from "./operator-api";
 import { POLL_TIMEOUT_MS, usePolledQuery, type PolledQueryResult } from "./use-current";
 
 /** The one key for a read: `["api", operationId]`, plus the params when there are any. */
@@ -20,7 +21,10 @@ export function readKey<K extends ReadOperationId>(operationId: K, params?: Para
 }
 
 /** Base cadences (architecture §3). */
-export const READ_INTERVAL_MS = { now: 15_000, irrigation: 15_000, equipment: 15_000, settings: 60_000, schedules: 60_000, states: 60_000, plan: 60_000, zones: 60_000 } as const;
+export const READ_INTERVAL_MS = {
+  now: 15_000, irrigation: 15_000, equipment: 15_000, settings: 60_000, schedules: 60_000, states: 60_000, plan: 60_000, zones: 60_000,
+  law: 15_000, lawHistory: 60_000, record: 60_000, reviews: 60_000, controller: 15_000, continuity: 60_000, delivery: 60_000,
+} as const;
 /** A setting or irrigation write still REQUESTED, or a command still pending, is read every 5 s until it settles. */
 export const SETTLING_INTERVAL_MS = 5_000;
 
@@ -166,4 +170,43 @@ export function useBandWindowRead(zone: NonNullable<ParamsOf<"API-06">["zone"]>,
     const to = Date.now() - skewMs;
     return apiGet("API-06", { zone, from: new Date(to - seconds * 1000).toISOString(), to: new Date(to).toISOString() }, { signal });
   }, READ_INTERVAL_MS.zones);
+}
+
+/** API-30, what the controller's law is doing now and why (15 s): Climate, System and Now share it. */
+export function useLawRead() {
+  return useApiRead("API-30", {}, { intervalMs: READ_INTERVAL_MS.law });
+}
+/** The one key for the API-31 window of the last `seconds`: a poll moves the window, never the key. */
+export const lawWindowKey = (seconds: number): QueryKey => ["api", "API-31", { last_s: seconds }];
+/** API-31 over the last `seconds` (60 s), as `useStatesWindowRead` reads API-05: the law's lanes, drying, price and band. */
+export function useLawHistoryRead(seconds: number) {
+  const skewMs = useServerSkew();
+  return usePolledQuery<LawHistory>(lawWindowKey(seconds), (signal) => {
+    const to = Date.now() - skewMs;
+    return apiGet("API-31", { from: new Date(to - seconds * 1000).toISOString(), to: new Date(to).toISOString() }, { signal });
+  }, READ_INTERVAL_MS.lawHistory);
+}
+/** API-32, the daily record per local day with its 7- and 30-day means (60 s); the default is the 30 days ending today. */
+export function useRecordDaysRead(params: ParamsOf<"API-32"> = {}) {
+  return useApiRead("API-32", params, { intervalMs: READ_INTERVAL_MS.record });
+}
+/** API-33, the controller's relay counters against the stored record (60 s). */
+export function useRelayCheckRead(params: ParamsOf<"API-33"> = {}) {
+  return useApiRead("API-33", params, { intervalMs: READ_INTERVAL_MS.record });
+}
+/** API-34, the daily reviews, today's review state and the proposal waiting for the owner (60 s). */
+export function useReviewsRead(params: ParamsOf<"API-34"> = {}) {
+  return useApiRead("API-34", params, { intervalMs: READ_INTERVAL_MS.reviews });
+}
+/** API-35, the controller's hardware budget against its limits (15 s). */
+export function useControllerHealthRead() {
+  return useApiRead("API-35", {}, { intervalMs: READ_INTERVAL_MS.controller });
+}
+/** API-36, whether telemetry is flowing, what was lost and what the gap log restored (60 s). */
+export function useDataContinuityRead(params: ParamsOf<"API-36"> = {}) {
+  return useApiRead("API-36", params, { intervalMs: READ_INTERVAL_MS.continuity });
+}
+/** API-37, whether the controller took what the host pushed (60 s). */
+export function useDeliveryRead(params: ParamsOf<"API-37"> = {}) {
+  return useApiRead("API-37", params, { intervalMs: READ_INTERVAL_MS.delivery });
 }

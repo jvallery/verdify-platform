@@ -25,6 +25,7 @@ import uuid
 from datetime import timedelta
 from pathlib import Path
 
+import irrigation_db_support as support
 import pytest
 
 from verdify_schemas.tunable_registry import BAND_OWNED_REG, REGISTRY
@@ -133,6 +134,8 @@ def extract(text: str, start: str, end: str) -> str:
 def ddl() -> list[str]:
     schema = (ROOT / "db/schema.sql").read_text()
     statements = [extract(schema, start, end) for start, end in SCHEMA_DDL]
+    # Now (API-02) reads the controller-health columns 314 and 315 added after the dump.
+    statements.append(support.diagnostics_health_columns_sql(SCHEMA))
     statements.append(EXPERIMENT_STAND_INS)
     statements.extend(extract((ROOT / path).read_text(), start, end) for path, start, end in MIGRATION_DDL)
     return statements

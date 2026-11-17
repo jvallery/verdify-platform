@@ -27,7 +27,7 @@ info:
 
     | Topic | Rule |
     |---|---|
-    | Ids | `operationId` is the design id: API-01 to API-25 (API-26 to API-28, the planner study, retired with the planner's write role), API-IRR-01 to API-IRR-13, API-CROP-01 to API-CROP-11, BFF-01 to BFF-03, INT-01, INT-02, OPS-01, OPS-02 and OPS-04. API-08, API-18, API-IRR-09 and OPS-03 are reserved (cut); ids are never reused |
+    | Ids | `operationId` is the design id: API-01 to API-25 and API-30 to API-37 (API-26 to API-28, the planner study, retired with the planner's write role; API-29 is left unused), API-IRR-01 to API-IRR-13, API-CROP-01 to API-CROP-12, BFF-01 to BFF-03, INT-01, INT-02, OPS-01, OPS-02 and OPS-04. API-08, API-18, API-IRR-09 and OPS-03 are reserved (cut); ids are never reused |
     | Data | JSON. Times are ISO 8601 with an offset; days are America/Denver. Units are in field names or `unit` (°F, %, kPa, gal, min, s). `null` means unavailable, never 0; gaps stay gaps |
     | Roles | GET: `viewer` and `operator`. Every other method: `operator` (403 `forbidden`) |
     | Writes | Validated on submit (registry min/max, enums, step snap). The newest write wins. No agent writes a climate value (climate refactor 4.2: `set_plan` and `set_tunable` are retired, and an agent's `set_setting` reaches only the operator switches). On a `manual: true` item Iris's irrigation writes are refused with `manual`; people and other agents may overwrite it, attributed, and each write stores the `manual` it carries. Every write appends one `activity_log` row: source (`dashboard`, `iris`, `agent:<name>` or `system`), actor, time, reason, and the experiment id while one is armed. Nothing is refused because an experiment is armed |
@@ -52,6 +52,10 @@ tags:
   - {name: irrigation, description: 'Lines L01-L11, schedules, runs, minutes by zone and commands'}
   - {name: crops, description: 'Plantings on the location tree: zones, shelves and cells, moves, harvests and history'}
   - {name: planner, description: 'The Planner section (#1361): plan history and cost'}
+  - {name: law, description: 'What the controller''s climate law is doing now and why, and its decisions over time'}
+  - {name: record, description: 'The daily record: band compliance, relay starts and run time, utilities and drying per local day'}
+  - {name: review, description: 'The daily reviewer''s written reviews and band proposals'}
+  - {name: system, description: 'Controller health, data continuity and setting delivery'}
   - {name: ops, description: Health and readiness}
 security:
   - sessionCookie: []
@@ -77,8 +81,10 @@ paths:
         Indoor and outdoor climate with ages, the band in force (the dispatcher's DERIVED band rows) with a verdict
         per metric, mode, Iris status, equipment running, bursts from the controller's readback, the leak flag, the
         open-alert count, source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot.
-        Polled every 15 s; the shell banners read `freshness`, `writer`, `leak` and `alerts`. Water and occupancy come
-        from API-IRR-01.
+        The climate law's state carries the band the controller is using; review is the daily review's state today
+        (as API-34's today); outdoor.source says where the outdoor reading comes from; controller carries the three
+        health facts the shell's banner reads. Polled every 15 s; the shell banners read `freshness`, `writer`, `leak`
+        and `alerts`. Water and occupancy come from API-IRR-01.
       responses:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Now'}}}}
         default: {$ref: '#/components/responses/Problem'}
@@ -578,6 +584,131 @@ paths:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/PlannerHistory'}}}}
         default: {$ref: '#/components/responses/Problem'}
 
+  # ---------------------------------------------------------------- climate law, daily record, daily review and system (dashboard v2)
+  /v1/law:
+    get:
+      operationId: API-30
+      tags: [law]
+      summary: What the controller's climate law is doing now and why
+      description: >-
+        From the newest law record, drying meter and constants hash in system_state (climate_law_state,
+        climate_drying_meter, climate_law_constants, outdoor_source, lead_fan), the newest non-null diagnostics value
+        per column over 15 min, the newest equipment_state row per relay with its start, the newest climate row,
+        fn_band_setpoints(now()) for the host's band, v_desired_state_current for the owner's drying cost limit, today's
+        daily_record row and the law constants this API build was generated from. Every threshold is computed from the
+        band in use and those constants. A value the controller has not reported is null, never 0. Polled every 15 s
+        by Climate, System and Now.
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/LawView'}}}}
+        default: {$ref: '#/components/responses/Problem'}
+  /v1/law/history:
+    get:
+      operationId: API-31
+      tags: [law]
+      summary: The law's requests, latches, drying, outdoor source, drying price and band over a window
+      description: >-
+        From the climate_law_state and outdoor_source rows in [from, to), compressed to change intervals in the
+        database. A span of more than 180 s with no law record is unknown. cost and band use API-04's bucket ladder
+        with at most 1,500 points. request.fan1 is at least one fan, request.fan2 both fans. Windows up to 31 days
+        (else 422 window_too_large); the 10 s statement timeout is 503 query_timeout.
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/LawHistory'}}}}
+        default: {$ref: '#/components/responses/Problem'}
+  /v1/record/days:
+    get:
+      operationId: API-32
+      tags: [record]
+      summary: The daily record per local day with its 7- and 30-day means
+      description: >-
+        One row per America/Denver day, oldest first: compliance from daily_band_compliance, relay starts and run time
+        from the daily relay record (v_dashboard_relay_day), utilities, water and drying from daily_record, and the
+        alert counts from v_daily_scorecard. The means cover complete days only. Up to 400 days (else 422
+        window_too_large); the default is the 30 days ending today.
+      parameters:
+        - {name: from, in: query, description: 'First local day; default 29 days before to', schema: {type: string, format: date}}
+        - {name: to, in: query, description: 'Last local day, inclusive; default today', schema: {type: string, format: date}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DailyRecord'}}}}
+        default: {$ref: '#/components/responses/Problem'}
+  /v1/record/relay-check:
+    get:
+      operationId: API-33
+      tags: [record]
+      summary: The controller's own relay counters against the stored daily relay record
+      description: From v_relay_counter_reconciliation_daily, newest day first.
+      parameters:
+        - name: days
+          in: query
+          description: Days ending today, today included
+          schema: {type: integer, enum: [7, 14, 30], default: 7}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/RelayCheck'}}}}
+        default: {$ref: '#/components/responses/Problem'}
+  /v1/reviews:
+    get:
+      operationId: API-34
+      tags: [review]
+      summary: The daily reviewer's reviews, newest first, today's review state and the proposal waiting for the owner
+      description: >-
+        From v_dashboard_review, the open daily_review_missed alert and the activity_log rows with action band.write.
+        A proposal is waiting on the newest written review that carries one when no band.write followed its
+        written_at; answered when one did; superseded when a newer written review exists. tokens.rise_pct compares the
+        newest review with the 7-review mean of the reviews before it.
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 60, default: 30}}
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/ReviewPage'}}}}
+        default: {$ref: '#/components/responses/Problem'}
+  /v1/system/controller:
+    get:
+      operationId: API-35
+      tags: [system]
+      summary: The controller's hardware budget now, against its limits
+      description: >-
+        The newest non-null diagnostics value per column over 15 min, by the same SQL as the operator API's product
+        metrics (CONTROLLER_SQL and HEALTH_SQL), with system_state ingestor_counters and climate_law_constants. limits
+        are the hardware-budget thresholds from their one existing definition. Trends come from API-04.
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/ControllerHealth'}}}}
+        default: {$ref: '#/components/responses/Problem'}
+  /v1/system/data:
+    get:
+      operationId: API-36
+      tags: [system]
+      summary: Whether telemetry is flowing, what was lost and what the gap log restored
+      description: >-
+        From v_data_gaps_unreplayed, v_dashboard_gap_replay, the product metrics' FRESHNESS_SQL, FLOW_SQL and
+        PROBES_SQL, system_state (ingestor_heartbeat, ingestor_counters, setpoint_snapshot_pass, dispatcher_stage) and
+        diagnostics.gap_log_state, over the days ending now.
+      parameters:
+        - name: days
+          in: query
+          description: Days ending now
+          schema: {type: integer, enum: [1, 7, 30], default: 1}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DataContinuity'}}}}
+        default: {$ref: '#/components/responses/Problem'}
+  /v1/system/delivery:
+    get:
+      operationId: API-37
+      tags: [system]
+      summary: Whether the controller took what the host pushed
+      description: >-
+        From setpoint_changes in the window (by ts), system_state dispatcher_stage and setpoint_snapshot_pass, and the
+        product metrics' DELIVERY_SQL and OLDEST_UNCONFIRMED_SQL, so the dashboard and the estate dashboard agree.
+      parameters:
+        - name: hours
+          in: query
+          description: Hours ending now
+          schema: {type: integer, enum: [24, 168], default: 24}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Delivery'}}}}
+        default: {$ref: '#/components/responses/Problem'}
+
   # ---------------------------------------------------------------- irrigation (irrigation.md §8.1)
   /v1/irrigation:
     get:
@@ -900,6 +1031,24 @@ paths:
         content: {application/json: {schema: {$ref: '#/components/schemas/PlantingEnd'}}}
       responses:
         '200': {description: Ended, content: {application/json: {schema: {$ref: '#/components/schemas/Planting'}}}}
+        '422': {$ref: '#/components/responses/Invalid'}
+        default: {$ref: '#/components/responses/Problem'}
+  /v1/crops/plantings/{planting_id}/notes:
+    parameters: [{$ref: '#/components/parameters/PlantingId'}]
+    post:
+      operationId: API-CROP-12
+      tags: [crops]
+      summary: Add a note to a planting's history (ended plantings too)
+      description: >-
+        The crops service's annotate function, the one MCP annotate_planting uses: one crop_events note row and one
+        activity_log row (action planting.note) in one transaction. Codes: unknown_target (no such planting),
+        request_id_reused.
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/PlantingNote'}}}
+      responses:
+        '200': {description: 'Noted; the planting with the note in its history', content: {application/json: {schema: {$ref: '#/components/schemas/Planting'}}}}
         '422': {$ref: '#/components/responses/Invalid'}
         default: {$ref: '#/components/responses/Problem'}
   /v1/crops/positions/{label}/history:
@@ -1385,6 +1534,14 @@ components:
         heap_largest_block_kb: {type: [number, 'null']}
         rssi_dbm: {type: [number, 'null']}
         observed_at: {type: [string, 'null'], format: date-time}
+        heap_minute_low_kb: {type: [number, 'null'], description: 'The lowest free heap in the last minute, kB (diagnostics.heap_min_free_minute_kb, newest non-null over 15 min)'}
+        restart_count: {type: [integer, 'null'], description: 'Restarts the controller has counted (diagnostics.restart_count); null until it reports one'}
+        gap_log:
+          type: [string, 'null']
+          description: >-
+            The gap log's state (diagnostics.gap_log_state), as LawAlone.gap_log words it: armed, not_armed_yet,
+            nvs_small, nvs_full, nvs_slow or nvs_error; a newer state is sent as stored. Null until reported
+          examples: [armed, nvs_full]
     LawState:
       type: object
       description: >-
@@ -1401,6 +1558,18 @@ components:
         drying_cost_kwh_per_kg: {type: [number, 'null'], description: 'kWh of heat per kg of water; null without outdoor data or when the outdoor air is not drier'}
         drying_cost_limit_kwh_per_kg: {type: number, description: The drying cost limit in force on the controller}
         band_repaired: {type: boolean, description: "True when the controller's band check changed the band it received"}
+        band:
+          description: 'The band the controller is using now (the record''s b field); null when the record carries none'
+          anyOf: [{$ref: '#/components/schemas/BandEdges'}, {type: 'null'}]
+    BandEdges:
+      type: object
+      description: A band's four edges at one moment
+      required: [temp_low_f, temp_high_f, vpd_low_kpa, vpd_high_kpa]
+      properties:
+        temp_low_f: {type: [number, 'null'], description: '°F'}
+        temp_high_f: {type: [number, 'null'], description: '°F'}
+        vpd_low_kpa: {type: [number, 'null'], description: kPa}
+        vpd_high_kpa: {type: [number, 'null'], description: kPa}
     Now:
       type: object
       required: [server_time, indoor, outdoor, band, mode, iris, alerts, running, overrides, leak, freshness, writer]
@@ -1431,6 +1600,26 @@ components:
           properties:
             temp_f: {$ref: '#/components/schemas/Reading'}
             rh_pct: {$ref: '#/components/schemas/Reading'}
+            source:
+              type: [string, 'null']
+              enum: [station, intake, none, null]
+              description: >-
+                Where the controller's outdoor reading comes from (system_state outdoor_source): the weather station,
+                the intake probe, or none; null when the controller has not said
+        review:
+          description: >-
+            The daily review today, as API-34's today, with written_at of the newest written review and whether a band
+            proposal waits for the owner; null when the review projection cannot be read
+          anyOf:
+            - type: 'null'
+            - type: object
+              required: [review_date, status, missed, written_at, proposal_waiting]
+              properties:
+                review_date: {type: string, format: date, description: The local day the review covers}
+                status: {type: string, enum: [written, delivered, requested, failed, due, not_due], description: 'As ReviewPage.today.status'}
+                missed: {type: boolean, description: 'The daily_review_missed alert is open'}
+                written_at: {type: [string, 'null'], format: date-time, description: The newest written review's written_at}
+                proposal_waiting: {type: boolean, description: A written review's band proposal waits for the owner}
         band:
           type: object
           description: >-
@@ -1549,7 +1738,7 @@ components:
       properties:
         key: {type: string, examples: [climate.temp_avg, climate.vpd_avg, climate.flow_gpm, diagnostics.heap_free_kb]}
         label: {type: string}
-        group: {type: string, examples: [house climate, zones, water and soil, light, outdoor, targets, controller, daily]}
+        group: {type: string, examples: [house climate, zones, water and soil, light, outdoor, targets, controller, power, daily]}
         unit: {type: string}
         cadence_s: {type: integer}
         retention_days: {type: integer, description: 'Raw retention: climate 365, diagnostics 180, setpoint_snapshot 90'}
@@ -1955,6 +2144,13 @@ components:
                 next: {anyOf: [{$ref: '#/components/schemas/PlanWaypoint'}, {type: 'null'}], description: 'Next planned change; effective false while a newer desired row holds it off'}
         applied_from: {type: string, enum: [manual, desired, plan, band, default], description: What the dispatcher applies now}
         state: {$ref: '#/components/schemas/ReadbackState', description: 'Of the newest write, else of the applied value against the readback'}
+        effect:
+          type: string
+          enum: [controller, host, none]
+          description: >-
+            What reads the setting on this build: controller, the connected controller's control loop; host, a host task
+            (the lighting schedule, the dispatcher or the alerts); none, stored and echoed but read by nothing. Derived
+            from the registry and one reviewed list, guarded by a test
     SettingHelp:
       type: object
       description: >-
@@ -2654,6 +2850,732 @@ components:
         - type: object
           required: [items]
           properties: {items: {type: array, items: {$ref: '#/components/schemas/Run'}}}
+    # ------------------------------------------------------------ climate law (API-30, API-31)
+    LawView:
+      type: object
+      description: >-
+        API-30: what the controller's climate law is doing now and why. Thresholds come from the band in use and the
+        law constants this API build was generated from, never from a typed value. Null means the controller has not
+        reported it, never 0
+      required: [server_time, observed_at, reporting, band, inputs, rules, drying, timing, lead_fan, alone, constants]
+      properties:
+        server_time: {type: string, format: date-time}
+        observed_at: {type: [string, 'null'], format: date-time, description: The newest law record's time; null with no law record}
+        reporting: {type: boolean, description: 'The newest law record is at most 120 s old (the rule control_proof.law_fresh uses)'}
+        band: {$ref: '#/components/schemas/LawBand'}
+        inputs: {$ref: '#/components/schemas/LawInputs'}
+        rules:
+          type: array
+          description: 'One per rule, in this fixed order: heat1, heat2, cooling, second_fan, fog, mist, drying, hot_limit, cold_limit'
+          items: {$ref: '#/components/schemas/LawRule'}
+        drying: {$ref: '#/components/schemas/LawDrying'}
+        timing: {$ref: '#/components/schemas/LawTiming'}
+        lead_fan: {type: [string, 'null'], enum: [fan1, fan2, null], description: 'The fan the law starts first (system_state lead_fan); null until the controller says'}
+        alone: {$ref: '#/components/schemas/LawAlone'}
+        constants: {$ref: '#/components/schemas/LawConstants'}
+    LawBand:
+      type: object
+      description: The band the controller is using now (the law record's b field), and how it compares with the host's
+      required: [temp_low_f, temp_high_f, vpd_low_kpa, vpd_high_kpa, repaired, source, host, differs]
+      properties:
+        temp_low_f: {type: [number, 'null'], description: '°F'}
+        temp_high_f: {type: [number, 'null'], description: '°F'}
+        vpd_low_kpa: {type: [number, 'null'], description: kPa}
+        vpd_high_kpa: {type: [number, 'null'], description: kPa}
+        repaired: {type: [boolean, 'null'], description: "The controller's band check changed the band it received (the record's br field)"}
+        source:
+          type: [string, 'null']
+          enum: [onchip_curve, corridor, dispatcher_legacy, null]
+          description: 'Where the controller takes its band from (diagnostics.band_source): its own diurnal curve from the pushed anchors, the corridor, or the older dispatcher push'
+        host:
+          description: 'The band the host computes for now (fn_band_setpoints(now())); null when it cannot'
+          anyOf: [{$ref: '#/components/schemas/BandEdges'}, {type: 'null'}]
+        differs: {type: [boolean, 'null'], description: 'The controller''s band and the host''s differ by more than 1.0 °F or 0.10 kPa on an edge (the band_device_db_divergence rule); null when either is missing'}
+    LawInputs:
+      type: object
+      description: What the law is reading
+      required: [temp_f, vpd_kpa, rh_pct, dew_point_f, outdoor, observed_at]
+      properties:
+        temp_f: {type: [number, 'null'], description: 'The control temperature, °F (climate.temp_control)'}
+        vpd_kpa: {type: [number, 'null'], description: 'The control VPD, kPa (climate.vpd_control)'}
+        rh_pct: {type: [number, 'null'], description: Indoor relative humidity}
+        dew_point_f: {type: [number, 'null'], description: 'Indoor dew point, °F'}
+        outdoor:
+          type: object
+          required: [source, temp_f, rh_pct, dew_point_f]
+          properties:
+            source:
+              type: [string, 'null']
+              enum: [station, intake, none, null]
+              description: 'Where the outdoor reading comes from (system_state outdoor_source): the weather station, the intake probe, or none'
+            temp_f: {type: [number, 'null']}
+            rh_pct: {type: [number, 'null']}
+            dew_point_f: {type: [number, 'null']}
+        observed_at: {type: [string, 'null'], format: date-time, description: The climate row the readings come from}
+    LawRule:
+      type: object
+      description: One rule of the law with its thresholds, latch, request and the relays it drives
+      required: [id, signal, direction, on_at, off_at, latched, requested, relays, hold]
+      properties:
+        id: {type: string, enum: [heat1, heat2, cooling, second_fan, fog, mist, drying, hot_limit, cold_limit]}
+        signal: {type: string, enum: [temp, vpd], description: 'The reading the rule watches: temperature (°F) or VPD (kPa)'}
+        direction: {type: string, enum: [below, above], description: The rule turns on when the signal goes below or above on_at}
+        on_at: {type: [number, 'null'], description: 'Turns on past this, in the signal''s unit, from the band in use and the constants'}
+        off_at: {type: [number, 'null'], description: 'Turns off back past this, in the signal''s unit'}
+        latched:
+          type: [boolean, 'null']
+          description: >-
+            The rule's latch bit (h1, h2, cool, cool2, wet, mist, dry); hot_limit and cold_limit have no latch and carry
+            their request bits
+        requested: {type: [boolean, 'null'], description: "The law's request after its own gates (heat1, heat2, cooling, fans>=2, fog, mist, drying, hot, cold)"}
+        relays: {type: array, items: {$ref: '#/components/schemas/LawRelay'}, description: The relays this rule drives}
+        hold:
+          description: >-
+            Set only when the host can prove it: requested with the relay off inside its minimum off time (min_off), or
+            not requested with the relay on inside its minimum on time (min_on); null otherwise
+          anyOf:
+            - type: 'null'
+            - type: object
+              required: [kind, remaining_s]
+              properties:
+                kind: {type: string, enum: [min_off, min_on]}
+                remaining_s: {type: integer, minimum: 0}
+    LawRelay:
+      type: object
+      required: [equipment, state, since]
+      properties:
+        equipment: {type: string, enum: [heat1, heat2, vent, fan1, fan2, fog, mister_any]}
+        state: {type: string, enum: ['on', 'off', unknown], description: The newest equipment_state row; unknown while the controller is not reporting}
+        since: {type: [string, 'null'], format: date-time, description: Start of the current run of equal states}
+    LawDrying:
+      type: object
+      description: >-
+        Drying: venting with drier outdoor air when the house is too humid. running: drying runs; refused: the house
+        wants drying and the law refuses it, for refused_reason; not_wanted: the house is dry enough; unknown: no law
+        record
+      required: [state, wanted, outdoor_drier, refused_reason, cost_kwh_per_kg, limit_kwh_per_kg, limit_source, wanted_below_kpa, stop_above_kpa, min_temp_f, checks, meter, today]
+      properties:
+        state: {type: string, enum: [running, refused, not_wanted, unknown]}
+        wanted: {type: [boolean, 'null'], description: 'The dry latch: the house is humid enough to want drying'}
+        outdoor_drier: {type: [boolean, 'null'], description: 'The air latch: outdoor air holds less water than indoor air'}
+        refused_reason:
+          type: [string, 'null']
+          enum: [none, no_outdoor, cooling, furnace, not_drier, too_cold, cost, humidity_invalid, no_temperature, null]
+          description: "The controller's first reason while no run is on (the record's dr field); none while drying runs or is not wanted"
+        cost_kwh_per_kg: {type: [number, 'null'], description: 'kWh of heat per kg of water removed (the record''s e field); null when the controller reports no price (no outdoor data)'}
+        limit_kwh_per_kg: {type: [number, 'null'], description: 'The drying cost limit in force on the controller (the record''s lim field)'}
+        limit_source: {type: string, enum: [owner, default], description: 'owner: a desired_state row for dry_cost_limit_kwh_per_kg exists; default: the controller''s compiled value'}
+        wanted_below_kpa: {type: [number, 'null'], description: 'Drying is wanted below this VPD: vpd_low plus the drying-on margin'}
+        stop_above_kpa: {type: [number, 'null'], description: 'Drying stops above this VPD: vpd_low plus the drying-off margin'}
+        min_temp_f: {type: [number, 'null'], description: 'Drying needs the house above this: the band low plus the drying temperature margin'}
+        checks:
+          type: array
+          description: The decision chain, in the order the law applies it
+          items:
+            type: object
+            required: [id, ok]
+            properties:
+              id: {type: string, enum: [humid, outdoor_drier, worth_it, warm_enough, not_cooling, furnace_off]}
+              ok: {type: [boolean, 'null']}
+        meter:
+          type: object
+          description: "The controller's drying counters since its last restart (system_state climate_drying_meter)"
+          required: [seconds, water_g, heat_wh, refused_seconds, observed_at]
+          properties:
+            seconds: {type: [number, 'null'], description: Seconds drying ran with the vent open}
+            water_g: {type: [number, 'null'], description: Grams of water carried out}
+            heat_wh: {type: [number, 'null'], description: Heat carried out with it}
+            refused_seconds: {type: [number, 'null'], description: Seconds drying was wanted and did not run}
+            observed_at: {type: [string, 'null'], format: date-time}
+        today:
+          description: "Today's daily_record row; null before it is written"
+          anyOf:
+            - type: 'null'
+            - type: object
+              required: [seconds, runs, water_g, heat_wh, lower_bound]
+              properties:
+                seconds: {type: [number, 'null']}
+                runs: {type: [integer, 'null']}
+                water_g: {type: [number, 'null']}
+                heat_wh: {type: [number, 'null']}
+                lower_bound: {type: [boolean, 'null'], description: A restart lost meter counts today}
+    LawTiming:
+      type: object
+      description: The law's timing constants and safety limits, from the generated constants module
+      required: [relay_min_on_s, relay_min_off_s, fog_min_on_s, fog_min_off_s, furnace_boot_wait_s, mist_pulse_s, mist_gap_s, hot_limit_f, cold_limit_f]
+      properties:
+        relay_min_on_s: {type: integer}
+        relay_min_off_s: {type: integer}
+        fog_min_on_s: {type: integer}
+        fog_min_off_s: {type: integer}
+        furnace_boot_wait_s: {type: integer}
+        mist_pulse_s: {type: integer}
+        mist_gap_s: {type: integer}
+        hot_limit_f: {type: number, description: 'Everything cools above this, °F'}
+        cold_limit_f: {type: number, description: 'Everything heats below this, °F'}
+    LawAlone:
+      type: object
+      description: What the controller needs to keep running without the host
+      required: [clock, probes, host, gap_log]
+      properties:
+        clock:
+          type: object
+          required: [valid, sync_age_s]
+          properties:
+            valid: {type: [boolean, 'null'], description: The controller's clock is set (diagnostics.sntp_valid)}
+            sync_age_s: {type: [number, 'null'], description: Seconds since its last time sync}
+        probes:
+          type: object
+          required: [active, degraded]
+          properties:
+            active: {type: [integer, 'null'], description: Probes the controller reads (diagnostics.active_probe_count)}
+            degraded: {type: [boolean, 'null'], description: The controller runs on fewer probes than it should (diagnostics.sensor_degraded_active)}
+        host:
+          type: object
+          required: [connected, heartbeat_age_s]
+          properties:
+            connected: {type: [boolean, 'null'], description: The ingestor is connected to the controller}
+            heartbeat_age_s: {type: [number, 'null'], description: Age of the ingestor's heartbeat}
+        gap_log:
+          type: [string, 'null']
+          enum: [armed, not_armed_yet, nvs_small, nvs_full, nvs_slow, nvs_error, null]
+          description: >-
+            The gap log that keeps a record while the host is away (diagnostics.gap_log_state): armed, not armed yet
+            since the restart, or off because storage is too small, full, too slow or failing
+    LawConstants:
+      type: object
+      required: [hash, release_hash, matches, observed_at]
+      properties:
+        hash: {type: [string, 'null'], description: "The hash of the law constants the controller reports (system_state climate_law_constants)"}
+        release_hash: {type: string, description: The hash of the constants this API build was generated from}
+        matches: {type: [boolean, 'null'], description: The two hashes are equal; null while the controller has not reported one}
+        observed_at: {type: [string, 'null'], format: date-time}
+    LawHistory:
+      type: object
+      description: 'API-31: the law''s decisions over [from, to). A span of more than 180 s with no law record is unknown'
+      required: [from, to, first_record_at, lanes, drying, outdoor_source, band_repaired, cost, band]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        first_record_at: {type: [string, 'null'], format: date-time, description: The oldest law record; earlier spans have none}
+        lanes: {type: array, items: {$ref: '#/components/schemas/LawLane'}, description: 'One per request and per latch, in the fixed order of LawLane.key'}
+        drying:
+          type: array
+          description: Drying's state over the window, as change intervals
+          items:
+            type: object
+            required: [start, end, state, reason]
+            properties:
+              start: {type: string, format: date-time}
+              end: {type: string, format: date-time}
+              state: {type: string, enum: [running, refused, not_wanted, unknown]}
+              reason: {type: [string, 'null'], description: 'The refusal reason while refused (LawDrying.refused_reason''s values); null otherwise'}
+        outdoor_source:
+          type: array
+          items:
+            type: object
+            required: [start, end, source]
+            properties:
+              start: {type: string, format: date-time}
+              end: {type: string, format: date-time}
+              source: {type: string, enum: [station, intake, none, unknown]}
+        band_repaired:
+          type: array
+          description: The spans in which the controller's band check changed the band it received
+          items:
+            type: object
+            required: [start, end]
+            properties:
+              start: {type: string, format: date-time}
+              end: {type: string, format: date-time}
+        cost:
+          type: object
+          description: The drying price and the limit in force, per bucket; null where no record reports one
+          required: [bucket_s, t, cost_kwh_per_kg, limit_kwh_per_kg]
+          properties:
+            bucket_s: {type: integer, enum: [60, 300, 900, 3600, 10800, 86400]}
+            t: {type: array, items: {type: integer}, description: 'Bucket starts, epoch seconds'}
+            cost_kwh_per_kg: {$ref: '#/components/schemas/NullableNumbers'}
+            limit_kwh_per_kg: {$ref: '#/components/schemas/NullableNumbers'}
+        band:
+          type: object
+          description: The band the controller used, per bucket
+          required: [bucket_s, t, temp_low_f, temp_high_f, vpd_low_kpa, vpd_high_kpa]
+          properties:
+            bucket_s: {type: integer, enum: [60, 300, 900, 3600, 10800, 86400]}
+            t: {type: array, items: {type: integer}, description: 'Bucket starts, epoch seconds'}
+            temp_low_f: {$ref: '#/components/schemas/NullableNumbers'}
+            temp_high_f: {$ref: '#/components/schemas/NullableNumbers'}
+            vpd_low_kpa: {$ref: '#/components/schemas/NullableNumbers'}
+            vpd_high_kpa: {$ref: '#/components/schemas/NullableNumbers'}
+    LawLane:
+      type: object
+      required: [key, group, intervals]
+      properties:
+        key:
+          type: string
+          enum: [request.heat1, request.heat2, request.vent, request.fog, request.mist, request.fan1, request.fan2, request.cooling, request.drying,
+            request.hot, request.cold, latch.h1, latch.h2, latch.cool, latch.cool2, latch.wet, latch.mist, latch.dry, latch.air, latch.run]
+          description: 'request.fan1 is at least one fan, request.fan2 both fans'
+        group: {type: string, enum: [request, latch]}
+        intervals:
+          type: array
+          items:
+            type: object
+            required: [start, end, state]
+            properties:
+              start: {type: string, format: date-time}
+              end: {type: string, format: date-time}
+              state: {type: string, enum: ['on', 'off', unknown]}
+
+    # ------------------------------------------------------------ daily record (API-32, API-33)
+    DailyRecord:
+      type: object
+      description: 'API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means'
+      required: [from, to, days, means, server_time]
+      properties:
+        from: {type: string, format: date}
+        to: {type: string, format: date, description: Inclusive local day}
+        days: {type: array, items: {$ref: '#/components/schemas/RecordDay'}, description: Ascending by date}
+        means:
+          type: object
+          description: The means the reviewer and the owner compare against, over complete days only; null with no complete day
+          required: [d7, d30]
+          properties:
+            d7: {anyOf: [{$ref: '#/components/schemas/RecordMeans'}, {type: 'null'}]}
+            d30: {anyOf: [{$ref: '#/components/schemas/RecordMeans'}, {type: 'null'}]}
+        server_time: {type: string, format: date-time}
+    RecordDay:
+      type: object
+      required: [date, complete, band, relays, climate_starts, climate_run_s, energy, gas, water, drying, counter_sample_pct, alerts]
+      properties:
+        date: {type: string, format: date}
+        complete: {type: boolean, description: The local day has ended and its record is stored}
+        band: {anyOf: [{$ref: '#/components/schemas/RecordBand'}, {type: 'null'}], description: 'daily_band_compliance; null with no row'}
+        relays:
+          type: [object, 'null']
+          description: >-
+            By equipment (heat1, heat2, fan1, fan2, vent, fog, mister_center, mister_south, mister_west, drip_wall,
+            drip_center), from the daily relay record; null with no row
+          additionalProperties:
+            type: object
+            required: [starts, run_s, repaired_runs]
+            properties:
+              starts: {type: integer}
+              run_s: {type: number}
+              repaired_runs: {type: integer, description: Runs whose missing edge the record repaired}
+        climate_starts: {type: [integer, 'null'], description: 'The six climate relays together (heat1, heat2, fan1, fan2, vent, fog)'}
+        climate_run_s: {type: [number, 'null']}
+        energy:
+          type: object
+          required: [kwh, kwh_partial, coverage_pct]
+          properties:
+            kwh: {type: [number, 'null'], description: The 24-hour figure; null under 70 % meter coverage}
+            kwh_partial: {type: [number, 'null'], description: What the meter reported}
+            coverage_pct: {type: [number, 'null'], description: Share of the day the meter reported}
+        gas:
+          type: object
+          required: [therms_est]
+          properties:
+            therms_est: {type: [number, 'null'], description: Estimated from furnace run time; gas is not metered}
+        water:
+          type: object
+          required: [total_gal, crop_gal, wetting_gal, house_gal, complete]
+          properties:
+            total_gal: {type: [number, 'null'], description: The site meter's day total}
+            crop_gal: {type: [number, 'null'], description: 'Water for the plants: wetting plus wall irrigation and fertigation (daily_record.planning_water_gal)'}
+            wetting_gal: {type: [number, 'null'], description: Fog and mister water}
+            house_gal: {type: [number, 'null'], description: Water with no Verdify valve open (the hose, sink or hydro)}
+            complete: {type: [boolean, 'null'], description: The meter covered the whole day}
+        drying: {anyOf: [{$ref: '#/components/schemas/RecordDrying'}, {type: 'null'}]}
+        counter_sample_pct: {type: [number, 'null'], description: Share of the day the relay counters were sampled}
+        alerts:
+          type: [object, 'null']
+          description: Alerts raised that day by severity (v_daily_scorecard); null with no row
+          required: [critical, warning, info]
+          properties:
+            critical: {type: integer}
+            warning: {type: integer}
+            info: {type: integer}
+    RecordBand:
+      type: object
+      description: The day's compliance with the served band (daily_band_compliance), in percent of graded minutes
+      required: [both_pct, temp_pct, vpd_pct, both_day_pct, both_night_pct, temp_below_pct, temp_above_pct, vpd_below_pct, vpd_above_pct, graded_min, night_dryout_min, night_dried, above_full_cooling_min]
+      properties:
+        both_pct: {type: [number, 'null'], description: Temperature and VPD both in band}
+        temp_pct: {type: [number, 'null']}
+        vpd_pct: {type: [number, 'null']}
+        both_day_pct: {type: [number, 'null']}
+        both_night_pct: {type: [number, 'null']}
+        temp_below_pct: {type: [number, 'null']}
+        temp_above_pct: {type: [number, 'null']}
+        vpd_below_pct: {type: [number, 'null']}
+        vpd_above_pct: {type: [number, 'null']}
+        graded_min: {type: [integer, 'null'], description: Minutes with a reading and a band}
+        night_dryout_min: {type: [integer, 'null'], description: Night minutes the house spent drying out}
+        night_dried: {type: [boolean, 'null'], description: The night dried out}
+        above_full_cooling_min: {type: [integer, 'null'], description: Minutes above the band with every cooling stage running}
+    RecordDrying:
+      type: object
+      required: [seconds, runs, furnace_starts_after, water_g, heat_wh, lower_bound, wanted_s, refused_s]
+      properties:
+        seconds: {type: [number, 'null']}
+        runs: {type: [integer, 'null']}
+        furnace_starts_after: {type: [integer, 'null'], description: Gas furnace starts soon after a drying run}
+        water_g: {type: [number, 'null']}
+        heat_wh: {type: [number, 'null']}
+        lower_bound: {type: [boolean, 'null'], description: A restart lost meter counts that day}
+        wanted_s: {type: [number, 'null'], description: Seconds the house wanted drying}
+        refused_s:
+          type: [object, 'null']
+          description: Seconds drying was refused, by the refusal reason (LawDrying.refused_reason's values)
+          additionalProperties: {type: number}
+    RecordMeans:
+      type: object
+      description: Means over complete days only
+      required: [days, both_pct, temp_pct, vpd_pct, nights_dried, climate_starts, climate_run_h, heat1_run_h, heat2_run_h, kwh, therms_est, crop_gal, drying_h]
+      properties:
+        days: {type: integer, description: How many complete days the mean covers}
+        both_pct: {type: [number, 'null']}
+        temp_pct: {type: [number, 'null']}
+        vpd_pct: {type: [number, 'null']}
+        nights_dried: {type: [integer, 'null'], description: Nights that dried out among those days}
+        climate_starts: {type: [number, 'null']}
+        climate_run_h: {type: [number, 'null']}
+        heat1_run_h: {type: [number, 'null']}
+        heat2_run_h: {type: [number, 'null']}
+        kwh: {type: [number, 'null']}
+        therms_est: {type: [number, 'null']}
+        crop_gal: {type: [number, 'null']}
+        drying_h: {type: [number, 'null']}
+    RelayCheck:
+      type: object
+      description: "API-33: the controller's own relay counters against the stored daily relay record, newest day first"
+      required: [days]
+      properties:
+        days:
+          type: array
+          items:
+            type: object
+            required: [date, comparison, boots, relays]
+            properties:
+              date: {type: string, format: date}
+              comparison:
+                type: string
+                enum: [complete, partial, no_record, record_early]
+                description: >-
+                  complete: counters cover the whole day; partial: counters cover part of it (a restart or their first
+                  day); no_record: no stored record for the day; record_early: the record was computed before the day
+                  ended
+              boots: {type: [integer, 'null'], description: Controller restarts that day}
+              relays:
+                type: array
+                items:
+                  type: object
+                  required: [equipment, counter_starts, record_starts, starts_difference, counter_run_s, record_run_s, run_s_difference]
+                  properties:
+                    equipment: {type: string, examples: [heat1, fan1]}
+                    counter_starts: {type: [integer, 'null']}
+                    record_starts: {type: [integer, 'null']}
+                    starts_difference: {type: [integer, 'null']}
+                    counter_run_s: {type: [number, 'null'], description: The fans only; the controller counts no run time for the others}
+                    record_run_s: {type: [number, 'null']}
+                    run_s_difference: {type: [number, 'null']}
+
+    # ------------------------------------------------------------ daily review (API-34)
+    ReviewPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items, today, tokens, proposal_waiting]
+          properties:
+            items: {type: array, items: {$ref: '#/components/schemas/Review'}, description: Newest first}
+            today:
+              type: object
+              description: >-
+                Today's review: due from 07:00 local, late after 10:00. written, delivered, requested and failed are the
+                newest review's status for the day; due when it has none yet and expected_after has passed; not_due before
+                then
+              required: [review_date, status, missed, expected_after, late_after]
+              properties:
+                review_date: {type: string, format: date, description: The local day the review covers (yesterday)}
+                status: {type: string, enum: [written, delivered, requested, failed, due, not_due]}
+                missed: {type: boolean, description: 'The daily_review_missed alert is open'}
+                expected_after: {type: string, const: '07:00', description: Local time the review is due from}
+                late_after: {type: string, const: '10:00', description: Local time after which it is late}
+            tokens:
+              type: object
+              description: The reviewer's token use
+              required: [last, mean_7, mean_30, rise_pct]
+              properties:
+                last: {type: [integer, 'null'], description: The newest review's total tokens}
+                mean_7: {type: [number, 'null']}
+                mean_30: {type: [number, 'null']}
+                rise_pct: {type: [number, 'null'], description: 'The newest review against the 7-review mean of the reviews before it'}
+            proposal_waiting:
+              description: The written review whose band proposal waits for the owner; null when none does
+              anyOf:
+                - type: 'null'
+                - type: object
+                  required: [review_id, review_date]
+                  properties:
+                    review_id: {type: integer}
+                    review_date: {type: string, format: date}
+    Review:
+      type: object
+      description: One planner_review row (v_dashboard_review)
+      required: [id, kind, review_date, status, requested_at, requested_by, attempts, delivered_at, run_finished_at, written_at, failure, input_tokens, output_tokens, total_tokens, summary, proposal, proposal_state]
+      properties:
+        id: {type: integer}
+        kind: {type: string, enum: [daily, manual], description: 'daily: the ingestor wakes the reviewer after 07:00; manual: asked for on demand'}
+        review_date: {type: string, format: date, description: The local day reviewed}
+        status: {type: string, enum: [requested, delivered, written, failed]}
+        requested_at: {type: string, format: date-time}
+        requested_by: {type: string, examples: [ingestor]}
+        attempts: {type: integer}
+        delivered_at: {type: [string, 'null'], format: date-time}
+        run_finished_at: {type: [string, 'null'], format: date-time}
+        written_at: {type: [string, 'null'], format: date-time}
+        failure:
+          type: [string, 'null']
+          enum: [gateway_rejected, gateway_unreachable, hermes_run_failed, hermes_run_cancelled, completed_without_review, attempts_exhausted, null]
+          description: Why a failed review failed (verdify_schemas.review.ReviewFailure)
+        input_tokens: {type: [integer, 'null']}
+        output_tokens: {type: [integer, 'null']}
+        total_tokens: {type: [integer, 'null']}
+        summary: {type: [string, 'null'], description: The review in words}
+        proposal: {anyOf: [{$ref: '#/components/schemas/ReviewProposal'}, {type: 'null'}]}
+        proposal_state:
+          type: [string, 'null']
+          enum: [waiting, answered, superseded, null]
+          description: >-
+            waiting: this is the newest written review with a proposal and no band.write followed its written_at;
+            answered: a band.write followed it; superseded: a newer written review exists. Null without a proposal
+    ReviewProposal:
+      type: object
+      description: A band edit the review proposes (verdify_schemas.review.BandProposal); the owner applies it or not
+      required: [changes, price, reason]
+      properties:
+        changes:
+          type: array
+          items:
+            type: object
+            required: [param, label, unit, current, proposed]
+            properties:
+              param: {type: string, examples: [band_temp_low_sr]}
+              label: {type: string}
+              unit:
+                type: [string, 'null']
+                examples: ['°F', kPa]
+                description: The row's registry unit; null for a row the registry gives no unit (the zone priorities)
+              current: {type: [number, 'null'], description: The stored value now}
+              proposed: {type: number}
+        price: {type: string, description: 'The price-list rows the review quotes, as it stored them'}
+        reason: {type: [string, 'null']}
+
+    # ------------------------------------------------------------ system (API-35 to API-37)
+    ControllerHealth:
+      type: object
+      description: >-
+        API-35: the controller's hardware budget, from the newest non-null diagnostics value per column over 15 min.
+        Null means not reported in that window, never 0
+      required: [observed_at, firmware, uptime_s, restarts, heap, loop, nvs, wifi, clock, probes, band_source, gap_log, limits]
+      properties:
+        observed_at: {type: [string, 'null'], format: date-time}
+        firmware:
+          type: object
+          required: [version, pinned, matches]
+          properties:
+            version: {type: [string, 'null'], description: The firmware the controller runs}
+            pinned: {type: [string, 'null'], description: The firmware the ingestor expects (system_state ingestor_counters)}
+            matches: {type: [boolean, 'null']}
+        uptime_s: {type: [number, 'null']}
+        restarts:
+          type: object
+          required: [count, reset_reason, booted_at]
+          properties:
+            count: {type: [integer, 'null']}
+            reset_reason: {type: [string, 'null'], examples: [Software reset]}
+            booted_at: {type: [string, 'null'], format: date-time}
+        heap:
+          type: object
+          description: kB
+          required: [free_kb, min_free_kb, largest_block_kb, minute_low_kb, largest_block_minute_low_kb]
+          properties:
+            free_kb: {type: [number, 'null']}
+            min_free_kb: {type: [number, 'null'], description: The lowest since the restart}
+            largest_block_kb: {type: [number, 'null']}
+            minute_low_kb: {type: [number, 'null'], description: The lowest in the last minute}
+            largest_block_minute_low_kb: {type: [number, 'null']}
+        loop:
+          type: object
+          required: [worst_ms, stack_free_min_b]
+          properties:
+            worst_ms: {type: [number, 'null'], description: The slowest control loop in the last minute}
+            stack_free_min_b: {type: [number, 'null'], description: The least free stack seen, bytes}
+        nvs:
+          type: object
+          description: The controller's settings storage
+          required: [used_entries, free_entries, write_worst_ms]
+          properties:
+            used_entries: {type: [integer, 'null']}
+            free_entries: {type: [integer, 'null']}
+            write_worst_ms: {type: [number, 'null']}
+        wifi:
+          type: object
+          required: [rssi_dbm, disconnects, api_clients]
+          properties:
+            rssi_dbm: {type: [number, 'null']}
+            disconnects: {type: [integer, 'null']}
+            api_clients: {type: [integer, 'null'], description: Connections to the controller's API}
+        clock:
+          type: object
+          required: [valid, sync_age_s, misses]
+          properties:
+            valid: {type: [boolean, 'null']}
+            sync_age_s: {type: [number, 'null']}
+            misses: {type: [integer, 'null'], description: Time syncs missed}
+        probes:
+          type: object
+          required: [active, degraded, health]
+          properties:
+            active: {type: [integer, 'null']}
+            degraded: {type: [boolean, 'null']}
+            health: {type: [string, 'null'], description: 'The controller''s probe summary as it sends it', examples: [OK, 'North INVALID, South STALE']}
+        band_source: {type: [string, 'null'], description: 'As LawBand.source', examples: [onchip_curve]}
+        gap_log: {type: [string, 'null'], description: 'As LawAlone.gap_log', examples: [armed]}
+        limits:
+          type: object
+          description: The hardware-budget thresholds from their one existing definition
+          required: [heap_warning_kb, heap_critical_kb, largest_block_kb, ota_free_kb, loop_worst_ms, nvs_write_ms, stack_free_b, nvs_arm_free_pct, nvs_stop_free_pct]
+          properties:
+            heap_warning_kb: {type: number, description: Free heap under this for 2 min warns}
+            heap_critical_kb: {type: number, description: Free heap under this is critical}
+            largest_block_kb: {type: number, description: The largest free block a firmware update needs}
+            ota_free_kb: {type: number, description: The free heap a firmware update needs}
+            loop_worst_ms: {type: number, description: A control loop slower than this warns}
+            nvs_write_ms: {type: number, description: Storage writes slower than this stop the gap log}
+            stack_free_b: {type: number, description: Free stack under this warns}
+            nvs_arm_free_pct: {type: number, description: The gap log arms with at least this share of storage free}
+            nvs_stop_free_pct: {type: number, description: The gap log stops under this share free}
+    DataContinuity:
+      type: object
+      description: 'API-36: whether telemetry is flowing, what was lost and what the gap log restored'
+      required: [from, to, gap_log, outages, replayed, by_day, tables, probes, ingestor]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        gap_log: {type: [string, 'null'], description: 'As LawAlone.gap_log', examples: [armed]}
+        outages:
+          type: array
+          description: Telemetry outages the gap log has not restored (v_data_gaps_unreplayed), newest first, at most 200
+          items:
+            type: object
+            required: [start, end, duration_s, reason, status]
+            properties:
+              start: {type: string, format: date-time}
+              end: {type: string, format: date-time}
+              duration_s: {type: integer}
+              reason: {type: string, description: 'Why the ingestor lost telemetry, as stored', examples: [ingestor_restart, ingestor_process_restart]}
+              status: {type: string, description: 'What the ingestor saved when it came back, as stored', examples: [snapshot_taken, snapshot_incomplete]}
+        replayed:
+          type: array
+          description: The quarters of one-minute records the controller replayed from its gap log, newest first, at most 200
+          items:
+            type: object
+            required: [boot, qseq, first_at, last_at, received_at, climate_rows, transition_rows]
+            properties:
+              boot: {type: integer, description: The controller boot the quarter belongs to}
+              qseq: {type: integer, description: The quarter's number within that boot}
+              first_at: {type: string, format: date-time}
+              last_at: {type: string, format: date-time}
+              received_at: {type: string, format: date-time}
+              climate_rows: {type: integer}
+              transition_rows: {type: integer}
+        by_day:
+          type: array
+          description: Per local day, oldest first
+          items:
+            type: object
+            required: [date, outage_s, replayed_min]
+            properties:
+              date: {type: string, format: date}
+              outage_s: {type: integer, description: Seconds of outages not restored}
+              replayed_min: {type: integer, description: Minutes the gap log restored}
+        tables:
+          type: array
+          items:
+            type: object
+            required: [table, last_row_age_s, rows_5m]
+            properties:
+              table: {type: string, examples: [climate, diagnostics, equipment_state]}
+              last_row_age_s: {type: [number, 'null']}
+              rows_5m: {type: [integer, 'null'], description: Rows written in the last 5 minutes}
+        probes:
+          type: array
+          items:
+            type: object
+            required: [sensor, age_s]
+            properties:
+              sensor: {type: string, examples: [climate.temp_north]}
+              age_s: {type: [number, 'null'], description: Seconds since its newest reading; 7200 means not seen in 2 h}
+        ingestor:
+          type: object
+          required: [heartbeat_age_s, reconnects, payloads_rejected, replay_failures, rows_rejected, observed_at]
+          properties:
+            heartbeat_age_s: {type: [number, 'null']}
+            reconnects: {type: [integer, 'null']}
+            payloads_rejected: {type: [integer, 'null']}
+            replay_failures: {type: [integer, 'null']}
+            rows_rejected: {type: [object, 'null'], additionalProperties: {type: integer}, description: Rows that failed validation, by table}
+            observed_at: {type: [string, 'null'], format: date-time, description: The ingestor_counters row}
+    Delivery:
+      type: object
+      description: 'API-37: whether the controller took what the host pushed (setpoint_changes in the window)'
+      required: [from, to, by_status, oldest_unconfirmed_s, latency, failing, dispatcher_stage, readback_pass]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        by_status:
+          type: array
+          items:
+            type: object
+            required: [source, status, count]
+            properties:
+              source: {type: string, description: Who pushed the change, as stored, examples: [band, manual, plan, esp32, none]}
+              status: {type: string, description: Where its delivery stands, as stored, examples: [confirmed, failed, observed, pending, cancelled, superseded]}
+              count: {type: integer}
+        oldest_unconfirmed_s: {type: [number, 'null'], description: Age of the oldest push still waiting; 0 when nothing waits}
+        latency:
+          type: object
+          description: From push to readback confirmation
+          required: [p50_s, p95_s, confirmed]
+          properties:
+            p50_s: {type: [number, 'null']}
+            p95_s: {type: [number, 'null']}
+            confirmed: {type: integer}
+        failing:
+          type: array
+          description: Settings with a failed push in the window, worst first, at most 50
+          items:
+            type: object
+            required: [param, label, failed, last_failed_at, last_confirmed_at]
+            properties:
+              param: {type: string}
+              label: {type: string}
+              failed: {type: integer}
+              last_failed_at: {type: string, format: date-time}
+              last_confirmed_at: {type: [string, 'null'], format: date-time}
+        dispatcher_stage: {type: [string, 'null'], description: 'The dispatcher''s stage, as it reports it', examples: [ordinary, paced 12/40]}
+        readback_pass:
+          type: object
+          description: The newest readback pass (system_state setpoint_snapshot_pass)
+          required: [at, stored, of]
+          properties:
+            at: {type: [string, 'null'], format: date-time}
+            stored: {type: [integer, 'null']}
+            of: {type: [integer, 'null']}
+
     # ------------------------------------------------------------ crops (#1327)
     Place:
       type: object
@@ -2917,3 +3839,11 @@ components:
         stage: {type: [string, 'null'], enum: [seed, germination, seedling, vegetative, flowering, fruiting, harvest, cleared, null]}
         notes: {type: [string, 'null'], maxLength: 2000}
         expected_harvest: {type: [string, 'null'], format: date}
+    PlantingNote:
+      type: object
+      description: 'A note on a planting''s history (API-CROP-12, MCP annotate_planting); ended plantings take notes too.'
+      additionalProperties: false
+      required: [note]
+      properties:
+        reason: {type: [string, 'null'], maxLength: 500}
+        note: {type: string, minLength: 1, maxLength: 2000}

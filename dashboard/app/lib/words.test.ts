@@ -379,3 +379,79 @@ test("the scorecard reasons: the water day's quality in words, and the reasons V
   expect(words("scorecard_reason", "band grade kept 3 days")).toBe("band grade kept 3 days");
   expect(words("scorecard_reason", "meter_offline")).toBe("meter_offline");
 });
+
+/** The schema at `path` under a component schema: a property name, `[]` for an array's items, `?` for the non-null branch of an anyOf. */
+type Node = Schema & { type?: string | string[]; items?: Node; anyOf?: Node[]; properties?: Record<string, Node> };
+function schemaAt(name: string, path: string[]): Schema | undefined {
+  let node: Node | undefined = SCHEMAS[name] as Node | undefined;
+  for (const step of path) {
+    if (!node) return undefined;
+    if (step === "[]") node = node.items;
+    else if (step === "?") node = node.anyOf?.find((branch) => branch.type !== "null");
+    else node = node.properties?.[step];
+  }
+  return node;
+}
+/** Every enum of the climate law's, the daily record's, the daily review's and the system pages' schemas, with its family. */
+const V2_ENUMS: [family: string, schema: string, path: string[]][] = [
+  ["law_rule", "LawRule", ["id"]],
+  ["law_signal", "LawRule", ["signal"]],
+  ["law_direction", "LawRule", ["direction"]],
+  ["law_hold", "LawRule", ["hold", "?", "kind"]],
+  ["law_relay", "LawRelay", ["equipment"]],
+  ["relay_state", "LawRelay", ["state"]],
+  ["relay_state", "LawLane", ["intervals", "[]", "state"]],
+  ["law_lane", "LawLane", ["key"]],
+  ["law_lane_group", "LawLane", ["group"]],
+  ["drying_state", "LawDrying", ["state"]],
+  ["drying_state", "LawHistory", ["drying", "[]", "state"]],
+  ["drying_refusal", "LawDrying", ["refused_reason"]],
+  ["drying_check", "LawDrying", ["checks", "[]", "id"]],
+  ["limit_source", "LawDrying", ["limit_source"]],
+  ["outdoor_source", "LawInputs", ["outdoor", "source"]],
+  ["outdoor_source", "LawHistory", ["outdoor_source", "[]", "source"]],
+  ["outdoor_source", "Now", ["outdoor", "source"]],
+  ["band_source", "LawBand", ["source"]],
+  ["gap_log", "LawAlone", ["gap_log"]],
+  ["review_status", "Review", ["status"]],
+  ["review_status", "ReviewPage", ["allOf"]],
+  ["review_kind", "Review", ["kind"]],
+  ["review_failure", "Review", ["failure"]],
+  ["proposal_state", "Review", ["proposal_state"]],
+  ["relay_comparison", "RelayCheck", ["days", "[]", "comparison"]],
+  ["setting_effect", "Setting", ["effect"]],
+  ["equipment", "LawView", ["lead_fan"]],
+];
+
+test("every enum value of the climate law, daily record, review and system schemas has words", () => {
+  for (const [family, schema, path] of V2_ENUMS) {
+    if (path[0] === "allOf") {
+      // ReviewPage.today.status: the second allOf branch carries it.
+      const today = ((SCHEMAS[schema] as { allOf: Node[] }).allOf[1].properties?.today as Node | undefined)?.properties?.status;
+      expectWorded(family, enumOf(today));
+      continue;
+    }
+    expectWorded(family, enumOf(schemaAt(schema, path)));
+  }
+  // Now.review.status is ReviewPage.today.status.
+  expectWorded("review_status", enumOf(schemaAt("Now", ["review", "?", "status"])));
+  // The stored values the delivery and data-gap readouts word (setpoint_changes, data_gaps), and the device's gap-log states.
+  expectWorded("delivery_status", ["pending", "requested", "queued", "sent", "retrying", "confirmed", "failed", "cancelled", "superseded", "expired", "observed"]);
+  expectWorded("delivery_source", ["band", "plan", "iris_planner", "manual", "esp32", "dispatcher", "system", "ingestor", "none"]);
+  expectWorded("data_gap_reason", ["ingestor_restart", "ingestor_process_restart"]);
+  expectWorded("data_gap_status", ["snapshot_taken", "snapshot_incomplete", "pending", "backfilled", "unrecoverable", "ignored"]);
+});
+
+test("the law's refusals and states read as the owner would say them, with no internal names", () => {
+  expect(["cost", "too_cold", "not_drier", "no_outdoor", "furnace", "cooling"].map((code) => words("drying_refusal", code))).toEqual([
+    "costs more than the limit", "the house is too cold to vent", "outdoor air is not drier", "no outdoor reading", "the gas furnace is running",
+    "the house is being cooled",
+  ]);
+  expect(words("gap_log", "not_armed_yet")).toBe("not armed yet");
+  expect(words("gap_log", "nvs_full")).toBe("off: storage is full");
+  // No internal service or device names in the new families' words.
+  const families = ["law_rule", "law_lane", "drying_refusal", "drying_check", "band_source", "gap_log", "review_failure", "delivery_source", "data_gap_reason", "data_gap_status"];
+  for (const family of families) {
+    for (const text of Object.values(WORDS[family])) expect(text, `${family}: ${text}`).not.toMatch(/hermes|iris|esp32|ingestor|nvs|dispatcher|vanda|orchid/i);
+  }
+});

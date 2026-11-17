@@ -104,6 +104,31 @@ export type PositionHistory = Lenient<Schemas["PositionHistory"]>;
 export type CropCatalog = Lenient<Schemas["Catalog"]>;
 export type Resolution = Lenient<Schemas["Resolution"]>;
 export type CropConflict = Lenient<Schemas["Conflict"]>;
+export type PlantingNote = Lenient<Schemas["PlantingNote"]>;
+export type BandEdges = Lenient<Schemas["BandEdges"]>;
+export type LawView = Lenient<Schemas["LawView"]>;
+export type LawBand = Lenient<Schemas["LawBand"]>;
+export type LawInputs = Lenient<Schemas["LawInputs"]>;
+export type LawRule = Lenient<Schemas["LawRule"]>;
+export type LawRelay = Lenient<Schemas["LawRelay"]>;
+export type LawDrying = Lenient<Schemas["LawDrying"]>;
+export type LawTiming = Lenient<Schemas["LawTiming"]>;
+export type LawAlone = Lenient<Schemas["LawAlone"]>;
+export type LawConstants = Lenient<Schemas["LawConstants"]>;
+export type LawHistory = Lenient<Schemas["LawHistory"]>;
+export type LawLane = Lenient<Schemas["LawLane"]>;
+export type DailyRecord = Lenient<Schemas["DailyRecord"]>;
+export type RecordDay = Lenient<Schemas["RecordDay"]>;
+export type RecordBand = Lenient<Schemas["RecordBand"]>;
+export type RecordDrying = Lenient<Schemas["RecordDrying"]>;
+export type RecordMeans = Lenient<Schemas["RecordMeans"]>;
+export type RelayCheck = Lenient<Schemas["RelayCheck"]>;
+export type ReviewPage = Lenient<Schemas["ReviewPage"]>;
+export type Review = Lenient<Schemas["Review"]>;
+export type ReviewProposal = Lenient<Schemas["ReviewProposal"]>;
+export type ControllerHealth = Lenient<Schemas["ControllerHealth"]>;
+export type DataContinuity = Lenient<Schemas["DataContinuity"]>;
+export type Delivery = Lenient<Schemas["Delivery"]>;
 
 // ---------------------------------------------------------------------------------------------------- field parsers
 const text = z.string();
@@ -181,7 +206,10 @@ const bandPosition = z.object({ low: num.nullable(), high: num.nullable(), verdi
 const controller = z.object({
   firmware_version: maybe(text), uptime_s: maybe(int), reset_reason: maybe(text), heap_free_kb: maybe(num), heap_largest_block_kb: maybe(num),
   rssi_dbm: maybe(num), observed_at: maybe(text),
+  // The shell banner's three health facts (dashboard v2); a server before them sends none, read as null.
+  heap_minute_low_kb: maybe(num), restart_count: maybe(int), gap_log: maybe(code),
 });
+const bandEdges = z.object({ temp_low_f: num.nullable(), temp_high_f: num.nullable(), vpd_low_kpa: num.nullable(), vpd_high_kpa: num.nullable() });
 /** The greenhouse snapshot (#1346); a server before it sends none. */
 const snapshot = z.object({
   text, generated_at: text, as_of: text, model: text, stale: flag, stale_reason: maybe(code), outdated: flag,
@@ -190,11 +218,14 @@ const snapshot = z.object({
 const lawState = z.object({
   observed_at: text, latches: z.array(text), requests: z.array(text), drying: choice(["running", "refused", "not_wanted"] as const, "not_wanted"),
   drying_refused_reason: maybe(text), drying_cost_kwh_per_kg: maybe(num), drying_cost_limit_kwh_per_kg: num, band_repaired: flag,
+  band: maybe(bandEdges),
 });
+/** Today's daily review on Now (dashboard v2); null before the reviewer has a row, absent from an older server. */
+const nowReview = z.object({ review_date: text, status: code, missed: flag, written_at: maybe(text), proposal_waiting: flag });
 const now = z.object({
   server_time: text,
   indoor: z.object({ temp_f: reading, rh_pct: reading, vpd_kpa: reading }),
-  outdoor: z.object({ temp_f: reading, rh_pct: reading }),
+  outdoor: z.object({ temp_f: reading, rh_pct: reading, source: maybe(code) }),
   band: z.object({ temp_f: bandPosition, vpd_kpa: bandPosition, rh_pct: bandPosition.nullable(), observed_at: maybe(text) }),
   mode: z.object({ code: text, stage: maybe(text), reason: maybe(text), since: maybe(text) }),
   iris: z.object({ plan_id: text.nullable(), trigger: maybe(text), valid_until: maybe(text), required_trigger: code }),
@@ -208,6 +239,7 @@ const now = z.object({
   snapshot: snapshot.nullable().optional(),
   hydroponics: z.object({ ph: reading, ec_us_cm: reading, water_temp_f: reading, stale_after_s: int.positive() }).nullable().optional(),
   law: lawState.nullable().optional(),
+  review: maybe(nowReview),
 });
 
 const metricDef = z.object({
@@ -298,6 +330,8 @@ const setting = z.object({
   readback: reading.nullable(), desired: desiredSetting.nullable(),
   plan: z.object({ value: num.nullable(), plan_id: text, source: code, written_at: text, next: planWaypoint.nullable() }).nullable(),
   applied_from: code, state: code,
+  // What reads the setting on this build (dashboard v2); a server before it sends none.
+  effect: code.optional(),
 });
 const settings = z.object({ items: z.array(setting), server_time: text });
 const settingHistory = z.object({
@@ -462,6 +496,146 @@ const resolution = z.object({
   conflicts: z.array(cropConflict).default([]),
 });
 
+// The climate law (API-30, API-31). Null is "not reported", never 0.
+export const DRYING_STATES = members<Schemas["LawDrying"]["state"]>()(["running", "refused", "not_wanted", "unknown"]);
+const span = { start: text, end: text };
+const lawRelay = z.object({ equipment: code, state: relay, since: maybe(text) });
+const lawRule = z.object({
+  id: code, signal: code, direction: code, on_at: maybe(num), off_at: maybe(num), latched: maybe(flag), requested: maybe(flag),
+  relays: z.array(lawRelay), hold: maybe(z.object({ kind: code, remaining_s: int })),
+});
+const lawDrying = z.object({
+  state: choice(DRYING_STATES, "unknown"), wanted: maybe(flag), outdoor_drier: maybe(flag), refused_reason: maybe(code),
+  cost_kwh_per_kg: maybe(num), limit_kwh_per_kg: maybe(num), limit_source: code, wanted_below_kpa: maybe(num), stop_above_kpa: maybe(num),
+  min_temp_f: maybe(num), checks: z.array(z.object({ id: code, ok: maybe(flag) })),
+  meter: z.object({ seconds: maybe(num), water_g: maybe(num), heat_wh: maybe(num), refused_seconds: maybe(num), observed_at: maybe(text) }),
+  today: maybe(z.object({ seconds: maybe(num), runs: maybe(int), water_g: maybe(num), heat_wh: maybe(num), lower_bound: maybe(flag) })),
+});
+const lawView = z.object({
+  server_time: text, observed_at: maybe(text), reporting: flag,
+  band: z.object({
+    temp_low_f: maybe(num), temp_high_f: maybe(num), vpd_low_kpa: maybe(num), vpd_high_kpa: maybe(num), repaired: maybe(flag), source: maybe(code),
+    host: maybe(bandEdges), differs: maybe(flag),
+  }),
+  inputs: z.object({
+    temp_f: maybe(num), vpd_kpa: maybe(num), rh_pct: maybe(num), dew_point_f: maybe(num),
+    outdoor: z.object({ source: maybe(code), temp_f: maybe(num), rh_pct: maybe(num), dew_point_f: maybe(num) }), observed_at: maybe(text),
+  }),
+  rules: z.array(lawRule), drying: lawDrying,
+  timing: z.object({
+    relay_min_on_s: int, relay_min_off_s: int, fog_min_on_s: int, fog_min_off_s: int, furnace_boot_wait_s: int, mist_pulse_s: int, mist_gap_s: int,
+    hot_limit_f: num, cold_limit_f: num,
+  }),
+  lead_fan: maybe(code),
+  alone: z.object({
+    clock: z.object({ valid: maybe(flag), sync_age_s: maybe(num) }), probes: z.object({ active: maybe(int), degraded: maybe(flag) }),
+    host: z.object({ connected: maybe(flag), heartbeat_age_s: maybe(num) }), gap_log: maybe(code),
+  }),
+  constants: z.object({ hash: maybe(text), release_hash: text, matches: maybe(flag), observed_at: maybe(text) }),
+});
+const lawHistory = z.object({
+  from: text, to: text, first_record_at: maybe(text),
+  lanes: z.array(z.object({ key: code, group: code, intervals: z.array(z.object({ ...span, state: relay })) })),
+  drying: z.array(z.object({ ...span, state: choice(DRYING_STATES, "unknown"), reason: maybe(code) })),
+  outdoor_source: z.array(z.object({ ...span, source: code })),
+  band_repaired: z.array(z.object(span)),
+  cost: z.object({ bucket_s: int, t: z.array(int), cost_kwh_per_kg: nullableNumbers, limit_kwh_per_kg: nullableNumbers }),
+  band: z.object({ bucket_s: int, t: z.array(int), temp_low_f: nullableNumbers, temp_high_f: nullableNumbers, vpd_low_kpa: nullableNumbers, vpd_high_kpa: nullableNumbers }),
+});
+// The daily record (API-32, API-33).
+const recordBand = z.object({
+  both_pct: maybe(num), temp_pct: maybe(num), vpd_pct: maybe(num), both_day_pct: maybe(num), both_night_pct: maybe(num), temp_below_pct: maybe(num),
+  temp_above_pct: maybe(num), vpd_below_pct: maybe(num), vpd_above_pct: maybe(num), graded_min: maybe(int), night_dryout_min: maybe(int),
+  night_dried: maybe(flag), above_full_cooling_min: maybe(int),
+});
+const recordDrying = z.object({
+  seconds: maybe(num), runs: maybe(int), furnace_starts_after: maybe(int), water_g: maybe(num), heat_wh: maybe(num), lower_bound: maybe(flag),
+  wanted_s: maybe(num), refused_s: maybe(z.record(z.string(), num)),
+});
+const recordDay = z.object({
+  date: text, complete: flag, band: maybe(recordBand),
+  relays: maybe(z.record(z.string(), z.object({ starts: int, run_s: num, repaired_runs: int }))),
+  climate_starts: maybe(int), climate_run_s: maybe(num),
+  energy: z.object({ kwh: maybe(num), kwh_partial: maybe(num), coverage_pct: maybe(num) }),
+  gas: z.object({ therms_est: maybe(num) }),
+  water: z.object({ total_gal: maybe(num), crop_gal: maybe(num), wetting_gal: maybe(num), house_gal: maybe(num), complete: maybe(flag) }),
+  drying: maybe(recordDrying), counter_sample_pct: maybe(num),
+  alerts: maybe(z.object({ critical: int, warning: int, info: int })),
+});
+const recordMeans = z.object({
+  days: int, both_pct: maybe(num), temp_pct: maybe(num), vpd_pct: maybe(num), nights_dried: maybe(int), climate_starts: maybe(num),
+  climate_run_h: maybe(num), heat1_run_h: maybe(num), heat2_run_h: maybe(num), kwh: maybe(num), therms_est: maybe(num), crop_gal: maybe(num),
+  drying_h: maybe(num),
+});
+const dailyRecord = z.object({
+  from: text, to: text, days: z.array(recordDay), means: z.object({ d7: maybe(recordMeans), d30: maybe(recordMeans) }), server_time: text,
+});
+const relayCheck = z.object({
+  days: z.array(z.object({
+    date: text, comparison: code, boots: maybe(int),
+    relays: z.array(z.object({
+      equipment: text, counter_starts: maybe(int), record_starts: maybe(int), starts_difference: maybe(int), counter_run_s: maybe(num),
+      record_run_s: maybe(num), run_s_difference: maybe(num),
+    })),
+  })),
+});
+// The daily review (API-34).
+const reviewProposal = z.object({
+  changes: z.array(z.object({ param: text, label: text, unit: maybe(text), current: maybe(num), proposed: num })), price: text, reason: maybe(text),
+});
+const review = z.object({
+  id: int, kind: code, review_date: text, status: code, requested_at: text, requested_by: text, attempts: int, delivered_at: maybe(text),
+  run_finished_at: maybe(text), written_at: maybe(text), failure: maybe(code), input_tokens: maybe(int), output_tokens: maybe(int),
+  total_tokens: maybe(int), summary: maybe(text), proposal: maybe(reviewProposal), proposal_state: maybe(code),
+});
+const reviewPage = z.object({
+  ...page, items: z.array(review),
+  today: z.object({ review_date: text, status: code, missed: flag, expected_after: text, late_after: text }),
+  tokens: z.object({ last: maybe(int), mean_7: maybe(num), mean_30: maybe(num), rise_pct: maybe(num) }),
+  proposal_waiting: maybe(z.object({ review_id: int, review_date: text })),
+});
+// System (API-35 to API-37).
+const controllerHealth = z.object({
+  observed_at: maybe(text),
+  firmware: z.object({ version: maybe(text), pinned: maybe(text), matches: maybe(flag) }),
+  uptime_s: maybe(num),
+  restarts: z.object({ count: maybe(int), reset_reason: maybe(text), booted_at: maybe(text) }),
+  heap: z.object({ free_kb: maybe(num), min_free_kb: maybe(num), largest_block_kb: maybe(num), minute_low_kb: maybe(num), largest_block_minute_low_kb: maybe(num) }),
+  loop: z.object({ worst_ms: maybe(num), stack_free_min_b: maybe(num) }),
+  nvs: z.object({ used_entries: maybe(int), free_entries: maybe(int), write_worst_ms: maybe(num) }),
+  wifi: z.object({ rssi_dbm: maybe(num), disconnects: maybe(int), api_clients: maybe(int) }),
+  clock: z.object({ valid: maybe(flag), sync_age_s: maybe(num), misses: maybe(int) }),
+  probes: z.object({ active: maybe(int), degraded: maybe(flag), health: maybe(text) }),
+  band_source: maybe(code), gap_log: maybe(code),
+  limits: z.object({
+    heap_warning_kb: num, heap_critical_kb: num, largest_block_kb: num, ota_free_kb: num, loop_worst_ms: num, nvs_write_ms: num, stack_free_b: num,
+    nvs_arm_free_pct: num, nvs_stop_free_pct: num,
+  }),
+});
+const dataContinuity = z.object({
+  from: text, to: text, gap_log: maybe(code),
+  outages: z.array(z.object({ ...span, duration_s: int, reason: code, status: code })),
+  replayed: z.array(z.object({
+    boot: int, qseq: int, first_at: text, last_at: text, received_at: text, climate_rows: int, transition_rows: int,
+  })),
+  by_day: z.array(z.object({ date: text, outage_s: int, replayed_min: int })),
+  tables: z.array(z.object({ table: text, last_row_age_s: maybe(num), rows_5m: maybe(int) })),
+  probes: z.array(z.object({ sensor: text, age_s: maybe(num) })),
+  ingestor: z.object({
+    heartbeat_age_s: maybe(num), reconnects: maybe(int), payloads_rejected: maybe(int), replay_failures: maybe(int),
+    rows_rejected: maybe(z.record(z.string(), int)), observed_at: maybe(text),
+  }),
+});
+const delivery = z.object({
+  from: text, to: text,
+  by_status: z.array(z.object({ source: code, status: code, count: int })),
+  oldest_unconfirmed_s: maybe(num),
+  latency: z.object({ p50_s: maybe(num), p95_s: maybe(num), confirmed: int }),
+  failing: z.array(z.object({ param: text, label: text, failed: int, last_failed_at: text, last_confirmed_at: maybe(text) })),
+  dispatcher_stage: maybe(text),
+  readback_pass: z.object({ at: maybe(text), stored: maybe(int), of: maybe(int) }),
+});
+
 // ---------------------------------------------------------------------------------------------------- parsers
 export type Parser<T> = (value: unknown) => T | null;
 function parser<T>(schema: z.ZodType<T>): Parser<T> {
@@ -510,6 +684,14 @@ export const parsePlantingList: Parser<PlantingList> = parser(plantingList);
 export const parsePositionHistory: Parser<PositionHistory> = parser(positionHistory);
 export const parseCropCatalog: Parser<CropCatalog> = parser(cropCatalog);
 export const parseResolution: Parser<Resolution> = parser(resolution);
+export const parseLawView: Parser<LawView> = parser(lawView);
+export const parseLawHistory: Parser<LawHistory> = parser(lawHistory);
+export const parseDailyRecord: Parser<DailyRecord> = parser(dailyRecord);
+export const parseRelayCheck: Parser<RelayCheck> = parser(relayCheck);
+export const parseReviewPage: Parser<ReviewPage> = parser(reviewPage);
+export const parseControllerHealth: Parser<ControllerHealth> = parser(controllerHealth);
+export const parseDataContinuity: Parser<DataContinuity> = parser(dataContinuity);
+export const parseDelivery: Parser<Delivery> = parser(delivery);
 // The BFF's own calls and the probes; the browser never makes these.
 export const parseSessionToken: Parser<SessionToken> = parser(sessionToken);
 export const parseReadiness: Parser<Readiness> = parser(readiness);
@@ -545,6 +727,14 @@ export const OPERATIONS = {
   "API-23": op("GET", "/v1/band/profile", parseBandProfilePreview),
   "API-24": op("PUT", "/v1/band/profile", parseBandWrite),
   "API-25": op("GET", "/v1/planner/history", parsePlannerHistory),
+  "API-30": op("GET", "/v1/law", parseLawView),
+  "API-31": op("GET", "/v1/law/history", parseLawHistory),
+  "API-32": op("GET", "/v1/record/days", parseDailyRecord),
+  "API-33": op("GET", "/v1/record/relay-check", parseRelayCheck),
+  "API-34": op("GET", "/v1/reviews", parseReviewPage),
+  "API-35": op("GET", "/v1/system/controller", parseControllerHealth),
+  "API-36": op("GET", "/v1/system/data", parseDataContinuity),
+  "API-37": op("GET", "/v1/system/delivery", parseDelivery),
   "API-SOIL-01": op("GET", "/v1/soil-targets", parseSoilTargets),
   "API-SOIL-02": op("PUT", "/v1/soil-targets/{zone}", parseSoilTarget),
   "API-IRR-01": op("GET", "/v1/irrigation", parseIrrigationStatus),
@@ -570,6 +760,7 @@ export const OPERATIONS = {
   "API-CROP-09": op("POST", "/v1/crops/plantings/{planting_id}/harvest", parsePlanting),
   "API-CROP-10": op("POST", "/v1/crops/plantings/{planting_id}/remove", parsePlanting),
   "API-CROP-11": op("PATCH", "/v1/crops/plantings/{planting_id}", parsePlanting),
+  "API-CROP-12": op("POST", "/v1/crops/plantings/{planting_id}/notes", parsePlanting),
 } as const;
 type Table = typeof OPERATIONS;
 export type ApiOperationId = keyof Table;

@@ -87,6 +87,25 @@ REASONS = {
     "no_entity": "read-only: no controller entity takes it",
 }
 BAND_REASON = "derived by the dispatcher from the crop band anchors"
+# Setting.effect: the registry rows nothing on the controller reads, as verdify_services.settings.NO_CONTROL_READER
+# lists them (that module needs asyncpg, which this script does without); tests/test_dashboard_settings_fixture.py
+# checks every rendered row's effect against settings.setting_effect.
+_EFFECT_ANCHORS = ("sr", "sm", "ss", "mid")
+_EFFECT_ZONES = ("center", "south", "west", "east")
+NO_CONTROL_READER = frozenset(
+    {
+        "mister_engage_delay_s",
+        "mister_min_off_s",
+        "sw_direct_wet_gate_enabled",
+        "mister_hysteresis_kpa",
+        "site_pressure_hpa",
+        "direct_wet_min_temp_f",
+        *(f"zone_vpd_target_{zone}_{anchor}" for zone in _EFFECT_ZONES for anchor in _EFFECT_ANCHORS),
+        *(f"zone_vpd_width_{side}_{zone}" for side in ("below", "above") for zone in _EFFECT_ZONES),
+        *(f"zone_priority_{zone}" for zone in ("center", "south", "west")),
+        *(f"band_{axis}_target_{anchor}" for axis in ("temp", "vpd") for anchor in _EFFECT_ANCHORS),
+    }
+)
 # Each reason's Setting.read_only_kind (#1333).
 KINDS = {
     "retired": "retired",
@@ -291,6 +310,7 @@ def registry_row(name: str, spec: TunableDef) -> dict[str, Any]:
         "min": low,
         "max": high,
         "step": spec.step,
+        "effect": "none" if control_class == "retired" or name in NO_CONTROL_READER else "controller",
     }
     if spec.kind == "enum":
         row["options"] = [
@@ -342,6 +362,7 @@ def band_rows() -> Iterator[dict[str, Any]]:
                 "min": None,
                 "max": None,
                 "step": None,
+                "effect": "host",
                 "writable": False,
                 "read_only_reason": BAND_REASON,
                 "read_only_kind": "band_in_force",

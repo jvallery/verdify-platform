@@ -360,7 +360,7 @@ def test_a_statement_timeout_is_503_query_timeout():
 def test_registry_bindings_follow_the_issue():
     items = s.metric_list().items
     assert len({item.key for item in items}) == len(items) == len(s.METRICS)
-    groups = {"house climate", "zones", "water and soil", "light", "outdoor", "targets", "controller", "daily"}
+    groups = {"house climate", "zones", "water and soil", "light", "outdoor", "targets", "controller", "power", "daily"}
     assert {item.group for item in items} == groups
     for binding in s.METRICS.values():
         if binding.key.startswith("climate."):
@@ -368,6 +368,11 @@ def test_registry_bindings_follow_the_issue():
             assert binding.cadence_s == (300 if binding.raw.column.startswith("hydro_") else 60)
         elif binding.key.startswith("diagnostics."):
             assert binding.retention_days == 180 and binding.cadence_s == 60 and binding.group == "controller"
+        elif binding.key.startswith("energy."):
+            assert binding.raw.table == "v_dashboard_energy" and binding.raw.column == binding.key.removeprefix(
+                "energy."
+            )
+            assert (binding.retention_days, binding.cadence_s, binding.group, binding.unit) == (365, 300, "power", "W")
         elif binding.key.startswith("forecast."):
             assert binding.raw is None and binding.daily is None and binding.provenance == "DERIVED"
             assert binding.forecast.column == binding.key.removeprefix("forecast.")
@@ -386,6 +391,20 @@ def test_registry_bindings_follow_the_issue():
         "diagnostics.heap_largest_block_kb": "heap_largest_free_block_kb",
         "diagnostics.rssi_dbm": "wifi_rssi",
         "diagnostics.uptime_s": "uptime_s",
+        # the hardware budget (migrations 314 and 315), as API-35 reads it
+        "diagnostics.heap_min_free_kb": "heap_min_free_kb",
+        "diagnostics.heap_minute_low_kb": "heap_min_free_minute_kb",
+        "diagnostics.heap_largest_block_minute_low_kb": "heap_largest_block_minute_low_kb",
+        "diagnostics.loop_worst_ms": "loop_worst_ms",
+        "diagnostics.loop_stack_free_min_b": "loop_stack_high_water_b",
+        "diagnostics.nvs_used_entries": "nvs_used_entries",
+        "diagnostics.nvs_free_entries": "nvs_free_entries",
+        "diagnostics.nvs_write_worst_ms": "nvs_write_worst_ms",
+        "diagnostics.wifi_disconnects": "wifi_disconnect_count",
+        "diagnostics.api_clients": "api_client_count",
+        "diagnostics.restart_count": "restart_count",
+        "diagnostics.active_probes": "active_probe_count",
+        "diagnostics.sntp_sync_age_s": "last_sntp_sync_age_s",
     }
     summary = {key: b.daily for key, b in s.METRICS.items() if b.daily and b.daily.source == "daily_summary"}
     assert {key: (d.avg, d.min, d.max) for key, d in summary.items()} == {
@@ -1021,3 +1040,64 @@ def test_routes_parse_queries_call_the_service_and_render_problems():
         assert http.get("/v1/band", params=window).status_code == 200
         assert http.get("/v1/band", params={**window, "zone": "south"}).status_code == 200
         assert http.get("/v1/band", params={**window, "zone": "north"}).status_code == 422  # not offered
+
+
+# ─────────────────────────────────────────────────────────────── the hardware budget and power keys (dashboard v2)
+def test_every_controller_key_binds_a_stored_diagnostics_column():
+    stored = (ROOT / "db/schema.sql").read_text().split("CREATE TABLE public.diagnostics (", 1)[1].split("\n);", 1)[0]
+    added = "".join(
+        (ROOT / "db/migrations" / name).read_text() for name in ("314-controller-health-and-gap-ledger.sql",)
+    )
+    added += "".join(path.read_text() for path in (ROOT / "db/migrations").glob("315-*.sql"))
+    for binding in s.METRICS.values():
+        if binding.raw is not None and binding.raw.table == "diagnostics":
+            column = binding.raw.column
+            assert re.search(rf"^\s+{column} ", stored, re.M) or (f"ADD COLUMN {column} " in added), binding.key
+            assert binding.provenance == "MEASURED" and binding.daily is None, binding.key
+
+
+def test_the_power_keys_read_the_energy_projection_and_channel_1_serves_its_magnitude():
+    ch0, ch1 = s.METRICS["energy.ch0_power_w"], s.METRICS["energy.ch1_power_w"]
+    assert (ch0.raw.table, ch0.raw.magnitude, ch1.raw.table, ch1.raw.magnitude) == (
+        "v_dashboard_energy",
+        False,
+        "v_dashboard_energy",
+        True,
+    )
+    assert "magnitude" in ch1.note and "#1369" in ch1.note
+    sql = s.raw_series_sql(
+        "v_dashboard_energy", ["ch0_power_w", "ch1_power_w"], day_buckets=False, magnitude=[False, True]
+    )
+    assert 'avg("ch0_power_w")' in sql and 'avg(abs("ch1_power_w"))' in sql and 'max(abs("ch1_power_w"))' in sql
+    assert 'FROM public."v_dashboard_energy" WHERE ts >= $1::timestamptz AND ts < $2::timestamptz' in sql
+    assert "abs(" not in s.raw_series_sql("v_dashboard_energy", ["ch1_power_w"], day_buckets=False)
+
+
+def test_a_power_read_queries_the_projection_once_with_the_magnitude():
+    from_, to = at("2026-11-17T16:00:00+00:00"), at("2026-11-17T16:15:00+00:00")
+    # Live 2026-11-17: the heater on, ch1 stored at -1,416 W; the key serves 1,416.
+    energy = [
+        {
+            "bucket": from_,
+            "a0": 120.0,
+            "n0": 120.0,
+            "x0": 120.0,
+            "c0": 1,
+            "a1": 1416.0,
+            "n1": 1416.0,
+            "x1": 1416.0,
+            "c1": 1,
+            "last_ts": from_ + 2 * MIN,
+        }
+    ]
+    conn = FakeConnection([('"v_dashboard_energy"', energy)])
+    result = run(s.series(conn, ["energy.ch0_power_w", "energy.ch1_power_w"], from_, to, now=NOW))
+    energy_sql = [sql for sql, _ in conn.fetches if '"v_dashboard_energy"' in sql]
+    assert len(energy_sql) == 1 and 'avg(abs("ch1_power_w"))' in energy_sql[0]
+    assert result.series["energy.ch1_power_w"].avg[0] == 1416.0 and result.series["energy.ch0_power_w"].avg[0] == 120.0
+    assert not any('"climate"' in sql or '"diagnostics"' in sql for sql, _ in conn.fetches)
+
+
+def test_the_unreliable_and_unreported_climate_keys_say_so():
+    assert "Unreliable" in s.METRICS["climate.co2_ppm"].note
+    assert s.METRICS["climate.hydro_battery_pct"].note == "Not reported: the meter runs on mains power"

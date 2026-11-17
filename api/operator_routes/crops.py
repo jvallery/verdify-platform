@@ -1,4 +1,4 @@
-"""The Crops reads and writes: API-CROP-01 to -11 (#1327, #1330).
+"""The Crops reads and writes: API-CROP-01 to -12 (#1327, #1330; API-CROP-12 is the dashboard's planting note).
 
 No auth and no SQL: ``api/operator_api.py`` includes ``router`` under ``/v1`` with its bearer, session and role checks
 (every method but GET and HEAD for operators only) and sets ``request.state.actor``. Each route calls one
@@ -20,7 +20,14 @@ from pydantic import AwareDatetime
 
 from operator_routes.irrigation_writes import Caller, IdempotencyKey
 from operator_routes.reads import Connection
-from verdify_schemas.crops import PlantingCreate, PlantingEnd, PlantingHarvest, PlantingMove, PlantingPatch
+from verdify_schemas.crops import (
+    PlantingCreate,
+    PlantingEnd,
+    PlantingHarvest,
+    PlantingMove,
+    PlantingNote,
+    PlantingPatch,
+)
 from verdify_services import crops
 
 router = APIRouter()
@@ -169,5 +176,27 @@ async def update_planting(
 ) -> crops.Planting:
     """Correct a planting's variety, count (null is unknown), stage, notes or expected harvest."""
     result = await crops.update(conn, actor, planting_id, body, request_id=idempotency_key)
+    response.headers.update(result.rest_headers())
+    return result.value
+
+
+@router.post(
+    "/crops/plantings/{planting_id}/notes",
+    operation_id="API-CROP-12",
+    tags=["crops"],
+    response_model=crops.Planting,
+)
+async def note_planting(
+    planting_id: PlantingId,
+    body: PlantingNote,
+    conn: Connection,
+    actor: Caller,
+    response: Response,
+    idempotency_key: IdempotencyKey = None,
+) -> crops.Planting:
+    """Add a note to a planting's history (ended plantings too), through MCP annotate_planting's function."""
+    result = await crops.annotate(
+        conn, actor, planting_id, body, request_id=idempotency_key, op="API-CROP-12", answer="planting"
+    )
     response.headers.update(result.rest_headers())
     return result.value

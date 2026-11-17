@@ -1410,3 +1410,77 @@ def test_the_operator_and_a_system_actor_still_write_a_climate_setting():
     db = FakeDB()
     assert write(db, PERSON, POLICY, 660.0, False).value.value == 660.0
     assert write(db, Actor.system("light_timer"), POLICY, 690.0, False).value.value == 690.0
+
+
+# ── Setting.effect: what reads a setting on this build (dashboard v2, api.md section 4) ─────────────────────
+
+FIRMWARE = ROOT / "firmware"
+# The control sources: everything the controller compiles except the entity setters (tunables.yaml) and the cfg_*
+# readbacks (sensors.yaml), which echo a value without acting on it.
+CONTROL_SOURCES = (
+    FIRMWARE / "greenhouse.yaml",
+    *sorted(
+        path
+        for path in (FIRMWARE / "greenhouse").glob("*.yaml")
+        if path.name not in ("tunables.yaml", "sensors.yaml", "globals.yaml")
+    ),
+    *sorted((FIRMWARE / "lib").glob("*.h")),
+)
+
+
+def test_every_setting_with_no_control_reader_is_a_live_registry_row():
+    assert len(settings.NO_CONTROL_READER) == 6 + 16 + 8 + 3 + 8
+    for name in settings.NO_CONTROL_READER:
+        assert name in REGISTRY, name
+        assert REGISTRY[name].control_class != "retired", name
+
+
+def test_effect_comes_from_the_registry_and_the_reviewed_list():
+    assert settings.setting_effect("mister_on_s") == "none"  # retired
+    assert settings.setting_effect("zone_priority_east") == "none"  # retired
+    assert settings.setting_effect("mister_engage_delay_s") == "none"
+    assert settings.setting_effect("band_vpd_target_mid") == "none"
+    assert settings.setting_effect("band_vpd_low_mid") == "controller"  # the law reads the edges
+    assert settings.setting_effect("dry_cost_limit_kwh_per_kg") == "controller"
+    assert settings.setting_effect("gl_main_lux_threshold") == "controller"  # the on-chip lighting engine
+    assert settings.setting_effect("climate_yield_min") == "controller"  # the irrigation program
+    assert settings.setting_effect("band_house_temp_low") == "host"  # a Band in force row
+    row = reads.band_in_force_row("house", "temp_low", 70.0, NOW)
+    assert row.effect == "host" and row.model_dump(mode="json")["effect"] == "host"
+
+
+@pytest.mark.parametrize(
+    "global_id",
+    [
+        "mister_engage_delay_s",
+        "mister_min_off_s",
+        "direct_wet_gate_enabled",
+        "mister_hysteresis_kpa",
+        "direct_wet_min_temp_f",
+    ],
+)
+def test_no_control_source_reads_a_global_on_the_list(global_id):
+    """The setter and the cfg_* readback are the only readers today; a control path that reads one makes the list
+    wrong, so this fails until the setting leaves NO_CONTROL_READER."""
+    for path in CONTROL_SOURCES:
+        text = path.read_text()
+        assert f"id({global_id})" not in text, (path.name, global_id)
+        assert f"kPF_{global_id}" not in text or path.name.startswith("policy_"), (path.name, global_id)
+
+
+def test_the_zone_curves_and_house_targets_reach_only_published_telemetry():
+    controls = (FIRMWARE / "greenhouse" / "controls.yaml").read_text()
+    block = controls.split("if (climate_band_diag_due) {", 1)[1].split(
+        "last_climate_band_diag_ms = climate_diag_now_ms;", 1
+    )[0]
+    outside = controls.replace(block, "")
+    for name in settings.NO_CONTROL_READER:
+        if name.startswith(("zone_vpd_", "zone_priority_")):
+            assert f"id({name})" in block and f"id({name})" not in outside, name
+    # site pressure feeds the enthalpy difference, which reaches a SensorInputs field nothing in firmware/lib reads.
+    assert "enthalpy_delta" not in "".join(
+        path.read_text() for path in sorted((FIRMWARE / "lib").glob("*.h")) if path.name != "greenhouse_types.h"
+    )
+    # The law takes the band edges only; the targets go to setpts, which after the law is telemetry.
+    law_inputs = controls.split("climate_law::Inputs law_in{};", 1)[1].split("climate_law::step_checked", 1)[0]
+    assert "target" not in law_inputs

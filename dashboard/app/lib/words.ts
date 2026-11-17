@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MIT
+import type { components } from "../generated/operator-api";
 import type { AlertSeverity, AlertStatus, BandVerdict, BurstKind, LineFault, LineStateCode, ProblemCode, RequiredTrigger, RunOutcomeCode, StateReasonCode, TriggerOutcome, VpdSource } from "./vocab";
+
+type Schemas = components["schemas"];
+/** An enum of the contract without its null. */
+type Codes<T> = Exclude<T, null | undefined>;
 
 /**
  * The one words table (design system §1, rule 3): every code from the API or the controller renders through it, in
@@ -13,7 +18,9 @@ import type { AlertSeverity, AlertStatus, BandVerdict, BurstKind, LineFault, Lin
  * that adds one adds its words; the Water families (run outcomes, VPD sources, line faults and program rejects, #1135)
  * are checked the same way, as are the reason families the controller publishes (`mode_reason`, `moisture_block_reason`
  * and `fog_block_reason`, read from the firmware sources). A trigger's `failure_class` is open-ended text the ledger
- * writers choose, with no family yet, so it reads raw.
+ * writers choose, with no family yet, so it reads raw. The climate law's, the daily record's, the daily review's and
+ * the system pages' enums (dashboard v2) are checked against the OpenAPI file the same way; the delivery and data-gap
+ * families word the stored values their database columns hold.
  */
 const STATE_REASON = {
   clamped: "Clamped",
@@ -551,6 +558,197 @@ const IRRIGATION_FIELD = {
   degraded_only: "Only while VPD sensing is degraded",
 } as const;
 
+// ---------------------------------------------------------------- the climate law, the daily record, the review and system (dashboard v2)
+/** `LawRule.id`: the law's rules, as Climate lists them. */
+const LAW_RULE = {
+  heat1: "Electric heat",
+  heat2: "Gas furnace",
+  cooling: "Cooling",
+  second_fan: "Second fan",
+  fog: "Fogger",
+  mist: "Misters",
+  drying: "Drying",
+  hot_limit: "Hot limit",
+  cold_limit: "Cold limit",
+} as const satisfies Record<Schemas["LawRule"]["id"], string>;
+/** `LawRule.signal`: the reading a rule watches. */
+const LAW_SIGNAL = { temp: "temperature", vpd: "VPD" } as const satisfies Record<Schemas["LawRule"]["signal"], string>;
+/** `LawRule.direction`: a rule turns on when its reading goes below or above its threshold. */
+const LAW_DIRECTION = { below: "turns on below", above: "turns on above" } as const satisfies Record<Schemas["LawRule"]["direction"], string>;
+/** `LawRule.hold.kind`: why a relay is not doing what the law asks yet. */
+const LAW_HOLD = {
+  min_off: "waiting out its minimum off time",
+  min_on: "finishing its minimum on time",
+} as const satisfies Record<Codes<Schemas["LawRule"]["hold"]>["kind"], string>;
+/** `LawRelay.equipment`: the relays a rule drives; mister_any is any mister zone. */
+const LAW_RELAY = {
+  heat1: "Heat 1 (electric)",
+  heat2: "Heat 2 (gas)",
+  vent: "Vent",
+  fan1: "Fan 1",
+  fan2: "Fan 2",
+  fog: "Fogger",
+  mister_any: "Any mister",
+} as const satisfies Record<Schemas["LawRelay"]["equipment"], string>;
+/** `LawRelay.state` and a law lane's interval state. */
+const RELAY_STATE = { on: "On", off: "Off", unknown: "Not reported" } as const satisfies Record<Schemas["LawRelay"]["state"], string>;
+/** `LawLane.key`: the law's requests (what it asks for) and latches (what it remembers between seconds). */
+const LAW_LANE = {
+  "request.heat1": "asks for electric heat",
+  "request.heat2": "asks for the gas furnace",
+  "request.vent": "asks for the vent",
+  "request.fog": "asks for the fogger",
+  "request.mist": "asks for misting",
+  "request.fan1": "asks for at least one fan",
+  "request.fan2": "asks for both fans",
+  "request.cooling": "asks for cooling",
+  "request.drying": "asks for drying",
+  "request.hot": "too hot: everything cools",
+  "request.cold": "too cold: everything heats",
+  "latch.h1": "electric heat latched on",
+  "latch.h2": "gas furnace latched on",
+  "latch.cool": "cooling latched on",
+  "latch.cool2": "second fan latched on",
+  "latch.wet": "wetting latched on",
+  "latch.mist": "misting latched on",
+  "latch.dry": "the house wants drying",
+  "latch.air": "outdoor air is drier",
+  "latch.run": "drying is running",
+} as const satisfies Record<Schemas["LawLane"]["key"], string>;
+/** `LawLane.group`. */
+const LAW_LANE_GROUP = { request: "Requests", latch: "Latches" } as const satisfies Record<Schemas["LawLane"]["group"], string>;
+/** `LawDrying.state`: drying is venting with drier outdoor air when the house is too humid. */
+const DRYING_STATE = {
+  running: "drying",
+  refused: "drying refused",
+  not_wanted: "dry enough",
+  unknown: "not reported",
+} as const satisfies Record<Schemas["LawDrying"]["state"], string>;
+/** `LawDrying.refused_reason`: the controller's first reason not to dry while the house wants it. */
+const DRYING_REFUSAL = {
+  none: "nothing in the way",
+  no_outdoor: "no outdoor reading",
+  cooling: "the house is being cooled",
+  furnace: "the gas furnace is running",
+  not_drier: "outdoor air is not drier",
+  too_cold: "the house is too cold to vent",
+  cost: "costs more than the limit",
+  humidity_invalid: "no valid humidity reading",
+  no_temperature: "no temperature reading",
+} as const satisfies Record<Codes<Schemas["LawDrying"]["refused_reason"]>, string>;
+/** `LawDrying.checks[].id`: the drying decision chain, in the law's order. */
+const DRYING_CHECK = {
+  humid: "the house is humid enough to dry",
+  outdoor_drier: "outdoor air is drier",
+  worth_it: "worth the heat it costs",
+  warm_enough: "warm enough to vent",
+  not_cooling: "the house is not being cooled",
+  furnace_off: "the gas furnace is off",
+} as const satisfies Record<Schemas["LawDrying"]["checks"][number]["id"], string>;
+/** `LawDrying.limit_source`: who set the drying cost limit. */
+const LIMIT_SOURCE = { owner: "set by the owner", default: "the controller's default" } as const satisfies Record<Schemas["LawDrying"]["limit_source"], string>;
+/** `LawInputs.outdoor.source`, `Now.outdoor.source` and the law history's outdoor source. */
+const OUTDOOR_SOURCE = {
+  station: "weather station",
+  intake: "intake probe",
+  none: "no outdoor reading",
+  unknown: "not reported",
+} as const satisfies Record<Codes<Schemas["LawInputs"]["outdoor"]["source"]> | Schemas["LawHistory"]["outdoor_source"][number]["source"], string>;
+/** `LawBand.source`: where the controller takes its band from. */
+const BAND_SOURCE = {
+  onchip_curve: "the controller's own daily curve",
+  corridor: "the pushed band edges",
+  dispatcher_legacy: "the older host push",
+} as const satisfies Record<Codes<Schemas["LawBand"]["source"]>, string>;
+/** `LawAlone.gap_log`: the record the controller keeps while the host is away. */
+const GAP_LOG = {
+  armed: "on, keeping a record",
+  not_armed_yet: "not armed yet",
+  nvs_small: "off: storage is too small",
+  nvs_full: "off: storage is full",
+  nvs_slow: "off: storage is too slow",
+  nvs_error: "off: storage failed",
+} as const satisfies Record<Codes<Schemas["LawAlone"]["gap_log"]>, string>;
+/** `Review.status` and `ReviewPage.today.status`. */
+const REVIEW_STATUS = {
+  written: "Written",
+  delivered: "Started",
+  requested: "Asked for",
+  failed: "Failed",
+  due: "Due",
+  not_due: "Not due yet",
+} as const satisfies Record<Schemas["Review"]["status"] | Schemas["ReviewPage"]["today"]["status"], string>;
+/** `Review.kind`. */
+const REVIEW_KIND = { daily: "Daily review", manual: "Asked-for review" } as const satisfies Record<Schemas["Review"]["kind"], string>;
+/** `Review.failure`: why a review failed. */
+const REVIEW_FAILURE = {
+  gateway_rejected: "the reviewer's gateway refused the request",
+  gateway_unreachable: "the reviewer could not be reached",
+  hermes_run_failed: "the reviewer's run failed",
+  hermes_run_cancelled: "the reviewer's run was cancelled",
+  completed_without_review: "the run ended without writing a review",
+  attempts_exhausted: "every attempt failed",
+} as const satisfies Record<Codes<Schemas["Review"]["failure"]>, string>;
+/** `Review.proposal_state`: where a band proposal stands with the owner. */
+const PROPOSAL_STATE = {
+  waiting: "waiting for the owner",
+  answered: "the owner changed the band since",
+  superseded: "replaced by a newer review",
+} as const satisfies Record<Codes<Schemas["Review"]["proposal_state"]>, string>;
+/** `RelayCheck.days[].comparison`: how far the controller's own counters and the stored record can be compared. */
+const RELAY_COMPARISON = {
+  complete: "whole day compared",
+  partial: "part of the day compared",
+  no_record: "no stored record",
+  record_early: "record stored before the day ended",
+} as const satisfies Record<Schemas["RelayCheck"]["days"][number]["comparison"], string>;
+/** `Setting.effect`: what reads a setting on this build. */
+const SETTING_EFFECT = {
+  controller: "the controller uses it",
+  host: "the host uses it",
+  none: "nothing uses it",
+} as const satisfies Record<NonNullable<Schemas["Setting"]["effect"]>, string>;
+/** `Delivery.by_status[].status`: where a pushed value stands (setpoint_changes.delivery_status; missing reads pending). */
+const DELIVERY_STATUS = {
+  pending: "waiting to send",
+  requested: "asked for",
+  queued: "in the send queue",
+  sent: "sent, not confirmed yet",
+  retrying: "sending again",
+  confirmed: "confirmed by readback",
+  failed: "not taken",
+  cancelled: "cancelled before it was sent",
+  superseded: "replaced by a newer value",
+  expired: "gave up waiting",
+  observed: "seen on the controller",
+} as const;
+/** `Delivery.by_status[].source`: who pushed or reported a value (setpoint_changes.source; missing reads none). */
+const DELIVERY_SOURCE = {
+  band: "the house band",
+  plan: "the old planner",
+  iris_planner: "the old planner",
+  manual: "an operator",
+  esp32: "the controller",
+  dispatcher: "the host",
+  system: "the host",
+  ingestor: "the host",
+  none: "not recorded",
+} as const;
+/** `DataContinuity.outages[].reason`: why the host lost telemetry (data_gaps.reason). */
+const DATA_GAP_REASON = {
+  ingestor_restart: "the host reconnected to the controller",
+  ingestor_process_restart: "the host's telemetry reader restarted",
+} as const;
+/** `DataContinuity.outages[].status`: what the host saved when it came back (data_gaps.backfill_status). */
+const DATA_GAP_STATUS = {
+  snapshot_taken: "state saved on return",
+  snapshot_incomplete: "state partly saved on return",
+  pending: "not restored yet",
+  backfilled: "restored",
+  unrecoverable: "lost",
+  ignored: "set aside",
+} as const;
+
 export const WORDS: { readonly [family: string]: { readonly [code: string]: string } } = {
   state_reason: STATE_REASON,
   alert_severity: ALERT_SEVERITY,
@@ -584,10 +782,39 @@ export const WORDS: { readonly [family: string]: { readonly [code: string]: stri
   line_fault: LINE_FAULT,
   program_reject: PROGRAM_REJECT,
   occurrence_reason: OCCURRENCE_REASON,
+  law_rule: LAW_RULE,
+  law_signal: LAW_SIGNAL,
+  law_direction: LAW_DIRECTION,
+  law_hold: LAW_HOLD,
+  law_relay: LAW_RELAY,
+  relay_state: RELAY_STATE,
+  law_lane: LAW_LANE,
+  law_lane_group: LAW_LANE_GROUP,
+  drying_state: DRYING_STATE,
+  drying_refusal: DRYING_REFUSAL,
+  drying_check: DRYING_CHECK,
+  limit_source: LIMIT_SOURCE,
+  outdoor_source: OUTDOOR_SOURCE,
+  band_source: BAND_SOURCE,
+  gap_log: GAP_LOG,
+  review_status: REVIEW_STATUS,
+  review_kind: REVIEW_KIND,
+  review_failure: REVIEW_FAILURE,
+  proposal_state: PROPOSAL_STATE,
+  relay_comparison: RELAY_COMPARISON,
+  setting_effect: SETTING_EFFECT,
+  delivery_status: DELIVERY_STATUS,
+  delivery_source: DELIVERY_SOURCE,
+  data_gap_reason: DATA_GAP_REASON,
+  data_gap_status: DATA_GAP_STATUS,
 };
 export type WordFamily = "state_reason" | "alert_severity" | "alert_status" | "problem_code" | "line_state" | "mode" | "mist_stage" | "fog_block_reason"
   | "mode_reason" | "moisture_block_reason" | "light_result" | "light_reason" | "light_target" | "alert_type" | "equipment" | "burst" | "required_trigger" | "band_verdict" | "scorecard_reason" | "trigger_outcome" | "trigger" | "tunable_short" | "stress_kind" | "stress_severity"
-  | "activity_action" | "irrigation_field" | "run_outcome" | "vpd_source" | "line_fault" | "program_reject" | "occurrence_reason";
+  | "activity_action" | "irrigation_field" | "run_outcome" | "vpd_source" | "line_fault" | "program_reject" | "occurrence_reason"
+  | "law_rule" | "law_signal" | "law_direction" | "law_hold" | "law_relay" | "relay_state" | "law_lane" | "law_lane_group" | "drying_state"
+  | "drying_refusal" | "drying_check" | "limit_source" | "outdoor_source" | "band_source" | "gap_log" | "review_status" | "review_kind"
+  | "review_failure" | "proposal_state" | "relay_comparison" | "setting_effect" | "delivery_status" | "delivery_source" | "data_gap_reason"
+  | "data_gap_status";
 
 /** True when the table has words for `code` in `family`. */
 export function hasWords(family: string, code: string): boolean {

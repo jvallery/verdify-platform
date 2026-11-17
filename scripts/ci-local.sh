@@ -150,6 +150,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_317_served_band_readers_and_relay_record_delivery.py
     tests/test_318_retire_plan_cycle_lessons_delivery.py
     tests/test_319_band_divergence_mode_delivery.py
+    tests/test_320_dashboard_projections_delivery.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py
@@ -161,6 +162,14 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_verdify_services_settings.py
     tests/test_verdify_services_alerts.py
     tests/test_operator_routes_reads.py
+    tests/test_verdify_services_law.py
+    tests/test_operator_routes_law.py
+    tests/test_verdify_services_record.py
+    tests/test_verdify_services_reviews.py
+    tests/test_operator_routes_record.py
+    tests/test_verdify_services_system_health.py
+    tests/test_operator_routes_system.py
+    tests/test_crops_planting_note.py
     tests/test_realized_solar_night_dryout_timeline.py
     tests/test_05_dispatcher.py
     tests/test_dispatcher_plain_convergence.py
