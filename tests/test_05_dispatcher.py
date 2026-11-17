@@ -187,7 +187,7 @@ async def test_confirmation_awaits_no_readback_for_a_setting_the_controller_does
     controller does not list, and keeps it while the controller lists it."""
     from entity_map import PARAM_TO_ENTITY
 
-    param = "mister_vpd_weight"
+    param = "mister_min_off_s"  # a live routed setting (release 4 deleted mister_vpd_weight)
     scanned: list[list[str]] = []
 
     class Connection:
