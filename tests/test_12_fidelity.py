@@ -312,6 +312,13 @@ def test_api_setpoint_fallback_uses_computed_band_not_planner_band_rows():
         "SELECT temp_low, temp_high, vpd_low, vpd_high, temp_target, vpd_target FROM fn_band_setpoints(now())" in body
     )
     assert "fn_house_vpd_control_band" not in body  # #1734 CTL-26: all four edges from fn_band_setpoints
+
+    # MCP outcome_kpi: its band fallback reads fn_band_setpoints too (#1734 CTL-26, release 5 review R5-TEST-2).
+    mcp_src = Path("mcp/server.py").read_text()
+    kpi = mcp_src[mcp_src.index("async def outcome_kpi(") :]
+    kpi = kpi[: kpi.index("\n@mcp.")] if "\n@mcp." in kpi else kpi[: kpi.index("\nasync def ", 1)]
+    assert "fn_house_vpd_control_band" not in kpi
+    assert "band.vpd_low" in kpi and "band.vpd_high" in kpi
     assert "SELECT target_dli, sunrise_hour, cutoff_hour, target_light_hours FROM fn_lighting_policy(now(), $1)" in body
     assert "fn_lighting_minutes_policy(now(), $1)" in body
     assert "SELECT * FROM" not in body

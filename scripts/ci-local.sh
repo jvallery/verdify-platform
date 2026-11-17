@@ -247,6 +247,8 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_anchor_service_sync.py
     tests/test_gap_replay.py
     tests/test_relay_boot_edges.py
+    tests/test_forecast_fetch_retry.py
+    tests/test_esp32_log_tag.py
     tests/test_api_light_command_boundary.py
     tests/test_api_public_output_policy.py
     tests/test_climate_intent_replay_evaluator.py
