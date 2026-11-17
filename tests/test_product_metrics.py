@@ -453,6 +453,25 @@ def test_release_pins_come_from_the_mounted_file(tmp_path):
     assert pm.read_release_pins(tmp_path / "missing.yaml") == []
 
 
+def test_release_pins_are_read_again_when_the_mounted_file_changes(tmp_path):
+    # #1734 C-5: the fixed-name ConfigMap no longer rolls the pod, so a promotion must show without a restart.
+    def doc(image, digest):
+        return f"apiVersion: builtin\nkind: ImageTagTransformer\nmetadata:\n  name: pin\nimageTag:\n  name: registry.example/{image}\n  digest: sha256:{digest * 64}\n"
+
+    pins = tmp_path / "release-pins.yaml"
+    pins.write_text(doc("verdify-api", "a"))
+    metrics = pm.ProductMetrics(groups=(), release_pins_path=pins)
+    first = [name for name in lines(metrics.render()) if name.startswith("verdify_release_pin_info")]
+    assert len(first) == 1 and f"sha256:{'a' * 64}" in first[0] and 'image="verdify-api"' in first[0]
+    swapped = tmp_path / "new.yaml"  # the kubelet's swap: a new file under the same name
+    swapped.write_text(doc("verdify-api", "b"))
+    swapped.replace(pins)
+    second = [name for name in lines(metrics.render()) if name.startswith("verdify_release_pin_info")]
+    assert len(second) == 1 and f"sha256:{'b' * 64}" in second[0]
+    pins.unlink()
+    assert not [name for name in lines(metrics.render()) if name.startswith("verdify_release_pin_info")]
+
+
 def test_health_readings_absent_give_no_sample():
     assert pm.health_samples(None) == []
     assert pm.health_samples(dict.fromkeys(HEALTH_COLUMNS)) == []

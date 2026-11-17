@@ -1052,11 +1052,26 @@ class ProductMetrics:
     started_at: float = 0.0
     release_pins: list[Sample] = field(default_factory=list)
     on_failure: Callable[[str, str], None] | None = None
+    # The file's identity when release_pins was read (#1734 C-5): the ConfigMap keeps its name across promotions and
+    # the kubelet swaps the mounted file in place, so render() reads it again whenever it changes.
+    _release_pins_stamp: tuple[int, int, int] | None = None
 
     def __post_init__(self) -> None:
         self.started_at = self.clock()
         self.snapshots = {group.name: Snapshot() for group in self.groups}
-        self.release_pins = read_release_pins(self.release_pins_path)
+        self.current_release_pins()
+
+    def current_release_pins(self) -> list[Sample]:
+        """The release pins, read again when the mounted file's inode, size or mtime changed since the last read."""
+        try:
+            stat = self.release_pins_path.stat()
+            stamp: tuple[int, int, int] | None = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        except OSError:
+            stamp = None
+        if stamp is None or stamp != self._release_pins_stamp:
+            self.release_pins = read_release_pins(self.release_pins_path)
+            self._release_pins_stamp = stamp
+        return self.release_pins
 
     def due(self, now: float) -> list[Group]:
         return [
@@ -1110,7 +1125,7 @@ class ProductMetrics:
     def render(self) -> str:
         """Everything except the alert lines, which operator_api.render_alert_metrics keeps in their #1352 form."""
         now = self.clock()
-        out: list[Sample] = list(self.release_pins)
+        out: list[Sample] = list(self.current_release_pins())
         for group in self.groups:
             snapshot = self.snapshots[group.name]
             since = snapshot.succeeded_at if snapshot.succeeded_at is not None else self.started_at
