@@ -165,17 +165,29 @@ def test_required_runtime_secrets_fail_closed_and_sql_expressions_are_not_explic
     assert "sqlExpressions" not in enabled.split(",")
 
 
+def _contract_rows(contract: str) -> dict[tuple[str, str], str]:
+    """(Secret, key) -> consumer cell, for every inventory table row of SECRETS.md."""
+    rows: dict[tuple[str, str], str] = {}
+    for line in contract.splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) >= 3:
+            rows[(cells[0].strip("`"), cells[1].strip("`"))] = cells[2]
+    return rows
+
+
 def test_required_grafana_secret_keys_are_in_the_canonical_contract():
     contract = SECRET_CONTRACT.read_text()
+    rows = _contract_rows(contract)
 
-    assert (
-        "| `verdify-grafana-secrets` | `GRAFANA_ADMIN_PASSWORD` | "
-        "grafana (`secretKeyRef`, required; pod fails closed when absent) | — | — | ✓ |"
-    ) in contract
-    assert (
-        "| `verdify-grafana-secrets` | `GRAFANA_RENDERER_TOKEN` | "
-        "grafana + image-renderer (`secretKeyRef`, required shared token; pod fails closed when absent) | "
-        "— | — | ✓ |"
-    ) in contract
+    for key in ("GRAFANA_ADMIN_PASSWORD", "GRAFANA_RENDERER_TOKEN"):
+        consumer = rows.get(("verdify-grafana-secrets", key))
+        assert consumer is not None, f"{key} is missing from deploy/k8s/SECRETS.md"
+        grafana_part = consumer.split(";")[0] if key == "GRAFANA_ADMIN_PASSWORD" else consumer.split(")")[0]
+        assert "grafana" in grafana_part
+        assert "secretKeyRef" in grafana_part
+        assert "req" in grafana_part, f"{key} must be required for Grafana"
+        assert "fails closed when absent" in consumer
     assert "there is deliberately no in-repo placeholder, default password, or" in contract
     assert "then run the task-scoped" in contract
