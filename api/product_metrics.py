@@ -309,8 +309,13 @@ FAMILIES: dict[str, Family] = {
     # data flow
     "verdify_table_last_row_age_seconds": Family("gauge", "Seconds since the newest row of a table (1 d window)."),
     "verdify_table_rows_5m": Family("gauge", "Rows written to a table in the last 5 minutes."),
-    "verdify_data_gaps_7d": Family("gauge", "data_gaps rows started in the last 7 days, by backfill status."),
-    "verdify_data_gap_seconds_7d": Family("gauge", "Seconds of data_gaps started in the last 7 days."),
+    "verdify_data_gaps_7d": Family(
+        "gauge",
+        "Unreplayed data_gaps pieces (v_data_gaps_unreplayed) started in the last 7 days, by backfill status.",
+    ),
+    "verdify_data_gap_seconds_7d": Family(
+        "gauge", "Seconds of unreplayed data_gaps pieces (v_data_gaps_unreplayed) started in the last 7 days."
+    ),
     "verdify_ingestor_reconnects_total": Family("counter", "ESP32 reconnects since the ingestor process started."),
     "verdify_ingestor_rows_rejected_total": Family("counter", "Device rows dropped by schema validation, by table."),
     "verdify_ingestor_payloads_rejected_total": Family("counter", "Versioned controller payloads rejected."),

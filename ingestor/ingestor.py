@@ -21,7 +21,7 @@ import time
 import unicodedata
 import urllib.request
 import zlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -184,6 +184,10 @@ DIAG_FLUSH_INTERVAL = 60  # seconds between diagnostics row writes
 # observation landing between two windows was never written (a lost per-minute low is a lost minute).
 DIAG_OBSERVATION_MAX_AGE_S = 180
 DIAG_PENDING_PER_COLUMN = 4
+# One row per publish batch (#1734 C-10): observations are taken oldest first, and a row closes at the first one more
+# than this after the row's first, or of a column the row already holds. A row no longer pairs the i-th pending value
+# of every column, which put an older value of one column beside a newer value of another.
+DIAG_BATCH_SPAN_S = 5.0
 LOG_FLUSH_INTERVAL = 10  # seconds between log batch writes
 COUNTER_SAMPLE_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_COUNTER_SAMPLE_BUFFER_MAX_ROWS", "50000")))
 EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS", "50000")))
@@ -2413,6 +2417,23 @@ async def write_setpoint_changes(pool: asyncpg.Pool, ts: datetime) -> None:
     log.debug(f"setpoint_changes: {len(validated)} changes written")
 
 
+def _diagnostic_batches(
+    queues: Mapping[str, Sequence[tuple[datetime, int, Any]]],
+) -> list[dict[str, tuple[datetime, int, Any]]]:
+    """The pending observations of every column as rows, one per publish batch, oldest first (DIAG_BATCH_SPAN_S)."""
+    batches: list[dict[str, tuple[datetime, int, Any]]] = []
+    first: datetime | None = None
+    for col, entry in sorted(
+        ((col, entry) for col, queue in queues.items() for entry in queue), key=lambda item: (item[1][0], item[0])
+    ):
+        moment = entry[0]
+        if not batches or col in batches[-1] or (moment - first).total_seconds() > DIAG_BATCH_SPAN_S:
+            batches.append({})
+            first = moment
+        batches[-1][col] = entry
+    return batches
+
+
 async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
     """Write a diagnostics row."""
     d = state.diagnostics
@@ -2422,7 +2443,8 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
             return
         # Retained caches are not current-generation native observations. Each value of this connection is
         # written once: only when it is newer than the one last written for its column (DIAG-WINDOW). Values
-        # that arrived between two ticks become one row each, oldest first, so a tick never drops one.
+        # that arrived between two ticks are grouped by publish batch (DIAG_BATCH_SPAN_S), oldest first, so a tick
+        # never drops one and a row is stamped with the newest moment of its own batch.
         accepted = state.diagnostic_accepted_observations
 
         def unwritten(col: str, moment: datetime, gen: int) -> bool:
@@ -2442,8 +2464,7 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
         if not queues:
             return
         rows = []
-        for i in range(max(len(queue) for queue in queues.values())):
-            fresh = {col: queue[i] for col, queue in queues.items() if i < len(queue)}
+        for fresh in _diagnostic_batches(queues):
             row_ts = max(moment for moment, _, _ in fresh.values())
             # A state the controller publishes only when it changes is carried from its last receipt in this
             # connection into every row, so the newest row always holds it; a new connection starts without it.

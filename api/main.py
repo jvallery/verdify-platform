@@ -954,8 +954,11 @@ async def _fetchrow_optional(
 
 # v_data_trust_ledger takes about 23 s on production, longer than either public route may wait (#1633 release 4).
 # The routes never query it inline: they read the newest rows one background refresh per TRUST_LEDGER_TTL_S holds,
-# per API pod, stale while a refresh runs and empty until the first refresh after start ends.
+# per API pod, stale while a refresh runs and empty until the first refresh after start ends. Rows from a refresh more
+# than TRUST_LEDGER_MAX_AGE_S ago are not served (#1734 C-10): while refreshes fail the routes read no rows, never an
+# old "ok".
 TRUST_LEDGER_TTL_S = 300.0
+TRUST_LEDGER_MAX_AGE_S = 900.0
 TRUST_LEDGER_TIMEOUT_MS = 60_000
 TRUST_LEDGER_SQL = """
     SELECT check_name, lower(status) AS status, metric_value, threshold_value, details
@@ -964,16 +967,17 @@ TRUST_LEDGER_SQL = """
       CASE lower(status) WHEN 'fail' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END,
       check_name
 """
-_trust_ledger: dict[str, Any] = {"rows": None, "at": None, "task": None}
+_trust_ledger: dict[str, Any] = {"rows": None, "at": None, "ok_at": None, "task": None}
 
 
 async def _refresh_trust_ledger() -> None:
-    """One read of the ledger with its own long timeout; a failure keeps the previous rows until the next TTL."""
+    """One read of the ledger with its own long timeout; a failure keeps the previous rows (and their age)."""
     try:
         async with pool.acquire() as conn, conn.transaction():
             await conn.execute("SET LOCAL jit = off")
             await conn.execute(f"SET LOCAL statement_timeout = '{TRUST_LEDGER_TIMEOUT_MS}ms'")
             _trust_ledger["rows"] = [dict(r) for r in await conn.fetch(TRUST_LEDGER_SQL)]
+            _trust_ledger["ok_at"] = time.monotonic()
     except Exception as exc:  # noqa: BLE001 - a public health read must not fail on its slowest input
         log.warning("v_data_trust_ledger refresh failed: %s", type(exc).__name__)
     finally:
@@ -981,10 +985,15 @@ async def _refresh_trust_ledger() -> None:
 
 
 def trust_ledger_rows() -> list[dict[str, Any]]:
-    """The cached ledger rows; starts a background refresh when they are older than the TTL and none is running."""
+    """The cached ledger rows, none once the last successful refresh is older than TRUST_LEDGER_MAX_AGE_S; starts a
+    background refresh when the last try is older than the TTL and none is running."""
+    now = time.monotonic()
     at, task = _trust_ledger["at"], _trust_ledger["task"]
-    if (at is None or time.monotonic() - at >= TRUST_LEDGER_TTL_S) and (task is None or task.done()):
+    if (at is None or now - at >= TRUST_LEDGER_TTL_S) and (task is None or task.done()):
         _trust_ledger["task"] = asyncio.create_task(_refresh_trust_ledger())
+    ok_at = _trust_ledger.get("ok_at")
+    if ok_at is None or now - ok_at > TRUST_LEDGER_MAX_AGE_S:
+        return []
     return list(_trust_ledger["rows"] or [])
 
 

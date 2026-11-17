@@ -270,7 +270,7 @@ def test_law_band_vpd_edge_alone_opens():
 
 
 # ── relay_counter_mismatch (RULINGS AF7) ────────────────────────────────────────────────────────────────────────────
-def recon(equipment, counter_starts, record_starts, counter_run_s=None, record_run_s=None, rows=60):
+def recon(equipment, counter_starts, record_starts, counter_run_s=None, record_run_s=None, rows=60, boots=0):
     run_d = None if counter_run_s is None or record_run_s is None else counter_run_s - record_run_s
     return {
         "date": date(2026, 11, 17),
@@ -282,6 +282,7 @@ def recon(equipment, counter_starts, record_starts, counter_run_s=None, record_r
         "record_run_s": record_run_s,
         "run_s_difference": run_d,
         "counter_rows": rows,
+        "boots": boots,
     }
 
 
@@ -293,6 +294,14 @@ def test_counter_mismatch_inside_the_tolerance_is_quiet():
         recon("vent", 9, 0, rows=1),  # one counter row: not judged
     ]
     assert cov.counter_mismatch_alerts(rows) == []
+
+
+def test_each_boot_of_the_day_allows_one_more_start():
+    # #1734 C-10: a relay on across a reboot is switched on again, a start the stored edges never show.
+    assert cov.counter_mismatch_alerts([recon("heat1", 13, 10, boots=1)]) == []
+    assert [a["sensor_id"] for a in cov.counter_mismatch_alerts([recon("heat1", 13, 10)])] == [
+        "equipment.heat1.counters.2026-11-17"
+    ]
 
 
 def test_counter_mismatch_warns_once_per_relay_and_day():

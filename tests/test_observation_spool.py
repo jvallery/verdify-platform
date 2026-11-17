@@ -382,6 +382,23 @@ def test_a_61_s_tick_against_a_60_s_publisher_loses_and_repeats_nothing(monkeypa
         assert written == published[col], col  # every value once, in order
 
 
+def test_diagnostic_rows_are_publish_batches_not_queue_positions():
+    """#1734 C-10 (review R4DISPATCHER-07): heap publishes at t60 and t120, gap_log_state changes at t100. Pairing by
+    queue index made {heap@t60, gap@t100} stamped t100; each row is now its own batch, stamped inside it."""
+    t = TS
+    queues = {
+        "heap_min_free_minute_kb": [(t + timedelta(seconds=60), 7, 40.0), (t + timedelta(seconds=120), 7, 41.0)],
+        "gap_log_state": [(t + timedelta(seconds=100), 7, "armed")],
+        "wifi_rssi": [(t + timedelta(seconds=60.4), 7, -55.0)],  # the same batch as the t60 heap value
+    }
+    batches = ingestor._diagnostic_batches(queues)
+    assert [{col: entry[0] - t for col, entry in batch.items()} for batch in batches] == [
+        {"heap_min_free_minute_kb": timedelta(seconds=60), "wifi_rssi": timedelta(seconds=60.4)},
+        {"gap_log_state": timedelta(seconds=100)},
+        {"heap_min_free_minute_kb": timedelta(seconds=120)},
+    ]
+
+
 def test_an_on_change_state_is_carried_into_every_row_of_its_connection(monkeypatch):
     """#1633 release 3: sensor_degraded_active and gap_log_state are published on change; every row carries them."""
     monkeypatch.setattr(ingestor.shared, "transport_generation", 7)
