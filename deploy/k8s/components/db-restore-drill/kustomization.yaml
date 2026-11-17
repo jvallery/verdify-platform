@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Scheduled isolated restore drill for verdify-db (#1549, STD-DR-04). A weekly
+# CronJob restores the newest committed backup pair from verdify-db-dumps
+# (mounted read-only) into a socket-only PostgreSQL in emptyDir, runs the same
+# verify, restore, Timescale chunk-ownership and audit steps as the on-demand
+# renderer (scripts/render-backup-pair-restore-job.py), and logs one receipt
+# with the achieved RPO and measured RTO. No DB credential, no service-account
+# token, deny-all NetworkPolicy; it never connects to the production database.
+# Targets and the receipt: docs/runbooks/db-backup-pair-restore.md.
+resources:
+  - restore-drill-cronjob.yaml
+  - restore-drill-networkpolicy.yaml
+
+# src/ holds byte-identical copies of the canonical scripts/ files (kustomize's
+# RootOnly load restrictor); tests/test_db_restore_drill.py fails CI on drift.
+configMapGenerator:
+  - name: verdify-db-restore-drill-scripts
+    files:
+      - src/run-scheduled-restore-drill.sh
+      - src/verify-backup-pair.sh
+      - src/restore-backup-pair.sh
+      - src/logical-restore-audit.sql
+      - src/check-timescale-ownership.sql
+      - src/test-timescale-parent-owner.sql
+      - src/test-restored-timescale-parent-owner.sql
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/part-of: verdify
+    app.kubernetes.io/component: db-restore-drill

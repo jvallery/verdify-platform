@@ -39,6 +39,8 @@ spec:
           - lab-site
           - mcp
           - outbound
+          # #1549: deny-all (no egress at all) in its own component policy.
+          - db-restore-drill
           # On egress-api-hermes-allowlist (public tcp/443): see the header.
           - api
           - hermes-iris
