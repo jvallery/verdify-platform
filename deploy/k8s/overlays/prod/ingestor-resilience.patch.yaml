@@ -5,15 +5,17 @@
 # no double-writer) and is therefore a root-executed safeguarded action at the
 # device-write window, NOT autonomous. Landed here ready-to-sync.
 #
-# 1. LIVENESS (audit §8 P1.5): the single writer has had NO probe, so a wedged
-#    event loop (stalled setpoint_listener / hung task loop) never self-heals.
-#    This wires ingestor-healthz.py (climate-freshness) but TOLERATES exit 2
-#    (DB unreachable) — so a DB outage NEVER restarts the writer. It restarts
-#    ONLY on exit 1 (climate stale despite a REACHABLE DB = genuinely wedged).
-#    During a DB outage the loop keeps reconnecting and spooling telemetry to
-#    /srv/verdify/state/spool/climate.jsonl, so a restart there would only widen
-#    the write gap — hence the exit-2 tolerance. Generous thresholds: ~120 s
-#    warmup, then 5 × 30 s of reachable-but-stale before a restart.
+# 1. LIVENESS (audit §8 P1.5; #1748): process health only. ingestor-liveness.py
+#    passes while the event loop and the task supervisor both beat (process_liveness.py;
+#    files under /tmp, the pod's emptyDir) within 90 s. It reads no climate row
+#    and no database: a silent controller (WiFi down, restarting) or a database
+#    outage is outside the pod, a restart repairs neither, and the old
+#    climate-age probe restart-looped the single writer every ~4.5 min through
+#    every controller silence (2026-11-17: 6 kills 03:50-04:12Z, 6 more
+#    11:28-11:50Z). Data freshness stays a metric and an alert
+#    (verdify_table_last_row_age_seconds{table="climate"}, sensor_offline);
+#    ingestor-healthz.py remains a manual climate-age check. Generous
+#    thresholds: ~120 s warmup, then 5 x 30 s of stale beats before a restart.
 #
 # 2. SOFT nodeAffinity AWAY from the storage-flaky node6 (audit D3: node6
 #    iSCSI/NFS FailedMount churned the writer twice in ~50 min and timed out the
@@ -54,10 +56,7 @@ spec:
         - name: ingestor
           livenessProbe:
             exec:
-              command:
-                - sh
-                - -c
-                - 'python ingestor-healthz.py; rc=$?; [ "$rc" = 0 ] || [ "$rc" = 2 ]'
+              command: ["python", "ingestor-liveness.py"]
             initialDelaySeconds: 120
             periodSeconds: 30
             timeoutSeconds: 10

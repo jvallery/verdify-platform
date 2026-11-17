@@ -37,6 +37,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import asyncpg
 import gap_replay
+import process_liveness
 import shared
 from aioesphomeapi import APIClient, APIConnectionError, LogLevel
 from aioesphomeapi.model import (
@@ -4646,6 +4647,8 @@ async def task_loop(pool: asyncpg.Pool) -> None:
     try:
         while True:
             await asyncio.sleep(1)
+            # #1748: process-health liveness, not data freshness.
+            process_liveness.beat(process_liveness.TASK_SUPERVISOR)
             now = asyncio.get_running_loop().time()
             # Ordinary dispatch reads no approval file (VD-62).
             forced = {"setpoint_dispatch"} if shared.setpoint_dispatch_requested.is_set() else set()
@@ -5150,6 +5153,8 @@ async def main() -> None:
         log.info("Signal handlers unavailable; lease will expire on hard stop")
 
     main_tasks = asyncio.gather(
+        # #1748: the liveness probe (ingestor-liveness.py) reads this beat and the task supervisor's.
+        process_liveness.event_loop_heartbeat(),
         esp32_loop(pool),
         flush_loop(pool, equipment_source_pool),
         task_loop(pool),
