@@ -36,7 +36,7 @@ from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 from zoneinfo import ZoneInfo
 
 import asyncpg
@@ -121,7 +121,8 @@ LEAK_FLAG = "leak_detected"
 _EQUIPMENT_KEYS = tuple(name for name, _ in EQUIPMENT_LIST) + tuple(GROW_LIGHT_INTENTS.values())
 _NOW_EQUIPMENT_KEYS = _EQUIPMENT_KEYS + tuple(BURSTS) + (LEAK_FLAG,)
 MODE_ENTITY = "greenhouse_state"
-_NOW_NEWEST_ENTITIES = ("mister_state", "mode_reason", "fog_block_reason", LAW_STATE_ENTITY)
+OUTDOOR_SOURCE_ENTITY = "outdoor_source"
+_NOW_NEWEST_ENTITIES = ("mister_state", "mode_reason", "fog_block_reason", LAW_STATE_ENTITY, OUTDOOR_SOURCE_ENTITY)
 # API-13's reasons (entity_map's controller text entities): which branch chose the mode, what holds fog (L11) off and
 # what holds the misters off.
 REASON_ENTITIES = ("mode_reason", "fog_block_reason", "moisture_block_reason")
@@ -207,9 +208,15 @@ class Hydroponics(_Model):
     stale_after_s: int = 600
 
 
+OutdoorSource = Literal["station", "intake", "none"]
+
+
 class Outdoor(_Model):
     temp_f: Reading
     rh_pct: Reading
+    # The controller's outdoor source (system_state outdoor_source): the weather station, the intake probe, or none;
+    # null while the controller is not reporting or before any row.
+    source: OutdoorSource | None = None
 
 
 class Band(_Model):
@@ -286,6 +293,34 @@ class Controller(_Model):
     heap_largest_block_kb: float | None
     rssi_dbm: float | None
     observed_at: datetime | None
+    # The three hardware-budget facts the shell's banner needs, each the newest non-null diagnostics value of the last
+    # 15 minutes (the HEALTH_SQL rule of api/product_metrics.py): the lowest free heap in the controller's last
+    # one-minute window, its persisted restart count, and its gap log state as LawAlone.gap_log words it (armed, or
+    # why not).
+    heap_minute_low_kb: float | None = None
+    restart_count: int | None = None
+    gap_log: str | None = None
+
+
+ReviewDayStatus = Literal["written", "delivered", "requested", "failed", "due", "not_due"]
+
+
+class NowReview(_Model):
+    """The daily review on Now: ``verdify_services.reviews.today()``, the same state as API-34's ``today``, with the
+    newest written review's time and whether a band proposal waits for the owner."""
+
+    review_date: date
+    status: ReviewDayStatus
+    missed: bool
+    written_at: datetime | None
+    proposal_waiting: bool
+
+
+class BandEdges(_Model):
+    temp_low_f: float
+    temp_high_f: float
+    vpd_low_kpa: float
+    vpd_high_kpa: float
 
 
 # The law's state record (phase 3 firmware; verdify_schemas.telemetry.ClimateLawState): the names of its latch and
@@ -314,6 +349,8 @@ class LawState(_Model):
     drying_cost_kwh_per_kg: float | None
     drying_cost_limit_kwh_per_kg: float
     band_repaired: bool
+    # The band the controller is using (the record's b): temperature edges in F, VPD edges in kPa.
+    band: BandEdges | None = None
 
 
 def law_state(value: str | None, observed_at: datetime | None, at: datetime) -> LawState | None:
@@ -341,6 +378,9 @@ def law_state(value: str | None, observed_at: datetime | None, at: datetime) -> 
         drying_cost_kwh_per_kg=cost,
         drying_cost_limit_kwh_per_kg=record.lim,
         band_repaired=bool(record.br),
+        band=BandEdges(
+            temp_low_f=record.b[0], temp_high_f=record.b[1], vpd_low_kpa=record.b[2], vpd_high_kpa=record.b[3]
+        ),
     )
 
 
@@ -364,6 +404,8 @@ class Now(_Model):
     hydroponics: Hydroponics | None = None
     # The climate law's state record while it is fresh; None before the law build (climate refactor package 4.1).
     law: LawState | None = None
+    # The daily review (verdify_services.reviews.today()); None before migration 320 lets the dashboard read it.
+    review: NowReview | None = None
 
 
 TriggerOutcome = Literal[
@@ -656,6 +698,29 @@ def review_state(missed_status: str | None) -> RequiredTrigger:
     return "failed" if missed_status == "failed" else "missed"
 
 
+def now_review(day: Any | None) -> NowReview | None:
+    """Now's review block from ``reviews.today()`` (a ``reviews.ReviewDay``); None when that is None."""
+    if day is None:
+        return None
+    return NowReview(
+        review_date=day.review_date,
+        status=day.status,
+        missed=day.missed,
+        written_at=day.written_at,
+        proposal_waiting=day.proposal_waiting is not None,
+    )
+
+
+_OUTDOOR_SOURCES = frozenset(get_args(OutdoorSource))
+
+
+def outdoor_source(value: str | None, rep: Reporting) -> OutdoorSource | None:
+    """The controller's newest ``outdoor_source`` while it reports; null otherwise or for a value it never sends."""
+    if not rep.controller_reporting or value not in _OUTDOOR_SOURCES:
+        return None
+    return value  # type: ignore[return-value]
+
+
 def waypoint_effective(param: str, desired: Any | None, plan_row: Any, *, superseded: bool = False) -> bool:
     """Whether a plan value applies at its time (architecture §5.2), the ``effective`` of every ``PlanWaypoint``.
 
@@ -877,6 +942,17 @@ SELECT ts, firmware_version, uptime_s, reset_reason, heap_bytes, heap_largest_fr
  WHERE ts > now() - interval '1 day'
  ORDER BY ts DESC
  LIMIT 1
+"""
+
+# Now's three hardware-budget facts: each the newest non-null value of the last 15 minutes, the expressions of
+# api/product_metrics.py HEALTH_SQL (diagnostics rows are sparse, so the newest row alone often lacks them).
+_CONTROLLER_HEALTH_SQL = """
+SELECT (array_agg(heap_min_free_minute_kb ORDER BY ts DESC)
+            FILTER (WHERE heap_min_free_minute_kb IS NOT NULL))[1] AS heap_min_free_minute_kb,
+       (array_agg(restart_count ORDER BY ts DESC) FILTER (WHERE restart_count IS NOT NULL))[1] AS restart_count,
+       (array_agg(gap_log_state ORDER BY ts DESC) FILTER (WHERE gap_log_state IS NOT NULL))[1] AS gap_log_state
+  FROM diagnostics
+ WHERE ts > now() - interval '15 minutes'
 """
 
 # The dispatcher's band rows for the house (band_anchors.emit_band_audit): one
@@ -1483,6 +1559,8 @@ async def _running_causes(
 
 async def now(conn: asyncpg.Connection) -> Now:
     """API-02 ``GET /v1/now``: is everything OK, in one bounded read."""
+    from verdify_services import law, reviews  # here, not at the top: both import this module
+
     async with _snapshot(conn):
         clock = await conn.fetchrow(_CLOCK_SQL, HEARTBEAT_ENTITY)
         at: datetime = clock["at"]
@@ -1490,6 +1568,8 @@ async def now(conn: asyncpg.Connection) -> Now:
         climate = await conn.fetchrow(_CLIMATE_SQL)
         hydro_rows = {row["channel"]: row for row in await conn.fetch(_HYDRO_SQL)}
         diagnostics = await conn.fetchrow(_DIAGNOSTICS_SQL)
+        health = await conn.fetchrow(_CONTROLLER_HEALTH_SQL)
+        review_day = await reviews.today(conn)
         band_rows = await conn.fetch(
             _BAND_SQL, list(HOUSE_BAND_ROLES), [f"band_house_{role}" for role in HOUSE_BAND_ROLES]
         )
@@ -1523,6 +1603,7 @@ async def now(conn: asyncpg.Connection) -> Now:
             climate["outdoor_temp_f"], climate["outdoor_temp_at"], "No outdoor temperature in the last hour"
         ),
         rh_pct=_reading(climate["outdoor_rh_pct"], climate["outdoor_rh_at"], "No outdoor RH in the last hour"),
+        source=outdoor_source(texts.get(OUTDOOR_SOURCE_ENTITY), rep),
     )
 
     bands = {row["role"]: row for row in band_rows}
@@ -1578,12 +1659,16 @@ async def now(conn: asyncpg.Connection) -> Now:
         heap_largest_block_kb=_finite(diagnostics["heap_largest_free_block_kb"]) if diagnostics else None,
         rssi_dbm=_finite(diagnostics["wifi_rssi"]) if diagnostics else None,
         observed_at=diagnostics["ts"] if diagnostics else None,
+        heap_minute_low_kb=_finite(health["heap_min_free_minute_kb"]) if health else None,
+        restart_count=int(count) if health and (count := _finite(health["restart_count"])) is not None else None,
+        gap_log=law.gap_log_word(health["gap_log_state"]) if health else None,
     )
 
     law_row = newest_texts.get(LAW_STATE_ENTITY)
     return Now(
         server_time=at,
         law=law_state(law_row["value"], law_row["ts"], at) if law_row is not None else None,
+        review=now_review(review_day),
         hydroponics=Hydroponics(
             **{
                 key: _reading(

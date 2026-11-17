@@ -115,6 +115,22 @@ const METRICS = [
   ["climate.house_vpd_target", "House VPD target", "targets", "kPa", 60, 365, "DERIVED", "house", false],
   ...["center", "south", "west", "east"].map((zone) => [`climate.vpd_target_${zone}`, `${zone[0].toUpperCase()}${zone.slice(1)} VPD target`, "targets", "kPa", 60, 365, "DERIVED", zone, false]),
   ["diagnostics.heap_free_kb", "Controller free heap", "controller", "kB", 60, 180, "MEASURED", null, false],
+  // The controller's hardware budget and the meter's two channels, as the registry adds them for the v2 System pages.
+  ["diagnostics.heap_min_free_kb", "Lowest free heap since restart", "controller", "kB", 60, 180, "MEASURED", null, false],
+  ["diagnostics.heap_minute_low_kb", "Lowest free heap in the minute", "controller", "kB", 60, 180, "MEASURED", null, false],
+  ["diagnostics.heap_largest_block_minute_low_kb", "Smallest largest free block in the minute", "controller", "kB", 60, 180, "MEASURED", null, false],
+  ["diagnostics.loop_worst_ms", "Slowest control loop in the minute", "controller", "ms", 60, 180, "MEASURED", null, false],
+  ["diagnostics.loop_stack_free_min_b", "Least free loop stack", "controller", "B", 60, 180, "MEASURED", null, false],
+  ["diagnostics.nvs_used_entries", "Settings storage entries used", "controller", "entries", 60, 180, "MEASURED", null, false],
+  ["diagnostics.nvs_free_entries", "Settings storage entries free", "controller", "entries", 60, 180, "MEASURED", null, false],
+  ["diagnostics.nvs_write_worst_ms", "Slowest settings storage write in the minute", "controller", "ms", 60, 180, "MEASURED", null, false],
+  ["diagnostics.wifi_disconnects", "Wi-Fi disconnects", "controller", "count", 60, 180, "MEASURED", null, false],
+  ["diagnostics.api_clients", "API connections", "controller", "count", 60, 180, "MEASURED", null, false],
+  ["diagnostics.restart_count", "Restarts", "controller", "count", 60, 180, "MEASURED", null, false],
+  ["diagnostics.active_probes", "Active probes", "controller", "count", 60, 180, "MEASURED", null, false],
+  ["diagnostics.sntp_sync_age_s", "Time since the clock synced", "controller", "s", 60, 180, "MEASURED", null, false],
+  ["energy.ch0_power_w", "Power, channel 0", "power", "W", 300, 365, "MEASURED", null, false],
+  ["energy.ch1_power_w", "Power, channel 1", "power", "W", 300, 365, "MEASURED", null, false],
   // The scorecard keys as VD-56's registry names them (v_daily_scorecard, kept 400 days).
   ["daily.temp_in_band_pct", "Temperature time in band, whole day", "daily", "%", 86_400, 400, "DERIVED", null, true],
   ["daily.vpd_in_band_pct", "VPD time in band, whole day", "daily", "%", 86_400, 400, "DERIVED", null, true],
@@ -221,6 +237,8 @@ function inBand(now) {
     controller: {
       firmware_version: "2026.10.30.1412.3240714", uptime_s: 271_840, reset_reason: "Software reset", heap_free_kb: 38.2, heap_largest_block_kb: 22.4,
       rssi_dbm: -61, observed_at: iso(now - 45_000),
+      // Dashboard v2: the lowest free heap in the last minute, restarts counted and the gap log's state.
+      heap_minute_low_kb: 36.9, restart_count: 2, gap_log: "armed",
     },
     occupancy: { occupied: false, seen_at: iso(at("05:10")), hold_enabled: true },
     // #1346: the greenhouse snapshot, written 6 min ago and confirmed 1 min ago (the same conditions since).

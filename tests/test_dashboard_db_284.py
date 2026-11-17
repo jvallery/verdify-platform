@@ -273,6 +273,8 @@ async def install() -> dict[str, dict[str, set]]:
             await conn.execute("SET check_function_bodies = false")
             await conn.execute("\n".join(sections[(name, kind, "public")] for name, kind in OBJECTS))
             await conn.execute("RESET check_function_bodies")
+            # Now (API-02) reads the controller-health columns 314 and 315 added after the dump; no grant changes.
+            await conn.execute(support.diagnostics_health_columns_sql())
             await conn.execute(STAND_IN)
             await conn.execute(HELPER_ACLS)
             await conn.execute(

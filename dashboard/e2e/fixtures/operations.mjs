@@ -13,6 +13,7 @@ import {
   manifold, minutesZone, nextId, runLine, settingOf, stopLines,
 } from "./world.mjs";
 import { CROP_READS, CROP_WRITES, CropRefusal, cropWrite } from "./crops.mjs";
+import { LAW_READS, LawRefusal, nowAdditions } from "./law.mjs";
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
@@ -26,6 +27,8 @@ export const ROUTES = [
   ["API-23", "GET", "/v1/band/profile"], ["API-24", "PUT", "/v1/band/profile"],
   ["API-SOIL-01", "GET", "/v1/soil-targets"], ["API-SOIL-02", "PUT", "/v1/soil-targets/{zone}"], ["API-20", "POST", "/v1/equipment/lights/{light}/{state}"], ["API-21", "GET", "/v1/water/daily"], ["API-22", "GET", "/v1/lighting"],
   ["API-25", "GET", "/v1/planner/history"],
+  ["API-30", "GET", "/v1/law"], ["API-31", "GET", "/v1/law/history"], ["API-32", "GET", "/v1/record/days"], ["API-33", "GET", "/v1/record/relay-check"],
+  ["API-34", "GET", "/v1/reviews"], ["API-35", "GET", "/v1/system/controller"], ["API-36", "GET", "/v1/system/data"], ["API-37", "GET", "/v1/system/delivery"],
   ["API-IRR-01", "GET", "/v1/irrigation"],
   ["API-IRR-02", "GET", "/v1/irrigation/schedules"], ["API-IRR-03", "POST", "/v1/irrigation/schedules"],
   ["API-IRR-04", "PUT", "/v1/irrigation/schedules/{slot_id}"], ["API-IRR-05", "DELETE", "/v1/irrigation/schedules/{slot_id}"],
@@ -35,7 +38,8 @@ export const ROUTES = [
   ["API-CROP-01", "GET", "/v1/crops/locations"], ["API-CROP-02", "GET", "/v1/crops/plantings"], ["API-CROP-07", "POST", "/v1/crops/plantings"],
   ["API-CROP-03", "GET", "/v1/crops/plantings/{planting_id}"], ["API-CROP-11", "PATCH", "/v1/crops/plantings/{planting_id}"],
   ["API-CROP-08", "POST", "/v1/crops/plantings/{planting_id}/move"], ["API-CROP-09", "POST", "/v1/crops/plantings/{planting_id}/harvest"],
-  ["API-CROP-10", "POST", "/v1/crops/plantings/{planting_id}/remove"], ["API-CROP-04", "GET", "/v1/crops/positions/{label}/history"],
+  ["API-CROP-10", "POST", "/v1/crops/plantings/{planting_id}/remove"],
+  ["API-CROP-12", "POST", "/v1/crops/plantings/{planting_id}/notes"], ["API-CROP-04", "GET", "/v1/crops/positions/{label}/history"],
   ["API-CROP-05", "GET", "/v1/crops/catalog"], ["API-CROP-06", "GET", "/v1/crops/resolve"], ["BFF-01", "GET", "/auth/login"],
   ["BFF-02", "GET", "/auth/callback"], ["BFF-03", "POST", "/auth/logout"], ["INT-01", "POST", "/internal/sessions"],
   ["INT-02", "DELETE", "/internal/sessions/current"], ["OPS-01", "GET", "/healthz"], ["OPS-02", "GET", "/readyz"],
@@ -137,10 +141,13 @@ function nowBody(world) {
     const line = item.line_id ? lineOf(world, item.line_id) : null;
     return { equipment: item.equipment, line_id: item.line_id ?? null, cause: line?.state.code === "running" ? line.state.cause : null, since: item.since };
   });
+  // Dashboard v2: the law while it is fresh, today's review and the outdoor source (law.mjs).
+  const { law, review, outdoorSource } = nowAdditions(world);
   return {
-    server_time: iso(world.now), indoor: world.indoor, outdoor: world.outdoor, band: world.band, mode: world.mode, iris: world.iris,
+    server_time: iso(world.now), indoor: world.indoor, outdoor: { ...world.outdoor, source: outdoorSource }, band: world.band, mode: world.mode, iris: world.iris,
     alerts: { open: open.length, critical: count("critical"), warning: count("warning"), info: count("info") }, running, overrides: world.overrides,
     leak: world.leak, freshness: world.freshness, writer: world.writer, controller: world.controller, snapshot: world.snapshot ?? null, hydroponics: world.hydroponics ?? null,
+    law, review,
   };
 }
 
@@ -921,6 +928,7 @@ const READS = {
   "API-21": waterBody,
   "API-22": lightingBody,
   "API-25": plannerHistoryBody,
+  ...LAW_READS,
   "API-IRR-01": irrigationBody,
   "API-IRR-02": agendaBody,
   "API-IRR-10": minutesBody,
@@ -1406,6 +1414,7 @@ export function answer(world, request, history = { readsAfter: () => 0 }) {
   } catch (error) {
     if (error instanceof Refusal) return done(error.response);
     if (error instanceof CropRefusal) return done(problem(error.status, error.code, CROP_TITLES[error.code] ?? "Refused", error.detail, error.fields));
+    if (error instanceof LawRefusal) return done(problem(error.status, error.code, error.code === "window_too_large" ? "Window too large" : "Invalid request", error.detail));
     throw error;
   }
 }
@@ -1449,6 +1458,14 @@ export const EXAMPLES = {
   "API-21": (world) => get("/v1/water/daily", { days: String(world.waterUseDays) }),
   "API-22": (world) => get("/v1/lighting", { from: iso(world.now - 3 * DAY), to: iso(world.now) }),
   "API-25": () => get("/v1/planner/history", { days: "30" }),
+  "API-30": () => get("/v1/law"),
+  "API-31": (world) => get("/v1/law/history", { from: iso(world.now - DAY), to: iso(world.now) }),
+  "API-32": () => get("/v1/record/days"),
+  "API-33": () => get("/v1/record/relay-check", { days: "7" }),
+  "API-34": () => get("/v1/reviews"),
+  "API-35": () => get("/v1/system/controller"),
+  "API-36": () => get("/v1/system/data", { days: "1" }),
+  "API-37": () => get("/v1/system/delivery", { hours: "24" }),
   "API-IRR-01": () => get("/v1/irrigation"),
   // The week view with "Last 7 days" on, so past blocks and their outcomes are in the set.
   "API-IRR-02": () => get("/v1/irrigation/schedules", { past_days: 7 }),
@@ -1470,6 +1487,7 @@ export const EXAMPLES = {
   "API-CROP-08": () => send("POST", "/v1/crops/plantings/5/move", { to_positions: ["CENTER-HANG-1", "CENTER-HANG-2"] }),
   "API-CROP-09": () => send("POST", "/v1/crops/plantings/5/harvest", { count: 1, notes: "Cut a spike" }),
   "API-CROP-10": () => send("POST", "/v1/crops/plantings/5/remove", { end_reason: "removed" }),
+  "API-CROP-12": () => send("POST", "/v1/crops/plantings/5/notes", { note: "New spike on the left stem", reason: "Weekly walk-through" }),
   "API-CROP-04": () => get("/v1/crops/positions/EAST-HYDRO-41/history"),
   "API-CROP-05": () => get("/v1/crops/catalog"),
   "API-CROP-06": () => get("/v1/crops/resolve", { q: "hydro 1-10" }),

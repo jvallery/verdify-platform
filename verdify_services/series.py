@@ -59,7 +59,9 @@ CONTROLLER_REPORTING = timedelta(seconds=300)
 # The Lutron readback is polled every 300 s; older than two polls means Home Assistant is down.
 LUTRON_FRESH = timedelta(seconds=600)
 # Raw retention (decisions Round 2b D); daily keys are kept at least as long as the widest window.
-RETENTION_DAYS = {"climate": 365, "diagnostics": 180, "setpoint_snapshot": 90}
+RETENTION_DAYS = {"climate": 365, "diagnostics": 180, "setpoint_snapshot": 90, "v_dashboard_energy": 365}
+# The relations a raw key reads, in query order. v_dashboard_energy is migration 312's projection of energy (365 d).
+RAW_TABLES = ("climate", "diagnostics", "v_dashboard_energy")
 DAILY_RETENTION_DAYS = 400
 # TimescaleDB aligns time_bucket(interval, timestamptz) to this Monday; API-06 steps that do
 # not divide a day must use the same origin to line up with time_bucket_gapfill.
@@ -199,8 +201,11 @@ class BandPreview(BaseModel):
 # ─────────────────────────────────────────────────────────────── the metric registry (API-03)
 @dataclass(frozen=True, slots=True)
 class RawBinding:
-    table: Literal["climate", "diagnostics"]
+    """A stored column. ``magnitude`` serves its absolute value (a channel whose clamp reads reversed)."""
+
+    table: Literal["climate", "diagnostics", "v_dashboard_energy"]
     column: str
+    magnitude: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,14 +295,25 @@ def _climate(
     )
 
 
-def _hydro(column: str, label: str, unit: str) -> MetricBinding:
-    return _climate(
-        column,
-        label,
-        "water and soil",
-        unit,
+def _hydro(
+    column: str, label: str, unit: str, note: str = "Hydroponic probe; written into the newest climate row every 300 s"
+) -> MetricBinding:
+    return _climate(column, label, "water and soil", unit, cadence_s=300, note=note)
+
+
+def _power(column: str, label: str, note: str, *, magnitude: bool = False) -> MetricBinding:
+    """A power-meter channel from v_dashboard_energy (migration 312), one row about every 300 s."""
+    return MetricBinding(
+        key=f"energy.{column}",
+        label=label,
+        group=_POWER,
+        unit="W",
+        provenance="MEASURED",
+        raw=RawBinding("v_dashboard_energy", column, magnitude=magnitude),
+        daily=None,
         cadence_s=300,
-        note="Hydroponic probe; written into the newest climate row every 300 s",
+        retention_days=RETENTION_DAYS["v_dashboard_energy"],
+        note=note,
     )
 
 
@@ -367,6 +383,7 @@ _LIGHT = "light"
 _OUTDOOR = "outdoor"
 _TARGETS = "targets"
 _CONTROLLER = "controller"
+_POWER = "power"
 _TEMPEST = "Tempest weather station, received by the controller over UDP"
 _ON_CHIP = "The controller's on-chip value"
 _FROM_TARGET = "Measured value minus the controller's on-chip target; negative is below it"
@@ -384,7 +401,15 @@ _REGISTRY: tuple[MetricBinding, ...] = (
         zone="house",
         daily=_summary("vpd_avg", "vpd_min", "vpd_max"),
     ),
-    _climate("co2_ppm", "CO₂", _HOUSE, "ppm", zone="house", daily=_summary("co2_avg")),
+    _climate(
+        "co2_ppm",
+        "CO₂",
+        _HOUSE,
+        "ppm",
+        zone="house",
+        daily=_summary("co2_avg"),
+        note="Unreliable: the CO₂ sensor's readings have not been checked and are not trusted",
+    ),
     _climate(
         "temp_control",
         "Control temperature",
@@ -441,7 +466,7 @@ _REGISTRY: tuple[MetricBinding, ...] = (
     _hydro("hydro_ph", "Hydroponic pH", "pH"),
     _hydro("hydro_ec_us_cm", "Hydroponic EC", "µS/cm"),
     _hydro("hydro_water_temp_f", "Hydroponic water temperature", "°F"),
-    _hydro("hydro_battery_pct", "Hydroponic probe battery", "%"),
+    _hydro("hydro_battery_pct", "Hydroponic probe battery", "%", note="Not reported: the meter runs on mains power"),
     # light
     _climate(
         "ppfd_umol_m2_s",
@@ -580,6 +605,44 @@ _REGISTRY: tuple[MetricBinding, ...] = (
     _diagnostic("heap_largest_block_kb", "heap_largest_free_block_kb", "Largest free heap block", "kB"),
     _diagnostic("rssi_dbm", "wifi_rssi", "Wi-Fi signal", "dBm"),
     _diagnostic("uptime_s", "uptime_s", "Uptime", "s"),
+    # the controller's hardware budget (diagnostics, migrations 314 and 315; API-35 serves the newest values)
+    _diagnostic("heap_min_free_kb", "heap_min_free_kb", "Lowest free heap since restart", "kB"),
+    _diagnostic("heap_minute_low_kb", "heap_min_free_minute_kb", "Lowest free heap in the minute", "kB"),
+    _diagnostic(
+        "heap_largest_block_minute_low_kb",
+        "heap_largest_block_minute_low_kb",
+        "Smallest largest free block in the minute",
+        "kB",
+    ),
+    _diagnostic("loop_worst_ms", "loop_worst_ms", "Slowest control loop in the minute", "ms"),
+    _diagnostic(
+        "loop_stack_free_min_b",
+        "loop_stack_high_water_b",
+        "Least free loop stack",
+        "B",
+        note="The least free stack of the control loop's task since restart",
+    ),
+    _diagnostic("nvs_used_entries", "nvs_used_entries", "Settings storage entries used", "entries"),
+    _diagnostic("nvs_free_entries", "nvs_free_entries", "Settings storage entries free", "entries"),
+    _diagnostic("nvs_write_worst_ms", "nvs_write_worst_ms", "Slowest settings storage write in the minute", "ms"),
+    _diagnostic(
+        "wifi_disconnects", "wifi_disconnect_count", "Wi-Fi disconnects", "count", note="Counted since restart"
+    ),
+    _diagnostic("api_clients", "api_client_count", "API connections", "count"),
+    _diagnostic(
+        "restart_count", "restart_count", "Restarts", "count", note="Counted and kept by the controller across restarts"
+    ),
+    _diagnostic("active_probes", "active_probe_count", "Active probes", "count"),
+    _diagnostic("sntp_sync_age_s", "last_sntp_sync_age_s", "Time since the clock synced", "s"),
+    # power (v_dashboard_energy, migration 312: the Shelly two-channel meter)
+    _power("ch0_power_w", "Power, channel 0", "Shelly meter channel 0"),
+    _power(
+        "ch1_power_w",
+        "Power, channel 1",
+        "Shelly meter channel 1. The electric heater's draw is stored negative because its clamp is reversed "
+        "(#1369); this key serves the magnitude, a lower bound while the heater and another load run together",
+        magnitude=True,
+    ),
     # daily: the scorecard (v_daily_scorecard, one row per America/Denver day)
     _scorecard(
         "temp_in_band_pct",
@@ -859,11 +922,11 @@ def plan_series(keys: Sequence[str], from_: datetime, to: datetime, points: int,
     return SeriesPlan(from_, to, bucket_s, daily_mode, tuple(bucket_starts(from_, to, bucket_s)), tuple(reads))
 
 
-def raw_series_sql(table: str, columns: Sequence[str], *, day_buckets: bool) -> str:
+def raw_series_sql(table: str, columns: Sequence[str], *, day_buckets: bool, magnitude: Sequence[bool] = ()) -> str:
     """One gap-filled aggregate per table: avg, min, max and count per column, bounded by ts.
 
     $1 and $2 bound the window ([$1, $2)); $3 is the bucket width except for day buckets,
-    which are America/Denver days.
+    which are America/Denver days. A column whose ``magnitude`` flag is set is aggregated as its absolute value.
     """
     if day_buckets:
         bucket = "time_bucket_gapfill('1 day'::interval, ts, 'America/Denver', $1::timestamptz, $2::timestamptz)"
@@ -872,6 +935,8 @@ def raw_series_sql(table: str, columns: Sequence[str], *, day_buckets: bool) -> 
     aggregates = []
     for index, column in enumerate(columns):
         quoted = _ident(column)
+        if index < len(magnitude) and magnitude[index]:
+            quoted = f"abs({quoted})"
         aggregates.append(
             f"avg({quoted})::double precision AS a{index}, min({quoted})::double precision AS n{index}, "
             f"max({quoted})::double precision AS x{index}, count({quoted}) AS c{index}"
@@ -1038,7 +1103,7 @@ async def series(
     columns: dict[str, SeriesColumns] = {}
     stamps: list[datetime] = []
     async with _read_transaction(conn):
-        for table in ("climate", "diagnostics"):
+        for table in RAW_TABLES:
             reads = [read for read in plan.reads if read.source == "raw" and read.binding.raw.table == table]
             if not reads:
                 continue
@@ -1047,7 +1112,10 @@ async def series(
             rows: list[Any] = []
             if low < to:
                 sql = raw_series_sql(
-                    table, [read.binding.raw.column for read in reads], day_buckets=plan.bucket_s == DAY_S
+                    table,
+                    [read.binding.raw.column for read in reads],
+                    day_buckets=plan.bucket_s == DAY_S,
+                    magnitude=[read.binding.raw.magnitude for read in reads],
                 )
                 arguments = [low, to] if plan.bucket_s == DAY_S else [low, to, timedelta(seconds=plan.bucket_s)]
                 rows = await conn.fetch(sql, *arguments)

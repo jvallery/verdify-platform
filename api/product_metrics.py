@@ -57,6 +57,23 @@ from typing import Any
 from verdify_schemas.alerts import ALERT_TYPES
 from verdify_services import alerts
 
+# The statements the dashboard's system reads (API-35 to API-37) run too: one definition each, in
+# verdify_services.system_health, so the dashboard and these metrics can never disagree.
+from verdify_services.system_health import (
+    CONTROLLER_SQL,
+    DELIVERY_SQL,
+    FLOW_SQL,
+    FLOW_TABLES,
+    FRESHNESS_SQL,
+    GAPS_SQL,
+    HEALTH_SQL,
+    OLDEST_UNCONFIRMED_SQL,
+    PROBE_WINDOW_S,
+    PROBES,
+    PROBES_SQL,
+    UNREPLAYED_SQL,
+)
+
 log = logging.getLogger("verdify.product_metrics")
 
 QUERY_TIMEOUT_S = 5.0
@@ -142,35 +159,7 @@ RELAYS = (
     "mister_center",
     "water_flowing",
 )
-# Probe-backed climate columns (sensor_registry source_table climate). Derived columns (averages, targets, deltas)
-# are not probes and are left out.
-PROBES = (
-    "temp_north",
-    "temp_south",
-    "temp_east",
-    "temp_west",
-    "temp_case",
-    "temp_intake",
-    "rh_north",
-    "rh_south",
-    "rh_east",
-    "rh_west",
-    "rh_case",
-    "intake_rh",
-    "outdoor_temp_f",
-    "outdoor_rh_pct",
-    "co2_ppm",
-    "lux",
-    "soil_moisture_south_1",
-    "soil_moisture_south_2",
-    "soil_moisture_west",
-    "soil_temp_south_1",
-    "soil_temp_south_2",
-    "soil_temp_west",
-    "soil_ec_south_1",
-)
-PROBE_WINDOW_S = 7200  # an age of 7200 means "not seen in the 2 h window"
-FLOW_TABLES = ("climate", "equipment_state", "system_state", "diagnostics", "setpoint_snapshot", "setpoint_changes")
+# PROBES (the probe-backed climate columns), PROBE_WINDOW_S and FLOW_TABLES are verdify_services.system_health's.
 DELIVERY_STATUSES = frozenset({"pending", "confirmed", "observed", "superseded", "failed", "expired"})
 SETPOINT_SOURCES = frozenset({"band", "plan", "manual", "esp32"})
 GAP_STATUSES = frozenset({"none", "pending", "partial", "replayed", "not_applicable"})
@@ -416,54 +405,7 @@ class Accumulator:
 
 # ── statements ──────────────────────────────────────────────────────────────
 
-# Each column the newest non-NULL value of the last 15 minutes (release 3 review ALERTS-5): readings are stored on
-# change, so the newest diagnostics row alone often lacks them. Index range scan of diagnostics_ts_idx.
-CONTROLLER_SQL = """
-SELECT extract(epoch FROM now() - max(ts))::float8 AS age_s,
-       (array_agg(heap_bytes ORDER BY ts DESC) FILTER (WHERE heap_bytes IS NOT NULL))[1] AS heap_bytes,
-       (array_agg(heap_min_free_kb ORDER BY ts DESC) FILTER (WHERE heap_min_free_kb IS NOT NULL))[1] AS heap_min_free_kb,
-       (array_agg(heap_largest_free_block_kb ORDER BY ts DESC) FILTER (WHERE heap_largest_free_block_kb IS NOT NULL))[1] AS heap_largest_free_block_kb,
-       (array_agg(wifi_rssi ORDER BY ts DESC) FILTER (WHERE wifi_rssi IS NOT NULL))[1] AS wifi_rssi,
-       (array_agg(uptime_s ORDER BY ts DESC) FILTER (WHERE uptime_s IS NOT NULL))[1] AS uptime_s,
-       (array_agg(reset_reason ORDER BY ts DESC) FILTER (WHERE reset_reason IS NOT NULL))[1] AS reset_reason,
-       (array_agg(firmware_version ORDER BY ts DESC) FILTER (WHERE firmware_version IS NOT NULL))[1] AS firmware_version,
-       (array_agg(sntp_valid ORDER BY ts DESC) FILTER (WHERE sntp_valid IS NOT NULL))[1] AS sntp_valid,
-       (array_agg(sntp_miss_count ORDER BY ts DESC) FILTER (WHERE sntp_miss_count IS NOT NULL))[1] AS sntp_miss_count,
-       (array_agg(last_sntp_sync_age_s ORDER BY ts DESC) FILTER (WHERE last_sntp_sync_age_s IS NOT NULL))[1] AS last_sntp_sync_age_s,
-       (array_agg(active_probe_count ORDER BY ts DESC) FILTER (WHERE active_probe_count IS NOT NULL))[1] AS active_probe_count,
-       (array_agg(band_source ORDER BY ts DESC) FILTER (WHERE band_source IS NOT NULL))[1] AS band_source
-  FROM diagnostics
- WHERE ts > now() - interval '15 minutes'
-"""
-
-# The nine budget readings (migration 314) and the three third-flash counters (migration 315), each the newest non-NULL value of the last 15 minutes: a diagnostics row
-# carries only the columns observed fresh in its flush, so the newest row alone can miss a published reading. One
-# index range scan of diagnostics_ts_idx over about 15 to 60 rows.
-HEALTH_SQL = """
-SELECT (array_agg(heap_min_free_minute_kb ORDER BY ts DESC)
-            FILTER (WHERE heap_min_free_minute_kb IS NOT NULL))[1] AS heap_min_free_minute_kb,
-       (array_agg(heap_largest_block_minute_low_kb ORDER BY ts DESC)
-            FILTER (WHERE heap_largest_block_minute_low_kb IS NOT NULL))[1] AS heap_largest_block_minute_low_kb,
-       (array_agg(loop_worst_ms ORDER BY ts DESC) FILTER (WHERE loop_worst_ms IS NOT NULL))[1] AS loop_worst_ms,
-       (array_agg(restart_count ORDER BY ts DESC) FILTER (WHERE restart_count IS NOT NULL))[1] AS restart_count,
-       (array_agg(nvs_used_entries ORDER BY ts DESC)
-            FILTER (WHERE nvs_used_entries IS NOT NULL))[1] AS nvs_used_entries,
-       (array_agg(nvs_free_entries ORDER BY ts DESC)
-            FILTER (WHERE nvs_free_entries IS NOT NULL))[1] AS nvs_free_entries,
-       (array_agg(nvs_write_worst_ms ORDER BY ts DESC)
-            FILTER (WHERE nvs_write_worst_ms IS NOT NULL))[1] AS nvs_write_worst_ms,
-       (array_agg(gap_log_state ORDER BY ts DESC) FILTER (WHERE gap_log_state IS NOT NULL))[1] AS gap_log_state,
-       (array_agg(sensor_degraded_active ORDER BY ts DESC)
-            FILTER (WHERE sensor_degraded_active IS NOT NULL))[1] AS sensor_degraded_active,
-       (array_agg(loop_stack_high_water_b ORDER BY ts DESC)
-            FILTER (WHERE loop_stack_high_water_b IS NOT NULL))[1] AS loop_stack_high_water_b,
-       (array_agg(wifi_disconnect_count ORDER BY ts DESC)
-            FILTER (WHERE wifi_disconnect_count IS NOT NULL))[1] AS wifi_disconnect_count,
-       (array_agg(api_client_count ORDER BY ts DESC)
-            FILTER (WHERE api_client_count IS NOT NULL))[1] AS api_client_count
-  FROM diagnostics
- WHERE ts > now() - interval '15 minutes'
-"""
+# CONTROLLER_SQL and HEALTH_SQL are verdify_services.system_health's (the dashboard's API-35 runs them too).
 
 # Irrigation valves and light circuits: newest equipment_state row each within 30 days (irrigation changes rarely).
 DEVICES_SQL = """
@@ -536,66 +478,8 @@ SELECT extract(epoch FROM now() - ts)::float8 AS age_s, temp_avg, vpd_avg, rh_av
  LIMIT 1
 """
 
-# One pass over the last 2 h of climate rows (~120-240 rows).
-PROBES_SQL = (
-    "SELECT "
-    + ", ".join(
-        f"extract(epoch FROM now() - max(ts) FILTER (WHERE {column} IS NOT NULL))::float8 AS {column}"
-        for column in PROBES
-    )
-    + f" FROM climate WHERE ts > now() - interval '{PROBE_WINDOW_S} seconds'"
-)
-
-FRESHNESS_SQL = "SELECT " + ", ".join(
-    f"(SELECT extract(epoch FROM now() - max(ts))::float8 FROM {table} WHERE ts > now() - interval '1 day') AS {table}"
-    for table in FLOW_TABLES
-)
-
-FLOW_SQL = "SELECT " + ", ".join(
-    f"(SELECT count(*) FROM {table} WHERE ts > now() - interval '5 minutes') AS {table}" for table in FLOW_TABLES
-)
-
-# Outage only: 314's view cuts the minutes the gap log replayed out of each gap (a fully replayed gap has no row,
-# a partly replayed one keeps its unreplayed pieces), so n counts gaps with an unreplayed piece and seconds the
-# unreplayed seconds (#1633, release review READERS-3).
-GAPS_SQL = """
-SELECT coalesce(backfill_status, 'none') AS status, count(DISTINCT id) AS n,
-       coalesce(sum(duration_s), 0)::float8 AS seconds
-  FROM v_data_gaps_unreplayed
- WHERE start_ts > now() - interval '7 days'
- GROUP BY 1
-"""
-
-# verdify_data_gaps_unreplayed: a gap the controller's gap log should have replayed and did not. Every data_gaps row
-# is a recorder disconnect of more than 120 s (ingestor.py), and a quarter the recorder was not attached for is not
-# live, so the log replays it once the recorder has been back 60 s; the quarter holding a gap's end closes at most
-# 15 minutes after it. So 30 minutes after a gap ended its pieces are gone when the log was armed (its newest
-# gap_log_state in the hour before the piece), and a piece of 120 s or more left then is a broken replay. Shorter
-# pieces are left to clock skew between the host's gap times and the controller's record times.
-UNREPLAYED_SQL = """
-SELECT count(DISTINCT u.id)
-  FROM v_data_gaps_unreplayed u
- WHERE u.duration_s >= 120
-   AND u.end_ts > now() - interval '24 hours' AND u.end_ts <= now() - interval '30 minutes'
-   AND (SELECT d.gap_log_state FROM diagnostics d
-         WHERE d.gap_log_state IS NOT NULL AND d.ts <= u.start_ts AND d.ts > u.start_ts - interval '1 hour'
-         ORDER BY d.ts DESC LIMIT 1) = 'armed'
-"""
-
-DELIVERY_SQL = """
-SELECT coalesce(delivery_status, 'pending') AS status, coalesce(source, 'none') AS source, count(*) AS n
-  FROM setpoint_changes
- WHERE ts > now() - interval '24 hours'
- GROUP BY 1, 2
-"""
-
-# idx_setpoint_changes_unconfirmed (ts DESC) WHERE confirmed_at IS NULL
-OLDEST_UNCONFIRMED_SQL = """
-SELECT coalesce(extract(epoch FROM now() - min(ts)), 0)::float8
-  FROM setpoint_changes
- WHERE ts > now() - interval '24 hours' AND confirmed_at IS NULL
-   AND coalesce(delivery_status, 'pending') NOT IN ('superseded', 'failed', 'expired', 'observed')
-"""
+# PROBES_SQL, FRESHNESS_SQL, FLOW_SQL, GAPS_SQL, UNREPLAYED_SQL, DELIVERY_SQL and OLDEST_UNCONFIRMED_SQL are
+# verdify_services.system_health's (the dashboard's API-36 and API-37 run them too).
 
 
 # daily_band_compliance PK (date): two rows. The local day is America/Denver, as the store writes it.

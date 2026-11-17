@@ -194,6 +194,15 @@ def test_band_in_force_rows_as_api_09_serves_them(payload):
     assert (values["band_house_vpd_low"], values["band_house_vpd_high"]) == (0.45, 0.8)
 
 
+def test_every_row_carries_the_effect_the_settings_service_serves(payload):
+    from verdify_services.settings import setting_effect
+
+    for row in payload["items"]:
+        assert row["effect"] == setting_effect(row["param"]), row["param"]
+    effects = Counter(row["effect"] for row in payload["items"])
+    assert set(effects) == {"controller", "host", "none"}
+
+
 def test_scenario_rows_the_screens_and_named_fixtures_rely_on(rows):
     staleness = rows["outdoor_staleness_max_s"]
     assert staleness["readback"]["value"] == 660.0
