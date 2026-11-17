@@ -16,6 +16,7 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 import time
 import unicodedata
@@ -2799,10 +2800,11 @@ async def write_esp32_logs(pool: asyncpg.Pool) -> None:
     log.debug(f"esp32_logs: {len(validated)} messages written")
 
 
+_LOG_TAG_PREFIX = re.compile(r"\[[A-Z]\]\[([A-Za-z0-9_.]+)(?::\d+)?\]:")
+
+
 def on_log_message(msg) -> None:
     """Callback for ESP32 log messages via aioesphomeapi."""
-    import re
-
     level = LOG_LEVEL_MAP.get(msg.level, "UNKNOWN")
     tag = msg.tag if hasattr(msg, "tag") else None
     raw = msg.message if hasattr(msg, "message") else str(msg)
@@ -2812,6 +2814,10 @@ def on_log_message(msg) -> None:
     if isinstance(tag, bytes):
         tag = tag.decode("utf-8", errors="replace")
     message = re.sub(r"\x1b\[[0-9;]*m", "", raw)  # Strip ANSI colors
+    if not tag:
+        # This ESPHome version sends no tag; it is in the text, as "[W][heap_profile:1864]: ...".
+        prefix = _LOG_TAG_PREFIX.match(message)
+        tag = prefix.group(1) if prefix else None
     if msg.level <= ESP32_LOG_LEVEL:
         if _observation_spool_enabled():
             _accept_observations([("esp32_log", {"level": level, "tag": tag, "message": message})], datetime.now(UTC))
