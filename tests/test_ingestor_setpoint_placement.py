@@ -35,7 +35,7 @@ def test_prod_device_writers_require_exact_worker_selectors() -> None:
     assert ingestor["nodeSelector"] == INGESTOR_SELECTOR
     setpoint = deployments["verdify-setpoint-server"]["spec"]["template"]["spec"]
     assert setpoint["nodeSelector"] == SETPOINT_SELECTOR
-    assert setpoint["priorityClassName"] == "verdify-device-writer"
+    assert setpoint["priorityClassName"] == "estate-production"  # vp#1546, D-328
 
 
 def test_ingestor_pins_egress_hosts_keeps_node6_avoidance_and_single_writer() -> None:

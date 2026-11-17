@@ -104,7 +104,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: grafana-render-cache
 spec:
-  minAvailable: 1
+  maxUnavailable: 1  # vp#1546, D-329 (was minAvailable 1)
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/component: grafana-render-cache

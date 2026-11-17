@@ -12,7 +12,7 @@
 # Runs hourly at :15 (was */30; 2026-10-11 cluster CronJob cadence review).
 # It only corrects replica spread after node events, so an hour of skew is
 # acceptable. Concurrency Forbid + leader-election lease (RBAC role) so two
-# runs never overlap. priorityClassName verdify-batch (1000) — the descheduler
+# runs never overlap. priorityClassName estate-batch (-100, Never preempts; vp#1546) — the descheduler
 # is itself the lowest-priority workload (it must never preempt anything).
 #
 # Maintenance gate (sched audit 2026-11-04, rule L5): the maintenance-gate init
@@ -57,7 +57,7 @@ spec:
           # reflected here by jvallery/agents (zot-origin-cluster-pull reflection list).
           imagePullSecrets:
             - name: zot-origin-cluster-pull
-          priorityClassName: verdify-batch
+          priorityClassName: estate-batch  # vp#1546, D-328 (was verdify-batch)
           restartPolicy: Never
           # Do not schedule onto the cordoned etcd nodes.
           affinity:

@@ -22,7 +22,7 @@ metadata:
 spec:
   template:
     spec:
-      priorityClassName: verdify-serving
+      priorityClassName: estate-production  # vp#1546, D-328
       containers:
         - name: lab-site
           resources:
@@ -40,7 +40,7 @@ metadata:
 spec:
   template:
     spec:
-      priorityClassName: verdify-serving
+      priorityClassName: estate-production  # vp#1546, D-328
       containers:
         - name: api
           resources:
@@ -58,7 +58,7 @@ metadata:
 spec:
   template:
     spec:
-      priorityClassName: verdify-serving
+      priorityClassName: estate-production  # vp#1546, D-328
       containers:
         - name: mcp
           resources:
@@ -76,7 +76,7 @@ metadata:
 spec:
   template:
     spec:
-      priorityClassName: verdify-serving
+      priorityClassName: estate-production  # vp#1546, D-328
       containers:
         - name: grafana
           resources:

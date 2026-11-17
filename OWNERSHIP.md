@@ -66,6 +66,24 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 
 The winter feasibility collector (CronJob `verdify-winter-feasibility`, its runner ConfigMap, two NetworkPolicies and the `verdify-winter-archive-init` hook) was retired by #1634; its archive PVC stays. The experiment platform and the idle planners were retired by #1649, #1635 and #1652: Deployments `experiment-v2-lifecycle`, `experiment-v2-selector`, `experiment-v2-freezer`, `verdify-planner` and `verdify-cortex-planner`, CronJob `verdify-fixed-panel-native-freezer`, Service and PodDisruptionBudget `verdify-planner`, two ConfigMaps and four NetworkPolicies; their tables and roles stay until the drop package. The writer and DB watchdog CronJobs and `verdify-ha-gap-backfill` are no longer running.
 
+### Priority classes and singletons (vp#1546, D-328, D-329, STD-HA-06/07)
+
+Every workload runs a ladder class. estate-production: verdify-api, -mcp, -lab, -lab-cache-origin, -traefik, -grafana, -mqtt, -ingestor, -setpoint-server and StatefulSet verdify-db. estate-app: verdify-db-exporter, -grafana-render-cache, -hermes-iris, -operator-api, -outbound, CronJobs verdify-db-backup and verdify-firmware-flasher, and verdify-dashboard-web. estate-batch: the other CronJobs and the descheduler. The verdify-* PriorityClasses stay declared until no pod template names them, then are deleted explicitly (prune is off). Multi-replica PDBs are maxUnavailable 1 with `unhealthyPodEvictionPolicy: AlwaysAllow`; verdify-outbound has one. The descheduler's priority ceiling (100001) now admits estate-app and below only.
+
+Single-replica verdify-prod workloads, singleton by design:
+
+| Workload | Reason |
+|---|---|
+| StatefulSet `verdify-db` | Single-writer database; the singleton record and measured host-loss RTO are vp#1545. |
+| `verdify-ingestor` | Only ESP32 writer, fenced by the writer Lease; two would double-write device state. |
+| `verdify-setpoint-server` | Device-affecting writer (Home Assistant grow lights); one actuator owner. |
+| `verdify-mqtt` | In-namespace broker with in-memory session state for the ESP32 clients; a second broker would split subscriptions. |
+| `verdify-hermes-iris` | Sole planner gateway with RWO run state (`verdify-hermes-iris-data-portable-20260801`). |
+| `verdify-grafana` | SQLite-backed Grafana state on an RWO claim; the replicated render cache serves public panels while it restarts. |
+| `verdify-operator-api` | Operator-only path behind the dashboard BFF; one pool attests the dashboard login. Restart is acceptable. |
+| `verdify-lab-cache-origin` | Origin for the two replicated `verdify-lab` servers on an RWO cache claim; the lab replicas serve during its restart. |
+| `verdify-db-exporter` | Metrics only; one scraper per database. |
+
 ### Other namespaces
 
 | Workload | Namespace | Application | Notes |

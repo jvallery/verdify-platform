@@ -15,7 +15,7 @@ metadata:
 spec:
   template:
     spec:
-      priorityClassName: verdify-data-critical
+      priorityClassName: estate-production  # vp#1546, D-328 (was verdify-data-critical)
       tolerations: []
 ---
 apiVersion: apps/v1
@@ -25,4 +25,4 @@ metadata:
 spec:
   template:
     spec:
-      priorityClassName: verdify-device-writer
+      priorityClassName: estate-production  # vp#1546, D-328 (was verdify-device-writer)

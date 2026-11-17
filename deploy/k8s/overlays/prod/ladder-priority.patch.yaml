@@ -1,0 +1,163 @@
+# vp#1546 (STD-HA-06, D-328): every verdify-prod workload on the estate PriorityClass
+# ladder. Serving, data-critical and device-writer workloads run at estate-production
+# (ha-serving-resources.yaml, traefik, data-tier-priority.patch.yaml,
+# STAGED-ha3-fast-failover-patch.yaml); the workloads below had no class.
+#   estate-production (1000000): the MQTT broker (ESP32 device path) and the lab
+#     cache origin (behind the public lab site).
+#   estate-app (100000): exporters, render cache, the planner gateway, the operator
+#     API, outbound, the database dump (a backup is not starved) and the firmware
+#     flasher (a preempted flash would leave a device half-written).
+#   estate-batch (-100, Never preempts): rebuildable periodic jobs.
+# The descheduler's priorityThreshold (100001) is unchanged, so it may evict
+# estate-app and below only; estate-production pods (including the ingestor,
+# setpoint server and verdify-db) are never descheduler candidates.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-mqtt
+spec:
+  template:
+    spec:
+      priorityClassName: estate-production
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-lab-cache-origin
+spec:
+  template:
+    spec:
+      priorityClassName: estate-production
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-db-exporter
+spec:
+  template:
+    spec:
+      priorityClassName: estate-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-grafana-render-cache
+spec:
+  template:
+    spec:
+      priorityClassName: estate-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-hermes-iris
+spec:
+  template:
+    spec:
+      priorityClassName: estate-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-operator-api
+spec:
+  template:
+    spec:
+      priorityClassName: estate-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verdify-outbound
+spec:
+  template:
+    spec:
+      priorityClassName: estate-app
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-db-backup
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-app
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-firmware-flasher
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-app
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-band-curve-refresh
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-batch
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-firmware-builder
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-batch
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-greenhouse-brief
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-batch
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-knowledge-embed
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-batch
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-lab-publisher
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-batch
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-vision
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-batch

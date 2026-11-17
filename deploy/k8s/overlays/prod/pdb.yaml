@@ -25,7 +25,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: lab-site
 spec:
-  minAvailable: 1
+  maxUnavailable: 1  # vp#1546, D-329 (was minAvailable 1)
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/component: lab-site
@@ -38,7 +39,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: api
 spec:
-  minAvailable: 1
+  maxUnavailable: 1  # vp#1546, D-329 (was minAvailable 1)
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/component: api
@@ -51,7 +53,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: mcp
 spec:
-  minAvailable: 1
+  maxUnavailable: 1  # vp#1546, D-329 (was minAvailable 1)
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/component: mcp
@@ -64,7 +67,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: edge-traefik
 spec:
-  minAvailable: 1
+  maxUnavailable: 1  # vp#1546, D-329 (was minAvailable 1)
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/name: verdify-traefik
@@ -88,9 +92,26 @@ metadata:
     app.kubernetes.io/component: grafana
 spec:
   maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow  # vp#1546, D-329
   selector:
     matchLabels:
       app.kubernetes.io/component: grafana
     matchExpressions:
       - key: batch.kubernetes.io/job-name
         operator: DoesNotExist
+---
+# vp#1546 (D-329): verdify-outbound runs 2 replicas with hostname anti-affinity
+# and had no PDB.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: verdify-outbound
+  labels:
+    app.kubernetes.io/part-of: verdify
+    app.kubernetes.io/component: outbound
+spec:
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: outbound
