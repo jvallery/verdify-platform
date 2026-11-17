@@ -23,7 +23,7 @@ from verdify_schemas.tunable_registry import REGISTRY, planner_effective_bounds,
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "gen-dashboard-settings-fixture.py"
-WRITABLE_GROUPS = {"planner_policy", "scheduled_policy", "controller_safety", "crop_band"}
+WRITABLE_GROUPS = {"scheduled_policy", "controller_safety", "crop_band"}  # no planner_policy row since AR42
 TIME_FIELDS = {"observed_at", "created_at", "confirmed_at", "since", "written_at", "at"}
 
 
@@ -90,7 +90,7 @@ def test_outdoor_staleness_max_s_reads_its_entity_name_unit_bounds_and_step(rows
         120.0,
         1800.0,
         30.0,
-        "planner_policy",
+        "controller_safety",
         True,
     )
 

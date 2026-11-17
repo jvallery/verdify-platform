@@ -479,9 +479,9 @@ class TestDriftGuard:
 
     def test_planner_pushable_is_only_planner_policy(self) -> None:
         planner_policy = {n for n, d in REGISTRY.items() if d.control_class == "planner_policy"}
-        assert PLANNER_PUSHABLE_REG == planner_policy
-        assert all(REGISTRY[name].control_class == "planner_policy" for name in PLANNER_PUSHABLE_REG)
-        assert set(TIER1_REG) <= set(PLANNER_PUSHABLE_REG)
+        # AR42: no row is planner-pushable, so the planner_policy class is empty.
+        assert PLANNER_PUSHABLE_REG == planner_policy == set()
+        assert set(TIER1_REG) == {n for n in LIVE_WIRE_FIELDS if REGISTRY[n].tier == 1}
         # Per-circuit lighting knobs were reclassified OUT of the planner-writable
         # surface: the band/schedule layer owns the lighting state machine (the
         # planner pushed 0 of these over 30d live). They stay visible/readback
@@ -511,10 +511,12 @@ class TestDriftGuard:
             == "Retired: the engine ranks zones whenever more than one is a VPD member."
         )
         assert REGISTRY["sw_arbiter_zone_enabled"].cfg_readback_object_id == "cfg_arbiter_zone_enabled"
-        # Release 4 (#1633): the planner-pushable rows are exactly the five live policy-wire slots.
-        assert PLANNER_PUSHABLE_REG == LIVE_WIRE_FIELDS
+        # Release 4 (#1633) kept five live policy-wire slots; AR42 makes them operator settings (the reviewer
+        # advises only), so they are controller_safety rows, writable from the dashboard, not planner_policy.
         for param in LIVE_WIRE_FIELDS:
             assert REGISTRY[param].cfg_readback_object_id
+            assert REGISTRY[param].push_owner == "operator" and not REGISTRY[param].planner_pushable
+            assert REGISTRY[param].control_class == "controller_safety"
         assert "direct_wet_stress_latest_hour" not in REGISTRY  # #1734 C-8
         for param in IRRIGATION_SITE_PARAMS:
             assert REGISTRY[param].control_class == "irrigation_site"
@@ -597,8 +599,7 @@ class TestActivityDirectWetGuards:
         planner lever. They were reclassified out of the writable surface (the
         band/schedule layer pushes them every cycle; the planner pushed 0 over
         30d live), but stay readback-visible for traceability. The genuinely
-        tactical `direct_wet_stress_*` override knobs and the
-        `sw_direct_wet_gate_enabled` master gate switch remain planner-writable.
+        `sw_direct_wet_gate_enabled` master gate switch is an operator setting (AR42).
         """
         from verdify_schemas.tunable_registry import NO_EFFECT_RETIRED_REG, SCHEDULED_POLICY_REG
 
@@ -625,7 +626,8 @@ class TestActivityDirectWetGuards:
         # Retired (wire schema v2, #588), zero firmware presence: the row left the registry (#1734 C-8).
         assert "direct_wet_stress_latest_hour" not in REGISTRY
         assert REGISTRY["sw_direct_wet_gate_enabled"].kind == "switch"
-        assert REGISTRY["sw_direct_wet_gate_enabled"].planner_pushable
+        assert not REGISTRY["sw_direct_wet_gate_enabled"].planner_pushable
+        assert REGISTRY["sw_direct_wet_gate_enabled"].push_owner == "operator"
         assert REGISTRY["sw_direct_wet_gate_enabled"].cfg_readback_object_id
 
     def test_mister_state_machine_routes_climate_by_vpd_membership(self, controls_yaml: str) -> None:

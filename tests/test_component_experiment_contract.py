@@ -59,8 +59,8 @@ def test_registry_routes_grid_and_treatment_ownership_are_exact() -> None:
         assert definition.wire_id is not None
     for field in TREATMENT_FIELD_ORDER:
         definition = REGISTRY[field]
-        assert definition.push_owner == "planner"
-        assert definition.planner_pushable is True
+        assert definition.push_owner == "operator"
+        assert definition.planner_pushable is False
         assert definition.tier == 1
 
 

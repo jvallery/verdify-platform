@@ -40,7 +40,6 @@ export function breakableKey(key: string): ReactNode {
  * the rail's "Read-only" filter, which counts every row that cannot be written, Band in force's included.
  */
 export const SETTING_GROUPS: readonly (readonly [string, string])[] = [
-  ["planner_policy", "Planner policy"],
   ["scheduled_policy", "Scheduled policy"],
   ["controller_safety", "Controller safety"],
   ["crop_band", "Crop band"],
