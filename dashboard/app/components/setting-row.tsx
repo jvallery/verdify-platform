@@ -75,10 +75,15 @@ const PENDING: readonly string[] = ["requested", "not_confirmed", "held"];
  * The API's readback state in the page's words. requested, not_confirmed and held read "Not confirmed since" the time the
  * value was sent (the newest desired row's, else the reason's); no_readback reads Not reported; a row whose newest write
  * is a release has nothing to confirm, so it reads Reported while the controller reports a value. A Band in force row is
- * worked out by the host.
+ * worked out by the host. A legacy wide limit (`read_only_kind` "legacy_wide_limit") has nothing to confirm: the host
+ * stopped sending it when the band-edge law went live, so its last push can never be confirmed and it reads Reported or
+ * Not reported by its readback alone (the API's state for these rows is corrected at the source in its next release).
  */
-export function settingState(setting: Pick<Setting, "group" | "state" | "desired" | "readback">): SettingStateView {
+export function settingState(setting: Pick<Setting, "group" | "state" | "desired" | "readback" | "read_only_kind">): SettingStateView {
   if (setting.group === "band_in_force") return { kind: "derived", status: "neutral", since: null, reason: null };
+  if (setting.read_only_kind === "legacy_wide_limit") {
+    return { kind: finite(setting.readback?.value) ? "reported" : "not_reported", status: "neutral", since: null, reason: null };
+  }
   if (setting.state === "confirmed") return { kind: "confirmed", status: "ok", since: null, reason: null };
   if (PENDING.includes(setting.state)) {
     const since = setting.desired?.created_at ?? setting.desired?.state_reason?.since ?? null;

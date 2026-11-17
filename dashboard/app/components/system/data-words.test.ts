@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 import { expect, test } from "vitest";
 import { fixture } from "../../../e2e/fixtures/index.mjs";
-import type { DataContinuity, Delivery } from "../../lib/operator-api";
+import type { DataContinuity, Delivery, Setting } from "../../lib/operator-api";
 import {
-  continuityBars, continuityDays, continuitySentence, deliveryHours, deliveryLine, failingRows, flowLine, oldestWords, probeAge, probeKind, probeSummary,
+  STANDING_WORDS, continuityBars, continuityDays, continuitySentence, deliveryHours, deliveryLine, failingNow, failingRows, flowLine, oldestWords, probeAge, probeKind, probeSummary,
   probeWords, probesLine, readbackWords, senderRows, stoppedWords, tableWords,
 } from "./data-words";
 
@@ -52,21 +52,47 @@ test("pushes by sender leave out the controller's own reports; failed and expire
   expect([readbackWords(data.readback_pass), readbackWords({ at: null, stored: null, of: null })]).toEqual(["2 changed of 102 read back", "not reported"]);
 });
 
-test("a setting not taken is failing now until a readback confirms it after its last failure; failing now first", () => {
-  const rows = failingRows([
-    { param: "a", failed: 2, last_failed_at: "2026-11-02T10:00:00Z", last_confirmed_at: "2026-11-02T11:00:00Z" },
-    { param: "b", failed: 5, last_failed_at: "2026-11-02T10:00:00Z", last_confirmed_at: null },
-    { param: "c", failed: 9, last_failed_at: "2026-11-02T12:00:00Z", last_confirmed_at: "2026-11-02T11:00:00Z" },
-  ] as never);
-  expect(rows.map((row) => [row.param, row.now])).toEqual([["c", true], ["b", true], ["a", false]]);
+const at = (time: string) => `2026-11-02T${time}:00Z`;
+const LEDGER = [
+  { param: "a", failed: 2, last_failed_at: at("10:00"), last_confirmed_at: at("11:00") },
+  { param: "b", failed: 5, last_failed_at: at("10:00"), last_confirmed_at: null },
+  { param: "c", failed: 9, last_failed_at: at("12:00"), last_confirmed_at: at("11:00") },
+  { param: "d", failed: 12, last_failed_at: at("04:50"), last_confirmed_at: null },
+  { param: "e", failed: 12, last_failed_at: at("04:55"), last_confirmed_at: null },
+  { param: "gone", failed: 3, last_failed_at: at("09:00"), last_confirmed_at: null },
+] as never[];
+/** A catalogue row: confirmed (the controller holds the wanted value) or not confirmed. */
+const held = (param: string, state = "confirmed") => ({ param, group: "scheduled_policy", state, desired: null, read_only_kind: null, readback: { value: 1, observed_at: at("10:40"), reason: null } }) as unknown as Setting;
+
+test("with no catalogue the ledger alone decides: failing until a readback confirms it after its last failure; failing first", () => {
+  const rows = failingRows(LEDGER.slice(0, 3), null);
+  expect(rows.map((row) => [row.param, row.standing, row.now])).toEqual([["c", "failing", true], ["b", "failing", true], ["a", "recovered", false]]);
+});
+
+test("against the catalogue a setting is failing, in force, recovered or retired; only failing counts as not taken", () => {
+  const catalog = [held("a"), held("b", "not_confirmed"), held("c", "not_confirmed"), held("d"), held("e")];
+  const rows = failingRows(LEDGER, catalog);
+  expect(rows.map((row) => [row.param, row.standing, row.now])).toEqual([
+    ["c", "failing", true], ["b", "failing", true], ["e", "in_force", false], ["d", "in_force", false], ["a", "recovered", false], ["gone", "retired", false],
+  ]);
+  expect(rows.find((row) => row.param === "d")?.readbackAt).toBe(at("10:40"));
+  expect(rows.find((row) => row.param === "gone")?.readbackAt).toBeNull();
+  expect(failingNow(LEDGER, catalog)).toBe(2);
+  expect(Object.fromEntries(Object.entries(STANDING_WORDS).map(([key, value]) => [key, [value.label, value.status]]))).toEqual({
+    failing: ["Failing", "warn"], recovered: ["Recovered", "neutral"], in_force: ["In force", "neutral"], retired: ["Retired", "neutral"],
+  });
 });
 
 test("the delivery line warns on a setting failing now or a push waiting over 30 min; otherwise counts what was confirmed", () => {
-  const ok = deliveryLine({ by_status: [{ source: "band", status: "confirmed", count: 12 }], failing: [], oldest_unconfirmed_s: 0 } as never, 24);
+  const ok = deliveryLine({ by_status: [{ source: "band", status: "confirmed", count: 12 }], failing: [], oldest_unconfirmed_s: 0 } as never, 24, null);
   expect([ok.tone, plain(ok.text)]).toEqual(["ok", "12 pushes confirmed in 24 h, none failing"]);
-  expect(deliveryLine({ by_status: [], failing: [], oldest_unconfirmed_s: 2400 } as never, 168).tone).toBe("warn");
-  const failing = deliveryLine({ by_status: [], failing: [{ param: "x", failed: 1, last_failed_at: "2026-11-02T10:00:00Z", last_confirmed_at: null }], oldest_unconfirmed_s: 0 } as never, 24);
+  expect(deliveryLine({ by_status: [], failing: [], oldest_unconfirmed_s: 2400 } as never, 168, null).tone).toBe("warn");
+  const one = [{ param: "x", failed: 1, last_failed_at: at("10:00"), last_confirmed_at: null }];
+  const failing = deliveryLine({ by_status: [], failing: one, oldest_unconfirmed_s: 0 } as never, 24, null);
   expect([failing.tone, failing.text]).toEqual(["warn", "1 setting is not taken now"]);
+  // The catalogue clears every row: the controller holds x, and y is retired.
+  const cleared = deliveryLine({ by_status: [{ source: "band", status: "confirmed", count: 12 }], failing: [...one, { ...one[0], param: "y" }], oldest_unconfirmed_s: 0 } as never, 24, [held("x")]);
+  expect([cleared.tone, plain(cleared.text)]).toEqual(["ok", "12 pushes confirmed in 24 h, none failing"]);
 });
 
 test("the answer's sentence: nothing lost, or the gaps and what the gap log replayed", () => {

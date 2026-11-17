@@ -971,8 +971,11 @@ export const FIXTURES = {
     world.controller = { ...world.controller, gap_log: "nvs_full" };
     Object.assign(world.system.health, { nvs_used_entries: 13_420, nvs_free_entries: 314, nvs_write_worst_ms: 212.5 });
   },
-  // Pushes are failing: the grow-light settings are not taken (the live band/failed rows), one push waits 31 min, and
-  // the dispatcher is pacing.
+  // Pushes are failing (the live band/failed rows), one push waits 31 min, and the dispatcher is pacing. Each setting
+  // stands one way against the catalogue (screens section 10.3): the two lux thresholds are failing (their newest value
+  // is not confirmed), the two minimum on-times are in force (the controller holds the wanted value although their
+  // pushes failed), the outdoor staleness limit recovered (a push was confirmed after its last failure), and
+  // fog_escalation_kpa is retired (the catalogue no longer has it).
   "delivery-failing": (world) => {
     lawOf(world);
     const { delivery } = world.system;
@@ -984,8 +987,17 @@ export const FIXTURES = {
     });
     delivery.failing = [
       failing("gl_main_lux_threshold", 36, 4, null), failing("gl_grow_lux_threshold", 36, 4, null), failing("gl_main_min_on_s", 35, 5, 30),
-      failing("gl_grow_min_on_s", 34, 5, 30), failing("outdoor_staleness_max_s", 6, 31, 2),
+      failing("gl_grow_min_on_s", 34, 5, 30), failing("outdoor_staleness_max_s", 6, 31, 0.25), failing("fog_escalation_kpa", 12, 50, null),
     ];
+    const sent = iso(world.now - 4 * MINUTE);
+    ["gl_main_lux_threshold", "gl_grow_lux_threshold"].forEach((param, index) => {
+      const desired = {
+        id: 9101 + index, param, value: 30_000, snapped_from: null, manual: true, manual_before: false, state: "not_confirmed",
+        state_reason: { code: "no_match", detail: null, applied_value: null, since: sent }, confirmed_at: null,
+        actor: { source: "dashboard", name: "jason" }, reason: null, created_at: sent,
+      };
+      Object.assign(settingOf(world, param), { state: "not_confirmed", desired, applied_from: "manual" });
+    });
     world.system.dispatcherStage = "paced 12/40";
   },
 };

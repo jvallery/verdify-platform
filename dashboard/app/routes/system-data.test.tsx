@@ -6,7 +6,8 @@
 import { act, cleanup, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { FakeResizeObserver, media, setTokens } from "../charts/fixtures/uplot-mock";
-import { text } from "../components/test-render";
+import { DeliveryPanel } from "../components/system/data-blocks";
+import { renderUi, text } from "../components/test-render";
 import { OPERATOR, advance, renderWithApi, requests, startFixtureApi, stopFixtureApi, type FixtureOptions } from "../lib/test-fixture-api";
 import type { Session } from "../lib/session";
 import SystemData, { dataStatus } from "./system-data";
@@ -49,9 +50,11 @@ test("flow, probes and continuity read API-36 in words: tables, ages, outages an
   for (const name of ["Flow", "Probes", "Continuity", "Delivery"]) expect(text(panel(name)).replaceAll(/the planner \(retired\)/gi, ""), name).not.toMatch(RETIRED);
 });
 
-test("delivery: pushes by sender, the oldest unconfirmed, and each setting not taken links to its drawer", async () => {
+test("delivery: pushes by sender, the oldest unconfirmed, and each setting whose pushes failed as it stands, linking to its drawer", async () => {
   await open({ fixture: "delivery-failing" });
-  expect(text(document.querySelector(".page-status"))).toMatch(/^\d+ settings? not taken$/);
+  // Only the two lux thresholds are not taken now: the catalogue shows the controller holding the others' values.
+  expect(text(document.querySelector(".page-status"))).toBe("2 settings not taken");
+  expect(text(panel("Answer"))).toContain("2 settings are not taken now");
   const delivery = panel("Delivery");
   const senders = within(delivery).getByRole("region", { name: "Pushes by sender" });
   expect(text(senders)).toContain("Confirmed");
@@ -62,6 +65,38 @@ test("delivery: pushes by sender, the oldest unconfirmed, and each setting not t
   const links = within(failing).getAllByRole("link");
   expect(links.length).toBe(5);
   expect(links.every((link) => /^\/settings\?edit=[\w%.-]+$/.test(link.getAttribute("href") ?? ""))).toBe(true);
+  // Failing, then in force, recovered and retired; a retired setting is its key with no link.
+  const rows = [...failing.querySelectorAll("tbody tr")];
+  expect(rows.map((row) => text(row.querySelector(".badge")))).toEqual(["Failing", "Failing", "In force", "In force", "Recovered", "Retired"]);
+  expect(text(rows[5].querySelector("th"))).toBe("fog_escalation_kpa");
+  expect(rows[5].querySelector("a")).toBeNull();
+  expect(failing.parentElement!.querySelector(".sys-none-failing")).toBeNull();
+});
+
+test("delivery: when the catalogue clears every failed push, nothing is not taken and the table says none is failing now", () => {
+  const failed = (param: string) => ({ param, label: param, failed: 12, last_failed_at: "2026-11-02T11:50:00Z", last_confirmed_at: null });
+  const data = {
+    by_status: [{ source: "band", status: "confirmed", count: 12 }], failing: [failed("gl_main_lux_threshold"), failed("fog_escalation_kpa")], oldest_unconfirmed_s: 0,
+    latency: { p50_s: 4, p95_s: 9, confirmed: 12 }, dispatcher_stage: null, readback_pass: { at: null, stored: null, of: null },
+  } as never;
+  const catalog = [{ param: "gl_main_lux_threshold", label: "Main light lux threshold", group: "scheduled_policy", state: "confirmed", desired: null, read_only_kind: null,
+    readback: { value: 40000, observed_at: "2026-11-02T17:38:00Z", reason: null } }] as never;
+  renderUi(<DeliveryPanel read={{ data, failed: false, pending: false, retry: () => {} }} hours={24} catalog={catalog} />);
+  const delivery = screen.getByRole("region", { name: "Delivery" });
+  expect(delivery.classList.contains("tone-warn")).toBe(false);
+  expect(text(delivery.querySelector(".sys-none-failing"))).toBe("None is failing now.");
+  const rows = [...within(delivery).getByRole("region", { name: "Settings whose pushes failed" }).querySelectorAll("tbody tr")];
+  expect(rows.map((row) => text(row.querySelector(".badge")))).toEqual(["In force", "Retired"]);
+  // An in-force row never confirmed by a push reads its catalogue readback in Last confirmed; a retired one keeps the dash.
+  const last = (row: Element) => text([...row.querySelectorAll("td")].at(-1));
+  expect([last(rows[0]), last(rows[1])]).toEqual([expect.stringMatching(/^read back \w{3} \d+, \d\d:\d\d$/), "—"]);
+  expect(dataStatus({ ingestor: { heartbeat_age_s: 20 } } as never, data, null, catalog)).toBe("Data flowing · every push taken");
+  // Until the catalogue settles, the table waits rather than show a count it may clear.
+  cleanup();
+  renderUi(<DeliveryPanel read={{ data, failed: false, pending: false, retry: () => {} }} hours={24} catalog={null} catalogSettled={false} />);
+  const waiting = screen.getByRole("region", { name: "Delivery" });
+  expect(screen.queryByRole("region", { name: "Settings whose pushes failed" })).toBeNull();
+  expect(text(waiting)).toContain("Reading the settings catalogue…");
 });
 
 test("probes silent for days are muted and named apart and do not warn; the one that stopped today does", async () => {
@@ -98,11 +133,11 @@ test("a failed delivery read is its own error; the other blocks stand", async ()
 });
 
 test("the status line says what is missing first, counting only probes stopped today, and names the known silent apart", () => {
-  expect(dataStatus(null, null, null)).toBeNull();
+  expect(dataStatus(null, null, null, null)).toBeNull();
   const continuity = { ingestor: { heartbeat_age_s: 600 } } as never;
   const failing = { failing: [{ param: "x", failed: 1, last_failed_at: "2026-11-02T10:00:00Z", last_confirmed_at: null }] } as never;
   const probes = { answering: [], silent: [], stoppedToday: 1, knownText: "7 soil probes silent since 14 Nov" };
-  expect(dataStatus(continuity, failing, probes)?.replaceAll(String.fromCharCode(0xa0), " "))
+  expect(dataStatus(continuity, failing, probes, null)?.replaceAll(String.fromCharCode(0xa0), " "))
     .toBe("Ingestor heartbeat 10 min ago · 1 probe stopped answering today · 1 setting not taken · 7 soil probes silent since 14 Nov");
-  expect(dataStatus({ ingestor: { heartbeat_age_s: 20 } } as never, { failing: [] } as never, { ...probes, stoppedToday: 0, knownText: null })).toBe("Data flowing · every push taken");
+  expect(dataStatus({ ingestor: { heartbeat_age_s: 20 } } as never, { failing: [] } as never, { ...probes, stoppedToday: 0, knownText: null }, null)).toBe("Data flowing · every push taken");
 });

@@ -134,6 +134,11 @@ test("bounds and step, the value in force and the state, without rendering", () 
   expect(settingState({ ...base, state: "released" }).kind).toBe("reported");
   expect(settingState({ ...base, state: "held", desired: desired({ state: "held" }) })).toMatchObject({ kind: "not_confirmed", status: "serious" });
   expect(settingState(row("band_house_temp_low")).kind).toBe("derived");
+  // A legacy wide limit has nothing to confirm: the host stopped sending it, so a stale push never reads not confirmed.
+  const legacy = row("temp_low", { state: "not_confirmed", desired: null });
+  expect(legacy.read_only_kind).toBe("legacy_wide_limit");
+  expect(settingState(legacy)).toEqual({ kind: "reported", status: "neutral", since: null, reason: null });
+  expect(settingState({ ...legacy, readback: null }).kind).toBe("not_reported");
   expect(text(renderUi(<p>{breakableKey("a_b_c")}</p>).container)).toBe("a_b_c");
 });
 

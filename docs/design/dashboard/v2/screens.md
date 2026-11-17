@@ -282,8 +282,14 @@ The daily run-time chart moves to Record → Equipment; the controller card move
 | 1 | Flow | Each stored table with the age of its newest row and rows in the last five minutes; the ingestor's heartbeat | API-36 (`tables`, `ingestor`) |
 | 2 | Probes | Each sensor with the age of its last answer; not seen in two hours is said so | API-36 (`probes`) |
 | 3 | Continuity | Per day over 1, 7 or 30 days: seconds without data and minutes the gap log restored, as daily bars; the list of outages (start, end, length, reason, whether replayed); the replayed quarters | API-36 (`by_day`, `outages`, `replayed`, `gap_log`) |
-| 4 | Delivery | Pushed values by outcome over 24 h or 7 d; the oldest value still unconfirmed; time to confirm (median, 95th); the settings whose pushes failed, with a link to each; the last readback pass | API-37 |
+| 4 | Delivery | Pushed values by outcome over 24 h or 7 d; the oldest value still unconfirmed; time to confirm (median, 95th); the settings whose pushes failed, with a link to each and how each stands (Failing, In force, Recovered, Retired); the last readback pass | API-37, API-09 |
 | 5 | Ingestor counters (disclosure) | Reconnects, rejected payloads and rows by table, replay failures | API-36 |
+
+A setting is not taken now only when no push was confirmed after its last failure and the catalogue (API-09) does not
+show the controller holding the wanted value: the delivery ledger knows only pushes, the catalogue knows what the
+controller holds. A setting the catalogue reads confirmed is listed as In force (with its readback time) and one the
+catalogue no longer has as Retired; both are listed but not counted in the status line, the answer or the panel's tone.
+While API-09 has not answered, delivery counts nothing; when it fails, the ledger alone decides.
 
 ### 10.4 Settings `/settings`
 

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 import { dayMonth, duration, formatValue, localDate, sentenceStart, shortTime } from "../../lib/format";
-import type { DataContinuity, Delivery } from "../../lib/operator-api";
+import type { DataContinuity, Delivery, Setting } from "../../lib/operator-api";
 import { deliverySender, isControllerReport, type DeliverySender } from "../../lib/vocab";
 import { hasWords, unknownWords, words } from "../../lib/words";
+import type { BadgeStatus } from "../badge";
 import { finite } from "../data/viz";
+import { settingState } from "../setting-row";
 
 /**
  * The words and shapes of System → Data (screens section 10.3, review B6) that only this page uses: what each stored
@@ -184,14 +186,47 @@ export function senderRows(rows: Delivery["by_status"]): SenderRow[] {
 export const confirmedPushes = (rows: readonly SenderRow[]): number => rows.reduce((sum, row) => sum + row.counts.confirmed, 0);
 
 type Failing = Delivery["failing"][number];
-/** A setting not taken, failing now (no readback confirmed it after its last failure) or since recovered. */
-export type FailingRow = Failing & { readonly now: boolean };
-/** Failing now first (most failures first), then those since confirmed, newest recovery first. */
-export function failingRows(rows: readonly Failing[]): FailingRow[] {
-  const now = (row: Failing) => !row.last_confirmed_at || Date.parse(row.last_confirmed_at) < Date.parse(row.last_failed_at);
-  return rows.map((row) => ({ ...row, now: now(row) })).sort((a, b) => Number(b.now) - Number(a.now) || b.failed - a.failed
-    || Date.parse(b.last_confirmed_at ?? b.last_failed_at) - Date.parse(a.last_confirmed_at ?? a.last_failed_at) || a.param.localeCompare(b.param));
+/**
+ * How a setting whose pushes failed stands now (screens section 10.3). The ledger (API-37) only knows pushes; the
+ * catalogue (API-09) knows what the controller holds. failing: no push was confirmed after its last failure and the
+ * catalogue does not show the controller holding the wanted value (or the catalogue is not available); recovered: a
+ * push was confirmed after the last failure; in_force: the catalogue reads it confirmed, so the controller holds the
+ * wanted value although its pushes failed; retired: the catalogue no longer has it. Only failing counts as not taken.
+ */
+export type Standing = "failing" | "recovered" | "in_force" | "retired";
+/** The State badge of each standing; "In force" as the Drying page says "in force on the controller". */
+export const STANDING_WORDS: Readonly<Record<Standing, { readonly label: string; readonly status: BadgeStatus }>> = {
+  failing: { label: "Failing", status: "warn" },
+  recovered: { label: "Recovered", status: "neutral" },
+  in_force: { label: "In force", status: "neutral" },
+  retired: { label: "Retired", status: "neutral" },
+};
+/** A setting whose pushes failed, with how it stands; `readbackAt` is the catalogue's readback time of an in-force row. */
+export type FailingRow = Failing & { readonly standing: Standing; readonly now: boolean; readonly readbackAt: string | null };
+const STANDING_ORDER: readonly Standing[] = ["failing", "in_force", "recovered", "retired"];
+const newest = (row: Failing) => Date.parse(row.last_confirmed_at ?? row.last_failed_at);
+/**
+ * The ledger's failing settings, each with how it stands against the catalogue (`null`: API-09 is not available, and
+ * the ledger alone decides). Failing first (most failures first), then in force, recovered and retired, each newest
+ * first, then by key.
+ */
+export function failingRows(rows: readonly Failing[], catalog: readonly Setting[] | null): FailingRow[] {
+  const byParam = catalog ? new Map(catalog.map((row) => [row.param, row])) : null;
+  const standing = (row: Failing): { standing: Standing; readbackAt: string | null } => {
+    if (row.last_confirmed_at && Date.parse(row.last_confirmed_at) >= Date.parse(row.last_failed_at)) return { standing: "recovered", readbackAt: null };
+    if (!byParam) return { standing: "failing", readbackAt: null };
+    const setting = byParam.get(row.param);
+    if (!setting) return { standing: "retired", readbackAt: null };
+    return settingState(setting).kind === "confirmed" ? { standing: "in_force", readbackAt: setting.readback?.observed_at ?? null } : { standing: "failing", readbackAt: null };
+  };
+  return rows.map((row) => {
+    const stands = standing(row);
+    return { ...row, ...stands, now: stands.standing === "failing" };
+  }).sort((a, b) => STANDING_ORDER.indexOf(a.standing) - STANDING_ORDER.indexOf(b.standing)
+    || (a.now ? b.failed - a.failed : 0) || newest(b) - newest(a) || a.param.localeCompare(b.param));
 }
+/** How many settings are not taken now: the ledger and the catalogue both say so. */
+export const failingNow = (rows: readonly Failing[], catalog: readonly Setting[] | null): number => failingRows(rows, catalog).filter((row) => row.now).length;
 /** "4.2 s median · 31.8 s for the slowest 5 %", or what is not known. */
 export function confirmTimeWords(latency: Delivery["latency"]): string | null {
   if (!finite(latency.p50_s)) return null;
@@ -221,10 +256,10 @@ export function probesLine(summary: ProbeSummary): StateLine {
   const parts = [stoppedWords(summary.stoppedToday), `${summary.answering.length} answering`, summary.knownText].filter(Boolean) as string[];
   return { tone: summary.stoppedToday > 0 ? "warn" : summary.knownText ? "muted" : "ok", text: sentenceStart(parts.join(" · ")) };
 }
-/** Delivery: the settings failing now, else what was confirmed and what waits. */
-export function deliveryLine(data: Pick<Delivery, "by_status" | "failing" | "oldest_unconfirmed_s">, hours: number): StateLine {
+/** Delivery: the settings failing now (against the catalogue, as `failingRows`), else what was confirmed and what waits. */
+export function deliveryLine(data: Pick<Delivery, "by_status" | "failing" | "oldest_unconfirmed_s">, hours: number, catalog: readonly Setting[] | null): StateLine {
   const window = hours === 24 ? "24 h" : "7 days";
-  const failing = failingRows(data.failing).filter((row) => row.now).length;
+  const failing = failingNow(data.failing, catalog);
   if (failing > 0) return { tone: "warn", text: `${failing} ${failing === 1 ? "setting is" : "settings are"} not taken now` };
   const confirmed = confirmedPushes(senderRows(data.by_status));
   const oldest = finite(data.oldest_unconfirmed_s) ? data.oldest_unconfirmed_s : 0;

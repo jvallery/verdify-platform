@@ -18,7 +18,7 @@ import { Segmented } from "../segmented";
 import { Table } from "../table";
 import {
   CONTINUITY_DAYS, DELIVERY_HOURS, type ContinuityDays, type DeliveryHours, type FailingRow, type ProbeSummary, type SenderRow, type StateLine,
-  confirmTimeWords, continuityBars, failingRows, oldestWords, probeAge, readbackWords, senderRows, tableWords,
+  STANDING_WORDS, confirmTimeWords, continuityBars, failingRows, oldestWords, probeAge, readbackWords, senderRows, tableWords,
 } from "./data-words";
 import { hostState } from "./states";
 
@@ -160,8 +160,12 @@ export function ContinuityPanel({ read, days }: { read: PanelRead<DataContinuity
 // ---------------------------------------------------------------------------------------------------- delivery
 export const settingEditHref = (param: string) => `/settings?edit=${encodeURIComponent(param)}`;
 
-/** A setting named by the catalogue (A8): its label, or "Retired setting" with its key under it. */
-function SettingName({ param, catalog }: { param: string; catalog: readonly Setting[] | null }) {
+/**
+ * A setting named by the catalogue (A8): its label, or "Retired setting" with its key under it. A setting the catalogue
+ * no longer has (`retired`) is its key alone, with no link: it has no drawer on Settings.
+ */
+function SettingName({ param, catalog, retired = false }: { param: string; catalog: readonly Setting[] | null; retired?: boolean }) {
+  if (retired) return <span className="key-mono">{param}</span>;
   const name = settingName(param, catalog);
   return <Link to={settingEditHref(param)}>{name.label}{name.retired && <span className="key-mono">{name.key}</span>}</Link>;
 }
@@ -169,10 +173,12 @@ function SettingName({ param, catalog }: { param: string; catalog: readonly Sett
 /**
  * Delivery (row 4, B6): what the host pushed over 24 h or 7 d (`?hours=`) by who sent it and how it ended (the
  * controller's own reports are not pushes and stay out); the oldest value still unconfirmed, time to confirm, the last
- * readback pass and how the host is sending; then the settings not taken, failing now first, each linking to its drawer
- * on Settings, ten rows before Show all. The panel is a warning only while a setting is failing now.
+ * readback pass and how the host is sending; then the settings whose pushes failed, each as it stands against the
+ * catalogue (failing, in force, recovered or retired; `failingRows`), failing first, each linking to its drawer on
+ * Settings, ten rows before Show all. That table waits until the catalogue read settles (`catalogSettled`), so a count it
+ * would clear never shows. The panel is a warning only while a setting is failing now.
  */
-export function DeliveryPanel({ read, hours, catalog }: { read: PanelRead<Delivery>; hours: DeliveryHours; catalog: readonly Setting[] | null }) {
+export function DeliveryPanel({ read, hours, catalog, catalogSettled = true }: { read: PanelRead<Delivery>; hours: DeliveryHours; catalog: readonly Setting[] | null; catalogSettled?: boolean }) {
   const [params] = useSearchParams();
   const data = read.data;
   const href = (value: number) => {
@@ -181,7 +187,7 @@ export function DeliveryPanel({ read, hours, catalog }: { read: PanelRead<Delive
     return `?${next.toString()}`;
   };
   const senders = data ? senderRows(data.by_status) : [];
-  const failing = data ? failingRows(data.failing) : [];
+  const failing = data && catalogSettled ? failingRows(data.failing, catalog) : [];
   const failingNow = failing.some((row) => row.now);
   const waiting = senders.some((row) => row.counts.waiting > 0);
   const sending = data ? sendingWords(data.dispatcher_stage) : null;
@@ -208,15 +214,17 @@ export function DeliveryPanel({ read, hours, catalog }: { read: PanelRead<Delive
           ]} />}
       </div>
       <div className="card-section">
-        <h3 className="sys-subtitle">Settings not taken</h3>
-        {failing.length === 0 ? <p className="meta">No push failed in this window.</p>
-          : <Table<FailingRow> label="Settings whose pushes failed" caption="Settings whose pushes failed, failing now first" captionHidden rows={failing} rowKey={(row) => row.param} phone="list" maxRows={10} rowNoun="settings" columns={[
-            { key: "setting", header: "Setting", rowHeader: true, cell: (row) => <SettingName param={row.param} catalog={catalog} /> },
-            { key: "state", header: "State", titleAside: true, cell: (row) => (row.now ? <StatusBadge size="sm" status="warn">Failing</StatusBadge> : <StatusBadge size="sm" status="neutral">Recovered</StatusBadge>) },
+        <h3 className="sys-subtitle">Settings whose pushes failed</h3>
+        {!catalogSettled ? <p className="meta">Reading the settings catalogue…</p>
+          : failing.length === 0 ? <p className="meta">No push failed in this window.</p>
+          : <>{!failingNow && <p className="meta sys-none-failing">None is failing now.</p>}<Table<FailingRow> label="Settings whose pushes failed" caption="Settings whose pushes failed, failing now first" captionHidden rows={failing} rowKey={(row) => row.param} phone="list" maxRows={10} rowNoun="settings" columns={[
+            { key: "setting", header: "Setting", rowHeader: true, cell: (row) => <SettingName param={row.param} catalog={catalog} retired={row.standing === "retired"} /> },
+            { key: "state", header: "State", titleAside: true, cell: (row) => <StatusBadge size="sm" status={STANDING_WORDS[row.standing].status}>{STANDING_WORDS[row.standing].label}</StatusBadge> },
             { key: "failed", header: "Failures", numeric: true, cell: (row) => count(row.failed) },
             { key: "last", header: "Last failed", cell: (row) => <LocalTime at={row.last_failed_at} date /> },
-            { key: "confirmed", header: "Last confirmed", cell: (row) => (row.last_confirmed_at ? <LocalTime at={row.last_confirmed_at} date /> : "—") },
-          ]} />}
+            { key: "confirmed", header: "Last confirmed", cell: (row) => (row.last_confirmed_at ? <LocalTime at={row.last_confirmed_at} date />
+              : row.standing === "in_force" && row.readbackAt ? <>read back <LocalTime at={row.readbackAt} date /></> : "—") },
+          ]} /></>}
       </div>
     </>}
   </Panel>;

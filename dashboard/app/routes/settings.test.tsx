@@ -15,7 +15,7 @@ import { text } from "../components/test-render";
 import { GLOSSARY } from "../lib/glossary";
 import { SETTING_GROUPS } from "../lib/settings-context";
 import { NOW, UUID, advance, startFixtureApi, stopFixtureApi, writes, type FixtureOptions } from "../lib/test-fixture-api";
-import Settings, { UNUSED_SUMMARY, filterOf, links, settingsStatus } from "./settings";
+import Settings, { UNUSED_SUMMARY, filterOf, links, settingsAnswer, settingsStatus } from "./settings";
 
 vi.mock("uplot", async () => ({ default: (await import("../charts/fixtures/uplot-mock")).MockPlot }));
 
@@ -230,6 +230,15 @@ test("each block's four states: loading, failed with Retry, empty, and stale rea
   await open("/settings?q=outdoor_staleness_max_s", { fixture: "controller-not-reporting" });
   expect(rowOf("outdoor_staleness_max_s").querySelector('[data-readback="stale"]')).not.toBeNull();
   expect(panel("settings-in-use").getAttribute("data-state")).toBe("stale");
+});
+
+test("a legacy wide limit's old push is not a value waiting: the answer reads all confirmed with nothing listed", () => {
+  // Live 2026-11-17: temp_low, temp_high, vpd_low and vpd_high carry a push from before the band-edge law, never confirmable.
+  const rows = served().map((row) => (row.read_only_kind === "legacy_wide_limit" ? { ...row, state: "not_confirmed", desired: null } : row)) as never[];
+  expect((rows as Row[]).filter((row) => row.state === "not_confirmed")).toHaveLength(4);
+  const controller = (rows as Row[]).filter((row) => row.effect === "controller").length;
+  expect(settingsAnswer(rows)).toEqual({ text: `${controller} settings are read by the controller; all are confirmed.`, pending: [] });
+  expect(settingsStatus(rows, true)).toBe(`${rows.length} settings · 0 not confirmed`);
 });
 
 test("the status line, the route's chart styles and the glossary at #glossary", async () => {
