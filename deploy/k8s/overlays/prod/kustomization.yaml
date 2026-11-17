@@ -64,8 +64,8 @@ resources:
   # Plant-observation pipeline (#436): GitOps-owned CronJob + generated
   # verdify-vision-src ConfigMap. Pulls the production ingestor digest from the
   # zot origin with zot-origin-cluster-pull ONLY (ADR-0021 — the transitional
-  # GHCR pull credential is gone). The model credential Secret
-  # (verdify-vision-key) remains a runtime prerequisite.
+  # GHCR pull credential is gone). Its model credential is the Cortex Secret
+  # verdify-vision-cortex; verdify-vision-key was retired (#1543, agents#7013).
   - ../../vision
   # HA-3 (#239): ingestor PDB maxUnavailable:1 (singleton-may-be-disrupted intent;
   # correctness is the Lease fence, not the PDB). Additive — does NOT restart the
