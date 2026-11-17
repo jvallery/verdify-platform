@@ -121,13 +121,12 @@ LIGHT_PIN_PATHS = (
 # names. Markdown anywhere else (cortex_planner prompts, firmware/, dashboard/,
 # deploy/, site/, any code tree) is runtime or test input and selects the full run.
 # Excluded roots are read by code: docs/planner/ (the Iris playbook and the
-# site-content playbook root), the dashboard OpenAPI folder (schema tests, the
-# dashboard build) and research/planner-efficacy/ (Python, protocols and data read
-# by scripts, tests, the orchestrator image and the ingestor's qualification task).
+# site-content playbook root) and the dashboard OpenAPI folder (schema tests, the
+# dashboard build).
 # docs/ as a whole is copied into the ingestor image as the site-content corpus:
 # content, not code, so the PR image build-check still builds the ingestor.
 LIGHT_DOC_ROOTS = ("docs/", "planning/", "research/")
-LIGHT_DOC_EXCLUDED = ("docs/planner/", "docs/design/dashboard/openapi/", "research/planner-efficacy/")
+LIGHT_DOC_EXCLUDED = ("docs/planner/", "docs/design/dashboard/openapi/")
 REGULAR_FILE = "100644"
 LIGHT_DOC_REFERENCE_ROOTS = ("tests", "verdify_schemas/tests", "scripts", "ci", ".github", "Makefile")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")

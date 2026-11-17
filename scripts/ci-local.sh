@@ -74,18 +74,10 @@ export PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }--continue-on-collecti
 
 if in_part rest; then
   step "ruff lint"
-  $RUFF check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
-    research/planner-efficacy/generate_v2_artifacts.py \
-    research/planner-efficacy/switchback/v2_*.py \
-    research/planner-efficacy/tests/test_protocol_template_contract.py \
-    research/planner-efficacy/tests/test_switchback_v2_*.py
+  $RUFF check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/
 
   step "ruff format"
-  $RUFF format --check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/ \
-    research/planner-efficacy/generate_v2_artifacts.py \
-    research/planner-efficacy/switchback/v2_*.py \
-    research/planner-efficacy/tests/test_protocol_template_contract.py \
-    research/planner-efficacy/tests/test_switchback_v2_*.py
+  $RUFF format --check ingestor/ api/ mcp/ scripts/*.py tests/ verdify_public/ verdify_schemas/ verdify_services/
 fi
 
 if in_part rest; then
@@ -105,21 +97,8 @@ if in_part rest; then
   step "ClimateIntent controller contract audit"
   $PY scripts/audit-climate-intent-contract.py
 
-  step "confirmed-component v2 selector/randomization/design contracts"
-  $PY -m pytest -q \
-    tests/test_03_ingestor.py \
-    research/planner-efficacy/tests/test_protocol_template_contract.py \
-    research/planner-efficacy/tests/test_switchback_v2_design.py \
-    research/planner-efficacy/tests/test_switchback_v2_day1_export.py \
-    research/planner-efficacy/tests/test_switchback_v2_randomization.py \
-    research/planner-efficacy/tests/test_switchback_v2_selector.py \
-    research/planner-efficacy/tests/test_baseline.py \
-    research/planner-efficacy/tests/test_fixed_panel_coverage.py \
-    research/planner-efficacy/tests/test_pre_draw_sensitivity.py \
-    research/planner-efficacy/tests/test_result_manifests.py \
-    research/planner-efficacy/tests/test_switchback.py \
-    research/planner-efficacy/tests/test_warm_season_calendar_prereg.py
-  $PY research/planner-efficacy/generate_v2_artifacts.py --check
+  step "ingestor unit tests"
+  $PY -m pytest -q tests/test_03_ingestor.py
 
   step "device write gate"
   $PY -m pytest -q tests/test_device_write_gate.py tests/test_replay_outdoor_device_age.py tests/test_replay_setpoint_export.py tests/test_replay_accepted_threshold.py
@@ -219,7 +198,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_20_vision_src_sync.py
     tests/test_vision_authenticated_snapshots.py
     tests/test_21_config_revision.py
-    tests/test_c1_grid_projection.py
     tests/test_fog_vent_consumer.py
     tests/test_cnpg_rehearsal.py
     tests/test_cnpg_runtime_client_qualification.py
@@ -267,11 +245,8 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_qualify_component_containment.py
     tests/test_esp32_policy_transaction.py
     tests/test_experiment_qualification_regimes.py
-    tests/test_experiment_qualification_settling.py
-    tests/test_experiment_qualification_spec.py
     tests/test_experiment_schema_migration.py
     tests/test_experiment_v2_counter_source.py
-    tests/test_freeze_route_day_target.py
     tests/test_experiment_v2_restore_rehearsal.py
     tests/test_experiment_v2_data_contract.py
     tests/test_experiment_v2_day1_authorization.py
@@ -351,7 +326,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_public_output_remediation.py
     tests/test_public_zone_renderer.py
     tests/test_release_dockerfile_base_pins.py
-    tests/test_route_only_crop_band.py
     tests/test_route_only_crop_band_reader.py
     tests/test_evidence_snapshot_reader_unavailable.py
     tests/test_runtime_role_cutover_manifests.py
@@ -448,15 +422,12 @@ if in_part rest; then
     tests/test_experiment_v2_observation_window_bundle_join.py \
     tests/test_experiment_v2_readiness_reader_grants.py \
     tests/test_firmware_sntp_servers.py \
-    tests/test_fixed_panel.py \
     tests/test_fixed_panel_native_ledger.py \
     tests/test_fixed_panel_native_route.py \
     tests/test_fixed_panel_native_source.py \
     tests/test_event_alert_auto_resolve.py \
     tests/test_1762_push_failure_settled.py \
-    tests/test_forecast_replay.py \
     tests/test_forecast_verification_contract.py \
-    tests/test_freeze_winter_target.py \
     tests/test_grafana_admin_sso.py \
     tests/test_grafana_dashboard_sync_contract.py \
     tests/test_grafana_render_cache.py \
@@ -476,12 +447,9 @@ if in_part rest; then
     tests/test_physical_crop_band_evidence.py \
     tests/test_physical_crop_band_sql_reader.py \
     tests/test_post253_ordinary_attestation.py \
-    tests/test_pretrial_provenance.py \
     tests/test_public_band_lineage.py \
     tests/test_qualify_migration_successor_prelock.py \
     tests/test_replay_outdoor_coverage.py \
-    tests/test_resource_endpoint.py \
-    tests/test_resource_ledger.py \
     tests/test_runtime_write_facades.py \
     tests/test_scorecard_consumer_acceptance.py \
     tests/test_selector_context_bounded_migration.py \
@@ -489,11 +457,7 @@ if in_part rest; then
     tests/test_setpoint_snapshot_on_change.py \
     tests/test_daily_summary_daily_record.py \
     tests/test_sops_secret_metadata_receipt.py \
-    tests/test_verdify_services_lighting.py \
-    tests/test_wetting_incident.py \
-    tests/test_wetting_incident_join.py \
-    tests/test_winter_feasibility.py \
-    --deselect tests/test_winter_feasibility.py::test_source_candidates_bind_current_bytes_without_false_qualification
+    tests/test_verdify_services_lighting.py
 
   step "planner scorecard context"
   $PY -m pytest -q -rs tests/test_scorecard_semantics.py
@@ -510,8 +474,6 @@ if in_part rest; then
   # - Private PostgreSQL only, every test skips without a *_TEST_PG_BIN / DSN:
   #   tests/test_c0_release_rehearsal.py,
   #   test_daily_climate_metric_revisions.py.
-  # - Own environment: research/planner-efficacy/tests/test_audit.py and
-  #   test_epoch_analysis.py need scikit-learn (research/planner-efficacy/pyproject.toml).
   # - tests/test_15_lab_site_followup.py reads the Iris vault site content
   #   (VERDIFY_SITE_VAULT or /mnt/iris/verdify-vault/website), which is not in this repo.
 

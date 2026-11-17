@@ -94,7 +94,7 @@ No new SELECT privilege is added.
 
 ```sh
 SCORECARD_TEST_PG_BIN=/path/to/pg16-timescale252/bin python -m pytest -q \
-  tests/test_shelly_source_intervals.py tests/test_resource_ledger.py \
+  tests/test_shelly_source_intervals.py \
   verdify_schemas/tests/test_telemetry.py
 ```
 

@@ -1,0 +1,83 @@
+{
+  "calculation_source_sha256": "95a000304264c52234118a6f9141f5844323e92d42d0724b6331d91b08299698",
+  "causal_effect_estimate": false,
+  "center_probe_measured": false,
+  "collection_timely": true,
+  "contributor_scope": "source_route_only_no_physical_identity",
+  "crop_placement_verified": false,
+  "day": "2026-11-02",
+  "day_artifact_sha256": "27f587a6df5abf19165ea05c0f4e65e1d828834aed0b2676b5a9a8cfdbdfc923",
+  "definition": "fixed-panel-route-observation-v1",
+  "expected_bins": 72,
+  "experiment_endpoint_eligible": false,
+  "greenhouse_id": "vallery",
+  "joint": {
+    "eligible_bins": 1,
+    "in_band_bins": 0,
+    "in_band_pct": 0.0
+  },
+  "joint_unavailable_reasons": {
+    "axis_unavailable": 71
+  },
+  "panel_members": [
+    "north",
+    "east",
+    "west"
+  ],
+  "panel_routes": [
+    {
+      "modbus_address": 2,
+      "route_id": "north_wall_probe",
+      "zone": "north"
+    },
+    {
+      "modbus_address": 5,
+      "route_id": "east_wall_probe",
+      "zone": "east"
+    },
+    {
+      "modbus_address": 3,
+      "route_id": "west_wall_probe",
+      "zone": "west"
+    }
+  ],
+  "panel_source_sha256": "5eecde17a77183c8d36f59a24637b442cceca968233e39b66627323a8ab64647",
+  "per_probe_freshness_verified": false,
+  "physical_hardware_identity_verified": false,
+  "physical_proof_eligible": false,
+  "sample_basis": "database_flush_snapshot_not_per_probe_observation_time",
+  "target_basis": "prospective_frozen_panel_mean_crop_reference",
+  "target_revision_id": 17,
+  "target_source_sha256": "ce7c291f4ce7a85de43c003c5293807cb0846f5fef28fc23548b6ad61a0df680",
+  "target_version": "synthetic-frozen-panel-mean-v1",
+  "temp": {
+    "eligible_bins": 1,
+    "high_miss_bins": 1,
+    "in_band_bins": 0,
+    "in_band_pct": 0.0,
+    "low_miss_bins": 0,
+    "mean_high_distance": 25.0,
+    "mean_low_distance": 0.0,
+    "mean_outside_distance": 25.0,
+    "worst_measured_zone": "north"
+  },
+  "temp_unavailable_reasons": {
+    "insufficient_complete_panel_minutes": 71
+  },
+  "vpd": {
+    "eligible_bins": 1,
+    "high_miss_bins": 1,
+    "in_band_bins": 0,
+    "in_band_pct": 0.0,
+    "low_miss_bins": 0,
+    "mean_high_distance": 1.5,
+    "mean_low_distance": 0.0,
+    "mean_outside_distance": 1.5,
+    "worst_measured_zone": "north"
+  },
+  "vpd_unavailable_reasons": {
+    "insufficient_complete_panel_minutes": 71
+  },
+  "window_end": "2026-11-03T07:00:00Z",
+  "window_start": "2026-11-02T13:00:00Z"
+}

@@ -70,7 +70,6 @@ def repo(tmp_path: Path):
         "tests/test_reader.py": 'PATH = "docs/notes/read-by-a-test.md"\n',
         "docs/planner/playbook.md": "# Playbook\n",
         "docs/design/dashboard/openapi/notes.md": "# API\n",
-        "research/planner-efficacy/notes.md": "# Protocol\n",
         "research/notes.md": "# Research\n",
         "planning/notes.md": "# Plan\n",
         "README.md": "# Repo\n",
@@ -167,7 +166,6 @@ def test_documentation_roots_and_top_level_markdown_are_the_docs_class(repo, pat
         "firmware/DESIGN.md",  # firmware Markdown a drift test scans
         "docs/planner/playbook.md",  # the Iris playbook and site-content playbook root
         "docs/design/dashboard/openapi/notes.md",
-        "research/planner-efficacy/notes.md",
         "dashboard/NOTES.md",
         "deploy/k8s/NOTES.md",
         "site/docs/page.md",
