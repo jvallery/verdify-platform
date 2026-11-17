@@ -1327,13 +1327,16 @@ def sealed_sql_318():
 BAND_DIVERGENCE_MODE_MIGRATION = (
     319,
     "319-band-divergence-mode-ignores-partial-rows.sql",
-    "119114ed6a343e26279eec361c99ca462c120a398f92c5e41e3845093cabee6a",
+    "6ea156b44640b7ceb3255126584a57676e1fd7139f35358a3f17e8412d3e9f77",
 )
 # Host release 6 (#1770; #1633, #1734): v_band_device_divergence's mode reads the newest diagnostics row that carries a
 # band_source. The view is in a runtime's readable set, so the seals are measured by the native probe (record:
-# tests/fixtures/319-band-divergence-mode-ignores-partial-rows-native-qualification.json). Until then they are 318's.
+# tests/fixtures/319-band-divergence-mode-ignores-partial-rows-native-qualification.json).
 SUCCESSOR_319 = {
     **SUCCESSOR_318,
+    "api": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
+    "ingestor": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718",
 }
 
 

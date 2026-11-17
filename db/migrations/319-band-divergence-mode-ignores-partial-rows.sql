@@ -120,13 +120,13 @@ FROM dev CROSS JOIN db CROSS JOIN dev_tgt;
 -- Successor seals: measured by the native probe, because the view is in a runtime's readable set.
 DO $successor$
 BEGIN
-    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM '956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d'
-        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM 'd388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d'
+    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM 'b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd'
+        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM '12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c'
         OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM 'aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718'
     THEN RAISE EXCEPTION '319 refuses an unqualified successor'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '319 missing api receipt'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '319 missing ingestor receipt'; END IF;
     UPDATE public.mcp_runtime_boundary_receipt SET boundary_sha256=decode('aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718','hex') WHERE singleton;
     IF NOT FOUND THEN RAISE EXCEPTION '319 missing mcp receipt'; END IF;

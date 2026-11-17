@@ -1,10 +1,43 @@
 {
   "migration": "319-band-divergence-mode-ignores-partial-rows.sql",
-  "final_migration_qualification_pending": true,
-  "projection": "319 recreates v_band_device_divergence with AND d.band_source IS NOT NULL in latest_mode (#1770); columns, owner, grants and comment unchanged. The view is in the ingestor runtime's readable set, so the seals are measured by the native probe; until then the literals are 318's (fail closed).",
+  "final_migration_qualification_pending": false,
+  "projection": "319 recreates v_band_device_divergence with AND d.band_source IS NOT NULL in latest_mode (#1770); columns, owner, grants and comment unchanged. The view is in the ingestor runtime's readable set, so the seals are measured by the native probe.",
   "projected_successor": {
+    "api": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
+    "ingestor": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  },
+  "measured_at": "2026-11-17T10:29:28Z",
+  "before": {
     "api": "956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d",
     "ingestor": "d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d",
     "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
-  }
+  },
+  "qualified_successor": {
+    "api": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
+    "ingestor": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  },
+  "after_rollback": {
+    "api": "956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d",
+    "ingestor": "d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  },
+  "exact_final_migration_sha256": "6ea156b44640b7ceb3255126584a57676e1fd7139f35358a3f17e8412d3e9f77",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "f6e8c1677948c8f5f7f848954df0eddafab0e69c8651ac5c1568ca266643c830",
+  "qualification_source_sha256": "71853f105b49510302890ada5dde8dfb3085d8f6abf4551e8a7ac6d4caaa2fdc",
+  "native_fixture": {
+    "checks": [
+      "view_columns_unchanged",
+      "view_owner_and_grants_unchanged",
+      "view_comment_unchanged",
+      "mode_read_skips_partial_rows",
+      "mode_is_newest_band_source",
+      "ingestor_runtime_reads_one_row"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "37422c2c9ad5013130c29453528f10b863275ffa769cd86df2e2a58f4c482586"
 }

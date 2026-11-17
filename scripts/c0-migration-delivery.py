@@ -526,12 +526,15 @@ SUCCESSOR_318_SHA256 = "58910b66c5f9bcc2b771d7b3ae43e084e122e990095bd083f6064786
 SUCCESSOR_318_DIGESTS = SUCCESSOR_317_DIGESTS
 SUCCESSOR_318_MCP_DIGEST = SUCCESSOR_317_MCP_DIGEST
 # Exact319 (#1770, host release 6; #1633, #1734): v_band_device_divergence's mode reads the newest diagnostics row that
-# carries a band_source. The view is in a runtime's readable set, so the seals are measured by the native probe; until
-# then the literals are 318's (fail closed). It follows 318.
+# carries a band_source. The view is in a runtime's readable set, so the seals are measured by the native probe.
+# It follows 318.
 SUCCESSOR_319 = "319-band-divergence-mode-ignores-partial-rows.sql"
-SUCCESSOR_319_SHA256 = "119114ed6a343e26279eec361c99ca462c120a398f92c5e41e3845093cabee6a"
-SUCCESSOR_319_DIGESTS = dict(SUCCESSOR_318_DIGESTS)
-SUCCESSOR_319_MCP_DIGEST = SUCCESSOR_318_MCP_DIGEST
+SUCCESSOR_319_SHA256 = "6ea156b44640b7ceb3255126584a57676e1fd7139f35358a3f17e8412d3e9f77"
+SUCCESSOR_319_DIGESTS = {
+    "verdify_api_runtime_login": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
+    "verdify_ingestor_runtime_login": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+}
+SUCCESSOR_319_MCP_DIGEST = "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
