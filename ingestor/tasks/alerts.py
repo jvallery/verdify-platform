@@ -2639,12 +2639,16 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
         )
 
 
-_RESOLVE_RECOVERED_PUSH_FAILURES_SQL = """
+# A failed parameter is settled (#1762) when the host no longer pushes it ($2: retired or unroutable), when a push of
+# it was confirmed after the alert opened, or when the controller's readback after the alert opened equals the newest
+# value the host asked for, within the readback tolerance ($1: the 1 s settings). A disconnect's failures thus close
+# once the reconnect shows the values held, without a new confirmed push.
+_RESOLVE_RECOVERED_PUSH_FAILURES_SQL = f"""
 UPDATE alert_log a
    SET disposition = 'resolved',
        resolved_at = now(),
        resolved_by = 'system',
-       resolution = 'auto-resolved: every failed parameter confirmed on the controller since'
+       resolution = 'auto-resolved: every failed parameter confirmed, read back as requested, or retired since'
   FROM (
         SELECT f.id, f.created_at,
                array_remove(
@@ -2666,26 +2670,52 @@ UPDATE alert_log a
    AND NOT EXISTS (
         SELECT 1
           FROM unnest(p.params) AS q(param)
-         WHERE NOT EXISTS (
+         WHERE q.param = ANY($2::text[])
+           AND NOT EXISTS (
                 SELECT 1
                   FROM setpoint_changes s
                  WHERE s.parameter = q.param
                    AND s.ts >= p.created_at - interval '1 day'
                    AND s.confirmed_at > p.created_at
-         )
+           )
+           AND NOT EXISTS (
+                SELECT 1
+                  FROM (
+                        SELECT w.value
+                          FROM setpoint_changes w
+                         WHERE w.parameter = q.param
+                           AND COALESCE(w.source, '') <> 'esp32'
+                           AND w.ts > now() - interval '60 days'
+                         ORDER BY w.ts DESC
+                         LIMIT 1
+                       ) wanted
+                 CROSS JOIN LATERAL (
+                        SELECT r.value
+                          FROM setpoint_snapshot r
+                         WHERE r.parameter = q.param
+                           AND r.ts > p.created_at
+                         ORDER BY r.ts DESC
+                         LIMIT 1
+                       ) held
+                 WHERE {_READBACK_MATCH.format(a="held.value", b="wanted.value", param="q.param")}
+           )
    )
 """
 
 
 async def _resolve_recovered_push_failures(conn) -> None:
-    """Close esp32_push_failed rows whose parameters all reached the controller.
+    """Close esp32_push_failed rows whose parameters are all settled on the controller.
 
     The dispatcher and the setpoint listener write one row per terminal push
     failure and never revisit it, so a row stayed open for months after the
-    next push delivered the same settings. A row naming no parameter (a
-    validation fallback) stays open for a person.
+    next push delivered the same settings. A parameter is settled when a push
+    of it was confirmed since, when the readback since equals the newest
+    request, or when it is no longer pushed (#1762). A row naming no
+    parameter (a validation fallback) stays open for a person.
     """
-    await conn.execute(_RESOLVE_RECOVERED_PUSH_FAILURES_SQL)
+    await conn.execute(
+        _RESOLVE_RECOVERED_PUSH_FAILURES_SQL, sorted(SECOND_READBACK_ABS_TOLERANCE_PARAMS), _pushable_params()
+    )
 
 
 def _probe_offline_key(key) -> bool:

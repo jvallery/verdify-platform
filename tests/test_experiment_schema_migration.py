@@ -401,6 +401,8 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "317-served-band-readers-and-relay-record.sql",
         # The plan-cycle lessons' retirement runs forward only (each row is recoverable by its id).
         "318-retire-plan-cycle-lessons.sql",
+        # The divergence view's mode read and the receipt re-seals run forward only.
+        "319-band-divergence-mode-ignores-partial-rows.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(
