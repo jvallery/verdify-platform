@@ -429,8 +429,8 @@ class FakeDashboard:
                 "applied_from": "band",
                 "state": "confirmed",
             },
-            "zone_vpd_target_center_sm": {
-                "param": "zone_vpd_target_center_sm",
+            "band_vpd_target_sm": {
+                "param": "band_vpd_target_sm",
                 "kind": "numeric",
                 "control_class": "crop_band",
                 "writable": True,
@@ -507,7 +507,7 @@ class FakeDashboard:
             item.update(intent=self.hold, auto_reason=f"manual_hold_{self.hold}")
         board = {"items": [item]}
         if not self.options.get("no_reasons"):
-            board.update(mode_reason={"code": "x"}, fog_block_reason={"code": "y"}, moisture_block_reason={"code": "z"})
+            board.update(fog_block_reason={"code": "y"}, moisture_block_reason={"code": "z"})
         return board
 
     def _minutes(self):
@@ -781,10 +781,10 @@ SWEEP_IDS = [
     "API-04",
     "API-05",
     "API-06",
-    "API-06 zone=south",
+    "API-06 zone=house",
     "API-09",
     "API-12",
-    "API-13 with its three reasons",
+    "API-13 with its two reasons",
     "API-14",
     "API-17",
     "API-21",
@@ -827,8 +827,9 @@ def test_sweep_gets_every_read_as_the_viewer_and_writes_nothing(tmp_path):
     assert "/api/v1/system/delivery?hours=24" in targets
     assert any(target.startswith("/api/v1/law/history?from=") for target in targets)
     assert not any(target.startswith(("/api/v1/plan", "/api/v1/planner/")) for target in targets)
-    assert f"/api/v1/band/preview?param=zone_vpd_target_center_sm&value={(0.4 + 2.0) / 2}" in targets
-    assert any(target.startswith("/api/v1/band?zone=south&from=") for target in targets)
+    assert f"/api/v1/band/preview?param=band_vpd_target_sm&value={(0.4 + 2.0) / 2}" in targets
+    assert any(target.startswith("/api/v1/band?zone=house&from=") for target in targets)
+    assert not any("zone=south" in target or "zone_vpd_" in target for target in targets)  # release C
     assert any(target.startswith("/api/v1/series?metric=climate.temp_avg&from=") for target in targets)
     assert any(target.startswith("/api/v1/settings/mister_engage_delay_s/history?from=") for target in targets)
     assert any(target.startswith("/api/v1/irrigation/runs?from=") for target in targets)
@@ -841,7 +842,7 @@ def test_sweep_gets_every_read_as_the_viewer_and_writes_nothing(tmp_path):
     ("options", "expected"),
     [
         ({"statuses": {"/api/v1/states": 500}}, "FAIL  API-05 (500)"),
-        ({"no_reasons": True}, "FAIL  API-13 with its three reasons (200)"),
+        ({"no_reasons": True}, "FAIL  API-13 with its two reasons (200)"),
         ({"no_minutes": True}, "FAIL  API-IRR-10 with minutes on all 30 days, not no_data (200)"),
     ],
 )

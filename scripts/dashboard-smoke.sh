@@ -40,9 +40,9 @@
 # that viewer row until it expires (12 h); nobody ever saw its token. It changes no setting, line or device.
 #
 # --sweep (#1181 step 4, #1186 step 1): reads only, as the viewer, so it runs at any time.
-#   - GET each served read through the BFF and expect 200: API-01 to API-06 (API-06 also with zone=south), API-09,
-#     API-12, API-13 (with its three reasons present), API-14, API-17, API-19 (zone_vpd_target_center_sm at the
-#     midpoint of its API-09 min and max), API-21, the dashboard v2 reads API-30 (the law), API-31 (its last day),
+#   - GET each served read through the BFF and expect 200: API-01 to API-06 (API-06 also with zone=house), API-09,
+#     API-12, API-13 (with its fog and moisture reasons present), API-14, API-17, API-19 (band_vpd_target_sm at the
+#     midpoint of its API-09 min and max; release C retired the zone bands, the plan and the planner history), API-21, the dashboard v2 reads API-30 (the law), API-31 (its last day),
 #     API-32 (the record's default window), API-33 (days=7), API-34 (reviews), API-35 (the controller), API-36 (days=1)
 #     and API-37 (hours=24), then API-IRR-01, API-IRR-02, API-IRR-10 and API-IRR-11. A failure prints the id and the
 #     status, so a read the dashboard login was never granted fails here as a 500, not on a screen.
@@ -266,8 +266,8 @@ const BACK_TO_AUTOMATIC = "Back to automatic";
 const HOLD_MS = 120000;
 const MAIN_LIGHT = "grow_light_main";
 const MAIN_AUTO = "sw_gl_main_auto_mode";
-const BAND_PARAM = "zone_vpd_target_center_sm";
-const REASONS = ["mode_reason", "fog_block_reason", "moisture_block_reason"];
+const BAND_PARAM = "band_vpd_target_sm";
+const REASONS = ["fog_block_reason", "moisture_block_reason"];
 // The first 30 days of wet-relay rows (irrigation §6.2): the minutes begin here.
 const MINUTES_DAYS = 30;
 const MINUTES_PATH = "/api/v1/irrigation/minutes?from=2025-08-05&to=2025-09-03&group_by=zone";
@@ -382,10 +382,10 @@ async function sweep(bff) {
     ["API-04", `/api/v1/series?metric=climate.temp_avg&${lastDay}`],
     ["API-05", `/api/v1/states?${lastDay}`],
     ["API-06", `/api/v1/band?${lastDay}`],
-    ["API-06 zone=south", `/api/v1/band?zone=south&${lastDay}`],
+    ["API-06 zone=house", `/api/v1/band?zone=house&${lastDay}`],
     ["API-09", "/api/v1/settings"],
     ["API-12", `/api/v1/settings/mister_engage_delay_s/history?${lastDay}`],
-    ["API-13 with its three reasons", "/api/v1/equipment", (json) => REASONS.every((reason) => json?.[reason] !== undefined && json[reason] !== null)],
+    ["API-13 with its two reasons", "/api/v1/equipment", (json) => REASONS.every((reason) => json?.[reason] !== undefined && json[reason] !== null)],
     ["API-14", "/api/v1/alerts"],
     ["API-17", "/api/v1/activity?limit=50"],
     ["API-21", "/api/v1/water/daily?days=90"],
