@@ -4,7 +4,7 @@
 - Date: 2026-11-17
 - Issues: epic #1633 (climate refactor), #1672 (control documents)
 - Supersedes: where they describe how climate is decided, ADR-0004 (floating corridor), ADR-0006 (bounded active
-  planner) and ADR-0009 (solar-night dry-out)
+  planner) and ADR-0009 (solar-night dry-out); in full, ADR-0010 (confirmed-component experiment fast path, retired)
 
 ## Context
 

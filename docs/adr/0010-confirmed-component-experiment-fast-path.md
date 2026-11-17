@@ -1,6 +1,9 @@
 # ADR-0010: Confirmed-component fast path for the planner experiment
 
-- Status: adopted
+> **Superseded by [ADR-0013](0013-climate-law-replaces-the-mode-machine.md) (2026-11-17)** (retired: the experiment code is deleted on the host and its database
+> objects are dropped).
+
+- Status: superseded by ADR-0013 (2026-11-17); retired
 - Date: 2026-08-23
 - Owners: planner-experiment outer-loop controller
 - Parent: GitHub issue #581

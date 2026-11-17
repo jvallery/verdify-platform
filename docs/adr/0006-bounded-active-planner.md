@@ -1,6 +1,9 @@
 # ADR-006: Tool-healthy bounded active planner
 
-- Status: adopted
+> **Superseded in part by [ADR-0013](0013-climate-law-replaces-the-mode-machine.md) (2026-11-17)** for how climate is decided; nothing of it is live: the planner
+> is a daily reviewer that writes no plan and no climate value.
+
+- Status: superseded in part by ADR-0013 (2026-11-17); adopted 2026-07-09
 - Date: 2026-07-09
 - Owners: planner-delivery module
 - Requirement IDs: `NSR-002`, `NSR-007`

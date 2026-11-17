@@ -1,6 +1,10 @@
 # ADR-009: Solar-night dry-out is judged by realized response
 
-- Status: adopted
+> **Superseded in part by [ADR-0013](0013-climate-law-replaces-the-mode-machine.md) (2026-11-17)** for how climate is decided; the solar-night dry-out controller
+> is deleted and the law dries at the VPD low edge at any hour. The realized night dry-out evaluation
+> (`fn_realized_solar_night_dryout`, on the served band) still holds as evidence.
+
+- Status: superseded in part by ADR-0013 (2026-11-17); adopted 2026-07-09
 - Date: 2026-07-09
 - Owners: firmware-control and evidence-contract modules
 - Requirement IDs: `NSR-006`, `NSR-007`
