@@ -52,6 +52,18 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 | `verdify-mqtt` | 1 | eclipse-mosquitto 2 mirror | In-namespace MQTT. |
 | `verdify-db-exporter` | 1 | postgres-exporter v0.19.1 mirror (zot custody) | Store metrics for `verdify-db` (STD-OBS-27, [monitoring-stack#1597](https://github.com/jvallery/monitoring-stack/issues/1597)): a standalone Deployment (no DB restart) reading as user `verdify` with `verdify-app-secrets` by reference; Service `verdify-db-exporter:9187`, scraped by monitoring-stack job `app-postgres-exporter`. Declared; live after an exact-target sync of its own objects. |
 
+### Singleton record: `verdify-db` (STD-HA-10, D-333)
+
+- **Class:** single-writer database with a dated exception (D-333, COORD 2026-11-09: single-writer exception with an isolated host-loss drill; no standby or CNPG effort, which #992 retired). One replica of StatefulSet `verdify-db` (TimescaleDB, PG16) on RWO Longhorn `db-data-verdify-db-0`. A replica count alone is never claimed as failover. Longhorn replicas give the volume two copies, not a second PostgreSQL.
+- **Reason:** there is one TimescaleDB writer and one physical device-write path (`verdify-ingestor`, `verdify-setpoint-server`). There is no approved standby path.
+- **Release path:** planned, the pod reschedules after a Lease-held drain and the RWO volume re-attaches on another eligible worker (`docs/runbooks/portable-stateful-recovery.md`). Unplanned host loss is operator-bound: confirm fencing first through storage-infra#714's supported path (STD-HA-12), then release the volume. Never force a detach or infer automatic failover. If the volume is lost, restore the latest logical dump from `verdify-db-dumps` (`docs/runbooks/db-backup-pair-restore.md`).
+- **Recovery figures:**
+  - Planned relocation: 43.9 s between successful reads (#218). This is not an unplanned-host-loss figure.
+  - Unplanned host-loss RTO: **unmeasured** (2026-11-17). The isolated drill in #1545 step 2 measures it on a disposable fixture, scheduled with or right after storage-infra#714's D1 harness.
+  - Achieved RPO on host loss with the volume intact: **unmeasured**. The design target is 0 (synchronous local writes on a Longhorn volume with 2 replicas).
+  - RPO if the volume is lost: up to 24 h (daily `verdify-db-backup` dump at 02:17 UTC).
+- **Exception row:** STD-HA-10 row `verdify-db, verdify-ingestor, verdify-setpoint-server` in `jvallery/estate-platform` `docs/estate/STANDARDS.md` (review 2027-05-08). It reads "proposal, drift until accepted" until its authority names D-333 by estate-platform PR (#1545 acceptance 1).
+
 ### verdify-prod scheduled jobs
 
 | CronJob | Schedule (UTC) | Image | Notes |
