@@ -330,7 +330,7 @@ images:
     digest: sha256:d73b6dd6b85f64d8f8fbb26a0d1fad86950b1e8924cdf806ecc73c87b73ed321
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
-    digest: sha256:7a7bdd1afd26558c8cb33a24e24028382fc875b99a6fa9840da16ffbd0b17fb2
+    digest: sha256:10798f1c0f8fc9f2e22bd3ce4cc37762829133acd44cf1b61e43f1562f562160
   # Hand-pinned grow-light writer: source 5ebe309308d5 (W7 release 8: #1494 relay_physical, #1495 per-setting
   # write lock), GHA build run 42415895024. Rollback: 0f40c6514b21 (source 130a954e0ce7, build run 42294583580). The #399 HA call allowlist confines
   # this prod-only writer to the declared main/grow light switches.
