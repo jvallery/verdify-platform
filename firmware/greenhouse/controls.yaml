@@ -205,11 +205,25 @@ interval:
               case_fresh, id(case_temperature).state, id(case_humidity).state);
           const float Tin = indoor.temp_f;
           const float RHin = indoor.rh_pct;
-          // G3: after a boot, wait for the first valid indoor temperature, at most
-          // 60 s: no climate relay is switched and the mode is not a sensor fault.
+          // G3, F5: after a boot, wait until all four wall probes are in every wall
+          // reading the law uses (the three averages and the dew point: wall_avgs_full
+          // 15), at most 60 s: no climate relay is switched and the mode is not a sensor
+          // fault. After 60 s the law runs on the probes it has.
           static BootGrace boot_grace{};
-          const bool boot_wait =
-              indoor_gate(boot_grace, indoor.source != IndoorSource::kNone, now_ms) == IndoorGate::kBootWait;
+          const bool walls_whole = id(wall_avgs_full) == 15;
+          const bool boot_wait = indoor_gate(boot_grace, indoor.source != IndoorSource::kNone,
+                                             walls_whole, now_ms) == IndoorGate::kBootWait;
+          // F5 SF-2: one WARN line per boot when the grace ends (the host keeps WARN),
+          // with the mask, so a start on a partial wall set is visible.
+          {
+            static bool grace_end_logged = false;
+            if (!grace_end_logged && !boot_wait) {
+              grace_end_logged = true;
+              const bool whole_start = walls_whole && indoor.source != IndoorSource::kNone;
+              ESP_LOGW("sensor", "boot grace over at %u ms walls=%u%s", unsigned(now_ms),
+                       unsigned(id(wall_avgs_full)), whole_start ? "" : " (ceiling)");
+            }
+          }
           // No entity for the validity (RULINGS G2a): the host's staleness alert on the
           // indoor humidity columns is the warning. The log names each change.
           {
@@ -218,7 +232,7 @@ interval:
                 : int8_t(int(indoor.source) * 2 + (indoor.humidity_valid ? 1 : 0));
             if (indoor_now != indoor_logged) {
               if (boot_wait) {
-                ESP_LOGI("sensor", "Boot: waiting up to 60 s for the first indoor temperature");
+                ESP_LOGI("sensor", "Boot: waiting up to 60 s for all four wall probes");
               } else if (indoor.source == IndoorSource::kNone) {
                 ESP_LOGE("sensor", "No valid indoor temperature: SENSOR_FAULT, outdoor rule");
               } else if (!indoor.humidity_valid) {
@@ -577,6 +591,10 @@ interval:
           // SUPERSEDE all climate automation; no climate check refuses a press. A latch
           // ends at its timeout, a second press, a clear, or a protection limit (above).
           // Deadlines are wrap-safe signed-difference tests (millis wraps).
+          // V-2: with no valid indoor temperature a fan run ends at most 15 min from now
+          // (the heaters are held while it runs); with a valid one nothing changes.
+          id(manual_fans_until_ms) =
+              manual_fans_deadline_capped(id(manual_fans_until_ms), now_ms, law_temp_valid);
           const bool manual_fans_latched =
               id(manual_fans_until_ms) != 0
               && (int32_t)(id(manual_fans_until_ms) - now_ms) > 0;
@@ -1120,8 +1138,9 @@ interval:
             }
           }
           // Phase 3 (contract phase3-entities): the drying meter, the law's state record
-          // (on every change but the cost, and every 60 s), the meter (every 300 s) and the
-          // constants hash (every 3,600 s), the last two once within 15 s of boot. Static
+          // (on every change but the cost, and every 60 s), the meter (when a run ends, every
+          // 60 s during a run, else every 300 s; RLY-70) and the constants hash (every
+          // 3,600 s), the last two once within 15 s of boot. Static
           // buffers; the text sensor's own string is the only allocation per publish.
           {
             static climate_law::DryingMeter drying_meter;
@@ -1148,9 +1167,13 @@ interval:
               law_record_sent = true;
             }
             static uint32_t meter_ms = 0, constants_ms = 0;
-            static bool meter_sent = false, constants_sent = false;
+            static bool meter_sent = false, constants_sent = false, meter_running = false;
             const bool boot_publish_due = millis() >= 10000UL;  // "within 15 s of boot"
-            if ((!meter_sent && boot_publish_due) || (meter_sent && now_ms - meter_ms >= 300000UL)) {
+            const bool meter_running_now = law.drying && id(vent_rly)->state;  // drying_meter_step's run condition
+            const bool meter_due = climate_law::drying_meter_due(meter_sent, millis(), now_ms, meter_ms,
+                                                                 meter_running_now, meter_running);
+            meter_running = meter_running_now;
+            if (meter_due) {
               static char meter_text[128];
               climate_law::format_drying_meter(meter_text, sizeof(meter_text), drying_meter);
               id(gh_climate_drying_meter).publish_state(meter_text);

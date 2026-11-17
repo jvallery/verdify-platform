@@ -243,4 +243,18 @@ inline bool law_record_due(bool boot_wait, bool sent, bool changed, uint32_t now
     return (changed && age >= LAW_RECORD_MIN_CHANGE_MS) || age >= LAW_RECORD_HEARTBEAT_MS;
 }
 
+// RLY-70: the climate_drying_meter publish decision. The meter lives in RAM, so a restart loses what it counted
+// since its last publish; drying runs here last one to two minutes. The first publish once the controller has been
+// up DRYING_METER_BOOT_MS; then on the pass a metered run ends, every DRYING_METER_RUN_MS while one runs, and every
+// DRYING_METER_IDLE_MS otherwise. `running` is the meter's own condition (law.drying with the vent on).
+constexpr uint32_t DRYING_METER_BOOT_MS = 10000;
+constexpr uint32_t DRYING_METER_RUN_MS = 60000;
+constexpr uint32_t DRYING_METER_IDLE_MS = 300000;
+inline bool drying_meter_due(bool sent, uint32_t uptime_ms, uint32_t now_ms, uint32_t last_ms, bool running,
+                             bool was_running) noexcept {
+    if (!sent) return uptime_ms >= DRYING_METER_BOOT_MS;
+    if (was_running && !running) return true;
+    return now_ms - last_ms >= (running ? DRYING_METER_RUN_MS : DRYING_METER_IDLE_MS);
+}
+
 }  // namespace climate_law
