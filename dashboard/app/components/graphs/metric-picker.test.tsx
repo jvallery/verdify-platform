@@ -72,7 +72,7 @@ test("+ Setting lists numeric settings in an open panel's unit, never the Band i
   expect(SETTINGS.find((row) => row.param === "temp_low")?.group).toBe("read_only");
   expect(listed("°F")).not.toContain("temp_low");
   expect(listed("kPa")).not.toContain("vpd_low");
-  expect(listed("%")).toEqual(["fog_rh_ceiling_pct", "sched_mist_rh_max_pct"]);
+  expect(listed("%")).toEqual(["sched_mist_rh_max_pct"]);  // the third flash retired fog_rh_ceiling_pct (read-only now)
   expect(SETTINGS.some((row) => row.group === "band_in_force")).toBe(true);
   expect(groups.flatMap((group) => group.items).filter((row) => row.group === "band_in_force" || row.group === "read_only" || row.kind !== "numeric")).toEqual([]);
   expect(chooserGroups(SETTINGS, ["kPa"], "engage").flatMap((group) => group.items.map((row) => row.param))).toEqual(["mister_engage_kpa"]);
@@ -81,8 +81,8 @@ test("+ Setting lists numeric settings in an open panel's unit, never the Band i
   renderUi(<SettingChooser view={resolved.view} settings={SETTINGS} chosen={resolved.settings} units={resolved.units} />);
   fireEvent.click(screen.getByRole("button", { name: "+ Setting" }));
   const list = within(dialog());
-  expect(list.getByRole("link", { name: /Fog RH Ceiling/ }).getAttribute("href")).toBe("/graphs?range=72h&set=mister_engage_kpa&set=fog_rh_ceiling_pct");
-  expect(text(list.getByRole("link", { name: /Fog RH Ceiling/ }))).toMatch(/^Fog RH Ceilingfog_rh_ceiling_pct · % · device \d+\.0%$/);
+  expect(list.getByRole("link", { name: /Scheduled-mist RH ceiling/ }).getAttribute("href")).toBe("/graphs?range=72h&set=mister_engage_kpa&set=sched_mist_rh_max_pct");
+  expect(text(list.getByRole("link", { name: /Scheduled-mist RH ceiling/ }))).toMatch(/^Scheduled-mist RH ceilingsched_mist_rh_max_pct · % · device \d+\.0%$/);
   expect(text(dialog())).toContain("VPD Mister Engagemister_engage_kpa · kPa · device 1.60 kPaOn the charts");
   expect(text(dialog())).not.toMatch(/band_house|band_center|sw_gl_main_auto_mode|mister_pulse_gap_s/);
   fireEvent.click(list.getByRole("button", { name: "Close" }));

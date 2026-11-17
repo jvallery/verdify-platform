@@ -125,7 +125,8 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
   // A bare number gains the unit its key names, a long duration reads in a unit people read, and a time of day stays a
   // number (#1308 visual QA 38); the bounds' ends follow the value's unit.
   const value = (param: string) => text(rowOf(param).querySelector(".setting-device-value"));
-  expect(["gl_main_min_on_s", "gl_main_target_light_minutes", "dwell_gate_ms", "vent_latch_timeout_ms", "gl_main_sunrise_hour"].map(value)).toEqual(["120 s", "960 min", "5 min", "30 min", "7"]);
+  // (The third flash retired vent_latch_timeout_ms, the 30 min example; dwell_gate_ms still shows ms read in minutes.)
+  expect(["gl_main_min_on_s", "gl_main_target_light_minutes", "dwell_gate_ms", "gl_main_sunrise_hour"].map(value)).toEqual(["120 s", "960 min", "5 min", "7"]);
   expect([...rowOf("dwell_gate_ms").querySelectorAll(".ctl-bounds-end")].map((end) => text(end))).toEqual(["60 s", "30 min"]);
   expect(text(rowOf("mister_engage_kpa").querySelector(".setting-label"))).toBe("VPD Mister Engage");
   expect(text(rowOf("temp_low").querySelector(".setting-device"))).toContain("Legacy limit, not used while the on-chip band runs");
@@ -154,10 +155,10 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
   }
   // Who wrote the value in force: Iris and an agent by name with AI as a text mark; a forecast rule as the system, never AI.
   expect(linesOf("mister_pulse_gap_s", ".setting-writer")).toEqual(["Iris changed this at 07:02 · AI"]);
-  expect(linesOf("fog_rh_ceiling_pct", ".setting-writer")).toEqual(["steward changed this at 06:47 · “Dry afternoon ahead” · AI"]);
-  expect(rowOf("fog_rh_ceiling_pct").querySelector(".setting-writer [data-badge=ai]")!.className).toBe("ctl-mark");
-  expect(linesOf("sw_economiser_enabled", ".setting-writer")).toEqual(["Forecast rule · system"]);
-  expect(rowOf("sw_economiser_enabled").querySelector("[data-badge=ai]")).toBeNull();
+  expect(linesOf("mister_water_budget_gal", ".setting-writer")).toEqual(["steward changed this at 06:47 · “Dry afternoon ahead” · AI"]);
+  expect(rowOf("mister_water_budget_gal").querySelector(".setting-writer [data-badge=ai]")!.className).toBe("ctl-mark");
+  expect(linesOf("sw_gl_main_solar_phasing", ".setting-writer")).toEqual(["Forecast rule · system"]);
+  expect(rowOf("sw_gl_main_solar_phasing").querySelector("[data-badge=ai]")).toBeNull();
   // No row links to its history any more: the drawer holds it, with "Activity for this setting ›".
   expect(screen.queryAllByRole("link", { name: /^History of / })).toEqual([]);
 });
@@ -201,10 +202,10 @@ test("the rail's filters count and filter the rows and survive a reload of the U
   await settle();
   expect(here()).toBe("/settings?filter=agent");
   expect(text(document.querySelector(".ctl-filter-note"))).toBe("Set by Iris or an agent: The value in force came from an Iris plan, or from a write by a named agent.");
-  const byAgent = ["mister_engage_kpa", "mister_engage_delay_s", "mister_pulse_gap_s", "fog_rh_ceiling_pct"];
+  const byAgent = ["mister_engage_kpa", "mister_engage_delay_s", "mister_water_budget_gal", "mister_pulse_gap_s"];
   expect(shown()).toEqual(byAgent);
   // The groups count the rows that show; a group with none is no link.
-  expect(railGroups()).toEqual(SETTING_GROUPS.map(([group, label]) => (group === "planner_policy" ? [`${label} 3`, "a"] : group === "controller_safety" ? [`${label} 1`, "a"] : [`${label} 0`, "span"])));
+  expect(railGroups()).toEqual(SETTING_GROUPS.map(([group, label]) => (group === "planner_policy" ? [`${label} 4`, "a"] : [`${label} 0`, "span"])));
   // A reload of the URL shows the same rows under the same filter.
   cleanup();
   stopFixtureApi();
@@ -263,12 +264,12 @@ test("Changed in the last 24 h counts any write in force, Iris plans too; 7 d wi
   await open("/settings?filter=recent", { patch });
   expect(chips()[2]).toEqual(["Changed in the last 24 h 5", "true"]);
   // Iris's plan values written today, the 20 h old write and the agent's writes; not the write 6 days old.
-  expect(shown()).toEqual(["mister_engage_kpa", "mister_engage_delay_s", "mister_pulse_on_s", "fog_rh_ceiling_pct", "sw_economiser_enabled"]);
+  expect(shown()).toEqual(["mister_engage_kpa", "mister_engage_delay_s", "mister_water_budget_gal", "mister_pulse_on_s", "sw_gl_main_solar_phasing"]);
   fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "7 d" }));
   await settle();
   expect(here()).toBe("/settings?filter=recent&window=7d");
   expect(chips()[2]).toEqual(["Changed in the last 7 d 6", "true"]);
-  expect(shown()).toEqual(["mister_engage_kpa", "mister_engage_delay_s", "mister_pulse_on_s", "mister_pulse_gap_s", "fog_rh_ceiling_pct", "sw_economiser_enabled"]);
+  expect(shown()).toEqual(["mister_engage_kpa", "mister_engage_delay_s", "mister_water_budget_gal", "mister_pulse_on_s", "mister_pulse_gap_s", "sw_gl_main_solar_phasing"]);
   cleanup();
   stopFixtureApi();
   // Desired rows with no readable write time: the filter is left out, and its URL falls back to All.
@@ -286,12 +287,13 @@ test("at 860 px and below the same choices are two selects: Show navigates to it
   await settle();
   expect(here()).toBe("/settings?filter=agent");
   const group = screen.getByRole("combobox", { name: "Group" }) as HTMLSelectElement;
-  expect([...group.options].map((option) => option.textContent)).toEqual(["Jump to…", "Planner policy (3)", "Controller safety (1)"]);
-  fireEvent.change(group, { target: { value: "controller_safety" } });
-  expect(document.activeElement).toBe(document.getElementById("group-controller_safety"));
-  expect(document.activeElement!.closest("tbody")!.getAttribute("data-group")).toBe("controller_safety");
+  expect([...group.options].map((option) => option.textContent)).toEqual(["Jump to…", "Planner policy (4)"]);
+  fireEvent.change(group, { target: { value: "planner_policy" } });
+  expect(document.activeElement).toBe(document.getElementById("group-planner_policy"));
+  expect(document.activeElement!.closest("tbody")!.getAttribute("data-group")).toBe("planner_policy");
   // The desktop anchors jump the same way, without a history entry.
-  fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "Planner policy 3" }));
+  (document.activeElement as HTMLElement).blur();
+  fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "Planner policy 4" }));
   expect(document.activeElement).toBe(document.getElementById("group-planner_policy"));
   expect(here()).toBe("/settings?filter=agent");
 });
@@ -849,6 +851,12 @@ test("the glossary at #glossary lists every term the pages define, from the one 
   expect(glossary.querySelector("details")?.open).toBe(false);
 });
 
+// The third flash retired the four safety limits, the only rows whose help is a guardrail; the guardrail flow is kept
+// on safety_max served as a writable controller-safety row.
+const guardrailWritable = (items: Row[]) => items.map((row) => (row.param === "safety_max"
+  ? { ...row, writable: true, group: "controller_safety", control_class: "controller_safety", read_only_reason: null, read_only_kind: null }
+  : row));
+
 test("retired rows wait behind Show retired, a search still finds them, and the glossary explains every row with its sources (#1332, #1333)", async () => {
   await open("/settings");
   const retired = served().filter((row) => row.control_class === "retired");
@@ -864,7 +872,7 @@ test("retired rows wait behind Show retired, a search still finds them, and the 
   expect(shown()).toEqual([retired[0].param]);
   cleanup(); stopFixtureApi();
   // The glossary: every setting the search keeps, with what it is, what it changes, raising and lowering it.
-  await open("/settings?view=glossary&q=Safety+Max");
+  await open("/settings?view=glossary&q=Safety+Max", { patch: guardrailWritable });
   const entry = document.querySelector('.ctl-glossary-entry[data-param="safety_max"]')!;
   const help = served().find((row) => row.param === "safety_max")!.help as { summary: string; raise: string; lower: string; caution: string };
   expect(text(entry.querySelector(".ctl-glossary-summary"))).toBe(help.summary);
@@ -880,7 +888,7 @@ test("retired rows wait behind Show retired, a search still finds them, and the 
 });
 
 test("the drawer explains the setting above New value, and a guardrail saves only on a second press that shows its rule (#1332, #1333)", async () => {
-  const api = await open("/settings?q=safety_max&edit=safety_max");
+  const api = await open("/settings?q=safety_max&edit=safety_max", { patch: guardrailWritable });
   const help = served().find((row) => row.param === "safety_max")!.help as { summary: string; caution: string; reference_url: string };
   expect(text(dialog().querySelector(".ctl-help-summary"))).toBe(help.summary);
   expect([...dialog().querySelectorAll(".ctl-help-list dt")].map((term) => text(term))).toEqual(["What it changes", "Raising it", "Lowering it"]);

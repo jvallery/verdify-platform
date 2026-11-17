@@ -281,9 +281,9 @@ test("API-12 lists the desired rows from the one in force at from, a write joins
   for (let read = 0; read < 3; read += 1) api.respond({ url: "/v1/settings" });
   expect(history(7).readback.at(-1)).toEqual({ at: new Date(NOW + 40_000).toISOString(), value: 1.6 });
   // A row with no log keeps the base's one row and one reading.
-  const base = createFixtureHandler({ clock: () => NOW }).respond({ url: `/v1/settings/fog_rh_ceiling_pct/history?from=${new Date(NOW - 86_400_000).toISOString()}&to=${new Date(NOW).toISOString()}` }).body;
+  const base = createFixtureHandler({ clock: () => NOW }).respond({ url: `/v1/settings/mister_water_budget_gal/history?from=${new Date(NOW - 86_400_000).toISOString()}&to=${new Date(NOW).toISOString()}` }).body;
   expect(base.desired.map((row: Body) => row.id)).toEqual([41]);
-  expect(base.readback).toEqual([{ at: new Date(NOW - 86_400_000).toISOString(), value: 88 }]);
+  expect(base.readback).toEqual([{ at: new Date(NOW - 86_400_000).toISOString(), value: 250 }]);
   // setting-history-release: the row before Jason's is a release.
   const released = fixture("setting-history-release", { now: NOW })["API-12"];
   expect(released.desired.map((row: Body) => [row.value, row.state])).toEqual([[null, "released"], [1.55, "confirmed"]]);

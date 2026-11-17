@@ -81,12 +81,13 @@ function snprintfCodes(name: string): string[] {
   return [...repo("firmware/greenhouse/controls.yaml").matchAll(new RegExp(`snprintf\\(\\s*${name}\\s*,\\s*sizeof\\(${name}\\)\\s*,([\\s\\S]*?)\\);`, "g"))]
     .flatMap((match) => quoted(match[1]));
 }
-/** Every word `fog_force_off_reason()` and `manual_fog_safety_block_reason()` (firmware/lib/greenhouse_logic.h) can return. */
+/** Every word `fog_force_off_reason()` and `manual_fog_hold_reason()` (firmware/lib/greenhouse_logic.h; the third flash
+ * renamed `manual_fog_safety_block_reason()`, AD1) can return. */
 function fogBlockReturns(): string[] {
   const logic = repo("firmware/lib/greenhouse_logic.h");
   const force = /inline const char\* fog_force_off_reason\([\s\S]*?\n\}/.exec(logic);
-  const safety = /inline const char\* manual_fog_safety_block_reason\([\s\S]*?\n\}/.exec(logic);
-  if (!force || !safety) throw new Error("no fog_force_off_reason or manual_fog_safety_block_reason in the firmware");
+  const safety = /inline const char\* manual_fog_hold_reason\([\s\S]*?\n\}/.exec(logic);
+  if (!force || !safety) throw new Error("no fog_force_off_reason or manual_fog_hold_reason in the firmware");
   return [...force[0].matchAll(/return "([a-z0-9_]+)"/g), ...safety[0].matchAll(/return "([a-z0-9_]+)"/g)].map((match) => match[1]);
 }
 
