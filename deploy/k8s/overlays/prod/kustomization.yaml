@@ -321,16 +321,16 @@ patches:
 images:
   - name: ghcr.io/verdifyconsultancy/verdify-api
     newName: registry.vallery.net/verdifyconsultancy/verdify-api
-    digest: sha256:b22fdc31a2cea0a347db2027b61d223040bfae548602230ac4badea03958c743
+    digest: sha256:8c0e67dc7ead844a3d72aed35da2b53ffcb5856c082976a7c10c5d88f334d91f
   - name: ghcr.io/verdifyconsultancy/verdify-mcp
     newName: registry.vallery.net/verdifyconsultancy/verdify-mcp
-    digest: sha256:3b21794f7ba3e88d17971cd8cff520c8583887e67da1693a693ee7e063164500
+    digest: sha256:aba90c6d873ddcc6defd994d783723067a26d52d8499f4c0ed3710f374297fd3
   - name: ghcr.io/verdifyconsultancy/verdify-ingestor
     newName: registry.vallery.net/verdifyconsultancy/verdify-ingestor
-    digest: sha256:ee77f8ef4351771187d70dc1fa2ba4418e1315a249178390db9a62df1a59ddce
+    digest: sha256:84770e775247b4856dd2b6ce3976ce0e1435c6d08357f537324286fedb1f2a2f
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
-    digest: sha256:645fac0d167b09cfb94950da3bfe009a355f9af0bb8d32f8aae30b1b682de763
+    digest: sha256:5914de3b6926d3b3d00692eacebbb19bace2d3079fccfdc79edc70a7a7236650
   # Hand-pinned grow-light writer: source 5ebe309308d5 (W7 release 8: #1494 relay_physical, #1495 per-setting
   # write lock), GHA build run 42415895024. Rollback: 0f40c6514b21 (source 130a954e0ce7, build run 42294583580). The #399 HA call allowlist confines
   # this prod-only writer to the declared main/grow light switches.
