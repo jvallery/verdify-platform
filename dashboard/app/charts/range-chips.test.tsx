@@ -10,7 +10,7 @@ afterEach(cleanup);
 test("24 h, 72 h, 7 d and 30 d are links on weather's chips, the current one marked", () => {
   render(<MemoryRouter><RangeChips current="7d" href={(range) => `/graphs?range=${range}&set=mister_engage_kpa`} /></MemoryRouter>);
   const list = screen.getByRole("list", { name: "Range" });
-  expect(list.className).toBe("chips chips-sm range-chips");
+  expect(list.className).toBe("segmented segmented-sm range-chips");
   const links = within(list).getAllByRole("link");
   expect(links.map((link) => link.textContent)).toEqual(["24 h", "72 h", "7 d", "30 d"]);
   expect(links.map((link) => link.getAttribute("aria-current"))).toEqual([null, null, "page", null]);

@@ -125,22 +125,22 @@ test("steps: SUPERSEDED muted, the plan in the series colour, a request dashed a
   expect(ctx.depth).toBe(0);
   const kpa = (value: string) => `${value}${NBSP}kPa`;
   // The only words in the plot (#1354): the steps, the bounds and the band are named in the key, tooltip and notes.
-  expect(ctx.texts.map((item) => [item.text, item.color])).toEqual([["Now", TOKENS["--ink"]]]);
+  expect(ctx.texts.map((item) => [item.text, item.color])).toEqual([["Now", TOKENS["--text"]]]);
   const strokes = (color: string, dash: number[]) => ctx.strokes.filter((stroke) => stroke.stroke === color && JSON.stringify(stroke.dash) === JSON.stringify(dash));
-  // Superseded: muted --c-bound, dashed [8,4]; planned: the series colour, dashed [8,4].
-  expect(strokes(TOKENS["--c-bound"], [8, 4])).toHaveLength(2);
+  // Superseded: muted --text-3, dashed [8,4]; planned: the series colour, dashed [8,4].
+  expect(strokes(TOKENS["--text-3"], [8, 4])).toHaveLength(2);
   expect(strokes(TOKENS["--c-vpd"], [8, 4])).toHaveLength(2);
   // Requested: amber, dashed [6,4], its own stroke; the device line is solid forest.
   const requested = strokes(TOKENS["--c-requested"], [6, 4]);
   expect(requested).toHaveLength(1);
   expect(requested[0].width).toBe(2);
-  const device = strokes(TOKENS["--c-setpoint"], []);
+  const device = strokes(TOKENS["--accent"], []);
   expect(device).toHaveLength(2);
   expect(device.every((stroke) => stroke.path.every(([, y]) => y !== requested[0].path[1][1]))).toBe(true);
-  // The now line: 1.5px ink.
-  expect(ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--ink"] && stroke.width === 1.5)).toBe(true);
+  // The now line: a 1 px --text rule (design system v2 §5).
+  expect(ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--text"] && stroke.width === 1)).toBe(true);
   // The setting's min 0.50 and max 2.50 are its allowed range, not climate: no dotted bound on a climate panel (#1354).
-  expect(strokes(TOKENS["--c-bound"], [1, 3])).toHaveLength(0);
+  expect(strokes(TOKENS["--text-3"], [1, 3])).toHaveLength(0);
   // The band wash under the grid, its 1px edges above it.
   expect(ctx.fills.some((fill) => fill.color === TOKENS["--c-band-wash"])).toBe(true);
   expect(ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--c-band-edge"] && stroke.width === 1)).toBe(true);
@@ -175,7 +175,7 @@ test("a climate panel draws no bound even inside its y range; the setting's own 
   history.max = 1.75;
   const { plot } = await mount({ metrics: [metric("climate.vpd_avg")], settings: [{ history }] });
   plot.draw();
-  expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--c-bound"] && JSON.stringify(stroke.dash) === "[1,3]")).toHaveLength(0);
+  expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && JSON.stringify(stroke.dash) === "[1,3]")).toHaveLength(0);
   expect(plot.ctx.texts.some((item) => item.text.includes("1.75"))).toBe(false);
   expect(buildTimeSeriesModel(props({ metrics: [metric("climate.vpd_avg")], settings: [{ history }] })).bounds).toEqual([]);
   expect(buildTimeSeriesModel(props({ series: null, metrics: [], unit: "kPa", settings: [{ history }] })).bounds.map((bound) => bound.kind)).toEqual(["min", "max"]);
@@ -205,7 +205,7 @@ test("400 daily summaries draw one point per day and say so; heap reads kB and i
   expect(notes).toEqual(["one point per day · daily summaries", "Daily summaries before 11/02/2025: raw data kept 365 days"]);
   temp.plot.draw();
   expect(temp.plot.ctx.texts.some((item) => item.text === "Daily summaries before 11/02/2025: raw data kept 365 days")).toBe(true);
-  expect(temp.plot.ctx.rects.some((rect) => rect.color === TOKENS["--field"] && rect.width > 0)).toBe(true);
+  expect(temp.plot.ctx.rects.some((rect) => rect.color === TOKENS["--surface-2"] && rect.width > 0)).toBe(true);
   // The data table says so too, on its first row.
   const table = await openTable(temp.container);
   expect(table.querySelector("tbody tr")!.lastElementChild!.textContent).toBe("Daily summaries before 11/02/2025: raw data kept 365 days");
@@ -283,7 +283,7 @@ test("one unit per plot: a metric in another unit is left out; colours never rep
   // The setpoint token is for a dotted cross-check alone: a target picked on Graphs is a line like any other, not the device step.
   const target = { ...metric("climate.vpd_avg"), key: "climate.vpd_target_south" };
   expect(traceTokens([metric("climate.vpd_avg"), target], "kPa")).toEqual(["--c-vpd", "--eq-fan2"]);
-  expect(traceTokens([metric("climate.vpd_avg"), target], "kPa", [target.key])).toEqual(["--c-vpd", "--c-setpoint"]);
+  expect(traceTokens([metric("climate.vpd_avg"), target], "kPa", [target.key])).toEqual(["--c-vpd", "--accent"]);
   expect(tickIncrements(2).slice(0, 6)).toEqual([0.01, 0.02, 0.05, 0.1, 0.2, 0.25]);
 });
 
@@ -332,7 +332,7 @@ test("a settings-only chart: the plot holds only steps; the legend, the data tab
   const key = [...container.querySelectorAll(".chart-key li")];
   expect(key.map((item) => item.textContent)).toEqual(["Device readback", "jason · dashboard", "SUPERSEDED", "PLANNED · AI", "Forecast rule · system", "Min and max"]);
   expect(key.map((item) => [item.querySelector(".chart-key-swatch")!.getAttribute("data-token"), item.querySelector(".chart-key-swatch")!.getAttribute("data-kind")])).toEqual([
-    ["c-setpoint", "line"], ["c-requested", "dashed"], ["c-bound", "dashed"], ["c-vpd", "dashed"], ["c-vpd", "dashed"], ["c-bound", "dotted"],
+    ["accent", "line"], ["c-requested", "dashed"], ["text-3", "dashed"], ["c-vpd", "dashed"], ["c-vpd", "dashed"], ["text-3", "dotted"],
   ]);
   // The tooltip at a time with no bucket still names the steps there.
   plot.hover(epoch("2026-11-01T09:50:00Z"), null);
@@ -441,7 +441,7 @@ test("a dotted key draws dotted in the setpoint token; a caller's note goes with
   series.series = { [south.key]: column, [target.key]: column };
   const notes = [{ key: target.key, text: "Dotted: the controller's own target, a cross-check" }, { text: "A note on the panel" }];
   const { plot, container } = await mount({ series, metrics: [south, target], unit: "kPa", dotted: [target.key], notes });
-  expect(plot.opts.series.slice(1).map((item) => [item.label, item.stroke, item.dash ?? null])).toEqual([["South VPD", TOKENS["--c-vpd"], null], ["South VPD target", TOKENS["--c-setpoint"], [2, 4]]]);
+  expect(plot.opts.series.slice(1).map((item) => [item.label, item.stroke, item.dash ?? null])).toEqual([["South VPD", TOKENS["--c-vpd"], null], ["South VPD target", TOKENS["--accent"], [2, 4]]]);
   const note = () => [...container.querySelectorAll(".chart-notes li")].map((node) => node.textContent);
   expect(note()).toEqual(expect.arrayContaining(notes.map((item) => item.text)));
   fireEvent.click(within(container.querySelector<HTMLElement>(".chart-legend")!).getByRole("button", { name: "South VPD target" }));

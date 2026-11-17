@@ -126,12 +126,12 @@ test("the daily range: each day's low, mean and high by its local date; a day wi
   expect(table.rows().map((row) => String(row[4]).replaceAll(" ", " "))).toEqual(["5.0 °F", "14.0 °F", "—", "14.0 °F"]);
 });
 
-test("DailyRange paints a min–max bar in --ink-muted and a mean tick in the metric's colour for each day with data; today's bar is dashed", async () => {
+test("DailyRange paints a min–max bar in --border-strong and a mean tick in the metric's colour for each day with data; today's bar is dashed", async () => {
   render(<DailyRange series={daily()} metric={TEMP} days={["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"]} today="2026-11-02" token="--c-temp" name="Temperature" />);
   await settle();
   const [plot] = created;
   plot.draw();
-  expect(plot.ctx.rects.filter((rect) => rect.color === TOKENS["--ink-muted"])).toHaveLength(3);
+  expect(plot.ctx.rects.filter((rect) => rect.color === TOKENS["--border-strong"])).toHaveLength(3);
   expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--c-temp"] && stroke.width === 2)).toHaveLength(3);
   expect(plot.ctx.outlines.filter((outline) => outline.dash.length > 0)).toHaveLength(1);
   expect(plot.ctx.depth).toBe(0);
@@ -160,12 +160,12 @@ test("time in band per day: bars 0–100% with the 90% target dotted, today dash
   expect([temperature.opts.axes![0].show, vpd.opts.axes![0].show]).toEqual([false, true]);
   expect(new Set(created.map((plot) => plot.opts.cursor?.sync?.key))).toEqual(new Set(["verdify:graphs-statistics:test"]));
   temperature.draw();
-  const dotted = temperature.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--ink"] && stroke.dash.length === 2 && stroke.path.length === 2 && stroke.path[0][1] === stroke.path[1][1]);
+  const dotted = temperature.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text"] && stroke.dash.length === 2 && stroke.path.length === 2 && stroke.path[0][1] === stroke.path[1][1]);
   expect(dotted).toHaveLength(1);
   expect(dotted[0].path[0][1]).toBeCloseTo(temperature.valToPos(IN_BAND_TARGET, "y"), 6);
   expect(temperature.ctx.outlines.filter((outline) => outline.dash.length > 0)).toHaveLength(1);
-  // The no-grade day is hatched: strokes in --muted across its column.
-  expect(temperature.ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--muted"])).toBe(true);
+  // The no-grade day is hatched: strokes in --text-3 across its column.
+  expect(temperature.ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--text-3"])).toBe(true);
   expect(inBandTooltip(rows[0], 0)).toEqual(["Oct 31", "Temperature in band 96.0%", "at or over the 90% target"]);
   expect(inBandTooltip(rows[0], 1)).toEqual(["Nov 1", "Temperature: no grade"]);
   expect(inBandTooltip(rows[1], 2)).toEqual(["Nov 2 · so far", "VPD in band 79.0%", "under the 90% target"]);

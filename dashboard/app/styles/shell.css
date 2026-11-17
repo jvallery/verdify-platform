@@ -1,73 +1,185 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Shell (WP0) */
-/* The header, the phone bar, the account menu, the banners and SCR-09's one-card pages. Loaded by root.tsx after styles.css and tokens.css, in the fixed order of redesign §10.1. Colours are tokens only (white the one literal); this file never redefines :focus-visible or the input borders that the §2.2 block in styles.css sets. */
+/* The frame of dashboard v2 (README section 3.2, design-system section 3): above 860 px the fixed rail and a content column with the sticky top bar; at 860 px and below the top bar, the page and the bottom bar of five with its More sheet; Search, the theme switch, the account menu, the banners, the footer and SCR-09's one-card pages. 860 px is the frame's one breakpoint (lib/narrow.ts). Colours are tokens only; nothing here moves. */
+
+/* ---------------------------------------------------------------- the frame */
+.app-page{min-height:100vh;min-height:100dvh;background:var(--bg)}
+.frame{display:flex;flex-direction:column;min-width:0;min-height:100vh;min-height:100dvh;margin-left:var(--rail-w)}
+.frame-main{flex:1 0 auto;width:100%;max-width:var(--content);margin-inline:auto;padding:var(--space-6) var(--gutter) var(--space-7);min-width:0}
+.frame-main:focus{outline:none}
 
 /* The lockup: the glyph is the V, so "erdify" follows it with no gap. */
+.brand{display:inline-flex;align-items:center;flex:none;min-height:var(--tap);color:var(--text);text-decoration:none;font-weight:600;font-size:var(--fs-lg);letter-spacing:-.02em}
+.brand:hover{color:var(--text)}
 .brand-word{display:inline-flex;align-items:baseline}
 .brand .brand-glyph{width:auto;height:1.2em;margin-right:-.2em}
+.brand small{margin-left:.15em;font:400 var(--fs-xs)/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
+.brand-leaf{fill:var(--accent)}
+.brand-mark{fill:var(--text)}
+.brand-dot{fill:var(--hero-accent)}
 
-/* The header row (redesign §2.2): the lockup, the seven sections and the account button; the current section keeps weather's 2 px forest underline. Seven links fit on the one row from 861 px, so the nav never scrolls sideways or runs under the account button: below 1100 px, where the account name is hidden, the links and the row's gaps are tighter (layout.spec.ts checks 880 and 1100 px). */
-.site-header .primary-nav{overflow:visible}
-.site-header .primary-nav a{gap:.4rem}
-@media(min-width:861px) and (max-width:1099px){
-  .site-header>.shell{column-gap:1rem}
-  .site-header .primary-nav{gap:0}
-  .site-header .primary-nav a{padding:0 .45rem;font-size:.85rem}
-}
-/* The one open-alert count, filled by the worst open severity: critical white on --fault (6.54:1), warning --warn-text on --tint-warn (7.81:1), info ink on --field. */
-.nav-count{display:inline-flex;align-items:center;justify-content:center;min-width:1.35rem;height:1.35rem;padding:0 .35rem;border:1px solid var(--line-strong);border-radius:999px;background:var(--field);color:var(--ink);font:600 var(--fs-label)/1 var(--mono);letter-spacing:0;font-variant-numeric:tabular-nums}
-.nav-count[data-severity=critical]{background:var(--fault);border-color:var(--fault);color:#fff}
-.nav-count[data-severity=warning]{background:var(--tint-warn);border-color:var(--warn-border);color:var(--warn-text)}
+/* ---------------------------------------------------------------- the rail (above 860 px) */
+.rail{position:fixed;inset:0 auto 0 0;z-index:var(--z-nav);display:flex;flex-direction:column;gap:var(--space-4);width:var(--rail-w);padding:var(--space-4) var(--space-3);overflow-y:auto;overscroll-behavior:contain;background:var(--rail);color:var(--rail-text)}
+.rail :focus-visible{outline-color:var(--hero-accent)}
+.rail-brand{padding-inline:var(--space-2);color:var(--rail-active-text)}
+.rail-brand:hover{color:var(--rail-active-text)}
+.rail-brand .brand-mark{fill:var(--rail-active-text)}
+.rail-brand .brand-leaf{fill:var(--hero-accent)}
+.rail-brand small{color:var(--rail-muted)}
+.rail-nav{display:grid;gap:var(--space-4)}
+.nav-group-label{margin:0 0 var(--space-1);padding-inline:var(--space-3);font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--rail-muted)}
+.nav-group-list{display:grid;gap:2px;margin:0;padding:0;list-style:none}
+.rail-link{display:flex;align-items:center;gap:var(--space-3);min-height:var(--tap);padding:0 var(--space-3);border-radius:var(--radius-sm);color:var(--rail-text);font-size:var(--fs-sm);font-weight:500;text-decoration:none}
+.rail-link:hover{color:var(--rail-active-text);background:color-mix(in srgb,var(--rail-active) 45%,var(--rail))}
+.rail-link[aria-current=page]{color:var(--rail-active-text);background:var(--rail-active);box-shadow:inset 3px 0 0 var(--hero-accent)}
+.nav-icon{flex:none;width:1.25rem;height:1.25rem}
+.nav-label{flex:1;min-width:0}
+.rail-foot{margin-top:auto;padding-inline:var(--space-2)}
 
-/* The account button: the role pill at every width, the name from 1100 px, then weather's chevron. Its panel is the generic menu panel (primitives.css). */
-.role-pill{flex:none}
-.account-menu{margin-left:auto;flex:none}
-.account-menu>summary{gap:.5rem;padding:0 .35rem 0 .5rem;border-radius:var(--radius-sm);color:var(--ink);font-weight:500}
-.account-menu>summary:hover{background:var(--field)}
+/* The one open-alert count, coloured by the worst open severity, with the number as its words. */
+.nav-count{display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:1.35rem;height:1.35rem;padding:0 .35rem;border:1px solid var(--neutral-border);border-radius:var(--radius-pill);background:var(--neutral-soft);color:var(--neutral-text);font:600 var(--fs-xs)/1 var(--mono);font-variant-numeric:tabular-nums}
+.nav-count[data-severity=critical]{border-color:var(--critical);background:var(--critical);color:var(--on-accent)}
+.nav-count[data-severity=warning]{border-color:var(--warn-border);background:var(--warn-soft);color:var(--warn-text)}
+
+/* The theme switch: System, Light and Dark as one segmented control of native radios. */
+.theme-switch{min-width:0;margin:0;padding:0;border:0}
+.theme-switch-legend{margin:0 0 var(--space-1);padding:0;font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
+.theme-switch-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;padding:3px;border-radius:var(--radius);background:var(--surface-3)}
+.theme-switch-option{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;min-height:calc(var(--tap) - 6px);padding:0 var(--space-2);border-radius:calc(var(--radius) - 3px);color:var(--text-2);font-size:var(--fs-sm);font-weight:600;cursor:pointer}
+.theme-switch-option input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.theme-switch-option:has(input:checked){background:var(--surface);color:var(--text);box-shadow:var(--shadow-1)}
+.theme-switch-option:has(input:focus-visible){outline:3px solid var(--focus);outline-offset:2px}
+.rail .theme-switch-legend{color:var(--rail-muted)}
+.rail .theme-switch-options{background:transparent;box-shadow:inset 0 0 0 1px var(--rail-muted)}
+.rail .theme-switch-option{color:var(--rail-text)}
+.rail .theme-switch-option:has(input:checked){background:var(--rail-active);color:var(--rail-active-text);box-shadow:none}
+.rail .theme-switch-option:has(input:focus-visible){outline-color:var(--hero-accent)}
+
+/* ---------------------------------------------------------------- the top bar */
+.topbar{position:sticky;top:0;z-index:var(--z-sticky);background:var(--surface);border-bottom:1px solid var(--border)}
+.topbar-row{display:flex;align-items:center;gap:var(--space-3);width:100%;max-width:var(--content);min-height:var(--topbar-h);margin-inline:auto;padding:var(--space-1) var(--gutter)}
+.topbar-brand{display:none}
+.topbar-search{flex:0 1 22rem}
+.topbar-tools{display:flex;align-items:center;gap:var(--space-3);min-width:0;margin-left:auto}
+.topbar-stop{display:inline-flex}
+.topbar-fault{border-top:1px solid var(--border)}
+.topbar-fault>.banner{flex-wrap:nowrap;width:100%;max-width:var(--content);margin:0 auto;padding:var(--space-2) var(--gutter)}
+.topbar-fault>.banner>span{flex:1;min-width:0}
+.topbar-fault>.banner>a{flex:none}
+
+/* Search's opener: a field's look, with the / hint. */
+.search-button{justify-content:flex-start;gap:var(--space-2);min-width:0;min-height:var(--tap);padding:0 var(--space-3);border:1px solid var(--control-border);border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text-2);font-weight:400;text-align:left}
+.search-button:hover{background:var(--surface-3);color:var(--text)}
+.search-button-icon{flex:none;width:1.125rem;height:1.125rem}
+.search-button-label{flex:1;min-width:0}
+.search-button-key{flex:none;padding:0 .4rem;border:1px solid var(--border-strong);border-radius:var(--radius-sm);font-size:var(--fs-xs);line-height:1.5;color:var(--text-3)}
+
+/* The freshness chip: the age of the controller's newest reading, its dot, a link to Controller. */
+.fresh-chip{display:inline-flex;align-items:center;gap:var(--space-2);flex:none;min-height:var(--tap);padding:0 var(--space-3);border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--text-2);font-size:var(--fs-sm);text-decoration:none;white-space:nowrap}
+.fresh-chip:hover{color:var(--text);border-color:var(--border-strong)}
+.fresh-chip .dot{width:.6rem;height:.6rem}
+.fresh-unknown{background:var(--neutral)}
+
+/* The account menu: the role pill at every width and the name from 1100 px. Its panel is the menu panel of primitives.css. */
+.role-pill{display:inline-flex;align-items:center;flex:none;min-height:1.5rem;padding:0 var(--space-2);border:1px solid var(--neutral-border);border-radius:var(--radius-pill);background:var(--neutral-soft);color:var(--neutral-text);font:600 var(--fs-xs)/1 var(--mono);text-transform:uppercase;letter-spacing:.06em}
+.role-pill[data-role=operator]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text)}
+.account-menu{flex:none;margin:0}
+.account-menu>summary{gap:var(--space-2);padding:0 var(--space-2);border-radius:var(--radius-sm);color:var(--text);font-weight:500}
+.account-menu>summary:hover{background:var(--surface-2);color:var(--text)}
 .account-menu>summary::before{order:2}
-.account-name{font-size:var(--fs-sm);color:var(--muted);white-space:nowrap}
-.account-unknown{color:var(--forest);font-weight:700}
+.account-name{font-size:var(--fs-sm);color:var(--text-2);white-space:nowrap}
+.account-unknown{color:var(--accent);font-weight:600}
 .account-menu .menu-panel{min-width:16rem}
 .account-who{font-weight:600}
-.account-signout{margin:var(--space-1) 0 0;padding-top:var(--space-1);border-top:1px solid var(--line)}
+.account-signout{margin:var(--space-1) 0 0;padding-top:var(--space-1);border-top:1px solid var(--border)}
 @media(max-width:1099px){.account-menu .account-name:not(.account-unknown){display:none}}
 .signout-form{margin:0}
-.signout-form button{background:#fff;border-color:var(--line-strong);color:var(--forest)}
-.signout-form button:hover{background:#fff;border-color:var(--leaf);color:var(--leaf)}
+.signout-form button{width:100%;background:var(--surface);border-color:var(--border-strong);color:var(--accent)}
+.signout-form button:hover{background:var(--surface-2);border-color:var(--accent-hover);color:var(--accent-hover)}
 
-/* The fault row inside the sticky header (redesign §2.5): the one fault banner while it is true, so it never scrolls away. Its words wrap, never cut: it is the one safety message, and it must reflow at 400% zoom (SC 1.4.10); its link stays in view at the row's end. */
-.header-fault{border-top:1px solid var(--line)}
-.site-header .header-fault .shell{display:block;min-height:0;padding-block:var(--space-2)}
-.header-fault .banner{flex-wrap:nowrap;margin:0}
-.header-fault .banner>span{flex:1;min-width:0}
-.header-fault .banner>a{flex:none}
-
-/* Warn notices: in flow at the top of <main>, above the page header, one line each. */
-.banners{display:grid;gap:.5rem;margin:0 0 1rem}
+/* ---------------------------------------------------------------- the page in the frame */
+/* Warn notices: in flow at the top of the page, above the page header, one line each. */
+.banners{display:grid;gap:var(--space-2);margin:0 0 var(--space-4)}
 .banners .banner{margin:0}
+/* The breadcrumb's list: group, then section, separated by a decorative ›. */
+.page-crumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-1);margin:0;padding:0;list-style:none;font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em}
+.page-crumbs li{display:inline-flex;align-items:center;gap:var(--space-1)}
+.page-crumbs [aria-current=page]{color:var(--text-2)}
+.page-crumb-sep{color:var(--text-3)}
+.page-arriving-text{max-width:70ch;color:var(--text-2)}
 
-/* One centred container on every route (decisions log, 2026-11-04): header, main and footer share .shell, and the page stretches to the window's height, so a short page's footer reaches the bottom. */
-.app-page{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh}
-.app-page>main{flex:1 0 auto}
+/* The footer: both builds, the time zone, the sibling sites and the font licences. */
+.site-footer{border-top:1px solid var(--border);background:var(--surface-2);color:var(--text-2);font-size:var(--fs-sm)}
+.site-footer-inner{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-5);width:100%;max-width:var(--content);margin-inline:auto;padding:var(--space-4) var(--gutter)}
+.site-footer a{display:inline-flex;align-items:center;min-height:var(--tap)}
+.site-footer p{flex-basis:100%;margin:0}
 
-.bottom-nav{display:none}
-.page-card-main{padding-block:2.5rem 3rem}
+/* ---------------------------------------------------------------- dialogs: Search and the More sheet */
+.search-dialog,.more-sheet{padding:0;border:0;background:var(--surface);color:var(--text);box-shadow:var(--shadow-3)}
+.search-dialog::backdrop,.more-sheet::backdrop{background:var(--scrim)}
+.search-dialog[open]{position:fixed;inset:0;z-index:var(--z-dialog);display:flex;width:min(40rem,calc(100% - 2 * var(--gutter)));max-width:none;height:fit-content;max-height:min(75dvh,38rem);margin:10dvh auto auto;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.search-panel{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
+.search-head{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-2) var(--space-2) var(--space-4);border-bottom:1px solid var(--border)}
+.search-head:focus-within{box-shadow:inset 0 -2px 0 var(--accent)}
+.search-field-icon{flex:none;width:1.25rem;height:1.25rem;color:var(--text-3)}
+.search-field{flex:1;min-width:0;border:0;background:transparent;padding-inline:var(--space-1)}
+.search-field:focus-visible{outline:none}
+.search-close,.more-sheet-close{flex:none;min-width:var(--tap);padding:0;border:0;background:transparent;color:var(--text-2)}
+.search-close:hover,.more-sheet-close:hover{background:var(--surface-2);color:var(--text)}
+.search-results{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--space-2)}
+.search-results:empty{display:none}
+.search-group{padding:var(--space-2) 0}
+.search-group+.search-group{border-top:1px solid var(--border)}
+.search-group-label{padding:var(--space-1) var(--space-2);font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
+.search-option{display:grid;gap:2px;min-height:var(--tap);padding:var(--space-2);border-radius:var(--radius-sm);cursor:pointer}
+.search-option-label{font-weight:600}
+.search-option-detail{overflow:hidden;font-size:var(--fs-sm);color:var(--text-2);text-overflow:ellipsis;white-space:nowrap}
+.search-option[aria-selected=true]{background:var(--accent-soft);color:var(--accent-text)}
+.search-option[aria-selected=true] .search-option-detail{color:var(--accent-text)}
+.search-empty,.search-hint{margin:0;padding:var(--space-4);font-size:var(--fs-sm);color:var(--text-2)}
+
+.more-sheet[open]{position:fixed;inset:auto 0 0;z-index:var(--z-dialog);display:block;width:100%;max-width:none;max-height:85dvh;margin:0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;overflow-y:auto;overscroll-behavior:contain}
+.more-sheet-panel{display:grid;gap:var(--space-4);padding:var(--space-3) var(--gutter) calc(var(--space-5) + env(safe-area-inset-bottom))}
+.more-sheet-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)}
+.more-sheet-search{width:100%}
+.more-sheet-nav{display:grid;gap:var(--space-4)}
+.more-sheet .nav-group-label{padding-inline:0;color:var(--text-3)}
+.more-sheet .nav-group-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-1)}
+.more-link{display:flex;align-items:center;gap:var(--space-2);min-height:var(--tap);padding:0 var(--space-3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:var(--fs-sm);font-weight:600;text-decoration:none}
+.more-link:hover{background:var(--surface-2);color:var(--text)}
+.more-link[aria-current=page]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text)}
+.more-sheet-foot{display:grid;gap:var(--space-3);padding-top:var(--space-4);border-top:1px solid var(--border)}
+
+/* ---------------------------------------------------------------- SCR-09's one-card pages and the session-ended card */
+.plain-header{display:flex;align-items:center;min-height:var(--topbar-h);padding-inline:var(--gutter);background:var(--surface);border-bottom:1px solid var(--border)}
+.page-card-main{width:100%;max-width:var(--content);margin-inline:auto;padding:var(--space-7) var(--gutter)}
 .page-card{max-width:32rem}
-.page-card h1,.page-card h2{font-size:clamp(1.35rem,3vw,1.75rem);margin-bottom:.5rem}
+.page-card h1,.page-card h2{margin-bottom:var(--space-2);font-size:var(--fs-xl)}
 .page-card .actions{margin-bottom:0}
-.session-ended{position:fixed;inset:0;z-index:var(--z-toast);display:grid;place-items:center;padding:1rem}
-.session-ended::before{content:"";position:absolute;inset:0;background:var(--ink);opacity:.5}
-.session-ended .page-card{position:relative;width:min(28rem,100%);box-shadow:var(--shadow-sm)}
+.session-ended{position:fixed;inset:0;z-index:var(--z-toast);display:grid;place-items:center;padding:var(--space-4);background:var(--scrim)}
+.session-ended .page-card{position:relative;width:min(28rem,100%);box-shadow:var(--shadow-3)}
 
-/* Phones (860 px and below, redesign §2.3): a 52 px header with the lockup and the account button, and the fixed bar of the seven sections, an icon over a one-word label, each a seventh of the width and at least 44 px. */
+/* ---------------------------------------------------------------- the bottom bar (860 px and below) */
+.bottom-bar{display:none}
 @media(max-width:860px){
-  .site-header>.shell{min-height:var(--header-h-phone);padding-block:var(--space-1)}
-  .site-header .primary-nav{display:none}
-  .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:var(--z-nav);display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);min-height:calc(var(--bar-h) + env(safe-area-inset-bottom));padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);background:#fff;border-top:1px solid var(--line)}
-  .bottom-nav .tab{position:relative;display:grid;justify-items:center;align-content:center;gap:.2rem;min-width:0;min-height:var(--bar-h);padding:0 .125rem;color:var(--muted);font-size:var(--fs-xs);font-weight:600;line-height:1.15;text-align:center;text-decoration:none;overflow-wrap:normal}
-  .bottom-nav .tab-icon{display:block;width:1.25rem;height:1.25rem}
-  .bottom-nav .tab-label{display:block;max-width:100%}
-  .bottom-nav .tab[aria-current=page]{color:var(--ink);box-shadow:inset 0 2px 0 var(--forest)}
-  .bottom-nav .nav-count{position:absolute;top:.3rem;left:calc(50% + .4rem);min-width:1.1rem;height:1.1rem;padding:0 .3rem;font-size:var(--fs-label)}
-  .app-page .site-footer{padding-bottom:calc(var(--bar-h) + env(safe-area-inset-bottom))}
+  .rail{display:none}
+  .frame{margin-left:0}
+  .app-page{padding-bottom:calc(var(--bar-h) + env(safe-area-inset-bottom))}
+  .frame{min-height:calc(100vh - var(--bar-h) - env(safe-area-inset-bottom));min-height:calc(100dvh - var(--bar-h) - env(safe-area-inset-bottom))}
+  .frame-main{padding:var(--space-4) var(--gutter) var(--space-6)}
+  .topbar-row{gap:var(--space-2);padding-block:0}
+  .topbar-brand{display:inline-flex}
+  .topbar-search,.topbar-stop{display:none}
+  .topbar-tools{gap:var(--space-1)}
+  /* Only the dot shows; its words stay for a screen reader. */
+  .fresh-chip{justify-content:center;min-width:var(--tap);padding:0;border:0;background:transparent}
+  .fresh-chip-text{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .bottom-bar{position:fixed;left:0;right:0;bottom:0;z-index:var(--z-nav);display:grid;grid-template-columns:repeat(5,minmax(0,1fr));min-height:calc(var(--bar-h) + env(safe-area-inset-bottom));padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);background:var(--surface);border-top:1px solid var(--border)}
+  .bar-item{position:relative;display:grid;justify-items:center;align-content:center;gap:2px;min-width:0;min-height:var(--bar-h);margin:0;padding:0 var(--space-1);border:0;border-radius:0;background:transparent;color:var(--text-2);font-size:var(--fs-xs);font-weight:600;line-height:1.15;text-align:center;text-decoration:none}
+  .bar-item:hover{background:var(--surface-2);color:var(--text)}
+  .bar-icon{display:block;width:1.375rem;height:1.375rem}
+  .bar-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar-item[aria-current]{color:var(--accent);box-shadow:inset 0 2px 0 var(--accent)}
+  .bar-item .nav-count{position:absolute;top:.25rem;left:calc(50% + .35rem);min-width:1.1rem;height:1.1rem;padding:0 .3rem}
+  .search-dialog[open]{width:100%;height:100%;max-height:none;margin:0;border:0;border-radius:0}
 }

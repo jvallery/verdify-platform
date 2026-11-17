@@ -105,9 +105,9 @@ test("the chart: the device line solid, requests dashed amber and labelled by wh
   expect(drawn).toContain("max 1800 s ↑");
   expect(drawn).toContain("min 120 s ↓");
   const strokes = plot().ctx.strokes;
-  expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--c-setpoint"] && !stroke.dash.length).length).toBeGreaterThanOrEqual(3);
+  expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--accent"] && !stroke.dash.length).length).toBeGreaterThanOrEqual(3);
   expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--c-requested"] && JSON.stringify(stroke.dash) === "[6,4]")).toHaveLength(2);
-  expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--c-bound"] && JSON.stringify(stroke.dash) === "[8,4]")).toHaveLength(1);
+  expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && JSON.stringify(stroke.dash) === "[8,4]")).toHaveLength(1);
   expect(keyItems()).toEqual(["Device readback", "iris · AI", "jason · dashboard", "SUPERSEDED", "Min and max"]);
   expect(screen.queryByText(NO_READBACK_TEXT)).toBeNull();
 });
@@ -131,7 +131,7 @@ test("readback_via none draws no device line and says so; a read-only row and a 
   await mount({ fixture: "setting-history", setting: { readback_via: "none" } });
   expect(screen.getByText(NO_READBACK_TEXT)).toBeTruthy();
   plot().draw();
-  expect(plot().ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--c-setpoint"])).toBe(false);
+  expect(plot().ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--accent"])).toBe(false);
   expect(keyItems()).not.toContain("Device readback");
   cleanup();
   stopFixtureApi();

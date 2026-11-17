@@ -1,9 +1,100 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Tokens */
-/* Layout tokens of redesign §3.3 (D-UX-09): space, type, widths, heights and z-index. There are no colour tokens here: every colour is a token of styles.css (weather's :root and the §2.2 block). Loaded by root.tsx right after styles.css, so styles.css keeps exactly its two :root blocks. */
+/* Design system v2 §2 (docs/design/dashboard/v2/design-system.md): every token of the dashboard, the one file where a colour literal may stand. Light is the default; dark applies under :root[data-theme="dark"] and, when no theme is chosen, under prefers-color-scheme on :root:not([data-theme="light"]). The two dark blocks are identical (styles.test.ts), and contrast.test.ts computes the §2.4 pairs from this file. */
 :root{
-  --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;--space-5:1.5rem;--space-6:2rem;--space-7:3rem;
-  --fs-label:.72rem;--fs-xs:.75rem;--fs-sm:.875rem;--fs-md:1rem;--fs-lg:1.25rem;--fs-xl:1.75rem;
-  --aside:22rem;--rail:15rem;--tap:2.75rem;--bar-h:3.5rem;--header-h-phone:3.25rem;
-  --z-raised:3;--z-sticky:10;--z-nav:20;--z-popover:30;--z-toast:40;
+  color-scheme:light;
+  /* §2.1 Surfaces, text and accent */
+  --bg:#f4f6f5;--surface:#ffffff;--surface-2:#edf1ef;--surface-3:#e1e8e4;
+  --border:#d9e2de;--border-strong:#b3c3bb;--control-border:#6f867d;
+  --text:#0f1f2b;--text-2:#44525d;--text-3:#5d6a75;
+  --accent:#0e5a43;--accent-hover:#0a4533;--on-accent:#ffffff;--accent-soft:#e2f2eb;--accent-text:#0b4a37;--focus:#0e5a43;
+  --rail:#0f1f2b;--rail-text:#c3cfd6;--rail-muted:#8c9ca6;--rail-active:#17624b;--rail-active-text:#ffffff;
+  --hero:#102330;--hero-text:#ffffff;--hero-text-2:#b9c6cd;--hero-accent:#7de2b8;
+  --scrim:rgb(15 31 43 / 45%);
+  /* §2.2 Status: solid, soft background, text on the soft background */
+  --ok:#17714f;--ok-soft:#e2f2eb;--ok-text:#0b4a37;
+  --warn:#a56a00;--warn-soft:#fbefd2;--warn-text:#5c4407;
+  --serious:#b4480c;--serious-soft:#fde9dc;--serious-text:#7a2f06;
+  --critical:#b3261e;--critical-soft:#fbeae8;--critical-text:#8c1c16;
+  --info:#1f5fa8;--info-soft:#e4eefb;--info-text:#17467c;
+  --neutral:#5d6a75;--neutral-soft:#edf1ef;--neutral-text:#44525d;
+  /* §2.3 Chart colours */
+  --c-temp:#0f1f2b;--c-vpd:#7d3ab7;--c-rh:#0b84c9;--c-outdoor:#8a7a64;
+  --c-band-wash:#dcebe4;--c-band-edge:#5f9485;--c-grid:#e3e9e6;--c-requested:#a56a00;
+  --eq-heat1:#c97400;--eq-heat2:#b61f02;--eq-fan1:#12947f;--eq-fan2:#4b55b5;--eq-vent:#7f8f16;--eq-fog:#1695c4;
+  --eq-mister:#a3279e;--eq-light-main:#4d9f45;--eq-light-grow:#2855ad;--eq-water:#2389e2;--eq-fert:#6331a0;--eq-master:#0e9580;
+  --cmp-in:#3f9a78;--cmp-below:#2f6fb5;--cmp-above:#c5610f;
+  --c-day:#b87a00;--c-night:#4a5aa8;
+  --cause-vpd:#c2410c;--cause-schedule:#8a5a00;--cause-prep:#65731f;
+  /* §2.5 Shadows (the one shape token with a theme value) */
+  --shadow-1:0 1px 2px rgb(15 31 43 / 6%);--shadow-2:0 4px 16px rgb(15 31 43 / 10%);--shadow-3:0 16px 48px rgb(15 31 43 / 20%);
+}
+/* Derived, never chosen: a status's border is its solid over the surface, so it follows the theme on its own. */
+:root{
+  --ok-border:color-mix(in srgb,var(--ok) 35%,var(--surface));
+  --warn-border:color-mix(in srgb,var(--warn) 35%,var(--surface));
+  --serious-border:color-mix(in srgb,var(--serious) 35%,var(--surface));
+  --critical-border:color-mix(in srgb,var(--critical) 35%,var(--surface));
+  --info-border:color-mix(in srgb,var(--info) 35%,var(--surface));
+  --neutral-border:color-mix(in srgb,var(--neutral) 35%,var(--surface));
+  /* §2.5 Type, space, shape */
+  --font:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace;
+  --fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.9375rem;--fs-lg:1.125rem;--fs-xl:1.5rem;--fs-2xl:2rem;--fs-3xl:2.75rem;
+  --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;--space-5:1.5rem;--space-6:2rem;--space-7:3rem;--space-8:4rem;
+  --radius-sm:6px;--radius:10px;--radius-lg:14px;--radius-pill:999px;
+  --rail-w:15rem;--content:88rem;--gutter:clamp(1rem, 3vw, 2rem);
+  --tap:2.75rem;--bar-h:3.5rem;--topbar-h:3.5rem;
+  --z-raised:3;--z-sticky:10;--z-nav:20;--z-popover:30;--z-dialog:40;--z-toast:50;
+  /* A layout token the section stylesheets already use: the aside of a main and aside split. */
+  --aside:22rem;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0a1317;--surface:#111c22;--surface-2:#17262d;--surface-3:#1f323b;
+  --border:#22343d;--border-strong:#3a525d;--control-border:#6d8791;
+  --text:#e9eff1;--text-2:#b4c1c8;--text-3:#93a2ab;
+  --accent:#6fd8ad;--accent-hover:#8fe5c2;--on-accent:#05241a;--accent-soft:#11352b;--accent-text:#8fe5c2;--focus:#8fe5c2;
+  --rail:#070e11;--rail-text:#b4c1c8;--rail-muted:#7f909a;--rail-active:#17402f;--rail-active-text:#ffffff;
+  --hero:#132028;--hero-text:#ffffff;--hero-text-2:#b4c1c8;--hero-accent:#7de2b8;
+  --scrim:rgb(0 0 0 / 60%);
+  --ok:#5fcf9f;--ok-soft:#11352b;--ok-text:#8fe5c2;
+  --warn:#e5b23f;--warn-soft:#3a2d0c;--warn-text:#f3cf7a;
+  --serious:#f08a4b;--serious-soft:#3d2313;--serious-text:#f8b48a;
+  --critical:#f0736a;--critical-soft:#401b19;--critical-text:#f8aaa4;
+  --info:#6aa9ee;--info-soft:#13294a;--info-text:#a4c8f5;
+  --neutral:#93a2ab;--neutral-soft:#17262d;--neutral-text:#b4c1c8;
+  --c-temp:#e9eff1;--c-vpd:#9e66f8;--c-rh:#26a2bf;--c-outdoor:#9c8a70;
+  --c-band-wash:#17342c;--c-band-edge:#4f8f7c;--c-grid:#1d2d35;--c-requested:#e5b23f;
+  --eq-heat1:#b68b16;--eq-heat2:#ca4459;--eq-fan1:#20a89b;--eq-fan2:#8976cd;--eq-vent:#81880e;--eq-fog:#209ae6;
+  --eq-mister:#9d619b;--eq-light-main:#4fa83e;--eq-light-grow:#3987e5;--eq-water:#297cef;--eq-fert:#a57fc6;--eq-master:#219576;
+  --cmp-in:#5da56e;--cmp-below:#3082f6;--cmp-above:#b16512;
+  --c-day:#c98500;--c-night:#738aed;
+  --cause-vpd:#d9772f;--cause-schedule:#c98500;--cause-prep:#81880e;
+  --shadow-1:none;--shadow-2:0 4px 16px rgb(0 0 0 / 35%);--shadow-3:0 16px 48px rgb(0 0 0 / 55%);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0a1317;--surface:#111c22;--surface-2:#17262d;--surface-3:#1f323b;
+    --border:#22343d;--border-strong:#3a525d;--control-border:#6d8791;
+    --text:#e9eff1;--text-2:#b4c1c8;--text-3:#93a2ab;
+    --accent:#6fd8ad;--accent-hover:#8fe5c2;--on-accent:#05241a;--accent-soft:#11352b;--accent-text:#8fe5c2;--focus:#8fe5c2;
+    --rail:#070e11;--rail-text:#b4c1c8;--rail-muted:#7f909a;--rail-active:#17402f;--rail-active-text:#ffffff;
+    --hero:#132028;--hero-text:#ffffff;--hero-text-2:#b4c1c8;--hero-accent:#7de2b8;
+    --scrim:rgb(0 0 0 / 60%);
+    --ok:#5fcf9f;--ok-soft:#11352b;--ok-text:#8fe5c2;
+    --warn:#e5b23f;--warn-soft:#3a2d0c;--warn-text:#f3cf7a;
+    --serious:#f08a4b;--serious-soft:#3d2313;--serious-text:#f8b48a;
+    --critical:#f0736a;--critical-soft:#401b19;--critical-text:#f8aaa4;
+    --info:#6aa9ee;--info-soft:#13294a;--info-text:#a4c8f5;
+    --neutral:#93a2ab;--neutral-soft:#17262d;--neutral-text:#b4c1c8;
+    --c-temp:#e9eff1;--c-vpd:#9e66f8;--c-rh:#26a2bf;--c-outdoor:#9c8a70;
+    --c-band-wash:#17342c;--c-band-edge:#4f8f7c;--c-grid:#1d2d35;--c-requested:#e5b23f;
+    --eq-heat1:#b68b16;--eq-heat2:#ca4459;--eq-fan1:#20a89b;--eq-fan2:#8976cd;--eq-vent:#81880e;--eq-fog:#209ae6;
+    --eq-mister:#9d619b;--eq-light-main:#4fa83e;--eq-light-grow:#3987e5;--eq-water:#297cef;--eq-fert:#a57fc6;--eq-master:#219576;
+    --cmp-in:#5da56e;--cmp-below:#3082f6;--cmp-above:#b16512;
+    --c-day:#c98500;--c-night:#738aed;
+    --cause-vpd:#d9772f;--cause-schedule:#c98500;--cause-prep:#81880e;
+    --shadow-1:none;--shadow-2:0 4px 16px rgb(0 0 0 / 35%);--shadow-3:0 16px 48px rgb(0 0 0 / 55%);
+  }
 }

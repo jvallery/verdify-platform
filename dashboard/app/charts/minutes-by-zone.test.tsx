@@ -49,14 +49,14 @@ test("a no-data day is a hatched full-height gap, never a zero bar, and today is
   for (const plot of created) for (const values of plot.data.slice(1)) expect((values as (number | null)[])[3]).toBeNull();
   const ctx = center.ctx;
   expect(ctx.depth).toBe(0);
-  // --c-bound (the cap) has --muted's value: the hatch is the solid one.
-  const hatch = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"] && same(stroke.dash, []));
+  // --text-3 (the cap) has --text-3's value: the hatch is the solid one.
+  const hatch = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && same(stroke.dash, []));
   expect(hatch).toHaveLength(1);
   expect(new Set(hatch[0].path.map(([, y]) => y))).toEqual(new Set([0, 300]));
   // The diagonals start one plot height left of the bar, which is 48 px wide and centred on the day.
   expect(Math.min(...hatch[0].path.map(([px]) => px))).toBeCloseTo(centre(center, 3) - 24 - 300, 6);
   // Today (11/02, 46 min) and the outage day 10/31 (54 min) are partial: a dashed ink top edge on each bar.
-  const edges = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--ink"] && same(stroke.dash, [3, 2]));
+  const edges = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text"] && same(stroke.dash, [3, 2]));
   expect(edges.map((stroke) => [Math.round(stroke.path[0][0]), Math.round(stroke.path[1][0]), stroke.path[0][1]])).toEqual([
     [Math.round(centre(center, 4) - 24), Math.round(centre(center, 4) + 24), center.valToPos(54, "y")],
     [Math.round(centre(center, 6) - 24), Math.round(centre(center, 6) + 24), center.valToPos(46, "y")],
@@ -80,7 +80,7 @@ test("a no-data day is a hatched full-height gap, never a zero bar, and today is
 test("bars are uPlot.paths.bars stacked by cause, clean below fertilizer, each coloured as the cause table says", async () => {
   const { wall, center, west } = await mount();
   expect(wall.opts.series.slice(1).map((series) => series.label)).toEqual(["schedule", "run now", "prewet", "flush", "cause unknown", "feed · fertilizer"]);
-  expect(wall.opts.series.slice(1).map((series) => series.fill)).toEqual(["--cause-schedule", "--forest", "--cause-prep", "--cause-prep", "--c-bound", "--eq-fert"].map((token) => TOKENS[token]));
+  expect(wall.opts.series.slice(1).map((series) => series.fill)).toEqual(["--cause-schedule", "--accent", "--cause-prep", "--cause-prep", "--text-3", "--eq-fert"].map((token) => TOKENS[token]));
   for (const series of wall.opts.series.slice(1)) expect((series.paths as unknown as { bars: unknown }).bars).toEqual({ size: [0.6, 48], align: 0 });
   // Each segment's bar runs from the running total below it.
   expect(wall.opts.bands).toEqual([{ series: [2, 1] }, { series: [3, 2] }, { series: [4, 3] }, { series: [5, 4] }, { series: [6, 5] }]);
@@ -96,9 +96,9 @@ test("bars are uPlot.paths.bars stacked by cause, clean below fertilizer, each c
 
 test("the cap is a dotted line, today's still-planned minutes a dashed outline on today's bar; fog has neither", async () => {
   const { center, fog } = await mount();
-  const cap = center.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--c-bound"] && same(stroke.dash, [1, 3]));
+  const cap = center.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && same(stroke.dash, [1, 3]));
   expect(cap.map((stroke) => stroke.path)).toEqual([[[0, center.valToPos(120, "y")], [1000, center.valToPos(120, "y")]]]);
-  const outline = center.ctx.outlines.filter((rect) => rect.color === TOKENS["--muted"]);
+  const outline = center.ctx.outlines.filter((rect) => rect.color === TOKENS["--text-3"]);
   expect(outline).toHaveLength(1);
   expect(outline[0]).toMatchObject({ dash: [3, 2], y: center.valToPos(66, "y"), h: center.valToPos(46, "y") - center.valToPos(66, "y") });
   expect(outline[0].x).toBeCloseTo(centre(center, 6) - 24, 6);
@@ -193,7 +193,7 @@ test("Group by line (#1135): one row per line in the report, in line order, each
     `today ${min(0)} (partial) · cap 60`, `today ${min(0)} (partial)`, `today ${min(0)} (partial)`, `today ${min(46)} (partial) · cap 120`, `today ${min(0)} (partial) · cap 45`, `today ${min(6)} (partial)`,
   ]);
   expect(created.map((plot) => plot.scales.y.max)).toEqual([138, 138, 138, 138, 138, 35]);
-  expect(created[0].ctx.outlines.filter((rect) => rect.color === TOKENS["--muted"])).toHaveLength(1);
+  expect(created[0].ctx.outlines.filter((rect) => rect.color === TOKENS["--text-3"])).toHaveLength(1);
 });
 
 test("Group by cause (#1135): one row per cause in cause order, fog apart, the fertilizer master never counted twice", async () => {

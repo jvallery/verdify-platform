@@ -120,8 +120,8 @@ test("uPlot takes the daily water use options: the stack and the no-valve bar bu
   render(<DailyWaterUse data={{ days: [day("2026-10-31", "complete", 4), day("2026-11-01", "no_data", null), day("2026-11-02", "partial", 3)] }} split="line" />);
   await act(async () => { await vi.dynamicImportSettled(); await new Promise((resolve) => setTimeout(resolve, 0)); });
   const strokes = contexts.flatMap((context) => context.strokes);
-  expect(strokes.some((stroke) => stroke.stroke === TOKENS["--line"] && stroke.dash.length === 0 && stroke.path.length > 0)).toBe(true);
-  expect(strokes.some((stroke) => stroke.stroke === TOKENS["--ink"] && JSON.stringify(stroke.dash) === "[3,2]")).toBe(true);
+  expect(strokes.some((stroke) => stroke.stroke === TOKENS["--border"] && stroke.dash.length === 0 && stroke.path.length > 0)).toBe(true);
+  expect(strokes.some((stroke) => stroke.stroke === TOKENS["--text"] && JSON.stringify(stroke.dash) === "[3,2]")).toBe(true);
   // L01 under L02 on both days with water: a 1 px gap cleared between them (uPlot's own clears are the whole canvas).
   expect(contexts.flatMap((context) => context.clears).filter((gap) => gap.height === 1)).toHaveLength(2);
 });

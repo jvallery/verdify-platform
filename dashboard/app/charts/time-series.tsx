@@ -104,11 +104,11 @@ const UNIT_TOKENS: Readonly<Record<string, string>> = { "°F": "--c-temp", kPa: 
 /** More lines in one unit take the equipment tokens, each at least 3:1 on white (design system §5.1). */
 const EXTRA_TOKENS = ["--eq-fan2", "--eq-heat1", "--eq-vent", "--eq-mister", "--eq-light-grow", "--eq-fert", "--eq-heat2", "--eq-fog"];
 
-/** One token per metric: the climate keys their own, outdoor and forecast keys `--c-outdoor`, a dotted cross-check `--c-setpoint`, then the unit's, then the rest. */
+/** One token per metric: the climate keys their own, outdoor and forecast keys `--c-outdoor`, a dotted cross-check `--accent`, then the unit's, then the rest. */
 export function traceTokens(metrics: readonly MetricDef[], unit: string, dotted: readonly string[] = []): string[] {
   const used = new Set<string>();
   const claimed = metrics.map((metric) => {
-    const token = KEY_TOKENS[metric.key] ?? (/outdoor|forecast/.test(metric.key) ? "--c-outdoor" : dotted.includes(metric.key) ? "--c-setpoint" : null);
+    const token = KEY_TOKENS[metric.key] ?? (/outdoor|forecast/.test(metric.key) ? "--c-outdoor" : dotted.includes(metric.key) ? "--accent" : null);
     if (!token || used.has(token)) return null;
     used.add(token);
     return token;
@@ -263,7 +263,7 @@ export function tickDecimals(increment: number | null | undefined, unit: string)
  */
 export function valueAxis(unit: string, colors: ChartColors, size?: number): uPlot.Axis {
   return {
-    stroke: colors["--muted"], font: AXIS_FONT,
+    stroke: colors["--text-3"], font: AXIS_FONT,
     grid: { stroke: colors["--c-grid"], width: 1 }, ticks: { stroke: colors["--c-grid"], width: 1, size: 4 },
     incrs: tickIncrements(unitDecimals(unit)),
     size: size ?? ((_plot, values) => Math.max(48, Math.ceil(Math.max(0, ...(values || []).map((value) => String(value).length)) * 7.2) + 16)),
@@ -377,7 +377,7 @@ export function timeSeriesOptions(env: ChartEnv, modelRef: MutableRefObject<Time
       },
     },
     axes: [
-      built.xLabels === false ? silentTimeAxis({ muted: colors["--muted"], grid: colors["--c-grid"] }) : timeAxis({ muted: colors["--muted"], grid: colors["--c-grid"] }),
+      built.xLabels === false ? silentTimeAxis({ muted: colors["--text-3"], grid: colors["--c-grid"] }) : timeAxis({ muted: colors["--text-3"], grid: colors["--c-grid"] }),
       built.yLabels === false ? silentValueAxis(unit, colors) : valueAxis(unit, colors, built.yAxisSize),
     ],
     hooks: {
@@ -494,13 +494,13 @@ export function stepKey(model: TimeSeriesModel): KeyItem[] {
   const items = new Map<string, KeyItem>();
   const add = (item: KeyItem) => { if (!items.has(item.key)) items.set(item.key, item); };
   for (const step of model.steps) {
-    if (step.kind === "device") add({ key: "device", label: "Device readback", token: "--c-setpoint", kind: "line" });
+    if (step.kind === "device") add({ key: "device", label: "Device readback", token: "--accent", kind: "line" });
     else if (step.kind === "requested") add({ key: `request:${step.who ?? ""}`, label: step.who ?? "Requested", token: "--c-requested", kind: "dashed" });
-    else if (step.kind === "superseded") add({ key: "superseded", label: SUPERSEDED, token: "--c-bound", kind: "dashed" });
+    else if (step.kind === "superseded") add({ key: "superseded", label: SUPERSEDED, token: "--text-3", kind: "dashed" });
     else if (step.source === "iris") add({ key: "plan:iris", label: PLANNED_AI, token: model.seriesToken, kind: "dashed" });
     else add({ key: "plan:rule", label: FORECAST_RULE, token: model.seriesToken, kind: "dashed" });
   }
-  if (model.bounds.length) add({ key: "bounds", label: "Min and max", token: "--c-bound", kind: "dotted" });
+  if (model.bounds.length) add({ key: "bounds", label: "Min and max", token: "--text-3", kind: "dotted" });
   return [...items.values()];
 }
 

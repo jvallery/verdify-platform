@@ -9,7 +9,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, expect, test } from "vitest";
 import { SessionProvider } from "../../lib/session";
 import { NBSP, renderUi, text } from "../test-render";
-import { BandBar, bandBarWords, bandPosition, bandScale } from "./band-bar";
+import { BandBar, bandBarWords, bandPosition, bandRelationWords, bandScale } from "./band-bar";
 import { Delta, deltaAmount, keepUnits } from "./delta";
 import { Meter, meterWords } from "./meter";
 import { Sparkline } from "./sparkline";
@@ -19,7 +19,7 @@ afterEach(cleanup);
 const STATES: readonly VizState[] = ["ready", "loading", "empty", "stale", "unknown", "error"];
 /** The server's markup, which the CSP and the a11y spec read: no style attribute, whatever the state. */
 const markup = (ui: ReactElement, apiDown = false) => renderToStaticMarkup(<MemoryRouter><SessionProvider apiDown={apiDown}>{ui}</SessionProvider></MemoryRouter>);
-const GREEN = ".tag-ok, .status-complete, .fresh-ok";
+const GREEN = ".badge-ok, .tag-ok, .fresh-ok";
 /** Words with the no-break space before a unit read as a plain space. */
 const plain = (words: string | null | undefined) => (words ?? "").replaceAll(NBSP, " ");
 
@@ -93,6 +93,24 @@ test("BandBar: decorative beside its numbers, else an image named by them; the h
 });
 
 // ---------------------------------------------------------------------------------------------------- Meter
+test("BandBar v2: threshold ticks with labels in their status, the two edges labelled, and the relation in words", () => {
+  expect([bandRelationWords(64.8, temp.band, "°F"), plain(bandRelationWords(61.6, temp.band, "°F")), plain(bandRelationWords(70.4, temp.band, "°F")), bandRelationWords(null, temp.band, "°F")])
+    .toEqual(["in band", "0.4 °F below", "0.4 °F above", null]);
+  const { container } = renderUi(<BandBar {...temp} value={61.6} edgeLabels showRelation ticks={[{ value: 58, label: "58", level: "critical" }, { value: 74, level: "warn" }, { value: 66 }]} />);
+  expect([...container.querySelectorAll("line.bb-tick")].map((line) => line.getAttribute("class"))).toEqual(["bb-tick bb-tick-critical", "bb-tick bb-tick-warn", "bb-tick"]);
+  expect([...container.querySelectorAll("text.bb-edge-label")].map((label) => plain(label.textContent))).toEqual(["62.0 °F", "70.0 °F"]);
+  expect([...container.querySelectorAll("text.bb-tick-label")].map((label) => [label.textContent, label.getAttribute("class")])).toEqual([["58", "bb-tick-label bb-tick-critical"]]);
+  expect(container.querySelector("svg")?.getAttribute("height")).toBe("30");
+  const relation = container.querySelector(".bb-relation")!;
+  expect(plain(relation.textContent)).toBe("0.4 °F below");
+  expect(relation.getAttribute("data-position")).toBe("below");
+  cleanup();
+  // Without labels the gauge keeps its height and says nothing more.
+  const bare = renderUi(<BandBar {...temp} ticks={[{ value: 66 }]} />).container;
+  expect(bare.querySelector("svg")?.getAttribute("height")).toBe("16");
+  expect(bare.querySelector(".bb-relation")).toBeNull();
+});
+
 test("Meter words: the done part against the cap, cap reached, minutes over", () => {
   const words = (value: number | null, cap: number | null, unit: string) => { const said = meterWords(value, cap, unit); return [plain(said.amount), said.over && plain(said.over)]; };
   expect(words(12, 60, "min")).toEqual(["12 / 60 min", null]);

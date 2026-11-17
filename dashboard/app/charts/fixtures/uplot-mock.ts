@@ -18,6 +18,9 @@ export class RecordingContext {
   textBaseline = "alphabetic";
   strokes: Stroke[] = [];
   fills: { color: string; path: [number, number][] }[] = [];
+  /** The globalAlpha of each fill, in the order of `fills` (a "so far" bar fills lighter). */
+  fillAlphas: number[] = [];
+  globalAlpha = 1;
   rects: { color: string; x: number; y: number; width: number; height: number }[] = [];
   /** clearRect calls: gaps cleared to the background (daily water use's stacked parts). */
   clears: { x: number; y: number; width: number; height: number }[] = [];
@@ -32,6 +35,7 @@ export class RecordingContext {
   beginPath() { this.path = []; }
   moveTo(x: number, y: number) { this.path.push([x, y]); }
   lineTo(x: number, y: number) { this.path.push([x, y]); }
+  arcTo(_x1: number, _y1: number, x2: number, y2: number) { this.path.push([x2, y2]); }
   closePath() {}
   /** save() depth: painting must leave it where it found it. */
   depth = 0;
@@ -40,7 +44,7 @@ export class RecordingContext {
   save() { this.depth++; }
   restore() { this.depth--; }
   stroke() { this.strokes.push({ stroke: this.strokeStyle, width: this.lineWidth, dash: this.dash, path: this.path }); }
-  fill() { this.fills.push({ color: this.fillStyle, path: this.path }); }
+  fill() { this.fills.push({ color: this.fillStyle, path: this.path }); this.fillAlphas.push(this.globalAlpha); }
   fillRect(x: number, y: number, width: number, height: number) { this.rects.push({ color: this.fillStyle, x, y, width, height }); }
   clearRect(x: number, y: number, width: number, height: number) { this.clears.push({ x, y, width, height }); }
   strokeRect(x: number, y: number, w: number, h: number) { this.outlines.push({ color: this.strokeStyle, width: this.lineWidth, dash: this.dash, x, y, w, h }); }
@@ -174,16 +178,19 @@ export function media({ narrow = false, fine = true }: { narrow?: boolean; fine?
   });
 }
 
-/** The design-system token values (styles.css §2.1 and §2.2) on :root, as the stylesheet would set them. */
+/** The design-system token values (tokens.css, light theme) of every CHART_TOKENS entry, on :root as the stylesheet would set them. */
 export const TOKENS: Readonly<Record<string, string>> = {
-  "--ink": "#112231", "--muted": "#626b76", "--line": "#dcede7", "--field": "#f4f7f4", "--fault": "#b3261e", "--warn-text": "#5c4407",
-  "--tint-warn": "#f8eccb", "--ink-muted": "#b9c4cc", "--forest": "#0e5a43", "--amber": "#d6a93b",
-  "--c-temp": "#112231", "--c-vpd": "#7d3ab7", "--c-rh": "#0d98a4", "--c-outdoor": "#6c7278", "--c-band-wash": "#e2ede8",
-  "--c-band-edge": "#6e9c8e", "--c-setpoint": "#0e5a43", "--c-requested": "#a77601", "--c-bound": "#626b76", "--c-grid": "#dcede7",
-  "--eq-fan2": "#484fa7", "--eq-heat1": "#d47a00", "--eq-vent": "#056190", "--eq-mister": "#9d2398",
-  "--eq-fog": "#1b9bc7", "--eq-fan1": "#22a096", "--eq-heat2": "#b61f02", "--eq-light-main": "#4d9f45", "--eq-light-grow": "#2855ad",
-  "--eq-water": "#2389e2", "--eq-fert": "#6331a0", "--eq-master": "#0e9580",
-  "--cause-vpd": "#c2410c", "--cause-schedule": "#8a5a00", "--cause-prep": "#65731f",
+  "--text": "#0f1f2b", "--text-2": "#44525d", "--text-3": "#5d6a75", "--border": "#d9e2de",
+  "--border-strong": "#b3c3bb", "--surface": "#ffffff", "--surface-2": "#edf1ef", "--bg": "#f4f6f5",
+  "--accent": "#0e5a43", "--warn": "#a56a00", "--warn-text": "#5c4407", "--warn-soft": "#fbefd2",
+  "--critical": "#b3261e", "--critical-text": "#8c1c16", "--c-temp": "#0f1f2b", "--c-vpd": "#7d3ab7",
+  "--c-rh": "#0b84c9", "--c-outdoor": "#8a7a64", "--c-band-wash": "#dcebe4", "--c-band-edge": "#5f9485",
+  "--c-grid": "#e3e9e6", "--c-requested": "#a56a00", "--eq-heat1": "#c97400", "--eq-heat2": "#b61f02",
+  "--eq-fan1": "#12947f", "--eq-fan2": "#4b55b5", "--eq-vent": "#7f8f16", "--eq-fog": "#1695c4",
+  "--eq-mister": "#a3279e", "--eq-light-main": "#4d9f45", "--eq-light-grow": "#2855ad", "--eq-water": "#2389e2",
+  "--eq-fert": "#6331a0", "--eq-master": "#0e9580", "--cmp-in": "#3f9a78", "--cmp-below": "#2f6fb5",
+  "--cmp-above": "#c5610f", "--c-day": "#b87a00", "--c-night": "#4a5aa8", "--cause-vpd": "#c2410c",
+  "--cause-schedule": "#8a5a00", "--cause-prep": "#65731f",
 };
 export function setTokens(root: HTMLElement = document.documentElement) {
   for (const [token, value] of Object.entries(TOKENS)) root.style.setProperty(token, value);

@@ -121,8 +121,9 @@ test("it draws API-19's columns as served, over the local day: the ribbon, the s
   const painted = chart.ctx;
   expect(painted.fills.some((fill) => fill.color === TOKENS["--c-band-wash"])).toBe(true);
   expect(painted.strokes.filter((stroke) => stroke.stroke === TOKENS["--c-band-edge"] && stroke.width === 1)).toHaveLength(2);
-  expect(painted.strokes.some((stroke) => stroke.stroke === TOKENS["--ink"] && stroke.width === 1.5)).toBe(true);
-  expect(painted.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"] && JSON.stringify(stroke.dash) === "[4,3]")).toHaveLength(3);
+  // The Now rule (design-system section 5): 1 px of --text.
+  expect(painted.strokes.some((stroke) => stroke.stroke === TOKENS["--text"] && stroke.width === 1 && !stroke.dash.length)).toBe(true);
+  expect(painted.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && JSON.stringify(stroke.dash) === "[4,3]")).toHaveLength(3);
   expect(painted.depth).toBe(0);
   expect(painted.texts.find((item) => item.text === PREVIEW_WORD)).toMatchObject({ color: TOKENS["--warn-text"] });
   // The same words beside the chart: what it shows, the solar times and a table.

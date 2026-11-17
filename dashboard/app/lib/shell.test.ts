@@ -39,19 +39,20 @@ test("API-02 failing twice in a row reads Dashboard API unavailable, and once is
   expect(shellStatus(me, answers("in-band").now, 2).openAlerts).toBeNull();
 });
 
-test("a heartbeat 4 min old reads Ingestor not running, whatever the climate age, and links to Now's data tile", () => {
+test("a heartbeat 4 min old reads Ingestor not running, whatever the climate age, says the controller holds the band, and links to Data", () => {
   const result = status("ingestor-not-running");
   expect(shown(result.fault)).toEqual({
-    kind: "ingestor", tone: "fault", text: "Ingestor not running since 10:38. The controller keeps running on its own.", to: "/#data",
+    kind: "ingestor", tone: "fault", to: "/system/data",
+    text: "Ingestor not running since 10:38. The controller keeps holding the band on its own; nothing new is recorded until it is back.",
   });
   expect(result).toMatchObject({ ingestorRunning: false, controllerReporting: false });
 });
 
-test("a fresh heartbeat with climate 6 min old reads Controller not reporting, never Controller offline", () => {
+test("a fresh heartbeat with climate 6 min old reads Controller not reporting, never Controller offline, and links to Controller", () => {
   const result = status("controller-not-reporting");
   expect(shown(result.fault)).toEqual({
-    kind: "controller", tone: "fault", to: "/equipment",
-    text: "Controller not reporting since 10:36. If it has power, it keeps running VPD misting, its caps and (with the irrigation firmware) its schedules.",
+    kind: "controller", tone: "fault", to: "/system/controller",
+    text: "Controller not reporting since 10:36. If it has power, it keeps holding the band on its own and keeps its water schedules; its gap log fills in the record when it reconnects.",
   });
   expect(result).toMatchObject({ ingestorRunning: true, controllerReporting: false });
   for (const name of FIXTURE_NAMES) {
@@ -80,9 +81,9 @@ test("once flow stops the banner reads Flow stopped at HH:MM until the alert is 
   expect(shellStatus(me, resolved, 0).fault).toBeNull();
 });
 
-test("the warn banners: settings not reaching the controller links to Requested settings; changes switched off", () => {
+test("the warn banners: settings not reaching the controller links to delivery on Data; changes switched off", () => {
   expect(status("stuck-delivery").warns.map(shown)).toEqual([
-    { kind: "stuck", tone: "warn", text: "Settings not reaching the controller since 06:10 (4 differ)", to: "/settings?filter=requested" },
+    { kind: "stuck", tone: "warn", text: "Settings not reaching the controller since 06:10 (4 differ)", to: "/system/data" },
   ]);
   expect(status("stuck-delivery").fault).toBeNull();
   expect(status("writes-off").warns.map(shown)).toEqual([{ kind: "writes_off", tone: "warn", text: WRITES_OFF_TEXT, to: null }]);
@@ -143,4 +144,15 @@ test("the footer's build line, and the sign-in link that returns to the same pat
   const fits = `/graphs?q=${"a".repeat(2000)}`;
   expect(signInHref(fits)).toBe(`/auth/login?returnTo=${encodeURIComponent(fits)}`);
   expect(signInHref(fits).length).toBeLessThanOrEqual(4096);
+});
+
+test("no banner on any fixture uses the retired words of the old model", () => {
+  for (const name of FIXTURE_NAMES) {
+    for (const failures of [0, 2]) {
+      const { fault, warns } = status(name, failures);
+      for (const banner of [fault, ...warns]) {
+        expect(`${banner?.text ?? ""} ${banner?.link?.label ?? ""}`, name).not.toMatch(/\b(plan|planner|planned|mode|waypoint|target|tunable)s?\b/i);
+      }
+    }
+  }
 });

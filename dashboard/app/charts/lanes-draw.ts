@@ -55,31 +55,8 @@ export function spanPixels(plot: PaintTarget, start: number, end: number): { lef
   return right > left ? { left, right } : null;
 }
 
-/**
- * The hatch for a span the API calls unknown: 1px diagonals every 6 px in `color`, clipped to the box. It is drawn,
- * never inferred, and nothing else marks the span, so unknown never reads as off.
- */
-export function paintHatch(ctx: CanvasRenderingContext2D, left: number, top: number, width: number, height: number, color: string, px: number) {
-  if (width <= 0 || height <= 0) return;
-  ctx.save();
-  try {
-    ctx.beginPath();
-    ctx.rect(left, top, width, height);
-    ctx.clip();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = px;
-    ctx.setLineDash([]);
-    const step = 6 * px;
-    ctx.beginPath();
-    for (let x = left - height; x < left + width; x += step) {
-      ctx.moveTo(x, top + height);
-      ctx.lineTo(x + height, top);
-    }
-    ctx.stroke();
-  } finally {
-    ctx.restore();
-  }
-}
+/** The hatch moved to draw.ts with the other shared painters; lanes keep importing it from here. */
+export { paintHatch } from "./draw";
 
 const NBSP = "\u00a0";
 

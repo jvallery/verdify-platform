@@ -19,7 +19,7 @@ import type { VizState } from "./viz";
 afterEach(cleanup);
 const STATES: readonly VizState[] = ["ready", "loading", "empty", "stale", "unknown", "error"];
 const markup = (ui: ReactElement, apiDown = false) => renderToStaticMarkup(<MemoryRouter><SessionProvider apiDown={apiDown}>{ui}</SessionProvider></MemoryRouter>);
-const GREEN = ".tag-ok, .status-complete, .fresh-ok";
+const GREEN = ".badge-ok, .tag-ok, .fresh-ok";
 
 // ---------------------------------------------------------------------------------------------------- StatusStrip
 const CELLS: StripCell[] = [

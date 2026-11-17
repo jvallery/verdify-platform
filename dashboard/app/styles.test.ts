@@ -1,84 +1,109 @@
 // SPDX-License-Identifier: MIT
+// Design system v2 §2 and §6 (docs/design/dashboard/v2/design-system.md): the tokens exist once, the light theme and
+// both dark blocks define the same colour tokens, the two dark blocks are equal, every value is the one the design
+// system names, and root.tsx loads the stylesheets in their fixed order.
 import { existsSync, readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 
-const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-// jvallery/weather@249fba3 web/app/styles.css lines 6-15, byte for byte (design system §2.1).
-const WEATHER_ROOT = `:root{
-  --ink:#112231;--muted:#626b76;--line:#dcede7;--line-strong:#b9d8cd;--field:#f4f7f4;
-  --forest:#0e5a43;--leaf:#2e7d5c;--mint:#7de2b8;--amber:#d6a93b;--fault:#b3261e;
-  --ink-2:#1b2d3d;--ink-muted:#b9c4cc;--tint-ok:#e3f3ec;--tint-warn:#f8eccb;--tint-fault:#fbeae8;
-  --radius-sm:.375rem;--radius:.625rem;--radius-lg:1rem;
-  --shadow-xs:0 1px 2px rgb(17 34 49/6%);--shadow-sm:0 2px 8px rgb(17 34 49/8%);
-  --shell:80rem;--gutter:clamp(1rem,4vw,2.5rem);
-  --mono:"IBM Plex Mono",ui-monospace,monospace;
-  color:var(--ink);background:#fff;font:100%/1.5 "IBM Plex Sans",system-ui,sans-serif;
-}`;
-// Design system §2.2, verbatim: the dashboard tokens, the two AA rules and the new badges.
-const DASHBOARD_BLOCK = `:root{
-  --focus:#0e5a43;--control-border:#6f867d;
-  --ok-border:#bfe3d3;--warn-border:#ecd798;--warn-text:#5c4407;--fault-border:#f1c4bf;
-  --manual-bg:#ecebf6;--manual-border:#d5d2ea;--manual-text:#3f3a77;--dot-off:#e98b82;
-  --c-temp:#112231;--c-vpd:#7d3ab7;--c-rh:#0d98a4;--c-outdoor:#6c7278;--c-band-wash:#e2ede8;
-  --c-band-edge:#6e9c8e;--c-setpoint:#0e5a43;--c-requested:#a77601;--c-bound:#626b76;--c-grid:#dcede7;
-  --eq-mister:#9d2398;--eq-fog:#1b9bc7;--eq-fan1:#22a096;--eq-fan2:#484fa7;--eq-vent:#056190;
-  --eq-heat1:#d47a00;--eq-heat2:#b61f02;--eq-light-main:#4d9f45;--eq-light-grow:#2855ad;
-  --eq-water:#2389e2;--eq-fert:#6331a0;--eq-master:#0e9580;
-  --cause-vpd:#c2410c;--cause-schedule:#8a5a00;--cause-prep:#65731f;
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+const uncommented = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
+const tokensCss = uncommented(read("./styles/tokens.css"));
+const design = read("../../docs/design/dashboard/v2/design-system.md");
+
+/** The declarations of a block body, in order, as [name, value]. */
+const declarations = (body: string) => [...body.matchAll(/(--[a-z0-9-]+|color-scheme)\s*:\s*([^;]+);?/g)].map((match) => [match[1], match[2].trim()] as const);
+const blockAfter = (css: string, opener: string) => {
+  const start = css.indexOf(opener);
+  if (start < 0) return null;
+  const open = css.indexOf("{", start + opener.length - 1);
+  return css.slice(open + 1, css.indexOf("}", open));
+};
+
+const darkAttribute = ':root[data-theme="dark"]{';
+const lightPart = tokensCss.slice(0, tokensCss.indexOf(darkAttribute));
+const lightBlocks = [...lightPart.matchAll(/:root\{([^}]*)\}/g)].map((match) => declarations(match[1]));
+const light = lightBlocks.flat();
+const dark = declarations(blockAfter(tokensCss, darkAttribute) ?? "");
+const mediaStart = tokensCss.indexOf("@media (prefers-color-scheme:dark)");
+const media = declarations(blockAfter(tokensCss.slice(mediaStart), ':root:not([data-theme="light"]){') ?? "");
+
+const isColour = (value: string) => /^(#[0-9a-f]{6}|rgb\(.*\)|color-mix\(.*\))$/i.test(value);
+const norm = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
+
+/** The 2.1 and 2.3 tables: | `--name` | `light` | `dark` | ... |, and the 2.2 status table expanded to its 18 tokens. */
+function designTokens(): Map<string, { light: string; dark: string }> {
+  const tokens = new Map<string, { light: string; dark: string }>();
+  for (const [, name, lightValue, darkValue] of design.matchAll(/^\| `(--[a-z0-9-]+)` \| `([^`]+)` \| `([^`]+)` \|/gm)) tokens.set(name, { light: lightValue, dark: darkValue });
+  for (const [, status, ...pairs] of design.matchAll(/^\| (ok|warn|serious|critical|info|neutral) \| `(#[0-9a-f]{6})` \/ `(#[0-9a-f]{6})` \| `(#[0-9a-f]{6})` \/ `(#[0-9a-f]{6})` \| `(#[0-9a-f]{6})` \/ `(#[0-9a-f]{6})` \|$/gm)) {
+    tokens.set(`--${status}`, { light: pairs[0], dark: pairs[1] });
+    tokens.set(`--${status}-soft`, { light: pairs[2], dark: pairs[3] });
+    tokens.set(`--${status}-text`, { light: pairs[4], dark: pairs[5] });
+  }
+  return tokens;
 }
-:focus-visible{outline:2px solid var(--focus);outline-offset:2px} .hero :focus-visible{outline-color:var(--mint)}
-input,select,textarea{border-color:var(--control-border)} .brand-leaf{fill:var(--leaf)}
-.badge-ai{background:var(--ink);border-color:var(--ink);color:var(--mint)}
-.badge-planned{background:transparent;border:1px dashed var(--muted);color:var(--ink)} .badge-superseded{color:var(--muted)}
-.badge-held{background:#fff;border-color:var(--ink);color:var(--ink)}
-.btn-stop{background:var(--fault);border-color:var(--fault);color:#fff}`;
-// Weather's rules the two AA fixes override with equal specificity, so the dashboard block must come after them.
-const WEATHER_FOCUS = ":focus-visible{outline:3px solid var(--amber);outline-offset:2px}";
-const WEATHER_INPUT = "input,select,textarea{border:1px solid var(--line-strong);";
-const customProperties = (block: string) => [...block.matchAll(/(--[a-z0-9-]+):/g)].map((match) => match[1]);
 
-test("the first :root block is weather's lines 6-15, byte for byte", () => {
-  const start = css.indexOf(":root{");
-  expect(css.slice(start, css.indexOf("\n}", start) + 2)).toBe(WEATHER_ROOT);
-});
-
-test("the §2.2 block is the file's last block, after the weather focus and input rules it overrides", () => {
-  expect(css.trimEnd().endsWith(DASHBOARD_BLOCK)).toBe(true);
-  const block = css.lastIndexOf(DASHBOARD_BLOCK);
-  expect(css.indexOf(WEATHER_FOCUS)).toBeGreaterThan(0);
-  expect(css.indexOf(WEATHER_FOCUS)).toBeLessThan(block);
-  expect(css.indexOf(WEATHER_INPUT)).toBeGreaterThan(0);
-  expect(css.indexOf(WEATHER_INPUT)).toBeLessThan(block);
-  expect(DASHBOARD_BLOCK).toContain(":focus-visible{outline:2px solid var(--focus);outline-offset:2px} .hero :focus-visible{outline-color:var(--mint)}");
-  expect(DASHBOARD_BLOCK).toContain("input,select,textarea{border-color:var(--control-border)}");
-});
-
-test("dashboard tokens are added beside weather's, never redefining one", () => {
-  expect(css.match(/:root\{/g)).toHaveLength(2);
-  const weather = customProperties(WEATHER_ROOT);
-  const added = customProperties(DASHBOARD_BLOCK.slice(0, DASHBOARD_BLOCK.indexOf("\n}")));
-  expect(weather).toHaveLength(23);
-  expect(added.filter((name) => weather.includes(name))).toEqual([]);
-  for (const name of [...weather, ...added]) expect(css.split(`${name}:`)).toHaveLength(2);
-});
-
-test("only weather's generic sections are copied, in weather's order, and the theme is light only", () => {
-  const copied = ["Shell", "Type helpers", "Page structure", "Cards, tags, buttons, chips", "Now: hero and stats", "Compact event rows", "Plots", "Error page"];
-  const at = copied.map((name) => css.indexOf(`/* ${name} */`));
-  expect(at.every((index) => index > 0)).toBe(true);
-  expect([...at].sort((a, b) => a - b)).toEqual(at);
-  for (const name of ["Media cards", "Timelapses calendar", "Day", "Recording (theatre)", "Keograms", "Stills", "Almanac", "Search", "Editorial (public tags) and the private editor", "Embed card (/embed/weather/)"]) {
-    expect(css.includes(`/* ${name} */`), name).toBe(false);
+test("every token is defined once in the light theme, and color-scheme follows the theme", () => {
+  const names = light.map(([name]) => name);
+  expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([]);
+  expect(Object.fromEntries(light)["color-scheme"]).toBe("light");
+  expect(Object.fromEntries(dark)["color-scheme"]).toBe("dark");
+  expect(Object.fromEntries(media)["color-scheme"]).toBe("dark");
+  for (const block of [dark, media]) {
+    const own = block.map(([name]) => name);
+    expect(own.filter((name, index) => own.indexOf(name) !== index)).toEqual([]);
   }
-  for (const selector of [".camera-card", ".preview", ".media-tile", ".keo", ".calendar", ".still", ".rain-", ".wind-rose", ".rose-", ".search-result", ".search-state", ".search-filter", "#search-text", ".embed-weather", ".theater", ".editor-", ".day-grid"]) {
-    expect(css.includes(selector), selector).toBe(false);
+  // tokens.css is the only place a :root is set, and the dark theme has exactly its two blocks.
+  expect(tokensCss.match(/:root\[data-theme="dark"\]\{/g)).toHaveLength(1);
+  expect(tokensCss.match(/@media \(prefers-color-scheme:dark\)\{\s*:root:not\(\[data-theme="light"\]\)\{/g)).toHaveLength(1);
+});
+
+test("the light theme and both dark blocks define the same colour tokens, and the two dark blocks are equal", () => {
+  const colours = (block: readonly (readonly [string, string])[]) => block.filter(([name, value]) => name !== "color-scheme" && (isColour(value) || name.startsWith("--shadow"))).map(([name]) => name).sort();
+  const themed = light.filter(([name, value]) => isColour(value) && !value.startsWith("color-mix") || name.startsWith("--shadow")).map(([name]) => name).sort();
+  expect(colours(dark)).toEqual(themed);
+  expect(colours(media)).toEqual(themed);
+  expect(media).toEqual(dark);
+});
+
+test("every colour token of design system §2.1, §2.2 and §2.3 holds its value in light and in dark", () => {
+  const tokens = designTokens();
+  // 26 of §2.1, 18 of §2.2 and 28 of §2.3.
+  expect(tokens.size).toBe(72);
+  const lightValues = Object.fromEntries(light), darkValues = Object.fromEntries(dark);
+  for (const [name, values] of tokens) {
+    expect(norm(lightValues[name] ?? ""), `${name} light`).toBe(norm(values.light));
+    expect(norm(darkValues[name] ?? ""), `${name} dark`).toBe(norm(values.dark));
   }
-  expect(css).not.toMatch(/prefers-color-scheme|data-theme/);
-  expect(css).toContain("@media(prefers-reduced-motion:reduce)");
+});
+
+test("design system §2.5: type, space, shape, shadows, layout and stacking tokens", () => {
+  const values = Object.fromEntries(light), darkValues = Object.fromEntries(dark);
+  const family = (value: string) => value.replace(/\s*,\s*/g, ", ");
+  expect(family(values["--font"])).toBe('"IBM Plex Sans", system-ui, sans-serif');
+  expect(family(values["--mono"])).toBe('"IBM Plex Mono", ui-monospace, monospace');
+  expect(["xs", "sm", "md", "lg", "xl", "2xl", "3xl"].map((size) => values[`--fs-${size}`])).toEqual([".75rem", ".8125rem", ".9375rem", "1.125rem", "1.5rem", "2rem", "2.75rem"]);
+  expect([1, 2, 3, 4, 5, 6, 7, 8].map((step) => values[`--space-${step}`])).toEqual([".25rem", ".5rem", ".75rem", "1rem", "1.5rem", "2rem", "3rem", "4rem"]);
+  expect(["--radius-sm", "--radius", "--radius-lg", "--radius-pill"].map((name) => values[name])).toEqual(["6px", "10px", "14px", "999px"]);
+  expect(["--shadow-1", "--shadow-2", "--shadow-3"].map((name) => norm(values[name]))).toEqual(["0 1px 2px rgb(15 31 43 / 6%)", "0 4px 16px rgb(15 31 43 / 10%)", "0 16px 48px rgb(15 31 43 / 20%)"]);
+  expect(darkValues["--shadow-1"]).toBe("none");
+  expect(["--rail-w", "--content", "--gutter", "--tap", "--bar-h", "--topbar-h"].map((name) => values[name])).toEqual(["15rem", "88rem", "clamp(1rem, 3vw, 2rem)", "2.75rem", "3.5rem", "3.5rem"]);
+  expect(["raised", "sticky", "nav", "popover", "dialog", "toast"].map((layer) => values[`--z-${layer}`])).toEqual(["3", "10", "20", "30", "40", "50"]);
+});
+
+test("root.tsx loads tokens, base, primitives, the frame and the sections, in that fixed order and nothing else", () => {
+  const root = read("./root.tsx");
+  const imported = new Map([...root.matchAll(/import (\w+) from "\.\/(styles(?:\/[\w-]+)?\.css)\?url";/g)].map((match) => [match[1], match[2]]));
+  const list = /export const STYLESHEETS = \[([^\]]+)\]/.exec(root)?.[1].split(",").map((name) => name.trim()).filter(Boolean).map((name) => imported.get(name));
+  expect(list).toEqual([
+    "tokens.css", "base.css", "primitives.css", "shell.css", "now-activity.css", "graphs.css", "water.css", "control.css", "crops.css",
+    "experience.css", "climate.css", "record.css", "review.css", "system.css", "lights.css",
+  ].map((name) => `styles/${name}`));
 });
 
 test("both font faces load self-hosted Plex files that ship with their OFL notices", () => {
-  const fonts = [...css.matchAll(/url\("\/fonts\/([^"]+)"\)/g)].map((match) => match[1]);
+  const base = read("./styles/base.css");
+  const fonts = [...base.matchAll(/url\("\/fonts\/([^"]+)"\)/g)].map((match) => match[1]);
   expect(fonts).toEqual(["ibm-plex-sans-latin-wght-normal.woff2", "ibm-plex-mono-latin-400-normal.woff2"]);
   for (const file of [...fonts, "OFL-sans.txt", "OFL-mono.txt"]) expect(existsSync(new URL(`../public/fonts/${file}`, import.meta.url)), file).toBe(true);
+  expect(base).toMatch(/font-display:swap/);
 });

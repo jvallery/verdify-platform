@@ -4,7 +4,7 @@ import type { RetentionNote } from "./retention";
 import { boundLabel, forecastRuns, leavesBand, type BandRun, type Bound, type ForecastLine, type StepSegment } from "./marks";
 
 /**
- * Canvas painting for the hook-drawn marks (design system §5.1). Positions are canvas pixels (`valToPos(…, true)`),
+ * Canvas painting for the hook-drawn marks (design system v2 §5). Positions are canvas pixels (`valToPos(…, true)`),
  * line widths and dashes scale by the device pixel ratio, and every colour is a design-system token value read by
  * UPlotChart. Layers: drawClear paints the retention shading, the future shading and the band wash under the grid;
  * drawAxes the band edges; draw the steps, the forecast, bounds, the now line and the labels: "Now" (and a retention
@@ -17,8 +17,8 @@ export type PaintTarget = Pick<uPlot, "ctx" | "bbox" | "valToPos" | "scales">;
 export const LABEL_FONT = '"IBM Plex Sans", system-ui, sans-serif';
 const font = (px: number) => `${Math.round(11 * px)}px ${LABEL_FONT}`;
 /**
- * The key of the chart's background colour among the colours UPlotChart reads (the page's, never a literal): every
- * label is drawn over a 3 px halo of it, so a line under a label never strikes its words.
+ * The key of the chart's background colour among the colours UPlotChart reads (the `--surface` a chart sits on, never a
+ * literal): every label is drawn over a 3 px halo of it, so a line under a label never strikes its words.
  */
 export const CHART_BACKGROUND = "background";
 
@@ -135,30 +135,159 @@ export function linesCross(plot: PaintTarget, input: LabelInput): (box: LabelBox
   };
 }
 
-/** WCAG relative luminance of a `#rgb` or `#rrggbb` token value; null for anything else. */
-function luminance(color: string): number | null {
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())?.[1];
-  if (!hex) return null;
-  const full = hex.length === 3 ? [...hex].map((digit) => digit + digit).join("") : hex;
-  const [red, green, blue] = [0, 2, 4].map((at) => parseInt(full.slice(at, at + 2), 16) / 255)
-    .map((channel) => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+/**
+ * A label's text colour (design system v2 §5: text is never drawn in a series colour): always `fallback`, a text token of
+ * the mark's meaning (`--warn-text` for a request, `--text` otherwise). `color`, the mark's own, is kept in the signature
+ * for the callers that pass it.
+ */
+export function labelColor(_color: string, fallback: string): string {
+  return fallback;
 }
 
 /**
- * A label's text colour: its mark's colour where that reads at 4.5:1 on white (design system §7: text 4.5:1, chart
- * lines 3:1), else `fallback`, a darker token of the same meaning (`--warn-text` for a request, `--ink` otherwise).
+ * The hatch for a span with no answer (design system v2 §2.3): 1px diagonals every 6 px in `color`, clipped to the box.
+ * It is drawn, never inferred, and nothing else marks the span, so unknown never reads as off.
  */
-export function labelColor(color: string, fallback: string): string {
-  const light = luminance(color);
-  return light !== null && 1.05 / (light + 0.05) >= 4.5 ? color : fallback;
+export function paintHatch(ctx: CanvasRenderingContext2D, left: number, top: number, width: number, height: number, color: string, px: number) {
+  if (width <= 0 || height <= 0) return;
+  ctx.save();
+  try {
+    ctx.beginPath();
+    ctx.rect(left, top, width, height);
+    ctx.clip();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = px;
+    ctx.setLineDash([]);
+    const step = 6 * px;
+    ctx.beginPath();
+    for (let x = left - height; x < left + width; x += step) {
+      ctx.moveTo(x, top + height);
+      ctx.lineTo(x + height, top);
+    }
+    ctx.stroke();
+  } finally {
+    ctx.restore();
+  }
+}
+
+/** What a hatched span means (§2.3): unknown is a `--text-3` hatch; refused or waiting a `--warn` hatch. */
+export type HatchKind = "unknown" | "refused";
+export const hatchColor = (kind: HatchKind, colors: ChartColors): string => colors[kind === "refused" ? "--warn" : "--text-3"];
+
+/** drawClear or draw: a span of time hatched across the plot's height, from `from` to `to` (epoch s), clipped to the plot. */
+export function paintSpanHatch(plot: PaintTarget, from: number, to: number, kind: HatchKind, colors: ChartColors, px: number) {
+  const { ctx, bbox } = plot;
+  const left = Math.max(bbox.left, x(plot, from)), right = Math.min(bbox.left + bbox.width, x(plot, to));
+  paintHatch(ctx, left, bbox.top, right - left, bbox.height, hatchColor(kind, colors), px);
+}
+
+/** The words beside a day still in progress (§5): it is drawn lighter and labelled so. */
+export const SO_FAR_WORDS = "so far";
+/** How much lighter a "so far" mark is drawn: its own colour at this opacity. */
+export const SO_FAR_ALPHA = 0.45;
+/** A bar's corner at its data end (§5), and the gap between neighbouring bars. */
+export const BAR_RADIUS = 4;
+export const BAR_GAP = 2;
+
+/**
+ * A bar from `base` to `value` (canvas pixels on the value axis, `left` and `width` on the other), rounded by 4 px at the
+ * data end only. A day still in progress (`soFar`) is the same colour, lighter, with a 1 px outline in full colour so it
+ * still reads as that series. Vertical bars grow up from `base`; pass `horizontal` for bars that grow right.
+ */
+export function paintBar(ctx: CanvasRenderingContext2D, bar: { left: number; width: number; base: number; value: number }, color: string, px: number, options: { soFar?: boolean; horizontal?: boolean } = {}) {
+  const { left, width, base, value } = bar;
+  const length = Math.abs(value - base);
+  if (width <= 0 || length <= 0) return;
+  const radius = Math.min(BAR_RADIUS * px, width / 2, length);
+  ctx.save();
+  try {
+    ctx.beginPath();
+    if (options.horizontal) {
+      // left/width run along y here: the bar spans base → value on x.
+      const top = left, height = width, start = Math.min(base, value), end = Math.max(base, value), grows = value >= base;
+      ctx.moveTo(grows ? start : end, top);
+      ctx.lineTo(grows ? end - radius : start + radius, top);
+      ctx.arcTo(grows ? end : start, top, grows ? end : start, top + radius, radius);
+      ctx.lineTo(grows ? end : start, top + height - radius);
+      ctx.arcTo(grows ? end : start, top + height, grows ? end - radius : start + radius, top + height, radius);
+      ctx.lineTo(grows ? start : end, top + height);
+    } else {
+      const top = Math.min(base, value), bottom = Math.max(base, value), up = value <= base;
+      ctx.moveTo(left, up ? bottom : top);
+      ctx.lineTo(left, up ? top + radius : bottom - radius);
+      ctx.arcTo(left, up ? top : bottom, left + radius, up ? top : bottom, radius);
+      ctx.lineTo(left + width - radius, up ? top : bottom);
+      ctx.arcTo(left + width, up ? top : bottom, left + width, up ? top + radius : bottom - radius, radius);
+      ctx.lineTo(left + width, up ? bottom : top);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    if (options.soFar) ctx.globalAlpha = SO_FAR_ALPHA;
+    ctx.fill();
+    if (options.soFar) {
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = px;
+      ctx.setLineDash([]);
+      ctx.stroke();
+    }
+  } finally {
+    ctx.restore();
+  }
+}
+
+/** A threshold's level (§2.3, §5): warning or critical, drawn in that status's solid and labelled in its text colour. */
+export type ThresholdLevel = "warn" | "critical";
+/** The line of a threshold: 1.5 px, dashed [6, 4], in `--warn` or `--critical`; its label in `--warn-text` or `--critical-text`. */
+export function thresholdStyle(level: ThresholdLevel, colors: ChartColors, px: number): { stroke: string; text: string; width: number; dash: number[] } {
+  return level === "critical"
+    ? { stroke: colors["--critical"], text: colors["--critical-text"], width: 1.5 * px, dash: [6 * px, 4 * px] }
+    : { stroke: colors["--warn"], text: colors["--warn-text"], width: 1.5 * px, dash: [6 * px, 4 * px] };
+}
+/** A labelled threshold: a level with its words ("Warning 24 KB", "Critical 16 KB"). */
+export type Threshold = { readonly value: number; readonly level: ThresholdLevel; readonly label: string };
+
+/**
+ * draw: each threshold inside the y range as a full-width line in its style, with its label at the plot's right edge,
+ * above the line (below when there is no room), over the chart's halo. A threshold outside the range is not drawn; a
+ * caller says so in its key or notes.
+ */
+export function paintThresholds(plot: PaintTarget, thresholds: readonly Threshold[], colors: ChartColors, px: number, labels?: Labels) {
+  const yMin = plot.scales.y.min ?? 0, yMax = plot.scales.y.max ?? 0;
+  const placer = labels ?? new Labels(plot, px, colors[CHART_BACKGROUND] ?? "");
+  clipToPlot(plot, () => {
+    const { ctx, bbox } = plot;
+    for (const threshold of thresholds) {
+      if (threshold.value < Math.min(yMin, yMax) || threshold.value > Math.max(yMin, yMax)) continue;
+      const style = thresholdStyle(threshold.level, colors, px);
+      const level = y(plot, threshold.value);
+      ctx.strokeStyle = style.stroke;
+      ctx.lineWidth = style.width;
+      ctx.setLineDash(style.dash);
+      ctx.beginPath();
+      ctx.moveTo(bbox.left, level);
+      ctx.lineTo(bbox.left + bbox.width, level);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  });
+  plot.ctx.save();
+  try {
+    const right = plot.bbox.left + plot.bbox.width - 4 * px;
+    for (const threshold of thresholds) {
+      if (threshold.value < Math.min(yMin, yMax) || threshold.value > Math.max(yMin, yMax)) continue;
+      placer.place(threshold.label, [{ at: right, line: y(plot, threshold.value), align: "right" }], thresholdStyle(threshold.level, colors, px).text);
+    }
+  } finally {
+    plot.ctx.restore();
+  }
 }
 
 /** drawClear: the span before `retained_from`, shaded. */
 export function paintRetention(plot: PaintTarget, notes: readonly RetentionNote[], colors: ChartColors) {
   clipToPlot(plot, () => {
     const { ctx, bbox } = plot;
-    ctx.fillStyle = colors["--field"];
+    ctx.fillStyle = colors["--surface-2"];
     for (const note of notes) {
       const left = x(plot, note.from), right = x(plot, note.to);
       if (right > left) ctx.fillRect(left, bbox.top, right - left, bbox.height);
@@ -225,10 +354,10 @@ export function paintAchievableEdges(plot: PaintTarget, runs: readonly BandRun[]
 /** Stroke, width and dash of each step kind (design system §5.1). */
 export function stepStyle(kind: StepSegment["kind"], colors: ChartColors, seriesColor: string, px: number): { stroke: string; width: number; dash: number[] } {
   switch (kind) {
-    case "device": return { stroke: colors["--c-setpoint"], width: 2 * px, dash: [] };
+    case "device": return { stroke: colors["--accent"], width: 2 * px, dash: [] };
     case "requested": return { stroke: colors["--c-requested"], width: 2 * px, dash: [6 * px, 4 * px] };
     case "planned": return { stroke: seriesColor, width: 2 * px, dash: [8 * px, 4 * px] };
-    case "superseded": return { stroke: colors["--c-bound"], width: 2 * px, dash: [8 * px, 4 * px] };
+    case "superseded": return { stroke: colors["--text-3"], width: 2 * px, dash: [8 * px, 4 * px] };
   }
 }
 
@@ -285,7 +414,7 @@ export function paintBounds(plot: PaintTarget, bounds: readonly Bound[], colors:
   const yMin = plot.scales.y.min ?? 0, yMax = plot.scales.y.max ?? 0;
   clipToPlot(plot, () => {
     const { ctx, bbox } = plot;
-    ctx.strokeStyle = colors["--c-bound"];
+    ctx.strokeStyle = colors["--text-3"];
     ctx.lineWidth = px;
     ctx.setLineDash([px, 3 * px]);
     for (const bound of bounds) {
@@ -300,7 +429,7 @@ export function paintBounds(plot: PaintTarget, bounds: readonly Bound[], colors:
 }
 
 /**
- * drawClear: the part of the plot past now, lightly shaded (`--field` at half strength), so the forecast and the band
+ * drawClear: the part of the plot past now, lightly shaded (`--surface-2` at half strength), so the forecast and the band
  * ahead never read as measured (#1353).
  */
 export function paintFuture(plot: PaintTarget, now: number, colors: ChartColors) {
@@ -312,20 +441,20 @@ export function paintFuture(plot: PaintTarget, now: number, colors: ChartColors)
     const right = bbox.left + bbox.width;
     if (right <= left) return;
     ctx.globalAlpha = 0.5;
-    ctx.fillStyle = colors["--field"];
+    ctx.fillStyle = colors["--surface-2"];
     ctx.fillRect(left, bbox.top, right - left, bbox.height);
   });
 }
 
-/** draw: the now line, 1.5px ink. */
+/** draw: the present moment, a 1 px `--text` rule (§5), labelled Now by `paintLabels`. */
 export function paintNow(plot: PaintTarget, now: number, colors: ChartColors, px: number): boolean {
   const xMin = plot.scales.x.min ?? 0, xMax = plot.scales.x.max ?? 0;
   if (now < xMin || now > xMax) return false;
   clipToPlot(plot, () => {
     const { ctx, bbox } = plot;
     const at = x(plot, now);
-    ctx.strokeStyle = colors["--ink"];
-    ctx.lineWidth = 1.5 * px;
+    ctx.strokeStyle = colors["--text"];
+    ctx.lineWidth = px;
     ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(at, bbox.top);
@@ -372,19 +501,19 @@ function placeLabels(plot: PaintTarget, input: LabelInput, colors: ChartColors, 
   const { bbox } = plot;
   const top = bbox.top + 16 * px, bottom = bbox.top + bbox.height - 2 * px;
   const right = bbox.left + bbox.width - 4 * px;
-  if (input.now !== null) labels.place("Now", [{ at: x(plot, input.now) + 4 * px, line: top, align: "left" }, { at: x(plot, input.now) - 4 * px, line: top, align: "right" }], colors["--ink"]);
-  for (const note of input.retention) labels.place(note.text, [{ at: Math.max(x(plot, note.from), bbox.left) + 4 * px, line: top, align: "left" }], colors["--muted"]);
+  if (input.now !== null) labels.place("Now", [{ at: x(plot, input.now) + 4 * px, line: top, align: "left" }, { at: x(plot, input.now) - 4 * px, line: top, align: "right" }], colors["--text"]);
+  for (const note of input.retention) labels.place(note.text, [{ at: Math.max(x(plot, note.from), bbox.left) + 4 * px, line: top, align: "left" }], colors["--text-3"]);
   if (!input.labelSteps) return;
   const yMin = plot.scales.y.min ?? 0, yMax = plot.scales.y.max ?? 0;
   for (const bound of input.bounds) {
     const label = boundLabel(bound, yMin, yMax);
     const line = label.edge === "top" ? top : label.edge === "bottom" ? bottom : y(plot, bound.value);
-    labels.place(label.text, [{ at: right, line, align: "right" }], colors["--c-bound"]);
+    labels.place(label.text, [{ at: right, line, align: "right" }], colors["--text-3"]);
   }
   const ahead = input.steps.filter((step) => step.kind === "planned" || step.kind === "superseded");
   const behind = input.steps.filter((step) => step.kind === "requested").reverse().concat(input.steps.filter((step) => step.kind === "device").reverse());
   for (const step of [...ahead, ...behind]) {
-    const color = labelColor(stepStyle(step.kind, colors, seriesColor, px).stroke, colors[step.kind === "requested" ? "--warn-text" : "--ink"]);
+    const color = labelColor(stepStyle(step.kind, colors, seriesColor, px).stroke, colors[step.kind === "requested" ? "--warn-text" : "--text"]);
     const line = y(plot, step.value);
     const ends = x(plot, step.end);
     if (step.endLabel && ends >= bbox.left && ends <= bbox.left + bbox.width) {

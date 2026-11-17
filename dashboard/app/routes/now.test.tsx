@@ -39,7 +39,8 @@ const running = () => plain(text(document.querySelector(".now-next-now")));
 const main = () => plain(text(document.querySelector("main")));
 const toasts = (role: "status" | "alert") => [...screen.getByRole(role).querySelectorAll(".toast-body")]
   .map((body) => [...body.querySelectorAll("p")].map((line) => plain(text(line))).join(" "));
-const stopButton = () => screen.queryByRole("button", { name: /^(Stop all water|Sending…)$/ });
+// The page's own Stop: the top bar holds a second one for an operator (README section 3.2), so the page's is found inside <main>.
+const stopButton = () => within(screen.getByRole("main")).queryByRole("button", { name: /^(Stop all water|Sending…)$/ });
 const VERDICTS = /in band|above band|below band|band unavailable/;
 // Lets the panels' reads answer, then the zone tiles they then draw read their band.
 const settled = async () => { await advance(0); await advance(0); };
@@ -77,7 +78,7 @@ test("each fact once: the open-alert count in the answer or Needs someone's head
   await open("alerts-merged");
   expect(answer()).toBe("2 things need someone");
   expect(text(within(document.querySelector<HTMLElement>("#needs-someone")!).getByRole("heading", { level: 2 }))).toBe("Needs someone");
-  expect(screen.getAllByRole("button", { name: "Stop all water" })).toHaveLength(1);
+  expect(within(screen.getByRole("main")).getAllByRole("button", { name: "Stop all water" })).toHaveLength(1);
   cleanup();
   stopFixtureApi();
   await open(["alerts-merged", "too-hot"]);
@@ -99,7 +100,7 @@ test("each fact once: the open-alert count in the answer or Needs someone's head
 test("with the heartbeat 4 min old and with climate 6 min old: the answer names it, no verdict, and alerts may be missing", async () => {
   await open("ingestor-not-running");
   expect(answer()).toBe("Ingestor not running since 10:38");
-  expect(banners()[0]).toMatch(/^Ingestor not running since 10:38\. The controller keeps running on its own\./);
+  expect(banners()[0]).toMatch(/^Ingestor not running since 10:38\. The controller keeps holding the band on its own;/);
   expect(main()).not.toMatch(VERDICTS);
   expect(running()).toContain("Equipment reports unavailable since 10:38");
   expect(text(document.querySelector("#needs-someone .panel-empty p"))).toBe("In-app alerts may be missing: ingestor not running since 10:38");
@@ -124,7 +125,7 @@ test("API-02 failing: the answer says so at once, the banner after the second fa
   expect(text(document.body)).not.toMatch(/All OK|in band/i);
   expect(document.querySelector(".now-bands")).toBeNull();
   expect(running()).toContain("Equipment reports unavailable");
-  expect(document.querySelector(".tag-ok, .status-complete, .fresh-ok")).toBeNull();
+  expect(document.querySelector(".badge-ok, .tag-ok, .fresh-ok")).toBeNull();
 });
 
 test("the answer follows the newest API-02 read: a Stop's readback that answers clears it; a 401 ends the session, not row 1", async () => {

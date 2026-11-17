@@ -411,7 +411,8 @@ test("loading shows the three panels as skeletons at their reserved heights; not
   const Stub = createRoutesStub([{ path: "/", Component: () => <AppShell build={BUILD} authError={null} />, children: [{ path: "plan", Component: Plan }] }]);
   // A server render is the page head and three skeletons: no plan, ledger or lane, and no request.
   const html = renderToString(<Stub initialEntries={["/plan"]} />);
-  expect(html).toContain("<h1>Plan</h1>");
+  // Unregistered in v2 (README section 3.1): its retired view id resolves to Review.
+  expect(html).toContain('<h1 class="page-title">Review</h1>');
   expect(html.match(/class="skeleton skeleton-(md|lg)"/g)).toHaveLength(3);
   expect(html).not.toMatch(/iris-2026|SUNRISE|plan-row|trigger-row/);
   expect(requests(api)).toEqual([]);
@@ -432,7 +433,7 @@ test("API-07 failing shows Retry in each panel and keeps no earlier answer on sc
   ]);
   expect(panels.every((panel) => within(panel).getByRole("button", { name: "Retry" }))).toBe(true);
   // Nothing green: no fresh dot, confirmed or ok tag anywhere on the page.
-  expect(document.querySelector("main [data-fresh=ok], main .tag-ok, main .status-complete")).toBeNull();
+  expect(document.querySelector("main [data-fresh=ok], main .badge-ok, main .tag-ok")).toBeNull();
   // The API answers again: Retry reads it at once.
   api.respond({ method: "POST", url: "/__control", body: { fixture: "in-band" } });
   fireEvent.click(within(panels[0]).getByRole("button", { name: "Retry" }));
@@ -502,12 +503,12 @@ test("a viewer sees the same page with no write control: a lane's label is a lin
   expect(within(document.querySelector("dialog")!).queryByRole("button", { name: "Save" })).toBeNull();
 });
 
-test("Find a setting searches Settings by name or key", async () => {
+test("Find a setting opens the shell's Search with the words typed", async () => {
   await open("/plan");
   const find = within(document.querySelector(".page-header") as HTMLElement);
   fireEvent.change(find.getByRole("searchbox", { name: "Find a setting" }), { target: { value: "pulse gap" } });
   fireEvent.click(find.getByRole("button", { name: "Find" }));
   await settle();
-  await settle();
-  expect(screen.getByTestId("settings").textContent).toBe("/settings?q=pulse+gap");
+  const search = screen.getByRole("dialog", { name: "Search" });
+  expect(within(search).getByRole("combobox")).toHaveProperty("value", "pulse gap");
 });

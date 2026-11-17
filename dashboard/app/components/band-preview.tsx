@@ -140,7 +140,7 @@ function paintMarks(plot: PaintTarget, view: PreviewView, colors: ChartEnv["colo
   const nowShown = view.now !== null && paintNow(plot, view.now, colors, px);
   ctx.save();
   try {
-    ctx.strokeStyle = colors["--muted"];
+    ctx.strokeStyle = colors["--text-3"];
     ctx.lineWidth = px;
     ctx.setLineDash([4 * px, 3 * px]);
     for (const mark of view.marks) {
@@ -152,8 +152,8 @@ function paintMarks(plot: PaintTarget, view: PreviewView, colors: ChartEnv["colo
     const labels = new Labels(plot, px);
     const top = bbox.top + 16 * px;
     const both = (at: number, line: number) => [{ at: x(at) + 4 * px, line, align: "left" as const }, { at: x(at) - 4 * px, line, align: "right" as const }];
-    if (nowShown && view.now !== null) labels.place("Now", both(view.now, top), colors["--ink"]);
-    for (const mark of view.marks) labels.place(mark.word, both(mark.at, top), colors["--muted"]);
+    if (nowShown && view.now !== null) labels.place("Now", both(view.now, top), colors["--text"]);
+    for (const mark of view.marks) labels.place(mark.word, both(mark.at, top), colors["--text-3"]);
     const point = labelPoint(view);
     if (point) labels.place(PREVIEW_WORD, both(point.at, plot.valToPos(point.value, "y", true)), labelColor(colors["--c-requested"], colors["--warn-text"]));
   } finally {
@@ -175,7 +175,7 @@ function previewOptions(env: ChartEnv, viewRef: MutableRefObject<PreviewView>): 
     padding: [18, 10, 0, 0],
     series: [{}, { label: "Target", scale: "y", stroke: colors[token], width: 2, spanGaps: false, points: { show: false } }, draftLine(`${PREVIEW_WORD} target`, 2), draftLine(`${PREVIEW_WORD} low`, 1), draftLine(`${PREVIEW_WORD} high`, 1), ...extraLines],
     scales: { y: { range: (_plot, min, max) => paddedRange([min, max], marksExtent(viewRef.current.runs, [], ...env.xWindow())) } },
-    axes: [timeAxis({ muted: colors["--muted"], grid: colors["--c-grid"] }), valueAxis(unit, colors)],
+    axes: [timeAxis({ muted: colors["--text-3"], grid: colors["--c-grid"] }), valueAxis(unit, colors)],
     hooks: {
       drawClear: [(plot) => paintBandFill(plot, viewRef.current.runs, colors)],
       drawAxes: [(plot) => paintBandEdges(plot, viewRef.current.runs, colors, px())],

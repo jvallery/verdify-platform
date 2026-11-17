@@ -131,8 +131,10 @@ test("row 7, stale data: no verdict word anywhere, the mode as last said and dat
   expect(text(document.querySelector(".now-bands-asof"))).toBe("As of 10:28");
   // A stale band is drawn neutral, as with the API down, so a muted dot inside it is no in-band verdict.
   const css = readFileSync(join(process.cwd(), "app/styles/primitives.css"), "utf8");
-  expect(css).toContain(".bb-hero.is-stale .bb-band{fill:var(--ink-2)}.bb-hero.is-stale .bb-edge{stroke:var(--ink-muted)}");
-  expect(css).toContain(".bb.is-stale .bb-band{fill:var(--field)}.bb.is-stale .bb-edge{stroke:var(--line-strong)}");
+  expect(css).toContain(".bb-hero.is-neutral .bb-band,.bb-hero.is-stale .bb-band{fill:var(--hero)}");
+  expect(css).toContain(".bb-hero.is-neutral .bb-edge,.bb-hero.is-stale .bb-edge{stroke:var(--hero-text-2)}");
+  expect(css).toContain(".bb.is-neutral .bb-band,.bb.is-stale .bb-band{fill:var(--surface-2)}");
+  expect(css).toContain(".bb.is-neutral .bb-edge,.bb.is-stale .bb-edge{stroke:var(--border-strong)}");
   expect(css.indexOf(".bb-hero.is-stale .bb-band")).toBeGreaterThan(css.indexOf(".bb.is-stale .bb-band"));
   cleanup();
   // Fresh, the group carries no age and no stale mark.
@@ -188,7 +190,7 @@ test("API-02 failing: row 1 with Retry, the status line holds occupancy alone; w
   expect(document.querySelector(".now-hero-climate, .now-tib")).toBeNull();
   expect(document.querySelector(".now-hero")?.classList.contains("now-hero-plain")).toBe(true);
   expect(text(document.body)).not.toMatch(/in band|All OK/i);
-  expect(document.querySelector(".tag-ok, .status-complete, .fresh-ok")).toBeNull();
+  expect(document.querySelector(".badge-ok, .tag-ok, .fresh-ok")).toBeNull();
   cleanup();
   // Never answered at all: no value, its reason, and nothing to draw.
   renderHero("in-band", { failed: true, data: false });

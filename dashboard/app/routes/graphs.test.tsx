@@ -102,7 +102,7 @@ test("the route links the chart styles; the server renders the head, the toolbar
 test("/graphs?range=72h&set=mister_hysteresis_kpa: one stack of three panels on one time axis, the band, the setting's steps and the lanes on one cursor", async () => {
   chartStubs();
   const api = await open("/graphs?range=72h&set=mister_hysteresis_kpa");
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Climate");
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Graphs");
   expect(ids()).toEqual(["temperature", "vpd", "rh"]);
   expect([name("temperature"), name("vpd"), name("rh")]).toEqual(["Temperature °F", "VPD kPa", "RH %"]);
   // The resolution line sits in the stack's foot.
@@ -197,7 +197,7 @@ test("the story line states time in band and up to three excursions, worst first
   // The excursions are shaded under the line, in --tint-warn.
   const [temp] = panels();
   temp.draw();
-  expect(temp.ctx.fills.filter((fill) => fill.color === TOKENS["--tint-warn"]).length).toBeGreaterThanOrEqual(2);
+  expect(temp.ctx.fills.filter((fill) => fill.color === TOKENS["--warn-soft"]).length).toBeGreaterThanOrEqual(2);
 });
 
 test("Today runs from local midnight to the next; 24 h has 24 h ahead; ‹ › step by the window's length and Zoom out doubles it, all in the URL", async () => {
@@ -288,7 +288,7 @@ test("from 7 d the panels read hourly buckets and draw each one's min–max; env
   const hourly = await open("/graphs?range=7d&outdoor=0");
   expect(asked(hourly).filter((row) => row.metric[0].startsWith("climate.")).map((row) => row.points)).toEqual(["336", "336", "336"]);
   expect(text(document.querySelector(".resolution-line"))).toContain("· one point per hour");
-  const envelope = (plot: MockPlot) => { plot.draw(); return plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--ink-muted"]).length; };
+  const envelope = (plot: MockPlot) => { plot.draw(); return plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--border-strong"]).length; };
   expect(envelope(panels()[0])).toBeGreaterThan(100);
   cleanup(); stopFixtureApi(); MockPlot.reset(); chartStubs();
   const fine = await open("/graphs?range=7d&outdoor=0&env=0");
@@ -306,7 +306,7 @@ test("from 7 d the panels read hourly buckets and draw each one's min–max; env
   expect(compared).toEqual(["climate.temp_avg", "climate.vpd_avg", "climate.rh_avg"].map((key) => ({ metric: [key], from: iso(S - 48 * HOUR), to: iso(S - 24 * HOUR) })));
   const [temp] = panels();
   temp.draw();
-  expect(temp.ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--c-bound"] && stroke.width === 1.25 && stroke.dash.length === 2)).toBe(true);
+  expect(temp.ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--text-3"] && stroke.width === 1.25 && stroke.dash.length === 2)).toBe(true);
   expect(head("temperature")).toMatch(/ · yesterday's mean \d\d\.\d · (▲|▼) \d\.\d vs yesterday$|no change vs yesterday$/);
 });
 

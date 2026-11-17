@@ -100,7 +100,7 @@ export function typicalTooltip(model: TypicalModel, index: number | null | undef
 /** The hours along the bottom: "00:00", "06:00", … read off the reference day. */
 function hourAxis(colors: Readonly<Record<string, string>>): uPlot.Axis {
   return {
-    stroke: colors["--muted"], font: AXIS_FONT, size: 28, space: 48,
+    stroke: colors["--text-3"], font: AXIS_FONT, size: 28, space: 48,
     grid: { stroke: colors["--c-grid"], width: 1 }, ticks: { stroke: colors["--c-grid"], width: 1, size: 4 },
     incrs: [3 * HOUR, 6 * HOUR, 12 * HOUR],
     values: (plot, splits) => fitEdges(plot, splits, splits.map((split) => hourText(Math.round((((split - TYPICAL_BASE) / HOUR) % 24) + 24) % 24))),

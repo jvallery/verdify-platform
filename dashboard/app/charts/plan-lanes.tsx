@@ -184,11 +184,11 @@ const planLayout = (view: PlanView): RowLayout => ({ pitch: view.head + PLAN_STR
  */
 export function segmentStyle(kind: PlanSegmentKind, colors: ChartColors, px: number): { stroke: string; width: number; dash: number[] } {
   switch (kind) {
-    case "device": return { stroke: colors["--c-setpoint"], width: 2 * px, dash: [] };
-    case "stale": return { stroke: colors["--c-bound"], width: 2 * px, dash: [] };
-    case "planned": return { stroke: colors["--ink"], width: 2 * px, dash: [8 * px, 4 * px] };
-    case "superseded": return { stroke: colors["--c-bound"], width: 2 * px, dash: [8 * px, 4 * px] };
-    case "manual": return { stroke: colors["--c-bound"], width: 2 * px, dash: [] };
+    case "device": return { stroke: colors["--accent"], width: 2 * px, dash: [] };
+    case "stale": return { stroke: colors["--text-3"], width: 2 * px, dash: [] };
+    case "planned": return { stroke: colors["--text"], width: 2 * px, dash: [8 * px, 4 * px] };
+    case "superseded": return { stroke: colors["--text-3"], width: 2 * px, dash: [8 * px, 4 * px] };
+    case "manual": return { stroke: colors["--text-3"], width: 2 * px, dash: [] };
   }
 }
 
@@ -221,7 +221,7 @@ export function paintPlan(plot: PaintTarget, view: PlanView, colors: ChartColors
         if (!segment.label) continue;
         const pixels = spanPixels(plot, segment.start, segment.end);
         if (!pixels) continue;
-        const color = labelColor(segmentStyle(segment.kind, colors, px).stroke, colors["--ink"]);
+        const color = labelColor(segmentStyle(segment.kind, colors, px).stroke, colors["--text"]);
         const labelRow = { ...strip, middle: strip.top + 7 * px };
         const x = pixels.left + 4 * px, limit = pixels.right - 2 * px;
         if (!labels.place(index, labelRow, segment.label, x, limit, color)) labels.place(index, labelRow, segment.short, x, limit, color);
@@ -239,7 +239,7 @@ function paintPlanEnd(plot: PaintTarget, end: { at: number; text: string }, colo
   const x = plot.valToPos(end.at, "x", true);
   ctx.save();
   try {
-    ctx.strokeStyle = colors["--muted"];
+    ctx.strokeStyle = colors["--text-3"];
     ctx.lineWidth = px;
     ctx.setLineDash([4 * px, 3 * px]);
     ctx.beginPath();
@@ -247,7 +247,7 @@ function paintPlanEnd(plot: PaintTarget, end: { at: number; text: string }, colo
     ctx.lineTo(x, bbox.top + bbox.height);
     ctx.stroke();
     ctx.font = laneFont(px);
-    ctx.fillStyle = colors["--muted"];
+    ctx.fillStyle = colors["--text-3"];
     ctx.textBaseline = "middle";
     const width = ctx.measureText(end.text).width;
     const left = bbox.left + bbox.width - x >= width + 6 * px;
@@ -283,7 +283,7 @@ export function planOptions(env: ChartEnv, viewRef: MutableRefObject<PlanView>):
   return {
     padding: [PLAN_TOP, null, 0, null],
     series: [{}],
-    axes: [{ ...timeAxis({ muted: colors["--muted"], grid: colors["--c-grid"] }), grid: { show: false } }, { show: false }],
+    axes: [{ ...timeAxis({ muted: colors["--text-3"], grid: colors["--c-grid"] }), grid: { show: false } }, { show: false }],
     hooks: { draw: [(plot) => paintPlan(plot, viewRef.current, colors, px())] },
     plugins: [tooltipPlugin((plot) => planTooltip(viewRef.current, plot))],
   };

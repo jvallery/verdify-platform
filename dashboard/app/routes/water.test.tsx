@@ -66,7 +66,8 @@ const where = () => screen.getByTestId("where").textContent;
  * compact copy, which the stylesheet shows at 860 px and below instead; both share one `useStop`. jsdom has no
  * stylesheet, so both are in the tree here.
  */
-const stopAlls = () => screen.queryAllByRole("button", { name: "Stop all water" });
+// The page's Stops: the top bar holds one more for an operator (README section 3.2), outside <main>.
+const stopAlls = () => within(screen.getByRole("main")).queryAllByRole("button", { name: "Stop all water" });
 const headerStop = () => document.querySelector<HTMLButtonElement>(".page-actions .stop-all-water");
 const tabsStop = () => document.querySelector<HTMLButtonElement>(".page-tabs-sticky .stop-all-water");
 const toasts = (role: "status" | "alert") => [...screen.getByRole(role).querySelectorAll(".toast-body")].map((body) => [...body.querySelectorAll("p")].map((line) => text(line)).join(" "));
@@ -80,7 +81,7 @@ test("a server render of a Water view carries its head and no greenhouse data, a
   const Stub = waterStub();
   for (const path of VIEWS) {
     const html = renderToString(<Stub initialEntries={[path]} />);
-    expect(html, path).toContain('<p class="eyebrow page-crumbs">');
+    expect(html, path).toContain('<nav class="page-crumbs" aria-label="Breadcrumb">');
     expect(html, path).toContain('aria-label="Water views"');
     // The status line keeps its height while it loads, its phone wording beside it.
     expect(html, path).toContain('<p class="page-status meta page-status-long"></p><p class="page-status-short meta"></p>');

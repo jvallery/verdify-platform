@@ -1,44 +1,44 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Graphs (WP2) */
-/* Graphs → Climate, Zones and Statistics (redesign §5.5–§5.7, §7): the toolbar and its menus, the story line, the chips of what the charts draw, the zones' grid heads and the Statistics page. New classes use the prefix gr-; the charts themselves are styled in app/charts/charts.css. Loaded by root.tsx after styles.css and tokens.css, in the fixed order of redesign §10.1. Colours are tokens only (white the one literal); this file never redefines :focus-visible or the input borders that the §2.2 block in styles.css sets. */
+/* Graphs → Climate, Zones and Statistics (redesign §5.5–§5.7, §7): the toolbar and its menus, the story line, the chips of what the charts draw, the zones' grid heads and the Statistics page. New classes use the prefix gr-; the charts themselves are styled in app/charts/charts.css. Loaded by root.tsx in the fixed order of design-system v2 §6. Colours are tokens only; this file never redefines :focus-visible or the input borders that base.css sets. */
 
 /* The resolution line (in the stack's foot), the custom range, the chips of settings and metrics, the pickers and the daily table. */
 .resolution-line{font-variant-numeric:tabular-nums}
 .range-form{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .5rem;margin:0}
-.range-form label{font-size:var(--fs-sm);font-weight:600;color:var(--muted)}
+.range-form label{font-size:var(--fs-sm);font-weight:600;color:var(--text-2)}
 .range-form input[type=date]{min-height:2.25rem;padding:.2rem .45rem;border:1px solid var(--control-border);border-radius:var(--radius-sm);font:inherit;font-size:var(--fs-sm)}
 .range-form .field-error{flex-basis:100%}
 .graph-chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:0;padding:0;list-style:none}
-.graph-chip{display:inline-flex;align-items:stretch;min-height:2.25rem;border:1px solid var(--line-strong);border-radius:999px;background:#fff;font-size:.8rem;overflow:hidden}
-.graph-chip>a,.graph-chip>span{display:inline-flex;align-items:center;padding:0 .7rem;color:var(--ink);text-decoration:none;white-space:nowrap}
-.graph-chip>a:hover{color:var(--forest)}
-.graph-chip>a:last-child{justify-content:center;min-width:2.25rem;padding:0 .55rem;border-left:1px solid var(--line);font-size:var(--fs-md)}
+.graph-chip{display:inline-flex;align-items:stretch;min-height:2.25rem;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);font-size:.8rem;overflow:hidden}
+.graph-chip>a,.graph-chip>span{display:inline-flex;align-items:center;padding:0 .7rem;color:var(--text);text-decoration:none;white-space:nowrap}
+.graph-chip>a:hover{color:var(--accent)}
+.graph-chip>a:last-child{justify-content:center;min-width:2.25rem;padding:0 .55rem;border-left:1px solid var(--border);font-size:var(--fs-md)}
 .graph-notices{list-style:none;display:grid;gap:.4rem;margin:0 0 1rem;padding:0}
 .graph-notices .notice{margin:0}
 .picker-dialog .field{margin-bottom:.75rem}
 .picker-cap{margin:0 0 .75rem;font-weight:600;color:var(--warn-text)}
 .picker-group{margin:0 0 1rem}
 .picker-group .eyebrow{margin:0 0 .35rem}
-.picker-list{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--radius-sm)}
-.picker-list li+li{border-top:1px solid var(--line)}
-.picker-item{display:grid;gap:.1rem;padding:.5rem .75rem;color:var(--ink);text-decoration:none}
-a.picker-item:hover{background:var(--field)}
-.picker-item-on,.picker-item-off{color:var(--muted)}
+.picker-list{list-style:none;margin:0;padding:0;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.picker-list li+li{border-top:1px solid var(--border)}
+.picker-item{display:grid;gap:.1rem;padding:.5rem .75rem;color:var(--text);text-decoration:none}
+a.picker-item:hover{background:var(--surface-2)}
+.picker-item-on,.picker-item-off{color:var(--text-2)}
 .picker-item .tag{justify-self:start;margin-top:.2rem}
 .picker-label{font-weight:600}
-.picker-facts,.picker-text{font-size:var(--fs-sm);color:var(--muted)}
-.picker-facts .mono{color:var(--ink)}
+.picker-facts,.picker-text{font-size:var(--fs-sm);color:var(--text-2)}
+.picker-facts .mono{color:var(--text)}
 .scorecard-tools{display:flex;justify-content:flex-end;margin:0 0 .5rem}
 .scorecard-wrap{max-height:none}
 .scorecard th[scope=row]{white-space:nowrap}
-.scorecard th[scope=row] a{color:inherit;text-decoration-color:var(--line-strong)}
-.scorecard th[scope=row] a:hover{color:var(--forest)}
+.scorecard th[scope=row] a{color:inherit;text-decoration-color:var(--border-strong)}
+.scorecard th[scope=row] a:hover{color:var(--accent)}
 .scorecard thead th{white-space:nowrap}
 .scorecard td{white-space:nowrap;font-variant-numeric:tabular-nums}
-.scorecard-note{font-size:var(--fs-xs);font-weight:400;color:var(--muted)}
-.scorecard-missing{color:var(--muted)}
+.scorecard-note{font-size:var(--fs-xs);font-weight:400;color:var(--text-2)}
+.scorecard-missing{color:var(--text-2)}
 .scorecard-reason{font-size:var(--fs-xs);white-space:normal}
-.zone-tag-note{max-width:46rem;margin:0 0 var(--space-3);font-size:var(--fs-sm);color:var(--muted)}
+.zone-tag-note{max-width:46rem;margin:0 0 var(--space-3);font-size:var(--fs-sm);color:var(--text-2)}
 
 /* The toolbar (redesign §5.5): range chips, ‹ › and Zoom out, Custom…, then Preset, Layers, + Metric and + Setting at the right. Every control is one height, 36 px (44 px on phones). */
 /* The toolbar is the page's (.page-toolbar, primitives.css): --space-4 above the charts it controls, on every view. */
@@ -46,16 +46,16 @@ a.picker-item:hover{background:var(--field)}
 .gr-toolbar .range-toolbar{margin:0}
 .gr-toolbar .range-tools>.btn{min-height:2.25rem;padding:0 .8rem;font-size:var(--fs-sm)}
 .gr-toolbar .menu{position:relative}
-.gr-menu>summary{min-height:2.25rem;padding:0 .8rem 0 .7rem;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:#fff;font-size:var(--fs-sm);white-space:nowrap}
-.gr-menu>summary:hover{border-color:var(--leaf)}
-.gr-menu[open]>summary{border-color:var(--ink)}
-.gr-menu-value{font-weight:500;color:var(--ink)}
+.gr-menu>summary{min-height:2.25rem;padding:0 .8rem 0 .7rem;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);font-size:var(--fs-sm);white-space:nowrap}
+.gr-menu>summary:hover{border-color:var(--accent-hover)}
+.gr-menu[open]>summary{border-color:var(--text)}
+.gr-menu-value{font-weight:500;color:var(--text)}
 .gr-menu>.menu-panel{left:auto;right:0;width:max-content;min-width:14rem;max-width:min(24rem,calc(100vw - 2 * var(--gutter)))}
 .gr-menu-list{display:grid;gap:var(--space-1);margin:0;padding:0;list-style:none}
-.gr-menu-list a{display:flex;align-items:center;min-height:var(--tap);padding:0 var(--space-3);border-radius:var(--radius-sm);color:var(--forest);font-size:var(--fs-sm);font-weight:700;text-decoration:none}
-.gr-menu-list a:hover{background:var(--field);color:var(--leaf)}
-.gr-menu-list a[aria-current=true]{background:var(--ink);color:#fff}
-.gr-menu-list a[aria-current=true] .meta{color:var(--ink-muted)}
+.gr-menu-list a{display:flex;align-items:center;min-height:var(--tap);padding:0 var(--space-3);border-radius:var(--radius-sm);color:var(--accent);font-size:var(--fs-sm);font-weight:700;text-decoration:none}
+.gr-menu-list a:hover{background:var(--surface-2);color:var(--accent-hover)}
+.gr-menu-list a[aria-current=true]{background:var(--accent-soft);color:var(--accent-text)}
+.gr-menu-list a[aria-current=true] .meta{color:var(--accent-text)}
 .gr-menu-groups{display:grid;gap:var(--space-3);padding:var(--space-1)}
 .gr-menu-group .eyebrow{margin:0 0 var(--space-2)}
 .gr-menu-note{max-width:20rem;margin:var(--space-2) 0 0;font-size:var(--fs-xs)}
@@ -74,12 +74,12 @@ a.picker-item:hover{background:var(--field)}
 .gr-grid-foot{margin:var(--space-3) 0 0}
 .gr-zone-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);min-width:0}
 .gr-zone-link{display:inline-flex;align-items:center;min-height:24px;font-weight:700;text-decoration:none}
-.gr-zone-tag{font:500 var(--fs-label)/1.3 var(--mono);letter-spacing:.08em;color:var(--muted)}
+.gr-zone-tag{font:500 var(--fs-xs)/1.3 var(--mono);letter-spacing:.08em;color:var(--text-2)}
 .gr-zone-tag-peer{color:var(--warn-text)}
 .gr-phone-only{display:none}
 .gr-wide-only,.gr-phone-only{align-items:center;gap:var(--space-2);min-width:0}
 .gr-wide-only{display:flex}
-.gr-chips-label{font-size:var(--fs-sm);font-weight:600;color:var(--muted)}
+.gr-chips-label{font-size:var(--fs-sm);font-weight:600;color:var(--text-2)}
 
 /* Statistics (redesign §5.7): the period, the key figures, the day-by-day strip, the typical day beside the daily range, time in band per day and the data. */
 .gr-stats-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3)}
@@ -96,38 +96,38 @@ a.picker-item:hover{background:var(--field)}
 .gr-days{padding-bottom:var(--space-1)}
 .gr-days-grid{display:grid;gap:var(--space-2);min-width:calc(var(--gr-days, 30) * .625rem + 9.75rem)}
 .gr-days-row{display:grid;grid-template-columns:9rem minmax(0,1fr);align-items:center;gap:0 var(--space-3)}
-.gr-days-label{position:sticky;left:0;z-index:var(--z-raised);align-self:stretch;display:flex;align-items:center;padding-right:var(--space-2);background:#fff;font-size:var(--fs-sm);font-weight:600;white-space:nowrap}
+.gr-days-label{position:sticky;left:0;z-index:var(--z-raised);align-self:stretch;display:flex;align-items:center;padding-right:var(--space-2);background:var(--surface);font-size:var(--fs-sm);font-weight:600;white-space:nowrap}
 .gr-days .strip>li{max-width:none}
 .gr-days .strip-cell{height:1.75rem}
 .gr-days-pad{padding:0 2px}
 /* The gallons: cells sized as the strip's cells (flex 1 from 8 px, 2 px apart), each a bar from the bottom. */
 .gr-gallons{display:flex;align-items:stretch;gap:2px;height:2.25rem}
-.gr-bar-cell{display:flex;flex:1 0 .5rem;align-items:flex-end;min-width:.5rem;border-bottom:1px solid var(--line-strong)}
-.gr-bar-cell[data-none=true]{background:repeating-linear-gradient(135deg,var(--line-strong) 0 2px,transparent 2px 5px)}
+.gr-bar-cell{display:flex;flex:1 0 .5rem;align-items:flex-end;min-width:.5rem;border-bottom:1px solid var(--border-strong)}
+.gr-bar-cell[data-none=true]{background:repeating-linear-gradient(135deg,var(--border-strong) 0 2px,transparent 2px 5px)}
 .gr-bar{display:block;width:100%;height:var(--gr-h,0);min-height:2px;border-radius:2px 2px 0 0;background:var(--eq-water)}
-.gr-bar-cell[data-partial=true] .gr-bar{background:#fff;outline:1px dashed var(--eq-water);outline-offset:-1px}
-.gr-gallons.is-neutral .gr-bar{background:var(--muted)}
+.gr-bar-cell[data-partial=true] .gr-bar{background:var(--surface);outline:1px dashed var(--eq-water);outline-offset:-1px}
+.gr-gallons.is-neutral .gr-bar{background:var(--text-2)}
 .gr-days-axis>li{position:relative;height:1.1rem}
-.gr-days-tick{position:absolute;top:0;left:50%;transform:translateX(-50%);font:400 var(--fs-xs)/1.2 var(--mono);color:var(--muted);white-space:nowrap}
+.gr-days-tick{position:absolute;top:0;left:50%;transform:translateX(-50%);font:400 var(--fs-xs)/1.2 var(--mono);color:var(--text-2);white-space:nowrap}
 .gr-days-tick-start{left:0;transform:none}
 .gr-days-tick-end{left:auto;right:0;transform:none}
 .gr-pair{align-items:stretch}
 .gr-chart-card{display:grid;align-content:start;gap:var(--space-2)}
 .gr-chart-card .card-head{margin-bottom:0}
-.gr-chart-head{display:flex;align-items:baseline;gap:var(--space-2);margin:0 0 var(--space-1);font:600 var(--fs-label)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--forest)}
-.gr-chart-head .stack-unit{text-transform:none;letter-spacing:0;color:var(--muted)}
+.gr-chart-head{display:flex;align-items:baseline;gap:var(--space-2);margin:0 0 var(--space-1);font:600 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
+.gr-chart-head .stack-unit{text-transform:none;letter-spacing:0;color:var(--text-2)}
 .gr-typical,.gr-range,.gr-in-band{margin:0}
 .chart .gr-plot{position:relative;min-height:0;overflow:hidden;min-width:0}
 .chart .gr-plot-typical{height:240px}
 .chart .gr-plot-range{height:200px}
 .chart .gr-plot-bars{height:118px}
 .chart .gr-plot-bars.gr-plot-bars-axis{height:138px}
-.gr-bars-row+.gr-bars-row{margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--line)}
-.gr-bars-name{margin:0 0 var(--space-1);font:600 var(--fs-label)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--forest)}
+.gr-bars-row+.gr-bars-row{margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}
+.gr-bars-name{margin:0 0 var(--space-1);font:600 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
 .gr-chart-key,.gr-bars-key{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin:var(--space-1) 0 0}
-.gr-key-line,.gr-key-dash,.gr-key-target{display:inline-block;width:1rem;height:0;border-top:2px solid var(--ink)}
-.gr-key-dash{border-top:1px dashed var(--ink)}
-.gr-key-target{border-top:2px dotted var(--ink)}
+.gr-key-line,.gr-key-dash,.gr-key-target{display:inline-block;width:1rem;height:0;border-top:2px solid var(--text)}
+.gr-key-dash{border-top:1px dashed var(--text)}
+.gr-key-target{border-top:2px dotted var(--text)}
 .gr-key-band{display:inline-block;width:1rem;height:.6rem;border:1px solid var(--c-band-edge);border-width:1px 0;background:var(--c-band-wash)}
 .gr-data{margin:0}
 .gr-data>summary{width:fit-content}
@@ -137,7 +137,7 @@ a.picker-item:hover{background:var(--field)}
   .gr-toolbar .range-tools>.btn,.gr-menu>summary,.gr-stats-toolbar .range-custom>summary{min-height:var(--tap)}
   /* Two toolbar rows on a phone (redesign §5.5): Preset, + Setting and the chips of what is drawn live in the Layers sheet. */
   .gr-preset,.gr-setting-add,.gr-on{display:none}
-  .gr-menu-phone{display:grid;gap:var(--space-3);padding-bottom:var(--space-3);border-bottom:1px solid var(--line)}
+  .gr-menu-phone{display:grid;gap:var(--space-3);padding-bottom:var(--space-3);border-bottom:1px solid var(--border)}
   .gr-menu-phone .btn{justify-self:start}
   .graph-chip{min-height:var(--tap)}
   .graph-chip>a:last-child{min-width:var(--tap)}
@@ -169,10 +169,10 @@ a.picker-item:hover{background:var(--field)}
 .gr-light-table th,.gr-light-table td{padding:var(--space-1) var(--space-2);text-align:left;vertical-align:top}
 .gr-light-table tbody th{font-weight:600;white-space:nowrap}
 .gr-light-table td{min-width:8.5rem}
-.gr-light-bar{display:block;height:8px;margin:2px 0 4px;border:1px dashed var(--line-strong);border-radius:2px;overflow:hidden}
+.gr-light-bar{display:block;height:8px;margin:2px 0 4px;border:1px dashed var(--border-strong);border-radius:2px;overflow:hidden}
 .gr-light-fill{display:block;height:100%;width:var(--share,0%);background:var(--eq-light-grow)}
 .gr-light-table tr[data-light=main] .gr-light-fill{background:var(--eq-light-main)}
-.gr-light-fill[data-met=true]{outline:1px solid var(--ink)}
+.gr-light-fill[data-met=true]{outline:1px solid var(--text)}
 .gr-light-words{display:block;font-variant-numeric:tabular-nums}
 .gr-light-facts{display:block}
 .gr-light-table td[data-partial=true] .gr-light-words::after{content:" so far"}

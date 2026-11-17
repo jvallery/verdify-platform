@@ -57,12 +57,12 @@ test("the superseded lane reads YOUR VALUE 1.55 · Jason 08:00 · holds until Ir
   ]);
   const ctx = plot.ctx;
   expect(ctx.depth).toBe(0);
-  const muted = ctx.strokes.filter((stroke) => onRow(stroke, 0) && stroke.stroke === TOKENS["--c-bound"] && same(stroke.dash, [8, 4]));
+  const muted = ctx.strokes.filter((stroke) => onRow(stroke, 0) && stroke.stroke === TOKENS["--text-3"] && same(stroke.dash, [8, 4]));
   expect(muted.map((stroke) => stroke.path.map(([px]) => Math.round(px)))).toEqual([[0, Math.round(x("2026-11-02T20:00:00Z"))], [Math.round(x("2026-11-02T20:00:00Z")), Math.round(x("2026-11-03T00:30:00Z"))]]);
   // Nothing on the lane is drawn as the plan ahead.
-  expect(ctx.strokes.filter((stroke) => onRow(stroke, 0) && stroke.stroke !== TOKENS["--c-bound"])).toEqual([]);
+  expect(ctx.strokes.filter((stroke) => onRow(stroke, 0) && stroke.stroke !== TOKENS["--text-3"])).toEqual([]);
   const labels = ctx.texts.filter((text) => text.y === labelY(0));
-  expect(labels.map((text) => [text.text, text.color])).toEqual([[`1.60${NBSP}kPa SUPERSEDED`, TOKENS["--c-bound"]], [`1.70${NBSP}kPa SUPERSEDED`, TOKENS["--c-bound"]]]);
+  expect(labels.map((text) => [text.text, text.color])).toEqual([[`1.60${NBSP}kPa SUPERSEDED`, TOKENS["--text"]], [`1.70${NBSP}kPa SUPERSEDED`, TOKENS["--text"]]]);
   plot.hover(epoch("2026-11-02T21:00:00Z"), null, 0 * 44 + 30);
   expect(tooltip(plot)).toEqual([
     "11/02/2026 14:00 GMT-07:00", "VPD Mister Engage",
@@ -83,8 +83,8 @@ test("a forecast-rule waypoint reads \"Forecast rule · system\" with no AI; Iri
   // The device value holds solid until the waypoint; the rule's value is dashed to the plan's end.
   const strokes = ctx.strokes.filter((stroke) => onRow(stroke, 2)).map((stroke) => [stroke.stroke, stroke.dash, ...stroke.path.map(([px]) => Math.round(px))]);
   expect(strokes).toEqual([
-    [TOKENS["--c-setpoint"], [], 0, Math.round(x("2026-11-02T19:00:00Z"))],
-    [TOKENS["--ink"], [8, 4], Math.round(x("2026-11-02T19:00:00Z")), Math.round(x("2026-11-03T00:30:00Z"))],
+    [TOKENS["--accent"], [], 0, Math.round(x("2026-11-02T19:00:00Z"))],
+    [TOKENS["--text"], [8, 4], Math.round(x("2026-11-02T19:00:00Z")), Math.round(x("2026-11-03T00:30:00Z"))],
   ]);
   // Iris's lane: each waypoint to the next, the last to the plan's end; a label that does not fit drops to its value.
   expect(texts(1)).toEqual([`50${NBSP}s PLANNED · AI`, `60${NBSP}s`]);
@@ -102,7 +102,7 @@ test("a manual lane is muted, reads MANUAL · Iris skips · Jason since Oct 30 a
   expect(container.querySelector("[data-param=mister_pulse_on_s]")!.classList.contains("plan-row-muted")).toBe(true);
   const strokes = plot.ctx.strokes.filter((stroke) => onRow(stroke, 3));
   // The held value, solid grey across the window; Iris's 45 s waypoint at 13:00 is not drawn.
-  expect(strokes.map((stroke) => [stroke.stroke, stroke.dash, ...stroke.path.map(([px]) => Math.round(px))])).toEqual([[TOKENS["--c-bound"], [], 0, 1000]]);
+  expect(strokes.map((stroke) => [stroke.stroke, stroke.dash, ...stroke.path.map(([px]) => Math.round(px))])).toEqual([[TOKENS["--text-3"], [], 0, 1000]]);
   expect(plot.ctx.texts.filter((text) => text.y === labelY(3))).toEqual([]);
   const rows = planRows(load<Plan>(planFixture), NOW, HORIZON);
   expect(rows[3].segments.map((segment) => segment.kind)).toEqual(["manual"]);
@@ -115,8 +115,8 @@ test("the device value sits at the left, a missing one reads — with its reason
   expect(status(container, "fan_stage_temp_f")).toBeNull();
   const ctx = plot.ctx;
   const end = Math.round(x("2026-11-03T00:30:00Z"));
-  expect(ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"] && same(stroke.dash, [4, 3])).map((stroke) => stroke.path.map(([px, py]) => [Math.round(px), py]))).toEqual([[[end, 0], [end, 300]]]);
-  expect(ctx.texts.find((text) => text.text.startsWith("Plan ends"))).toMatchObject({ text: "Plan ends 17:30 · band/default", color: TOKENS["--muted"] });
+  expect(ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && same(stroke.dash, [4, 3])).map((stroke) => stroke.path.map(([px, py]) => [Math.round(px), py]))).toEqual([[[end, 0], [end, 300]]]);
+  expect(ctx.texts.find((text) => text.text.startsWith("Plan ends"))).toMatchObject({ text: "Plan ends 17:30 · band/default", color: TOKENS["--text-3"] });
   plot.hover(NOW + 3600, null, 4 * 44 + 30);
   expect(tooltip(plot).slice(1)).toEqual(["Fan stage temperature", "Device — · no readback yet"]);
   // The data table: each setting's spans in words, its header words and a missing device value's reason.
@@ -146,7 +146,7 @@ test("with no plan in force the lanes hold the device values to the horizon; 72 
   expect(container.querySelector("figcaption")!.textContent).toBe("Next 72 h · one lane per planned setting");
   expect(plot.opts.scales!.x).toMatchObject({ min: NOW, max: NOW + 72 * 3600 });
   expect(plot.opts.cursor!.sync!.key).toBe("verdify:plan:24h");
-  const device = plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--c-setpoint"]);
+  const device = plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--accent"]);
   expect(device.map((stroke) => stroke.path.map(([px]) => Math.round(px)))).toEqual([[0, 1000], [0, 1000], [0, 1000]]);
   expect(plot.ctx.texts.some((text) => text.text.startsWith("Plan ends"))).toBe(false);
   expect([...container.querySelectorAll(".plan-status")].map((item) => item.textContent)).toEqual(["MANUAL · Iris skips · Jason since Oct 30"]);
@@ -166,16 +166,16 @@ test("stale marks each device value STALE and muted, with when it was read, whil
   const ctx = plot.ctx;
   // Mister pulse gap: the device value muted and labelled STALE up to the first waypoint, then Iris's waypoints dashed as before.
   expect(ctx.strokes.filter((stroke) => onRow(stroke, 1)).map((stroke) => [stroke.stroke, stroke.dash, ...stroke.path.map(([px]) => Math.round(px))])).toEqual([
-    [TOKENS["--c-bound"], [], 0, Math.round(x("2026-11-02T18:00:00Z"))],
-    [TOKENS["--ink"], [8, 4], Math.round(x("2026-11-02T18:00:00Z")), Math.round(x("2026-11-02T22:00:00Z"))],
-    [TOKENS["--ink"], [8, 4], Math.round(x("2026-11-02T22:00:00Z")), Math.round(x("2026-11-03T00:30:00Z"))],
+    [TOKENS["--text-3"], [], 0, Math.round(x("2026-11-02T18:00:00Z"))],
+    [TOKENS["--text"], [8, 4], Math.round(x("2026-11-02T18:00:00Z")), Math.round(x("2026-11-02T22:00:00Z"))],
+    [TOKENS["--text"], [8, 4], Math.round(x("2026-11-02T22:00:00Z")), Math.round(x("2026-11-03T00:30:00Z"))],
   ]);
   expect(ctx.texts.filter((text) => text.y === labelY(1)).map((text) => [text.text, text.color])).toEqual([
-    ["STALE", TOKENS["--c-bound"]], [`50${NBSP}s PLANNED · AI`, TOKENS["--ink"]], [`60${NBSP}s`, TOKENS["--ink"]],
+    ["STALE", TOKENS["--text"]], [`50${NBSP}s PLANNED · AI`, TOKENS["--text"]], [`60${NBSP}s`, TOKENS["--text"]],
   ]);
   // The forecast rule's waypoint still draws after the stale device value.
-  expect(ctx.strokes.filter((stroke) => onRow(stroke, 2)).map((stroke) => [stroke.stroke, stroke.dash])).toEqual([[TOKENS["--c-bound"], []], [TOKENS["--ink"], [8, 4]]]);
-  expect(ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--c-setpoint"])).toBe(false);
+  expect(ctx.strokes.filter((stroke) => onRow(stroke, 2)).map((stroke) => [stroke.stroke, stroke.dash])).toEqual([[TOKENS["--text-3"], []], [TOKENS["--text"], [8, 4]]]);
+  expect(ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--accent"])).toBe(false);
   plot.hover(NOW + 1800, null, 1 * 44 + 30);
   expect(tooltip(plot).slice(1)).toEqual(["Mister pulse gap", `Device 60${NBSP}s · STALE`, PLANNED_AI]);
   const details = container.querySelector<HTMLDetailsElement>("details.chart-table")!;

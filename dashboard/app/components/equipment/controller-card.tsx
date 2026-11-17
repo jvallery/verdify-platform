@@ -46,8 +46,8 @@ export function heapWords(free: number | null | undefined): { readonly text: str
 }
 
 /**
- * The heap meter: a 6 px `--field` track to twice the floor (or past the value), the free heap filled in `--muted`, in
- * `--fault` below the floor, and the floor itself as a 2 px ink tick. It sits beside the numbers in words, so it is
+ * The heap meter: a 6 px `--surface-2` track to twice the floor (or past the value), the free heap filled in `--text-2`, in
+ * `--critical` below the floor, and the floor itself as a 2 px `--text` tick. It sits beside the numbers in words, so it is
  * `aria-hidden`.
  */
 export function HeapBar({ free, stale = false }: { free: number | null | undefined; stale?: boolean }) {

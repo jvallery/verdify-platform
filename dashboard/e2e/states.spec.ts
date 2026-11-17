@@ -12,7 +12,7 @@ for (const path of ROUTES) {
     await untilPolled(page, () => expect(page.locator("[data-banner=fault]")).toHaveText("Dashboard API unavailable", { timeout: 1_000 }), 31_000);
     for (const reassurance of ["All OK", "No open alerts", "CONFIRMED"]) await expectNoText(page, reassurance);
     await expectNoText(page, /\bin band\b/i);
-    await expect(page.locator(".tag-ok, .status-complete, .fresh-ok")).toHaveCount(0);
+    await expect(page.locator(".badge-ok, .tag-ok, .fresh-ok")).toHaveCount(0);
   });
 
   for (const [fixture, banner] of [

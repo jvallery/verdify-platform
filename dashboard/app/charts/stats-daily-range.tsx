@@ -14,7 +14,7 @@ import type { MetricDef, Series } from "./types";
 import { UPlotChart, type ChartEnv, type ChartOptions } from "./uplot-chart";
 
 /**
- * The daily range (redesign §7.2): for each local day, a min–max bar in `--ink-muted` with a tick at the mean in the
+ * The daily range (redesign §7.2): for each local day, a min–max bar in `--border-strong` with a tick at the mean in the
  * metric's colour, from API-04's daily buckets, so the day and night swing (DIF) reads at a glance. Today is outlined
  * dashed, not over yet; a day with no data has no bar, never a zero.
  */
@@ -66,10 +66,10 @@ export function paintRanges(plot: PaintTarget, model: RangeModel, colors: ChartC
       if (day.min === null || day.max === null || day.mean === null) continue;
       const x = plot.valToPos(middle(day), "x", true);
       const top = plot.valToPos(day.max, "y", true), bottom = plot.valToPos(day.min, "y", true);
-      ctx.fillStyle = colors["--ink-muted"];
+      ctx.fillStyle = colors["--border-strong"];
       ctx.fillRect(x - width / 2, top, width, Math.max(px, bottom - top));
       if (day.partial) {
-        ctx.strokeStyle = colors["--ink"];
+        ctx.strokeStyle = colors["--text"];
         ctx.lineWidth = px;
         ctx.setLineDash([3 * px, 2 * px]);
         ctx.strokeRect(x - width / 2, top, width, Math.max(px, bottom - top));

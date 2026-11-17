@@ -142,7 +142,7 @@ test("a cursor on any panel turns every header row into its values there, with o
 });
 
 test("excursions, the envelope and compare paint only when asked", async () => {
-  const red = TOKENS["--tint-warn"], envelope = TOKENS["--ink-muted"], bound = TOKENS["--c-bound"];
+  const red = TOKENS["--warn-soft"], envelope = TOKENS["--border-strong"], bound = TOKENS["--text-3"];
   const paint = () => { for (const plot of created) plot.draw(); return created[0].ctx; };
   // 30 min buckets: the envelope's resolution.
   await mount(<ChartStack label="Climate" panels={panels(1800)} band={band()} now={NOW} xRange={RANGE} syncKey="k" />);

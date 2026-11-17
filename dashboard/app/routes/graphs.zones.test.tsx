@@ -138,7 +138,7 @@ test("?zone=south&range=72h: south's own stack, its band and its target dotted a
   chartStubs();
   const api = await open("/graphs/zones?zone=south&range=72h");
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("South zone");
-  expect(text(document.querySelector(".page-crumbs"))).toBe("Graphs › Zones");
+  expect(text(document.querySelector(".page-crumbs"))).toBe("Understand›Graphs›Zones");
   expect(status()).toBe("Last 72 h · against south's band, the controller's target dotted");
   expect(chartReads(api).map((params) => [params.getAll("metric"), params.get("from"), params.get("to")])).toEqual([
     [["climate.temp_south"], iso(S - 72 * HOUR), iso(S)], [["climate.vpd_south", "climate.vpd_target_south"], iso(S - 72 * HOUR), iso(S)], [["climate.rh_south"], iso(S - 72 * HOUR), iso(S)],
@@ -152,7 +152,7 @@ test("?zone=south&range=72h: south's own stack, its band and its target dotted a
     expect(plot.scales.x).toEqual({ min: S - 72 * HOUR, max: S + 72 * HOUR });
     expect(plot.opts.series.slice(1).every((series) => series.spanGaps === false)).toBe(true);
   }
-  expect(vpd.opts.series.slice(1).map((series) => [series.label, series.stroke, series.dash ?? null])).toEqual([["South VPD", TOKENS["--c-vpd"], null], ["South VPD target", TOKENS["--c-setpoint"], [2, 4]]]);
+  expect(vpd.opts.series.slice(1).map((series) => [series.label, series.stroke, series.dash ?? null])).toEqual([["South VPD", TOKENS["--c-vpd"], null], ["South VPD target", TOKENS["--accent"], [2, 4]]]);
   expect(temp.opts.series.slice(1).map((series) => series.label)).toEqual(["South temperature"]);
   expect([temp, vpd, rh].map((plot) => { plot.draw(); return plot.ctx.fills.some((fill) => fill.color === TOKENS["--c-band-wash"]); })).toEqual([true, true, false]);
   expect(vpd.scales.y.min).toBeLessThanOrEqual(0.45);

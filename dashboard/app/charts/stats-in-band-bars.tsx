@@ -33,17 +33,17 @@ export function paintInBand(plot: PaintTarget, row: InBandRow, colors: ChartColo
   try {
     for (const day of row.days) {
       const x = plot.valToPos(at(day.date), "x", true);
-      if (day.value === null) paintHatch(ctx, x - width / 2, bbox.top, width, bbox.height, colors["--muted"], px);
+      if (day.value === null) paintHatch(ctx, x - width / 2, bbox.top, width, bbox.height, colors["--text-3"], px);
       else if (day.partial) {
         const top = plot.valToPos(day.value, "y", true);
-        ctx.strokeStyle = colors["--ink"];
+        ctx.strokeStyle = colors["--text"];
         ctx.lineWidth = 1.5 * px;
         ctx.setLineDash([3 * px, 2 * px]);
         ctx.strokeRect(x - width / 2, top, width, bbox.top + bbox.height - top);
       }
     }
     const target = plot.valToPos(IN_BAND_TARGET, "y", true);
-    ctx.strokeStyle = colors["--ink"];
+    ctx.strokeStyle = colors["--text"];
     ctx.lineWidth = 1.5 * px;
     ctx.setLineDash([2 * px, 3 * px]);
     ctx.beginPath();
@@ -67,7 +67,7 @@ export function inBandTooltip(row: InBandRow, index: number | null | undefined):
 /** 0, 50 and 100% up the left, one width on both rows so their bars line up. */
 function percentAxis(colors: ChartColors): uPlot.Axis {
   return {
-    stroke: colors["--muted"], font: AXIS_FONT, size: 44, space: 20,
+    stroke: colors["--text-3"], font: AXIS_FONT, size: 44, space: 20,
     grid: { stroke: colors["--c-grid"], width: 1 }, ticks: { stroke: colors["--c-grid"], width: 1, size: 4 },
     incrs: [50], values: (_plot, splits) => splits.map((split) => `${Math.round(split)}%`),
   };

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Water (WP3) */
-/* Water (SCR-04, redesign §5.2–§5.4 and §6): the status line, Today's zone cards, line rows, today strips and Site today; Schedules' week strip, day timeline, week matrix, agenda, rules list, popovers and editor; History's period bar, KPIs and run ledger. New classes use the prefixes wat- and sch-; the hooks the specs keep (line-card, mister-zone, week-table, week-days, line-subrow, line-fault, schedule-preview) keep their names. Loaded by root.tsx after styles.css and tokens.css, in the fixed order of redesign §10.1. Colours are tokens only (white the one literal); this file never redefines :focus-visible or the input borders that the §2.2 block in styles.css sets. */
+/* Water (SCR-04, redesign §5.2–§5.4 and §6): the status line, Today's zone cards, line rows, today strips and Site today; Schedules' week strip, day timeline, week matrix, agenda, rules list, popovers and editor; History's period bar, KPIs and run ledger. New classes use the prefixes wat- and sch-; the hooks the specs keep (line-card, mister-zone, week-table, week-days, line-subrow, line-fault, schedule-preview) keep their names. Loaded by root.tsx in the fixed order of design-system v2 §6. Colours are tokens only; this file never redefines :focus-visible or the input borders that base.css sets. */
 
 /* ---------------------------------------------------------------------------------------------------- the header */
 /* Stop all water (redesign §2.5): the last header action from 861 px; at 860 px and below the sticky tabs row's "■ Stop all". Both render and the stylesheet shows one (§9.6); History's actions hold Stop alone, so on a phone they go. */
@@ -10,7 +10,7 @@
 }
 
 /* ---------------------------------------------------------------------------------------------------- the status line */
-.wat-program-fault{color:var(--fault);font-weight:600}
+.wat-program-fault{color:var(--critical);font-weight:600}
 .wat-program-warn{color:var(--warn-text);font-weight:600}
 .page-status .wat-retry,.page-status-short .wat-retry{min-height:2rem;padding-block:0;margin-left:var(--space-1)}
 
@@ -22,47 +22,41 @@
 @media(min-width:1200px){
   .wat-today{grid-template-columns:minmax(0,1fr) var(--aside);gap:var(--space-5)}
   .wat-today>.wat-zones{grid-column:1;grid-row:1}
-  .wat-today>.wat-aside{grid-column:2;grid-row:1;position:sticky;top:calc(var(--shell-header-h,4.3rem) + var(--space-4))}
+  .wat-today>.wat-aside{grid-column:2;grid-row:1;position:sticky;top:calc(var(--shell-header-h,var(--topbar-h)) + var(--space-4))}
 }
 
 /* Site today: two meters, then one fact a line. */
 .wat-site-list{display:grid;margin:0;padding:0;list-style:none;font-size:var(--fs-sm)}
-.wat-site-list>li{padding:var(--space-3) 0;border-top:1px solid var(--line)}
+.wat-site-list>li{padding:var(--space-3) 0;border-top:1px solid var(--border)}
 .wat-site-list>li:first-child{padding-top:0;border-top:0}
 .wat-site-list>li:last-child{padding-bottom:0}
 .wat-site-meter{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:var(--space-1)}
-.wat-site-term{display:inline-flex;align-items:center;font-size:var(--fs-sm);font-weight:600;color:var(--ink)}
+.wat-site-term{display:inline-flex;align-items:center;font-size:var(--fs-sm);font-weight:600;color:var(--text)}
 .wat-site-term a{display:inline-flex;align-items:center;min-height:24px;color:inherit;text-underline-offset:.25em}
 .wat-site-primary{margin-left:var(--space-2);font-weight:400}
-.limit-fault{color:var(--fault);font-weight:600}
+.limit-fault{color:var(--critical);font-weight:600}
 .limit-warn{color:var(--warn-text);font-weight:600}
 
 /* Today's groups (#1349): Drips, Misters and Climate under their own headings, more space between cards than between rows. */
 .wat-group{display:grid;gap:var(--space-4);min-width:0}
 .wat-group+.wat-group{margin-top:var(--space-3)}
-.wat-group-title{margin:0;font-size:var(--fs-lg);font-weight:700;color:var(--ink)}
+.wat-group-title{margin:0;font-size:var(--fs-lg);font-weight:700;color:var(--text)}
 /* A physical line's card: a coloured left edge by kind in the equipment colours (drip water blue, mister teal, fog grey), its name and variants, its minutes against the cap and when it last watered; then a row per variant. */
 .wat-zone{--wat-kind:var(--eq-water);padding-bottom:var(--space-2);border-left:5px solid var(--wat-kind)}
 .wat-zone[data-kind=mister]{--wat-kind:var(--eq-mister)}
 .wat-zone[data-kind=fog]{--wat-kind:var(--eq-fog)}
-.wat-zone.is-off{--wat-kind:var(--line-strong)}
-.wat-zone.is-off .wat-zone-name{color:var(--muted)}
+.wat-zone.is-off{--wat-kind:var(--border-strong)}
+.wat-zone.is-off .wat-zone-name{color:var(--text-2)}
 /* A disabled line is one quiet row: state, its faded strip, no meta. */
-.wat-line.is-off .object-row-title,.wat-line.is-off .object-row-state{color:var(--muted)}
+.wat-line.is-off .object-row-title,.wat-line.is-off .object-row-state{color:var(--text-2)}
 .wat-line.is-off .wat-track{opacity:.55}
 .wat-line.is-off .wat-track{--sch-row:14px}
 .wat-legend{margin:0}
-/* The info tip: a small round "i" button beside a term, its words in a popover. */
-.info-tip{display:inline-flex;align-items:center;justify-content:center;flex:none;width:1.35rem;height:1.35rem;min-height:0;margin-left:var(--space-1);padding:0;border:1px solid var(--line-strong);border-radius:50%;background:#fff;color:var(--forest);font:700 var(--fs-xs)/1 "IBM Plex Sans",system-ui,sans-serif;cursor:pointer;vertical-align:middle}
-.info-tip::before{content:"i"}
-.info-tip:hover{border-color:var(--forest)}
-.info-tip-pop p{margin:0 0 var(--space-2);font-size:var(--fs-sm)}
-.info-tip-pop p:last-child{margin-bottom:0}
-.mister-help{flex-basis:100%;margin:0;font-size:var(--fs-xs);color:var(--muted)}
+.mister-help{flex-basis:100%;margin:0;font-size:var(--fs-xs);color:var(--text-2)}
 /* The head is a fixed grid, so the zones' meters stacked down the page are one width with their right edges in line: the name, then the meter (12rem) and its minutes (7rem, right-aligned in tabular figures), and under them, the same second line on every zone, the VPD reserve and when it last watered. */
-.wat-zone-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--space-2) var(--space-5);padding-bottom:var(--space-3);border-bottom:1px solid var(--line)}
+.wat-zone-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--space-2) var(--space-5);padding-bottom:var(--space-3);border-bottom:1px solid var(--border)}
 .wat-zone-name{margin:0;font-size:var(--fs-md)}
-.wat-zone-kind{margin-left:var(--space-2);font-size:var(--fs-sm);font-weight:400;color:var(--muted);white-space:nowrap}
+.wat-zone-kind{margin-left:var(--space-2);font-size:var(--fs-sm);font-weight:400;color:var(--text-2);white-space:nowrap}
 .wat-zone-today{display:grid;justify-items:end;gap:var(--space-1);min-width:0}
 .wat-zone-today .sch-minutes-meter{display:grid;grid-template-columns:12rem 7rem;align-items:center;gap:var(--space-3)}
 .wat-zone-today .meter-words{text-align:right}
@@ -70,9 +64,9 @@
 .wat-zone-today .meter-sep{display:none}
 .wat-zone-minutes{font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
 .wat-zone-last{white-space:nowrap}
-.wat-zone-running{font-weight:600;color:var(--ink)}
-.wat-unwired{margin:0;padding:var(--space-2) 0;border-top:1px solid var(--line)}
-.wat-line .mister-zone{display:flex;flex-basis:100%;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-5);margin-top:var(--space-1);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);background:var(--field)}
+.wat-zone-running{font-weight:600;color:var(--text)}
+.wat-unwired{margin:0;padding:var(--space-2) 0;border-top:1px solid var(--border)}
+.wat-line .mister-zone{display:flex;flex-basis:100%;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-5);margin-top:var(--space-1);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);background:var(--surface-2)}
 .mister-switches{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-4)}
 .mister-flag{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
 .mister-flag .field-switch{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin:0}
@@ -88,23 +82,23 @@
 .line-state{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-1)}
 .line-fault{font-weight:600}
 .line-fault-warn{color:var(--warn-text)}
-.wat-dot{display:inline-block;flex:none;width:.55rem;height:.55rem;margin-right:var(--space-1);border-radius:50%;background:var(--c-bound)}
+.wat-dot{display:inline-block;flex:none;width:.55rem;height:.55rem;margin-right:var(--space-1);border-radius:50%;background:var(--text-3)}
 .wat-dot[data-cause=vpd]{background:var(--cause-vpd)}
 .wat-dot[data-cause=schedule]{background:var(--cause-schedule)}
-.wat-dot[data-cause=run_now]{background:var(--forest)}
+.wat-dot[data-cause=run_now]{background:var(--accent)}
 .wat-dot[data-cause=feed]{background:var(--eq-fert)}
 .wat-dot[data-cause=prewet],.wat-dot[data-cause=flush]{background:var(--cause-prep)}
 .wat-dot[data-cause=fallback]{background:var(--eq-heat1)}
-.line-state.is-neutral .wat-dot{background:var(--muted)}
+.line-state.is-neutral .wat-dot{background:var(--text-2)}
 .wat-line .object-row-actions .state-note,.wat-line .object-row-actions .field-error{flex-basis:100%;margin:0;text-align:right}
-.line-subrow{flex-basis:100%;margin:var(--space-1) 0 0;padding-left:var(--space-2);font-size:var(--fs-sm);color:var(--muted)}
+.line-subrow{flex-basis:100%;margin:var(--space-1) 0 0;padding-left:var(--space-2);font-size:var(--fs-sm);color:var(--text-2)}
 .line-subrow p{margin:0}
-.line-subrow strong{color:var(--ink);font-weight:600}
+.line-subrow strong{color:var(--text);font-weight:600}
 /* The ⋯ menu's enable switch, its hint and the check on record. */
 .wat-menu-switch{padding:var(--space-1) var(--space-3)}
 .wat-menu-switch .field-switch{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin:0}
 .wat-menu-switch .field-hint,.wat-menu-switch .field-error{margin-top:var(--space-1)}
-.menu-panel>.wat-menu-check{margin:var(--space-1) 0 0;padding-top:var(--space-2);border-top:1px solid var(--line)}
+.menu-panel>.wat-menu-check{margin:var(--space-1) 0 0;padding-top:var(--space-2);border-top:1px solid var(--border)}
 .field-flag{font-weight:600;color:var(--warn-text)}
 
 /* The today strip: one day from midnight to midnight, its next run beside it (under it on phones). */
@@ -114,49 +108,49 @@
 .wat-track{--sch-row:22px}
 .wat-next{margin:0;font-size:var(--fs-sm);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* "nothing planned" over "2 fallback windows" beside the strip; one line under it on a phone. */
-.wat-next-fallback{display:block;overflow:hidden;font-size:var(--fs-xs);color:var(--muted);text-overflow:ellipsis}
+.wat-next-fallback{display:block;overflow:hidden;font-size:var(--fs-xs);color:var(--text-2);text-overflow:ellipsis}
 .wat-next-sep{display:none}
 
 /* ---------------------------------------------------------------------------------------------------- the day's marks */
 /* Shared by the day timeline, the today strips, the week matrix and the key: positions are CSSOM custom properties (--sch-start, --sch-width, --sch-at), never style attributes. Done is solid in the cause's colour, planned a dashed outline, will-not-run hatched, missed a fault outline, an unknown outcome a muted hatch. */
 /* Each track is its own stacking context, so the now rule rides over its blocks but never over the sticky tab row. */
-.sch-track{position:relative;isolation:isolate;height:var(--sch-row,28px);min-width:0;border-radius:var(--radius-sm);background:#fff;box-shadow:inset 0 0 0 1px var(--line)}
+.sch-track{position:relative;isolation:isolate;height:var(--sch-row,28px);min-width:0;border-radius:var(--radius-sm);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border)}
 .sch-track-new{cursor:cell}
-.sch-night{position:absolute;top:0;bottom:0;left:calc(var(--sch-start) * 1%);width:calc(var(--sch-width) * 1%);background:var(--field)}
-.sch-now{position:absolute;top:-3px;bottom:-3px;z-index:var(--z-raised);left:calc(var(--sch-at) * 1%);border-left:1.5px solid var(--ink);pointer-events:none}
-.sch-pause{position:absolute;top:3px;bottom:3px;left:calc(var(--sch-start) * 1%);width:calc(var(--sch-width) * 1%);border:1px solid var(--muted);border-radius:2px;background:repeating-linear-gradient(135deg,var(--line-strong) 0 2px,transparent 2px 6px)}
-.sch-pause-words{position:absolute;top:50%;left:var(--space-1);max-width:calc(100% - var(--space-2));overflow:hidden;padding:0 var(--space-1);border-radius:2px;background:#fff;color:var(--ink);font-size:var(--fs-xs);line-height:1.4;white-space:nowrap;text-overflow:ellipsis;transform:translateY(-50%)}
+.sch-night{position:absolute;top:0;bottom:0;left:calc(var(--sch-start) * 1%);width:calc(var(--sch-width) * 1%);background:var(--surface-2)}
+.sch-now{position:absolute;top:-3px;bottom:-3px;z-index:var(--z-raised);left:calc(var(--sch-at) * 1%);border-left:1.5px solid var(--text);pointer-events:none}
+.sch-pause{position:absolute;top:3px;bottom:3px;left:calc(var(--sch-start) * 1%);width:calc(var(--sch-width) * 1%);border:1px solid var(--text-2);border-radius:2px;background:repeating-linear-gradient(135deg,var(--border-strong) 0 2px,transparent 2px 6px)}
+.sch-pause-words{position:absolute;top:50%;left:var(--space-1);max-width:calc(100% - var(--space-2));overflow:hidden;padding:0 var(--space-1);border-radius:2px;background:var(--surface);color:var(--text);font-size:var(--fs-xs);line-height:1.4;white-space:nowrap;text-overflow:ellipsis;transform:translateY(-50%)}
 .sch-tick{position:absolute;bottom:3px;height:30%;left:calc(var(--sch-start) * 1%);width:calc(var(--sch-width) * 1%);min-width:2px;border-radius:1px;background:var(--eq-mister)}
 .sch-tick-water{background:var(--eq-water)}.sch-tick-fert{background:var(--eq-fert)}.sch-tick-fog{background:var(--eq-fog)}
 /* Valve time not known (API-05 has not answered): the ticks' third is a muted hatch up to now, never empty. */
-.sch-tick-unknown{border-radius:0;background:repeating-linear-gradient(135deg,var(--muted) 0 1px,transparent 1px 4px)}
-.sch-block,.sch-mark,.sch-swatch{--sch-fill:var(--muted)}
+.sch-tick-unknown{border-radius:0;background:repeating-linear-gradient(135deg,var(--text-2) 0 1px,transparent 1px 4px)}
+.sch-block,.sch-mark,.sch-swatch{--sch-fill:var(--text-2)}
 .sch-eq-water{--sch-fill:var(--eq-water)}.sch-eq-fert{--sch-fill:var(--eq-fert)}.sch-eq-fog{--sch-fill:var(--eq-fog)}.sch-eq-mister{--sch-fill:var(--eq-mister)}.sch-eq-heat1{--sch-fill:var(--eq-heat1)}.sch-cause-prep{--sch-fill:var(--cause-prep)}
-.sch-block{position:absolute;top:5px;bottom:5px;left:calc(var(--sch-start) * 1%);width:calc(var(--sch-width) * 1%);min-width:6px;min-height:0;margin:0;padding:0;border:0;border-radius:3px;background:var(--sch-fill);color:var(--ink);font:500 var(--fs-xs)/1 "IBM Plex Sans",system-ui,sans-serif;text-align:left}
+.sch-block{position:absolute;top:5px;bottom:5px;left:calc(var(--sch-start) * 1%);width:calc(var(--sch-width) * 1%);min-width:6px;min-height:0;margin:0;padding:0;border:0;border-radius:3px;background:var(--sch-fill);color:var(--text);font:500 var(--fs-xs)/1 "IBM Plex Sans",system-ui,sans-serif;text-align:left}
 button.sch-block{cursor:pointer}
-button.sch-block:hover,.sch-block.is-selected{box-shadow:0 0 0 2px var(--ink)}
+button.sch-block:hover,.sch-block.is-selected{box-shadow:0 0 0 2px var(--text)}
 .sch-part{top:9px;bottom:9px}
 .sch-done{background:var(--sch-fill)}
-.sch-running{border:1.5px dashed var(--sch-fill);background:linear-gradient(to right,var(--sch-fill) calc(var(--sch-done,100) * 1%),#fff calc(var(--sch-done,100) * 1%))}
-.sch-planned{background:#fff;border:1.5px dashed var(--sch-fill)}
-.sch-skipped,.sch-blocked{background:repeating-linear-gradient(135deg,var(--line-strong) 0 2px,#fff 2px 5px);border:1px solid var(--muted)}
-.sch-missed{background:#fff;border:1.5px solid var(--fault)}
-.sch-unknown{background:repeating-linear-gradient(135deg,var(--muted) 0 1px,#fff 1px 4px);border:1px solid var(--line-strong)}
+.sch-running{border:1.5px dashed var(--sch-fill);background:linear-gradient(to right,var(--sch-fill) calc(var(--sch-done,100) * 1%),var(--surface) calc(var(--sch-done,100) * 1%))}
+.sch-planned{background:var(--surface);border:1.5px dashed var(--sch-fill)}
+.sch-skipped,.sch-blocked{background:repeating-linear-gradient(135deg,var(--border-strong) 0 2px,var(--surface) 2px 5px);border:1px solid var(--text-2)}
+.sch-missed{background:var(--surface);border:1.5px solid var(--critical)}
+.sch-unknown{background:repeating-linear-gradient(135deg,var(--text-2) 0 1px,var(--surface) 1px 4px);border:1px solid var(--border-strong)}
 /* A fallback window (degraded_only): it runs only if VPD sensing fails, so a dotted outline in the fallback colour, never a run's fill or dash. */
-.sch-conditional{background:#fff;border:1.5px dotted var(--eq-heat1)}
-.sch-planned.sch-capped{border:2px dashed var(--amber)}
-.sch-draft{background:#fff;border:1.5px dashed var(--ink)}
-.sch-draft.sch-conflict{border:2px solid var(--fault)}
-.sch-block-label{position:absolute;top:50%;left:3px;padding:1px 3px;border-radius:2px;background:#fff;white-space:nowrap;pointer-events:none;transform:translateY(-50%)}
+.sch-conditional{background:var(--surface);border:1.5px dotted var(--eq-heat1)}
+.sch-planned.sch-capped{border:2px dashed var(--warn)}
+.sch-draft{background:var(--surface);border:1.5px dashed var(--text)}
+.sch-draft.sch-conflict{border:2px solid var(--critical)}
+.sch-block-label{position:absolute;top:50%;left:3px;padding:1px 3px;border-radius:2px;background:var(--surface);white-space:nowrap;pointer-events:none;transform:translateY(-50%)}
 .sch-narrow .sch-block-label{left:calc(100% + 3px);background:transparent}
 .sch-narrow-end .sch-block-label{left:auto;right:calc(100% + 3px);background:transparent}
-.is-neutral .sch-done,.is-neutral .sch-tick:not(.sch-tick-unknown){background:var(--muted)}
-.is-neutral .sch-running{background:linear-gradient(to right,var(--muted) calc(var(--sch-done,100) * 1%),#fff calc(var(--sch-done,100) * 1%))}
-.is-neutral .sch-planned,.is-neutral .sch-missed,.is-neutral .sch-running,.is-neutral .sch-conditional{border-color:var(--muted)}
+.is-neutral .sch-done,.is-neutral .sch-tick:not(.sch-tick-unknown){background:var(--text-2)}
+.is-neutral .sch-running{background:linear-gradient(to right,var(--text-2) calc(var(--sch-done,100) * 1%),var(--surface) calc(var(--sch-done,100) * 1%))}
+.is-neutral .sch-planned,.is-neutral .sch-missed,.is-neutral .sch-running,.is-neutral .sch-conditional{border-color:var(--text-2)}
 
 /* The hour ticks over a day's tracks: every 3 h from 861 px, every 6 h below. */
 .sch-axis{position:relative;height:1.1rem;min-width:0}
-.sch-axis-tick{position:absolute;bottom:2px;left:calc(var(--sch-at) * 1%);transform:translateX(-50%);font:400 var(--fs-xs)/1 var(--mono);color:var(--muted);white-space:nowrap}
+.sch-axis-tick{position:absolute;bottom:2px;left:calc(var(--sch-at) * 1%);transform:translateX(-50%);font:400 var(--fs-xs)/1 var(--mono);color:var(--text-2);white-space:nowrap}
 .sch-axis-tick:first-child{transform:none}
 .sch-axis-tick:last-child{transform:translateX(-100%)}
 
@@ -179,49 +173,49 @@ button.sch-block:hover,.sch-block.is-selected{box-shadow:0 0 0 2px var(--ink)}
 .sch-week-days{grid-area:days}
 .sch-week-step{flex:none;min-width:var(--tap);padding:0;font-size:1.2rem}
 /* A step past what API-IRR-02 serves keeps its frame at the same height, quieter, so the strip stays balanced and never reads as a slip. */
-span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--line-strong)}
+span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--border-strong)}
 .sch-week-days{display:grid;flex:1;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--space-1);min-width:0;margin:0;padding:0;list-style:none}
 .sch-week-day{min-width:0}
-.sch-week-day>a,.sch-week-none{display:grid;align-content:start;gap:3px;height:100%;min-height:var(--tap);padding:var(--space-2);border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;color:var(--ink);text-decoration:none}
-.sch-week-day>a:hover{border-color:var(--leaf);color:var(--ink)}
-.sch-week-day.is-selected>a{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
-.sch-week-none{background:var(--field);color:var(--muted)}
+.sch-week-day>a,.sch-week-none{display:grid;align-content:start;gap:3px;height:100%;min-height:var(--tap);padding:var(--space-2);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);text-decoration:none}
+.sch-week-day>a:hover{border-color:var(--accent-hover);color:var(--text)}
+.sch-week-day.is-selected>a{border-color:var(--text);box-shadow:inset 0 0 0 1px var(--text)}
+.sch-week-none{background:var(--surface-2);color:var(--text-2)}
 .sch-day-date{font-weight:620;font-variant-numeric:tabular-nums;white-space:nowrap}
-.sch-day-weekday{font:400 var(--fs-label)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--forest)}
-.sch-day-today{font-size:var(--fs-xs);font-weight:600;color:var(--forest)}
-.sch-day-summary{overflow:hidden;font-size:var(--fs-xs);color:var(--muted);white-space:nowrap;text-overflow:ellipsis}
-.sch-day-fallback{overflow:hidden;font-size:var(--fs-xs);color:var(--muted);white-space:nowrap;text-overflow:ellipsis}
-.sch-day-level{display:block;height:6px;margin-top:2px;border-radius:2px;background:var(--tint-ok)}
-.sch-day-level[data-level="1"]{background:var(--tint-warn)}
-.sch-day-level[data-level="2"]{background:var(--amber)}
-.sch-day-level[data-level="3"]{background:var(--fault)}
-.sch-day-level[data-level=ahead]{background:var(--field)}
-.sch-day-level[data-level=none]{background:repeating-linear-gradient(135deg,var(--line-strong) 0 2px,transparent 2px 5px)}
-.sch-day-level[data-partial=true]{outline:1px dashed var(--muted);outline-offset:-1px}
-.sch-week.is-neutral .sch-day-level:not([data-level=none]){background:var(--field)}
+.sch-day-weekday{font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--accent)}
+.sch-day-today{font-size:var(--fs-xs);font-weight:600;color:var(--accent)}
+.sch-day-summary{overflow:hidden;font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap;text-overflow:ellipsis}
+.sch-day-fallback{overflow:hidden;font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap;text-overflow:ellipsis}
+.sch-day-level{display:block;height:6px;margin-top:2px;border-radius:2px;background:var(--ok-soft)}
+.sch-day-level[data-level="1"]{background:var(--warn-soft)}
+.sch-day-level[data-level="2"]{background:var(--warn)}
+.sch-day-level[data-level="3"]{background:var(--critical)}
+.sch-day-level[data-level=ahead]{background:var(--surface-2)}
+.sch-day-level[data-level=none]{background:repeating-linear-gradient(135deg,var(--border-strong) 0 2px,transparent 2px 5px)}
+.sch-day-level[data-partial=true]{outline:1px dashed var(--text-2);outline-offset:-1px}
+.sch-week.is-neutral .sch-day-level:not([data-level=none]){background:var(--surface-2)}
 
 /* The day timeline: a card with its head (the day, the sun's times, ‹ Today ›), the hour ticks, and rows by manifold, each ending with its minutes against the cap and [+]. */
-.sch-day{min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:#fff;box-shadow:var(--shadow-xs)}
-.sch-day-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2) var(--space-4);padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--line)}
+.sch-day{min-width:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-1)}
+.sch-day-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2) var(--space-4);padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border)}
 .sch-day-title p{margin:var(--space-1) 0 0}
-.sch-day-word{font-weight:500;color:var(--forest)}
+.sch-day-word{font-weight:500;color:var(--accent)}
 .sch-day-nav{display:flex;gap:var(--space-1)}
 .sch-day-nav .button-link{min-width:var(--tap);padding-inline:var(--space-3)}
-.sch-day-nav .button-link[aria-current=date]{border-color:var(--ink);color:var(--ink)}
-.sch-day-nav span.is-off{color:var(--line-strong)}
+.sch-day-nav .button-link[aria-current=date]{border-color:var(--text);color:var(--text)}
+.sch-day-nav span.is-off{color:var(--border-strong)}
 .sch-day-body{--sch-label:11.5rem;--sch-end:12.5rem;--sch-row:28px;padding:var(--space-3) var(--space-4) var(--space-4);border-radius:0 0 var(--radius) var(--radius)}
 .sch-axis-row{display:grid;grid-template-columns:var(--sch-label) minmax(0,1fr) var(--sch-end);align-items:end;gap:0 var(--space-3)}
 .sch-axis-end{font-size:var(--fs-xs);text-align:right}
 .sch-group{margin-top:var(--space-3)}
 .sch-group-label{margin:0 0 var(--space-1)}
 .sch-rows{margin:0;padding:0;list-style:none}
-.sch-row{display:grid;grid-template-columns:var(--sch-label) minmax(0,1fr) var(--sch-end);align-items:center;gap:0 var(--space-3);padding:var(--space-1) 0;border-top:1px solid var(--line)}
+.sch-row{display:grid;grid-template-columns:var(--sch-label) minmax(0,1fr) var(--sch-end);align-items:center;gap:0 var(--space-3);padding:var(--space-1) 0;border-top:1px solid var(--border)}
 .sch-row:first-child{border-top:0}
 .sch-row-head{display:grid;min-width:0}
 .sch-row-name{overflow:hidden;font-size:var(--fs-sm);font-weight:600;white-space:nowrap;text-overflow:ellipsis}
 /* A row's note wraps rather than lose its end ("Disabled: its 3 runs this week will not run"). */
-.sch-row-note{font-size:var(--fs-xs);color:var(--muted)}
-.sch-row.is-muted .sch-row-name{color:var(--muted)}
+.sch-row-note{font-size:var(--fs-xs);color:var(--text-2)}
+.sch-row.is-muted .sch-row-name{color:var(--text-2)}
 /* A disabled lane keeps its day (#1347): white daylight and shaded night like any lane, its marks and name dimmed. */
 .sch-row.is-muted .sch-block,.sch-row.is-muted .sch-tick,.sch-row.is-muted .sch-pause{opacity:.45}
 .sch-row-end{display:flex;align-items:center;gap:var(--space-2);min-width:0}
@@ -233,47 +227,47 @@ span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content
 .sch-cap .meter-words{flex:0 1 auto;min-width:0;font-size:var(--fs-xs);white-space:normal}
 .sch-cap .meter-over{display:block}
 .sch-cap .meter-sep{display:none}
-.sch-cap-none{color:var(--muted);white-space:nowrap}
+.sch-cap-none{color:var(--text-2);white-space:nowrap}
 .sch-add{flex:none;min-width:2rem;min-height:2rem;padding:0;font-size:1.1rem;line-height:1}
 
 /* The week matrix (view=week): lines down, days across, one mark per run and the minutes against the cap; it scrolls inside its own region below 1100 px. */
 .sch-week-title{margin:0 0 var(--space-3)}
-.sch-matrix-wrap{border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+.sch-matrix-wrap{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
 .sch-matrix{min-width:56rem;table-layout:fixed}
 .sch-matrix th[scope=row]{width:11.5rem;font-size:var(--fs-sm)}
 .sch-matrix td{padding:var(--space-1)}
-.sch-matrix tr.is-muted th[scope=row]{color:var(--muted)}
-.week-table thead .week-today{box-shadow:inset 0 2px 0 var(--forest)}
+.sch-matrix tr.is-muted th[scope=row]{color:var(--text-2)}
+.week-table thead .week-today{box-shadow:inset 0 2px 0 var(--accent)}
 .week-today-word{letter-spacing:0;text-transform:none}
-.sch-cell{display:grid;align-content:start;gap:var(--space-1);min-height:2.75rem;padding:var(--space-1) var(--space-2);border-radius:var(--radius-sm);color:var(--ink);text-decoration:none}
-.sch-cell:hover{background:var(--field);color:var(--ink)}
+.sch-cell{display:grid;align-content:start;gap:var(--space-1);min-height:2.75rem;padding:var(--space-1) var(--space-2);border-radius:var(--radius-sm);color:var(--text);text-decoration:none}
+.sch-cell:hover{background:var(--surface-2);color:var(--text)}
 .sch-marks{display:flex;flex-wrap:wrap;gap:3px}
 .sch-mark{display:block;width:14px;height:10px;border-radius:2px;--sch-fill:var(--eq-water)}
-.sch-cell-total{font-size:var(--fs-xs);font-variant-numeric:tabular-nums;color:var(--muted)}
+.sch-cell-total{font-size:var(--fs-xs);font-variant-numeric:tabular-nums;color:var(--text-2)}
 td.is-over .sch-cell-total{font-weight:600;color:var(--warn-text)}
-.sch-cell-none{color:var(--line-strong)}
+.sch-cell-none{color:var(--border-strong)}
 @media(min-width:1100px){.sch-matrix{min-width:0}}
 
 /* The agenda: by day, a row per run with its time, line and amount, what happened or why it will not run; NEXT marks the next planned run. */
 .sch-agenda{display:grid;gap:var(--space-4)}
-.sch-agenda-pauses{margin:0;padding:var(--space-2) var(--space-3);border-left:3px solid var(--amber);border-radius:0 var(--radius-sm) var(--radius-sm) 0;background:var(--tint-warn);color:var(--warn-text);font-size:var(--fs-sm);list-style:none}
+.sch-agenda-pauses{margin:0;padding:var(--space-2) var(--space-3);border-left:3px solid var(--warn);border-radius:0 var(--radius-sm) var(--radius-sm) 0;background:var(--warn-soft);color:var(--warn-text);font-size:var(--fs-sm);list-style:none}
 .sch-agenda-head{display:flex;align-items:center;gap:var(--space-3);margin:0 0 var(--space-2);font-size:var(--fs-md)}
-.sch-agenda-head::after{content:"";flex:1;border-top:1px solid var(--line)}
+.sch-agenda-head::after{content:"";flex:1;border-top:1px solid var(--border)}
 .sch-agenda-rows{display:grid;gap:var(--space-1);margin:0;padding:0;list-style:none}
-.sch-agenda-row{display:grid;grid-template-columns:3.25rem minmax(0,1fr) auto;align-items:start;gap:var(--space-3);width:100%;min-height:var(--tap);padding:var(--space-2) var(--space-3);border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;color:var(--ink);font-size:var(--fs-sm);font-weight:400;text-align:left}
-button.sch-agenda-row:hover{border-color:var(--leaf);color:var(--ink)}
-.sch-agenda-row.is-selected{border-color:var(--ink)}
+.sch-agenda-row{display:grid;grid-template-columns:3.25rem minmax(0,1fr) auto;align-items:start;gap:var(--space-3);width:100%;min-height:var(--tap);padding:var(--space-2) var(--space-3);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:var(--fs-sm);font-weight:400;text-align:left}
+button.sch-agenda-row:hover{border-color:var(--accent-hover);color:var(--text)}
+.sch-agenda-row.is-selected{border-color:var(--text)}
 .sch-agenda-time{font:500 var(--fs-sm)/1.45 var(--mono)}
 .sch-agenda-what{display:grid;min-width:0}
 .sch-agenda-title{font-weight:600}
-.sch-agenda-detail{color:var(--muted)}
-.sch-agenda-row.sch-skipped,.sch-agenda-row.sch-blocked{background:repeating-linear-gradient(135deg,var(--field) 0 5px,#fff 5px 10px)}
-.sch-agenda-row.sch-missed{border-color:var(--fault)}
+.sch-agenda-detail{color:var(--text-2)}
+.sch-agenda-row.sch-skipped,.sch-agenda-row.sch-blocked{background:repeating-linear-gradient(135deg,var(--surface-2) 0 5px,var(--surface) 5px 10px)}
+.sch-agenda-row.sch-missed{border-color:var(--critical)}
 .sch-agenda-row.sch-conditional{border:1px dotted var(--eq-heat1)}
-.sch-agenda-row.sch-missed .sch-agenda-detail{font-weight:600;color:var(--fault)}
+.sch-agenda-row.sch-missed .sch-agenda-detail{font-weight:600;color:var(--critical)}
 .sch-agenda-row.sch-done{box-shadow:inset 3px 0 0 var(--eq-water)}
-.sch-agenda.is-neutral .sch-agenda-row.sch-done{box-shadow:inset 3px 0 0 var(--muted)}
-.tag.sch-next{border-color:var(--ink);background:var(--ink);color:#fff}
+.sch-agenda.is-neutral .sch-agenda-row.sch-done{box-shadow:inset 3px 0 0 var(--text-2)}
+.tag.sch-next{--badge-solid:var(--on-accent);border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
 .sch-earlier{margin:0 0 var(--space-2)}
 .sch-earlier>summary{min-height:var(--tap)}
 .sch-agenda-empty{margin:0}
@@ -283,17 +277,17 @@ button.sch-agenda-row:hover{border-color:var(--leaf);color:var(--ink)}
 .sch-count{display:inline-flex;align-items:center;gap:var(--space-2)}
 .sch-count .meter{width:7rem}
 .sch-rules-empty{margin:0}
-.sch-rule-group{margin:0;padding:0 var(--space-4);border:1px solid var(--line);border-radius:var(--radius);background:#fff;box-shadow:var(--shadow-xs)}
+.sch-rule-group{margin:0;padding:0 var(--space-4);border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-1)}
 .sch-rule-group+.sch-rule-group{margin-top:var(--space-3)}
 .sch-rule-group>summary{min-height:3rem}
 .sch-rule-line{display:inline;font-size:var(--fs-md)}
-.sch-rule-rows{margin:0;padding:0;list-style:none;border-top:1px solid var(--line)}
+.sch-rule-rows{margin:0;padding:0;list-style:none;border-top:1px solid var(--border)}
 .sch-rule .object-row-state{font-size:var(--fs-sm)}
-.sch-rule.is-muted .object-row-title,.sch-rule.is-muted .object-row-state{color:var(--muted)}
+.sch-rule.is-muted .object-row-title,.sch-rule.is-muted .object-row-state{color:var(--text-2)}
 .sch-rule-switch .field-switch{display:flex;align-items:center;gap:0;margin:0}
 .sch-rule-switch .field-label{font-size:var(--fs-sm)}
 .sch-rule-on{display:inline-flex;align-items:center}
-.sch-ai{font:400 var(--fs-label)/1 var(--mono)}
+.sch-ai{font:400 var(--fs-xs)/1 var(--mono)}
 .sch-rule-add{margin:0;padding:var(--space-2) 0 var(--space-3)}
 /* A line's fallback schedules as one row, opening to each schedule's own row, indented under it. */
 .sch-fallback-each{margin:var(--space-1) 0 0}
@@ -309,46 +303,46 @@ button.sch-agenda-row:hover{border-color:var(--leaf);color:var(--ink)}
 .sch-key{display:grid;gap:var(--space-2);margin:0 0 var(--space-2);padding:0;font-size:var(--fs-sm);list-style:none}
 .sch-key li{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
 .sch-swatch{display:inline-block;flex:none;width:1.75rem;height:.85rem;border-radius:2px}
-.sch-swatch.sch-planned{background:#fff}
+.sch-swatch.sch-planned{background:var(--surface)}
 .sch-tick-swatch{height:.35rem;background:var(--eq-mister)}
-.sch-night-swatch{border:1px solid var(--line);background:var(--field)}
+.sch-night-swatch{border:1px solid var(--border);background:var(--surface-2)}
 /* The legend, always on show (#1347): one wrapping line under the axis, and under the Today strips. */
-.sch-legend{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-4);margin:var(--space-1) 0 var(--space-3);padding:0;font-size:var(--fs-xs);color:var(--muted);list-style:none}
+.sch-legend{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-4);margin:var(--space-1) 0 var(--space-3);padding:0;font-size:var(--fs-xs);color:var(--text-2);list-style:none}
 .sch-legend li{display:inline-flex;align-items:center;gap:var(--space-1)}
 .sch-legend .sch-swatch{width:1.25rem;height:.65rem}
-.sch-legend-swatch{display:inline-block;flex:none;width:1.25rem;height:.65rem;border-radius:2px;border:1px solid var(--line-strong)}
-.sch-legend-day{background:#fff}
-.sch-legend-night{background:var(--field)}
-.sch-legend-now{width:0;height:.85rem;border:0;border-left:1.5px solid var(--ink);border-radius:0}
+.sch-legend-swatch{display:inline-block;flex:none;width:1.25rem;height:.65rem;border-radius:2px;border:1px solid var(--border-strong)}
+.sch-legend-day{background:var(--surface)}
+.sch-legend-night{background:var(--surface-2)}
+.sch-legend-now{width:0;height:.85rem;border:0;border-left:1.5px solid var(--text);border-radius:0}
 /* A week mark in its variant's colour: clean blue, fertilized purple. */
 .sch-mark-clean{--sch-fill:var(--eq-water)}
 .sch-mark-fert{--sch-fill:var(--eq-fert)}
 
 /* The schedule editor: the day shortcuts beside the weekday chips, and the words read out before Save. The page dims less and, on a wide screen, the timeline fits beside the drawer, so the draft can be read as it is typed. */
-.drawer-schedule::backdrop{background:color-mix(in srgb,var(--ink) 12%,transparent)}
+.drawer-schedule::backdrop{background:color-mix(in srgb,var(--text) 12%,transparent)}
 @media(min-width:1200px){
-  body:has(.drawer-schedule[open]) .water-page{margin-right:max(0px,calc(28rem - max(0px,(100vw - var(--shell))/2) - var(--gutter)))}
+  body:has(.drawer-schedule[open]) .water-page{margin-right:max(0px,calc(28rem - max(0px,(100vw - var(--content))/2) - var(--gutter)))}
 }
 .sch-days-field .weekday-field{margin-bottom:var(--space-1)}
 .sch-days-quick{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:0 0 .9rem}
 .schedule-count{margin:0;font-weight:600}
 .schedule-fert{margin:.25rem 0 .75rem}
-.schedule-preview{margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--line)}
+.schedule-preview{margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--border)}
 .sch-preview-title{margin:0 0 var(--space-2);font-size:var(--fs-md)}
 .schedule-preview p{margin:.15rem 0}
 .schedule-preview-line{margin-bottom:var(--space-2)}
 .schedule-preview-note{font-size:var(--fs-sm);font-weight:500}
 .schedule-past-cap{font-size:var(--fs-sm);font-weight:600;color:var(--warn-text)}
 .sch-checks{display:grid;gap:var(--space-1);margin:var(--space-2) 0;padding:0;font-size:var(--fs-sm);list-style:none}
-.sch-checks li{padding-left:var(--space-3);border-left:3px solid var(--line-strong)}
-.sch-checks-refusal li{border-left-color:var(--fault);font-weight:600;color:var(--fault)}
+.sch-checks li{padding-left:var(--space-3);border-left:3px solid var(--border-strong)}
+.sch-checks-refusal li{border-left-color:var(--critical);font-weight:600;color:var(--critical)}
 .sch-preview-where{margin-top:var(--space-2)}
 
 /* ---------------------------------------------------------------------------------------------------- History */
 /* The page is a .page stack: the period, Group by and Measure are its toolbar, then the KPIs and the sections. */
 .wat-history-bar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-5)}
-.wat-select{display:inline-flex;align-items:center;gap:var(--space-2);font-size:var(--fs-sm);font-weight:600;color:var(--muted)}
-.wat-select select{min-width:7.5rem;min-height:2.25rem;padding-block:.2rem;color:var(--ink);font-size:var(--fs-sm);font-weight:500}
+.wat-select{display:inline-flex;align-items:center;gap:var(--space-2);font-size:var(--fs-sm);font-weight:600;color:var(--text-2)}
+.wat-select select{min-width:7.5rem;min-height:2.25rem;padding-block:.2rem;color:var(--text);font-size:var(--fs-sm);font-weight:500}
 .wat-kpis .metric-value{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .15em}
 /* The KPI tiles side by side share one height, a tile with a sparkline or without. */
 .wat-kpis .l-cols-4{align-items:stretch}
@@ -358,8 +352,8 @@ button.sch-agenda-row:hover{border-color:var(--leaf);color:var(--ink)}
 .wat-chart-card .chart{margin:0}
 .wat-runs .filters{margin-top:0}
 .wat-runs-actions{justify-content:space-between}
-.wat-runs-list{margin:0;padding:0;border:1px solid var(--line);border-radius:var(--radius);background:#fff;list-style:none}
-.wat-run{padding:var(--space-3);border-top:1px solid var(--line)}
+.wat-runs-list{margin:0;padding:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);list-style:none}
+.wat-run{padding:var(--space-3);border-top:1px solid var(--border)}
 .wat-run:first-child{border-top:0}
 .wat-run p{margin:0}
 .wat-run-head{font-size:var(--fs-sm)}
@@ -370,7 +364,7 @@ button.sch-agenda-row:hover{border-color:var(--leaf);color:var(--ink)}
   .wat-runs-list{display:none}
   /* A sticky head: the table no longer scrolls inside its own box (its cells wrap to fit), so the head sticks under the page's header. */
   .wat-runs-table .table-wrap{overflow:visible}
-  .wat-runs-table thead th{position:sticky;top:var(--shell-header-h,4.3rem);z-index:var(--z-raised)}
+  .wat-runs-table thead th{position:sticky;top:var(--shell-header-h,var(--topbar-h));z-index:var(--z-raised)}
 }
 
 /* ---------------------------------------------------------------------------------------------------- phones */
@@ -429,13 +423,13 @@ button.sch-agenda-row:hover{border-color:var(--leaf);color:var(--ink)}
 }
 
 /* A continuous water-control board, with comparable facts instead of nested cards. */
-.wat-group{border-top:2px solid var(--line-strong);padding-top:var(--space-4)}
-.water-line-section{border-left:0;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none;padding:var(--space-4) 0;background:transparent}
+.wat-group{border-top:2px solid var(--border-strong);padding-top:var(--space-4)}
+.water-line-section{border-left:0;border-bottom:1px solid var(--border);border-radius:0;box-shadow:none;padding:var(--space-4) 0;background:transparent}
 .water-line-section .wat-zone-head{border-bottom:0;padding-bottom:var(--space-2)}
-.schedule-summary{border-block:1px solid var(--line);padding-block:var(--space-4);margin-bottom:var(--space-5)}
+.schedule-summary{border-block:1px solid var(--border);padding-block:var(--space-4);margin-bottom:var(--space-5)}
 .schedule-summary h2,.schedule-summary p{margin:0 0 var(--space-2)}
 .schedule-summary dl{display:flex;flex-wrap:wrap;gap:var(--space-5);margin:var(--space-4) 0}
-.schedule-summary dt,.schedule-rule-facts dt{font-size:var(--fs-xs);color:var(--muted)}
+.schedule-summary dt,.schedule-rule-facts dt{font-size:var(--fs-xs);color:var(--text-2)}
 .schedule-summary dd,.schedule-rule-facts dd{margin:0}
 .schedule-rule-facts{display:grid;grid-template-columns:1fr 1.5fr 1.5fr 1.5fr;gap:var(--space-3);margin:var(--space-2) 0}
 .sch-rule-group{border-radius:0;box-shadow:none;border-width:0 0 1px}

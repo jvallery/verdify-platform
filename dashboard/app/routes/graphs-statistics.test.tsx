@@ -64,12 +64,13 @@ test("chunks: at most 8 keys per request; the route links the chart styles and t
   expect(chunks(DAILY_KEYS).map((list) => list.length)).toEqual([8, 2]);
   expect(chunks([])).toEqual([]);
   expect(links().map((link) => link.rel)).toEqual(["stylesheet", "stylesheet"]);
-  expect(meta()).toEqual([{ title: "Statistics · Graphs · Verdify dashboard" }]);
+  // Unregistered in v2 (README section 3.1): its retired view id resolves to Record → Days.
+  expect(meta()).toEqual([{ title: "Daily record · Verdify dashboard" }]);
 });
 
 test("the last 30 days: the daily keys 8 at a time for the window and the one before, each day's climate range, the typical day's hourly buckets and the last day's band", async () => {
   const api = await open();
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Statistics");
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Daily record");
   expect(text(document.querySelector(".page-status"))).toBe("Last 30 days · time in band graded against the band the controller served");
   expect(asked(api)).toEqual([
     { metric: DAILY_KEYS.slice(0, 8), from: "2026-10-04T06:00:00.000Z", to: "2026-11-03T07:00:00.000Z", points: "31" },
@@ -119,7 +120,7 @@ test("four key figures: time in band over the full days, water a day and in all,
 test("the changes against the window before read as arrows and words in ink, never green or red", async () => {
   await open("/graphs/statistics", { fixture: "in-band" });
   for (const kpi of ["temp", "vpd", "water"]) expect(text(tile(kpi).querySelector(".metric-delta"))).toMatch(/^(No change vs previous 30 d|(up|down) \d+(\.\d)?( pts?|%) vs previous 30 d)$/);
-  expect(document.querySelector(".gr-kpis")!.innerHTML).not.toMatch(/tag-ok|status-complete|fault/);
+  expect(document.querySelector(".gr-kpis")!.innerHTML).not.toMatch(/badge-ok|tag-ok|fault/);
 });
 
 test("day by day: a strip row each for temperature and VPD in band, Iris missed and alerts raised, then the gallons; every cell opens its day in Climate", async () => {
@@ -245,12 +246,12 @@ test("with the dashboard API down the page grades nothing: no figures, no strip,
   expect(document.body.textContent).not.toMatch(/\bin band\b/i);
 });
 
-test("/graphs/scorecard redirects to /graphs/statistics with its query, replacing the history entry, from the server and in the browser", () => {
+test("/graphs/scorecard redirects to Record with its query, replacing the history entry, from the server and in the browser", () => {
   expect(statisticsHref("https://dashboard.verdify.ai/graphs/scorecard?x=1&days=90")).toBe("/graphs/statistics?x=1&days=90");
   for (const load of [loader, clientLoader]) {
     const response = load({ request: new Request("https://dashboard.verdify.ai/graphs/scorecard?x=1") });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/graphs/statistics?x=1");
+    expect(response.headers.get("Location")).toBe("/record?x=1");
     expect(response.headers.get("X-Remix-Replace")).toBe("true");
   }
 });

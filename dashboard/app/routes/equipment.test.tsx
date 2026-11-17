@@ -85,9 +85,9 @@ const laneReads = (api: Parameters<typeof requests>[0]) => requests(api, "API-05
 const runtimeReads = (api: Parameters<typeof requests>[0]) => requests(api, "API-05").filter((row) => row.path.includes("equipment="));
 const inBand = (equipment: string) => fixture("in-band", { now: NOW })["API-13"].items.find((item: EquipmentItem) => item.equipment === equipment) as EquipmentItem;
 
-test("the page header reads Control, then Equipment, and the page links the chart stylesheets for the lanes", async () => {
+test("the page header reads System, then Equipment, and the page links the chart stylesheets for the lanes", async () => {
   await load();
-  expect(text(document.querySelector(".page-crumbs"))).toBe("Control");
+  expect(text(document.querySelector(".page-crumbs"))).toBe("System›Equipment");
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Equipment");
   expect(links().map((link) => link.rel)).toEqual(["stylesheet", "stylesheet"]);
 });
@@ -300,7 +300,7 @@ test("the lanes-unknown span is hatched where API-05 returns it, never drawn as 
   const top = 24;
   const band = { top: top + 3, bottom: top + 17 };
   const inFan1 = (path: [number, number][]) => path.every(([, y]) => y >= band.top && y <= band.bottom);
-  const hatch = plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"] && inFan1(stroke.path));
+  const hatch = plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && inFan1(stroke.path));
   expect(hatch).toHaveLength(1);
   // 02:10-02:40 in the 24 h window to 10:42, on the mock's 1000 px plot.
   const x = (minutesBeforeNow: number) => ((24 * 60 - minutesBeforeNow) / (24 * 60)) * 1000;

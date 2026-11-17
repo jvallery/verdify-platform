@@ -207,7 +207,7 @@ export function panelKey(model: TimeSeriesModel, yRange: readonly [number, numbe
     const edge = yRange ? edgeOf(step.value, yRange[0], yRange[1]) : null;
     const where = edge === "above" ? " · above the chart ↑" : edge === "below" ? " · below the chart ↓" : "";
     const kind = step.kind === "device" ? "line" : "dashed";
-    const token = step.kind === "device" ? "--c-setpoint" : step.kind === "requested" ? "--c-requested" : step.kind === "superseded" ? "--c-bound" : model.seriesToken;
+    const token = step.kind === "device" ? "--accent" : step.kind === "requested" ? "--c-requested" : step.kind === "superseded" ? "--text-3" : model.seriesToken;
     items.push({ key: `${step.param}:${step.kind}`, label: `${[step.setting, stepWords(step)].filter(Boolean).join(" · ")} ${value}${where}`, token, kind, title: step.detail, ...(lit.has(step.param) ? { lit: true } : {}) });
   }
   return items;

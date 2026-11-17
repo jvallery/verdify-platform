@@ -112,6 +112,6 @@ test("the Control tabs share one search: Settings' field and Find a setting's, 2
   // A definite width (the old min(24rem,100%) resolved against a column sized by its content and fell back to the input's own).
   expect(css).toContain("@media(min-width:861px){.ctl-find input{width:22rem}}");
   expect(css).not.toMatch(/\.ctl-search input\{width:min\(/);
-  // The global filled submit (styles.css button[type=submit]) is undone for Find: a way to a page, never a primary action.
-  expect(css).toContain(".ctl-find .btn{flex:none;background:#fff;border-color:var(--line-strong);color:var(--forest)}");
+  // The global filled submit (base.css button[type=submit]) is undone for Find: a way to a page, never a primary action.
+  expect(css).toContain(".ctl-find .btn{flex:none;background:var(--surface);border-color:var(--border-strong);color:var(--accent)}");
 });

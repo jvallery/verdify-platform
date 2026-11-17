@@ -150,7 +150,7 @@ test("the week strip: seven days with their summaries and levels, the selected o
   // The step past what is served keeps its frame at the same height, quieter, so the strip stays balanced (#1308 visual QA 36).
   expect(document.querySelector("span.sch-week-step.sch-week-next.is-off")?.getAttribute("aria-hidden")).toBe("true");
   const css = readFileSync(join(process.cwd(), "app/styles/water.css"), "utf8");
-  expect(css).toContain("span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:var(--radius-sm);");
+  expect(css).toContain("span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--radius-sm);");
 });
 
 test("the agenda: a row is a button that opens its popover, NEXT on the next planned run, and the pauses above the days", () => {
