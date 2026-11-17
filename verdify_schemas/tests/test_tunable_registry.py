@@ -1379,3 +1379,20 @@ def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None
     # Release 4 (#1633, shape B): inert slots left the registry but keep their reserved policy-wire slot.
     for name in ("mist_thermal_relief_s", "sw_direct_wet_stress_override_enabled"):
         assert name not in REGISTRY and RESERVED_WIRE_SLOTS[name].wire_id is not None
+
+
+def test_no_setting_is_owned_by_the_planner_or_planner_pushable() -> None:
+    """Drift guard, climate refactor (#1692, AR42): the daily reviewer advises only and writes no setting.
+
+    No registry row and no reserved wire slot may name the planner as its owner or be planner-pushable, and the
+    model default must not make a new row planner-pushable by omission.
+    """
+    from verdify_schemas.tunable_registry import PLANNER_PUSHABLE_REG, REGISTRY, RESERVED_WIRE_SLOTS, TunableDef
+
+    rows = {**REGISTRY, **RESERVED_WIRE_SLOTS}
+    planner_owned = sorted(name for name, spec in rows.items() if spec.push_owner == "planner")
+    pushable = sorted(name for name, spec in rows.items() if spec.planner_pushable)
+    assert planner_owned == [], f"planner-owned rows: {planner_owned}"
+    assert pushable == [], f"planner-pushable rows: {pushable}"
+    assert PLANNER_PUSHABLE_REG == frozenset()
+    assert TunableDef.model_fields["planner_pushable"].default is False
