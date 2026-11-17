@@ -2744,8 +2744,9 @@ async def review_write(
         dict[str, Any] | None,
         Field(
             description=(
-                "Optional band edit proposal: {anchors: {band row: value}, price: the price-list rows you quote, "
-                "reason}. A proposal only: the owner applies it in the band editor or does not."
+                'Optional band edit proposal, a JSON object: {"anchors": {"<band row>": <number>, ...}, '
+                '"price": "<the price-list row(s) you quote, as one string>", "reason": "<why>"}. '
+                "A proposal only: the owner applies it in the band editor or does not."
             )
         ),
     ] = None,
@@ -2763,7 +2764,8 @@ async def review_write(
         review = ReviewWrite.model_validate({"summary": summary, "band_proposal": band_proposal})
     except ValidationError as exc:
         first = exc.errors()[0]
-        return _tool_problem(problem("invalid_request", str(first.get("msg"))[:300], field="band_proposal"))
+        where = ".".join(str(part) for part in first.get("loc", ())) or "band_proposal"
+        return _tool_problem(problem("invalid_request", f"{where}: {first.get('msg')}"[:300], field="band_proposal"))
     proposal = review.band_proposal.model_dump(mode="json") if review.band_proposal else None
     conn = await _db()
     try:

@@ -48,6 +48,14 @@ class BandProposal(_Model):
     price: str = Field(min_length=1, max_length=REVIEW_TEXT_MAX_CHARS)
     reason: str = Field(min_length=1, max_length=REVIEW_TEXT_MAX_CHARS)
 
+    @field_validator("price", mode="before")
+    @classmethod
+    def _quoted_rows_as_text(cls, price: object) -> object:
+        # The reviewer quotes one or more price-list rows; a list of quoted rows is stored as one text, one row a line.
+        if isinstance(price, list | tuple) and price and all(isinstance(row, str) for row in price):
+            return "\n".join(row.strip() for row in price)
+        return price
+
     @field_validator("anchors")
     @classmethod
     def _band_rows_in_range(cls, anchors: dict[str, float]) -> dict[str, float]:

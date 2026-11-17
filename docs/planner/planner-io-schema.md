@@ -86,7 +86,8 @@ an unknown run id, answers `not_found`.
 | `band_proposal` | optional: `{"anchors": {"<band row>": <value>, ...}, "price": "<price-list rows quoted>", "reason": "<why>"}` |
 
 A band proposal is a proposal only. Its anchors must be band rows within their registry range
-(`verdify_schemas/review.py`). The owner applies it in the dashboard's band editor, or does not; no tool applies
+(`verdify_schemas/review.py`). `price` is one string; a list of quoted rows is accepted and stored as one string,
+one row a line. The owner applies it in the dashboard's band editor, or does not; no tool applies
 it.
 
 ### 3.2 Irrigation

@@ -87,6 +87,28 @@ def test_review_write_refuses_a_bad_proposal_or_run_id_before_any_write(mcp_serv
     assert conn.calls == []
 
 
+def test_review_write_stores_a_proposal_that_quotes_its_price_rows_as_a_list(mcp_server, wired):  # noqa: F811
+    # The 2026-11-16 review sent `price` as a list of quoted rows and was refused ("Input should be a valid string"),
+    # so its proposal survived only in the summary text.
+    conn = wired(row={"kind": "daily", "review_date": date(2026, 11, 16)})
+    rows = ["Year: Low edge only, sunrise and midnight 2 F higher: Therms/day +0.31 / +0.31", "Winter: row 3"]
+    proposal = {"anchors": {"band_temp_low_sr": 64.5, "band_temp_low_mid": 62.7}, "price": rows, "reason": "cold"}
+    result = asyncio.run(mcp_server.review_write(trigger_id=RUN_ID, summary="Cold night.", band_proposal=proposal))
+    assert result.isError is False
+    ((_, args),) = conn.calls
+    stored = json.loads(args[2])
+    assert stored["price"] == "\n".join(rows)
+    assert stored["anchors"] == proposal["anchors"] and stored["reason"] == "cold"
+
+
+def test_review_write_names_the_rejected_proposal_field(mcp_server, wired):  # noqa: F811
+    conn = wired()
+    bad_price = {"anchors": {"band_temp_low_sr": 64.5}, "price": {"row": 1}, "reason": "cold"}
+    result = asyncio.run(mcp_server.review_write(trigger_id=RUN_ID, summary="x", band_proposal=bad_price))
+    assert result.isError is True and conn.calls == []
+    assert payload(result)["detail"].startswith("band_proposal.price:")
+
+
 def test_review_write_answers_not_found_for_a_written_or_unknown_run(mcp_server, wired):  # noqa: F811
     wired(row=None)
     result = asyncio.run(mcp_server.review_write(trigger_id=RUN_ID, summary="Second write."))
