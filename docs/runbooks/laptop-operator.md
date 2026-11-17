@@ -125,8 +125,9 @@ The procedure:
 
 1. Scaling a Deployment to zero is a Lease-class write: ask the holder of the planned-maintenance Lease
    (`kube-system/k3s-planned-maintenance`) first, and wait for the admit.
-2. Pre-check `pg_stat_activity`: no transaction open longer than 20 s and no lock wait. Do not start within 10
-   minutes of a planner trigger or another sync.
+2. Pre-check `pg_stat_activity`: no transaction open longer than 20 s and no lock wait. Start at least 15 minutes
+   clear of the 02:29Z and 14:29Z compression jobs, off the ingestor's 5-minute view refresh and the :02/:32
+   band-curve and daily-record refresh, outside 14:00-15:00Z (the daily review), and not during another sync.
 3. Note the replica counts, then scale `verdify-mcp`, `verdify-api` and `verdify-operator-api` to 0 about 15 s after
    an ingestor view refresh, so that the run does not meet the next one:
    ```bash

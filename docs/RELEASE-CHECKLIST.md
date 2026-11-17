@@ -209,8 +209,8 @@ the current sprint's survey and release status.
       for 15 to 30 s per run and stalls the runtimes. Run it only with the
       exclusive-lock procedure in
       [laptop-operator section 2](runbooks/laptop-operator.md#exclusive-lock-windows-a-migrate-hook-or-a-migration-qualification):
-      a `pg_stat_activity` pre-check, not within 10 minutes of a planner
-      trigger or a sync, MCP, the API and the operator API paused, and a health
+      a `pg_stat_activity` pre-check, clear of the compression jobs, the
+      view refreshes and the daily review (timing in that section), MCP, the API and the operator API paused, and a health
       check of the ingestor, planner, API and MCP right after. Keep the number
       of production runs to the minimum.
 

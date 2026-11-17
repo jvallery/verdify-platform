@@ -97,7 +97,8 @@ device-write gate `VERDIFY_DEVICE_WRITE_ENABLED=1` set only in `deploy/k8s/overl
 - the operator switches and the lighting values (the desired-state overlay carries lighting overrides);
 - the irrigation programs and commands through the irrigation task (`ingestor/tasks/irrigation.py`).
 
-Every pushed value is confirmed against its readback; one alert covers a value left unconfirmed. The ingestor
+Every pushed value is confirmed against its readback; `setpoint_unconfirmed` covers a value its
+readback has not confirmed and `setpoint_delivery_stuck` a delivery that keeps failing. The ingestor
 also receives the gap log replay (`ingestor/gap_replay.py`, section 6).
 
 ### 2.3 Reviewer
@@ -251,7 +252,7 @@ free, after three quarter writes in a row over 200 ms, or on an NVS error.
 
 Alert rules live in `jvallery/monitoring-stack`. The climate set keeps outcome and equipment alerts (band drift,
 VPD extremes, temperature safety, stuck relays, a heater on with no power drawn #1637, staging inversion,
-band divergence between controller and host, one delivery alert) and adds: clock unconfirmed, band from ROM, no
+band divergence between controller and host, the two delivery alerts) and adds: clock unconfirmed, band from ROM, no
 outdoor source, relay starts above their norm, daily review missed, constants differing from the release, running on
 the case probe alone (pages after 10 minutes), no outdoor source together with a degraded indoor reading (pages),
 the intake probe alone for 30 minutes, furnace saturation (#1670), controller restarts with their reset reason, and
