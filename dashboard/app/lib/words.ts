@@ -369,6 +369,7 @@ const ALERT_TYPE = {
   wetting_below_vpd_band: "Fog or misters running in wet air",
   drying_meter_fault: "Drying meter not counting",
   relay_counters_backstep: "Relay counters went backwards",
+  relay_counter_mismatch: "Relay counters and the daily relay record disagree",
   utility_out_of_baseline: "Yesterday's utility use out of the ordinary",
   drying_refused_all_day: "Drying refused all day for cost",
   probes_disagree: "Wall temperature probes disagree",
@@ -473,49 +474,13 @@ const TRIGGER = {
 
 /**
  * Short plain names for the settings Iris plans (#1339), as Now's "Setting changes" row and its "Next 12 h" print a
- * change ("Mist pulse gap 45 → 55 s"), in place of the API's title-cased key ("Mister Pulse Gap S"). A setting not listed
+ * change ("Daily mist budget 200 → 250 gal"), in place of the API's title-cased key ("Mister Water Budget Gal"). A setting not listed
  * reads as the API's label.
  */
 const TUNABLE_SHORT = {
-  mister_engage_kpa: "Misting starts at VPD",
-  mister_all_kpa: "All misters at VPD",
-  fog_escalation_kpa: "Fog starts at VPD",
-  mister_pulse_on_s: "Mist pulse length",
-  mister_pulse_gap_s: "Mist pulse gap",
   mister_engage_delay_s: "Wait before misting",
-  mister_all_delay_s: "Wait before all misters",
-  mister_vpd_weight: "Zone weight in misting",
   mister_water_budget_gal: "Daily mist budget",
-  mist_max_closed_vent_s: "Longest sealed misting",
-  mist_backoff_s: "Rest after sealed misting",
-  mist_thermal_relief_s: "Heat relief vent time",
-  min_fog_on_s: "Shortest fog run",
-  min_fog_off_s: "Shortest fog rest",
-  vpd_hysteresis: "VPD margin",
-  vpd_watch_dwell_s: "Wait before humidifying",
-  night_vpd_bias_kpa: "Night VPD shift",
-  temp_hysteresis: "Temperature margin",
-  heat_hysteresis: "Heat margin",
-  cool_exit_hysteresis_f: "Cooling stop margin",
-  cool_stage2_exit_hysteresis_f: "Second fan stop margin",
-  cool_stage2_over_high_f: "Second fan above the high by",
-  sw_cool_all_fans_at_high_enabled: "Both fans at the high",
-  cold_vent_guard_delta_f: "Cold air vent guard",
-  vent_prefer_temp_delta_f: "Vent when outside cooler by",
-  vent_prefer_dp_delta_f: "Vent when outside drier by",
-  vent_exchange_fraction: "Air swapped per vent",
-  enthalpy_open: "Vent opens at outside air gain",
-  enthalpy_close: "Vent closes at outside air loss",
-  sw_summer_vent_enabled: "Summer venting",
-  sw_fog_closes_vent: "Fog closes the vent",
-  sw_mister_closes_vent: "Misting closes the vent",
-  sw_dwell_gate_enabled: "Hold each mode",
-  dwell_gate_ms: "Mode hold time",
-  direct_wet_stress_vpd_margin_kpa: "Dry-stress VPD margin",
-  direct_wet_stress_min_dew_margin_f: "Dry-stress dew margin",
-  sw_direct_wet_stress_override_enabled: "Dry-stress misting",
   outdoor_staleness_max_s: "Oldest outdoor reading used",
-  band_track_fraction: "Band tracking",
 } as const;
 
 /** `StressWindow.kind` and `severity` (verdify_schemas/plan.py): a plan's stress windows in Plan's Details. */

@@ -92,7 +92,7 @@ test("a plan in force: trigger and id, the validity bar with now and the time le
   ]);
   expect([...details.querySelectorAll("h3")].map((heading) => text(heading))).toEqual(["Stress windows", "Per-setting rationale"]);
   expect([...details.querySelectorAll("li")].map((item) => text(item))).toEqual([
-    "VPD Mister Engage mister_engage_kpa: Engage earlier before the 13:00 dry spell.", "Mister Pulse Gap mister_pulse_gap_s: Longer evaporation dwell at dusk.",
+    "Outdoor Staleness Max outdoor_staleness_max_s: Engage earlier before the 13:00 dry spell.", "Mister Min Off mister_min_off_s: Longer evaporation dwell at dusk.",
   ]);
   expect(text(details).includes("None recorded")).toBe(true);
 });
@@ -104,7 +104,7 @@ test("no plan in force reads what applies and since when, and the lanes show dev
   expect(text(document.querySelector(".page-status"))).toBe("No plan in force · band and defaults apply since 09:30");
   expect(card.querySelector("[data-badge=ai], details, .plan-facts, .ctl-validity")).toBeNull();
   expect(screen.getAllByText("No further change in this plan")).toHaveLength(3);
-  expect([...document.querySelectorAll(".plan-device")].map((cell) => text(cell))).toEqual(["1.60 kPa", "45 s", "60 s"]);
+  expect([...document.querySelectorAll(".plan-device")].map((cell) => text(cell))).toEqual(["660 s", "45 s", "60 s"]);
   // Planner health still renders: the ledger is not the plan.
   expect(region("Planner health").querySelectorAll(".trigger-row").length).toBeGreaterThan(0);
 });
@@ -142,7 +142,7 @@ test("the Details render a stored plan's stress windows, per-setting rationale a
         { kind: "vpd_high", start: "2026-11-04T10:00:00-07:00", end: "2026-11-04T16:00:00-07:00", severity: "medium", mitigation: "Wet assist on live edge excess only." },
         { kind: "frost", severity: "extreme" }, { severity: "low" }, "not a window",
       ],
-      rationale: [{ parameter: "mister_engage_kpa", old_value: 1.2, new_value: 1.04, expected_effect: "Avoid forecast-only misting.", forecast_anchor: "Indoor VPD 0.68 is below the high edge." }, { new_value: 3 }],
+      rationale: [{ parameter: "mister_hysteresis_kpa", old_value: 1.2, new_value: 1.04, expected_effect: "Avoid forecast-only misting.", forecast_anchor: "Indoor VPD 0.68 is below the high edge." }, { new_value: 3 }],
     },
     climate_intents: [{ ts: "2026-11-02T12:40:00-07:00", reason: "Rain miss only; indoor state shows no regime shift.", climate_intent: { wet_cutoff_hour: 19 } }, { ts: "2026-11-02T13:00:00-07:00" }],
   };
@@ -152,14 +152,14 @@ test("the Details render a stored plan's stress windows, per-setting rationale a
       { kind: "vpd_high", severity: "medium", start: "2026-11-04T10:00:00-07:00", end: "2026-11-04T16:00:00-07:00", mitigation: "Wet assist on live edge excess only." },
       { kind: "frost", severity: "extreme", start: null, end: null, mitigation: null },
     ],
-    rationale: [{ param: "mister_engage_kpa", from: 1.2, to: 1.04, why: "Avoid forecast-only misting.", evidence: "Indoor VPD 0.68 is below the high edge." }],
+    rationale: [{ param: "mister_hysteresis_kpa", from: 1.2, to: 1.04, why: "Avoid forecast-only misting.", evidence: "Indoor VPD 0.68 is below the high edge." }],
     reasons: [{ at: "2026-11-02T12:40:00-07:00", reason: "Rain miss only; indoor state shows no regime shift." }],
   });
   expect(planDetail(undefined)).toEqual({ stress: [], rationale: [], reasons: [] });
   expect(planDetail({ hypothesis_structured: null, climate_intents: { not: "a list" } })).toEqual({ stress: [], rationale: [], reasons: [] });
   const data: PlanBody = {
     plan: { plan_id: "iris-20261102-0634", trigger: "SUNRISE", written_at: denver("06:39"), valid_until: denver("20:00"), hypothesis: "Hold heat.", conditions_summary: null, expected_outcome: null, detail },
-    no_plan_since: null, lanes: [{ param: "mister_engage_kpa", label: "VPD Mister Engage", unit: "kPa", device: { value: 1.04, observed_at: denver("10:40") }, waypoints: [], desired: null, applied_from: "plan" }],
+    no_plan_since: null, lanes: [{ param: "mister_hysteresis_kpa", label: "Mister Hysteresis", unit: "kPa", device: { value: 1.04, observed_at: denver("10:40") }, waypoints: [], desired: null, applied_from: "plan" }],
     manual_count: 0, health: [],
   };
   const { container } = renderUi(<PlanCard data={data} state="ready" now={NOW} />);
@@ -171,7 +171,7 @@ test("the Details render a stored plan's stress windows, per-setting rationale a
     "VPD high · medium severity · Nov 4, 10:00–Nov 4, 16:00: Wet assist on live edge excess only.",
     // A kind or severity the table does not know reads raw.
     "frost · extreme",
-    "VPD Mister Engage mister_engage_kpa 1.20 kPa → 1.04 kPa: Avoid forecast-only misting. Evidence: Indoor VPD 0.68 is below the high edge.",
+    "Mister Hysteresis mister_hysteresis_kpa 1.20 kPa → 1.04 kPa: Avoid forecast-only misting. Evidence: Indoor VPD 0.68 is below the high edge.",
     "12:40 · Rain miss only; indoor state shows no regime shift.",
   ]);
   // Times are <time> elements with the full local time in their title; nothing is injected as HTML.
@@ -182,19 +182,19 @@ test("the Details render a stored plan's stress windows, per-setting rationale a
 // ---------------------------------------------------------------------------------------------------- the lanes
 test("the table distinguishes an overridden request from a planned change and the device value", async () => {
   await open("/plan", "superseded-lane");
-  const row = document.querySelector("[data-param=mister_engage_kpa]")!;
-  expect(status("mister_engage_kpa")).toBe("YOUR VALUE 1.55 · jason 08:00 · holds until Iris's next plan");
-  expect(text(row.querySelector(".plan-device"))).toBe("1.55 kPa");
-  expect(text(row)).toContain("1.70 kPa");
+  const row = document.querySelector("[data-param=outdoor_staleness_max_s]")!;
+  expect(status("outdoor_staleness_max_s")).toBe("YOUR VALUE 630 · jason 08:00 · holds until Iris's next plan");
+  expect(text(row.querySelector(".plan-device"))).toBe("630 s");
+  expect(text(row)).toContain("720 s");
   expect(text(row)).toContain("Will not apply · overridden");
   expect(text(row)).toContain("13:00");
-  expect(status("mister_pulse_gap_s")).toBe("AI plan");
+  expect(status("mister_min_off_s")).toBe("AI plan");
 });
 
 test("a manual lane reads MANUAL · Iris skips, draws no waypoints, the head counts it, and its label opens its setting drawer here", async () => {
   const { api } = await open("/plan", "manual-lane");
-  expect(status("mister_pulse_on_s")).toBe("MANUAL · Iris skips · jason since Oct 30");
-  const row = document.querySelector("[data-param=mister_pulse_on_s]")!;
+  expect(status("sw_direct_wet_gate_enabled")).toBe("MANUAL · Iris skips · jason since Oct 30");
+  const row = document.querySelector("[data-param=sw_direct_wet_gate_enabled]")!;
   expect(row.classList.contains("plan-row-muted")).toBe(true);
   // Its held value is solid grey across the window; no dashed waypoint.
   expect(text(row)).toContain("Held manually · planner skips this setting");
@@ -203,20 +203,20 @@ test("a manual lane reads MANUAL · Iris skips, draws no waypoints, the head cou
   // Every lane's label is a link to its setting drawer on this page (redesign §5.11), not a write control; Open is gone.
   const opens = [...lanes.querySelectorAll<HTMLAnchorElement>("a.plan-setting-link")];
   expect(opens.map((link) => [text(link), link.getAttribute("href")])).toEqual([
-    ["VPD Mister Engage", "/plan?edit=mister_engage_kpa"], ["Mister Pulse Gap", "/plan?edit=mister_pulse_gap_s"],
-    ["Mister Engage Delay", "/plan?edit=mister_engage_delay_s"], ["Mister Pulse ON", "/plan?edit=mister_pulse_on_s"],
+    ["Outdoor Staleness Max", "/plan?edit=outdoor_staleness_max_s"], ["Mister Min Off", "/plan?edit=mister_min_off_s"],
+    ["Mister Engage Delay", "/plan?edit=mister_engage_delay_s"], ["Direct Wet Gate Enabled", "/plan?edit=sw_direct_wet_gate_enabled"],
   ]);
   expect(opens.every((link) => !link.hasAttribute("data-write-control"))).toBe(true);
   expect(within(lanes).queryAllByRole("link", { name: /^Open/ })).toEqual([]);
   // API-09 is read only once a drawer is asked for.
   expect(requests(api, "API-09")).toEqual([]);
-  fireEvent.click(within(row as HTMLElement).getByRole("link", { name: "Mister Pulse ON" }));
+  fireEvent.click(within(row as HTMLElement).getByRole("link", { name: "Direct Wet Gate Enabled" }));
   await settle();
   await settle();
-  expect(screen.getByTestId("here").textContent).toBe("/plan?edit=mister_pulse_on_s");
+  expect(screen.getByTestId("here").textContent).toBe("/plan?edit=sw_direct_wet_gate_enabled");
   const drawer = document.querySelector("dialog")!;
   expect(drawer.hasAttribute("open")).toBe(true);
-  expect(text(drawer.querySelector(".drawer-heading"))).toBe("Mister Pulse ON");
+  expect(text(drawer.querySelector(".drawer-heading"))).toBe("Direct Wet Gate Enabled");
   expect(text(within(drawer).getByRole("heading", { level: 2 }))).toBe("Edit setting");
   // Closing it stays on Plan, without the drawer's URL.
   fireEvent.click(within(drawer).getByRole("button", { name: "Cancel" }));
@@ -228,18 +228,18 @@ test("a manual lane reads MANUAL · Iris skips, draws no waypoints, the head cou
 });
 
 test("a lane's newest write shows its one pill at the lane's head: REQUESTED while on its way, and the read settles every 5 s", async () => {
-  const { api } = await open("/plan?edit=mister_engage_kpa", "in-band");
+  const { api } = await open("/plan?edit=outdoor_staleness_max_s", "in-band");
   await settle();
   const drawer = document.querySelector("dialog")!;
-  fireEvent.change(within(drawer).getByLabelText("New value"), { target: { value: "1.55" } });
+  fireEvent.change(within(drawer).getByLabelText("New value"), { target: { value: "630" } });
   fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
   await settle();
   await settle();
-  expect(writes(api).map((row) => [row.operationId, row.body])).toEqual([["API-10", { value: 1.55, manual: true }]]);
+  expect(writes(api).map((row) => [row.operationId, row.body])).toEqual([["API-10", { value: 630, manual: true }]]);
   expect(screen.getByTestId("here").textContent).toBe("/plan");
-  const pill = () => [...document.querySelectorAll("[data-param=mister_engage_kpa] .ctl-lane-pill [data-badge]")].map((node) => node.getAttribute("data-badge"));
+  const pill = () => [...document.querySelectorAll("[data-param=outdoor_staleness_max_s] .ctl-lane-pill [data-badge]")].map((node) => node.getAttribute("data-badge"));
   expect(pill()).toEqual(["requested"]);
-  expect(status("mister_engage_kpa")).toBe("MANUAL · Iris skips · jason since Nov 2");
+  expect(status("outdoor_staleness_max_s")).toBe("MANUAL · Iris skips · jason since Nov 2");
   // While a lane's write is on its way API-07 is read every 5 s, not every 60 s.
   const reads = sentAt("API-07").length;
   await advance(5_000);
@@ -255,7 +255,7 @@ test("a forecast-rule waypoint reads \"Forecast rule · system\" and never carri
   expect(row.querySelector("[data-badge=ai]")).toBeNull();
   expect(text(row.querySelector(".plan-change-list"))).toContain("90 s");
   expect(text(row)).toContain("14:00");
-  expect(status("mister_engage_kpa")).toBe("AI plan");
+  expect(status("outdoor_staleness_max_s")).toBe("AI plan");
 });
 
 // ---------------------------------------------------------------------------------------------------- planner health
@@ -492,10 +492,10 @@ test("a viewer sees the same page with no write control: a lane's label is a lin
   expect(document.querySelector("[data-role]")?.getAttribute("data-role")).toBe("viewer");
   expect(document.querySelectorAll("[data-write-control]")).toHaveLength(0);
   expect(region("Planned settings").querySelectorAll("a.plan-setting-link")).toHaveLength(4);
-  expect(status("mister_pulse_on_s")).toBe("MANUAL · Iris skips · jason since Oct 30");
+  expect(status("sw_direct_wet_gate_enabled")).toBe("MANUAL · Iris skips · jason since Oct 30");
   // The one button is "Find a setting"'s search: the lanes, the chips and the disclosures are links and summaries.
   expect([...document.querySelector("main")!.querySelectorAll("button")].map((button) => text(button))).toEqual(["Find"]);
-  fireEvent.click(within(region("Planned settings")).getByRole("link", { name: "Mister Pulse ON" }));
+  fireEvent.click(within(region("Planned settings")).getByRole("link", { name: "Direct Wet Gate Enabled" }));
   await settle();
   await settle();
   expect(text(within(document.querySelector("dialog")!).getByRole("heading", { level: 2 }))).toBe("Setting");

@@ -121,7 +121,7 @@ from verdify_schemas.experiment_config import (
     policy_vector_mode,
 )
 from verdify_schemas.policy_transport import POLICY_IDENTITY_SENSOR
-from verdify_schemas.policy_vector import wire_fields
+from verdify_schemas.policy_vector import live_wire_fields
 from verdify_schemas.telemetry import LAW_CONSTANTS_HASH, VERSIONED_TEXT_PAYLOADS, expand_moisture_exchange_wire
 from verdify_schemas.tunable_registry import get as get_tunable
 
@@ -179,6 +179,11 @@ async def attest_ordinary_ingestor_runtime_role(pool: asyncpg.Pool) -> None:
 CLIMATE_FLUSH_INTERVAL = 60  # seconds between climate row writes
 CLIMATE_ACTION_LOG_INTERVAL = 60  # seconds between controller decision snapshots
 DIAG_FLUSH_INTERVAL = 60  # seconds between diagnostics row writes
+# DIAG-WINDOW (release 4): with the spool on, a row takes every observation of this connection that is newer than the
+# one last written for its column, up to this age. A fixed 60 s window did not tile the 60.2-61.3 s ticks, so an
+# observation landing between two windows was never written (a lost per-minute low is a lost minute).
+DIAG_OBSERVATION_MAX_AGE_S = 180
+DIAG_PENDING_PER_COLUMN = 4
 LOG_FLUSH_INTERVAL = 10  # seconds between log batch writes
 COUNTER_SAMPLE_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_COUNTER_SAMPLE_BUFFER_MAX_ROWS", "50000")))
 EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS", "50000")))
@@ -367,6 +372,8 @@ class State:
         self.diagnostics: dict[str, Any] = {}
         self.diagnostic_observations: dict[str, tuple[datetime, int]] = {}
         self.diagnostic_accepted_observations: dict[str, tuple[datetime, int]] = {}
+        # Values received since the last row, oldest first, so two publishes between ticks both reach a row.
+        self.diagnostic_pending: dict[str, list[tuple[datetime, int, Any]]] = {}
         self.daily: dict[str, float] = {}
 
         # Raw device-counter evidence. Epoch ids rotate on local-day rollover,
@@ -776,8 +783,12 @@ _EQUIPMENT_SOURCE_COLLECTOR_LOGIN = "verdify_experiment_v2_equipment_source_coll
 _EQUIPMENT_SOURCE_COLLECTOR_DUTY = "verdify_experiment_equipment_source_collector"
 _EQUIPMENT_SOURCE_COLLECTOR_FUNCTIONS = (
     "public.fn_record_equipment_counter_sample(uuid,timestamp with time zone,text,text,text,double precision,text,uuid,double precision,uuid,bigint,text)",
-    "public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)",
     "public.fn_record_equipment_state_source_receipt(uuid,timestamp with time zone,text,text,jsonb,boolean,uuid,bigint,text)",
+)
+# Retired with the experiment (#1633 release 4, contracts phase4-drops rule 5): nothing calls it, so it is no longer
+# required, but the duty may still hold EXECUTE on it until a later release revokes and drops it.
+_EQUIPMENT_SOURCE_COLLECTOR_TOLERATED_FUNCTIONS = (
+    "public.fn_record_equipment_direct_state_snapshot(uuid,uuid,text,text,jsonb,double precision,uuid,bigint,text)",
 )
 _EQUIPMENT_SOURCE_ROLE_ATTESTATION_SQL = """
 WITH login AS (
@@ -790,8 +801,12 @@ WITH login AS (
            rolcreaterole, rolreplication, rolbypassrls
       FROM pg_roles
      WHERE rolname = $1::text
-), allowed_functions(function_signature) AS (
+), required_functions(function_signature) AS (
     SELECT unnest($2::text[])
+), allowed_functions(function_signature) AS (
+    SELECT function_signature FROM required_functions
+    UNION ALL
+    SELECT unnest($3::text[])
 )
 SELECT current_user::text AS current_user_name,
        session_user::text AS session_user_name,
@@ -898,7 +913,7 @@ SELECT current_user::text AS current_user_name,
               )
        ) AS has_unexpected_function_execute,
        NOT EXISTS (
-           SELECT 1 FROM allowed_functions required
+           SELECT 1 FROM required_functions required
             WHERE to_regprocedure(required.function_signature) IS NULL
                OR NOT has_function_privilege(
                    current_user,
@@ -978,6 +993,7 @@ async def create_equipment_source_pool() -> asyncpg.Pool | None:
                 _EQUIPMENT_SOURCE_ROLE_ATTESTATION_SQL,
                 duty,
                 list(_EQUIPMENT_SOURCE_COLLECTOR_FUNCTIONS),
+                list(_EQUIPMENT_SOURCE_COLLECTOR_TOLERATED_FUNCTIONS),
             )
         if not _equipment_source_role_attestation_passes(attestation, expected_user):
             raise RuntimeError("equipment source collector database authority mismatch")
@@ -2415,24 +2431,55 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
         generation = shared.transport_generation
         if generation < 1 or shared.esp32.get("state_subscription_generation") != generation:
             return
-        # Retained caches are not current-generation native observations.
-        fresh = {
-            col: (moment, gen)
-            for col, (moment, gen) in state.diagnostic_observations.items()
-            if gen == generation and 0 <= (ts - moment).total_seconds() <= DIAG_FLUSH_INTERVAL
-        }
-        if not fresh or fresh == state.diagnostic_accepted_observations:
+        # Retained caches are not current-generation native observations. Each value of this connection is
+        # written once: only when it is newer than the one last written for its column (DIAG-WINDOW). Values
+        # that arrived between two ticks become one row each, oldest first, so a tick never drops one.
+        accepted = state.diagnostic_accepted_observations
+
+        def unwritten(col: str, moment: datetime, gen: int) -> bool:
+            return (
+                gen == generation
+                and 0 <= (ts - moment).total_seconds() <= DIAG_OBSERVATION_MAX_AGE_S
+                and not (col in accepted and accepted[col][1] == gen and accepted[col][0] >= moment)
+            )
+
+        queues: dict[str, list[tuple[datetime, int, Any]]] = {}
+        for col, (moment, gen) in state.diagnostic_observations.items():
+            queue = [e for e in state.diagnostic_pending.get(col, ()) if e[0] < moment and unwritten(col, *e[:2])]
+            if unwritten(col, moment, gen):
+                queue.append((moment, gen, d.get(col)))
+            if queue:
+                queues[col] = queue
+        if not queues:
             return
-        flush_ts = ts
-        ts = max(moment for moment, _ in fresh.values())
-        # A state the controller publishes only when it changes is carried from its last receipt in this connection
-        # into every row, so the newest row always holds it; a new connection starts without it.
-        carried = {
-            col
-            for col, (moment, gen) in state.diagnostic_observations.items()
-            if col in CARRIED_DIAGNOSTIC_COLUMNS and col not in fresh and gen == generation and moment <= flush_ts
-        }
-        d = {col: value for col, value in d.items() if col in fresh or col in carried}
+        rows = []
+        for i in range(max(len(queue) for queue in queues.values())):
+            fresh = {col: queue[i] for col, queue in queues.items() if i < len(queue)}
+            row_ts = max(moment for moment, _, _ in fresh.values())
+            # A state the controller publishes only when it changes is carried from its last receipt in this
+            # connection into every row, so the newest row always holds it; a new connection starts without it.
+            carried = {
+                col: d.get(col)
+                for col, (moment, gen) in state.diagnostic_observations.items()
+                if col in CARRIED_DIAGNOSTIC_COLUMNS and col not in fresh and gen == generation and moment <= row_ts
+            }
+            values = {col: value for col, (_, _, value) in fresh.items()} | carried
+            try:
+                diag = Diagnostics.model_validate({"ts": row_ts, "greenhouse_id": GREENHOUSE_ID, **values})
+            except ValidationError as e:
+                log.error(f"diagnostics row failed schema validation: {e}")
+                shared.note_row_rejected("diagnostics")
+                diag = None
+            rows.append((row_ts, fresh, diag))
+        for row_ts, fresh, diag in rows:
+            if diag is not None:
+                payload = diag.model_dump(mode="json", exclude={"ts", "greenhouse_id"})
+                if not _accept_observations([("diagnostics", payload)], row_ts):
+                    raise OSError("diagnostics snapshot durable acceptance rejected")
+            # Acceptance advances the snapshot cadence even while DB is down. The common FIFO drain retries it;
+            # never regenerate its UUID/time. A rejected row is not retried either.
+            accepted.update({col: (moment, gen) for col, (moment, gen, _) in fresh.items()})
+        return
     if not d:
         return
     try:
@@ -2440,14 +2487,6 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
     except ValidationError as e:
         log.error(f"diagnostics row failed schema validation: {e}")
         shared.note_row_rejected("diagnostics")
-        return
-    if _observation_spool_enabled():
-        payload = diag.model_dump(mode="json", exclude={"ts", "greenhouse_id"})
-        if not _accept_observations([("diagnostics", payload)], ts):
-            raise OSError("diagnostics snapshot durable acceptance rejected")
-        state.diagnostic_accepted_observations = fresh
-        # Acceptance advances the snapshot cadence even while DB is down.
-        # The common FIFO drain retries it; never regenerate its UUID/time.
         return
     async with pool.acquire() as conn:
         await conn.execute(
@@ -2461,11 +2500,12 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
                    controller_time_epoch, controller_local_hour, sntp_valid, sntp_miss_count,
                    last_sntp_sync_age_s, band_source, zone_wet_granted,
                    heap_min_free_minute_kb, heap_largest_block_minute_low_kb, loop_worst_ms, restart_count,
-                   nvs_used_entries, nvs_free_entries, nvs_write_worst_ms, gap_log_state, sensor_degraded_active
+                   nvs_used_entries, nvs_free_entries, nvs_write_worst_ms, gap_log_state, sensor_degraded_active,
+                   loop_stack_high_water_b, wifi_disconnect_count, api_client_count
                )
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                        $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
-                       $28, $29, $30, $31, $32, $33, $34, $35, $36)""",
+                       $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)""",
             ts,
             diag.wifi_rssi,
             diag.heap_bytes,
@@ -2502,6 +2542,9 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
             diag.nvs_write_worst_ms,
             diag.gap_log_state,
             diag.sensor_degraded_active,
+            diag.loop_stack_high_water_b,
+            diag.wifi_disconnect_count,
+            diag.api_client_count,
         )
     log.debug("diagnostics row written")
     # #113: fan-out the diagnostics row. Use the explicit column list above so the
@@ -2783,17 +2826,12 @@ def _generation_log_callback(client, connection_generation: int):
 # Setpoint validation — reject boot-time defaults and implausible values
 # ──────────────────────────────────────────────────────────────
 _SETPOINT_RANGES = {
-    "safety_max": (70, 120),
-    "safety_min": (30, 60),
-    "safety_vpd_max": (1.5, 5.0),
-    "safety_vpd_min": (0.05, 1.0),
     "temp_high": (50, 110),
     "temp_low": (35, 90),
     "vpd_high": (0.3, 4.0),
     "vpd_low": (0.1, 3.0),
 }
 
-FORCED_ON_SWITCH_PARAMS = frozenset({"sw_fsm_controller_enabled"})
 _RECONCILABLE_CFG_PARAMS = frozenset(SETPOINT_MAP.values())
 
 # Boot window: suppress ESP32 setpoint reports for 60s after connect
@@ -2802,7 +2840,7 @@ _BOOT_WINDOW_S = 60
 
 # ESPHome number entities often echo a direct push on their next state
 # publish, which can arrive well after the command returns. Suppress those
-# delayed echoes so setpoint_changes does not notify-listener push them back.
+# delayed echoes so they are not recorded as controller-side changes.
 _PUSH_ECHO_SUPPRESS_S = 900
 
 
@@ -2811,6 +2849,24 @@ def _same_pushed_value(param: str, value: float) -> bool:
     if pushed_value is None:
         return False
     return abs(pushed_value - value) / max(abs(value), 1e-3) < 0.01
+
+
+# DISPATCHER-08: after a reboot the controller can report a setting's pre-push value a few seconds after the dispatcher
+# pushed it (law boot 2026-11-16 22:02:51Z: pushes at 22:04:51Z, old-value 'esp32' rows at 22:04:53-58Z, and the
+# confirming echo then suppressed as a same-value echo), so the ledger's newest row named a value the controller no
+# longer held. A report that differs from a value this connection pushed under _PUSH_RACE_S ago is that race: it is
+# not recorded and does not update the comparison cache, so a later report of the same value still is.
+_PUSH_RACE_S = 30
+
+
+def _report_races_push(param: str, value: float, now: float | None = None) -> bool:
+    pushed_at = shared.recently_pushed.get(param, 0.0)
+    connected_at = shared.esp32_connected_at
+    if not pushed_at or connected_at <= 0 or pushed_at < connected_at:
+        return False
+    if (time.time() if now is None else now) - pushed_at >= _PUSH_RACE_S:
+        return False
+    return not _same_pushed_value(param, value)
 
 
 # F10 (Sprint 24-alignment): firmware emits mister_state + mister_selected_zone
@@ -2870,9 +2926,6 @@ def _accept_setpoint(param: str, value: float) -> bool:
 
 def _accept_outbound_setpoint(param: str, value: float) -> bool:
     """Return True if a DB-origin setpoint is inside registry bounds."""
-    if param in FORCED_ON_SWITCH_PARAMS and value < 0.5:
-        log.warning("Rejecting outbound OFF request %s=%.3f; unified band-first controller is locked ON", param, value)
-        return False
     spec = get_tunable(param)
     if spec is None or spec.kind != "numeric":
         return True
@@ -2895,6 +2948,9 @@ INTEGER_DIAGNOSTIC_COLUMNS = {
     "nvs_used_entries",
     "nvs_free_entries",
     "sensor_degraded_active",
+    "loop_stack_high_water_b",
+    "wifi_disconnect_count",
+    "api_client_count",
 }
 
 # Diagnostics the controller publishes on change, not every minute (#1633 release 3): each row carries the last value
@@ -2915,6 +2971,9 @@ HEALTH_DIAGNOSTIC_NUMERIC_COLUMNS = frozenset(
         "nvs_free_entries",
         "nvs_write_worst_ms",
         "sensor_degraded_active",
+        "loop_stack_high_water_b",
+        "wifi_disconnect_count",
+        "api_client_count",
     }
 )
 
@@ -2957,6 +3016,9 @@ def _record_diagnostic(
             and observed_at.utcoffset() is not None
         ):
             state.diagnostic_observations[col] = (observed_at, generation)
+            pending = [e for e in state.diagnostic_pending.get(col, ()) if e[1] == generation and e[0] < observed_at]
+            pending.append((observed_at, generation, state.diagnostics.get(col)))
+            state.diagnostic_pending[col] = pending[-DIAG_PENDING_PER_COLUMN:]
 
     _begin_counter_source_generation(generation, observed_at)
     if col == "uptime_s":
@@ -3135,15 +3197,6 @@ def _record_cfg_readback(obj_id: str, value: Any) -> bool:
             "writer_reconcile reason=cfg_drift param=%s generation=%d drift_version=%d",
             cfg_param,
             shared.transport_generation,
-            drift_version,
-        )
-    if cfg_param in FORCED_ON_SWITCH_PARAMS and val < 0.5 and replay_was_ready:
-        if drift_version is None:
-            drift_version = shared.note_cfg_drift(cfg_param)
-        log.warning(
-            "Controller guardrail: cfg readback has %s=%.0f; truthful repair dispatch queued drift_version=%d",
-            cfg_param,
-            val,
             drift_version,
         )
     return True
@@ -3383,6 +3436,9 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
             _mirror_irrigation_number_readback(param, val)
             if not _accept_setpoint(param, val):
                 return
+            if _report_races_push(param, val):
+                log.info("setpoint_changes: %s=%s races this connection's push; not recorded", param, val)
+                return
             old = state.setpoints.get(param)
             if old != val:
                 if _observation_spool_enabled():
@@ -3566,6 +3622,9 @@ def on_state_change(entity_state, *, native_generation: int | None = None) -> No
             _mirror_irrigation_number_readback(param, val)
             if not _accept_setpoint(param, val):
                 return
+            if _report_races_push(param, val):
+                log.info("setpoint_changes: %s=%s races this connection's push; not recorded", param, val)
+                return
             old = state.setpoints.get(param)
             if old != val:
                 # Suppress same-value echoes from delayed ESPHome number-state publishes.
@@ -3614,7 +3673,7 @@ def _report_spool_health() -> None:
 
 # #1662 (package 4.4): readbacks are stored on change. The 60 s pass still reads the whole cache, confirms writes
 # against all of it and fans all of it out; a parameter's setpoint_snapshot row is inserted only when its value moved
-# beyond the readback tolerance (float32 noise never counts), a write, desired row or plan waypoint for it is newer
+# beyond the readback tolerance (float32 noise never counts), a write or desired row for it is newer
 # than its last stored row (so a write that repeats the value still gets a confirming row), the controller
 # reconnected (a parameter with no row from the current transport generation) or the ingestor restarted, a writer
 # admission asked for a complete batch (dormant: no production caller), or its hourly keyframe is due.
@@ -3644,9 +3703,6 @@ SELECT parameter, max(at) AS at FROM (
     UNION ALL
     SELECT param, created_at FROM v_desired_state_current
      WHERE greenhouse_id = $1 AND created_at > now() - interval '2 hours'
-    UNION ALL
-    SELECT parameter, ts FROM v_active_plan
-     WHERE ts > now() - interval '2 hours' AND ts <= now()
 ) AS w
  GROUP BY parameter
 """
@@ -3683,10 +3739,10 @@ def readbacks_to_store(
     *,
     now: datetime,
     generation: int,
-    written_at: dict[str, datetime] | None,
+    written_at: dict[str, datetime],
     complete: bool = False,
 ) -> set[str]:
-    """The parameters whose readback row this pass inserts (#1662). written_at None: the write query failed.
+    """The parameters whose readback row this pass inserts (#1662).
 
     A parameter with no row from the current transport generation is stored as soon as it is in the cache, so every
     parameter gets a post-boot row after a reconnect, including one the controller replays after the first pass.
@@ -3694,7 +3750,7 @@ def readbacks_to_store(
     production calls shared.request_setpoint_snapshot; its reader is bounded_reconcile._fresh_readbacks through the
     drift probe, which needs an approval file and is deleted with the P1 deletions (#1662 review m5, m10).
     """
-    if complete or written_at is None:
+    if complete:
         return set(frozen)
     chosen = set()
     for param, value in frozen.items():
@@ -3713,13 +3769,12 @@ def readbacks_to_store(
     return chosen
 
 
-async def _readback_writes(conn: asyncpg.Connection) -> dict[str, datetime] | None:
-    """The newest write, desired row or plan waypoint per parameter in the last two hours; None when unreadable."""
-    try:
-        rows = await conn.fetch(_READBACK_WRITES_SQL, GREENHOUSE_ID)
-    except Exception as error:  # fail dense: store every readback rather than miss a confirmation
-        log.warning("setpoint_snapshot write lookup failed (%s): storing every readback", type(error).__name__)
-        return None
+async def _readback_writes(conn: asyncpg.Connection) -> dict[str, datetime]:
+    """The newest write or desired row per parameter in the last two hours (plans are retired, #1633).
+
+    A failed read raises: the pass fails and the next one retries. Confirmations ride the same transaction, so a
+    pass that cannot read its writes stores nothing rather than every readback."""
+    rows = await conn.fetch(_READBACK_WRITES_SQL, GREENHOUSE_ID)
     return {row["parameter"]: row["at"] for row in rows if row["at"] is not None}
 
 
@@ -3764,10 +3819,28 @@ def observed_rows_to_restore(confirmed: list[Mapping[str, Any]]) -> list[tuple[s
     return restore
 
 
-async def _restore_confirmed_value_as_newest(conn, params: list[str]) -> None:
+async def _restore_confirmed_value_as_newest(conn, params: list[str], ts: datetime) -> None:
     if not params:
         return
-    restore = observed_rows_to_restore(await conn.fetch(CONFIRMED_NOW_SQL, params))
+    restore = []
+    for param, value in observed_rows_to_restore(await conn.fetch(CONFIRMED_NOW_SQL, params)):
+        try:
+            SetpointChange(
+                ts=ts,
+                parameter=param,
+                value=value,
+                source="esp32",
+                confirmed_at=ts,
+                delivery_status="observed",
+                greenhouse_id=GREENHOUSE_ID,
+            )
+        except ValidationError as error:
+            log.error(
+                "setpoint_changes restore skipped (validation failed: %s): param=%s value=%s", error, param, value
+            )
+            shared.note_row_rejected("setpoint_changes")
+            continue
+        restore.append((param, value))
     if restore:
         await conn.executemany(
             "INSERT INTO v_runtime_setpoint_changes_write "
@@ -3847,12 +3920,18 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
                             """,
                         [(param, val, readback_abs_tolerance(param)) for _ts, param, val in snapshot_rows],
                     )
-                    await _restore_confirmed_value_as_newest(conn, [param for _ts, param, _val in snapshot_rows])
+                    await _restore_confirmed_value_as_newest(conn, [param for _ts, param, _val in snapshot_rows], ts)
+                    marker = SystemStateRow(
+                        ts=ts,
+                        entity=READBACK_PASS_ENTITY,
+                        value=f"stored={len(stored_rows)} of={len(snapshot_rows)}",
+                        greenhouse_id=GREENHOUSE_ID,
+                    )
                     await conn.execute(
                         "INSERT INTO v_runtime_system_state_write (ts, entity, value) VALUES ($1, $2, $3)",
-                        ts,
-                        READBACK_PASS_ENTITY,
-                        f"stored={len(stored_rows)} of={len(snapshot_rows)}",
+                        marker.ts,
+                        marker.entity,
+                        marker.value,
                     )
     except BaseException:
         shared.fail_setpoint_snapshot_publication()
@@ -3871,7 +3950,8 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
         published,
         ts,
         canonical_complete=shared.transport_readbacks_ready(generation)
-        and {spec.name for spec in wire_fields()} <= {param for _ts, param, _val in stored_rows},
+        # Release 4: the live wire fields only; the 43 reserved slots have no entity and no readback.
+        and {spec.name for spec in live_wire_fields()} <= {param for _ts, param, _val in stored_rows},
     )
     log.info(
         "setpoint_snapshot publication=committed reason=%s generation=%d rows=%d stored=%d "
@@ -4090,6 +4170,9 @@ async def esp32_loop(pool: asyncpg.Pool = None) -> None:
             port=ESP32_PORT,
             password="",
             noise_psk=ESP32_API_KEY,
+            # The gap log takes this connection for the recorder by its name (firmware/lib/gap_log.h
+            # is_recorder_client); repository tools announce "verdify-tool" and are never the recorder.
+            client_info="verdify-ingestor",
         )
 
         # Event that fires when native transport liveness fails (on_stop callback)
@@ -4666,14 +4749,14 @@ async def setpoint_listener(pool: asyncpg.Pool) -> None:
                 shared.setpoint_dispatch_requested.set()
                 shared.irrigation_sync_requested.set()
             connected_once = True
-            log.info("Setpoint listener: LISTEN on irrigation_changed and desired_state_changed channels")
+            log.info("Wake listener: LISTEN on irrigation_changed and desired_state_changed channels")
             if conn.is_closed():
                 disconnected.set()
             await disconnected.wait()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            log.warning("Setpoint listener unavailable: %s", type(exc).__name__)
+            log.warning("Wake listener unavailable: %s", type(exc).__name__)
         finally:
             if conn is not None:
                 conn.remove_termination_listener(_on_disconnect)
@@ -4681,7 +4764,7 @@ async def setpoint_listener(pool: asyncpg.Pool) -> None:
                     try:
                         await conn.close(timeout=5)
                     except Exception as exc:
-                        log.warning("Setpoint listener close failed: %s", type(exc).__name__)
+                        log.warning("Wake listener close failed: %s", type(exc).__name__)
         await asyncio.sleep(1)
 
 

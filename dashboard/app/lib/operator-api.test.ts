@@ -87,8 +87,8 @@ test("a response missing or mistyping a field the UI reads parses as null", () =
 
 test("operationPath fills the template from one table and puts the rest in the query", () => {
   expect(operationPath("API-01", {})).toBe("/api/v1/me");
-  expect(operationPath("API-12", { param: "mister_engage_kpa", from: "2026-11-01T00:00:00Z", to: "2026-11-02T00:00:00Z" }))
-    .toBe("/api/v1/settings/mister_engage_kpa/history?from=2026-11-01T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z");
+  expect(operationPath("API-12", { param: "outdoor_staleness_max_s", from: "2026-11-01T00:00:00Z", to: "2026-11-02T00:00:00Z" }))
+    .toBe("/api/v1/settings/outdoor_staleness_max_s/history?from=2026-11-01T00%3A00%3A00Z&to=2026-11-02T00%3A00%3A00Z");
   expect(operationPath("API-04", { metric: ["climate.temp_avg", "climate.vpd_avg"], from: "a", to: "b", points: undefined })).toBe("/api/v1/series?metric=climate.temp_avg&metric=climate.vpd_avg&from=a&to=b");
   expect(operationPath("API-20", { light: "main", state: "on" })).toBe("/api/v1/equipment/lights/main/on");
   expect(operationPath("API-15", { id: 101 })).toBe("/api/v1/alerts/101/ack");
@@ -157,23 +157,23 @@ test("a timeout is an ApiError the poll counts, and the caller's own abort rethr
 test("apiWrite sends one request with its Idempotency-Key and JSON body, never retries, and reports a replay", async () => {
   const api = createFixtureHandler({ clock: () => NOW });
   const fetch = fixtureFetch(api);
-  const saved = await apiWrite("API-10", { param: "mister_engage_kpa" }, { value: 1.53, manual: true, reason: "Vandas drying" }, KEY, { fetch });
-  expect(saved).toMatchObject({ status: 200, replayed: false, data: { value: 1.55, snapped_from: 1.53, state: "requested" } });
-  const again = await apiWrite("API-10", { param: "mister_engage_kpa" }, { value: 1.53, manual: true, reason: "Vandas drying" }, KEY, { fetch });
+  const saved = await apiWrite("API-10", { param: "outdoor_staleness_max_s" }, { value: 640, manual: true, reason: "Vandas drying" }, KEY, { fetch });
+  expect(saved).toMatchObject({ status: 200, replayed: false, data: { value: 630, snapped_from: 640, state: "requested" } });
+  const again = await apiWrite("API-10", { param: "outdoor_staleness_max_s" }, { value: 640, manual: true, reason: "Vandas drying" }, KEY, { fetch });
   expect(again).toMatchObject({ replayed: true, data: saved.data });
-  const refused = await apiWrite("API-10", { param: "mister_engage_kpa" }, { value: 2.6, manual: true }, newIdempotencyKey(), { fetch }).catch((error: unknown) => error);
-  expect(refused).toMatchObject({ status: 422, problem: { code: "out_of_range", field: "value", min: 0.5, max: 2.5 } });
+  const refused = await apiWrite("API-10", { param: "outdoor_staleness_max_s" }, { value: 1900, manual: true }, newIdempotencyKey(), { fetch }).catch((error: unknown) => error);
+  expect(refused).toMatchObject({ status: 422, problem: { code: "out_of_range", field: "value", min: 120, max: 1800 } });
   const stop = await apiWrite("API-IRR-07", {}, {}, newIdempotencyKey(), { fetch });
   expect(stop).toMatchObject({ status: 202, data: { kind: "stop", line_id: null, status: "pending" } });
   const removed = await apiWrite("API-IRR-05", { slot_id: 1, reason: "not needed" }, undefined, newIdempotencyKey(), { fetch });
   expect(removed).toEqual({ status: 204, data: null, replayed: false });
   const log = api.respond({ url: "/__requests" }).body.requests as Body[];
   expect(log.map((row) => [row.method, row.path, row.operationId])).toEqual([
-    ["PUT", "/api/v1/settings/mister_engage_kpa", "API-10"], ["PUT", "/api/v1/settings/mister_engage_kpa", "API-10"], ["PUT", "/api/v1/settings/mister_engage_kpa", "API-10"],
+    ["PUT", "/api/v1/settings/outdoor_staleness_max_s", "API-10"], ["PUT", "/api/v1/settings/outdoor_staleness_max_s", "API-10"], ["PUT", "/api/v1/settings/outdoor_staleness_max_s", "API-10"],
     ["POST", "/api/v1/irrigation/stop", "API-IRR-07"], ["DELETE", "/api/v1/irrigation/schedules/1?reason=not+needed", "API-IRR-05"],
   ]);
   expect(log.every((row) => typeof row.idempotency_key === "string")).toBe(true);
-  expect(log[0]).toMatchObject({ idempotency_key: KEY, body: { value: 1.53, manual: true, reason: "Vandas drying" } });
+  expect(log[0]).toMatchObject({ idempotency_key: KEY, body: { value: 640, manual: true, reason: "Vandas drying" } });
   expect(new Headers(fetch.calls[0].init.headers).get("Content-Type")).toBe("application/json");
   // A failed write is not retried: one 503, one request.
   const down = createFixtureHandler({ clock: () => NOW, fixture: "api-down" });

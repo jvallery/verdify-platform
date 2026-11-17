@@ -1201,6 +1201,71 @@ def sealed_sql_314():
     )
 
 
+REPLAYED_GAPS_COUNTER_CHECK_MIGRATION = (
+    315,
+    "315-replayed-gaps-counter-check-and-health.sql",
+    "a5cadbc8645f7ee3fde65c41e8709b6dba6295dce1fa4f3406237f081dd49fff",
+)
+# Replayed gaps stop counting as missing, the relay counter check and three health columns (#1633, host release 4;
+# RULINGS AF7, AF9, AF10): v_data_trust_ledger and v_irrigation_day_coverage read v_data_gaps_unreplayed, the dashboard
+# and ingestor duties read v_relay_counter_reconciliation_daily, and three nullable diagnostics columns are appended to the ingestor's
+# write facade with INSERT for the ingestor duty, so the ingestor seal moves and the api and MCP seals are measured
+# again (record: tests/fixtures/315-replayed-gaps-counter-check-and-health-native-qualification.json). Measured by the
+# native probe of 2026-11-16: all three seals move.
+SUCCESSOR_315 = {
+    **SUCCESSOR_314,
+    "api": "7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc",
+    "ingestor": "3ead905daede269bd598b38c86c0477d33e1b51c425a2efc7d5c16c042a745f2",
+    "mcp": "ae8180a5fc5dc400fc0f9c49fc6f069c89af033a9b9425ef52a14bf85b202256",
+}
+
+
+def sealed_sql_315():
+    # Keep every 314 predicate and bind the exact 315 runner stamp with its successor seals.
+    predecessor = sealed_sql_314()
+    current = seal_profile_sql(314, SUCCESSOR_314)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(315, SUCCESSOR_315), 1)
+        + " AND "
+        + ledger_row_sql(*REPLAYED_GAPS_COUNTER_CHECK_MIGRATION)
+        + ")"
+    )
+
+
+EXPERIMENT_V2_SHADOW_DROPS_MIGRATION = (
+    316,
+    "316-experiment-v2-and-shadow-drops.sql",
+    "8439a0e4d9c6cc2809a4a6f61b1a217e2e6ffba1320cad2f55c9582baf56924c",
+)
+# The first drops of the climate refactor (#1633, host release 4; contracts phase4-drops): the confirmed-component
+# experiment v2, the policy twin, the planner graph and memory tables, planner_pack, forecast_deviation_thresholds, the
+# retired planner experiment views and thirteen retired roles. The dropped grants move the api, ingestor and MCP seals
+# (record: tests/fixtures/316-experiment-v2-and-shadow-drops-native-qualification.json). Measured by the native
+# probe of 2026-11-16: all three move.
+SUCCESSOR_316 = {
+    **SUCCESSOR_315,
+    "api": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "ingestor": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+    "mcp": "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929",
+}
+
+
+def sealed_sql_316():
+    # Keep every 315 predicate and bind the exact 316 runner stamp with its successor seals.
+    predecessor = sealed_sql_315()
+    current = seal_profile_sql(315, SUCCESSOR_315)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(316, SUCCESSOR_316), 1)
+        + " AND "
+        + ledger_row_sql(*EXPERIMENT_V2_SHADOW_DROPS_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1273,6 +1338,10 @@ def sealed_sql():
         + sealed_sql_313()
         + " OR "
         + sealed_sql_314()
+        + " OR "
+        + sealed_sql_315()
+        + " OR "
+        + sealed_sql_316()
         + ")"
     )
 

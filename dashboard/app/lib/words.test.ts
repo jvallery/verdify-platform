@@ -276,7 +276,7 @@ test("each setting Iris plans has a short plain name, never its key or a title-c
     expect(name, param).not.toMatch(/_/);
     expect(name.toLowerCase(), param).not.toBe(param.replace(/_/g, " "));
   }
-  expect(words("tunable_short", "mister_engage_kpa")).toBe("Misting starts at VPD");
+  expect(words("tunable_short", "mister_engage_delay_s")).toBe("Wait before misting");
 });
 
 test("every stress window kind and severity in verdify_schemas/plan.py has words", () => {

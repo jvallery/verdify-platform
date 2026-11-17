@@ -16145,7 +16145,7 @@ data:
             "type": "grafana-postgresql-datasource",
             "uid": "verdify-tsdb"
           },
-          "description": "Database reconstruction from v_band_curve (materialized cache); refresh age is not established here. Not frozen historical crop targets, crop-outcome compliance, or observed firmware consumption. House-anchor edges are narrowed toward the reconstructed target using the latest cached band_track_fraction or default 0.25 across the entire time window; fraction age, historical validity and device acceptance are unverified. This is not the full low..high envelope. Temperature uses °F and VPD uses kPa; measured climate and recorded relay series are separate.",
+          "description": "Database reconstruction from v_band_curve (materialized cache); refresh age is not established here. Not frozen historical crop targets, crop-outcome compliance, or observed firmware consumption. The edges are the full low..high band the controller enforces (the band tracking fraction is retired with the third flash); device acceptance is not shown here. Temperature uses °F and VPD uses kPa; measured climate and recorded relay series are separate.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -16378,7 +16378,7 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Reconstructed Track Low"
+                  "options": "Band Low"
                 },
                 "properties": [
                   {
@@ -16413,7 +16413,7 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Reconstructed Track High"
+                  "options": "Band High"
                 },
                 "properties": [
                   {
@@ -16429,7 +16429,7 @@ data:
                   },
                   {
                     "id": "custom.fillBelowTo",
-                    "value": "Reconstructed Track Low"
+                    "value": "Band Low"
                   },
                   {
                     "id": "custom.fillOpacity",
@@ -17340,7 +17340,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT ts AS time,\n    temp_low + f.frac * (temp_target - temp_low) AS \"Reconstructed Track Low\",\n    temp_high - f.frac * (temp_high - temp_target) AS \"Reconstructed Track High\",\n    temp_target AS \"Reconstructed Target\"\nFROM v_band_curve,\n     (SELECT COALESCE((SELECT value FROM setpoint_snapshot WHERE parameter='band_track_fraction' AND greenhouse_id='vallery' ORDER BY ts DESC LIMIT 1), 0.25) AS frac) f\nWHERE $__timeFilter(ts) ORDER BY ts",
+              "rawSql": "SELECT ts AS time,\n    temp_low AS \"Band Low\",\n    temp_high AS \"Band High\",\n    temp_target AS \"Reconstructed Target\"\nFROM v_band_curve\nWHERE $__timeFilter(ts) ORDER BY ts",
               "refId": "C",
               "sql": {
                 "columns": [
@@ -17706,7 +17706,7 @@ data:
             "type": "grafana-postgresql-datasource",
             "uid": "verdify-tsdb"
           },
-          "description": "Database reconstruction from v_band_curve (materialized cache); refresh age is not established here. Not frozen historical crop targets, crop-outcome compliance, or observed firmware consumption. House-anchor edges are narrowed toward the reconstructed target using the latest cached band_track_fraction or default 0.25 across the entire time window; fraction age, historical validity and device acceptance are unverified. This is not the full low..high envelope. Temperature uses °F and VPD uses kPa; measured climate and recorded relay series are separate.",
+          "description": "Database reconstruction from v_band_curve (materialized cache); refresh age is not established here. Not frozen historical crop targets, crop-outcome compliance, or observed firmware consumption. The edges are the full low..high band the controller enforces (the band tracking fraction is retired with the third flash); device acceptance is not shown here. Temperature uses °F and VPD uses kPa; measured climate and recorded relay series are separate.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -17939,7 +17939,7 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Reconstructed Track Low"
+                  "options": "Band Low"
                 },
                 "properties": [
                   {
@@ -17974,7 +17974,7 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Reconstructed Track High"
+                  "options": "Band High"
                 },
                 "properties": [
                   {
@@ -17990,7 +17990,7 @@ data:
                   },
                   {
                     "id": "custom.fillBelowTo",
-                    "value": "Reconstructed Track Low"
+                    "value": "Band Low"
                   },
                   {
                     "id": "custom.fillOpacity",
@@ -18895,7 +18895,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT ts AS time,\n    vpd_low + f.frac * (vpd_target - vpd_low) AS \"Reconstructed Track Low\",\n    vpd_high - f.frac * (vpd_high - vpd_target) AS \"Reconstructed Track High\",\n    vpd_target AS \"Reconstructed Target\"\nFROM v_band_curve,\n     (SELECT COALESCE((SELECT value FROM setpoint_snapshot WHERE parameter='band_track_fraction' AND greenhouse_id='vallery' ORDER BY ts DESC LIMIT 1), 0.25) AS frac) f\nWHERE $__timeFilter(ts) ORDER BY ts",
+              "rawSql": "SELECT ts AS time,\n    vpd_low AS \"Band Low\",\n    vpd_high AS \"Band High\",\n    vpd_target AS \"Reconstructed Target\"\nFROM v_band_curve\nWHERE $__timeFilter(ts) ORDER BY ts",
               "refId": "C",
               "sql": {
                 "columns": [
@@ -20538,7 +20538,7 @@ data:
             "type": "grafana-postgresql-datasource",
             "uid": "verdify-tsdb"
           },
-          "description": "Database reconstruction from v_band_curve (materialized cache); refresh age is not established here. Not frozen historical crop targets, crop-outcome compliance, or observed firmware consumption. House-anchor edges are narrowed toward the reconstructed target using the latest cached band_track_fraction or default 0.25 across the entire time window; fraction age, historical validity and device acceptance are unverified. This is not the full low..high envelope. Temperature uses °F and VPD uses kPa; measured climate and recorded relay series are separate.",
+          "description": "Database reconstruction from v_band_curve (materialized cache); refresh age is not established here. Not frozen historical crop targets, crop-outcome compliance, or observed firmware consumption. The edges are the full low..high band the controller enforces (the band tracking fraction is retired with the third flash); device acceptance is not shown here. Temperature uses °F and VPD uses kPa; measured climate and recorded relay series are separate.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -20590,7 +20590,7 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Reconstructed Track Low"
+                  "options": "Band Low"
                 },
                 "properties": [
                   {
@@ -20629,7 +20629,7 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Reconstructed Track High"
+                  "options": "Band High"
                 },
                 "properties": [
                   {
@@ -20645,7 +20645,7 @@ data:
                   },
                   {
                     "id": "custom.fillBelowTo",
-                    "value": "Reconstructed Track Low"
+                    "value": "Band Low"
                   },
                   {
                     "id": "custom.fillOpacity",
@@ -20917,7 +20917,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT ts AS time,\n    temp_low + f.frac * (temp_target - temp_low) AS \"Reconstructed Track Low\",\n    temp_high - f.frac * (temp_high - temp_target) AS \"Reconstructed Track High\",\n    temp_target AS \"Reconstructed Target\"\nFROM v_band_curve,\n     (SELECT COALESCE((SELECT value FROM setpoint_snapshot WHERE parameter='band_track_fraction' AND greenhouse_id='vallery' ORDER BY ts DESC LIMIT 1), 0.25) AS frac) f\nWHERE $__timeFilter(ts) ORDER BY ts",
+              "rawSql": "SELECT ts AS time,\n    temp_low AS \"Band Low\",\n    temp_high AS \"Band High\",\n    temp_target AS \"Reconstructed Target\"\nFROM v_band_curve\nWHERE $__timeFilter(ts) ORDER BY ts",
               "refId": "A"
             },
             {

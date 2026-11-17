@@ -93,12 +93,11 @@ export function overlays(preview: Pick<BandProfilePreview, "measured" | "forecas
   return out;
 }
 
-/** The day's two charts as the band preview draws them, the VPD one with the controller's night bias and the achievable night VPD (#1433). */
+/** The day's two charts as the band preview draws them, the VPD one with the achievable night VPD (#1433). */
 function views(preview: BandProfilePreview, now: number | null, edited: boolean): { temp: PreviewView; vpd: PreviewView } {
   const marks = [["Sunrise", preview.sun.sunrise], ["Noon", preview.sun.solar_noon], ["Sunset", preview.sun.sunset]]
     .flatMap(([word, at]) => (typeof at === "number" ? [{ at, word: word as string, text: `${word === "Noon" ? "Solar noon" : word} ${clockTime(at)}` }] : []));
   const extras: ExtraLine[] = [];
-  if ((preview.night_vpd_bias_kpa ?? 0) > 0) extras.push({ key: "device", label: "As the controller runs it (night bias)", token: "--c-setpoint", values: preview.vpd.device.target });
   if (preview.vpd.expected_low.some((value) => value !== null)) {
     extras.push({ key: "expected-low", label: "Achievable night VPD (p25)", token: "--c-outdoor", values: preview.vpd.expected_low });
     extras.push({ key: "expected-high", label: "Achievable night VPD (p75)", token: "--c-outdoor", values: preview.vpd.expected_high });
@@ -241,7 +240,7 @@ export function BandEditor() {
   </>;
 }
 
-/** The guardrails, the night bias, the night heat estimate and the expected-VPD fit, in words. */
+/** The guardrails, the night heat estimate and the expected-VPD fit, in words. */
 export function BandFacts({ preview }: { preview: BandProfilePreview }) {
   const { guardrails: g, night_heat_kwh: heat, envelope } = preview;
   const kwh = (value: number | null | undefined) => (value === null || value === undefined ? "—" : `${value.toFixed(1)} kWh`);
@@ -249,7 +248,6 @@ export function BandFacts({ preview }: { preview: BandProfilePreview }) {
     <li>Guardrails {formatValue(g.temp_min_f, "°F")} and {formatValue(g.temp_max_f, "°F")}; the band stays {formatValue(g.margin_f, "°F")} inside them. VPD {g.vpd_min_kpa.toFixed(2)}–{g.vpd_max_kpa.toFixed(2)} kPa.{g.min_width_f !== null && g.min_width_kpa !== null && g.dry_on_above_vpd_low_kpa !== null
       ? <> The control law needs the band at least {formatValue(g.min_width_f, "°F")} and {g.min_width_kpa.toFixed(2)} kPa wide all day, and dries the house below the VPD floor plus {g.dry_on_above_vpd_low_kpa.toFixed(2)} kPa, a line that stays at least {g.night_vpd_floor_kpa.toFixed(2)} kPa all night.</>
       : <> The night VPD floor stays at least {g.night_vpd_floor_kpa.toFixed(2)} kPa.</>}</li>
-    <li>Night dry-out bias (planner): {preview.night_vpd_bias_kpa === null ? "no readback" : `${preview.night_vpd_bias_kpa.toFixed(2)} kPa at solar midnight`}.</li>
     <li>Night heat estimate: {kwh(heat.current)} as stored, {kwh(heat.draft)} with this draft (0.19 kW per °F above the forecast).</li>
     <li>{envelope ? `Achievable night VPD (what the house is expected to reach at this target): fitted on ${envelope.hours} quiet night hours of the last ${envelope.days} days (±${envelope.rmse_f.toFixed(1)} °F dewpoint). A night floor above it warns.` : "Achievable night VPD: not enough quiet night hours to fit."}</li>
   </ul>;

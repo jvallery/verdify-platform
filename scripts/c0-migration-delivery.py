@@ -484,6 +484,29 @@ SUCCESSOR_314_DIGESTS = {
     "verdify_ingestor_runtime_login": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
 }
 SUCCESSOR_314_MCP_DIGEST = "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+# Exact315 (#1633, host release 4; RULINGS AF7, AF9, AF10): v_data_trust_ledger and v_irrigation_day_coverage read
+# 314's replay-aware gaps, the relay counter reconciliation view for the dashboard and ingestor duties, and three nullable
+# diagnostics health columns on the ingestor's write facade. The ingestor duty's grants move its seal; the api and MCP
+# seals are measured again. Measured by the native probe of 2026-11-16: all three move (the MCP duty reads
+# v_irrigation_day_coverage). It follows 314.
+SUCCESSOR_315 = "315-replayed-gaps-counter-check-and-health.sql"
+SUCCESSOR_315_SHA256 = "a5cadbc8645f7ee3fde65c41e8709b6dba6295dce1fa4f3406237f081dd49fff"
+SUCCESSOR_315_DIGESTS = {
+    "verdify_api_runtime_login": "7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc",
+    "verdify_ingestor_runtime_login": "3ead905daede269bd598b38c86c0477d33e1b51c425a2efc7d5c16c042a745f2",
+}
+SUCCESSOR_315_MCP_DIGEST = "ae8180a5fc5dc400fc0f9c49fc6f069c89af033a9b9425ef52a14bf85b202256"
+# Exact316 (#1633, host release 4; contracts phase4-drops): the first drops of the climate refactor, the experiment
+# v2, the policy twin, the planner graph, memory and pack tables, forecast_deviation_thresholds, the retired planner
+# experiment views and thirteen retired roles, each table archived first. The dropped grants move the seals, measured
+# by the native probe of 2026-11-16: all three move. It follows 315.
+SUCCESSOR_316 = "316-experiment-v2-and-shadow-drops.sql"
+SUCCESSOR_316_SHA256 = "8439a0e4d9c6cc2809a4a6f61b1a217e2e6ffba1320cad2f55c9582baf56924c"
+SUCCESSOR_316_DIGESTS = {
+    "verdify_api_runtime_login": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "verdify_ingestor_runtime_login": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+}
+SUCCESSOR_316_MCP_DIGEST = "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
@@ -557,6 +580,8 @@ def reviewed_post_254(later, files=None):
         SUCCESSOR_312,
         SUCCESSOR_313,
         SUCCESSOR_314,
+        SUCCESSOR_315,
+        SUCCESSOR_316,
     )
     require(successors == list(reviewed[: len(successors)]), "unreviewed post-254 receipt successor")
     if successors:
@@ -619,6 +644,8 @@ def reviewed_post_254(later, files=None):
                 SUCCESSOR_312_SHA256,
                 SUCCESSOR_313_SHA256,
                 SUCCESSOR_314_SHA256,
+                SUCCESSOR_315_SHA256,
+                SUCCESSOR_316_SHA256,
             ),
             strict=True,
         ):
@@ -920,6 +947,8 @@ COMMIT;"""
         (SUCCESSOR_312, SUCCESSOR_312_DIGESTS),
         (SUCCESSOR_313, SUCCESSOR_313_DIGESTS),
         (SUCCESSOR_314, SUCCESSOR_314_DIGESTS),
+        (SUCCESSOR_315, SUCCESSOR_315_DIGESTS),
+        (SUCCESSOR_316, SUCCESSOR_316_DIGESTS),
     ):
         if name in later:
             expected["api"] = expected["api_receipt"] = digests["verdify_api_runtime_login"]
@@ -1049,6 +1078,10 @@ COMMIT;"""
             expected_mcp = SUCCESSOR_313_MCP_DIGEST
         if SUCCESSOR_314 in later:
             expected_mcp = SUCCESSOR_314_MCP_DIGEST
+        if SUCCESSOR_315 in later:
+            expected_mcp = SUCCESSOR_315_MCP_DIGEST
+        if SUCCESSOR_316 in later:
+            expected_mcp = SUCCESSOR_316_MCP_DIGEST
         if hotfix_predecessor_263:
             require(
                 mcp_state.get("mcp")

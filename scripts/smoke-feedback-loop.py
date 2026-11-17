@@ -43,7 +43,7 @@ from verdify_schemas import (  # noqa: E402
 )
 
 # Pick a readbackable planner-policy param unlikely to churn under real dispatch.
-TEST_PARAM = "mister_vpd_weight"
+TEST_PARAM = "mister_water_budget_gal"  # release 4 deleted mister_vpd_weight
 
 # Sentinel source tag so we can clean up without touching production rows.
 SMOKE_SOURCE = "smoke_feedback_loop"
@@ -177,9 +177,9 @@ def test_structured_hypothesis_extraction() -> None:
         "stress_windows": [],
         "rationale": [
             {
-                "parameter": "mister_engage_kpa",
-                "old_value": 1.5,
-                "new_value": 1.3,
+                "parameter": "mister_engage_delay_s",
+                "old_value": 30,
+                "new_value": 60,
                 "forecast_anchor": "peak stress window",
                 "expected_effect": "earlier engage",
             }
@@ -205,7 +205,7 @@ def test_structured_hypothesis_extraction() -> None:
         extracted = PlanHypothesisStructured.model_validate_json(match.group(1))
         step(
             "Extracted JSON round-trips through schema",
-            extracted.rationale[0].parameter == "mister_engage_kpa",
+            extracted.rationale[0].parameter == "mister_engage_delay_s",
         )
 
 

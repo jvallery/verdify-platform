@@ -26,16 +26,16 @@ test("the default view is 72 h back and 72 h ahead with no setting drawn, no pre
 });
 
 test("range, set and m round-trip; set= alone is none; duplicates collapse", () => {
-  const parsed = view("range=72h&set=mister_engage_kpa&m=climate.flow_gpm&m=climate.flow_gpm&m=climate.soil_moisture_south_1");
-  expect(parsed).toEqual({ ...DEFAULT_VIEW, window: { kind: "range", range: "72h" }, settings: ["mister_engage_kpa"], metrics: ["climate.flow_gpm", "climate.soil_moisture_south_1"] });
-  expect(graphHref(parsed)).toBe("/graphs?range=72h&set=mister_engage_kpa&m=climate.flow_gpm&m=climate.soil_moisture_south_1");
+  const parsed = view("range=72h&set=mister_hysteresis_kpa&m=climate.flow_gpm&m=climate.flow_gpm&m=climate.soil_moisture_south_1");
+  expect(parsed).toEqual({ ...DEFAULT_VIEW, window: { kind: "range", range: "72h" }, settings: ["mister_hysteresis_kpa"], metrics: ["climate.flow_gpm", "climate.soil_moisture_south_1"] });
+  expect(graphHref(parsed)).toBe("/graphs?range=72h&set=mister_hysteresis_kpa&m=climate.flow_gpm&m=climate.soil_moisture_south_1");
   expect(view(graphSearch(parsed))).toEqual(parsed);
   expect(view("set=").settings).toEqual([]);
   expect(graphSearch(view("set="))).toBe("range=72h&set=");
   expect(view("set=&set=fog_rh_ceiling_pct").settings).toEqual(["fog_rh_ceiling_pct"]);
   expect(graphSearch(withSettings(view(""), []))).toBe("range=72h&set=");
   expect(graphSearch(withMetrics(view("m=a"), ["a", "b", "a"]))).toBe("range=72h&m=a&m=b");
-  expect(settingEditHref("mister_engage_kpa")).toBe("/settings?edit=mister_engage_kpa");
+  expect(settingEditHref("mister_hysteresis_kpa")).toBe("/settings?edit=mister_hysteresis_kpa");
 });
 
 test("the overlay shows by default; outdoor=0 hides it, round-trips and stays in every link", () => {
@@ -283,16 +283,16 @@ test("resolveView: unknown keys drop with a notice, climate keys silently, daily
 test("resolveView: no setting draws by default (#1354); a named one must be numeric, not a band row, and in an open panel's unit", () => {
   expect(resolveView(view(""), METRICS, SETTINGS).settings).toEqual([]);
   expect(resolveView(view("set="), METRICS, SETTINGS).settings).toEqual([]);
-  const named = resolveView(view("set=mister_engage_kpa&set=nope&set=band_house_vpd_low&set=sw_gl_main_auto_mode&set=mister_pulse_gap_s"), METRICS, SETTINGS);
-  expect(named.settings.map((row) => row.param)).toEqual(["mister_engage_kpa"]);
+  const named = resolveView(view("set=mister_hysteresis_kpa&set=nope&set=band_house_vpd_low&set=sw_gl_main_auto_mode&set=mister_min_off_s"), METRICS, SETTINGS);
+  expect(named.settings.map((row) => row.param)).toEqual(["mister_hysteresis_kpa"]);
   expect(named.notices).toEqual([
     "Removed unknown setting nope", "Removed setting band_house_vpd_low: the band ribbon draws it",
-    "Removed setting sw_gl_main_auto_mode: only numeric settings draw as steps", "Removed setting mister_pulse_gap_s: no chart in s",
+    "Removed setting sw_gl_main_auto_mode: only numeric settings draw as steps", "Removed setting mister_min_off_s: no chart in s",
   ]);
-  expect(graphSearch(named.view)).toBe("range=72h&set=mister_engage_kpa");
+  expect(graphSearch(named.view)).toBe("range=72h&set=mister_hysteresis_kpa");
   // No `set` stays no `set` in links.
   expect(resolveView(view(""), METRICS, SETTINGS).view.settings).toBeNull();
-  const row = SETTINGS.find((item) => item.param === "mister_engage_kpa")!;
+  const row = SETTINGS.find((item) => item.param === "mister_hysteresis_kpa")!;
   expect(settingProblem(row, ["°F", "%"])).toBe("no chart in kPa");
-  expect(graphSearch(withWindow(named.view, { kind: "days", from: "2026-10-31", to: "2026-11-01" }))).toBe("from=2026-10-31&to=2026-11-01&set=mister_engage_kpa");
+  expect(graphSearch(withWindow(named.view, { kind: "days", from: "2026-10-31", to: "2026-11-01" }))).toBe("from=2026-10-31&to=2026-11-01&set=mister_hysteresis_kpa");
 });

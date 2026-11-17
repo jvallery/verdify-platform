@@ -355,7 +355,7 @@ def test_api09_lists_every_registry_row_with_its_label_and_unit_and_the_band_in_
             assert (item.label, item.unit) == (setting_label(item.param), spec.unit), item.param
             assert item.help is not None, item.param
         rows = {item.param: item for item in result.items}
-        assert (rows["mister_engage_kpa"].label, rows["mister_engage_kpa"].unit) == ("VPD Mister Engage", "kPa")
+        assert (rows["mister_hysteresis_kpa"].label, rows["mister_hysteresis_kpa"].unit) == ("Mister Hysteresis", "kPa")
         legacy = rows["temp_low"]
         assert (legacy.group, legacy.writable, legacy.readback.value) == ("read_only", False, 40.0)
 
@@ -412,7 +412,7 @@ def test_a_plan_in_force_is_never_shown_or_applied_since_climate_refactor_4_2(ds
             conn,
             "preemptive-vd55",
             t0 - 10 * MIN,
-            [(t0 - 10 * MIN, "sw_economiser_enabled", 1.0)],
+            [(t0 - 10 * MIN, "sw_gl_main_solar_phasing", 1.0)],
             source="preemptive",
         )
         await snapshot(conn, t0 - 1 * MIN, "mister_engage_delay_s", 48.75)
@@ -421,8 +421,8 @@ def test_a_plan_in_force_is_never_shown_or_applied_since_climate_refactor_4_2(ds
         delay = rows["mister_engage_delay_s"]
         # The plan rows stay, but no plan applies: no plan block, and the source is never plan.
         assert (delay.desired, delay.plan) == (None, None) and delay.applied_from != "plan"
-        assert rows["sw_economiser_enabled"].plan is None and rows["sw_economiser_enabled"].applied_from != "plan"
-        assert rows["mister_engage_kpa"].plan is None
+        assert rows["sw_gl_main_solar_phasing"].plan is None and rows["sw_gl_main_solar_phasing"].applied_from != "plan"
+        assert rows["mister_min_off_s"].plan is None
 
     scenario(dsn, body)
 
@@ -532,42 +532,42 @@ def test_activity_by_agent_steward_is_that_agent_only_newest_first_and_paged(dsn
 
 
 def test_api12_marks_forecast_rule_superseded_and_overridden_waypoints(dsn):
-    param = "mister_engage_kpa"
+    param = "mister_hysteresis_kpa"  # release 4 (#1633): a kPa setting that remains
 
     async def body(conn, t0):
         await reporting_now(conn, t0)
         plan_a, plan_b = t0 - 8 * H, t0 - 5 * H
-        rows_a = [(t0 - 8 * H, param, 1.40), (t0 - 6 * H, param, 1.45), (t0 + 1 * H, param, 1.50)]
-        rows_a.append((t0 + 3 * H, param, 1.49))
+        rows_a = [(t0 - 8 * H, param, 0.14), (t0 - 6 * H, param, 0.145), (t0 + 1 * H, param, 0.15)]
+        rows_a.append((t0 + 3 * H, param, 0.149))
         await full_plan(conn, "iris-vd55-a", plan_a, status="superseded", rows=rows_a, active=False)
-        rows_b = [(t0 - 5 * H, param, 1.60), (t0 + 3 * H, param, 1.65)]
+        rows_b = [(t0 - 5 * H, param, 0.16), (t0 + 3 * H, param, 0.165)]
         await full_plan(conn, "iris-vd55-b", plan_b, status="effective", rows=rows_b, active=True)
-        await waypoints(conn, "preemptive-vd55", t0 - 1 * H, [(t0 - 1 * H, param, 1.70)], source="preemptive")
+        await waypoints(conn, "preemptive-vd55", t0 - 1 * H, [(t0 - 1 * H, param, 0.17)], source="preemptive")
         await waypoints(conn, "operator-vd55", t0 - 7 * H, [(t0 - 7 * H, param, 9.0)], source="operator")
         [desired_id] = await conn.fetch(
             "INSERT INTO desired_state (param, value, manual, source, actor, created_at) "
-            "VALUES ($1, 1.55, false, 'agent:steward', 'steward', $2) RETURNING id",
+            "VALUES ($1, 0.155, false, 'agent:steward', 'steward', $2) RETURNING id",
             param,
             t0 - 2 * H,
         )
-        await snapshot(conn, t0 - 3 * H, param, 1.60)
-        await snapshot(conn, t0 - 90 * MIN, param, 1.55)
+        await snapshot(conn, t0 - 3 * H, param, 0.16)
+        await snapshot(conn, t0 - 90 * MIN, param, 0.155)
 
         history = await as_role(conn, MCP_ROLE, reads.setting_history, param, t0 - 10 * H, t0 + 6 * H)
         body_json = history.model_dump(mode="json")
         assert openapi_errors({"$ref": "#/components/schemas/SettingHistory"}, body_json) == []
         assert "from" in body_json and "from_" not in body_json
-        assert (history.unit, history.min, history.max) == ("kPa", 0.5, 2.5)
+        assert (history.unit, history.min, history.max) == ("kPa", 0.05, 0.5)
         assert [(point.at, point.value, point.source, point.effective) for point in history.plan] == [
-            (t0 - 8 * H, 1.40, "iris", True),
-            (t0 - 6 * H, 1.45, "iris", True),
-            (t0 - 5 * H, 1.60, "iris", True),
-            (t0 - 1 * H, 1.70, "preemptive", True),  # the forecast rule, written after the desired row
-            (t0 + 1 * H, 1.50, "iris", False),  # plan A was superseded by plan B (written t0 - 5 h)
-            (t0 + 3 * H, 1.65, "iris", False),  # plan B's own row, after the newer non-manual desired row
+            (t0 - 8 * H, 0.14, "iris", True),
+            (t0 - 6 * H, 0.145, "iris", True),
+            (t0 - 5 * H, 0.16, "iris", True),
+            (t0 - 1 * H, 0.17, "preemptive", True),  # the forecast rule, written after the desired row
+            (t0 + 1 * H, 0.15, "iris", False),  # plan A was superseded by plan B (written t0 - 5 h)
+            (t0 + 3 * H, 0.165, "iris", False),  # plan B's own row, after the newer non-manual desired row
         ]
-        assert [(row.id, row.value, row.manual) for row in history.desired] == [(desired_id["id"], 1.55, False)]
-        assert [(point.at, point.value) for point in history.readback] == [(t0 - 3 * H, 1.60), (t0 - 90 * MIN, 1.55)]
+        assert [(row.id, row.value, row.manual) for row in history.desired] == [(desired_id["id"], 0.155, False)]
+        assert [(point.at, point.value) for point in history.readback] == [(t0 - 3 * H, 0.16), (t0 - 90 * MIN, 0.155)]
 
         with pytest.raises(Exception) as unknown:
             await as_role(conn, MCP_ROLE, reads.setting_history, "band_house_temp_low", t0 - 1 * H, t0)
@@ -578,16 +578,16 @@ def test_api12_marks_forecast_rule_superseded_and_overridden_waypoints(dsn):
 
 def test_api12_a_plan_is_never_superseded_by_its_own_journal_row(dsn):
     """60 plans up to 2026-04-28 wrote their journal row after their waypoints, at most 54 s later."""
-    param = "mister_engage_kpa"
+    param = "mister_hysteresis_kpa"  # release 4 (#1633): a kPa setting that remains
 
     async def body(conn, t0):
         await reporting_now(conn, t0)
         written = t0 - 4 * H
-        rows = [(written, param, 1.40), (t0 - 1 * H, param, 1.45), (t0 + 1 * H, param, 1.50)]
+        rows = [(written, param, 0.14), (t0 - 1 * H, param, 0.145), (t0 + 1 * H, param, 0.15)]
         await full_plan(conn, "iris-vd55-late", written, status="effective", rows=rows, active=True, journal_after=S)
 
         history = await as_role(conn, MCP_ROLE, reads.setting_history, param, t0 - 6 * H, t0 + 6 * H)
-        assert [(point.value, point.effective) for point in history.plan] == [(1.40, True), (1.45, True), (1.50, True)]
+        assert [(point.value, point.effective) for point in history.plan] == [(0.14, True), (0.145, True), (0.15, True)]
 
     scenario(dsn, body)
 

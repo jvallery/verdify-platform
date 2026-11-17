@@ -8,7 +8,7 @@ import { createRoutesStub } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import { NOW, advance, requests, sentAt, startFixtureApi, stopFixtureApi, writes, type FixtureOptions } from "../lib/test-fixture-api";
 import { AppShell } from "./app-shell";
-import { BurstPanel, burstWords, burstsIgnoredText } from "./burst-panel";
+import { BurstPanel, SENSOR_FAULT_BURSTS_TEXT, burstWords, burstsIgnoredText } from "./burst-panel";
 import { text } from "./test-render";
 
 afterEach(() => { cleanup(); stopFixtureApi(); });
@@ -41,7 +41,7 @@ test("what a running burst reads: the time left, none for a push-button burst, a
   expect(words({ kind: "humidify", held_reason: "RH_CEILING" })).toBe("Fogger held off: RH_CEILING");
   expect(burstsIgnoredText("SAFETY_COOL")).toBe("Bursts are ignored during emergency cooling");
   expect(burstsIgnoredText("SAFETY_HEAT")).toBe("Bursts are ignored during emergency heating");
-  expect(burstsIgnoredText("SENSOR_FAULT")).toBe("Bursts are ignored during a sensor fault");
+  expect(burstsIgnoredText("SENSOR_FAULT")).toBeNull(); // a manual run works without an indoor reading
   expect(burstsIgnoredText("IDLE")).toBeNull();
   expect(burstsIgnoredText(null)).toBeNull();
 });
@@ -117,6 +117,12 @@ test("each burst reads as on Now, its name bold and its length muted; Stop manua
 test("during emergency cooling the panel says bursts are ignored", async () => {
   await open({ fixture: "safety-cool" });
   expect(text(document.querySelector("[data-bursts=ignored]"))).toBe("Bursts are ignored during emergency cooling");
+});
+
+test("during a sensor fault the panel says bursts still run: a manual run needs no indoor reading", async () => {
+  await open({ fixture: "sensor-fault-mode" });
+  expect(document.querySelector("[data-bursts=ignored]")).toBeNull();
+  expect(text(document.querySelector("[data-bursts=sensor-fault]"))).toBe(SENSOR_FAULT_BURSTS_TEXT);
 });
 
 test("Restart controller sits under More actions: one {kind: restart} with no dialog, Restart sent until the uptime drops", async () => {

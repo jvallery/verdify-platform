@@ -22,16 +22,16 @@ const setting = (api: Api, param: string) => (get(api, "/v1/settings").items as 
 const line = (api: Api, id: string) => (get(api, "/v1/irrigation").lines as Body[]).find((row) => row.line_id === id)!;
 const handler = (fixtureName: string | string[] = "in-band", options: Body = {}) => createFixtureHandler({ fixture: fixtureName, clock: () => NOW, ...options });
 
-test("API-10 snaps 1.53 to 1.55 and refuses 2.60 beside the field", () => {
+test("API-10 snaps 640 to 630 and refuses 1900 beside the field", () => {
   const api = handler();
-  const saved = at(api, "PUT", "/v1/settings/mister_engage_kpa", { value: 1.53, manual: true, reason: "Vandas drying" }, KEY);
+  const saved = at(api, "PUT", "/v1/settings/outdoor_staleness_max_s", { value: 640, manual: true, reason: "Vandas drying" }, KEY);
   expect(saved.status).toBe(200);
-  expect(saved.body).toMatchObject({ param: "mister_engage_kpa", value: 1.55, snapped_from: 1.53, manual: true, manual_before: false, state: "requested", actor: { source: "dashboard", name: "jason" } });
-  expect(setting(api, "mister_engage_kpa")).toMatchObject({ applied_from: "manual", state: "requested", desired: { value: 1.55 } });
-  const refused = at(api, "PUT", "/v1/settings/mister_engage_kpa", { value: 2.6 }, OTHER_KEY);
+  expect(saved.body).toMatchObject({ param: "outdoor_staleness_max_s", value: 630, snapped_from: 640, manual: true, manual_before: false, state: "requested", actor: { source: "dashboard", name: "jason" } });
+  expect(setting(api, "outdoor_staleness_max_s")).toMatchObject({ applied_from: "manual", state: "requested", desired: { value: 630 } });
+  const refused = at(api, "PUT", "/v1/settings/outdoor_staleness_max_s", { value: 1900 }, OTHER_KEY);
   expect(refused.status).toBe(422);
   expect(refused.headers["Content-Type"]).toBe("application/problem+json");
-  expect(refused.body).toMatchObject({ code: "out_of_range", field: "value", min: 0.5, max: 2.5, current: 1.6, retryable: false, detail: "Must be 0.50-2.50 kPa" });
+  expect(refused.body).toMatchObject({ code: "out_of_range", field: "value", min: 120, max: 1800, current: 660, retryable: false, detail: "Must be 120-1800 s" });
   expect(at(api, "PUT", "/v1/settings/temp_low", { value: 45 }).body).toMatchObject({ status: 422, code: "read_only" });
   expect(at(api, "PUT", "/v1/settings/no_such_param", { value: 1 }).body).toMatchObject({ status: 422, code: "unknown_target" });
 });
@@ -48,8 +48,8 @@ test("a replayed Idempotency-Key returns the stored body once; a reused key with
   // Applied once: one run, one activity row (a second real run would be line_busy).
   expect((get(api, "/v1/activity?action=irrigation.run").items as Body[]).filter((row) => row.request_id === KEY)).toHaveLength(1);
   // The same payload with its keys in another order is the same request.
-  const saved = at(api, "PUT", "/v1/settings/mister_engage_kpa", { value: 1.55, manual: true }, OTHER_KEY);
-  expect(at(api, "PUT", "/v1/settings/mister_engage_kpa", JSON.stringify({ manual: true, value: 1.55 }), OTHER_KEY)).toMatchObject({ body: saved.body, headers: { "Idempotency-Replayed": "true" } });
+  const saved = at(api, "PUT", "/v1/settings/outdoor_staleness_max_s", { value: 630, manual: true }, OTHER_KEY);
+  expect(at(api, "PUT", "/v1/settings/outdoor_staleness_max_s", JSON.stringify({ manual: true, value: 630 }), OTHER_KEY)).toMatchObject({ body: saved.body, headers: { "Idempotency-Replayed": "true" } });
   const reused = at(api, "POST", "/v1/irrigation/lines/L01/run", { minutes: 13 }, KEY);
   expect(reused.status).toBe(422);
   expect(reused.body).toMatchObject({ code: "request_id_reused", request_id: KEY });
@@ -59,29 +59,29 @@ test("a replayed Idempotency-Key returns the stored body once; a reused key with
 test("GET /__requests lists every request since the last /__control with its key, and /__control resets it", () => {
   const api = handler();
   get(api, "/v1/now");
-  at(api, "PUT", "/v1/settings/mister_engage_kpa", { value: 1.55, manual: true }, KEY);
+  at(api, "PUT", "/v1/settings/outdoor_staleness_max_s", { value: 630, manual: true }, KEY);
   at(api, "POST", "/v1/irrigation/stop", {}, OTHER_KEY);
   get(api, "/api/v1/me");
   expect(get(api, "/__requests")).toEqual({ requests: [
     { method: "GET", path: "/v1/now", operationId: "API-02", idempotency_key: null, body: null },
-    { method: "PUT", path: "/v1/settings/mister_engage_kpa", operationId: "API-10", idempotency_key: KEY, body: { value: 1.55, manual: true } },
+    { method: "PUT", path: "/v1/settings/outdoor_staleness_max_s", operationId: "API-10", idempotency_key: KEY, body: { value: 630, manual: true } },
     { method: "POST", path: "/v1/irrigation/stop", operationId: "API-IRR-07", idempotency_key: OTHER_KEY, body: {} },
     { method: "GET", path: "/api/v1/me", operationId: "API-01", idempotency_key: null, body: null },
   ] });
   at(api, "POST", "/__control", { fixture: "in-band" });
   expect(get(api, "/__requests")).toEqual({ requests: [] });
   // The write is gone with the reset: the setting reads as the base again.
-  expect(setting(api, "mister_engage_kpa")).toMatchObject({ desired: null, applied_from: "plan" });
+  expect(setting(api, "outdoor_staleness_max_s")).toMatchObject({ desired: null, applied_from: "plan" });
 });
 
 test("a viewer's every write is 403; with writes off every write but Stop is 503", () => {
   const viewer = handler("viewer-session");
-  for (const [method, url, body] of [["PUT", "/v1/settings/mister_engage_kpa", { value: 1.6 }], ["POST", "/v1/irrigation/stop", {}], ["POST", "/v1/equipment/override", { kind: "clear" }]] as const) {
+  for (const [method, url, body] of [["PUT", "/v1/settings/outdoor_staleness_max_s", { value: 660 }], ["POST", "/v1/irrigation/stop", {}], ["POST", "/v1/equipment/override", { kind: "clear" }]] as const) {
     expect(at(viewer, method, url, body).body, url).toMatchObject({ status: 403, code: "forbidden" });
   }
   expect(get(viewer, "/v1/me")).toMatchObject({ role: "viewer" });
   const off = handler("writes-off");
-  expect(at(off, "PUT", "/v1/settings/mister_engage_kpa", { value: 1.6 }).body).toMatchObject({ status: 503, code: "writes_disabled" });
+  expect(at(off, "PUT", "/v1/settings/outdoor_staleness_max_s", { value: 660 }).body).toMatchObject({ status: 503, code: "writes_disabled" });
   expect(at(off, "POST", "/v1/irrigation/lines/L01/run", { minutes: 12 }).body).toMatchObject({ status: 503, code: "writes_disabled" });
   expect(at(off, "POST", "/v1/irrigation/stop", { line_id: "L01" }).status).toBe(202);
   expect(get(off, "/v1/me")).toMatchObject({ writes_enabled: false });
@@ -141,18 +141,18 @@ test("stop-unconfirmed: a running L01 stays in API-02 running and API-IRR-01 aft
 test("requested-to-confirmed: two API-09 reads requested, then confirmed; with confirm false, not_confirmed since the send", () => {
   for (const [options, settled] of [[{}, { state: "confirmed", state_reason: null }], [{ confirm: false }, { state: "not_confirmed" }]] as const) {
     const api = handler("requested-to-confirmed", options);
-    const saved = at(api, "PUT", "/v1/settings/mister_engage_kpa", { value: 1.55, manual: true }, KEY).body;
-    const reads = [1, 2, 3, 4].map(() => setting(api, "mister_engage_kpa"));
+    const saved = at(api, "PUT", "/v1/settings/outdoor_staleness_max_s", { value: 630, manual: true }, KEY).body;
+    const reads = [1, 2, 3, 4].map(() => setting(api, "outdoor_staleness_max_s"));
     expect(reads.map((row) => row.state)).toEqual(["requested", "requested", settled.state, settled.state]);
     expect(reads[2].desired).toMatchObject(settled);
     if (settled.state === "not_confirmed") expect(reads[2].desired).toMatchObject({ state_reason: { code: "no_match", since: saved.created_at } });
-    else expect(reads[2].readback).toMatchObject({ value: 1.55 });
+    else expect(reads[2].readback).toMatchObject({ value: 630 });
   }
   // Selecting it from Playwright does the same.
   const api = handler();
   at(api, "POST", "/__control", { fixture: "requested-to-confirmed", confirm: false });
-  at(api, "PUT", "/v1/settings/mister_engage_kpa", { value: 1.55, manual: true });
-  expect([1, 2, 3].map(() => setting(api, "mister_engage_kpa").state)).toEqual(["requested", "requested", "not_confirmed"]);
+  at(api, "PUT", "/v1/settings/outdoor_staleness_max_s", { value: 630, manual: true });
+  expect([1, 2, 3].map(() => setting(api, "outdoor_staleness_max_s").state)).toEqual(["requested", "requested", "not_confirmed"]);
 });
 
 test("a line write reads requested on the next two API-IRR-01 reads, then confirmed by a new program hash; with confirm false, not_confirmed with its reject", () => {
@@ -264,32 +264,32 @@ test("the base, in-band, is the screens' SCR-01 greenhouse", () => {
 
 test("API-12 lists the desired rows from the one in force at from, a write joins them, and the readback log follows a confirmed write", () => {
   const api = createFixtureHandler({ fixture: ["setting-history", "requested-to-confirmed"], clock: () => NOW });
-  const history = (daysBack: number, hoursAhead = 12) => api.respond({ url: `/v1/settings/mister_engage_kpa/history?from=${new Date(NOW - daysBack * 86_400_000).toISOString()}&to=${new Date(NOW + hoursAhead * 3_600_000).toISOString()}` }).body;
+  const history = (daysBack: number, hoursAhead = 12) => api.respond({ url: `/v1/settings/outdoor_staleness_max_s/history?from=${new Date(NOW - daysBack * 86_400_000).toISOString()}&to=${new Date(NOW + hoursAhead * 3_600_000).toISOString()}` }).body;
   const week = history(7);
-  expect(week.desired.map((row: Body) => [row.id, row.value, row.manual, (row.actor as Body).name])).toEqual([[201, 1.6, false, "iris"], [202, 1.55, true, "jason"]]);
-  expect(week.readback.map((point: Body) => point.value)).toEqual([1.5, 1.6, 1.55]);
-  expect(week.plan).toEqual([expect.objectContaining({ source: "iris", value: 1.7, effective: false })]);
+  expect(week.desired.map((row: Body) => [row.id, row.value, row.manual, (row.actor as Body).name])).toEqual([[201, 660, false, "iris"], [202, 630, true, "jason"]]);
+  expect(week.readback.map((point: Body) => point.value)).toEqual([600, 660, 630]);
+  expect(week.plan).toEqual([expect.objectContaining({ source: "iris", value: 720, effective: false })]);
   // The two hours since 08:30 hold no row: the one in force at from comes first.
   const short = history(2 / 24);
   expect(short.desired.map((row: Body) => row.id)).toEqual([202]);
-  expect(short.readback.map((point: Body) => point.value)).toEqual([1.55]);
+  expect(short.readback.map((point: Body) => point.value)).toEqual([630]);
   // to is exclusive, so the 13:00 waypoint is out of a window ending now.
   expect(history(7, 0).plan).toEqual([]);
-  expect(api.respond({ method: "PUT", url: "/v1/settings/mister_engage_kpa", headers: { "Idempotency-Key": KEY }, body: { value: 1.6, manual: true } }).status).toBe(200);
+  expect(api.respond({ method: "PUT", url: "/v1/settings/outdoor_staleness_max_s", headers: { "Idempotency-Key": KEY }, body: { value: 660, manual: true } }).status).toBe(200);
   const after = history(7);
-  expect(after.desired.map((row: Body) => [row.value, row.state])).toEqual([[1.6, "confirmed"], [1.55, "confirmed"], [1.6, "requested"]]);
+  expect(after.desired.map((row: Body) => [row.value, row.state])).toEqual([[660, "confirmed"], [630, "confirmed"], [660, "requested"]]);
   for (let read = 0; read < 3; read += 1) api.respond({ url: "/v1/settings" });
-  expect(history(7).readback.at(-1)).toEqual({ at: new Date(NOW + 40_000).toISOString(), value: 1.6 });
+  expect(history(7).readback.at(-1)).toEqual({ at: new Date(NOW + 40_000).toISOString(), value: 660 });
   // A row with no log keeps the base's one row and one reading.
   const base = createFixtureHandler({ clock: () => NOW }).respond({ url: `/v1/settings/mister_water_budget_gal/history?from=${new Date(NOW - 86_400_000).toISOString()}&to=${new Date(NOW).toISOString()}` }).body;
   expect(base.desired.map((row: Body) => row.id)).toEqual([41]);
   expect(base.readback).toEqual([{ at: new Date(NOW - 86_400_000).toISOString(), value: 250 }]);
   // setting-history-release: the row before Jason's is a release.
   const released = fixture("setting-history-release", { now: NOW })["API-12"];
-  expect(released.desired.map((row: Body) => [row.value, row.state])).toEqual([[null, "released"], [1.55, "confirmed"]]);
+  expect(released.desired.map((row: Body) => [row.value, row.state])).toEqual([[null, "released"], [630, "confirmed"]]);
   // setting-history-older: the window holds the newest row alone; 90 days back holds the row before it too.
   const older = createFixtureHandler({ fixture: "setting-history-older", clock: () => NOW });
-  const reach = (daysBack: number) => older.respond({ url: `/v1/settings/mister_engage_kpa/history?from=${new Date(NOW - daysBack * 86_400_000).toISOString()}&to=${new Date(NOW).toISOString()}` }).body.desired.map((row: Body) => row.id);
+  const reach = (daysBack: number) => older.respond({ url: `/v1/settings/outdoor_staleness_max_s/history?from=${new Date(NOW - daysBack * 86_400_000).toISOString()}&to=${new Date(NOW).toISOString()}` }).body.desired.map((row: Body) => row.id);
   expect([reach(7), reach(90)]).toEqual([[202], [201, 202]]);
 });
 
@@ -391,8 +391,8 @@ test("each named fixture serves what the table says", () => {
   const fault = set("mister-fault")["API-IRR-01"].lines.find((row: Body) => row.line_id === "L04");
   expect(fault).toMatchObject({ fault: "mister_fault", fault_until: "2026-11-03T07:00:00.000Z" });
   expect(set("mister-fault")["API-14"].items).toEqual([expect.objectContaining({ alert_type: "irrigation_line_faulted", status: "open" })]);
-  const lane = set("superseded-lane")["API-07"].lanes.find((row: Body) => row.param === "mister_engage_kpa");
-  expect(lane).toMatchObject({ applied_from: "desired", desired: { value: 1.55, manual: false, created_at: "2026-11-02T15:00:00.000Z" }, waypoints: [{ at: "2026-11-02T20:00:00.000Z", value: 1.7, effective: false }] });
+  const lane = set("superseded-lane")["API-07"].lanes.find((row: Body) => row.param === "outdoor_staleness_max_s");
+  expect(lane).toMatchObject({ applied_from: "desired", desired: { value: 630, manual: false, created_at: "2026-11-02T15:00:00.000Z" }, waypoints: [{ at: "2026-11-02T20:00:00.000Z", value: 720, effective: false }] });
   expect(set("superseded-lane")["API-07"].plan).toMatchObject({ written_at: "2026-11-02T14:02:00.000Z", plan_id: "iris-20261102-0702" });
   const missed = set("missed-sunset");
   expect(missed["API-02"].iris.required_trigger).toBe("missed");
@@ -402,16 +402,16 @@ test("each named fixture serves what the table says", () => {
   const unplanned = set("no-plan");
   expect(unplanned["API-07"]).toMatchObject({ plan: null, no_plan_since: "2026-11-02T16:30:00.000Z", manual_count: 0 });
   expect((unplanned["API-07"].lanes as Body[]).map((row) => [row.param, row.waypoints, row.applied_from])).toEqual([
-    ["mister_engage_kpa", [], "default"], ["mister_pulse_gap_s", [], "default"], ["mister_engage_delay_s", [], "default"],
+    ["outdoor_staleness_max_s", [], "default"], ["mister_min_off_s", [], "default"], ["mister_engage_delay_s", [], "default"],
   ]);
   expect(unplanned["API-02"].iris).toMatchObject({ plan_id: null, trigger: null, valid_until: null });
   expect((unplanned["API-09"].items as Body[]).filter((row) => row.plan !== null)).toEqual([]);
   const manualLane = set("manual-lane")["API-07"];
   expect(manualLane.manual_count).toBe(1);
-  expect((manualLane.lanes as Body[]).find((row) => row.param === "mister_pulse_on_s")).toMatchObject({
-    applied_from: "manual", waypoints: [], desired: { value: 60, manual: true, actor: { source: "dashboard", name: "jason" }, created_at: "2026-10-30T16:00:00.000Z" },
+  expect((manualLane.lanes as Body[]).find((row) => row.param === "sw_direct_wet_gate_enabled")).toMatchObject({
+    applied_from: "manual", waypoints: [], desired: { value: 0, manual: true, actor: { source: "dashboard", name: "jason" }, created_at: "2026-10-30T16:00:00.000Z" },
   });
-  expect(set("manual-lane")["API-09"].items.find((row: Body) => row.param === "mister_pulse_on_s")).toMatchObject({ applied_from: "manual", desired: { manual: true } });
+  expect(set("manual-lane")["API-09"].items.find((row: Body) => row.param === "sw_direct_wet_gate_enabled")).toMatchObject({ applied_from: "manual", desired: { manual: true } });
   const rule = set("forecast-rule");
   expect(rule["API-07"].lanes.find((row: Body) => row.param === "mister_engage_delay_s").waypoints).toEqual([
     { at: "2026-11-02T21:00:00.000Z", value: 90, source: "preemptive", effective: true },
@@ -500,13 +500,13 @@ test("Now's fixtures (#1129): too hot alone, a null RH, band rows with no time, 
 });
 
 test("fixture() reads requested-to-confirmed and flow-after-stop after their writes; the fixture API starts before them", () => {
-  const row = (set: Record<string, Body>) => ((set["API-09"] as Body).items as Body[]).find((item) => item.param === "mister_engage_kpa")!;
+  const row = (set: Record<string, Body>) => ((set["API-09"] as Body).items as Body[]).find((item) => item.param === "outdoor_staleness_max_s")!;
   const confirmed = fixture("requested-to-confirmed", { now: NOW });
-  expect(confirmed["API-10"]).toMatchObject({ value: 1.55, snapped_from: 1.53, state: "requested", manual_before: false });
-  expect(row(confirmed)).toMatchObject({ state: "confirmed", applied_from: "manual", readback: { value: 1.55 }, desired: { value: 1.55, state: "confirmed", state_reason: null } });
+  expect(confirmed["API-10"]).toMatchObject({ value: 630, snapped_from: 640, state: "requested", manual_before: false });
+  expect(row(confirmed)).toMatchObject({ state: "confirmed", applied_from: "manual", readback: { value: 630 }, desired: { value: 630, state: "confirmed", state_reason: null } });
   const refused = fixture("requested-to-confirmed", { now: NOW, confirm: false });
   expect(row(refused)).toMatchObject({ state: "not_confirmed", desired: { state: "not_confirmed", state_reason: { code: "no_match", since: refused["API-10"].created_at } } });
-  expect(refused["API-07"].lanes.find((lane: Body) => lane.param === "mister_engage_kpa")).toMatchObject({ applied_from: "manual", desired: { state: "not_confirmed" } });
+  expect(refused["API-07"].lanes.find((lane: Body) => lane.param === "outdoor_staleness_max_s")).toMatchObject({ applied_from: "manual", desired: { state: "not_confirmed" } });
   expect(row({ "API-09": get(handler("requested-to-confirmed", { confirm: false }), "/v1/settings") })).toMatchObject({ state: "confirmed", desired: null });
   const stopped = fixture("flow-after-stop", { now: NOW });
   expect(stopped["API-IRR-07"]).toMatchObject({ kind: "stop", line_id: null, status: "pending" });
@@ -597,7 +597,7 @@ test("the listener serves HTTP with no-store, the /api prefix and a 16 KiB body 
   expect((await request(api).get("/api/v1/me")).body).toMatchObject({ role: "operator" });
   expect((await request(api).get("/v1/nope")).status).toBe(404);
   expect((await request(api).delete("/v1/now")).headers.allow).toBe("GET");
-  const big = await request(api).put("/v1/settings/mister_engage_kpa").set("Content-Type", "application/json").send(JSON.stringify({ reason: "x".repeat(17_000) }));
+  const big = await request(api).put("/v1/settings/outdoor_staleness_max_s").set("Content-Type", "application/json").send(JSON.stringify({ reason: "x".repeat(17_000) }));
   expect(big.status).toBe(413);
   const login = await request(api).get("/auth/login?returnTo=%2Fwater");
   expect(login.status).toBe(302);
@@ -788,8 +788,8 @@ test("the forecast keys read source forecast with issued_at; below a 1 h bucket 
 test("plan-next: a manual lane with a waypoint, Iris's 13:00 and a forecast rule at the same time, and SUNSET the next trigger; l01-paused names who paused it and why", () => {
   const plan = get(handler("plan-next"), "/v1/plan");
   const lane = (param: string) => (plan.lanes as Body[]).find((row) => row.param === param)!;
-  expect(lane("mister_pulse_on_s")).toMatchObject({ applied_from: "manual", waypoints: [{ value: 75, source: "iris", effective: true }] });
-  expect(lane("mister_engage_kpa")).toMatchObject({ waypoints: [{ value: 1.7, source: "iris", at: "2026-11-02T20:00:00.000Z" }] });
+  expect(lane("sw_direct_wet_gate_enabled")).toMatchObject({ applied_from: "manual", waypoints: [{ value: 1, source: "iris", effective: true }] });
+  expect(lane("outdoor_staleness_max_s")).toMatchObject({ waypoints: [{ value: 720, source: "iris", at: "2026-11-02T20:00:00.000Z" }] });
   expect(lane("mister_engage_delay_s")).toMatchObject({ waypoints: [{ value: 90, source: "preemptive", at: "2026-11-02T20:00:00.000Z" }] });
   const ahead = (plan.health as Body[]).filter((row) => row.outcome === "expected").map((row) => row.trigger);
   expect(ahead).toEqual(["SUNSET", "MIDNIGHT"]);

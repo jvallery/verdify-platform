@@ -30,19 +30,20 @@ async function download(page: Page, name: string) {
 /** Opens the toolbar's Layers menu. */
 const layers = (page: Page) => page.locator(".gr-layers > summary").click();
 
-test("/graphs?range=72h&set=mister_engage_kpa: one stack of three panels on one time axis, the setting's steps and the lanes; reloading renders the same view", async ({ page, request }) => {
+test("/graphs?range=72h&set=mister_hysteresis_kpa: one stack of three panels on one time axis, the setting's steps and the lanes; reloading renders the same view", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
-  await load(page, "/graphs?range=72h&set=mister_engage_kpa");
+  await load(page, "/graphs?range=72h&set=mister_hysteresis_kpa");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Climate");
   await expect(names(page)).toHaveText(["Temperature °F", "VPD kPa", "RH %"]);
   await expect(plots(page).locator("canvas")).toHaveCount(3);
   await expect(head(page, "temperature")).toHaveText(/^in band 100% · low \d\d\.\d \(.+\) · mean \d\d\.\d · high \d\d\.\d \(.+\)$/);
   await expect(page.locator(".lanes-canvas canvas")).toHaveCount(1);
   await expect(page.locator(".lanes-group-name")).toHaveText(["Climate", "Misting", "Irrigation", "Lighting", "Sensors"]);
-  await expect(page.getByRole("list", { name: "Settings drawn as steps" }).getByRole("listitem")).toContainText(["VPD Mister Engage · VPD"]);
+  await expect(page.getByRole("list", { name: "Settings drawn as steps" }).getByRole("listitem")).toContainText(["Mister Hysteresis · VPD"]);
   await expect(page.getByRole("list", { name: "Range" }).getByRole("link", { name: "72 h" })).toHaveAttribute("aria-current", "page");
-  // The VPD panel's key names the setting and says it sits above the band-fitted axis; no word is painted in a plot (#1354).
-  await expect(page.locator("[data-panel=vpd] .stack-key li").filter({ hasText: /^VPD Mister Engage \d\.\d\d\s?kPa · above the chart ↑$/ })).toHaveCount(1);
+  // The VPD panel's key names the setting and says it sits below the band-fitted axis; no word is painted in a plot (#1354).
+  // Release 4 (#1633): the kPa setting drawn here is the mister hysteresis (0.10 kPa), under any VPD band.
+  await expect(page.locator("[data-panel=vpd] .stack-key li").filter({ hasText: /^Mister Hysteresis \d\.\d\d\s?kPa · below the chart ↓$/ })).toHaveCount(1);
   // A lane's run fills in its line's colour; its cause is written after it, so the lanes' key names no cause.
   await expect(page.locator(".chart-lanes .chart-key li").filter({ hasText: /^VPD$/ })).toHaveCount(0);
   const first = await windowReads(request);
@@ -165,9 +166,9 @@ test("the event rail marks writes, alerts and runs, each opening its Activity en
   await load(page, "/graphs?range=24h");
   const rail = page.getByRole("group", { name: /^Events on the charts, 7$/ });
   await expect(rail).toHaveCount(1);
-  await rail.getByRole("button", { name: "08:42 · jason · Set VPD Mister Engage" }).click();
+  await rail.getByRole("button", { name: "08:42 · jason · Set Outdoor Staleness Max" }).click();
   // 24 h now has 24 h ahead, so 08:42 and 09:00 sit within 8 px and share one mark.
-  await expect(page.getByRole("list", { name: "Events at this mark" }).getByRole("link", { name: "08:42 · jason · Set VPD Mister Engage" })).toHaveAttribute("href", "/activity/log?target=mister_engage_kpa#activity-15");
+  await expect(page.getByRole("list", { name: "Events at this mark" }).getByRole("link", { name: "08:42 · jason · Set Outdoor Staleness Max" })).toHaveAttribute("href", "/activity/log?target=outdoor_staleness_max_s#activity-15");
   // On a wide screen the list is always shown, under the stack.
   const list = page.getByRole("region", { name: "Events in this window (7)" });
   await expect(list).toBeVisible();

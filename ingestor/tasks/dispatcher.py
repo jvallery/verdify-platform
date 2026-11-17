@@ -51,8 +51,6 @@ from verdify_schemas.tunable_registry import (
 from . import band_anchors
 from ._common import (
     _PHYSICS_INVARIANTS,
-    AI_MOISTURE_STRESS_POLICY_PARAMS,
-    AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS,
     BAND_DRIVEN_PARAMS,
     CROP_BAND_REG,
     DIRECT_WET_DEFAULTS,
@@ -60,13 +58,10 @@ from ._common import (
     DIRECT_WET_REQUIRED_OBJECT_IDS,
     FIRMWARE_HAS_LIGHTING_TARGET_MINUTES,
     FIRMWARE_HAS_PER_CIRCUIT_LIGHTING,
-    FORCED_ON_SWITCH_PARAMS,
     GREENHOUSE_ID,
     HEAP_DEFER_FREE_KB,
     HEAP_DEFER_LARGEST_BLOCK_KB,
     HOUSE_BAND_PARAMS,
-    HOUSE_VPD_LOW_MARGIN_KPA,
-    HOUSE_VPD_MIN_WIDTH_KPA,
     LIGHTING_CIRCUIT_DEFAULT_PARAMS,
     LIGHTING_CIRCUIT_LUX_PARAMS,
     LIGHTING_CIRCUIT_SUPPORT_SENTINELS,
@@ -362,14 +357,6 @@ def _direct_wet_policy_supported() -> bool:
     return any(param in shared.cfg_readback for param in DIRECT_WET_POLICY_PARAMS)
 
 
-def _ai_moisture_stress_policy_supported() -> bool:
-    """Return true once firmware exposes PR3 direct-wet/fog stress controls."""
-    keys = shared.esp32.get("keys") or {}
-    if keys:
-        return AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS.issubset(set(keys))
-    return AI_MOISTURE_STRESS_POLICY_PARAMS.issubset(set(shared.cfg_readback))
-
-
 def _dry_cost_limit_supported() -> bool:
     """Whether the connected controller lists the drying cost limit's number entity and its readback (phase 3
     firmware). Until it does, a stored limit or its release is not sent, so an older build, or a rollback to one,
@@ -419,8 +406,6 @@ def _dispatch_source(
         return "band"
     if param in MISTER_DEFAULTS:
         return "band"
-    if param in FORCED_ON_SWITCH_PARAMS:
-        return "manual"
     return "band"
 
 
@@ -430,6 +415,17 @@ def _log_desired_skip_once(param: str, reason: str, *, warning: bool = False) ->
         return
     _DESIRED_SKIPS_LOGGED.add((param, reason))
     (log.warning if warning else log.info)("desired_state skipped param=%s reason=%s", param, reason)
+
+
+def _log_not_sent_once(param: str, reason: str) -> None:
+    """Log once per parameter and reason a setting the pass resolved (band, default or desired) but never sends.
+
+    The generic skip of #1633 phase 4: the controller lists no entity for it. Not a desired_state skip, so it has its
+    own message."""
+    if (param, reason) in _DESIRED_SKIPS_LOGGED:
+        return
+    _DESIRED_SKIPS_LOGGED.add((param, reason))
+    log.info("setting not sent param=%s reason=%s", param, reason)
 
 
 def _dispatcher_resolves(param: str, *, lighting_circuit: bool) -> bool:
@@ -480,7 +476,6 @@ def _desired_skip_reason(
     lighting_circuit: bool,
     lighting_target_minutes: bool,
     direct_wet: bool,
-    ai_moisture_stress: bool,
     dry_cost_limit: bool = False,
 ) -> str | None:
     """Why the dispatcher sends nothing for this desired_state row, or None.
@@ -504,8 +499,6 @@ def _desired_skip_reason(
         return "firmware has no lighting target minutes"
     if param in DIRECT_WET_POLICY_PARAMS and not direct_wet:
         return "firmware has no direct-wet policy"
-    if param in AI_MOISTURE_STRESS_POLICY_PARAMS and not ai_moisture_stress:
-        return "firmware has no moisture-stress policy"
     if param == DRY_COST_LIMIT_PARAM and not dry_cost_limit:
         return "firmware has no drying cost limit"
     return None
@@ -523,9 +516,6 @@ def _fenced_desired_value(param: str, requested: float, audit) -> float:
     if violation is not None:
         audit(param, requested, value, 0.0, 0.0, violation, from_plan=False)
         log.warning("FW-3 invariant: desired %s=%s clamped to %s (%s)", param, requested, value, violation)
-    if param in FORCED_ON_SWITCH_PARAMS and value < 0.5:
-        audit(param, requested, 1.0, 1.0, 1.0, "forced_on_guardrail", from_plan=False)
-        value = 1.0
     if param.startswith("sw_"):
         value = 1.0 if value > 0.5 else 0.0
     return float(value)
@@ -715,65 +705,6 @@ async def _write_clamp_audit_rows(
     return written
 
 
-def _finite_positive(value: object) -> float | None:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if math.isfinite(numeric) and numeric > 0.0:
-        return numeric
-    return None
-
-
-def _median(values: list[float]) -> float:
-    ordered = sorted(values)
-    mid = len(ordered) // 2
-    if len(ordered) % 2:
-        return ordered[mid]
-    return (ordered[mid - 1] + ordered[mid]) / 2.0
-
-
-def _house_vpd_control_band(band_row, zone_row) -> dict[str, float]:
-    """Derive the firmware's house VPD band from crop and zone policy.
-
-    `fn_band_setpoints()` is crop-science policy and can be pulled toward the
-    strictest crop. Firmware controls one air mass, so its global VPD band uses
-    the median zone target while per-zone mister targets still protect localized
-    crop stress.
-    """
-    base_low = float(band_row["vpd_low"])
-    base_high = float(band_row["vpd_high"])
-    if not zone_row:
-        return {"vpd_low": base_low, "vpd_high": base_high}
-
-    targets = [
-        target
-        for param in (
-            "vpd_target_south",
-            "vpd_target_west",
-            "vpd_target_east",
-            "vpd_target_center",
-        )
-        if (target := _finite_positive(zone_row[param])) is not None
-    ]
-    if not targets:
-        return {"vpd_low": base_low, "vpd_high": base_high}
-
-    min_target = min(targets)
-    max_target = max(targets)
-    house_high = min(max_target, max(base_high, _median(targets)))
-    # Crop policy can create a very narrow tactical VPD band when one zone is
-    # strict and another is dry. The firmware controls one air mass, so keep a
-    # minimum deadband by relaxing the low side instead of pushing high-side
-    # stress above the crop target.
-    house_low = max(base_low, min_target - HOUSE_VPD_LOW_MARGIN_KPA)
-    house_low = min(house_low, house_high - HOUSE_VPD_MIN_WIDTH_KPA)
-    house_low = max(0.1, house_low)
-    if house_high - house_low < HOUSE_VPD_MIN_WIDTH_KPA:
-        house_low = max(0.1, house_high - HOUSE_VPD_MIN_WIDTH_KPA)
-    return {"vpd_low": round(house_low, 3), "vpd_high": round(house_high, 3)}
-
-
 def _control_band_from_house_row(house_row) -> dict[str, float] | None:
     if not house_row:
         return None
@@ -892,7 +823,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             param in shared.cfg_readback for param in LIGHTING_TARGET_MINUTE_PARAMS
         )
         direct_wet_supported = _direct_wet_policy_supported()
-        ai_moisture_stress_supported = _ai_moisture_stress_policy_supported()
         dry_cost_limit_supported = _dry_cost_limit_supported()
         quiet_state = await _fetch_quiet_state(conn)
         quiet_mode = quiet_state.get(QUIET_MODE_ENTITY)
@@ -1047,32 +977,15 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         # The safety limits are not dispatched: the controller compiles 40 F and 100 F, and the third flash deleted
         # their number entities (RULINGS AE7a).
 
-        # Mister tuning defaults: band-derived fallbacks (left to package 4.3, which retires these settings).
+        # Mister tuning default: the engage delay is the one mister setting left (release 4 deleted the engage and
+        # all-zone thresholds, the all-zone delay and the center penalty with the third flash).
         mister_defaults = {}
         if band_row and control_band:
-            vpd_hi = float(control_band["vpd_high"])
-            mister_defaults = {
-                "mister_engage_kpa": round(vpd_hi + 0.05, 2),
-                "mister_all_kpa": round(vpd_hi + 0.25, 2),
-                "mister_engage_delay_s": 30,
-                "mister_all_delay_s": 60,
-                "mister_center_penalty": 0.5,
-            }
+            mister_defaults = {"mister_engage_delay_s": 30}
             for param, val in mister_defaults.items():
                 if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
                     continue
                 changes.append((param, val))
-
-        for param in FORCED_ON_SWITCH_PARAMS:
-            readback = shared.current_cfg_readbacks().get(param)
-            if readback is not None and readback < 0.5:
-                if not any(existing_param == param for existing_param, _ in changes):
-                    log.warning(
-                        "Controller guardrail: cfg readback has %s=%.0f; forcing ON",
-                        param,
-                        readback,
-                    )
-                    changes.append((param, 1.0))
 
         if quiet_active:
             log.info(
@@ -1103,7 +1016,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 lighting_circuit=lighting_circuit_supported,
                 lighting_target_minutes=lighting_target_minutes_supported,
                 direct_wet=direct_wet_supported,
-                ai_moisture_stress=ai_moisture_stress_supported,
                 dry_cost_limit=dry_cost_limit_supported,
             )
             if skip is None and desired["value"] is not None and not math.isfinite(float(desired["value"])):
@@ -1147,16 +1059,14 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             deduped_changes[param] = float(value)
         changes = list(deduped_changes.items())
 
-        # DISPATCHER-02: a setting the connected controller does not list (#1633 phase 4) or a set_band_anchor key
-        # no longer sent never gets a readback. Left in, it would keep the oldest difference, sort first and fill
-        # every paced batch, so band, anchor and lighting changes would never go out. Drop them before the
-        # difference bookkeeping and pacing; the skip in the send loop below stays as a backstop.
+        # DISPATCHER-02: a setting the connected controller does not list (#1633 phase 4) never gets a readback.
+        # Left in, it would keep the oldest difference, sort first and fill every paced batch, so band, anchor and
+        # lighting changes would never go out. Drop them before the difference bookkeeping and pacing; the skip in
+        # the send loop below stays as a backstop.
         kept_changes: list[tuple[str, float]] = []
         for param, value in changes:
             if controller_omits_setting(param):
-                _log_desired_skip_once(param, "controller lists no setting entity")
-            elif param in band_anchors.ANCHOR_KEYS_NOT_SENT:
-                _log_desired_skip_once(param, "set_band_anchor key no longer sent")
+                _log_not_sent_once(param, "controller lists no setting entity")
             else:
                 kept_changes.append((param, value))
         changes = kept_changes
@@ -1261,10 +1171,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             if controller_omits_setting(param):
                 # The connected controller has no entity for this setting (#1633 phase 4): no request row, no
                 # delivery failure. A controller that lists it again (a rollback) receives it on the next pass.
-                _log_desired_skip_once(param, "controller lists no setting entity")
-                continue
-            if param in band_anchors.ANCHOR_KEYS_NOT_SENT:
-                _log_desired_skip_once(param, "set_band_anchor key no longer sent")
+                _log_not_sent_once(param, "controller lists no setting entity")
                 continue
             source = _dispatch_source(param, quiet_params, outgoing_desired, outgoing_released)
             plan_owned = False  # no plan writes a setting (climate refactor 4.2)
@@ -1343,8 +1250,9 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 skipped_heap_deferred += 1
                 _last_pushed.pop(param, None)
                 continue
-            # Separate request ownership from physical-sent evidence.  The
-            # LISTEN/NOTIFY claims only pending rows, so this explicit requested
+            # Separate request ownership from physical-sent evidence. The
+            # dispatcher is the only path that sends a setpoint_changes row (the
+            # NOTIFY push handler is retired, #1656), so this explicit requested
             # state cannot be double-delivered. recently_pushed/_last_pushed
             # move only after the API command returns successfully.
             # Lifecycle migration from the old pre-delivery row shape:

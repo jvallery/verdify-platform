@@ -97,24 +97,24 @@ CLIMATE_INTENT_FIELD_DOCS: tuple[ClimateIntentFieldDoc, ...] = (
         "forecast_temp_bias_f",
         "Forecast-backed hot-air pressure signal for the segment.",
         "-4..4F",
-        "Positive values make cooling more anticipatory without changing dispatcher-owned temp_low/temp_target/temp_high.",
-        ("cool_stage2_over_high_f", "sw_cool_all_fans_at_high_enabled"),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Use positive values when forecast or recent misses imply heat will outrun the band; use 0 when no hot miss is expected.",
     ),
     ClimateIntentFieldDoc(
         "forecast_vpd_bias_kpa",
         "Forecast-backed dry/wet pressure signal for the segment.",
         "-0.4..0.4 kPa",
-        "Positive values make wet actions more available without changing dispatcher-owned vpd_low/vpd_target/vpd_high.",
-        ("sw_direct_wet_stress_override_enabled", "mister_vpd_weight", "min_fog_on_s"),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Use positive values for dry forecast error or dry-air ventilation risk; use 0 or negative when dew/RH risk dominates.",
     ),
     ClimateIntentFieldDoc(
         "solar_precool_gain_f",
         "Solar ramp pressure that justifies cooling lead before peak heat.",
         "0..4F",
-        "Tightens stage-2 cooling and fan readiness before high solar load arrives.",
-        ("cool_stage2_over_high_f", "sw_cool_all_fans_at_high_enabled"),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Raise during steep solar ramps or known lag; lower after shade/clouds or evening recovery.",
     ),
     ClimateIntentFieldDoc(
@@ -129,74 +129,64 @@ CLIMATE_INTENT_FIELD_DOCS: tuple[ClimateIntentFieldDoc, ...] = (
         "economizer_temp_advantage_f",
         "Outdoor temperature advantage needed before vent cooling is attractive.",
         "1..15F",
-        "Materializes to vent preference and cold-vent guard thresholds.",
-        ("vent_prefer_temp_delta_f", "cold_vent_guard_delta_f"),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Lower when outside air can cool without cold shock; raise when cold-slug or oscillation risk is high.",
     ),
     ClimateIntentFieldDoc(
         "economizer_dewpoint_advantage_f",
         "Outdoor dewpoint advantage needed before dry-air decisions are attractive.",
         "1..15F",
-        "Materializes to dewpoint preference for vent/dehumidification choices.",
-        ("vent_prefer_dp_delta_f",),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Lower when outdoor air is safely drier and dehumidification is needed; raise when dry ventilation would worsen VPD stress.",
     ),
     ClimateIntentFieldDoc(
         "moisture_engage_vpd_excess_kpa",
         "How far above dispatcher-owned vpd_high VPD may rise before mister assist is eligible.",
         "0..0.5 kPa",
-        "Materializes targeted mister and direct-wet thresholds relative to the active dispatcher VPD band.",
-        ("direct_wet_stress_vpd_margin_kpa", "mister_engage_kpa"),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Keep near 0.05 kPa when VPD compliance is the bottleneck; raise only to conserve water after recovery is proven.",
     ),
     ClimateIntentFieldDoc(
         "all_zone_vpd_excess_kpa",
         "How far above dispatcher-owned vpd_high VPD may rise before all-zone mister rotation is eligible.",
         "0.05..0.8 kPa",
-        "Materializes the all-zone mister escalation threshold relative to the active dispatcher VPD band without forcing fog earlier.",
-        ("mister_all_kpa",),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Keep near 0.20-0.30 kPa during hot/dry recovery; raise when water use is high without VPD improvement or wetting risk is active.",
     ),
     ClimateIntentFieldDoc(
         "mist_duty_limit_pct",
         "Maximum climate-misting duty allowed during the segment.",
         "0..100%",
-        "Materializes mister pulse duration, wet aggression, and resource budget gates.",
-        (
-            "mister_pulse_on_s",
-            "mister_pulse_gap_s",
-            "mister_vpd_weight",
-            "sw_direct_wet_stress_override_enabled",
-        ),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Raise during hot/dry recovery windows with safe dew margin; lower for disease risk, occupancy, or resource conservation.",
     ),
     ClimateIntentFieldDoc(
         "fog_escalate_vpd_excess_kpa",
         "How far above dispatcher-owned vpd_high VPD may rise before fog assist is eligible.",
         "0.1..0.8 kPa",
-        "Materializes fog escalation relative to the active VPD band, independently from all-zone mist rotation.",
-        ("fog_escalation_kpa",),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Use lower values when VPD is repeatedly above band during ventilation and fog is safe; use higher values when fog overshoot or disease risk is the constraint.",
     ),
     ClimateIntentFieldDoc(
         "dew_margin_floor_f",
         "Minimum indoor air temperature minus dew point for wet climate actions.",
         "3..15F",
-        "Materializes fog/direct-wet dew margin floors and blocks condensation-risk wetting.",
-        ("direct_wet_stress_min_dew_margin_f", "fog_stress_min_dew_margin_f"),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Keep conservative at night or near leaf-wetness risk; do not lower it just to chase VPD compliance.",
     ),
     ClimateIntentFieldDoc(
         "wet_cutoff_hour",
         "Latest local hour for climate wetting in this segment.",
         "17..24",
-        "Materializes fog and direct-wet latest-hour limits.",
-        (
-            # direct_wet_stress_latest_hour retired (wire schema v2, #588):
-            # zero firmware presence — wet_cutoff_hour still bounds the fields below.
-            "fog_stress_window_latest_hour",
-            "sw_fog_stress_window_extend_enabled",
-        ),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Extend only when dry recovery is worth evening wetting risk and dew margin remains healthy.",
     ),
     ClimateIntentFieldDoc(
@@ -211,30 +201,16 @@ CLIMATE_INTENT_FIELD_DOCS: tuple[ClimateIntentFieldDoc, ...] = (
         "resource_sensitivity",
         "Preference for conserving water/electricity after safety and band compliance.",
         "0..1",
-        "Lengthens off dwell and reduces wet/cooling aggression when compliance allows it.",
-        (
-            "mister_pulse_gap_s",
-            "min_fog_off_s",
-            "min_fog_on_s",
-            "cool_stage2_over_high_f",
-            "sw_direct_wet_stress_override_enabled",
-        ),
+        "Audit context only since release 4: the settings it materialized left with the third flash.",
+        (),
         "Raise only after safety and compliance are stable; lower when temp or VPD is outside band.",
     ),
     ClimateIntentFieldDoc(
         "relay_churn_penalty",
         "Preference for holding stable actions instead of changing modes frequently.",
         "0..1",
-        "Materializes hysteresis, dwell, and mist delay values.",
-        (
-            "cool_exit_hysteresis_f",
-            "temp_hysteresis",
-            "vpd_hysteresis",
-            "vpd_watch_dwell_s",
-            "dwell_gate_ms",
-            "mister_engage_delay_s",
-            "mister_all_delay_s",
-        ),
+        "Materializes the mister engage delay (the hysteresis and dwell settings it also drove left with the third flash).",
+        ("mister_engage_delay_s",),
         "Raise when mode churn or relay wear is the observed failure; lower when response lag is missing compliance windows.",
     ),
 )
@@ -491,8 +467,7 @@ def climate_intent_materialization_guardrails(
 
     ctx = _climate_intent_pressure_context(intent, base_params)
     annotations: list[dict[str, object]] = []
-    materialized = materialized_params or {}
-    wet_switch = _finite_number(materialized.get("sw_direct_wet_stress_override_enabled"))
+    del materialized_params  # release 4: no materialized setting feeds these annotations any more
 
     if ctx["compliance_wet_required"] and (
         intent.mist_duty_limit_pct < 25.0
@@ -502,7 +477,6 @@ def climate_intent_materialization_guardrails(
         or intent.moisture_engage_vpd_excess_kpa > 0.05
         or intent.all_zone_vpd_excess_kpa > 0.25
         or intent.wet_cutoff_hour < 19.0
-        or wet_switch == 0.0
     ):
         annotations.append(
             {
@@ -521,7 +495,6 @@ def climate_intent_materialization_guardrails(
         or intent.moisture_engage_vpd_excess_kpa > 0.1
         or intent.all_zone_vpd_excess_kpa > 0.3
         or intent.wet_cutoff_hour < 19.0
-        or wet_switch == 0.0
     ):
         annotations.append(
             {
@@ -563,85 +536,25 @@ def materialize_climate_intent_tier1(
     """
 
     params = _tier1_base_params(base_params)
-    temp_high = _base_registry_value("temp_high", base_params)
-    vpd_low = _base_registry_value("vpd_low", base_params)
-    vpd_high = _base_registry_value("vpd_high", base_params)
-    vpd_width = max(0.35, min(1.2, vpd_high - vpd_low))
-    resource = max(0.0, min(1.0, intent.resource_sensitivity))
     churn = max(0.0, min(1.0, intent.relay_churn_penalty))
-    duty = max(0.0, min(1.0, intent.mist_duty_limit_pct / 100.0))
     ctx = _climate_intent_pressure_context(intent, base_params)
-    temp_above_high = float(ctx["temp_above_high_f"])
-    compliance_wet_required = bool(ctx["compliance_wet_required"])
-    forecast_wet_required = bool(ctx["forecast_wet_required"])
-    dry_forecast_pressure = float(ctx["dry_forecast_pressure"])
-    if compliance_wet_required:
-        resource = min(resource, 0.35)
+    if ctx["compliance_wet_required"]:
         churn = min(churn, 0.5)
-        duty = max(duty, 0.25)
-    elif forecast_wet_required:
-        resource = min(resource, 0.6)
+    elif ctx["forecast_wet_required"]:
         churn = min(churn, 0.75)
-        duty = max(duty, 0.15)
-    solar_pressure = max(0.0, min(1.0, intent.solar_precool_gain_f / 4.0))
-    hot_forecast_pressure = max(0.0, min(1.0, intent.forecast_temp_bias_f / 4.0))
-    wet_aggression = max(0.0, min(1.0, (duty + dry_forecast_pressure + (1.0 - resource)) / 3.0))
-    if compliance_wet_required or forecast_wet_required:
-        wet_aggression = max(wet_aggression, 0.35)
-    moisture_engage_vpd_excess_kpa = intent.moisture_engage_vpd_excess_kpa
-    all_zone_vpd_excess_kpa = intent.all_zone_vpd_excess_kpa
-    fog_escalate_vpd_excess_kpa = intent.fog_escalate_vpd_excess_kpa
-    # wet_cutoff_hour no longer materializes to a Tier 1 knob:
-    # direct_wet_stress_latest_hour was retired in wire schema v2 (#588,
-    # zero firmware presence). The intent field stays as bounded audit
-    # context for the guardrail annotations.
     daily_mist_budget_gal = intent.daily_mist_budget_gal
-    if forecast_wet_required:
-        moisture_engage_vpd_excess_kpa = min(moisture_engage_vpd_excess_kpa, 0.1)
-        all_zone_vpd_excess_kpa = min(all_zone_vpd_excess_kpa, 0.3)
-        fog_escalate_vpd_excess_kpa = min(fog_escalate_vpd_excess_kpa, 0.3)
+    if ctx["forecast_wet_required"]:
         daily_mist_budget_gal = max(daily_mist_budget_gal, 60.0)
-    if compliance_wet_required:
-        moisture_engage_vpd_excess_kpa = min(moisture_engage_vpd_excess_kpa, 0.05)
-        all_zone_vpd_excess_kpa = min(all_zone_vpd_excess_kpa, 0.25)
-        fog_escalate_vpd_excess_kpa = min(fog_escalate_vpd_excess_kpa, 0.2 if temp_above_high > 0.0 else 0.25)
+    if ctx["compliance_wet_required"]:
         daily_mist_budget_gal = max(daily_mist_budget_gal, 120.0)
 
+    # Release 4 (#1633, coordinator shape B): the intent materializes only settings that still exist. The 43 policy
+    # wire slots it used to drive (hysteresis, dwell, fog, mister thresholds and pulses, vent preferences) left with
+    # the third flash; their derivations are deleted. The other intent fields are audit context for the guardrails.
     params.update(
         {
-            "cool_stage2_over_high_f": 1.8 - (0.7 * solar_pressure) - (0.4 * hot_forecast_pressure) + (0.3 * resource),
-            "cool_exit_hysteresis_f": 0.7 + (1.8 * churn),
-            "temp_hysteresis": 0.7 + (1.8 * churn),
-            "sw_cool_all_fans_at_high_enabled": 1.0 if solar_pressure >= 0.5 or hot_forecast_pressure >= 0.5 else 0.0,
-            "vent_prefer_temp_delta_f": intent.economizer_temp_advantage_f,
-            "vent_prefer_dp_delta_f": intent.economizer_dewpoint_advantage_f,
-            "cold_vent_guard_delta_f": max(6.0, min(15.0, intent.economizer_temp_advantage_f + 4.0)),
-            "direct_wet_stress_vpd_margin_kpa": moisture_engage_vpd_excess_kpa,
-            "direct_wet_stress_min_dew_margin_f": intent.dew_margin_floor_f,
-            # direct_wet_stress_latest_hour retired (wire schema v2, #588): the
-            # materializer no longer emits the dead parameter row; wet_cutoff_hour
-            # still bounds the wet-assist clamps computed above.
-            "sw_direct_wet_stress_override_enabled": 1.0 if wet_aggression >= 0.35 else 0.0,
-            "fog_escalation_kpa": fog_escalate_vpd_excess_kpa,
-            "mister_engage_kpa": vpd_high + moisture_engage_vpd_excess_kpa,
-            "mister_all_kpa": vpd_high + all_zone_vpd_excess_kpa,
-            "mister_vpd_weight": 1.0 + (2.0 * wet_aggression),
-            "mister_pulse_on_s": 15.0 + (75.0 * duty),
-            "mister_pulse_gap_s": 15.0 + (75.0 * resource),
             "mister_engage_delay_s": 15.0 + (45.0 * churn),
-            "mister_all_delay_s": 30.0 + (90.0 * churn),
             "mister_water_budget_gal": daily_mist_budget_gal,
-            "min_fog_on_s": 30.0 + (45.0 * max(dry_forecast_pressure, 1.0 - resource)),
-            "min_fog_off_s": 30.0 + (120.0 * resource),
-            "vpd_hysteresis": max(0.1, min(0.5, vpd_width * 0.25 + churn * 0.1)),
-            "vpd_watch_dwell_s": 15.0 + (75.0 * churn),
-            "dwell_gate_ms": 60000.0 + (300000.0 * churn),
-            "sw_dwell_gate_enabled": 1.0,
-            "sw_summer_vent_enabled": 1.0,
-            "sw_fog_closes_vent": 1.0,
-            "sw_mister_closes_vent": 0.0
-            if temp_high >= 70.0 and wet_aggression >= 0.35
-            else params["sw_mister_closes_vent"],
         }
     )
 

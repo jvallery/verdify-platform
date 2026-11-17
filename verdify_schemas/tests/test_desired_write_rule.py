@@ -16,7 +16,6 @@ from verdify_schemas.tunable_registry import (
     READ_ONLY_REASONS,
     REGISTRY,
     WRITABLE_CONTROL_CLASSES,
-    ZONE_VPD_TARGET_PARAMS,
     desired_write_kind,
     desired_write_rule,
 )
@@ -52,7 +51,7 @@ L01_BRIDGE_ROWS = (
 @pytest.mark.parametrize(
     "name",
     [
-        "mister_engage_kpa",  # planner_policy
+        "mister_water_budget_gal",  # planner_policy
         "gl_main_lux_threshold",  # scheduled_policy
         "gl_main_target_light_minutes",  # per-circuit gl_* rows stay writable: a release hands them back to the policy
         "site_pressure_hpa",  # controller_safety
@@ -71,10 +70,9 @@ def test_the_legacy_wide_limits_are_read_only(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", ["vpd_target_south", "vpd_target_west", "vpd_target_east", "vpd_target_center"])
-def test_the_zone_vpd_targets_are_read_only_and_not_legacy(name: str) -> None:
-    """The controller still reads vpd_target_<zone> (controls.yaml), so it is not a legacy limit."""
-    assert desired_write_kind(name) == "zone_vpd_target"
-    assert desired_write_rule(name) == (False, READ_ONLY_REASONS["zone_vpd_target"])
+def test_the_deleted_zone_vpd_targets_are_unknown(name: str) -> None:
+    """The third flash deleted the legacy zone VPD target entities and release 4 their rows."""
+    assert desired_write_kind(name) == "unknown"
 
 
 @pytest.mark.parametrize(
@@ -128,17 +126,13 @@ def test_band_ownership_retired_readback_and_unknown_rows_are_not_writable() -> 
 def test_every_named_read_only_row_is_registered_and_of_a_writable_class() -> None:
     """A typo would leave a row writable; a row of a read-only class needs no entry."""
     assert BAND_OWNER_SWITCH in REGISTRY  # readback_context today; refused by name all the same
-    for name in LEGACY_WIDE_LIMIT_PARAMS | ZONE_VPD_TARGET_PARAMS:
-        assert name in REGISTRY, name
     for name in LEGACY_WIDE_LIMIT_PARAMS:
+        assert name in REGISTRY, name
         assert REGISTRY[name].control_class in WRITABLE_CONTROL_CLASSES, name
-    # The third flash deleted the legacy zone VPD target entities: retired, still refused by name until release 4.
-    for name in ZONE_VPD_TARGET_PARAMS:
-        assert REGISTRY[name].control_class == "retired", name
 
 
 def test_the_rule_matches_the_class_split_for_every_row() -> None:
-    named = LEGACY_WIDE_LIMIT_PARAMS | ZONE_VPD_TARGET_PARAMS | {BAND_OWNER_SWITCH}
+    named = LEGACY_WIDE_LIMIT_PARAMS | {BAND_OWNER_SWITCH}
     for name, spec in REGISTRY.items():
         writable, reason = desired_write_rule(name)
         expected = name not in named and (

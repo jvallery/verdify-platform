@@ -49,23 +49,17 @@ def test_service_name_contract_matches_firmware_and_push():
 
 
 def test_every_anchor_param_is_band_owned_and_synced():
-    # All 56 sync params route to the service (object_id == param name).
-    assert len(band_anchors.ANCHOR_SYNC_PARAMS) == 56
+    # All 53 sync params route to the service (object_id == param name).
+    assert len(band_anchors.ANCHOR_SYNC_PARAMS) == 53
     assert "band_vpd_target_mid" in band_anchors.ANCHOR_SYNC_PARAMS
     assert "zone_vpd_target_center_mid" in band_anchors.ANCHOR_SYNC_PARAMS
 
 
-def test_the_three_retired_anchor_keys_are_not_pushed_and_not_awaited():
-    """#1633 phase 4: the band push stops sending the three set_band_anchor keys the third flash removes; the
-    staged list keeps them (their registry rows leave with the firmware deletions)."""
+def test_the_three_deleted_window_anchors_are_gone():
+    """#1633 release 4: the third flash removed three set_band_anchor keys; their rows and the skip went with them."""
     retired = {"wet_taper_before_sunset_min", "dawn_boost_offset_min", "midday_boost_offset_min"}
-    assert band_anchors.ANCHOR_KEYS_NOT_SENT == retired
-    assert retired <= set(band_anchors.ANCHOR_SYNC_PARAMS)
-    pushes = band_anchors.desired_anchor_pushes(band_anchors.registry_default_anchor_values())
-    assert not retired & set(pushes)
-    assert set(pushes) == set(band_anchors.ANCHOR_SYNC_PARAMS) - retired
-    shared.cfg_readback.update(pushes)
-    assert band_anchors.anchors_confirmed(pushes)  # no readback is awaited for a key that is not sent
+    assert not retired & set(band_anchors.ANCHOR_SYNC_PARAMS)
+    assert not hasattr(band_anchors, "ANCHOR_KEYS_NOT_SENT")
 
 
 @pytest.mark.asyncio

@@ -436,8 +436,10 @@ def reviewer_write_alert(row: Mapping | None) -> dict | None:
 
 
 # ── Gap 4: the law's state record stale while the controller is connected ────
-# Gated on the law firmware being installed (a climate_law_state row in the last 7 days), on the controller being
-# connected (a diagnostics row in 2 min) and on the 60 s boot grace being over (uptime past 240 s).
+# Gated on the law firmware being installed (a climate_law_state row in the last 7 days) and RUNNING: the firmware
+# version reported now equals the one reported when the newest law record arrived, so a rollback to a build without
+# the law is not judged (release 3 review ALERTS-4); on the controller being connected (a diagnostics row in 2 min)
+# and on the 60 s boot grace being over (uptime past 240 s).
 LAW_STALE_AFTER_S = 180.0
 LAW_STATE_SQL = """
 SELECT (SELECT EXTRACT(EPOCH FROM now() - s.ts)::double precision FROM system_state s
@@ -445,13 +447,22 @@ SELECT (SELECT EXTRACT(EPOCH FROM now() - s.ts)::double precision FROM system_st
        (SELECT EXTRACT(EPOCH FROM now() - d.ts)::double precision FROM diagnostics d
          WHERE d.ts > now() - interval '10 minutes' ORDER BY d.ts DESC LIMIT 1) AS diag_age_s,
        (SELECT d.uptime_s FROM diagnostics d
-         WHERE d.ts > now() - interval '10 minutes' AND d.uptime_s IS NOT NULL ORDER BY d.ts DESC LIMIT 1) AS uptime_s
+         WHERE d.ts > now() - interval '10 minutes' AND d.uptime_s IS NOT NULL ORDER BY d.ts DESC LIMIT 1) AS uptime_s,
+       (SELECT d.firmware_version FROM diagnostics d
+         WHERE d.ts > now() - interval '7 days' AND d.firmware_version IS NOT NULL ORDER BY d.ts DESC LIMIT 1) AS fw_now,
+       (SELECT d.firmware_version FROM diagnostics d
+         WHERE d.firmware_version IS NOT NULL AND d.ts > now() - interval '8 days'
+           AND d.ts <= (SELECT max(s.ts) FROM system_state s
+                         WHERE s.entity = 'climate_law_state' AND s.ts > now() - interval '7 days')
+         ORDER BY d.ts DESC LIMIT 1) AS fw_law
 """
 
 
 def law_state_alert(row: Mapping | None) -> dict | None:
     if not row or row["law_age_s"] is None or row["diag_age_s"] is None or row["uptime_s"] is None:
         return None
+    if row["fw_now"] is None or row["fw_now"] != row["fw_law"]:
+        return None  # not the build that published the law record (rollback, or an unknown version)
     age = float(row["law_age_s"])
     if age <= LAW_STALE_AFTER_S or float(row["diag_age_s"]) > 120 or float(row["uptime_s"]) <= 240:
         return None
@@ -691,7 +702,10 @@ def probes_alert(rows: Sequence[Mapping]) -> dict | None:
 
 # ── Gap 18: an owner-held value changed by something else ────────────────────
 # The newest desired row for a setting (not an esp32 observation, not a smoke sentinel) is the owner's ('manual'),
-# the controller confirmed it more than 15 minutes ago, and every readback of the last 15 minutes differs from it.
+# the controller confirmed it more than 15 minutes ago, and the readbacks have differed from it for 15 minutes: the
+# newest readback differs and the first differing readback since the last matching one (or the confirmation) is over
+# 15 minutes old. Readbacks are stored on change, so no count of rows in a window is required (release 3 review
+# ALERTS-3).
 # Held values older than 30 days are not watched (the dispatcher re-writes manual values in force). The four legacy
 # band scalars are left out (unused under the on-chip band, K1).
 OWNER_HELD_SQL = """
@@ -703,16 +717,21 @@ WITH held AS (
        AND c.parameter IN (SELECT DISTINCT parameter FROM setpoint_changes
                             WHERE source = 'manual' AND ts > now() - interval '30 days')
      ORDER BY c.parameter, c.ts DESC
-), recent AS (
-    SELECT h.parameter, h.value AS held, count(*)::int AS n,
-           count(*) FILTER (WHERE abs(s.value - h.value) > greatest(0.001, abs(h.value) * 0.001))::int AS differ,
-           (array_agg(s.value ORDER BY s.ts DESC))[1] AS device
-      FROM held h JOIN setpoint_snapshot s ON s.parameter = h.parameter
+), judged AS (
+    SELECT h.parameter, h.value AS held, d.first_differ, d.device
+      FROM held h
+     CROSS JOIN LATERAL (
+            SELECT max(s.ts) AS last_same FROM setpoint_snapshot s
+             WHERE s.parameter = h.parameter AND s.ts >= h.confirmed_at
+               AND abs(s.value - h.value) <= greatest(0.001, abs(h.value) * 0.001)) m
+     CROSS JOIN LATERAL (
+            SELECT min(s.ts) AS first_differ, (array_agg(s.value ORDER BY s.ts DESC))[1] AS device
+              FROM setpoint_snapshot s
+             WHERE s.parameter = h.parameter AND s.ts >= h.confirmed_at AND s.ts > COALESCE(m.last_same, '-infinity')) d
      WHERE h.source = 'manual' AND h.confirmed_at < now() - interval '15 minutes'
-       AND s.ts > now() - interval '15 minutes'
-     GROUP BY h.parameter, h.value
 )
-SELECT parameter, held, device FROM recent WHERE n >= 3 AND differ = n ORDER BY parameter LIMIT 20
+SELECT parameter, held, device FROM judged
+ WHERE first_differ < now() - interval '15 minutes' ORDER BY parameter LIMIT 20
 """
 
 
@@ -1027,6 +1046,69 @@ def law_band_alert(rows: Sequence[Mapping]) -> tuple[dict | None, bool]:
     )
 
 
+# ── relay_counter_mismatch (RULINGS AF7): the controller's own relay counters against the stored edges ──────────────
+# v_relay_counter_reconciliation_daily (migration 315) holds, per local day and relay, the starts (fans: and run
+# seconds) summed from relay_counters deltas beside daily_relay_record's figures from the stored edges. The daily
+# record stays the source; this only says the two disagree. Yesterday's complete rows only, so each relay warns at
+# most once a day and the row closes at the next local midnight. Tolerance: the live data from the phase 2 flash
+# (2026-11-16 19:48Z to 21:58Z: fog 3 and 3, heat1 1 and 1, the rest 0 and 0, fan run 0 and 0) agreed exactly; the
+# allowance covers a start or a run that straddles midnight against the counters' sample cadence (about 25 min)
+# and a restart's lost increments. A day with fewer than 2 counter rows is not judged.
+COUNTER_STARTS_ABS = 2
+COUNTER_RUN_S_ABS = 1800
+COUNTER_REL = 0.10
+COUNTER_MIN_ROWS = 2
+COUNTER_RECONCILE_SQL = """
+SELECT date, equipment, counter_starts, record_starts, starts_difference,
+       counter_run_s, record_run_s, run_s_difference, counter_rows
+  FROM v_relay_counter_reconciliation_daily
+ WHERE greenhouse_id = 'vallery' AND comparison = 'complete'
+   AND date = (now() AT TIME ZONE 'America/Denver')::date - 1
+ ORDER BY equipment
+"""
+
+
+def counter_mismatch_alerts(rows: Sequence[Mapping]) -> list[dict]:
+    """One relay_counter_mismatch warning per relay whose counter figures for yesterday are outside the tolerance."""
+    out = []
+    for r in rows:
+        if r["counter_rows"] is None or int(r["counter_rows"]) < COUNTER_MIN_ROWS or r["record_starts"] is None:
+            continue
+        rec_starts = int(r["record_starts"])
+        d_starts = abs(int(r["starts_difference"] or 0))
+        starts_tol = max(COUNTER_STARTS_ABS, COUNTER_REL * rec_starts)
+        d_run = abs(float(r["run_s_difference"])) if r["run_s_difference"] is not None else 0.0
+        run_tol = max(COUNTER_RUN_S_ABS, COUNTER_REL * float(r["record_run_s"] or 0))
+        if d_starts <= starts_tol and d_run <= run_tol:
+            continue
+        day, eq = str(r["date"]), str(r["equipment"])
+        run = (
+            f"; run {int(r['counter_run_s'])} s against {round(float(r['record_run_s'] or 0))} s"
+            if r["counter_run_s"] is not None
+            else ""
+        )
+        out.append(
+            _warning(
+                "relay_counter_mismatch",
+                f"equipment.{eq}.counters.{day}",
+                "equipment",
+                f"{eq} on {day}: the controller counted {int(r['counter_starts'])} starts, the stored edges "
+                f"{rec_starts}{run} (missed or extra relay events in the record)",
+                {
+                    "day": day,
+                    "equipment": eq,
+                    "counter_starts": int(r["counter_starts"]),
+                    "record_starts": rec_starts,
+                    "counter_run_s": int(r["counter_run_s"]) if r["counter_run_s"] is not None else None,
+                    "record_run_s": round(float(r["record_run_s"]), 1) if r["record_run_s"] is not None else None,
+                },
+                round(max(d_starts / starts_tol, d_run / run_tol), 3),
+                1.0,
+            )
+        )
+    return out
+
+
 H3_TYPES = (
     "reviewer_wrote_climate",
     "law_state_stale",
@@ -1040,6 +1122,7 @@ H3_TYPES = (
     "outdoor_none_indoor_degraded",
     "outdoor_intake_only",
     "furnace_saturated",
+    "relay_counter_mismatch",
 )
 
 
@@ -1074,6 +1157,11 @@ async def coverage_cycle_h3(conn) -> tuple[list[dict], frozenset[str]]:
     judge("outdoor_none_indoor_degraded", await _read(conn, OUTDOOR_BLIND_SQL), outdoor_blind_alert)
     judge("outdoor_intake_only", await _read(conn, INTAKE_ONLY_SQL), intake_only_alert)
     judge("furnace_saturated", await _read(conn, FURNACE_SQL), furnace_alert)
+    counters = await _read(conn, COUNTER_RECONCILE_SQL, many=True)
+    if counters is _READ_FAILED:
+        failed.add("relay_counter_mismatch")
+    else:
+        alerts.extend(counter_mismatch_alerts(counters))
     return alerts, frozenset(failed)
 
 

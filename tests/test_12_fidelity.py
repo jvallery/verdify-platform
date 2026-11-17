@@ -128,16 +128,11 @@ def _assigned_set(path: Path, name: str) -> set[str]:
 # ── S24.9.1 — _SETPOINT_RANGES coverage ────────────────────────────
 
 
-def test_setpoint_ranges_covers_safety_rails():
+def test_setpoint_ranges_covers_the_band_limits():
     """The cfg_readback range-check applies the same _SETPOINT_RANGES the
-    setpoint_changes path uses. At minimum these safety rails must be in
-    the table — they're the 30-day zero-polluted params the firmware
-    sprint-13 historical-impact scan flagged."""
+    setpoint_changes path uses. The safety rails left with the third flash
+    (release 4 deleted their rows); the band limits stay in the table."""
     expected = {
-        "safety_min",
-        "safety_max",
-        "safety_vpd_min",
-        "safety_vpd_max",
         "temp_high",
         "temp_low",
         "vpd_high",
@@ -148,20 +143,18 @@ def test_setpoint_ranges_covers_safety_rails():
     )
 
 
-def test_setpoint_ranges_reject_zero_for_safety_min():
-    """Concrete check: safety_min=0 is out of [30, 60]. on_state_change's
-    cfg_readback path (Sprint 24.9) now drops this instead of storing it."""
-    lo, hi = ingestor._SETPOINT_RANGES["safety_min"]
-    assert not (lo <= 0.0 <= hi), "0 must fall OUTSIDE safety_min range"
+def test_setpoint_ranges_reject_zero_for_temp_low():
+    """Concrete check: temp_low=0 is out of range. on_state_change's
+    cfg_readback path (Sprint 24.9) drops this instead of storing it."""
+    lo, hi = ingestor._SETPOINT_RANGES["temp_low"]
+    assert not (lo <= 0.0 <= hi), "0 must fall OUTSIDE temp_low range"
     # Valid operational value is inside
-    assert lo <= 40.0 <= hi
+    assert lo <= 60.0 <= hi
 
 
 def test_setpoint_ranges_accepts_realistic_values():
     """Valid operational values must NOT be rejected."""
     r = ingestor._SETPOINT_RANGES
-    assert r["safety_min"][0] <= 40.0 <= r["safety_min"][1]
-    assert r["safety_max"][0] <= 100.0 <= r["safety_max"][1]
     assert r["temp_low"][0] <= 65.0 <= r["temp_low"][1]
     assert r["temp_high"][0] <= 78.0 <= r["temp_high"][1]
     assert r["vpd_low"][0] <= 0.8 <= r["vpd_low"][1]
@@ -236,28 +229,13 @@ def test_daily_summary_live_uses_scoring_eligible_meter_conservation_only():
 # ── S24.9.5 — zero-variance rule param list ────────────────────────
 
 
-def test_zero_variance_rule_covers_vpd_target_west():
-    """Firmware sprint-13 30-day scan surfaced vpd_target_west stuck at
-    1.2 kPa for 33k samples. The new alert rule must cover this param so
-    the same condition auto-alerts in future."""
-    # Rule lives inside alert_monitor's body. We verify the param appears
-    # in the tasks.py file as a string literal — coarser than ideal but
-    # doesn't require the full async DB path.
-
-    tasks_source = _tasks_src()
-    assert '"vpd_target_west"' in tasks_source or "'vpd_target_west'" in tasks_source
-    # All four zone targets should be in the zero-variance scan list
-    for param in ("vpd_target_south", "vpd_target_west", "vpd_target_east", "vpd_target_center"):
-        assert f'"{param}"' in tasks_source, f"zero-variance rule missing {param}"
-
-
-def test_zero_variance_rule_skips_empty_zone_target_fallbacks():
-    """A zone target pinned at its fallback is expected when that zone has no active crop."""
-
-    tasks_source = _tasks_src()
-    assert "active_crop_zones" in tasks_source
-    assert "zone_target_params" in tasks_source
-    assert "if zone in active_crop_zones" in tasks_source
+def test_zero_variance_rule_reads_only_the_band_edges():
+    """The per-zone VPD targets are retired with the third flash (contracts/phase4-firmware-deletions-host.md
+    section 3); the zero-variance rule scans the four band edges only."""
+    alerts_source = (REPO_ROOT / "ingestor" / "tasks" / "alerts.py").read_text()
+    block = alerts_source[alerts_source.index("# 14. Tunable zero-variance") : alerts_source.index("# 15. Setpoint")]
+    assert 'zero_var_params = ["temp_low", "temp_high", "vpd_low", "vpd_high"]' in block
+    assert "vpd_target_" not in block and "active_crop_zones" not in block
 
 
 def test_zero_variance_rule_also_covers_band_params():
@@ -331,7 +309,7 @@ def test_api_setpoint_fallback_uses_computed_band_not_planner_band_rows():
     api = path.read_text()
     module = runpy.run_path(str(path), run_name="_test_api_main")
     start = api.index("async def get_setpoints")
-    end = api.index("        # Per-zone VPD targets", start)
+    end = api.index("\nasync def ", start + 1)  # release 4 removed the per-zone VPD target block that ended it
     body = api[start:end]
 
     assert "SETPOINT_MAP_REG" in api
@@ -424,27 +402,6 @@ def test_lighting_status_and_timeline_follow_firmware_hysteresis():
     assert "legacy DLI target columns remain compatibility-only" in timeline
     assert "dli_today <" not in timeline
     assert "COALESCE(t.qualified_light_minutes, 0) < p.target_light_minutes" in occupancy_status
-
-
-def test_house_vpd_control_band_uses_zone_median_not_strictest_crop():
-    """The firmware controls one air mass; zone targets still drive misters."""
-    import tasks
-
-    band = {"vpd_low": 0.375, "vpd_high": 0.635}
-    zones = {
-        "vpd_target_south": 1.15,
-        "vpd_target_west": 1.20,
-        "vpd_target_east": 0.70,
-        "vpd_target_center": 0.635,
-    }
-
-    control = tasks._house_vpd_control_band(band, zones)
-
-    assert control["vpd_high"] > band["vpd_high"]
-    assert 0.90 <= control["vpd_high"] <= 1.00
-    assert control["vpd_low"] >= band["vpd_low"]
-    assert control["vpd_high"] - control["vpd_low"] >= 0.55
-    assert control["vpd_high"] <= max(zones.values())
 
 
 def test_band_trace_params_have_sensor_registry_readbacks():
@@ -916,17 +873,17 @@ def test_grafana_render_cache_warmer_is_retired():
 def test_dispatcher_coerces_registry_bounds_before_insert_and_push():
     import tasks
 
-    high_value, high_reason = tasks._coerce_registry_value("mister_all_kpa", 2.8)
-    assert high_value == 2.5
+    high_value, high_reason = tasks._coerce_registry_value("mister_water_budget_gal", 320.0)
+    assert high_value == 300.0
     assert high_reason is not None
-    assert "nearest_safe=2.5" in high_reason
+    assert "nearest_safe=300" in high_reason
 
     low_value, low_reason = tasks._coerce_registry_value("mister_engage_delay_s", 0)
     assert low_value == 30.0
     assert low_reason is not None
     assert "nearest_safe=30" in low_reason
 
-    switch_value, switch_reason = tasks._coerce_registry_value("sw_dwell_gate_enabled", 2.0)
+    switch_value, switch_reason = tasks._coerce_registry_value("sw_direct_wet_gate_enabled", 2.0)
     assert switch_value is None
     assert switch_reason is not None
     assert "outside registry switch values [0, 1]" in switch_reason
@@ -942,85 +899,6 @@ def test_dispatcher_direct_push_uses_dispatchable_changes_only():
     assert "dispatchable_changes.append((param, float(val), source))" in body
     assert "for param, val, _source in dispatchable_changes:" in body
     assert "for param, val in changes:" in body
-
-
-def test_dispatcher_gates_ai_moisture_stress_until_firmware_supports_entities():
-    """PR3 plan rows may exist before the OTA exposes matching ESPHome entities."""
-    import tasks
-
-    # fog_stress_* removed (BC-11/ADR0003 §6.7): retired dead registry rows.
-    assert {
-        "sw_direct_wet_stress_override_enabled",
-        "direct_wet_stress_vpd_margin_kpa",
-        "direct_wet_stress_min_dew_margin_f",
-    } == tasks.AI_MOISTURE_STRESS_POLICY_PARAMS
-    assert {
-        "direct_wet_stress_override_enabled",
-        "direct_wet_stress_vpd_margin_kpa",
-        "direct_wet_stress_min_dew_margin_f",
-    } == tasks.AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS
-
-    src = _tasks_src()
-    start = src.index("async def setpoint_dispatcher")
-    end = src.index("def _fetch_forecast", start)
-    body = src[start:end]
-    assert "ai_moisture_stress_supported = _ai_moisture_stress_policy_supported()" in body
-    assert "param in AI_MOISTURE_STRESS_POLICY_PARAMS and not ai_moisture_stress" in src  # _desired_skip_reason
-
-    original_keys = dict(tasks.shared.esp32.get("keys") or {})
-    original_readback = dict(tasks.shared.cfg_readback)
-    try:
-        tasks.shared.esp32["keys"] = {}
-        tasks.shared.cfg_readback.clear()
-        assert tasks._ai_moisture_stress_policy_supported() is False
-
-        tasks.shared.cfg_readback.update({param: 0.0 for param in tasks.AI_MOISTURE_STRESS_POLICY_PARAMS})
-        assert tasks._ai_moisture_stress_policy_supported() is True
-        for required in tasks.AI_MOISTURE_STRESS_POLICY_PARAMS:
-            tasks.shared.cfg_readback.pop(required)
-            assert tasks._ai_moisture_stress_policy_supported() is False
-            tasks.shared.cfg_readback[required] = 0.0
-
-        tasks.shared.cfg_readback.clear()
-        tasks.shared.esp32["keys"] = {key: object() for key in tasks.AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS}
-        assert tasks._ai_moisture_stress_policy_supported() is True
-        # Every current physical route remains mandatory. The retired clock
-        # route is absent from this successful connected-firmware fixture.
-        for required in tasks.AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS:
-            tasks.shared.esp32["keys"].pop(required)
-            assert tasks._ai_moisture_stress_policy_supported() is False
-            tasks.shared.esp32["keys"][required] = object()
-        assert "direct_wet_stress_latest_hour" not in tasks.AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS
-    finally:
-        tasks.shared.esp32["keys"] = original_keys
-        tasks.shared.cfg_readback.clear()
-        tasks.shared.cfg_readback.update(original_readback)
-
-
-def test_ai_moisture_stress_backfill_is_dry_run_first_and_routine_only():
-    script = (REPO_ROOT / "scripts" / "backfill-ai-moisture-stress-defaults.sh").read_text()
-    assert "Dry run only. Re-run with APPLY=1" in script
-    assert 'APPLY="${APPLY:-0}"' in script
-    assert "plan_id NOT LIKE 'iris-oneshot-%'" in script
-    assert "ON CONFLICT (ts, parameter, plan_id) DO UPDATE" in script
-    assert "WHERE setpoint_plan.is_active = false" in script
-    assert "PR3 default backfill for AI moisture stress contract alignment" in script
-    assert "from verdify_schemas.tunable_registry import REGISTRY" in script
-    assert "DEFAULTS_SQL" in script
-    assert "candidate_default_values" in script
-    assert "default_values" in script
-    assert "('fog_stress_window_latest_hour', 22.0)" not in script
-    assert "('fog_stress_min_dew_margin_f', 8.0)" not in script
-    for param in {
-        "sw_direct_wet_stress_override_enabled",
-        "direct_wet_stress_vpd_margin_kpa",
-        "direct_wet_stress_min_dew_margin_f",
-        "direct_wet_stress_latest_hour",
-        "sw_fog_stress_window_extend_enabled",
-        "fog_stress_window_latest_hour",
-        "fog_stress_min_dew_margin_f",
-    }:
-        assert param in script
 
 
 def test_dispatcher_writes_guardrail_hold_audits_without_setpoint_push():

@@ -363,12 +363,12 @@ def controller_omits_setting(param: str) -> bool:
     """Whether the connected controller's entity list has arrived and names no setting entity for ``param``.
 
     A host older or newer than the firmware must not fail delivery for a setting the controller does not have
-    (#1633 phase 4): the dispatcher, its reconcile, the band push and the notify listener send nothing for such a
-    parameter, and the confirmation monitor expects no readback for it. A controller that does list the entity is
-    unaffected, so a rollback to a build that still has the setting sends it again. Before the first entity list
-    arrives (no keys), nothing is omitted and the ordinary delivery path decides. A parameter with no number or
-    switch route, and no ``set_band_anchor`` key (they have number rows but go through the service), is never
-    omitted here.
+    (#1633 phase 4): the dispatcher, its reconcile and the band push send nothing for such a parameter (the notify
+    push path is retired, #1656), and the confirmation monitor expects no readback for it. A controller that does
+    list the entity is unaffected, so a rollback to a build that still has the setting sends it again. Before the
+    first entity list arrives (no keys), nothing is omitted and the ordinary delivery path decides. A parameter with
+    no number or switch route, and no ``set_band_anchor`` key (they have number rows but go through the service), is
+    never omitted here.
     """
     keys = shared.esp32.get("keys") or {}
     if not keys or param in FIRMWARE_V2_STAGED_REG:

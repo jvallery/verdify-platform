@@ -36,8 +36,10 @@ export const RESTART_SENT_TEXT = "Restart sent";
 /** The controller's uptime resets within this long of a restart (SCR-07). */
 export const RESTART_WINDOW_MS = 180_000;
 
-/** The modes the controller ignores bursts in (`manual_override` yields to safety). */
-const BURSTS_IGNORED: Readonly<Record<string, string>> = { SAFETY_COOL: "emergency cooling", SAFETY_HEAT: "emergency heating", SENSOR_FAULT: "a sensor fault" };
+/** The modes the controller ignores bursts in: 100 F and 40 F end every run (`manual_override` yields to safety). */
+const BURSTS_IGNORED: Readonly<Record<string, string>> = { SAFETY_COOL: "emergency cooling", SAFETY_HEAT: "emergency heating" };
+/** A sensor fault does not stop a burst: a manual run works without an indoor reading. */
+export const SENSOR_FAULT_BURSTS_TEXT = "Bursts still run during a sensor fault: a manual run works without an indoor reading, and 100 F and 40 F end every run";
 /** "Bursts are ignored during emergency cooling" while API-02 `mode.code` is one of them; null otherwise. */
 export function burstsIgnoredText(mode: string | null | undefined): string | null {
   const during = mode ? BURSTS_IGNORED[mode] : undefined;
@@ -190,6 +192,7 @@ function RunningBursts() {
       <ul className="chips">{now.overrides.map((burst) => <li key={burst.kind}><span className="chip chip-static" data-chip="burst">{burstWords(burst, clock)}</span></li>)}</ul>
     </div>}
     {ignored && <p className="fault" data-bursts="ignored">{ignored}</p>}
+    {now.mode.code === "SENSOR_FAULT" && <p className="state-note" data-bursts="sensor-fault">{SENSOR_FAULT_BURSTS_TEXT}</p>}
   </>;
 }
 

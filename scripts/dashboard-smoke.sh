@@ -15,7 +15,7 @@
 #   scripts/dashboard-smoke.sh --role operator --lights [--expected-web-sha <40 hex>]
 #
 # Every run in the web pod starts with /readyz: status ready at --expected-web-sha, or at any full SHA without it;
-# --agent-write reads it after the Job, for API-17. <setting> defaults to mister_engage_kpa; --agent-write's <switch>
+# --agent-write reads it after the Job, for API-17. <setting> defaults to mister_engage_delay_s; --agent-write's <switch>
 # defaults to sw_gl_grow_out_of_service.
 #
 # BASELINE (no flag). Inside the web pod:
@@ -25,7 +25,7 @@
 #       GET /api/v1/me answers 200, role viewer, writes_enabled as the pod's DASHBOARD_WRITES_ENABLED says (the line
 #       prints it, which is R2's record of the first true and of a flag rollback).
 #       GET /api/v1/now answers 200, freshness.climate.age_s at most 300.
-#       PUT /api/v1/settings/mister_engage_kpa with a foreign Origin answers 403 origin_mismatch.
+#       PUT /api/v1/settings/mister_engage_delay_s with a foreign Origin answers 403 origin_mismatch.
 #       POST /api/v1/irrigation/stop {line_id: L05} with the exact Origin answers 403 forbidden. Stop
 #       is the one write the flag never gates, so it reaches the operator API's role check; L05 is
 #       reserved and never open, so even a wrong answer would turn nothing off.
@@ -109,7 +109,9 @@ CURL_TIMEOUT_S=15
 LAN_ANSWER="192.168.7.10"
 PUBLIC_RESOLVER="https://cloudflare-dns.com/dns-query"
 AUTHORIZE_URL="https://auth.vallery.net/application/o/authorize/"
-DEFAULT_PARAM="mister_engage_kpa"
+# Release 4: a live numeric setting with a 30 s grid (30-300 s). One step makes the controller wait 30 s longer
+# before misting until the check releases it.
+DEFAULT_PARAM="mister_engage_delay_s"
 # An agent may write only the operator switches (climate refactor 4.2); of those only the two out-of-service switches
 # have a safe step (0 to 1: the light stays off), so --agent-write takes one of them.
 AGENT_DEFAULT_PARAM="sw_gl_grow_out_of_service"
@@ -343,7 +345,7 @@ async function baseline(bff) {
   check(`API-02 /api/v1/now reads climate at most ${MAX_CLIMATE_AGE_S} s old`, now, now.status === 200 && typeof age === "number" && age <= MAX_CLIMATE_AGE_S);
 
   // The code tells the Origin check from the operator API's role check, which answers 403 too.
-  const foreign = await bff("/api/v1/settings/mister_engage_kpa", { method: "PUT", origin: "https://evil.example", body: {} });
+  const foreign = await bff("/api/v1/settings/mister_engage_delay_s", { method: "PUT", origin: "https://evil.example", body: {} });
   check("a cross-Origin write is refused origin_mismatch", foreign, foreign.status === 403 && foreign.json?.code === "origin_mismatch");
 
   const stop = await bff("/api/v1/irrigation/stop", { method: "POST", origin: ORIGIN, body: { line_id: "L05" } });
@@ -373,7 +375,7 @@ async function sweep(bff) {
     ["API-06 zone=south", `/api/v1/band?zone=south&${lastDay}`],
     ["API-07", "/api/v1/plan"],
     ["API-09", "/api/v1/settings"],
-    ["API-12", `/api/v1/settings/mister_engage_kpa/history?${lastDay}`],
+    ["API-12", `/api/v1/settings/mister_engage_delay_s/history?${lastDay}`],
     ["API-13 with its three reasons", "/api/v1/equipment", (json) => REASONS.every((reason) => json?.[reason] !== undefined && json[reason] !== null)],
     ["API-14", "/api/v1/alerts"],
     ["API-17", "/api/v1/activity?limit=50"],

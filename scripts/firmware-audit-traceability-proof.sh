@@ -40,12 +40,10 @@ LIVE_SOURCE_PARITY_FILES=(
   scripts/export-hourly-performance-dataset.py
   scripts/generate-ai-tunables-page.py
   scripts/generate-daily-plan.py
-  scripts/planner-core-params.md
   scripts/publish-site-content.sh
   scripts/site-doctor.py
   scripts/smoke-feedback-loop.py
   scripts/update-evidence-snapshots.py
-  scripts/validate-plan-coverage.sh
   verdify_schemas/crops.py
   verdify_schemas/mcp_responses.py
   verdify_schemas/operations.py
@@ -67,9 +65,6 @@ section() {
 
 section "registry and route audit"
 "$PYTHON_BIN" scripts/audit-tunable-traceability.py
-
-section "active plan coverage"
-bash scripts/validate-plan-coverage.sh
 
 section "live DB traceability"
 planner_pushable_sql="$("$PYTHON_BIN" - <<'PY'
@@ -285,7 +280,7 @@ echo "active lessons page clean"
 
 section "static documentation and prompts"
 if rg -n 'increase bias|decrease bias|Use bias|bias_cool may|bias_cool \+|bias_heat \+|temp_high \+ bias_cool|band midpoint|raw temp-band midpoint|mister_water_budget_gal \| 200-500|fog_escalation_kpa \| 0\.2-0\.8|\[30, 900\]|\[60, 900\]' \
-  docs/planner docs/tunable-cascade.md docs/VPD-PRIMARY-ARCHITECTURE.md scripts/planner-core-params.md ingestor/review_prompt.py; then
+  docs/planner docs/tunable-cascade.md docs/VPD-PRIMARY-ARCHITECTURE.md ingestor/review_prompt.py; then
   fail "static docs or prompts contain stale firmware audit guidance"
 fi
 echo "static docs/prompts clean"

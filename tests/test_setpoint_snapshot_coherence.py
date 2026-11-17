@@ -28,7 +28,7 @@ for name, value in {
 import shared  # noqa: E402
 
 import ingestor  # noqa: E402
-from verdify_schemas.policy_vector import wire_fields  # noqa: E402
+from verdify_schemas.policy_vector import live_wire_fields  # noqa: E402
 
 
 def test_publisher_second_executemany_is_exact_reviewed_fw4_confirmation_sql():
@@ -133,7 +133,7 @@ class Connection:
         assert "FROM setpoint_snapshot" in query
         if self.during_fetch:
             self.during_fetch()
-        names = {field.name for field in wire_fields()}
+        names = {field.name for field in live_wire_fields()}
         return [{"ts": ts, "parameter": name, "value": value} for ts, name, value in self.rows if name in names]
 
 
@@ -156,9 +156,9 @@ class Pool:
 
 @pytest.fixture
 def context(monkeypatch):
-    values = {field.name: 0.0 for field in wire_fields()}
-    values["mister_all_kpa"] = 1.25
-    values["safety_max"] = 100.0  # Existing noncanonical rows must survive.
+    values = {field.name: 0.0 for field in live_wire_fields()}
+    values["mister_water_budget_gal"] = 125.0
+    values["fallback_window_s"] = 100.0  # Existing noncanonical rows must survive.
     monkeypatch.setattr(shared, "cfg_readback", values)
     monkeypatch.setattr(ingestor.state, "cfg_readback", values)
     monkeypatch.setattr(shared, "cfg_readback_generation", dict.fromkeys(values, 3))
@@ -195,12 +195,12 @@ def context(monkeypatch):
 async def test_snapshot_confirmation_and_fanout_use_one_committed_immutable_map(context):
     values, connection, pool = context
     shared.register_setpoint_snapshot_publisher()
-    connection.after_insert = lambda: values.update(mister_all_kpa=1.5)
+    connection.after_insert = lambda: values.update(mister_water_budget_gal=150.0)
     await ingestor._publish_setpoint_snapshot(pool, datetime.now(UTC))
     snapshot = {name: value for _ts, name, value in connection.rows}
     confirmed = {name: value for name, value, _tolerance in connection.confirmations}
-    assert snapshot == confirmed and snapshot["mister_all_kpa"] == 1.25
-    assert snapshot["safety_max"] == 100.0
+    assert snapshot == confirmed and snapshot["mister_water_budget_gal"] == 125.0
+    assert snapshot["fallback_window_s"] == 100.0
     assert len({ts for ts, _name, _value in connection.rows}) == 1
     assert connection.events[:5] == ["begin", "insert", "confirm", "pass", "commit"]
     assert connection.events[5:] == ["fanout"] * len(snapshot)
@@ -248,7 +248,7 @@ async def test_bad_publication_cannot_be_reused(context, change):
     elif change == "future":
         stamp += timedelta(seconds=20)
     elif change == "content":
-        values["mister_all_kpa"] += 0.1
+        values["mister_water_budget_gal"] += 10.0
     else:
         shared.transport_readbacks_generation = 0
     shared._setpoint_snapshot_publication = (generation, published, stamp)
@@ -268,7 +268,7 @@ async def test_generation_change_during_commit_does_not_acknowledge_old_batch(co
 async def test_missing_canonical_field_never_acknowledges_even_if_other_rows_commit(context):
     values, _connection, pool = context
     shared.register_setpoint_snapshot_publisher()
-    values.pop("mister_all_kpa")
+    values.pop("mister_water_budget_gal")
     await ingestor._publish_setpoint_snapshot(pool, datetime.now(UTC))
     assert shared._setpoint_snapshot_publication is None
 
@@ -297,7 +297,7 @@ async def test_existing_flush_loop_demand_retimes_periodic_batch_and_coalesces(c
         except StopIteration:
             raise asyncio.CancelledError from None
         if clock.value == 65:
-            values["mister_all_kpa"] = 1.5
+            values["mister_water_budget_gal"] = 150.0
             shared.setpoint_snapshot_requested.set()
         elif clock.value == 70:
             shared.setpoint_snapshot_requested.set()  # Same committed content.
@@ -335,7 +335,7 @@ async def test_existing_flush_loop_demand_retimes_periodic_batch_and_coalesces(c
 async def test_flush_loop_confirmation_matches_snapshot_when_callback_arrives_during_insert(context, monkeypatch):
     values, connection, pool = context
     ticks = 0
-    connection.after_insert = lambda: values.update(mister_all_kpa=1.5)
+    connection.after_insert = lambda: values.update(mister_water_budget_gal=150.0)
 
     async def tick(_seconds):
         nonlocal ticks
@@ -371,20 +371,20 @@ async def test_flush_loop_confirmation_matches_snapshot_when_callback_arrives_du
         await ingestor.flush_loop(pool)
     snapshots = {param: value for _ts, param, value in connection.rows}
     confirmed = {param: value for param, value, _tolerance in connection.confirmations}
-    assert snapshots["mister_all_kpa"] == 1.25
-    assert confirmed["mister_all_kpa"] == snapshots["mister_all_kpa"]
+    assert snapshots["mister_water_budget_gal"] == 125.0
+    assert confirmed["mister_water_budget_gal"] == snapshots["mister_water_budget_gal"]
 
 
 @pytest.mark.asyncio
 async def test_af1_a_confirmation_after_a_later_boot_observation_restores_the_held_value_as_newest(context):
-    """RULINGS AF1, today's sequence: night_dryout_pulse_s 600 pushed 19:50:00, the rebooted controller reported its
+    """RULINGS AF1, today's sequence: gl_main_min_on_s 600 pushed 19:50:00, the rebooted controller reported its
     stored 120 at 19:50:26, the push was confirmed 19:50:35. The newest row must then say 600 again."""
     _values, connection, pool = context
     day = datetime(2026, 11, 16, tzinfo=UTC)
     pushed, observed = day.replace(hour=19, minute=50), day.replace(hour=19, minute=50, second=26)
     connection.newest_rows = [
         {
-            "parameter": "night_dryout_pulse_s",
+            "parameter": "gl_main_min_on_s",
             "confirmed_ts": pushed,
             "confirmed_value": 600.0,
             "newest_ts": observed,
@@ -394,9 +394,14 @@ async def test_af1_a_confirmation_after_a_later_boot_observation_restores_the_he
     ]
     shared.register_setpoint_snapshot_publisher()
     await ingestor._publish_setpoint_snapshot(pool, day.replace(hour=19, minute=50, second=35))
-    assert connection.restored == [("night_dryout_pulse_s", 600.0)]
+    assert connection.restored == [("gl_main_min_on_s", 600.0)]
     # Nothing to restore when the newest row already holds the value, is the push itself, or predates it.
     same = dict(connection.newest_rows[0], newest_value=600.0)
     own = dict(connection.newest_rows[0], newest_ts=pushed, newest_source="dispatcher")
     older = dict(connection.newest_rows[0], newest_ts=pushed - timedelta(seconds=5))
     assert ingestor.observed_rows_to_restore([same, own, older]) == []
+    # DISPATCHER-05: the restored row validates through SetpointChange; a value outside the registry never lands.
+    connection.restored = []
+    connection.newest_rows = [dict(connection.newest_rows[0], confirmed_value=1e9)]
+    await ingestor._publish_setpoint_snapshot(pool, day.replace(hour=19, minute=51, second=35))
+    assert connection.restored == []

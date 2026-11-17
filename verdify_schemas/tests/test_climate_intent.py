@@ -129,33 +129,13 @@ def test_climate_intent_materializes_to_complete_bounded_tier1_params() -> None:
         {"fog_escalation_kpa": 0.2, "temp_low": 64.0, "temp_high": 68.0, "vpd_low": 0.55, "vpd_high": 0.8},
     )
 
-    assert set(params) == set(TIER1_REG)
-    assert params["sw_dwell_gate_enabled"] == 1.0
-    assert params["sw_summer_vent_enabled"] == 1.0
-    assert params["vent_prefer_temp_delta_f"] == intent.economizer_temp_advantage_f
-    assert params["direct_wet_stress_min_dew_margin_f"] == intent.dew_margin_floor_f
+    # Release 4 (#1633): the intent drives only the surviving settings.
+    assert (
+        set(params) == set(TIER1_REG) == {"mister_engage_delay_s", "mister_water_budget_gal", "outdoor_staleness_max_s"}
+    )
     assert params["mister_water_budget_gal"] == intent.daily_mist_budget_gal
-    assert params["fog_escalation_kpa"] == intent.fog_escalate_vpd_excess_kpa
-    assert params["mister_engage_kpa"] == pytest.approx(0.85)
-    assert params["mister_all_kpa"] == pytest.approx(1.05)
+    assert params["mister_engage_delay_s"] == 30.0  # 15 + 45 * 0.25 = 26.25, clamped to the registry floor
     assert all(registry_value_error(name, value) is None for name, value in params.items())
-
-
-def test_all_zone_mist_threshold_is_independent_from_fog_escalation() -> None:
-    intent = _valid_intent(
-        moisture_engage_vpd_excess_kpa=0.05,
-        all_zone_vpd_excess_kpa=0.35,
-        fog_escalate_vpd_excess_kpa=0.15,
-    )
-
-    params = materialize_climate_intent_tier1(
-        intent,
-        {"temp_low": 70.0, "temp_high": 76.0, "vpd_low": 0.8, "vpd_high": 1.1},
-    )
-
-    assert params["mister_engage_kpa"] == pytest.approx(1.15)
-    assert params["mister_all_kpa"] == pytest.approx(1.45)
-    assert params["fog_escalation_kpa"] == pytest.approx(0.15)
 
 
 def test_materializer_forces_wet_assist_when_live_vpd_is_above_band_and_dew_is_safe() -> None:
@@ -183,14 +163,8 @@ def test_materializer_forces_wet_assist_when_live_vpd_is_above_band_and_dew_is_s
         },
     )
 
-    assert params["sw_direct_wet_stress_override_enabled"] == 1.0
-    assert params["direct_wet_stress_vpd_margin_kpa"] == pytest.approx(0.05)
-    assert params["mister_all_kpa"] == pytest.approx(1.45)
-    assert params["fog_escalation_kpa"] == pytest.approx(0.2)
-    # direct_wet_stress_latest_hour retired (wire schema v2, #588): the
-    # materializer no longer emits the dead parameter row.
-    assert "direct_wet_stress_latest_hour" not in params
     assert params["mister_water_budget_gal"] >= 120.0
+    assert params["mister_engage_delay_s"] == pytest.approx(15.0 + 45.0 * 0.5)  # churn capped at 0.5
     guardrails = climate_intent_materialization_guardrails(
         intent,
         {
@@ -233,14 +207,8 @@ def test_materializer_keeps_wet_assist_available_for_high_forecast_vpd_pressure(
 
     params = materialize_climate_intent_tier1(intent, base)
 
-    assert params["sw_direct_wet_stress_override_enabled"] == 1.0
-    assert params["direct_wet_stress_vpd_margin_kpa"] <= 0.1
-    assert params["mister_all_kpa"] <= 1.5
-    assert params["fog_escalation_kpa"] <= 0.3
-    # direct_wet_stress_latest_hour retired (wire schema v2, #588).
-    assert "direct_wet_stress_latest_hour" not in params
     assert params["mister_water_budget_gal"] >= 60.0
-    assert params["mister_pulse_on_s"] >= 26.0
+    assert params["mister_engage_delay_s"] == pytest.approx(15.0 + 45.0 * 0.75)  # churn capped at 0.75
     guardrails = climate_intent_materialization_guardrails(intent, base, params)
     assert [item["code"] for item in guardrails] == ["forecast_vpd_wet_assist_guard"]
 
@@ -286,7 +254,9 @@ def test_materializer_does_not_force_wet_assist_when_dew_margin_is_unsafe() -> N
         },
     )
 
-    assert params["sw_direct_wet_stress_override_enabled"] == 0.0
+    # Unsafe dew margin: no compliance pressure, so the zero budget stands (clamped to the registry floor).
+    assert params["mister_water_budget_gal"] == 100.0
+    assert params["mister_engage_delay_s"] == pytest.approx(15.0 + 45.0 * intent.relay_churn_penalty)
 
 
 def test_candidate_selection_is_lexicographic_not_weighted_sum() -> None:

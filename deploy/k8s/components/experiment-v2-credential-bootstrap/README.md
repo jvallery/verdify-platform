@@ -6,8 +6,10 @@ verifier of one database login, `verdify_experiment_v2_equipment_source_collecto
 (duty `verdify_experiment_equipment_source_collector`), and then attests it over a
 real TCP session: exact login, sole non-admin duty membership, safe role
 attributes, no object ownership or direct relation/sequence ACL, and the exact
-three-function allowlist (`fn_record_equipment_counter_sample`,
-`fn_record_equipment_direct_state_snapshot`, `fn_record_equipment_state_source_receipt`).
+function allowlist: `fn_record_equipment_counter_sample` and
+`fn_record_equipment_state_source_receipt` required, and the retired
+`fn_record_equipment_direct_state_snapshot` tolerated but not required until a
+later release revokes and drops it (#1633 release 4, phase 4 drops rule 5).
 The ingestor writes `equipment_state` through this login and refuses to start in
 production without it.
 

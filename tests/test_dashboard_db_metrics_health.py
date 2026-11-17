@@ -39,6 +39,10 @@ COLUMNS_314 = (
     ("nvs_free_entries", "integer"),
     ("sensor_degraded_active", "integer"),
     ("gap_log_state", "text"),
+    # migration 315's three third-flash counters (RULINGS AF9(b)), added the same way
+    ("loop_stack_high_water_b", "integer"),
+    ("wifi_disconnect_count", "integer"),
+    ("api_client_count", "integer"),
 )
 
 
@@ -119,6 +123,9 @@ def test_each_reading_is_its_newest_non_null_value_in_15_minutes(dsn):
         await conn.execute(insert, t0 - 20 * MIN, 5.0, 900.0, 1, 1, 1, 900.0, "off: nvs_full", 1, 5.0)  # too old
         await conn.execute(insert, t0 - 3 * MIN, 22.0, 140.0, 6, 800, 2600, 12.0, "armed", 0, 31.0)
         await conn.execute(insert, t0 - 1 * MIN, 18.0, None, 7, None, None, 0.0, None, None, None)  # partial flush
+        counters = "INSERT INTO diagnostics (ts, loop_stack_high_water_b, wifi_disconnect_count, api_client_count) "
+        await conn.execute(counters + "VALUES ($1, 2900, 4, 2)", t0 - 2 * MIN)
+        await conn.execute(counters + "VALUES ($1, NULL, 5, NULL)", t0 - 30 * timedelta(seconds=1))
         row = await read_as_role(conn)
         got = {(n, labels): v for n, labels, v in pm.health_samples(row)}
         assert got[("verdify_controller_heap_min_free_window_bytes", ())] == 18.0 * 1024
@@ -129,6 +136,9 @@ def test_each_reading_is_its_newest_non_null_value_in_15_minutes(dsn):
         assert got[("verdify_controller_nvs_write_worst_seconds", ())] == 0.0
         assert got[("verdify_controller_gap_log_armed", ())] == 1
         assert got[("verdify_controller_sensor_degraded_active", ())] == 0
+        assert got[("verdify_controller_loop_stack_free_min_bytes", ())] == 2900
+        assert got[("verdify_controller_wifi_disconnects_total", ())] == 5
+        assert got[("verdify_controller_api_clients", ())] == 2
 
     scenario(dsn, body)
 
@@ -154,5 +164,27 @@ def test_device_reads_take_the_newest_state_and_the_lead_from_a_one_fan_start(ds
         assert (await conn.fetchrow(pm.LEAD_FAN_SQL))["fan"] == "Fan 1"  # the entity wins once it reports
         await conn.execute("INSERT INTO system_state (ts, entity, value) VALUES ($1, 'irr_engine', 'true')", t0)
         assert (await conn.fetchrow(pm.ENGINE_SQL))["value"] == "true"
+
+    scenario(dsn, body)
+
+
+def test_controller_read_takes_each_reading_from_its_newest_non_null_row(dsn):
+    # Release 3 review ALERTS-5: the newest diagnostics row often carries only the readings that changed.
+    async def body(conn, t0):
+        await conn.execute(
+            "INSERT INTO diagnostics (ts, heap_bytes, wifi_rssi, firmware_version) VALUES ($1, 70, -61, 'v9')",
+            t0 - 3 * MIN,
+        )
+        await conn.execute("INSERT INTO diagnostics (ts, uptime_s) VALUES ($1, 5000)", t0 - MIN)
+        await conn.execute(f"SET ROLE {ROLE}")
+        try:
+            row = await conn.fetchrow(pm.CONTROLLER_SQL)
+        finally:
+            await conn.execute("RESET ROLE")
+        got = {(n, labels): v for n, labels, v in pm.controller_samples(row)}
+        assert got[("verdify_controller_wifi_rssi_dbm", ())] == -61
+        assert got[("verdify_controller_uptime_seconds", ())] == 5000
+        assert got[("verdify_controller_heap_free_bytes", ())] == 70 * 1024
+        assert 50 < got[("verdify_controller_sample_age_seconds", ())] < 70
 
     scenario(dsn, body)

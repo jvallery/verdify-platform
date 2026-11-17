@@ -103,7 +103,7 @@ test("the preview charts key the measured trace and the outdoor forecast", async
 
 test("an API synced before the law's guardrails still shows the band facts (the web may ship first)", () => {
   const guardrails = { temp_min_f: 40, temp_max_f: 100, margin_f: 5, vpd_min_kpa: 0.3, vpd_max_kpa: 3, night_vpd_floor_kpa: 0.74, min_width_f: null, min_width_kpa: null, dry_on_above_vpd_low_kpa: null };
-  const older = { guardrails, night_vpd_bias_kpa: null, night_heat_kwh: { current: null, draft: null }, envelope: null } as unknown as BandProfilePreview;
+  const older = { guardrails, night_heat_kwh: { current: null, draft: null }, envelope: null } as unknown as BandProfilePreview;
   render(<BandFacts preview={older} />);
   expect(screen.getByText(/The night VPD floor stays at least 0.74 kPa/)).toBeTruthy();
   expect(screen.queryByText(/The control law needs/)).toBeNull();

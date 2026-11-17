@@ -31,7 +31,9 @@ from verdify_schemas.component_executor import (
     validate_routine_target,
     validate_work_phase,
 )
-from verdify_schemas.tunable_registry import REGISTRY
+
+# The frozen 48-slot layout (release 4, shape B).
+from verdify_schemas.tunable_registry import WIRE_SLOT_DEFS as REGISTRY
 
 ROOT = Path(__file__).resolve().parents[1]
 

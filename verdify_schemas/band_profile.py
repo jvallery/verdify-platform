@@ -73,15 +73,6 @@ def harmonic(sr: float, sm: float, ss: float, mid: float, phase: float) -> float
     return c0 + c1 * math.cos(theta) + s1 * math.sin(theta) + c2 * math.cos(2.0 * theta)
 
 
-def night_bias(phase: float, bias_kpa: float) -> float:
-    """What the controller adds to VPD low, target and high for ``night_vpd_bias_kpa`` (controls.yaml): a sin² bump,
-    0 at sunset (phase 2) and sunrise (phase 4), the full bias at solar midnight (phase 3)."""
-    if bias_kpa <= 0.0 or not 2.0 <= phase <= 4.0:
-        return 0.0
-    s = math.sin(math.pi * (phase - 2.0) * 0.5)
-    return bias_kpa * s * s
-
-
 def param(series: str, anchor: str) -> str:
     return f"band_{series}_{anchor}"
 

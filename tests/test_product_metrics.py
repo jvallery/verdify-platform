@@ -194,6 +194,9 @@ HEALTH_COLUMNS = (
     "nvs_write_worst_ms",
     "gap_log_state",
     "sensor_degraded_active",
+    "loop_stack_high_water_b",
+    "wifi_disconnect_count",
+    "api_client_count",
 )
 
 
@@ -463,6 +466,9 @@ def test_health_readings_absent_give_no_sample():
         "verdify_controller_nvs_entries",
         "verdify_controller_gap_log_armed",
         "verdify_controller_sensor_degraded_active",
+        "verdify_controller_loop_stack_free_min_bytes",
+        "verdify_controller_wifi_disconnects_total",
+        "verdify_controller_api_clients",
     ):
         assert f"\n{family}" not in text and not text.startswith(family)
 
@@ -478,6 +484,9 @@ def test_health_readings_scale_and_label():
         "nvs_write_worst_ms": 0.0,
         "gap_log_state": "off: nvs_slow",
         "sensor_degraded_active": 0,
+        "loop_stack_high_water_b": 3120,
+        "wifi_disconnect_count": 2,
+        "api_client_count": 1,
     }
     got = {(n, labels): v for n, labels, v in pm.health_samples(row)}
     assert got[("verdify_controller_heap_min_free_window_bytes", ())] == 18.5 * 1024
@@ -490,6 +499,9 @@ def test_health_readings_scale_and_label():
     assert got[("verdify_controller_gap_log_armed", ())] == 0
     assert got[("verdify_controller_gap_log_state", (("state", "off: nvs_slow"),))] == 1
     assert got[("verdify_controller_sensor_degraded_active", ())] == 0
+    assert got[("verdify_controller_loop_stack_free_min_bytes", ())] == 3120
+    assert got[("verdify_controller_wifi_disconnects_total", ())] == 2
+    assert got[("verdify_controller_api_clients", ())] == 1
     one = pm.health_samples({**dict.fromkeys(HEALTH_COLUMNS), "gap_log_state": "something new"})
     assert ("verdify_controller_gap_log_state", (("state", "other"),), 1.0) in one
     assert ("verdify_controller_gap_log_armed", (), 0.0) in one

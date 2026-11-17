@@ -123,8 +123,6 @@ async def qualify(duty, path):
                 await execute(f"SELECT * FROM {name} WHERE FALSE")
         negatives = {
             "owner_role": "SET ROLE verdify",
-            "mapping_read": "SELECT * FROM public.experiment_v2_randomization WHERE FALSE",
-            "blinded_reveal_read": "SELECT * FROM public.experiment_v2_reveals WHERE FALSE",
             "base_delete": "DELETE FROM public.climate WHERE FALSE",
             "base_update": "UPDATE public.climate SET ts=ts WHERE FALSE",
         }

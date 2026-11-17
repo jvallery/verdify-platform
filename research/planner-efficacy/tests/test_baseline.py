@@ -36,8 +36,7 @@ from verdify_schemas.policy_vector import (
     wire_fields,
     wire_manifest_digest,
 )
-from verdify_schemas.tunable_registry import WIRE_SCHEMA_VERSION
-from verdify_schemas.tunable_registry import get as registry_get
+from verdify_schemas.tunable_registry import WIRE_SCHEMA_VERSION, WIRE_SLOT_DEFS
 
 BASELINE_JSON = MODULE_DIR / "baseline" / baseline.BASELINE_ARTIFACT_NAME
 TEMPLATES_JSON = MODULE_DIR / "baseline" / baseline.TEMPLATES_ARTIFACT_NAME
@@ -235,7 +234,7 @@ def test_committed_baseline_fields_cover_wire_schema(committed_baseline: dict) -
     }
     window = committed_baseline["method"]["effective_window_seconds"]
     for name, field in fields.items():
-        assert field["wire_id"] == registry_get(name).wire_id
+        assert field["wire_id"] == WIRE_SLOT_DEFS[name].wire_id
         assert field["coverage_seconds"] <= window + 1.0, name
         if field["qualified"]:
             assert field["coverage_seconds"] > 0, name
@@ -293,7 +292,8 @@ def test_committed_templates_confined_to_allowlist(committed_baseline: dict, com
         fields = template["fields"]
         assert set(fields) == set(baseline.DIFF_ALLOWLIST), name
         for field_name, entry in fields.items():
-            defn = registry_get(field_name)
+            # The frozen wire slot (release 4 keeps the layout; most slots are reserved, not settings).
+            defn = WIRE_SLOT_DEFS[field_name]
             value = entry["value"]
             # on the canonical wire grid
             assert baseline.quantize_field(field_name, value) == value, (name, field_name)

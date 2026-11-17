@@ -20,14 +20,13 @@ import yaml
 
 from verdify_schemas import irrigation
 from verdify_schemas.band_rows import BAND_PARAM_ROWS
-from verdify_schemas.policy_vector import wire_fields
+from verdify_schemas.policy_vector import live_wire_fields
 from verdify_schemas.setting_help import setting_help, setting_label
 from verdify_schemas.tunable_registry import (
     LEGACY_WIDE_LIMIT_PARAMS,
     READ_ONLY_REASONS,
     REGISTRY,
     SWITCH_READBACK_EQUIPMENT,
-    ZONE_VPD_TARGET_PARAMS,
     desired_write_rule,
 )
 from verdify_services import activity, reads, series, settings
@@ -43,7 +42,8 @@ IRIS = Actor.iris()
 AGENT = Actor.agent("steward")
 # Agents may write only an operator switch (climate refactor 4.2); the manual and range rules are shown on one.
 SWITCH = "sw_occupancy_inhibit"
-KPA = "mister_engage_kpa"  # planner_policy, a policy field, step 0.05, bounds 0.5-2.5 kPa, cfg readback
+KPA = "mister_hysteresis_kpa"  # controller_safety, step 0.01, bounds 0.05-0.5 kPa, cfg readback (release 4, #1633)
+POLICY = "outdoor_staleness_max_s"  # planner_policy, one of the five live policy-wire fields, step 30 s
 DELAY = "mister_engage_delay_s"  # planner_policy, step 30 s
 PRESSURE = "site_pressure_hpa"  # controller_safety, not a policy field, step 1 hPa
 ECON = "sw_occupancy_inhibit"  # a switch read back through its equipment_state mirror (the third flash kept it)
@@ -448,7 +448,7 @@ def test_every_registry_row_gets_a_write_decision_with_a_reason_when_refused():
 
 @pytest.mark.parametrize(
     "param",
-    sorted(LEGACY_WIDE_LIMIT_PARAMS | ZONE_VPD_TARGET_PARAMS | {"sw_onchip_band_enabled"}),
+    sorted(LEGACY_WIDE_LIMIT_PARAMS | {"sw_onchip_band_enabled"}),
 )
 def test_the_read_only_list_is_refused_read_only_with_its_reason(param):
     db = FakeDB()
@@ -544,21 +544,21 @@ def test_a_crop_band_setting_is_writable_only_while_crop_band_anchors_holds_its_
 
 def test_out_of_range_names_the_bounds_the_current_value_and_is_not_retryable():
     db = FakeDB()
-    db.snapshots.append((KPA, ago(minutes=1), 1.6))
+    db.snapshots.append((KPA, ago(minutes=1), 0.16))
     with pytest.raises(ServiceError) as excinfo:
-        run(settings.validate(db, PERSON, KPA, 2.6))
+        run(settings.validate(db, PERSON, KPA, 0.6))
     problem = refusal(excinfo)
     assert problem.body() == {
         "type": "about:blank",
         "title": "Out of range",
         "status": 422,
-        "detail": "Must be 0.50-2.50 kPa",
+        "detail": "Must be 0.05-0.50 kPa",
         "code": "out_of_range",
         "retryable": False,
         "field": "value",
-        "min": 0.5,
-        "max": 2.5,
-        "current": 1.6,
+        "min": 0.05,
+        "max": 0.5,
+        "current": 0.16,
     }
     assert openapi_errors("Problem", problem.body()) == []
 
@@ -604,16 +604,16 @@ def test_the_first_failure_wins_range_before_manual():
 # ── §5.3 step 4: snap ────────────────────────────────────────────────────────
 
 
-def test_1_53_stores_1_55_with_snapped_from():
-    checked = run(settings.validate(FakeDB(), PERSON, KPA, 1.53))
-    assert (checked.value, checked.requested, checked.snapped_from) == (1.55, 1.53, 1.53)
+def test_0_153_stores_0_15_with_snapped_from():
+    checked = run(settings.validate(FakeDB(), PERSON, KPA, 0.153))
+    assert (checked.value, checked.requested, checked.snapped_from) == (0.15, 0.153, 0.153)
 
 
 def test_snapping_is_half_to_even_and_an_on_grid_value_is_unchanged():
-    assert run(settings.validate(FakeDB(), PERSON, KPA, 1.525)).value == 1.5
-    assert run(settings.validate(FakeDB(), PERSON, KPA, 1.575)).value == 1.6
-    checked = run(settings.validate(FakeDB(), PERSON, KPA, 1.55))
-    assert (checked.value, checked.snapped_from) == (1.55, None)
+    assert run(settings.validate(FakeDB(), PERSON, KPA, 0.125)).value == 0.12
+    assert run(settings.validate(FakeDB(), PERSON, KPA, 0.135)).value == 0.14
+    checked = run(settings.validate(FakeDB(), PERSON, KPA, 0.15))
+    assert (checked.value, checked.snapped_from) == (0.15, None)
 
 
 def test_a_plan_row_is_not_the_current_value_since_climate_refactor_4_2():
@@ -626,9 +626,9 @@ def test_a_plan_row_is_not_the_current_value_since_climate_refactor_4_2():
 
 def test_the_device_value_is_kept_as_is_within_its_binary32_ulp_not_half_a_step():
     db = FakeDB()
-    db.snapshots.append((KPA, ago(minutes=1), 1.2719999551773071))  # float32(1.272) as the controller reports it
-    assert run(settings.validate(db, PERSON, KPA, 1.272)).value == 1.272
-    assert run(settings.validate(db, PERSON, KPA, 1.28)).value == 1.3  # within half a step, not one ULP: snapped
+    db.snapshots.append((KPA, ago(minutes=1), 0.12720000743865967))  # float32(0.1272) as the controller reports it
+    assert run(settings.validate(db, PERSON, KPA, 0.1272)).value == 0.1272
+    assert run(settings.validate(db, PERSON, KPA, 0.128)).value == 0.13  # within half a step, not one ULP: snapped
 
 
 # ── Readback states (§5.5) ───────────────────────────────────────────────────
@@ -641,15 +641,15 @@ def status(db, param):
 def test_released_comes_first():
     db = FakeDB()
     db.add_desired(KPA, None, at=ago(minutes=1))
-    db.clamps.append({"parameter": KPA, "ts": ago(seconds=30), "applied": 1.2, "reason": "guard"})
+    db.clamps.append({"parameter": KPA, "ts": ago(seconds=30), "applied": 0.12, "reason": "guard"})
     result = status(db, KPA)
     assert (result.state, result.state_reason, result.desired.value) == ("released", None, None)
 
 
 def test_a_newer_plan_never_overrides_a_desired_row_since_climate_refactor_4_2():
     db = FakeDB()
-    db.add_desired(KPA, 1.3, manual=False, at=ago(hours=2))
-    db.add_plan(KPA, 1.45, created_at=ago(hours=1))
+    db.add_desired(KPA, 0.13, manual=False, at=ago(hours=2))
+    db.add_plan(KPA, 0.14, created_at=ago(hours=1))
     result = status(db, KPA)
     assert (result.state, result.applied_from, result.desired.state) == ("not_confirmed", "desired", "not_confirmed")
 
@@ -682,14 +682,18 @@ def test_a_clamp_before_the_request_does_not_count_and_one_the_device_moved_past
     assert (result.state, result.state_reason) == ("confirmed", None)
 
 
-def test_an_armed_experiment_holds_the_48_policy_fields_only():
+def test_an_armed_experiment_holds_the_five_live_policy_fields_only():
     db = FakeDB()
     db.armed = uuid.uuid4()
-    db.add_desired(KPA, 1.55, at=ago(minutes=10))
-    db.snapshots.append((KPA, ago(minutes=1), 1.55))
-    result = status(db, KPA)
+    db.add_desired(POLICY, 660.0, at=ago(minutes=10))
+    db.snapshots.append((POLICY, ago(minutes=1), 660.0))
+    result = status(db, POLICY)
     assert (result.state, result.state_reason.code, result.state_reason.since) == ("held", "experiment", None)
-    assert KPA in {spec.name for spec in wire_fields()}
+    assert POLICY in {spec.name for spec in live_wire_fields()}
+    # Release 4 (#1633): a setting outside the live slots is not held, a kPa one or the site pressure.
+    db.add_desired(KPA, 0.15, at=ago(minutes=10))
+    db.snapshots.append((KPA, ago(minutes=1), 0.15))
+    assert status(db, KPA).state == "confirmed"
     db.add_desired(PRESSURE, 845.0, at=ago(minutes=10))
     db.snapshots.append((PRESSURE, ago(minutes=1), 845.0))
     assert status(db, PRESSURE).state == "confirmed"
@@ -1009,8 +1013,8 @@ def test_applied_from_is_never_the_plan_without_a_desired_row():
 
 def test_applied_from_desired_manual_band_and_default():
     db = FakeDB()
-    db.add_plan(KPA, 1.45, created_at=ago(hours=2))  # never read
-    db.add_desired(KPA, 1.3, manual=False, at=ago(hours=1))
+    db.add_plan(KPA, 0.14, created_at=ago(hours=2))  # never read
+    db.add_desired(KPA, 0.13, manual=False, at=ago(hours=1))
     assert status(db, KPA).applied_from == "desired"
     db.desired[-1]["manual"] = True
     assert status(db, KPA).applied_from == "manual"
@@ -1047,12 +1051,12 @@ def write(db, actor, param, value, manual, *, reason=None, request_id=None, extr
 
 def test_a_write_snaps_stores_manual_as_passed_and_logs_one_activity_row():
     db = FakeDB()
-    db.snapshots.append((KPA, ago(minutes=1), 1.6))
-    result = write(db, PERSON, KPA, 1.53, True, reason="dry afternoon")
+    db.snapshots.append((KPA, ago(minutes=1), 0.16))
+    result = write(db, PERSON, KPA, 0.153, True, reason="dry afternoon")
     desired = result.value
     assert (desired.value, desired.snapped_from, desired.manual, desired.manual_before, desired.state) == (
-        1.55,
-        1.53,
+        0.15,
+        0.153,
         True,
         False,
         "requested",
@@ -1060,15 +1064,15 @@ def test_a_write_snaps_stores_manual_as_passed_and_logs_one_activity_row():
     assert (desired.actor.source, desired.actor.name, desired.reason) == ("dashboard", "jason", "dry afternoon")
     assert openapi_errors("DesiredSetting", result.rest_json()) == []
     [stored] = db.desired
-    assert (stored["value"], stored["manual"], stored["source"], stored["actor"]) == (1.55, True, "dashboard", "jason")
+    assert (stored["value"], stored["manual"], stored["source"], stored["actor"]) == (0.15, True, "dashboard", "jason")
     [logged] = db.activity
     assert (logged["action"], logged["target"], logged["reason"]) == ("setting.write", KPA, "dry afternoon")
     assert logged["detail"] == {
         "ref": {"table": "desired_state", "id": stored["id"]},
         "desired_id": stored["id"],
-        "before": 1.6,
-        "value": 1.55,
-        "requested": 1.53,
+        "before": 0.16,
+        "value": 0.15,
+        "requested": 0.153,
         "manual": {"before": False, "after": True},
     }
     assert not any("setpoint_changes" in sql and ("INSERT" in sql or "UPDATE" in sql) for sql in db.sql)
@@ -1143,13 +1147,13 @@ def test_extra_detail_merges_into_the_activity_row_and_never_replaces_a_write_ke
 def test_a_retried_write_replays_the_stored_row():
     db = FakeDB()
     key = uuid.uuid4()
-    first = write(db, PERSON, KPA, 1.53, True, request_id=key)
-    again = write(db, PERSON, KPA, 1.53, True, request_id=key)
+    first = write(db, PERSON, KPA, 0.153, True, request_id=key)
+    again = write(db, PERSON, KPA, 0.153, True, request_id=key)
     assert (first.replayed, again.replayed) == (False, True)
-    assert again.value.id == first.value.id and again.value.snapped_from == 1.53 and again.value.manual_before is False
+    assert again.value.id == first.value.id and again.value.snapped_from == 0.153 and again.value.manual_before is False
     assert len(db.desired) == 1 and len(db.activity) == 1
     with pytest.raises(ServiceError) as excinfo:
-        write(db, PERSON, KPA, 1.6, True, request_id=key)
+        write(db, PERSON, KPA, 0.16, True, request_id=key)
     assert refusal(excinfo).code == "request_id_reused"
 
 
@@ -1172,8 +1176,8 @@ def release(db, actor, param, *, reason=None, request_id=None, extra_detail=None
 
 def test_a_release_appends_a_null_row_and_logs_the_cleared_flag():
     db = FakeDB()
-    db.add_desired(KPA, 1.3, manual=True, at=ago(hours=1))
-    db.snapshots.append((KPA, ago(minutes=1), 1.3))
+    db.add_desired(KPA, 0.13, manual=True, at=ago(hours=1))
+    db.snapshots.append((KPA, ago(minutes=1), 0.13))
     result = release(db, PERSON, KPA, reason="back to Iris")
     assert (result.value.value, result.value.manual, result.value.state, result.value.manual_before) == (
         None,
@@ -1186,7 +1190,7 @@ def test_a_release_appends_a_null_row_and_logs_the_cleared_flag():
     logged = db.activity[-1]
     assert (logged["action"], logged["reason"]) == ("setting.release", "back to Iris")
     assert logged["detail"]["manual"] == {"before": True, "after": False} and logged["detail"]["value"] is None
-    assert logged["detail"]["before"] == 1.3
+    assert logged["detail"]["before"] == 0.13
 
 
 def test_iris_cannot_release_a_manual_setting_and_read_only_rows_cannot_be_released():
@@ -1216,7 +1220,7 @@ def test_the_catalog_lists_every_registry_row_with_the_registry_s_label_and_unit
         assert rows[name].label != name, name
         if spec.label != name:
             assert rows[name].label == spec.label, name
-    assert (rows[KPA].label, rows[KPA].unit) == ("VPD Mister Engage", "kPa")
+    assert (rows[KPA].label, rows[KPA].unit) == ("Mister Hysteresis", "kPa")
 
 
 def test_every_catalog_row_carries_its_help_and_a_read_only_row_its_kind():
@@ -1231,9 +1235,8 @@ def test_every_catalog_row_carries_its_help_and_a_read_only_row_its_kind():
     assert rows["outdoor_temp_f"].read_only_kind == "readback_context"
     assert rows["sw_onchip_band_enabled"].read_only_kind == "band_owner"
     assert "activity_start_hour" not in rows  # #1477: retired with its firmware entity
-    # The third flash deleted the rails' entities (the law compiles 40 F and 100 F): read-only, still a guardrail.
-    assert rows["safety_max"].help.guardrail and not rows["safety_max"].writable
-    assert rows["safety_max"].read_only_kind == "retired"
+    # Release 4 deleted the rails' rows (the third flash deleted their entities; the law compiles 40 F and 100 F).
+    assert "safety_max" not in rows
     assert rows[KPA].model_dump(mode="json")["help"]["raise"] == setting_help(KPA).raise_
 
 
@@ -1241,7 +1244,7 @@ def test_catalog_groups_and_read_only_reasons():
     db = FakeDB()
     orchid_rows(db)
     rows = catalog(db)
-    assert (rows[KPA].group, rows[KPA].writable, rows[KPA].read_only_reason) == ("planner_policy", True, None)
+    assert (rows[POLICY].group, rows[POLICY].writable, rows[POLICY].read_only_reason) == ("planner_policy", True, None)
     assert rows["sched_mist_rh_max_pct"].group == "site_water_caps"
     assert rows["zone_vpd_target_center_sm"].group == "crop_band"
     assert rows["zone_vpd_target_east_sm"].group == "read_only"  # no pepper rows in this fixture
@@ -1256,8 +1259,8 @@ def test_catalog_groups_and_read_only_reasons():
 
 def test_catalog_readback_via_and_rows_match_the_openapi_setting():
     db = FakeDB()
-    db.snapshots.append((KPA, ago(minutes=1), 1.6))
-    db.add_desired(KPA, 1.55, manual=True, at=ago(minutes=2))
+    db.snapshots.append((KPA, ago(minutes=1), 0.16))
+    db.add_desired(KPA, 0.15, manual=True, at=ago(minutes=2))
     rows = catalog(db)
     assert {rows[name].readback_via for name in (KPA, ECON, "sched_mist_rh_max_pct", "fog_time_window_start")} == {
         "cfg",
@@ -1265,7 +1268,7 @@ def test_catalog_readback_via_and_rows_match_the_openapi_setting():
         "program",
         "none",
     }
-    assert (rows[KPA].desired.value, rows[KPA].applied_from, rows[KPA].state) == (1.55, "manual", "requested")
+    assert (rows[KPA].desired.value, rows[KPA].applied_from, rows[KPA].state) == (0.15, "manual", "requested")
     for row in rows.values():
         assert openapi_errors("Setting", row.model_dump(mode="json")) == [], row.param
 
@@ -1331,8 +1334,8 @@ def test_history_refuses_a_backwards_or_naive_window():
 
 def test_statuses_is_status_for_each_setting_in_one_batch_and_leaves_unknown_names_out():
     db = FakeDB()
-    db.add_desired(KPA, 1.55, manual=True, at=ago(minutes=10))
-    db.snapshots.append((KPA, ago(minutes=1), 1.55))
+    db.add_desired(KPA, 0.15, manual=True, at=ago(minutes=10))
+    db.snapshots.append((KPA, ago(minutes=1), 0.15))
     db.add_plan(DELAY, 48.75, created_at=ago(hours=1))
     db.snapshots.append((DELAY, ago(minutes=1), 48.75))
     db.add_desired(PRESSURE, 845.0, at=ago(minutes=10))
@@ -1354,12 +1357,12 @@ def test_desired_states_give_each_named_row_the_state_history_gives_it():
     released = db.add_desired(PRESSURE, None, at=ago(hours=4))
     unconfirmed = db.add_desired(PRESSURE, 850.0, at=ago(hours=3))
     newest = db.add_desired(PRESSURE, 855.0, at=ago(minutes=2))
-    other = db.add_desired(KPA, 1.55, at=ago(minutes=30))
+    other = db.add_desired(KPA, 0.15, at=ago(minutes=30))
     db.snapshots += [
         (PRESSURE, ago(hours=7), 840.0),
         (PRESSURE, ago(hours=5, minutes=-1), 845.0),
         (PRESSURE, ago(hours=1), 845.0),  # 850 never read back before the next row
-        (KPA, ago(minutes=29), 1.55),
+        (KPA, ago(minutes=29), 0.15),
     ]
     ids = [row["id"] for row in (old, mid, released, unconfirmed, newest, other)]
     states = run(settings.desired_states(db, [*ids, 999_999, True, "7", 2**70]))
@@ -1386,17 +1389,17 @@ def test_an_agent_may_change_only_an_operator_switch(actor):
     db = FakeDB()
     for param in ("sw_occupancy_inhibit", "sw_gl_main_out_of_service", "sw_gl_grow_out_of_service"):
         assert write(db, actor, param, 0, False).value.param == param
-    for param, value in ((KPA, 1.4), ("sw_summer_vent_enabled", 0)):
+    for param, value in ((POLICY, 660.0), (KPA, 0.14), ("sw_direct_wet_gate_enabled", 0)):
         with pytest.raises(ServiceError) as excinfo:
             write(db, actor, param, value, False)
         assert (refusal(excinfo).code, refusal(excinfo).status) == ("forbidden", 403)
         with pytest.raises(ServiceError) as excinfo:
             release(db, actor, param)
         assert refusal(excinfo).code == "forbidden"
-    assert not [row for row in db.desired if row["param"] in (KPA, "sw_summer_vent_enabled")]
+    assert not [row for row in db.desired if row["param"] in (POLICY, KPA, "sw_direct_wet_gate_enabled")]
 
 
 def test_the_operator_and_a_system_actor_still_write_a_climate_setting():
     db = FakeDB()
-    assert write(db, PERSON, KPA, 1.4, False).value.value == 1.4
-    assert write(db, Actor.system("light_timer"), KPA, 1.5, False).value.value == 1.5
+    assert write(db, PERSON, POLICY, 660.0, False).value.value == 660.0
+    assert write(db, Actor.system("light_timer"), POLICY, 690.0, False).value.value == 690.0

@@ -28,7 +28,7 @@ TS = datetime(2000, 1, 1, tzinfo=UTC)
 EVENTS = [
     ("system_state", {"entity": "greenhouse_state", "value": "HEAT"}),
     ("override", {"override_type": "fog_gate_rh", "mode": "HEAT"}),
-    ("setpoint_observed", {"parameter": "vent_prefer_temp_delta_f", "value": 5}),
+    ("setpoint_observed", {"parameter": "mister_min_off_s", "value": 45}),
     ("esp32_log", {"level": "WARN", "tag": "test", "message": "original"}),
     ("diagnostics", {"uptime_s": 30}),
 ]
@@ -209,7 +209,7 @@ def test_all_five_schema_acceptance_and_original_setpoint_observation():
     assert ingestor._accept_observations(EVENTS, TS)
     rows = ingestor._get_observation_spool().queue.rows()
     assert [r[0] for r in rows] == [e[0] for e in EVENTS]
-    assert rows[2][2]["payload"] == {"parameter": "vent_prefer_temp_delta_f", "value": 5}
+    assert rows[2][2]["payload"] == {"parameter": "mister_min_off_s", "value": 45}
     pool = Pool()
     asyncio.run(ingestor._get_observation_spool().drain(pool))
     assert pool.calls[2][2] == TS
@@ -226,12 +226,12 @@ def test_duplicate_batch_uuid_collision_rolls_back_every_row():
 def test_callback_setpoint_is_accepted_before_cache_change(monkeypatch):
     ingestor.state.key_to_object_id[1] = "test_number"
     ingestor.state.key_to_type[1] = "number"
-    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_number", "vent_prefer_temp_delta_f")
+    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_number", "mister_min_off_s")
     monkeypatch.setattr(ingestor, "_equipment_source_now", lambda: TS)
     monkeypatch.setattr(ingestor, "_mirror_irrigation_number_readback", lambda *_: None)
-    ingestor.on_state_change(SimpleNamespace(key=1, state=5))
+    ingestor.on_state_change(SimpleNamespace(key=1, state=45))
     assert ingestor.state.pending_setpoints == []
-    assert ingestor.state.setpoints["vent_prefer_temp_delta_f"] == 5
+    assert ingestor.state.setpoints["mister_min_off_s"] == 45
     row = ingestor._get_observation_spool().queue.rows()[0]
     assert row[0] == "setpoint_observed" and row[2]["observed_at"] == TS.isoformat()
 
@@ -283,14 +283,51 @@ def test_new_insert_fanout_keeps_original_time_and_retry_does_not_repeat():
 def test_suppressed_number_echo_updates_native_cache_without_acceptance(monkeypatch):
     ingestor.state.key_to_object_id[1] = "test_number"
     ingestor.state.key_to_type[1] = "number"
-    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_number", "vent_prefer_temp_delta_f")
+    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_number", "mister_min_off_s")
     monkeypatch.setattr(ingestor, "_accept_setpoint", lambda *_: True)
     monkeypatch.setattr(ingestor, "_mirror_irrigation_number_readback", lambda *_: None)
     monkeypatch.setattr(ingestor, "_same_pushed_value", lambda *_: True)
-    monkeypatch.setitem(ingestor.shared.recently_pushed, "vent_prefer_temp_delta_f", __import__("time").time())
-    ingestor.on_state_change(SimpleNamespace(key=1, state=5))
-    assert ingestor.state.setpoints["vent_prefer_temp_delta_f"] == 5
+    monkeypatch.setitem(ingestor.shared.recently_pushed, "mister_min_off_s", __import__("time").time())
+    ingestor.on_state_change(SimpleNamespace(key=1, state=45))
+    assert ingestor.state.setpoints["mister_min_off_s"] == 45
     assert ingestor._get_observation_spool().queue.rows() == []
+
+
+@pytest.mark.parametrize("etype", ["number", "sensor"])
+def test_dispatcher_08_a_pre_push_report_after_the_push_is_not_recorded(monkeypatch, etype):
+    """DISPATCHER-08, the law boot's order: connect, the dispatcher pushes 30, the controller then reports its boot
+    value 45 (sampled before the push), then the pushed value. The ledger's newest row stays the push; a report of
+    another value after the race window is a real change and is recorded."""
+    import time as time_module
+
+    param = "mister_engage_delay_s"
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr(time_module, "time", lambda: clock["now"])
+    ingestor.state.key_to_object_id[1] = "test_setting"
+    ingestor.state.key_to_type[1] = etype
+    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_setting", param)
+    monkeypatch.setattr(ingestor, "_accept_setpoint", lambda *_: True)
+    monkeypatch.setattr(ingestor, "_mirror_irrigation_number_readback", lambda *_: None)
+    monkeypatch.setattr(ingestor.shared, "esp32_connected_at", 1_000.0)
+    monkeypatch.setitem(ingestor.state.setpoints, param, 30.0)  # the value held before the reboot
+    clock["now"] = 1_120.0  # the reconnect dispatch pushes 30
+    monkeypatch.setitem(ingestor.shared.recently_pushed, param, clock["now"])
+    monkeypatch.setitem(ingestor.shared.recently_pushed_values, param, 30.0)
+    clock["now"] = 1_122.0  # the boot value, sampled before the push, arrives after it
+    ingestor.on_state_change(SimpleNamespace(key=1, state=45.0))
+    assert ingestor._get_observation_spool().queue.rows() == []
+    assert ingestor.state.setpoints[param] == 30.0
+    clock["now"] = 1_180.0  # the controller holds the pushed value: nothing new to record
+    ingestor.on_state_change(SimpleNamespace(key=1, state=30.0))
+    assert ingestor._get_observation_spool().queue.rows() == []
+    clock["now"] = 1_200.0  # past the race window, a different value is a real change
+    ingestor.on_state_change(SimpleNamespace(key=1, state=45.0))
+    [row] = ingestor._get_observation_spool().queue.rows()
+    assert row[2]["payload"] == {"parameter": param, "value": 45.0}
+    assert ingestor._report_races_push(param, 45.0, now=1_121.0)
+    assert not ingestor._report_races_push(param, 30.0, now=1_121.0)
+    monkeypatch.setattr(ingestor.shared, "esp32_connected_at", 1_130.0)  # a push from an earlier connection
+    assert not ingestor._report_races_push(param, 45.0, now=1_131.0)
 
 
 def test_diagnostic_snapshot_excludes_stale_old_generation_and_unfenced_cache(monkeypatch):
@@ -298,7 +335,7 @@ def test_diagnostic_snapshot_excludes_stale_old_generation_and_unfenced_cache(mo
     monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_generation", 7)
     ingestor.state.diagnostics.update(uptime_s=30, wifi_rssi=-40, heap_bytes=100, firmware_version="old")
     ingestor.state.diagnostic_observations.update(
-        uptime_s=(TS, 7), wifi_rssi=(TS, 6), heap_bytes=(TS - timedelta(seconds=61), 7)
+        uptime_s=(TS, 7), wifi_rssi=(TS, 6), heap_bytes=(TS - timedelta(seconds=ingestor.DIAG_OBSERVATION_MAX_AGE_S), 7)
     )
     asyncio.run(ingestor.write_diagnostics(Pool(), TS + timedelta(seconds=1)))
     row = ingestor._get_observation_spool().queue.rows()[0][2]
@@ -310,6 +347,39 @@ def test_diagnostic_snapshot_excludes_stale_old_generation_and_unfenced_cache(mo
     assert ingestor._get_observation_spool().queue.rows() == before
     asyncio.run(ingestor.write_diagnostics(Pool(), TS + timedelta(seconds=62)))
     assert ingestor._get_observation_spool().queue.rows() == before
+
+
+def test_a_61_s_tick_against_a_60_s_publisher_loses_and_repeats_nothing(monkeypatch):
+    """DIAG-WINDOW: the tick runs 60 s plus the loop's work. Over 120 ticks every published value is written once."""
+    monkeypatch.setattr(ingestor.shared, "transport_generation", 7)
+    monkeypatch.setitem(ingestor.shared.esp32, "state_subscription_generation", 7)
+    columns = {"test_rssi": "wifi_rssi", "test_heap_minute": "heap_min_free_minute_kb", "test_reset": "reset_reason"}
+    for obj_id, col in columns.items():
+        monkeypatch.setitem(ingestor.DIAGNOSTIC_MAP, obj_id, col)
+    publishes = [
+        (TS + timedelta(seconds=60 * k + 0.5 + i * 0.2), obj_id, k)
+        for k in range(125)
+        for i, obj_id in enumerate(columns)
+    ]
+    ticks = [TS + timedelta(seconds=61 * j + 1) for j in range(1, 121)]
+    events = sorted([(at, 0, obj_id, k) for at, obj_id, k in publishes] + [(at, 1, "", 0) for at in ticks])
+    published: dict[str, list] = {col: [] for col in columns.values()}
+    for at, kind, obj_id, k in events:
+        if at > ticks[-1]:
+            break
+        if kind == 0:
+            col = columns[obj_id]
+            value = f"reason {k}" if col == "reset_reason" else float(-40 - k % 50 if col == "wifi_rssi" else k)
+            assert ingestor._record_diagnostic(obj_id, value, at, 7)
+            published[col].append(value)
+        else:
+            asyncio.run(ingestor.write_diagnostics(Pool(), at))
+    rows = [row[2] for row in ingestor._get_observation_spool().queue.rows()]
+    assert len(rows) > len(ticks)  # the ticks that held two publishes wrote two rows
+    assert [row["observed_at"] for row in rows] == sorted({row["observed_at"] for row in rows})
+    for col in columns.values():
+        written = [row["payload"][col] for row in rows if row["payload"].get(col) is not None]
+        assert written == published[col], col  # every value once, in order
 
 
 def test_an_on_change_state_is_carried_into_every_row_of_its_connection(monkeypatch):

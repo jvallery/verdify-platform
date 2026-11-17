@@ -31,7 +31,7 @@ export const GLOSSARY = {
   },
   bursts: {
     term: "Bursts",
-    definition: "Short manual runs that end on their own. Fans, vent open runs both fans with the vent open; Fans, vent closed runs both fans with the vent closed, stirring the house air; both stop both heaters while they run. Fogger runs the fog. The controller ignores them during emergency cooling or heating and a sensor fault.",
+    definition: "Short manual runs that end on their own. Fans, vent open runs both fans with the vent open; Fans, vent closed runs both fans with the vent closed, stirring the house air; both stop both heaters while they run. Fogger runs the fog. A manual run works without an indoor reading, so a sensor fault does not stop one; 100 F and 40 F end every run, so the controller ignores them during emergency cooling or heating.",
   },
   occupancy_hold: {
     term: "Occupancy hold",

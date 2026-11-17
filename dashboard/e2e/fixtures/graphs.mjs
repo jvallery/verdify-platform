@@ -39,14 +39,14 @@ export const FIXTURES = {
     world.band.temp_f = { ...world.band.temp_f, low: 64.5, high: 68 };
   },
   // The event rail (redesign §7.1), beside the base's Iris plan at 07:02, the forecast rule at 06:30 and L04's runs at
-  // 06:58: Jason's change of the mister engage point at 08:42, an agent's of the fog ceiling at 09:00, and a band-drift
+  // 06:58: Jason's change of the outdoor staleness limit at 08:42, an agent's of the fog ceiling at 09:00, and a band-drift
   // warning raised at 08:00 and resolved at 09:30.
   "graphs-events": (world) => {
     const at = clock(world.now);
     const id = nextId(world.activity);
     world.activity.push(
       {
-        id, ts: iso(at("08:42")), actor: JASON, action: "setting.write", target: "mister_engage_kpa", detail: { before: 1.6, value: 1.55 }, reason: "Vandas drying",
+        id, ts: iso(at("08:42")), actor: JASON, action: "setting.write", target: "outdoor_staleness_max_s", detail: { before: 660, value: 630 }, reason: "Vandas drying",
         state: "confirmed", confirmed_at: iso(at("08:43")), experiment_id: null, request_id: "6a1e7c2d-3b4f-4e5a-8c9d-0e1f2a3b4c5d",
       },
       {

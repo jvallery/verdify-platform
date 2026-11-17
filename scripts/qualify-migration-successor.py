@@ -142,7 +142,10 @@ OPTION_EVIDENCE = ("applied_first", "applied_first_seals", "native_fixture", "na
 
 # Up-front locks for a chain: each waits at most PRELOCK_TIMEOUT, then BOUNDS
 # applies again. A session that fails on a lock is retried, LOCK_ATTEMPTS in all.
-PRELOCK_TIMEOUT = "5s"
+# 8 s, not 5: LOCK TABLE on a view also locks its base relations, and the API's two reads of
+# v_data_trust_ledger hold those for up to their 6 s statement timeout. A wait shorter than the longest
+# routine reader loses every attempt that starts behind one (315, 2026-11-16).
+PRELOCK_TIMEOUT = "8s"
 LOCK_ATTEMPTS = 3
 LOCK_BACKOFF_SECONDS = 5.0
 # SQLSTATE 55P03 (lock_not_available, lock_timeout) and 40P01 (deadlock_detected).
@@ -307,9 +310,16 @@ def run(psql: list[str], sql: str) -> dict[str, dict]:
         )
         if result.returncode == 0:
             break
-        # The database error names the failed statement; it carries no secret.
-        error = result.stderr.strip()[-2000:]
-        if attempt == LOCK_ATTEMPTS or not LOCK_FAILURE.search(error):
+        # The database error names the failed statement; it carries no secret. Classify on the whole
+        # text: an error raised inside a DO block's EXECUTE is followed by a CONTEXT that quotes the
+        # statement (a view definition runs to several thousand characters), so the last 2000
+        # characters alone can hold neither the ERROR line nor the words that mark a lock failure.
+        stderr = result.stderr.strip()
+        first_error = next((line.strip() for line in stderr.splitlines() if "ERROR:" in line), "")
+        error = stderr[-2000:]
+        if first_error and first_error not in error:
+            error = f"{first_error[:500]} [...] {error}"
+        if attempt == LOCK_ATTEMPTS or not LOCK_FAILURE.search(stderr):
             raise QualificationError(f"psql session failed (attempt {attempt} of {LOCK_ATTEMPTS}): {error}")
         print(f"psql session lost a lock wait (attempt {attempt} of {LOCK_ATTEMPTS}); retrying", file=sys.stderr)
         time.sleep(LOCK_BACKOFF_SECONDS * 2 ** (attempt - 1))

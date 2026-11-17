@@ -84,39 +84,6 @@ def test_v2_pins_accelerated_evidence_gates() -> None:
     assert V2_TEMPLATE["study"]["dst_crossing"]["allowed"] is False
 
 
-def test_v2_treatment_fields_have_current_source_component_metadata() -> None:
-    """Source metadata is a drift check; #641/#642 still require deployed proof."""
-
-    from verdify_schemas.tunable_registry import REGISTRY
-
-    allowlist = V2_TEMPLATE["arms"]["ai_daily_selector"]["treatment_allowlist"]
-    candidates = json.loads(
-        (ROOT / "research/planner-efficacy/baseline/ai-template-candidates-2026-08-14.json").read_text(encoding="utf-8")
-    )
-
-    assert allowlist == candidates["diff_allowlist"]
-    for name in allowlist:
-        tunable = REGISTRY[name]
-        assert tunable.planner_pushable is True
-        assert tunable.push_owner == "planner"
-        assert tunable.esp_object_id
-        assert tunable.cfg_readback_object_id
-
-
-def test_v2_full_baseline_recovery_has_current_source_routes() -> None:
-    """A reboot recovery can need all 48 fields, not only the treatment 11."""
-
-    from verdify_schemas.tunable_registry import REGISTRY
-
-    wire_names = [entry["name"] for entry in WIRE_FIXTURE["wire_manifest"]]
-    recovery = V2_TEMPLATE["transport"]["full_baseline_recovery"]
-
-    assert len(wire_names) == recovery["component_count"] == 48
-    for name in wire_names:
-        assert REGISTRY[name].esp_object_id
-        assert REGISTRY[name].cfg_readback_object_id
-
-
 def test_v2_randomization_uses_full_entropy_internal_secret() -> None:
     randomization = V2_TEMPLATE["randomization"]
 

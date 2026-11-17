@@ -101,11 +101,15 @@ resources:
 # Argo creates this ConfigMap before the PreSync migrate Job; Kustomize rewrites
 # the Job volume reference to its content-hashed name.
 configMapGenerator:
-  # Package 6: the operator API's verdify_release_pin_info reads this copy of release-pins.yaml. Its content hash
-  # changes only with a promotion, which rolls the operator API to the new verdify-api digest anyway.
+  # Package 6: the operator API's verdify_release_pin_info reads this copy of release-pins.yaml. The name is fixed
+  # (ROLLOUT-6, #1633 release 4): a content-hashed name left the previous ConfigMap as an orphan after every
+  # promotion under prune-off. The volume mounts the directory, so the kubelet refreshes the file in place, and a
+  # promotion rolls the operator API to the new verdify-api digest anyway.
   - name: verdify-release-pins
     files:
       - release-pins.yaml=release-pins.yaml
+    options:
+      disableNameSuffixHash: true
   - name: verdify-c0-boundary-contract-240-248
     files:
       - contract.json=c0-boundary-contract-240-248.json

@@ -91,6 +91,11 @@ const served = (names: string | string[] = "in-band"): Row[] => fixture(names, {
 const inGroupOrder = (rows: readonly Row[]) => SETTING_GROUPS.flatMap(([group]) => rows.filter((row) => row.group === group).map((row) => row.param));
 /** The rows the catalog lists by default: retired rows wait behind "Show retired" (#1333). */
 const unretired = (rows: readonly Row[]) => rows.filter((row) => row.control_class !== "retired");
+// Release 4 deleted the four safety rails, the only guardrail rows (the controller fixes 40 °F and 100 °F); the guardrail
+// path stays and is checked on a live row marked as one.
+const GUARDED = "mister_engage_delay_s";
+const asGuardrail = (rows: Row[]) => rows.map((row) => (row.param === GUARDED
+  ? { ...row, help: { ...row.help!, guardrail: true, caution: "Check the hard limit before changing it." } } : row));
 
 test("the catalog: one row per fixture row rendered from the registry, by group in fixed order, each with its TunableDef label and unit", async () => {
   await open("/settings?retired=1");
@@ -125,22 +130,22 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
   // A bare number gains the unit its key names, a long duration reads in a unit people read, and a time of day stays a
   // number (#1308 visual QA 38); the bounds' ends follow the value's unit.
   const value = (param: string) => text(rowOf(param).querySelector(".setting-device-value"));
-  // (The third flash retired vent_latch_timeout_ms, the 30 min example; dwell_gate_ms still shows ms read in minutes.)
-  expect(["gl_main_min_on_s", "gl_main_target_light_minutes", "dwell_gate_ms", "gl_main_sunrise_hour"].map(value)).toEqual(["120 s", "960 min", "5 min", "7"]);
-  expect([...rowOf("dwell_gate_ms").querySelectorAll(".ctl-bounds-end")].map((end) => text(end))).toEqual(["60 s", "30 min"]);
-  expect(text(rowOf("mister_engage_kpa").querySelector(".setting-label"))).toBe("VPD Mister Engage");
+  // Release 4 (#1633) deleted the one ms setting (dwell_gate_ms); a seconds row under an hour keeps plain ends.
+  expect(["gl_main_min_on_s", "gl_main_target_light_minutes", "gl_main_sunrise_hour"].map(value)).toEqual(["120 s", "960 min", "7"]);
+  expect([...rowOf("outdoor_staleness_max_s").querySelectorAll(".ctl-bounds-end")].map((end) => text(end))).toEqual(["120", "1800"]);
+  expect(text(rowOf("outdoor_staleness_max_s").querySelector(".setting-label"))).toBe("Outdoor Staleness Max");
   expect(text(rowOf("temp_low").querySelector(".setting-device"))).toContain("Legacy limit, not used while the on-chip band runs");
   // In the steady state no row carries a pill: CONFIRMED shows only for a write under 10 minutes old (D-UX-07).
   expect(document.querySelectorAll(".setting-row [data-badge=confirmed]")).toHaveLength(0);
   expect(document.querySelectorAll(".ctl-row-pill [data-badge]")).toHaveLength(0);
   // The device value large, the bounds bar with its ends, the next plan's ring, and the bounds and step in words.
-  expect(linesOf("mister_engage_kpa", ".setting-value")).toEqual(["1.60 kPa"]);
-  const bounds = rowOf("mister_engage_kpa").querySelector(".ctl-bounds")!;
-  expect([...bounds.querySelectorAll(".ctl-bounds-end")].map((end) => text(end))).toEqual(["0.50", "2.50"]);
-  expect(text(bounds.querySelector(".setting-bounds"))).toBe("Allowed 0.50–2.50 kPa · step 0.05");
+  expect(linesOf("outdoor_staleness_max_s", ".setting-value")).toEqual(["660 s"]);
+  const bounds = rowOf("outdoor_staleness_max_s").querySelector(".ctl-bounds")!;
+  expect([...bounds.querySelectorAll(".ctl-bounds-end")].map((end) => text(end))).toEqual(["120", "1800"]);
+  expect(text(bounds.querySelector(".setting-bounds"))).toBe("Allowed 120–1800 s · step 30");
   expect(bounds.querySelector("svg")!.getAttribute("aria-hidden")).toBe("true");
   expect(bounds.querySelectorAll(".ctl-bounds-dot, .ctl-bounds-planned")).toHaveLength(2);
-  expect(linesOf("mister_engage_kpa", ".setting-next")).toEqual(["next 1.70 kPa at 13:00 · AI"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-next")).toEqual(["next 720 s at 13:00 · AI"]);
   // Band in force: the house and each zone, DERIVED with its age as a text mark, none NO READBACK, Details and no Edit.
   expect(new Set(band.map((row) => row.param.split("_")[1]))).toEqual(new Set(["house", "center", "south", "west", "east"]));
   for (const row of band) {
@@ -154,7 +159,7 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
     expect(linesOf(row.param, ".setting-value"), row.param).toEqual(["— No readback"]);
   }
   // Who wrote the value in force: Iris and an agent by name with AI as a text mark; a forecast rule as the system, never AI.
-  expect(linesOf("mister_pulse_gap_s", ".setting-writer")).toEqual(["Iris changed this at 07:02 · AI"]);
+  expect(linesOf("mister_min_off_s", ".setting-writer")).toEqual(["Iris changed this at 07:02 · AI"]);
   expect(linesOf("mister_water_budget_gal", ".setting-writer")).toEqual(["steward changed this at 06:47 · “Dry afternoon ahead” · AI"]);
   expect(rowOf("mister_water_budget_gal").querySelector(".setting-writer [data-badge=ai]")!.className).toBe("ctl-mark");
   expect(linesOf("sw_gl_main_solar_phasing", ".setting-writer")).toEqual(["Forecast rule · system"]);
@@ -164,15 +169,15 @@ test("the catalog: one row per fixture row rendered from the registry, by group 
 });
 
 test("the control desk surfaces held and unconfirmed changes without claiming their requested values are applied", async () => {
-  await open("/settings", { patch: (items) => items.map((row) => row.param === "mister_engage_kpa"
-    ? { ...row, state: "held" } : row.param === "mister_pulse_gap_s" ? { ...row, state: "not_confirmed" } : row) });
+  await open("/settings", { patch: (items) => items.map((row) => row.param === "outdoor_staleness_max_s"
+    ? { ...row, state: "held" } : row.param === "mister_min_off_s" ? { ...row, state: "not_confirmed" } : row) });
   const desk = screen.getByRole("region", { name: "Understand a change before making it." });
   expect(within(desk).getByRole("heading", { name: "2 changes need a look" })).toBeTruthy();
   expect(within(desk).getAllByText(/Reported:/)).toHaveLength(2);
   fireEvent.click(screen.getByRole("link", { name: "Pending changes 2" }));
   await settle();
   expect(here()).toBe("/settings?filter=attention");
-  expect(shown()).toEqual(expect.arrayContaining(["mister_engage_kpa", "mister_pulse_gap_s"]));
+  expect(shown()).toEqual(expect.arrayContaining(["outdoor_staleness_max_s", "mister_min_off_s"]));
   expect(shown()).toHaveLength(2);
 });
 
@@ -202,7 +207,7 @@ test("the rail's filters count and filter the rows and survive a reload of the U
   await settle();
   expect(here()).toBe("/settings?filter=agent");
   expect(text(document.querySelector(".ctl-filter-note"))).toBe("Set by Iris or an agent: The value in force came from an Iris plan, or from a write by a named agent.");
-  const byAgent = ["mister_engage_kpa", "mister_engage_delay_s", "mister_water_budget_gal", "mister_pulse_gap_s"];
+  const byAgent = ["mister_engage_delay_s", "mister_water_budget_gal", "mister_min_off_s", "outdoor_staleness_max_s"];
   expect(shown()).toEqual(byAgent);
   // The groups count the rows that show; a group with none is no link.
   expect(railGroups()).toEqual(SETTING_GROUPS.map(([group, label]) => (group === "planner_policy" ? [`${label} 4`, "a"] : [`${label} 0`, "span"])));
@@ -221,33 +226,35 @@ test("the rail's filters count and filter the rows and survive a reload of the U
   await settle();
   expect(here()).toBe("/settings");
   // Search: the plain label, then the key; the words are in the URL too.
-  fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "pulse gap" } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "mister off" } });
   await settle();
-  expect(here()).toBe("/settings?q=pulse+gap");
-  expect(shown()).toContain("mister_pulse_gap_s");
+  expect(here()).toBe("/settings?q=mister+off");
+  expect(shown()).toContain("mister_min_off_s");
   fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "engage_delay" } });
   await settle();
   expect(shown()).toEqual(["mister_engage_delay_s"]);
-  fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "pulse gap x" } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "mister off x" } });
   await settle();
   expect(shown()).toEqual([]);
   // An empty list is one line and the one action that widens it.
-  expect(screen.getByText("No setting matches “pulse gap x”")).toBeTruthy();
+  expect(screen.getByText("No setting matches “mister off x”")).toBeTruthy();
   fireEvent.click(screen.getByRole("link", { name: "Clear search" }));
   await settle();
   expect(here()).toBe("/settings");
   expect(shown()).toHaveLength(items.length);
   cleanup();
   stopFixtureApi();
-  await open("/settings?q=pulse+gap");
-  expect(shown()).toContain("mister_pulse_gap_s");
-  expect((screen.getByRole("searchbox", { name: "Search settings" }) as HTMLInputElement).value).toBe("pulse gap");
+  await open("/settings?q=mister+off");
+  expect(shown()).toContain("mister_min_off_s");
+  expect((screen.getByRole("searchbox", { name: "Search settings" }) as HTMLInputElement).value).toBe("mister off");
 });
 
-test("the drawer keeps a value as stored, with the unit its key names: the row's 5 min is 300000 ms there (#1308 visual QA 38)", async () => {
-  await open("/settings?edit=dwell_gate_ms");
-  expect(text(rowOf("dwell_gate_ms").querySelector(".setting-device-value"))).toBe("5 min");
-  expect(text(document.querySelector("dialog.drawer .setting-device-value"))).toBe("300000 ms");
+test("the drawer keeps a value as stored, with the unit its key names: the row's 1 h is 3600 s there (#1308 visual QA 38)", async () => {
+  // Release 4 (#1633) deleted dwell_gate_ms, the ms example: a seconds setting at an hour shows the same rule.
+  const hour = (items: Row[]) => items.map((row) => (row.param === "gl_main_min_on_s" ? { ...row, readback: { ...row.readback!, value: 3600 } } : row));
+  await open("/settings?edit=gl_main_min_on_s", { patch: hour });
+  expect(text(rowOf("gl_main_min_on_s").querySelector(".setting-device-value"))).toBe("1 h");
+  expect(text(document.querySelector("dialog.drawer .setting-device-value"))).toBe("3600 s");
   cleanup(); stopFixtureApi();
   await open("/settings?edit=gl_main_min_on_s");
   expect(text(document.querySelector("dialog.drawer .setting-device-value"))).toBe("120 s");
@@ -259,17 +266,17 @@ test("Changed in the last 24 h counts any write in force, Iris plans too; 7 d wi
     id: 80 + hours, param, value: 60, snapped_from: null, manual: false, manual_before: false, state: "confirmed", state_reason: null, confirmed_at: hoursAgo(hours),
     actor: { source: "dashboard", name: "jason" }, reason: null, created_at: hoursAgo(hours),
   });
-  const patch = (items: Row[]) => items.map((row) => (row.param === "mister_pulse_on_s" ? { ...row, applied_from: "desired", desired: written(row.param, 20) }
-    : row.param === "mister_pulse_gap_s" ? { ...row, applied_from: "desired", desired: written(row.param, 6 * 24) } : row));
+  const patch = (items: Row[]) => items.map((row) => (row.param === "sw_direct_wet_gate_enabled" ? { ...row, applied_from: "desired", desired: written(row.param, 20) }
+    : row.param === "mister_min_off_s" ? { ...row, applied_from: "desired", desired: written(row.param, 6 * 24) } : row));
   await open("/settings?filter=recent", { patch });
   expect(chips()[2]).toEqual(["Changed in the last 24 h 5", "true"]);
   // Iris's plan values written today, the 20 h old write and the agent's writes; not the write 6 days old.
-  expect(shown()).toEqual(["mister_engage_kpa", "mister_engage_delay_s", "mister_water_budget_gal", "mister_pulse_on_s", "sw_gl_main_solar_phasing"]);
+  expect(shown()).toEqual(["mister_engage_delay_s", "mister_water_budget_gal", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled", "sw_gl_main_solar_phasing"]);
   fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "7 d" }));
   await settle();
   expect(here()).toBe("/settings?filter=recent&window=7d");
   expect(chips()[2]).toEqual(["Changed in the last 7 d 6", "true"]);
-  expect(shown()).toEqual(["mister_engage_kpa", "mister_engage_delay_s", "mister_water_budget_gal", "mister_pulse_on_s", "mister_pulse_gap_s", "sw_gl_main_solar_phasing"]);
+  expect(shown()).toEqual(["mister_engage_delay_s", "mister_water_budget_gal", "mister_min_off_s", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled", "sw_gl_main_solar_phasing"]);
   cleanup();
   stopFixtureApi();
   // Desired rows with no readable write time: the filter is left out, and its URL falls back to All.
@@ -307,17 +314,17 @@ test("the Manual, Requested and Not confirmed filters keep the rows the API mark
   });
   // A person's manual value in force, a request on its way and one the controller never matched.
   const states: Record<string, Partial<Row>> = {
-    mister_pulse_on_s: { applied_from: "manual", state: "confirmed", desired: write("mister_pulse_on_s", 60, true, "confirmed", 30) },
+    sw_direct_wet_gate_enabled: { applied_from: "manual", state: "confirmed", desired: write("sw_direct_wet_gate_enabled", 0, true, "confirmed", 30) },
     band_vpd_low_sm: { applied_from: "desired", state: "requested", desired: write("band_vpd_low_sm", 0.85, false, "requested", 0.5) },
     gl_main_lux_threshold: { applied_from: "desired", state: "not_confirmed", desired: write("gl_main_lux_threshold", 42_000, false, "not_confirmed", 8) },
   };
   const patch = (items: Row[]) => items.map((row) => (states[row.param] ? { ...row, ...states[row.param] } : row));
   await open("/settings", { patch });
   expect(status()).toBe(`${served().length} settings · 1 waiting · 1 not applied · 1 manual`);
-  expect([pillOf("mister_pulse_on_s"), pillOf("band_vpd_low_sm"), pillOf("gl_main_lux_threshold")]).toEqual([["manual"], ["requested"], ["not_confirmed"]]);
+  expect([pillOf("sw_direct_wet_gate_enabled"), pillOf("band_vpd_low_sm"), pillOf("gl_main_lux_threshold")]).toEqual([["manual"], ["requested"], ["not_confirmed"]]);
   cleanup();
   stopFixtureApi();
-  for (const [chip, filter, param] of [["Manual (Iris skips) 1", "manual", "mister_pulse_on_s"], ["Waiting for controller 1", "requested", "band_vpd_low_sm"], ["Not applied 1", "not_confirmed", "gl_main_lux_threshold"]]) {
+  for (const [chip, filter, param] of [["Manual (Iris skips) 1", "manual", "sw_direct_wet_gate_enabled"], ["Waiting for controller 1", "requested", "band_vpd_low_sm"], ["Not applied 1", "not_confirmed", "gl_main_lux_threshold"]]) {
     await open("/settings", { patch });
     expect(chips().slice(3, 6)).toEqual([["Waiting for controller 1", null], ["Not applied 1", null], ["Manual (Iris skips) 1", null]]);
     fireEvent.click(screen.getByRole("link", { name: chip }));
@@ -338,60 +345,61 @@ test("the Manual, Requested and Not confirmed filters keep the rows the API mark
 test("one pill by priority: NOT CONFIRMED, REQUESTED, HELD, STALE, MANUAL, then CONFIRMED only while the newest write is under 10 minutes old", async () => {
   const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
   const write = (manual: boolean, minutes: number) => ({
-    id: 90, param: "mister_engage_kpa", value: 1.55, snapped_from: null, manual, manual_before: false, state: "confirmed", state_reason: null,
+    id: 90, param: "outdoor_staleness_max_s", value: 630, snapped_from: null, manual, manual_before: false, state: "confirmed", state_reason: null,
     confirmed_at: minutesAgo(minutes - 0.5), actor: { source: "dashboard", name: "jason" }, reason: null, created_at: minutesAgo(minutes),
   });
   let desired = write(false, 4);
-  await open("/settings?q=mister_engage_kpa", { patch: (items) => items.map((row) => (row.param === "mister_engage_kpa" ? { ...row, applied_from: "desired", state: "confirmed", desired } : row)) });
-  expect(pillOf("mister_engage_kpa")).toEqual(["confirmed"]);
+  await open("/settings?q=outdoor_staleness_max_s", { patch: (items) => items.map((row) => (row.param === "outdoor_staleness_max_s" ? { ...row, applied_from: "desired", state: "confirmed", desired } : row)) });
+  expect(pillOf("outdoor_staleness_max_s")).toEqual(["confirmed"]);
   // Six minutes on, the write is ten minutes old: the value and the writer say it, with no pill.
   await advance(6 * 60_000);
   await settle();
-  expect(pillOf("mister_engage_kpa")).toEqual([]);
-  expect(linesOf("mister_engage_kpa", ".setting-writer")).toEqual(["jason changed this at 10:38 · Iris may adjust"]);
+  expect(pillOf("outdoor_staleness_max_s")).toEqual([]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-writer")).toEqual(["jason changed this at 10:38 · Iris may adjust"]);
   cleanup();
   stopFixtureApi();
   // A manual write keeps MANUAL, which outranks CONFIRMED; the confirmation is said in words while it is new.
   desired = write(true, 4);
-  await open("/settings?q=mister_engage_kpa", { patch: (items) => items.map((row) => (row.param === "mister_engage_kpa" ? { ...row, applied_from: "manual", state: "confirmed", desired } : row)) });
-  expect(pillOf("mister_engage_kpa")).toEqual(["manual"]);
-  expect(linesOf("mister_engage_kpa", ".setting-writer")).toEqual(["jason changed this at 10:38 · confirmed 10:38"]);
-  expect(linesOf("mister_engage_kpa", ".setting-next")).toEqual(["Iris skips it"]);
+  await open("/settings?q=outdoor_staleness_max_s", { patch: (items) => items.map((row) => (row.param === "outdoor_staleness_max_s" ? { ...row, applied_from: "manual", state: "confirmed", desired } : row)) });
+  expect(pillOf("outdoor_staleness_max_s")).toEqual(["manual"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-writer")).toEqual(["jason changed this at 10:38 · confirmed 10:38"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-next")).toEqual(["Iris skips it"]);
 });
 
-test("/settings?edit=mister_engage_kpa opens with Manual ticked; 1.53 saves as 1.55, reads REQUESTED, then CONFIRMED on the fixture readback", async () => {
-  const api = await open("/settings?q=mister_engage_kpa&edit=mister_engage_kpa", { fixture: "requested-to-confirmed" });
+test("/settings?edit=outdoor_staleness_max_s opens with Manual ticked; 640 saves as 630, reads REQUESTED, then CONFIRMED on the fixture readback", async () => {
+  const api = await open("/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s", { fixture: "requested-to-confirmed" });
   expect(drawerOpen()).toBe(true);
   expect(text(within(dialog()).getByRole("heading", { level: 2 }))).toBe("Edit setting");
-  expect(text(dialog().querySelector(".drawer-body > .eyebrow"))).toBe("Planner policy · mister_engage_kpa");
-  expect(text(dialog().querySelector(".drawer-heading"))).toBe("VPD Mister Engage");
-  expect(text(dialog().querySelector(".drawer-status .setting-value"))).toBe("1.60 kPa · reported 2 min ago");
+  expect(text(dialog().querySelector(".drawer-body > .eyebrow"))).toBe("Planner policy · outdoor_staleness_max_s");
+  expect(text(dialog().querySelector(".drawer-heading"))).toBe("Outdoor Staleness Max");
+  expect(text(dialog().querySelector(".drawer-status .setting-value"))).toBe("660 s · reported 2 min ago");
   // The drawer's state: the bounds bar, Iris's writer line and the next plan; then "Activity for this setting ›".
-  expect(text(dialog().querySelector(".drawer-status .setting-bounds"))).toBe("Allowed 0.50–2.50 kPa · step 0.05");
-  expect([...dialog().querySelectorAll(".drawer-status .ctl-status-lines li")].map((line) => text(line))).toEqual(["Iris changed this at 07:02 · AI", "next 1.70 kPa at 13:00 · AI"]);
-  expect(within(dialog()).getByRole("link", { name: "Activity for this setting" }).getAttribute("href")).toBe("/activity/log?target=mister_engage_kpa");
-  expect(within(dialog()).getByRole("link", { name: "Graph this setting" }).getAttribute("href")).toBe("/graphs?set=mister_engage_kpa");
+  expect(text(dialog().querySelector(".drawer-status .setting-bounds"))).toBe("Allowed 120–1800 s · step 30");
+  expect([...dialog().querySelectorAll(".drawer-status .ctl-status-lines li")].map((line) => text(line))).toEqual(["Iris changed this at 07:02 · AI", "next 720 s at 13:00 · AI"]);
+  expect(within(dialog()).getByRole("link", { name: "Activity for this setting" }).getAttribute("href")).toBe("/activity/log?target=outdoor_staleness_max_s");
+  // A seconds setting has no Graphs panel, so no graph link (edit-drawer.tsx GRAPH_UNITS).
+  expect(within(dialog()).queryByRole("link", { name: "Graph this setting" })).toBeNull();
   expect((screen.getByRole("checkbox", { name: "Let Iris change this" }) as HTMLInputElement).checked).toBe(false);
   const field = screen.getByLabelText("New value") as HTMLInputElement;
-  expect(field.value).toBe("1.60");
-  expect(text(dialog().querySelector(".field-hint"))).toBe("Allowed 0.50–2.50 kPa · step 0.05");
-  fireEvent.change(field, { target: { value: "1.53" } });
+  expect(field.value).toBe("660");
+  expect(text(dialog().querySelector(".field-hint"))).toBe("Allowed 120–1800 s · step 30");
+  fireEvent.change(field, { target: { value: "640" } });
   fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Vandas drying" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   const sent = writes(api);
-  expect(sent).toEqual([expect.objectContaining({ method: "PUT", operationId: "API-10", path: "/api/v1/settings/mister_engage_kpa", body: { value: 1.53, manual: true, reason: "Vandas drying" } })]);
+  expect(sent).toEqual([expect.objectContaining({ method: "PUT", operationId: "API-10", path: "/api/v1/settings/outdoor_staleness_max_s", body: { value: 640, manual: true, reason: "Vandas drying" } })]);
   expect(sent[0].idempotency_key).toMatch(UUID);
   expect(drawerOpen()).toBe(false);
-  expect(here()).toBe("/settings?q=mister_engage_kpa");
-  expect(toasts()).toEqual(["Requested 1.55 kPa for VPD Mister Engage (snapped from 1.53)"]);
+  expect(here()).toBe("/settings?q=outdoor_staleness_max_s");
+  expect(toasts()).toEqual(["Requested 630 s for Outdoor Staleness Max (snapped from 640)"]);
   await settle();
-  expect(linesOf("mister_engage_kpa", ".setting-request")).toEqual(["→ 1.55 kPa · 0 s · manual · jason · “Vandas drying”"]);
-  expect(pillOf("mister_engage_kpa")).toEqual(["requested"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-request")).toEqual(["→ 630 s · 0 s · manual · jason · “Vandas drying”"]);
+  expect(pillOf("outdoor_staleness_max_s")).toEqual(["requested"]);
   // The request never replaces the device's own value; the bounds bar rings the value on its way.
-  expect(linesOf("mister_engage_kpa", ".setting-value")).toEqual(["1.60 kPa"]);
-  expect(rowOf("mister_engage_kpa").querySelector(".ctl-bounds-requested")).not.toBeNull();
-  expect(text(rowOf("mister_engage_kpa").querySelector(".setting-next"))).toBe("Iris skips it");
+  expect(linesOf("outdoor_staleness_max_s", ".setting-value")).toEqual(["660 s"]);
+  expect(rowOf("outdoor_staleness_max_s").querySelector(".ctl-bounds-requested")).not.toBeNull();
+  expect(text(rowOf("outdoor_staleness_max_s").querySelector(".setting-next"))).toBe("Iris skips it");
   expect(chips().slice(3, 6)).toEqual([["Waiting for controller 1", null], ["Not applied 0", null], ["Manual (Iris skips) 1", null]]);
   expect(status()).toBe(`${served().length} settings · 1 waiting · 0 not applied · 1 manual`);
   // REQUESTED reads API-09 every 5 s; the fixture's readback matches on the third read after the write.
@@ -400,25 +408,25 @@ test("/settings?edit=mister_engage_kpa opens with Manual ticked; 1.53 saves as 1
   await advance(5_000);
   await settle();
   expect(sentAt("API-09").length - after).toBeGreaterThanOrEqual(2);
-  expect(linesOf("mister_engage_kpa", ".setting-request")).toEqual([]);
-  expect(linesOf("mister_engage_kpa", ".setting-value")).toEqual(["1.55 kPa"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-request")).toEqual([]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-value")).toEqual(["630 s"]);
   // MANUAL outranks CONFIRMED for the one pill, so the new confirmation reads in words.
-  expect(pillOf("mister_engage_kpa")).toEqual(["manual"]);
-  expect(linesOf("mister_engage_kpa", ".setting-writer")).toEqual(["jason changed this at 10:42 · “Vandas drying” · confirmed 10:42"]);
+  expect(pillOf("outdoor_staleness_max_s")).toEqual(["manual"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-writer")).toEqual(["jason changed this at 10:42 · “Vandas drying” · confirmed 10:42"]);
   expect(chips().slice(3, 6)).toEqual([["Waiting for controller 0", null], ["Not applied 0", null], ["Manual (Iris skips) 1", null]]);
   expect(writes(api)).toHaveLength(1);
 });
 
 test("with no matching readback it reads NOT CONFIRMED with its reason; a late readback turns it CONFIRMED by itself; no Send again", async () => {
-  const api = await open("/settings?q=mister_engage_kpa&edit=mister_engage_kpa", { fixture: "requested-to-confirmed", confirm: false });
-  fireEvent.change(screen.getByLabelText("New value"), { target: { value: "1.53" } });
+  const api = await open("/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s", { fixture: "requested-to-confirmed", confirm: false });
+  fireEvent.change(screen.getByLabelText("New value"), { target: { value: "640" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   await advance(5_000);
   await advance(5_000);
   await settle();
-  expect(pillOf("mister_engage_kpa")).toEqual(["not_confirmed"]);
-  expect(text(rowOf("mister_engage_kpa").querySelector(".state-reason"))).toBe("Sent 10:42; no matching readback yet");
+  expect(pillOf("outdoor_staleness_max_s")).toEqual(["not_confirmed"]);
+  expect(text(rowOf("outdoor_staleness_max_s").querySelector(".state-reason"))).toBe("Sent 10:42; no matching readback yet");
   expect(chips().slice(4, 5)).toEqual([["Not applied 1", null]]);
   expect(screen.queryByRole("button", { name: /send again/i })).toBeNull();
   // The readback arrives late: API-09 now reports it, and the next read turns the row CONFIRMED with no new write.
@@ -428,27 +436,27 @@ test("with no matching readback it reads NOT CONFIRMED with its reason; a late r
     if (!input.startsWith("/api/v1/settings") || (init?.method ?? "GET") !== "GET") return response;
     const body = await response.json() as { items: Row[] };
     const confirmedAt = new Date(Date.now() - 1_000).toISOString();
-    body.items = body.items.map((row) => (row.param === "mister_engage_kpa" ? {
-      ...row, state: "confirmed", readback: { value: 1.55, observed_at: confirmedAt, reason: null },
+    body.items = body.items.map((row) => (row.param === "outdoor_staleness_max_s" ? {
+      ...row, state: "confirmed", readback: { value: 630, observed_at: confirmedAt, reason: null },
       desired: { ...(row.desired as object), state: "confirmed", state_reason: null, confirmed_at: confirmedAt },
     } : row));
     return { ...response, json: async () => body } as Response;
   });
   await advance(60_000);
   await settle();
-  expect(linesOf("mister_engage_kpa", ".setting-request")).toEqual([]);
-  expect(linesOf("mister_engage_kpa", ".setting-value")).toEqual(["1.55 kPa"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-request")).toEqual([]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-value")).toEqual(["630 s"]);
   expect(screen.queryByRole("button", { name: /send again/i })).toBeNull();
   expect(writes(api)).toHaveLength(1);
 });
 
-test("2.60 is refused beside the field with \"Must be 0.50–2.50 kPa\"; the drawer stays open and nothing is sent", async () => {
-  const api = await open("/settings?q=mister_engage_kpa&edit=mister_engage_kpa");
+test("1900 is refused beside the field with \"Must be 120–1800 s\"; the drawer stays open and nothing is sent", async () => {
+  const api = await open("/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s");
   const field = screen.getByLabelText("New value");
-  fireEvent.change(field, { target: { value: "2.60" } });
+  fireEvent.change(field, { target: { value: "1900" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
-  const error = within(dialog()).getByText("Must be 0.50–2.50 kPa", { normalizer: (value) => value.replaceAll(" ", " ") });
+  const error = within(dialog()).getByText("Must be 120–1800 s", { normalizer: (value) => value.replaceAll(" ", " ") });
   expect(field.getAttribute("aria-invalid")).toBe("true");
   expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
   expect(drawerOpen()).toBe(true);
@@ -463,34 +471,34 @@ test("2.60 is refused beside the field with \"Must be 0.50–2.50 kPa\"; the dra
 });
 
 test("Release to auto sends one API-11 and removes MANUAL; a newer non-manual value reads superseded until Iris's next plan", async () => {
-  const api = await open("/settings?q=mister_engage_kpa", { fixture: "superseded-lane" });
-  expect(linesOf("mister_engage_kpa", ".setting-writer")).toEqual(["jason changed this at 08:00 · “Vandas drying” · Iris may adjust"]);
-  expect(text(rowOf("mister_engage_kpa").querySelector(".setting-next"))).toBe("superseded until Iris's next plan");
+  const api = await open("/settings?q=outdoor_staleness_max_s", { fixture: "superseded-lane" });
+  expect(linesOf("outdoor_staleness_max_s", ".setting-writer")).toEqual(["jason changed this at 08:00 · “Vandas drying” · Iris may adjust"]);
+  expect(text(rowOf("outdoor_staleness_max_s").querySelector(".setting-next"))).toBe("superseded until Iris's next plan");
   // Take it manual at the value in force, then release it.
-  fireEvent.click(screen.getByRole("link", { name: "Edit VPD Mister Engage" }));
+  fireEvent.click(screen.getByRole("link", { name: "Edit Outdoor Staleness Max" }));
   await settle();
-  expect((screen.getByLabelText("New value") as HTMLInputElement).value).toBe("1.55");
+  expect((screen.getByLabelText("New value") as HTMLInputElement).value).toBe("630");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await settle();
-  expect(writes(api).map((row) => [row.operationId, row.body])).toEqual([["API-10", { value: 1.55, manual: true }]]);
+  expect(writes(api).map((row) => [row.operationId, row.body])).toEqual([["API-10", { value: 630, manual: true }]]);
   // On its way, REQUESTED outranks MANUAL for the one pill; the request says manual in words.
-  expect(pillOf("mister_engage_kpa")).toEqual(["requested"]);
-  expect(linesOf("mister_engage_kpa", ".setting-request")).toEqual(["→ 1.55 kPa · 0 s · manual · jason"]);
-  expect(text(rowOf("mister_engage_kpa").querySelector(".setting-next"))).toBe("Iris skips it");
-  fireEvent.click(screen.getByRole("link", { name: "Edit VPD Mister Engage" }));
+  expect(pillOf("outdoor_staleness_max_s")).toEqual(["requested"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-request")).toEqual(["→ 630 s · 0 s · manual · jason"]);
+  expect(text(rowOf("outdoor_staleness_max_s").querySelector(".setting-next"))).toBe("Iris skips it");
+  fireEvent.click(screen.getByRole("link", { name: "Edit Outdoor Staleness Max" }));
   await settle();
   fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Back to the plan" } });
   fireEvent.click(screen.getByRole("button", { name: "Release to auto" }));
   await settle();
   const sent = writes(api);
-  expect(sent.filter((row) => row.operationId === "API-11")).toEqual([expect.objectContaining({ method: "DELETE", path: "/api/v1/settings/mister_engage_kpa?reason=Back+to+the+plan", body: null })]);
+  expect(sent.filter((row) => row.operationId === "API-11")).toEqual([expect.objectContaining({ method: "DELETE", path: "/api/v1/settings/outdoor_staleness_max_s?reason=Back+to+the+plan", body: null })]);
   expect(sent[1].idempotency_key).toMatch(UUID);
   expect(drawerOpen()).toBe(false);
-  expect(toasts()).toContain("Released VPD Mister Engage: plan, band or default applies");
-  expect(rowOf("mister_engage_kpa").querySelector("[data-badge=manual]")).toBeNull();
-  expect(text(rowOf("mister_engage_kpa").querySelector(".setting-device"))).not.toContain("manual");
-  expect(linesOf("mister_engage_kpa", ".setting-writer")).toEqual(["Released: plan, band or default applies"]);
-  expect(text(rowOf("mister_engage_kpa").querySelector(".setting-next"))).toBe("next 1.70 kPa at 13:00 · AI");
+  expect(toasts()).toContain("Released Outdoor Staleness Max: plan, band or default applies");
+  expect(rowOf("outdoor_staleness_max_s").querySelector("[data-badge=manual]")).toBeNull();
+  expect(text(rowOf("outdoor_staleness_max_s").querySelector(".setting-device"))).not.toContain("manual");
+  expect(linesOf("outdoor_staleness_max_s", ".setting-writer")).toEqual(["Released: plan, band or default applies"]);
+  expect(text(rowOf("outdoor_staleness_max_s").querySelector(".setting-next"))).toBe("next 720 s at 13:00 · AI");
 });
 
 test("a switch with no known value starts unset, never OFF: Save sends nothing until ON or OFF is picked", async () => {
@@ -531,7 +539,7 @@ test("with program rev 42 a site cap reads \"On controller · rev 42: 360 gal\",
   await settle();
   expect(sentAt("API-IRR-01").length).toBe(2);
   // Off screen, it is not read.
-  fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "pulse gap" } });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "mister off" } });
   await settle();
   await advance(120_000);
   expect(sentAt("API-IRR-01").length).toBe(2);
@@ -563,16 +571,16 @@ test("a viewer sees every row with no Edit, and ?edit= opens the drawer read-onl
   expect(document.querySelectorAll(".setting-edit, [data-write-control]")).toHaveLength(0);
   // Every row opens its drawer, read-only, from Details.
   expect(screen.getAllByRole("link", { name: /^Details of / })).toHaveLength(unretired(served("viewer-session")).length);
-  expect(rowOf("mister_engage_kpa").querySelector(".ctl-details")!.getAttribute("href")).toBe("/settings?edit=mister_engage_kpa");
+  expect(rowOf("outdoor_staleness_max_s").querySelector(".ctl-details")!.getAttribute("href")).toBe("/settings?edit=outdoor_staleness_max_s");
   cleanup();
   stopFixtureApi();
-  await open("/settings?q=mister_engage_kpa&edit=mister_engage_kpa", { fixture: "viewer-session" });
+  await open("/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s", { fixture: "viewer-session" });
   expect(drawerOpen()).toBe(true);
   expect(text(within(dialog()).getByRole("heading", { level: 2 }))).toBe("Setting");
-  expect(text(dialog().querySelector(".drawer-status .setting-value"))).toBe("1.60 kPa · reported 2 min ago");
+  expect(text(dialog().querySelector(".drawer-status .setting-value"))).toBe("660 s · reported 2 min ago");
   const field = screen.getByLabelText("New value") as HTMLInputElement;
-  expect([field.value, field.matches(":disabled")]).toEqual(["1.60", true]);
-  expect(text(dialog().querySelector(".field-hint"))).toBe("Allowed 0.50–2.50 kPa · step 0.05");
+  expect([field.value, field.matches(":disabled")]).toEqual(["660", true]);
+  expect(text(dialog().querySelector(".field-hint"))).toBe("Allowed 120–1800 s · step 30");
   for (const name of ["Save", "Release to auto", "Cancel"]) expect(within(dialog()).queryByRole("button", { name }), name).toBeNull();
   expect(within(dialog()).queryByRole("checkbox")).toBeNull();
   expect(within(dialog()).getByRole("button", { name: "Done" })).toBeTruthy();
@@ -594,30 +602,30 @@ test("?edit= on a read-only row opens it read-only with its reason, for an opera
 });
 
 test("with changes switched off an operator's Save and Release are disabled beside the banner", async () => {
-  const api = await open("/settings?q=mister_engage_kpa&edit=mister_engage_kpa", { fixture: "writes-off" });
+  const api = await open("/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s", { fixture: "writes-off" });
   expect(text(document.querySelector("[data-banner=warn]"))).toBe("Changes are switched off; reading still works");
   expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
   expect(screen.getByRole("button", { name: "Release to auto" }).hasAttribute("disabled")).toBe(true);
-  expect(rowOf("mister_engage_kpa").querySelector(".setting-edit")).not.toBeNull();
+  expect(rowOf("outdoor_staleness_max_s").querySelector(".setting-edit")).not.toBeNull();
   fireEvent.submit(dialog().querySelector("form")!);
   await settle();
   expect(writes(api)).toEqual([]);
   cleanup();
   stopFixtureApi();
   // Switched off while the ingestor is down too: Save stays disabled, and the drawer never says Save still works.
-  await open("/settings?q=mister_engage_kpa&edit=mister_engage_kpa", { fixture: ["ingestor-not-running", "writes-off"] });
+  await open("/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s", { fixture: ["ingestor-not-running", "writes-off"] });
   expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
   expect(text(dialog().querySelector(".drawer-status"))).not.toContain("Save still works");
 });
 
 test("device values read STALE with their age while readbacks are stale, and Save says when it applies; a failed catalog read shows Retry", async () => {
-  await open("/settings?q=mister_engage_kpa&edit=mister_engage_kpa", { fixture: "ingestor-not-running" });
+  await open("/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s", { fixture: "ingestor-not-running" });
   // One notice says how old the readbacks are; each row mutes its value and reads STALE.
   expect(text(document.querySelector(".ctl-stale-note"))).toBe("Device values are stale: Last data 4 min ago (10:38)");
-  expect(linesOf("mister_engage_kpa", ".setting-value")).toEqual(["1.60 kPa"]);
-  expect(rowOf("mister_engage_kpa").querySelector(".setting-device-value")!.classList.contains("value-muted")).toBe(true);
-  expect(pillOf("mister_engage_kpa")).toEqual(["stale"]);
-  expect(text(dialog().querySelector(".drawer-status .setting-value"))).toBe("1.60 kPa Last data 2 min ago (10:40)");
+  expect(linesOf("outdoor_staleness_max_s", ".setting-value")).toEqual(["660 s"]);
+  expect(rowOf("outdoor_staleness_max_s").querySelector(".setting-device-value")!.classList.contains("value-muted")).toBe(true);
+  expect(pillOf("outdoor_staleness_max_s")).toEqual(["stale"]);
+  expect(text(dialog().querySelector(".drawer-status .setting-value"))).toBe("660 s Last data 2 min ago (10:40)");
   expect(dialog().querySelector(".drawer-status [data-badge=stale]")).not.toBeNull();
   expect(text(dialog().querySelector(".drawer-status"))).toContain("Save still works: the change applies when the controller reports again.");
   expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
@@ -630,7 +638,7 @@ test("device values read STALE with their age while readbacks are stale, and Sav
 });
 
 // ---------------------------------------------------------------------------------------------------- history and revert (#1139)
-const ENGAGE = "/settings?q=mister_engage_kpa&edit=mister_engage_kpa";
+const ENGAGE = "/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s";
 const CENTER = "zone_vpd_target_center_sm";
 const CENTER_DRAWER = `/settings?q=${CENTER}&edit=${CENTER}`;
 const plain = (value: Element | null) => text(value).replaceAll("\u00a0", " ");
@@ -649,19 +657,19 @@ test("the drawer shows the history under the fields, the signed-in person by dis
   expect(dialog().querySelector(".drawer-fields .drawer-history")).toBeNull();
   expect(dialog().querySelector(".drawer-body > .drawer-history")).not.toBeNull();
   expect(historyKey()).toEqual(["Device readback", "iris · AI", "Jason · dashboard", "SUPERSEDED", "Min and max"]);
-  expect(plain(revert())).toBe("Revert to 1.60 kPa (iris, 11/02 07:02)");
+  expect(plain(revert())).toBe("Revert to 660 s (iris, 11/02 07:02)");
   fireEvent.click(revert()!);
   await settle();
-  expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-10", method: "PUT", body: { value: 1.6, manual: true, reason: "Revert to 1.60 kPa (iris, 11/02 07:02)" } })]);
+  expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-10", method: "PUT", body: { value: 660, manual: true, reason: "Revert to 660 s (iris, 11/02 07:02)" } })]);
   expect(drawerOpen()).toBe(false);
-  expect(here()).toBe("/settings?q=mister_engage_kpa");
-  expect(toasts()).toEqual(["Requested 1.60 kPa for VPD Mister Engage"]);
-  expect(pillOf("mister_engage_kpa")).toEqual(["requested"]);
+  expect(here()).toBe("/settings?q=outdoor_staleness_max_s");
+  expect(toasts()).toEqual(["Requested 660 s for Outdoor Staleness Max"]);
+  expect(pillOf("outdoor_staleness_max_s")).toEqual(["requested"]);
   await advance(5_000);
   await advance(5_000);
   await settle();
-  expect(linesOf("mister_engage_kpa", ".setting-request")).toEqual([]);
-  expect(linesOf("mister_engage_kpa", ".setting-value")).toEqual(["1.60 kPa"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-request")).toEqual([]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-value")).toEqual(["660 s"]);
   expect(writes(api)).toHaveLength(1);
 });
 
@@ -671,24 +679,24 @@ test("the drawer's Manual box goes with Revert, and the history window leaves th
   fireEvent.click(revert()!);
   await settle();
   expect(writes(api).map((row) => (row.body as { manual: boolean }).manual)).toEqual([false]);
-  expect(here()).toBe("/settings?q=mister_engage_kpa");
+  expect(here()).toBe("/settings?q=outdoor_staleness_max_s");
   cleanup();
   stopFixtureApi();
   await open(`${ENGAGE}&hist=30d`, { fixture: "setting-history" });
   fireEvent.click(within(dialog()).getByRole("button", { name: "Cancel" }));
   await settle();
-  expect(here()).toBe("/settings?q=mister_engage_kpa");
+  expect(here()).toBe("/settings?q=outdoor_staleness_max_s");
 });
 
 test("a Save reopened in the same instant shows the new row: the drawer never reuses an answer from before the write", async () => {
   const api = await open(ENGAGE, { fixture: "setting-history" });
-  fireEvent.change(screen.getByLabelText("New value"), { target: { value: "1.70" } });
+  fireEvent.change(screen.getByLabelText("New value"), { target: { value: "720" } });
   fireEvent.click(within(dialog()).getByRole("button", { name: "Save" }));
   await settle();
-  fireEvent.click(screen.getByRole("link", { name: "Edit VPD Mister Engage" }));
+  fireEvent.click(screen.getByRole("link", { name: "Edit Outdoor Staleness Max" }));
   await settle();
   expect(requests(api, "API-12").length).toBeGreaterThanOrEqual(2);
-  expect(plain(revert())).toBe("Revert to 1.55 kPa (Jason, 11/02 08:00)");
+  expect(plain(revert())).toBe("Revert to 630 s (Jason, 11/02 08:00)");
 });
 
 test("with setting-history-release Revert sends one API-11; the row reads Released, then shows the readback", async () => {
@@ -699,9 +707,9 @@ test("with setting-history-release Revert sends one API-11; the row reads Releas
   expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-11", method: "DELETE", body: null })]);
   expect(new URL(writes(api)[0].path, "http://x").searchParams.get("reason")).toBe("Revert to auto (Jason, 11/02 07:02)");
   expect(drawerOpen()).toBe(false);
-  expect(toasts()).toEqual(["Released VPD Mister Engage: plan, band or default applies"]);
-  expect(linesOf("mister_engage_kpa", ".setting-writer")).toEqual(["Released: plan, band or default applies"]);
-  expect(linesOf("mister_engage_kpa", ".setting-value")).toEqual(["1.55 kPa"]);
+  expect(toasts()).toEqual(["Released Outdoor Staleness Max: plan, band or default applies"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-writer")).toEqual(["Released: plan, band or default applies"]);
+  expect(linesOf("outdoor_staleness_max_s", ".setting-value")).toEqual(["630 s"]);
 });
 
 test("a 422 reads beside Revert, the drawer stays open and Save keeps its own field clear", async () => {
@@ -709,12 +717,12 @@ test("a 422 reads beside Revert, the drawer stays open and Save keeps its own fi
   const fixtureFetch = globalThis.fetch;
   vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
     if ((init.method ?? "GET") !== "PUT") return fixtureFetch(input, init);
-    const problem = { type: "about:blank", title: "Out of range", status: 422, code: "out_of_range", retryable: false, field: "value", min: 1.7, max: 2.5 };
+    const problem = { type: "about:blank", title: "Out of range", status: 422, code: "out_of_range", retryable: false, field: "value", min: 720, max: 1800 };
     return { status: 422, ok: false, type: "basic", headers: new Headers(), json: async () => problem, text: async () => "" } as unknown as Response;
   });
   fireEvent.click(revert()!);
   await settle();
-  expect(plain(dialog().querySelector(".drawer-revert .field-error"))).toBe("Must be 1.70–2.50 kPa");
+  expect(plain(dialog().querySelector(".drawer-revert .field-error"))).toBe("Must be 720–1800 s");
   expect(dialog().querySelector(".number-field .field-error")).toBeNull();
   expect(drawerOpen()).toBe(true);
   expect(writes(api)).toEqual([]);
@@ -731,7 +739,7 @@ test("while a Revert is out Save and Release to auto wait for it, Enter in the v
   expect(within(dialog()).getByRole("button", { name: "Release to auto" }).hasAttribute("disabled")).toBe(true);
   fireEvent.submit(save.closest("form")!);
   await settle();
-  expect(writes(api).map((row) => (row.body as { value: number }).value)).toEqual([1.6]);
+  expect(writes(api).map((row) => (row.body as { value: number }).value)).toEqual([660]);
   expect(drawerOpen()).toBe(false);
 });
 
@@ -836,7 +844,7 @@ test("after saving an anchor, Revert restores the previous one through API-10, a
 test("the plot in the drawer is the setting's own: a settings-only chart in the setting's unit", async () => {
   await open(`${ENGAGE}&hist=24h`, { fixture: "setting-history" });
   expect(lastPlot().opts.series).toHaveLength(1);
-  expect(text(dialog().querySelector(".drawer-history figcaption"))).toBe("VPD Mister Engage · kPa");
+  expect(text(dialog().querySelector(".drawer-history figcaption"))).toBe("Outdoor Staleness Max · s");
 });
 
 test("the glossary at #glossary lists every term the pages define, from the one table their Terms read (#1339)", async () => {
@@ -850,12 +858,6 @@ test("the glossary at #glossary lists every term the pages define, from the one 
   // Folded unless linked, so "In band today" in a definition never reads as the page's state (states.spec).
   expect(glossary.querySelector("details")?.open).toBe(false);
 });
-
-// The third flash retired the four safety limits, the only rows whose help is a guardrail; the guardrail flow is kept
-// on safety_max served as a writable controller-safety row.
-const guardrailWritable = (items: Row[]) => items.map((row) => (row.param === "safety_max"
-  ? { ...row, writable: true, group: "controller_safety", control_class: "controller_safety", read_only_reason: null, read_only_kind: null }
-  : row));
 
 test("retired rows wait behind Show retired, a search still finds them, and the glossary explains every row with its sources (#1332, #1333)", async () => {
   await open("/settings");
@@ -872,9 +874,9 @@ test("retired rows wait behind Show retired, a search still finds them, and the 
   expect(shown()).toEqual([retired[0].param]);
   cleanup(); stopFixtureApi();
   // The glossary: every setting the search keeps, with what it is, what it changes, raising and lowering it.
-  await open("/settings?view=glossary&q=Safety+Max", { patch: guardrailWritable });
-  const entry = document.querySelector('.ctl-glossary-entry[data-param="safety_max"]')!;
-  const help = served().find((row) => row.param === "safety_max")!.help as { summary: string; raise: string; lower: string; caution: string };
+  await open("/settings?view=glossary&q=Mister+Engage+Delay", { patch: asGuardrail });
+  const entry = document.querySelector(`.ctl-glossary-entry[data-param="${GUARDED}"]`)!;
+  const help = asGuardrail(served()).find((row) => row.param === GUARDED)!.help as { summary: string; raise: string; lower: string; caution: string };
   expect(text(entry.querySelector(".ctl-glossary-summary"))).toBe(help.summary);
   expect([...entry.querySelectorAll("dt")].map((term) => text(term))).toEqual(["What it changes", "Raising it", "Lowering it", "Guardrail"]);
   expect(document.querySelectorAll("tr.setting-row")).toHaveLength(0);
@@ -888,20 +890,20 @@ test("retired rows wait behind Show retired, a search still finds them, and the 
 });
 
 test("the drawer explains the setting above New value, and a guardrail saves only on a second press that shows its rule (#1332, #1333)", async () => {
-  const api = await open("/settings?q=safety_max&edit=safety_max", { patch: guardrailWritable });
-  const help = served().find((row) => row.param === "safety_max")!.help as { summary: string; caution: string; reference_url: string };
+  const api = await open(`/settings?q=${GUARDED}&edit=${GUARDED}`, { patch: asGuardrail });
+  const help = asGuardrail(served()).find((row) => row.param === GUARDED)!.help as { summary: string; caution: string; reference_url: string };
   expect(text(dialog().querySelector(".ctl-help-summary"))).toBe(help.summary);
   expect([...dialog().querySelectorAll(".ctl-help-list dt")].map((term) => text(term))).toEqual(["What it changes", "Raising it", "Lowering it"]);
   expect(text(dialog().querySelector(".ctl-help-caution"))).toBe(`Guardrail. ${help.caution}`);
   expect(within(dialog()).getByRole("link", { name: "Full reference entry" }).getAttribute("href")).toBe(help.reference_url);
-  fireEvent.change(screen.getByLabelText("New value") as HTMLInputElement, { target: { value: "99" } });
+  fireEvent.change(screen.getByLabelText("New value") as HTMLInputElement, { target: { value: "90" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   expect(writes(api)).toEqual([]);
   expect(text(dialog().querySelector(".ctl-guardrail-confirm"))).toContain(help.caution);
   fireEvent.click(screen.getByRole("button", { name: "Confirm guardrail change" }));
   await advance(0);
-  expect(writes(api)).toEqual([expect.objectContaining({ method: "PUT", path: "/api/v1/settings/safety_max", body: expect.objectContaining({ value: 99 }) })]);
+  expect(writes(api)).toEqual([expect.objectContaining({ method: "PUT", path: `/api/v1/settings/${GUARDED}`, body: expect.objectContaining({ value: 90 }) })]);
   cleanup(); stopFixtureApi();
   // A Band in force row is computed: it says so and links each anchor it comes from to its own drawer.
   await open("/settings?q=band_house_temp_high&edit=band_house_temp_high");

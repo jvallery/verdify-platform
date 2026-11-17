@@ -40,7 +40,7 @@ import operator_api  # noqa: E402
 
 from verdify_services import activity  # noqa: E402
 
-KPA = "mister_engage_kpa"
+KPA = "outdoor_staleness_max_s"  # release 4 (#1633): a setting that remains (name kept)
 SETTING = f"/v1/settings/{KPA}"
 BAND = "band_vpd_target_sm"
 SWITCH = "sw_direct_wet_gate_enabled"  # a live switch (the third flash retired sw_economiser_enabled)
@@ -195,14 +195,14 @@ def test_the_pool_attests_as_the_dashboard_login_under_these_grants(client):
 def test_the_same_write_twice_creates_one_row_and_another_payload_is_request_id_reused(client, dsn, operator):
     key = str(uuid.uuid4())
     headers = {**operator, "Idempotency-Key": key}
-    body = {"value": 1.53, "manual": True, "reason": "campaign"}
+    body = {"value": 640, "manual": True, "reason": "campaign"}
     first = client.put(SETTING, headers=headers, json=body)
     assert first.status_code == 200, first.text
     assert "idempotency-replayed" not in first.headers
     stored = first.json()
     assert (stored["value"], stored["snapped_from"], stored["manual"], stored["manual_before"], stored["state"]) == (
-        1.55,
-        1.53,
+        630,
+        640,
         True,
         False,
         "requested",
@@ -219,7 +219,7 @@ def test_the_same_write_twice_creates_one_row_and_another_payload_is_request_id_
         "SELECT value, manual, source, actor, reason FROM public.desired_state WHERE id = $1",
         stored["id"],
     )
-    assert tuple(row) == (1.55, True, "dashboard", "jason", "campaign")
+    assert tuple(row) == (630, True, "dashboard", "jason", "campaign")
     logged = one(
         dsn,
         "SELECT source, actor, action, target, reason, request_id, request_sha256, experiment_id, detail::text AS detail "
@@ -227,13 +227,15 @@ def test_the_same_write_twice_creates_one_row_and_another_payload_is_request_id_
     )
     assert tuple(logged)[:6] == ("dashboard", "jason", "setting.write", KPA, "campaign", uuid.UUID(key))
     assert logged["request_sha256"] == activity.request_hash(
-        "API-10", KPA, {"value": 1.53, "manual": True, "reason": "campaign"}
+        "API-10",
+        KPA,
+        {"value": 640.0, "manual": True, "reason": "campaign"},  # the service hashes a number as a float
     )
     assert logged["experiment_id"] is None
     assert json.loads(logged["detail"])["manual"] == {"before": False, "after": True}
 
     for other in (
-        client.put(SETTING, headers=headers, json={**body, "value": 1.6}),
+        client.put(SETTING, headers=headers, json={**body, "value": 660}),
         client.delete(SETTING, headers=headers),
         client.post("/v1/alerts/1/ack", headers=headers),
     ):
@@ -246,7 +248,7 @@ def test_two_concurrent_sends_of_one_write_store_one_row(client, dsn, operator):
     key = keyed(operator)
 
     async def both():
-        sends = (asyncio.to_thread(client.put, SETTING, headers=key, json={"value": 1.5}) for _ in range(2))
+        sends = (asyncio.to_thread(client.put, SETTING, headers=key, json={"value": 600}) for _ in range(2))
         return await asyncio.gather(*sends)
 
     first, second = run(both())
@@ -258,7 +260,7 @@ def test_two_concurrent_sends_of_one_write_store_one_row(client, dsn, operator):
 
 def test_without_a_key_each_write_runs_with_request_id_null(client, dsn, operator):
     for _ in range(2):
-        assert client.put(SETTING, headers=operator, json={"value": 1.5}).status_code == 200
+        assert client.put(SETTING, headers=operator, json={"value": 600}).status_code == 200
     assert counts(dsn) == (2, 2)
     assert {tuple(row) for row in fetch(dsn, "SELECT request_id, request_sha256 FROM public.activity_log")} == {
         (None, None)
@@ -266,12 +268,12 @@ def test_without_a_key_each_write_runs_with_request_id_null(client, dsn, operato
 
 
 def test_a_rest_write_that_omits_manual_stores_true_and_a_release_clears_it(client, dsn, operator):
-    written = client.put(SETTING, headers=operator, json={"value": 1.5})
+    written = client.put(SETTING, headers=operator, json={"value": 600})
     assert written.status_code == 200, written.text
     assert written.json()["manual"] is True
     assert one(dsn, "SELECT manual FROM public.desired_state WHERE id = $1", written.json()["id"])["manual"] is True
 
-    kept = client.put(SETTING, headers=operator, json={"value": 1.5, "manual": False}).json()
+    kept = client.put(SETTING, headers=operator, json={"value": 600, "manual": False}).json()
     assert (kept["manual"], kept["manual_before"]) == (False, True)
     assert one(dsn, "SELECT manual FROM public.desired_state WHERE id = $1", kept["id"])["manual"] is False
 
@@ -319,21 +321,21 @@ def test_a_crop_band_write_updates_its_anchor_rows_in_the_transaction_of_its_des
     assert counts(dsn) == (1, 1)
 
 
-def test_2_6_is_out_of_range_with_the_bounds_and_the_current_value_and_stores_nothing(client, dsn, operator):
-    assert client.put(SETTING, headers=operator, json={"value": 1.6}).status_code == 200
+def test_1900_is_out_of_range_with_the_bounds_and_the_current_value_and_stores_nothing(client, dsn, operator):
+    assert client.put(SETTING, headers=operator, json={"value": 660}).status_code == 200
     key = str(uuid.uuid4())
-    response = client.put(SETTING, headers={**operator, "Idempotency-Key": key}, json={"value": 2.6})
+    response = client.put(SETTING, headers={**operator, "Idempotency-Key": key}, json={"value": 1900})
     assert assert_problem(response, 422, "out_of_range") == {
         "type": "about:blank",
         "title": "Out of range",
         "status": 422,
-        "detail": "Must be 0.50-2.50 kPa",
+        "detail": "Must be 120-1800 s",
         "code": "out_of_range",
         "retryable": False,
         "field": "value",
-        "min": 0.5,
-        "max": 2.5,
-        "current": 1.6,
+        "min": 120,
+        "max": 1800,
+        "current": 660,
         "request_id": key,
     }
     assert counts(dsn) == (1, 1)
@@ -364,16 +366,16 @@ def test_a_switch_write_takes_only_0_or_1(client, dsn, operator):
 
 def test_a_replay_reads_the_state_as_of_now_so_a_readback_turns_requested_into_confirmed(client, dsn, operator):
     key = keyed(operator)
-    first = client.put(SETTING, headers=key, json={"value": 1.53})
+    first = client.put(SETTING, headers=key, json={"value": 640})
     assert first.status_code == 200, first.text
     assert first.json()["state"] == "requested"
     run(
         owner_execute(
             dsn,
-            f"INSERT INTO public.setpoint_snapshot (ts, parameter, value) VALUES (clock_timestamp(), '{KPA}', 1.55)",
+            f"INSERT INTO public.setpoint_snapshot (ts, parameter, value) VALUES (clock_timestamp(), '{KPA}', 630)",
         )
     )
-    again = client.put(SETTING, headers=key, json={"value": 1.53})
+    again = client.put(SETTING, headers=key, json={"value": 640})
     assert again.status_code == 200, again.text
     body = again.json()
     assert (body["id"], body["state"], body["state_reason"]) == (first.json()["id"], "confirmed", None)
@@ -388,8 +390,8 @@ def test_the_insert_trigger_is_the_only_wake_and_nothing_reaches_setpoint_change
         try:
             key = keyed(operator)
             for call in (
-                lambda: client.put(SETTING, headers=key, json={"value": 1.5}),
-                lambda: client.put(SETTING, headers=key, json={"value": 1.5}),  # a replay inserts nothing
+                lambda: client.put(SETTING, headers=key, json={"value": 600}),
+                lambda: client.put(SETTING, headers=key, json={"value": 600}),  # a replay inserts nothing
                 lambda: client.delete(SETTING, headers=operator),
             ):
                 response = await asyncio.to_thread(call)
@@ -471,7 +473,7 @@ def test_an_unknown_alert_id_is_422_unknown_target(client, dsn, operator, action
 def test_a_viewer_s_write_returns_403_and_changes_nothing(client, dsn, operator, viewer):
     add_house_band(dsn)
     ids = add_repeats(dsn, "relay_stuck", "equipment.mister_south", count=2)
-    assert client.put(SETTING, headers=operator, json={"value": 1.5}).status_code == 200
+    assert client.put(SETTING, headers=operator, json={"value": 600}).status_code == 200
 
     def state() -> tuple:
         return (
@@ -482,7 +484,7 @@ def test_a_viewer_s_write_returns_403_and_changes_nothing(client, dsn, operator,
 
     before = state()
     for method, path, body in (
-        ("PUT", SETTING, {"value": 1.6}),
+        ("PUT", SETTING, {"value": 660}),
         ("PUT", f"/v1/settings/{BAND}", {"value": 0.93}),
         ("DELETE", SETTING, None),
         ("POST", f"/v1/alerts/{ids[0]}/ack", {"note": "viewer"}),

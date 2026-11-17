@@ -17,7 +17,7 @@ vi.mock("uplot", async () => ({ default: (await import("../charts/fixtures/uplot
 const S = NOW / 1000;
 const DAY_S = 86_400;
 const iso = (epochSeconds: number) => new Date(epochSeconds * 1000).toISOString();
-const ENGAGE = "mister_engage_kpa";
+const ENGAGE = "outdoor_staleness_max_s";
 
 function Here() {
   const { pathname, search } = useLocation();
@@ -97,13 +97,13 @@ test("the chart: the device line solid, requests dashed amber and labelled by wh
   await mount({ fixture: "setting-history", path: `/settings?edit=${ENGAGE}&hist=24h` });
   const drawn = labels();
   expect(drawn).toContain("Now");
-  expect(drawn).toContain("1.55 kPa device");
+  expect(drawn).toContain("630 s device");
   expect(drawn).toContain("jason · dashboard");
   expect(drawn).toContain("iris · AI");
-  expect(drawn).toContain("1.70 kPa SUPERSEDED");
-  // max 2.50 is above the y range and min 0.50 below it: edge labels at the right.
-  expect(drawn).toContain("max 2.50 kPa ↑");
-  expect(drawn).toContain("min 0.50 kPa ↓");
+  expect(drawn).toContain("720 s SUPERSEDED");
+  // max 1800 is above the y range and min 120 below it: edge labels at the right.
+  expect(drawn).toContain("max 1800 s ↑");
+  expect(drawn).toContain("min 120 s ↓");
   const strokes = plot().ctx.strokes;
   expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--c-setpoint"] && !stroke.dash.length).length).toBeGreaterThanOrEqual(3);
   expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--c-requested"] && JSON.stringify(stroke.dash) === "[6,4]")).toHaveLength(2);
@@ -118,12 +118,12 @@ test("the data table lists each step with who asked and whether the device follo
   expect(text(details.querySelector("summary"))).toBe("Data table · 6 rows");
   act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
   await settle();
-  expect(text(details.querySelector("caption")).replaceAll(" ", " ")).toBe("Setting steps · bounds min 0.50 kPa, max 2.50 kPa");
+  expect(text(details.querySelector("caption")).replaceAll(" ", " ")).toBe("Setting steps · bounds min 120 s, max 1800 s");
   const steps = [...details.querySelectorAll("tbody tr td:last-child")].map((cell) => words(cell));
   expect(steps).toEqual(expect.arrayContaining([
-    "VPD Mister Engage device 1.60 kPa",
-    "VPD Mister Engage requested 1.60 kPa · iris · AI · CONFIRMED",
-    "VPD Mister Engage requested 1.55 kPa · jason · dashboard · CONFIRMED · “Vandas drying”",
+    "Outdoor Staleness Max device 660 s",
+    "Outdoor Staleness Max requested 660 s · iris · AI · CONFIRMED",
+    "Outdoor Staleness Max requested 630 s · jason · dashboard · CONFIRMED · “Vandas drying”",
   ]));
 });
 
@@ -150,12 +150,12 @@ test("readback_via none draws no device line and says so; a read-only row and a 
 
 test("Revert is one tap: one API-10 with the previous value, the Manual box and the prefilled reason, then the drawer closes", async () => {
   const { api, onReverted } = await mount({ fixture: "setting-history" });
-  expect(words(revertButton())).toBe("Revert to 1.60 kPa (iris, 11/02 07:02)");
-  expect((screen.getByLabelText("Revert reason") as HTMLInputElement).value).toBe("Revert to 1.60 kPa (iris, 11/02 07:02)");
+  expect(words(revertButton())).toBe("Revert to 660 s (iris, 11/02 07:02)");
+  expect((screen.getByLabelText("Revert reason") as HTMLInputElement).value).toBe("Revert to 660 s (iris, 11/02 07:02)");
   fireEvent.click(revertButton()!);
   await settle();
   const sent = writes(api);
-  expect(sent).toEqual([expect.objectContaining({ method: "PUT", operationId: "API-10", path: `/api/v1/settings/${ENGAGE}`, body: { value: 1.6, manual: true, reason: "Revert to 1.60 kPa (iris, 11/02 07:02)" } })]);
+  expect(sent).toEqual([expect.objectContaining({ method: "PUT", operationId: "API-10", path: `/api/v1/settings/${ENGAGE}`, body: { value: 660, manual: true, reason: "Revert to 660 s (iris, 11/02 07:02)" } })]);
   expect(sent[0].idempotency_key).toMatch(UUID);
   expect(onReverted).toHaveBeenCalledOnce();
   // There is no dialog: nothing else to confirm.
@@ -169,14 +169,14 @@ test("Revert sends the drawer's Manual box as it stands; the reason can be edite
   fireEvent.change(reason, { target: { value: "Back to Iris's value" } });
   fireEvent.click(revertButton()!);
   await settle();
-  expect(writes(api).map((row) => row.body)).toEqual([{ value: 1.6, manual: false, reason: "Back to Iris's value" }]);
+  expect(writes(api).map((row) => row.body)).toEqual([{ value: 660, manual: false, reason: "Back to Iris's value" }]);
   cleanup();
   stopFixtureApi();
   const cleared = await mount({ fixture: "setting-history" });
   fireEvent.change(screen.getByLabelText("Revert reason"), { target: { value: "  " } });
   fireEvent.click(revertButton()!);
   await settle();
-  expect(writes(cleared.api).map((row) => row.body)).toEqual([{ value: 1.6, manual: true }]);
+  expect(writes(cleared.api).map((row) => row.body)).toEqual([{ value: 660, manual: true }]);
 });
 
 test("a double tap sends once", async () => {
@@ -222,14 +222,14 @@ test("a release ends the step before it with Released; with no step before it th
 test("when the window holds only the newest row, Revert reads 90 days back once and goes back to the row it finds", async () => {
   const { api } = await mount({ fixture: "setting-history-older" });
   expect(windows(api)).toEqual([[iso(S - 7 * DAY_S), iso(S + PLAN_AHEAD_S)], [iso(S - 90 * DAY_S), iso(S + PLAN_AHEAD_S)]]);
-  expect(words(revertButton())).toBe("Revert to 1.60 kPa (steward, 10/21 08:02)");
+  expect(words(revertButton())).toBe("Revert to 660 s (steward, 10/21 08:02)");
   // The chart stays on the chosen window.
   expect(labels()).not.toContain("steward · agent · AI");
   await advance(120_000);
   expect(requests(api, "API-12")).toHaveLength(2);
   fireEvent.click(revertButton()!);
   await settle();
-  expect(writes(api).map((row) => row.body)).toEqual([expect.objectContaining({ value: 1.6, manual: true })]);
+  expect(writes(api).map((row) => row.body)).toEqual([expect.objectContaining({ value: 660, manual: true })]);
 });
 
 test("with still no earlier row Revert releases to auto; the 90 d window needs no second read", async () => {
@@ -249,7 +249,7 @@ test("with still no earlier row Revert releases to auto; the 90 d window needs n
 
 test("a setting with no desired row has no Revert: Iris's plan values are not desired rows", async () => {
   const { api } = await mount({ path: `/settings?edit=${ENGAGE}&hist=24h` });
-  expect(labels()).toContain("1.70 kPa PLANNED · AI");
+  expect(labels()).toContain("720 s PLANNED · AI");
   expect(revertButton()).toBeNull();
   expect(screen.queryByLabelText("Revert reason")).toBeNull();
   expect(requests(api, "API-12")).toHaveLength(1);
@@ -266,12 +266,12 @@ function refuse(match: (input: string, method: string) => boolean, status: numbe
 
 test("a 422 shows in words beside the button and sends nothing else; the drawer stays open", async () => {
   const { api, onReverted } = await mount({ fixture: "setting-history" });
-  refuse((_input, method) => method === "PUT", 422, { code: "out_of_range", field: "value", min: 1.7, max: 2.5 });
+  refuse((_input, method) => method === "PUT", 422, { code: "out_of_range", field: "value", min: 720, max: 1800 });
   fireEvent.click(revertButton()!);
   await settle();
   const button = revertButton()!;
   const error = document.querySelector(".drawer-revert .field-error")!;
-  expect(words(error)).toBe("Must be 1.70–2.50 kPa");
+  expect(words(error)).toBe("Must be 720–1800 s");
   expect(button.getAttribute("aria-describedby")).toBe(error.id);
   expect(onReverted).not.toHaveBeenCalled();
   await advance(60_000);
@@ -279,10 +279,10 @@ test("a 422 shows in words beside the button and sends nothing else; the drawer 
 });
 
 test("bounds moved so the previous value is outside them: refused the same way, with nothing sent", async () => {
-  const { api } = await mount({ fixture: "setting-history", setting: { min: 1.7 } });
+  const { api } = await mount({ fixture: "setting-history", setting: { min: 720 } });
   fireEvent.click(revertButton()!);
   await settle();
-  expect(words(document.querySelector(".drawer-revert .field-error"))).toBe("Must be 1.70–2.50 kPa");
+  expect(words(document.querySelector(".drawer-revert .field-error"))).toBe("Must be 720–1800 s");
   expect(writes(api)).toEqual([]);
 });
 
@@ -342,8 +342,8 @@ test("the changes in this window read in words, newest first: from, to, who, man
   expect(text(document.querySelector(".drawer-history h3"))).toBe("Change history");
   expect([...document.querySelectorAll(".ctl-change")].map((entry) => words(entry))).toEqual([
     // With no shell here API-01 is not read, so the signed-in person reads by username.
-    "1.60 kPa →to 1.55 kPa · jason · manual · “Vandas drying” · Confirmed 08:01",
-    "1.60 kPa · iris · AI · Confirmed 07:03",
+    "660 s →to 630 s · jason · manual · “Vandas drying” · Confirmed 08:01",
+    "660 s · iris · AI · Confirmed 07:03",
   ]);
   expect(document.querySelector(".ctl-change [data-badge=ai]")!.className).toBe("ctl-mark");
   cleanup();
@@ -351,7 +351,7 @@ test("the changes in this window read in words, newest first: from, to, who, man
   // A release reads as one, with no value; a setting with no desired row in the window says so.
   await mount({ fixture: "setting-history-release" });
   expect([...document.querySelectorAll(".ctl-change")].map((entry) => words(entry))).toEqual([
-    "1.55 kPa · jason · manual · “Vandas drying” · Confirmed 08:01",
+    "630 s · jason · manual · “Vandas drying” · Confirmed 08:01",
     "Released to auto · jason · “Back to the plan” · Released 07:02",
   ]);
   cleanup();

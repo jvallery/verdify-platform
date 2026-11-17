@@ -63,14 +63,6 @@ class PlanTransition(BaseModel):
             raise ValueError(
                 f"vpd_low ({p['vpd_low']}) must be < vpd_high ({p['vpd_high']})",
             )
-        if "safety_min" in p and "safety_max" in p and p["safety_min"] >= p["safety_max"]:
-            raise ValueError(
-                f"safety_min ({p['safety_min']}) must be < safety_max ({p['safety_max']})",
-            )
-        if "mister_engage_kpa" in p and "mister_all_kpa" in p and p["mister_engage_kpa"] > p["mister_all_kpa"]:
-            raise ValueError(
-                f"mister_engage_kpa ({p['mister_engage_kpa']}) must be <= mister_all_kpa ({p['mister_all_kpa']})",
-            )
         registry_errors = [err for k, value in p.items() if (err := registry_value_error(k, value))]
         if registry_errors:
             raise ValueError("Registry bounds violation: " + "; ".join(registry_errors))

@@ -33,7 +33,7 @@ export const READ_ONLY_WORDS: Readonly<Record<string, StateWords>> = {
   band_in_force: { label: "Computed (band in force)", definition: "Calculated from the crop band; edit the anchors under Crop band." },
   retired: { label: "Retired", definition: "The controller no longer uses it. Kept for reference and history." },
   readback_context: { label: "Reported by the controller", definition: "The controller reports or measures it; nothing sets it." },
-  legacy_wide_limit: { label: "Legacy limit, not used while the on-chip band runs", definition: "An older fixed limit. The band in force comes from the crop band anchors; the guardrails are Safety Min and Safety Max." },
+  legacy_wide_limit: { label: "Legacy limit, not used while the on-chip band runs", definition: "An older fixed limit. The band in force comes from the crop band anchors; the controller fixes the hard limits at 40 °F and 100 °F." },
   zone_vpd_target: { label: "Computed zone target, still used", definition: "Worked out each cycle from the zone's VPD target curve. The controller uses it to decide which zone needs misting and how long a pulse lasts; edit the curve under Crop band." },
   activity_mirror: { label: "Mirrors the light schedule", definition: "Copied from the main grow-light schedule each cycle; change the schedule instead." },
   band_owner: { label: "Decides who owns the band", definition: "Switches between the band the controller computes and the legacy limits. Changed only through a reviewed rollout." },

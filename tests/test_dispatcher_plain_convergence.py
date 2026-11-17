@@ -54,8 +54,6 @@ def _plain_planner_params() -> list[tuple[str, float, float]]:
         | _common.LIGHTING_CIRCUIT_SUPPORT_SENTINELS
         | _common.LIGHTING_POLICY_PARAMS
         | _common.DIRECT_WET_POLICY_PARAMS
-        | _common.AI_MOISTURE_STRESS_POLICY_PARAMS
-        | _common.FORCED_ON_SWITCH_PARAMS
         | _common.RETIRED_UNROUTABLE_PARAMS
         | _common.MISTER_DEFAULTS
         | _common.SECOND_READBACK_ABS_TOLERANCE_PARAMS
@@ -86,6 +84,10 @@ def _plain_planner_params() -> list[tuple[str, float, float]]:
 
 
 PARAMS = _plain_planner_params()
+# Release 4 (#1633): the registry has 4 plain planner knobs, so the cases run the pacing rule with a batch of
+# BATCH (the dispatcher's MAX_RECONNECT_COMMANDS is 12): LOADED = BATCH + 1 values pace into two passes.
+BATCH = 2
+LOADED = BATCH + 1
 ENTITY_PARAMS = {_common.PARAM_TO_ENTITY[param]: param for param, _, _ in PARAMS}
 
 
@@ -274,7 +276,8 @@ class Controller:
 
 @pytest.fixture
 def plain(monkeypatch, tmp_path):
-    assert len(PARAMS) >= 21, "the registry no longer offers enough plain planner knobs for these cases"
+    assert len(PARAMS) >= 2 * BATCH, "the registry no longer offers enough plain planner knobs for these cases"
+    monkeypatch.setattr(dispatcher, "MAX_RECONNECT_COMMANDS", BATCH)
     monkeypatch.setenv("VERDIFY_BAND_SOURCE", "legacy")
     for name, value in {
         "transport_generation": 0,
@@ -333,37 +336,38 @@ def _load(env, params) -> dict[str, float]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("readback_before_second_pass", [True, False])
-async def test_reconnect_with_twenty_differences_converges_in_two_paced_passes(
+async def test_reconnect_with_more_differences_than_a_batch_converges_in_two_paced_passes(
     plain, caplog, readback_before_second_pass
 ):
     caplog.set_level(logging.INFO)
-    plan = _load(plain, PARAMS[:20])
+    plan = _load(plain, PARAMS[:LOADED])
+    paced = f"paced {BATCH}/{LOADED}"
 
     await plain.run_pass()
     first = plain.controller.sent_params()
-    assert first == sorted(plan)[:12]  # all differ since the same moment: by name
-    assert plain.db.stage_rows == ["paced 12/20"] and shared.dispatcher_stage == "paced 12/20"
-    assert shared.setpoint_dispatch_requested.is_set()  # woke the next pass for the other 8
+    assert first == sorted(plan)[:BATCH]  # all differ since the same moment: by name
+    assert plain.db.stage_rows == [paced] and shared.dispatcher_stage == paced
+    assert shared.setpoint_dispatch_requested.is_set()  # woke the next pass for the rest
     assert shared.reconciled_transport_generation == plain.controller.generation
 
     if readback_before_second_pass:
         plain.controller.publish(plain.db)
     plain.clock.advance(40)
     await plain.run_pass()
-    second = plain.controller.sent_params()[12:]
-    assert sorted(first + second) == sorted(plan) and len(second) == 8  # nothing repeated
-    assert plain.db.stage_rows == ["paced 12/20", "ordinary"]
+    second = plain.controller.sent_params()[BATCH:]
+    assert sorted(first + second) == sorted(plan) and len(second) == LOADED - BATCH  # nothing repeated
+    assert plain.db.stage_rows == [paced, "ordinary"]
     assert not shared.setpoint_dispatch_requested.is_set()
 
     plain.controller.publish(plain.db)
-    assert len(plain.db.changes) == 20
+    assert len(plain.db.changes) == LOADED
     assert all(row["delivery_status"] == "confirmed" for row in plain.db.changes)
     assert {param: plain.controller.values[param] for param in plan} == plan
 
     # The readback drift wakes one more pass: nothing differs, nothing is sent.
     plain.clock.advance(30)
     await plain.run_pass()
-    assert len(plain.controller.sent) == 20 and plain.db.stage_rows == ["paced 12/20", "ordinary"]
+    assert len(plain.controller.sent) == LOADED and plain.db.stage_rows == [paced, "ordinary"]
     assert shared.delivery_differing_since == {}
     # No stage preview, approval or hold file, no snapshot admission, no blocked_* line.
     assert sorted(path.name for path in plain.state_dir.iterdir()) == ["setpoint-dispatcher.log"]
@@ -373,10 +377,11 @@ async def test_reconnect_with_twenty_differences_converges_in_two_paced_passes(
 
 
 @pytest.mark.asyncio
-async def test_new_plan_value_mid_convergence_goes_out_in_the_next_pass(plain):
-    plan = _load(plain, PARAMS[:20])
+async def test_new_plan_value_mid_convergence_goes_out_in_the_next_pass(plain, monkeypatch):
+    plan = _load(plain, PARAMS[:LOADED])
+    paced = f"paced {BATCH}/{LOADED}"
     await plain.run_pass()
-    assert plain.db.stage_rows == ["paced 12/20"]
+    assert plain.db.stage_rows == [paced]
 
     # Iris writes a new plan between paced passes: one value already sent in
     # the first batch changes again and one parameter is new.
@@ -384,49 +389,52 @@ async def test_new_plan_value_mid_convergence_goes_out_in_the_next_pass(plain):
     assert changed in plain.controller.sent_params()
     moved = round((device + planned) / 2, 2)
     plain.db.plan[changed] = moved
-    added, added_device, added_plan = PARAMS[20]
+    added, added_device, added_plan = PARAMS[LOADED]
     plain.db.plan[added] = added_plan
     plain.controller.values[added] = added_device
     shared.note_cfg_readback_observed(added, added_device, plain.controller.generation)
 
+    # The second pass has room for the left over and the two new values, as 8 + 2 fit 12 in production.
+    monkeypatch.setattr(dispatcher, "MAX_RECONNECT_COMMANDS", LOADED - BATCH + 2)
     plain.clock.advance(40)
     await plain.run_pass()
-    second = plain.controller.sent[12:]
+    second = plain.controller.sent[BATCH:]
     assert {(param, value) for _at, param, value in second} >= {(changed, moved), (added, added_plan)}
-    assert len(second) == 10  # the 8 left over plus the two new values; nothing halts
-    assert plain.db.stage_rows == ["paced 12/20", "ordinary"]
+    assert len(second) == LOADED - BATCH + 2  # the left over plus the two new values; nothing halts
+    assert plain.db.stage_rows == [paced, "ordinary"]
     assert set(plan) - {changed} <= set(plain.controller.sent_params())
 
 
 @pytest.mark.asyncio
-async def test_thirteen_values_never_taken_go_out_once_per_90_s_without_self_wake(plain):
-    plan = _load(plain, PARAMS[:13])
+async def test_one_more_value_than_a_batch_never_taken_goes_out_once_per_90_s_without_self_wake(plain):
+    plan = _load(plain, PARAMS[:LOADED])  # a batch and one more (12 + 1 in production)
     plain.controller.refuses = set(plan)
+    paced = f"paced {BATCH}/{LOADED}"
 
     await plain.run_pass()
-    assert len(plain.controller.sent) == 12 and plain.db.stage_rows == ["paced 12/13"]
-    assert shared.setpoint_dispatch_requested.is_set()  # the 13th has never been sent
+    assert len(plain.controller.sent) == BATCH and plain.db.stage_rows == [paced]
+    assert shared.setpoint_dispatch_requested.is_set()  # the last one has never been sent
 
     plain.clock.advance(40)
-    await plain.run_pass()  # the woken pass sends only the 13th
-    assert plain.controller.sent_params()[12:] == [sorted(plan)[12]]
+    await plain.run_pass()  # the woken pass sends only the last one
+    assert plain.controller.sent_params()[BATCH:] == [sorted(plan)[BATCH]]
     assert not shared.setpoint_dispatch_requested.is_set()
 
     plain.clock.advance(40)
     await plain.run_pass()  # t=80 s: everything was sent within 90 s; nothing goes out
-    assert len(plain.controller.sent) == 13 and not shared.setpoint_dispatch_requested.is_set()
+    assert len(plain.controller.sent) == LOADED and not shared.setpoint_dispatch_requested.is_set()
 
     plain.clock.advance(20)
     await plain.run_pass()  # t=100 s: only the first batch is older than 90 s
-    assert len(plain.controller.sent) == 25 and not shared.setpoint_dispatch_requested.is_set()
+    assert len(plain.controller.sent) == LOADED + BATCH and not shared.setpoint_dispatch_requested.is_set()
 
-    # The 300 s cadence resends at most 12, least recently sent first (the 13th
+    # The 300 s cadence resends at most a batch, least recently sent first (the last one
     # leads), and the one left over was already sent: no self-wake for it.
     plain.clock.advance(200)
     await plain.run_pass()  # t=300 s
-    cadence = plain.controller.sent_params()[25:]
-    assert len(cadence) == 12 and cadence[0] == sorted(plan)[12]
-    assert plain.db.stage_rows[-1] == "paced 12/13"
+    cadence = plain.controller.sent_params()[LOADED + BATCH :]
+    assert len(cadence) == BATCH and cadence[0] == sorted(plan)[BATCH]
+    assert plain.db.stage_rows[-1] == paced
     assert not shared.setpoint_dispatch_requested.is_set()
 
     by_param: dict[str, list[datetime]] = {}
@@ -613,7 +621,8 @@ async def test_a_desired_row_naming_a_retired_parameter_is_skipped_without_an_er
 
 
 def test_paced_order_is_oldest_difference_first_then_name(monkeypatch):
-    names = [param for param, _device, _plan in PARAMS[:14]]
+    # Release 4 (#1633): the registry has 4 plain knobs; pacing orders names, so 14 synthetic names stand in.
+    names = [f"pace_knob_{index:02d}" for index in range(14)]
     since = {name: T0 for name in names}
     since[names[13]] = T0 - timedelta(minutes=5)  # the oldest difference goes first
     since[names[12]] = T0 - timedelta(minutes=1)

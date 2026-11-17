@@ -1,0 +1,333 @@
+{
+  "migration": "316-experiment-v2-and-shadow-drops.sql",
+  "final_migration_qualification_pending": false,
+  "projection": "316 drops the experiment v2 (40 tables, 5 views, 113 functions), the policy twin (3 hypertables, 1 view), the planner graph, memory and pack tables, forecast_deviation_thresholds, 5 retired planner experiment views, planner_inference_runs' foreign key into planner_pack and 13 retired roles after the archive, and revokes MCP's INSERT and UPDATE on setpoint_plan. The dropped grants move the api, ingestor and MCP seals; until the probe measures them the literals are 315's.",
+  "projected_successor": {
+    "api": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "ingestor": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+    "mcp": "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
+  },
+  "measured_at": "2026-11-17T01:15:19Z",
+  "before": {
+    "api": "e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373",
+    "ingestor": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+  },
+  "qualified_successor": {
+    "api": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "ingestor": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+    "mcp": "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
+  },
+  "after_rollback": {
+    "api": "e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373",
+    "ingestor": "86372bad7c5108b4e461579c10d46f4977a82ea26ea218dd07361680adfd365c",
+    "mcp": "5b31cf1e74b78963e266cfd22dc3867a7972dbb53eff209f3c121781fb90f8dc"
+  },
+  "exact_final_migration_sha256": "8439a0e4d9c6cc2809a4a6f61b1a217e2e6ffba1320cad2f55c9582baf56924c",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "4a60ec55f87f1a833b643168de423214bbefe61a4ec50b49c2013600296cb997",
+  "qualification_source_sha256": "71853f105b49510302890ada5dde8dfb3085d8f6abf4551e8a7ac6d4caaa2fdc",
+  "applied_first": [
+    {
+      "migration": "315-replayed-gaps-counter-check-and-health.sql",
+      "seq": 315,
+      "sha256": "a5cadbc8645f7ee3fde65c41e8709b6dba6295dce1fa4f3406237f081dd49fff"
+    }
+  ],
+  "applied_first_seals": {
+    "api": "7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc",
+    "ingestor": "3ead905daede269bd598b38c86c0477d33e1b51c425a2efc7d5c16c042a745f2",
+    "mcp": "ae8180a5fc5dc400fc0f9c49fc6f069c89af033a9b9425ef52a14bf85b202256"
+  },
+  "prelock": [
+    [
+      "public.diagnostics",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_approvals",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_bundle_attempts",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_candidate_revisions",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_component_outcomes",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_contract_constants",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_day_evidence",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_delivery_bundle_completions",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_delivery_bundles",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_direct_launch_waivers",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_direct_proof_attempt_events",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_direct_proof_attempt_work",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_direct_proof_authorizations",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_direct_proof_emergency_recovery_attempt_events",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_direct_proof_emergency_recovery_receipts",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_direct_proof_emergency_resolutions",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_direct_proof_receipts",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_exports",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_exposure_closures",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_exposures",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_facility_safe_closures",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_observation_epochs",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_observation_receipts",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_outcome_freezes",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_outcome_source_bindings",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_outcomes",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_preexposure_mismatch_epochs",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_randomization",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_reveals",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_runtime_faults",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_runtime_generations",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_runtime_snapshots",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_selector_choices",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_selector_contexts",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_shadow_choices",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_shadow_contexts",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_shadow_cycles",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_shadow_outcome_previews",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_state_artifacts",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_work",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.experiment_v2_work_events",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.firmware_twin_divergence",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.forecast_deviation_thresholds",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.mcp_runtime_boundary_receipt",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.planner_graph_runs",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.planner_inference_runs",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.planner_memory_items",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.planner_memory_retrievals",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.planner_pack",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.runtime_ordinary_login_attestation_receipts",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.schema_migrations",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.twin_decisions",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.twin_live_results",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_data_trust_ledger",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_experiment_v2_blinded_assigned_day_outcomes",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_experiment_v2_frozen_analyzer_input",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_experiment_v2_revealed_analyzer_input",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_experiment_v2_selector_climate_source",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_experiment_v2_selector_forecast_source",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_iris_experiment_context",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_irrigation_day_coverage",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_irrigation_schedule_current",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_planner_assignments",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_planner_experiment_events",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_planner_experiments",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_policy_twin_asof_input",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_runtime_diagnostics_write",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.v_runtime_v1_iris_experiment_context",
+      "ACCESS EXCLUSIVE"
+    ]
+  ],
+  "native_fixture": {
+    "checks": [
+      "dropped_relations_gone",
+      "only_the_two_trigger_guards_remain",
+      "dropped_roles_gone",
+      "kept_objects_present",
+      "planner_inference_runs_fk_gone",
+      "collector_access_exact",
+      "no_runtime_writes_setpoint_plan",
+      "collector_login_release4_attestation",
+      "ingestor_reads_irrigation_schedule",
+      "dashboard_reads_planner_inference_runs"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "edfa525b8701a014f30652803c0f3e963f3db58a6a99d192285e20eec8620e9b"
+}

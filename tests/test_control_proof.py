@@ -55,7 +55,9 @@ def test_the_law_heartbeat_proves_first_and_the_action_log_is_the_fallback(law_a
     assert law_fresh(law_age) is (proof == "law")
 
 
-@pytest.mark.parametrize("script", ["scripts/firmware-deploy-preflight.sh", "scripts/liveness-check.sh"])
+@pytest.mark.parametrize(
+    "script", ["scripts/firmware-deploy-preflight.sh", "scripts/liveness-check.sh", "scripts/health-check.sh"]
+)
 def test_the_shell_readers_ask_the_same_question(script):
     assert LAW_STATE_AGE_SQL in (ROOT / script).read_text()
     assert f"-le {LAW_HEARTBEAT_MAX_AGE_S}" in (ROOT / script).read_text()
@@ -66,7 +68,11 @@ def test_the_api_alert_and_http_checks_use_the_shared_definition():
     assert 'checks["control_proof"] = control_proof(law_age, action_age, action_proof_missing)' in api
     assert 'checks["service_controller"]' in api
     assert "law_age_s = await conn.fetchval(LAW_STATE_AGE_SQL)" in (ROOT / "ingestor/tasks/alerts.py").read_text()
-    for script in ("scripts/k3s-smoke.sh", "scripts/validate-climate-authority-post-deploy.sh"):
+    for script in (
+        "scripts/k3s-smoke.sh",
+        "scripts/validate-climate-authority-post-deploy.sh",
+        "scripts/health-check.sh",
+    ):
         assert 'checks.get("control_proof") == "law"' in (ROOT / script).read_text()
 
 

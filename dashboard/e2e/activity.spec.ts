@@ -120,20 +120,20 @@ test("Recent activity sits under the log's day headers: each time HH:MM on one l
 test("activity-mixed: one line an entry, who wrote in text, AI for Iris and the agent only, an Iris plan collapsed to its changes, causes first", async ({ page, request }) => {
   await useScreensClock(page, request, "activity-mixed");
   await load(page, "/activity/log");
-  const dashboard = logRow(page, "VPD Mister Engage 1.60 → 1.55 kPa");
+  const dashboard = logRow(page, "Outdoor Staleness Max 660 → 630 s");
   await expect(writtenBy(dashboard)).toHaveText("Jason · dashboard");
-  await expect(dashboard.locator(".act-entry-text")).toHaveText("VPD Mister Engage 1.60 → 1.55 kPa · requested 1.53 · manual");
+  await expect(dashboard.locator(".act-entry-text")).toHaveText("Outdoor Staleness Max 660 → 630 s · requested 640 · manual");
   await expect(dashboard.locator(".event-by [data-badge=ai]")).toHaveCount(0);
   await expect(dashboard.locator(".event-reason")).toHaveText("“Vandas drying”");
   const iris = logRow(page, "Plan · 3 changes");
   await expect(writtenBy(iris)).toHaveText("iris AI");
   await expect(iris.locator(".event-by [data-badge=ai]")).toHaveCount(1);
   await iris.locator("summary").click();
-  await expect(iris.locator(".plan-changes li")).toHaveText(["VPD Mister Engage 1.70 kPa from 13:00", "Mister Pulse Gap 55 s from 16:30", "Mister Engage Delay 90 s from 19:00"]);
+  await expect(iris.locator(".plan-changes li")).toHaveText(["Outdoor Staleness Max 720 s from 13:00", "Mister Min Off 55 s from 16:30", "Mister Engage Delay 90 s from 19:00"]);
   const agent = logRow(page, "Changed line Wall drip");
   await expect(writtenBy(agent)).toHaveText("steward · agent AI");
   const forecast = logRow(page, "Forecast rule “hot afternoon”");
-  await expect(forecast.locator(".act-entry-text")).toHaveText("Forecast rule “hot afternoon” · Mister Pulse Gap 45 → 60 s");
+  await expect(forecast.locator(".act-entry-text")).toHaveText("Forecast rule “hot afternoon” · Mister Min Off 45 → 60 s");
   await expect(writtenBy(forecast)).toHaveText("forecast-engine · system");
   await expect(forecast.locator(".event-by [data-badge=ai]")).toHaveCount(0);
 });

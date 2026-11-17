@@ -12,12 +12,8 @@ DECLARE
   login_name text;
   duty_name text;
   role_pair text;
+  -- The five experiment v2 login/duty pairs were dropped by migration 316 (#1633 release 4); the collector stays.
   role_pairs text[] := ARRAY[
-    'verdify_experiment_v2_shadow_scheduler_login:verdify_experiment_shadow_scheduler',
-    'verdify_experiment_v2_randomizer_login:verdify_experiment_randomizer',
-    'verdify_experiment_v2_lifecycle_login:verdify_experiment_lifecycle',
-    'verdify_experiment_v2_component_executor_login:verdify_experiment_component_executor',
-    'verdify_experiment_v2_outcome_freezer_login:verdify_experiment_outcome_freezer',
     'verdify_experiment_v2_equipment_source_collector_login:verdify_experiment_equipment_source_collector'
   ];
 BEGIN

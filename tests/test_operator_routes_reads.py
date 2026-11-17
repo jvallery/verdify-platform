@@ -127,7 +127,7 @@ def recorder(monkeypatch, module, name, result):
 # ── fixtures built from the real models ─────────────────────────────────────
 
 
-def desired(param="mister_engage_kpa", value=1.55, state="confirmed"):
+def desired(param="outdoor_staleness_max_s", value=630.0, state="confirmed"):
     return settings.DesiredSetting(
         id=41,
         param=param,
@@ -143,25 +143,25 @@ def desired(param="mister_engage_kpa", value=1.55, state="confirmed"):
 
 def setting_rows() -> reads.SettingRows:
     engage = settings.Setting(
-        param="mister_engage_kpa",
-        label="VPD Mister Engage",
+        param="outdoor_staleness_max_s",
+        label="Outdoor Staleness Max",
         control_class="planner_policy",
         group="planner_policy",
         kind="numeric",
-        unit="kPa",
-        min=0.5,
-        max=2.5,
-        step=0.05,
+        unit="s",
+        min=120.0,
+        max=1800.0,
+        step=30.0,
         writable=True,
         readback_via="cfg",
-        readback=settings.Reading(value=1.55, observed_at=AT - timedelta(seconds=40)),
+        readback=settings.Reading(value=630.0, observed_at=AT - timedelta(seconds=40)),
         desired=desired(),
         plan=settings.SettingPlan(
-            value=1.264,
+            value=648.75,
             plan_id="iris-20261102-1240",
             source="iris",
             written_at=AT - timedelta(hours=2),
-            next=settings.PlanWaypoint(at=AT + timedelta(hours=5), value=1.3, source="iris", effective=False),
+            next=settings.PlanWaypoint(at=AT + timedelta(hours=5), value=660.0, source="iris", effective=False),
         ),
         applied_from="manual",
         state="confirmed",
@@ -173,18 +173,18 @@ def setting_rows() -> reads.SettingRows:
 def history() -> settings.SettingHistory:
     return settings.SettingHistory.model_validate(
         {
-            "param": "mister_engage_kpa",
-            "unit": "kPa",
-            "min": 0.5,
-            "max": 2.5,
+            "param": "outdoor_staleness_max_s",
+            "unit": "s",
+            "min": 120.0,
+            "max": 1800.0,
             "from": AT - timedelta(days=1),
             "to": AT,
             "desired": [desired(state="not_confirmed")],
             "plan": [
-                settings.PlanWaypoint(at=AT - timedelta(hours=3), value=1.7, source="preemptive", effective=True),
-                settings.PlanWaypoint(at=AT + timedelta(hours=1), value=1.264, source="iris", effective=False),
+                settings.PlanWaypoint(at=AT - timedelta(hours=3), value=720.0, source="preemptive", effective=True),
+                settings.PlanWaypoint(at=AT + timedelta(hours=1), value=648.75, source="iris", effective=False),
             ],
-            "readback": [settings.TimedValue(at=AT - timedelta(hours=6), value=1.6)],
+            "readback": [settings.TimedValue(at=AT - timedelta(hours=6), value=660.0)],
         }
     )
 
@@ -212,8 +212,8 @@ def activity_rows(next_cursor=None) -> activity.ActivityPage:
         ts=AT - timedelta(minutes=1),
         actor=ActorRef(source="agent:steward", name="steward"),
         action="setting.write",
-        target="mister_engage_kpa",
-        detail={"desired_id": 41, "before": 1.6, "value": 1.55, "manual": {"before": False, "after": False}},
+        target="outdoor_staleness_max_s",
+        detail={"desired_id": 41, "before": 660.0, "value": 630.0, "manual": {"before": False, "after": False}},
         reason="forecast 92 °F",
         state="requested",
     )
@@ -259,8 +259,8 @@ def test_api09_returns_settings_rows(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert openapi_errors(response_schema("/settings"), body) == []
-    assert [item["param"] for item in body["items"]] == ["mister_engage_kpa", "band_west_vpd_high"]
-    assert body["items"][0]["plan"]["value"] == 1.264  # as stored
+    assert [item["param"] for item in body["items"]] == ["outdoor_staleness_max_s", "band_west_vpd_high"]
+    assert body["items"][0]["plan"]["value"] == 648.75  # as stored
     band = body["items"][1]
     assert (band["group"], band["writable"], band["label"], band["unit"]) == (
         "band_in_force",
@@ -277,7 +277,7 @@ def test_api09_returns_settings_rows(monkeypatch):
 def test_api12_passes_the_param_and_the_window(monkeypatch):
     calls = recorder(monkeypatch, reads, "setting_history", history())
     client = app_with()
-    response = client.get(f"/v1/settings/mister_engage_kpa/history?from={FROM_Z}&to={TO_Z}")
+    response = client.get(f"/v1/settings/outdoor_staleness_max_s/history?from={FROM_Z}&to={TO_Z}")
     assert response.status_code == 200
     body = response.json()
     assert openapi_errors(response_schema("/settings/{param}/history"), body) == []
@@ -288,7 +288,7 @@ def test_api12_passes_the_param_and_the_window(monkeypatch):
     ]
     [(args, kwargs)] = calls
     assert args[1:] == (
-        "mister_engage_kpa",
+        "outdoor_staleness_max_s",
         datetime(2026, 11, 1, 8, tzinfo=UTC),
         datetime(2026, 11, 2, 8, tzinfo=UTC),
     )
@@ -302,12 +302,12 @@ def test_api12_maps_its_refusals_to_problems(monkeypatch):
     assert (unknown.status_code, unknown.headers["content-type"]) == (404, "application/problem+json")
     assert (unknown.json()["code"], unknown.json()["field"]) == ("not_found", "param")
     assert problem_errors(unknown.json()) == []
-    naive = client.get("/v1/settings/mister_engage_kpa/history?from=2026-11-01T08:00:00&to=" + TO_Z)
+    naive = client.get("/v1/settings/outdoor_staleness_max_s/history?from=2026-11-01T08:00:00&to=" + TO_Z)
     assert (naive.status_code, naive.json()["code"], naive.json()["field"]) == (400, "invalid_request", "from")
-    backwards = client.get(f"/v1/settings/mister_engage_kpa/history?from={TO_Z}&to={FROM_Z}")
+    backwards = client.get(f"/v1/settings/outdoor_staleness_max_s/history?from={TO_Z}&to={FROM_Z}")
     assert (backwards.status_code, backwards.json()["code"]) == (400, "invalid_request")
     # Request validation (#1148: 400 invalid_request): to is required.
-    missing = client.get(f"/v1/settings/mister_engage_kpa/history?from={FROM_Z}")
+    missing = client.get(f"/v1/settings/outdoor_staleness_max_s/history?from={FROM_Z}")
     assert (missing.status_code, missing.json()["code"]) == (400, "invalid_request")
     assert problem_errors(missing.json()) == []
 
@@ -357,7 +357,7 @@ def test_api17_passes_every_filter_and_the_cursor(monkeypatch):
     assert openapi_errors(response_schema("/activity"), body) == []
     assert (body["items"][0]["state"], body["next_cursor"]) == ("requested", "WyIyMDI2Il0")
     query = (
-        f"source=agent:steward&actor=steward&action=setting.&target=mister_engage_kpa&from={FROM_Z}&to={TO_Z}"
+        f"source=agent:steward&actor=steward&action=setting.&target=outdoor_staleness_max_s&from={FROM_Z}&to={TO_Z}"
         "&limit=2&cursor=WyIyMDI2Il0"
     )
     assert client.get(f"/v1/activity?{query}").status_code == 200
@@ -376,7 +376,7 @@ def test_api17_passes_every_filter_and_the_cursor(monkeypatch):
         "source": "agent:steward",
         "actor": "steward",
         "action": "setting.",
-        "target": "mister_engage_kpa",
+        "target": "outdoor_staleness_max_s",
         "from_": datetime(2026, 11, 1, 8, tzinfo=UTC),
         "to": datetime(2026, 11, 2, 8, tzinfo=UTC),
         "limit": 2,

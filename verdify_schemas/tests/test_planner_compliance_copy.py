@@ -137,7 +137,6 @@ def test_outcome_kpi_docstring_names_adr0004_kpi_surface() -> None:
     for token in (
         "adr-0004",
         "served",
-        "pinched",
         "vpd",
         "actuator",
         "dew",
@@ -156,8 +155,9 @@ def test_outcome_kpi_docstring_names_moisture_action_log_source() -> None:
     """Moisture estimator reporting uses action-log JSON once live rows exist."""
     lowered = _outcome_kpi_docstring().lower()
     assert "computed" in lowered
-    for token in ("pinched", "dif", "solar-phase", "climate_action_log", "source_system_state"):
+    for token in ("dif", "solar-phase", "climate_action_log", "source_system_state"):
         assert token in lowered, f"outcome_kpi() docstring must name computed metric {token!r}."
+    assert "pinched" not in lowered  # the band-tracking pinch is retired with band_track_fraction (RULINGS AE7a)
     assert "moisture-estimator" in lowered
     assert "climate_moisture_exchange" in lowered
 
@@ -170,7 +170,6 @@ def test_outcome_kpi_source_uses_existing_telemetry_for_metrics() -> None:
         "house_temp_target_f",
         "house_vpd_target",
         "setpoint_snapshot",
-        "band_track_fraction",
         "solar_phase_buckets",
         "climate_action_log",
         "source_system_state -> 'climate_moisture_exchange'",

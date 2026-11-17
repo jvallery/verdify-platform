@@ -64,7 +64,7 @@ test("the runs ahead: planned dashed, at their length, labelled and named; what 
 
 test("plan changes: every change ahead in the window grouped by time, from what the lane holds; manual lanes and restated values left out", () => {
   expect(planTransitions(planOf("in-band"), WINDOW).map(({ at: when, changes }) => [when, changes.map((change) => plain(change.text))])).toEqual([
-    [at("13:00"), ["Misting starts at VPD 1.60 → 1.70 kPa"]], [at("16:30"), ["Mist pulse gap 45.0 → 55.0 s"]],
+    [at("13:00"), ["Oldest outdoor reading used 660.0 → 720.0 s"]], [at("16:30"), ["Mister Min Off 45.0 → 55.0 s"]],
   ]);
   // plan-next: the manual lane's 12:00 waypoint does not count; the forecast rule's 13:00 does.
   const next = planTransitions(planOf("plan-next"), WINDOW);
@@ -89,8 +89,8 @@ test("the track's nine rows in their fixed order, markers on Iris, the plan and 
   // Iris's triggers in words (#1339), short, with the time and the outcome in full one tap away (#1340).
   expect(rows[6].markers?.map((marker) => marker.label)).toEqual(["Sunrise plan ✓", "Midday check", "Sunset plan"]);
   expect(rows[6].markers?.map((marker) => marker.detail)).toEqual([["Sunrise plan 07:00 · plan written"], ["Midday check 12:41 · due"], ["Sunset plan 16:50 · due"]]);
-  expect(rows[7].markers?.map((marker) => plain(marker.label))).toEqual(["Misting starts at VPD 1.60 → 1.70 kPa · AI", "Mist pulse gap 45.0 → 55.0 s · AI"]);
-  expect(rows[7].markers?.map((marker) => marker.detail?.map(plain))).toEqual([["13:00 Misting starts at VPD 1.60 → 1.70 kPa · AI"], ["16:30 Mist pulse gap 45.0 → 55.0 s · AI"]]);
+  expect(rows[7].markers?.map((marker) => plain(marker.label))).toEqual(["Oldest outdoor reading used 660.0 → 720.0 s · AI", "Mister Min Off 45.0 → 55.0 s · AI"]);
+  expect(rows[7].markers?.map((marker) => marker.detail?.map(plain))).toEqual([["13:00 Oldest outdoor reading used 660.0 → 720.0 s · AI"], ["16:30 Mister Min Off 45.0 → 55.0 s · AI"]]);
   expect(rows[8].markers?.map((marker) => marker.label)).toEqual(["Sunrise 06:35", "Sunset 16:58"]);
   expect(rows[3].spans).toEqual([]);
   // No code reads on the track: no trigger code, no line code.
@@ -175,10 +175,10 @@ test("the phone's next 12 h: runs, plan changes with who planned them, the expec
   const items = nextItems({ plan: planOf("plan-next"), agenda: agendaOf("in-band") }, WINDOW);
   expect(items.map((item) => [item.kind, plain(item.text), item.ai ?? false, plain(item.note)])).toEqual([
     ["run", "Center mister · 4 × 45 s · sensor-fault backup", false, "only if VPD sensing is degraded"],
-    ["plan", "Misting starts at VPD 1.60 → 1.70 kPa", true, ""],
+    ["plan", "Oldest outdoor reading used 660.0 → 720.0 s", true, ""],
     ["plan", "Wait before misting 60.0 → 90.0 s", false, "Forecast rule · system"],
     ["run", "Center mister · 4 × 45 s · sensor-fault backup", false, "only if VPD sensing is degraded"],
-    ["plan", "Mist pulse gap 45.0 → 55.0 s", true, ""],
+    ["plan", "Mister Min Off 45.0 → 55.0 s", true, ""],
     ["iris", "Iris: Sunset plan", false, ""],
     ["sun", "Sunset", false, ""],
   ]);

@@ -473,8 +473,13 @@ async def test_equipment_source_pool_attests_exact_login_role_and_function_surfa
             assert args == (
                 ingestor._EQUIPMENT_SOURCE_COLLECTOR_DUTY,
                 list(ingestor._EQUIPMENT_SOURCE_COLLECTOR_FUNCTIONS),
+                list(ingestor._EQUIPMENT_SOURCE_COLLECTOR_TOLERATED_FUNCTIONS),
             )
             assert any("jsonb,boolean,uuid,bigint,text" in signature for signature in args[1])
+            # Rule 5 (#1633 release 4): the retired direct-snapshot function is tolerated, never required.
+            assert not any("direct_state_snapshot" in signature for signature in args[1])
+            assert [s for s in args[2] if "direct_state_snapshot" in s] == list(args[2])
+            assert "SELECT 1 FROM required_functions required" in query
             return _safe_equipment_source_attestation()
 
     class AttestationPool:
@@ -955,3 +960,25 @@ def test_controller_health_readings_store_null_for_an_unusable_value(monkeypatch
     assert ingestor.state.diagnostics == {"gap_log_state": "off: nvs_slow"}
     row = ingestor.Diagnostics.model_validate({"ts": datetime.now(UTC), **ingestor.state.diagnostics})
     assert row.nvs_used_entries is None and row.gap_log_state == "off: nvs_slow"
+
+
+def test_af9b_health_counters_reach_their_columns_as_integers_and_nan_as_null(monkeypatch):
+    """RULINGS AF9(b): the third flash's three read-only counters (contracts/metrics-coverage 2.1a names)."""
+    monkeypatch.setattr(ingestor.state, "diagnostics", {})
+    assert ingestor.DIAGNOSTIC_MAP["loop_stack_high_water"] == "loop_stack_high_water_b"
+    assert ingestor._record_diagnostic("loop_stack_high_water", 1840.0)
+    assert ingestor._record_diagnostic("wifi_disconnect_count", 3.0)
+    assert ingestor._record_diagnostic("api_client_count", 2.0)
+    assert ingestor.state.diagnostics == {
+        "loop_stack_high_water_b": 1840,
+        "wifi_disconnect_count": 3,
+        "api_client_count": 2,
+    }
+    row = ingestor.Diagnostics.model_validate({"ts": datetime.now(UTC), **ingestor.state.diagnostics})
+    assert (row.loop_stack_high_water_b, row.wifi_disconnect_count, row.api_client_count) == (1840, 3, 2)
+    for obj_id in ("loop_stack_high_water", "wifi_disconnect_count", "api_client_count"):
+        assert ingestor._record_diagnostic(obj_id, float("nan"))
+    assert ingestor.state.diagnostics == {}
+    assert not (
+        {"loop_stack_high_water_b", "wifi_disconnect_count", "api_client_count"} & ingestor.CARRIED_DIAGNOSTIC_COLUMNS
+    )

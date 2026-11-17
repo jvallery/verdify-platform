@@ -382,15 +382,15 @@ PY
   #    Readbacks are stored on change with an hourly keyframe (#1662): the pass
   #    (its system_state marker, or the newest readback) must be under 300 s old
   #    and each canonical field the controller still reads back must have a row
-  #    in the last 2 hours. The third flash keeps 43 policy-wire fields as inert
-  #    slots with no readback (THIRD_FLASH_INERT_WIRE_REG), so they are not
-  #    expected; the law build still reads them back, and the rest pass on both.
+  #    in the last 2 hours. Only the live wire fields (LIVE_WIRE_FIELDS) are
+  #    settings; release 4 keeps the other 43 slots as reserved layout with no
+  #    entity and no readback, so they are not expected.
   echo "[3] setpoint observation — fresh snapshot"
   local snapshot fields snapshot_age snapshot_count expected_fields=""
   fields="$(PYTHONPATH="${REPO_ROOT}" "${PY}" -c '
 from verdify_schemas.component_executor import CANONICAL_FIELD_ORDER
-from verdify_schemas.tunable_registry import THIRD_FLASH_INERT_WIRE_REG
-names = [n for n in CANONICAL_FIELD_ORDER if n not in THIRD_FLASH_INERT_WIRE_REG]
+from verdify_schemas.tunable_registry import LIVE_WIRE_FIELDS
+names = [n for n in CANONICAL_FIELD_ORDER if n in LIVE_WIRE_FIELDS]
 assert names and all(name.replace("_", "").isalnum() for name in names)
 print(str(len(names)) + " ARRAY[" + ",".join("\x27" + name + "\x27" for name in names) + "]::text[]")
 ' 2>/dev/null || true)"

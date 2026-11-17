@@ -66,7 +66,7 @@ test("a curve shows for every anchor and width, and for no other crop_band or re
   const zones = ["center", "south", "west", "east"];
   const zone = zones.flatMap((name) => [...anchors.map((anchor) => `zone_vpd_target_${name}_${anchor}`), `zone_vpd_width_below_${name}`, `zone_vpd_width_above_${name}`]);
   expect(new Set(curved)).toEqual(new Set([...house, ...zone]));
-  for (const param of ["zone_priority_center", "wet_taper_before_sunset_min", "manual_override_timeout_min", "temp_low", "vpd_target_center", "band_house_temp_low", "mister_engage_kpa"]) {
+  for (const param of ["zone_priority_center", "manual_override_timeout_min", "temp_low", "band_house_temp_low", "mister_hysteresis_kpa"]) {
     expect(hasBandCurve(settingOf(param)), param).toBe(false);
   }
 });

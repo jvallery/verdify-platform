@@ -606,7 +606,7 @@ async def test_real_mcp_service_tools_list_typed_schemas_and_pass_their_results_
                 "band_in_force",
             }
 
-            stored = await call(client, 3, "set_setting", {"param": "mister_engage_kpa", "value": 1.53})
+            stored = await call(client, 3, "set_setting", {"param": "mister_engage_delay_s", "value": 1.53})
             assert stored["isError"] is False
             body = json.loads(stored["content"][0]["text"])
             assert (body["value"], body["snapped_from"], body["manual"], body["state"]) == (
@@ -616,9 +616,9 @@ async def test_real_mcp_service_tools_list_typed_schemas_and_pass_their_results_
                 "requested",
             )
             assert body["actor"] == {"source": "agent:steward", "name": "steward"}
-            assert writes == [("agent:steward", "mister_engage_kpa", 1.53, False)]
+            assert writes == [("agent:steward", "mister_engage_delay_s", 1.53, False)]
 
-            refused = await call(client, 4, "set_setting", {"param": "mister_engage_kpa"})
+            refused = await call(client, 4, "set_setting", {"param": "mister_engage_delay_s"})
             assert refused["isError"] is True
             assert json.loads(refused["content"][0]["text"])["code"] == "invalid_request"
             assert len(writes) == 1

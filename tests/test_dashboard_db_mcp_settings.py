@@ -49,7 +49,7 @@ pytestmark = pytest.mark.skipif(
 
 MCP_ROLE = "vd58_mcp_tools"
 INGESTOR_ROLE = "vd58_ingestor_context"
-PARAM = "mister_engage_kpa"  # a climate setting: an agent may not write it (climate refactor 4.2)
+PARAM = "mister_engage_delay_s"  # a climate setting: an agent may not write it (climate refactor 4.2)
 SWITCH = "sw_occupancy_inhibit"  # an operator switch: the only settings an agent writes
 PERSON = Actor.person("jason", "operator")
 # set_plan, set_tunable and the delivery rows they fence, on top of what the settings and activity reads need.
@@ -249,7 +249,7 @@ def tools(server, dsn, monkeypatch):  # noqa: F811
     owner(dsn, empty)
 
 
-def person_holds_manual(dsn_value, value: float = 1.7, param: str = PARAM) -> None:
+def person_holds_manual(dsn_value, value: float = 120.0, param: str = PARAM) -> None:
     async def write(conn):
         await settings.write(conn, PERSON, param, value, True, "holding for the vanda", None)
 
@@ -300,7 +300,7 @@ def test_an_agents_switch_write_is_attributed_and_shows_in_activity(server, dsn)
     assert owner(dsn, api_17).model_dump(mode="json")["items"] == page["items"]
 
 
-@pytest.mark.parametrize("arguments", [{"value": 1.5}, {"release": True}], ids=["write", "release"])
+@pytest.mark.parametrize("arguments", [{"value": 90.0}, {"release": True}], ids=["write", "release"])
 @pytest.mark.parametrize("who", ["steward", "iris"])
 def test_an_agents_climate_write_or_release_is_forbidden_and_stores_nothing(server, dsn, arguments, who):  # noqa: F811
     person_holds_manual(dsn)
@@ -312,10 +312,10 @@ def test_an_agents_climate_write_or_release_is_forbidden_and_stores_nothing(serv
 
 
 def test_settings_reads_the_catalog_and_history_as_the_mcp_login(server, dsn):  # noqa: F811
-    person_holds_manual(dsn, 1.5)
+    person_holds_manual(dsn, 90.0)
     answer = body(asyncio.run(server.settings(param=PARAM)))
     ((row),) = answer["items"]
-    assert (row["applied_from"], row["min"], row["max"], row["step"]) == ("manual", 0.5, 2.5, 0.05)
+    assert (row["applied_from"], row["min"], row["max"], row["step"]) == ("manual", 30.0, 300.0, 30.0)
     assert row["desired"]["manual"] is True
     assert [item["param"] for item in body(asyncio.run(server.settings(manual_only=True)))["items"]] == [PARAM]
     in_band = body(asyncio.run(server.settings(group="band_in_force")))["items"]
@@ -324,7 +324,7 @@ def test_settings_reads_the_catalog_and_history_as_the_mcp_login(server, dsn):  
     start = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     end = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
     history = body(asyncio.run(server.settings(param=PARAM, since=start, until=end)))
-    assert [item["value"] for item in history["desired"]] == [1.5]
+    assert [item["value"] for item in history["desired"]] == [90.0]
     assert {"from", "to", "readback", "plan"} <= set(history)
 
     bad = asyncio.run(server.settings(param="not_a_setting", since=start, until=end))

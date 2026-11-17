@@ -219,7 +219,9 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
                 continue
             placed.append(ts)
             if await conn.fetchval(
-                "SELECT 1 FROM climate WHERE ts > $1 - make_interval(secs => $2) AND ts <= $1 LIMIT 1", ts, spacing
+                "SELECT 1 FROM climate WHERE ts > $1::timestamptz - make_interval(secs => $2) AND ts <= $1::timestamptz LIMIT 1",
+                ts,
+                spacing,
             ):
                 continue
             rh, vpd = _derived(record)
@@ -247,7 +249,7 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
             placed.append(ts)
             if await conn.fetchval(
                 "SELECT 1 FROM equipment_state WHERE equipment = $1 AND state = $2 "
-                "AND ts BETWEEN $3 - make_interval(secs => $4) AND $3 + make_interval(secs => $4) LIMIT 1",
+                "AND ts BETWEEN $3::timestamptz - make_interval(secs => $4) AND $3::timestamptz + make_interval(secs => $4) LIMIT 1",
                 equipment,
                 transition.on,
                 ts,

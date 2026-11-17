@@ -565,17 +565,18 @@ async def desired_rows(conn, took, params, value=1.0):
 
 
 def test_writer_counts_differing_settings_and_leaves_clamped_ones_out(dsn):
-    params = candidate_params(26)
-    assert len(params) == 26
+    # Release 4 (#1633): five live settings are candidates; three differ, two are clamped.
+    params = candidate_params(5)
+    assert len(params) == 5
 
     async def stuck(conn, t0):
         await reporting_now(conn, t0)
         took = t0 - 2 * H
         # Since climate refactor 4.2 the values in force are desired rows; a plan in force counts for nothing.
         await plan_in_force(conn, "iris-vd54-writer", took, t0 + 2 * D)
-        await waypoints(conn, "iris-vd54-writer", took, t0 + 2 * D, [(took, param, 1.0) for param in params[19:]])
-        await desired_rows(conn, took, params[:19])
-        for param in params[:19]:
+        await waypoints(conn, "iris-vd54-writer", took, t0 + 2 * D, [(took, param, 1.0) for param in params[3:]])
+        await desired_rows(conn, took, params[:3])
+        for param in params[:3]:
             await snapshot(conn, t0 - 90 * MIN, param, mismatch(param, 1.0))
             await snapshot(conn, t0 - 60 * S, param, mismatch(param, 1.0))
         await conn.execute(
@@ -585,14 +586,14 @@ def test_writer_counts_differing_settings_and_leaves_clamped_ones_out(dsn):
         )
         await alert(conn, t0 - 30 * MIN, "setpoint_delivery_stuck", "warning")
         writer = (await as_reader(conn, reads.now)).writer
-        assert (writer.stuck, writer.differing, writer.oldest_since) == (True, 19, took)
+        assert (writer.stuck, writer.differing, writer.oldest_since) == (True, 3, took)
         assert writer.last_at == t0 - 3 * MIN and 180 <= writer.age_s <= 240
 
     async def clamped(conn, t0):
         await reporting_now(conn, t0)
         took = t0 - 2 * H
-        await desired_rows(conn, took, params[19:])
-        for param in params[19:]:
+        await desired_rows(conn, took, params[3:])
+        for param in params[3:]:
             await snapshot(conn, t0 - 60 * S, param, mismatch(param, 1.0))
             await conn.execute(
                 "INSERT INTO setpoint_clamps (ts, parameter, requested, applied, reason) "
@@ -640,6 +641,28 @@ def test_writer_differing_counts_from_the_first_row_after_the_last_match_with_ke
 # ── API-07: the plan, lanes and planner health ──────────────────────────────
 
 
+def test_a_manual_row_for_a_deleted_setting_gets_no_plan_lane(dsn):
+    # Release 4 review BM-1: production holds manual rows for settings release 4 deleted (sw_economiser_enabled
+    # among them). Plan would list a lane nobody can open or release (the drawer's read answers 404).
+    assert "sw_economiser_enabled" not in REGISTRY
+
+    async def body(conn, t0):
+        await reporting_now(conn, t0)
+        await conn.execute(
+            "INSERT INTO desired_state (param, value, manual, source, actor, reason, created_at) VALUES "
+            "('sw_economiser_enabled', 1, true, 'dashboard', 'jason', NULL, $1), "
+            "('mister_min_off_s', 60, true, 'dashboard', 'jason', NULL, $1)",
+            t0 - 2 * H,
+        )
+        result = await as_reader(conn, reads.plan, hours=24)
+        assert [lane.param for lane in result.lanes] == ["mister_min_off_s"]
+        assert result.manual_count == 1
+        # The row stays as history.
+        assert await conn.fetchval("SELECT count(*) FROM desired_state WHERE param = 'sw_economiser_enabled'") == 1
+
+    scenario(dsn, body)
+
+
 def test_plan_lanes_waypoints_and_planner_health(dsn):
     trigger_id = uuid.uuid4()
 
@@ -659,8 +682,8 @@ def test_plan_lanes_waypoints_and_planner_health(dsn):
         )
         rows = [(written, "mister_engage_kpa", 1.60), (t0 + 4 * H, "mister_engage_kpa", 1.70)]  # the "13:00" waypoint
         rows += [(t0 + 30 * H, "mister_engage_kpa", 1.65), (written, "mister_all_kpa", 1.50)]
-        rows += [(t0 + 4 * H, "mister_all_kpa", 1.80), (written, "mister_pulse_on_s", 30.0)]
-        rows += [(t0 + 4 * H, "mister_pulse_on_s", 45.0)]
+        rows += [(t0 + 4 * H, "mister_all_kpa", 1.80), (written, "mister_min_off_s", 30.0)]
+        rows += [(t0 + 4 * H, "mister_min_off_s", 45.0)]
         await waypoints(conn, "iris-20261101-0702", written, expires, rows)
         await plan_in_force(conn, "iris-20261031-1800", t0 - 20 * H, t0 + 1 * D, status="superseded")
         await waypoints(conn, "iris-20261031-1800", t0 - 20 * H, t0 + 1 * D, [(t0 + 2 * H, "mister_all_kpa", 9.9)])
@@ -672,19 +695,19 @@ def test_plan_lanes_waypoints_and_planner_health(dsn):
             "preemptive-vd54",
             t0 - 30 * MIN,
             t0 + 6 * H,
-            [(t0 + 2 * H, "sw_economiser_enabled", 0.0)],
+            [(t0 + 2 * H, "sw_gl_main_solar_phasing", 0.0)],
             source="preemptive",
         )
         await conn.execute(
             "INSERT INTO desired_state (param, value, manual, source, actor, reason, created_at) VALUES "
             "('mister_engage_kpa', 1.55, false, 'dashboard', 'jason', 'drier', $1), "
-            "('mister_pulse_on_s', 60, true, 'dashboard', 'jason', NULL, $2)",
+            "('mister_min_off_s', 60, true, 'dashboard', 'jason', NULL, $2)",
             t0 - 5 * H,  # "08:00": newer than the 07:02 plan, not manual
             t0 - 3 * D,
         )
         for ts in (t0 - 4 * H, t0 - 60 * S):
             await snapshot(conn, ts, "mister_engage_kpa", 1.5499999523162842)  # binary32 1.55
-        await snapshot(conn, t0 - 60 * S, "mister_pulse_on_s", 60.0)
+        await snapshot(conn, t0 - 60 * S, "mister_min_off_s", 60.0)
         await snapshot(conn, t0 - 60 * S, "mister_all_kpa", 1.50)
         ledger = [
             (1, "SUNSET", t0 - 20 * H, "missed", "timeout", "sla_expired", None),
@@ -707,8 +730,8 @@ def test_plan_lanes_waypoints_and_planner_health(dsn):
         result = await as_reader(conn, reads.plan, hours=24)
         assert (result.plan, result.no_plan_since) == (None, written)
         lanes = {lane.param: lane for lane in result.lanes}
-        assert set(lanes) == {"mister_pulse_on_s"}
-        manual = lanes["mister_pulse_on_s"]
+        assert set(lanes) == {"mister_min_off_s"}
+        manual = lanes["mister_min_off_s"]
         assert (manual.applied_from, manual.waypoints, manual.desired.manual) == ("manual", [], True)
         assert result.manual_count == 1
 

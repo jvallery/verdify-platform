@@ -32,7 +32,7 @@ from uuid import UUID
 
 from verdify_schemas.component_executor import CANONICAL_FIELD_ORDER, ENTITY_GRIDS
 from verdify_schemas.policy_vector import canonical_json_bytes, wire_manifest_digest
-from verdify_schemas.tunable_registry import REGISTRY, WIRE_SCHEMA_VERSION
+from verdify_schemas.tunable_registry import WIRE_SCHEMA_VERSION, WIRE_SLOT_DEFS
 
 RuntimeEntityType = Literal["number", "switch", "sensor"]
 
@@ -233,7 +233,7 @@ def build_live_entity_grid_evidence(
     content_fields: list[dict[str, object]] = []
     receipt_routes: list[dict[str, object]] = []
     for field_name in CANONICAL_FIELD_ORDER:
-        definition = REGISTRY[field_name]
+        definition = WIRE_SLOT_DEFS[field_name]
         expected_grid = ENTITY_GRIDS[field_name]
         if definition.esp_object_id is None or definition.cfg_readback_object_id is None:
             raise ComponentGridEvidenceError("source_component_route_missing", field_name)

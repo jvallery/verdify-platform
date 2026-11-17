@@ -208,18 +208,18 @@ def desired(
 # third flash kept, RULINGS AE7a), the L01
 # bridge's duration and the site caps in program rev 42. Every other row reads its registry default, confirmed.
 SCENARIO: dict[str, dict[str, Any]] = {
-    "mister_engage_kpa": {
-        "readback": reading(1.6, ago(120)),
-        "plan": iris_plan(1.6, "13:00", 1.7),
+    # Release 4 (#1633): the 43 reserved policy-wire slots left the registry; the plan rows moved to live settings.
+    "outdoor_staleness_max_s": {
+        "readback": reading(660.0, ago(120)),
+        "plan": iris_plan(660.0, "13:00", 720.0),
         "applied_from": "plan",
     },
     "mister_engage_delay_s": {"readback": reading(60.0, ago(180)), "plan": iris_plan(60.0), "applied_from": "plan"},
-    "mister_pulse_gap_s": {
+    "mister_min_off_s": {
         "readback": reading(45.0, ago(60)),
         "plan": iris_plan(45.0, "16:30", 55.0),
         "applied_from": "plan",
     },
-    "mister_pulse_on_s": {"readback": reading(60.0, ago(60))},
     "mister_water_budget_gal": {
         "readback": reading(250.0, at("06:48")),
         "desired": desired(

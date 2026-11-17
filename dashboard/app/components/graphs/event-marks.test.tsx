@@ -25,7 +25,7 @@ afterEach(cleanup);
 test("an entry's title: the action in words and what it changed, a setting by its label, a plan by its trigger, an alert by its type", () => {
   const labels = new Map(SETTINGS.map((row) => [row.param, row.label]));
   const entry = (action: string, target: string, detail: Record<string, unknown> = {}) => ({ ...ACTIVITY[0], action, target, detail });
-  expect(eventTitle(entry("setting.write", "mister_engage_kpa"), labels)).toBe("Set VPD Mister Engage");
+  expect(eventTitle(entry("setting.write", "mister_hysteresis_kpa"), labels)).toBe("Set Mister Hysteresis");
   expect(eventTitle(entry("setting.write", "no_such_param"), labels)).toBe("Set no_such_param");
   expect(eventTitle(entry("plan.write", "iris-20261102-0702", { trigger: "SUNRISE" }), labels)).toBe("Plan iris-20261102-0702 (SUNRISE)");
   expect(eventTitle(entry("alert.ack", "88", { alert_type: "relay_stuck" }), labels)).toBe(`${eventTitle(entry("alert.ack", "x"), labels).replace(/ x$/, "")} “Relay stuck”`);

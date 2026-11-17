@@ -73,9 +73,9 @@ const badge = () => screen.getByTestId("row").querySelector("[data-badge]")?.get
 
 test("Save always sends manual, ticked by default and false when unticked; a double tap sends one request with one key", async () => {
   const api = startFixtureApi();
-  renderWithApi(<SettingRow param="mister_engage_kpa" />);
+  renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
-  await openAndType("1.6");
+  await openAndType("660");
   const save = screen.getByRole("button", { name: "Save" });
   fireEvent.click(save);
   fireEvent.click(save);
@@ -83,32 +83,32 @@ test("Save always sends manual, ticked by default and false when unticked; a dou
   await advance(0);
   const sentWrites = writes(api);
   expect(sentWrites).toHaveLength(1);
-  expect(sentWrites[0]).toMatchObject({ method: "PUT", operationId: "API-10", path: "/api/v1/settings/mister_engage_kpa", body: { value: 1.6, manual: true } });
+  expect(sentWrites[0]).toMatchObject({ method: "PUT", operationId: "API-10", path: "/api/v1/settings/outdoor_staleness_max_s", body: { value: 660, manual: true } });
   expect(sentWrites[0].idempotency_key).toMatch(UUID);
   expect(dialogOpen()).toBe(false);
-  await openAndType("1.65");
+  await openAndType("690");
   fireEvent.click(screen.getByRole("checkbox", { name: "Let Iris change this" }));
   fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Vandas drying" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   const [first, second] = requests(api, "API-10");
-  expect(second.body).toEqual({ value: 1.65, manual: false, reason: "Vandas drying" });
+  expect(second.body).toEqual({ value: 690, manual: false, reason: "Vandas drying" });
   expect(second.idempotency_key).toMatch(UUID);
   expect(second.idempotency_key).not.toBe(first.idempotency_key);
 });
 
-test("requested-to-confirmed: 1.53 closes the drawer with the snapped toast; the row polls API-09 every 5 s and turns CONFIRMED on the third read", async () => {
+test("requested-to-confirmed: 640 closes the drawer with the snapped toast; the row polls API-09 every 5 s and turns CONFIRMED on the third read", async () => {
   const api = startFixtureApi({ fixture: "requested-to-confirmed" });
-  renderWithApi(<SettingRow param="mister_engage_kpa" />);
+  renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
   expect(sentAt("API-09")).toEqual([0]);
   await advance(1000);
-  await openAndType("1.53");
+  await openAndType("640");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
-  expect(requests(api, "API-10")[0].body).toEqual({ value: 1.53, manual: true });
+  expect(requests(api, "API-10")[0].body).toEqual({ value: 640, manual: true });
   expect(dialogOpen()).toBe(false);
-  expect(toasts("status")).toEqual(["Requested 1.55 kPa for VPD Mister Engage (snapped from 1.53)"]);
+  expect(toasts("status")).toEqual(["Requested 630 s for Outdoor Staleness Max (snapped from 640)"]);
   // The first read after the write is at once; TanStack renders each answer on a timer a moment later.
   const after = () => sentAt("API-09").filter((at) => at >= 1000);
   await advance(1);
@@ -137,9 +137,9 @@ test("requested-to-confirmed: 1.53 closes the drawer with the snapped toast; the
 
 test("with confirm false the row turns NOT CONFIRMED with its reason, and there is no Send again", async () => {
   startFixtureApi({ fixture: "requested-to-confirmed", confirm: false });
-  renderWithApi(<SettingRow param="mister_engage_kpa" />);
+  renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
-  await openAndType("1.53");
+  await openAndType("640");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   await advance(10_000);
@@ -149,28 +149,28 @@ test("with confirm false the row turns NOT CONFIRMED with its reason, and there 
   expect(screen.queryByRole("button", { name: /send again/i })).toBeNull();
 });
 
-test("2.60 reads \"Must be 0.50–2.50 kPa\" beside the field and nothing is sent; the server's 422 reads the same and keeps the drawer open", async () => {
+test("1900 reads \"Must be 120–1800 s\" beside the field and nothing is sent; the server's 422 reads the same and keeps the drawer open", async () => {
   const api = startFixtureApi();
-  const view = renderWithApi(<SettingRow param="mister_engage_kpa" />);
+  const view = renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
-  await openAndType("2.60");
+  await openAndType("1900");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   const field = screen.getByLabelText("New value");
-  const error = screen.getByText("Must be 0.50–2.50 kPa", { normalizer: (value) => value.replaceAll("\u00a0", " ") });
+  const error = screen.getByText("Must be 120–1800 s", { normalizer: (value) => value.replaceAll("\u00a0", " ") });
   expect(field.getAttribute("aria-invalid")).toBe("true");
   expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
   expect(writes(api)).toEqual([]);
   expect(dialogOpen()).toBe(true);
   view.unmount();
   // Bounds the client does not know: the server refuses, and its min, max and the unit read the same words.
-  renderWithApi(<SettingRow param="mister_engage_kpa" bounds={false} />);
+  renderWithApi(<SettingRow param="outdoor_staleness_max_s" bounds={false} />);
   await advance(0);
-  await openAndType("2.60");
+  await openAndType("1900");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
-  expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-10", body: { value: 2.6, manual: true } })]);
-  const refused = screen.getByText("Must be 0.50–2.50 kPa", { normalizer: (value) => value.replaceAll("\u00a0", " ") });
+  expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-10", body: { value: 1900, manual: true } })]);
+  const refused = screen.getByText("Must be 120–1800 s", { normalizer: (value) => value.replaceAll("\u00a0", " ") });
   expect(screen.getByLabelText("New value").getAttribute("aria-describedby")?.split(" ")).toContain(refused.id);
   expect(dialogOpen()).toBe(true);
   await advance(30_000);
@@ -179,9 +179,9 @@ test("2.60 reads \"Must be 0.50–2.50 kPa\" beside the field and nothing is sen
 
 test("503 writes_disabled reads \"Changes are switched off\"; 503 unavailable shows its detail; the drawer stays open", async () => {
   startFixtureApi({ fixture: "writes-off" });
-  const view = renderWithApi(<SettingRow param="mister_engage_kpa" />);
+  const view = renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
-  await openAndType("1.6");
+  await openAndType("660");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   expect(within(document.querySelector("dialog")!).getByRole("alert").textContent).toBe("Changes are switched off");
@@ -189,9 +189,9 @@ test("503 writes_disabled reads \"Changes are switched off\"; 503 unavailable sh
   view.unmount();
   stopFixtureApi();
   startFixtureApi({ fail: { "API-10": 503 } });
-  renderWithApi(<SettingRow param="mister_engage_kpa" />);
+  renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
-  await openAndType("1.6");
+  await openAndType("660");
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
   expect(within(document.querySelector("dialog")!).getByRole("alert").textContent).toBe("The fixture fails API-10 with 503");
@@ -215,14 +215,14 @@ test("a site cap before the irrigation firmware saves, reads REQUESTED with the 
 
 test("Release to auto sends API-11 with the reason and no body, and toasts the release", async () => {
   const api = startFixtureApi({ fixture: "superseded-lane" });
-  renderWithApi(<SettingRow param="mister_engage_kpa" />);
+  renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Back to the plan" } });
   fireEvent.click(screen.getByRole("button", { name: "Release to auto" }));
   await advance(0);
-  expect(writes(api)).toEqual([expect.objectContaining({ method: "DELETE", operationId: "API-11", path: "/api/v1/settings/mister_engage_kpa?reason=Back+to+the+plan", body: null })]);
-  expect(toasts("status")).toEqual(["Released VPD Mister Engage: plan, band or default applies"]);
+  expect(writes(api)).toEqual([expect.objectContaining({ method: "DELETE", operationId: "API-11", path: "/api/v1/settings/outdoor_staleness_max_s?reason=Back+to+the+plan", body: null })]);
+  expect(toasts("status")).toEqual(["Released Outdoor Staleness Max: plan, band or default applies"]);
   expect(settingToast({ value: 1, snapped_from: null }, { label: "GL Main Auto Mode", kind: "switch" })).toBe("Requested ON for GL Main Auto Mode");
   expect(settingToast({ value: 60, snapped_from: 48.75 }, { label: "Mister Engage Delay", kind: "numeric", unit: "s", step: 30 })).toBe("Requested 60\u00a0s for Mister Engage Delay (snapped from 48.75)");
 });
@@ -467,13 +467,13 @@ test("two presses before a render send one request with one key: Save, Run and S
   function Presses() {
     const settings = useSettingsRead();
     useNowRead();
-    const row = settings.data?.items.find((item) => item.param === "mister_engage_kpa");
-    const write = useSettingWrite(row ?? { param: "mister_engage_kpa", label: "VPD Mister Engage", kind: "numeric", unit: "kPa", step: 0.05, min: 0.5, max: 2.5 });
+    const row = settings.data?.items.find((item) => item.param === "outdoor_staleness_max_s");
+    const write = useSettingWrite(row ?? { param: "outdoor_staleness_max_s", label: "Outdoor Staleness Max", kind: "numeric", unit: "s", step: 30, min: 120, max: 1800 });
     const run = useCommand({ operation: "API-IRR-06" });
     const { stop } = useStop();
     // Each handler presses twice in one event, so the second press finds no busy state rendered yet.
     return <div>
-      <button type="button" onClick={() => { void write.save({ value: 1.6 }); void write.save({ value: 1.6 }); }}>Save twice</button>
+      <button type="button" onClick={() => { void write.save({ value: 660 }); void write.save({ value: 660 }); }}>Save twice</button>
       <button type="button" onClick={() => { void run.send({ line_id: "L01" }, { minutes: 5 }); void run.send({ line_id: "L01" }, { minutes: 5 }); }}>Run twice</button>
       <button type="button" onClick={() => { void stop(); void stop(); }}>Stop twice</button>
     </div>;

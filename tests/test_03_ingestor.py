@@ -97,8 +97,8 @@ def _reset_reconcile_state(monkeypatch):
 
 
 def test_cfg_drift_never_advances_transport_generation(caplog):
-    wire_id = "cfg___mister_vpd_weight"
-    generation = shared.note_transport_connected(frozenset({"mister_vpd_weight"}))
+    wire_id = "cfg___mister_water_budget__gal_"
+    generation = shared.note_transport_connected(frozenset({"mister_water_budget_gal"}))
 
     assert ingestor._record_cfg_readback(wire_id, 42.0) is True
     shared.mark_transport_reconciled(generation)
@@ -109,7 +109,7 @@ def test_cfg_drift_never_advances_transport_generation(caplog):
     assert shared.reconciled_transport_generation == generation
     assert not shared.force_setpoint_push.is_set()
     assert shared.setpoint_dispatch_requested.is_set()
-    assert shared.cfg_drift_versions == {"mister_vpd_weight": 1}
+    assert shared.cfg_drift_versions == {"mister_water_budget_gal": 1}
     assert any("reason=cfg_drift" in record.getMessage() for record in caplog.records)
 
 
@@ -223,17 +223,17 @@ def test_real_connect_generation_is_monotonic_and_never_erases_newer_reconnect()
 
 
 def test_cfg_drift_clear_is_version_safe():
-    observed = {"mister_vpd_weight": shared.note_cfg_drift("mister_vpd_weight")}
-    newer = shared.note_cfg_drift("mister_vpd_weight")
+    observed = {"mister_water_budget_gal": shared.note_cfg_drift("mister_water_budget_gal")}
+    newer = shared.note_cfg_drift("mister_water_budget_gal")
 
     shared.clear_cfg_drift(observed)
 
-    assert shared.cfg_drift_versions == {"mister_vpd_weight": newer}
+    assert shared.cfg_drift_versions == {"mister_water_budget_gal": newer}
     assert shared.setpoint_dispatch_requested.is_set()
 
 
 def test_old_drift_completion_cannot_erase_newer_reconnect_wake():
-    observed = {"mister_vpd_weight": shared.note_cfg_drift("mister_vpd_weight")}
+    observed = {"mister_water_budget_gal": shared.note_cfg_drift("mister_water_budget_gal")}
     first_generation = shared.note_transport_connected(frozenset({"first"}))
     assert shared.note_cfg_readback_observed("first", 1.0, first_generation)
     shared.mark_transport_reconciled(first_generation)
@@ -251,7 +251,7 @@ def test_old_drift_completion_cannot_erase_newer_reconnect_wake():
 def test_failed_dispatch_consumes_only_its_immediate_wake_without_claiming_reconcile():
     generation = shared.note_transport_connected(frozenset({"current"}))
     assert shared.note_cfg_readback_observed("current", 1.0, generation)
-    observed = {"mister_vpd_weight": shared.note_cfg_drift("mister_vpd_weight")}
+    observed = {"mister_water_budget_gal": shared.note_cfg_drift("mister_water_budget_gal")}
 
     shared.defer_failed_dispatch(generation, observed)
 
@@ -400,10 +400,10 @@ async def test_restart_terminalizes_only_unsent_in_memory_queue_states():
 async def test_cold_boot_nan_blocks_with_only_its_stage_row_until_native_replay_and_reconnect_fences(caplog):
     from tasks import dispatcher
 
-    expected = frozenset({"mister_vpd_weight", "mister_on_s"})
+    expected = frozenset({"mister_water_budget_gal", "mister_on_s"})
     generation = shared.note_transport_connected(expected)
     # Firmware intentionally withholds cfg values before its first confirmed pull.
-    assert ingestor._record_cfg_readback("cfg___mister_vpd_weight", float("nan"))
+    assert ingestor._record_cfg_readback("cfg___mister_water_budget__gal_", float("nan"))
     assert shared.current_cfg_readbacks() == {}
     pool = MagicMock()
     with caplog.at_level(logging.WARNING):
@@ -412,25 +412,25 @@ async def test_cold_boot_nan_blocks_with_only_its_stage_row_until_native_replay_
     assert pool.acquire.call_count <= 1
     conn = pool.acquire.return_value.__aenter__.return_value
     assert [name for name, _args, _kwargs in conn.method_calls] in ([], ["execute"])
-    assert any("missing_params=mister_on_s,mister_vpd_weight" in r.getMessage() for r in caplog.records)
+    assert any("missing_params=mister_on_s,mister_water_budget_gal" in r.getMessage() for r in caplog.records)
 
     ingestor._mirror_irrigation_number_readback("mister_on_s", 300.0)
     assert not shared.transport_readbacks_ready(generation)
-    ingestor._mirror_irrigation_number_readback("mister_vpd_weight", 1.5)
+    ingestor._mirror_irrigation_number_readback("mister_water_budget_gal", 150.0)
     assert shared.transport_readbacks_ready(generation)
-    assert shared.current_cfg_readbacks() == {"mister_on_s": 300.0, "mister_vpd_weight": 1.5}
+    assert shared.current_cfg_readbacks() == {"mister_on_s": 300.0, "mister_water_budget_gal": 150.0}
 
     # Previous native truth cannot satisfy a replacement socket's barrier.
     second = shared.note_transport_connected(expected)
     assert shared.current_cfg_readbacks() == {}
     assert not shared.note_cfg_readback_observed("mister_on_s", 300.0, generation)
     assert not shared.transport_readbacks_ready(second)
-    assert ingestor._record_cfg_readback("cfg___mister_vpd_weight", float("nan"))
+    assert ingestor._record_cfg_readback("cfg___mister_water_budget__gal_", float("nan"))
     before = list(conn.method_calls)
     await dispatcher.setpoint_dispatcher(pool)
     assert conn.method_calls == before  # still held: the unchanged stage writes nothing, and no policy read or command
     ingestor._mirror_irrigation_number_readback("mister_on_s", 300.0)
-    ingestor._mirror_irrigation_number_readback("mister_vpd_weight", 1.5)
+    ingestor._mirror_irrigation_number_readback("mister_water_budget_gal", 150.0)
     assert shared.transport_readbacks_ready(second)
 
 
@@ -458,8 +458,8 @@ def test_initial_native_replay_survives_boot_window_without_historical_db_write(
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), 200.0])
 def test_native_mirror_rejects_nonfinite_and_out_of_range_before_replay(value):
-    generation = shared.note_transport_connected(frozenset({"safety_max"}))
-    ingestor._mirror_irrigation_number_readback("safety_max", value)
+    generation = shared.note_transport_connected(frozenset({"temp_high"}))
+    ingestor._mirror_irrigation_number_readback("temp_high", value)
     assert not shared.transport_readbacks_ready(generation)
     assert shared.current_cfg_readbacks() == {}
 

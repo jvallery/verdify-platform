@@ -147,10 +147,10 @@ def test_delivery_reads_each_requested_value_against_its_readback(dsn):
         await request(conn, t0 - 50 * MIN, "temp_low", 67.4)
         await readbacks(conn, "temp_low", [(ts, 62.4) for ts in every(t0, 2 * H, 1 * MIN)])
         # A moving target re-asked every 10 minutes and never taken: since the first unconfirmed request.
-        await request(conn, t0 - 70 * MIN, "vpd_target_south", 0.9, confirmed_at=t0 - 69 * MIN)
+        await request(conn, t0 - 70 * MIN, "dry_cost_limit_kwh_per_kg", 0.9, confirmed_at=t0 - 69 * MIN)
         for minutes, value in ((40, 1.0), (30, 1.01), (20, 1.02), (10, 1.03)):
-            await request(conn, t0 - minutes * MIN, "vpd_target_south", value)
-        await readbacks(conn, "vpd_target_south", [(ts, 0.9) for ts in every(t0, 2 * H, 1 * MIN)])
+            await request(conn, t0 - minutes * MIN, "dry_cost_limit_kwh_per_kg", value)
+        await readbacks(conn, "dry_cost_limit_kwh_per_kg", [(ts, 0.9) for ts in every(t0, 2 * H, 1 * MIN)])
         # Taken, then lost (a restart reverted it 46 minutes ago): since the first readback that differs.
         await request(conn, t0 - 3 * H, "gl_main_sunset_hour", 20.0, confirmed_at=t0 - 3 * H + MIN)
         await readbacks(
@@ -161,8 +161,8 @@ def test_delivery_reads_each_requested_value_against_its_readback(dsn):
         # Matches by the confirmation's tolerances: a binary32 readback, and 1 s on a second-valued setting.
         await request(conn, t0 - 2 * H, "vpd_low", 0.8, confirmed_at=t0 - 2 * H + MIN)
         await readbacks(conn, "vpd_low", [(t0 - MIN, 0.800000011920929)])
-        await request(conn, t0 - 2 * H, "mister_pulse_on_s", 30.0, confirmed_at=t0 - 2 * H + MIN)
-        await readbacks(conn, "mister_pulse_on_s", [(t0 - MIN, 30.6)])
+        await request(conn, t0 - 2 * H, "mister_min_off_s", 30.0, confirmed_at=t0 - 2 * H + MIN)
+        await readbacks(conn, "mister_min_off_s", [(t0 - MIN, 30.6)])
         # A superseded newest request is not what the host asks for; an esp32 row is the controller's own.
         await request(conn, t0 - 2 * H, "gl_grow_sunset_hour", 21.0, status="superseded")
         await readbacks(conn, "gl_grow_sunset_hour", [(t0 - MIN, 20.0)])
@@ -173,9 +173,9 @@ def test_delivery_reads_each_requested_value_against_its_readback(dsn):
         await request(conn, t0 - 3 * H, "fog_escalation_kpa", 0.4)
 
         ages = await delivery(conn)
-        assert set(ages) == {"temp_low", "vpd_target_south", "gl_main_sunset_hour"}
+        assert set(ages) == {"temp_low", "dry_cost_limit_kwh_per_kg", "gl_main_sunset_hour"}
         assert 49 * 60 <= ages["temp_low"] <= 51 * 60
-        assert 39 * 60 <= ages["vpd_target_south"] <= 41 * 60
+        assert 39 * 60 <= ages["dry_cost_limit_kwh_per_kg"] <= 41 * 60
         assert 44 * 60 <= ages["gl_main_sunset_hour"] <= 47 * 60
 
         env = alerts._setpoint_delivery_stuck_alert(

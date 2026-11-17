@@ -83,6 +83,7 @@ AlertType = Literal[
     "outdoor_none_indoor_degraded",
     "outdoor_intake_only",
     "furnace_saturated",
+    "relay_counter_mismatch",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
@@ -165,6 +166,7 @@ ALERT_TYPES: tuple[str, ...] = (
     "outdoor_none_indoor_degraded",
     "outdoor_intake_only",
     "furnace_saturated",
+    "relay_counter_mismatch",
     "heat_staging_inversion",
     "house_band_drift",
     "irrigation_feedback_gap",
@@ -1014,6 +1016,22 @@ class FurnaceSaturatedAlert(_AlertBase):
     details: FurnaceSaturatedDetails
 
 
+class RelayCounterMismatchDetails(_DetailsBase):
+    # RULINGS AF7: one relay's local day, the relay_counters deltas against daily_relay_record's stored edges
+    # (v_relay_counter_reconciliation_daily, migration 315); run seconds only for the fans.
+    day: str
+    equipment: str
+    counter_starts: int = Field(..., ge=0)
+    record_starts: int = Field(..., ge=0)
+    counter_run_s: int | None = Field(default=None, ge=0)
+    record_run_s: float | None = Field(default=None, ge=0)
+
+
+class RelayCounterMismatchAlert(_AlertBase):
+    alert_type: Literal["relay_counter_mismatch"]
+    details: RelayCounterMismatchDetails
+
+
 class LawConstantsMismatchAlert(_AlertBase):
     alert_type: Literal["law_constants_mismatch"]
     details: LawConstantsMismatchDetails
@@ -1424,6 +1442,7 @@ AlertEnvelopeUnion = Annotated[
     | OutdoorNoneIndoorDegradedAlert
     | OutdoorIntakeOnlyAlert
     | FurnaceSaturatedAlert
+    | RelayCounterMismatchAlert
     | LeakDetectedAlert
     | LightingCfgThresholdDriftAlert
     | ClimateActionProofStaleAlert

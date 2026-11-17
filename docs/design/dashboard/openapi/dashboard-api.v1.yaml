@@ -400,8 +400,8 @@ paths:
         simple temperature field recompiles the six temperature anchors from day (solar noon) and night (solar
         midnight) values with sunrise and sunset at their midpoint, so the curve is a pure sinusoid that never leaves
         its noon and midnight values; any VPD field does the same for the VPD anchors; then each anchor= item sets one
-        raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase;
-        vpd.device adds night_vpd_bias_kpa's night bump as the controller does. findings with severity error are what
+        raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase,
+        so the draft is the curve the controller runs. findings with severity error are what
         API-24 refuses. The expected night VPD ribbon is a 14-day indoor dewpoint fit on quiet deep-night hours and
         the forecast; night_heat_kwh is 0.19 kW/°F over the forecast's night hours. Codes: unknown_target (anchor not
         a house band anchor), out_of_range (outside planner_effective_bounds), read_only (no complete anchor set).
@@ -1705,7 +1705,7 @@ components:
     BandProfilePreview:
       type: object
       description: 'API-23: the house band as stored (current) and drafted, one point per step_s'
-      required: [day, step_s, t, sun, current, draft, changed, temp, vpd, night_vpd_bias_kpa, guardrails, overshoot, night_heat_kwh, envelope, findings, measured, forecast]
+      required: [day, step_s, t, sun, current, draft, changed, temp, vpd, guardrails, overshoot, night_heat_kwh, envelope, findings, measured, forecast]
       properties:
         day: {type: string, format: date, description: America/Denver day}
         step_s: {type: integer, const: 600}
@@ -1729,14 +1729,12 @@ components:
             draft: {$ref: '#/components/schemas/BandCurve'}
         vpd:
           type: object
-          required: [current, draft, device, expected_low, expected_high]
+          required: [current, draft, expected_low, expected_high]
           properties:
             current: {$ref: '#/components/schemas/BandCurve'}
             draft: {$ref: '#/components/schemas/BandCurve'}
-            device: {$ref: '#/components/schemas/BandCurve'}
             expected_low: {$ref: '#/components/schemas/NullableNumbers'}
             expected_high: {$ref: '#/components/schemas/NullableNumbers'}
-        night_vpd_bias_kpa: {type: [number, 'null'], description: The bias the controller reports running}
         guardrails:
           type: object
           required: [temp_min_f, temp_max_f, margin_f, vpd_min_kpa, vpd_max_kpa, night_vpd_floor_kpa, min_width_f, min_width_kpa, dry_on_above_vpd_low_kpa]

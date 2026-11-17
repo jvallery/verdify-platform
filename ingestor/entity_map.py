@@ -405,6 +405,11 @@ DIAGNOSTIC_MAP: dict[str, str] = {
     "nvs_write_worst_minute": "nvs_write_worst_ms",  # SensorInfo, ms, 0 = no write that minute
     "gap_log_state": "gap_log_state",  # TextSensorInfo
     "sensor_degraded_active": "sensor_degraded_active",  # SensorInfo, 0 or 1
+    # RULINGS AF9(b) (#1633 release 4, migration 315): read-only health counters the third flash publishes every
+    # 60 s (contracts/metrics-coverage 2.1a names).
+    "loop_stack_high_water": "loop_stack_high_water_b",  # SensorInfo, bytes of main-loop stack never used
+    "wifi_disconnect_count": "wifi_disconnect_count",  # SensorInfo, count since boot (resets at reboot)
+    "api_client_count": "api_client_count",  # SensorInfo, connected native API clients
 }
 
 # ──────────────────────────────────────────────────────────────

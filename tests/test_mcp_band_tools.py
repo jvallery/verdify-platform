@@ -42,14 +42,10 @@ def conn(mcp_server, monkeypatch):  # noqa: F811
     async def db():
         return connection
 
-    async def bias(_conn):
-        return 0.1
-
     async def no_write(*_args, **_kwargs):
         raise AssertionError("an MCP band tool reached the band Save")
 
     monkeypatch.setattr(mcp_server, "_db", db)
-    monkeypatch.setattr(bp, "_night_bias", bias)
     monkeypatch.setattr(bp, "write", no_write)
     return connection
 

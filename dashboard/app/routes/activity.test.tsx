@@ -373,7 +373,7 @@ test("Recent activity: the five newest log entries, one line each, and Open the 
   const api = await open("/activity", { fixture: "activity-mixed" });
   const recent = screen.getByRole("region", { name: "Recent activity" });
   expect(recent.querySelectorAll("li.event")).toHaveLength(5);
-  expect(plain(text(recent.querySelector("li.event .act-entry-text")))).toBe("VPD Mister Engage 1.60 → 1.55 kPa · requested 1.53 · manual");
+  expect(plain(text(recent.querySelector("li.event .act-entry-text")))).toBe("Outdoor Staleness Max 660 → 630 s · requested 640 · manual");
   expect(within(recent).getByRole("link", { name: /^Open the log/ }).getAttribute("href")).toBe("/activity/log");
   expect(requests(api, "API-17").map((row) => row.path)).toEqual(["/api/v1/activity?limit=5"]);
   stopped();
@@ -402,16 +402,16 @@ test("activity-mixed: one line an entry, who wrote in R4's words, AI for Iris an
   await open("/activity/log", { fixture: "activity-mixed" });
   expect(status()).toBe(LOG_STATUS);
   expect(logLines()).toEqual([
-    "VPD Mister Engage 1.60 → 1.55 kPa · requested 1.53 · manual", "Plan · 3 changes", "Changed line Wall drip · Daily cap 60 → 45 min · manual cleared · during experiment 7c9e6679-7425-40de-944b-e07fc1f90ae7",
-    "Acknowledged “Relay stuck”", "Forecast rule “hot afternoon” · Mister Pulse Gap 45 → 60 s", "Ran Wall drip · 12 min",
+    "Outdoor Staleness Max 660 → 630 s · requested 640 · manual", "Plan · 3 changes", "Changed line Wall drip · Daily cap 60 → 45 min · manual cleared · during experiment 7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "Acknowledged “Relay stuck”", "Forecast rule “hot afternoon” · Mister Min Off 45 → 60 s", "Ran Wall drip · 12 min",
   ]);
   const ai = (node: Element) => node.querySelector(".event-by [data-badge=ai]") !== null;
-  const dashboard = logRow("VPD Mister Engage");
+  const dashboard = logRow("Outdoor Staleness Max");
   expect([writtenBy(dashboard), ai(dashboard), text(dashboard.querySelector(".event-reason")), text(dashboard.querySelector(".act-entry-outcome"))]).toEqual(["Jason · dashboard", false, "“Vandas drying”", "Confirmed 07:42"]);
   const iris = logRow("Plan · 3 changes");
   expect([writtenBy(iris), ai(iris)]).toEqual(["iris AI", true]);
   fireEvent.click(iris.querySelector("summary")!);
-  expect([...iris.querySelectorAll(".plan-changes li")].map((node) => plain(text(node)))).toEqual(["VPD Mister Engage 1.70 kPa from 13:00", "Mister Pulse Gap 55 s from 16:30", "Mister Engage Delay 90 s from 19:00"]);
+  expect([...iris.querySelectorAll(".plan-changes li")].map((node) => plain(text(node)))).toEqual(["Outdoor Staleness Max 720 s from 13:00", "Mister Min Off 55 s from 16:30", "Mister Engage Delay 90 s from 19:00"]);
   const agent = logRow("Changed line Wall drip");
   expect([writtenBy(agent), ai(agent)]).toEqual(["steward · agent AI", true]);
   const forecast = logRow("Forecast rule");

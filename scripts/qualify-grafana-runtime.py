@@ -65,8 +65,6 @@ try:
     queries = {
         "identity": "SELECT current_user,session_user,current_database(),inet_server_addr()::text,inet_client_addr()::text,current_setting('search_path'),has_database_privilege(current_user,current_database(),'CREATE') AS database_create",
         "allowed_dashboard": "SELECT * FROM verdify_grafana_runtime.v_system_health_score WHERE FALSE",
-        "mapping_read": "SELECT * FROM public.experiment_v2_randomization WHERE FALSE",
-        "blinded_reveal_read": "SELECT * FROM public.experiment_v2_reveals WHERE FALSE",
         "cross_planner_read": "SELECT * FROM verdify_planner_runtime.planner_graph_runs WHERE FALSE",
     }
     for name, sql in queries.items():

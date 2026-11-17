@@ -28,22 +28,6 @@ _MICROPULSE_REFS = (
 
 ENTRIES: dict[str, HelpEntry] = {
     # ── Retired ──────────────────────────────────────────────────────────────
-    "d_heat_stage_2": HelpEntry(
-        summary="Old gap below the heating line at which the gas heater (heat2) joined.",
-        effect=(
-            "The controller no longer uses it. The gas heater (heat2, the backup) now latches on when the house "
-            "drops below the low edge of the temperature band and stays on until it is back to the heating target."
-        ),
-        refs=(f'{_REG}::"d_heat_stage_2"', f"{_LOGIC}::heat2 = LOW side"),
-    ),
-    "d_cool_stage_2": HelpEntry(
-        summary="Old margin above the cooling line at which fan 2 joined.",
-        effect=(
-            "The controller no longer uses it for staging. Fan 2 now starts at the band high edge plus "
-            "Cool Stage 2 Over High and stops at that point minus Cool Stage 2 Exit Hyst."
-        ),
-        refs=(f'{_REG}::"d_cool_stage_2"', f"{_LOGIC}::fan2_entry = temp_high + sp.cool_stage2_over_high_f"),
-    ),
     "mister_on_s": HelpEntry(
         summary="Old fixed ON time of the mister duty cycle.",
         effect="The controller no longer uses it. Misting now runs in pulses set by Mister Pulse ON and Mister Pulse Gap.",
@@ -96,22 +80,6 @@ ENTRIES: dict[str, HelpEntry] = {
         ),
         refs=(f"{_REG}::end hour of the old fog eligibility window",),
     ),
-    "mist_vent_close_lead_s": HelpEntry(
-        summary="Reserved lead time for closing the vent before misting.",
-        effect=(
-            "The controller reports this value but its control loop never reads it. Whether misting closes the "
-            "vent is set by Mister Closes Vent and limited by Mist Max Closed Vent."
-        ),
-        refs=(f"{_REG}::Exposed/read back but not consumed by the control loop",),
-    ),
-    "mist_vent_reopen_delay_s": HelpEntry(
-        summary="Reserved delay before reopening the vent after misting.",
-        effect=(
-            "The controller reports this value but its control loop never reads it. Whether misting closes the "
-            "vent is set by Mister Closes Vent and limited by Mist Max Closed Vent."
-        ),
-        refs=(f"{_REG}::Exposed/read back but not consumed by the control loop",),
-    ),
     "direct_wet_stress_latest_hour": HelpEntry(
         label="Direct Wet Stress Latest Hour",
         summary="Latest hour of the day at which the dry-stress override could allow direct wetting.",
@@ -120,38 +88,6 @@ ENTRIES: dict[str, HelpEntry] = {
             "The row is kept for the history of past plans."
         ),
         refs=(f"{_REG}::ZERO firmware presence",),
-    ),
-    "summer_vent_min_runtime_s": HelpEntry(
-        summary="Reserved minimum time to keep venting once the summer vent opens.",
-        effect=(
-            "The controller checks the value is in range but the summer vent never reads it. "
-            "Venting ends when the outdoor air stops being cooler and drier (Summer Vent Enabled)."
-        ),
-        refs=(f"{_TYPES}::min VENTILATE dwell after gate fires (s; reserved)",),
-    ),
-    "bias_heat": HelpEntry(
-        summary="Old offset that moved the heating line up or down.",
-        effect=(
-            "The controller no longer uses it. The electric heater (heat1, the primary) now holds the house at "
-            "the heating target, a quarter of the way up the temperature band; the band itself sets that line."
-        ),
-        refs=(f"{_REG}::Heating uses the crop-band lower quartile target", f"{_LOGIC}::BAND_HEAT_TARGET_FRACTION"),
-    ),
-    "bias_cool": HelpEntry(
-        summary="Old offset that moved the cooling line up or down.",
-        effect=(
-            "The controller no longer uses it. Venting and fan 1 now start when the house goes above the high "
-            "edge of the temperature band."
-        ),
-        refs=(f"{_REG}::Cooling enters at the crop-band high edge",),
-    ),
-    "sw_fsm_controller_enabled": HelpEntry(
-        summary="Old switch between the legacy controller and the current band-first controller.",
-        effect=(
-            "The controller always forces this ON and runs the band-first controller. Turning it off has no "
-            "effect; going back to the old controller would need a controller software rollback."
-        ),
-        refs=(f"{_REG}::THIRD_FLASH_RETIRED_REG",),
     ),
     "feed_start_hour": HelpEntry(
         label="Feed Start Hour",
@@ -165,39 +101,9 @@ ENTRIES: dict[str, HelpEntry] = {
         effect="The controller ignores it and it stays at zero. Watering and feeding now run from the irrigation program.",
         refs=(f'{_REG}::"feed_end_hour"',),
     ),
-    "sw_dawn_rehydrate_enabled": HelpEntry(
-        label="Dawn Rehydrate Enabled",
-        summary="Old switch for a scheduled center watering at dawn.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
     "dawn_rehydrate_start_minute": HelpEntry(
         label="Dawn Rehydrate Start Minute",
         summary="Start minute of the old scheduled dawn watering.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "dawn_rehydrate_window_min": HelpEntry(
-        label="Dawn Rehydrate Window",
-        summary="Length of the old scheduled dawn watering window.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "dawn_rehydrate_on_s": HelpEntry(
-        label="Dawn Rehydrate ON",
-        summary="Pulse length of the old scheduled dawn watering.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "dawn_rehydrate_gap_s": HelpEntry(
-        label="Dawn Rehydrate Gap",
-        summary="Gap between pulses of the old scheduled dawn watering.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "sw_midday_drench_enabled": HelpEntry(
-        label="Midday Drench Enabled",
-        summary="Old switch for a scheduled center drench around midday.",
         effect=_IRRIGATION_RETIRED,
         refs=_IRRIGATION_REFS,
     ),
@@ -210,34 +116,6 @@ ENTRIES: dict[str, HelpEntry] = {
     "midday_drench_start_minute": HelpEntry(
         label="Midday Drench Start Minute",
         summary="Start minute of the old scheduled midday drench.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "midday_drench_window_min": HelpEntry(
-        label="Midday Drench Window",
-        summary="Length of the old scheduled midday drench window.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "midday_drench_on_s": HelpEntry(
-        label="Midday Drench ON",
-        summary="Pulse length of the old scheduled midday drench.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "midday_drench_gap_s": HelpEntry(
-        label="Midday Drench Gap",
-        summary="Gap between pulses of the old scheduled midday drench.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "dawn_boost_offset_min": HelpEntry(
-        summary="Old offset from sunrise for the scheduled dawn watering.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "midday_boost_offset_min": HelpEntry(
-        summary="Old offset from solar noon for the scheduled midday drench.",
         effect=_IRRIGATION_RETIRED,
         refs=_IRRIGATION_REFS,
     ),

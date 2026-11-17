@@ -158,11 +158,17 @@ def test_reviewer_write_is_judged_after_the_first_counters_row_plus_the_grace_as
 
 def test_law_state_stale_needs_the_law_installed_and_the_controller_connected(dsn):
     async def body(conn, t0):
+        diag = "INSERT INTO diagnostics (ts, uptime_s, firmware_version) VALUES ($1, $2, $3)"
+        await conn.execute(diag, t0 - 30 * MIN, 1800.0, "law-1")
         await conn.execute("INSERT INTO diagnostics (ts, uptime_s) VALUES ($1, 3600)", t0 - MIN)
         assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None  # law firmware never seen
         await state(conn, t0 - 5 * MIN, "climate_law_state", '{"v":1,"l":0}')
         env = cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL))
         assert env is not None and 290 < env["details"]["age_s"] < 310
+        await conn.execute(diag, t0 - 2 * MIN, 400.0, "pre-law")  # rolled back to a build without the law
+        assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None
+        await conn.execute(diag, t0 - 90 * timedelta(seconds=1), 500.0, "law-1")
+        assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is not None  # the law build is back
         await state(conn, t0 - MIN, "climate_law_state", '{"v":1,"l":0}')
         assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None
 
@@ -234,11 +240,14 @@ def test_utilities_drying_refusal_probes_and_owner_held(dsn):
 
         await change(conn, t0 - 3 * 24 * 60 * MIN, "mister_min_off_s", 30.0, "manual", t0 - 3 * 24 * 60 * MIN)
         await change(conn, t0 - 60 * MIN, "mister_min_off_s", 30.0, "esp32")  # observations are not desired rows
-        for m in range(10):
-            await conn.execute(
-                "INSERT INTO setpoint_snapshot (ts, parameter, value) VALUES ($1, 'mister_min_off_s', 45)",
-                t0 - m * MIN,
-            )
+        snap = "INSERT INTO setpoint_snapshot (ts, parameter, value) VALUES ($1, 'mister_min_off_s', $2)"
+        # readbacks stored on change (ALERTS-3): the held value, then one differing readback 40 minutes ago
+        await conn.execute(snap, t0 - 2 * 24 * 60 * MIN, 30.0)
+        await conn.execute(snap, t0 - 10 * MIN, 30.0)
+        await conn.execute(snap, t0 - 5 * MIN, 45.0)
+        assert cov.owner_held_alert(await conn.fetch(cov.OWNER_HELD_SQL)) is None  # differing for 5 minutes only
+        await conn.execute("DELETE FROM setpoint_snapshot WHERE ts > $1", t0 - 60 * MIN)
+        await conn.execute(snap, t0 - 40 * MIN, 45.0)
         rows = await conn.fetch(cov.OWNER_HELD_SQL)
         assert cov.owner_held_alert(rows)["details"]["changed"] == {"mister_min_off_s": [30.0, 45.0]}
         await change(conn, t0 - 20 * MIN, "mister_min_off_s", 45.0, "band", t0 - 19 * MIN)
@@ -340,5 +349,26 @@ def test_law_band_sql_reads_the_newest_three_records_against_the_band_at_their_t
         rows = await conn.fetch(cov.LAW_BAND_SQL)
         assert len(rows) == 3 and rows[0]["temp_high"] == 81.5
         assert cov.law_band_alert(rows) == (None, True)
+
+    scenario(dsn, body)
+
+
+def test_counter_reconcile_sql_reads_yesterdays_complete_rows(dsn):
+    # A stand-in with the columns of migration 315's v_relay_counter_reconciliation_daily.
+    async def body(conn, t0):
+        await conn.execute("DROP VIEW IF EXISTS v_relay_counter_reconciliation_daily")
+        await conn.execute(
+            f"""CREATE VIEW v_relay_counter_reconciliation_daily AS
+            SELECT d AS date, 'vallery'::text AS greenhouse_id, e AS equipment, 9::bigint AS counter_starts,
+                   3::bigint AS record_starts, 6::bigint AS starts_difference, NULL::bigint AS counter_run_s,
+                   NULL::double precision AS record_run_s, NULL::double precision AS run_s_difference,
+                   60 AS counter_rows, c AS comparison
+              FROM (VALUES ({YESTERDAY}, 'heat1', 'complete'), ({YESTERDAY}, 'heat2', 'no_record'),
+                           ({YESTERDAY} - 1, 'fog', 'complete'), ({YESTERDAY} + 1, 'vent', 'partial')) v(d, e, c)"""
+        )
+        rows = await conn.fetch(cov.COUNTER_RECONCILE_SQL)
+        assert [r["equipment"] for r in rows] == ["heat1"]
+        assert [a["sensor_id"].split(".")[1] for a in cov.counter_mismatch_alerts(rows)] == ["heat1"]
+        await conn.execute("DROP VIEW v_relay_counter_reconciliation_daily")
 
     scenario(dsn, body)

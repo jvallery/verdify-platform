@@ -185,6 +185,19 @@ def test_the_missed_alert_waits_for_ten_and_a_written_review_resolves_it():
     assert "UPDATE alert_log" in sql and "disposition = 'resolved'" in sql and args == ("system.daily_review",)
 
 
+def test_a_review_requested_late_gets_its_hour_before_it_counts_as_missed():
+    """Release 3 review PLANNER-02: after a late start the row is requested past 10:00; no alert while it is in flight."""
+    in_flight = Conn(
+        fetchrow={"status": "requested", "attempts": 0, "failure": None, "in_flight": True}, fetchval=[None]
+    )
+    asyncio.run(heartbeat._daily_review_alert(in_flight, local(10, 5)))
+    assert in_flight.executed == []
+    stale = Conn(fetchrow={"status": "delivered", "attempts": 1, "failure": None, "in_flight": False}, fetchval=[None])
+    asyncio.run(heartbeat._daily_review_alert(stale, local(11, 10)))
+    ((sql, args),) = stale.executed
+    assert "INSERT INTO alert_log" in sql and args[0] == "daily_review_missed"
+
+
 def test_a_written_manual_review_of_the_day_resolves_a_failed_daily_one():
     conn = Conn(fetchrow={"status": "failed", "attempts": 6, "failure": "attempts_exhausted"}, fetchval=[1])
     asyncio.run(heartbeat._daily_review_alert(conn, local(11, 0)))

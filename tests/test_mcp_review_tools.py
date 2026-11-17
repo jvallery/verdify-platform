@@ -75,7 +75,7 @@ def test_review_write_stores_the_review_on_its_open_row_only(mcp_server, wired):
 
 def test_review_write_refuses_a_bad_proposal_or_run_id_before_any_write(mcp_server, wired):  # noqa: F811
     conn = wired()
-    off_band = {"anchors": {"mister_engage_kpa": 1.0}, "price": "row 1", "reason": "drier"}
+    off_band = {"anchors": {"mister_engage_delay_s": 90.0}, "price": "row 1", "reason": "drier"}
     out_of_range = {"anchors": {"band_temp_high_mid": 120.0}, "price": "row 1", "reason": "hotter"}
     for kwargs in (
         {"trigger_id": "not-a-uuid", "summary": "x"},

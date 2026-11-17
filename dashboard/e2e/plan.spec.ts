@@ -23,14 +23,14 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(card.locator("svg.ctl-validity .ctl-validity-now")).toHaveCount(1);
     await expect(card.locator(".plan-hypothesis")).toContainText("Hot, dry afternoon: engage misting earlier from 13:00 and widen the pulse gap at dusk.");
     await expect(card.locator(".plan-hypothesis [data-badge=ai]")).toHaveText("AI");
-    await expect(status(page, "mister_engage_kpa")).toHaveText("YOUR VALUE 1.55 · jason 08:00 · holds until Iris's next plan");
-    await expect(status(page, "mister_pulse_gap_s")).toHaveText("AI plan");
+    await expect(status(page, "outdoor_staleness_max_s")).toHaveText("YOUR VALUE 630 · jason 08:00 · holds until Iris's next plan");
+    await expect(status(page, "mister_min_off_s")).toHaveText("AI plan");
     const lanes = region(page, "Planned settings");
     const superseded = lanes.locator("table tbody tr").filter({ hasText: "Will not apply · overridden" });
     await expect(superseded).toHaveCount(1);
-    await expect(superseded).toContainText("VPD Mister Engage");
+    await expect(superseded).toContainText("Outdoor Staleness Max");
     await expect(superseded).toContainText("13:00");
-    await expect(superseded).toContainText("1.70 kPa");
+    await expect(superseded).toContainText("720 s");
     await expectNoHorizontalScroll(page);
     expect(await fixtureWrites(request)).toEqual([]);
   });
@@ -43,7 +43,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(card.locator(".plan-none")).toHaveText("No plan in force: band and defaults apply since 09:30");
     await expect(card.locator("[data-badge=ai], details, .plan-facts")).toHaveCount(0);
     await expect(page.getByText("No further change in this plan", { exact: true })).toHaveCount(3);
-    await expect(page.locator(".plan-device")).toHaveText(["1.60 kPa", "45 s", "60 s"]);
+    await expect(page.locator(".plan-device")).toHaveText(["660 s", "45 s", "60 s"]);
     await expectNoHorizontalScroll(page);
   });
 
@@ -51,14 +51,14 @@ for (const viewport of [DESKTOP, PHONE]) {
     await page.setViewportSize(viewport);
     await useScreensClock(page, request, "manual-lane");
     await load(page, "/plan");
-    await expect(status(page, "mister_pulse_on_s")).toHaveText("MANUAL · Iris skips · jason since Oct 30");
+    await expect(status(page, "sw_direct_wet_gate_enabled")).toHaveText("MANUAL · Iris skips · jason since Oct 30");
     await expect(region(page, "Planned settings").locator(".plan-manual")).toHaveText("1 setting MANUAL · Iris skips it");
     await expect(page.getByRole("link", { name: /^Open/ })).toHaveCount(0);
-    const label = page.locator("[data-param=mister_pulse_on_s]").getByRole("link", { name: "Mister Pulse ON" });
+    const label = page.locator("[data-param=sw_direct_wet_gate_enabled]").getByRole("link", { name: "Direct Wet Gate Enabled" });
     expect((await label.boundingBox())!.height).toBeGreaterThanOrEqual(viewport === PHONE ? 44 : 24);
     await label.click();
-    await expect(page).toHaveURL(/\/plan\?edit=mister_pulse_on_s$/);
-    await expect(page.locator("dialog[open] .drawer-heading")).toHaveText("Mister Pulse ON");
+    await expect(page).toHaveURL(/\/plan\?edit=sw_direct_wet_gate_enabled$/);
+    await expect(page.locator("dialog[open] .drawer-heading")).toHaveText("Direct Wet Gate Enabled");
     await expectNoHorizontalScroll(page);
     // Escape closes it in place, and focus goes back to the lane's label.
     await page.keyboard.press("Escape");
@@ -95,7 +95,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(status(page, "mister_engage_delay_s")).toHaveText("Forecast rule · system");
     await expect(row).not.toContainText(/\bAI\b/);
     await expect(row.locator("[data-badge=ai]")).toHaveCount(0);
-    await expect(status(page, "mister_engage_kpa")).toHaveText("AI plan");
+    await expect(status(page, "outdoor_staleness_max_s")).toHaveText("AI plan");
     const lanes = region(page, "Planned settings");
     await expect(lanes.locator("table tbody tr").filter({ hasText: "Mister Engage Delay" }).filter({ hasText: "90 s" })).toContainText("Forecast rule · system");
   });
@@ -130,15 +130,15 @@ test("the 72 h chip sets ?hours=72, and reloading the URL keeps it", async ({ pa
 test("Save in a lane's drawer sends one API-10 and the lane reads REQUESTED in place, with Plan's API-07 read every 5 s while it settles", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
   await load(page, "/plan");
-  await page.locator("[data-param=mister_engage_kpa]").getByRole("link", { name: "VPD Mister Engage" }).click();
+  await page.locator("[data-param=outdoor_staleness_max_s]").getByRole("link", { name: "Outdoor Staleness Max" }).click();
   const drawer = page.locator("dialog[open]");
-  await drawer.getByLabel("New value").fill("1.55");
+  await drawer.getByLabel("New value").fill("630");
   await drawer.getByRole("button", { name: "Save" }).click();
   await expect(drawer).toHaveCount(0);
   await expect(page).toHaveURL(/\/plan$/);
-  await expect(page.locator("[data-param=mister_engage_kpa] .ctl-lane-pill [data-badge=requested]")).toBeVisible();
-  await expect(status(page, "mister_engage_kpa")).toHaveText(/^MANUAL · Iris skips · jason since/);
-  expect((await fixtureWrites(request)).map((write) => [write.operationId, write.body])).toEqual([["API-10", { value: 1.55, manual: true }]]);
+  await expect(page.locator("[data-param=outdoor_staleness_max_s] .ctl-lane-pill [data-badge=requested]")).toBeVisible();
+  await expect(status(page, "outdoor_staleness_max_s")).toHaveText(/^MANUAL · Iris skips · jason since/);
+  expect((await fixtureWrites(request)).map((write) => [write.operationId, write.body])).toEqual([["API-10", { value: 630, manual: true }]]);
   const before = (await fixtureRequests(request, "API-07")).length;
   await page.clock.fastForward(5_000);
   await expect.poll(async () => (await fixtureRequests(request, "API-07")).length).toBeGreaterThan(before);
@@ -147,10 +147,11 @@ test("Save in a lane's drawer sends one API-10 and the lane reads REQUESTED in p
 test("Find a setting lands on Settings filtered by its words", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
   await load(page, "/plan");
-  await page.getByRole("searchbox", { name: "Find a setting" }).fill("pulse gap");
+  await page.getByRole("searchbox", { name: "Find a setting" }).fill("mister off");
   await page.getByRole("button", { name: "Find" }).click();
-  await expect(page).toHaveURL(/\/settings\?q=pulse\+gap$/);
-  // Ten rows name both words; since the climate law, Mister Pulse ON's help no longer names Mister Pulse Gap.
-  await expect(page.locator("tr.setting-row")).toHaveCount(10);
-  await expect(page.locator('tr.setting-row[data-param="mister_pulse_gap_s"]')).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\?q=mister\+off$/);
+  // Five rows name both words, retired ones included (counted from the fixture gen-dashboard-settings-fixture.py
+  // renders; release 4 deleted the mister pulse settings the old query found).
+  await expect(page.locator("tr.setting-row")).toHaveCount(5);
+  await expect(page.locator('tr.setting-row[data-param="mister_min_off_s"]')).toBeVisible();
 });

@@ -181,7 +181,7 @@ class _FakeConnection:
             "fn_climate_action_daily_scorecard",
             "climate_moisture_exchange",
             "prev_action",  # vpd_policy_reason_sql
-            "fn_band_setpoints",  # pinched/phase combined statement
+            "fn_band_setpoints",  # solar-phase statement
         ):
             if marker in sql:
                 return []

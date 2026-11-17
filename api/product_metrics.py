@@ -19,7 +19,7 @@ execution, shared buffers hit, none read from disk):
   controller  60 s    CONTROLLER_SQL           11.5 ms     0.2 ms    1,230
   devices     60 s    DEVICES_SQL, ENGINE_SQL, LEAD_FAN_SQL   index lookups of equipment_state/system_state
   tables      900 s   TABLES_SQL              about 0.5 s execution (hypertable_size over six tables)
-  health      60 s    HEALTH_SQL               the nine migration 314 columns; same 15-minute range of diagnostics_ts_idx
+  health      60 s    HEALTH_SQL               the nine migration 314 and three 315 columns; same 15-minute range of diagnostics_ts_idx
                                                 as CONTROLLER_SQL, measured on a private database (columns not live)
   state       60 s    STATE_SQL                10.2 ms    10.5 ms    1,076
   relays      60 s    RELAYS_SQL               11.0 ms     0.8 ms    1,175
@@ -269,6 +269,14 @@ FAMILIES: dict[str, Family] = {
     "verdify_controller_sensor_degraded_active": Family(
         "gauge", "1 when the controller does not run on the wall averages with a valid humidity."
     ),
+    # third-flash counters (diagnostics, migration 315; RULINGS AF9(b), contracts/metrics-coverage.md section 2.1a)
+    "verdify_controller_loop_stack_free_min_bytes": Family(
+        "gauge", "Lowest free stack of the controller's loop task since boot."
+    ),
+    "verdify_controller_wifi_disconnects_total": Family(
+        "counter", "Controller WiFi disconnects since boot (a reset marks a boot)."
+    ),
+    "verdify_controller_api_clients": Family("gauge", "Native API connections open on the controller."),
     # control (system_state, equipment_state, climate)
     "verdify_state_age_seconds": Family(
         "gauge", "Seconds since the newest system_state row of an entity (7 d window)."
@@ -395,18 +403,27 @@ class Accumulator:
 
 # ── statements ──────────────────────────────────────────────────────────────
 
-# Index scan of diagnostics_ts_idx, newest chunk only.
+# Each column the newest non-NULL value of the last 15 minutes (release 3 review ALERTS-5): readings are stored on
+# change, so the newest diagnostics row alone often lacks them. Index range scan of diagnostics_ts_idx.
 CONTROLLER_SQL = """
-SELECT extract(epoch FROM now() - ts)::float8 AS age_s, heap_bytes, heap_min_free_kb, heap_largest_free_block_kb,
-       wifi_rssi, uptime_s, reset_reason, firmware_version, sntp_valid, sntp_miss_count, last_sntp_sync_age_s,
-       active_probe_count, band_source
+SELECT extract(epoch FROM now() - max(ts))::float8 AS age_s,
+       (array_agg(heap_bytes ORDER BY ts DESC) FILTER (WHERE heap_bytes IS NOT NULL))[1] AS heap_bytes,
+       (array_agg(heap_min_free_kb ORDER BY ts DESC) FILTER (WHERE heap_min_free_kb IS NOT NULL))[1] AS heap_min_free_kb,
+       (array_agg(heap_largest_free_block_kb ORDER BY ts DESC) FILTER (WHERE heap_largest_free_block_kb IS NOT NULL))[1] AS heap_largest_free_block_kb,
+       (array_agg(wifi_rssi ORDER BY ts DESC) FILTER (WHERE wifi_rssi IS NOT NULL))[1] AS wifi_rssi,
+       (array_agg(uptime_s ORDER BY ts DESC) FILTER (WHERE uptime_s IS NOT NULL))[1] AS uptime_s,
+       (array_agg(reset_reason ORDER BY ts DESC) FILTER (WHERE reset_reason IS NOT NULL))[1] AS reset_reason,
+       (array_agg(firmware_version ORDER BY ts DESC) FILTER (WHERE firmware_version IS NOT NULL))[1] AS firmware_version,
+       (array_agg(sntp_valid ORDER BY ts DESC) FILTER (WHERE sntp_valid IS NOT NULL))[1] AS sntp_valid,
+       (array_agg(sntp_miss_count ORDER BY ts DESC) FILTER (WHERE sntp_miss_count IS NOT NULL))[1] AS sntp_miss_count,
+       (array_agg(last_sntp_sync_age_s ORDER BY ts DESC) FILTER (WHERE last_sntp_sync_age_s IS NOT NULL))[1] AS last_sntp_sync_age_s,
+       (array_agg(active_probe_count ORDER BY ts DESC) FILTER (WHERE active_probe_count IS NOT NULL))[1] AS active_probe_count,
+       (array_agg(band_source ORDER BY ts DESC) FILTER (WHERE band_source IS NOT NULL))[1] AS band_source
   FROM diagnostics
  WHERE ts > now() - interval '15 minutes'
- ORDER BY ts DESC
- LIMIT 1
 """
 
-# The nine budget readings (migration 314), each the newest non-NULL value of the last 15 minutes: a diagnostics row
+# The nine budget readings (migration 314) and the three third-flash counters (migration 315), each the newest non-NULL value of the last 15 minutes: a diagnostics row
 # carries only the columns observed fresh in its flush, so the newest row alone can miss a published reading. One
 # index range scan of diagnostics_ts_idx over about 15 to 60 rows.
 HEALTH_SQL = """
@@ -424,7 +441,13 @@ SELECT (array_agg(heap_min_free_minute_kb ORDER BY ts DESC)
             FILTER (WHERE nvs_write_worst_ms IS NOT NULL))[1] AS nvs_write_worst_ms,
        (array_agg(gap_log_state ORDER BY ts DESC) FILTER (WHERE gap_log_state IS NOT NULL))[1] AS gap_log_state,
        (array_agg(sensor_degraded_active ORDER BY ts DESC)
-            FILTER (WHERE sensor_degraded_active IS NOT NULL))[1] AS sensor_degraded_active
+            FILTER (WHERE sensor_degraded_active IS NOT NULL))[1] AS sensor_degraded_active,
+       (array_agg(loop_stack_high_water_b ORDER BY ts DESC)
+            FILTER (WHERE loop_stack_high_water_b IS NOT NULL))[1] AS loop_stack_high_water_b,
+       (array_agg(wifi_disconnect_count ORDER BY ts DESC)
+            FILTER (WHERE wifi_disconnect_count IS NOT NULL))[1] AS wifi_disconnect_count,
+       (array_agg(api_client_count ORDER BY ts DESC)
+            FILTER (WHERE api_client_count IS NOT NULL))[1] AS api_client_count
   FROM diagnostics
  WHERE ts > now() - interval '15 minutes'
 """
@@ -519,9 +542,13 @@ FLOW_SQL = "SELECT " + ", ".join(
     f"(SELECT count(*) FROM {table} WHERE ts > now() - interval '5 minutes') AS {table}" for table in FLOW_TABLES
 )
 
+# Outage only: 314's view cuts the minutes the gap log replayed out of each gap (a fully replayed gap has no row,
+# a partly replayed one keeps its unreplayed pieces), so n counts gaps with an unreplayed piece and seconds the
+# unreplayed seconds (#1633, release review READERS-3).
 GAPS_SQL = """
-SELECT coalesce(backfill_status, 'none') AS status, count(*) AS n, coalesce(sum(duration_s), 0)::float8 AS seconds
-  FROM data_gaps
+SELECT coalesce(backfill_status, 'none') AS status, count(DISTINCT id) AS n,
+       coalesce(sum(duration_s), 0)::float8 AS seconds
+  FROM v_data_gaps_unreplayed
  WHERE start_ts > now() - interval '7 days'
  GROUP BY 1
 """
@@ -664,7 +691,7 @@ GAP_LOG_STATES = frozenset(
 
 
 def health_samples(row: Mapping[str, Any] | None) -> list[Sample]:
-    """The nine budget readings (migration 314). A NULL column (every row before the third flash) gives no sample."""
+    """The nine budget readings (migration 314) and the three counters (315). A NULL column (every row before the third flash) gives no sample."""
     if row is None:
         return []
     out: list[Sample] = []
@@ -682,6 +709,9 @@ def health_samples(row: Mapping[str, Any] | None) -> list[Sample]:
     put("verdify_controller_nvs_entries", row["nvs_free_entries"], state="free")
     put("verdify_controller_nvs_write_worst_seconds", row["nvs_write_worst_ms"], 0.001)
     put("verdify_controller_sensor_degraded_active", row["sensor_degraded_active"])
+    put("verdify_controller_loop_stack_free_min_bytes", row["loop_stack_high_water_b"])
+    put("verdify_controller_wifi_disconnects_total", row["wifi_disconnect_count"])
+    put("verdify_controller_api_clients", row["api_client_count"])
     if row["gap_log_state"] is not None:
         state = bounded(row["gap_log_state"], GAP_LOG_STATES)
         out.append(sample("verdify_controller_gap_log_armed", 1 if state == "armed" else 0))

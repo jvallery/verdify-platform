@@ -32,8 +32,7 @@ from verdify_schemas.tunable_registry import (
     FIRMWARE_V2_CFG_WIRE_IDS,
     FIRMWARE_V2_STAGED_REG,
     REGISTRY,
-    THIRD_FLASH_INERT_WIRE_REG,
-    THIRD_FLASH_RETIRED_REG,
+    RESERVED_WIRE_SLOTS,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -344,9 +343,8 @@ def test_retired_irrigation_clocks_fert_cadence_and_center_bursts_are_not_writab
         assert name not in entity_map.SETPOINT_MAP.values(), name
         assert name not in entity_map.CFG_READBACK_MAP.values(), name
         assert f"cfg_{name}" not in firmware_ids, name
-    retired = {
-        "feed_start_hour",
-        "feed_end_hour",
+    # Release 4 deleted the rows of the dawn and midday windows the third flash removed.
+    deleted = {
         "sw_dawn_rehydrate_enabled",
         "dawn_rehydrate_window_min",
         "dawn_rehydrate_on_s",
@@ -358,7 +356,9 @@ def test_retired_irrigation_clocks_fert_cadence_and_center_bursts_are_not_writab
         "dawn_boost_offset_min",
         "midday_boost_offset_min",
     }
-    for name in retired:
+    assert not deleted & set(REGISTRY)
+    assert not deleted & set(entity_map.SETPOINT_MAP.values())
+    for name in {"feed_start_hour", "feed_end_hour"}:
         spec = REGISTRY[name]
         assert spec.default == 0
         assert spec.esp_object_id is None
@@ -423,6 +423,10 @@ HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
         "nvs_free_entries",
         "nvs_write_worst_minute",
         "gap_log_state",
+        # RULINGS AF9(b), third flash (#1633 release 4, migration 315).
+        "loop_stack_high_water",
+        "wifi_disconnect_count",
+        "api_client_count",
     },
 }
 
@@ -430,9 +434,13 @@ HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
 # readback, but their rows keep the route until host release 4 decides the wire (contracts: inert slots or a
 # WIRE_SCHEMA_VERSION bump). Release 3's generic skip sends nothing for an entity the controller does not list.
 THIRD_FLASH_DEAD_ROUTES: dict[str, set[str]] = {
-    "SETPOINT_MAP": {REGISTRY[n].esp_object_id for n in THIRD_FLASH_INERT_WIRE_REG if REGISTRY[n].esp_object_id},
+    "SETPOINT_MAP": {
+        RESERVED_WIRE_SLOTS[n].esp_object_id for n in RESERVED_WIRE_SLOTS if RESERVED_WIRE_SLOTS[n].esp_object_id
+    },
     "CFG_READBACK_MAP": {
-        REGISTRY[n].cfg_readback_object_id for n in THIRD_FLASH_INERT_WIRE_REG if REGISTRY[n].cfg_readback_object_id
+        RESERVED_WIRE_SLOTS[n].cfg_readback_object_id
+        for n in RESERVED_WIRE_SLOTS
+        if RESERVED_WIRE_SLOTS[n].cfg_readback_object_id
     },
 }
 
@@ -505,10 +513,9 @@ def test_firmware_v2_cfg_fixture_matches_every_exact_wire_slug(entity_map):
     alternate candidate hid all 56 mismatches from the earlier drift guard.
     """
     firmware_wire = _firmware_cfg_sensor_wire_ids()
-    # The third flash deleted the three window anchors (dawn and midday boost offsets, wet taper) and their readbacks.
-    assert len(FIRMWARE_V2_STAGED_REG) == 56
-    assert set(FIRMWARE_V2_CFG_WIRE_IDS) == FIRMWARE_V2_STAGED_REG - THIRD_FLASH_RETIRED_REG
-    assert len(FIRMWARE_V2_CFG_WIRE_IDS) == 53
+    # The third flash deleted the three window anchors (dawn and midday boost offsets, wet taper); release 4 their rows.
+    assert len(FIRMWARE_V2_STAGED_REG) == 53
+    assert set(FIRMWARE_V2_CFG_WIRE_IDS) == FIRMWARE_V2_STAGED_REG
 
     missing_fixture: list[str] = []
     mismatches: dict[str, tuple[str, str]] = {}
