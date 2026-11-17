@@ -115,7 +115,6 @@ from verdify_schemas.telemetry import DliEvidence  # noqa: E402
 from verdify_schemas.tunable_registry import (  # noqa: E402
     CROP_BAND_REG,
     SETPOINT_MAP_REG,
-    registry_value_error,
 )
 
 FIRMWARE_SETPOINT_PARAMS = frozenset(SETPOINT_MAP_REG.values())
@@ -2835,21 +2834,6 @@ def _pending_sla_age_buckets(row) -> dict[str, int]:
     }
 
 
-def _active_plan_range_violation_count(rows) -> int:
-    violations = 0
-    for row in rows:
-        parameter = row["parameter"]
-        try:
-            value = float(row["value"])
-        except (TypeError, ValueError):
-            violations += 1
-            continue
-        error = registry_value_error(parameter, value)
-        if error:
-            violations += 1
-    return violations
-
-
 @app.get("/api/v1/public/planner-health", response_model=PublicPlannerHealthResponse)
 async def public_planner_health():
     """Public-safe expected-trigger SLA surface for planner reliability."""
@@ -2942,18 +2926,6 @@ async def public_planner_health():
             """,
             DEFAULT_GREENHOUSE,
         )
-        active_plan_candidates = await conn.fetch(
-            """
-            SELECT parameter, value
-              FROM setpoint_plan
-             WHERE greenhouse_id = $1
-               AND is_active = true
-               AND source IN ('iris', 'plan')
-             ORDER BY ts, parameter
-             LIMIT 10000
-            """,
-            DEFAULT_GREENHOUSE,
-        )
 
     if summary is None:
         raise HTTPException(status_code=503, detail="Planner health view unavailable")
@@ -2987,7 +2959,8 @@ async def public_planner_health():
         current_session_key=current_delivery["session_key"] if current_delivery else None,
         current_model_label=PLANNER_MODEL_LABEL,
         current_hermes_run_id=current_delivery["hermes_run_id"] if current_delivery else None,
-        active_plan_range_violation_count=_active_plan_range_violation_count(active_plan_candidates),
+        # No plan applies since climate refactor 4.2, so no active plan value can be out of range (#1734 C-7).
+        active_plan_range_violation_count=0,
         recent_deliveries=[
             delivery for row in recent_deliveries if (delivery := _public_planner_delivery(row)) is not None
         ],
@@ -3621,21 +3594,6 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
             "SELECT count(*)::int FROM planner_lessons WHERE greenhouse_id = $1 AND is_active",
             greenhouse_id,
         )
-        active_plan = await conn.fetchrow(
-            """
-            SELECT plan_id,
-                   max(created_at) AS created_at,
-                   extract(epoch FROM now() - max(created_at))::int AS age_s
-            FROM setpoint_plan
-            WHERE greenhouse_id = $1
-              AND is_active
-              AND plan_id IS NOT NULL
-            GROUP BY plan_id
-            ORDER BY max(created_at) DESC
-            LIMIT 1
-            """,
-            greenhouse_id,
-        )
         controller_mode = await conn.fetchval(
             "SELECT value FROM system_state WHERE entity = 'greenhouse_state' ORDER BY ts DESC LIMIT 1"
         )
@@ -3679,12 +3637,9 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
         )
 
     data_health_status = _overall_data_health(data_checks)
-    active_plan_id = active_plan["plan_id"] if active_plan else (last_plan["plan_id"] if last_plan else None)
+    # No plan applies since climate refactor 4.2: there is no active plan, and setpoint_plan is not read (#1734 C-7).
+    active_plan_id = None
     active_plan_status = None
-    if active_plan_id and last_plan and active_plan_id == last_plan["plan_id"]:
-        active_plan_status = last_plan["status"]
-    elif active_plan_id:
-        active_plan_status = "active"
     active_relays_list = [r["equipment"] for r in active_relays]
     # Planning water: climate wetting + wall irrigation + wall fertigation; house/hose water is separate (#1623).
     water_today_gal = (
@@ -3763,7 +3718,7 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
             "active_relays": active_relays_list,
             "active_plan_id": active_plan_id,
             "active_plan_status": active_plan_status,
-            "active_plan_age_s": active_plan["age_s"] if active_plan else None,
+            "active_plan_age_s": None,
             "last_plan_age_s": last_plan["age_s"] if last_plan else None,
             "cost_today_usd": (
                 scorecard.get("cost_total")

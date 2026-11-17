@@ -72,7 +72,7 @@
       "transparent": true
     },
     {
-      "description": "Shows planning behavior, compliance, or planning outcomes over time.",
+      "description": "The newest daily review by the planner, which reviews the day before once a day and writes no climate value (climate refactor 5.1). No plan applies to the controller.",
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -149,16 +149,16 @@
             "uid": "verdify-tsdb"
           },
           "format": "table",
-          "rawSql": "SELECT\n  plan_id AS \"Plan\",\n  to_char(created_at AT TIME ZONE 'America/Denver', 'MM/DD HH24:MI') AS \"Created\"\nFROM setpoint_plan\nWHERE is_active = true\nORDER BY created_at DESC\nLIMIT 1",
+          "rawSql": "SELECT\n  review_date AS \"Review of\",\n  to_char(written_at AT TIME ZONE 'America/Denver', 'MM/DD HH24:MI') AS \"Written\"\nFROM planner_review\nWHERE kind = 'daily' AND status = 'written'\nORDER BY review_date DESC\nLIMIT 1",
           "refId": "A"
         }
       ],
-      "title": "Active Plan",
+      "title": "Latest Review",
       "type": "table",
       "transparent": true
     },
     {
-      "description": "Shows planning behavior, compliance, or planning outcomes over time.",
+      "description": "The newest daily review by the planner, which reviews the day before once a day and writes no climate value (climate refactor 5.1). No plan applies to the controller. Amber after 30 h, red after 48 h: a daily review is due each morning.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -172,11 +172,11 @@
               },
               {
                 "color": "#FDD835",
-                "value": 6
+                "value": 30
               },
               {
                 "color": "#EF5350",
-                "value": 12
+                "value": 48
               }
             ]
           },
@@ -201,11 +201,11 @@
             "uid": "verdify-tsdb"
           },
           "format": "table",
-          "rawSql": "SELECT EXTRACT(EPOCH FROM now() - MAX(created_at))::int / 3600 AS \"Hours\" FROM setpoint_plan WHERE is_active = true",
+          "rawSql": "SELECT EXTRACT(EPOCH FROM now() - MAX(written_at))::int / 3600 AS \"Hours\" FROM planner_review WHERE kind = 'daily' AND status = 'written'",
           "refId": "A"
         }
       ],
-      "title": "Plan Age",
+      "title": "Review Age",
       "type": "stat",
       "transparent": true
     },

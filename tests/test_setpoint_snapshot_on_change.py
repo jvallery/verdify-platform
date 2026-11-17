@@ -289,13 +289,9 @@ def test_alert_windows_hold_sparse_readbacks():
     source = (ROOT / "ingestor/tasks/alerts.py").read_text()
     # Release 4 removed the safety-rail check (the rails left with the third flash).
     assert "# 8. Safety value sanity check" not in source
-    # Zero variance needs a week of keyframes (>= 24 rows, the oldest over 6 days), not 100 dense rows.
-    assert "HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24" in source
+    # Release 5 removed the zero-variance check: it read band scalars nothing serves (#1734 C-7).
+    assert '"tunable_zero_variance"' not in source and "stddev(value)" not in source
     assert "count(*) > 100" not in source
-    zero = source.split("SELECT parameter, count(*) AS n, stddev(value) AS sd", 1)[1].split("alerts.append", 1)[0]
-    # K1: the legacy band scalars are left out while the controller runs its own band; still a warning.
-    assert "AND NOT (parameter = ANY($2::text[])" in zero and "list(LEGACY_BAND_SCALARS)" in zero
-    assert "list(ONCHIP_BAND_SOURCES)" in zero and "band_role IS NULL" in zero
     # fn_heat_staging_inversion's 10-minute readback window is often empty now: its message tolerates no temp_low.
     assert 'if staging_row["temp_low"] is not None' in source
 

@@ -2060,8 +2060,8 @@ def _climate_fog_assist_status(
 # feature-off path; the POLICY rendering adds the device-confirmed vector
 # identity join (latest policy_exposures interval covering the tick, falling
 # back to the latest policy_device_snapshots echo at or before it) into the
-# migration-208 nullable columns. The legacy plan_context heuristic keeps
-# populating plan_id/trigger_id/planner_instance for continuity either way.
+# migration-208 nullable columns. plan_id, trigger_id and planner_instance are NULL: no plan applies since
+# climate refactor 4.2, and the plan_context read of setpoint_plan is gone (#1734 C-7).
 _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
             WITH latest_climate AS (
                 SELECT c.*
@@ -2086,16 +2086,6 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                     bs.temp_target AS temp_target_f,
                     bs.vpd_target  AS vpd_target_kpa
                 FROM fn_band_setpoints(COALESCE((SELECT ts FROM latest_climate), $2)) AS bs
-            ),
-            plan_context AS (
-                SELECT sp.plan_id, sp.trigger_id, sp.planner_instance
-                  FROM setpoint_plan sp
-                 WHERE COALESCE(sp.greenhouse_id, $1) = $1
-                   AND sp.is_active = true
-                   AND sp.parameter <> 'plan_metadata'
-                   AND sp.ts <= COALESCE((SELECT ts FROM latest_climate), $2)
-                 ORDER BY sp.ts DESC, sp.created_at DESC
-                 LIMIT 1
             ){policy_identity_ctes}
             INSERT INTO v_runtime_climate_action_log_write (
                 ts,
@@ -2164,9 +2154,9 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                 $13::jsonb,
                 $14::jsonb,
                 $15,
-                pc.plan_id,
-                pc.trigger_id,
-                pc.planner_instance,
+                NULL,
+                NULL,
+                NULL,
                 jsonb_strip_nulls(
                     $16::jsonb || jsonb_build_object(
                         'latest_climate_ts', lc.ts,
@@ -2187,8 +2177,7 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                 $17,
                 $18::jsonb{policy_identity_vals}
             FROM band
-            LEFT JOIN latest_climate lc ON true
-            LEFT JOIN plan_context pc ON true{policy_identity_join}
+            LEFT JOIN latest_climate lc ON true{policy_identity_join}
             """
 
 _CLIMATE_ACTION_LOG_INSERT_LEGACY = _CLIMATE_ACTION_LOG_INSERT_TEMPLATE.format(

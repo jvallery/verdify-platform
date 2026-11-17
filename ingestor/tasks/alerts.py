@@ -2581,50 +2581,7 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                 }
             )
 
-        # 14. Tunable zero-variance detection (Sprint 24.9, G-9): a dispatcher-owned band value with
-        # stddev=0 over 7 days. The per-zone VPD targets it also read are retired with the third flash
-        # (contracts/phase4-firmware-deletions-host.md section 3).
-        zero_var_params = ["temp_low", "temp_high", "vpd_low", "vpd_high"]
-        for r in await conn.fetch(
-            """
-            SELECT parameter, count(*) AS n, stddev(value) AS sd, avg(value) AS mean
-              FROM setpoint_snapshot
-             WHERE parameter = ANY($1::text[]) AND band_role IS NULL
-               AND ts > now() - interval '7 days'
-               -- K1: the legacy band scalars sit on boot values while the controller runs its own band.
-               AND NOT (parameter = ANY($2::text[]) AND COALESCE((
-                   SELECT d.band_source FROM diagnostics d
-                    WHERE d.band_source IS NOT NULL AND d.ts > now() - interval '1 day'
-                    ORDER BY d.ts DESC LIMIT 1), '') = ANY($3::text[]))
-             GROUP BY parameter
-            HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24
-               AND (stddev(value) IS NULL OR stddev(value) = 0)
-            """,
-            list(zero_var_params),
-            list(LEGACY_BAND_SCALARS),
-            list(ONCHIP_BAND_SOURCES),
-        ):
-            alerts.append(
-                {
-                    "alert_type": "tunable_zero_variance",
-                    "severity": "warning",
-                    "category": "system",
-                    "sensor_id": f"setpoint.{r['parameter']}",
-                    "zone": None,
-                    "message": (
-                        f"Tunable `{r['parameter']}` has zero variance over 7 days "
-                        f"(n={r['n']}, pinned at {float(r['mean']):.3f}). "
-                        "Check dispatcher source (band / zone function / crop profile)."
-                    ),
-                    "details": {
-                        "parameter": r["parameter"],
-                        "sample_count": int(r["n"]),
-                        "pinned_value": float(r["mean"]),
-                    },
-                    "metric_value": 0.0,
-                    "threshold_value": None,
-                }
-            )
+        # 14. (Tunable zero-variance) deleted with the setpoint_snapshot band scalars it read (#1734 C-7).
 
         # Reactive trigger marker removed in Sprint 5 P6 — deviation monitor handles replans
 

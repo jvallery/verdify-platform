@@ -81,8 +81,8 @@ def test_policy_statement_joins_exposures_first_then_snapshots():
     assert "WHERE NOT EXISTS (SELECT 1 FROM policy_exposure_identity)" in policy
     for column in ("policy_vector_id", "policy_generation", "policy_activation_sha256"):
         assert column in policy, column
-    # The legacy heuristic keeps populating the old columns for continuity.
-    assert "plan_context" in policy and "pc.plan_id" in policy
+    # #1734 C-7: no plan applies, so plan_id/trigger_id/planner_instance are NULL and setpoint_plan is not read.
+    assert "plan_context" not in policy and "setpoint_plan" not in policy
     assert "$19" in policy
 
 
@@ -153,7 +153,7 @@ def test_fallback_logs_once_across_ticks(monkeypatch, caplog):
 def test_af2a_the_action_log_band_edges_come_from_the_band_source():
     """RULINGS AF2(a): fn_setpoint_at is a settings ledger read; the four edges come from fn_band_setpoints."""
     template = ingestor._CLIMATE_ACTION_LOG_INSERT_TEMPLATE
-    band = template.split("band AS (", 1)[1].split("plan_context AS (", 1)[0]
+    band = template.split("band AS (", 1)[1].split("INSERT INTO", 1)[0]
     assert "fn_setpoint_at" not in template
     for edge, column in (
         ("temp_low", "temp_low_f"),

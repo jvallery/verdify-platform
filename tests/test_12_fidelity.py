@@ -226,26 +226,13 @@ def test_daily_summary_live_uses_scoring_eligible_meter_conservation_only():
     assert "water_gal = max(" not in block
 
 
-# ── S24.9.5 — zero-variance rule param list ────────────────────────
+# ── S24.9.5 — the zero-variance rule is gone ─────────────────────────────────
 
 
-def test_zero_variance_rule_reads_only_the_band_edges():
-    """The per-zone VPD targets are retired with the third flash (contracts/phase4-firmware-deletions-host.md
-    section 3); the zero-variance rule scans the four band edges only."""
+def test_the_zero_variance_rule_is_deleted():
+    """It read the setpoint_snapshot band scalars, which nothing serves since the climate law (#1734 C-7)."""
     alerts_source = (REPO_ROOT / "ingestor" / "tasks" / "alerts.py").read_text()
-    block = alerts_source[alerts_source.index("# 14. Tunable zero-variance") : alerts_source.index("# 15. Setpoint")]
-    assert 'zero_var_params = ["temp_low", "temp_high", "vpd_low", "vpd_high"]' in block
-    assert "vpd_target_" not in block and "active_crop_zones" not in block
-
-
-def test_zero_variance_rule_also_covers_band_params():
-    """temp_low / temp_high / vpd_low / vpd_high should track crop + dispatcher
-    state. If they go flat for 7 days, something upstream is broken."""
-
-    src = _tasks_src()
-    # Look for these all appearing in the same zone_var_params tuple
-    for param in ("temp_low", "temp_high", "vpd_low", "vpd_high"):
-        assert f'"{param}"' in src
+    assert "zero_var_params" not in alerts_source and '"tunable_zero_variance"' not in alerts_source
 
 
 def test_setpoint_confirmation_monitor_resolves_acknowledged_alerts():
