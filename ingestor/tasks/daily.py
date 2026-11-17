@@ -650,7 +650,13 @@ async def _refresh_daily_summary_for_date(
         + rt.get("mister_west", 0)
         + rt.get("mister_center", 0)
     ) / 60.0
-    irrigation_water_gal = float(water_evidence["wall_irrigation_gal"]) if water_available else None
+    # Irrigation gallons are reporting, like water_used_gal: a recorded wall run keeps its metered gallons on a day the
+    # ledger is not scored (#1668 item 4: 2026-11-06 read NULL with 30 gal attributed). Cost stays on planning water.
+    irrigation_water_gal = (
+        float(water_evidence["wall_irrigation_gal"])
+        if water_evidence and water_evidence["wall_irrigation_gal"] is not None
+        else None
+    )
     fertigation_water_gal = float(water_evidence["wall_fertigation_gal"]) if water_available else None
 
     await conn.execute(

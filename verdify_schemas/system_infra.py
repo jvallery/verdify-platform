@@ -52,7 +52,8 @@ class ESP32LogRow(BaseModel):
     message: str = Field(..., min_length=1)
 
 
-DataGapStatus = Literal["pending", "backfilled", "unrecoverable", "ignored"]
+# replayed: the controller's gap log replayed the whole gap (migration 321, ingestor gap_replay).
+DataGapStatus = Literal["pending", "backfilled", "replayed", "unrecoverable", "ignored"]
 
 
 class DataGap(BaseModel):

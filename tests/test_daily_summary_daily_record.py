@@ -84,3 +84,15 @@ def test_the_reporting_water_total_is_stored_on_a_day_that_is_not_scored():
     assert 'water_evidence["quality_filtered_meter_gal"] is not None' in water and "water_available" not in water
     assert 'if water_available and water_evidence["planning_water_gal"] is not None' in block
     assert 'mister_water_gal = float(water_evidence["climate_wetting_gal"]) if water_available else None' in block
+
+
+def test_irrigation_gallons_are_stored_on_a_day_that_is_not_scored():
+    # #1668 item 4: a recorded wall run keeps its metered gallons whether or not the ledger day is scored; only the
+    # planning and mister water stay gated, and the monthly water roll-up still counts costed days only.
+    source = (ROOT / "ingestor/tasks/daily.py").read_text()
+    block = source[
+        source.index("async def _refresh_daily_summary_for_date") : source.index("async def daily_summary_live")
+    ]
+    irrigation = block[block.index("    irrigation_water_gal = (") : block.index("    fertigation_water_gal = ")]
+    assert 'water_evidence["wall_irrigation_gal"] is not None' in irrigation and "water_available" not in irrigation
+    assert "WHERE cost_water IS NOT NULL" in source
