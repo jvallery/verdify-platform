@@ -91,7 +91,9 @@ asks. Each moves a setting by one grid step at most, and they keep these rules:
 - Before it releases, a leg re-reads the newest desired row, the agent Job included, because an agent's release takes
   any row. Another writer's row stays, and a FAIL says so.
 - `FAIL` after 5 minutes means the setting did not read `confirmed`; the leg still released it.
-- `--lights` runs Back to automatic even after a failed readback, so it ends with the light at the controller's intent,
+- `--lights` runs Back to automatic even after a failed readback, with the page's reason "Back to automatic", which is
+  what releases the controller's hold from the timed switch (#1808), and waits up to 2 minutes for API-13's `auto_reason`
+  to leave `manual_hold_*`. So it ends with the light at the controller's own intent,
   unless a person wrote `sw_gl_main_auto_mode` meanwhile or API-09 cannot show that nobody did; then it touches neither
   again. Its first call goes through `allow-setpoint-from-operator-api`, so when a sync adds that policy, hold the
   edge-write lock through this leg (#1186).

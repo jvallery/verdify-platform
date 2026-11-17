@@ -445,6 +445,9 @@ class FakeDashboard:
             },
         }
         self.light = {"state": options.get("light", "on"), "intent": options.get("intent", "on")}
+        # #1808: a confirmed API-20 switch queues the controller's hold, and the intent follows it (auto_reason
+        # manual_hold_<state>) until a write of the automatic switch with the reason "Back to automatic" releases it.
+        self.hold = None
         self.pending_light = None
         self.history = []
 
@@ -499,7 +502,10 @@ class FakeDashboard:
             if self.pending_light["reads"] <= 0:
                 self.light["state"] = self.pending_light["state"]
                 self.pending_light = None
-        board = {"items": [{"equipment": "grow_light_main", **self.light}]}
+        item = {"equipment": "grow_light_main", **self.light, "auto_reason": "plant_hysteresis_hold"}
+        if self.hold is not None:
+            item.update(intent=self.hold, auto_reason=f"manual_hold_{self.hold}")
+        board = {"items": [item]}
         if not self.options.get("no_reasons"):
             board.update(mode_reason={"code": "x"}, fog_block_reason={"code": "y"}, moisture_block_reason={"code": "z"})
         return board
@@ -581,6 +587,8 @@ class FakeDashboard:
                 stored = round(round(body["value"] / step) * step, 6)
                 row["desired"] = self._row(param, stored, body["manual"], actor, body.get("reason"))
                 row["state"] = "requested"
+                if param == "sw_gl_main_auto_mode" and stored == 1 and body.get("reason") == "Back to automatic":
+                    self.hold = None
                 if self.options.get("held"):
                     # settings.write answers the state now: an armed experiment holds a policy field at once.
                     row["desired"].update(state="held", state_reason={"code": "experiment", "detail": None})
@@ -606,6 +614,8 @@ class FakeDashboard:
                 self.pending_light = {"state": state, "reads": 2}
                 return 503, {"code": "unavailable", "result": "not_confirmed"}
             self.light["state"] = state
+            if not self.options.get("no_hold") and (body or {}).get("reason") != "Back to automatic":
+                self.hold = state
             return 200, {"light": "main", "state": state, "result": "confirmed", "activity_id": 1}
         return 404, {"code": "not_found"}
 
@@ -1064,7 +1074,9 @@ def test_lights_leg_sends_one_each_way_and_ends_at_the_intent(tmp_path):
         ("DELETE", "/api/v1/settings/sw_gl_main_auto_mode"),
     ]
     assert writes[0]["body"] == {"reason": "R4 live check"}
-    assert writes[1]["body"] == {"value": 1, "manual": True, "reason": "R4 live check"}
+    assert writes[1]["body"] == {"value": 1, "manual": False, "reason": "Back to automatic"}
+    assert writes[2]["body"] == {"reason": "Back to automatic"}  # untimed: no new hold (#1808)
+    assert world.hold is None
     assert {call["origin"] for call in writes} == {"https://dashboard.verdify.ai"}
     assert len({call["key"] for call in writes}) == 4
     assert world.light == {"state": "on", "intent": "on"}
@@ -1072,10 +1084,11 @@ def test_lights_leg_sends_one_each_way_and_ends_at_the_intent(tmp_path):
         "PASS  API-20 main off answers confirmed (200)",
         "PASS  API-13 reads Lutron off on the main light",
         "PASS  API-09 reads sw_gl_main_auto_mode confirmed",
+        "PASS  API-13 reads the main light's controller hold released",
         "PASS  API-20 main on answers confirmed (200)",
         "PASS  API-13 reads Lutron on on the main light",
         "PASS  API-11 releases sw_gl_main_auto_mode (200)",
-        "PASS  API-13 reads the main light at the controller's intent (200)",
+        "PASS  API-13 reads the main light at the controller's intent, off its hold (200)",
         "PASS  API-17 lists light.off by dashboard-smoke (200)",
         "PASS  API-17 lists light.on by dashboard-smoke (200)",
         "PASS  API-17 lists the sw_gl_main_auto_mode write and release by dashboard-smoke (200)",

@@ -90,8 +90,12 @@
 # sw_gl_main_auto_mode reads 1 with its newest desired row absent or released.
 #   - API-20 to the opposite of the intent: 200, or a 503 whose result it prints (Lutron may still switch late). API-13,
 #     polled every 5 s, must read that state within 30 s.
-#   - Back to automatic as /equipment does it: API-10 sw_gl_main_auto_mode 1, manual, requested, then API-09 confirmed
-#     within 5 minutes. With the intent and Lutron known and different, one API-20 to the intent, read within 30 s. That
+#   - Back to automatic as /equipment does it: API-10 sw_gl_main_auto_mode 1, not manual, with the reason "Back to
+#     automatic", requested, then API-09 confirmed within 5 minutes. Only that reason makes the operator API release the
+#     controller's hold that API-20's timed switch queued (#1335, #1808): while the hold stands, the intent follows it
+#     (auto_reason manual_hold_on or manual_hold_off), so API-13 must read another auto_reason within 2 minutes. Then,
+#     with the intent and Lutron known and different, one API-20 to the intent with that reason (untimed, so it queues
+#     no new hold, as the page's own resync), read within 30 s. That
 #     runs even after a failure above, so the leg ends with the light at the intent, unless a person wrote
 #     sw_gl_main_auto_mode meanwhile, or API-09 cannot show that nobody did: then the leg touches neither it nor the light
 #     again, and a FAIL says so.
@@ -256,6 +260,10 @@ const RELEASE_TRIES = 3;
 const SMOKE_USER = "dashboard-smoke";
 const R2_REASON = "R2 live check";
 const R4_REASON = "R4 live check";
+// The Equipment page's Back to automatic reason: the only one that releases the controller's light hold (#1808). It must
+// equal BACK_TO_AUTOMATIC in api/operator_routes/light_resync.py (tests/test_operator_lights.py reads it here).
+const BACK_TO_AUTOMATIC = "Back to automatic";
+const HOLD_MS = 120000;
 const MAIN_LIGHT = "grow_light_main";
 const MAIN_AUTO = "sw_gl_main_auto_mode";
 const BAND_PARAM = "zone_vpd_target_center_sm";
@@ -485,11 +493,11 @@ function oneStep(row) {
 
 // API-10, with the same key if an answer is lost: the row, or null after a FAIL line. An armed experiment serves the
 // policy fields, so the write's own answer already reads held, and untilConfirmed then prints HELD.
-async function writeSetting(bff, param, value, reason, what) {
+async function writeSetting(bff, param, value, reason, what, manual = true) {
   const key = randomUUID();
   let answer = { status: null };
   for (let attempt = 0; attempt < RELEASE_TRIES && answer.status === null; attempt++) {
-    answer = await bff(`/api/v1/settings/${param}`, { method: "PUT", origin: ORIGIN, key, body: { value, manual: true, reason } });
+    answer = await bff(`/api/v1/settings/${param}`, { method: "PUT", origin: ORIGIN, key, body: { value, manual, reason } });
   }
   const held = answer.json?.state === "held" && answer.json?.state_reason?.code === "experiment";
   const ok = answer.status === 200 && (answer.json?.state === "requested" || held) && Number.isInteger(answer.json?.id);
@@ -675,13 +683,14 @@ async function revertLeg(bff, param) {
 // ── --role operator --lights (#1186 step 1) ────────────────────────────────
 
 const known = (state) => state === "on" || state === "off";
+const onHold = (item) => typeof item?.auto_reason === "string" && item.auto_reason.startsWith("manual_hold");
 const mainLight = (board) => (Array.isArray(board.json?.items) ? board.json.items.find((item) => item.equipment === MAIN_LIGHT) ?? null : null);
 
 // API-20: true when it may have switched, so the readback decides; a light never passes on this answer. A 4xx switched
 // nothing, and anything else may have: a 5xx, no answer or a 200 it cannot read.
-async function switchMain(bff, state, sent) {
+async function switchMain(bff, state, sent, reason = R4_REASON) {
   const key = randomUUID();
-  const answer = await bff(`/api/v1/equipment/lights/main/${state}`, { method: "POST", origin: ORIGIN, key, body: { reason: R4_REASON } });
+  const answer = await bff(`/api/v1/equipment/lights/main/${state}`, { method: "POST", origin: ORIGIN, key, body: { reason } });
   const confirmed = answer.status === 200 && answer.json?.result === "confirmed";
   const refused = answer.status !== null && answer.status >= 400 && answer.status < 500;
   if (confirmed) check(`API-20 main ${state} answers confirmed`, answer, true);
@@ -705,6 +714,27 @@ async function untilLutron(bff, state) {
     }
     if (Date.now() - begun >= LUTRON_MS) {
       said(false, `API-13 reads Lutron ${state} on the main light within ${LUTRON_MS / 1000} s`, `last read ${last}`);
+      return;
+    }
+    await sleep(POLL_MS);
+  }
+}
+
+// After Back to automatic: API-13 every 5 s until the controller's reason for the main light is no longer its hold.
+async function untilHoldReleased(bff) {
+  const begun = Date.now();
+  let last = "no answer";
+  for (;;) {
+    const item = mainLight(await bff("/api/v1/equipment"));
+    if (item) {
+      last = item.auto_reason ?? "none";
+      if (!onHold(item)) {
+        said(true, "API-13 reads the main light's controller hold released", `after ${secondsSince(begun)} s, ${last.replace(/[^a-z_]/g, "")}`);
+        return;
+      }
+    }
+    if (Date.now() - begun >= HOLD_MS) {
+      said(false, `API-13 reads the main light's controller hold released within ${HOLD_MS / 1000} s`, `last ${last.replace(/[^a-z_]/g, "")}`);
       return;
     }
     await sleep(POLL_MS);
@@ -748,11 +778,11 @@ async function lights(bff) {
     // takes the automatic switch at any point in this has the last word: this leg touches neither it nor the light again.
     if (await switchStillFree(bff, false)) {
       try {
-        written = await writeSetting(bff, MAIN_AUTO, 1, R4_REASON, "1, manual,");
-        if (written) await untilConfirmed(bff, MAIN_AUTO, written);
+        written = await writeSetting(bff, MAIN_AUTO, 1, BACK_TO_AUTOMATIC, "1, Back to automatic,", false);
+        if (written && (await untilConfirmed(bff, MAIN_AUTO, written))) await untilHoldReleased(bff);
         if (await switchStillFree(bff, true)) {
           const now = mainLight(await bff("/api/v1/equipment"));
-          if (known(now?.intent) && known(now?.state) && now.intent !== now.state && (await switchMain(bff, now.intent, sent))) {
+          if (known(now?.intent) && known(now?.state) && now.intent !== now.state && (await switchMain(bff, now.intent, sent, BACK_TO_AUTOMATIC))) {
             await untilLutron(bff, now.intent);
           }
         }
@@ -763,7 +793,7 @@ async function lights(bff) {
   }
   const finalBoard = await bff("/api/v1/equipment");
   const finalItem = mainLight(finalBoard);
-  check("API-13 reads the main light at the controller's intent", finalBoard, known(finalItem?.intent) && finalItem.intent === finalItem.state);
+  check("API-13 reads the main light at the controller's intent, off its hold", finalBoard, known(finalItem?.intent) && finalItem.intent === finalItem.state && !onHold(finalItem));
   const lightRows = await activitySinceStart(bff, `source=dashboard&target=${MAIN_LIGHT}`);
   for (const { state, key } of sent) {
     const row = lightRows.rows.find((entry) => entry.request_id === key);
