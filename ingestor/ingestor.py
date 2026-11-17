@@ -1136,6 +1136,11 @@ async def write_climate(pool: asyncpg.Pool, ts: datetime) -> None:
 
     This prevents phantom data (zombie ingestor stale values from hours ago)
     while preserving legitimate current values from sensors that publish on-change.
+
+    No row is written when no fresh value arrived since the last flush (#1775):
+    a row of copies after the controller falls silent would hide the silence
+    from every freshness reader and block the gap replay, which never changes
+    an existing row, from storing the controller's own records for those minutes.
     """
     STALENESS_TIMEOUT = 600  # 10 minutes — sensors not seen in 10 min are excluded
 
@@ -1149,9 +1154,9 @@ async def write_climate(pool: asyncpg.Pool, ts: datetime) -> None:
     # Step 2: Overlay fresh values (always take precedence)
     merged.update(state.climate)
 
-    # Step 5: Validate + write merged row
+    # Step 5: Validate + write merged row. A flush with no fresh value writes nothing (#1775).
     cols = list(merged.keys())
-    if not cols:
+    if not cols or not state.climate:
         if _climate_event_spool_enabled():
             try:
                 await _drain_climate_event_spool(pool)
@@ -4675,7 +4680,7 @@ async def write_fanout_row(pool: asyncpg.Pool, table: str, greenhouse_id: str, r
     carries no ESP32 client.
     """
     cols = [c for c in row if c != "greenhouse_id"]
-    if not cols:
+    if not cols or not state.climate:
         return
     values = [_coerce_fanout_value(c, row[c]) for c in cols]
     # All five fan-out tables carry greenhouse_id (migration 075). Stamp it.

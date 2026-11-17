@@ -176,3 +176,46 @@ def test_periodic_health_reports_stopped_backlog_and_failure_without_payload(cap
     monkeypatch.setattr(ingestor._climate_event_spool, "health", lambda: (_ for _ in ()).throw(OSError("failure")))
     ingestor._report_spool_health()
     assert "ingestor_spool_health_failed queue=climate reason=OSError" in caplog.text
+
+
+@pytest.mark.parametrize("spool_enabled", ["1", "0"])
+def test_no_row_of_copies_after_the_controller_falls_silent(monkeypatch, spool_enabled):
+    """#1775: an empty fresh buffer writes no row, even with a last-known cache; the spools still drain."""
+    monkeypatch.setenv("VERDIFY_CLIMATE_EVENT_SPOOL_ENABLED", spool_enabled)
+    ingestor.state.climate_latest["temp_avg"] = (63.14, datetime(2000, 1, 1, 0, 0, tzinfo=UTC))
+    drained = []
+
+    async def drain(_pool):
+        drained.append(True)
+
+    async def insert(_pool, row):
+        raise AssertionError(f"a carry-only row was written: {row}")
+
+    monkeypatch.setattr(ingestor, "_drain_climate_event_spool", drain)
+    monkeypatch.setattr(ingestor, "_insert_climate_row", insert)
+    asyncio.run(ingestor.write_climate(Pool(), datetime(2000, 1, 1, 0, 1, tzinfo=UTC)))
+    assert drained == ([True] if spool_enabled == "1" else [])
+    assert ingestor._get_climate_event_spool().rows() == []
+    assert ingestor.state.climate_latest["temp_avg"][0] == 63.14
+
+
+def test_a_fresh_value_still_carries_the_other_sensors(monkeypatch):
+    """While connected, on-change sensors keep their last value inside the 600 s window (unchanged)."""
+    monkeypatch.setenv("VERDIFY_CLIMATE_EVENT_SPOOL_ENABLED", "0")
+    ingestor.state.climate_latest["rh_avg"] = (60.4, datetime(2000, 1, 1, 0, 0, tzinfo=UTC))
+    ingestor.state.climate_latest["temp_case"] = (70.0, datetime(1999, 12, 31, 23, 40, tzinfo=UTC))
+    ingestor.state.climate["temp_avg"] = 63.1
+    written = []
+
+    async def insert(_pool, row):
+        written.append(row)
+
+    async def nothing(_pool):
+        return None
+
+    monkeypatch.setattr(ingestor, "_insert_climate_row", insert)
+    monkeypatch.setattr(ingestor, "_drain_climate_spool", nothing)
+    ts = datetime(2000, 1, 1, 0, 1, tzinfo=UTC)
+    asyncio.run(ingestor.write_climate(Pool(), ts))
+    assert written == [{"ts": ts, "rh_avg": 60.4, "temp_avg": 63.1}]
+    assert ingestor.state.climate == {}
