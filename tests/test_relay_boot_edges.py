@@ -31,6 +31,7 @@ def relays(monkeypatch):
     monkeypatch.setattr(state, "relays_first_seen", {})
     monkeypatch.setattr(state, "relays_first_recorded", set())
     monkeypatch.setattr(state, "relay_boot_at", None)
+    monkeypatch.setattr(state, "relays_boot_on", set())
     monkeypatch.setattr(state, "counter_source_firmware_generation", 0)
     monkeypatch.setattr(state, "diagnostics", {})
     monkeypatch.setattr(ingestor, "_mark_equipment_source_gap", lambda reason: None)
@@ -109,3 +110,23 @@ def test_a_first_on_state_the_receipt_path_stored_gets_no_second_edge(relays, mo
         ingestor._relay_edges_across_boot(30.0, report_at, 6)
     assert [(e.equipment, e.state) for e in stored] == [("heat1", True)]
     assert relays.pending_ordinary_equipment == []
+
+
+@pytest.mark.parametrize("uptime_first", [False, True])
+def test_an_on_then_off_before_the_lineage_leaves_no_stale_on_edge(relays, uptime_first):
+    # Review TEL-2: heat1 reports ON, then OFF, both before this connection's firmware lineage.
+    _report("heat1", False, T, 5)
+    ingestor._relay_edges_across_boot(50_000.0, T + timedelta(minutes=1), 5)
+    on_at, off_at = T + timedelta(minutes=10), T + timedelta(minutes=11)
+    report_at = T + timedelta(minutes=10, seconds=5)
+    if uptime_first:
+        ingestor._relay_edges_across_boot(30.0, report_at, 6)
+        _live_report("heat1", True, on_at, 6)
+        _live_report("heat1", False, off_at, 6)
+        assert relays.pending_ordinary_equipment == [(on_at, "heat1", True), (off_at, "heat1", False)]
+    else:
+        _live_report("heat1", True, on_at, 6)
+        _live_report("heat1", False, off_at, 6)
+        ingestor._relay_edges_across_boot(30.0, report_at, 6)
+        assert relays.pending_ordinary_equipment == []  # the run's times are not known: no edge, never a stale ON
+    assert relays.equipment == {"heat1": False}

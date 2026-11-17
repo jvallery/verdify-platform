@@ -374,6 +374,7 @@ class State:
         self.relays_first_seen: dict[str, tuple[bool, datetime]] = {}
         self.relays_first_recorded: set[str] = set()
         self.relay_boot_at: datetime | None = None
+        self.relays_boot_on: set[str] = set()  # relays given an ON edge by the boot repair, until their next OFF
         self.relay_last_uptime_s: float | None = None
         self.system: dict[str, str] = {}
         self.setpoints: dict[str, float] = {}
@@ -3300,6 +3301,7 @@ def _note_relay_generation(generation: int) -> None:
     state.relays_first_seen = {}
     state.relays_first_recorded = set()
     state.relay_boot_at = None
+    state.relays_boot_on = set()
 
 
 def _queue_relay_boot_edges(edges: list[tuple[datetime, str, bool]]) -> list[tuple[datetime, str, bool]]:
@@ -3331,10 +3333,12 @@ def _relay_edges_across_boot(uptime_s: float, observed_at: datetime, generation:
     for equipment, (value, first_at) in sorted(state.relays_first_seen.items()):
         if (
             value is True
+            and state.equipment.get(equipment) is True  # an unstored OFF since would leave a stale ON (review TEL-2)
             and equipment not in state.relays_first_recorded
             and equipment not in _ORDINARY_EQUIPMENT_STREAMS
         ):
             edges.append((max(first_at, boot_at), equipment, True))
+            state.relays_boot_on.add(equipment)
     for equipment in [e for e in state.equipment if e not in state.relays_first_seen]:
         if equipment not in _ORDINARY_EQUIPMENT_STREAMS:
             del state.equipment[equipment]
@@ -3390,6 +3394,12 @@ def _record_equipment_callback(
     elif first and value is True and state.relay_boot_at is not None:
         # The boot is already known (its uptime came first): the first ON state after it is an edge.
         _queue_relay_boot_edges([(max(observed_at, state.relay_boot_at), equipment, True)])
+        state.relays_boot_on.add(equipment)
+    elif value is False and equipment in state.relays_boot_on:
+        # The OFF that ends a repaired ON edge: stored here when the receipt path could not (review TEL-2).
+        state.relays_boot_on.discard(equipment)
+        if not recorded and old is True:
+            _queue_relay_boot_edges([(observed_at, equipment, False)])
 
 
 def _payload_rejected(obj_id: str, why: str) -> None:
