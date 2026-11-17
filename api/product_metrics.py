@@ -197,7 +197,6 @@ RELEASE_IMAGES = frozenset(
         "verdify-mcp",
         "verdify-ingestor",
         "verdify-migrate",
-        "verdify-experiment-v2-orchestrator",
     }
 )
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")

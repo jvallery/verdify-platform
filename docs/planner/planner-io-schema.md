@@ -1,193 +1,133 @@
-# Planner I/O schema — inputs, outputs, allowed tunables, decision ledger
+# The daily reviewer: inputs, outputs and what it cannot write
 
-Authoritative consolidation for **L4 (#346)**: what the AI planner reads, what it
-is allowed to write, the bounds, and the auditable decision→outcome chain. This
-is the single source-of-truth doc that AC2 (I/O schema), AC3 (allowed tunables +
-bounds), AC4 (write contract / lockout), and AC5 (decision ledger) point at.
+Iris, the Hermes agent `verdify-hermes-iris`, is the greenhouse's daily reviewer. It is woken once a day and on
+a manual request, reads the record of a day, and stores one review. It writes no climate value: the controller
+decides climate alone with the band-edge law and its compiled constants
+([plan](../design/climate-refactor-plan-2026-11-15.md) sections 3, 4 and 7; issues #1646, #1659, #1660, #1661).
+The settings left on the host are the operator's: the house band and the drying cost limit (owner only, from the
+dashboard), the operator switches, irrigation and lighting. An agent, Iris included, may write only the operator
+switches.
 
-- Orchestration decision (Hermes vs direct GPT-5): `docs/adr/0002-planner-hermes-vs-direct-gpt5.md`.
-- Bounded-write contract semantics + SLA: `docs/iris-planner-contract.md` (v1.5).
-- The registry is the bounds authority: `verdify_schemas/tunable_registry.py`.
-- Control architecture + the band-vs-planner ownership split: `docs/CONTROL-ARCHITECTURE.md`.
-
-> Verified live 2026-06-17 (ns `verdify-prod`, `verdify-db-0`). Numbers below are
-> stamped; re-run the cited probes to refresh.
+- Behaviour and wording: [greenhouse-playbook.md](greenhouse-playbook.md) (the file keeps its old name), packaged
+  into the `greenhouse-planning-mcp` skill by `scripts/gen-iris-inventory-cm.py`
+  (`deploy/k8s/components/hermes-iris/iris-inventory.yaml`).
+- Background facts about the house: [greenhouse-reference.md](greenhouse-reference.md).
+- Prompt: `ingestor/review_prompt.py` (`REVIEW_PROMPT_VERSION`). `make planner-dry` renders it from a fixture with
+  no database and no model call and checks its invariants.
+- Delivery and context: `ingestor/tasks/heartbeat.py` (the `daily_review` task).
+- Tools: `mcp/server.py` (`review_run`, `review_write`) and `verdify_schemas/review.py`.
+- Table: `planner_review`, migration `db/migrations/313-planner-review.sql`.
 
 ---
 
-## 1. Inputs (11 categories)
+## 1. When it runs
 
-The context is assembled by `scripts/gather-plan-context.sh` (a 14-section static
-pack built from the `v_iris_planning_context` DB view + supplementary queries) and
-augmented on demand by MCP read tools (`climate`, `history`, `forecast`,
-`scorecard`, `equipment_state`, `get_setpoints`, `lessons`, `query`).
+The ingestor's `daily_review` task runs every 60 s. Two kinds of request exist, and nothing else wakes Iris:
 
-| # | Input | Where it comes from | Notes |
-|---|---|---|---|
-| 1 | Last 72h observed climate | gather §1 core view + §4 (24h hourly) + §7 DIF (7d); full 72h via MCP `history(metric='climate', hours=72)` | **24h is in-pack**; the deeper 72h window is reachable on demand, not prompted by default |
-| 2 | Last 72h relay / equipment runtime | gather §9 (equipment runtime 24h); full via MCP `history` / `equipment_state` | 24h in-pack; 72h on demand |
-| 3 | Forecast-vs-observed drift | gather §1 (forecast column) + the FORECAST_DEVIATION σ-watcher; `v_forecast_accuracy_daily` | drift breach is itself a trigger (see §4 triggers) |
-| 4 | Current 72h forecast | gather §1 core view; MCP `forecast(hours=72)` | Open-Meteo feed |
-| 5 | Compliance KPIs | gather §5 scorecard (today + 7-day trend); MCP `scorecard` | one basis: the served house band (`band_house_*` rows, migration 290's daily grade); `planner_score` = `compliance_pct` at 100% weight, resources informational (#1623) |
-| 6 | Mechanical runtime history | gather §9 equipment + §10 energy + §11 irrigation (`python3 -m tasks.irrigation context`: each line, the next 24 h, manual items; MCP `irrigation_status`, `irrigation_schedule`, `irrigation_history`) | |
-| 7 | Greenhouse lessons | MCP `lessons` / `lessons_search`; `planner_lessons` | extracted from prior plan outcomes |
-| 8 | Current tunables | MCP `get_setpoints`; gather §1/§3 | live device-confirmed values |
-| 9 | Safety constraints | registry bounds (`_PLANNER_CORE` inline table) + gather §3 switches | the rails are read-only context (see §4 lockout) |
-| 10 | Firmware-supported setpoints / bounds | `tunable_registry.py` — the authoritative per-tunable min/max + the MCP `registry_value_error` gate | **registry is authoritative**; the pack's "TUNABLE CONSTRAINTS" block (gather §18) prints min/max/step for the key params from it |
-| 11 | Physical-limit assumptions | gather §8 hydroponic + site pressure + the firmware physics invariants | |
-
-The `planner_graph.contracts.PlannerContextPack` model is the run-store *wire
-summary* of a planning run, **not** the live Hermes text pack — don't confuse the
-two.
-
-## 2. Outputs (4 MCP tools)
-
-The planner's plan, tunable and setting write surface is four MCP tools. Each is
-typed and DB-validated before persistence — see `mcp/server.py`. Water has its own
-five writes, the same ones every agent uses (`irrigation_schedule_set`,
-`irrigation_line_set`, `irrigation_run`, `irrigation_stop` and
-`irrigation_clear_fault`; [irrigation §8.2](../design/dashboard/irrigation.md#82-mcp-tools-one-surface-for-every-agent)).
-They change watering only and never count as a plan for a trigger.
-
-| Tool | Pydantic model(s) | DB target | Purpose |
-|---|---|---|---|
-| `set_plan` | `Plan` / `PlanTransition` / `ClimateIntent` (`verdify_schemas/plan.py`, `climate_intent.py`) + `PlanHypothesisStructured` | `setpoint_plan` (tactical waypoints) + `plan_journal` (hypothesis/experiment/expected) + `plan_delivery_log` (correlation) | write a 72h plan of time-based waypoints |
-| `set_tunable` | registry-validated single param | `setpoint_plan` (`source='iris'`) | nudge one bounded tunable now |
-| `acknowledge_trigger` | — | `plan_delivery_log` (`status='acked'`) | record "no change needed" for a trigger |
-| `set_setting` | `DesiredSetting` (`verdify_services/settings.py`, the dashboard's validator) | `desired_state` + `activity_log` | change any writable setting within registry min/max; refused with `manual` on a manual setting; never ends a trigger |
-
-`set_plan` requires a `climate_intent` on every transition and a `trigger_id`
-(UUID, from the prompt's audit-headers banner); a write missing the trigger_id is
-rejected. The tactical Tier-1 params are required on every transition.
-
-## 3. Allowed tunables + bounds (AC3)
-
-Through `set_plan` and `set_tunable` the planner may write **only**
-`planner_pushable=True` registry tunables, each clamped to its registry min/max
-(the same bounds the firmware enforces); `set_setting` takes any writable row. As of
-2026-06-17: **42 pushable of 229 total**. The directional-lever map:
-
-1. **Night-dry bias — `night_vpd_bias_kpa`** (pushable, live). Bounds 0–0.25 kPa,
-   `cfg_night_vpd_bias_kpa` readback. Adds to the OVERNIGHT VPD band on a smooth
-   sin² weight peaking at solar midnight; raises the night dryness floor without
-   moving `crop_band_anchors`. Pushed 30× in the last 36h.
-2. **Humidify / dehumidify aggressiveness** — `mister_engage_kpa`,
-   `mister_all_kpa`, `mister_vpd_weight`, `min_fog_on_s`, `vpd_watch_dwell_s`,
-   `fog_escalation_kpa`. No dedicated daytime "humidify scalar": the daytime VPD
-   band is crop-band-owned by design.
-3. **Hysteresis / tolerance + runtime preferences** — `heat_hysteresis`,
-   `cool_exit_hysteresis_f`, `temp_hysteresis`, `vpd_hysteresis`, the mister/fog
-   timing knobs, and the water budget — all pushable with min/max + `cfg_*`
-   readbacks, consumed by the live band-first controller.
-4. **Forecast offsets** — `ClimateIntent.forecast_temp_bias_f` (±4 °F),
-   `forecast_vpd_bias_kpa` (±0.4 kPa), `solar_precool_gain_f` (0–4 °F),
-   `economizer_*_advantage_f`. These materialize live but are **asymmetric**:
-   cooling / wetting / venting / pre-cool only — there is **no forecast→heat**
-   path (a forecast cannot pre-warm the house).
-
-**Retired / intentionally NOT exposed:** the directional heat/cool *target*
-biases `bias_heat` / `bias_cool` are **retired and inert** under the band-first
-controller (`band_heat_target_f` has no bias term). Flipping them
-`planner_pushable` would hand the planner dead knobs — a real heat/cool-target
-lever is firmware-v2 work (OTA-gated, out of L4 scope). The planner has no
-heat-TARGET lever today and that is by design, not an oversight.
-
-## 4. Write contract / lockout (AC4) — what the planner CANNOT control
-
-Enforced at the MCP boundary + registry classification, and proven both
-statically (`verdify_schemas/tests/test_tunable_registry.py::TestPlannerWriteContractLockout`)
-and at runtime by the live ledger:
-
-- **Deterministic target curve / `crop_band_anchors`** — all 52 band-curve anchors
-  (`band_*_{sr,sm,ss,mid}`, `zone_vpd_*`, `zone_priority_*`) are `crop_band` class,
-  non-pushable, and *dropped* from the `setpoint_plan` INSERT by `set_plan` before
-  any actuation (`band_params_dropped`). Live proof: **0** band-anchor rows ever
-  written by `source='iris'`.
-- **Hard safety rails** — `safety_min`/`safety_max`/`safety_vpd_min`/`safety_vpd_max`
-  (`push_owner='safety'`) and the whole `controller_safety` class are non-pushable;
-  `set_plan` rejects any plan carrying a non-policy param. Live proof: **0**
-  safety-rail rows ever written by `iris`.
-- **FSM / emergency** — `sw_fsm_controller_enabled` is non-pushable and listed in
-  `FORCED_ON_SWITCH_PARAMS`, so `set_plan` force-rewrites any attempt to disable it
-  back to `1.0`. Live proof: of **260** `sw_fsm_controller_enabled` rows the planner
-  produced (Apr 27–May 23), **all 260 are value `1.0`** — the planner could never
-  turn the deterministic controller off.
-
-## 5. Decision ledger + outcome scoring (AC5)
-
-The auditable decision→outcome chain (all live, mechanism MET):
-
-1. `set_plan` writes `plan_journal` (hypothesis / experiment / expected_outcome /
-   params_changed / climate_intents) + the `setpoint_plan` waypoints.
-2. `mcp.server.plan_evaluate` (server.py:1388) writes `outcome_score` /
-   `actual_outcome` / `lesson_extracted`, computes `fn_plan_anchor_score` into
-   `anchor_score`, and warns when `|outcome − anchor| > 2`.
-3. Lessons flow to `planner_lessons` (and back into input #7).
-4. `planner_trigger_ledger` reconciles trigger → delivery → plan for SLA/health.
-
-Live auditability snapshot (2026-06-17, `plan_journal`): **265 plans total, 263
-outcome-scored, 137 anchor-scored, 131 with extracted lessons.** Latest plans:
-`iris-20260617-0533`, `-0105`, `-0017` (SUNRISE/MIDNIGHT/SUNSET cycles firing).
-
-Re-probe:
-```
-kubectl exec -n verdify-prod verdify-db-0 -c postgres -- psql -U verdify -d verdify -tAc \
-  "SELECT count(*), count(*) FILTER (WHERE outcome_score IS NOT NULL), \
-          count(*) FILTER (WHERE anchor_score IS NOT NULL) FROM plan_journal"
-```
-
-### 5.1 Composite outcome score — ADR-0004 wire contract (schema-first, #388)
-
-ADR-0004 §5 replaces target-distance grading with **outcome grading**:
-`time-in-corridor × DLI-achieved × DIF-delivered × wet/dry-completion −
-(energy + water + cycling)`. The wire property names for that composite are
-pinned in `verdify_schemas.mcp_responses.OUTCOME_COMPOSITE_METRICS` and
-modelled on `ScorecardResponse` (the MCP `scorecard()` tool and the public
-`/api/v1/scorecard` endpoint are pass-throughs of that model):
-
-| Property | Type | Semantics (ADR-0004 §5) |
+| Kind | Requested by | When |
 |---|---|---|
-| `outcome_score_composite` | `float \| null` | Headline composite outcome score for the day |
-| `outcome_time_in_band` | `float \| null` | Time-in-corridor component — how much of the day the served zone climate stayed inside the crop tolerance corridor |
-| `outcome_dli_grade` | `float \| null` | DLI-achieved component (broadband-solar proxy, ADR-0004 §4) |
-| `outcome_dif_grade` | `float \| null` | DIF-delivered component (day/night air-temp differential vs crop target) |
-| `outcome_wet_dry_completion` | `float \| null` | Wet→dry cycle completion component (mister duty + soil moisture) |
-| `outcome_cost_cycling_penalty` | `float \| null` | Subtracted resource penalty: energy + water + actuator cycling/wear |
+| `daily` | the ingestor | at or after 07:00 America/Denver, when no `daily` row exists for yesterday; it reviews yesterday. The daily record of yesterday is final after its 00:32 refresh. One daily row per day (unique index on `review_date` where `kind = 'daily'`). |
+| `manual` | MCP `review_run(review_date?)`, admin audience only | on request; the ingestor delivers it within a minute. `review_date` defaults to yesterday and may not be in the future. |
 
-Contract status and sequencing (AGENTS.md cross-layer contracts — schema first,
-consumers next):
+Delivery posts the run to Hermes (`POST /v1/runs`, the Iris key already mounted in the ingestor) and polls its
+status and token use. A failed delivery is retried every 10 minutes, at most 6 attempts, then the row is
+`failed` with `attempts_exhausted`. A delivered run with no terminal status after 60 minutes is
+`hermes_run_failed`. The table is the state: a restarted ingestor carries on from it.
 
-- **#388 (this): names + nullability only.** All six are `Optional`, default
-  `null`; no producer emits them yet. Present-but-null is the defined
-  transitional state, so `/api/v1/scorecard` cannot 500 (the migration-147
-  header pattern).
-- **#371 lands the DB side** — the outcome function / `daily_summary`
-  columns MUST use exactly these names. Exact normalization, weighting, and
-  units of each component are #371's to define; the schema pins only the
-  names and null-tolerance.
-- **#365 lands the planner consumer** — the reader binds to
-  `OUTCOME_COMPOSITE_METRICS`, and must treat `null` as "composite not yet
-  computed", never as a zero score.
+The `irrigation_changed` and `desired_state_changed` notifications wake the ingestor's irrigation sync and the
+dispatcher, never Iris. With one review a day, Iris acts on irrigation once a day and on a manual request (plan
+section 7).
 
-Drift guards (the wire protocol): `verdify_schemas/tests/test_mcp_responses.py::TestOutcomeCompositeContract`
-(static: model ↔ pinned names ↔ no-alias wire keys),
-`test_scorecard_metric_names_match_live_function` (live fn emits only
-modelled metrics), and `verdify_schemas/tests/test_drift_guards.py::test_outcome_composite_db_names_bound_to_pinned_contract`
-(any `outcome_*` column appearing on `daily_summary` must match the pinned
-set). A rename on any side fails loud instead of silently NULLing the
-planner reward.
+## 2. Inputs
 
-## 6. Triggers (when the planner runs)
+The context is built in Python by `gather_review_context` in `ingestor/tasks/heartbeat.py`. Each part degrades to
+"not available" on its own.
 
-`PLANNER_TRIGGER_MATRIX` (`ingestor/tasks/_common.py`), fired by the 60s planning
-heartbeat (`ingestor/tasks/heartbeat.py`): **MIDNIGHT** (end-of-day review),
-**SUNRISE**, **SOLAR_MAX**, **TRANSITION:peak_stress**, **TRANSITION:decline**,
-**SUNSET**, **FORECAST_DEVIATION** (σ-gated observed-vs-forecast breach),
-**MANUAL** (MCP `plan_run`), and **WEEKLY** (deep performance review + strategy
-adjustment, materialized once per week on the review weekday). MIDNIGHT and WEEKLY
-are review-cadence triggers; the solar set drives tactical day-shape planning;
-FORECAST_DEVIATION is the dynamic-replanning path and requires one valid,
-expiring full `set_plan`. An explicit `neutral_fallback` records unavailable
-inputs as a terminal failure to plan; ordinary acknowledgement or a one-off
-`set_tunable` does not satisfy required-plan acceptance. Experiment-owned
-fields remain shadow proposals and deterministic safety remains authoritative.
+| Input | Source | Notes |
+|---|---|---|
+| The daily record | `v_daily_record`, the reviewed day and the 7 days before it | served-band compliance, starts and run hours per relay, utilities (kWh, therms, water), drying figures, lost-OFF hours (plan section 10; #1668) |
+| The house band in force | `crop_band_anchors`, the 16 edge anchors as the dispatcher reads them | |
+| The law's state over the day | `system_state` `climate_law_state`: minutes with drying wanted, split by the refusal reason `dr`; the newest `climate_drying_meter` | "not reported" when the day has no state rows |
+| Alerts | `alert_log`, the last 24 h by type and severity, with the count still open | |
+| Forecast | `weather_forecast`, the next 72 h, one line per day (min and max temperature, min RH) | |
+| Band price list | plan section 5.7, committed text in the prompt | a proposal quotes its simulated price from it |
+
+During the run Iris may read more through its MCP tools: `climate`, `history`, `forecast`, `scorecard`,
+`equipment_state`, `get_setpoints`, `alerts`, `settings`, `activity`, `irrigation_status`, `irrigation_schedule`,
+`irrigation_history`, `lessons`, `lessons_search`, `knowledge_search` and the crop and position reads.
+`get_setpoints` takes the served band from `fn_band_setpoints`, the one band source for host readers.
+
+Its toolset is the `include` list in `deploy/k8s/components/hermes-iris/hermes-config.yaml`: 28 tools, the reads,
+the irrigation tools, the lessons and `review_write`. It has no `query`, no `set_setting` and no `review_run`.
+
+## 3. Outputs
+
+### 3.1 The review
+
+`review_write(trigger_id, summary, band_proposal?)` stores the review on the open row whose `run_id` equals
+`trigger_id` (the run id from the wake-up's audit header), once. It writes no setting and no band. A second call, or
+an unknown run id, answers `not_found`.
+
+`planner_review` (migration 313), one row per request:
+
+| Column | Meaning |
+|---|---|
+| `run_id` | the review's run id, unique; passed by Iris as `trigger_id` to `review_write` and to the irrigation writes |
+| `kind`, `review_date` | `daily` or `manual`; the America/Denver day reviewed |
+| `requested_at`, `requested_by` | `ingestor` for a daily row, the MCP caller for a manual one |
+| `status` | `requested`, `delivered`, `written` or `failed` |
+| `attempts`, `delivered_at`, `hermes_run_id`, `gateway_status` | delivery to Hermes |
+| `failure` | a fixed class only: `gateway_rejected`, `gateway_unreachable`, `hermes_run_failed`, `hermes_run_cancelled`, `completed_without_review`, `attempts_exhausted` |
+| `run_finished_at`, `input_tokens`, `output_tokens`, `total_tokens` | from the Hermes run status (#1661) |
+| `written_at`, `summary` | the review (1 to 4000 characters) |
+| `band_proposal` | optional: `{"anchors": {"<band row>": <value>, ...}, "price": "<price-list rows quoted>", "reason": "<why>"}` |
+
+A band proposal is a proposal only. Its anchors must be band rows within their registry range
+(`verdify_schemas/review.py`). The owner applies it in the dashboard's band editor, or does not; no tool applies
+it.
+
+### 3.2 Irrigation
+
+Iris keeps the irrigation tools every agent uses, with the dashboard's checks
+([irrigation section 8.2](../design/dashboard/irrigation.md#82-mcp-tools-one-surface-for-every-agent)): the writes
+`irrigation_schedule_set`, `irrigation_line_set`, `irrigation_run`, `irrigation_stop` and
+`irrigation_clear_fault`, and the reads `irrigation_status`, `irrigation_schedule` and `irrigation_history`. The
+writes that take `trigger_id` and `planner_instance` only log them; the review passes its own run id. An item a
+person marked manual is refused to Iris with `manual` and stays as the person left it; other agents may still
+change it or clear the mark, logged with who did it (last write wins; plan section 12.4).
+
+### 3.3 Memory
+
+`planner_lessons` is the reviewer's memory, read with `lessons` and `lessons_search` and kept with
+`lessons_manage`. Lessons are not injected into the context.
+
+## 4. What the reviewer and other agents cannot write
+
+- **Climate values.** No MCP tool writes one. `set_setting` is not in Iris's audience or toolset; for a named
+  agent it changes only an operator switch (`AGENT_SETTABLE_PARAMS`: the occupancy inhibit and the two light
+  circuits' out-of-service switches) and answers `forbidden` for every other row, the band rows and the drying cost
+  limit included (`tests/test_dashboard_db_mcp_settings.py`, `tests/test_law_owner_only_settings.py`).
+- **The band and the drying cost limit.** Owner only (`OWNER_ONLY_PARAMS`): written only from the dashboard under
+  a signed-in operator. The house band has no agent write tool; `band_profile` and `band_profile_preview` read it
+  and evaluate a draft.
+- **Plans.** Nothing writes `plan_journal`, `setpoint_plan`, `plan_delivery_log` or `planner_trigger_ledger`, every
+  `setpoint_plan` row is inactive, and no read or push treats a plan as in force. The tables stay because the public
+  site reads them (plan section 8.10).
+
+## 5. Health
+
+`daily_review_missed` (warning, `sensor_id = 'system.daily_review'`) opens when, at or after 10:00 America/Denver,
+no daily row for yesterday has `status = 'written'`. Its details carry the row's `review_date`, `status`,
+`attempts` and `failure`. It resolves when the review is written, a manual review of the same day included. The
+dashboard's Iris tile on `/now` reads it: `ok` with no open alert, `failed` for a failed review, `missed`
+otherwise.
+
+Read the newest reviews from any kubectl host:
+
+```bash
+scripts/verdify-db.sh prod -c "SELECT kind, review_date, status, attempts, failure, written_at,
+  band_proposal IS NOT NULL AS proposal, total_tokens FROM planner_review ORDER BY requested_at DESC LIMIT 7;"
+```
+
+Request a review again for a day (admin audience): MCP `review_run(review_date='YYYY-MM-DD')`, then read the row
+above until it is `written`.

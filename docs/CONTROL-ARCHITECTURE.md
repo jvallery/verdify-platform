@@ -1,340 +1,325 @@
 # Greenhouse Control Architecture
 
-**How the planner, tunables, dispatcher, and firmware come together across the
-controllable dimensions — and where the opportunities to improve are.**
+**How the band, the controller, the host and the reviewer fit together, and where each thing is changed.**
 
-Status: living reference · Last substantive update: 2026-06-15 (anchors-mode
-completion + smooth harmonic band). Audience: anyone touching control behavior.
-If this doc and the code disagree, the code wins — fix this doc.
+Status: living reference for the system after the climate refactor (epic #1633). The ratified design is
+[`design/climate-refactor-plan-2026-11-15.md`](design/climate-refactor-plan-2026-11-15.md) (the plan); this
+document is the overview. The firmware internals are in [`firmware-fsm-spec.md`](firmware-fsm-spec.md) and the
+rules for how a value reaches the control loop are in [`firmware-control-contract.md`](firmware-control-contract.md).
+If this document and the code disagree, the code wins: fix this document.
 
 ---
 
-## 0. TLDR
+## 0. Summary
 
-> The **DB defines a deterministic target curve**; the **AI planner only tunes
-> *how hard* the controller chases it**; the **dispatcher is the single bridge**
-> that writes the device; and the **firmware is a dumb-but-reliable, offline-first
-> state machine** that drives the relays under **hard safety rails**.
-
-Three things are invariant regardless of the planner, the network, or anything
-else: the **deterministic band**, the **single writer**, and the **firmware
-safety rails**. Everything else is tuning.
+> The **band is the policy**. The **controller decides climate alone**, every second, with one band-edge law and
+> compiled constants. The **host serves the band and one price** (the drying cost limit), stores, grades and
+> alerts. The **reviewer (Iris) reads the record once a day** and writes no climate value.
 
 ```
- crop_band_anchors (DB)              tunable_registry + planner (AI)
-   = deterministic TARGET curve        = ~40 knobs: "how aggressively to
-     f(crop, zone, solar-phase)          chase the target / respond"
-          │                                       │
-          └───────────────────┬───────────────────┘
-                              ▼
-            DISPATCHER (ingestor)  ── THE single writer; ~5.5 min + on-change
-            • band anchors → device via set_band_anchor service (anchors-mode)
-            • tunables / active plan → device via number/switch entities
-            • clamps the planner to the band; heap-guards; writer-lease fence
-                              ▼
-            FIRMWARE (ESP32)  ── offline-first, recomputes every ~1 s, no WiFi
-            • computes the band ON-CHIP (NOAA solar → smooth harmonic curve)
-            • per-zone VPD FSM + house temp FSM → relays
-            • SAFETY RAILS clamp every setpoint (the last word)
+ crop_band_anchors (DB)          drying cost limit (DB)       operator switches, irrigation, lighting
+   16 house anchors                one stored number            (unchanged subsystems)
+          |                               |                                |
+          +---------------+---------------+--------------------------------+
+                          v
+        INGESTOR (the only device writer): pushes on change or readback mismatch,
+        confirms every pushed value against its readback, stores telemetry, grades, alerts
+                          v
+        CONTROLLER (ESP32): band curve on-chip from stored anchors and its clock;
+        the band-edge law every second; relay layer; three timed manual runs;
+        irrigation engine; lighting; gap log in flash
+                          |
+                          +--> law state record, relay counters, drying meter, outdoor source,
+                               band source, constants hash, controller health, gap log replay
 ```
 
----
-
-## 1. The control philosophy — deterministic by construction
-
-The system was deliberately rebuilt (firmware-v2, 2026-06) around a single idea:
-**separate the *target* from the *response* from the *execution*.**
-
-- **The target is math, not AI.** The climate band (temp + VPD low/target/high)
-  is a pure, repeatable function of *(crop priority, zone, solar phase)*. Same
-  inputs → same curve, computed identically in the DB, the dispatcher, and the
-  ESP32. Nobody "decides" the band per cycle; it is `band_value_at_phase()`.
-- **The AI only shapes the response.** The planner can make the controller chase
-  the band faster/slower, mist more/less, prioritize the Vandas over cannabis
-  when the single shared air mass cannot satisfy every zone — but it **cannot
-  move the target**. Band-owned params are rejected at the MCP boundary and
-  dropped by the dispatcher. This is why the system is predictable and safe to
-  let an LLM touch.
-- **The execution is offline-first.** The firmware computes the band itself from
-  NVS-persisted anchors and runs the full diurnal program with **zero network**.
-  The dispatcher syncs anchors only when they change (rare). A dead network, a
-  dead planner, or a dead dispatcher does not stop correct climate control.
-- **Safety rails are absolute.** `safety_min/max` (temp), `safety_vpd_min/max`,
-  anti-short-cycle min-run, the SAF-4 daily water ceiling, the D-IRP-19 mister
-  watchdog and the heap watchdog — these override the band, the planner, and
-  everything else, on-chip. Since the irrigation engine release the leak signal
-  (`leak_detected`, the one site meter) raises an alert only and forces nothing off
-  (Q-05), and survival fog in `SAFETY_COOL` runs past SAF-4 and the soft budget.
+Three things hold whatever the network, the host or the reviewer does: the band stored on the controller, the
+single device writer, and the protection limits of the law (100 F and 40 F).
 
 ---
 
-## 2. The four layers
+## 1. Principles
 
-### 2.1 DB — the source of truth
-- **`crop_band_anchors`** — the canonical band curve. Rows are
-  `(crop_type, series, anchor, value, widths, season, growth_stage)`. `series` ∈
-  {`temp_low`,`temp_target`,`temp_high`,`vpd_low`,`vpd_target`,`vpd_high`};
-  `anchor` ∈ {`sr`,`sm`,`ss`,`mid`} (sunrise / solar-noon / sunset /
-  solar-midnight). `house` is the thermal curve; `orchid`/`cannabis`/`citrus`/
-  `pepper` are per-zone VPD curves. **Editing this table changes the greenhouse**
-  (it syncs to the device — §7).
-- **`tunable_registry`** (`verdify_schemas/`) — the wire contract for every
-  knob: `name`, range, `fw_clamp`, `esp_object_id`, `cfg_readback_object_id`,
-  `push_owner` (`band`|`planner`), `planner_pushable`. This is the single source
-  of truth for "what can be set, by whom, with what name on the device."
-- **`fn_crop_band_value` / `fn_zone_vpd_targets` / `fn_band_setpoints`** — the
-  SQL mirror of the on-chip curve (used by the graphs, the audit, and the legacy
-  push). Now a **smooth 4-anchor harmonic interpolation** (see §4).
-- **`setpoint_plan`** (→ `v_active_plan`) — the planner's one-shot tunable
-  waypoints the dispatcher reads each cycle.
-- **`setpoint_snapshot`** — the per-zone band audit (the compliance record);
-  **`setpoint_changes`** — the device-write log.
+These are the plan's section 2, in force:
 
-### 2.2 Planner — the AI (response only)
-- LangGraph graph (`planner_graph/`) + `ingestor/iris_planner.py` + an MCP tool
-  server. ~4 scheduled cycles/day (SUNRISE / SOLAR_MAX / SUNSET / MIDNIGHT) plus
-  event triggers.
-- Authority: **tunables only** (~40 of ~227 registry entries are
-  `planner_pushable`). It writes them to `setpoint_plan` via `set_tunable`
-  (audited: reason + trigger_id + planner_instance).
-- It is **walled out of the band**: every band/zone anchor is `push_owner='band'`
-  and rejected by `mcp/server.py` and dropped by the dispatcher
-  (`PLANNER_PUSHABLE_REG` check). The planner can tighten *within* the band but
-  not move it.
-
-### 2.3 Dispatcher — the single writer (the bridge)
-- Lives in the **ingestor** (`ingestor/tasks/dispatcher.py` +
-  `ingestor/tasks/band_anchors.py` + `ingestor/esp32_push.py`). One process, one
-  ESP32 connection, `replicas:1`, `strategy:Recreate` — **never two writers**.
-- Each cycle (~5.5 min) and on LISTEN/NOTIFY it: reads the DB band + active plan,
-  validates physics + clamps the planner to the band, then pushes to the device
-  through **one chokepoint** (`push_to_esp32`) that enforces the device-write
-  gate, the writer-lease fence, heap-pressure deferral, and command pacing.
-- Push paths by entity kind: **band/zone anchors** → the `set_band_anchor` API
-  service (`"service"` etype); **tunables / per-zone targets / legacy band** →
-  number entities (`number_command`); **switches** → `switch_command`.
-- Confirms every write via the device's `cfg_<name>` readback sensors; re-pushes
-  on drift; emits the per-zone band audit.
-
-### 2.4 Firmware — the deterministic controller (ESP32)
-- ESPHome + pure-C++ libs (`firmware/lib/greenhouse_*.h`). Recomputes every
-  control loop (~1 s; `dt_ms`-based timer accrual, so behavior is invariant to
-  the tick rate — it was 5 s historically).
-- Computes solar times on-chip (NOAA ephemeris, `greenhouse_solar.h`), maps clock
-  → continuous **solar phase [0,4)**, evaluates the band via
-  `band_value_at_phase()`, and runs the FSM: a band-first mode selector
-  (`determine_mode_band_first`) + a normalized delta-error arbiter
-  (`evaluate_climate_decision`) + a per-zone VPD wetting sub-FSM.
-- NVS-persisted anchors + tunables (`restore_value`) → offline-first.
-- Safety rails, anti-short-cycle, even-wear fan rotation, manual-burst buttons —
-  all on-chip, all WiFi-independent.
+1. **The band is the policy.** What the house should be at each point of the solar day is the band. The owner
+   edits the band and one price, the drying cost limit (plan 4.5). Nothing else changes with time, season or
+   weather.
+2. **The controller decides alone.** Every input the law needs is on the controller. The host never has to arrive
+   for the house to be held.
+3. **One law, relative to the band.** Every threshold is a fixed offset from a band edge. The constants are compiled
+   from one file, `verdify_schemas/climate_law.yaml`.
+4. **Act at the edges.** Inside the band only the electric heater works steadily, holding a line near the low edge;
+   every other action starts at an edge or just beside it.
+5. **A thing is defined once.** One band curve per runtime, one constants file, one compliance definition
+   (`fn_band_compliance_5m`), one band store (`crop_band_anchors`).
 
 ---
 
-## 3. The end-to-end data flow
+## 2. The layers
 
-1. **Author** the target in the DB: `crop_band_anchors` (band) and/or the planner
-   writes tunables to `setpoint_plan`.
-2. **Dispatcher cycle:** reads `crop_band_anchors` (→ `crop_band_anchor_values`)
-   and `v_active_plan`; computes the desired anchor set + tunables; diffs against
-   the device `cfg_*` readbacks; pushes only what changed.
-3. **Device:** the `set_band_anchor` service writes the matching NVS global; the
-   FSM recomputes the band next loop from the new anchors; tunables shape the
-   response; relays fire; safety rails clamp.
-4. **Telemetry back:** the device publishes sensors → the ingestor writes
-   `climate` (the data) + `setpoint_snapshot` (the commanded band audit) +
-   `cfg_*` readbacks (the confirm loop). Graphs read the DB.
+| Layer | Does | Does not |
+|---|---|---|
+| Controller (ESP32 firmware) | Reads its sensors; computes the band from its stored anchors and its clock; runs the law every second (`firmware/lib/climate_law.h`); drives the six climate relays; requests mister pulses from the irrigation engine; runs the three timed manual actions, the irrigation engine and the lighting decisions; keeps the gap log; publishes the law's state, relay counters, the drying meter, the outdoor source and its own health. | Take any climate setting other than the band anchors, the drying cost limit and the operator switches. Depend on a push after a reboot. |
+| Ingestor (the only device writer) | Stores telemetry; pushes the band anchors and the drying cost limit when the owner changes them or the controller's readback differs; pushes operator switches; delivers irrigation programs and commands and lighting values; confirms every pushed value against its readback; stores the gap log replay; raises alerts. | Read a plan, clamp values or push climate defaults. |
+| Database | Telemetry, relay events, `crop_band_anchors`, the settings store, compliance, the daily record of cycles, run time and utilities, alerts, the gap replay ledger, the reviewer's record (`planner_review`), the irrigation and lighting objects. | Hold plans, clamps or forecast actions on the control path. |
+| API, MCP, dashboard | Show state; let the owner edit the band, the drying cost limit, the operator switches, irrigation and lights; offer the three timed manual actions. | Offer a write path for climate actuator settings, or let an agent write the band or the drying cost limit. |
+| Reviewer (Iris) | Reads the record once a day, writes a short review to `planner_review`, proposes band edits with their simulated price, keeps its irrigation tools. | Write any climate value to the controller, the band included. |
 
-Steady state: the band is stable, so anchor pushes are **zero**; the device runs
-the diurnal program autonomously and the dispatcher only re-syncs on a DB change.
+### 2.1 Controller
 
----
+ESPHome configuration (`firmware/greenhouse.yaml`, `firmware/greenhouse/*.yaml`) around pure C++ libraries in
+`firmware/lib/` that the host tests compile and run:
 
-## 4. The band curve — the deterministic target (the math)
+- `climate_law.h`: the law (rules 1 to 9), the controller's band check, the relay layer, the lead fan, the mister
+  pulse request, the drying meter, the published labels and the inputs the irrigation engine reads.
+- `climate_law_glue.h`: one relay pass (the relay layer, then the manual runs and the interlocks over its result),
+  the protection clear of the manual runs, the law's humidity and fog dew-margin gates, the state record cadence.
+- `climate_law_constants_generated.h`: the compiled constants, generated from `verdify_schemas/climate_law.yaml`.
+- `running_alone.h`: the band's clock trust and the no-clock corridor, the indoor and outdoor reading selection with
+  no substituted values, the no-indoor-temperature state, the boot grace, relay counters, the sensor-bus restart.
+- `greenhouse_solar.h`: the on-chip ephemeris, the solar phase and the band curve.
+- `irrigation_program.h`, `irrigation_engine_esphome.h`: the irrigation engine (unchanged by the refactor).
+- `greenhouse_logic.h`: psychrometrics, the fog holds, the manual run helpers and the lighting decisions.
+- `gap_log.h`, `gap_log_esphome.h`: store and forward across a disconnect.
+- `heap_diagnostics.h`: the controller health readings.
 
-- **Solar phase**: clock time → continuous `[0,4)` where `0`=sunrise,
-  `1`=solar-noon, `2`=sunset, `3`=solar-midnight. Because the anchors live in
-  *phase* space, the diurnal program stretches/compresses automatically as day
-  length drifts through the year — no clock-window cutoffs.
-- **Interpolation**: a **smooth 4-anchor harmonic (discrete-Fourier)
-  interpolation** through the SR/SM/SS/MID anchors:
-  `value(φ) = c0 + c1·cos(θ) + s1·sin(θ) + c2·cos(2θ)`, `θ = π·φ/2`, with
-  `c0=(sr+sm+ss+mid)/4`, `c1=(sr−ss)/2`, `s1=(sm−mid)/2`,
-  `c2=(sr−sm+ss−mid)/4`. It passes **exactly** through every anchor but is
-  C-infinity smooth (no plateaus). This replaced a piecewise cosine-ease that had
-  zero slope at every anchor → four visible "lumps." Identical in firmware
-  (`greenhouse_solar.h`), dispatcher (`ingestor/solar.py`), and DB
-  (`fn_crop_band_value`, migration 170).
-- **House vs zone**: temperature is **one house curve** (single air mass — there
-  is no per-zone heat actuator). VPD is **per-zone**: `target = curve(φ)`,
-  `low = target − width_below`, `high = target + width_above`.
-- **Why VPD bands look "uneven" in kPa**: VPD ≈ SVP(T)·(1−RH), and SVP roughly
-  doubles from a 64°F night to an 84°F day — so a *constant-RH* policy is a
-  *rising-then-falling* VPD curve. Reason about RH; the curve converts to VPD at
-  the live temperature.
+The law and its relay layer are specified in [`firmware-fsm-spec.md`](firmware-fsm-spec.md).
 
----
+### 2.2 Ingestor and dispatcher
 
-## 5. The controllable dimensions
+One process, one controller connection, `replicas: 1` and `strategy: Recreate`, a writer Lease, and the
+device-write gate `VERDIFY_DEVICE_WRITE_ENABLED=1` set only in `deploy/k8s/overlays/prod`. The dispatcher
+(`ingestor/tasks/dispatcher.py`, `ingestor/tasks/band_anchors.py`, `ingestor/esp32_push.py`) pushes:
 
-| Dimension | Target (deterministic, DB) | Actuators (firmware FSM) | Planner tunes (the "how") | Scope |
-|---|---|---|---|---|
-| **Temperature** | `band_temp_low/target/high` | heat1→heat2, vent, fan1→fan2, economizer (dehum-vent) | `bias_heat`, `stage2_heat/cool`, `hyst_temp`, escalation/lead-rotate timeouts | **house-wide** (one air mass) |
-| **Humidity / VPD** | `zone_vpd_target_*` + `band_vpd_*` | center fog, S/W wall misters, vent (to dry), heat (warm→drier) | `mister_pulse_on/gap`, `mister_vpd_weight`, `engage_kpa`, `mister_center_penalty`, `east_adjacency_factor`, **`zone_priority_*`** | **per-zone** (misters/fog) + house (vent/heat) |
-| **Lighting** | DLI + photoperiod policy (2 circuits: `gl_main_*`, `gl_grow_*`) | `grow_light_main`, `grow_light_grow` | lux thresholds/hysteresis, sunrise/sunset, min on/off, DLI target | per-circuit |
-| **Irrigation** | the irrigation program: schedules, line enables, mister flags (`vpd_member`, `schedule_member`), caps (`verdify_schemas/irrigation.py`) | every wet relay through the engine's grant (drips, fertilizer runs, mist windows); misters shared with VPD control | none: people and agents edit the program through the dashboard and MCP (the VD-47 release retired the legacy durations, day masks and VPD boost) | per-line |
+- the 16 house band anchors through the `set_band_anchor` service, on change or readback mismatch;
+- the drying cost limit, only to a controller that publishes its readback;
+- the operator switches and the lighting values (the desired-state overlay carries lighting overrides);
+- the irrigation programs and commands through the irrigation task (`ingestor/tasks/irrigation.py`).
 
-**The tie-breaker primitive:** because temperature is house-wide and the air mass
-can't satisfy every crop at once, a **settable ranked crop/zone priority**
-(default center/Vanda = rank 1) decides who wins. This is the single most
-important control lever and is the intended (but see §9a) arbitration axis.
+Every pushed value is confirmed against its readback; one alert covers a value left unconfirmed. The ingestor
+also receives the gap log replay (`ingestor/gap_replay.py`, section 6).
+
+### 2.3 Reviewer
+
+Iris runs once a day. It reads compliance, relay starts and run hours, utilities, the drying meter, alerts and the
+forecast, and writes its review to `planner_review` (migration 313). Where the record supports it, it proposes a
+band edit with its simulated price (plan 5.7); the owner applies it in the band editor or does not. Its irrigation
+tools stay. Its inputs and outputs are in [`planner/planner-io-schema.md`](planner/planner-io-schema.md).
 
 ---
 
-## 6. The invariants — single writer + safety
+## 3. What crosses the wire for climate
 
-- **Single writer**: the prod ingestor is the *only* thing that writes the ESP32.
-  `replicas:1` + `strategy:Recreate` (never two pods) + a
-  `coordination.k8s.io` writer **Lease** with renew-or-die self-fencing (built;
-  arming is gated). The device firmware sets `max_connections:20`, so it is **not**
-  a natural fence — the Lease is the guarantee. Never open a second writer
-  (a laptop `number_command`/`execute_service` counts).
-- **Device-write gate**: `VERDIFY_DEVICE_WRITE_ENABLED=1` only in prod; dev is
-  device-dark by construction (`replicas:0` + deny-egress).
-- **Safety rails (on-chip, absolute)**: `safety_min/max` temp, `safety_vpd_min/max`,
-  anti-short-cycle min-run, SAF-4, the D-IRP-19 mister watchdog (a mister ON past its
-  commanded pulse + 30 s is forced off; its zone backs off, then latches) and the heap
-  watchdog. They clamp the final setpoints regardless of band/planner — so even an
-  over/under-shooting band edit is bounded. The leak signal raises an alert only (Q-05).
+| Direction | Item | Stored on the controller |
+|---|---|---|
+| To the controller | Band anchors: four edges (temperature low and high, VPD low and high) at four solar points (sunrise, solar noon, sunset, solar midnight), 16 values | Yes, in flash. The ROM copy is a deliberately drier view of `band_defaults.yaml`, used only on a chip whose flash is empty. |
+| To the controller | The drying cost limit, kWh of heat per kg of water, 0 to 1.5, default 0.7 | Yes, in flash; the ROM copy is the released default |
+| To the controller | Occupancy state and the occupancy inhibit switch | The state expires after 60 minutes |
+| To the controller | Manual runs (`manual_override` service: `fans`, `vent_bypass`, `humidify`, `clear`, `restart`) with their minutes, and `manual_override_timeout_min` for the panel buttons | The timeout, yes; a running manual run, no |
+| To the controller | Time (SNTP) | Not across a power cut; a clock kept across a soft reset is not trusted for the band until a time server answers |
+| From the controller | Sensor values, relay states, anchor and limit readbacks, the law state record, relay counters, the drying meter, outdoor source, band source, constants hash, controller health readings, gap log state and replay, firmware version | Relay counters, fan run seconds and the gap log persist |
+
+The lighting values, the irrigation programs and commands, and the soft water budget cross the same wire and are
+unchanged by the refactor.
 
 ---
 
-## 7. Operating the system — how to change each thing
+## 4. The band (the deterministic target)
 
-| To change… | Do this | OTA? | Reaches device via |
-|---|---|---|---|
-| **The band / a setpoint curve** | `UPDATE crop_band_anchors …` (+ `REFRESH MATERIALIZED VIEW mv_band_curve` for the graph) | **No** | anchors-mode: dispatcher `set_band_anchor` service sync (allow ~1–2 cycles + the cfg sensor's publish interval to reflect) |
-| **A planner-pushable tunable** | `set_tunable` (MCP) or insert `setpoint_plan` (source/plan_id/reason) | **No** | dispatcher `number_command` (param must be `planner_pushable`) |
-| **A non-pushable tunable's default** | edit the registry `planner_pushable`/default, or firmware globals | sometimes | registry change → ingestor roll; or OTA initial_value |
-| **Firmware logic / curve math / a new entity** | edit `firmware/**`, run replay-diff + invariants + `firmware-check` | **Yes** | `make firmware-deploy` (gated: alerts, fresh telemetry, rollback binary, sensor-health auto-rollback; no timing gate) |
-| **Make the device obey the DB band** | `VERDIFY_BAND_SOURCE=anchors` on the prod ingestor + roll | No (firmware must already expose the anchor entities/service) | — |
-
-Pipeline: push to `main` → CI builds/validates → `bump-dev-digests` → dev
-auto-syncs → `prod-promote` (digest-pinned, operator-scoped sync) for prod. The
-ingestor's state PVC is being migrated to Synology — coordinate before touching it.
-
-**Gotchas worth knowing** (learned the hard way): incremental DB migrations are
-applied **by hand** (`kubectl exec -i … psql < file`) — the migrate job is
-fresh-DB-only. The `firmware-deploy` post-flash health sweep needs
-`VERDIFY_DB_BACKEND=kube`.
-
-**The band has ONE source of truth: the DB table `crop_band_anchors`** (unified
-2026-06-15, item 2). `restore_value:yes` band globals survive an OTA, but you do
-**not** force a new value with a firmware one-shot — the dispatcher reconciles
-`crop_band_anchors` into NVS on every reconnect and corrects readback drift, so
-the device converges to the DB while online. The band globals' `initial_value`
-in `globals.yaml` is the conservative DRY **cold-start fallback** only (factory-
-fresh boot before the first DB sync); NVS is the offline cache. The former
-`band_curve_rev` one-shot on_boot migration — a third, competing source — was
-retired. **To change the band, edit `crop_band_anchors`, not firmware globals.**
+- **Store.** `crop_band_anchors` is the one live store. The controller reads 16 house values: four edges at four
+  anchors. Editing that table, through the band editor (`PUT /band/profile`), changes the greenhouse with no
+  firmware release. The editor refuses a band narrower than 6.5 F or 0.35 kPa at any point, edges outside 45 to
+  95 F or 0.3 to 3.0 kPa, and a night where the drying line (`vpd_low + 0.05`) falls below 0.74 kPa. These limits
+  are generated from the constants file.
+- **Solar phase.** Clock time maps to a continuous phase in [0, 4): 0 sunrise, 1 solar noon, 2 sunset, 3 solar
+  midnight, from the on-chip NOAA ephemeris (`greenhouse_solar.h`, `solar_phase()`). The anchors live in phase
+  space, so the diurnal program follows day length through the year.
+- **Curve.** A 4-anchor harmonic interpolation through the anchors:
+  `value(phi) = c0 + c1*cos(theta) + s1*sin(theta) + c2*cos(2*theta)`, `theta = pi*phi/2`, with
+  `c0 = (sr+sm+ss+mid)/4`, `c1 = (sr-ss)/2`, `s1 = (sm-mid)/2`, `c2 = (sr-sm+ss-mid)/4`. It passes exactly through
+  each anchor and is smooth everywhere. The same math is in the firmware (`band_value_at_phase()`), in Python
+  (`verdify_schemas/band_profile.py`, `ingestor/solar.py`) and in SQL (`fn_band_setpoints` is the band for host
+  readers).
+- **Temperature is house-wide.** There is one air mass and no per-zone thermal actuator.
+- **No trusted clock: the corridor.** Until an SNTP sync has completed since the last boot, the controller serves the
+  widest corridor its anchors allow (the lowest and highest anchor of each edge), with fog and misters allowed.
+- **Controller band check.** Every pass, the controller clamps each edge to the editor's limits and widens a band
+  narrower than the minimum widths about its middle, so a corrupted anchor cannot make two opposing actions latch
+  together.
 
 ---
 
-## 8. Opportunities forward to improve
+## 5. The law, in one page
 
-Ranked roughly by leverage. Items (a)–(c) are the highest-value control gaps.
+The full rules, constants and relay layer are in the plan (sections 4.2 to 4.4) and in
+[`firmware-fsm-spec.md`](firmware-fsm-spec.md); the generated table of the compiled constants is
+[`climate-law-constants.md`](climate-law-constants.md). In short, with `low`, `high`, `vpd_low`, `vpd_high` the band
+now:
 
-**(a) Wire the per-zone arbiter to actuation. [DONE, #1161; ships in the engine OTA]**
-Each mister zone is on VPD control, a schedule, both or neither (the irrigation
-program's `vpd_member` and `schedule_member`). With more than one VPD member allowed,
-`arbitrate_wet_zone` / `zone_wet_intent` / `zone_priority_*` pick the zone
-(`irr_rank_vpd_zone()`, center rank 1) whatever the retired `sw_arbiter_zone_enabled`
-says; the legacy `select_most_stressed_zone` (which halves center) only runs with one
-zone allowed, where it can pick nothing else.
+| Rule | On | Off |
+|---|---|---|
+| 1 Electric heater | below `low + 3.5` | above `low + 4.5` |
+| 2 Gas furnace (never with the vent open) | below `low + 0.5` | at `low + 3.0` |
+| 3 Cooling: vent and lead fan | above `high` | below `high - 2.0` |
+| 4 Second fan | above `high + 1.5` | below `high` |
+| 5 Fogger | above `vpd_high` | below `vpd_high - 0.15` |
+| 6 Misters opted in for VPD (pulses through the irrigation engine) | above `vpd_high + 0.30` | below `vpd_high + 0.05` |
+| 7 Drying with outdoor air: vent and lead fan | wanted below `vpd_low + 0.05` | above `vpd_low + 0.20` |
+| 8 At or above 100 F | vent open, both fans, both heaters off | |
+| 9 At or below 40 F | vent closed, fans off, both heaters on, fog and misters off | |
 
-**(b) Per-zone runtime caps for south/west. [DONE, #1160/#1161]** Every mister zone
-has a daily duty cap in the irrigation program (`daily_cap_min`: center 120, south 45,
-west 45 min by default), counted over every mister relay of the zone whatever opened
-it, plus a VPD reserve that schedules cannot use. Gating the cap on rising soil
-moisture remains a future refinement.
+No fog or mist while the house is below `low`. The law's own fog also waits while the indoor temperature is less
+than 8 F above the dew point. Fog, misters and drying run only on the wall probes' humidity, not on the case sensor
+alone. A drying run starts only while the outdoor air is fresh and drier (dew point at least 3 F below indoor, more
+than 0.1 g/kg less water), the house is at or above `low + 1.5`, the furnace is off, nothing is cooling, and the
+heat carried out per kilogram of water is within the drying cost limit; it stops below `low + 0.75`. The law has no
+modes, no clock, season or zone branch, and no setting a planner can change.
 
-**(c) Stop the dispatcher tracking fw-v2-stripped params.** `direct_wet_stress`/
-`fog_stress_*` no longer exist on the device but are still pushed on every
-reconnect → recurring benign `setpoint_unconfirmed` critical alerts. Prune them
-from the tracked/push set (and/or suppress the alert for stripped params).
+**Relay layer.** Minimum on and off times of 300 s for the heaters, fans and vent and 120 s for the fogger. Every
+relay is available at once after a boot except the furnace, which waits 300 s (at or below 40 F it starts at once).
+A fan runs only with the vent open; the furnace and the vent are never on together; the electric heater does not
+start into, and is cut by, an open vent or a running fan, except the law's own drying (including the drying run's
+vent and fan finishing their minimum on time) and the 40 F limit. The lead fan alternates per episode. At a
+protection limit no minimum time applies to the heaters, vent and fans.
 
-**(d) Make `cfg_*` readback confirmation faster.** Anchor confirmation lags because
-the `cfg_*` sensors publish on a 30–60 s interval. (The naming is NOT broken —
-verified 2026-06-15: `cfg___mister_center_penalty` maps correctly and confirms;
-the `___` comes from the firmware name "Cfg • Mister Center Penalty".) Publishing
-on-change would make live tuning observable within seconds instead of cycles.
+**Holds above the law** (plan 4.3): the fertiliser master or the fertigation line, a drip relay on, occupancy and a
+sensor fault stop the fogger and misters at once; an engine drip in progress, the soft water budget (not in a VPD
+emergency) and the daily water ceiling stop the fogger except at the 100 F limit, and the misters always, through the
+engine's grant. Occupancy holds wetting only: the law's fans and vent run with a person inside.
 
-**(e) Turn the forecast engine into a real overnight dry-air lever.** It's revived
-but the economizer/dewpoint-vent path is under-used. Outdoor air overnight is
-often ~half the indoor absolute humidity — exhausting it against a dewpoint/
-enthalpy gradient is the cheapest dryer we have. Add forecast-gated overnight
-vent rules (the `climate_intent.economizer_dewpoint_advantage_f` →
-`vent_prefer_dp_delta_f` materialization already exists).
-
-**(f) Give the planner an overnight-drying objective/lever. — SHIPPED.** This was
-done: `night_vpd_bias_kpa` (commit 564cf5c) is a bounded, planner-pushable tier-1
-lever (registry bounds 0–0.25 kPa, `cfg_night_vpd_bias_kpa` readback) that adds to
-the OVERNIGHT VPD band on a smooth sin² weight peaking at solar midnight, raising
-the night dryness floor so the dryer keeps running on a humid-night forecast
-*without* moving the `crop_band_anchors` curve. It is live and the planner has
-pushed it tens of times. The narrower residual is still true and intentional: the
-planner has **no heat-TARGET lever** and **cannot author the daytime band /
-`crop_band_anchors` / per-zone cuts** — that geometry is curve/firmware-owned by
-design (see `docs/adr/0002` §5 and the L4 planner I/O schema). A directional
-heat/cool *target* bias would require firmware-v2 work (the band-first controller
-has no bias term in `band_heat_target_f`), so `bias_heat`/`bias_cool` stay retired
-and non-pushable rather than exposed as dead knobs.
-
-**(g) Reparameterize the band as {night_floor, day_peak} (+ widths).** Four free
-anchors per series invite "lumpy"/inconsistent values. Deriving the anchors from
-two meaningful knobs makes a wet-night dip unrepresentable and the curve easy to
-reason about — fewer, more meaningful controls. (The harmonic interp already
-removed the *interpolation* lumpiness; this removes the *authoring* lumpiness.)
-
-**(h) RH-native band authoring.** Operators think in RH; the band is in VPD; the
-two diverge with temperature. A thin authoring layer that lets you specify "night
-RH = 55%" and stores the implied VPD anchors would prevent the
-"why-is-it-soaking-at-VPD-0.5" class of mistakes.
-
-**(i) Close the observability loop. [DONE 2026-06-15, item 1]** The `gh_*` on-chip
-telemetry is now ingested: the numeric climate `gh_*` (solar phase, house/zone
-targets) already landed; the two **text** decisions (`band_source`,
-`zone_wet_granted` = the arbiter's grant) were silently dropped by a hardcoded
-`write_diagnostics()` column list and are now written. A `house_band_drift`
-wet-night alert now fires when actual house VPD sits out of the commanded band —
-the detector that was missing when the house ran RH ~84% for four nights.
-Remaining: surface the band audit + mister-duty metric as first-class dashboard
-panels.
-
-**(j) Arm the single-writer Lease fence.** The renew-or-die Lease is built but
-inert. Arming it removes the last theoretical split-brain window (two ingestors
-both writing the ESP32 during a bad roll). Gated — do it deliberately.
-
-**(k) Acknowledge the hard limit: temperature is house-wide.** There is one air
-mass and no per-zone thermal actuator, so per-zone *temperature* targets must be
-mutually compatible and the priority rank resolves the residual spread. If true
-per-zone thermal control is ever wanted, that's a hardware change (zone heaters/
-baffles), not software.
+**Manual actions.** Three timed latches: the fogger; both fans with the vent open; both fans with the vent closed
+(the two fan actions are one latch with a vent flag). A press is never refused on the band, humidity, dew point, the
+clock or fog hours, and works with no indoor temperature. A run ends at its timeout, on a second press of its
+button, on `clear`, or at 100 F or 40 F. No heater runs during a manual fan run; a fogger press is held only by the
+holds that protect equipment and water (the fertiliser master, a drip, the daily water ceiling). The contract is in
+[`firmware-control-contract.md`](firmware-control-contract.md) section 7.
 
 ---
 
-## 9. Pointers
+## 6. Running alone
 
-- **Firmware FSM + relay-transition + safety-rail + bands/hysteresis + 72h-offline
-  + compliance spec: `docs/firmware-fsm-spec.md`** (the authoritative firmware-internals
-  doc; L2 #344 / L3 #345 acceptance traceability in its §11).
-- Firmware: `firmware/lib/greenhouse_{solar,logic,types}.h`, `firmware/greenhouse/`.
-- Dispatcher/anchors-mode: `ingestor/tasks/{dispatcher,band_anchors}.py`,
-  `ingestor/{esp32_push,solar}.py`.
-- DB band: `db/migrations/16x-*.sql`, `db/migrations/170-band-harmonic-smooth-curve.sql`,
-  `fn_crop_band_value`.
-- Planner: `planner_graph/`, `ingestor/iris_planner.py`, `mcp/server.py`,
-  `verdify_schemas/tunable_registry.py`.
-- Design notes: `docs/design/firmware-v2-*.md`,
-  `docs/design/firmware-v2-settable-anchors-2026-06-15.md`.
-- Operating: `docs/runbooks/laptop-operator.md`.
+| Condition | What the controller does |
+|---|---|
+| WiFi down | Keeps running; no restart (`wifi.reboot_timeout: 0s`). A stuck WiFi stack stays stuck until a manual restart, with the house still controlled. |
+| Ingestor, API or reviewer down | No effect on climate. |
+| Reboot | Constants compiled; anchors and the drying cost limit from flash; every relay but the furnace available at once, the furnace after 300 s; no climate relay switched until the first valid indoor temperature, for at most 60 s; fan run seconds and relay counters restored; no manual run survives. |
+| Clock not trusted (no SNTP sync since boot) | The corridor band; fog and misters work. Irrigation and lighting keep their own clock tests. |
+| No outdoor data | The intake probe on the controller's own sensor bus takes over from the weather station; with neither fresh (600 s) there is no drying with outdoor air. |
+| Wall probes invalid | The case sensor, less its 1.6 F offset, for the temperature rules; fog, misters and drying hold. |
+| No valid indoor temperature | By the outdoor temperature against the corridor's low edge: vent and lead fan, or the electric heater, or every relay off with no fresh outdoor reading; fog and misters off; the manual runs stay effective; a critical alert. |
+| No indoor temperature and no outdoor reading | Every climate relay off; the sensor-bus restart comes after 10 minutes, then at most every 60 minutes while it lasts. |
+| Disconnect from the host | The gap log keeps the last 24 hours in flash: one climate record a minute and every relay transition, one NVS key per quarter hour. On reconnect the controller replays the quarters the ingestor did not see live, and the ingestor writes them in by their record time. |
+
+Lighting is the one subsystem that cannot run alone: the lights are switched through Home Assistant.
+
+**The gap log in more detail** (`gap_log.h`, format version 2). Each quarter hour is collected in RAM and written
+once, when it closes or at a clean shutdown, into its own NVS key; 96 keys make a 24-hour ring, so a power cut loses
+at most the open quarter. A quarter is marked live when the recorder (the ingestor's API connection) was attached for
+all of it; only quarters that were not live are replayed. A replay pass starts once the recorder has been connected
+for 60 s, its connection has nothing queued and the heap has room, sends one line every 250 ms or slower on the "Gap Replay" text sensor, and
+advances the controller's drained mark only after the connection has stayed up for another 60 s, so the host
+receives every quarter at least once. The ingestor writes a replayed record only where no live row stands, and
+records each quarter it has written in the ledger `gap_replay_quarters` (migration 314) in the same transaction;
+`v_data_gaps_unreplayed` shows outages with the replayed minutes cut out. The log arms at boot only with an NVS
+partition of at least 400 KB and at least 25 % free entries, and stops, saying why on "Gap Log State", under 15 %
+free, after three quarter writes in a row over 200 ms, or on an NVS error.
+
+---
+
+## 7. What the controller publishes
+
+- **Law state record** (`climate_law_state`): latch and request bit masks, the drying refusal, the drying cost, the
+  limit, whether the band check repaired the band, and the band the law used. Published on change (at most every
+  5 s) and on a 60 s heartbeat.
+- **Drying meter** (`climate_drying_meter`): seconds of drying, water and heat carried out, seconds wanted and
+  refused. Counts from 0 at every boot.
+- **Relay counters** (`relay_counters`): lifetime starts per relay and fan run seconds, persisted. The daily record
+  is built from relay events; the counters are the independent check.
+- **Outdoor source** (`station`, `intake`, `none`), **band source** (`onchip_curve` or `corridor`), `sntp_valid`,
+  and the **constants hash** (`climate_law_constants`), compared with the release's hash by the host.
+- **Controller health**, each per minute: free heap minute low, largest heap block minute low, control loop worst
+  time, NVS write worst time; and restart count, NVS used and free entries, main-loop stack high-water mark, WiFi
+  disconnect count and API client count. A `heap_profile` and a `flash_profile` log line every 15 minutes.
+- **Gap log**: "Gap Log State" (`armed` or `off:` with the reason) and the replay lines on "Gap Replay".
+- **Labels for host readers that predate the law**: the mode, action and priority axis, derived from the relays
+  (plan 11.1).
+
+---
+
+## 8. Alerts and metrics
+
+Alert rules live in `jvallery/monitoring-stack`. The climate set keeps outcome and equipment alerts (band drift,
+VPD extremes, temperature safety, stuck relays, a heater on with no power drawn #1637, staging inversion,
+band divergence between controller and host, one delivery alert) and adds: clock unconfirmed, band from ROM, no
+outdoor source, relay starts above their norm, daily review missed, constants differing from the release, running on
+the case probe alone (pages after 10 minutes), no outdoor source together with a degraded indoor reading (pages),
+the intake probe alone for 30 minutes, furnace saturation (#1670), controller restarts with their reset reason, and
+the controller hardware budget (heap, largest block, loop time, NVS, gap log not armed). An alert never pages for a
+value the controller does not use. Metrics for every dimension are exposed through the operator API's `/metrics`
+and shown on the estate's generated dashboards.
+
+---
+
+## 9. Changing things
+
+| To change | Do this | Firmware release? |
+|---|---|---|
+| The band | The band editor on the dashboard (`PUT /band/profile`), which writes `crop_band_anchors` | No |
+| The drying cost limit | The setting `dry_cost_limit_kwh_per_kg`, written by a signed-in dashboard operator | No |
+| Occupancy inhibit, out-of-service switches | The dashboard (agents may write only these operator switches) | No |
+| A manual run | The panel buttons, or the dashboard's timed manual actions | No |
+| Irrigation programs, schedules, lines, the soft water budget | The dashboard water pages or the MCP irrigation tools | No |
+| Lighting | The dashboard lighting settings and timed light switches | No |
+| A law constant | Edit `verdify_schemas/climate_law.yaml`, run `scripts/gen-climate-law-constants.py`, then the firmware gates | Yes |
+| Firmware logic | Edit `firmware/**`, run the gates in [`firmware-fsm-spec.md`](firmware-fsm-spec.md) section 12, then the signed flash path ([`runbooks/firmware-signed-artifacts.md`](runbooks/firmware-signed-artifacts.md)) | Yes |
+
+The band rows, the zone priorities, the drying cost limit and `manual_override_timeout_min` are owner-only: the
+settings service refuses a write from anyone but a signed-in dashboard operator (`OWNER_ONLY_PARAMS` in
+`verdify_schemas/tunable_registry.py`). An agent may write only `AGENT_SETTABLE_PARAMS`: the occupancy inhibit and
+the two light circuits' out-of-service switches.
+
+---
+
+## 10. Invariants
+
+- **Single writer.** The production ingestor is the only thing that writes the controller: `replicas: 1`,
+  `strategy: Recreate` and the writer Lease. The controller accepts several API connections, so it is not a fence
+  itself. Never open a second writer.
+- **Device-write gate.** `VERDIFY_DEVICE_WRITE_ENABLED=1` only in `overlays/prod`.
+- **Protection.** At 100 F and 40 F the law's protection runs whatever the band, the band check or a manual run:
+  every manual latch is cleared at a limit.
+- **No substituted readings.** A missing reading is missing; the controller never controls on a made-up value.
+
+---
+
+## 11. Known limits
+
+- Temperature is house-wide; per-zone temperature would need hardware.
+- A gas outage in winter exceeds what the electric heater can hold; no controller changes that.
+- No battery clock: after a power cut with no time server, the band is the corridor, irrigation starts no scheduled
+  run and lighting switches both lights off until time returns. Gap log quarters written without a trusted clock
+  are placed in time by the host only once a later quarter or replay of the same boot carries the clock offset.
+- The doubly blind state (every indoor probe and the intake probe lost with the weather station also missing) turns
+  every climate relay off; an indoor sensor independent of the sensor bus is later hardware work (#1721).
+- In a sensor fault a manual fan run holds both heaters for its whole timeout (up to 120 minutes), and the 40 F
+  clear cannot fire without a temperature.
+
+---
+
+## 12. Pointers
+
+- Design and decisions: [`design/climate-refactor-plan-2026-11-15.md`](design/climate-refactor-plan-2026-11-15.md),
+  sections 4 (the law), 4.9 (running alone), 7 (the reviewer), 8 (changes by layer), 11.5 and 12.4 (execution
+  decisions).
+- Constants: [`climate-law-constants.md`](climate-law-constants.md), generated from
+  `verdify_schemas/climate_law.yaml`.
+- Firmware internals: [`firmware-fsm-spec.md`](firmware-fsm-spec.md). Value contract:
+  [`firmware-control-contract.md`](firmware-control-contract.md).
+- Firmware: `firmware/lib/climate_law.h`, `climate_law_glue.h`, `running_alone.h`, `greenhouse_solar.h`,
+  `gap_log.h`, `firmware/greenhouse/controls.yaml`.
+- Host: `ingestor/tasks/dispatcher.py`, `ingestor/tasks/band_anchors.py`, `ingestor/esp32_push.py`,
+  `ingestor/gap_replay.py`, `verdify_schemas/band_profile.py`, `verdify_schemas/tunable_registry.py`.
+- Reviewer: [`planner/planner-io-schema.md`](planner/planner-io-schema.md).
+- Operating: [`runbooks/laptop-operator.md`](runbooks/laptop-operator.md),
+  [`runbooks/prod-promotion.md`](runbooks/prod-promotion.md).

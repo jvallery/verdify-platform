@@ -2715,7 +2715,7 @@ export interface components {
                 readonly label: string;
                 readonly value: number;
             }[];
-            /** @example mister_engage_kpa */
+            /** @example gl_main_lux_threshold */
             readonly param: string;
             readonly plan: null | {
                 /** @description Next planned change; effective false while a newer desired row holds it off */
@@ -3280,7 +3280,7 @@ export interface operations {
                 readonly limit?: components["parameters"]["Limit"];
                 /** @description dashboard, iris, system, agent (any agent) or agent:<name> */
                 readonly source?: string;
-                /** @description Exact target, e.g. L01 or mister_engage_kpa */
+                /** @description Exact target, e.g. L01 or gl_main_lux_threshold */
                 readonly target?: string;
                 readonly to?: string;
             };
