@@ -448,3 +448,36 @@ and a native qualification recorded from production.
 
 `scripts/dashboard-smoke.sh --sweep` moves from API-07 and API-25 to API-30, API-32 and API-34 in release B, so the
 live sweep never reads a retired route.
+
+### 7.1 What shipped (2026-11-17)
+
+Every row of the table above. In detail:
+
+- **Routes.** API-07 and API-25 are gone from the operator API and from the committed contract, with the schemas `Plan`,
+  `PlanLane`, `PlanRecord`, `PlannerTrigger`, `PlanWaypoint`, `PlannerHistory`, `PlannerDayCost` and `PlanCost`, and the
+  tags `plan` and `planner`. `verdify_services/planner.py` and its DB test are deleted.
+- **Fields.** `Now` loses `mode` and `iris`; `Equipment` loses `mode_reason`; `Setting` and `SettingHistory` lose `plan`;
+  `applied_from` is `manual`, `desired`, `band` or `default`. `ReadbackState` loses `held` and `StateReason` loses
+  `experiment`: a clamp reads `not_confirmed` with reason `clamped` at once, and an armed experiment no longer holds a
+  setting or leaves it out of `Now.writer.differing`. `ProblemCode` loses `study_state`.
+- **Metrics.** API-03 no longer lists the `targets` group (`climate.house_temp_target_f`, `climate.house_temp_delta_f`,
+  `climate.house_vpd_target`, `climate.house_vpd_delta`, and `climate.vpd_target_*` and `climate.vpd_delta_*` for
+  center, south, west and east), `daily.iris_required_written`, `daily.iris_required_missed` or
+  `climate.hydro_battery_pct`. The columns stay in the database.
+- **Zones.** API-06 takes `zone=house` only; any other zone is 400 `invalid_request`. API-19 takes the house band's 24
+  anchors only; a zone VPD target or width is 422 `unknown_target`. API-09 still lists the Band in force rows of every
+  zone.
+- **Kept outside the operator API.** The greenhouse snapshot job (`api/greenhouse_brief_job.py`) reads the climate mode
+  and the next planner runs through `reads.climate_mode()` and `reads.planner_runs()`, and writes the same snapshot facts
+  as before (`plan_in_force` is false, as it has been since climate refactor 4.2). The MCP `settings` tool's history
+  still carries its `plan` values through `reads.setting_history_with_plan()`. Neither is served by the operator API.
+  MCP's settings catalog rows no longer carry the `plan` key, which was always null.
+- **Web.** It rolls first. Its parsers drop the retired fields and read an old `held` as `not_confirmed`, so the same
+  build works against the API at 088414f4 and after release C (`app/lib/release-c.test.ts` parses one payload of each
+  shape). The badges, words and reason lines lose `held`, `experiment` and `study_state`. The graph link checker still
+  drops a retired metric key with its notice, for the old API's registry. /plan, /planner and /planner/history still
+  redirect to Review.
+- **Smoke.** `scripts/dashboard-smoke.sh --sweep` reads API-06 with `zone=house` (was `zone=south`), API-19 with
+  `band_vpd_target_sm` (was `zone_vpd_target_center_sm`) and checks API-13's two reasons (was three, with
+  `mode_reason`). Each leg passes against 088414f4 too.
+- **Restart.** `verdify-operator-api` and `verdify-mcp`. No migration and no database change.
