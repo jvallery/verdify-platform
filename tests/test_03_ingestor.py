@@ -592,3 +592,17 @@ async def test_real_writer_queue_contention_does_not_starve_periodic_confirmatio
             await asyncio.gather(urgent, return_exceptions=True)
 
     assert physical_calls == [1, 2, 999, 3, 4, 5, 6]
+
+
+
+def test_loop_heartbeat_touches_process_local_file(tmp_path: Path) -> None:
+    """vp#1547: the liveness signal is a local file the scheduler loop refreshes."""
+    import time
+
+    target = tmp_path / "loop-heartbeat"
+    assert ingestor.touch_loop_heartbeat(str(target)) is True
+    os.utime(target, (1, 1))
+    assert ingestor.touch_loop_heartbeat(str(target)) is True
+    assert time.time() - target.stat().st_mtime < 60
+    assert ingestor.touch_loop_heartbeat("") is False
+    assert ingestor.touch_loop_heartbeat(str(tmp_path / "missing-dir" / "x")) is False

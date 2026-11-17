@@ -4491,6 +4491,26 @@ async def _run_periodic_task(
         log.error("Task %s failed: %s", name, e)
 
 
+# vp#1547 (D-333): process-local liveness. The scheduler loop below touches this file every
+# pass (about 1 s); the liveness probe checks only its age, so a wedged event loop restarts
+# the writer while a database or climate outage does not. /tmp is the container's emptyDir.
+LOOP_HEARTBEAT_FILE = os.environ.get("INGESTOR_LOOP_HEARTBEAT_FILE", "/tmp/verdify-ingestor-loop-heartbeat")
+
+
+def touch_loop_heartbeat(path: str | None = None) -> bool:
+    """Mark that the event loop made progress; False if the file could not be written."""
+    target = LOOP_HEARTBEAT_FILE if path is None else path
+    if not target:
+        return False
+    try:
+        with open(target, "a"):
+            pass
+        os.utime(target, None)
+        return True
+    except OSError:
+        return False
+
+
 async def _writer_failure_monitor() -> None:
     """Turn a fail-closed writer lifecycle fault into a supervised restart."""
     await shared.writer_fatal_event.wait()
@@ -4584,12 +4604,14 @@ async def task_loop(pool: asyncpg.Pool) -> None:
     running: dict[str, asyncio.Task[None]] = {}
 
     # Stagger startup: wait 30s for ESP32 connection to establish first
+    touch_loop_heartbeat()
     await asyncio.sleep(30)
     log.info("Task loop started: %d tasks registered", len(TASKS))
 
     try:
         while True:
             await asyncio.sleep(1)
+            touch_loop_heartbeat()
             now = asyncio.get_running_loop().time()
             # Ordinary dispatch reads no approval file (VD-62).
             forced = {"setpoint_dispatch"} if shared.setpoint_dispatch_requested.is_set() else set()
