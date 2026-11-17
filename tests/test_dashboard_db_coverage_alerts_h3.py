@@ -165,12 +165,29 @@ def test_law_state_stale_needs_the_law_installed_and_the_controller_connected(ds
         await state(conn, t0 - 5 * MIN, "climate_law_state", '{"v":1,"l":0}')
         env = cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL))
         assert env is not None and 290 < env["details"]["age_s"] < 310
+        await conn.execute(diag, t0 - 40 * MIN, 9000.0, "pre-law")  # ran before the law build
         await conn.execute(diag, t0 - 2 * MIN, 400.0, "pre-law")  # rolled back to a build without the law
         assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None
         await conn.execute(diag, t0 - 90 * timedelta(seconds=1), 500.0, "law-1")
         assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is not None  # the law build is back
         await state(conn, t0 - MIN, "climate_law_state", '{"v":1,"l":0}')
         assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None
+
+    scenario(dsn, body)
+
+
+def test_law_state_stale_raises_for_a_new_build_that_publishes_no_law_record(dsn):
+    # #1734 C-2: a build first reported after the newest law record is judged once its uptime grace is over.
+    async def body(conn, t0):
+        diag = "INSERT INTO diagnostics (ts, uptime_s, firmware_version) VALUES ($1, $2, $3)"
+        await conn.execute(diag, t0 - 30 * MIN, 1800.0, "law-1")
+        await state(conn, t0 - 20 * MIN, "climate_law_state", '{"v":1,"l":0}')
+        await conn.execute(diag, t0 - 10 * MIN, 30.0, "law-2")  # flashed; it never publishes a law record
+        await conn.execute(diag, t0 - MIN, 200.0, "law-2")
+        assert cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL)) is None  # inside the 240 s uptime grace
+        await conn.execute(diag, t0 - 30 * timedelta(seconds=1), 600.0, "law-2")
+        env = cov.law_state_alert(await conn.fetchrow(cov.LAW_STATE_SQL))
+        assert env is not None and env["alert_type"] == "law_state_stale" and env["details"]["uptime_s"] == 600.0
 
     scenario(dsn, body)
 
