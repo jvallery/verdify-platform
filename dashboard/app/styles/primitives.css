@@ -44,7 +44,9 @@
 .glyph-branch{width:.55em;height:.6em;margin:0 .4em 0 .15em;border-left:1.5px solid currentColor;border-bottom:1.5px solid currentColor;vertical-align:.2em}
 
 /* Layout (§3): a page stacks its blocks at --space-6; the 12-column grid has a --space-4 gap (--space-5 above 860 px). */
-.page{display:grid;gap:var(--space-6);min-width:0}
+/* One column that never grows past the page: a block that is wider than the page (a table in a scroll frame under a
+   plain wrapper) scrolls inside its own frame and cannot stretch the track and scroll the whole page sideways. */
+.page{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-6);min-width:0}
 .page-section{min-width:0}
 .page-toolbar{min-width:0;margin:0 0 var(--space-4)}
 .page>.page-toolbar{margin-bottom:calc(var(--space-4) - var(--space-6))}

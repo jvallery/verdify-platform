@@ -29,6 +29,34 @@ describe("holding", () => {
   test("a water line runs while the law asks for nothing: the law asks for nothing, never 'nothing is running'", () => {
     expect(text({ law: HOLD, running: on("mister_center") })).toBe("Holding the band: the law asks for nothing.");
   });
+  test("a relay that is on while the law asks for nothing is explained: finishing its shortest time on, or on by hand", () => {
+    expect(say({ law: HOLD, running: on("vent", "fan2") }).sentences).toEqual([
+      "Holding the band: the law asks for nothing.",
+      "Fan 2 and the vent are still on: the law no longer asks for them, and a relay finishes its shortest time on before it stops.",
+    ]);
+    expect(say({ law: HOLD, running: on("fan1", "fan2", "vent"), byHand: ["fans"] }).sentences).toEqual([
+      "Holding the band: the law asks for nothing.", "Fan 1, fan 2 and the vent are on by hand.",
+    ]);
+    // The fogger by hand while the furnace finishes its shortest time on: each relay gets its own reason.
+    expect(say({ law: HOLD, running: on("fog", "heat2"), byHand: ["humidify"] }).sentences).toEqual([
+      "Holding the band: the law asks for nothing.", "The fogger is on by hand.",
+      "The gas furnace is still on: the law no longer asks for it, and a relay finishes its shortest time on before it stops.",
+    ]);
+  });
+  test("a relay that came on after the law's last record (written once a minute) is not called a leftover", () => {
+    const fresh = [{ equipment: "vent", since: "2026-11-17T16:20:20Z" }, { equipment: "fan2", since: "2026-11-17T16:20:21Z" }];
+    expect(say({ law: HOLD, running: fresh }).sentences).toEqual([
+      "Holding the band: the law asks for nothing.", "Fan 2 and the vent came on after the law's last record; its next record will show why.",
+    ]);
+  });
+  test("the live 2026-11-17 17:58Z state: heat asked for, the vent and fan 2 finishing a drying run that just ended", () => {
+    expect(say({ law: record({ latches: ["h1", "air"], requests: ["heat1"] }), running: on("fan2", "vent", "heat1", "grow_light_main"), temp: 74.5 }).sentences).toEqual([
+      "Electric heat is on: the house is within 7.1 °F of the low edge.",
+      "Fan 2 and the vent are still on: the law no longer asks for them, and a relay finishes its shortest time on before it stops.",
+    ]);
+    expect(text({ law: record({ requests: ["fog"], latches: ["wet"] }), running: on("fog", "heat1"), vpd: 1.3 }))
+      .toBe("Fogging: VPD is within 0.04 kPa of the high edge. Electric heat is still on: the law no longer asks for it, and a relay finishes its shortest time on before it stops.");
+  });
 });
 
 describe("each heater", () => {

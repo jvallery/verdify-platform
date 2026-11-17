@@ -9,7 +9,7 @@
   --text:#0f1f2b;--text-2:#44525d;--text-3:#5d6a75;
   --accent:#0e5a43;--accent-hover:#0a4533;--on-accent:#ffffff;--accent-soft:#e2f2eb;--accent-text:#0b4a37;--focus:#0e5a43;
   --rail:#0f1f2b;--rail-text:#c3cfd6;--rail-muted:#8c9ca6;--rail-active:#17624b;--rail-active-text:#ffffff;
-  --hero:#102330;--hero-text:#ffffff;--hero-text-2:#b9c6cd;--hero-accent:#7de2b8;
+  --hero:#102330;--hero-text:#ffffff;--hero-text-2:#b9c6cd;--hero-accent:#7de2b8;--hero-warn:#e5b23f;
   --scrim:rgb(15 31 43 / 45%);
   /* §2.2 Status: solid, soft background, text on the soft background */
   --ok:#17714f;--ok-soft:#e2f2eb;--ok-text:#0b4a37;
@@ -55,7 +55,7 @@
   --text:#e9eff1;--text-2:#b4c1c8;--text-3:#93a2ab;
   --accent:#6fd8ad;--accent-hover:#8fe5c2;--on-accent:#05241a;--accent-soft:#11352b;--accent-text:#8fe5c2;--focus:#8fe5c2;
   --rail:#070e11;--rail-text:#b4c1c8;--rail-muted:#7f909a;--rail-active:#17402f;--rail-active-text:#ffffff;
-  --hero:#132028;--hero-text:#ffffff;--hero-text-2:#b4c1c8;--hero-accent:#7de2b8;
+  --hero:#132028;--hero-text:#ffffff;--hero-text-2:#b4c1c8;--hero-accent:#7de2b8;--hero-warn:#e5b23f;
   --scrim:rgb(0 0 0 / 60%);
   --ok:#5fcf9f;--ok-soft:#11352b;--ok-text:#8fe5c2;
   --warn:#e5b23f;--warn-soft:#3a2d0c;--warn-text:#f3cf7a;
@@ -80,7 +80,7 @@
     --text:#e9eff1;--text-2:#b4c1c8;--text-3:#93a2ab;
     --accent:#6fd8ad;--accent-hover:#8fe5c2;--on-accent:#05241a;--accent-soft:#11352b;--accent-text:#8fe5c2;--focus:#8fe5c2;
     --rail:#070e11;--rail-text:#b4c1c8;--rail-muted:#7f909a;--rail-active:#17402f;--rail-active-text:#ffffff;
-    --hero:#132028;--hero-text:#ffffff;--hero-text-2:#b4c1c8;--hero-accent:#7de2b8;
+    --hero:#132028;--hero-text:#ffffff;--hero-text-2:#b4c1c8;--hero-accent:#7de2b8;--hero-warn:#e5b23f;
     --scrim:rgb(0 0 0 / 60%);
     --ok:#5fcf9f;--ok-soft:#11352b;--ok-text:#8fe5c2;
     --warn:#e5b23f;--warn-soft:#3a2d0c;--warn-text:#f3cf7a;

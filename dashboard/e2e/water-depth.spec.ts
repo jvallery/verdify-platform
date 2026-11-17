@@ -17,10 +17,10 @@ for (const viewport of VIEWPORTS) {
     await expect(panel.locator(".plot-water-use canvas").first()).toBeVisible();
     // The page's 7 days are shorter than the 30 the chart serves, and its head says so.
     await expect(panel.locator(".section-header .meta")).toHaveText("gallons · last 30 days, the shortest this chart serves");
-    // The key says what the canvas draws: the no-valve bar in neutral --muted (hose and sink use is no fault), hatched no-data days and the partial day's dashed edge.
+    // The key says what the canvas draws: the no-valve bar in neutral --text-3 (hose and sink use is no fault), hatched no-data days and the partial day's dashed edge.
     const key = panel.locator(".chart-key li");
     const noValve = key.filter({ hasText: "No Verdify valve open: hose, sink, hydro or a leak" }).locator(".chart-key-swatch");
-    await expect(noValve).toHaveAttribute("data-token", "muted");
+    await expect(noValve).toHaveAttribute("data-token", "text-3");
     await expect(noValve).toHaveAttribute("data-kind", "fill");
     await expect(key.filter({ hasText: /^no data$/ }).locator(".chart-key-swatch")).toHaveAttribute("data-kind", "hatch");
     await expect(key.filter({ hasText: /^partial day$/ }).locator(".chart-key-swatch")).toHaveAttribute("data-kind", "dashed");

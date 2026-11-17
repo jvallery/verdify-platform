@@ -38,7 +38,7 @@ test("Drying shows the verdict and the price against the limit; an operator save
   await expect(field).toHaveValue("0.75");
   await limit.getByRole("button", { name: "Save" }).click();
   await expect.poll(async () => (await fixtureWrites(request)).map((row) => [row.operationId, row.path, row.body]))
-    .toEqual([["API-10", "/api/v1/settings/dry_cost_limit_kwh_per_kg", { value: 0.75, manual: true }]]);
+    .toEqual([["API-10", "/v1/settings/dry_cost_limit_kwh_per_kg", { value: 0.75, manual: true }]]);
   await expect(limit.getByText(/Sent 0\.75 kWh\/kg at/)).toBeVisible();
   await expect(panel(page, "Price against limit")).toBeVisible();
   await expect(panel(page, "By day")).toBeVisible();

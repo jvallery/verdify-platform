@@ -13,6 +13,10 @@
  *   "outdoor air is not drier" when the controller has no price), else drying off because a reading is missing.
  * - With nothing asked for: "Holding the band. Nothing is running." (or that the law asks for nothing while a run by
  *   hand or a water line runs).
+ * - Last, every climate relay that is on while the law's record does not ask for it, so no relay shown as on goes
+ *   unexplained: on by hand (a relay of an active run by hand); came on after the law's last record (written once a
+ *   minute); otherwise still on because a relay finishes its shortest time on before it stops (a drying or cooling
+ *   run that just ended).
  *
  * A rule the law asks for whose relay is not running yet reads "asked for, not on yet": the relay waits out its minimum
  * off time or an interlock holds it. A missing reading drops the distance, never guesses it.
@@ -30,6 +34,8 @@ export type LawSentenceInput = {
   /** The house temperature (°F) and VPD (kPa) the law reads; null when not reported or not fresh. */
   readonly temp: number | null;
   readonly vpd: number | null;
+  /** The kinds of the runs by hand that are active (API-02 `overrides`, the ones not held). */
+  readonly byHand?: readonly string[];
 };
 export type LawSentence = {
   /** One or two sentences. */
@@ -134,14 +140,50 @@ function moistureSentence(law: LawState, isOn: (equipment: string) => boolean, v
   return null;
 }
 
+/** The climate relays, each named in the law's requests by its own code, in the words a sentence uses. */
+const CLIMATE_RELAYS: readonly (readonly [string, string])[] = [
+  ["heat1", "electric heat"], ["heat2", "the gas furnace"], ["fan1", "fan 1"], ["fan2", "fan 2"], ["vent", "the vent"], ["fog", "the fogger"],
+];
+/** The relays each run by hand switches on (`components/run-by-hand.tsx` names the runs). */
+const BY_HAND_RELAYS: Readonly<Record<string, readonly string[]>> = { fans: ["fan1", "fan2", "vent"], vent_bypass: ["fan1", "fan2"], humidify: ["fog"] };
+
+const listed = (names: readonly string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? "");
+
+/**
+ * The climate relays that are on while the law's record does not ask for them, one sentence a reason: on by hand
+ * (a relay of an active run by hand); came on after the law's last record (the record is written once a minute, so
+ * the reason is not known yet); otherwise still on from a request that ended, finishing its shortest time on.
+ */
+export function leftoverSentences(law: LawState, running: Now["running"], byHand: readonly string[] = []): string[] {
+  const hand = new Set(byHand.flatMap((kind) => BY_HAND_RELAYS[kind] ?? []));
+  const recorded = Date.parse(law.observed_at);
+  const groups: Record<"hand" | "fresh" | "tail", string[]> = { hand: [], fresh: [], tail: [] };
+  for (const [code, name] of CLIMATE_RELAYS) {
+    const item = running.find((entry) => entry.equipment === code);
+    if (!item || (law.requests as readonly string[]).includes(code)) continue;
+    const since = item.since ? Date.parse(item.since) : Number.NaN;
+    groups[hand.has(code) ? "hand" : Number.isFinite(since) && Number.isFinite(recorded) && since > recorded ? "fresh" : "tail"].push(name);
+  }
+  const be = (names: readonly string[]) => (names.length > 1 ? "are" : "is");
+  return [
+    groups.hand.length ? `${capital(listed(groups.hand))} ${be(groups.hand)} on by hand.` : null,
+    groups.fresh.length ? `${capital(listed(groups.fresh))} came on after the law's last record; its next record will show why.` : null,
+    groups.tail.length
+      ? `${capital(listed(groups.tail))} ${be(groups.tail)} still on: the law no longer asks for ${groups.tail.length > 1 ? "them" : "it"}, and a relay finishes its shortest time on before it stops.`
+      : null,
+  ].filter((line): line is string => line !== null);
+}
+
 /** The sentences for this moment; see the file's head. */
-export function lawSentence({ law, running, temp, vpd }: LawSentenceInput): LawSentence {
+export function lawSentence({ law, running, temp, vpd, byHand = [] }: LawSentenceInput): LawSentence {
   if (!law) return { sentences: [NOT_REPORTING], kind: "not_reporting" };
   if (law.requests.includes("hot")) return { sentences: [HOT_LIMIT], kind: "limit" };
   if (law.requests.includes("cold")) return { sentences: [COLD_LIMIT], kind: "limit" };
   const on = new Set(running.map((item) => item.equipment));
   const isOn = (equipment: string) => on.has(equipment);
+  const leftover = leftoverSentences(law, running, byHand);
   const sentences = [temperatureSentence(law, isOn, temp), moistureSentence(law, isOn, vpd)].filter((line): line is string => line !== null);
-  if (sentences.length) return { sentences, kind: "acting" };
-  return { sentences: [running.length ? `${HOLDING.slice(0, -1)}: the law asks for nothing.` : `${HOLDING} ${NOTHING_RUNNING}`], kind: "holding" };
+  if (sentences.length) return { sentences: [...sentences, ...leftover], kind: "acting" };
+  const holding = running.length ? `${HOLDING.slice(0, -1)}: the law asks for nothing.` : `${HOLDING} ${NOTHING_RUNNING}`;
+  return { sentences: [holding, ...leftover], kind: "holding" };
 }

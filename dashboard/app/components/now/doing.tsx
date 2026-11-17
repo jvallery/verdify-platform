@@ -40,9 +40,9 @@ export function ControllerDoing({ now, answer }: DoingProps) {
   const state: PanelState = answer.kind === "loading" ? "loading" : "ready";
   const temp = now && finite(now.indoor.temp_f.value) && !answer.muted ? now.indoor.temp_f.value : null;
   const vpd = now && finite(now.indoor.vpd_kpa.value) && !answer.muted ? now.indoor.vpd_kpa.value : null;
-  const said = now && !unknown ? lawSentence({ law: now.law, running: now.running, temp, vpd }) : null;
-  const chips = now && !unknown ? runningChips(now.running, clock) : [];
   const byHand = now && !unknown ? now.overrides.filter((run) => !run.held_reason) : [];
+  const said = now && !unknown ? lawSentence({ law: now.law, running: now.running, temp, vpd, byHand: byHand.map((run) => run.kind) }) : null;
+  const chips = now && !unknown ? runningChips(now.running, clock) : [];
   return <Panel id={DOING_ID} title="What the controller is doing" thing="what the controller is doing" state={state} reserve="sm"
     link={{ to: "/climate", label: <>Why<span className="screen-reader">: the climate law</span></> }}>
     {unknown || !said

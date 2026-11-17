@@ -10,7 +10,8 @@ import { CAN_STILL_START, CAN_STILL_START_NO_ENGINE, DESKTOP, PHONE, SMALL_PHONE
 const VIEWS = ["/water", "/water/schedules", "/water/history", "/water/soil"];
 const row = (page: Page, id: string) => page.locator(`article[data-line="${id}"]`);
 const program = (page: Page) => page.locator("[data-program]");
-const stopAll = (page: Page) => page.getByRole("button", { name: "Stop all water" });
+// The page's Stop all water: the top bar holds one more for an operator above 860 px (README section 3.2), outside <main>.
+const stopAll = (page: Page) => page.getByRole("main").getByRole("button", { name: "Stop all water" });
 
 for (const viewport of [DESKTOP, PHONE]) {
   test(`${viewport.width} px: Today puts every line on its physical line's card (#1336), in order; L05 and L06 are reserved and L11 is climate only, run once`, async ({ page, request }) => {
@@ -106,7 +107,7 @@ test("D-UX-06 (2026-11-06): only the running line has a Stop, filled red, and on
   await expect(page.locator("article[data-line] .btn-stop")).toHaveCount(1);
   await expect(page.locator("article[data-line]").getByRole("button", { name: /^Stop/ })).toHaveCount(1);
   await expect(row(page, "L01").locator(".btn-stop")).toHaveText(/^Stop/);
-  await expect(page.locator(".stop-all-water:visible")).toHaveCount(1);
+  await expect(page.locator("main .stop-all-water:visible")).toHaveCount(1);
   await expect(page.locator(".page-status")).toContainText("Wall drip running (run now)");
   await row(page, "L01").getByRole("button", { name: /^Stop/ }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
@@ -275,7 +276,7 @@ for (const viewport of [PHONE, { width: 820, height: 1180 }, DESKTOP]) {
     test(`${viewport.width} px ${scheme}: Soil shows one panel per probe zone; a probe with no readings says so and is never drawn as zero`, async ({ page, request }) => {
       await page.setViewportSize(viewport);
       await page.emulateMedia({ colorScheme: scheme });
-      await useScreensClock(page, request, "in-band");
+      await useScreensClock(page, request, "soil-west-unserved");
       await load(page, "/water/soil");
       const south = page.getByRole("region", { name: "South 1" });
       await expect(south.locator('.wat-soil-stat[data-measure="moisture"] .wat-soil-value')).toHaveText(/^\d+\.\d%$/);

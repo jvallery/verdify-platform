@@ -11,7 +11,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { createRoutesStub, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { fixture } from "../../e2e/fixtures/index.mjs";
-import { FakeResizeObserver, MockPlot, created } from "../charts/fixtures/uplot-mock";
+import { FakeResizeObserver, MockPlot, created, media } from "../charts/fixtures/uplot-mock";
 import { AppShell } from "../components/app-shell";
 import { text } from "../components/test-render";
 import { runGraphUrl } from "../lib/graph-link";
@@ -188,6 +188,22 @@ test("a phone's status line names a running line too, linked to its row; the zon
   await load();
   expect(text(document.querySelector(".page-status-short"))).toBe("Rev 42 on controller · 2 min ago");
   expect(document.querySelector(".page-status-short a")).toBeNull();
+});
+
+test("Misting sits in the aside under Site today, and on a phone it follows the zones, so a running line stays on the first screen", async () => {
+  const misting = () => screen.getByRole("region", { name: "Misting" });
+  open("/water", { fixture: "l01-running" });
+  await load();
+  expect(document.querySelector(".wat-aside")!.contains(misting())).toBe(true);
+  cleanup(); stopFixtureApi();
+  vi.stubGlobal("matchMedia", media({ narrow: true }));
+  open("/water", { fixture: "l01-running" });
+  await load();
+  const zones = document.querySelector(".wat-zones")!;
+  expect(document.querySelector(".wat-aside")!.contains(misting())).toBe(false);
+  expect(misting().closest(".wat-today")).toBe(zones.parentElement);
+  expect(zones.compareDocumentPosition(misting()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getAllByRole("region", { name: "Misting" })).toHaveLength(1);
 });
 
 test("on a phone Site today holds SAF-4, the flow and occupancy: the soft budget and fallback misting only once they are the news", async () => {

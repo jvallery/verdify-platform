@@ -48,14 +48,14 @@ const PAIRS: readonly Pair[] = [
   ...STATUSES.map((status) => [`--${status}`, "--surface", 3] as const),
   ["--control-border", "--surface", 3], ["--control-border", "--bg", 3],
   ["--rail-text", "--rail", 4.5], ["--rail-muted", "--rail", 4.5], ["--rail-active-text", "--rail-active", 4.5],
-  ["--hero-text", "--hero", 4.5], ["--hero-text-2", "--hero", 4.5], ["--hero-accent", "--hero", 4.5],
+  ["--hero-text", "--hero", 4.5], ["--hero-text-2", "--hero", 4.5], ["--hero-accent", "--hero", 4.5], ["--hero-warn", "--hero", 4.5],
   ...chartTokens.flatMap((token) => [[token, "--surface", 3] as const, [token, "--bg", 3] as const]),
 ];
 
 test("design system §2.4 lists the pairs this test computes", () => {
   // The 28 chart colours of §2.3 but the wash and the grid.
   expect(chartTokens.length).toBe(26);
-  expect(PAIRS.length).toBe(12 + 3 + 1 + 6 + 6 + 2 + 3 + 3 + 52);
+  expect(PAIRS.length).toBe(12 + 3 + 1 + 6 + 6 + 2 + 3 + 4 + 52);
 });
 
 for (const theme of ["light", "dark"] as const) {

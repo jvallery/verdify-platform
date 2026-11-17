@@ -202,9 +202,10 @@ export const CAN_STILL_START_NO_ENGINE = "VPD misting and fog can still start on
 /**
  * Screens §1.3's write controls by accessible name: "Run…" covers each Run and Run the fans, "Stop" Stop all water and a
  * line's Stop, Humidify and Circulate are the other two runs by hand (dashboard v2), and SCR-04's New schedule reads
- * "+ New schedule". Activity's "Clear filters" link is a view control, so "Clear" alone is not on the list.
+ * "+ New schedule". Activity's "Clear filters" link is a view control, so "Clear" alone is not on the list, and so is
+ * the log's "Run by hand" filter (words.md's name for the three runs), so "Run" is not followed by " by hand".
  */
-export const WRITE_CONTROLS = /^\+?\s*(?:Edit|Save|Release|Run|Mist now|Stop|Pause|Resume|New schedule|Clear fault|Stop manual runs|Acknowledge|Resolve|Humidify|Circulate|Restart|Turn on|Turn off|Back to automatic)\b/;
+export const WRITE_CONTROLS = /^\+?\s*(?:Edit|Save|Release|Run(?! by hand\b)|Mist now|Stop|Pause|Resume|New schedule|Clear fault|Stop manual runs|Acknowledge|Resolve|Humidify|Circulate|Restart|Turn on|Turn off|Back to automatic)\b/;
 
 /** Each write control on the page by role and name, plus any switch. `includeHidden` also finds one rendered but hidden. */
 export function writeControls(page: Page, { includeHidden = false }: { includeHidden?: boolean } = {}): Locator {

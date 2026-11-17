@@ -86,7 +86,9 @@ function Gauges({ rows, muted }: { rows: readonly Gauge[]; muted: boolean }) {
       const relation = muted || missing ? null : bandRelationWords(row.reading.value, row.band, row.unit);
       const off = relation !== null && relation !== "in band";
       return <li key={row.key} className={cls("now-band", off && "now-band-off")} data-tile={row.key}>
-        <Link className="now-band-label" to={row.href}>{row.key === "vpd" ? <Term id="vpd" /> : row.name}<span className="screen-reader"> in Graphs</span></Link>
+        {/* The label is a link to Graphs, so it holds no glossary button: a button inside a link is invalid and axe's
+            target-size check fails the link it shrinks. */}
+        <Link className="now-band-label" to={row.href}>{row.name}<span className="screen-reader"> in Graphs</span></Link>
         <span className="now-band-bar"><BandBar label={row.name} unit={row.unit} value={missing ? null : row.reading.value} band={row.band} today={row.today} hero decorative={false} state={muted ? "stale" : "ready"} /></span>
         <span className={cls("now-band-value", muted && "value-muted")}>{readingText(row.reading, row.unit)}</span>
         <span className="now-band-meta">

@@ -25,8 +25,15 @@ test("changing the hydro range reads exactly the three reservoir metrics over se
   await useScreensClock(page, request, "hydro-live");
   await load(page, "/hydroponics");
   await page.getByRole("link", { name: "7 days", exact: true }).click();
-  await expect(page.locator(".stack-plot canvas")).toHaveCount(3);
   await expect(page.getByRole("link", { name: "7 days", exact: true })).toHaveAttribute("aria-current", "page");
+  // The link turns current before the seven-day read reaches the fixture API, and its plots draw once it answers.
+  const span = async () => {
+    const last = (await fixtureRequests(request, "API-04")).at(-1);
+    const params = last ? new URL(last.path, "http://fixture.invalid").searchParams : null;
+    return params ? Date.parse(params.get("to")!) - Date.parse(params.get("from")!) : null;
+  };
+  await expect.poll(span).toBe(7 * 86400000);
+  await expect(page.locator(".stack-plot canvas")).toHaveCount(3);
   const calls = await fixtureRequests(request, "API-04");
   const query = new URL(calls.at(-1)!.path, "http://fixture.invalid").searchParams;
   expect(query.getAll("metric")).toEqual(["climate.hydro_ph", "climate.hydro_ec_us_cm", "climate.hydro_water_temp_f"]);

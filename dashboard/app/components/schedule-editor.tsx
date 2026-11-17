@@ -361,7 +361,7 @@ export function ScheduleEditor({ slotId, schedule, agenda, status, today, now, o
     <Reason value={form.reason} onChange={(reason) => update({ reason })} error={fieldError("reason")} />
     <section className="schedule-preview">
       <h3 className="sch-preview-title">Before you save</h3>
-      {draft && <div className="schedule-draft-summary" aria-label="Your schedule in words">
+      {draft && <div className="schedule-draft-summary" role="group" aria-label="Your schedule in words">
         <p className="eyebrow">{draft.enabled ? draft.degraded_only ? "CONDITIONAL BACKUP" : "ROUTINE WATERING" : "SAVED BUT DISABLED"}</p>
         <p><strong>{lineDisplayName(draft.line_id)}</strong> · {daysWords(draft.days)} at {startWords(draft.start, agenda.solar.find((day) => day.date === today))}</p>
         <p>{amountWords(draft, kind, partner)}</p>

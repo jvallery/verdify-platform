@@ -53,6 +53,7 @@ the theme.
 | `--hero-text` | `#ffffff` | `#ffffff` | Hero text |
 | `--hero-text-2` | `#b9c6cd` | `#b4c1c8` | Hero secondary text |
 | `--hero-accent` | `#7de2b8` | `#7de2b8` | Hero accent |
+| `--hero-warn` | `#e5b23f` | `#e5b23f` | A reading outside the band, in the hero's text (the hero is dark in both themes) |
 | `--scrim` | `rgb(15 31 43 / 45%)` | `rgb(0 0 0 / 60%)` | Behind dialogs and sheets |
 
 ### 2.2 Status
@@ -123,8 +124,8 @@ In both themes: `--text`, `--text-2` and `--text-3` on `--bg`, `--surface` and `
 `--accent` on the same three (4.5:1); `--on-accent` on `--accent`, `--accent-hover` and `--critical` (4.5:1);
 `--accent-text` on `--accent-soft`; each status text on its soft background (4.5:1); each status solid on
 `--surface` (3:1); `--control-border` on `--surface` and `--bg` (3:1); `--rail-text` and `--rail-muted` on
-`--rail`, `--rail-active-text` on `--rail-active` (4.5:1); `--hero-text`, `--hero-text-2` and `--hero-accent` on
-`--hero` (4.5:1); every chart colour of 2.3 except the wash and the grid on `--surface` and `--bg` (3:1).
+`--rail`, `--rail-active-text` on `--rail-active` (4.5:1); `--hero-text`, `--hero-text-2`, `--hero-accent` and
+`--hero-warn` on `--hero` (4.5:1); every chart colour of 2.3 except the wash and the grid on `--surface` and `--bg` (3:1).
 
 ### 2.5 Type, space, shape
 

@@ -7,6 +7,7 @@ import { dayModel, entriesOf, valveEpisodes } from "../components/schedule/model
 import { MistingPanel } from "../components/water/misting";
 import { SiteToday } from "../components/water/site-today";
 import { ZoneCard, zoneKind, type TodayStrips } from "../components/water/zone-card";
+import { usePhone } from "../lib/narrow";
 import { useApiRead, useSchedulesRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
 import { UNAVAILABLE_TEXT, dayStatesParams, localDay, plannedToday, toMinute, useWaterOutlet, zoneSummaries } from "../lib/water";
@@ -22,12 +23,15 @@ const TODAY_GROUPS = [{ kind: "drip", title: "Drips" }, { kind: "mister", title:
  * a mister's VPD control and Schedule on its own row, and a row per line with its state sentence, its today strip and
  * next run, Run…, its own Stop and ⋯; then the legend. Beside them from 1200 px (sticky), first below that: Site today
  * (the daily mist and fog limit, the soft daily budget with Change, flow, occupancy, backup misting) and Misting (why the
- * misters and the fog are or are not running, API-30 and API-13). The layout's API-IRR-01 read drives the cards and Site
- * today; API-IRR-02 (60 s) adds the runs and the planned minutes, and API-05 for today the valve's open time. A failed
- * status read says "Water status unavailable", never idle, and Misting keeps its own read.
+ * misters and the fog are or are not running, API-30 and API-13). On a phone Misting follows the zones instead, so the
+ * lines' live state stays ahead of the explanation on the first screen (`usePhone`: the server and the hydrating render
+ * keep it in the aside). The layout's API-IRR-01 read drives the cards and Site today; API-IRR-02 (60 s) adds the runs
+ * and the planned minutes, and API-05 for today the valve's open time. A failed status read says "Water status
+ * unavailable", never idle, and Misting keeps its own read.
  */
 export default function WaterBoard() {
   const { irrigation } = useWaterOutlet();
+  const phone = usePhone();
   const agenda = useSchedulesRead();
   const today = useClockValue(localDay);
   const now = useClockValue(toMinute);
@@ -48,14 +52,16 @@ export default function WaterBoard() {
   const misting = <PanelErrorBoundary thing="misting"><MistingPanel /></PanelErrorBoundary>;
   if (irrigation.isError) {
     return <div className="wat-today">
-      <div className="wat-aside">{misting}</div>
+      {!phone && <div className="wat-aside">{misting}</div>}
       <div className="wat-zones"><PanelError thing="the water status" text={UNAVAILABLE_TEXT} onRetry={() => void irrigation.refetch()} /></div>
+      {phone && misting}
     </div>;
   }
   if (!status) {
     return <div className="wat-today" aria-busy="true">
-      <div className="wat-aside"><Panel title="Site today" thing="today's water limits" state="loading" reserve="md" />{misting}</div>
+      <div className="wat-aside"><Panel title="Site today" thing="today's water limits" state="loading" reserve="md" />{!phone && misting}</div>
       <div className="wat-zones"><div className="skeleton skeleton-lg" aria-hidden="true" /><div className="skeleton skeleton-lg" aria-hidden="true" /></div>
+      {phone && misting}
       <p className="screen-reader">Loading the water status</p>
     </div>;
   }
@@ -65,7 +71,7 @@ export default function WaterBoard() {
   return <div className="wat-today">
     <div className="wat-aside">
       <Panel title="Site today" thing="today's water limits" state="ready"><SiteToday status={status} today={today} /></Panel>
-      {misting}
+      {!phone && misting}
     </div>
     <div className="wat-zones">
       {TODAY_GROUPS.map((group) => <section key={group.kind} className="wat-group" data-group={group.kind} aria-labelledby={`wat-group-${group.kind}`}>
@@ -74,5 +80,6 @@ export default function WaterBoard() {
       </section>)}
       <ScheduleLegend className="wat-legend" />
     </div>
+    {phone && misting}
   </div>;
 }

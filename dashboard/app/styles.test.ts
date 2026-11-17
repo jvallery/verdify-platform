@@ -67,8 +67,8 @@ test("the light theme and both dark blocks define the same colour tokens, and th
 
 test("every colour token of design system §2.1, §2.2 and §2.3 holds its value in light and in dark", () => {
   const tokens = designTokens();
-  // 26 of §2.1, 18 of §2.2 and 28 of §2.3.
-  expect(tokens.size).toBe(72);
+  // 27 of §2.1, 18 of §2.2 and 28 of §2.3.
+  expect(tokens.size).toBe(73);
   const lightValues = Object.fromEntries(light), darkValues = Object.fromEntries(dark);
   for (const [name, values] of tokens) {
     expect(norm(lightValues[name] ?? ""), `${name} light`).toBe(norm(values.light));

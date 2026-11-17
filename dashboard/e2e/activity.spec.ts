@@ -160,9 +160,10 @@ test("the flow alert reads its plain title, expands with what it means, its page
   await expect(flow.locator(".runbook")).toContainText("Walk the wall line and the manifold for a break.");
   await expect(flow.getByRole("link", { name: /^Open in Graphs/ })).toHaveAttribute("href", "/graphs?from=2026-11-02T15:38:00Z&to=2026-11-02T19:41:20Z");
   await expect(flow.locator(".alert-about")).toContainText("The water meter counted flow while every valve the controller drives was closed");
+  // Checked while the row is on the page: a negative text check on a row that has gone (after the link below) fails.
+  await expect(flow).not.toContainText("leak_detected");
   await flow.getByRole("link", { name: /^Explained on Water today/ }).click();
   await expect(page).toHaveURL(/\/water$/);
-  await expect(flow).not.toContainText("leak_detected");
 });
 
 test("a copied /activity?alert=<id> link still opens the alert after a new repeat merges", async ({ page, request }) => {
@@ -276,7 +277,8 @@ test("alerts-v2: each alert names its page in the new words, its evidence opens 
   await load(page, "/activity?alert=601");
   const drying = alertRow(page, 601);
   await expect(drying.locator("h3")).toHaveText("Drying refused all day on price");
-  await expect(drying.locator(".alert-detail .kv")).toContainText("CategoryClimate");
+  // The alert's own fields (`> .kv`): its details sit in a nested .kv of their own.
+  await expect(drying.locator(".alert-detail > .kv")).toContainText("CategoryClimate");
   await expect(drying.locator(".runbook")).toContainText("Open Drying and read the price against the limit.");
   await expect(drying.getByRole("link", { name: /^Explained on Drying/ })).toHaveAttribute("href", "/climate/drying");
   await expect(drying.getByRole("link", { name: /^Open in Graphs/ })).toHaveAttribute("href", /^\/graphs\?from=2026-11-02T11:00:00Z&to=/);
@@ -306,7 +308,8 @@ test("activity-v2: the band save collapses to its edges, the reviewer's watering
   await expect(filters(page).getByRole("list", { name: "What" }).getByRole("link")).toHaveText(["All", "Band", "Settings", "Water", "Run by hand", "Lights", "Crops", "Alerts"]);
   await filters(page).getByRole("list", { name: "What" }).getByRole("link", { name: "Band" }).click();
   await expect(page).toHaveURL(/\/activity\/log\?action=band\.$/);
-  expect((await fixtureRequests(request, "API-17")).at(-1)?.path).toBe("/v1/activity?action=band.");
+  // The URL changes before the read it starts reaches the fixture API.
+  await expect.poll(async () => (await fixtureRequests(request, "API-17")).at(-1)?.path).toBe("/v1/activity?action=band.");
   await expect(page.locator("main")).not.toContainText(/\bplan\b|planner|Iris plans/i);
 });
 

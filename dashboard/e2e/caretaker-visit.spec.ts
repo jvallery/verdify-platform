@@ -87,7 +87,7 @@ test("an operator's visit at 360 × 740: a run by hand from Now, a run and its s
   const banner = page.locator("[data-banner=fault]");
   await expect(banner).toContainText(FLOWING);
   await expect(banner.getByRole("button")).toHaveCount(0);
-  await tab(page, /^Activity/).click();
+  await tab(page, /^Alerts/).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alerts");
   const flow = page.locator("#alert-201");
   await expect(flow).toContainText(SPIGOT);
@@ -121,7 +121,7 @@ test("a viewer's visit at 360 × 740: the same pages with no control, no write a
   await expect(banner).toContainText(FLOWING);
   await expect(banner).toContainText(SPIGOT);
   await expectNoControl(page);
-  await tab(page, /^Activity/).click();
+  await tab(page, /^Alerts/).click();
   await expect(page.locator("#alert-201")).toContainText(SPIGOT);
   await expectNoControl(page);
   expect(writes).toEqual([]);

@@ -8,7 +8,6 @@ import { parseDecimal } from "../../lib/setting-values";
 import { OperatorOnly } from "../../lib/session";
 import { errorFor, formError, problemMessage, useBandWrite, MANUAL_DEFAULT } from "../../lib/writes";
 import { Button } from "../button";
-import { ManualToggle } from "../forms/manual-toggle";
 import { NumberField } from "../forms/number-field";
 import { Reason } from "../forms/reason";
 import { Panel } from "../panel";
@@ -117,7 +116,6 @@ export function BandEditor() {
   const [texts, setTexts] = useState<Texts | null>(null);
   const [anchors, setAnchors] = useState<Texts | null>(null);
   const [splitWidth, setSplitWidth] = useState(false);
-  const [manual, setManual] = useState(MANUAL_DEFAULT);
   const [reason, setReason] = useState("");
   const write = useBandWrite();
   // The fields start from the band as stored, and again once the read after a Save brings the band it stored.
@@ -165,7 +163,7 @@ export function BandEditor() {
       const [name, value] = item.split(":");
       return [name, Number(value)];
     }));
-    const outcome = await write.save({ profile: profile as Record<string, number>, anchors: raw, manual, ...(reason ? { reason } : {}) });
+    const outcome = await write.save({ profile: profile as Record<string, number>, anchors: raw, manual: MANUAL_DEFAULT, ...(reason ? { reason } : {}) });
     if (outcome.ok) {
       setResync(true);
       setReason("");
@@ -230,7 +228,6 @@ export function BandEditor() {
             </table>
           </details>
           <Reason value={reason} onChange={setReason} error={errorFor(write.error, "reason")} />
-          <ManualToggle checked={manual} onChange={setManual} />
           {formError(write.error, fieldNames) && <p className="fault" role="alert">{formError(write.error, fieldNames)}</p>}
           <p className="meta" role="status">{changed.length === 0 ? "No change yet" : `Save writes ${changed.length} ${changed.length === 1 ? "anchor" : "anchors"} in one change`}</p>
           <Button type="submit" variant="primary" write busy={write.sending} disabled={!params || changed.length === 0 || errors.length > 0}>Save band</Button>

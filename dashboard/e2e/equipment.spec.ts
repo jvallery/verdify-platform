@@ -42,9 +42,13 @@ test("the lanes switch to 72 h and keep it in the address", async ({ page, reque
   await panel(page, "Last 24 h").getByRole("link", { name: "72 h" }).click();
   await expect(page).toHaveURL(/range=72h/);
   await expect(panel(page, "Last 72 h")).toBeVisible();
-  const lanes = await fixtureRequests(request, "API-05");
-  const last = new URL(lanes.at(-1)!.path, "http://x").searchParams;
-  expect((Date.parse(last.get("to")!) - Date.parse(last.get("from")!)) / 3_600_000).toBe(72);
+  // The title follows the address at once; the 72 h read reaches the fixture API a moment later.
+  await expect.poll(async () => {
+    const last = (await fixtureRequests(request, "API-05")).at(-1);
+    if (!last) return null;
+    const query = new URL(last.path, "http://x").searchParams;
+    return (Date.parse(query.get("to")!) - Date.parse(query.get("from")!)) / 3_600_000;
+  }).toBe(72);
 });
 
 test("an operator starts a run by hand from this page: one API-IRR-12", async ({ page, request }) => {

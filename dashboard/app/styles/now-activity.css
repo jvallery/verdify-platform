@@ -29,16 +29,20 @@
 .now-fresh .btn{min-height:2.25rem;padding:.25rem .75rem}
 /* The two gauges: a mono label that links to the metric's Graphs panel (its link covers the row), the bar, the value, then the relation and the band in words. */
 .now-bands{display:grid;gap:var(--space-1);margin:0;padding:0;list-style:none}
-.now-band{position:relative;display:grid;grid-template-columns:2.75rem minmax(5rem,1fr) 5.5rem minmax(0,10.5rem);align-items:center;gap:var(--space-3);min-height:2.25rem;padding:0 var(--space-1);border-radius:var(--radius-sm)}
+/* A reading is two lines: the label, the gauge and the value, then its verdict and band under the gauge. One line cut the
+   verdict with an ellipsis and broke the label inside the word at every width the hero has (design review B11). */
+.now-band{position:relative;display:grid;grid-template-columns:6.25rem minmax(5rem,1fr) 5.5rem;align-items:center;gap:0 var(--space-3);min-height:2.25rem;padding:var(--space-1);border-radius:var(--radius-sm)}
 .now-band:hover{background:color-mix(in srgb,var(--hero-text) 8%,var(--hero))}
-.now-band-label{display:inline-flex;align-items:center;min-height:24px;font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--hero-accent);text-decoration:none}
+.now-band-label{display:inline-flex;align-items:center;min-height:24px;font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;color:var(--hero-accent);text-decoration:none}
 .now-band-label::after{content:"";position:absolute;inset:0;border-radius:inherit}
 .now-band:hover .now-band-label{text-decoration:underline}
 .now-band-bar{min-width:0}
 .now-band-value{font-size:var(--fs-md);font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;text-align:right}
-.now-band-meta{min-width:0;font-size:var(--fs-sm);color:var(--hero-text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now-band-meta{grid-column:2/-1;min-width:0;font-size:var(--fs-sm);color:var(--hero-text-2)}
 .now-off{font-weight:600;color:var(--warn-text)}
-.hero .now-off{color:var(--warn)}
+/* The hero is dark in both themes, so its out-of-band text takes the hero's own amber (8.2:1 on --hero); the light
+   theme's --warn is made for light surfaces and reads 3.6:1 here. */
+.hero .now-off{color:var(--hero-warn)}
 .now-bands-asof{margin:0;font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--hero-text-2)}
 .now-band-source{margin:0;font-size:var(--fs-xs);color:var(--hero-text-2)}
 .now-plain{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-5);margin:0;font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
@@ -184,7 +188,10 @@
 /* Compact measured values keep current conditions and operator actions together. */
 .reservoir-now .hydro-readings>div{background:transparent;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:.65rem 0}
 .reservoir-now .hydro-readings dt{text-transform:none}
-.reservoir-now .hydro-readings dd{margin:.25rem 0;font-size:1.4rem}
+/* A value never breaks inside its unit (design review B11): each tile takes the room its value needs. */
+.reservoir-now .hydro-readings dd{margin:.25rem 0;font-size:1.25rem;white-space:nowrap}
+.reservoir-now .hydro-readings dd .meta{white-space:normal}
+@media(min-width:861px){.reservoir-now .hydro-readings{grid-template-columns:auto auto auto;justify-content:space-between}}
 .reservoir-now .hydro-readings .meta{margin-top:.2rem}
 
 /* ---------------------------------------------------------------- Activity → Alerts */
@@ -259,7 +266,7 @@
   .now-hero{grid-template-columns:minmax(0,1fr);grid-template-areas:"main" "climate" "readings";gap:var(--space-3);padding:var(--space-4)}
   .now-hero .hero-meta{font-size:var(--fs-sm)}
   .now-fresh-link,.now-condition-link,.now-band-label,.now-zone-link,.now-unconfirmed a,.alert-open,.alert-graph a,.alert-about a,.act-plan>summary{min-height:var(--tap)}
-  .now-band{grid-template-columns:2.5rem minmax(0,1fr) auto;gap:0 var(--space-2);min-height:var(--tap)}
+  .now-band{grid-template-columns:6.25rem minmax(0,1fr) auto;gap:0 var(--space-2);min-height:var(--tap)}
   .now-band-meta{grid-column:2/-1}
   .now-band-range{display:none}
   .now-band-meta:not(:has(.now-off,.now-band-why)){display:none}
