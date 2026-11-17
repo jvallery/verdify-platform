@@ -38,6 +38,10 @@ Rules for every read below:
 
 Release A never removes or renames a field, a route, a metric key or an enum value.
 
+As delivered (2026-11-17): releases A and B ship together as one pull request, because the old web's tests do not
+pass against the new contract and the old web is replaced in the same change. Migration 320 ships in its own pull
+request ahead of it, so the host lane's next migration can chain after it. Release C follows once the v2 web is live.
+
 ## 3. New operations
 
 Ids start at API-30. API-08, API-18, API-IRR-09 and OPS-03 stay reserved; 26 to 29 are left unused because earlier
@@ -80,6 +84,8 @@ LawInputs                                    what the law is reading
   temp_f, vpd_kpa        number | null       climate.temp_control, climate.vpd_control
   rh_pct, dew_point_f    number | null
   outdoor                { source: "station" | "intake" | "none" | null, temp_f, rh_pct, dew_point_f: number | null }
+                         dew_point_f is worked out from the outdoor temperature and humidity the law reads, and is
+                         served unrounded: the client rounds for display
   observed_at            datetime | null
 
 LawRule
@@ -177,13 +183,19 @@ DailyRecord
   means                  { d7: RecordMeans | null, d30: RecordMeans | null }
   law_started            date | null         the local day of the first law record
   baseline               RecordPeriod | null the 30 complete days before law_started, leaving out days with a band.write in activity_log
-  since_law              RecordPeriod | null the complete days from the day after law_started
+  since_law              RecordPeriod | null the complete days from the day after law_started, leaving out the same kind of day
   server_time            datetime
 
 RecordPeriod
   from, to               date
   excluded_days          int                 days left out of the period (band edits)
   means                  RecordMeans
+
+law_started is the earlier of the local day of the first climate_law_state row and the first day whose daily
+record carries the drying meter. Both periods leave out a day on which the band was edited and count it in
+excluded_days, so the two sides are compared on days the band stood still. since_law is null until one day after
+law_started is complete (ended, with its record stored). A baseline with no complete day has means.days 0 and
+null means; baseline is null only when law_started is.
 
 RecordDay
   date                   date
@@ -251,7 +263,10 @@ ReviewPage
   next_cursor            string | null
   today                  { review_date: date, status: "written" | "delivered" | "requested" | "failed" | "due" | "not_due",
                            missed: bool, expected_after: "07:00", late_after: "10:00" }
-  tokens                 { last: int | null, mean_7: number | null, mean_30: number | null, rise_pct: number | null }
+  tokens                 { last: int | null, mean_7: number | null, mean_30: number | null, rise_pct: number | null,
+                           count_7: int, count_30: int }
+                         the means are over the 7 and the 30 written reviews before the newest one, or as many
+                         as there are; count_7 and count_30 say how many each covers (reviews, not days)
   proposal_waiting       { review_id: int, review_date: date } | null
 
 Review
@@ -322,7 +337,9 @@ DataContinuity
   replayed               { boot, qseq: int, first_at, last_at, received_at: datetime, climate_rows, transition_rows: int }[]   newest first, at most 200
   by_day                 { date, outage_s: int, replayed_min: int }[]
   tables                 { table: string, last_row_age_s: number | null, rows_5m: int | null }[]
-  probes                 { sensor: string, age_s: number | null }[]                age 7200 means not seen in 2 h
+  probes                 { sensor: string, age_s: number | null, last_seen_at: datetime | null }[]
+                         age 7200 means not seen in 2 h; last_seen_at is filled only for such a probe (its newest
+                         reading of the last 30 days, null when there is none), so the page can say since when
   ingestor               { heartbeat_age_s: number | null, reconnects, payloads_rejected, replay_failures: int | null,
                            rows_rejected: { [table]: int } | null, observed_at: datetime | null }
 ```
@@ -372,14 +389,18 @@ release C.
 
 | Operation | Addition |
 |---|---|
-| API-23 query, API-24 body | Eight optional numbers: `temp_low_day`, `temp_high_day`, `temp_low_night`, `temp_high_night`, `vpd_low_day`, `vpd_high_day`, `vpd_low_night`, `vpd_high_night`. Day is solar noon, night is solar midnight. An axis given in edge form compiles its low and high series with sunrise and sunset halfway between day and night, on the push step. A field left out keeps the band's own value. Giving one axis in both forms is `invalid_request` |
+| API-23 query, API-24 body | Eight optional numbers: `temp_low_day`, `temp_high_day`, `temp_low_night`, `temp_high_night`, `vpd_low_day`, `vpd_high_day`, `vpd_low_night`, `vpd_high_night`. Day is solar noon, night is solar midnight. Each low or high series given at least one edge compiles with sunrise and sunset halfway between day and night, on the push step; an edge left out of that series keeps the band's own noon or midnight value. A series given no edge keeps its four anchors as stored. Giving one axis in both forms is `invalid_request`, naming the first edge field |
 | API-23 response, in the stored state and in the draft | `edges`: the same eight numbers as the band's noon and midnight edges read; `edges_simple` `{temp, vpd}`: true when sunrise and sunset edges equal the midpoint of noon and midnight |
 | API-23 response, facts | `law_lines`: the offsets the preview draws, from the law constants: `heat1_on_above_low_f`, `heat2_on_above_low_f`, `cool_on_above_high_f`, `fan2_on_above_high_f`, `dry_on_above_vpd_low_kpa`, `fog_on_above_vpd_high_kpa`, `mist_on_above_vpd_high_kpa` |
 
-Target rows under the edge form: people no longer edit them. A stored target that still lies between its new
-edges is left as it is; one that would fall outside moves to the midpoint of its edges in the same write, so the
-stored rows never contradict the band. Validation is the existing band check (outer limits, the narrowest band
-the law allows) applied to the edges.
+Target rows under the edge form: people no longer edit them. A stored target whose whole daily curve still lies
+between its new edges is left as it is; one whose curve would leave them at any hour moves, at all four anchors,
+to the midpoint of its edges (on the push step) in the same write, so the stored rows never contradict the band.
+Validation is the existing band check (outer limits, the narrowest band the law allows) applied to the edges; a
+finding about the order of two edges names the edge field of the side it is about.
+
+The client parses `edges`, `edges_simple` and `law_lines` as nullable, so a web built on this contract runs
+against an API that does not serve them yet; the editor then falls back to the anchors.
 
 ## 5. Metric registry additions (API-03 and API-04)
 
