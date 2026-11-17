@@ -446,34 +446,6 @@ REGISTRY: dict[str, TunableDef] = {
     # fog_window_end__hr_ entities or their cfg_* readbacks, so both rows carry
     # no route. They stay so the setpoint_changes history still validates;
     # scripts/export-replay-overrides.sh reads only that history.
-    "fog_time_window_start": TunableDef(
-        name="fog_time_window_start",
-        kind="numeric",
-        min=5,
-        max=12,
-        default=6,
-        esp_object_id=None,
-        cfg_readback_object_id=None,
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: start hour of the old fog eligibility window. The firmware has no such entity; "
-        "the row stays for setpoint_changes history.",
-    ),
-    "fog_time_window_end": TunableDef(
-        name="fog_time_window_end",
-        kind="numeric",
-        min=14,
-        max=20,
-        default=18,
-        esp_object_id=None,
-        cfg_readback_object_id=None,
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: end hour of the old fog eligibility window. The firmware has no such entity; "
-        "the row stays for setpoint_changes history.",
-    ),
     # BC-11 (ADR0003 §6.7): the fog_stress_* clock-window tunables are RETIRED dead
     # registry rows — replaced by the solar-phase curve-only fog gate (no firmware
     # entity, no ESPHome surface, no live read; only retirement comments + old build
@@ -507,28 +479,6 @@ REGISTRY: dict[str, TunableDef] = {
         planner_pushable=False,
         tier=2,
         notes="Minimum house temperature for automated direct wetting across misters, fert paths, and drips.",
-    ),
-    "direct_wet_stress_latest_hour": TunableDef(
-        name="direct_wet_stress_latest_hour",
-        kind="numeric",
-        min=17,
-        max=24,
-        default=22,
-        esp_object_id="direct_wet_stress_latest_hour",
-        cfg_readback_object_id="cfg_direct_wet_stress_latest_hour",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes=(
-            "RETIRED (wire schema v2, #588 decision on #582's reserved row): latest local hour "
-            "for direct-wet dry-stress override; 24 means through 23:59. ZERO firmware presence "
-            "— no ESPHome entity, global, or read site ever existed (audit §6.4), so the value "
-            "could never alter an effective component, and its zero device readbacks blocked "
-            "Frozen-FSM baseline qualification (§8.2). Former wire_id 6 is permanently reserved "
-            "in RETIRED_WIRE_IDS. The row stays for setpoint_plan/setpoint_changes history and "
-            "the PR3 moisture-stress dispatch gate (ingestor/tasks/_common.py), which keeps its "
-            "pre-retirement behavior."
-        ),
     ),
     # ─────────────────────────────────────────────────────────────────────
     # Grow lights.
@@ -1063,144 +1013,6 @@ REGISTRY: dict[str, TunableDef] = {
         planner_pushable=False,
         tier=2,
         notes="Retired fixed-clock feed-window compatibility readback; fixed zero.",
-    ),
-    # ─────────────────────────────────────────────────────────────────────
-    # Retired deliberate dawn/midday center-watering compatibility readbacks.
-    # Center mist follows only the base climate/VPD cadence; post-assembly
-    # normalization below fixes these fields off/zero and classifies them retired.
-    # ─────────────────────────────────────────────────────────────────────
-    "dawn_rehydrate_start_minute": TunableDef(
-        name="dawn_rehydrate_start_minute",
-        kind="numeric",
-        min=0.0,
-        max=59.0,
-        default=0.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_dawn_rehydrate_start_minute",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-3 dawn window minute-of-hour (anchor hour = gl_sunrise_hour).",
-    ),
-    "midday_drench_hour": TunableDef(
-        name="midday_drench_hour",
-        kind="numeric",
-        min=0.0,
-        max=23.0,
-        default=14.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_midday_drench_hour",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-4 local hour the midday window opens (~solar peak).",
-    ),
-    "midday_drench_start_minute": TunableDef(
-        name="midday_drench_start_minute",
-        kind="numeric",
-        min=0.0,
-        max=59.0,
-        default=0.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_midday_drench_start_minute",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-4 midday window minute-of-hour.",
-    ),
-    # ─────────────────────────────────────────────────────────────────────
-    # CYC-4 (NB7) — overnight ≤5s fog micro-pulse. Firmware-internal globals
-    # with cfg_* readbacks only; the ≤5s pulse is a hard safety constraint
-    # (validate_setpoints clamps micropulse_max_on_s ≤ 10). Routed here so the
-    # micro-pulse knobs are not fire-and-forget.
-    # ─────────────────────────────────────────────────────────────────────
-    "sw_overnight_micropulse_enabled": TunableDef(
-        name="sw_overnight_micropulse_enabled",
-        kind="switch",
-        default=1.0,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_overnight_micropulse_enabled",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 overnight micro-pulse master enable (ships ON; gate is dark+dew+RH+temp gated).",
-    ),
-    "sw_night_humidity_source_present": TunableDef(
-        name="sw_night_humidity_source_present",
-        kind="switch",
-        default=0.0,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_night_humidity_source_present",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 auto-disable flag: flip true once NB5/OPN-2 night humidity HW lands → CYC-4 micro-pulse self-disables.",
-    ),
-    "micropulse_vpd_ceiling": TunableDef(
-        name="micropulse_vpd_ceiling",
-        kind="numeric",
-        min=0.8,
-        max=3.0,
-        default=1.25,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_micropulse_vpd_ceiling",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 overnight VPD (kPa) above which a micro-pulse may fire.",
-    ),
-    "micropulse_max_on_s": TunableDef(
-        name="micropulse_max_on_s",
-        kind="numeric",
-        min=1.0,
-        max=10.0,
-        default=5.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_micropulse_max_on__s_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 HARD cap on a single overnight pulse (s); validate_setpoints clamps ≤10.",
-    ),
-    "micropulse_min_gap_s": TunableDef(
-        name="micropulse_min_gap_s",
-        kind="numeric",
-        min=60.0,
-        max=3600.0,
-        default=600.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_micropulse_min_gap__s_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 lockout between micro-pulses (s) — pulses can never chain into a run.",
-    ),
-    "micropulse_min_dew_margin_f": TunableDef(
-        name="micropulse_min_dew_margin_f",
-        kind="numeric",
-        min=3.0,
-        max=15.0,
-        default=6.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_micropulse_min_dew_margin__f_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 min temp-dewpoint spread (°F) to micro-pulse — no crown condensation.",
     ),
     # ─────────────────────────────────────────────────────────────────────
     # Irrigation site values (VD-37, #1152; irrigation §4.1, architecture §5.3).
@@ -2358,18 +2170,16 @@ assert not set(_FW2_STAGED_DEFS) & set(REGISTRY), "firmware-v2 staged names coll
 
 REGISTRY.update(_FW2_STAGED_DEFS)
 
-# The fixed-clock feed window and the deliberate dawn/midday center-watering
-# controls are retired compatibility readbacks. (The legacy irrig_wall_* and
-# irrig_center_* schedule rows left with their cfg_* readbacks in VD-47.)
+# The fixed-clock feed window is a retired compatibility readback (the dawn and
+# midday center-watering rows left the registry in #1734 C-8; the legacy
+# irrig_wall_* and irrig_center_* schedule rows left with their cfg_* readbacks
+# in VD-47).
 # Normalize them here after the staged firmware-v2 rows are assembled so every
 # derived consumer sees the same fail-closed, non-writable contract.
 _INERT_IRRIGATION_COMPAT_TUNABLES: frozenset[str] = frozenset(
     {
         "feed_start_hour",
         "feed_end_hour",
-        "dawn_rehydrate_start_minute",
-        "midday_drench_hour",
-        "midday_drench_start_minute",
     }
 )
 
@@ -2566,12 +2376,6 @@ NO_EFFECT_RETIRED_REG: frozenset[str] = frozenset(
         # The east zone has no mister; the arbiters pass it as never allowed.
         "zone_priority_east",
         # The CYC-4 overnight micro-pulse path was deleted from the firmware.
-        "sw_overnight_micropulse_enabled",
-        "sw_night_humidity_source_present",
-        "micropulse_vpd_ceiling",
-        "micropulse_max_on_s",
-        "micropulse_min_gap_s",
-        "micropulse_min_dew_margin_f",
     }
 )
 assert NO_EFFECT_RETIRED_REG <= set(REGISTRY), sorted(NO_EFFECT_RETIRED_REG - set(REGISTRY))
@@ -2580,10 +2384,7 @@ RETIRED_TUNABLES_REG: frozenset[str] = frozenset(
     {
         # #588 decision (wire schema v2): zero firmware presence — see the
         # registry row notes and RETIRED_WIRE_IDS ({6}).
-        "direct_wet_stress_latest_hour",
         # VD-63: no firmware entity or readback; the rows carry no route.
-        "fog_time_window_end",
-        "fog_time_window_start",
         "mister_all_off_s",
         "mister_all_on_s",
         "mister_off_s",

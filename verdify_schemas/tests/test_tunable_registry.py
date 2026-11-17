@@ -515,9 +515,7 @@ class TestDriftGuard:
         assert PLANNER_PUSHABLE_REG == LIVE_WIRE_FIELDS
         for param in LIVE_WIRE_FIELDS:
             assert REGISTRY[param].cfg_readback_object_id
-        assert "direct_wet_stress_latest_hour" not in TIER1_REG
-        assert "direct_wet_stress_latest_hour" not in PLANNER_PUSHABLE_REG
-        assert REGISTRY["direct_wet_stress_latest_hour"].control_class == "retired"
+        assert "direct_wet_stress_latest_hour" not in REGISTRY  # #1734 C-8
         for param in IRRIGATION_SITE_PARAMS:
             assert REGISTRY[param].control_class == "irrigation_site"
             assert param not in PLANNER_PUSHABLE_REG
@@ -624,10 +622,8 @@ class TestActivityDirectWetGuards:
             "sw_direct_wet_stress_override_enabled",
         ):
             assert name not in REGISTRY
-        # Retired (wire schema v2, #588): zero firmware presence; the row stays
-        # for history + the PR3 dispatch gate but is no longer planner-writable.
-        assert not REGISTRY["direct_wet_stress_latest_hour"].planner_pushable
-        assert REGISTRY["direct_wet_stress_latest_hour"].control_class == "retired"
+        # Retired (wire schema v2, #588), zero firmware presence: the row left the registry (#1734 C-8).
+        assert "direct_wet_stress_latest_hour" not in REGISTRY
         assert REGISTRY["sw_direct_wet_gate_enabled"].kind == "switch"
         assert REGISTRY["sw_direct_wet_gate_enabled"].planner_pushable
         assert REGISTRY["sw_direct_wet_gate_enabled"].cfg_readback_object_id
@@ -1083,10 +1079,8 @@ class TestStepLabelUnitDriftGuard:
 
     def test_guards_skip_rows_without_an_entity(self, tunables_yaml: str) -> None:
         """A row with no entity may set its own step, label and unit (#1152's irrigation_site rows)."""
-        own = REGISTRY["fog_time_window_start"].model_copy(
-            update={"step": 1.0, "label": "Fog Window Start", "unit": "h"}
-        )
-        patched = {**REGISTRY, "fog_time_window_start": own}
+        own = REGISTRY["feed_start_hour"].model_copy(update={"step": 1.0, "label": "Feed Start", "unit": "h"})
+        patched = {**REGISTRY, "feed_start_hour": own}
         assert not _step_mismatches(patched, tunables_yaml)
         assert not _label_mismatches(patched, tunables_yaml)
 
@@ -1205,7 +1199,7 @@ class TestStepLabelUnitDriftGuard:
         unlabeled = sorted(name for name, spec in REGISTRY.items() if not spec.label)
         assert not unlabeled, f"registry rows without a label: {unlabeled}"
         # Rows with no firmware entity carry their registry name and no unit or step.
-        for name in ("fog_time_window_start", "fog_time_window_end", "fallback_window_s", "feed_start_hour"):
+        for name in ("feed_end_hour", "fallback_window_s", "feed_start_hour"):
             spec = REGISTRY[name]
             assert (spec.label, spec.unit, spec.step) == (name, None, None)
 
@@ -1326,16 +1320,13 @@ class TestRegisteredFirmwareTunables:
         }
         assert not stopgap_keys & set(entity_map.CFG_READBACK_MAP)
 
-    def test_fog_time_windows_are_retired_without_routes(self) -> None:
+    def test_fog_time_windows_left_the_registry(self) -> None:
+        # #1734 C-8: no firmware entity or readback, so the rows were deleted.
         entity_map = _entity_map()
         for name in ("fog_time_window_start", "fog_time_window_end"):
-            spec = REGISTRY[name]
-            assert name in RETIRED_TUNABLES_REG and spec.control_class == "retired"
-            assert spec.esp_object_id is None and spec.cfg_readback_object_id is None
+            assert name not in REGISTRY and name not in RETIRED_TUNABLES_REG
             assert name not in entity_map.SETPOINT_MAP.values()
             assert name not in entity_map.CFG_READBACK_MAP.values()
-            # History rows still validate.
-            SetpointSnapshot(ts=datetime(2026, 6, 10, tzinfo=UTC), parameter=name, value=spec.default)
 
 
 def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None:
@@ -1351,8 +1342,9 @@ def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None
 
     # 29 until #369 deleted the eight direct-wet zone offsets with their firmware entities, 21 until #1477
     # deleted the activity mirror and the shared and per-circuit DLI lighting values with theirs, 7 since release 4
-    # deleted the three wet-taper and night-stress rows with the third flash.
-    assert len(NO_EFFECT_RETIRED_REG) == 7
+    # deleted the three wet-taper and night-stress rows with the third flash, 1 since release 5 deleted the six
+    # overnight micro-pulse rows that no controller has (#1734 C-8).
+    assert len(NO_EFFECT_RETIRED_REG) == 1
     for name in NO_EFFECT_RETIRED_REG:
         spec = REGISTRY[name]
         assert spec.control_class == "retired", name

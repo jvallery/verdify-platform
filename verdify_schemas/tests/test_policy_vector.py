@@ -449,12 +449,11 @@ def test_firmware_absent_exemption_is_retired_and_stays_retired(firmware_entitie
     wire_id permanently reserved, and firmware still has no such entity — if
     one ever appears the field needs a NEW wire id, never a resurrected 6."""
     assert FIRMWARE_ABSENT_WIRE_FIELDS == frozenset()
-    defn = REGISTRY["direct_wet_stress_latest_hour"]
-    assert defn.wire_id is None and defn.tier == 2 and not defn.planner_pushable
-    assert defn.control_class == "retired"
+    # #1734 C-8: the retired row left the registry; its wire id stays reserved.
+    assert "direct_wet_stress_latest_hour" not in REGISTRY
     assert 6 in RETIRED_WIRE_IDS
-    assert defn.esp_object_id not in firmware_entities
-    with pytest.raises(ValueError, match="not part of the policy wire schema"):
+    assert "direct_wet_stress_latest_hour" not in firmware_entities
+    with pytest.raises(ValueError, match="not registered"):
         wire_value_bounds("direct_wet_stress_latest_hour")
 
 

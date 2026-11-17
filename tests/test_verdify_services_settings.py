@@ -743,9 +743,15 @@ def test_a_switch_confirms_from_its_equipment_mirror():
     assert (result.state, result.confirmed_at, result.readback_via) == ("confirmed", ago(minutes=9), "entity")
 
 
-def test_no_readback_only_for_a_setting_with_no_readback_route():
+def _without_readback(monkeypatch, name="feed_start_hour"):
+    # #1734 C-8 deleted the last rows with no readback route; one row stands in with its cfg readback removed.
+    monkeypatch.setitem(REGISTRY, name, REGISTRY[name].model_copy(update={"cfg_readback_object_id": None}))
+    return name
+
+
+def test_no_readback_only_for_a_setting_with_no_readback_route(monkeypatch):
     db = FakeDB()
-    result = status(db, "fog_time_window_start")
+    result = status(db, _without_readback(monkeypatch))
     assert (result.state, result.readback_via, result.readback) == ("no_readback", "none", None)
 
 
@@ -1257,12 +1263,13 @@ def test_catalog_groups_and_read_only_reasons():
         assert (row.min, row.max) == settings.bounds(row.param)
 
 
-def test_catalog_readback_via_and_rows_match_the_openapi_setting():
+def test_catalog_readback_via_and_rows_match_the_openapi_setting(monkeypatch):
+    none = _without_readback(monkeypatch)
     db = FakeDB()
     db.snapshots.append((KPA, ago(minutes=1), 0.16))
     db.add_desired(KPA, 0.15, manual=True, at=ago(minutes=2))
     rows = catalog(db)
-    assert {rows[name].readback_via for name in (KPA, ECON, "sched_mist_rh_max_pct", "fog_time_window_start")} == {
+    assert {rows[name].readback_via for name in (KPA, ECON, "sched_mist_rh_max_pct", none)} == {
         "cfg",
         "entity",
         "program",
