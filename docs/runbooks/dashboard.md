@@ -51,7 +51,7 @@ nothing below runs unless it is named. All of them take `--expected-web-sha`.
 | `scripts/dashboard-smoke.sh --role operator --revert [--param <setting>]` | `dashboard-smoke` operator | three writes within one grid step, manual, released | `writes_enabled: true` | #1186 |
 | `scripts/dashboard-smoke.sh --role operator --lights` | `dashboard-smoke` operator | **switches the main light once each way**; `sw_gl_main_auto_mode` 1, released | `writes_enabled: true` | #1186 |
 
-`<setting>` defaults to `mister_engage_kpa`.
+`<setting>` defaults to `mister_engage_delay_s` (30-300 s, step 30): one step makes the controller wait 30 s longer before misting until the check releases it.
 
 **The sweep** reads every served read through the BFF and expects 200, then compares MCP with the Water read. It only
 reads, so it can run at any time.

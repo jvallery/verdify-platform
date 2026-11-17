@@ -293,8 +293,8 @@ def test_dashboard_smoke_prints_only_check_lines_and_fails_closed(tmp_path, mock
         ["--role", "viewer"],
         ["--lights"],
         ["--revert"],
-        ["--param", "mister_engage_kpa"],
-        ["--sweep", "--param", "mister_engage_kpa"],
+        ["--param", "mister_engage_delay_s"],
+        ["--sweep", "--param", "mister_engage_delay_s"],
         ["--sweep", "--role", "operator"],
         ["--sweep", "--lights"],
         ["--agent-write"],
@@ -302,10 +302,10 @@ def test_dashboard_smoke_prints_only_check_lines_and_fails_closed(tmp_path, mock
         ["--agent-write", "Bad Name"],
         ["--agent-write", "orbit", "--role", "operator"],
         ["--agent-write", "orbit", "--lights"],
-        ["--agent-write", "orbit", "--param", "mister_engage_kpa"],  # an agent sets only an operator switch (4.2)
+        ["--agent-write", "orbit", "--param", "mister_engage_delay_s"],  # an agent sets only an operator switch (4.2)
         ["--agent-write", "orbit", "--param", "sw_occupancy_inhibit"],  # its one step lets the misters run on a person
         ["--role", "operator", "--lights", "--revert"],
-        ["--role", "operator", "--lights", "--param", "mister_engage_kpa"],
+        ["--role", "operator", "--lights", "--param", "mister_engage_delay_s"],
         ["--role", "operator", "--param", "Bad-Param"],
     ],
 )
@@ -399,16 +399,16 @@ class FakeDashboard:
         self.reads_since_write = 0
         self.statuses = options.get("statuses", {})
         self.me_writes = options.get("writes_enabled", True)
-        self.base_value = options.get("device", 1.600000023841858)
+        self.base_value = options.get("device", 60.0)
         self.rows = {
-            "mister_engage_kpa": {
-                "param": "mister_engage_kpa",
+            "mister_engage_delay_s": {
+                "param": "mister_engage_delay_s",
                 "kind": "numeric",
                 "control_class": options.get("control_class", "planner_policy"),
                 "writable": True,
-                "step": 0.05,
-                "min": 0.5,
-                "max": 2.5,
+                "step": 30.0,
+                "min": 30.0,
+                "max": 300.0,
                 "readback": {"value": self.base_value},
                 "desired": options.get("desired"),
                 "plan": None,
@@ -486,7 +486,7 @@ class FakeDashboard:
                 row["readback"]["value"] = desired["value"]
             person = {"source": "dashboard", "name": "jason"}
             if self.options.get("person_writes_at") == self.reads_since_write:
-                row["desired"] = self._row(row["param"], 2.0, True, person, "mine")
+                row["desired"] = self._row(row["param"], 120.0, True, person, "mine")
                 row["state"] = "requested"
             if self.options.get("person_releases_at") == self.reads_since_write:
                 row["desired"] = self._row(row["param"], None, False, person, "mine")
@@ -808,7 +808,7 @@ def test_sweep_gets_every_read_as_the_viewer_and_writes_nothing(tmp_path):
     assert f"/api/v1/band/preview?param=zone_vpd_target_center_sm&value={(0.4 + 2.0) / 2}" in targets
     assert any(target.startswith("/api/v1/band?zone=south&from=") for target in targets)
     assert any(target.startswith("/api/v1/series?metric=climate.temp_avg&from=") for target in targets)
-    assert any(target.startswith("/api/v1/settings/mister_engage_kpa/history?from=") for target in targets)
+    assert any(target.startswith("/api/v1/settings/mister_engage_delay_s/history?from=") for target in targets)
     assert any(target.startswith("/api/v1/irrigation/runs?from=") for target in targets)
     # The parity read runs inside a verdify-mcp pod.
     assert any(call[:4] == ["-n", "verdify-prod", "exec", "-i"] and "deploy/verdify-mcp" in call for call in kube_calls)
@@ -872,10 +872,14 @@ def test_operator_leg_writes_one_step_confirms_releases_and_lists_both(tmp_path)
     assert (viewer["role"], viewer["method"], viewer["body"]) == (
         "viewer",
         "PUT",
-        {"value": 1.65, "manual": True, "reason": "R2 live check"},
+        {"value": 90.0, "manual": True, "reason": "R2 live check"},
     )
-    assert (write["role"], write["method"], write["path"]) == ("operator", "PUT", "/api/v1/settings/mister_engage_kpa")
-    assert write["body"] == {"value": 1.65, "manual": True, "reason": "R2 live check"}
+    assert (write["role"], write["method"], write["path"]) == (
+        "operator",
+        "PUT",
+        "/api/v1/settings/mister_engage_delay_s",
+    )
+    assert write["body"] == {"value": 90.0, "manual": True, "reason": "R2 live check"}
     assert (release["role"], release["method"]) == ("operator", "DELETE")
     assert release["target"].endswith("?reason=R2%20live%20check")
     assert {call["origin"] for call in writes} == {"https://dashboard.verdify.ai"}
@@ -883,11 +887,11 @@ def test_operator_leg_writes_one_step_confirms_releases_and_lists_both(tmp_path)
     for line in (
         "PASS  a viewer's same API-10 is refused forbidden (403)",
         "PASS  the viewer's API-10 added no desired row (200)",
-        "PASS  API-10 writes mister_engage_kpa one grid step, manual, and answers requested (200)",
-        "PASS  API-09 reads mister_engage_kpa confirmed",
-        "PASS  API-11 releases mister_engage_kpa (200)",
-        "PASS  API-09 reads mister_engage_kpa released (200)",
-        "PASS  the device leaves the check's mister_engage_kpa once it is released",
+        "PASS  API-10 writes mister_engage_delay_s one grid step, manual, and answers requested (200)",
+        "PASS  API-09 reads mister_engage_delay_s confirmed",
+        "PASS  API-11 releases mister_engage_delay_s (200)",
+        "PASS  API-09 reads mister_engage_delay_s released (200)",
+        "PASS  the device leaves the check's mister_engage_delay_s once it is released",
         "PASS  API-17 lists setting.write, then setting.release, source dashboard, actor dashboard-smoke (200)",
         "PASS  INT-02 deletes the operator session (204)",
         "PASS  INT-02 deletes the viewer session (204)",
@@ -899,16 +903,16 @@ def test_operator_leg_writes_one_step_confirms_releases_and_lists_both(tmp_path)
 
 @needs_node
 def test_operator_leg_steps_down_at_the_max(tmp_path):
-    world = FakeDashboard(device=2.5)
+    world = FakeDashboard(device=300.0)
     result, _, _ = run_leg(tmp_path, world, "--role", "operator")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert world.calls_writing()[1]["body"]["value"] == 2.45
+    assert world.calls_writing()[1]["body"]["value"] == 270.0
 
 
 MANUAL_ROW = {
     "id": 9,
-    "param": "mister_engage_kpa",
-    "value": 1.2,
+    "param": "mister_engage_delay_s",
+    "value": 120.0,
     "manual": True,
     "state": "confirmed",
     "actor": {"source": "dashboard", "name": "jason"},
@@ -950,11 +954,11 @@ def test_operator_leg_releases_a_write_that_never_confirms(tmp_path):
     result, _, _ = run_leg(tmp_path, world, "--role", "operator")
     assert result.returncode == 1
     assert (
-        "FAIL  API-09 reads mister_engage_kpa confirmed within 0.4 s (last read not_confirmed, no_match)"
+        "FAIL  API-09 reads mister_engage_delay_s confirmed within 0.4 s (last read not_confirmed, no_match)"
         in result.stdout
     )
     assert world.calls_writing()[-1]["method"] == "DELETE"
-    assert "PASS  API-11 releases mister_engage_kpa (200)" in result.stdout
+    assert "PASS  API-11 releases mister_engage_delay_s (200)" in result.stdout
 
 
 @needs_node
@@ -963,8 +967,8 @@ def test_setting_legs_print_held_from_the_writes_own_answer_and_still_release(tm
     world = FakeDashboard(held=True)
     result, _, _ = run_leg(tmp_path, world, *arguments)
     assert result.returncode == 1
-    assert "PASS  API-10 writes mister_engage_kpa one grid step, manual, and answers held (200)" in result.stdout
-    assert "HELD  API-09 holds mister_engage_kpa for an armed experiment (exp-7 armed)" in result.stdout
+    assert "PASS  API-10 writes mister_engage_delay_s one grid step, manual, and answers held (200)" in result.stdout
+    assert "HELD  API-09 holds mister_engage_delay_s for an armed experiment (exp-7 armed)" in result.stdout
     assert "NOT GREEN" in result.stdout
     # One write on either leg: a held value is not stepped further.
     operator_writes = [call["method"] for call in world.calls_writing() if call["role"] == "operator"]
@@ -978,7 +982,7 @@ def test_operator_leg_never_releases_another_writers_row(tmp_path):
     assert result.returncode == 1
     assert "another writer's, so it stays" in result.stdout
     assert [call["method"] for call in world.calls_writing()] == ["PUT", "PUT"]
-    assert world.rows["mister_engage_kpa"]["desired"]["actor"]["name"] == "jason"
+    assert world.rows["mister_engage_delay_s"]["desired"]["actor"]["name"] == "jason"
 
 
 @needs_node
@@ -995,7 +999,7 @@ def test_operator_leg_fails_when_the_device_stays_on_the_checks_value(tmp_path):
     world = FakeDashboard(device_stays=True)
     result, _, _ = run_leg(tmp_path, world, "--role", "operator")
     assert result.returncode == 1
-    assert "FAIL  the device leaves the check's mister_engage_kpa within 0.4 s" in result.stdout
+    assert "FAIL  the device leaves the check's mister_engage_delay_s within 0.4 s" in result.stdout
 
 
 @needs_node
@@ -1005,34 +1009,34 @@ def test_revert_leg_goes_up_back_and_reverts_then_releases(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     writes = world.calls_writing()
     assert [call["method"] for call in writes] == ["PUT", "PUT", "PUT", "DELETE"]
-    assert [call["body"]["value"] for call in writes[:3]][0] == 1.65
-    assert writes[1]["body"]["value"] == pytest.approx(1.6, abs=1e-6)
-    assert writes[2]["body"]["value"] == 1.65
+    assert [call["body"]["value"] for call in writes[:3]][0] == 90.0
+    assert writes[1]["body"]["value"] == pytest.approx(60.0, abs=1e-6)
+    assert writes[2]["body"]["value"] == 90.0
     assert all(call["body"]["manual"] is True and call["body"]["reason"] == "R4 live check" for call in writes[:3])
     assert len({call["key"] for call in writes}) == 4
     assert "PASS  API-12 names the desired row before the newest (200)" in result.stdout
     assert (
-        "PASS  API-10 writes mister_engage_kpa back to that row (Revert), manual, and answers requested (200)"
+        "PASS  API-10 writes mister_engage_delay_s back to that row (Revert), manual, and answers requested (200)"
         in result.stdout
     )
-    assert result.stdout.count("PASS  API-09 reads mister_engage_kpa confirmed") == 3
-    assert "PASS  API-09 reads mister_engage_kpa released (200)" in result.stdout
+    assert result.stdout.count("PASS  API-09 reads mister_engage_delay_s confirmed") == 3
+    assert "PASS  API-09 reads mister_engage_delay_s released (200)" in result.stdout
 
 
 @needs_node
 def test_setting_legs_step_from_a_plan_value_off_the_grid(tmp_path):
-    # The live mister_engage_kpa on 2026-11-03: Iris planned 0.958 on a 0.05 grid, and the server snaps what it is sent.
-    device = 0.9580000042915344
+    # An off-grid device value (48.75 s on a 30 s grid, as a plan once left one); the server snaps what it is sent.
+    device = 48.75
     world = FakeDashboard(device=device)
     result, _, _ = run_leg(tmp_path, world, "--role", "operator")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert world.calls_writing()[1]["body"]["value"] == 1.0
-    assert "PASS  the device leaves the check's mister_engage_kpa once it is released" in result.stdout
+    assert world.calls_writing()[1]["body"]["value"] == 90.0
+    assert "PASS  the device leaves the check's mister_engage_delay_s once it is released" in result.stdout
 
     world = FakeDashboard(device=device)
     result, _, _ = run_leg(tmp_path, world, "--role", "operator", "--revert")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert [call["body"]["value"] for call in world.calls_writing()[:3]] == [1.0, device, 1.0]
+    assert [call["body"]["value"] for call in world.calls_writing()[:3]] == [90.0, device, 90.0]
 
 
 @needs_node
