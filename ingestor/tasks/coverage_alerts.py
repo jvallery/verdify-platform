@@ -1068,8 +1068,8 @@ def law_band_alert(rows: Sequence[Mapping]) -> tuple[dict | None, bool]:
 # most once a day and the row closes at the next local midnight. Tolerance: the live data from the phase 2 flash
 # (2026-11-16 19:48Z to 21:58Z: fog 3 and 3, heat1 1 and 1, the rest 0 and 0, fan run 0 and 0) agreed exactly; the
 # allowance covers a start or a run that straddles midnight against the counters' sample cadence (about 25 min)
-# and a restart's lost increments. Each controller boot of the day (317's `boots`) adds one start: a relay that is on
-# across a reboot comes back off and is switched on again, a start the stored edges never show (#1734 C-10). A day
+# and a restart's lost increments. A boot needs no allowance of its own: the ingestor stores the OFF edge at the boot
+# and one ON edge for every relay first reported ON after it (RULINGS AF6), so the stored edges show that start. A day
 # whose record was computed before the day ended reads 'record_early' (317) and, like every other comparison but
 # 'complete', is not judged. A day with fewer than 2 counter rows is not judged.
 COUNTER_STARTS_ABS = 2
@@ -1078,7 +1078,7 @@ COUNTER_REL = 0.10
 COUNTER_MIN_ROWS = 2
 COUNTER_RECONCILE_SQL = """
 SELECT date, equipment, counter_starts, record_starts, starts_difference,
-       counter_run_s, record_run_s, run_s_difference, counter_rows, boots
+       counter_run_s, record_run_s, run_s_difference, counter_rows
   FROM v_relay_counter_reconciliation_daily
  WHERE greenhouse_id = 'vallery' AND comparison = 'complete'
    AND date = (now() AT TIME ZONE 'America/Denver')::date - 1
@@ -1094,7 +1094,7 @@ def counter_mismatch_alerts(rows: Sequence[Mapping]) -> list[dict]:
             continue
         rec_starts = int(r["record_starts"])
         d_starts = abs(int(r["starts_difference"] or 0))
-        starts_tol = max(COUNTER_STARTS_ABS, COUNTER_REL * rec_starts) + int(r.get("boots") or 0)
+        starts_tol = max(COUNTER_STARTS_ABS, COUNTER_REL * rec_starts)
         d_run = abs(float(r["run_s_difference"])) if r["run_s_difference"] is not None else 0.0
         run_tol = max(COUNTER_RUN_S_ABS, COUNTER_REL * float(r["record_run_s"] or 0))
         if d_starts <= starts_tol and d_run <= run_tol:

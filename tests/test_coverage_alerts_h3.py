@@ -270,7 +270,7 @@ def test_law_band_vpd_edge_alone_opens():
 
 
 # ── relay_counter_mismatch (RULINGS AF7) ────────────────────────────────────────────────────────────────────────────
-def recon(equipment, counter_starts, record_starts, counter_run_s=None, record_run_s=None, rows=60, boots=0):
+def recon(equipment, counter_starts, record_starts, counter_run_s=None, record_run_s=None, rows=60):
     run_d = None if counter_run_s is None or record_run_s is None else counter_run_s - record_run_s
     return {
         "date": date(2026, 11, 17),
@@ -282,7 +282,6 @@ def recon(equipment, counter_starts, record_starts, counter_run_s=None, record_r
         "record_run_s": record_run_s,
         "run_s_difference": run_d,
         "counter_rows": rows,
-        "boots": boots,
     }
 
 
@@ -296,9 +295,8 @@ def test_counter_mismatch_inside_the_tolerance_is_quiet():
     assert cov.counter_mismatch_alerts(rows) == []
 
 
-def test_each_boot_of_the_day_allows_one_more_start():
-    # #1734 C-10: a relay on across a reboot is switched on again, a start the stored edges never show.
-    assert cov.counter_mismatch_alerts([recon("heat1", 13, 10, boots=1)]) == []
+def test_a_boot_adds_no_start_allowance():
+    # The stored edges carry the ON edge after a boot (RULINGS AF6), so 3 starts over 10 is outside the tolerance.
     assert [a["sensor_id"] for a in cov.counter_mismatch_alerts([recon("heat1", 13, 10)])] == [
         "equipment.heat1.counters.2026-11-17"
     ]

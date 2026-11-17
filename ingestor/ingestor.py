@@ -366,10 +366,13 @@ class State:
         )
         self.equipment: dict[str, bool] = {}
         # RULINGS AF6: relay edges across a controller boot. The relays held ON when this connection began, each
-        # relay's first state on it, and the last uptime seen on any connection.
+        # relay's first state on it, the relays whose first state the receipt path stored, the boot this connection
+        # follows (once its uptime showed it), and the last uptime seen on any connection.
         self.relay_generation = 0
         self.relays_on_before_connection: set[str] = set()
         self.relays_first_seen: dict[str, tuple[bool, datetime]] = {}
+        self.relays_first_recorded: set[str] = set()
+        self.relay_boot_at: datetime | None = None
         self.relay_last_uptime_s: float | None = None
         self.system: dict[str, str] = {}
         self.setpoints: dict[str, float] = {}
@@ -3289,35 +3292,48 @@ def _note_relay_generation(generation: int) -> None:
         if value is True and equipment not in _ORDINARY_EQUIPMENT_STREAMS
     }
     state.relays_first_seen = {}
+    state.relays_first_recorded = set()
+    state.relay_boot_at = None
+
+
+def _queue_relay_boot_edges(edges: list[tuple[datetime, str, bool]]) -> list[tuple[datetime, str, bool]]:
+    room = EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS - len(state.pending_ordinary_equipment)
+    if len(edges) > room:
+        log.error("relay boot edges dropped at bounded buffer: %d of %d", len(edges) - max(room, 0), len(edges))
+        edges = edges[: max(room, 0)]
+    state.pending_ordinary_equipment.extend(edges)
+    return edges
 
 
 def _relay_edges_across_boot(uptime_s: float, observed_at: datetime, generation: int) -> None:
     """RULINGS AF6 (TEL-F4, RLY-F4): when the controller's uptime resets, every relay the host held ON dropped at
-    the boot. Write an OFF edge at the boot time (report time minus uptime) for each, an ON edge at its first report
-    for a relay that came back ON (the cache swallowed it as no change), and clear the cache of relays not yet
-    reported, so the first state after the boot is stored as an edge. The rows go through the ordinary view, as the
-    reconnect snapshot's do: they predate this connection's receipts."""
+    the boot. Write an OFF edge at the boot time (report time minus uptime) for each, and one ON edge at
+    max(first report, boot) for every relay first reported ON after the boot whose first state the receipt path did
+    not store: the cache swallowed it as no change, or the callback came before this connection's firmware lineage
+    (a relay OFF before the boot and switched on by the law right after it, 2026-11-17). Clear the cache of relays
+    not yet reported; one reported after this (the uptime callback can come first) gets its ON edge from
+    _record_equipment_callback. The rows go through the ordinary view: they predate this connection's receipts."""
     _note_relay_generation(generation)
     previous = state.relay_last_uptime_s
     state.relay_last_uptime_s = uptime_s
     if previous is None or uptime_s + 1.0 >= previous:
         return
     boot_at = observed_at - timedelta(seconds=uptime_s)
+    state.relay_boot_at = boot_at
     held = state.relays_on_before_connection  # a boot always ends the API session, so a new connection came first
     edges = [(boot_at, equipment, False) for equipment in sorted(held)]
-    for equipment in sorted(held):
-        first = state.relays_first_seen.get(equipment)
-        if first is not None and first[0] is True:
-            edges.append((max(first[1], boot_at), equipment, True))
+    for equipment, (value, first_at) in sorted(state.relays_first_seen.items()):
+        if (
+            value is True
+            and equipment not in state.relays_first_recorded
+            and equipment not in _ORDINARY_EQUIPMENT_STREAMS
+        ):
+            edges.append((max(first_at, boot_at), equipment, True))
     for equipment in [e for e in state.equipment if e not in state.relays_first_seen]:
         if equipment not in _ORDINARY_EQUIPMENT_STREAMS:
             del state.equipment[equipment]
     state.relays_on_before_connection = set()
-    room = EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS - len(state.pending_ordinary_equipment)
-    if len(edges) > room:
-        log.error("relay boot edges dropped at bounded buffer: %d of %d", len(edges) - max(room, 0), len(edges))
-        edges = edges[: max(room, 0)]
-    state.pending_ordinary_equipment.extend(edges)
+    edges = _queue_relay_boot_edges(edges)
     log.info("controller boot at %s: %d relay edge(s) written for %s", boot_at.isoformat(), len(edges), sorted(held))
 
 
@@ -3329,7 +3345,8 @@ def _record_equipment_callback(
     source_clock_valid: bool,
 ) -> None:
     _note_relay_generation(source_generation)
-    if type(value) is bool and equipment not in state.relays_first_seen:
+    first = type(value) is bool and equipment not in state.relays_first_seen
+    if first:
         state.relays_first_seen[equipment] = (value, observed_at)
     # VD-64: the irrigation bridge reads the wet relays' live states (and when each last read OFF) from here,
     # before any dedupe, so a new transport generation re-labels an unchanged state.
@@ -3343,24 +3360,30 @@ def _record_equipment_callback(
         return
     old = state.equipment.get(equipment)
     state.equipment[equipment] = value
-    if old == value or source_generation < 1:
-        return
-    if not source_clock_valid:
-        return
-    firmware_revision = state.diagnostics.get("firmware_version")
-    if not _valid_source_firmware(firmware_revision) or state.counter_source_firmware_generation != source_generation:
-        _mark_equipment_source_gap("equipment_event_lineage_unavailable")
-        return
-    _append_pending_equipment_event(
-        PendingEquipmentStateEvent(
-            observed_at,
-            equipment,
-            value,
-            COUNTER_SOURCE_RUNTIME_INSTANCE_ID,
-            source_generation,
-            firmware_revision,
-        )
-    )
+    recorded = False
+    if old != value and source_generation >= 1 and source_clock_valid:
+        firmware_revision = state.diagnostics.get("firmware_version")
+        if (
+            not _valid_source_firmware(firmware_revision)
+            or state.counter_source_firmware_generation != source_generation
+        ):
+            _mark_equipment_source_gap("equipment_event_lineage_unavailable")
+        else:
+            recorded = _append_pending_equipment_event(
+                PendingEquipmentStateEvent(
+                    observed_at,
+                    equipment,
+                    value,
+                    COUNTER_SOURCE_RUNTIME_INSTANCE_ID,
+                    source_generation,
+                    firmware_revision,
+                )
+            )
+    if first and recorded:
+        state.relays_first_recorded.add(equipment)
+    elif first and value is True and state.relay_boot_at is not None:
+        # The boot is already known (its uptime came first): the first ON state after it is an edge.
+        _queue_relay_boot_edges([(max(observed_at, state.relay_boot_at), equipment, True)])
 
 
 def _payload_rejected(obj_id: str, why: str) -> None:
