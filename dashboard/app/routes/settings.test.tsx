@@ -271,12 +271,13 @@ test("Changed in the last 24 h counts any write in force, Iris plans too; 7 d wi
   await open("/settings?filter=recent", { patch });
   expect(chips()[2]).toEqual(["Changed in the last 24 h 5", "true"]);
   // Iris's plan values written today, the 20 h old write and the agent's writes; not the write 6 days old.
-  expect(shown()).toEqual(["mister_engage_delay_s", "mister_water_budget_gal", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled", "sw_gl_main_solar_phasing"]);
+  // The scheduled-policy group now leads: the four operator settings sit in Controller safety after it (#1785).
+  expect(shown()).toEqual(["sw_gl_main_solar_phasing", "mister_engage_delay_s", "mister_water_budget_gal", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled"]);
   fireEvent.click(within(rail() as HTMLElement).getByRole("link", { name: "7 d" }));
   await settle();
   expect(here()).toBe("/settings?filter=recent&window=7d");
   expect(chips()[2]).toEqual(["Changed in the last 7 d 6", "true"]);
-  expect(shown()).toEqual(["mister_engage_delay_s", "mister_water_budget_gal", "mister_min_off_s", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled", "sw_gl_main_solar_phasing"]);
+  expect(shown()).toEqual(["sw_gl_main_solar_phasing", "mister_engage_delay_s", "mister_water_budget_gal", "mister_min_off_s", "outdoor_staleness_max_s", "sw_direct_wet_gate_enabled"]);
   cleanup();
   stopFixtureApi();
   // Desired rows with no readable write time: the filter is left out, and its URL falls back to All.
