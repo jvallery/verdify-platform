@@ -10,8 +10,22 @@
 .sys-subtitle{margin:0 0 var(--space-2);font-size:var(--fs-md)}
 .sys-lead{margin:0 0 var(--space-3)}
 .sys-note{margin:var(--space-3) 0 0}
-.sys-raw,.sys-hash,.sys-firmware,.sys-line-id{font-family:var(--mono);font-size:var(--fs-sm);overflow-wrap:anywhere}
+.sys-hash,.sys-firmware,.sys-line-id{font-family:var(--mono);font-size:var(--fs-sm);overflow-wrap:anywhere}
 .sys-plain-list{margin:0;padding-left:var(--space-5)}
+
+/* The answer (A4): the page's first block, a sentence built from the data, with at most one pill beside it and short lines under it. */
+.sys-answer{display:grid;gap:var(--space-2);min-width:0}
+.sys-answer-text{margin:0;font-size:var(--fs-lg);line-height:1.35;font-weight:500;max-width:60rem}
+.sys-answer-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3)}
+/* 8 px between the lines: each line's link keeps the 24 px target spacing (WCAG 2.5.8). */
+.sys-answer-lines{display:grid;gap:var(--space-2);margin:var(--space-1) 0 0;padding:0;list-style:none}
+.sys-answer-line{display:flex;align-items:baseline;gap:var(--space-2);min-width:0;font-size:var(--fs-sm);color:var(--text-2)}
+.sys-answer-line>a{font-weight:650;white-space:nowrap}
+.sys-answer-line .sys-dot{align-self:center}
+.sys-answer-line.is-ok .sys-dot{box-shadow:none;background:var(--ok)}
+.sys-answer-line.is-warn .sys-dot{box-shadow:none;background:var(--warn)}
+.sys-answer-line.is-fault .sys-dot{box-shadow:none;background:var(--critical)}
+.sys-answer-line.is-warn{color:var(--text)}
 
 /* Relay rows (Equipment): name and state on one line, facts and why beneath. */
 .sys-relays{display:grid;gap:var(--space-3);margin:0;padding:0;list-style:none;grid-template-columns:minmax(0,1fr)}
@@ -21,7 +35,6 @@
 .sys-relay-facts{margin:var(--space-1) 0 0;font-size:var(--fs-sm);color:var(--text-2);font-variant-numeric:tabular-nums}
 .sys-relay-why{margin:var(--space-2) 0 0;font-size:var(--fs-sm);overflow-wrap:anywhere}
 .sys-relay-hold{color:var(--warn-text)}
-.sys-relay-link{white-space:nowrap}
 .sys-line-id{color:var(--text-2)}
 .sys-line-note{color:var(--warn-text)}
 
@@ -40,17 +53,16 @@
 .sys-state.is-neutral .sys-dot[data-token]{background:var(--text-2)}
 
 /* Flags. */
-.sys-flags{display:grid;gap:var(--space-2);margin:0;padding:0;list-style:none;grid-template-columns:minmax(0,1fr)}
-.sys-flag{display:flex;flex-wrap:wrap;justify-content:space-between;gap:var(--space-2);min-width:0}
-.sys-flag-name{font-weight:600}
-.sys-flag-state{color:var(--text-2)}
+.sys-flags{display:grid;gap:var(--space-3);margin:0;padding:0;list-style:none;grid-template-columns:minmax(0,1fr)}
+.sys-flag{display:grid;gap:var(--space-1);min-width:0;align-content:start}
+.sys-flag-name{font:500 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-2)}
+.sys-flag-state{color:var(--text)}
 .sys-flag.is-warn .sys-flag-state{color:var(--warn-text)}
 .sys-flag.is-critical .sys-flag-state,.sys-flag.is-fault .sys-flag-state{color:var(--critical-text)}
 
-/* Controller: verdict, budget tiles with meters, trends. */
-.sys-verdict-title{margin:0 0 var(--space-2)}
-.sys-verdict-text{margin:0;font-size:var(--fs-md)}
-.sys-tiles{display:grid;gap:var(--space-3);grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))}
+/* Controller: budget tiles with meters, three a row from 861 px and two on a phone; trends. */
+.sys-tiles{display:grid;gap:var(--space-3);grid-template-columns:repeat(2,minmax(0,1fr))}
+.sys-tiles>*{min-width:0}
 .sys-meter{display:block;margin-top:var(--space-2);overflow:visible}
 .sys-meter-track{fill:var(--surface-2)}
 .sys-meter-fill{fill:var(--text-2)}
@@ -67,21 +79,19 @@
 /* Restart: a disclosure inside a card; the list says what it interrupts. */
 .sys-restart-list{margin:var(--space-2) 0 var(--space-3);padding-left:var(--space-5)}
 
-/* Data: outcome bars, a plain list with one bar of each outcome's share. */
-.sys-bars{display:grid;gap:var(--space-2);margin:0 0 var(--space-4);padding:0;list-style:none}
-.sys-bar{display:grid;grid-template-columns:minmax(0,9rem) minmax(3rem,auto) minmax(0,1fr);align-items:center;gap:var(--space-2);min-width:0}
-.sys-bar-label{min-width:0;overflow-wrap:anywhere}
-.sys-bar-count{text-align:right;font-variant-numeric:tabular-nums}
-.sys-bar-track{display:block;height:.5rem;border-radius:var(--radius-pill);background:var(--surface-2);overflow:hidden}
-.sys-bar-fill{display:block;height:100%;width:var(--share,0%);background:var(--text-2)}
-.sys-bar[data-status=failed] .sys-bar-fill{background:var(--critical)}
-.sys-bar[data-status=pending] .sys-bar-fill,.sys-bar[data-status=sent] .sys-bar-fill{background:var(--warn)}
-.sys-bar[data-status=confirmed] .sys-bar-fill,.sys-bar[data-status=observed] .sys-bar-fill{background:var(--accent)}
+/* Data: the probes not answering, one line each, a stop of today in the warning tone first, the known silent muted; then the answering ones behind a disclosure. */
+.sys-silent{display:grid;gap:var(--space-1);margin:0 0 var(--space-2);padding:0;list-style:none}
+.sys-silent-line{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);min-height:1.75rem;min-width:0}
+.sys-silent-line.is-known{color:var(--text-2)}
+.sys-silent-line.is-recent{color:var(--text);font-weight:600}
+.sys-answering>summary{min-height:var(--tap);display:flex;align-items:center;font-weight:650;cursor:pointer}
 .sys-continuity-bars{margin-top:var(--space-2)}
+.sys-data .sys-pair{align-items:start}
 
 @media(min-width:861px){
   .sys-pair{grid-template-columns:repeat(2,minmax(0,1fr))}
   .sys-relays{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .sys-flags{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sys-flags{grid-template-columns:repeat(3,minmax(0,1fr))}
   .sys-trends{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sys-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
 }

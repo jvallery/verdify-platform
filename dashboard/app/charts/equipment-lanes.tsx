@@ -5,7 +5,7 @@ import { LINES, lineByEquipment, lineById, type Line } from "../lib/lines";
 import type { ActivityEntry } from "../lib/operator-api";
 import { causeWords } from "./causes";
 import { csvFilename, tableCsv } from "./csv";
-import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "./data-table";
+import { ChartFoot, TimeCell, type DataTableBlock } from "./data-table";
 import { labelColor, paintNow, type ChartColors, type PaintTarget } from "./draw";
 import { GROUP_HEAD, LANE_HEAD, LANE_PITCH, RowLabels, clipColumns, intervalText, paintHatch, rowBand, spanDuration, spanPixels, type RowLayout } from "./lanes-draw";
 import { ChartKey, type KeyItem } from "./legend";
@@ -613,6 +613,8 @@ export function EquipmentLanes(props: EquipmentLanesProps) {
       <span className="eyebrow">EQUIPMENT · WHAT RAN</span>
       <span className="lanes-columns" aria-hidden="true"><span className="lanes-wide">state · </span>on time<span className="lanes-wide"> · starts</span></span>
     </figcaption>}
+    {/* The key is one line above the rows it names (A3). */}
+    {drawable && <ChartKey items={lanesKey(model)} />}
     {drawable
       ? <div className={stacked ? "lanes lanes-equipment lanes-stacked" : "lanes lanes-equipment"} onMouseLeave={() => link?.onLane(null, null)}>
         <ul className="lanes-rows" aria-label="Equipment by system, state at the window's end, on time and starts">
@@ -626,12 +628,7 @@ export function EquipmentLanes(props: EquipmentLanesProps) {
           syncKey={syncKey} marks={marks} onZoom={zoom.onZoom} onPlot={zoom.onPlot} />
       </div>
       : <div className="plot plot-small chart-message"><p>{props.message ?? "No equipment data in this window"}</p></div>}
-    {/* The key sits right under the rows it names, above the CSV and the table. */}
-    {drawable && <ChartKey items={lanesKey(model)} />}
-    {drawable && <div className="chart-tools">
-      {(props.zoomControl ?? true) && zoom.zoomed && <button type="button" onClick={zoom.reset}>Reset zoom</button>}
-      <CsvLink filename={csvFilename("equipment-lanes", xRange)} build={() => lanesCsv(model)} version={model} label="CSV of these lanes" />
-    </div>}
-    {drawable && <DataTable name="Lanes table" tables={[lanesTable(model)]} />}
+    {drawable && <ChartFoot name="Lanes table" tables={[lanesTable(model)]} csv={{ filename: csvFilename("equipment-lanes", xRange), build: () => lanesCsv(model), version: model, label: "CSV of these lanes" }}
+      tools={(props.zoomControl ?? true) && zoom.zoomed ? <button type="button" className="chart-tool" onClick={zoom.reset}>Reset zoom</button> : null} />}
   </figure>;
 }

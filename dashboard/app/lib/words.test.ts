@@ -8,8 +8,12 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { OUTCOMES } from "./operator-api";
-import { ALERT_SEVERITIES, ALERT_STATUSES, BAND_VERDICTS, BURST_KINDS, LINE_FAULTS, LINE_STATE_CODES, PROBLEM_CODES, STATE_REASON_CODES, VPD_SOURCES } from "./vocab";
-import { HISTORICAL_ALERT_TYPES, WORDS, alertAbout, hasWords, words } from "./words";
+import { sentenceStart } from "./format";
+import {
+  ALERT_SEVERITIES, ALERT_STATUSES, BAND_VERDICTS, BURST_KINDS, DELIVERY_SENDERS, FLOW_TABLES, LINE_FAULTS, LINE_STATE_CODES, PROBE_SENSORS, PROBLEM_CODES, SENDING_CODES,
+  STATE_REASON_CODES, VPD_SOURCES, deliverySender, isControllerReport,
+} from "./vocab";
+import { HISTORICAL_ALERT_TYPES, WORDS, alertAbout, hasWords, sendingWords, unknownWords, words, wordsOrUnknown } from "./words";
 
 const repo = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
 type Schema = { enum?: (string | null)[]; properties?: Record<string, Schema> };
@@ -367,6 +371,9 @@ test("every enum value of the climate law, daily record, review and system schem
   // The stored values the delivery and data-gap readouts word (setpoint_changes, data_gaps), and the device's gap-log states.
   expectWorded("delivery_status", ["pending", "requested", "queued", "sent", "retrying", "confirmed", "failed", "cancelled", "superseded", "expired", "observed"]);
   expectWorded("delivery_source", ["band", "plan", "iris_planner", "manual", "esp32", "dispatcher", "system", "ingestor", "none"]);
+  expectWorded("probe", PROBE_SENSORS);
+  expectWorded("flow_table", FLOW_TABLES);
+  expectWorded("sending", SENDING_CODES.filter((code) => code !== "paced"));
   expectWorded("data_gap_reason", ["ingestor_restart", "ingestor_process_restart"]);
   expectWorded("data_gap_status", ["snapshot_taken", "snapshot_incomplete", "pending", "backfilled", "unrecoverable", "ignored"]);
 });
@@ -403,4 +410,55 @@ test("every unit of words.md section 5 has its spoken name", () => {
   expectWorded("unit", units);
   expect(Object.keys(WORDS.unit).sort()).toEqual([...units].sort());
   expect(words("unit", "therms")).toBe("therms, estimated");
+});
+
+/** A Python tuple of string literals, `NAME = ( ... )` or on one line, in a repository file. */
+function pythonTuple(path: string, name: string): string[] {
+  const block = new RegExp(`^${name} = \\(([\\s\\S]*?)\\)`, "m").exec(repo(path));
+  if (!block) throw new Error(`no ${name} in ${path}`);
+  return quoted(block[1]);
+}
+
+test("System → Data's probes, flow tables and sending codes are the API's, each worded as a name (A8)", () => {
+  expect([...PROBE_SENSORS]).toEqual(pythonTuple("verdify_services/system_health.py", "PROBES").map((column) => `climate.${column}`));
+  expect([...FLOW_TABLES]).toEqual(pythonTuple("verdify_services/system_health.py", "FLOW_TABLES"));
+  // The stages the ingestor writes: ordinary, paced <sent>/<pending>, held:<reason> and the readback hold.
+  const dispatcher = repo("ingestor/tasks/dispatcher.py");
+  const stage = /def _dispatcher_stage_value\([\s\S]*?\n\n/.exec(dispatcher)?.[0] ?? "";
+  const written = [...stage.matchAll(/return f?"([a-z:]+)/g)].map((match) => match[1]);
+  const held = /^HELD_READBACKS_STAGE = "([a-z:]+)"/m.exec(dispatcher)?.[1];
+  expect(new Set([...written, held])).toEqual(new Set(SENDING_CODES));
+  // Names stand alone: each starts with a capital, and the six flow tables read as the manager named them.
+  for (const family of ["probe", "flow_table"]) for (const text of Object.values(WORDS[family])) expect(text, text).toBe(sentenceStart(text));
+  expect(FLOW_TABLES.map((table) => words("flow_table", table))).toEqual([
+    "Climate readings", "Relay changes", "Controller state", "Controller health", "Setting readbacks", "Setting changes",
+  ]);
+  expect(words("probe", "climate.intake_rh")).toBe("Intake relative humidity");
+  expect(words("probe", "climate.temp_north")).toBe("North wall temperature");
+});
+
+test("the sending words: ordinary, paced with its numbers, held with its reason, and an unknown code as Unknown (…)", () => {
+  expect(sendingWords("ordinary")).toBe("sending as usual");
+  expect(sentenceStart(sendingWords("ordinary")!)).toBe("Sending as usual");
+  expect(sendingWords("paced 3/12")).toBe("pacing: 3 of 12 sent this pass");
+  expect(sendingWords("held:heap")).toBe("held: the controller is short of memory");
+  expect(sendingWords("held:readbacks")).toBe("held: waiting for the controller to report every setting");
+  expect(sendingWords("held:brownout")).toBe("Unknown (held:brownout)");
+  expect([sendingWords(null), sendingWords(undefined), sendingWords("")]).toEqual([null, null, null]);
+});
+
+test("an unknown code standing alone reads Unknown (<code>), never the code as a name", () => {
+  expect(unknownWords("ordinary")).toBe("Unknown (ordinary)");
+  expect(wordsOrUnknown("flow_table", "setpoint_changes")).toBe("Setting changes");
+  expect(wordsOrUnknown("flow_table", "pump_log")).toBe("Unknown (pump_log)");
+  expect(wordsOrUnknown("no_such_family", "x")).toBe("Unknown (x)");
+  expect(wordsOrUnknown("probe", "constructor")).toBe("Unknown (constructor)");
+});
+
+test("the delivery senders: the house band, an operator and the retired planner; the controller's own reports are not pushes", () => {
+  expect(DELIVERY_SENDERS.map((sender) => sentenceStart(words("delivery_source", sender)))).toEqual(["The house band", "An operator", "The planner (retired)"]);
+  expect(words("delivery_source", "iris_planner")).toBe(words("delivery_source", "plan"));
+  expect(["band", "manual", "plan", "iris_planner", "esp32", "dispatcher", "none"].map(deliverySender)).toEqual(["band", "manual", "plan", "plan", null, null, null]);
+  expect(isControllerReport("esp32")).toBe(true);
+  expect(isControllerReport("band")).toBe(false);
 });

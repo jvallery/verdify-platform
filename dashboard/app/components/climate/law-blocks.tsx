@@ -4,20 +4,22 @@
  * running alone and the timing and constants. Each is a `Panel` with the four states of design-system §3, fed by the
  * page's one API-30 read.
  */
-import { formatValue } from "../../lib/format";
+import { duration, formatValue } from "../../lib/format";
+import { lawSentence } from "../../lib/law-sentence";
 import type { LawRule, LawView } from "../../lib/operator-api";
 import type { PanelRead } from "../../lib/queries";
+import { useShellNow } from "../../lib/shell";
 import { words } from "../../lib/words";
 import { Badge, StatusBadge, type BadgeKind, type BadgeStatus } from "../badge";
-import { Card } from "../card";
 import { Checklist } from "../data/checklist";
 import { Details } from "../details";
+import { useNow } from "../freshness";
 import { Kv } from "../kv";
 import { EmptyState, Panel, type PanelState } from "../panel";
 import { Table, type TableColumn } from "../table";
 import {
-  aloneChecks, bandSourceSentence, capital, constantsWords, dryingChecks, dryingVerdict, edgesText, hostSentence, minSec, repairedSentence, ruleSentence,
-  ruleState, rulesOf, unitOf, verdictTone, type RuleStateKind,
+  aloneChecks, bandSourceSentence, capital, constantsWords, dryingChecks, dryingVerdict, edgesText, hostSentence, lawStateOf, minSec, onRelays, relayGroups,
+  repairedSentence, ruleState, ruleThresholds, rulesOf, unitOf, verdictTone, type RuleStateKind,
 } from "./law";
 import { RuleLadder } from "./rule-ladder";
 
@@ -46,20 +48,24 @@ export function RuleStateBadge({ rule }: { rule: Pick<LawRule, "latched" | "requ
   return <StatusBadge status={STATE_STATUS[state.kind]} size="sm">{state.text}</StatusBadge>;
 }
 
-/** The relays a rule drives with their state: "Vent On", "Fan 1 Off". */
+/** The relays a rule drives, grouped by state so the row stays one line: "Vent, Fan 1, Fan 2 · Off"; "Heat 1 (electric) · On". */
 function RelayStates({ rule }: { rule: LawRule }) {
   if (!rule.relays.length) return <span className="muted">—</span>;
-  return <ul className="law-relays">{rule.relays.map((relay) => <li key={relay.equipment}>
-    <span>{words("law_relay", relay.equipment)}</span> <Badge kind={RELAY_BADGE[relay.state] ?? "unknown"} size="sm" />
+  return <ul className="law-relays">{relayGroups(rule.relays).map((group) => <li key={group.names}>
+    <span>{group.names}</span> <Badge kind={RELAY_BADGE[group.state] ?? "unknown"} size="sm" />
   </li>)}</ul>;
 }
 
-const RULE_COLUMNS: readonly TableColumn<LawRule>[] = [
-  { key: "rule", header: "Rule", rowHeader: true, cell: (rule) => words("law_rule", rule.id) },
-  { key: "when", header: "When", cell: (rule) => capital(ruleSentence(rule)) },
-  { key: "state", header: "State", cell: (rule) => <RuleStateBadge rule={rule} /> },
-  { key: "relays", header: "Relays", cell: (rule) => <RelayStates rule={rule} /> },
-];
+/** The rules' columns: the units sit in the threshold headers ("On, °F"), so the cells are the direction and a bare number. */
+function ruleColumns(unit: string): readonly TableColumn<LawRule>[] {
+  return [
+    { key: "rule", header: "Rule", rowHeader: true, className: "law-rule-name", cell: (rule) => words("law_rule", rule.id) },
+    { key: "on", header: `On, ${unit}`, className: "law-rule-on", cell: (rule) => ruleThresholds(rule).on },
+    { key: "off", header: `Off, ${unit}`, numeric: true, cell: (rule) => ruleThresholds(rule).off },
+    { key: "state", header: "State", titleAside: true, cell: (rule) => <RuleStateBadge rule={rule} /> },
+    { key: "relays", header: "Relays", cell: (rule) => <RelayStates rule={rule} /> },
+  ];
+}
 
 /** One signal's ladder and its rules as rows (screens §2.1 block 2). */
 function SignalRules({ view, signal, label }: { view: LawView; signal: "temp" | "vpd"; label: string }) {
@@ -74,7 +80,7 @@ function SignalRules({ view, signal, label }: { view: LawView; signal: "temp" | 
   return <div className="law-signal">
     <h3>{label} <span className="muted">({unit})</span></h3>
     <RuleLadder label={label} unit={unit} band={band.low !== null && band.high !== null ? { low: band.low, high: band.high } : null} reading={reading} rules={ladderRules} />
-    <Table label={`${label} rules`} caption={`${label} rules, in the law's order`} captionHidden columns={RULE_COLUMNS} rows={rules} rowKey={(rule) => rule.id} phone="list"
+    <Table label={`${label} rules`} caption={`${label} rules, in the law's order`} captionHidden columns={ruleColumns(unit)} rows={rules} rowKey={(rule) => rule.id} phone="list"
       empty={<EmptyState message={`No ${label} rules reported.`} />} />
   </div>;
 }
@@ -91,13 +97,46 @@ export function RulesPanel({ read }: { read: PanelRead<LawView> }) {
   </Panel>;
 }
 
+// ---------------------------------------------------------------------------------------------------- the answer (A4)
+/**
+ * The page's answer, first (screens rules, A4): what the controller is doing and why in Now's words (`lawSentence`, fed
+ * from API-30 through `lawStateOf`), with the drying verdict when drying is wanted, and each relay that is on as a chip
+ * with how long. A run by hand comes from the shell's API-02, which every page already polls.
+ */
+export function LawAnswerPanel({ read }: { read: PanelRead<LawView> }) {
+  const view = read.data;
+  const clock = useNow();
+  const shell = useShellNow().data;
+  const byHand = (shell?.overrides ?? []).filter((run) => !run.held_reason).map((run) => run.kind);
+  const running = view ? onRelays(view) : [];
+  const law = view ? lawStateOf(view) : null;
+  const said = view ? lawSentence({ law, running, temp: view.inputs.temp_f ?? null, vpd: view.inputs.vpd_kpa ?? null, byHand }) : null;
+  const state = lawPanelState(read);
+  return <Panel title="What the controller is doing" thing="what the controller is doing" state={state === "empty" ? "ready" : state} reserve="sm" observedAt={view?.observed_at} onRetry={read.retry}>
+    {view && said && <div className="law-answer">
+      <p className="law-answer-text" data-doing={view.observed_at ? said.kind : "never"}>
+        {view.observed_at ? said.sentences.join(" ") : "The controller has not reported its climate law yet, so what it is doing is not known."}
+      </p>
+      {law && running.length > 0 && <ul className="chips law-answer-relays" aria-label="On now">
+        {running.map((relay) => {
+          const since = relay.since ? Date.parse(relay.since) : Number.NaN;
+          return <li key={relay.equipment}><span className="chip chip-static">{words("law_relay", relay.equipment)}{Number.isFinite(since) ? ` · ${duration(Math.max(0, Math.floor((clock - since) / 1000)))}` : ""}</span></li>;
+        })}
+      </ul>}
+    </div>}
+  </Panel>;
+}
+
 // ---------------------------------------------------------------------------------------------------- the drying decision
+/** The verdict in one word for the head's pill (Running, Refused, Not wanted); the line under the checks gives the reason. */
+const verdictWord = (state: LawView["drying"]["state"]): string => dryingVerdict({ state, refused_reason: null });
+
 /** Block 3: the drying decision in the law's order, then its verdict (screens §2.1 block 3). */
 export function DryingDecisionPanel({ read }: { read: PanelRead<LawView> }) {
   const view = read.data;
   const verdict = view ? dryingVerdict(view.drying) : null;
   return <Panel title="Drying decision" thing="the drying decision" state={lawPanelState(read)} observedAt={view?.observed_at} onRetry={read.retry} empty={NOT_REPORTED}
-    pill={view && verdict ? <StatusBadge status={verdictTone(view.drying.state)} size="sm">{verdict}</StatusBadge> : undefined}
+    pill={view ? <StatusBadge status={verdictTone(view.drying.state)} size="sm">{verdictWord(view.drying.state)}</StatusBadge> : undefined}
     link={{ to: "/climate/drying", label: "Drying" }}>
     {view && <>
       <Checklist label="The drying decision, in the law's order" items={dryingChecks(view)} />
@@ -148,8 +187,7 @@ export function TimingPanel({ read }: { read: PanelRead<LawView> }) {
   const view = read.data;
   if (!view) return null;
   const { timing, constants } = view;
-  return <Card className="law-timing">
-    <Details summary="Timing and constants">
+  return <Details className="card law-timing" summary="Timing and constants">
       <Kv items={[
         { key: "relay", term: "Relays: minimum on, minimum off", value: `${minSec(timing.relay_min_on_s)}, ${minSec(timing.relay_min_off_s)}` },
         { key: "fog", term: "Fogger: minimum on, minimum off", value: `${minSec(timing.fog_min_on_s)}, ${minSec(timing.fog_min_off_s)}` },
@@ -162,8 +200,7 @@ export function TimingPanel({ read }: { read: PanelRead<LawView> }) {
         { key: "release", term: "Constants of this release", value: <code>{shortHash(constants.release_hash)}</code> },
       ]} />
       <p className="meta">{capital(`the controller says ${constantsWords(constants)}.`)}</p>
-    </Details>
-  </Card>;
+  </Details>;
 }
 
 /** The page's status line (screens §2.1 block 1): reporting or not, the record's age, the constants against the release. */

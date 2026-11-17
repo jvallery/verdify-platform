@@ -5,6 +5,7 @@
  */
 import { Link } from "react-router";
 import { DailyBars } from "../../charts/daily-bars";
+import { ChartGroup } from "../../charts/legend";
 import { formatValue, leftWords, shortTime } from "../../lib/format";
 import type { LightingCircuit, Setting } from "../../lib/operator-api";
 import type { PanelRead } from "../../lib/queries";
@@ -149,12 +150,15 @@ export function WeekPanel({ circuits, read }: { circuits: readonly (LightingCirc
   return <Panel title="Last 7 days" thing="the light days" state={state} onRetry={read.retry} reserve="lg" link={{ to: "/lights/history", label: "Light history" }}
     empty={<EmptyState message="No light days are recorded for this week." />}
     foot="Time on as the switch reports it. A day with no record is a gap.">
-    <div className="l-cols-2">
-      {CIRCUITS.map((circuit, index) => {
-        const days = minutesOnDays(circuits[index]);
-        return <DailyBars key={circuit.light} title={`${circuit.name}: time on per day`} unit="min" token={circuit.token} days={days} mean7={completeMean(days)}
-          format={(value) => formatValue(value, "min")} size="sm" syncKey="lights:week" />;
-      })}
-    </div>
+    {/* The two circuits' charts are small multiples: one key above them (design review A3). */}
+    <ChartGroup label="Time on per day">
+      <div className="l-cols-2">
+        {CIRCUITS.map((circuit, index) => {
+          const days = minutesOnDays(circuits[index]);
+          return <DailyBars key={circuit.light} title={`${circuit.name}: time on per day`} unit="min" token={circuit.token} days={days} mean7={completeMean(days)}
+            format={(value) => formatValue(value, "min")} size="sm" syncKey="lights:week" />;
+        })}
+      </div>
+    </ChartGroup>
   </Panel>;
 }

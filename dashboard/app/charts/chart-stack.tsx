@@ -5,7 +5,7 @@ import { cssVars, rovingKeys } from "../components/data/viz";
 import { formatValue } from "../lib/format";
 import { usePhone } from "../lib/narrow";
 import { csvFilename, windowCsv } from "./csv";
-import { CsvLink, DataTable } from "./data-table";
+import { ChartFoot } from "./data-table";
 import { EVENT_GLYPHS, EVENT_KIND_WORDS, clusterEvents, eventsIn, kindsOf, touches, type ChartEvent, type EventCluster, type EventKind } from "./events";
 import { bandWord, compareLine, inBandShare, type CompareLine } from "./layers";
 import { ChartKey, type KeyItem } from "./legend";
@@ -33,8 +33,8 @@ import { UPlotChart, resetZoom, useStableArray } from "./uplot-chart";
  *   step) and one time chip rides the cursor line at the top. There is no floating tooltip.
  * - Layers, each only when asked: excursion shading, the min–max envelope (buckets of 30 min and coarser), the compare
  *   line with its delta in the header, and the event rail on top (its list is also a disclosure under the stack).
- * - Lanes sit in a `<details>`, open from 861 px and closed below; the foot holds the page's words, Reset zoom, CSV of
- *   this window and the data table.
+ * - Lanes sit in a `<details>`, open from 861 px and closed below; the foot holds the page's words, then the one quiet
+ *   line (A3): the data table, Reset zoom and CSV.
  * No greenhouse data renders on the server: a screen mounts the stack once it has a window.
  */
 export type StackPanel = {
@@ -521,11 +521,9 @@ export function ChartStack(props: ChartStackProps) {
       <InStack.Provider value={true}><StackLink.Provider value={link}>{props.lanes}</StackLink.Provider></InStack.Provider>
     </details>}
     {props.events && <EventList events={shownEvents} phone={phone} lit={lit} reverse={reverse} onLit={setLit} />}
-    <div className="stack-foot">
-      {props.foot && <span className="stack-foot-words">{props.foot}</span>}
-      {zoomed && <button type="button" onClick={() => resetZoom(syncKey, xRange)}>Reset zoom</button>}
-      {models.some((model) => model.traces.length > 0) && <CsvLink filename={csvFilename(props.csvName ?? "stack", xRange)} build={() => windowCsv(blocks())} version={csvVersion} />}
-    </div>
-    {tables.length > 0 && <DataTable name={props.tableName} tables={tables} />}
+    {props.foot && <div className="stack-foot">{props.foot}</div>}
+    <ChartFoot name={props.tableName} tables={tables}
+      csv={models.some((model) => model.traces.length > 0) ? { filename: csvFilename(props.csvName ?? "stack", xRange), build: () => windowCsv(blocks()), version: csvVersion, label: "CSV of this window" } : null}
+      tools={zoomed ? <button type="button" className="chart-tool" onClick={() => resetZoom(syncKey, xRange)}>Reset zoom</button> : null} />
   </section>;
 }

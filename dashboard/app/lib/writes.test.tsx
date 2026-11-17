@@ -11,7 +11,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { AlertRow } from "../components/alert-row";
 import { ReadbackBadge } from "../components/badge";
 import { Button } from "../components/button";
-import { EditDrawer, ManualToggle, MANUAL_DEFAULT, NumberField, Reason } from "../components/forms";
+import { EditDrawer, NumberField, Reason } from "../components/forms";
 import { StateReasonLine } from "../components/state-reason-line";
 import { text } from "../components/test-render";
 import type { StateReason, Alert as VocabAlert } from "./vocab";
@@ -23,7 +23,7 @@ import { NOW, UUID, advance, renderWithApi, requests, sentAt, startFixtureApi, s
 import { usePolledQuery } from "./use-current";
 import { words } from "./words";
 import {
-  COMMAND_WINDOW_MS, NOT_STARTED, defaultReadback, errorFor, formError, newestNow, problemMessage, programBody, programSyncText, readback, runningLines, settingToast, stopResult,
+  COMMAND_WINDOW_MS, MANUAL_DEFAULT, NOT_STARTED, defaultReadback, errorFor, formError, newestNow, problemMessage, programBody, programSyncText, readback, runningLines, settingToast, stopResult,
   useCommand, useProgramWrite, useRecordWrite, useSettingWrite, useStop,
 } from "./writes";
 
@@ -61,7 +61,7 @@ function SettingDrawer({ setting, open, onClose }: { setting: Setting; open: boo
   return <EditDrawer open={open} onClose={onClose} title="Edit setting" heading={setting.label} graph={{ param: setting.param, unit: setting.unit }} onSave={save}
     saving={write.sending} error={formError(write.error, ["value", "reason"])} actions={<Button write onClick={() => void write.release({ reason })}>Release to auto</Button>}>
     <NumberField label="New value" value={value} onChange={setValue} min={setting.min} max={setting.max} step={setting.step} unit={setting.unit} error={typed ?? errorFor(write.error, "value")} />
-    <ManualToggle checked={manual} onChange={setManual} />
+    <label><input type="checkbox" checked={manual} onChange={(event) => setManual(event.target.checked)} /> Manual</label>
     <Reason value={reason} onChange={setReason} error={errorFor(write.error, "reason")} />
   </EditDrawer>;
 }
@@ -87,7 +87,7 @@ test("Save always sends manual, ticked by default and false when unticked; a dou
   expect(sentWrites[0].idempotency_key).toMatch(UUID);
   expect(dialogOpen()).toBe(false);
   await openAndType("690");
-  fireEvent.click(screen.getByRole("checkbox", { name: "Let Iris change this" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Manual" }));
   fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Vandas drying" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);

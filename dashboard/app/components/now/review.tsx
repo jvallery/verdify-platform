@@ -2,12 +2,14 @@
 /**
  * Daily review on Now (dashboard v2 screens §1 block 7): the newest review's first paragraph, its date and state, and
  * "Read ›" into Review (API-34 limit 1). The review explains; it changes nothing on the controller. A late or failed
- * review and a waiting proposal are in Needs you; here they read as the review's own state.
+ * review and a waiting proposal are in Needs you; here they read as the review's own state. The paragraph shows at most
+ * five lines (B11); "Read ›" leads to the rest.
  */
 import { Link } from "react-router";
 import type { Review, ReviewPage } from "../../lib/operator-api";
 import { READ_INTERVAL_MS, panelRead, useApiRead } from "../../lib/queries";
 import { words } from "../../lib/words";
+import { Chevron } from "../layout/chevron";
 import { Panel, type PanelState } from "../panel";
 
 export const REVIEW_PARAMS = { limit: 1 } as const;
@@ -39,7 +41,7 @@ export function NowReview() {
     {review && <>
       <p className="meta" data-review="state">{reviewState(review)}</p>
       {text ? <p className="now-review-text" data-review="text">{text}</p> : <p className="meta" data-review="text">No text in this review.</p>}
-      {page?.proposal_waiting && <p data-review="proposal"><Link to="/review">A band proposal is waiting for you<span aria-hidden="true">{" ›"}</span></Link></p>}
+      {page?.proposal_waiting && <p data-review="proposal"><Link to="/review">A band proposal is waiting for you<Chevron /></Link></p>}
     </>}
   </Panel>;
 }

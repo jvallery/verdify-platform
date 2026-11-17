@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 /**
  * Now at `/` (dashboard v2 screens §1): whether the house is all right, and what needs you. The blocks, in the order a
- * phone reads them: the hero (the answer, worst first, and the two band gauges), what the controller is doing, Needs you,
- * Today, Run by hand (operators), Water today, the daily review, the reservoir and the probes. Above 860 px the side
- * column holds Needs you, Run by hand, the review and the reservoir. On a 390 × 844 phone the hero, the controller's
- * sentence and, for an operator, Stop all water (pinned above the bottom bar) are on the first screen.
+ * phone reads them (design review B11): the hero (the answer, worst first, and the two band gauges), what the controller
+ * is doing, Needs you, Run by hand (operators), Today, Water today, the probes, the daily review and the reservoir. Above
+ * 860 px the side column holds Needs you, Run by hand, the review and the reservoir. On a 390 × 844 phone the hero, the
+ * controller's sentence and, for an operator, Stop all water (pinned above the bottom bar) are on the first screen;
+ * above 860 px the top bar's Stop all water is the page's only one (C1).
+ *
+ * The hero's headline counts what Needs you lists, from the same alerts read and the same acknowledgements (B11).
  *
  * Reads, each polled through lib/polling.ts (paused while the tab is hidden, backing off on failures):
  * - API-02, the shell's own poll (`useShellNow`): the answer, the law's record, the readings, what runs, the review.
@@ -23,7 +26,7 @@ import { useClockValue } from "../components/freshness";
 import { ControllerDoing } from "../components/now/doing";
 import { NowHero } from "../components/now/hero";
 import { NowLights } from "../components/now/lights";
-import { NeedsYou } from "../components/now/needs-someone";
+import { NeedsYou, needsTally, useDismissed } from "../components/now/needs-someone";
 import { useCaseRead, useDayRead } from "../components/now/reads";
 import { ReservoirReadings } from "../components/now/reservoir";
 import { NowReview } from "../components/now/review";
@@ -73,7 +76,11 @@ export default function Now() {
   // the session ending, which the shell's card says.
   const failed = shell.error !== null && shell.error !== undefined && !(shell.error instanceof SessionEnded);
   const hold = useBandHold(shell.data);
-  const answer = nowAnswer({ now: shell.data, failed, hold });
+  const dismissed = useDismissed();
+  const needs = failed ? null : needsTally({
+    alerts: alerts.failed ? null : alerts.data, review: shell.data?.review, lines: irrigation.failed ? null : irrigation.data?.lines, dismissed: dismissed.acknowledged,
+  });
+  const answer = nowAnswer({ now: shell.data, failed, hold, needs });
   const retryNow = useCallback(() => { void client.refetchQueries({ queryKey: readKey("API-02"), exact: true }); }, [client]);
   const stopControl = { stop: () => { void stop(); }, sending, confirming };
   return <div className="page now-page">
@@ -107,7 +114,7 @@ export default function Now() {
     <div className="now-side">
       <div className="now-slot now-slot-needs">
         <PanelErrorBoundary thing="alerts" text="Alerts unavailable" onRetry={alerts.retry}>
-          <NeedsYou alerts={alerts} now={shell.data} answer={answer} apiFailed={failed} openCount={failed ? null : status.openAlerts} irrigation={irrigation} />
+          <NeedsYou alerts={alerts} now={shell.data} answer={answer} apiFailed={failed} openCount={failed ? null : status.openAlerts} irrigation={irrigation} dismissed={dismissed} />
         </PanelErrorBoundary>
       </div>
       <OperatorOnly>

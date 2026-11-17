@@ -10,11 +10,12 @@ import { CAN_STILL_START, CAN_STILL_START_NO_ENGINE, DESKTOP, PHONE, SMALL_PHONE
 const VIEWS = ["/water", "/water/schedules", "/water/history", "/water/soil"];
 const row = (page: Page, id: string) => page.locator(`article[data-line="${id}"]`);
 const program = (page: Page) => page.locator("[data-program]");
-// The page's Stop all water: the top bar holds one more for an operator above 860 px (README section 3.2), outside <main>.
-const stopAll = (page: Page) => page.getByRole("main").getByRole("button", { name: "Stop all water" });
+// The page's Stop all water on screen: the top bar's above 860 px (README section 3.2), the sticky tabs row's at 860 px and
+// below; the page header holds none (design review C1).
+const stopAll = (page: Page) => page.getByRole("button", { name: "Stop all water" }).locator("visible=true").first();
 
 for (const viewport of [DESKTOP, PHONE]) {
-  test(`${viewport.width} px: Today puts every line on its physical line's card (#1336), in order; L05 and L06 are reserved and L11 is climate only, run once`, async ({ page, request }) => {
+  test(`${viewport.width} px: Today puts every line on its physical line's card (#1336), in order; the reserved center drips are one quiet row and L11 is climate only, run once`, async ({ page, request }) => {
     await page.setViewportSize(viewport);
     await useScreensClock(page, request, "schedules-paused");
     await load(page, "/water");
@@ -22,13 +23,13 @@ for (const viewport of [DESKTOP, PHONE]) {
     const zones = await page.locator(".wat-zone").evaluateAll((cards) => cards.map((node) => node.getAttribute("data-zone")));
     expect(zones).toEqual(["wall", "center", "center_mister", "south", "west", "fog"]);
     const ids = await page.locator("article[data-line]").evaluateAll((rows) => rows.map((node) => node.getAttribute("data-line")));
-    expect(ids).toEqual(["L01", "L02", "L05", "L06", "L04", "L07", "L08", "L09", "L10", "L11"]);
-    await expect(page.locator('.wat-zone[data-zone="center_mister"] .wat-unwired')).toHaveText("Fertilized · not wired");
+    expect(ids).toEqual(["L01", "L02", "L04", "L07", "L08", "L09", "L10", "L11"]);
+    await expect(page.locator('.wat-zone[data-zone="center_mister"] .wat-unwired')).toHaveText("Fertilized line: not wired");
     await expect(page.getByRole("article", { name: "Wall drip", exact: true })).toHaveAttribute("data-state", "idle");
     await expect(page.locator('[data-limit="L01"]')).toContainText("0 / 60 min");
     await expect(row(page, "L01").locator(".wat-next")).toHaveText(/^next\sWed\s07:35\s·\s12\smin$/);
     await expect(row(page, "L02").locator(".line-subrow")).toContainText("Fertilizer valve");
-    for (const id of ["L05", "L06"]) await expect(row(page, id).locator(".line-state")).toHaveText("Reserved · disabled");
+    await expect(page.locator('.wat-zone[data-zone="center"] .wat-zone-reserved h3')).toHaveText("Center drip: reserved, not installed");
     await expect(row(page, "L11")).toContainText("Climate only");
     await expect(row(page, "L11").getByRole("button", { name: "Fog once… Fog" })).toBeVisible();
     await expectNoHorizontalScroll(page);
@@ -109,7 +110,7 @@ test("D-UX-06 (2026-11-06): only the running line has a Stop, filled red, and on
   await expect(page.locator("article[data-line] .btn-stop")).toHaveCount(1);
   await expect(page.locator("article[data-line]").getByRole("button", { name: /^Stop/ })).toHaveCount(1);
   await expect(row(page, "L01").locator(".btn-stop")).toHaveText(/^Stop/);
-  await expect(page.locator("main .stop-all-water:visible")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Stop all water" }).locator("visible=true")).toHaveCount(1);
   await expect(page.locator(".page-status")).toContainText("Wall drip running (run now)");
   await row(page, "L01").getByRole("button", { name: /^Stop/ }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);

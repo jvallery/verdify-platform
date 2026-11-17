@@ -3,7 +3,7 @@
 // and its time, reporting, silent and never, the moisture against the range, and the page's summary.
 import { expect, test } from "vitest";
 import type { Series } from "../../lib/operator-api";
-import { SILENT_AFTER_S, moistureLine, newestReading, probeState, probeWords, rangeRelation, soilKeys, soilSummary, zoneLabel } from "./soil-model";
+import { SILENT_AFTER_S, moistureLine, newestReading, probeState, probeWords, rangeRelation, readingOlder, soilAnswer, soilKeys, soilSummary, soilValue, zoneLabel } from "./soil-model";
 
 const NOW = 1_800_000_000;
 const RANGE = { wilt_pct: 20, min_pct: 40, max_pct: 60 };
@@ -57,4 +57,20 @@ test("the summary counts zones, those reporting and those reporting outside thei
   expect(soilSummary([ok, low, quiet])).toBe("3 probe zones · 2 reporting · 1 outside its range");
   expect(soilSummary([quiet])).toBe("1 probe zone · 0 reporting");
   expect(soilSummary([])).toBeNull();
+});
+
+test("Soil's answer first (design review A4), conductivity in whole µS/cm, and a reading's own age only when older than the card's", () => {
+  const below = { status: "warn" as const, text: "3.6% below the range" };
+  const ok = { status: "ok" as const, text: "in range" };
+  expect(soilAnswer([{ zone: "south_1", state: "reporting", relation: below }, { zone: "south_2", state: "reporting", relation: below }, { zone: "west", state: "reporting", relation: below }]))
+    .toBe("South 1, South 2 and West are below their moisture range.");
+  expect(soilAnswer([{ zone: "south_1", state: "reporting", relation: ok }, { zone: "west", state: "reporting", relation: ok }])).toBe("Every zone is in its moisture range.");
+  expect(soilAnswer([{ zone: "south_1", state: "silent", relation: below }, { zone: "west", state: "reporting", relation: ok }]))
+    .toBe("West is in range. South 1 has not answered for over 2 hours.");
+  expect(soilAnswer([{ zone: "west", state: "unknown", relation: ok }])).toBeNull();
+  expect(soilValue(853.4, "µS/cm")).toBe("853\u00a0µS/cm");
+  expect(soilValue(1889.2, "µS/cm")).toBe("1,889\u00a0µS/cm");
+  expect(readingOlder(NOW - 60, NOW)).toBe(false);
+  expect(readingOlder(NOW - 3600, NOW)).toBe(true);
+  expect(readingOlder(NOW, null)).toBe(false);
 });

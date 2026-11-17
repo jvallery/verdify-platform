@@ -120,7 +120,7 @@ test("alerts-merged: the status line states the count once; Needs action in API 
   expect(requests(api, "API-14").map((row) => row.path)).toEqual(["/api/v1/alerts?status=recent&limit=200"]);
 });
 
-test("with nothing open the status line says so honestly and Needs action is not drawn; the resolved group holds the last 24 h", async () => {
+test("with nothing open the status line says so honestly and Needs action answers in one line (A4); the resolved group holds the last 24 h", async () => {
   const cases = [
     ["in-band", "No open alerts"],
     ["ingestor-not-running", "In-app alerts may be missing: ingestor not running since 10:38"],
@@ -129,7 +129,9 @@ test("with nothing open the status line says so honestly and Needs action is not
   for (const [fixture, words] of cases) {
     await open("/activity", { fixture });
     expect(status(), fixture).toBe(words);
-    expect(screen.queryByRole("region", { name: "Needs action" })).toBeNull();
+    const needs = screen.getByRole("region", { name: "Needs action" });
+    expect(text(needs.querySelector(".panel-empty")), fixture).toContain(words === "No open alerts" ? "Nothing needs action." : words);
+    expect(needs.querySelector(".alert-row")).toBeNull();
     stopped();
   }
   await open("/activity", { fixture: "alert-resolved" });
@@ -148,7 +150,7 @@ test("with nothing open the status line says so honestly and Needs action is not
   await open("/activity?resolved=24h", { fixture: "in-band" });
   expect(group(/^Resolved/)).toBeUndefined();
   const none = document.querySelector("[data-alerts=resolved-none]")!;
-  expect(plain(text(none))).toBe("Nothing resolved in the last 24 h · Open the log ›");
+  expect(plain(text(none))).toBe("Nothing resolved in the last 24 h · Open the log ›");
   expect(within(none as HTMLElement).getByRole("link", { name: "Open the log" }).getAttribute("href")).toBe("/activity/log");
   stopped();
   // Not without the link, and never from a read that failed.
@@ -253,7 +255,7 @@ test("the flow alert reads its plain title, expands in place with what it means,
   expect(within(item).getByRole("link", { name: /^Open in Graphs/ }).getAttribute("href")).toBe("/graphs?from=2026-11-02T15:38:00Z&to=2026-11-02T19:41:20Z");
   expect(text(item.querySelector(".alert-detail .kv"))).toContain("TypeWater flowing with every Verdify valve closedCategoryWaterSeverityCritical");
   // What it means in one sentence, and the v2 page that explains it (A-02).
-  expect(plain(text(item.querySelector(".alert-about")))).toBe("The water meter counted flow while every valve the controller drives was closed; it stays open until a person resolves it. Explained on Water today ›");
+  expect(plain(text(item.querySelector(".alert-about")))).toBe("The water meter counted flow while every valve the controller drives was closed; it stays open until a person resolves it. Explained on Water today ›");
   expect(within(item).getByRole("link", { name: /^Explained on Water today/ }).getAttribute("href")).toBe("/water");
   expect(text(item)).not.toContain("leak_detected");
   stopped();
@@ -418,7 +420,7 @@ test("activity-mixed: one line an entry, who wrote in R4's words, AI for the rev
   const agent = logRow("Changed line Wall drip");
   expect([writtenBy(agent), ai(agent)]).toEqual(["steward · agent AI", true]);
   const forecast = logRow("Forecast rule");
-  expect([writtenBy(forecast), ai(forecast)]).toEqual(["forecast-engine · host", false]);
+  expect([writtenBy(forecast), ai(forecast)]).toEqual(["Forecast engine · host", false]);
   expect(forecast.querySelector("details")).toBeNull();
 });
 

@@ -108,6 +108,16 @@ export function dayMonth(value: string): string {
   const head = dayHeader(value);
   return head === value ? value : head.split(" ").slice(1).join(" ");
 }
+/**
+ * A words fragment made for the middle of a sentence ("the house band", "seen on the controller") standing alone in a
+ * cell, a tile or a pill (A8): its first letter upper-cased, the rest untouched ("VPD" stays "VPD"); empty stays empty.
+ */
+export function sentenceStart(text: string): string {
+  const first = text.codePointAt(0);
+  if (first === undefined) return text;
+  const letter = String.fromCodePoint(first);
+  return letter.toLocaleUpperCase("en-US") + text.slice(letter.length);
+}
 /** Elapsed seconds as "12 s", "4 min", "2 h", "3 d". */
 export function duration(seconds: number): string {
   if (seconds < 60) return `${Math.max(0, Math.floor(seconds))}${NBSP}s`;

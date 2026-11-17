@@ -4,6 +4,7 @@
  * small linked charts on one time axis (the time-series kind, with outdoor on the temperature chart); one row group of
  * what ran (heating, cooling, humidifying, drying) from the law's requests (API-31, the state-lanes kind); and beside the
  * title, time in band today so far and yesterday and whether last night dried out (API-32). Coming up sits under them.
+ * Each chart keeps its one quiet line (A3) and no statistics: those, and the lanes' CSV, are Graphs' (B11).
  *
  * Reads: the day read (API-04, passed in), API-03 for the metrics, API-06 for the house band, API-31 over 24 h and API-32
  * for yesterday and today. Each part fails alone and says so with Retry; nothing is drawn from a guess.
@@ -58,8 +59,8 @@ function Charts({ day, metrics, now }: { day: PanelRead<Series>; metrics: readon
   const series = day.failed ? null : day.data;
   const message = day.failed ? "Couldn't load the last 24 h" : day.pending ? "Loading the last 24 h" : undefined;
   return <div className="now-today-charts">
-    <TimeSeries title="Temperature" series={series} metrics={of(TEMP_KEYS)} unit="°F" band={band.failed ? null : band.data} now={now} xRange={xRange} syncKey={SYNC_KEY} linked csv={false} zoomControl={false} message={message} />
-    <TimeSeries title="VPD" series={series} metrics={of(VPD_KEYS)} unit="kPa" band={band.failed ? null : band.data} now={now} xRange={xRange} syncKey={SYNC_KEY} linked csv={false} zoomControl={false} message={message} />
+    <TimeSeries title="Temperature" series={series} metrics={of(TEMP_KEYS)} unit="°F" band={band.failed ? null : band.data} now={now} xRange={xRange} syncKey={SYNC_KEY} linked csv={false} zoomControl={false} summary={false} message={message} />
+    <TimeSeries title="VPD" series={series} metrics={of(VPD_KEYS)} unit="kPa" band={band.failed ? null : band.data} now={now} xRange={xRange} syncKey={SYNC_KEY} linked csv={false} zoomControl={false} summary={false} message={message} />
     {day.failed && <Failed what="the last 24 h" onRetry={day.retry} />}
   </div>;
 }
@@ -71,9 +72,10 @@ function WhatRan({ now }: { now: number }) {
   if (history.failed && !history.data) return <Failed what="what ran" onRetry={history.retry} />;
   if (!history.data) return <><div className="skeleton skeleton-sm" aria-hidden="true" /><p className="screen-reader">Loading what ran</p></>;
   const rows: StateLaneRow[] = ranIntervals(history.data, from, to).map(({ row, intervals }) => ({
-    key: row.key, label: row.label, token: row.token, group: "ran", spans: spansFromIntervals(intervals, range),
+    key: row.key, label: row.label, token: row.token, spans: spansFromIntervals(intervals, range),
   }));
-  return <StateLanesChart title="What ran" rows={rows} groups={[{ key: "ran", label: "What ran" }]} range={range} now={now} syncKey={SYNC_KEY} />;
+  // One label for the lanes (its caption), no group head: the four rows always show (B11).
+  return <div className="now-ran"><StateLanesChart title="What ran" rows={rows} range={range} now={now} syncKey={SYNC_KEY} csv={false} /></div>;
 }
 
 export type TodayProps = {

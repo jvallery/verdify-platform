@@ -19,7 +19,10 @@ const VIEWS: Shot[] = [
   { name: "water-schedule-editor", path: "/water/schedules?schedule=new", fixtures: BASE, dark: false },
   { name: "settings-editor", path: "/settings?edit=outdoor_staleness_max_s", fixtures: BASE, dark: false },
 ];
-/** States a reviewer should see once: drying running and refused, a proposal, a late review, low memory, failing delivery. */
+/**
+ * States a reviewer should see once: drying running and refused, a proposal, a late review, low memory, failing delivery,
+ * silent probes, a record with no law periods and the Band editor's two forms.
+ */
 const STATES: Shot[] = [
   { name: "now-alerts", path: "/", fixtures: ["alerts-merged"], dark: false },
   { name: "now-drying", path: "/", fixtures: ["law-drying-running"], dark: false },
@@ -34,6 +37,12 @@ const STATES: Shot[] = [
   { name: "record-partial", path: "/record", fixtures: ["record-partial-day"], dark: false },
   { name: "controller-heap-low", path: "/system/controller", fixtures: ["controller-heap-low"], dark: false },
   { name: "data-delivery-failing", path: "/system/data", fixtures: ["delivery-failing"], dark: false },
+  { name: "data-probes-silent", path: "/system/data", fixtures: ["data-probes-silent"], dark: false },
+  { name: "record-no-periods", path: "/record", fixtures: ["record-no-periods"], dark: false },
+  // The Band editor: a waiting proposal named in the URL, loaded on arrival; and a band stored as edges, so each axis
+  // opens as its edge fields. No URL opens the sixteen anchor fields: the live band (the `band` view above) opens them.
+  { name: "band-proposal", path: "/band?proposal=9", fixtures: ["review-proposal-waiting"], dark: false },
+  { name: "band-edges", path: "/band", fixtures: ["band-edges-simple"], dark: false },
 ];
 
 /** The theme as the switch applies it: the attribute, then the event the charts redraw on; two frames let them paint. */

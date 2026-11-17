@@ -19,7 +19,8 @@ for (const viewport of [DESKTOP, PHONE]) {
     const climate = panel(page, "Climate relays");
     await expect(climate.locator(".sys-relay")).toHaveCount(6);
     await expect(climate.locator(".sys-relay").first()).toContainText("today so far");
-    await expect(climate.getByRole("link", { name: /^Climate law: the rules behind/ })).toHaveCount(6);
+    await expect(page.getByRole("region", { name: "Answer" })).toContainText(/\.$/);
+    await expect(climate.getByRole("link", { name: /^Climate law/ })).toHaveCount(1);
     await expect(panel(page, "Water relays").locator(".sys-relay").first()).toBeVisible();
     await expect(panel(page, "Lights").getByRole("link", { name: /Light controls/ })).toHaveAttribute("href", "/lights");
     await expect(panel(page, "Flags")).toBeVisible();
@@ -29,10 +30,10 @@ for (const viewport of [DESKTOP, PHONE]) {
   });
 }
 
-test("a relay's why links to the climate law", async ({ page, request }) => {
+test("the climate relays link once to the climate law", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
   await load(page, "/equipment");
-  await panel(page, "Climate relays").getByRole("link", { name: /^Climate\slaw:\sthe\srules\sbehind\sFan\s1/ }).click();
+  await panel(page, "Climate relays").getByRole("link", { name: /^Climate law/ }).click();
   await expect(page).toHaveURL(/\/climate$/);
 });
 

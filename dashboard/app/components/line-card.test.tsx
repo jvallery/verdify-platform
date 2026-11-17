@@ -66,17 +66,22 @@ test("a running line: the cause's dot, Running with its cause, schedule and time
   expect(row(misting).state).toBe("Running · VPD · since 10:30");
 });
 
-test("unknown keeps its Stop (the relay may be on); a disabled line keeps Run… (#1343) and ⋯ with no Stop; L05 reads Reserved · disabled", () => {
+test("unknown keeps its Stop (the relay may be on); a disabled line is one quiet row, its state and ⋯ (design review C2); L05 reads Reserved, not installed", () => {
   const unknown = row(lineOf(status("controller-not-reporting"), "L01"));
   expect(unknown.state).toBe("No current valve report · 3 days ago");
   expect(unknown.article.querySelector(".btn-stop")).not.toBeNull();
   cleanup();
   const disabled = row(lineOf(status(), "L02"));
-  expect(disabled.state).toBe("Off · no check recorded");
-  expect(disabled.buttons).toEqual(["Run… Wall drip (fertilized)"]);
+  expect(disabled.state).toBe("Off: enable it to run it");
+  expect(disabled.buttons).toEqual([]);
+  expect(disabled.article.classList.contains("is-off")).toBe(true);
+  expect(disabled.menu).not.toBeNull();
+  cleanup();
+  // A viewer cannot enable it, so the row says only that it is off.
+  expect(row(lineOf(status(), "L02"), {}, { role: "viewer" }).state).toBe("Off");
   cleanup();
   const reserved = row(lineOf(status("reserved-lines"), "L05"));
-  expect(reserved.state).toBe("Reserved · disabled");
+  expect(reserved.state).toBe("Reserved, not installed");
   expect(reserved.head).toBe("Center dripClean");
 });
 

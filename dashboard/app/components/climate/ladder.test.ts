@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The rule ladder's model (design system v2 §5): scale, end zones, label rows and the reading order the list keeps.
 import { expect, test } from "vitest";
-import { BREAK_AT, END_AT, INNER, MAX_ROWS, anchorAt, buildLadder, labelRows, tickText, type LadderRule } from "./ladder";
+import { BREAK_AT, END_AT, INNER, MAX_ROWS, PAST_LIMIT, anchorAt, buildLadder, labelRows, tickText, type LadderRule } from "./ladder";
 
 const rule = (id: string, on: number, off: number | null, direction: "below" | "above", limit = false): LadderRule => ({ id, label: id, on, off, direction, state: "off", limit });
 const TEMP_RULES = [
@@ -52,6 +52,33 @@ test("the reading always widens the stretch; a limit inside the stretch is place
 test("label rows: crowded ticks climb rows, at most three; spaced ticks share the first", () => {
   expect(labelRows([{ at: 10, text: "A 1.0" }, { at: 50, text: "B 2.0" }, { at: 90, text: "C 3.0" }])).toEqual([0, 0, 0]);
   const crowded = labelRows([{ at: 40, text: "Electric heat 64.7" }, { at: 42, text: "Gas furnace 61.7" }, { at: 44, text: "Cooling 70.0" }, { at: 46, text: "Second fan 71.5" }]);
-  expect(new Set(crowded.slice(0, 3)).size).toBe(3);
-  expect(Math.max(...crowded)).toBeLessThan(MAX_ROWS);
+  // Four labels that all overlap cannot fit three rows: one pair shares a row, and only one.
+  expect(new Set(crowded).size).toBe(MAX_ROWS);
+  expect(crowded.length - new Set(crowded).size).toBe(1);
+});
+
+test("label rows: no tick's line runs through a lower label, and two labels on one row never overlap", () => {
+  // The real temperature ladder of 2026-11-17: the furnace's tick sat under the end of "Cold limit 40.0".
+  const items = [{ at: 2, text: "Cold limit 40.0" }, { at: 16.2, text: "Gas furnace 71.1" }, { at: 30.6, text: "Electric heat 74.1" },
+    { at: 78.8, text: "Cooling 84.0" }, { at: 86.1, text: "Second fan 85.5" }, { at: 98, text: "Hot limit 100.0" }];
+  const rows = labelRows(items);
+  const cold = 0, furnace = 1;
+  expect(rows[cold]).toBeGreaterThan(rows[furnace]);
+  // Cooling and the second fan cannot share a row.
+  expect(rows[3]).not.toBe(rows[4]);
+  expect(Math.max(...rows)).toBeLessThan(MAX_ROWS);
+});
+
+test("a reading past a protection limit stands in the limit's end zone instead of stretching the axis", () => {
+  const model = buildLadder({ unit: "°F", band: { low: 61.2, high: 70 }, reading: 101.2, rules: TEMP_RULES });
+  if (!model) throw new Error("no model");
+  expect(model.scale.high).toBeLessThan(75);
+  expect(model.reading).toEqual({ at: END_AT.high + PAST_LIMIT, clamped: "high" });
+  expect(model.rules.find((item) => item.id === "Hot limit")?.beyond).toBe(true);
+  const freezing = buildLadder({ unit: "°F", band: { low: 61.2, high: 70 }, reading: 38, rules: TEMP_RULES });
+  expect(freezing?.reading).toEqual({ at: END_AT.low - PAST_LIMIT, clamped: "low" });
+  // Short of the limit, the reading still stretches the axis.
+  const warm = buildLadder({ unit: "°F", band: { low: 61.2, high: 70 }, reading: 80, rules: TEMP_RULES });
+  expect(warm?.reading?.clamped).toBeNull();
+  expect(warm?.scale.high).toBeGreaterThan(80);
 });

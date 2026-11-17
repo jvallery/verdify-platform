@@ -111,7 +111,7 @@ export function spanStatus(occurrence: OccurrenceFacts, schedule?: Pick<Schedule
   }
 }
 export const STATUS_WORDS: Readonly<Record<SpanStatus, string>> = {
-  done: "done", planned: "planned", running: "running", skipped: "skipped", blocked: "will not run", missed: "missed", unknown: "outcome unknown",
+  done: "done", planned: "scheduled", running: "running", skipped: "skipped", blocked: "will not run", missed: "missed", unknown: "outcome unknown",
   conditional: words("fallback_window", "conditional"), intent: "the controller's intent",
 };
 

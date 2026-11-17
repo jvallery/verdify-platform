@@ -33,8 +33,8 @@ const tile = (key: string) => document.querySelector(`[data-budget="${key}"]`);
 test("healthy: the verdict, six budget tiles each with a meter, identity, links and the law's state", async () => {
   await open();
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Controller");
-  expect(text(document.querySelector(".page-status"))).toBe("Healthy · up 3 d 3 h");
-  expect(text(panel("Verdict"))).toContain("Every part of the hardware budget is inside its limits.");
+  expect(text(document.querySelector(".page-status"))).toMatch(/^Up 3 d 3 h · reported \d\d:\d\d$/);
+  expect(text(panel("Verdict"))).toContain("The controller is healthy: every part of the hardware budget is inside its limits.");
   const budget = panel("Hardware budget");
   expect([...budget.querySelectorAll("[data-budget]")].map((node) => node.getAttribute("data-budget"))).toEqual(["memory", "block", "loop", "write", "stack", "entries"]);
   expect(budget.querySelectorAll("svg.sys-meter").length).toBe(6);
@@ -48,11 +48,12 @@ test("healthy: the verdict, six budget tiles each with a meter, identity, links 
 
 test("memory low: the verdict names the first limit crossed and counts the rest; the tiles say which line", async () => {
   await open({ fixture: "controller-heap-low" });
-  expect(text(document.querySelector(".page-status"))).toBe("Warning");
+  expect(text(document.querySelector(".page-status"))).toMatch(/^Up /);
   expect(text(panel("Verdict"))).toContain("Free memory fell to 24 kB in the last minute, under the warning line of 25 kB: memory is running short.");
   expect(text(panel("Verdict"))).toContain("2 more limits are crossed");
   expect(tile("memory")?.getAttribute("data-level")).toBe("warn");
-  expect(text(tile("memory"))).toContain("Below the warning line");
+  expect(text(tile("memory"))).toContain("Below warning");
+  expect(text(tile("memory"))).toContain("Lowest in the last minute");
   expect(tile("loop")?.getAttribute("data-level")).toBe("ok");
 });
 
@@ -96,6 +97,7 @@ test("a failed health read is each block's own error; the status line waits", as
   await open({ fail: { "API-35": 500 } });
   expect(panel("Verdict").getAttribute("data-state")).toBe("error");
   expect(panel("Identity and uptime").getAttribute("data-state")).toBe("error");
-  expect(document.querySelector(".page-status")?.textContent ?? "").not.toContain("Healthy");
+  expect(document.querySelector(".page-status")?.textContent ?? "").not.toContain("Up ");
   expect(controllerStatus(null)).toBeNull();
+  expect(controllerStatus({ observed_at: null } as never)).toBe("Not reporting");
 });

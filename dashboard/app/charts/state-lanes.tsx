@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState, type MutableRefObject } from "react";
 import type uPlot from "uplot";
 import { csvFilename, tableCsv } from "./csv";
-import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "./data-table";
+import { ChartFoot, TimeCell, type DataTableBlock } from "./data-table";
 import { hatchColor, paintHatch, paintNow, type ChartColors, type PaintTarget } from "./draw";
 import { GROUP_HEAD, LANE_PITCH, clipColumns, intervalText, rowBand, spanDuration, spanPixels, type RowLayout } from "./lanes-draw";
 import { ChartKey, type KeyItem } from "./legend";
@@ -45,6 +45,10 @@ export type StateLanesChartProps = {
   now?: number;
   syncKey?: string;
   captionHidden?: boolean;
+  /** Its own key above the rows (default true); false leaves it to the page. */
+  legend?: boolean;
+  /** The CSV link in its foot (default true); false where another page offers the data (Now's What ran: Graphs). */
+  csv?: boolean;
 };
 
 /** The API's interval states as the lanes draw them: running is on, not wanted is off; a state this build does not know is unknown, never off. */
@@ -211,6 +215,7 @@ export function StateLanesChart(props: StateLanesChartProps) {
   });
   return <figure className="chart chart-lanes chart-state-lanes">
     <figcaption className={captionHidden ? "screen-reader" : "lanes-caption"}>{captionHidden ? title : <span className="eyebrow">{title}</span>}</figcaption>
+    {drawable && (props.legend ?? true) && <ChartKey items={stateLanesKey(rows, range, props.now)} />}
     {drawable
       ? <div className="lanes lanes-state">
         <ul className="lanes-rows" aria-label={`${title}, by row`}>
@@ -228,10 +233,6 @@ export function StateLanesChart(props: StateLanesChartProps) {
           syncKey={syncKey} marks={marks} zoom={false} />
       </div>
       : <div className="plot plot-small chart-message"><p>Nothing to show in this window</p></div>}
-    {drawable && <ChartKey items={stateLanesKey(rows, range, props.now)} />}
-    {drawable && <div className="chart-tools">
-      <CsvLink filename={csvFilename(title, range)} build={() => stateLanesCsv(rows)} version={marks} label="CSV of these lanes" />
-    </div>}
-    {drawable && <DataTable name="Lanes table" tables={[stateLanesTable(title, rows)]} />}
+    {drawable && <ChartFoot name="Lanes table" tables={[stateLanesTable(title, rows)]} csv={(props.csv ?? true) ? { filename: csvFilename(title, range), build: () => stateLanesCsv(rows), version: marks, label: "CSV of these lanes" } : null} />}
   </figure>;
 }

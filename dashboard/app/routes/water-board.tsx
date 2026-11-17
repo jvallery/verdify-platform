@@ -10,7 +10,7 @@ import { ZoneCard, zoneKind, type TodayStrips } from "../components/water/zone-c
 import { usePhone } from "../lib/narrow";
 import { useApiRead, useSchedulesRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
-import { UNAVAILABLE_TEXT, dayStatesParams, localDay, plannedToday, toMinute, useWaterOutlet, zoneSummaries } from "../lib/water";
+import { UNAVAILABLE_TEXT, dayStatesParams, localDay, plannedToday, toMinute, useWaterOutlet, waterAnswer, zoneSummaries } from "../lib/water";
 
 export const meta = () => viewMeta("water-today");
 
@@ -18,10 +18,11 @@ export const meta = () => viewMeta("water-today");
 const TODAY_GROUPS = [{ kind: "drip", title: "Drips" }, { kind: "mister", title: "Misters" }, { kind: "fog", title: "Climate" }] as const;
 
 /**
- * Water → Today (`/water`, screens section 3.1, #1349): one card per physical line under Drips, Misters and Climate (Wall
+ * Water → Today (`/water`, screens section 3.1, #1349): first the answer in one sentence (what runs now and why, a mister
+ * fault, the next run; design review A4), then one card per physical line under Drips, Misters and Climate (Wall
  * drip, Center drip; Center, South and West mister; Fog), each with its minutes against its cap and when it last watered,
  * a mister's VPD control and Schedule on its own row, and a row per line with its state sentence, its today strip and
- * next run, Run…, its own Stop and ⋯; then the legend. Beside them from 1200 px (sticky), first below that: Site today
+ * next run, Run…, its own Stop and ⋯, under the legend. Beside them from 1200 px (sticky), first below that: Site today
  * (the daily mist and fog limit, the soft daily budget with Change, flow, occupancy, backup misting) and Misting (why the
  * misters and the fog are or are not running, API-30 and API-13). On a phone Misting follows the zones instead, so the
  * lines' live state stays ahead of the explanation on the first screen (`usePhone`: the server and the hydrating render
@@ -69,16 +70,17 @@ export default function WaterBoard() {
   const schedules = agenda.data?.schedules ?? [];
   const summaries = zoneSummaries(status, planned);
   return <div className="wat-today">
+    <p className="page-answer wat-answer" data-answer="">{waterAnswer(status, today, schedules)}</p>
     <div className="wat-aside">
       <Panel title="Site today" thing="today's water limits" state="ready"><SiteToday status={status} today={today} /></Panel>
       {!phone && misting}
     </div>
     <div className="wat-zones">
+      <ScheduleLegend className="wat-legend" />
       {TODAY_GROUPS.map((group) => <section key={group.kind} className="wat-group" data-group={group.kind} aria-labelledby={`wat-group-${group.kind}`}>
         <h2 id={`wat-group-${group.kind}`} className="wat-group-title">{group.title}</h2>
         {summaries.filter((summary) => zoneKind(summary.zone) === group.kind).map((summary) => <ZoneCard key={summary.zone} summary={summary} status={status} today={today} now={now} strips={strips} schedules={schedules} />)}
       </section>)}
-      <ScheduleLegend className="wat-legend" />
     </div>
     {phone && misting}
   </div>;

@@ -113,6 +113,11 @@ test("the CSV and the key: every span with its own state, unknown and refused ne
   expect(stateLanesKey(ROWS, RANGE, RANGE.to + 60).map((item) => item.key)).toEqual(["on", "refused", "unknown"]);
 });
 
+test("csv={false}: the foot keeps its data table and drops the CSV link", () => {
+  render(<StateLanesChart title="What ran" rows={ROWS} range={RANGE} now={NOW} csv={false} />);
+  expect(screen.queryByRole("link", { name: "CSV of these lanes" })).toBeNull();
+});
+
 test("no rows: the message and no plot", async () => {
   render(<StateLanesChart title="Relays" rows={[]} range={RANGE} />);
   await settle();

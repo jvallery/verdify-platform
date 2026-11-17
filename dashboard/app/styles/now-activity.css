@@ -3,15 +3,15 @@
 /* Now (dashboard v2 screens §1) and Activity (§5.8 Alerts, §5.9 Log), on the primitives of §3 and §4. Loaded by root.tsx after tokens.css, base.css, primitives.css and shell.css, in the fixed order of design-system v2 §6. Colours are tokens only; this file never redefines :focus-visible or the input borders that base.css sets. Phones are 860 px and below, where every link, button, chip and summary is at least 44 px. */
 
 /* ---------------------------------------------------------------- Now: the page */
-/* Two columns above 860 px: the main column (hero, doing, Today, Water today, Probes) and the side column (Needs you, Run by hand, the review, the reservoir). At 860 px and below both columns dissolve (display:contents) and the blocks take the phone's order: hero, doing, Needs you, Today, Run by hand, Water today, review, reservoir, probes. */
+/* Two columns above 860 px: the main column (hero, doing, Today, Water today, Probes) and the side column (Needs you, Run by hand, the review, the reservoir). At 860 px and below both columns dissolve (display:contents) and the blocks take the phone's order (design review B11): hero, doing, Needs you, Run by hand, Today, Water today, probes, review, reservoir. */
 .now-main,.now-side{display:grid;gap:var(--space-4);align-content:start;min-width:0}
 .now-slot{min-width:0}
 @media(min-width:861px){.now-page{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(18rem,1fr);gap:var(--space-4);align-items:start}}
 @media(max-width:860px){
   .now-page{display:flex;flex-direction:column;gap:var(--space-3)}
   .now-main,.now-side{display:contents}
-  .now-slot-hero{order:1}.now-slot-doing{order:2}.now-slot-needs{order:3}.now-slot-today{order:4}.now-slot-runs{order:5}
-  .now-slot-water{order:6}.now-slot-review{order:7}.now-slot-reservoir{order:8}.now-slot-probes{order:9}
+  .now-slot-hero{order:1}.now-slot-doing{order:2}.now-slot-needs{order:3}.now-slot-runs{order:4}.now-slot-today{order:5}
+  .now-slot-water{order:6}.now-slot-probes{order:7}.now-slot-review{order:8}.now-slot-reservoir{order:9}
 }
 
 /* The ink hero: the answer on the left; the two band gauges, the band's source and the plain values on the right; "All readings" across. */
@@ -116,13 +116,14 @@
   .now-water-row{grid-template-columns:3.5rem minmax(0,1fr)}
   .now-water-last{grid-column:2;white-space:normal}
   .now-water-saf4 .now-water-meter,.now-water-saf4 .now-water-last{grid-column:1/-1}
-  /* "132 / 120 min" over "+12 min over", so a zone over its cap stays inside the card at 360 px. */
-  .now-water-amount{flex:0 1 auto;min-width:0;white-space:normal}
+  /* "132 / 120 min" over "+12 min over", so a zone over its cap stays inside the card at 360 px; the amount itself never
+     breaks inside a number or before its unit (B11). */
+  .now-water-amount{flex:none;min-width:0;white-space:nowrap;text-align:right}
   .now-water-over{display:block}
   .now-water-sep{display:none}
 }
 
-/* Today: the two linked charts, what ran, then Coming up. */
+/* Today: the two linked charts, what ran, then Coming up. The lanes' CSV is Graphs' (B11). */
 .now-tib{font-size:var(--fs-sm);color:var(--text-2);font-variant-numeric:tabular-nums}
 .now-today-charts{display:grid;gap:var(--space-3);min-width:0;margin-bottom:var(--space-3)}
 .now-sub{margin:0 0 var(--space-2);font-size:var(--fs-sm);font-weight:620;color:var(--text)}
@@ -155,8 +156,10 @@
 .now-light .state-note,.now-light .field-error{flex-basis:100%;margin:0;font-size:var(--fs-xs)}
 .now-lights-more{margin:0}
 
-/* Stop all water: under the water card; pinned above the bottom bar at 860 px and below (experience.css). */
+/* Stop all water: pinned above the bottom bar at 860 px and below (experience.css); above 860 px the top bar's is the
+   page's only one (C1), so this one does not show. */
 .now-stop{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);margin-top:var(--space-3)}
+@media(min-width:861px){.now-stop{display:none}}
 
 /* Probes: five tiles, each its values, a 24 h VPD sparkline and its relation to the one house band; the title's link covers the tile. */
 .now-probes-note{margin:0 0 var(--space-2)}
@@ -175,24 +178,37 @@
 .now-zone-values{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-3);margin:0}
 .now-zone-value{font-size:var(--fs-lg);font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .now-zone-meta{margin:0;font-size:var(--fs-xs)}
+.now-zone-range{white-space:nowrap}
+/* Where the main column is wide (above 860 px), three tiles a row: two rows for the five probes, not three. */
+.now-slot-probes{container-type:inline-size}
+@container (min-width:40rem){
+  .now-zones{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .now-zone:nth-child(even){border-left:0}
+  .now-zone:not(:nth-child(3n+1)){border-left:1px solid var(--border)}
+  .now-zone:nth-child(n+3){border-top:0}
+  .now-zone:nth-child(n+4){border-top:1px solid var(--border)}
+}
 @media(max-width:359px){
   .now-zones{grid-template-columns:minmax(0,1fr)}
   .now-zone:nth-child(even){border-left:0}
   .now-zone+.now-zone{border-top:1px solid var(--border)}
 }
 
-/* The daily review and the reservoir. */
-.now-review-text{margin:var(--space-2) 0 0;max-width:62ch;line-height:1.5}
-.reservoir-now{padding-block:var(--space-4)}
-.reservoir-now [data-stale=true] .meta{color:var(--warn-text)}
-/* Compact measured values keep current conditions and operator actions together. */
-.reservoir-now .hydro-readings>div{background:transparent;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:.65rem 0}
-.reservoir-now .hydro-readings dt{text-transform:none}
-/* A value never breaks inside its unit (design review B11): each tile takes the room its value needs. */
-.reservoir-now .hydro-readings dd{margin:.25rem 0;font-size:1.25rem;white-space:nowrap}
-.reservoir-now .hydro-readings dd .meta{white-space:normal}
-@media(min-width:861px){.reservoir-now .hydro-readings{grid-template-columns:auto auto auto;justify-content:space-between}}
-.reservoir-now .hydro-readings .meta{margin-top:.2rem}
+/* The daily review: its first paragraph, at most five lines (B11). */
+.now-review-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;line-clamp:5;overflow:hidden;margin:var(--space-2) 0 0;max-width:62ch;line-height:1.5}
+
+/* The reservoir: three tiles in a row, a value that never wraps, then one observation line for the three (A2, B11). */
+.now-reservoir{display:grid;grid-template-columns:repeat(3,minmax(0,auto));justify-content:space-between;gap:var(--space-2) var(--space-4);margin:0}
+.now-reservoir>div{min-width:0}
+.now-reservoir dt{font-size:var(--fs-sm);color:var(--text-2)}
+.now-reservoir dd{margin:var(--space-1) 0 0}
+.now-reservoir dd:first-of-type{font-size:var(--fs-lg);font-weight:600;letter-spacing:-.01em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.now-reservoir dd.value-muted{color:var(--text-3)}
+.now-reservoir dd.meta{font-size:var(--fs-xs)}
+.now-reservoir-line{margin:var(--space-3) 0 0}
+.now-reservoir-overdue{color:var(--warn-text)}
+.now-reservoir-note{margin:var(--space-1) 0 0}
+
 
 /* ---------------------------------------------------------------- Activity → Alerts */
 /* The page is a .page stack: the alert groups at the card gap, then Recent activity. */
@@ -289,4 +305,8 @@
   .act-entry-what{grid-column:1/-1}
   .act-entry-outcome{grid-column:3;grid-row:1}
   .act-entry .event-reason{display:block;margin-left:0}
+  /* Acknowledge and "Add a note" share one line, so an alert is not three lines of controls tall. */
+  .alert-ack>.btn-wide{width:auto;flex:none}
+  /* The writer's name wraps rather than being cut beside the outcome. */
+  .act-entry .event-by{white-space:normal;overflow:visible}
 }

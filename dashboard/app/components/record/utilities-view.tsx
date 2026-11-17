@@ -9,23 +9,24 @@ import type { PanelRead } from "../../lib/queries";
 import { EmptyState, Panel, PanelErrorBoundary } from "../panel";
 import { Table, type TableColumn } from "../table";
 import { barDays } from "./band-view";
-import { DayCell } from "./days-table";
-import { irrigationGal, isSoFar, kwhText, recordState, windowDays, type WindowDays } from "./record-model";
+import { DAY_ROWS, DayCell, unitHead } from "./days-table";
+import { irrigationGal, isSoFar, kwhCell, recordState, windowDays, type WindowDays } from "./record-model";
 
 export const UTILITIES_SYNC = "verdify:record-utilities";
 const SO_FAR = "so far";
+const PARTIAL = "partial meter coverage";
 
 /**
  * Electricity per day: the metered 24-hour figure; a day under 70 % meter coverage draws what the meter reported,
- * lighter, noted with its coverage; today lighter as "so far".
+ * lighter, noted "partial meter coverage"; today lighter as "so far".
  */
 export function electricityDays(days: readonly RecordDay[], record: DailyRecord): DailyBarDay[] {
   return days.map((day) => {
     if (isSoFar(day, record)) return { date: day.date, value: day.energy.kwh ?? day.energy.kwh_partial, partial: true, note: SO_FAR };
     if (day.energy.kwh !== null) return { date: day.date, value: day.energy.kwh };
     if (day.energy.kwh_partial === null) return { date: day.date, value: null };
-    const coverage = day.energy.coverage_pct;
-    return { date: day.date, value: day.energy.kwh_partial, partial: true, note: `partial meter coverage${coverage === null ? "" : ` (${formatNumber(Math.round(coverage))}% of the day)`}` };
+    // One note for every such day, so the key names it once; the day's coverage is in the table below.
+    return { date: day.date, value: day.energy.kwh_partial, partial: true, note: PARTIAL };
   });
 }
 
@@ -56,14 +57,14 @@ const meansLine = (d7: number | null | undefined, d30: number | null | undefined
 
 const UTILITY_COLUMNS = (record: DailyRecord): readonly TableColumn<RecordDay>[] => [
   { key: "date", header: "Day", rowHeader: true, cell: (day) => <DayCell day={day} record={record} /> },
-  { key: "kwh", header: "Electricity", numeric: true, cell: (day) => kwhText(day) },
-  { key: "metered", header: "Meter reported", numeric: true, cell: (day) => formatValue(day.energy.kwh_partial, "kWh") },
-  { key: "coverage", header: "Meter coverage", numeric: true, cell: (day) => formatValue(day.energy.coverage_pct, "%") },
-  { key: "therms", header: "Gas, estimated", numeric: true, cell: (day) => formatValue(day.gas.therms_est, "therms") },
-  { key: "wetting", header: "Wetting", numeric: true, cell: (day) => formatValue(day.water.wetting_gal, "gal") },
-  { key: "irrigation", header: "Irrigation", numeric: true, cell: (day) => formatValue(irrigationGal(day.water), "gal") },
-  { key: "house", header: "House", numeric: true, cell: (day) => formatValue(day.water.house_gal, "gal") },
-  { key: "total", header: "All water", numeric: true, cell: (day) => formatValue(day.water.total_gal, "gal") },
+  { key: "kwh", header: "Metered", headerGroup: "Electricity, kWh", numeric: true, cell: (day) => kwhCell(day) },
+  { key: "metered", header: "Reported", headerGroup: "Electricity, kWh", numeric: true, cell: (day) => formatNumber(day.energy.kwh_partial, 1) },
+  { key: "coverage", header: unitHead("Coverage", "%"), numeric: true, cell: (day) => formatNumber(day.energy.coverage_pct, 0) },
+  { key: "therms", header: unitHead("Gas", "therms (est.)"), numeric: true, cell: (day) => formatNumber(day.gas.therms_est, 2) },
+  { key: "wetting", header: "Wetting", headerGroup: "Water, gal", numeric: true, cell: (day) => formatNumber(day.water.wetting_gal, 0) },
+  { key: "irrigation", header: "Irrigation", headerGroup: "Water, gal", numeric: true, cell: (day) => formatNumber(irrigationGal(day.water), 0) },
+  { key: "house", header: "House", headerGroup: "Water, gal", numeric: true, cell: (day) => formatNumber(day.water.house_gal, 0) },
+  { key: "total", header: "All", headerGroup: "Water, gal", numeric: true, cell: (day) => formatNumber(day.water.total_gal, 0) },
 ];
 
 /**
@@ -106,9 +107,10 @@ export function UtilitiesView({ read, days }: { read: PanelRead<DailyRecord>; da
         <DailyStack title="Water per day by use" captionHidden unit="gal" parts={WATER_PARTS} days={waterDays(shown, record)} format={gallons} syncKey={UTILITIES_SYNC} onPick={pick} />
       </PanelErrorBoundary>}
     </Panel>
-    <Panel title="Utilities by day" thing="the utilities" reserve="lg" {...panel(noEnergy && noGas && noWater, "No utility is recorded in this window.")}>
+    <Panel title="Utilities by day" thing="the utilities" reserve="lg" {...panel(noEnergy && noGas && noWater, "No utility is recorded in this window.")}
+      foot="Metered is the whole day's figure, blank under 70 % meter coverage, where the day reads “partial”; reported is what the meter counted.">
       {record && <Table label="Utilities by day, scrollable" caption={`Electricity, gas and water per day, last ${days} days, newest first`} captionHidden
-        columns={UTILITY_COLUMNS(record)} rows={[...shown].reverse()} rowKey={(day) => day.date} phone="scroll" />}
+        columns={UTILITY_COLUMNS(record)} rows={[...shown].reverse()} rowKey={(day) => day.date} phone="scroll" maxRows={DAY_ROWS} rowNoun="days" />}
     </Panel>
   </div>;
 }

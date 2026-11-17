@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useMemo } from "react";
 import { ThresholdSeries } from "../../charts/threshold-series";
-import { formatValue } from "../../lib/format";
+import { formatValue, shortDateTime } from "../../lib/format";
 import { apiGet, type MetricDef, type Series, type SoilTarget } from "../../lib/operator-api";
 import { READ_INTERVAL_MS } from "../../lib/queries";
 import { usePolledQuery } from "../../lib/use-current";
@@ -9,7 +9,7 @@ import { StatusBadge } from "../badge";
 import { agoDuration, useClockValue, useServerSkew } from "../freshness";
 import { EmptyState, Panel, type PanelState } from "../panel";
 import {
-  SOIL_MEASURES, SOIL_NOW_S, SOIL_WINDOW_S, moistureLine, newestReading, probeState, probeWords, rangeRelation, soilKeys, zoneLabel,
+  SOIL_MEASURES, SOIL_NOW_S, SOIL_WINDOW_S, moistureLine, newestReading, probeState, probeWords, rangeRelation, readingOlder, soilKeys, soilValue, zoneLabel,
   type ProbeState, type RangeRelation, type SoilMeasure,
 } from "./soil-model";
 import { SoilRange } from "./soil-targets";
@@ -59,6 +59,7 @@ export function SoilZone({ target, registry, onReport }: { target: SoilTarget; r
   const line = moistureLine(week.data, keys.moisture);
   const drawn = state !== "never" && line !== null && line.values.some((value) => value !== null);
   const from = now - SOIL_WINDOW_S;
+  const silent = state === "silent";
   return <Panel title={name} thing={`the ${name} probe`} state={panelState} headingLevel={3} reserve="lg"
     observedAt={moisture ? new Date(moisture.at * 1000).toISOString() : undefined}
     pill={<StatusBadge status={relation.status} size="sm">{relation.text}</StatusBadge>}
@@ -70,8 +71,13 @@ export function SoilZone({ target, registry, onReport }: { target: SoilTarget; r
         const unit = unitOf(registry.find((metric) => metric.key === keys[measure]), measure);
         return <div key={measure} className="wat-soil-stat" data-measure={measure}>
           <dt>{label}</dt>
-          <dd><span className="wat-soil-value">{reading ? formatValue(reading.value, unit) : "Not reported"}</span>
-            {reading && <span className="meta"> · {agoDuration(Math.max(0, now - reading.at))}</span>}</dd>
+          <dd>{silent && reading
+            // A silent probe's last number is never shown as if it were current (design review B10); the card's one
+            // line above says when it last answered, so each reading is only a dash.
+            ? <span className="wat-soil-value" title={`No reading since ${shortDateTime(new Date(reading.at * 1000).toISOString())}`}>—</span>
+            : <><span className="wat-soil-value">{reading ? soilValue(reading.value, unit) : "—"}</span>
+              {reading ? readingOlder(reading.at, moisture?.at ?? null) && <span className="meta wat-soil-age">{agoDuration(Math.max(0, now - reading.at))}</span>
+                : <span className="meta wat-soil-age">not reported</span>}</>}</dd>
         </div>;
       })}
     </dl>

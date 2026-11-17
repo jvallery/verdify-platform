@@ -2,7 +2,7 @@
 import { expect, test } from "vitest";
 import type { LightingCircuit, Setting } from "../../lib/operator-api";
 import {
-  circuitSettings, completeMean, hasLightSettings, intentWords, lightsStatus, minutesOnDays, mismatch, paramOf, settingHref, settingValue, switchCheck, weekWindow, windowText,
+  circuitSettings, completeMean, hasLightSettings, intentWords, lightsAnswer, lightsStatus, minutesOnDays, mismatch, paramOf, settingHref, settingValue, switchCheck, weekWindow, windowText,
   type LightItem,
 } from "./model";
 
@@ -96,4 +96,14 @@ test("the twelve settings of each circuit, in four groups, each opening its draw
   expect(hasLightSettings([{ param: "mister_engage_kpa" }])).toBe(false);
   expect(settingValue(60, "s")).toBe("60 s");
   expect(settingValue(7.5, "hour")).toBe("07:30");
+});
+
+test("the answer first (design review A4): both lights in one sentence when they agree for one reason, else a sentence a light", () => {
+  const grow = (fields: Partial<LightItem> = {}) => item({ equipment: "grow_light_grow", label: "Grow", ...fields });
+  expect(lightsAnswer([item(), grow()], NOW)).toBe("Both lights are off, as the controller wants: enough daylight.");
+  expect(lightsAnswer([item(), grow({ intent: "on", auto_reason: "plant_lux_low" })], NOW))
+    .toBe("The main light is off, as the controller wants: enough daylight. The grow light is off, but the controller wants it on: too dark for the plants.");
+  expect(lightsAnswer([item({ state: "on", manual_until: new Date(NOW + 12 * 60_000).toISOString() }), grow()], NOW))
+    .toBe("The main light is on by hand until 10:54; then the controller takes it off. The grow light is off, as the controller wants: enough daylight.");
+  expect(lightsAnswer([item({ observed_at: ago(30) }), undefined], NOW)).toBe("The main light has not reported whether it is on. The grow light has not reported whether it is on.");
 });

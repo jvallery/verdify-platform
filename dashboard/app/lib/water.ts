@@ -8,6 +8,7 @@
  */
 import { useCallback } from "react";
 import { useOutletContext, useSearchParams } from "react-router";
+import { causeWords } from "../charts/causes";
 import type { MinutesGroup } from "../charts/minutes-by-zone";
 import type { MinutesReport as BarsReport } from "../charts/types";
 import { TIME_UNAVAILABLE, TIME_ZONE, dateShift, duration, formatNumber, formatValue, localDate, localDayStart, shortDateTime, shortTime } from "./format";
@@ -760,10 +761,9 @@ export const WATER_ZONES: readonly WaterZone[] = ["wall", "center", "center_mist
 export const ZONE_CARD_WORDS: Readonly<Record<WaterZone, string>> = {
   wall: "Wall drip", center: "Center drip", center_mister: "Center mister", south: "South mister", west: "West mister", fog: "Fog",
 };
-/** What each card holds, beside its name. */
+/** What a card's line waters, beside its name, where the name alone does not say it; its rows name the clean and fertilized relays. */
 export const ZONE_KIND_WORDS: Readonly<Record<WaterZone, string>> = {
-  wall: "walls and shelves · clean · fert", center: "clean · fert", center_mister: "clean", south: "clean · fert", west: "clean · fert",
-  fog: "humidification · climate only",
+  wall: "walls and shelves", center: "", center_mister: "", south: "", west: "", fog: "humidification",
 };
 /** The physical line (API-IRR-01 `circuits`) behind each card; fog has none. */
 export const ZONE_CIRCUIT: Readonly<Record<WaterZone, string | null>> = {
@@ -1093,6 +1093,44 @@ export function nextRunShort(next: IrrigationLine["next_run"], today: string, am
 }
 /** "07:31" today, "Fri 07:31" this week, "Oct 25, 07:31" before: when something last happened, as a row reads it. */
 export const dayClockWords = (at: string, today: string): string => (validTime(at) ? rowWhen(at, today) : TIME_UNAVAILABLE);
+
+/** "Wall drip", "Wall drip and Fog", "A, B and C". */
+const andWords = (names: readonly string[]): string => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+
+/**
+ * Water → Today's answer, its first block (design review A4): what is running now and why, a latched mister fault, and
+ * the next scheduled run with its amount. "Nothing is running. Next: Wall drip on Wed 07:35 for 12 min.", "Center mister
+ * is running (VPD) until 10:55. Nothing is scheduled this week." Built from API-IRR-01 (and API-IRR-02's schedules for
+ * the amount); it infers nothing from an age.
+ */
+export function waterAnswer(status: Pick<IrrigationStatus, "engine" | "lines">, today: string, schedules: readonly Pick<Schedule, "slot_id" | "on_s" | "count">[] = []): string {
+  if (!status.engine) return "The controller reports no irrigation engine: no line runs from here until it does.";
+  const lines = status.lines.filter((line) => !isMaster(line));
+  const running = lines.filter((line) => line.state.code === "running").sort(byLineId);
+  const parts: string[] = [];
+  if (running.length === 1) {
+    const [line] = running;
+    const why = line.state.cause ? ` (${causeWords(line.state.cause)})` : "";
+    const until = validTime(line.state.ends_at) ? ` until ${shortTime(line.state.ends_at)}` : "";
+    parts.push(`${lineDisplayName(line)} is running${why}${until}.`);
+  } else if (running.length > 1) {
+    parts.push(`${andWords(running.map((line) => lineDisplayName(line)))} are running.`);
+  } else {
+    parts.push("Nothing is running.");
+  }
+  const faulted = lines.filter((line) => line.fault === "mister_fault");
+  if (faulted.length) parts.push(`${andWords(faulted.map((line) => lineDisplayName(line)))} ${faulted.length === 1 ? "has" : "have"} a mister fault and will not mist until it clears.`);
+  const next = nextRunOf(lines.filter((line) => line.enabled !== false && line.kind !== "fog"));
+  if (next) {
+    const schedule = schedules.find((item) => item.slot_id === next.next.slot_id);
+    const amount = schedule ? amountShort(schedule, next.line.kind) : finite(next.next.minutes) ? formatValue(next.next.minutes, "min") : null;
+    const when = localDate(next.next.start_at) === today ? `at ${shortTime(next.next.start_at)}` : `on ${whenWords(next.next.start_at, today)}`;
+    parts.push(`Next: ${lineDisplayName(next.line)} ${when}${amount ? ` for ${amount}` : ""}.`);
+  } else {
+    parts.push("Nothing is scheduled this week.");
+  }
+  return parts.join(" ");
+}
 
 // ---------------------------------------------------------------------------------------------------- reads and URLs
 /** The wet relays API-05 reads for the day views: every line's valve but L03's (it opens with each feed). */

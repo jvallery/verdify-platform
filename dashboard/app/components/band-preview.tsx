@@ -1,83 +1,64 @@
 // SPDX-License-Identifier: MIT
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useMemo, useRef, type MutableRefObject, type ReactNode } from "react";
 import type uPlot from "uplot";
-import { csvFilename, csvText } from "../charts/csv";
-import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "../charts/data-table";
-import { Labels, labelColor, paintBandEdges, paintBandFill, paintNow, type PaintTarget } from "../charts/draw";
-import { ChartKey, type KeyItem } from "../charts/legend";
+import { csvFilename, windowCsv } from "../charts/csv";
+import { ChartFoot, TimeCell, type DataTableBlock } from "../charts/data-table";
+import { CHART_BACKGROUND, Labels, paintBandEdges, paintBandFill, paintNow, type PaintTarget } from "../charts/draw";
+import { ChartGroup, useChartGroupKey, type KeyItem } from "../charts/legend";
 import { marksExtent, paddedRange, type BandRun } from "../charts/marks";
 import { valueAxis } from "../charts/time-series";
-import { epochOf, fullTime, timeAxis } from "../charts/time-axis";
+import { clockTime, epochOf, fullTime, timeAxis } from "../charts/time-axis";
 import { tooltipPlugin } from "../charts/tooltip";
 import type { XRange } from "../charts/types";
 import { UPlotChart, type ChartEnv, type ChartOptions } from "../charts/uplot-chart";
-import { dateShift, formatValue, localDayStart, shortTime } from "../lib/format";
-import { slotRead, useFreshRead, useGraphClock, useWindowReads } from "../lib/graph-reads";
-import { ApiError, type BandPreview as BandPreviewData, type ScheduleAgenda, type Setting } from "../lib/operator-api";
-import { unitLabel } from "../lib/setting-values";
-import { problemMessage } from "../lib/writes";
-import { Panel } from "./panel";
+import { dateShift, formatNumber, formatValue, localDayStart, unitDecimals } from "../lib/format";
+import type { BandLawLines, BandProfilePreview } from "../lib/operator-api";
+import { StatusBadge } from "./badge";
+import { AXIS_UNIT, findingDetail, findingSubject, storedEdges, type Axis } from "./climate/band-draft";
+import { Panel, type PanelState } from "./panel";
 
 /**
- * The curve preview on a crop-band anchor or width's drawer (US-SET-07, screens SCR-05). Each change of the value field,
- * after 300 ms, reads API-19; the server overlays the draft on the `crop_band_anchors` rows `fn_crop_band_value` reads,
- * so the browser computes no curve. It is a read, never a write or a dry run: a 422 or a failure changes this panel and
- * nothing else, and Save stays the ordinary API-10. The day runs 00:00 to 24:00, the band as stored is the ribbon and a
- * solid target, the draft is dashed and labelled PREVIEW, with a now line and marks at sunrise, solar noon and sunset
- * from API-IRR-02 `solar[0]`, left off if that read fails.
+ * The Band page's preview (screens §2.2 block 2, parity K-02 to K-04): two charts over the solar day, temperature and
+ * VPD, from API-23 alone, so the browser computes no curve. Each draws the stored band as a wash with its edges, the
+ * draft band dashed where it differs, the last 24 h measured, the outdoor forecast (temperature) or the expected night
+ * VPD (VPD), sunrise, solar noon, sunset and now, and the law's lines inside the band the draft makes (API-23
+ * `law_lines`, the law's own offsets from its edges), each labelled where a rule starts. The two charts share one key and
+ * one quiet line under both (A3); the draft's findings follow in words, each naming its edge (A8).
  */
-
-const ANCHOR = "(?:sr|sm|ss|mid)";
-const ZONE = "(?:center|south|west|east)";
-const BAND_ROW = new RegExp(`^(?:band_(temp|vpd)_(?:low|target|high)_${ANCHOR}|zone_vpd_target_(${ZONE})_${ANCHOR}|zone_vpd_width_(?:below|above)_(${ZONE}))$`);
-/** `band_<series>_<anchor>`, `zone_vpd_target_<zone>_<anchor>` or a zone's width: the `crop_band` rows with a curve. */
-export const hasBandCurve = (setting: Pick<Setting, "param" | "control_class">): boolean => setting.control_class === "crop_band" && BAND_ROW.test(setting.param);
-
-/** What the panel's curve is: "House VPD", "Center zone VPD". */
-function curveName(param: string): string {
-  const [, axis, targetZone, widthZone] = BAND_ROW.exec(param) ?? [];
-  const zone = targetZone ?? widthZone;
-  if (zone) return `${zone[0].toUpperCase()}${zone.slice(1)} zone VPD`;
-  return axis === "temp" ? "House temperature" : "House VPD";
-}
 
 export const PREVIEW_DEBOUNCE_MS = 300;
 export const PREVIEW_UNAVAILABLE = "Preview unavailable";
-export const PREVIEW_WORD = "PREVIEW";
-const NUMBER_FIRST = "Enter a number to preview its curve";
+export const AXIS_TITLE: Readonly<Record<Axis, string>> = { temp: "Temperature", vpd: "VPD" };
 
-/** `value` once it has held for `ms`; the first value at once. */
-function useDebounced<T>(value: T, ms: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    if (Object.is(value, settled)) return;
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, settled, ms]);
-  return settled;
-}
-
-type SolarMark = { at: number; word: string; text: string };
-/** Sunrise, solar noon and sunset from `solar[0]`, only when it is the previewed day. */
-function solarMarks(agenda: ScheduleAgenda | null, day: string): SolarMark[] {
-  const solar = agenda?.solar[0];
-  if (!solar || solar.date !== day) return [];
-  const marks: [string, string, string][] = [["Sunrise", "Sunrise", solar.sunrise], ["Noon", "Solar noon", solar.solar_noon], ["Sunset", "Sunset", solar.sunset]];
-  return marks.flatMap(([word, name, instant]) => {
-    const at = epochOf(instant);
-    return at === null ? [] : [{ at, word, text: `${name} ${shortTime(instant)}` }];
-  });
-}
-
-/** One column of the API's curve: a null stays a null, so a gap stays a gap. */
 type Column = readonly (number | null)[];
-type Curve = BandPreviewData["current"];
-/**
- * A further line on the chart: dotted by default (the band editor's expected night VPD, the curve as the controller
- * runs it), solid for a measured trace, dashed for the forecast, as Graphs draws them.
- */
-export type ExtraLine = { readonly key: string; readonly label: string; readonly token: string; readonly values: Column; readonly kind?: "line" | "dashed" | "dotted" };
-const EXTRA_DASH: Record<NonNullable<ExtraLine["kind"]>, number[] | undefined> = { line: undefined, dashed: [8, 4], dotted: [2, 3] };
+type Edges = { readonly low: Column; readonly high: Column };
+export type LawLine = { readonly key: string; readonly label: string; readonly values: Column };
+export type SolarMark = { readonly at: number; readonly word: string; readonly text: string };
+export type PreviewView = {
+  readonly axis: Axis;
+  readonly unit: "°F" | "kPa";
+  readonly t: readonly number[];
+  /** The band as stored, as the wash's runs. */
+  readonly runs: BandRun[];
+  readonly current: Edges;
+  /** The draft's edges, or null when there is no draft or it changes nothing on this axis. */
+  readonly draft: Edges | null;
+  /** The last 24 h measured, by clock time (after now, yesterday's). */
+  readonly measured: Column | null;
+  /** Temperature: the outdoor forecast. */
+  readonly outdoor: Column | null;
+  /** VPD: the night VPD the house is expected to reach (p25 and p75). */
+  readonly expected: Edges | null;
+  /** Where each rule starts, inside the band the draft makes. */
+  readonly lines: readonly LawLine[];
+  readonly now: number | null;
+  readonly marks: readonly SolarMark[];
+};
+
+const shown = (values: Column | null | undefined): values is Column => Array.isArray(values) && values.some((value) => value !== null);
+const sameColumn = (a: Column, b: Column) => a.length === b.length && a.every((value, index) => value === b[index]);
+const plus = (values: Column, offset: number): Column => values.map((value) => (value === null ? null : Math.round((value + offset) * 1000) / 1000));
+
 /** The ribbon's runs: a null in low or high leaves it open. */
 export function ribbon(t: readonly number[], low: Column, high: Column): BandRun[] {
   const runs: BandRun[] = [];
@@ -91,52 +72,81 @@ export function ribbon(t: readonly number[], low: Column, high: Column): BandRun
   return runs;
 }
 
-export type PreviewView = {
-  unit: string;
-  token: string;
-  t: readonly number[];
-  runs: BandRun[];
-  current: Curve;
-  /** Null when there is no draft to draw: none typed, or the draft's curve is the band as stored. */
-  draft: Curve | null;
-  now: number | null;
-  marks: SolarMark[];
-  /** Further dotted lines, after the draft's. */
-  extras?: readonly ExtraLine[];
-};
-
-const sameColumn = (a: Column, b: Column) => a.length === b.length && a.every((value, index) => value === b[index]);
-/** The draft to draw, or null when `draftShown` is off or the draft changes nothing. */
-export function draftOf(preview: Pick<BandPreviewData, "current" | "draft">, draftShown: boolean): PreviewView["draft"] {
-  const { current, draft } = preview;
-  if (!draftShown || (sameColumn(current.low, draft.low) && sameColumn(current.target, draft.target) && sameColumn(current.high, draft.high))) return null;
-  return draft;
-}
-
-function nulls(length: number): null[] {
-  return Array.from({ length }, () => null);
-}
-
-/** Where PREVIEW sits: on the draft's line where it stands furthest from the band as stored, the target first (a width moves only its edge). */
-function labelPoint(view: PreviewView): { at: number; value: number } | null {
-  const { draft, current, t } = view;
-  if (!draft) return null;
-  let best: { at: number; value: number } | null = null, gap = -1;
-  for (const key of ["target", "low", "high"] as const) {
-    draft[key].forEach((value, index) => {
-      const own = current[key][index];
-      if (value === null || own === null || own === undefined) return;
-      const apart = Math.abs(value - own);
-      if (apart > gap) { gap = apart; best = { at: t[index], value }; }
-    });
+/**
+ * Where each rule starts inside a band (API-23 `law_lines`, the law's offsets from its edges): temperature, the gas
+ * furnace and electric heat above the low edge and cooling at the high edge; VPD, drying above the low edge and fog at
+ * the high edge. None without the offsets (an API before them).
+ */
+export function lawLines(axis: Axis, band: Edges, offsets: BandLawLines | null): LawLine[] {
+  if (!offsets) return [];
+  if (axis === "temp") {
+    return [
+      { key: "heat2", label: "Furnace starts", values: plus(band.low, offsets.heat2_on_above_low_f) },
+      { key: "heat1", label: "Electric heat starts", values: plus(band.low, offsets.heat1_on_above_low_f) },
+      { key: "cool", label: "Cooling starts", values: plus(band.high, offsets.cool_on_above_high_f) },
+    ];
   }
-  return best;
+  return [
+    { key: "dry", label: "Drying wanted", values: plus(band.low, offsets.dry_on_above_vpd_low_kpa) },
+    { key: "fog", label: "Fog starts", values: plus(band.high, offsets.fog_on_above_vpd_high_kpa) },
+  ];
 }
 
-/** The now line, the solar marks and every label, which the collision check keeps apart; uPlot's context is left as found. */
+/** Sunrise, solar noon and sunset of the previewed day. */
+export function solarMarks(sun: BandProfilePreview["sun"]): SolarMark[] {
+  const marks: [string, string, number | null][] = [["Sunrise", "Sunrise", sun.sunrise], ["Noon", "Solar noon", sun.solar_noon], ["Sunset", "Sunset", sun.sunset]];
+  return marks.flatMap(([word, name, at]) => (typeof at === "number" ? [{ at, word, text: `${name} ${clockTime(at)}` }] : []));
+}
+
+/** The two charts' views from one API-23 answer; `edited` false draws no draft. */
+export function previewViews(preview: BandProfilePreview, now: number | null, edited: boolean): Record<Axis, PreviewView> {
+  const marks = solarMarks(preview.sun);
+  const view = (axis: Axis): PreviewView => {
+    const curves = preview[axis];
+    const current = { low: curves.current.low, high: curves.current.high };
+    const differs = edited && !(sameColumn(curves.current.low, curves.draft.low) && sameColumn(curves.current.high, curves.draft.high));
+    const draft = differs ? { low: curves.draft.low, high: curves.draft.high } : null;
+    const vpd = preview.vpd;
+    return {
+      axis, unit: AXIS_UNIT[axis], t: preview.t, runs: ribbon(preview.t, current.low, current.high), current, draft,
+      measured: shown(preview.measured[axis]) ? preview.measured[axis] : null,
+      outdoor: axis === "temp" && shown(preview.forecast.temp) ? preview.forecast.temp : null,
+      expected: axis === "vpd" && shown(vpd.expected_low) ? { low: vpd.expected_low, high: vpd.expected_high } : null,
+      lines: lawLines(axis, draft ?? current, preview.law_lines), now, marks,
+    };
+  };
+  return { temp: view("temp"), vpd: view("vpd") };
+}
+
+/** The key of one chart, which the group merges into one line above both (A3). */
+export function previewKey(view: PreviewView): KeyItem[] {
+  return [
+    { key: "band", label: "Band as stored", token: "--c-band-edge", kind: "fill" },
+    ...(view.draft ? [{ key: "draft", label: "Draft band", token: "--c-requested", kind: "dashed" } as const] : []),
+    ...(view.measured ? [{ key: "measured", label: "Measured, last 24 h", token: view.axis === "temp" ? "--c-temp" : "--c-vpd", kind: "line" } as const] : []),
+    ...(view.outdoor ? [{ key: "outdoor", label: "Outdoor forecast", token: "--c-outdoor", kind: "dashed" } as const] : []),
+    ...(view.expected ? [{ key: "expected", label: "Expected night VPD", token: "--c-outdoor", kind: "dotted" } as const] : []),
+    ...(view.lines.length ? [{ key: "rules", label: "Where a rule starts", token: "--text-2", kind: "dotted" } as const] : []),
+  ];
+}
+
+/** The plotted columns after t, in series order: draft low and high, measured, outdoor or expected, then the law's lines. */
+function columns(view: PreviewView): Column[] {
+  const blank = view.t.map(() => null);
+  return [
+    view.draft?.low ?? blank, view.draft?.high ?? blank, view.measured ?? blank,
+    ...(view.axis === "temp" ? [view.outdoor ?? blank] : [view.expected?.low ?? blank, view.expected?.high ?? blank]),
+    ...view.lines.map((line) => line.values),
+  ];
+}
+
+const DASH = { draft: [8, 4], outdoor: [6, 4], expected: [2, 3], rule: [2, 3] } as const;
+
+/** The now line, the sun's marks and every label, kept apart; the law's labels sit on their lines, right of noon first. */
 function paintMarks(plot: PaintTarget, view: PreviewView, colors: ChartEnv["colors"], px: number) {
   const { ctx, bbox } = plot;
   const x = (at: number) => plot.valToPos(at, "x", true);
+  const y = (value: number) => plot.valToPos(value, "y", true);
   const nowShown = view.now !== null && paintNow(plot, view.now, colors, px);
   ctx.save();
   try {
@@ -149,151 +159,174 @@ function paintMarks(plot: PaintTarget, view: PreviewView, colors: ChartEnv["colo
       ctx.lineTo(x(mark.at), bbox.top + bbox.height);
       ctx.stroke();
     }
-    const labels = new Labels(plot, px);
+    const labels = new Labels(plot, px, colors[CHART_BACKGROUND] ?? "");
     const top = bbox.top + 16 * px;
     const both = (at: number, line: number) => [{ at: x(at) + 4 * px, line, align: "left" as const }, { at: x(at) - 4 * px, line, align: "right" as const }];
     if (nowShown && view.now !== null) labels.place("Now", both(view.now, top), colors["--text"]);
     for (const mark of view.marks) labels.place(mark.word, both(mark.at, top), colors["--text-3"]);
-    const point = labelPoint(view);
-    if (point) labels.place(PREVIEW_WORD, both(point.at, plot.valToPos(point.value, "y", true)), labelColor(colors["--c-requested"], colors["--warn-text"]));
+    // Each rule's label at the first of a few times of day where it fits on its own line.
+    const tries = [0.62, 0.86, 0.38, 0.14].map((share) => Math.min(view.t.length - 1, Math.floor(share * view.t.length)));
+    for (const line of view.lines) {
+      const anchors = tries.flatMap((index) => {
+        const value = line.values[index];
+        return value === null || value === undefined ? [] : [{ at: x(view.t[index]), line: y(value), align: "left" as const }];
+      });
+      labels.place(line.label, anchors, colors["--text-2"]);
+    }
   } finally {
     ctx.restore();
   }
 }
 
-/** A column's low, target and high at one point, in words. */
-function pointText(unit: string, low: number | null | undefined, target: number | null | undefined, high: number | null | undefined): string {
-  return `${formatValue(low, unit)}–${formatValue(high, unit)} · target ${formatValue(target, unit)}`;
-}
+/** A low and a high in words: "71.8–85.8 °F". */
+const rangeWords = (low: number | null | undefined, high: number | null | undefined, unit: string) =>
+  (low === null || low === undefined || high === null || high === undefined ? "—" : `${formatNumber(low, unitDecimals(unit))}–${formatValue(high, unit)}`);
 
 function previewOptions(env: ChartEnv, viewRef: MutableRefObject<PreviewView>): ChartOptions {
   const { colors, px } = env;
-  const { unit, token } = viewRef.current;
-  const draftLine = (label: string, width: number): uPlot.Series => ({ label, scale: "y", stroke: colors["--c-requested"], width, dash: [8, 4], spanGaps: false, points: { show: false } });
-  const extraLines = (viewRef.current.extras ?? []).map((extra): uPlot.Series => ({ label: extra.label, scale: "y", stroke: colors[extra.token], width: 1.5, dash: EXTRA_DASH[extra.kind ?? "dotted"], spanGaps: false, points: { show: false } }));
+  const view = viewRef.current;
+  const line = (label: string, stroke: string, width: number, dash?: readonly number[]): uPlot.Series =>
+    ({ label, scale: "y", stroke, width, dash: dash ? [...dash] : undefined, spanGaps: false, points: { show: false } });
+  const outdoor = view.axis === "temp"
+    ? [line("Outdoor forecast", colors["--c-outdoor"], 1.5, DASH.outdoor)]
+    : [line("Expected night VPD, p25", colors["--c-outdoor"], 1.5, DASH.expected), line("Expected night VPD, p75", colors["--c-outdoor"], 1.5, DASH.expected)];
   return {
     padding: [18, 10, 0, 0],
-    series: [{}, { label: "Target", scale: "y", stroke: colors[token], width: 2, spanGaps: false, points: { show: false } }, draftLine(`${PREVIEW_WORD} target`, 2), draftLine(`${PREVIEW_WORD} low`, 1), draftLine(`${PREVIEW_WORD} high`, 1), ...extraLines],
+    series: [{}, line("Draft low", colors["--c-requested"], 2, DASH.draft), line("Draft high", colors["--c-requested"], 2, DASH.draft),
+      line("Measured", colors[view.axis === "temp" ? "--c-temp" : "--c-vpd"], 2), ...outdoor,
+      ...view.lines.map((rule) => line(rule.label, colors["--text-2"], 1, DASH.rule))],
     scales: { y: { range: (_plot, min, max) => paddedRange([min, max], marksExtent(viewRef.current.runs, [], ...env.xWindow())) } },
-    axes: [timeAxis({ muted: colors["--text-3"], grid: colors["--c-grid"] }), valueAxis(unit, colors)],
+    axes: [timeAxis({ muted: colors["--text-3"], grid: colors["--c-grid"] }), valueAxis(view.unit, colors)],
     hooks: {
       drawClear: [(plot) => paintBandFill(plot, viewRef.current.runs, colors)],
       drawAxes: [(plot) => paintBandEdges(plot, viewRef.current.runs, colors, px())],
       draw: [(plot) => paintMarks(plot, viewRef.current, colors, px())],
     },
-    plugins: [tooltipPlugin((plot) => {
-      const index = plot.cursor.idx;
-      const { t, unit: shown, current, draft, extras } = viewRef.current;
-      if (index === null || index === undefined || index < 0 || index >= t.length) return null;
-      const lines = [fullTime(t[index]), `Band ${pointText(shown, current.low[index], current.target[index], current.high[index])}`];
-      if (draft) lines.push(`${PREVIEW_WORD} ${pointText(shown, draft.low[index], draft.target[index], draft.high[index])}`);
-      for (const extra of extras ?? []) {
-        const value = extra.values[index];
-        if (value !== null && value !== undefined) lines.push(`${extra.label} ${formatValue(value, shown)}`);
-      }
-      return lines;
-    })],
+    plugins: [tooltipPlugin((plot) => tooltipText(viewRef.current, plot.cursor.idx))],
   };
 }
 
-const CURVE_KEYS = ["low", "target", "high"] as const;
-/** The table lists each point of the band and, while one shows, of the draft; rows build only once it opens. */
-function previewTable({ t, unit, current, draft }: PreviewView): DataTableBlock {
-  const headers = ["Time", ...CURVE_KEYS.map((key) => `${key} (${unit})`), ...(draft ? CURVE_KEYS.map((key) => `${PREVIEW_WORD} ${key} (${unit})`) : [])];
-  return {
-    caption: "Band preview · America/Denver", headers, count: t.length,
-    rows: () => t.map((at, index) => [
-      <TimeCell key="t" at={at} />,
-      ...CURVE_KEYS.map((key) => formatValue(current[key][index], unit)),
-      ...(draft ? CURVE_KEYS.map((key) => formatValue(draft[key][index], unit)) : []),
-    ]),
+/** The pointer's readout at one step: the time, the band, the draft, the measured and outdoor values and each rule's line. */
+export function tooltipText(view: PreviewView, index: number | null | undefined): string[] | null {
+  const { t, unit, current, draft } = view;
+  if (index === null || index === undefined || index < 0 || index >= t.length) return null;
+  const lines = [fullTime(t[index]), `Band ${rangeWords(current.low[index], current.high[index], unit)}`];
+  if (draft) lines.push(`Draft ${rangeWords(draft.low[index], draft.high[index], unit)}`);
+  const value = (label: string, column: Column | null | undefined) => {
+    const at = column?.[index];
+    if (at !== null && at !== undefined) lines.push(`${label} ${formatValue(at, unit)}`);
   };
-}
-/** The CSV: exactly the plotted columns, in canonical units. */
-function previewCsv({ t, unit, current, draft }: PreviewView): string {
-  return csvText({
-    t,
-    columns: [
-      ...CURVE_KEYS.map((key) => ({ header: `${key} (${unit})`, values: current[key] })),
-      ...(draft ? CURVE_KEYS.map((key) => ({ header: `preview ${key} (${unit})`, values: draft[key] })) : []),
-    ],
-  });
+  value("Measured", view.measured);
+  value("Outdoor forecast", view.outdoor);
+  if (view.expected && view.expected.low[index] !== null && view.expected.low[index] !== undefined) lines.push(`Expected night VPD ${rangeWords(view.expected.low[index], view.expected.high[index], unit)}`);
+  for (const rule of view.lines) value(rule.label, rule.values);
+  return lines;
 }
 
-/** The day's curve, once the API has answered: 00:00 to 24:00 local, which a DST day makes 23 or 25 hours. */
-export function PreviewChart({ day, view, name }: { day: string; view: PreviewView; name: string }) {
-  const viewRef = useRef(view);
-  viewRef.current = view;
-  const xRange: XRange = useMemo(() => {
-    const from = epochOf(localDayStart(day)) ?? view.t[0] ?? 0;
-    return { from, to: epochOf(localDayStart(dateShift(day, 1))) ?? from + 86_400 };
-  }, [day, view.t]);
-  const data = useMemo<uPlot.AlignedData>(() => {
-    const blank = nulls(view.t.length);
-    return [[...view.t], [...view.current.target], [...(view.draft?.target ?? blank)], [...(view.draft?.low ?? blank)], [...(view.draft?.high ?? blank)], ...(view.extras ?? []).map((extra) => [...extra.values])];
-  }, [view.t, view.current, view.draft, view.extras]);
-  const extraKeys = (view.extras ?? []).map((extra) => `${extra.key}:${extra.kind ?? "dotted"}`).join(",");
-  // The marks repaint the same chart; a new unit rebuilds it, with its axis and colours.
-  const marks = useMemo(() => ({ runs: view.runs, draft: view.draft, now: view.now, solar: view.marks }), [view.runs, view.draft, view.now, view.marks]);
-  return <>
-    <UPlotChart options={(env) => previewOptions(env, viewRef)} data={data} xRange={xRange} structure={`band-preview|${view.unit}|${extraKeys}`} className="plot" zoom={false} marks={marks}
-      label={`${name} band over the day in ${view.unit}, America/Denver: the band as stored${view.draft ? " and dashed, the preview of this value" : ""}. Gaps are left empty, never zero. The data table follows.`} />
-    <ChartKey items={previewKey(view)} />
-    {view.marks.length > 0 && <ul className="chart-notes">{view.marks.map((mark) => <li key={mark.word}>{mark.text}</li>)}</ul>}
-    <div className="chart-tools"><CsvLink filename={csvFilename(`band preview ${name}`, xRange)} build={() => previewCsv(view)} version={data} /></div>
-    <DataTable tables={[previewTable(view)]} />
-  </>;
-}
-
-function previewKey(view: PreviewView): KeyItem[] {
+/** The table and the CSV hold the same columns: the band, the draft while one shows, and the measured values. */
+function tableColumns(view: PreviewView): { header: string; values: Column }[] {
+  const unit = view.unit;
   return [
-    { key: "band", label: "Band as stored", token: "--c-band-edge", kind: "fill" },
-    { key: "target", label: "Target as stored", token: view.token, kind: "line" },
-    ...(view.draft ? [{ key: "preview", label: PREVIEW_WORD, token: "--c-requested", kind: "dashed" } as const] : []),
-    ...(view.extras ?? []).map((extra) => ({ key: extra.key, label: extra.label, token: extra.token, kind: extra.kind ?? "dotted" } as const)),
+    { header: `Band low, ${unit}`, values: view.current.low }, { header: `Band high, ${unit}`, values: view.current.high },
+    ...(view.draft ? [{ header: `Draft low, ${unit}`, values: view.draft.low }, { header: `Draft high, ${unit}`, values: view.draft.high }] : []),
+    ...(view.measured ? [{ header: `Measured, ${unit}`, values: view.measured }] : []),
   ];
 }
+function previewTable(view: PreviewView): DataTableBlock {
+  const cols = tableColumns(view);
+  return {
+    caption: `${AXIS_TITLE[view.axis]} band over the day · America/Denver`, headers: ["Time", ...cols.map((col) => col.header)], count: view.t.length,
+    rows: () => view.t.map((at, index) => [<TimeCell key="t" at={at} />, ...cols.map((col) => formatValue(col.values[index], view.unit))]),
+  };
+}
 
-/** Today's solar times, read once; a failure leaves the marks off. */
-const SOLAR_SLOTS = [{ id: "solar", params: { days: 1 } }] as const;
+/** The previewed day, local midnight to midnight. */
+export function dayRange(day: string, t: readonly number[]): XRange {
+  const from = epochOf(localDayStart(day)) ?? t[0] ?? 0;
+  return { from, to: epochOf(localDayStart(dateShift(day, 1))) ?? from + 86_400 };
+}
 
-export type BandPreviewProps = {
-  setting: Pick<Setting, "param" | "unit" | "step" | "control_class">;
-  /** The value field as a number; null while it does not read as one. */
-  draft: number | null;
+/** The CSV of both charts: one row a step, the temperature columns, then the VPD columns. */
+export function previewCsv(views: Record<Axis, PreviewView>): string {
+  return windowCsv([views.temp, views.vpd].map((view) => ({ t: view.t, columns: tableColumns(view).map((col) => ({ ...col, header: `${AXIS_TITLE[view.axis]} ${col.header.charAt(0).toLowerCase()}${col.header.slice(1)}` })) })));
+}
+
+/** One axis's chart, inside the preview's group: its title and its plot (the group keeps the key and the one quiet line). */
+export function PreviewChart({ day, view }: { day: string; view: PreviewView }) {
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  useChartGroupKey(previewKey(view));
+  const xRange: XRange = useMemo(() => dayRange(day, view.t), [day, view.t]);
+  const data = useMemo<uPlot.AlignedData>(() => [[...view.t], ...columns(view).map((column) => [...column])], [view]);
+  const marks = useMemo(() => ({ runs: view.runs, draft: view.draft, now: view.now, lines: view.lines, sun: view.marks }), [view.runs, view.draft, view.now, view.lines, view.marks]);
+  const title = AXIS_TITLE[view.axis];
+  const structure = `band-preview|${view.axis}|${view.lines.map((line) => line.key).join(",")}`;
+  return <figure className="chart band-chart">
+    <figcaption className="band-chart-title">{title}, {view.unit}</figcaption>
+    <UPlotChart options={(env) => previewOptions(env, viewRef)} data={data} xRange={xRange} structure={structure} className="plot" zoom={false} marks={marks}
+      label={`${title} band over the solar day in ${view.unit}, America/Denver: the band as stored${view.draft ? ", the draft band dashed" : ""} and where each rule starts. Gaps are left empty, never zero. The data table follows the charts.`} />
+  </figure>;
+}
+
+/** The answer in words (A4): the band as stored, by day and at night, and whether sunrise and sunset are set apart. */
+export function bandAnswer(preview: Pick<BandProfilePreview, "current">): string {
+  const edges = storedEdges(preview.current);
+  const pair = (time: "day" | "night") => `${rangeWords(edges[`temp_low_${time}`], edges[`temp_high_${time}`], "°F")} and ${rangeWords(edges[`vpd_low_${time}`], edges[`vpd_high_${time}`], "kPa")}`;
+  const apart = preview.current.edges_simple && (!preview.current.edges_simple.temp || !preview.current.edges_simple.vpd)
+    ? " Sunrise and sunset are set apart from the halfway point." : "";
+  return `The house is held at ${pair("day")} by day (solar noon), and at ${pair("night")} at night (solar midnight).${apart}`;
+}
+
+export type Finding = BandProfilePreview["findings"][number];
+/** The draft's findings in words: what each is about, then why, in the API's words with each series named. */
+export function FindingsList({ findings }: { findings: readonly Finding[] }) {
+  if (!findings.length) return null;
+  const ordered = [...findings.filter((item) => item.severity === "error"), ...findings.filter((item) => item.severity !== "error")];
+  return <ul className="band-findings" aria-label="What the band check found">
+    {ordered.map((finding) => {
+      const subject = findingSubject(finding.field);
+      return <li key={`${finding.code}-${finding.field}`} data-severity={finding.severity}>
+        <StatusBadge status={finding.severity === "error" ? "critical" : "warn"} size="sm">{finding.severity === "error" ? "Blocks Save" : "Warning"}</StatusBadge>{" "}
+        <span>{subject && <strong>{subject}: </strong>}{findingDetail(finding.detail)}</span>
+      </li>;
+    })}
+  </ul>;
+}
+
+/** The night heat estimate (API-23 `night_heat_kwh`), stored and with the draft. */
+export function nightHeatText(preview: Pick<BandProfilePreview, "night_heat_kwh">, edited: boolean): string | null {
+  const { current, draft } = preview.night_heat_kwh;
+  if (current === null && draft === null) return null;
+  const stored = `Heat for tonight, estimated: ${formatValue(current, "kWh")} with the band as stored`;
+  return edited ? `${stored}, ${formatValue(draft, "kWh")} with the draft.` : `${stored}.`;
+}
+
+export type BandPreviewPanelProps = {
+  preview: BandProfilePreview | null;
+  /** A draft is being previewed (it may change nothing). */
+  edited: boolean;
+  now: number | null;
+  state: PanelState;
+  /** A message in place of the charts or above them: the preview failed, or a field does not read as a number. */
+  message?: ReactNode;
+  onRetry?: () => void;
 };
 
-export function BandPreviewPanel({ setting, draft }: BandPreviewProps) {
-  const settled = useDebounced(draft, PREVIEW_DEBOUNCE_MS);
-  const read = useFreshRead("API-19", settled === null ? null : { param: setting.param, value: settled });
-  const solar = slotRead(useWindowReads("API-IRR-02", SOLAR_SLOTS, null), "solar");
-  const now = useGraphClock(true);
-  const preview = read.data ?? null;
-  const unit = preview ? unitLabel(preview.unit) : unitLabel(setting.unit);
-  const name = curveName(setting.param);
-  // While the next answer loads the last one stays on screen, its draft too; with no number in the field there is no draft.
-  const draftShown = settled !== null;
-  const view = useMemo<PreviewView | null>(() => (preview ? {
-    unit, token: unit === "°F" ? "--c-temp" : "--c-vpd", t: preview.t, runs: ribbon(preview.t, preview.current.low, preview.current.high), current: preview.current,
-    draft: draftOf(preview, draftShown), now, marks: solarMarks(solar.data, preview.day),
-  } : null), [preview, unit, draftShown, now, solar.data]);
-  let message: string | null = null;
-  if (read.isError) {
-    const { error } = read;
-    message = error instanceof ApiError && error.status === 422 ? problemMessage(error.problem, { unit: setting.unit, step: setting.step }) : PREVIEW_UNAVAILABLE;
-  } else if (settled === null && !preview) {
-    message = NUMBER_FIRST;
-  } else if (preview && preview.t.length === 0) {
-    message = PREVIEW_UNAVAILABLE;
-  }
-  return <div className="band-preview">
-    <Panel title="Band preview" headingLevel={3} thing="the band preview" state={message !== null || preview ? "ready" : "loading"} reserve="lg">
-      <figure className="chart">
-        <figcaption className="eyebrow">{name} · {unit}</figcaption>
-        {message !== null || !preview || !view
-          ? <div className="plot chart-message"><p role="status">{message}</p></div>
-          : <PreviewChart day={preview.day} view={view} name={name} />}
-      </figure>
-    </Panel>
-  </div>;
+/** Block 2: the answer, the two charts with one key, the sun's times, the findings and the night heat estimate. */
+export function BandPreviewPanel({ preview, edited, now, state, message, onRetry }: BandPreviewPanelProps) {
+  const views = useMemo(() => (preview && preview.t.length ? previewViews(preview, now, edited) : null), [preview, now, edited]);
+  const marks = views?.temp.marks ?? [];
+  const heat = preview ? nightHeatText(preview, edited) : null;
+  return <Panel title="The band" thing="the band" state={state} reserve="lg" onRetry={onRetry} foot={heat}>
+    {preview && <p className="band-answer">{bandAnswer(preview)}</p>}
+    {message && <p role="status" className="band-message">{message}</p>}
+    {views && preview && <ChartGroup label="The band over the solar day" className="band-charts">
+      <PreviewChart day={preview.day} view={views.temp} />
+      <PreviewChart day={preview.day} view={views.vpd} />
+      <ChartFoot tables={[previewTable(views.temp), previewTable(views.vpd)]}
+        csv={{ filename: csvFilename("band", dayRange(preview.day, preview.t)), build: () => previewCsv(views), version: views, label: "CSV of these charts" }} />
+    </ChartGroup>}
+    {marks.length > 0 && <p className="meta band-sun">{marks.map((mark) => mark.text).join(" · ")}. After the Now line the measured line is yesterday's.</p>}
+    {preview && <FindingsList findings={edited ? preview.findings : preview.findings.filter((finding) => finding.severity !== "error")} />}
+  </Panel>;
 }

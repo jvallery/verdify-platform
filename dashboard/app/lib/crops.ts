@@ -267,6 +267,37 @@ const EVENT_WORDS: Readonly<Record<string, string>> = {
 /** A planting event's type in words; an unknown type shows raw. */
 export const eventText = (type: string): string => EVENT_WORDS[type] ?? type;
 
+/**
+ * The Map's answer, its first block (design review A4): how many plantings grow here and which crops, "6 plantings are
+ * growing: basil, lettuce, herbs, tomatoes and Vanda orchids."; null when nothing is planted, which the map's own empty
+ * line says.
+ */
+export function cropsAnswer(locations: Pick<Locations, "zones">): string | null {
+  const count = workspacePlantingCount(locations);
+  if (!count) return null;
+  const crops = legend(locations).map((item) => item.crop);
+  const list = crops.length < 2 ? crops.join("") : `${crops.slice(0, -1).join(", ")} and ${crops[crops.length - 1]}`;
+  return `${count} planting${count === 1 ? " is" : "s are"} growing${list ? `: ${list}` : ""}.`;
+}
+
+/** Each zone's and shelf's slug with its name ("west_shelf_top" → "West top shelf"), from the map's read. */
+export function placeNames(locations: Pick<Locations, "zones"> | null | undefined): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const zone of locations?.zones ?? []) {
+    names.set(zone.slug, zone.name);
+    for (const shelf of zone.shelves ?? []) names.set(shelf.slug, shelfTitle(shelf));
+  }
+  return names;
+}
+/** A planting's places in words (design review: no keys): each zone or shelf slug by its name; a cell range stays as labelled. */
+export const placeText = (where: string, names: ReadonlyMap<string, string>): string => where.split(/,\s*/).map((part) => names.get(part) ?? part).join(", ");
+/** Who recorded a planting: the person's name capitalised; the seed migration's records read "Imported". */
+export function recorderText(actor: { readonly source?: string | null; readonly name: string } | null | undefined): string {
+  if (!actor) return "—";
+  if (actor.source === "system" && /^migration\b/i.test(actor.name)) return "Imported";
+  return actor.name ? `${actor.name[0].toUpperCase()}${actor.name.slice(1)}` : "—";
+}
+
 /** Keep each growing workspace scoped to its own physical locations. */
 export function growingLocations(locations: Locations, hydro: boolean): Locations {
   return { ...locations, zones: locations.zones.map((zone) => ({

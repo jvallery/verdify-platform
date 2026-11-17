@@ -9,7 +9,7 @@ import { FakeResizeObserver, media, setTokens } from "../charts/fixtures/uplot-m
 import { text } from "../components/test-render";
 import { OPERATOR, advance, renderWithApi, requests, startFixtureApi, stopFixtureApi, type FixtureOptions } from "../lib/test-fixture-api";
 import type { Session } from "../lib/session";
-import Equipment, { equipmentStatus } from "./equipment";
+import Equipment, { equipmentStatus, runningSentence } from "./equipment";
 
 vi.mock("uplot", async () => ({ default: (await import("../charts/fixtures/uplot-mock")).MockPlot }));
 
@@ -30,17 +30,19 @@ afterEach(() => { cleanup(); stopFixtureApi(); vi.unstubAllGlobals(); document.d
 const panel = (name: string) => screen.getByRole("region", { name });
 const relay = (key: string) => document.querySelector(`.sys-relay[data-equipment="${key}"]`);
 
-test("the climate relays each say their state, since, today so far and why in the law's words, linking to the law", async () => {
+test("the answer says what runs; the climate relays each say their state, since, today so far and why in the law's words", async () => {
   await open();
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Equipment");
+  expect(text(panel("Answer"))).toMatch(/\.$/);
   const climate = panel("Climate relays");
   expect([...climate.querySelectorAll(".sys-relay")].map((row) => row.getAttribute("data-equipment"))).toEqual(["heat1", "heat2", "fan1", "fan2", "vent", "fog"]);
   for (const key of ["heat1", "heat2", "fan1", "fan2", "vent", "fog"]) {
     const row = relay(key)!;
     expect(text(row.querySelector(".sys-relay-facts"))).toMatch(/today/);
     expect(text(row.querySelector(".sys-relay-why"))).not.toBe("");
-    expect(within(row as HTMLElement).getByRole("link", { name: /^Climate law/ }).getAttribute("href")).toBe("/climate");
+    expect(within(row as HTMLElement).queryByRole("link", { name: /^Climate law/ })).toBeNull();
   }
+  expect(within(climate).getByRole("link", { name: /^Climate law/ }).getAttribute("href")).toBe("/climate");
   expect(text(climate)).not.toMatch(/\b(plan|planner|waypoint|setpoint|tunable|burst|stage)\b/i);
 });
 
@@ -89,4 +91,14 @@ test("the status line counts the climate relays on", () => {
   expect(equipmentStatus(null)).toBeNull();
   expect(equipmentStatus({ items: [item("heat1", "on"), item("fan1", "off"), item("wall_drip", "on", "water")] } as never)).toBe("1 of 6 climate relays on · 1 water line on");
   expect(equipmentStatus({ items: [] } as never)).toBe("Relay states are not reported");
+});
+
+test("the answer names what runs, the vent as open, and says when nothing does", () => {
+  const item = (equipment: string, state: string, group = "climate", label: string | null = null) => ({ equipment, state, group, label }) as never;
+  const off = ["heat1", "heat2", "fan1", "fan2", "vent", "fog"].map((key) => item(key, "off"));
+  expect(runningSentence(null)).toBeNull();
+  expect(runningSentence({ items: [] } as never)).toBe("The controller has not reported its relays.");
+  expect(runningSentence({ items: off } as never)).toBe("Nothing is running: every climate relay is off, the vent is closed and no water line is on.");
+  expect(runningSentence({ items: [item("heat1", "on", "climate", "Heat 1 electric"), ...off.slice(1)] } as never)).toBe("Heat 1 electric is on; no water line is on.");
+  expect(runningSentence({ items: [...off.slice(0, 4), item("vent", "on"), off[5], item("wall_drip", "on", "water", "Wall drip")] } as never)).toBe("The vent is open and Wall drip is watering.");
 });

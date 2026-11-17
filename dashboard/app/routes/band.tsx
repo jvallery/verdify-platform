@@ -1,31 +1,76 @@
 // SPDX-License-Identifier: MIT
-import { BandEditor } from "../components/control/band-editor";
-import { PageHeader } from "../components/layout/page-header";
-import { Panel } from "../components/panel";
+import { useSearchParams } from "react-router";
 import { chartLinks } from "../charts/uplot-chart";
+import { BandPreviewPanel } from "../components/band-preview";
+import { BandDeliveryPanel, deliveryStatus, deliverySummary, edgeRows } from "../components/climate/band-delivery";
+import { BandExplainer } from "../components/climate/band-explainer";
+import { BandHistoryPanel } from "../components/climate/band-history";
+import { BandProposalPanel, requestedProposal } from "../components/climate/band-proposal";
+import { DryingLimit } from "../components/climate/drying-limit";
+import { BandEditorPanel, previewProblem, useBandEditor, type BandEditor } from "../components/control/band-editor";
+import { Page } from "../components/layout/page";
+import { PageHeader } from "../components/layout/page-header";
+import { PanelErrorBoundary } from "../components/panel";
+import { useGraphClock } from "../lib/graph-reads";
+import { panelRead, useLawRead, useSettingsRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
 
 /**
- * Control → Band (#1334): what the climate band is and how it moves through the day, the house band's editor and its
- * 24 h preview. Plant-agnostic: the band is a temperature and a VPD target, never a crop. docs/design/dashboard/band.md
- * is the long form of the explainer below. No greenhouse data renders in SSR: data loads in the browser.
+ * Climate → Band (screens §2.2): what band the house is held in. A waiting proposal first; then the band in words and
+ * its preview over the solar day (API-23), the editor (operators), and beside them what the controller has of it, the
+ * one price and the band's changes; how the band works last, collapsed. The editor edits edges only: every number the
+ * person sees before saving is the number that is sent, and the preview is the server's. No greenhouse data renders in
+ * SSR: data loads in the browser.
  */
-export const meta = () => viewMeta("control-band");
+export const meta = () => viewMeta("climate-band");
 export const links = () => chartLinks();
 
+/** The preview's message: the stored band failed, the draft does not read as a number, or its preview failed. */
+function previewMessage(editor: BandEditor): string | null {
+  if (editor.base.isError && !editor.stored) return null;
+  if (editor.request && !editor.request.ok) return "Enter a number in every field you changed to preview the band.";
+  if (editor.edited && editor.read.isError) return previewProblem(editor.read.error).message;
+  return null;
+}
+
+/** The header's status, long and short: what the controller has of the band (block 4's summary). */
+function useBandStatus(): { long: string | null; short: string | null } {
+  const settings = panelRead(useSettingsRead());
+  if (!settings.data) return settings.pending ? { long: null, short: null } : { long: "The band's delivery could not be read.", short: "Delivery not read" };
+  const summary = deliverySummary(edgeRows(settings.data.items));
+  return { long: deliveryStatus(summary), short: deliveryStatus(summary, true) };
+}
+
 export default function Band() {
-  return <>
-    <PageHeader view="control-band" status="The house band: temperature and VPD targets through the solar day" />
-    <div className="page-stack">
-    <BandEditor />
-    <Panel title="How the band works" thing="the explainer" state="ready">
-      <div className="prose">
-        <p>The band is the range the controller holds the house in: a low, a target and a high for temperature and for VPD. It is set at four points of the sun's day (sunrise, solar noon, sunset and solar midnight) and the controller draws one smooth curve through them, so the band follows the season without fixed clock times.</p>
-        <p>Here you set the day value (solar noon) and the night value (solar midnight). Sunrise and sunset are placed halfway between, so the curve never runs past the values you set. Advanced shows the 24 raw points; uneven sunrise and sunset values make the curve overshoot, which the preview shows.</p>
-        <p>Below the temperature low the controller heats (electric heat first, gas as backup); above the high it cools. Below the VPD low it dries the air when drying costs less than the drying limit; above the VPD high it humidifies. The hard guardrails, 40 °F and 100 °F, sit outside all of this. The band is set only here, under the owner's sign-in: the daily review may propose a change, and it never writes one.</p>
-        <p>Save writes every changed point as one change with one reason. The controller picks it up within a couple of dispatcher cycles; Settings shows each point as REQUESTED until the controller confirms it.</p>
+  const [search] = useSearchParams();
+  const editor = useBandEditor();
+  const now = useGraphClock(true);
+  const law = panelRead(useLawRead());
+  const status = useBandStatus();
+  const stored = editor.stored;
+  const previewState = stored ? "ready" : editor.base.isError ? "error" : "loading";
+  return <Page className="climate-page band-page">
+    <PageHeader view="climate-band" status={status.long} statusShort={status.short ?? undefined} />
+    <PanelErrorBoundary thing="the proposal">
+      <BandProposalPanel requested={requestedProposal(search)} loaded={editor.draft?.proposal ?? null} ready={editor.baseDraft !== null} onLoad={editor.loadInto} />
+    </PanelErrorBoundary>
+    <div className="l-grid climate-grid band-grid">
+      <div className="span-8 band-main l-stack">
+        <PanelErrorBoundary thing="the band" onRetry={() => void editor.base.refetch()}>
+          <BandPreviewPanel preview={editor.preview} edited={editor.edited} now={now} state={previewState} message={previewMessage(editor)}
+            onRetry={() => void editor.base.refetch()} />
+        </PanelErrorBoundary>
+        <PanelErrorBoundary thing="the band editor"><BandEditorPanel editor={editor} /></PanelErrorBoundary>
       </div>
-    </Panel>
+      <div className="span-4 climate-side band-side l-stack">
+        <PanelErrorBoundary thing="the band on the controller"><BandDeliveryPanel lastSave={editor.lastSave} /></PanelErrorBoundary>
+        <PanelErrorBoundary thing="the drying cost limit"><DryingLimit variant="band" headingLevel={2} /></PanelErrorBoundary>
+        <PanelErrorBoundary thing="the band's changes"><BandHistoryPanel /></PanelErrorBoundary>
+      </div>
+      <div className="span-8 band-how">
+        <BandExplainer lines={stored?.law_lines ?? null} hotLimit={law.data?.timing.hot_limit_f ?? stored?.guardrails.temp_max_f ?? null}
+          coldLimit={law.data?.timing.cold_limit_f ?? stored?.guardrails.temp_min_f ?? null} />
+      </div>
     </div>
-  </>;
+  </Page>;
 }

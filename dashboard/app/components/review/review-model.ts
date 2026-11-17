@@ -6,12 +6,13 @@
  * API-34 (`ReviewPage`) as the client parses it.
  */
 import type { DailyBarDay } from "../../charts/daily-bars";
-import { dateShift, dayMonth, formatValue } from "../../lib/format";
+import { bandAnchorUnit, bandAnchorWords } from "../../lib/band-words";
+import { dateShift, dayMonth, formatNumber, formatValue, sentenceStart } from "../../lib/format";
 import type { Review, ReviewPage, ReviewProposal } from "../../lib/operator-api";
 import { words } from "../../lib/words";
 import type { BadgeStatus } from "../badge";
 
-/** A rise of the newest review's tokens over the 7-day mean above this share is flagged (screens 8, row 5). */
+/** A rise of the newest review's tokens over the mean of the reviews before it above this share is flagged (screens 8, row 5). */
 export const TOKEN_RISE_FLAG_PCT = 20;
 /** Reviewer health counts failures over this many review days, today's included. */
 export const HEALTH_DAYS = 30;
@@ -187,22 +188,29 @@ export type ChangeRow = {
 /** A value in its unit; `formatValue` knows °F and kPa, and an unknown unit prints after the number. */
 const valueIn = (value: number | null | undefined, unit: string | null | undefined) => formatValue(value, unit ?? null);
 
-/** Each change as label, current → proposed with its unit, and the signed difference (R-09). */
+/**
+ * Each change as label, current → proposed with its unit, and the signed difference (R-09). A band edge is named in
+ * words ("Temperature low edge at sunrise", C9), never by the catalog's label of its key ("Band Temp Low SR").
+ */
 export function changeRows(proposal: ReviewProposal): ChangeRow[] {
   return proposal.changes.map((change) => {
-    const unit = change.unit ?? null;
+    const edge = bandAnchorWords(change.param);
+    const unit = bandAnchorUnit(change.param) ?? change.unit ?? null;
     const diff = change.current === null || change.current === undefined ? null : change.proposed - change.current;
     const difference = diff === null ? "—" : `${diff > 0 ? "+" : ""}${valueIn(diff, unit)}`;
-    return { key: change.param, label: change.label, current: valueIn(change.current, unit), proposed: valueIn(change.proposed, unit), difference };
+    return { key: change.param, label: edge ? sentenceStart(edge) : change.label, current: valueIn(change.current, unit), proposed: valueIn(change.proposed, unit), difference };
   });
 }
 
 /**
- * The price note as the reviewer wrote it, read as a lead and its parts when it lists figures ("Low edge only: Therms/day
- * +0.31 / +0.31; kWh/day …"): the text before the first colon leads, the parts split on semicolons. One part is one line.
+ * The price note as the reviewer wrote it (B3). It is one text with one quoted price-list row a line, so each line is
+ * its own row. A note of one line that lists figures ("Low edge only: Therms/day +0.31 / +0.31; kWh/day …") reads as
+ * a lead (the text before the first colon) and its parts (split on semicolons), one part a row.
  */
 export function priceParts(price: string): { readonly lead: string | null; readonly parts: readonly string[] } {
-  const text = price.trim();
+  const lines = price.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length > 1) return { lead: null, parts: lines };
+  const text = lines[0] ?? "";
   const colon = text.indexOf(": ");
   const rest = colon > 0 ? text.slice(colon + 2) : text;
   const parts = rest.split(/;\s*/).map((part) => part.trim()).filter(Boolean);
@@ -241,13 +249,43 @@ export type Health = {
   readonly since: string;
 };
 
+/** The newest review's tokens against the reviews before it, in words: an arrow's direction and its sentence. */
+export type TokenWords = {
+  /** "91% above the review before it", "12% below the mean of the 5 reviews before it"; null with nothing to compare. */
+  readonly comparison: { readonly direction: "up" | "down" | "none"; readonly text: string } | null;
+  /** The figure compared with, and the flag: "The 5 reviews before it used 179,493 tokens on average. A rise over 20% is flagged." */
+  readonly meta: string | null;
+};
+
+/**
+ * The tokens tile's words (screens 8 row 5, B3). The API's 7-day mean averages the reviews written in the 7 days before
+ * the newest (`count_7` of them), not days, so the words count reviews: with none, the figure stands alone; with one,
+ * "91% above the review before it"; with more, "above the mean of the 5 reviews before it". A rise over
+ * `TOKEN_RISE_FLAG_PCT` is flagged.
+ */
+export function tokenWords(tokens: Pick<ReviewPage["tokens"], "rise_pct" | "mean_7" | "count_7">): TokenWords {
+  const count = tokens.count_7 ?? 0;
+  const rise = tokens.rise_pct;
+  const mean = tokens.mean_7;
+  if (count <= 0 || rise === null || rise === undefined || !Number.isFinite(rise)) return { comparison: null, meta: null };
+  const against = count === 1 ? "the review before it" : `the mean of the ${formatNumber(count, 0)} reviews before it`;
+  const size = Math.round(Math.abs(rise));
+  const comparison = size === 0
+    ? { direction: "none" as const, text: `The same as ${against}` }
+    : { direction: rise > 0 ? "up" as const : "down" as const, text: `${formatNumber(size, 0)}% ${rise > 0 ? "above" : "below"} ${against}` };
+  const figure = mean === null || mean === undefined ? null : formatNumber(Math.round(mean), 0);
+  const base = figure === null ? null : count === 1 ? `The review before it used ${figure} tokens.` : `The ${formatNumber(count, 0)} reviews before it used ${figure} tokens on average.`;
+  const flag = rise > TOKEN_RISE_FLAG_PCT ? `A rise over ${TOKEN_RISE_FLAG_PCT}% is flagged.` : null;
+  return { comparison, meta: [base, flag].filter(Boolean).join(" ") || null };
+}
+
 /** The reviews of the last `HEALTH_DAYS` review days, ending at today's review date. */
 export function inWindow(items: readonly Review[], todayDate: string): Review[] {
   const since = dateShift(todayDate, -(HEALTH_DAYS - 1));
   return items.filter((item) => item.review_date >= since && item.review_date <= todayDate);
 }
 
-/** Reviewer health (R-12): tokens against the 7-day mean, attempts, failures over the last 30 days. */
+/** Reviewer health (R-12): tokens against the reviews before the newest, attempts, failures over the last 30 days. */
 export function health(page: ReviewPage, items: readonly Review[]): Health {
   const window = inWindow(items, page.today.review_date);
   const rise = page.tokens.rise_pct;

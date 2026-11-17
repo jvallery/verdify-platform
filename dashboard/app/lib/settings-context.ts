@@ -87,6 +87,22 @@ export function settingLabel(row: Pick<Setting, "param" | "label">): string {
   return row.label;
 }
 
+/** What a setting the catalog no longer has is called (A8); its key shows under it in small mono (`.key-mono`). */
+export const RETIRED_SETTING = "Retired setting";
+/**
+ * A setting's visible name (A8) wherever a page names a setting by its key (a delivery failure, an activity entry, a
+ * chart's step): `label` is its catalog label through `settingLabel`, or "Retired setting" for a key the catalog
+ * (API-09) no longer has, which then shows its `key` under the name. While the catalog is not loaded (null), the label
+ * is an em dash. Never the raw key as the name.
+ */
+export type SettingName = { readonly label: string; readonly key: string; readonly retired: boolean };
+type Catalog = ReadonlyMap<string, Pick<Setting, "param" | "label">> | readonly Pick<Setting, "param" | "label">[];
+export function settingName(param: string, catalog: Catalog | null | undefined): SettingName {
+  if (!catalog) return { label: "—", key: param, retired: false };
+  const row = Array.isArray(catalog) ? (catalog as readonly Pick<Setting, "param" | "label">[]).find((item) => item.param === param) : (catalog as ReadonlyMap<string, Pick<Setting, "param" | "label">>).get(param);
+  return row ? { label: settingLabel(row), key: param, retired: false } : { label: RETIRED_SETTING, key: param, retired: true };
+}
+
 // ---------------------------------------------------------------------------------------------------- whose it is
 /** The owner's two settings live on their own pages, beside their evidence (README principle 5). */
 export const DRYING_LIMIT = "dry_cost_limit_kwh_per_kg";

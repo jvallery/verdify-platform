@@ -68,14 +68,19 @@ test("place selection explains a location outside the hydro workspace instead of
 test("Now and Hydroponics share timestamped probe readings independent of the chart range", async ({ page, request }) => {
   await useScreensClock(page, request, "hydro-live");
   await load(page, "/");
-  const now = page.getByRole("region", { name: "Reservoir now" });
-  await expect(now).toContainText("1,889.0");
+  // Now's Reservoir panel (B11): conductivity without decimals, one observation line for the three tiles.
+  const now = page.getByRole("region", { name: "Reservoir", exact: true });
+  await expect(now).toContainText("1,889");
   await expect(now).toContainText("Updated 3 min ago");
   await expect(now).not.toContainText(/TDS|ORP/);
   await load(page, "/hydroponics?range=30d");
   const reservoir = page.getByRole("region", { name: "Reservoir", exact: true });
-  await expect(reservoir).toContainText("1,889.0");
-  await expect(reservoir).toContainText("Updated 3 min ago");
+  // Conductivity in whole µS/cm here too, and the page's answer first (design review A4).
+  await expect(reservoir).toContainText("1,889\u00a0µS/cm");
+  await expect(reservoir).not.toContainText("1,889.0");
+  await expect(page.locator(".hydro-answer")).toContainText("1,889\u00a0µS/cm");
+  // One observation time a page (A2): a fresh panel shows no "Updated" line of its own.
+  await expect(reservoir).not.toContainText("Updated 3 min ago");
   await expect(page.locator(".stack-plot canvas")).toHaveCount(3);
 });
 

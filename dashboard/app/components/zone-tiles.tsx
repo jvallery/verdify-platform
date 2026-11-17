@@ -62,7 +62,7 @@ function Probe({ id, name, reading, band, sparkState }: { id: ProbeId; name: str
   const zone = ZONE_OF[id];
   return <li className={cls("now-zone", off && "now-zone-off")} data-probe={id}>
     <div className="now-zone-head">
-      <h3 className="now-zone-name">{zone ? <Link className="now-zone-link" to={`/graphs/zones?zone=${zone}`}>{name}<span className="screen-reader">: open its charts</span></Link> : name}</h3>
+      <h3 className="now-zone-name">{zone ? <Link className="now-zone-link" to={`/graphs/zones?zone=${zone}`} aria-label={`${name}: open its charts`}>{name}<span className="screen-reader">: open its charts</span></Link> : name}</h3>
       {reading.derived && <span className="now-zone-tag" data-probe-tag="derived">VPD worked out from its temperature and RH</span>}
     </div>
     <p className="now-zone-values">
@@ -73,7 +73,7 @@ function Probe({ id, name, reading, band, sparkState }: { id: ProbeId; name: str
     <Sparkline values={reading.spark} token="vpd" band={band} size="tile" label={`${name} VPD over the last 24 h`} state={sparkState} />
     <p className="now-zone-meta meta">
       {relation && <><span className={cls(off && "now-off")} data-relation="">{relation}</span> · </>}
-      <Term id="band">band</Term> {band ? rangeWords(band.low, band.high, "kPa") : "not reported"}
+      <Term id="band">band</Term> {band ? <span className="now-zone-range">{rangeWords(band.low, band.high, "kPa")}</span> : "not reported"}
       {vpd.value === null && vpd.reason && <> · {vpd.reason}</>}
       {vpd.stale && vpd.reason && <> · {vpd.reason}</>}
     </p>

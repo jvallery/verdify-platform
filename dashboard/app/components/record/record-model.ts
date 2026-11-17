@@ -7,7 +7,7 @@
  * time, and the counter check's words.
  */
 import type { PanelState } from "../panel";
-import { dateShift, formatValue } from "../../lib/format";
+import { dateShift, formatNumber, formatValue, sentenceStart } from "../../lib/format";
 import type { PanelRead } from "../../lib/queries";
 import type { DailyRecord, RecordDay, RecordDrying, RecordMeans, RelayCheck } from "../../lib/operator-api";
 import { words } from "../../lib/words";
@@ -76,17 +76,119 @@ export function runTime(seconds: number | null | undefined): string {
   return seconds <= 90 * 60 ? formatValue(seconds / 60, "min") : formatValue(seconds / 3600, "h");
 }
 
-/** The day's electricity as the table writes it: the metered 24-hour figure, "partial" under 70 % coverage, or "—". */
-export function kwhText(day: RecordDay): string {
-  if (day.energy.kwh !== null) return formatValue(day.energy.kwh, "kWh");
+/**
+ * A day's alerts as a table cell (A1): the count of all alerts, led by the critical ones when there are any ("3 critical
+ * · 25"); "0" with none; "—" when the record has none.
+ */
+export function alertsText(alerts: RecordDay["alerts"]): string {
+  if (!alerts) return "—";
+  const total = alerts.critical + alerts.warning + alerts.info;
+  return alerts.critical > 0 ? `${formatNumber(alerts.critical)} critical · ${formatNumber(total)}` : formatNumber(total);
+}
+
+/** Seconds as bare hours at 1 dp for a cell whose header carries the unit ("Run time, h"); "—" when unknown. */
+export const hoursCell = (seconds: number | null | undefined): string => formatNumber(hoursOf(seconds), 1);
+/** Seconds as bare whole minutes for a cell whose header carries the unit ("Drying, min"); "—" when unknown. */
+export const minutesCell = (seconds: number | null | undefined): string => {
+  const hours = hoursOf(seconds);
+  return hours === null ? "—" : formatNumber(Math.round(hours * 60), 0);
+};
+
+/** The day's electricity as a bare kWh cell: the metered 24-hour figure, "partial" under 70 % coverage, or "—". */
+export function kwhCell(day: RecordDay): string {
+  if (day.energy.kwh !== null) return formatNumber(day.energy.kwh, 1);
   return day.energy.kwh_partial !== null ? "partial" : "—";
 }
 
-/** A day's alerts in words: "1 critical, 2 warning", "None", or "—" when the record has none. */
-export function alertsText(alerts: RecordDay["alerts"]): string {
-  if (!alerts) return "—";
-  const parts = [[alerts.critical, "critical"], [alerts.warning, "warning"], [alerts.info, "info"]].filter(([count]) => Number(count) > 0);
-  return parts.length ? parts.map(([count, name]) => `${count} ${name}`).join(", ") : "None";
+/** True when drying ran or was wanted that day: the days the drying table lists. */
+export const dryingDay = (day: RecordDay): boolean =>
+  day.drying !== null && ((day.drying.seconds ?? 0) > 0 || (day.drying.runs ?? 0) > 0 || (day.drying.wanted_s ?? 0) > 0);
+
+/**
+ * The sentence under the drying table for the days it leaves out: "No drying was wanted on the other 26 days." when
+ * every one of them recorded that drying was not wanted; "Drying did not run on the other 16 days." when some of them
+ * are from before the controller recorded what it wanted; null when no day is left out.
+ */
+export function dryingRestText(rest: readonly RecordDay[]): string | null {
+  if (rest.length === 0) return null;
+  const count = rest.length === 1 ? "the other day" : `the other ${formatNumber(rest.length)} days`;
+  return rest.every((day) => day.drying?.wanted_s === 0) ? `No drying was wanted on ${count}.` : `Drying did not run on ${count}.`;
+}
+
+// ---------------------------------------------------------------------------------------------------- the answers
+/** A view's answer once the record has answered: its sentence, or that no complete day is recorded yet; null before. */
+export function answerText(record: Pick<DailyRecord, "means"> | null, sentence: string | null): string | null {
+  if (!record) return null;
+  return sentence ?? "No complete day is recorded yet, so there is no 7-day mean to report.";
+}
+
+const pct = (value: number) => formatValue(value, "%");
+/** "13.2 points above", "2.0 points below", "the same as": a share's change against a mean, in words. */
+export function pointsWords(d7: number, d30: number): string {
+  const change = Math.round((d7 - d30) * 10) / 10;
+  if (change === 0) return "the same as";
+  const size = Math.abs(change);
+  return `${formatNumber(size, 1)} ${size === 1 ? "point" : "points"} ${change > 0 ? "above" : "below"}`;
+}
+/** "34 more than", "0.6 kWh less than", "the same as": an amount's change against a mean, in its unit. */
+export function amountWords(d7: number, d30: number, unit: string, more = "more", less = "less"): string {
+  const shown = formatValue(Math.abs(d7 - d30), unit);
+  if (shown.replace(/[^1-9]/g, "") === "") return "the same as";
+  return `${shown} ${d7 > d30 ? more : less} than`;
+}
+/** "1 of 7 nights dried" from a mean's served count. */
+const nightsWords = (means: RecordMeans): string | null =>
+  means.nights_dried === null ? null : `${formatNumber(means.nights_dried)} of ${formatNumber(means.days)} ${means.days === 1 ? "night" : "nights"} dried`;
+
+/**
+ * Days' answer (A4), from the served means: "The last 7 days held the band 61.4% of the time, 13.2 points above the
+ * 30-day mean; 1 of 7 nights dried." Null before the record has a 7-day mean.
+ */
+export function daysAnswer(d7: RecordMeans | null, d30: RecordMeans | null): string | null {
+  if (!d7 || d7.both_pct === null) return null;
+  const span = d7.days === 7 ? "The last 7 days" : `The last ${formatNumber(d7.days)} complete ${d7.days === 1 ? "day" : "days"}`;
+  const against = d30?.both_pct !== null && d30?.both_pct !== undefined ? `, ${pointsWords(d7.both_pct, d30.both_pct)} the 30-day mean` : "";
+  const nights = nightsWords(d7);
+  return `${span} held the band ${pct(d7.both_pct)} of the time${against}${nights ? `; ${nights}` : ""}.`;
+}
+
+/** In band's answer (A4): "Over the last 7 days the house was in band 61.4% of the time: temperature 96.3%, VPD 62.8%." */
+export function bandAnswer(d7: RecordMeans | null): string | null {
+  if (!d7 || d7.both_pct === null) return null;
+  const parts = [d7.temp_pct === null ? null : `temperature ${pct(d7.temp_pct)}`, d7.vpd_pct === null ? null : `VPD ${pct(d7.vpd_pct)}`].filter(Boolean);
+  const nights = nightsWords(d7);
+  return `Over the last ${formatNumber(d7.days)} complete ${d7.days === 1 ? "day" : "days"} the house was in band ${pct(d7.both_pct)} of the time${parts.length ? `: ${parts.join(", ")}` : ""}.${nights ? ` ${sentenceStart(nights)}.` : ""}`;
+}
+
+/**
+ * Equipment's answer (A4): "Over the last 7 days the climate relays started 89 times a day, 34 more than the 30-day
+ * mean; electric heat ran 19.9 h a day and gas heat 3.4 h." Null before the record has a 7-day mean of starts.
+ */
+export function equipmentAnswer(d7: RecordMeans | null, d30: RecordMeans | null): string | null {
+  if (!d7 || d7.climate_starts === null) return null;
+  const starts = formatValue(d7.climate_starts, "count");
+  const against = d30?.climate_starts !== null && d30?.climate_starts !== undefined ? `, ${amountWords(d7.climate_starts, d30.climate_starts, "count")} the 30-day mean` : "";
+  const heat = d7.heat1_run_h !== null && d7.heat2_run_h !== null
+    ? `; electric heat ran ${formatValue(d7.heat1_run_h, "h")} a day and gas heat ${formatValue(d7.heat2_run_h, "h")}` : "";
+  return `Over the last ${formatNumber(d7.days)} complete ${d7.days === 1 ? "day" : "days"} the climate relays started ${starts} ${d7.climate_starts === 1 ? "time" : "times"} a day${against}${heat}.`;
+}
+
+/**
+ * Utilities' answer (A4): "Over the last 7 complete days the house used 28.3 kWh of electricity a day (0.6 kWh less
+ * than the 30-day mean), an estimated 2.55 therms of gas and 36 gal of crop water." Each figure only when it is known.
+ */
+export function utilitiesAnswer(d7: RecordMeans | null, d30: RecordMeans | null): string | null {
+  if (!d7) return null;
+  const parts: string[] = [];
+  if (d7.kwh !== null) {
+    const against = d30?.kwh !== null && d30?.kwh !== undefined ? ` (${amountWords(d7.kwh, d30.kwh, "kWh")} the 30-day mean)` : "";
+    parts.push(`${formatValue(d7.kwh, "kWh")} of electricity a day${against}`);
+  }
+  if (d7.therms_est !== null) parts.push(`an estimated ${formatValue(d7.therms_est, "therms")} of gas`);
+  if (d7.crop_gal !== null) parts.push(`${formatValue(d7.crop_gal, "gal")} of crop water`);
+  if (!parts.length) return null;
+  const listed = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return `Over the last ${formatNumber(d7.days)} complete ${d7.days === 1 ? "day" : "days"} the house used ${listed}.`;
 }
 
 /** Irrigation water: the crop water less the wetting (misting and fog), never below 0; null when either is unknown. */
@@ -114,6 +216,20 @@ export function heaterHours(means: RecordMeans | null): number | null {
 /** The 7-day mean less the 30-day mean; null when either is unknown. */
 export function change(d7: number | null | undefined, d30: number | null | undefined): number | null {
   return d7 === null || d7 === undefined || d30 === null || d30 === undefined ? null : d7 - d30;
+}
+
+/**
+ * The counter check's sentence for the answer: "The controller's own counters differed from the record on 2 of the
+ * last 4 days compared." or "… agreed with the record on all 4 days compared."; null when no day could be compared.
+ */
+export function checkAnswer(check: RelayCheck | null): string | null {
+  if (!check) return null;
+  const compared = check.days.filter((day) => day.comparison !== "no_record");
+  if (!compared.length) return null;
+  const differ = compared.filter((day) => checkResult(day).status === "differ").length;
+  const days = `${formatNumber(compared.length)} ${compared.length === 1 ? "day" : "days"} compared`;
+  return differ === 0 ? `The controller's own counters agreed with the record on ${compared.length === 1 ? "the" : "all"} ${days}.`
+    : `The controller's own counters differed from the record on ${formatNumber(differ)} of the last ${days}.`;
 }
 
 /** A sparkline's values for the last `count` days, oldest first, with today's marked partial. */

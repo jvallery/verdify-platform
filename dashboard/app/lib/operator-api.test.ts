@@ -276,14 +276,17 @@ test("the record's periods, the reviewer's token counts and a silent probe's las
   expect(noLaw.days.filter((day) => day.drying && [day.drying.wanted_s, day.drying.refused_s, day.drying.water_g].some((value) => value !== null))).toEqual([]);
   const tokens = parseReviewPage(base["API-34"])!.tokens;
   expect(tokens).toMatchObject({ last: 355_128, count_7: 7, count_30: 8 });
-  // Both counts are required: a page without them does not parse.
-  const { count_7: _count7, ...noCount } = base["API-34"].tokens;
-  void _count7;
-  expect(parseReviewPage({ ...base["API-34"], tokens: noCount })).toBeNull();
+  // An older API serves neither count: the page still parses, the counts read as not known.
+  const { count_7: _count7, count_30: _count30, ...noCount } = base["API-34"].tokens;
+  void _count7; void _count30;
+  expect(parseReviewPage({ ...base["API-34"], tokens: noCount })!.tokens).toMatchObject({ last: 355_128, count_7: null, count_30: null });
+  // Nor a probe's last reading: it reads as not known.
+  const olderProbes = base["API-36"].probes.map((probe: Record<string, unknown>) => Object.fromEntries(Object.entries(probe).filter(([name]) => name !== "last_seen_at")));
+  expect(parseDataContinuity({ ...base["API-36"], probes: olderProbes })!.probes.every((probe) => probe.last_seen_at === null)).toBe(true);
   expect(parseDataContinuity(base["API-36"])!.probes.every((probe) => probe.last_seen_at === null)).toBe(true);
-  const silent = parseDataContinuity(fixture("data-probes-silent", { now: NOW })["API-36"])!.probes.filter((probe) => probe.age_s === 7200);
+  const silent = parseDataContinuity(fixture("data-probes-silent", { now: NOW })["API-36"])!.probes.filter((probe) => probe.age_s === null || probe.age_s >= 7200);
   expect(silent.map((probe) => [probe.sensor, probe.last_seen_at])).toEqual([
     ["climate.soil_moisture_south_1", "2026-10-30T17:42:00.000Z"], ["climate.soil_moisture_south_2", "2026-10-30T17:42:00.000Z"],
-    ["climate.soil_moisture_west", "2026-10-30T17:42:00.000Z"], ["climate.soil_ec_south_1", null],
+    ["climate.soil_moisture_west", "2026-10-30T17:42:00.000Z"], ["climate.soil_ec_south_1", null], ["climate.rh_west", "2026-11-02T14:42:00.000Z"],
   ]);
 });

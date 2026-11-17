@@ -2,11 +2,12 @@
 /**
  * Drying's price against limit (screens §2.3 block 3; design system v2 §5, "Cost against limit"): the price the
  * controller computes as a line, the limit as a stepped dashed line in `--warn` labelled Limit, the refused spans hatched
- * in `--warn`, the Now rule, a tooltip, a key, the data table and its CSV; under it one lane of the decision.
+ * in `--warn`, the Now rule, a tooltip, the key above the plot and one quiet line under it (the data table and its CSV);
+ * under it one lane of the decision.
  */
 import { useMemo, useRef, useState } from "react";
 import type uPlot from "uplot";
-import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "../../charts/data-table";
+import { ChartFoot, TimeCell, type DataTableBlock } from "../../charts/data-table";
 import { paintLabels, paintNow, paintSpanHatch } from "../../charts/draw";
 import { ChartKey, type KeyItem } from "../../charts/legend";
 import { StateLanesChart } from "../../charts/state-lanes";
@@ -44,7 +45,7 @@ export function priceTooltip(model: PriceModel, index: number | null | undefined
 /** The data table: one row per bucket. */
 export function priceTable(model: PriceModel): DataTableBlock {
   return {
-    caption: "Price and limit", headers: ["Time", "Price (kWh/kg)", "Limit (kWh/kg)", "Refused"], count: model.t.length,
+    caption: "Price and limit", headers: ["Time", "Price, kWh/kg", "Limit, kWh/kg", "Refused"], count: model.t.length,
     rows: () => model.t.map((at, index) => [<TimeCell key="t" at={at} />, formatValue(model.cost[index], UNIT), formatValue(model.limit[index], UNIT), refusedAt(model, at)?.reason ?? ""]),
   };
 }
@@ -80,13 +81,10 @@ export function PriceChart({ model, range }: { model: PriceModel; range: XRange 
   const data = useMemo(() => [model.t as number[], model.cost as (number | null)[], model.limit as (number | null)[]] as uPlot.AlignedData, [model]);
   const now = range.to;
   return <div className="chart drying-price-chart">
+    <ChartKey items={PRICE_KEY} />
     <UPlotChart className="plot plot-small" structure={`price:${range.to - range.from}`} label="The price of drying against the limit; a table follows"
       options={(env) => priceOptions(env, modelRef, now)} data={data} xRange={range} syncKey={SYNC} marks={model.refused} />
-    <ChartKey items={PRICE_KEY} />
-    <div className="chart-tools">
-      <DataTable tables={[priceTable(model)]} />
-      <CsvLink filename={csvFilename("drying-price", range)} build={() => priceCsv(model)} version={model} />
-    </div>
+    <ChartFoot tables={[priceTable(model)]} csv={{ filename: csvFilename("drying-price", range), build: () => priceCsv(model), version: model, label: "CSV of this window" }} />
   </div>;
 }
 

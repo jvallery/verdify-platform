@@ -17,8 +17,9 @@
  *    each as a plain phrase ("Too hot: 14.1 °F above the high edge (84.1 °F, band 61.2–70 °F)"). With a dwell state
  *    (`stepBandHold`) a reading counts as out only after `BAND_DWELL_S` out, and as back in after the same, so the
  *    headline does not flicker at an edge. The band gauges keep the raw relation.
- * 7. Things that need someone: the open alerts nobody has acknowledged (the one count) and a band proposal waiting for
- *    the owner: "1 thing needs someone".
+ * 7. Things that need someone: what Needs you lists (`needs`, counted from the same alerts read as the panel, so the
+ *    headline counts what the panel lists), or, before that read answers, API-02's count of the open alerts nobody has
+ *    acknowledged and a band proposal waiting for the owner: "1 thing needs someone".
  * 8. The climate data is stale: "Waiting for fresh data".
  * 9. "All OK".
  *
@@ -63,6 +64,12 @@ export type AnswerInput = {
   readonly failed: boolean;
   /** The dwell state over the polls so far (`stepBandHold`); without it row 6 reads each poll as it is. */
   readonly hold?: BandHold | null;
+  /**
+   * What Needs you lists (`needsTally` in components/now/needs-someone.tsx: its open alerts, a late review, a waiting
+   * proposal, a mister's fault), from the alerts read the panel shows; null or omitted before that read answers, when
+   * row 7 counts API-02's open alerts instead.
+   */
+  readonly needs?: number | null;
 };
 
 export const ALL_OK = "All OK";
@@ -211,7 +218,7 @@ export function needsCount(now: Pick<Now, "alerts" | "review">): number {
 }
 
 /** The first row of the worst-first table that holds. */
-export function nowAnswer({ now, failed, hold }: AnswerInput): NowAnswer {
+export function nowAnswer({ now, failed, hold, needs = null }: AnswerInput): NowAnswer {
   if (failed) return answer(1, "unreachable", UNREACHABLE_TEXT, { muted: true, notReporting: true, unknownSince: validTime(now?.server_time) ? now.server_time : null });
   if (!now) return LOADING;
   const { ingestor, climate } = now.freshness;
@@ -232,7 +239,7 @@ export function nowAnswer({ now, failed, hold }: AnswerInput): NowAnswer {
   if (requests.includes("cold")) return answer(5, "limit", COLD_TEXT, { link: { to: "/climate", label: "Climate law" } });
   const conditions = bandConditions(now, hold);
   if (conditions.length) return answer(6, "band", OUT_OF_BAND_TEXT, { conditions });
-  const count = needsCount(now);
+  const count = needs !== null && finite(needs) ? Math.max(0, needs) : needsCount(now);
   if (count > 0) {
     const onlyProposal = now.review?.proposal_waiting && count === 1;
     return answer(7, "needs", count === 1 ? "1 thing needs someone" : `${count} things need someone`, { link: onlyProposal ? { to: "/review", label: "Review" } : { to: "#needs-you", label: "Needs you" } });

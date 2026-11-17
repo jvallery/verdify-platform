@@ -4,7 +4,7 @@
  * proposal is waiting for the owner. In reading order: Today (the state of today's review in words with its times, or
  * its failure and attempts), Latest review (the summary as prose), Proposal (each change as current → proposed, the
  * reason, the price, its state, and Open in the band editor for an operator), Earlier reviews (paged by the API's
- * cursor, each opening in place), Reviewer health at the side above 860 px (tokens against the 7-day mean, attempts,
+ * cursor, each opening in place), Reviewer health at the side above 860 px (tokens against the reviews before the newest, attempts,
  * failures in 30 days and tokens per review day), then what the reviewer can and cannot do.
  *
  * One read, API-34 (`useReviewsRead`, every 60 s); older pages load on request from its `next_cursor` and are read again

@@ -62,13 +62,13 @@ export function MeansRow({ read, days }: { read: PanelRead<DailyRecord>; days: W
   const nights = tile("nights", "Nights dried", windowHref("/record/compliance", days), nightsText(d7),
     <span className="delta">{nightsText(d30) ?? "—"} <span className="delta-vs">over the last 30 days</span></span>,
     record ? <Sparkline kind="bars" token="muted" label="Night dry-out minutes, last 30 days" {...sparkSeries(record, (day) => day.band?.night_dryout_min)} /> : null,
-    "Last 7 complete days");
+    d7 && d7.days !== 7 ? `Last ${d7.days} complete ${d7.days === 1 ? "day" : "days"}` : "Last 7 complete days");
   const stats = meanStats(days).map((stat) => {
     const series = record ? sparkSeries(record, stat.day) : null;
     return tile(stat.key, stat.label, stat.href, stat.mean(d7) === null ? null : formatValue(stat.mean(d7), stat.unit),
       <Delta value={change(stat.mean(d7), stat.mean(d30))} unit={stat.deltaUnit} vs="30-day mean" />,
       series && <Sparkline kind="bars" token={stat.token ?? "muted"} label={`${stat.label}, last 30 days`} {...series} />,
-      <>30-day mean {formatValue(stat.mean(d30), stat.unit)}{d7 ? <> · {d7.days} complete days</> : null}</>);
+      <>30-day mean {formatValue(stat.mean(d30), stat.unit)}{d7 && d7.days !== 7 ? <> · {d7.days} complete {d7.days === 1 ? "day" : "days"}</> : null}</>);
   });
   return <Section className="rc-means" header={<SectionHeader title="The last 7 days against the last 30" meta="7-day means, complete days only" />}>
     <PanelErrorBoundary thing="the means" onRetry={read.retry}>

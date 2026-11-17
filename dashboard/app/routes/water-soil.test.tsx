@@ -50,6 +50,22 @@ test("Soil: one panel per probe zone; a probe the registry does not serve says i
   expect(document.body.textContent).not.toMatch(/\btarget\b/i);
 });
 
+test("Soil: the answer first, conductivity in whole µS/cm, and a silent probe's readings a dash, never its last number as current", async () => {
+  open("/water/soil");
+  await load();
+  // The answer first (design review A4); one key for the zones' charts (A3).
+  expect(text(document.querySelector("[data-answer]"))).toMatch(/moisture range\.$/);
+  expect(document.querySelectorAll(".wat-soil-group > .chart-key")).toHaveLength(1);
+  expect(text(panel("South 1").querySelector('[data-measure="ec"] .wat-soil-value'))).toMatch(/^[\d,]+ µS\/cm$/);
+  cleanup(); stopFixtureApi();
+  // B10: south 1 silent for three days.
+  open("/water/soil", { fixture: ["in-band", "soil-silent"] });
+  await load();
+  const south1 = panel("South 1");
+  expect([...south1.querySelectorAll(".wat-soil-value")].map((node) => text(node))).toEqual(["—", "—", "—"]);
+  expect(text(document.querySelector("[data-answer]"))).toContain("South 1 has not answered for over 2 hours.");
+});
+
 test("Soil: an operator edits a zone's range in place and sends only what changed; a viewer sees no Edit", async () => {
   const api = open("/water/soil", { fixture: "in-band" });
   await load();

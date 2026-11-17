@@ -2,20 +2,28 @@
 import { useCallback, useEffect, useState } from "react";
 import { chartLinks } from "../charts/uplot-chart";
 import { EmptyState, Panel, PanelErrorBoundary } from "../components/panel";
-import { soilSummary } from "../components/water/soil-model";
+import { ChartGroup, type KeyItem } from "../charts/legend";
+import { soilAnswer, soilSummary } from "../components/water/soil-model";
 import { SoilZone, type ZoneReport } from "../components/water/soil-zone";
 import { READ_INTERVAL_MS, panelRead, useApiRead, useRegistryRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
 import { useWaterOutlet } from "../lib/water";
 
 export const meta = () => viewMeta("water-soil");
+/** The zones' one chart key (design review A3): each zone's lines sit at its own values, so the key names the lines once. */
+const SOIL_KEY: readonly KeyItem[] = [
+  { key: "wilt", label: "Wilt", token: "--critical", kind: "dashed" },
+  { key: "low", label: "Low end", token: "--warn", kind: "dashed" },
+  { key: "high", label: "High end", token: "--warn", kind: "dashed" },
+];
 export const links = () => chartLinks();
 
 /**
  * Water → Soil (`/water/soil`, screens section 3.4, parity SO-01 to SO-03): is each zone's soil where I want it? One
  * panel per probe zone from the soil target rows (API-SOIL-01), each with its moisture, conductivity and temperature now,
  * a 7-day chart of moisture against its range, the range with Edit for an operator (API-SOIL-02) and when the probe last
- * answered. The metric registry (API-03) says which of a probe's measures exist, since API-04 refuses an unknown key. It
+ * answered, under the answer in words and one key for the zones' charts. The metric registry (API-03) says which of a
+ * probe's measures exist, since API-04 refuses an unknown key. It
  * renders under Water's layout, which draws the header and the tabs; the status line carries the probes' summary.
  */
 export default function WaterSoil() {
@@ -29,7 +37,9 @@ export default function WaterSoil() {
     return { ...current, [report.zone]: report };
   }), []);
   const zones = targets.data?.targets ?? null;
-  const summary = zones ? soilSummary(zones.map((zone) => reports[zone.zone] ?? { state: "unknown", relation: { status: "neutral", text: "" } })) : null;
+  const known = zones ? zones.map((zone) => reports[zone.zone] ?? { zone: zone.zone, state: "unknown" as const, relation: { status: "neutral" as const, text: "" } }) : [];
+  const summary = zones ? soilSummary(known) : null;
+  const answer = soilAnswer(known);
   useEffect(() => {
     setSummary?.(summary);
     return () => setSummary?.(null);
@@ -46,9 +56,15 @@ export default function WaterSoil() {
     </div>;
   }
   const metrics = registry.data.items;
-  return <div className="wat-soil l-cols-2">
-    {zones.map((target) => <PanelErrorBoundary key={target.zone} thing={`the ${target.zone} probe`}>
-      <SoilZone target={target} registry={metrics} onReport={onReport} />
-    </PanelErrorBoundary>)}
+  // The answer first (design review A4), then the zones side by side, three a row at 1440 px, under one key for their charts (A3).
+  return <div className="wat-soil">
+    <p className="page-answer wat-answer" data-answer="">{answer ?? "Reading the soil probes…"}</p>
+    <ChartGroup label="Moisture against each zone's range" items={SOIL_KEY} className="wat-soil-group">
+      <div className="wat-soil-grid">
+        {zones.map((target) => <PanelErrorBoundary key={target.zone} thing={`the ${target.zone} probe`}>
+          <SoilZone target={target} registry={metrics} onReport={onReport} />
+        </PanelErrorBoundary>)}
+      </div>
+    </ChartGroup>
   </div>;
 }

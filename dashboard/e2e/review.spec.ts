@@ -16,11 +16,13 @@ for (const viewport of [DESKTOP, PHONE]) {
     await load(page, "/review");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Review");
     await expect(region(page, "Today")).toContainText("The review of 1 Nov was written at 07:03.");
-    await expect(region(page, "Latest review · 1 Nov")).toContainText("Daily review · written by Iris at");
+    await expect(region(page, "Latest review · 1 Nov")).toContainText("Daily review · written by Iris on 2 Nov at 07:03");
     await expect(region(page, "Proposal")).toContainText("This review proposed no band change.");
     const health = page.getByRole("region", { name: "Reviewer health" });
     await expect(health).toContainText("355,128 tokens");
-    await expect(health).toContainText("More than 20% above the 7-day mean");
+    await expect(health).toContainText("above the mean of the 7 reviews before it");
+    await expect(health).toContainText("A rise over 20% is flagged.");
+    await expect(health).not.toContainText("7-day mean");
     await expect(page.getByText("What the reviewer can and cannot do")).toBeVisible();
     await expectNoHorizontalScroll(page);
     expect(await fixtureWrites(request)).toEqual([]);

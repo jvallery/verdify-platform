@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { Card } from "../card";
+import { Details } from "../details";
 
 /** What each column of the daily record counts and what it does not (screens 6.1 row 4). */
 export const RECORD_NOTES: readonly string[] = [
@@ -13,9 +13,12 @@ export const RECORD_NOTES: readonly string[] = [
   "Today's row is so far: it fills in through the day and is complete after midnight.",
 ];
 
-/** Days, row 4: the notes. It reads nothing, so it has no loading, stale or error state. */
+/**
+ * Days, row 4: the notes, the explanation that comes last and starts collapsed (design-system section 3, Order). It
+ * reads nothing, so it has no loading, stale or error state.
+ */
 export function RecordNotes() {
-  return <Card title="What the record counts" className="rc-notes-card">
+  return <Details className="card rc-notes-card" summary="What the record counts">
     <ul className="rc-notes">{RECORD_NOTES.map((note) => <li key={note}>{note}</li>)}</ul>
-  </Card>;
+  </Details>;
 }

@@ -221,7 +221,7 @@ function LogFilters({ view, params, me }: { view: ActivityView; params: URLSearc
         onBlur={(event) => applyTarget(event.currentTarget.value)} onKeyDown={onTargetKey} /></label>
       <label className="act-date">From<input name="from" type="date" max={view.dates.to} {...onDate("from", fromField, setFromField)} /></label>
       <label className="act-date">To<input name="to" type="date" min={view.dates.from} {...onDate("to", toField, setToField)} /></label>
-      {actor && <Link className="act-clear-chip" to={logHref(params, { actor: null })} preventScrollReset>Only {personName(actor, me)}<span aria-hidden="true"> ×</span><span className="screen-reader">, show everyone</span></Link>}
+      {actor && <Link className="act-clear-chip" to={logHref(params, { actor: null })} preventScrollReset aria-label={`Only ${personName(actor, me)}, show everyone`}>Only {personName(actor, me)}<span aria-hidden="true"> ×</span><span className="screen-reader">, show everyone</span></Link>}
       {filtered && <Link className="act-clear" to={clearHref} preventScrollReset>Clear filters</Link>}
     </div>
   </form>;

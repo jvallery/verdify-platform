@@ -8,7 +8,7 @@
 import { useId } from "react";
 import { Link } from "react-router";
 import { DailyBars } from "../../charts/daily-bars";
-import { formatNumber } from "../../lib/format";
+import { formatNumber, localDate, localTime, shortTime } from "../../lib/format";
 import type { Review, ReviewPage, ReviewProposal } from "../../lib/operator-api";
 import { OperatorOnly } from "../../lib/session";
 import { words } from "../../lib/words";
@@ -16,7 +16,6 @@ import { StatusBadge } from "../badge";
 import { Button } from "../button";
 import { LocalTime } from "../common";
 import { MetricTile, type TileState } from "../data/metric-tile";
-import { Delta } from "../data/delta";
 import { Details } from "../details";
 import { SectionHeader } from "../layout/section-header";
 import { EmptyState, Panel, PanelError, PanelErrorBoundary, type PanelState } from "../panel";
@@ -24,8 +23,8 @@ import {
   NO_PROPOSAL, NO_REVIEWS, NO_REVIEWS_DETAIL, ON_DEMAND, OWNER_ONLY, PROPOSAL_APPLIES, PROPOSAL_IN_TEXT, REVIEWER_LIMITS, REVIEWER_LIMITS_TITLE,
 } from "./copy";
 import {
-  HEALTH_DAYS, TOKEN_RISE_FLAG_PCT, askedBy, bandEditorHref, changeRows, health, latestWritten, priceParts, proposalBadge, reviewDay, speaksOfProposal,
-  todayLine, tokenDays,
+  HEALTH_DAYS, askedBy, bandEditorHref, changeRows, health, latestWritten, priceParts, proposalBadge, reviewDay, speaksOfProposal, todayLine, tokenDays,
+  tokenWords, type TokenWords,
 } from "./review-model";
 import { ReviewProse } from "./review-prose";
 
@@ -59,18 +58,24 @@ export function TodayPanel({ read }: { read: ReviewsRead }) {
       {line && <div className="rv-today">
         <p className="rv-today-line" data-review="today">{line.before}{line.at && <LocalTime at={line.at} />}{line.after}</p>
         {line.window && <p className="meta">{line.window}</p>}
-        {read.page?.proposal_waiting && <p className="rv-today-waiting"><StatusBadge status="warn" size="sm">Proposal waiting</StatusBadge> The review of {reviewDay(read.page.proposal_waiting.review_date)} proposes a band change. {PROPOSAL_APPLIES}</p>}
+        {read.page && !read.page.proposal_waiting && <p className="meta" data-review="no-proposal">No band proposal is waiting for the owner.</p>}
+        {read.page?.proposal_waiting && <p className="rv-today-waiting"><StatusBadge status="warn" size="sm">Proposal waiting</StatusBadge> The review of {reviewDay(read.page.proposal_waiting.review_date)} proposes a band change; it waits for the owner below.</p>}
       </div>}
     </Panel>
   </PanelErrorBoundary>;
 }
 
 // ---------------------------------------------------------------------------------------------------- 2 Latest review
+/** "17 Nov at 07:03": when a review was written, its date in the words.md form like the review dates around it. */
+function WrittenAt({ at }: { at: string }) {
+  return <time dateTime={at} title={localTime(at)}>{reviewDay(localDate(at))} at {shortTime(at)}</time>;
+}
+
 /** The facts line of a review: who asked, when it was written and by whom, and its tokens. */
 export function ReviewFacts({ review }: { review: Review }) {
   return <p className="meta rv-facts">
     {askedBy(review)}
-    {review.written_at && <> · written by Iris at <LocalTime at={review.written_at} date /></>}
+    {review.written_at && <> · written by Iris on <WrittenAt at={review.written_at} /></>}
     {review.status === "failed" && <> · failed after {plural(review.attempts, "attempt")}</>}
     {review.total_tokens !== null && review.total_tokens !== undefined && <> · {plural(review.total_tokens, "token")}</>}
   </p>;
@@ -92,12 +97,12 @@ export function LatestPanel({ read }: { read: ReviewsRead }) {
 
 // ---------------------------------------------------------------------------------------------------- 3 Proposal
 /** A proposal's changes, reason, price note and state, with Open in the band editor for an operator (R-09, R-10). */
-export function ProposalBody({ reviewId, proposal, state }: { reviewId: number; proposal: ReviewProposal; state: string | null | undefined }) {
+export function ProposalBody({ reviewId, proposal, state, stateShown = true }: { reviewId: number; proposal: ReviewProposal; state: string | null | undefined; stateShown?: boolean }) {
   const rows = changeRows(proposal);
   const price = priceParts(proposal.price);
-  const badge = proposalBadge(state);
+  const badge = stateShown ? proposalBadge(state) : null;
   return <div className="rv-proposal" data-proposal={reviewId}>
-    {badge && <p className="rv-proposal-state"><StatusBadge status={badge.status} size="sm">{badge.text}</StatusBadge>{state === "waiting" && <> {PROPOSAL_APPLIES}</>}</p>}
+    {(badge || state === "waiting") && <p className="rv-proposal-state">{badge && <><StatusBadge status={badge.status} size="sm">{badge.text}</StatusBadge> </>}{state === "waiting" && PROPOSAL_APPLIES}</p>}
     <ul className="rv-changes" aria-label="Proposed band changes">
       {rows.map((row) => <li key={row.key} className="rv-change" data-param={row.key}>
         <span className="rv-change-label">{row.label}</span>
@@ -118,8 +123,8 @@ export function ProposalBody({ reviewId, proposal, state }: { reviewId: number; 
 }
 
 /** A review's proposal, or that it put its proposal in its text, or that it proposed none. */
-function ProposalOf({ review }: { review: Review }) {
-  if (review.proposal) return <ProposalBody reviewId={review.id} proposal={review.proposal} state={review.proposal_state} />;
+function ProposalOf({ review, stateShown = true }: { review: Review; stateShown?: boolean }) {
+  if (review.proposal) return <ProposalBody reviewId={review.id} proposal={review.proposal} state={review.proposal_state} stateShown={stateShown} />;
   if (speaksOfProposal(review.summary)) return <p className="rv-proposal-text" data-proposal="text">{PROPOSAL_IN_TEXT}</p>;
   return null;
 }
@@ -135,7 +140,7 @@ export function ProposalPanel({ read }: { read: ReviewsRead }) {
       tone={latest?.proposal_state === "waiting" ? "warn" : undefined}
       pill={badge && <StatusBadge status={badge.status}>{badge.text}</StatusBadge>}
       empty={<EmptyState message={latest ? NO_PROPOSAL : NO_REVIEWS} detail={latest ? PROPOSAL_APPLIES : undefined} />}>
-      {latest && <ProposalOf review={latest} />}
+      {latest && <ProposalOf review={latest} stateShown={false} />}
     </Panel>
   </PanelErrorBoundary>;
 }
@@ -186,7 +191,15 @@ export function EarlierPanel({ read, reviews, older }: { read: ReviewsRead; revi
 // ---------------------------------------------------------------------------------------------------- 5 Reviewer health
 const tileState = (state: PanelState): TileState => (state === "loading" || state === "error" || state === "stale" || state === "empty" ? state : "ready");
 
-/** Row 5 (side): the newest review's tokens against the 7-day mean, attempts, failures in 30 days, and tokens per day (R-12). */
+/** "▲ 91% above the review before it": the arrow carries the direction in ink, the words say against what (`tokenWords`). */
+function TokenComparison({ comparison }: { comparison: NonNullable<TokenWords["comparison"]> }) {
+  const { direction, text } = comparison;
+  return <span className="delta" data-direction={direction}>
+    {direction !== "none" && <><span className={direction === "up" ? "glyph glyph-up" : "glyph glyph-down"} aria-hidden="true" />{" "}</>}{text}
+  </span>;
+}
+
+/** Row 5 (side): the newest review's tokens against the reviews before it, attempts, failures in 30 days, and tokens per day (R-12). */
 export function ReviewerHealth({ read, reviews }: { read: ReviewsRead; reviews: readonly Review[] }) {
   const headingId = useId();
   const page = read.page;
@@ -194,16 +207,15 @@ export function ReviewerHealth({ read, reviews }: { read: ReviewsRead; reviews: 
   const state = readState(read, reviews.length === 0);
   const tile = tileState(state);
   const days = page ? tokenDays(reviews, page.today.review_date) : [];
+  const tokens = page ? tokenWords(page.tokens) : null;
   const empty = "No review yet";
   return <section className="rv-health" aria-labelledby={headingId}>
     <SectionHeader id={headingId} title="Reviewer health" />
     <div className="rv-health-tiles">
       <MetricTile label="Tokens, newest review" state={tile} empty={empty} onRetry={read.retry} tone={figures?.flagged ? "warn" : undefined} data={{ "data-tile": "tokens" }}
         value={figures && figures.last !== null ? plural(figures.last, "token") : null} reason={figures ? "not recorded" : undefined}
-        delta={figures && <Delta value={figures.risePct} unit="%" vs="the 7-day mean" />}
-        meta={figures && (figures.flagged
-          ? `More than ${TOKEN_RISE_FLAG_PCT}% above the 7-day mean of ${figures.mean7 === null ? "—" : formatNumber(Math.round(figures.mean7), 0)} tokens.`
-          : `7-day mean ${figures.mean7 === null ? "—" : formatNumber(Math.round(figures.mean7), 0)} tokens.`)} />
+        delta={tokens?.comparison && <TokenComparison comparison={tokens.comparison} />}
+        meta={tokens?.meta ?? undefined} />
       <MetricTile label="Attempts, newest review" state={tile} empty={empty} onRetry={read.retry} tone={figures && figures.attempts !== null && figures.attempts > 1 ? "warn" : undefined} data={{ "data-tile": "attempts" }}
         value={figures && figures.attempts !== null ? plural(figures.attempts, "attempt") : null}
         meta={figures && `${plural(figures.retries, "retry", "retries")} in the last ${HEALTH_DAYS} days.`} />
@@ -215,7 +227,7 @@ export function ReviewerHealth({ read, reviews }: { read: ReviewsRead; reviews: 
       <Panel title="Tokens per review day" headingLevel={3} thing="tokens per review day" state={readState(read, days.length === 0)} reserve="sm" observedAt={read.readAt} onRetry={read.retry}
         empty={<EmptyState message="No review has used tokens yet." />}
         foot={`Total tokens of each day's reviews over the last ${HEALTH_DAYS} days. A day with no written review is a gap.`}>
-        {days.length > 0 && <DailyBars title="Tokens per review day" unit="tokens" days={days} token="--c-temp" mean7={figures?.mean7 ?? null} mean30={figures?.mean30 ?? null}
+        {days.length > 0 && <DailyBars title="Tokens per review day" unit="tokens" days={days} token="--c-temp"
           format={(value) => formatNumber(Math.round(value), 0)} size="sm" captionHidden />}
       </Panel>
     </PanelErrorBoundary>

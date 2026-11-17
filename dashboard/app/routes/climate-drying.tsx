@@ -5,6 +5,7 @@ import { DryingByDayPanel } from "../components/climate/drying-days";
 import { DryingLimit } from "../components/climate/drying-limit";
 import { dryingVerdict } from "../components/climate/law";
 import { PriceAgainstLimitPanel } from "../components/climate/price-chart";
+import { Ago } from "../components/freshness";
 import { Page } from "../components/layout/page";
 import { PageHeader } from "../components/layout/page-header";
 import { PanelErrorBoundary } from "../components/panel";
@@ -19,7 +20,10 @@ export const links = () => chartLinks();
 export default function ClimateDrying() {
   const read = panelRead(useLawRead());
   const drying = read.data?.drying ?? null;
-  const status = drying ? `${dryingVerdict(drying)} · limit ${formatValue(drying.limit_kwh_per_kg, "kWh/kg")}` : read.failed ? "The climate law could not be read." : null;
+  const view = read.data;
+  // One observation time a page (A2): the header says how old the law's newest record is; the panels do not repeat it.
+  const status = view && drying ? <>{dryingVerdict(drying)} · limit {formatValue(drying.limit_kwh_per_kg, "kWh/kg")} · {view.observed_at ? <>newest record <Ago at={view.observed_at} /></> : "no record yet"}</>
+    : read.failed ? "The climate law could not be read." : null;
   return <Page className="climate-page">
     <PageHeader view="climate-drying" status={status} />
     <div className="l-grid climate-grid climate-grid-drying">

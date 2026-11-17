@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
+import { ChartGroup, type KeyItem } from "../../charts/legend";
 import { ThresholdSeries } from "../../charts/threshold-series";
 import { epochOf } from "../../charts/time-axis";
 import type { ControllerHealth } from "../../lib/operator-api";
@@ -23,6 +24,11 @@ function RangeControl({ range }: { range: Range }) {
 }
 
 const EMPTY = <p className="meta">The metric registry lists none of the controller's trend keys.</p>;
+/** One key for the small multiples (A3): the two kinds of limit line; each line is labelled with its value on its chart. */
+const LIMIT_KEY: readonly KeyItem[] = [
+  { key: "warn", label: "Warning line", token: "--warn", kind: "dashed" },
+  { key: "critical", label: "Critical line", token: "--critical", kind: "dashed" },
+];
 
 /** The charts once the registry has named the keys: one API-04 read of them all. */
 function TrendCharts({ specs, range, health, retryRegistry }: { specs: TrendSpec[]; range: Range; health: PanelRead<ControllerHealth>; retryRegistry: () => void }) {
@@ -35,11 +41,13 @@ function TrendCharts({ specs, range, health, retryRegistry }: { specs: TrendSpec
   const state = series.failed || (data && (from === null || to === null)) ? "error" : series.pending ? "loading" : "ready";
   return <Panel id="trends" title="Trends" thing="the controller's trends" state={state} reserve="lg" observedAt={data?.to} onRetry={() => { retryRegistry(); series.retry(); }}
     actions={<RangeControl range={range} />}
-    foot={limits ? "Each line is labelled with the limit it marks." : "The limits are not shown while the controller's health cannot be read."}>
-    {from !== null && to !== null && <div className="sys-trends">
-      {drawn.map(({ spec, t, values }) => <ThresholdSeries key={spec.key} title={spec.title} unit={spec.unit} t={t} values={values}
-        thresholds={limits ? spec.lines(limits) : []} range={{ from, to }} size="sm" syncKey={`verdify:controller:${range.id}`} />)}
-    </div>}
+    foot={limits ? undefined : "The limits are not shown while the controller's health cannot be read."}>
+    {from !== null && to !== null && <ChartGroup label="The controller's trends" items={limits ? LIMIT_KEY : []}>
+      <div className="sys-trends">
+        {drawn.map(({ spec, t, values }) => <ThresholdSeries key={spec.key} title={spec.title} unit={spec.unit} t={t} values={values}
+          thresholds={limits ? spec.lines(limits) : []} range={{ from, to }} size="sm" syncKey={`verdify:controller:${range.id}`} />)}
+      </div>
+    </ChartGroup>}
   </Panel>;
 }
 

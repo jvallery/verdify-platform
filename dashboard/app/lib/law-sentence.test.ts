@@ -27,7 +27,16 @@ describe("holding", () => {
     expect(say({ law: HOLD })).toEqual({ sentences: ["Holding the band. Nothing is running."], kind: "holding" });
   });
   test("a water line runs while the law asks for nothing: the law asks for nothing, never 'nothing is running'", () => {
-    expect(text({ law: HOLD, running: on("mister_center") })).toBe("Holding the band: the law asks for nothing.");
+    expect(text({ law: HOLD, running: on("mister_center") })).toBe("Holding the band: the law asks for nothing. Watering: Center mister.");
+  });
+  test("the lights and the water lines that are on are each accounted for, so no chip goes unexplained (B11)", () => {
+    expect(say({ law: HOLD, running: on("grow_light_main", "grow_light_grow", "drip_wall_fert", "fert_master_valve") }).sentences).toEqual([
+      "Holding the band: the law asks for nothing.", "The main light and the grow light are on.", "Watering: Wall drip (fertilized).",
+    ]);
+    // A mister the law runs for VPD is the moisture sentence's own, never listed again as watering.
+    expect(say({ law: record({ latches: ["mist"], requests: ["mist"] }), running: on("mister_center", "grow_light_grow"), vpd: 1.7 }).sentences).toEqual([
+      "Misting: the air is much drier than the band allows, with VPD 0.36 kPa above the high edge.", "The grow light is on.",
+    ]);
   });
   test("a relay that is on while the law asks for nothing is explained: finishing its shortest time on, or on by hand", () => {
     expect(say({ law: HOLD, running: on("vent", "fan2") }).sentences).toEqual([
@@ -53,6 +62,7 @@ describe("holding", () => {
     expect(say({ law: record({ latches: ["h1", "air"], requests: ["heat1"] }), running: on("fan2", "vent", "heat1", "grow_light_main"), temp: 74.5 }).sentences).toEqual([
       "Electric heat is on: the house is within 7.1 °F of the low edge.",
       "Fan 2 and the vent are still on: the law no longer asks for them, and a relay finishes its shortest time on before it stops.",
+      "The main light is on.",
     ]);
     expect(text({ law: record({ requests: ["fog"], latches: ["wet"] }), running: on("fog", "heat1"), vpd: 1.3 }))
       .toBe("Fogging: VPD is within 0.04 kPa of the high edge. Electric heat is still on: the law no longer asks for it, and a relay finishes its shortest time on before it stops.");

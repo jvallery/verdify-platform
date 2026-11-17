@@ -65,3 +65,43 @@ export const BURST_KINDS = everyMember<BurstKind>()(["fans", "humidify", "vent_b
 export type ReadbackVia = Schemas["Setting"]["readback_via"];
 export type EquipmentState = Schemas["Equipment"]["items"][number]["state"];
 export type LineKind = Schemas["IrrigationLine"]["kind"];
+
+/**
+ * API-36 `probes[].sensor`: the probe-backed climate columns it ages (`PROBES` of verdify_services/system_health.py),
+ * each as `climate.<column>`. The contract types them as strings, so this list is the vocabulary `words.test.ts` holds
+ * to that file.
+ */
+export const PROBE_SENSORS = [
+  "climate.temp_north", "climate.temp_south", "climate.temp_east", "climate.temp_west", "climate.temp_case", "climate.temp_intake",
+  "climate.rh_north", "climate.rh_south", "climate.rh_east", "climate.rh_west", "climate.rh_case", "climate.intake_rh",
+  "climate.outdoor_temp_f", "climate.outdoor_rh_pct", "climate.co2_ppm", "climate.lux",
+  "climate.soil_moisture_south_1", "climate.soil_moisture_south_2", "climate.soil_moisture_west",
+  "climate.soil_temp_south_1", "climate.soil_temp_south_2", "climate.soil_temp_west", "climate.soil_ec_south_1",
+] as const;
+export type ProbeSensor = (typeof PROBE_SENSORS)[number];
+
+/** API-36 `tables[].table`: the six stored tables of the data flow (`FLOW_TABLES` of system_health.py), in its order. */
+export const FLOW_TABLES = ["climate", "equipment_state", "system_state", "diagnostics", "setpoint_snapshot", "setpoint_changes"] as const;
+export type FlowTable = (typeof FLOW_TABLES)[number];
+
+/**
+ * API-37 `dispatcher_stage`: `ordinary`, `paced <sent>/<pending>` (as `paced`), `held:heap`, `held:lease` and
+ * `held:readbacks` (the ingestor's `_dispatcher_stage_value` and `HELD_READBACKS_STAGE`).
+ */
+export const SENDING_CODES = ["ordinary", "paced", "held:heap", "held:lease", "held:readbacks"] as const;
+export type SendingCode = (typeof SENDING_CODES)[number];
+
+/**
+ * `Delivery.by_status[].source` values that are the controller reporting a value itself, not a push: they stay out of
+ * the delivery outcomes (B6).
+ */
+export const CONTROLLER_REPORT_SOURCES: readonly string[] = ["esp32"];
+export const isControllerReport = (source: string): boolean => CONTROLLER_REPORT_SOURCES.includes(source);
+/** The senders of the delivery table, in its row order: the house band, an operator, the retired planner. */
+export const DELIVERY_SENDERS = ["band", "manual", "plan"] as const;
+export type DeliverySender = (typeof DELIVERY_SENDERS)[number];
+/** The delivery table's row for a source: the planner's two old sources share one; any other source has none (null). */
+export function deliverySender(source: string): DeliverySender | null {
+  if (source === "plan" || source === "iris_planner") return "plan";
+  return source === "band" || source === "manual" ? source : null;
+}

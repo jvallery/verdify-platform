@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { chartLinks } from "../charts/uplot-chart";
 import { EquipmentView } from "../components/record/equipment-view";
-import { checkDays } from "../components/record/record-model";
+import { answerText, checkAnswer, checkDays, equipmentAnswer } from "../components/record/record-model";
 import { RecordPage } from "../components/record/record-page";
 import { useRecordWindow } from "../components/record/use-record";
 import { panelRead, useRelayCheckRead } from "../lib/queries";
@@ -17,7 +17,10 @@ export const links = () => chartLinks();
 export default function RecordEquipment() {
   const window = useRecordWindow();
   const check = panelRead(useRelayCheckRead({ days: checkDays(window.days) }));
-  return <RecordPage view="record-equipment" window={window}>
+  const record = window.read.data;
+  const relays = equipmentAnswer(record?.means.d7 ?? null, record?.means.d30 ?? null);
+  const counters = checkAnswer(check.data);
+  return <RecordPage view="record-equipment" window={window} answer={answerText(record, relays && counters ? `${relays} ${counters}` : relays)}>
     <EquipmentView read={window.read} check={check} days={window.days} />
   </RecordPage>;
 }

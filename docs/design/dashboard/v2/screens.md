@@ -9,7 +9,14 @@ Rules for every screen:
 
 - The order on a phone is the reading order below. Above 860 px, blocks marked (side) sit in a right column of
   4 of 12; the rest fills 8, or all 12 when there is no side block.
-- Every block shows when its data was observed, and all four states of design-system section 3.
+- The answer comes first, in words: the page's first block states the answer to its question as a sentence built
+  from the data, with the numbers that matter, before any table, ladder or chart.
+- One observation time a page: the header's status line says how fresh the page is. A block shows its own time only
+  when its live read (a relay, a probe, the controller) is not the header's, or when it is stale, failed or not
+  reporting; blocks of daily or historical data never do. Every block has all four states of design-system
+  section 3.
+- Pages stay short: at most about four screens at 1440 px and six on a phone unless the reader asked for more (Show
+  all, a longer range, an opened group). Long lists start collapsed or limited.
 - A viewer sees every read and no write control. A control that only the owner may use says so.
 - A link that leaves the page for evidence opens Graphs on the same time window.
 

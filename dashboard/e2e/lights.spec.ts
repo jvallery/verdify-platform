@@ -14,7 +14,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await useScreensClock(page, request, "in-band");
     await load(page, "/lights");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Lights");
-    await expect(page.locator(".page-status")).toContainText("Both lights are as the controller wants");
+    await expect(page.locator("[data-answer]")).toHaveText("Both lights are off, as the controller wants: enough daylight.");
     await expect(panel(page, "Main light")).toContainText("The controller wants it off: enough daylight");
     await expect(panel(page, "Grow light")).toContainText("Light window");
     await expect(panel(page, "How they are switched")).toContainText("Home Assistant");

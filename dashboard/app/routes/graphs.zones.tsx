@@ -10,6 +10,7 @@ import { Chips } from "../components/chips";
 import { GraphNotices, RangeForm, rangeDays } from "../components/graphs/controls";
 import { ResolutionLine, elapsedText } from "../components/graphs/resolution-line";
 import { GraphToolbar } from "../components/graphs/toolbar";
+import { Chevron } from "../components/layout/chevron";
 import { PageHeader } from "../components/layout/page-header";
 import { EmptyState, PanelError } from "../components/panel";
 import { GRAPH_POLL_MS, identity, readFailure, slotRead, useGraphClock, useWindowReads, type WindowRead } from "../lib/graph-reads";
@@ -220,7 +221,7 @@ function ZoneGrid({ rows, spec, shared, onSpread }: { rows: readonly ZoneMetric[
   const columns: GridColumn[] = GRID_ZONES.map((zone) => ({
     key: zone, name: ZONE_WORDS[zone],
     head: <span className="gr-zone-head">
-      <Link to={zonesHref(zone, spec)} className="gr-zone-link">{ZONE_WORDS[zone]}<span aria-hidden="true"> ›</span></Link>
+      <Link to={zonesHref(zone, spec)} className="gr-zone-link">{ZONE_WORDS[zone]}<Chevron /></Link>
       {tags[zone] && <TagMark tag={tags[zone]!} />}
     </span>,
   }));

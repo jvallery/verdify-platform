@@ -16,7 +16,7 @@ test("the causes are the OpenAPI IrrigationCause enum, in its order", () => {
 });
 
 test("each cause has its words and a chart token, and design system §5.1 lists the same table", () => {
-  expect(IRRIGATION_CAUSES.map(causeWords)).toEqual(["VPD", "schedule", "run now", "feed", "prewet", "flush", "fallback", "cause unknown"]);
+  expect(IRRIGATION_CAUSES.map(causeWords)).toEqual(["VPD", "schedule", "run now", "feed", "prewet", "flush", "backup", "cause unknown"]);
   expect(IRRIGATION_CAUSES.map(causeToken)).toEqual(["--cause-vpd", "--cause-schedule", "--accent", "--eq-fert", "--cause-prep", "--cause-prep", "--eq-heat1", "--text-3"]);
   // One chart vocabulary (#1354): no cause borrows a water line's colour except feed, which is fertilizer either way.
   const lineColours = new Set(Object.values(LINE_KIND_TOKENS));

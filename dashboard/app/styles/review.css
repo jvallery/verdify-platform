@@ -15,7 +15,7 @@
 .rv-prose>*{margin:0 0 var(--space-3)}
 .rv-prose>:last-child{margin-bottom:0}
 .rv-prose ul,.rv-prose ol{padding-left:var(--space-5)}
-.rv-prose-collapsed{max-height:calc(12 * 1.5em);overflow:hidden}
+.rv-prose-collapsed{max-height:calc(12 * 1.5em);overflow:hidden;-webkit-mask-image:linear-gradient(to bottom,var(--text) 70%,transparent);mask-image:linear-gradient(to bottom,var(--text) 70%,transparent)}
 .rv-prose-wrap>.btn{margin-top:var(--space-2)}
 
 /* The proposal: each change as label, current → proposed and the difference; the reason, the price and the band editor link. */

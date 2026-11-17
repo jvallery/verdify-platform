@@ -50,6 +50,10 @@
 .page-section{min-width:0}
 .page-toolbar{min-width:0;margin:0 0 var(--space-4)}
 .page>.page-toolbar{margin-bottom:calc(var(--space-4) - var(--space-6))}
+/* In a page the header and the tabs sit at the page's one gap: their own margins would stack on it. */
+.page>.page-header,.page>.page-tabs{margin-bottom:0}
+/* A page's answer in words (A4): one sentence at reading width, the first block under the head. */
+.page-answer{max-width:72ch;margin:0;font-size:var(--fs-lg);line-height:1.4;color:var(--text)}
 .l-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--space-4);align-items:start;min-width:0}
 .l-grid>*{grid-column:1/-1;min-width:0}
 .l-stack{display:grid;gap:var(--space-4);min-width:0}
@@ -84,13 +88,20 @@
 /* Card (§3): --surface, a 1 px --border, --radius-lg, --shadow-1, --space-4 padding (--space-5 above 860 px). A title row (title, as-of, link), a body and an optional foot. Cards never nest: a group inside is a .card-section under a --border rule. */
 .card{position:relative;min-width:0;padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);color:var(--text);box-shadow:var(--shadow-1)}
 @media(min-width:861px){.card{padding:var(--space-5)}}
-.card-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2) var(--space-3);margin:0 0 var(--space-3)}
+/* The head (A7): the title row on the left and the head's end (as-of, actions, the "X ›" link, the menu) on the title's line at the right. The eyebrow spans both. A pill that does not fit beside the title wraps under it, never pushing the link down: the title column is what is left beside the end. */
+.card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:var(--space-1) var(--space-3);margin:0 0 var(--space-3)}
 .card>h2:first-child,.card>h3:first-child{margin-bottom:var(--space-3)}
-.card-title{min-width:0}
+.card-title{display:contents}
+.card-title>.eyebrow{grid-column:1/-1;margin:0}
 .card-title h2,.card-title h3{font-size:var(--fs-lg);font-weight:600}
-.card-title-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
-.card-head-end{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin-left:auto}
+.card-title-row{grid-column:1;display:flex;flex-wrap:wrap;align-items:center;min-width:0;gap:var(--space-1) var(--space-2)}
+/* A head's pill that is longer than its line wraps its own words rather than losing them to an ellipsis (A7). */
+.card-title-row>.badge{white-space:normal;text-overflow:clip;padding-block:.125rem;line-height:1.25}
+/* Its 44 px targets overhang the title's line (--fs-lg at 1.25) evenly above and below, so the link reads on that line. */
+.card-head-end{grid-column:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--space-2);margin-block:calc((var(--fs-lg) * 1.25 - var(--tap)) / 2)}
 .card-asof{font-size:var(--fs-sm);color:var(--text-3);font-variant-numeric:tabular-nums}
+/* On a phone a head's own controls (a range switch, a button) take the line under the title; a link, an as-of time or the ⋯ menu stay on it. */
+@media(max-width:860px){.card-head-end:has(>:not(.card-link-all):not(.card-asof):not(.menu)){grid-column:1/-1;justify-content:flex-start;margin-block:0}}
 .card-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-1) var(--space-3);margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--border)}
 .card-section{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border)}
 .card-section>h3:first-child,.card-section>h4:first-child{margin-bottom:var(--space-2)}
@@ -170,7 +181,7 @@ span.viz-skeleton.spark-tile{height:28px}span.viz-skeleton.spark-row{height:20px
 
 /* Chips: ranges, filters and toggles in one row. The current or pressed chip is the accent soft fill. */
 .chips{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:0;padding:0;list-style:none}
-.chips a,.chip{display:inline-flex;align-items:center;min-height:2.5rem;padding:0 var(--space-3);border:1px solid var(--border-strong);border-radius:var(--radius-pill);background:var(--surface);color:var(--text);font-size:var(--fs-sm);font-weight:500;text-decoration:none;white-space:nowrap}
+.chips a,.chip{display:inline-flex;align-items:center;gap:var(--space-1);min-height:2.5rem;padding:0 var(--space-3);border:1px solid var(--border-strong);border-radius:var(--radius-pill);background:var(--surface);color:var(--text);font-size:var(--fs-sm);font-weight:500;text-decoration:none;white-space:nowrap}
 .chips a:hover,.chip:hover{border-color:var(--control-border);background:var(--surface-2);color:var(--text)}
 .chips a[aria-current=page],.chips a[aria-current=true],.chip[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text);font-weight:600}
 .chips-sm a,.chips-sm .chip{min-height:2.25rem;padding:0 var(--space-3);font-size:var(--fs-sm)}
@@ -179,10 +190,14 @@ span.viz-skeleton.spark-tile{height:28px}span.viz-skeleton.spark-row{height:20px
 .segmented{display:inline-flex;flex-wrap:nowrap;gap:2px;max-width:100%;margin:0;padding:3px;overflow-x:auto;list-style:none;border-radius:var(--radius);background:var(--surface-3);scrollbar-width:none}
 .segmented::-webkit-scrollbar{display:none}
 .segmented>li{display:flex;flex:1 0 auto}
-.segmented a,.segmented button{display:inline-flex;align-items:center;justify-content:center;flex:1 0 auto;min-height:calc(var(--tap) - 6px);margin:0;padding:0 var(--space-3);border:0;border-radius:calc(var(--radius) - 3px);background:transparent;color:var(--text-2);font-size:var(--fs-sm);font-weight:600;text-decoration:none;white-space:nowrap;font-variant-numeric:tabular-nums}
+.segmented a,.segmented button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1);flex:1 0 auto;min-height:calc(var(--tap) - 6px);margin:0;padding:0 var(--space-3);border:0;border-radius:calc(var(--radius) - 3px);background:transparent;color:var(--text-2);font-size:var(--fs-sm);font-weight:600;text-decoration:none;white-space:nowrap;font-variant-numeric:tabular-nums}
 .segmented a:hover,.segmented button:hover{background:transparent;color:var(--text)}
 .segmented a[aria-current=page],.segmented a[aria-current=true],.segmented button[aria-pressed=true],.segmented button[aria-checked=true]{background:var(--surface);color:var(--text);box-shadow:var(--shadow-1),0 0 0 1px var(--border)}
 .segmented-sm a,.segmented-sm button{min-height:2rem;font-size:var(--fs-xs)}
+/* A count beside a label (A6): a gap after the words, in quieter tabular figures. */
+/* The count sits on the track (--surface-3), where --text-3 misses 4.5:1: --text-2 there, the segment's own colour on the current one. */
+.segmented-count{font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
+[aria-current] .segmented-count,[aria-pressed=true] .segmented-count,[aria-checked=true] .segmented-count{color:inherit}
 
 /* Tables (§4): in a scroll region inside the card, a sticky head, numbers right-aligned, row hover. A phone either scrolls with the first column fixed or turns rows into a list. */
 .table-wrap{position:relative;max-width:100%;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
@@ -193,13 +208,23 @@ span.viz-skeleton.spark-tile{height:28px}span.viz-skeleton.spark-row{height:20px
 .table-wrap th,.table-wrap td{overflow-wrap:normal}
 .table-wrap .num{white-space:nowrap}
 .table-wrap .cell-text{min-width:16ch;overflow-wrap:anywhere}
+/* A unit in a column head keeps its case ("Electricity, kWh", never "KWH"): the head's words stay the uppercase micro-label. */
+.unit{text-transform:none;letter-spacing:0}
 .table-wrap thead th{position:sticky;top:0;z-index:1}
+/* A head of two rows (column groups): the head sticks as one, so the second row never slides under the first. */
+.table-wrap thead.table-head-grouped{position:sticky;top:0;z-index:1}
+.table-wrap thead.table-head-grouped th{position:static}
+.table-wrap th.table-colgroup{text-align:center;vertical-align:bottom;border-bottom:1px solid var(--border)}
+.table-wrap thead th[rowspan]{vertical-align:bottom}
+/* "Show all 30 days" under a table that shows its first rows: a quiet link-style button, a 44 px target through its padding. */
+.table-more{display:inline-flex;align-items:center;min-height:var(--tap);margin-top:var(--space-1);padding:0 var(--space-2);margin-inline:calc(var(--space-2) * -1);border:0;background:transparent;color:var(--accent);font-size:var(--fs-sm);font-weight:600}
+.table-more:hover{background:transparent;color:var(--accent);text-decoration:underline}
 .table-group th{font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);background:var(--surface-2)}
 .table-empty{margin-top:var(--space-3)}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 @media(max-width:860px){
-  .table-sticky-first tbody th:first-child,.table-sticky-first tbody td:first-child,.table-sticky-first thead th:first-child{position:sticky;left:0;z-index:1;background:var(--surface);box-shadow:inset -1px 0 0 var(--border)}
-  .table-sticky-first thead th:first-child{z-index:2;background:var(--surface-2)}
+  .table-sticky-first tbody th:first-child,.table-sticky-first tbody td:first-child,.table-sticky-first thead tr:first-child th:first-child{position:sticky;left:0;z-index:1;background:var(--surface);box-shadow:inset -1px 0 0 var(--border)}
+  .table-sticky-first thead tr:first-child th:first-child{z-index:2;background:var(--surface-2)}
   .table-list{border:0;background:transparent;overflow:visible}
   .table-list table,.table-list tbody,.table-list tr,.table-list th,.table-list td{display:block}
   .table-list thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
@@ -211,7 +236,19 @@ span.viz-skeleton.spark-tile{height:28px}span.viz-skeleton.spark-row{height:20px
   .table-list th,.table-list td{display:flex;justify-content:space-between;gap:var(--space-3);padding:var(--space-1) 0;border:0;text-align:right}
   .table-list th[data-label]::before,.table-list td[data-label]::before{content:attr(data-label);flex:none;color:var(--text-3);font:400 var(--fs-xs)/1.6 var(--mono);text-transform:uppercase;letter-spacing:.06em;text-align:left}
   .table-list tbody th:first-child{font-weight:600;text-align:left}
+  /* The row header is the card's title (no label, left), and a titleAside cell (a state pill) sits on its line at the right. */
+  .table-list tbody tr:not(.table-group){display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:var(--space-3);align-items:center}
+  .table-list tbody tr:not(.table-group)>*{grid-column:1/-1}
+  .table-list tbody tr:not(.table-group)>.table-title{grid-row:1;grid-column:1;justify-content:flex-start;font-weight:600;text-align:left}
+  .table-list tbody tr:not(.table-group)>.table-aside{grid-row:1;grid-column:2;justify-content:flex-end}
 }
+
+/* A thing's key under its name, in small mono ("Retired setting" over fog_escalation_kpa; a setting row's name over its key). */
+.key-mono{display:block;font:400 var(--fs-xs)/1.3 var(--mono);color:var(--text-3);overflow-wrap:anywhere}
+/* A code this build has no words for, standing alone: "Unknown (brownout)" in the muted tone (A8). */
+.word-unknown{color:var(--text-3)}
+/* The link chevron (A9): a thin space and ›, the same after every "X ›" link; it never wraps away from its words. */
+.chev{white-space:nowrap}
 
 /* Key and value facts. */
 .kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-2) var(--space-4);margin:0;font-size:var(--fs-sm)}
@@ -315,6 +352,8 @@ span.viz-skeleton.spark-tile{height:28px}span.viz-skeleton.spark-row{height:20px
 /* Delta: the change against a mean, with an arrow and words. */
 .delta{color:var(--text);font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
 .delta-vs,.delta-unknown{color:var(--text-3)}
+.delta[data-tone=better]{color:var(--ok-text)}
+.delta[data-tone=worse]{color:var(--warn-text)}
 
 /* Band gauge (§4): a track, the band as a zone with its two edges, the reading as a marker; optional labelled threshold ticks and edge values. */
 .bb{display:block;overflow:visible}

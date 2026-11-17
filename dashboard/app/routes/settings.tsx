@@ -2,9 +2,8 @@
 import { useEffect, useId, useState } from "react";
 import { Link, useLocation, useNavigationType, useSearchParams } from "react-router";
 import { chartLinks } from "../charts/uplot-chart";
-import { Banner } from "../components/banner";
 import { SettingsSearch } from "../components/control/find-setting";
-import { SettingsCatalog } from "../components/control/settings-catalog";
+import { CatalogTable, SettingsCatalog } from "../components/control/settings-catalog";
 import { SettingDrawerHost, useReadbackStale, useSettingEdit, withParams } from "../components/control/setting-drawer";
 import { EFFECT_WORDS, SettingsLegend, labelFor, settingHelp } from "../components/control/setting-help";
 import { SettingsGlossary } from "../components/control/settings-glossary";
@@ -72,6 +71,22 @@ export function settingsStatus(items: readonly Setting[] | null, short = false):
 /** The fold over the settings nothing reads: changing one changes nothing on this controller. */
 export const UNUSED_SUMMARY = "Nothing on this controller reads these settings: changing one changes nothing.";
 
+/**
+ * The page's answer (A4): "56 settings are read by the controller; all are confirmed." or how many are not; the rows not
+ * confirmed (anywhere in the catalogue) are listed after it as links to their drawers. Null until API-09 first answers.
+ */
+export type SettingsAnswer = { readonly text: string; readonly pending: readonly Setting[] };
+export function settingsAnswer(items: readonly Setting[] | null): SettingsAnswer | null {
+  if (!items) return null;
+  const controller = byEffect(items).controller;
+  const pending = items.filter(notConfirmed);
+  const read = `${controller.length} ${controller.length === 1 ? "setting is" : "settings are"} read by the controller`;
+  if (pending.length > 0) return { text: `${read}; ${pending.length} ${pending.length === 1 ? "value is" : "values are"} not confirmed:`, pending };
+  const silent = controller.filter((row) => settingState(row).kind === "not_reported").length;
+  if (silent > 0) return { text: `${read}; ${silent} ${silent === 1 ? "reports" : "report"} nothing back, and no value waits for confirmation.`, pending };
+  return { text: `${read}; ${controller.length === 1 ? "it is" : "all are"} confirmed.`, pending };
+}
+
 /** A panel's state from its read, what it would list, and whether the readbacks can be vouched for. */
 function panelState(loaded: boolean, failed: boolean, rows: readonly Setting[], stale: boolean): PanelState {
   if (!loaded) return failed ? "error" : "loading";
@@ -117,7 +132,7 @@ export default function Settings() {
   const count = (key: SettingsFilter) => (counts ? key === "all" ? items!.length : counts[key].length : null);
   const segments = SETTINGS_FILTERS.map((key) => {
     const n = count(key);
-    return { value: key, to: link({ show: key === "all" ? null : key }), keepScroll: true, label: <>{filterLabel(key)}{n !== null && <span className="ctl-filter-count"> {n}</span>}</> };
+    return { value: key, to: link({ show: key === "all" ? null : key }), keepScroll: true, label: filterLabel(key), count: n };
   });
   const loaded = items !== null;
   const observedAt = shellNow.data?.freshness.readback.observed_at ?? null;
@@ -125,15 +140,16 @@ export default function Settings() {
   const emptyAction = searched
     ? <EmptyState message={`No setting matches “${searched}”.`} widen={{ to: withParams(pathname, params, { q: null }), label: "Clear search" }} />
     : <EmptyState message="No setting of this kind." widen={{ to: link({ show: null }), label: "Show all" }} />;
-  const pending = items ? items.filter(notConfirmed) : [];
+  const answer = settingsAnswer(items);
   const inUseTitle = filter === "all" ? "Settings in use" : filter === "none" ? null : EFFECT_WORDS[filter].label;
   return <>
-    <PageHeader view="system-settings" status={settingsStatus(items)} statusShort={settingsStatus(items, true)} actions={<SettingsSearch value={query} onChange={search} />} />
-    {pending.length > 0 && <Banner tone="warn">
-      {pending.length === 1 ? "1 setting is" : `${pending.length} settings are`} not confirmed by the controller:{" "}
-      {pending.slice(0, 3).map((row, index) => <span key={row.param}>{index > 0 && ", "}<Link to={editTo(row.param)} preventScrollReset>{settingLabel(row)}</Link></span>)}
-      {pending.length > 3 && `, and ${pending.length - 3} more`}.
-    </Banner>}
+    <PageHeader view="system-settings" status={settingsStatus(items)} statusShort={settingsStatus(items, true)} />
+    <div className="card sys-answer ctl-answer">
+      <p className="sys-answer-text" aria-live="polite">{answer ? <>{answer.text}{answer.pending.length > 0 && <>{" "}
+        {answer.pending.slice(0, 3).map((row, index) => <span key={row.param}>{index > 0 && ", "}<Link to={editTo(row.param)} preventScrollReset>{settingLabel(row)}</Link></span>)}
+        {answer.pending.length > 3 && `, and ${answer.pending.length - 3} more`}.</>}</> : read.isError ? "The settings could not be read." : "Reading the settings."}</p>
+      <SettingsSearch value={query} onChange={search} />
+    </div>
     <div className="ctl-settings-tools">
       <Segmented label="Show" segments={segments} value={filter} />
       <p className="meta ctl-filter-note">{filter === "all" ? "Every setting, grouped by what it is for." : EFFECT_WORDS[filter].definition}</p>
@@ -149,7 +165,7 @@ export default function Settings() {
         {inUseTitle && <PanelErrorBoundary thing="settings" onRetry={retry}>
           <Panel id="settings-in-use" title={inUseTitle} thing="settings" reserve="lg" state={panelState(loaded, read.isError, inUse, readbackStale)} observedAt={observedAt}
             onRetry={retry} empty={emptyAction} link={{ to: link({ view: "glossary" }), label: "Every setting explained" }} foot={<SettingsLegend />}>
-            <SettingsCatalog rows={inUse} caption={`${inUseTitle}: each setting's value, what the controller reads back and its state`} readbackStale={readbackStale} editTo={editTo} />
+            <SettingsCatalog rows={inUse} caption="each setting's value and what the controller reads back" readbackStale={readbackStale} editTo={editTo} narrowed={searched !== "" || filter !== "all"} />
           </Panel>
         </PanelErrorBoundary>}
         {(filter === "all" || filter === "none") && (filter === "none" || !searched || groups.none.length > 0) && <PanelErrorBoundary thing="settings nothing reads" onRetry={retry}>
@@ -157,7 +173,7 @@ export default function Settings() {
             state={panelState(loaded, read.isError, groups.none, false)} onRetry={retry} empty={emptyAction}>
             <details className="ctl-unused" open={filter === "none" || searched !== ""}>
               <summary>{UNUSED_SUMMARY}</summary>
-              <SettingsCatalog rows={groups.none} caption="Settings nothing on this controller reads: their stored value, readback and state" readbackStale={readbackStale} editTo={editTo} />
+              <CatalogTable rows={groups.none} caption="Settings nothing on this controller reads: their stored value and what the controller reads back" readbackStale={readbackStale} editTo={editTo} heads />
             </details>
           </Panel>
         </PanelErrorBoundary>}

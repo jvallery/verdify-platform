@@ -3,10 +3,10 @@ import { useMemo, useRef, type MutableRefObject } from "react";
 import type uPlot from "uplot";
 import { dayTitle } from "../lib/format";
 import { dayCsvFilename, tableCsv } from "./csv";
-import { CsvLink, DataTable, type DataTableBlock } from "./data-table";
+import { ChartFoot, type DataTableBlock } from "./data-table";
 import { DAY, amountAxis, amountWords, dailyBarWidth, fixedPlotClass, dayAt, dayAxis, dayHead, dayNote, dayRange, fitMax, useDayKeys } from "./daily";
 import { CHART_BACKGROUND, Labels, SO_FAR_WORDS, paintBar, paintHatch, paintThresholds, type ChartColors, type PaintTarget, type Threshold } from "./draw";
-import { ChartKey, type KeyItem } from "./legend";
+import { ChartKey, useChartGroupKey, type KeyItem } from "./legend";
 import { tooltipPlugin } from "./tooltip";
 import type { XRange } from "./types";
 import { UPlotChart, type ChartEnv, type ChartOptions } from "./uplot-chart";
@@ -49,6 +49,8 @@ export type DailyBarsProps = {
   /** Activating a bar (click, Enter): the page opens that day. */
   onPick?: (date: string) => void;
   captionHidden?: boolean;
+  /** Its own key above the plot (default true); false, or a `ChartGroup` around it, leaves the key to the group (A3). */
+  legend?: boolean;
 };
 
 export type DailyBar = DailyBarDay & { readonly at: number };
@@ -240,10 +242,13 @@ export function DailyBars(props: DailyBarsProps) {
   const data = useMemo<uPlot.AlignedData>(() => [model.days.map((day) => day.at), model.days.map((day) => day.value)], [model]);
   const plotClass = `${fixedPlotClass(size)}${onPick ? " plot-daily-pick" : ""}`;
   const first = model.days[0], last = model.days[model.days.length - 1];
+  const legend = first && last ? dailyBarsKey(model, token) : [];
+  const grouped = useChartGroupKey(legend);
   return <figure className="chart chart-daily">
     <figcaption className={captionHidden ? "screen-reader" : "eyebrow"}>{title}</figcaption>
     {first && last
       ? <>
+        {!grouped && (props.legend ?? true) && <ChartKey items={legend} />}
         <div className="daily-focus" tabIndex={0} role="group" aria-label={`${title}: arrow keys move between days${onPick ? ", Enter opens the day" : ""}`}
           onKeyDown={keys.onKeyDown} onBlur={keys.onBlur} onMouseMove={() => { keys.keyed.current = false; }}>
           <UPlotChart options={(env) => dailyBarsOptions(env, modelRef, token, formatRef, keys.keyed, pickRef)} data={data} xRange={model.xRange}
@@ -251,11 +256,7 @@ export function DailyBars(props: DailyBarsProps) {
             onPlot={(plot) => { plotRef.current = plot; }} />
         </div>
         <p className="screen-reader" aria-live="polite">{keys.readout}</p>
-        <ChartKey items={dailyBarsKey(model, token)} />
-        <div className="chart-tools">
-          <CsvLink filename={dayCsvFilename(title, first.date, last.date)} build={() => dailyBarsCsv(model)} version={model} label="CSV of this chart" />
-        </div>
-        <DataTable tables={[dailyBarsTable(model, format)]} />
+        <ChartFoot tables={[dailyBarsTable(model, format)]} csv={{ filename: dayCsvFilename(title, first.date, last.date), build: () => dailyBarsCsv(model), version: model }} />
       </>
       : <div className={`${fixedPlotClass(size)} chart-message`}><p>No days to show</p></div>}
   </figure>;

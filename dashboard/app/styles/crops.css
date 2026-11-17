@@ -3,6 +3,8 @@
 /* Crops → Map and History: the selection bar, the legend, one card per wall or system, the shelf strips and their cell grids, the hydro rack that scrolls sideways on phones, and the planting and cell drawers. New classes use the prefix crop-. Grids take their column count from a class (crop-cols-N), never an inline style. A crop's tint is one of eight token pairs (crop-tone-N); colours are tokens only. Loaded by root.tsx after control.css. */
 
 /* ---------------------------------------------------------------- The selection bar */
+/* The Map's answer (design review A4): one sentence above the selection bar. */
+.crop-answer{margin-bottom:var(--space-4)}
 .crop-toolbar{position:sticky;top:var(--shell-header-h,var(--topbar-h));z-index:var(--z-raised);display:grid;gap:var(--space-2);margin:0 0 var(--space-4);padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-1)}
 .crop-toolbar-what{margin:0;font-size:var(--fs-sm);overflow-wrap:anywhere}
 .crop-toolbar-actions{display:flex;flex-wrap:wrap;gap:var(--space-2)}
@@ -91,7 +93,7 @@ a.crop-chip:hover{border-color:var(--text)}
 .crop-filter-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-3);font-size:var(--fs-sm)}
 .crop-filter-form label{display:grid;gap:var(--space-1);font-weight:600}
 .crop-filter-form a{display:inline-flex;align-items:center;min-height:var(--tap)}
-.crop-where{overflow-wrap:anywhere}
+.crop-where{overflow-wrap:break-word}
 .crop-note{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border)}
 .crop-note textarea{width:100%;min-height:5rem;font:inherit;font-size:var(--fs-md)}
 .crop-note-actions{display:flex;justify-content:flex-end;margin-top:var(--space-2)}
@@ -106,3 +108,5 @@ a.crop-chip:hover{border-color:var(--text)}
 .hydro-spots{display:grid;gap:var(--space-2);min-width:0}
 .hydro-spots-title{margin:var(--space-4) 0 0;font-size:var(--fs-lg)}
 .hydro-spots>p{margin:0}
+/* Hydroponics' answer (design review A4): one sentence across the page, above the reservoir. */
+.hydro-answer{grid-column:1 / -1}

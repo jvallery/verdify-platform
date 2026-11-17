@@ -4,7 +4,8 @@
  * the page through `words()`; the few sentences here are this area's own copy (words.md §1 voice), in plain words with
  * their units. Null is "not reported", never off or 0.
  */
-import { duration, formatValue, shortTime } from "../../lib/format";
+import { duration, formatNumber, formatValue, shortTime, unitDecimals } from "../../lib/format";
+import type { LawState } from "../../lib/law-sentence";
 import type { LawAlone, LawBand, LawDrying, LawRule, LawView } from "../../lib/operator-api";
 import { hasWords, words } from "../../lib/words";
 import { rangeWords } from "../data/band-bar";
@@ -46,15 +47,30 @@ export const kilowattHours = (wattHours: number | null | undefined): string => (
 
 // ---------------------------------------------------------------------------------------------------- the rules
 /**
- * A rule in one sentence from its thresholds: "turns on below 67.9 °F, off at 70.4 °F". A limit that turns off where it
- * turns on reads only its first half; an unreported threshold reads "not reported".
+ * A rule's two thresholds for the rules' table, whose header carries the unit ("On, °F"): the on value with its
+ * direction ("below 67.9"), and the off value as a bare number. A limit turns off where it turns on, so both read the
+ * same number. An unreported threshold reads "—".
  */
-export function ruleSentence(rule: Pick<LawRule, "signal" | "direction" | "on_at" | "off_at">): string {
-  const unit = unitOf(rule.signal);
-  if (rule.on_at === null || rule.on_at === undefined) return "Thresholds not reported";
-  const on = `${words("law_direction", rule.direction)} ${formatValue(rule.on_at, unit)}`;
-  if (rule.off_at === null || rule.off_at === undefined || rule.off_at === rule.on_at) return on;
-  return `${on}, off at ${formatValue(rule.off_at, unit)}`;
+export function ruleThresholds(rule: Pick<LawRule, "signal" | "direction" | "on_at" | "off_at">): { on: string; off: string } {
+  const digits = unitDecimals(unitOf(rule.signal));
+  const on = rule.on_at === null || rule.on_at === undefined ? "—" : `${words("law_direction", rule.direction).replace(/^turns on /, "")} ${formatNumber(rule.on_at, digits)}`;
+  const off = rule.off_at ?? rule.on_at;
+  return { on, off: formatNumber(off, digits) };
+}
+
+/**
+ * The relays a rule drives, grouped by state so a row stays one line: every relay in one state reads as one group
+ * ("Vent, Fan 1, Fan 2" with one Off); relays in different states read as one group each.
+ */
+export function relayGroups(relays: readonly Pick<LawRule["relays"][number], "equipment" | "state">[]): { state: string; names: string }[] {
+  const groups: { state: string; names: string[] }[] = [];
+  for (const relay of relays) {
+    const name = words("law_relay", relay.equipment);
+    const last = groups[groups.length - 1];
+    if (last && last.state === relay.state) last.names.push(name);
+    else groups.push({ state: relay.state, names: [name] });
+  }
+  return groups.map((group) => ({ state: group.state, names: group.names.join(", ") }));
 }
 
 /** What a rule is doing, in words.md's words: Off, Wanted, Asked for, On since, Waiting (minimum off), Held on (minimum on). */
@@ -180,6 +196,49 @@ export function aloneChecks(alone: LawAlone): ChecklistItem[] {
         : gapLog === "armed" ? capital(`${words("gap_log", gapLog)}.`) : `${capital(words("gap_log", gapLog))}: a disconnect now would lose what happens until the host returns.`,
     },
   ];
+}
+
+// ---------------------------------------------------------------------------------------------------- the answer (A4)
+/** The law record's request code of each rule (API-02 `law.requests`), where it differs from the rule's id. */
+const REQUEST_OF_RULE: Readonly<Record<string, string>> = { second_fan: "fan2", hot_limit: "hot", cold_limit: "cold" };
+
+/**
+ * API-30 as the law record Now's controller sentence reads (`lib/law-sentence.ts`, API-02 `law`), so Climate law opens
+ * with the same sentence from its own read: each rule asked for is a request under its code, with the relays it drives;
+ * the drying decision, its price and limit, and the band in force. Null while the law is not reporting.
+ */
+export function lawStateOf(view: LawView): LawState | null {
+  if (!view.reporting || !view.observed_at) return null;
+  const requests = new Set<string>();
+  for (const rule of view.rules) {
+    if (!rule.requested) continue;
+    requests.add(REQUEST_OF_RULE[rule.id] ?? rule.id);
+    for (const relay of rule.relays) requests.add(relay.equipment);
+  }
+  const { band, drying } = view;
+  const edges = band.temp_low_f !== null && band.temp_low_f !== undefined && band.temp_high_f !== null && band.temp_high_f !== undefined
+    && band.vpd_low_kpa !== null && band.vpd_low_kpa !== undefined && band.vpd_high_kpa !== null && band.vpd_high_kpa !== undefined
+    ? { temp_low_f: band.temp_low_f, temp_high_f: band.temp_high_f, vpd_low_kpa: band.vpd_low_kpa, vpd_high_kpa: band.vpd_high_kpa } : null;
+  return {
+    observed_at: view.observed_at, latches: [], requests: [...requests] as LawState["requests"],
+    drying: drying.state === "running" || drying.state === "refused" ? drying.state : "not_wanted",
+    drying_refused_reason: drying.refused_reason ?? null, drying_cost_kwh_per_kg: drying.cost_kwh_per_kg ?? null,
+    drying_cost_limit_kwh_per_kg: drying.limit_kwh_per_kg ?? Number.NaN, band_repaired: band.repaired === true, band: edges,
+  };
+}
+
+/** The climate relays that are on, each once, with the earliest time it is known to be on (for the chips and the sentence). */
+export function onRelays(view: Pick<LawView, "rules">): { equipment: string; line_id: null; cause: null; since: string | null }[] {
+  const on = new Map<string, string | null>();
+  for (const rule of view.rules) {
+    for (const relay of rule.relays) {
+      if (relay.state !== "on") continue;
+      const seen = on.get(relay.equipment);
+      const since = relay.since ?? null;
+      if (!on.has(relay.equipment) || (since && (!seen || Date.parse(since) < Date.parse(seen)))) on.set(relay.equipment, since);
+    }
+  }
+  return [...on].map(([equipment, since]) => ({ equipment, line_id: null, cause: null, since }));
 }
 
 // ---------------------------------------------------------------------------------------------------- the page's status line

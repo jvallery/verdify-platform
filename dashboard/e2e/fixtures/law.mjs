@@ -914,8 +914,13 @@ export const FIXTURES = {
     newest.summary = `${newest.summary.replace(" No band edit proposed.", "")} Proposal: raise only the low edge at sunrise and solar midnight by 2 °F.`;
     newest.proposal = {
       changes: [change("band_temp_low_sr", 62.5, 64.5), change("band_temp_low_mid", 60.7, 62.7)],
-      price: "Low edge only, sunrise and midnight 2 F higher: Therms/day +0.31 / +0.31; kWh/day +0.9 / +0.4; Gallons/day +10 / +4; "
-        + "Starts/day +3.7 / +0.1; Run hours/day +0.7 / -0.6; Both in own band (points) +2.1 / +4.5; Nights dried (of 100) +8 / +13",
+      // Stored as verdify_schemas BandProposal stores it: the quoted price-list rows, one a line.
+      price: [
+        "Low edge only, sunrise and midnight 2 F higher: Therms/day +0.31 / +0.31; kWh/day +0.9 / +0.4; Gallons/day +10 / +4; "
+          + "Starts/day +3.7 / +0.1; Run hours/day +0.7 / -0.6; Both in own band (points) +2.1 / +4.5; Nights dried (of 100) +8 / +13",
+        "Low edge only, sunrise and midnight 1 F higher: Therms/day +0.15 / +0.16; kWh/day +0.4 / +0.2; Gallons/day +5 / +2; "
+          + "Starts/day +1.8 / +0.1; Run hours/day +0.3 / -0.3; Both in own band (points) +1.0 / +2.2; Nights dried (of 100) +4 / +6",
+      ].join("\n"),
       reason: "VPD ran below the band on most nights while temperature held; a warmer low edge at night dries the house with less venting.",
     };
     // An older proposal, since superseded by newer reviews.
@@ -947,14 +952,17 @@ export const FIXTURES = {
     law.meter = { seconds: null, water_g: null, heat_wh: null, refused_seconds: null, observed_at: null };
     for (const row of world.record) Object.assign(row.drying, { water_g: null, heat_wh: null, lower_bound: null, wanted_s: null, refused_s: null });
   },
-  // Four soil probes have gone quiet: three were last seen three days ago, and one has no reading in 30 days.
+  // Four soil probes have gone quiet: three were last seen three days ago, and one has no reading in 30 days. They
+  // are known silent. One wall probe stopped about 3 h ago, within the day: that one warns ("Stopped today").
   "data-probes-silent": (world) => {
     lawOf(world);
     const lastSeen = iso(world.now - 3 * DAY);
     world.system.probes = [
       ...world.system.probes,
-      ...[["climate.soil_moisture_south_1", lastSeen], ["climate.soil_moisture_south_2", lastSeen], ["climate.soil_moisture_west", lastSeen], ["climate.soil_ec_south_1", null]]
-        .map(([sensor, seen]) => ({ sensor, age_s: 7200, last_seen_at: seen })),
+      ...[["climate.soil_moisture_south_1", lastSeen], ["climate.soil_moisture_south_2", lastSeen], ["climate.soil_moisture_west", lastSeen]]
+        .map(([sensor, seen]) => ({ sensor, age_s: (3 * DAY) / SECOND, last_seen_at: seen })),
+      { sensor: "climate.soil_ec_south_1", age_s: null, last_seen_at: null },
+      { sensor: "climate.rh_west", age_s: (3 * HOUR) / SECOND, last_seen_at: iso(world.now - 3 * HOUR) },
     ];
   },
   // The gap log is off because the controller's storage is full: nothing is kept while the host is away.

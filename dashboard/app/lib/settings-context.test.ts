@@ -2,7 +2,7 @@
 // Settings' catalogue facts (dashboard v2 screens §10.4), pure: what reads a setting, its group, its plain name, the page
 // that owns it, and search.
 import { expect, test } from "vitest";
-import { SETTING_GROUPS, editableHere, groupLabel, groupRows, isLightSetting, matchesSettingSearch, ownerPage, settingEffect, settingLabel } from "./settings-context";
+import { SETTING_GROUPS, editableHere, groupLabel, groupRows, isLightSetting, matchesSettingSearch, ownerPage, RETIRED_SETTING, settingEffect, settingLabel, settingName } from "./settings-context";
 
 const setting = {
   param: "gl_main_lux_threshold", label: "Main light threshold",
@@ -66,4 +66,13 @@ test("the band's points and the drying cost limit are changed on their own pages
   expect([editableHere(row("band_temp_low_sr", "crop_band")), editableHere(row("dry_cost_limit_kwh_per_kg", "controller_safety"))]).toEqual([false, false]);
   expect([editableHere(row("gl_main_lux_threshold", "scheduled_policy")), editableHere(row("outdoor_temp_f", "read_only", false))]).toEqual([true, false]);
   expect(["gl_main_lux_threshold", "sw_gl_grow_auto_mode", "sw_occupancy_inhibit"].map(isLightSetting)).toEqual([true, true, false]);
+});
+
+test("a setting's visible name: its catalog label, \"Retired setting\" with its key for one the catalog no longer has, an em dash before the catalog loads", () => {
+  const catalog = [{ param: "gl_main_min_on_s", label: "GL Main Min On S" }, { param: "mister_engage_kpa", label: "Mister engage" }];
+  expect(settingName("gl_main_min_on_s", catalog)).toEqual({ label: "Main light: shortest time on", key: "gl_main_min_on_s", retired: false });
+  expect(settingName("mister_engage_kpa", new Map(catalog.map((row) => [row.param, row])))).toEqual({ label: "Mister engage", key: "mister_engage_kpa", retired: false });
+  expect(settingName("fog_escalation_kpa", catalog)).toEqual({ label: RETIRED_SETTING, key: "fog_escalation_kpa", retired: true });
+  expect(RETIRED_SETTING).toBe("Retired setting");
+  expect(settingName("fog_escalation_kpa", null)).toEqual({ label: "—", key: "fog_escalation_kpa", retired: false });
 });

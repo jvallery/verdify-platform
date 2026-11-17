@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import { Chevron } from "./chevron";
 
 export type SectionLink = { readonly to: string; readonly label: string };
 
@@ -29,7 +30,7 @@ export function SectionHeader({ title, id, headingLevel = 2, meta, chips, link }
       {meta && <span className="meta">{meta}</span>}
     </div>
     {chips && <div className="section-header-chips">{chips}</div>}
-    {link && <Link className="section-link" to={link.to}>{link.label}<span aria-hidden="true"> ›</span></Link>}
+    {link && <Link className="section-link" to={link.to}>{link.label}<Chevron /></Link>}
   </div>;
 }
 

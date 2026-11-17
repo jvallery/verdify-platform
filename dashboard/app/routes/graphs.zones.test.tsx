@@ -106,7 +106,7 @@ test("/graphs/zones?range=72h: a grid of every zone, temperature and VPD rows on
   expect(text(document.querySelector(".gr-grid-foot"))).toContain("the shaded band is the house band");
   // Each column head names the zone, a link that focuses it, and where its numbers come from.
   const heads = [...document.querySelectorAll(".grid-heads .grid-head")];
-  expect(heads.map((head) => text(head))).toEqual(["North ›MEASURED", "Center ›HOUSE", "South ›MEASURED", "East ›MEASURED", "West ›MEASURED"]);
+  expect(heads.map((head) => text(head))).toEqual(["North\u2009›MEASURED", "Center\u2009›HOUSE", "South\u2009›MEASURED", "East\u2009›MEASURED", "West\u2009›MEASURED"]);
   expect(heads.map((head) => head.querySelector("a")!.getAttribute("href"))).toEqual(["north", "center", "south", "east", "west"].map((zone) => `/graphs/zones?zone=${zone}&range=72h`));
   // The readouts: each cell's newest value.
   expect([...document.querySelectorAll(".grid-readout")].map(text).every((words) => /^\d+\.\d+ (°F|kPa) now$/.test(words))).toBe(true);

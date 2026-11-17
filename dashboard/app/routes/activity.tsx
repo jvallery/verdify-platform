@@ -2,7 +2,7 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { Link, replace, useSearchParams } from "react-router";
 import { Acknowledge } from "../components/activity/acknowledge";
-import { ALERTS_UNAVAILABLE, AlertRow, alertListEmptyText } from "../components/alert-row";
+import { ALERTS_UNAVAILABLE, AlertRow, NO_OPEN_ALERTS, alertListEmptyText } from "../components/alert-row";
 import { Button } from "../components/button";
 import { LocalTime } from "../components/common";
 import { Details } from "../components/details";
@@ -10,6 +10,7 @@ import { EventRow } from "../components/event-row";
 import { FieldHint, useFieldIds } from "../components/forms";
 import { AgeLabel, useClockValue } from "../components/freshness";
 import { Kv, type KvItem } from "../components/kv";
+import { Chevron } from "../components/layout/chevron";
 import { ListCard } from "../components/layout/list-card";
 import { Page } from "../components/layout/page";
 import { PageHeader } from "../components/layout/page-header";
@@ -77,13 +78,15 @@ export default function Activity() {
   const freshness = apiDown || !now ? null : now.freshness;
   const coverage = alertListEmptyText({ readOk: true, ingestor: freshness?.ingestor, climate: freshness?.climate });
   const loading = alerts.pending || (shellNow.pending && !now);
-  // A failed read states no counts, even with an earlier answer kept: its rows may be gone (the groups say why).
-  const counts = { open: openAlerts ?? groups.open.length, acknowledged: groups.acknowledged.length, resolved: groups.closed.length, coverage };
+  // A failed read states no counts, even with an earlier answer kept: its rows may be gone (the groups say why). The open
+  // count is the list's own once the read holds every alert, so the status line counts the rows under it.
+  const whole = alerts.data !== null && alerts.data !== undefined && !alerts.data.next_cursor;
+  const counts = { open: whole ? groups.open.length : openAlerts ?? groups.open.length, acknowledged: groups.acknowledged.length, resolved: groups.closed.length, coverage };
   const status = loading || alerts.failed ? null : alertsStatus(counts);
   return <Page className="act-alerts">
     <PageHeader view="activity-alerts" status={status} statusShort={status === null ? null : alertsStatus({ ...counts, short: true })} />
     <PanelErrorBoundary thing="the alerts" onRetry={alerts.retry}>
-      <AlertGroups view={view} params={params} alerts={alerts} me={me} now={now} irrigation={water.failed ? null : water.data} loading={loading} />
+      <AlertGroups view={view} params={params} alerts={alerts} me={me} now={now} irrigation={water.failed ? null : water.data} loading={loading} coverage={coverage} />
     </PanelErrorBoundary>
     <PanelErrorBoundary thing="recent activity">
       <RecentActivity me={me} />
@@ -98,13 +101,16 @@ type ItemContext = {
   readonly onAcknowledged: (id: number) => void;
 };
 
+/** The answer when nothing is unacknowledged (A4): "Nothing needs action.", or why in-app alerts may be missing. */
+const nothingNeedsAction = (coverage: string) => (coverage === NO_OPEN_ALERTS ? "Nothing needs action." : coverage);
+
 /**
- * "Needs action" while anything is unacknowledged (a failed read says "Alerts unavailable." with Retry, never that
- * nothing is open), then the acknowledged and resolved groups, collapsed, each opening when it holds the expanded alert
+ * "Needs action" first, always: its alerts while anything is unacknowledged, else the answer in one line (a failed read
+ * says "Alerts unavailable." with Retry, never that nothing is open), then the acknowledged and resolved groups, collapsed, each opening when it holds the expanded alert
  * (`?resolved=24h` opens the resolved one, and with none reads "Nothing resolved in the last 24 h · Open the log ›"
  * once a read that succeeded says so). A linked alert in none of them says it is not open or resolved in 24 h.
  */
-function AlertGroups({ view, params, alerts, me, now, irrigation, loading }: { view: ActivityView; params: URLSearchParams; alerts: PanelRead<AlertPage>; me: SignedIn; now: Now | null; irrigation: IrrigationStatus | null; loading: boolean }) {
+function AlertGroups({ view, params, alerts, me, now, irrigation, loading, coverage }: { view: ActivityView; params: URLSearchParams; alerts: PanelRead<AlertPage>; me: SignedIn; now: Now | null; irrigation: IrrigationStatus | null; loading: boolean; coverage: string }) {
   const groups = groupAlerts(alerts.data?.items ?? []);
   const expandedId = alertIdOf(view.alert);
   const [acknowledgedHere, setAcknowledgedHere] = useState<number | null>(null);
@@ -121,9 +127,10 @@ function AlertGroups({ view, params, alerts, me, now, irrigation, loading }: { v
       <h2 id="alert-linked-head">Linked alert</h2>
       <p>{notOpenText(view.alert ?? "")}</p>
     </section>}
-    {(state !== "ready" || groups.open.length > 0) && <ListCard id="alerts" title="Needs action" thing="alerts" state={state} reserve="md" errorText={`${ALERTS_UNAVAILABLE}.`} onRetry={alerts.retry}>
-      <ol className="alert-list act-alert-list">{groups.open.map(item)}</ol>
-    </ListCard>}
+    <ListCard id="alerts" title="Needs action" thing="alerts" state={state === "ready" && !groups.open.length && !alerts.failed ? "empty" : state} reserve="md"
+      errorText={`${ALERTS_UNAVAILABLE}.`} onRetry={alerts.retry} empty={{ message: nothingNeedsAction(coverage) }}>
+      {groups.open.length > 0 && <ol className="alert-list act-alert-list">{groups.open.map(item)}</ol>}
+    </ListCard>
     {groups.acknowledged.length > 0 && <AlertGroup summary={`Acknowledged, still open (${groups.acknowledged.length})`} holdsExpanded={groups.acknowledged.some((row) => row.id === expandedId || row.id === acknowledgedHere)}>
       {groups.acknowledged.map(item)}
     </AlertGroup>}
@@ -132,7 +139,7 @@ function AlertGroups({ view, params, alerts, me, now, irrigation, loading }: { v
     </AlertGroup>}
     {/* A link to the resolved group with none to open says so in one line, rather than a page silent about it (§3.6 rule 6). */}
     {view.resolved && state === "ready" && !alerts.failed && !alerts.data?.next_cursor && groups.closed.length === 0 && <p className="card act-resolved-none" data-alerts="resolved-none">
-      {NOTHING_RESOLVED} · <Link to="/activity/log">Open the log<span aria-hidden="true"> ›</span></Link>
+      {NOTHING_RESOLVED} · <Link to="/activity/log">Open the log<Chevron /></Link>
     </p>}
     {alerts.data?.next_cursor && <p className="meta">Showing the first {ALERT_LIMIT} alerts.</p>}
   </div>;
@@ -195,8 +202,8 @@ function AlertItem({ alert, context }: { alert: Alert; context: ItemContext }) {
   const detailId = `alert-${alert.id}-detail`;
   // Opening pushes, so Back closes it; closing replaces, so Back never reopens it (redesign §2.4).
   const toggle = <Link className="alert-open" to={expanded ? activityHref(params, { alert: null }) : activityHref(params, { alert: String(alert.id) })} preventScrollReset replace={expanded}
-    aria-expanded={expanded} aria-controls={expanded ? detailId : undefined}>
-    {expanded ? "Hide details" : <>Details <span className="screen-reader">of {title} </span><span aria-hidden="true">›</span></>}
+    aria-expanded={expanded} aria-controls={expanded ? detailId : undefined} aria-label={expanded ? undefined : `Details of ${title}`}>
+    {expanded ? "Hide details" : <>Details<Chevron /></>}
   </Link>;
   // The API names people by username; the signed-in person reads by name ("Acknowledged by Jason · 06:47"). An open
   // flow alert's message is the ingestor's words for what LeakLines shows live, so the row says it once.
@@ -266,7 +273,7 @@ function AlertAbout({ alert }: { alert: Alert }) {
   if (!about && !page) return null;
   return <p className="alert-about">
     {about}
-    {page && <>{about && " "}<Link to={page.to}>Explained on {page.label}<span aria-hidden="true"> ›</span></Link></>}
+    {page && <>{about && " "}<Link to={page.to}>Explained on {page.label}<Chevron /></Link></>}
   </p>;
 }
 
@@ -276,7 +283,7 @@ function GraphLink({ alert }: { alert: Alert }) {
   if (!span) return null;
   const from = new Date(span.from).toISOString();
   const to = new Date(span.to).toISOString();
-  return <p className="alert-graph"><Link to={span.href}>Open in Graphs <span aria-hidden="true">›</span></Link> <span className="meta">
+  return <p className="alert-graph"><Link to={span.href}>Open in Graphs<Chevron /></Link> <span className="meta">
     <LocalTime at={from} date={localDate(from) !== localDate(to)} /> to <LocalTime at={to} date={localDate(from) !== localDate(to)} />
   </span></p>;
 }

@@ -8,7 +8,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { Session } from "../../lib/session";
 import { Button } from "../button";
 import { renderUi } from "../test-render";
-import { EditDrawer, graphLink, ManualToggle, NumberField, Reason } from "./index";
+import { EditDrawer, graphLink, NumberField, Reason } from "./index";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const OPERATOR = { role: "operator", writesEnabled: true } as const;
@@ -25,7 +25,7 @@ function Screen({ onSave = () => {}, saving = false, unit = "kPa", readOnly = fa
       status="Device 1.60 kPa · CONFIRMED" graph={{ param: "mister_engage_kpa", unit }} onSave={onSave} saving={saving} readOnly={readOnly}
       actions={<Button write>Release to auto</Button>}>
       <NumberField label="New value" value={value} onChange={setValue} min={0.5} max={2.5} step={0.05} unit={unit} />
-      <ManualToggle checked={manual} onChange={setManual} />
+      <label><input type="checkbox" checked={manual} onChange={(event) => setManual(event.target.checked)} /> Manual</label>
       <Reason value={reason} onChange={setReason} />
     </EditDrawer>
   </>;
@@ -111,7 +111,7 @@ test("a viewer gets it read-only: the values, no Save; with changes switched off
   expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   expect((screen.getByLabelText("New value") as HTMLInputElement).value).toBe("1.60");
   expect(screen.getByLabelText("New value").matches(":disabled")).toBe(true);
-  expect(screen.getByRole("checkbox", { name: "Let Iris change this" }).matches(":disabled")).toBe(true);
+  expect(screen.getByRole("checkbox", { name: "Manual" }).matches(":disabled")).toBe(true);
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Done" }));
   fireEvent.submit(dialog().querySelector("form")!);
   expect(onSave).not.toHaveBeenCalled();

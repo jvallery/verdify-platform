@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
 // SettingRow and the drawer's facts (dashboard v2 screens §10.4) on rows of the settings fixture rendered at test time
-// from the tunable registry, patched per rule: the name, key and summary; the value with its unit; what the controller
-// reads back and how long ago; the state in words.md's words; Edit or Details and the page that owns the setting. Times
+// from the tunable registry, patched per rule: the name and key; the value with its unit; the controller's side in
+// words.md's words (what it reads when not confirmed); Edit or Details. Times
 // are America/Denver with the clock at 10:42 on 2026-11-02.
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -33,12 +33,11 @@ function desired(fields: Partial<DesiredSetting>): DesiredSetting {
 function draw(setting: Setting, props: Partial<SettingRowProps> = {}, session: Partial<Session> = OPERATOR) {
   return renderUi(<table><tbody><SettingRow setting={setting} editTo={`/settings?edit=${setting.param}`} {...props} /></tbody></table>, session);
 }
-const cell = (name: "name" | "value" | "readback" | "state" | "actions") => text(document.querySelector(`.setting-${name}`));
+const cell = (name: "name" | "value" | "state" | "actions") => text(document.querySelector(`.setting-${name}`));
 const edit = () => screen.queryByRole("link", { name: /^Edit / });
 const details = () => screen.queryByRole("link", { name: /^Details of / });
-const elsewhere = () => [...document.querySelectorAll(".setting-elsewhere")].map((link) => [text(link), link.getAttribute("href")]);
 
-test("a confirmed row: name, key and summary; the value with its unit; what the controller reads and how long ago; Confirmed; Edit", () => {
+test("a confirmed row on one line: name and key; the value with its unit; Confirmed; Edit. Nothing else in the row", () => {
   const setting = row("outdoor_staleness_max_s");
   draw(setting);
   expect(text(document.querySelector(".setting-label"))).toBe("Outdoor Staleness Max");
@@ -46,52 +45,48 @@ test("a confirmed row: name, key and summary; the value with its unit; what the 
   // The key may wrap only after an underscore: a <wbr> after each, and no text added.
   expect(document.querySelector(".setting-param")!.querySelectorAll("wbr")).toHaveLength(3);
   expect(cell("value")).toBe("Value 660 s");
-  expect(cell("readback")).toBe("Controller reads 660 s · 2 min ago");
-  expect(text(document.querySelector(".setting-state [data-badge], .setting-state .badge"))).toBe("Confirmed");
+  expect(cell("state")).toBe("Confirmed");
+  expect(document.querySelectorAll(".setting-row > *")).toHaveLength(4);
   expect(document.querySelector(".setting-row")!.getAttribute("data-state")).toBe("confirmed");
   expect(edit()!.getAttribute("href")).toBe("/settings?edit=outdoor_staleness_max_s");
   expect(edit()!.getAttribute("data-write-control")).toBe("true");
   expect(details()).toBeNull();
+  expect(document.querySelector(".setting-summary, .setting-note, .setting-elsewhere")).toBeNull();
   expect(document.querySelector("[style]")).toBeNull();
 });
 
-test("a value sent and not yet read back reads Not confirmed since the time it was sent, with the reason in words once known", () => {
+test("a value sent and not yet read back: Not confirmed since the time it was sent, what the controller reads, the reason once known", () => {
   draw(row("outdoor_staleness_max_s", { state: "requested", desired: desired({}) }));
   expect(cell("value")).toBe("Value 630 s");
-  expect(cell("readback")).toBe("Controller reads 660 s · 2 min ago");
-  expect(cell("state")).toBe("Not confirmed since 10:41");
+  expect(cell("state")).toBe("Not confirmed since 10:41 reads 660 s");
   expect(document.querySelector(".setting-row")!.getAttribute("data-state")).toBe("not_confirmed");
   cleanup();
   draw(row("outdoor_staleness_max_s", { state: "not_confirmed", desired: desired({ state: "not_confirmed", state_reason: { code: "push_failed", since: denver("10:41") } as DesiredSetting["state_reason"] }) }));
-  expect(cell("state")).toBe("Not confirmed since 10:41 Sending failed");
+  expect(cell("state")).toMatch(/^Not confirmed since 10:41 reads 660 s.*Sending failed/);
   expect(document.querySelector(".setting-state .badge")!.className).toContain("badge-serious");
 });
 
-test("Not reported when the controller has no value; a Band in force row is worked out by the host, with Details and a link to Band", () => {
+test("Not reported when the controller has no value; a Band in force row is worked out by the host, with Details", () => {
   draw(row("outdoor_staleness_max_s", { state: "no_readback", readback: { value: null, observed_at: null, reason: "not reported" } }));
-  expect([cell("readback"), cell("state")]).toEqual(["Controller reads — not reported", "Not reported"]);
+  expect(cell("state")).toBe("Not reported");
   expect(cell("value")).toBe("Value —");
   cleanup();
   draw(row("band_house_temp_low"));
   expect(text(document.querySelector(".setting-label"))).toBe("House temperature low edge now");
   expect(cell("state")).toBe("Worked out by the host");
-  expect(cell("readback")).toBe("Controller reads — worked out 4 min ago");
   expect([edit(), details()?.getAttribute("aria-label")]).toEqual([null, "Details of House temperature low edge now"]);
-  expect(elsewhere()).toEqual([["Change on Band ›", "/band"]]);
 });
 
-test("the band's points and the drying cost limit are read-only here and link to their page; a lighting setting links to Lights too", () => {
+test("the band's points and the drying cost limit open read-only (Details); a lighting setting has Edit", () => {
   draw(row("band_temp_low_sr"));
   expect(text(document.querySelector(".setting-label"))).toBe("Temperature low edge at sunrise");
-  expect(text(document.querySelector(".setting-note"))).toBe("Set on Band");
-  expect([edit(), elsewhere()]).toEqual([null, [["Change on Band ›", "/band"]]]);
+  expect([edit(), details()?.getAttribute("href")]).toEqual([null, "/settings?edit=band_temp_low_sr"]);
   cleanup();
   draw(row("dry_cost_limit_kwh_per_kg"));
-  expect([edit(), elsewhere()]).toEqual([null, [["Change on Drying ›", "/climate/drying"]]]);
+  expect(edit()).toBeNull();
   cleanup();
   draw(row("gl_main_lux_threshold"));
   expect(edit()).not.toBeNull();
-  expect(elsewhere()).toEqual([["Lights ›", "/lights"]]);
 });
 
 test("a viewer sees every row with Details and no write control", () => {
@@ -103,8 +98,8 @@ test("a viewer sees every row with Details and no write control", () => {
 
 test("stale readbacks: the value muted with the stale age; never Confirmed-looking ink", () => {
   draw(row("outdoor_staleness_max_s"), { readbackStale: true });
-  expect(document.querySelector(".setting-readback [data-readback]")!.getAttribute("data-readback")).toBe("stale");
-  expect(document.querySelector(".setting-readback .value-muted")).not.toBeNull();
+  expect(document.querySelector(".setting-state [data-readback]")!.getAttribute("data-readback")).toBe("stale");
+  expect(document.querySelector(".setting-state .value-muted")).not.toBeNull();
 });
 
 test("no retired words in a row: no plan, planner, Iris changed, manual or held", () => {

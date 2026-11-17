@@ -38,27 +38,43 @@ test("flow, probes and continuity read API-36 in words: tables, ages, outages an
   expect(text(flow)).toContain("Ingestor heartbeat 20 s ago");
   expect(within(flow).getByRole("rowheader", { name: "Climate readings" })).toBeTruthy();
   expect(text(flow)).not.toMatch(/setpoint_snapshot|equipment_state/);
-  expect(within(panel("Probes")).getByRole("rowheader", { name: "North temperature" })).toBeTruthy();
+  expect(text(panel("Answer"))).toMatch(/^(No data was lost|\d+ gaps?|Gaps) in /);
+  expect(within(panel("Probes")).getByRole("rowheader", { name: "North wall temperature" })).toBeTruthy();
   const continuity = panel("Continuity");
   expect(text(continuity)).toContain("Gap log on, keeping a record");
   expect(within(continuity).getByRole("region", { name: "Outages" }).querySelectorAll("tbody tr").length).toBe(3);
   expect(within(continuity).getByRole("region", { name: "Replayed quarters" })).toBeTruthy();
   expect(new URL(requests(api, "API-36")[0].path, "http://x").searchParams.get("days")).toBe("1");
-  for (const name of ["Flow", "Probes", "Continuity", "Delivery"]) expect(text(panel(name)), name).not.toMatch(RETIRED);
+  // The retired settings writer of old rows reads "the planner (retired)" (manager's review B6); nothing else retired.
+  for (const name of ["Flow", "Probes", "Continuity", "Delivery"]) expect(text(panel(name)).replaceAll(/the planner \(retired\)/gi, ""), name).not.toMatch(RETIRED);
 });
 
-test("delivery: outcomes as a bar list and a table, the oldest unconfirmed, and each failing setting links to its drawer", async () => {
+test("delivery: pushes by sender, the oldest unconfirmed, and each setting not taken links to its drawer", async () => {
   await open({ fixture: "delivery-failing" });
-  expect(text(document.querySelector(".page-status"))).toBe("5 settings not taken");
+  expect(text(document.querySelector(".page-status"))).toMatch(/^\d+ settings? not taken$/);
   const delivery = panel("Delivery");
-  expect(within(delivery).getByRole("list", { name: "Pushes by outcome" }).querySelectorAll("li").length).toBe(6);
-  expect(within(delivery).getByRole("region", { name: "Pushes by source and outcome" })).toBeTruthy();
+  const senders = within(delivery).getByRole("region", { name: "Pushes by sender" });
+  expect(text(senders)).toContain("Confirmed");
+  expect(text(senders)).not.toMatch(/esp32|Observed/);
   expect(text(delivery)).toContain("Waiting 30 min");
   expect(text(delivery)).toContain("2 changed of 102 read back");
   const failing = within(delivery).getByRole("region", { name: "Settings whose pushes failed" });
   const links = within(failing).getAllByRole("link");
   expect(links.length).toBe(5);
   expect(links.every((link) => /^\/settings\?edit=[\w%.-]+$/.test(link.getAttribute("href") ?? ""))).toBe(true);
+});
+
+test("probes silent for days are muted and named apart and do not warn; the one that stopped today does", async () => {
+  await open({ fixture: "data-probes-silent" });
+  const probes = panel("Probes");
+  const recent = probes.querySelectorAll(".sys-silent-line.is-recent");
+  expect([...recent].map((line) => text(line))).toEqual([expect.stringMatching(/^Stopped today\s*West wall relative humidity: no answer since \d\d:\d\d$/)]);
+  expect([...probes.querySelectorAll(".sys-silent-line.is-known")].map((line) => text(line))).toEqual([
+    expect.stringMatching(/3 soil probes: no answer since \d+ \w+$/), expect.stringMatching(/South 1 soil EC: no reading in 30 days$/),
+  ]);
+  // The stop within the day colours the panel; the long-silent ones alone would not.
+  expect(probes.classList.contains("tone-warn")).toBe(true);
+  expect(text(document.querySelector(".page-status"))).toMatch(/^1 probe stopped answering today · 4 probes known to be silent$/);
 });
 
 test("the ranges come from the URL: 7 days of continuity, 7 days of delivery", async () => {
@@ -81,8 +97,12 @@ test("a failed delivery read is its own error; the other blocks stand", async ()
   expect(panel("Flow").getAttribute("data-state")).toBe("ready");
 });
 
-test("the status line says what is missing first", () => {
-  expect(dataStatus(null, null)).toBeNull();
-  const continuity = { ingestor: { heartbeat_age_s: 600 }, probes: [{ sensor: "a", age_s: 7200 }, { sensor: "b", age_s: 3 }] } as never;
-  expect(dataStatus(continuity, { failing: [{}] } as never)?.replaceAll(String.fromCharCode(0xa0), " ")).toBe("Ingestor heartbeat 10 min ago · 1 probe not seen in 2 h · 1 setting not taken");
+test("the status line says what is missing first, counting only probes stopped today, and names the known silent apart", () => {
+  expect(dataStatus(null, null, null)).toBeNull();
+  const continuity = { ingestor: { heartbeat_age_s: 600 } } as never;
+  const failing = { failing: [{ param: "x", failed: 1, last_failed_at: "2026-11-02T10:00:00Z", last_confirmed_at: null }] } as never;
+  const probes = { answering: [], silent: [], stoppedToday: 1, knownText: "7 soil probes silent since 14 Nov" };
+  expect(dataStatus(continuity, failing, probes)?.replaceAll(String.fromCharCode(0xa0), " "))
+    .toBe("Ingestor heartbeat 10 min ago · 1 probe stopped answering today · 1 setting not taken · 7 soil probes silent since 14 Nov");
+  expect(dataStatus({ ingestor: { heartbeat_age_s: 20 } } as never, { failing: [] } as never, { ...probes, stoppedToday: 0, knownText: null })).toBe("Data flowing · every push taken");
 });

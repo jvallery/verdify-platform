@@ -7,6 +7,7 @@
  * (VD-12), which `pnpm test` runs first.
  */
 import { FIXTURES as ACTIVITY } from "./activity.mjs";
+import { FIXTURES as BAND } from "./band.mjs";
 import { FIXTURES as CONTROL } from "./control.mjs";
 import { FIXTURES as CROPS } from "./crops.mjs";
 import { FIXTURES as GRAPHS } from "./graphs.mjs";
@@ -23,7 +24,7 @@ import { FIXTURES, buildWorld, registerFixtures } from "./world.mjs";
  */
 export const PACKAGE_FIXTURES = {
   "now-activity.mjs": NOW_ACTIVITY, "graphs.mjs": GRAPHS, "water.mjs": WATER, "control.mjs": CONTROL, "crops.mjs": CROPS,
-  "activity.mjs": ACTIVITY,
+  "activity.mjs": ACTIVITY, "band.mjs": BAND,
 };
 for (const [owner, fixtures] of Object.entries(PACKAGE_FIXTURES)) registerFixtures(owner, fixtures);
 /**

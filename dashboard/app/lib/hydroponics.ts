@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { duration, formatNumber, formatValue } from "./format";
 import type { Series } from "./operator-api";
 
 /** A chart bucket is an interval average, not an instantaneous sensor reading. Never turn null into zero. */
@@ -50,6 +51,30 @@ export const RESERVOIR_READINGS = [
   { key: "ec_us_cm", label: "Conductivity", unit: "µS/cm" },
   { key: "water_temp_f", label: "Water temperature", unit: "°F" },
 ] as const;
+
+/** A reservoir reading in its unit; conductivity in whole µS/cm, "1,889 µS/cm", never a decimal (design review). */
+export function reservoirValue(value: number | null | undefined, unit: string): string {
+  if (unit === "µS/cm" && typeof value === "number" && Number.isFinite(value)) return `${formatNumber(value, 0)}\u00a0µS/cm`;
+  return formatValue(value, unit);
+}
+
+/**
+ * Hydroponics' answer, its first block (design review A4): the reservoir as the probe last read it, "The reservoir reads
+ * pH 6.1, 1,889 µS/cm and 68.2 °F, 3 min ago.", or that the probe is overdue or has not reported.
+ */
+export function hydroAnswer(hydro: ReservoirNow | null | undefined, now: number): string {
+  const probe = probeAge(hydro, now);
+  if (!hydro || probe.age_s === null) return "The reservoir probe has not reported in the last 24 hours.";
+  const parts = RESERVOIR_READINGS.flatMap(({ key, unit }) => {
+    const value = hydro[key]?.value;
+    if (value === null || value === undefined) return [];
+    return [key === "ph" ? `pH ${formatNumber(value, 1)}` : reservoirValue(value, unit)];
+  });
+  const list = parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  const ago = `${duration(probe.age_s)} ago`;
+  if (probe.stale) return `The reservoir probe is overdue: it last reported ${ago}${list ? `, reading ${list}` : ""}.`;
+  return list ? `The reservoir reads ${list}, ${ago}.` : `The probe reported ${ago} but sent no reading.`;
+}
 
 type Reading = { readonly value: number | null; readonly observed_at: string | null; readonly reason?: string | null };
 export type ReservoirNow = { readonly ph: Reading; readonly ec_us_cm: Reading; readonly water_temp_f: Reading; readonly stale_after_s: number };

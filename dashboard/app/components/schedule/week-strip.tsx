@@ -3,12 +3,18 @@ import { Link } from "react-router";
 import { dateShift } from "../../lib/format";
 import { useApiDown } from "../../lib/session";
 import { cls } from "../common";
-import { fallbackCount, weekCellName, type WeekCell } from "./model";
+import { weekCellName, type WeekCell } from "./model";
 
 const DAY_NUMBER = (date: string) => Number(date.slice(8, 10));
 const WEEKDAY = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short" });
 const MONTH = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short" });
 const noon = (date: string) => new Date(`${date}T12:00:00Z`);
+/**
+ * A day's words as its cell shows them, short enough for a seventh of the row (design review A1: words stay whole,
+ * never cut with an ellipsis): "nothing scheduled" reads "no runs"; the cell's name and title keep the long form, as do
+ * its fallback windows ("3 backup" in the cell, "3 fallback windows" in its name).
+ */
+export const cellSummary = (summary: string): string => (summary === "nothing scheduled" ? "no runs" : summary);
 
 export type WeekStripProps = {
   cells: readonly WeekCell[];
@@ -42,8 +48,8 @@ export function WeekStrip({ cells, selected, dayTo, previousTo, nextTo }: WeekSt
         const name = weekCellName(cell);
         const body = <>
           <span className="sch-day-date"><span className="sch-day-weekday">{WEEKDAY.format(noon(cell.date))}</span> <span className="sch-day-number">{DAY_NUMBER(cell.date)}</span>{cell.when === "today" && <span className="sch-day-today"> today</span>}</span>
-          <span className="sch-day-summary">{cell.summary}</span>
-          {cell.fallback > 0 && <span className="sch-day-fallback">{fallbackCount(cell.fallback)}</span>}
+          <span className="sch-day-summary">{cellSummary(cell.summary)}</span>
+          {cell.fallback > 0 && <span className="sch-day-fallback">{cell.fallback} backup</span>}
           <span className="sch-day-level" data-level={cell.level === null ? "none" : cell.level === undefined ? "ahead" : String(cell.level)} data-partial={cell.when === "today" ? "true" : undefined} aria-hidden="true" />
         </>;
         return <li key={cell.date} className={cls("sch-week-day", `is-${cell.when}`, cell.date === selected && "is-selected")}>

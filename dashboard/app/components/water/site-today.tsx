@@ -33,12 +33,12 @@ export function SiteToday({ status, today }: { status: Pick<IrrigationStatus, "l
   const budgetReached = meterWords(budget.used, budget.max, "gal").over !== null;
   return <ul className="wat-site-list">
     <li className="wat-site-meter" data-limit="saf4">
-      <span className="wat-site-term">{SAF4_TERM}<InfoTip term={SAF4_TERM}><p>{SAF4_HELP}</p></InfoTip><span className="wat-site-primary meta">{SAF4_PRIMARY}</span><Change to={SAF4_LINK} name={SAF4_TERM} /></span>
+      <span className="wat-site-term"><span className="wat-site-name">{SAF4_TERM}<InfoTip term={SAF4_TERM}><p>{SAF4_HELP}</p></InfoTip> <span className="wat-site-primary meta">{SAF4_PRIMARY}</span></span><Change to={SAF4_LINK} name={SAF4_TERM} /></span>
       <Meter label={`${SAF4_TERM}, gallons today`} unit="gal" value={saf4.used} cap={saf4.max} domain="water" showWords />
       <p className="meta wat-site-note">Nothing is exempt from this limit.</p>
     </li>
     <li className={cls("wat-site-meter", !budgetReached && "wat-site-quiet")} data-limit="budget">
-      <span className="wat-site-term">{BUDGET_TERM}<InfoTip term={BUDGET_TERM}><p>{BUDGET_HELP}</p></InfoTip><Change to={BUDGET_LINK} name={BUDGET_TERM} /></span>
+      <span className="wat-site-term"><span className="wat-site-name">{BUDGET_TERM}<InfoTip term={BUDGET_TERM}><p>{BUDGET_HELP}</p></InfoTip></span><Change to={BUDGET_LINK} name={BUDGET_TERM} /></span>
       <Meter label={`${BUDGET_TERM}, gallons today`} unit="gal" value={budget.used} cap={budget.max} domain="water" showWords />
       <p className="meta wat-site-note">The owner sets this budget.</p>
     </li>

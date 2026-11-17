@@ -14,7 +14,7 @@ import {
   NO_ENGINE_TEXT, RETRYING_TEXT, ROM_TEXT, agoWords, barsReport, blockAmount, boardLines, faultWords, feedStages, flowWords, headroomWords, lastWaterWords, limitItems,
   minutesCaps, misterLines, nextRunWords, occupancyWords, occurrenceReasonWords, occurrenceWords, pauseAfterRun, pauseWords, pausedNow, plannedToday, programBanner, runAmountWords,
   runGallons, runSpanWords, runsFilters, runsWindow, timeLeftWords, todayWords, weekDays, wetLines, whenWords, waterUseDays, waterUseSplit, type ProgramBannerInput,
-  climateTodayWords, historyPurpose, runPurpose, vpdTodayWords, ZONE_ORDER_TEXT, lastRecordedDay, mistingRows, mistingState, recordWaterDays,
+  waterAnswer, climateTodayWords, historyPurpose, runPurpose, vpdTodayWords, ZONE_ORDER_TEXT, lastRecordedDay, mistingRows, mistingState, recordWaterDays,
 } from "./water";
 
 const NOW = Date.parse("2026-11-02T17:42:00Z");
@@ -304,7 +304,8 @@ test("Today's cards, one per physical line (#1336), in their fixed order: their 
   expect([center.minutes, center.cap, center.capLine, center.reserve]).toEqual([14, 120, "L04", 60]);
   expect(center.lastAt).toBe(line(from, "L04").last_water?.at);
   expect([fog.cap, fog.minutes]).toEqual([null, 6]);
-  expect(ZONE_KIND_WORDS.center_mister).toBe("clean");
+  // A zone whose name says what it is carries no kind words (design review C2); the wall and fog keep theirs.
+  expect([ZONE_KIND_WORDS.center_mister, ZONE_KIND_WORDS.wall, ZONE_KIND_WORDS.fog]).toEqual(["", "walls and shelves", "humidification"]);
   expect([lineZone({ line_id: "L03", zone: "supply" }), lineZone({ line_id: "L11", zone: "house" }), lineZone({ line_id: "L07", zone: "south" }), lineZone({ line_id: "L04", zone: "center", kind: "mister" })])
     .toEqual(["wall", "fog", "south", "center_mister"]);
   // A zone the API has no minutes for is unknown, never 0.
@@ -510,4 +511,10 @@ test("the daily record's water: wetting, crop, house and total per day, a gap ne
   expect(lastRecordedDay(days.slice(1))).toBeNull();
   const short = recordWaterDays([{ date: "2026-10-31", complete: true, water: water(40, false) }] as unknown as Parameters<typeof recordWaterDays>[0]);
   expect(short[0].note).toBe("meter count incomplete");
+});
+
+test("Water's answer first (design review A4): what runs and until when, else the next run, in one sentence", () => {
+  expect(waterAnswer(status("before-engine"), TODAY)).toBe("The controller reports no irrigation engine: no line runs from here until it does.");
+  expect(waterAnswer(status("l01-running"), TODAY)).toMatch(/^Wall drip is running \(run now\)( until \d\d:\d\d)?\./);
+  expect(waterAnswer(status(), TODAY)).toMatch(/^Nothing is running\./);
 });

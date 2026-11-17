@@ -8,9 +8,9 @@ import { StatusBadge } from "../components/badge";
 import { useNow } from "../components/freshness";
 import { EmptyState, Panel, PanelErrorBoundary, type PanelState } from "../components/panel";
 import { Segmented } from "../components/segmented";
-import { duration, formatValue, shortTime } from "../lib/format";
+import { duration, shortTime } from "../lib/format";
 import { slotRead, useGraphClock, useWindowReads } from "../lib/graph-reads";
-import { RESERVOIR_METRICS, RESERVOIR_READINGS, hydroPlotSeries, latestHydroInterval, probeAge } from "../lib/hydroponics";
+import { RESERVOIR_METRICS, RESERVOIR_READINGS, hydroAnswer, hydroPlotSeries, latestHydroInterval, probeAge, reservoirValue } from "../lib/hydroponics";
 import { viewMeta } from "../lib/sections";
 import { useShellNow } from "../lib/shell";
 import CropsMap from "./crops-map";
@@ -41,7 +41,7 @@ export function ReservoirPanel() {
       const reading = hydro?.[key];
       return <div key={key} data-reading={key}>
         <dt>{label}</dt>
-        <dd>{formatValue(reading?.value, unit)}{reading?.value === null || reading?.value === undefined ? <span className="meta"> {reading?.reason ?? "not reported"}</span> : null}</dd>
+        <dd>{reservoirValue(reading?.value, unit)}{reading?.value === null || reading?.value === undefined ? <span className="meta"> {reading?.reason ?? "not reported"}</span> : null}</dd>
       </div>;
     })}</dl>
   </Panel>;
@@ -85,8 +85,17 @@ function QualityPanel() {
  * now with the probe's age, its water quality over time, then the rack's planting spots (the Crops map, scoped to the
  * hydro rack). There are no reservoir writes: nutrients and pH are adjusted by hand.
  */
+/** The page's answer first (design review A4): the reservoir in one sentence, from the shell's API-02 poll. */
+function HydroAnswer() {
+  const shell = useShellNow();
+  const now = useNow();
+  if (shell.data === null) return null;
+  return <p className="page-answer hydro-answer" data-answer="">{hydroAnswer(shell.data?.hydroponics ?? null, now)}</p>;
+}
+
 export default function HydroponicsOverview() {
   return <div className="hydro-workspace l-grid">
+    <HydroAnswer />
     <div className="span-4">
       <PanelErrorBoundary thing="the reservoir"><ReservoirPanel /></PanelErrorBoundary>
     </div>

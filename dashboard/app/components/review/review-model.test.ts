@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import type { Review, ReviewPage } from "../../lib/operator-api";
 import {
   askedBy, bandEditorHref, changeRows, collapses, health, headerStatus, latestWritten, mergeReviews, priceParts, proposalBadge, proseBlocks, reviewDay,
-  speaksOfProposal, todayLine, tokenDays,
+  speaksOfProposal, todayLine, tokenDays, tokenWords,
 } from "./review-model";
 
 const NBSP = String.fromCharCode(0xa0);
@@ -113,14 +113,17 @@ test("each change reads current → proposed with its unit and the signed differ
     changes: [
       { param: "band_temp_low_sr", label: "Low edge at sunrise", unit: "°F", current: 62.5, proposed: 64.5 },
       { param: "band_vpd_high_sm", label: "High VPD edge at solar noon", unit: "kPa", current: 1.35, proposed: 1.31 },
-      { param: "band_temp_high_ss", label: "High edge at sunset", unit: "°F", current: null, proposed: 80 },
+      { param: "band_temp_high_ss", label: "Band Temp High SS", unit: "°F", current: null, proposed: 80 },
+      { param: "dry_cost_limit_kwh_per_kg", label: "Drying cost limit", unit: "kWh/kg", current: 0.7, proposed: 0.8 },
     ],
     price: "", reason: null,
   }).map((row) => ({ ...row, current: plain(row.current), proposed: plain(row.proposed), difference: plain(row.difference) }));
   expect(rows).toEqual([
-    { key: "band_temp_low_sr", label: "Low edge at sunrise", current: "62.5 °F", proposed: "64.5 °F", difference: "+2.0 °F" },
-    { key: "band_vpd_high_sm", label: "High VPD edge at solar noon", current: "1.35 kPa", proposed: "1.31 kPa", difference: "-0.04 kPa" },
-    { key: "band_temp_high_ss", label: "High edge at sunset", current: "—", proposed: "80.0 °F", difference: "—" },
+    // A band edge is named in words (C9), never by the catalog's label of its key; anything else keeps its label.
+    { key: "band_temp_low_sr", label: "Temperature low edge at sunrise", current: "62.5 °F", proposed: "64.5 °F", difference: "+2.0 °F" },
+    { key: "band_vpd_high_sm", label: "VPD high edge at solar noon", current: "1.35 kPa", proposed: "1.31 kPa", difference: "-0.04 kPa" },
+    { key: "band_temp_high_ss", label: "Temperature high edge at sunset", current: "—", proposed: "80.0 °F", difference: "—" },
+    { key: "dry_cost_limit_kwh_per_kg", label: "Drying cost limit", current: "0.70 kWh/kg", proposed: "0.80 kWh/kg", difference: "+0.10 kWh/kg" },
   ]);
 });
 
@@ -128,6 +131,30 @@ test("the price note splits into its lead and parts when it lists figures", () =
   expect(priceParts("Low edge only: Therms/day +0.31 / +0.31; kWh/day +0.9 / +0.4")).toEqual({ lead: "Low edge only", parts: ["Therms/day +0.31 / +0.31", "kWh/day +0.9 / +0.4"] });
   expect(priceParts("About 0.3 therms a day more.")).toEqual({ lead: null, parts: ["About 0.3 therms a day more."] });
   expect(priceParts("  ")).toEqual({ lead: null, parts: [] });
+  // The stored form: one quoted price-list row a line, each its own row.
+  expect(priceParts("Low edge +2 °F: Therms/day +0.31 / +0.31\nkWh/day +0.9 / +0.4; Gallons/day +10 / +4\n\n")).toEqual({
+    lead: null, parts: ["Low edge +2 °F: Therms/day +0.31 / +0.31", "kWh/day +0.9 / +0.4; Gallons/day +10 / +4"],
+  });
+});
+
+test("the tokens tile counts reviews, not days: the figure alone with none, the review before it with one, the mean of N with more", () => {
+  const words = (rise: number | null, count: number, mean: number | null = 185_792) => {
+    const out = tokenWords({ rise_pct: rise, mean_7: mean, count_7: count });
+    return { comparison: out.comparison, meta: out.meta === null ? null : plain(out.meta) };
+  };
+  expect(words(null, 0, null)).toEqual({ comparison: null, meta: null });
+  expect(words(91.1, 0)).toEqual({ comparison: null, meta: null });
+  expect(words(91.1, 1)).toEqual({
+    comparison: { direction: "up", text: "91% above the review before it" },
+    meta: "The review before it used 185,792 tokens. A rise over 20% is flagged.",
+  });
+  expect(words(-12.4, 5, 179_493.4)).toEqual({
+    comparison: { direction: "down", text: "12% below the mean of the 5 reviews before it" },
+    meta: "The 5 reviews before it used 179,493 tokens on average.",
+  });
+  expect(words(0.3, 7).comparison).toEqual({ direction: "none", text: "The same as the mean of the 7 reviews before it" });
+  expect(words(20, 2).meta).not.toMatch(/flagged/);
+  for (const count of [1, 2, 7]) expect(JSON.stringify(tokenWords({ rise_pct: 50, mean_7: 10, count_7: count }))).not.toMatch(/day/);
 });
 
 test("a proposal's state badge, and the band editor link", () => {

@@ -8,6 +8,7 @@ import { Button } from "./button";
 import { LocalTime, cls } from "./common";
 import { EmptyState } from "./empty-state";
 import { AgeLabel, FreshnessDot } from "./freshness";
+import { Chevron } from "./layout/chevron";
 import { Skeleton } from "./skeleton";
 import { reasonParts } from "./state-reason-line";
 
@@ -41,11 +42,19 @@ function ReasonSince({ code, since }: { code: "writer_down" | "controller_not_re
 }
 
 /** The "All … ›" link at a card head's right (redesign §3.5, §4.1). */
-export type HeadLink = { readonly to: string; readonly label: ReactNode };
+export type HeadLink = {
+  readonly to: string;
+  readonly label: ReactNode;
+  /**
+   * The link's whole name as `aria-label`, where its label carries a hidden suffix that starts with punctuation ("Why" +
+   * ": the climate law"): a browser names it with a space before the hidden span ("Why : the climate law").
+   */
+  readonly name?: string;
+};
 /** The head's right side: the as-of time, the actions, then the "All … ›" link, then the ⋯ menu. */
 export function HeadEnd({ asOf, actions, link, menu }: { asOf?: ReactNode; actions?: ReactNode; link?: HeadLink; menu?: ReactNode }) {
   if (!asOf && !actions && !link && !menu) return null;
-  return <div className="card-head-end">{asOf && <span className="card-asof">{asOf}</span>}{actions}{link && <Link className="card-link-all" to={link.to}>{link.label}<span aria-hidden="true"> ›</span></Link>}{menu}</div>;
+  return <div className="card-head-end">{asOf && <span className="card-asof">{asOf}</span>}{actions}{link && <Link className="card-link-all" to={link.to} aria-label={link.name}>{link.label}<Chevron /></Link>}{menu}</div>;
 }
 
 export type PanelProps = {
@@ -71,10 +80,17 @@ export type PanelProps = {
   /** The skeleton's reserved height while loading. */
   reserve?: "sm" | "md" | "lg";
   /**
-   * When the panel's newest data was observed. Given, a ready or busy panel shows "Updated N s ago", and a stale one
-   * "Last data N min ago (HH:MM)".
+   * When the panel's newest data was observed: a stale panel shows "Last data N min ago (HH:MM)", and a ready or busy
+   * one "Updated N s ago" when `age` is "always".
    */
   observedAt?: string | null;
+  /**
+   * One observation time a page (A2): the page header states how fresh the page is, so a ready or busy panel shows no
+   * "Updated" line ("auto", the default). "always" shows it, for a panel whose live read (a relay, a probe, the
+   * controller) is not the header's. Panels of daily or historical data never pass it. Stale, not reporting and failed
+   * panels say so either way.
+   */
+  age?: "auto" | "always";
   /** ingestor_down: the newest heartbeat; controller_not_reporting: the newest climate row. */
   since?: string | null;
   /** busy: the `Retry-After` seconds. */
@@ -90,18 +106,18 @@ export type PanelProps = {
 
 /**
  * A card that loads one thing and says honestly how it is: a skeleton at its reserved height while loading; its age
- * when ready; the empty words; STALE with "Last data N min ago (HH:MM)" and no verdict; the ingestor or controller
+ * when ready only where asked (`age`); the empty words; STALE with "Last data N min ago (HH:MM)" and no verdict; the ingestor or controller
  * line with device values STALE; its own error and Retry; "Busy, retrying in N s" over the old render. A render
  * failure inside stays here. Its head (redesign §4.1) holds the eyebrow, the title with at most one pill, then the
  * actions, an "All … ›" link and the ⋯ menu; an abnormal panel has a 3 px rule on its left, and its foot a meta line.
  */
-export function Panel({ title, eyebrow, headingLevel = 2, id, actions, pill, link, menu, tone, foot, thing, state, reserve = "md", observedAt, since, retryInS, onRetry, errorText, empty, children }: PanelProps) {
+export function Panel({ title, eyebrow, headingLevel = 2, id, actions, pill, link, menu, tone, foot, thing, state, reserve = "md", observedAt, age: showAge = "auto", since, retryInS, onRetry, errorText, empty, children }: PanelProps) {
   const headingId = useId();
   const apiDown = useApiDown();
   const Heading = headingLevel === 2 ? "h2" : "h3";
   const stale = DEVICE_STALE.includes(state);
   // The words are separate elements in a flex row; the spaces keep them apart for a screen reader too.
-  const age = observedAt === undefined ? null : <><FreshnessDot stale={false} /><AgeLabel observedAt={observedAt} stale={false} /></>;
+  const age = observedAt === undefined || showAge !== "always" ? null : <><FreshnessDot stale={false} /><AgeLabel observedAt={observedAt} stale={false} /></>;
   const line = state === "stale" ? <><FreshnessDot stale /><Badge kind="stale" /> <AgeLabel observedAt={observedAt} stale /></>
     : state === "ingestor_down" || state === "controller_not_reporting" ? <><FreshnessDot stale notReporting /><Badge kind="stale" /> <ReasonSince code={state === "ingestor_down" ? "writer_down" : "controller_not_reporting"} since={since} /></>
     : state === "busy" ? <><span>Busy, retrying {retryInS !== null && retryInS !== undefined && Number.isFinite(retryInS) ? <>in {duration(Math.max(0, retryInS))}</> : "shortly"}</span>{age && <> {age}</>}</>

@@ -7,7 +7,7 @@ import { useClockValue } from "../components/freshness";
 import { PanelError } from "../components/panel";
 import { Skeleton } from "../components/skeleton";
 import {
-  growingLocations, allCells, cellKey, cellRange, cropTones, legend, mapCards, onlyCell, selectedPlantings, selectionPositions, shelfKey, zoneKey, type PlaceKey,
+  growingLocations, allCells, cropsAnswer, cellKey, cellRange, cropTones, legend, mapCards, onlyCell, selectedPlantings, selectionPositions, shelfKey, zoneKey, type PlaceKey,
 } from "../lib/crops";
 import { ApiError, apiGet } from "../lib/operator-api";
 import { viewMeta } from "../lib/sections";
@@ -64,7 +64,9 @@ export default function CropsMap() {
   const held = selectedPlantings(data, selected);
   const one = held.size === 1 ? [...held.values()][0] : null;
   const single = onlyCell(selected);
+  const answer = cropsAnswer(data);
   return <div className="crop-map">
+    {answer && <p className="page-answer crop-answer" data-answer="">{answer}</p>}
     {(locations.isError || locations.consecutiveFailures > 0) && <PanelError thing="planting records" text="Showing the last available planting map. Refresh before making changes." onRetry={() => void locations.refetch()} />}
     <div id={selectionId} tabIndex={-1} className="crop-toolbar" role="region" aria-label="Selection">
       <p className="crop-toolbar-what" aria-live="polite">

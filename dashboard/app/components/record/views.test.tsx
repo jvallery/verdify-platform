@@ -95,11 +95,23 @@ test("equipment renders small multiples per relay, the means table and the count
   const check = screen.getByRole("table", { name: "The controller's relay counters against the stored record, newest day first" });
   const rows = within(check).getAllByRole("row").slice(1);
   expect(rows.map((row) => within(row).getAllByRole("cell").map((cell) => text(cell)))).toEqual([
-    ["part of the day compared", "2", "Counters agree"],
-    ["whole day compared", "0", "Counters differFan 1: the controller counted 3 fewer starts and 5 min less run time than the record"],
-    ["no stored record", "—", "No stored record to compare"],
+    ["Part of the day compared", "2", "Counters agree"],
+    ["Whole day compared", "0", "Counters differ1 relayFan 1: the controller counted 3 fewer starts and 5 min less run time than the record"],
+    ["No stored record", "—", "No stored record to compare"],
   ]);
   expect(checkColumns(null)[0].cell(RELAY_CHECK.days[2])).toBe("2026-11-15");
+});
+
+test("equipment on a phone: three relays a group, then \"Show N more relays\" reveals the rest", async () => {
+  vi.stubGlobal("matchMedia", media({ narrow: true, fine: false }));
+  renderUi(<EquipmentView read={readOf(dailyRecord())} check={readOf(RELAY_CHECK)} days={7} />);
+  await settle();
+  expect(screen.queryByRole("region", { name: "Fan 2" })).toBeNull();
+  const more = screen.getByRole("button", { name: "Show 3 more relays" });
+  expect(screen.getByRole("button", { name: "Show 2 more relays" })).toBeTruthy();
+  await act(async () => { more.click(); });
+  expect(screen.getByRole("region", { name: "Fan 2" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Show 3 more relays" })).toBeNull();
 });
 
 test("utilities: electricity metered, a partial day lighter with its coverage, today so far; water by use; irrigation is crop less wetting", () => {
@@ -107,7 +119,7 @@ test("utilities: electricity metered, a partial day lighter with its coverage, t
   record.days[1] = { ...record.days[1], energy: { kwh: null, kwh_partial: 11.92, coverage_pct: 54 }, water: { ...record.days[1].water, complete: false } };
   expect(electricityDays(record.days, record)).toEqual([
     { date: "2026-11-15", value: 25.2 },
-    { date: "2026-11-16", value: 11.92, partial: true, note: "partial meter coverage (54% of the day)" },
+    { date: "2026-11-16", value: 11.92, partial: true, note: "partial meter coverage" },
     { date: "2026-11-17", value: 8.25, partial: true, note: "so far" },
   ]);
   expect(WATER_PARTS.map((part) => [part.key, part.token])).toEqual([["wetting", "--eq-mister"], ["irrigation", "--eq-water"], ["house", "--c-outdoor"]]);
@@ -124,6 +136,8 @@ test("utilities renders the three charts on one cursor and the table, gas labell
   expect(created).toHaveLength(3);
   expect(screen.getByRole("heading", { name: "Gas per day, estimated" })).toBeTruthy();
   const table = screen.getByRole("table", { name: "Electricity, gas and water per day, last 30 days, newest first" });
-  expect(within(table).getAllByRole("row")).toHaveLength(31);
-  expect(text(within(table).getAllByRole("row")[1])).toContain("partial");
+  // Two header rows (the electricity and water groups), then 14 of the 30 days before "Show all 30 days".
+  expect(within(table).getAllByRole("row")).toHaveLength(16);
+  expect(text(within(table).getAllByRole("row")[2])).toContain("partial");
+  expect(screen.getByRole("button", { name: "Show all 30 days" })).toBeTruthy();
 });
