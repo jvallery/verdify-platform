@@ -248,12 +248,6 @@ KNOWN_PRE_EXISTING_DRIFT: dict[str, set[str]] = {
         "vent_running",
         "vpd_emergency",
     },
-    "DAILY_ACCUM_MAP": {
-        # Drip runtime sensors removed from firmware in Sprint 18 redesign;
-        # ingestor map still references the old names. Cleanup pending.
-        "center_drips_runtime__today_",
-        "wall_drips_runtime__today_",
-    },
     "SETPOINT_MAP": {
         # firmware-v2 (firmware/v2-solar-bands) removed the legacy fog-stress-
         # window NUMBER entities; the registry still has these rows, so the
