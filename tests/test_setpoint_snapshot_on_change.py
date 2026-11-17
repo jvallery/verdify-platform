@@ -292,7 +292,7 @@ def test_alert_windows_hold_sparse_readbacks():
     # Release 5 removed the zero-variance check: it read band scalars nothing serves (#1734 C-7).
     assert '"tunable_zero_variance"' not in source and "stddev(value)" not in source
     assert "count(*) > 100" not in source
-    # fn_heat_staging_inversion's 10-minute readback window is often empty now: its message tolerates no temp_low.
+    # fn_heat_staging_inversion's temp_low is the served band's low edge (317); its message still tolerates a NULL.
     assert 'if staging_row["temp_low"] is not None' in source
 
 

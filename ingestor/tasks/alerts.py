@@ -2122,8 +2122,8 @@ async def alert_monitor(pool: asyncpg.Pool) -> None:
                     "message": (
                         f"STAGING INVERSION: heat2 (gas) ON for {dur:.0f}s while heat1 (electric) OFF. "
                         f"Temp={staging_row['temp_avg']:.1f}°F, "
-                        # fn_heat_staging_inversion reads temp_low from a 10-minute readback window; readbacks are
-                        # stored on change (#1662), so it is often NULL there and the alert still stands.
+                        # fn_heat_staging_inversion's temp_low is the served band's low edge (fn_band_setpoints since
+                        # migration 317); the message still tolerates a NULL there, and the alert stands without it.
                         + (
                             f"Tlow={staging_row['temp_low']:.1f}°F"
                             if staging_row["temp_low"] is not None
