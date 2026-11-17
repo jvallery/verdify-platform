@@ -83,6 +83,10 @@ STATE_WINDOW = timedelta(days=31)  # runs older than this have since null
 # bound: a state that has not changed or been re-snapshotted in 31 days is still
 # known, with since null.
 NEWEST_ROW_WINDOW = timedelta(days=90)
+# The controller republishes its outdoor source on change and every 300 s (greenhouse/controls.yaml); twice that with
+# no row and the source is unknown. Now and API-30/31 (verdify_services.law) share this one rule.
+OUTDOOR_SOURCE_REPUBLISH_S = 300
+OUTDOOR_SOURCE_FRESH = timedelta(seconds=2 * OUTDOOR_SOURCE_REPUBLISH_S)
 DIFFERING_AFTER = timedelta(minutes=10)
 OVERRIDE_COMMAND_LEAD = timedelta(minutes=2)
 # run_causes() looks this far back for what is on now; a run already on keeps its true start.
@@ -714,9 +718,12 @@ def now_review(day: Any | None) -> NowReview | None:
 _OUTDOOR_SOURCES = frozenset(get_args(OutdoorSource))
 
 
-def outdoor_source(value: str | None, rep: Reporting) -> OutdoorSource | None:
-    """The controller's newest ``outdoor_source`` while it reports; null otherwise or for a value it never sends."""
+def outdoor_source(value: str | None, observed_at: datetime | None, rep: Reporting) -> OutdoorSource | None:
+    """The controller's newest ``outdoor_source`` while it reports and the row is at most ``OUTDOOR_SOURCE_FRESH``
+    old (the rule API-30 uses); null otherwise or for a value it never sends."""
     if not rep.controller_reporting or value not in _OUTDOOR_SOURCES:
+        return None
+    if observed_at is None or rep.at - observed_at > OUTDOOR_SOURCE_FRESH:
         return None
     return value  # type: ignore[return-value]
 
@@ -1603,7 +1610,9 @@ async def now(conn: asyncpg.Connection) -> Now:
             climate["outdoor_temp_f"], climate["outdoor_temp_at"], "No outdoor temperature in the last hour"
         ),
         rh_pct=_reading(climate["outdoor_rh_pct"], climate["outdoor_rh_at"], "No outdoor RH in the last hour"),
-        source=outdoor_source(texts.get(OUTDOOR_SOURCE_ENTITY), rep),
+        source=outdoor_source(
+            texts.get(OUTDOOR_SOURCE_ENTITY), (newest_texts.get(OUTDOOR_SOURCE_ENTITY) or {}).get("ts"), rep
+        ),
     )
 
     bands = {row["role"]: row for row in band_rows}

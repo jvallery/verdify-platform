@@ -109,6 +109,7 @@ def view() -> law.LawView:
         "uptime_s": 35163,
         "uptime_at": AT,
         "lead_fan": "Fan 1",
+        "fog_block_reason": "none",
         "today": None,
     }
     return law.law_view(row, {}, None, False)
@@ -151,7 +152,7 @@ def test_law_history_passes_the_window(monkeypatch):
         outdoor_source=[],
         band_repaired=[],
         cost=law.CostColumns(bucket_s=60, t=[], cost_kwh_per_kg=[], limit_kwh_per_kg=[]),
-        band=law.BandColumns(bucket_s=60, t=[], temp_low_f=[], temp_high_f=[], vpd_low_kpa=[], vpd_high_kpa=[]),
+        band=law.LawBandColumns(bucket_s=60, t=[], temp_low_f=[], temp_high_f=[], vpd_low_kpa=[], vpd_high_kpa=[]),
     )
     calls = recorder(monkeypatch, "history", result)
     response = app_with().get("/v1/law/history", params={"from": "2026-11-17T06:00:00Z", "to": "2026-11-17T07:00:00Z"})

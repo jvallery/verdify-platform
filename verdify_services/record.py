@@ -13,6 +13,12 @@ One row per America/Denver day, as the daily tables store their ``date``. Each f
 ending on the newest day that can be complete, ``to`` or yesterday when ``to`` is today, so today's partial day never
 shortens them. Each mean covers the complete days on which its figure is known; ``days`` counts the complete days.
 
+``law_started`` is the local day of the first law record (``system_state`` ``climate_law_state``, the record API-31's
+``first_record_at`` names). Two periods compare the law with what came before, whatever window is asked for:
+``baseline``, the 30 days before ``law_started`` less the days with a band edit (an ``activity_log`` ``band.write``),
+and ``since_law``, the days from the day after ``law_started`` through yesterday. Each period's means cover its
+complete days, as ``means`` do; the day the law started belongs to neither.
+
 API-33 reads ``v_relay_counter_reconciliation_daily`` (315 and 317): the controller's own relay counters against the
 stored record, per day and relay.
 
@@ -23,12 +29,15 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Annotated, Any, Literal
 
 import asyncpg
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
+from verdify_schemas.control_proof import LAW_STATE_ENTITY
+from verdify_services import law
+from verdify_services.band_profile import ACTION as BAND_WRITE
 from verdify_services.problems import ServiceError, problem
 from verdify_services.reads import DENVER, GREENHOUSE_ID, _finite, _int_from_query, _snapshot
 
@@ -53,6 +62,7 @@ COUNTED_RELAYS = CLIMATE_RELAYS
 DAYS_DEFAULT = 30
 DAYS_MAX = 400
 MEAN_DAYS = (7, 30)
+BASELINE_DAYS = 30
 CHECK_DAYS = (7, 14, 30)
 # A day's comparison is its worst relay's: a partial day first, then a missing or early record.
 COMPARISON_ORDER = ("partial", "no_record", "record_early", "complete")
@@ -161,8 +171,20 @@ class RecordMeansPair(_Model):
     d30: RecordMeans | None
 
 
+class RecordPeriod(_Model):
+    """A fixed period's means over its complete days, with how many days it leaves out for band edits."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    from_: date = Field(alias="from")
+    to: date
+    excluded_days: int
+    means: RecordMeans
+
+
 class DailyRecord(_Model):
-    """API-32 ``GET /v1/record/days``: one row per local day, ascending, with the 7- and 30-day means."""
+    """API-32 ``GET /v1/record/days``: one row per local day, ascending, with the 7- and 30-day means and the periods
+    before and since the law."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -170,6 +192,9 @@ class DailyRecord(_Model):
     to: date
     days: list[RecordDay]
     means: RecordMeansPair
+    law_started: date | None
+    baseline: RecordPeriod | None
+    since_law: RecordPeriod | None
     server_time: datetime
 
 
@@ -225,6 +250,13 @@ _ALERTS_SQL = """
 SELECT date, alerts_critical, alerts_warning, alerts_info
   FROM v_daily_scorecard
  WHERE date >= $1 AND date <= $2
+"""
+
+# The local days with a band edit (API-24's one action) in [$3, $4), on activity_log's (greenhouse_id, ts) index.
+_BAND_WRITE_DAYS_SQL = """
+SELECT DISTINCT (ts AT TIME ZONE 'America/Denver')::date AS date
+  FROM activity_log
+ WHERE greenhouse_id = $1 AND action = $2 AND ts >= $3 AND ts < $4
 """
 
 _RELAY_CHECK_SQL = """
@@ -387,8 +419,11 @@ def record_means(days: Sequence[RecordDay], end: date, span: int) -> RecordMeans
     """The means over the complete days among the ``span`` days ending on ``end``; null with none (pure)."""
     first = end - timedelta(days=span - 1)
     complete = [day for day in days if day.complete and first <= day.date <= end]
-    if not complete:
-        return None
+    return means_of(complete) if complete else None
+
+
+def means_of(complete: Sequence[RecordDay]) -> RecordMeans:
+    """The means of these complete days; with none, ``days`` is 0 and every mean null (pure)."""
     dried = [day.band.night_dried for day in complete if day.band is not None and day.band.night_dried is not None]
     return RecordMeans(
         days=len(complete),
@@ -405,6 +440,34 @@ def record_means(days: Sequence[RecordDay], end: date, span: int) -> RecordMeans
         crop_gal=_mean((day.water.crop_gal for day in complete), 1),
         drying_h=_mean((day.drying.seconds if day.drying else None for day in complete), 2, 3600.0),
     )
+
+
+def record_period(days: Sequence[RecordDay], first: date, last: date, excluded: Iterable[date]) -> RecordPeriod | None:
+    """The period ``first`` to ``last``: its means over its complete days that are not ``excluded``; null when it is
+    empty (pure)."""
+    if first > last:
+        return None
+    left_out = {day for day in excluded if first <= day <= last}
+    complete = [day for day in days if first <= day.date <= last and day.complete and day.date not in left_out]
+    return RecordPeriod(from_=first, to=last, excluded_days=len(left_out), means=means_of(complete))
+
+
+def law_periods(
+    days: Sequence[RecordDay], law_started: date | None, today: date, band_edits: Iterable[date]
+) -> tuple[RecordPeriod | None, RecordPeriod | None]:
+    """``baseline``, the 30 days before ``law_started`` less its band-edit days, and ``since_law``, the day after it
+    through yesterday; both null before the first law record (pure)."""
+    if law_started is None:
+        return None, None
+    baseline = record_period(
+        days, law_started - timedelta(days=BASELINE_DAYS), law_started - timedelta(days=1), band_edits
+    )
+    since = record_period(days, law_started + timedelta(days=1), today - timedelta(days=1), ())
+    return baseline, since
+
+
+def _local_midnight(day: date) -> datetime:
+    return datetime.combine(day, time(0), tzinfo=DENVER)
 
 
 def relay_check_days(rows: Iterable[Mapping[str, Any]]) -> list[RelayCheckDay]:
@@ -450,7 +513,8 @@ def relay_check_days(rows: Iterable[Mapping[str, Any]]) -> list[RelayCheckDay]:
 
 async def record_days(conn: asyncpg.Connection, from_: date | None = None, to: date | None = None) -> DailyRecord:
     """API-32 ``GET /v1/record/days``: the local days ``from`` to ``to`` (default the 30 days ending today, at most
-    400), days after today left out, with the 7- and 30-day means over complete days."""
+    400), days after today left out, with the 7- and 30-day means over complete days and the periods before and since
+    the law."""
     async with _snapshot(conn):
         at: datetime = await conn.fetchval("SELECT now()")
         today = at.astimezone(DENVER).date()
@@ -458,9 +522,27 @@ async def record_days(conn: asyncpg.Connection, from_: date | None = None, to: d
         shown_last = min(last, today)
         end = means_end(last, today)
         read_first = min(first, end - timedelta(days=max(MEAN_DAYS) - 1))
-        records = await conn.fetch(_RECORD_SQL, GREENHOUSE_ID, read_first, shown_last)
-        bands = await conn.fetch(_BAND_SQL, GREENHOUSE_ID, read_first, shown_last)
-        relays = await conn.fetch(_RELAYS_SQL, GREENHOUSE_ID, read_first, shown_last)
+        read_last = shown_last
+        first_law_at = await conn.fetchval(law.FIRST_RECORD_SQL, LAW_STATE_ENTITY, law.LAW_RECORDS_FROM)
+        law_started = first_law_at.astimezone(DENVER).date() if first_law_at is not None else None
+        band_edits: list[date] = []
+        if law_started is not None:
+            baseline_from = law_started - timedelta(days=BASELINE_DAYS)
+            read_first = min(read_first, baseline_from)
+            read_last = max(read_last, today - timedelta(days=1))
+            band_edits = [
+                row["date"]
+                for row in await conn.fetch(
+                    _BAND_WRITE_DAYS_SQL,
+                    GREENHOUSE_ID,
+                    BAND_WRITE,
+                    _local_midnight(baseline_from),
+                    _local_midnight(law_started),
+                )
+            ]
+        records = await conn.fetch(_RECORD_SQL, GREENHOUSE_ID, read_first, read_last)
+        bands = await conn.fetch(_BAND_SQL, GREENHOUSE_ID, read_first, read_last)
+        relays = await conn.fetch(_RELAYS_SQL, GREENHOUSE_ID, read_first, read_last)
         alert_rows = await conn.fetch(_ALERTS_SQL, first, shown_last) if first <= shown_last else []
     record_by = {row["date"]: row for row in records}
     band_by = {row["date"]: row for row in bands}
@@ -470,15 +552,19 @@ async def record_days(conn: asyncpg.Connection, from_: date | None = None, to: d
         relays_by.setdefault(row["date"], []).append(row)
     every = [
         record_day(day, record_by.get(day), band_by.get(day), relays_by.get(day, ()), alerts_by.get(day))
-        for offset in range((shown_last - read_first).days + 1)
+        for offset in range((read_last - read_first).days + 1)
         for day in (read_first + timedelta(days=offset),)
     ]
     d7, d30 = (record_means(every, end, span) for span in MEAN_DAYS)
+    baseline, since_law = law_periods(every, law_started, today, band_edits)
     return DailyRecord(
         from_=first,
         to=last,
         days=[day for day in every if first <= day.date <= shown_last],
         means=RecordMeansPair(d7=d7, d30=d30),
+        law_started=law_started,
+        baseline=baseline,
+        since_law=since_law,
         server_time=at,
     )
 

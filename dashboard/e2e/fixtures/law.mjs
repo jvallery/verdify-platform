@@ -279,9 +279,10 @@ function reviewToday(world) {
   const reviewDate = addDays(today(world), -1);
   const newest = world.reviews.find((row) => row.review_date === reviewDate) ?? null;
   const due = world.now >= at(today(world), "07:00");
-  return {
-    review_date: reviewDate, status: newest ? newest.status : due ? "due" : "not_due", missed: reviewMissed(world), expected_after: "07:00", late_after: "10:00",
-  };
+  const status = newest ? newest.status : due ? "due" : "not_due";
+  // Missed from 10:00 only: an alert still open from an earlier day says nothing about this one before then.
+  const missed = reviewMissed(world) && status !== "written" && world.now >= at(today(world), "10:00");
+  return { review_date: reviewDate, status, missed, expected_after: "07:00", late_after: "10:00" };
 }
 /** Each review's proposal state: waiting on the newest written review with a proposal, superseded on older ones. */
 function proposalState(world, review) {
@@ -319,27 +320,90 @@ export function nowAdditions(world) {
 const pick = (row, keys) => Object.fromEntries(keys.map((key) => [key, row[key]]));
 
 // ---------------------------------------------------------------------------------------------------- API-30
+/** The relays a rule drives, as verdify_services/law.py rule_relays(): the lead fan for one fan, both while it is not known. */
+function ruleRelays(id, lead) {
+  const other = { fan1: "fan2", fan2: "fan1" }[lead ?? ""];
+  const leads = other ? [lead] : ["fan1", "fan2"];
+  return {
+    heat1: ["heat1"], heat2: ["heat2"], cooling: ["vent", ...leads], second_fan: other ? [other] : ["fan1", "fan2"], fog: ["fog"], mist: ["mister_any"],
+    drying: ["vent", ...leads], hot_limit: ["vent", "fan1", "fan2"], cold_limit: ["heat1", "heat2"],
+  }[id];
+}
 const RULES = [
-  ["heat1", "temp", "below", "h1", "heat1", ["heat1"], (band) => [band.temp_low_f + LAW.heat1[0], band.temp_low_f + LAW.heat1[1]]],
-  ["heat2", "temp", "below", "h2", "heat2", ["heat2"], (band) => [band.temp_low_f + LAW.heat2[0], band.temp_low_f + LAW.heat2[1]]],
-  ["cooling", "temp", "above", "cool", "cooling", ["vent", "fan1"], (band) => [band.temp_high_f + LAW.cool[0], band.temp_high_f - LAW.cool[1]]],
-  ["second_fan", "temp", "above", "cool2", "fan2", ["fan2"], (band) => [band.temp_high_f + LAW.fan2[0], band.temp_high_f + LAW.fan2[1]]],
-  ["fog", "vpd", "above", "wet", "fog", ["fog"], (band) => [band.vpd_high_kpa + LAW.fog[0], band.vpd_high_kpa - LAW.fog[1]]],
-  ["mist", "vpd", "above", "mist", "mist", ["mister_any"], (band) => [band.vpd_high_kpa + LAW.mist[0], band.vpd_high_kpa + LAW.mist[1]]],
-  ["drying", "vpd", "below", "dry", "drying", ["vent", "fan1"], (band) => [band.vpd_low_kpa + LAW.dry[0], band.vpd_low_kpa + LAW.dry[1]]],
-  ["hot_limit", "temp", "above", null, "hot", ["vent", "fan1", "fan2"], () => [LAW.hot_f, LAW.hot_f]],
-  ["cold_limit", "temp", "below", null, "cold", ["heat1", "heat2"], () => [LAW.cold_f, LAW.cold_f]],
+  ["heat1", "temp", "below", "h1", "heat1", (band) => [band.temp_low_f + LAW.heat1[0], band.temp_low_f + LAW.heat1[1]]],
+  ["heat2", "temp", "below", "h2", "heat2", (band) => [band.temp_low_f + LAW.heat2[0], band.temp_low_f + LAW.heat2[1]]],
+  ["cooling", "temp", "above", "cool", "cooling", (band) => [band.temp_high_f + LAW.cool[0], band.temp_high_f - LAW.cool[1]]],
+  ["second_fan", "temp", "above", "cool2", "fan2", (band) => [band.temp_high_f + LAW.fan2[0], band.temp_high_f + LAW.fan2[1]]],
+  ["fog", "vpd", "above", "wet", "fog", (band) => [band.vpd_high_kpa + LAW.fog[0], band.vpd_high_kpa - LAW.fog[1]]],
+  ["mist", "vpd", "above", "mist", "mist", (band) => [band.vpd_high_kpa + LAW.mist[0], band.vpd_high_kpa + LAW.mist[1]]],
+  ["drying", "vpd", "below", "dry", "drying", (band) => [band.vpd_low_kpa + LAW.dry[0], band.vpd_low_kpa + LAW.dry[1]]],
+  ["hot_limit", "temp", "above", null, "hot", () => [LAW.hot_f, LAW.hot_f]],
+  ["cold_limit", "temp", "below", null, "cold", () => [LAW.cold_f, LAW.cold_f]],
 ];
-const MIN_TIMES = { fog: [TIMING.fog_min_on_s, TIMING.fog_min_off_s] };
-const DEDICATED = new Set(["heat1", "heat2", "second_fan", "fog"]);
-/** A hold the host can prove from the relay's newest row: inside its minimum off (or on) time against the request. */
-function holdOf(world, relay, requested, equipment) {
-  if (requested === null || relay.since === null || relay.state === "unknown") return null;
-  const [minOn, minOff] = MIN_TIMES[equipment] ?? [TIMING.relay_min_on_s, TIMING.relay_min_off_s];
-  const elapsed = Math.floor((world.now - Date.parse(relay.since)) / SECOND);
-  if (requested && relay.state === "off" && elapsed < minOff) return { kind: "min_off", remaining_s: minOff - elapsed };
-  if (!requested && relay.state === "on" && elapsed < minOn) return { kind: "min_on", remaining_s: minOn - elapsed };
-  return null;
+/** Each relay's minimum on and off time; the misters have none here. */
+const MIN_TIMES = {
+  heat1: [TIMING.relay_min_on_s, TIMING.relay_min_off_s], heat2: [TIMING.relay_min_on_s, TIMING.relay_min_off_s],
+  fan1: [TIMING.relay_min_on_s, TIMING.relay_min_off_s], fan2: [TIMING.relay_min_on_s, TIMING.relay_min_off_s],
+  vent: [TIMING.relay_min_on_s, TIMING.relay_min_off_s], fog: [TIMING.fog_min_on_s, TIMING.fog_min_off_s],
+};
+/** The relays a manual run holds (verdify_services/law.py MANUAL_RUN_RELAYS), by Now's override kind. */
+const MANUAL_RUN = { fans: ["fan1", "fan2", "vent", "heat1", "heat2"], vent_bypass: ["fan1", "fan2", "vent", "heat1", "heat2"], humidify: ["fog"] };
+const manualHeld = (world) => new Set((world.overrides ?? []).flatMap((run) => MANUAL_RUN[run.kind] ?? []));
+const REQUEST_OF = { heat1: "heat1", heat2: "heat2", vent: "vent", fog: "fog", mister_any: "mist" };
+/** Whether the law's request asks for this relay: the lead fan for one fan, both for two; null while the lead is not known. */
+function relayWanted(law, relay) {
+  if (relay === "fan1" || relay === "fan2") {
+    const one = hasRequest(law, "fan1");
+    const two = hasRequest(law, "fan2");
+    if (two || !one) return two;
+    return law.leadFan ? relay === law.leadFan : null;
+  }
+  return hasRequest(law, REQUEST_OF[relay]);
+}
+/**
+ * The longest hold the host can prove over a rule's relays (verdify_services/law.py rule_hold()): requested with a wanted
+ * relay off inside its minimum off time, or not requested with an unwanted relay on inside its minimum on time. Never at
+ * the limits (but the fogger), never on a relay a manual run holds, the fogger off only while the controller names its
+ * minimum off time, the fogger on only at a limit. The fixture's controller booted long before any of its switches.
+ */
+function holdOf(world, law, id, requested, states) {
+  if (requested === null || id === "hot_limit" || id === "cold_limit") return null;
+  const atLimit = hasRequest(law, "hot") || hasRequest(law, "cold");
+  const held = manualHeld(world);
+  let best = null;
+  for (const { equipment, state, since } of states) {
+    const times = MIN_TIMES[equipment];
+    if (!times || state === "unknown" || since === null || held.has(equipment) || (atLimit && equipment !== "fog")) continue;
+    const [minOn, minOff] = times;
+    const wanted = relayWanted(law, equipment);
+    const elapsed = Math.floor((world.now - Date.parse(since)) / SECOND);
+    let hold = null;
+    if (requested && wanted === true && state === "off") {
+      if (equipment === "fog" && world.reasons?.fog_block_reason?.code !== "relay_min_off") continue;
+      if (elapsed < minOff) hold = { kind: "min_off", remaining_s: minOff - elapsed };
+    } else if (!requested && wanted === false && state === "on" && (equipment !== "fog" || atLimit) && elapsed < minOn) {
+      hold = { kind: "min_on", remaining_s: minOn - elapsed };
+    }
+    if (hold && (!best || hold.remaining_s > best.remaining_s)) best = hold;
+  }
+  return best;
+}
+/** The drying checks in the order the law refuses (verdify_services/law.py drying_checks()); all null without a fresh record. */
+function dryingChecks(law, fresh, temp, minTemp) {
+  const ids = ["humid", "not_cooling", "furnace_off", "outdoor_drier", "warm_enough", "worth_it"];
+  if (!fresh || law.refused === "no_temperature") return ids.map((id) => ({ id, ok: null }));
+  const running = hasLatch(law, "run");
+  // law.cost is null with no price; costIsNone marks the no-price value (too small a moisture difference).
+  const noPrice = law.cost === null && !law.costIsNone;
+  const ok = {
+    humid: law.refused === "humidity_invalid" ? null : hasLatch(law, "dry"),
+    not_cooling: !(hasLatch(law, "cool") || hasRequest(law, "hot")),
+    furnace_off: !hasLatch(law, "h2"),
+    outdoor_drier: running ? true : noPrice ? null : hasLatch(law, "air") && !law.costIsNone,
+    warm_enough: running || law.refused === "cost" ? true : law.refused === "too_cold" ? false : temp === null ? null : temp >= minTemp,
+    worth_it: running ? true : noPrice ? null : !law.costIsNone && law.cost <= law.limit,
+  };
+  return ids.map((id) => ({ id, ok: ok[id] }));
 }
 function lawBody(world) {
   const law = lawOf(world);
@@ -348,19 +412,18 @@ function lawBody(world) {
   const rh = world.indoor.rh_pct.value;
   const outdoorTemp = world.outdoor.temp_f.value;
   const outdoorRh = world.outdoor.rh_pct.value;
-  const rules = RULES.map(([id, signal, direction, latch, request, relays, thresholds]) => {
+  const fresh = reporting(world);
+  const rules = RULES.map(([id, signal, direction, latch, request, thresholds]) => {
     const [on, off] = thresholds(band);
     const requested = hasRequest(law, request);
-    const states = relays.map((equipment) => ({ equipment, ...itemState(world, equipment) }));
+    const states = ruleRelays(id, law.leadFan).map((equipment) => ({ equipment, ...itemState(world, equipment) }));
     return {
       id, signal, direction, on_at: round(on, signal === "vpd" ? 2 : 1), off_at: round(off, signal === "vpd" ? 2 : 1),
       latched: latch ? hasLatch(law, latch) : requested, requested, relays: states,
-      // Only a relay one rule drives alone proves a hold; the shared vent and fans, and the limits, never do here.
-      hold: DEDICATED.has(id) ? holdOf(world, states[0], requested, relays[0]) : null,
+      hold: fresh ? holdOf(world, law, id, requested, states) : null,
     };
   });
   const record = world.record[0];
-  const heat2 = itemState(world, "heat2");
   const known = law.observedAt !== null;
   const wanted = hasLatch(law, "dry");
   const drier = hasLatch(law, "air");
@@ -386,14 +449,7 @@ function lawBody(world) {
       state: known ? law.drying : "unknown", wanted, outdoor_drier: drier, refused_reason: known ? law.refused : null,
       cost_kwh_per_kg: law.cost, limit_kwh_per_kg: known ? law.limit : null, limit_source: law.limitSource,
       wanted_below_kpa: round(band.vpd_low_kpa + LAW.dry[0], 2), stop_above_kpa: round(band.vpd_low_kpa + LAW.dry[1], 2), min_temp_f: minTemp,
-      checks: [
-        { id: "humid", ok: wanted },
-        { id: "outdoor_drier", ok: drier },
-        { id: "worth_it", ok: law.cost === null || !known ? null : law.cost <= law.limit },
-        { id: "warm_enough", ok: temp === null ? null : temp >= minTemp },
-        { id: "not_cooling", ok: known ? !law.latches.includes("cool") : null },
-        { id: "furnace_off", ok: heat2.state === "unknown" ? null : heat2.state === "off" },
-      ],
+      checks: dryingChecks(law, fresh, temp, minTemp),
       meter: { ...law.meter },
       today: record?.drying ? {
         seconds: record.drying.seconds, runs: record.drying.runs, water_g: record.drying.water_g, heat_wh: record.drying.heat_wh, lower_bound: record.drying.lower_bound,
@@ -540,7 +596,30 @@ function recordBody(world, { query }) {
   const byDate = new Map(world.record.map((row) => [row.date, row]));
   const days = Array.from({ length: span }, (_, index) => addDays(first, index)).map((date) => structuredClone(byDate.get(date) ?? emptyDay(date)));
   const window = (count) => world.record.filter((row) => row.complete && row.date <= today(world)).slice(0, count);
-  return { from: first, to: last, days, means: { d7: meansOf(window(7)), d30: meansOf(window(30)) }, server_time: iso(world.now) };
+  return {
+    from: first, to: last, days, means: { d7: meansOf(window(7)), d30: meansOf(window(30)) }, ...lawPeriods(world), server_time: iso(world.now),
+  };
+}
+const EMPTY_MEANS = {
+  days: 0, both_pct: null, temp_pct: null, vpd_pct: null, nights_dried: null, climate_starts: null, climate_run_h: null, heat1_run_h: null,
+  heat2_run_h: null, kwh: null, therms_est: null, crop_gal: null, drying_h: null,
+};
+/** API-32's law day and its two periods (verdify_services/record.py law_periods()): the 30 days before the law less band-edit days, and since. */
+function lawPeriods(world) {
+  const started = lawOf(world).firstRecordAt === null ? null : local(lawOf(world).firstRecordAt).date;
+  if (started === null) return { law_started: null, baseline: null, since_law: null };
+  const edits = new Set((world.activity ?? []).filter((row) => row.action === "band.write").map((row) => local(Date.parse(row.ts)).date));
+  const period = (from, to, excluded) => {
+    if (from > to) return null;
+    const left = [...excluded].filter((date) => date >= from && date <= to);
+    const days = world.record.filter((row) => row.date >= from && row.date <= to && !left.includes(row.date));
+    return { from, to, excluded_days: left.length, means: meansOf(days) ?? { ...EMPTY_MEANS } };
+  };
+  return {
+    law_started: started,
+    baseline: period(addDays(started, -30), addDays(started, -1), edits),
+    since_law: period(addDays(started, 1), addDays(today(world), -1), new Set()),
+  };
 }
 function relayCheckBody(world, { query }) {
   lawOf(world);

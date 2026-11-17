@@ -130,6 +130,9 @@ def daily_record() -> record.DailyRecord:
         to=date(2026, 11, 17),
         days=[day],
         means=record.RecordMeansPair(d7=None, d30=None),
+        law_started=date(2026, 11, 16),
+        baseline=record.record_period([day], date(2026, 10, 17), date(2026, 11, 15), [date(2026, 11, 2)]),
+        since_law=None,
         server_time=AT,
     )
 

@@ -1566,6 +1566,15 @@ components:
       description: A band's four edges at one moment
       required: [temp_low_f, temp_high_f, vpd_low_kpa, vpd_high_kpa]
       properties:
+        temp_low_f: {type: number, description: '°F'}
+        temp_high_f: {type: number, description: '°F'}
+        vpd_low_kpa: {type: number, description: kPa}
+        vpd_high_kpa: {type: number, description: kPa}
+    HostBandEdges:
+      type: object
+      description: The host's band at one moment (fn_band_setpoints); an edge it cannot compute is null
+      required: [temp_low_f, temp_high_f, vpd_low_kpa, vpd_high_kpa]
+      properties:
         temp_low_f: {type: [number, 'null'], description: '°F'}
         temp_high_f: {type: [number, 'null'], description: '°F'}
         vpd_low_kpa: {type: [number, 'null'], description: kPa}
@@ -2889,7 +2898,7 @@ components:
           description: 'Where the controller takes its band from (diagnostics.band_source): its own diurnal curve from the pushed anchors, the corridor, or the older dispatcher push'
         host:
           description: 'The band the host computes for now (fn_band_setpoints(now())); null when it cannot'
-          anyOf: [{$ref: '#/components/schemas/BandEdges'}, {type: 'null'}]
+          anyOf: [{$ref: '#/components/schemas/HostBandEdges'}, {type: 'null'}]
         differs: {type: [boolean, 'null'], description: 'The controller''s band and the host''s differ by more than 1.0 °F or 0.10 kPa on an edge (the band_device_db_divergence rule); null when either is missing'}
     LawInputs:
       type: object
@@ -2932,7 +2941,10 @@ components:
         hold:
           description: >-
             Set only when the host can prove it: requested with the relay off inside its minimum off time (min_off), or
-            not requested with the relay on inside its minimum on time (min_on); null otherwise
+            not requested with the relay on inside its minimum on time (min_on); null otherwise. Nothing is proven for a
+            relay a manual run holds (or may hold, while its flag is unknown), for the fogger off unless the controller
+            names its minimum off time as the reason, or for the fogger on outside the protection limits, where the
+            irrigation engine can run it
           anyOf:
             - type: 'null'
             - type: object
@@ -2961,7 +2973,7 @@ components:
         refused_reason:
           type: [string, 'null']
           enum: [none, no_outdoor, cooling, furnace, not_drier, too_cold, cost, humidity_invalid, no_temperature, null]
-          description: "The controller's first reason while no run is on (the record's dr field); none while drying runs or is not wanted"
+          description: "The record's dr field: the first refusal while drying is wanted and not running; humidity_invalid or no_temperature whenever those inputs are missing; none otherwise"
         cost_kwh_per_kg: {type: [number, 'null'], description: 'kWh of heat per kg of water removed (the record''s e field); null when the controller reports no price (no outdoor data)'}
         limit_kwh_per_kg: {type: [number, 'null'], description: 'The drying cost limit in force on the controller (the record''s lim field)'}
         limit_source: {type: string, enum: [owner, default], description: 'owner: a desired_state row for dry_cost_limit_kwh_per_kg exists; default: the controller''s compiled value'}
@@ -2970,12 +2982,14 @@ components:
         min_temp_f: {type: [number, 'null'], description: 'Drying needs the house above this: the band low plus the drying temperature margin'}
         checks:
           type: array
-          description: The decision chain, in the order the law applies it
+          description: >-
+            The decision chain in the order the law refuses, so the first check that fails is refused_reason (no_outdoor
+            leaves outdoor_drier null). warm_enough and worth_it decide only the start: both are true while a run is on
           items:
             type: object
             required: [id, ok]
             properties:
-              id: {type: string, enum: [humid, outdoor_drier, worth_it, warm_enough, not_cooling, furnace_off]}
+              id: {type: string, enum: [humid, not_cooling, furnace_off, outdoor_drier, warm_enough, worth_it]}
               ok: {type: [boolean, 'null']}
         meter:
           type: object
@@ -3131,8 +3145,8 @@ components:
     # ------------------------------------------------------------ daily record (API-32, API-33)
     DailyRecord:
       type: object
-      description: 'API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means'
-      required: [from, to, days, means, server_time]
+      description: 'API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means and the periods before and since the law'
+      required: [from, to, days, means, law_started, baseline, since_law, server_time]
       properties:
         from: {type: string, format: date}
         to: {type: string, format: date, description: Inclusive local day}
@@ -3144,7 +3158,23 @@ components:
           properties:
             d7: {anyOf: [{$ref: '#/components/schemas/RecordMeans'}, {type: 'null'}]}
             d30: {anyOf: [{$ref: '#/components/schemas/RecordMeans'}, {type: 'null'}]}
+        law_started: {type: [string, 'null'], format: date, description: The local day of the first law record; null before it}
+        baseline:
+          description: The 30 days before law_started, leaving out days with a band edit (activity_log band.write); null before the first law record
+          anyOf: [{$ref: '#/components/schemas/RecordPeriod'}, {type: 'null'}]
+        since_law:
+          description: The days from the day after law_started through yesterday; null until such a day exists
+          anyOf: [{$ref: '#/components/schemas/RecordPeriod'}, {type: 'null'}]
         server_time: {type: string, format: date-time}
+    RecordPeriod:
+      type: object
+      description: A fixed period's means over its complete days
+      required: [from, to, excluded_days, means]
+      properties:
+        from: {type: string, format: date}
+        to: {type: string, format: date, description: Inclusive local day}
+        excluded_days: {type: integer, minimum: 0, description: Days left out of the period (band edits)}
+        means: {$ref: '#/components/schemas/RecordMeans'}
     RecordDay:
       type: object
       required: [date, complete, band, relays, climate_starts, climate_run_s, energy, gas, water, drying, counter_sample_pct, alerts]

@@ -636,14 +636,14 @@ const DRYING_REFUSAL = {
   humidity_invalid: "no valid humidity reading",
   no_temperature: "no temperature reading",
 } as const satisfies Record<Codes<Schemas["LawDrying"]["refused_reason"]>, string>;
-/** `LawDrying.checks[].id`: the drying decision chain, in the law's order. */
+/** `LawDrying.checks[].id`: the drying decision chain, in the order the law refuses (the first failing check is the refusal reason). */
 const DRYING_CHECK = {
   humid: "the house is humid enough to dry",
-  outdoor_drier: "outdoor air is drier",
-  worth_it: "worth the heat it costs",
-  warm_enough: "warm enough to vent",
   not_cooling: "the house is not being cooled",
   furnace_off: "the gas furnace is off",
+  outdoor_drier: "outdoor air is drier",
+  warm_enough: "warm enough to vent",
+  worth_it: "worth the heat it costs",
 } as const satisfies Record<Schemas["LawDrying"]["checks"][number]["id"], string>;
 /** `LawDrying.limit_source`: who set the drying cost limit. */
 const LIMIT_SOURCE = { owner: "set by the owner", default: "the controller's default" } as const satisfies Record<Schemas["LawDrying"]["limit_source"], string>;
@@ -657,7 +657,7 @@ const OUTDOOR_SOURCE = {
 /** `LawBand.source`: where the controller takes its band from. */
 const BAND_SOURCE = {
   onchip_curve: "the controller's own daily curve",
-  corridor: "the pushed band edges",
+  corridor: "the widest band (clock not set)",
   dispatcher_legacy: "the older host push",
 } as const satisfies Record<Codes<Schemas["LawBand"]["source"]>, string>;
 /** `LawAlone.gap_log`: the record the controller keeps while the host is away. */

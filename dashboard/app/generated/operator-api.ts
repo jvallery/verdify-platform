@@ -1326,13 +1326,13 @@ export interface components {
         /** @description A band's four edges at one moment */
         readonly BandEdges: {
             /** @description °F */
-            readonly temp_high_f: number | null;
+            readonly temp_high_f: number;
             /** @description °F */
-            readonly temp_low_f: number | null;
+            readonly temp_low_f: number;
             /** @description kPa */
-            readonly vpd_high_kpa: number | null;
+            readonly vpd_high_kpa: number;
             /** @description kPa */
-            readonly vpd_low_kpa: number | null;
+            readonly vpd_low_kpa: number;
         };
         readonly BandPosition: {
             readonly high: number | null;
@@ -1720,12 +1720,19 @@ export interface components {
                 readonly rssi_dbm: number | null;
             };
         };
-        /** @description API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means */
+        /** @description API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means and the periods before and since the law */
         readonly DailyRecord: {
+            /** @description The 30 days before law_started, leaving out days with a band edit (activity_log band.write); null before the first law record */
+            readonly baseline: components["schemas"]["RecordPeriod"] | null;
             /** @description Ascending by date */
             readonly days: readonly components["schemas"]["RecordDay"][];
             /** Format: date */
             readonly from: string;
+            /**
+             * Format: date
+             * @description The local day of the first law record; null before it
+             */
+            readonly law_started: string | null;
             /** @description The means the reviewer and the owner compare against, over complete days only; null with no complete day */
             readonly means: {
                 readonly d7: components["schemas"]["RecordMeans"] | null;
@@ -1733,6 +1740,8 @@ export interface components {
             };
             /** Format: date-time */
             readonly server_time: string;
+            /** @description The days from the day after law_started through yesterday; null until such a day exists */
+            readonly since_law: components["schemas"]["RecordPeriod"] | null;
             /**
              * Format: date
              * @description Inclusive local day
@@ -1973,6 +1982,17 @@ export interface components {
             readonly unit_count?: number | null;
             readonly weight_kg?: number | null;
         };
+        /** @description The host's band at one moment (fn_band_setpoints); an edge it cannot compute is null */
+        readonly HostBandEdges: {
+            /** @description °F */
+            readonly temp_high_f: number | null;
+            /** @description °F */
+            readonly temp_low_f: number | null;
+            /** @description kPa */
+            readonly vpd_high_kpa: number | null;
+            /** @description kPa */
+            readonly vpd_low_kpa: number | null;
+        };
         /** @enum {string} */
         readonly IrrigationCause: "vpd" | "schedule" | "run_now" | "feed" | "prewet" | "flush" | "fallback" | "unknown";
         readonly IrrigationLine: {
@@ -2144,7 +2164,7 @@ export interface components {
             /** @description The controller's band and the host's differ by more than 1.0 °F or 0.10 kPa on an edge (the band_device_db_divergence rule); null when either is missing */
             readonly differs: boolean | null;
             /** @description The band the host computes for now (fn_band_setpoints(now())); null when it cannot */
-            readonly host: components["schemas"]["BandEdges"] | null;
+            readonly host: components["schemas"]["HostBandEdges"] | null;
             /** @description The controller's band check changed the band it received (the record's br field) */
             readonly repaired: boolean | null;
             /**
@@ -2173,10 +2193,10 @@ export interface components {
         };
         /** @description Drying: venting with drier outdoor air when the house is too humid. running: drying runs; refused: the house wants drying and the law refuses it, for refused_reason; not_wanted: the house is dry enough; unknown: no law record */
         readonly LawDrying: {
-            /** @description The decision chain, in the order the law applies it */
+            /** @description The decision chain in the order the law refuses, so the first check that fails is refused_reason (no_outdoor leaves outdoor_drier null). warm_enough and worth_it decide only the start: both are true while a run is on */
             readonly checks: readonly {
                 /** @enum {string} */
-                readonly id: "humid" | "outdoor_drier" | "worth_it" | "warm_enough" | "not_cooling" | "furnace_off";
+                readonly id: "humid" | "not_cooling" | "furnace_off" | "outdoor_drier" | "warm_enough" | "worth_it";
                 readonly ok: boolean | null;
             }[];
             /** @description kWh of heat per kg of water removed (the record's e field); null when the controller reports no price (no outdoor data) */
@@ -2206,7 +2226,7 @@ export interface components {
             /** @description The air latch: outdoor air holds less water than indoor air */
             readonly outdoor_drier: boolean | null;
             /**
-             * @description The controller's first reason while no run is on (the record's dr field); none while drying runs or is not wanted
+             * @description The record's dr field: the first refusal while drying is wanted and not running; humidity_invalid or no_temperature whenever those inputs are missing; none otherwise
              * @enum {string|null}
              */
             readonly refused_reason: "none" | "no_outdoor" | "cooling" | "furnace" | "not_drier" | "too_cold" | "cost" | "humidity_invalid" | "no_temperature" | null;
@@ -2352,7 +2372,7 @@ export interface components {
              * @enum {string}
              */
             readonly direction: "below" | "above";
-            /** @description Set only when the host can prove it: requested with the relay off inside its minimum off time (min_off), or not requested with the relay on inside its minimum on time (min_on); null otherwise */
+            /** @description Set only when the host can prove it: requested with the relay off inside its minimum off time (min_off), or not requested with the relay on inside its minimum on time (min_on); null otherwise. Nothing is proven for a relay a manual run holds (or may hold, while its flag is unknown), for the fogger off unless the controller names its minimum off time as the reason, or for the fogger on outside the protection limits, where the irrigation engine can run it */
             readonly hold: null | {
                 /** @enum {string} */
                 readonly kind: "min_off" | "min_on";
@@ -3353,6 +3373,19 @@ export interface components {
             readonly temp_pct: number | null;
             readonly therms_est: number | null;
             readonly vpd_pct: number | null;
+        };
+        /** @description A fixed period's means over its complete days */
+        readonly RecordPeriod: {
+            /** @description Days left out of the period (band edits) */
+            readonly excluded_days: number;
+            /** Format: date */
+            readonly from: string;
+            readonly means: components["schemas"]["RecordMeans"];
+            /**
+             * Format: date
+             * @description Inclusive local day
+             */
+            readonly to: string;
         };
         /** @description API-33: the controller's own relay counters against the stored daily relay record, newest day first */
         readonly RelayCheck: {

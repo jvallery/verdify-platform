@@ -106,6 +106,7 @@ export type Resolution = Lenient<Schemas["Resolution"]>;
 export type CropConflict = Lenient<Schemas["Conflict"]>;
 export type PlantingNote = Lenient<Schemas["PlantingNote"]>;
 export type BandEdges = Lenient<Schemas["BandEdges"]>;
+export type HostBandEdges = Lenient<Schemas["HostBandEdges"]>;
 export type LawView = Lenient<Schemas["LawView"]>;
 export type LawBand = Lenient<Schemas["LawBand"]>;
 export type LawInputs = Lenient<Schemas["LawInputs"]>;
@@ -122,6 +123,7 @@ export type RecordDay = Lenient<Schemas["RecordDay"]>;
 export type RecordBand = Lenient<Schemas["RecordBand"]>;
 export type RecordDrying = Lenient<Schemas["RecordDrying"]>;
 export type RecordMeans = Lenient<Schemas["RecordMeans"]>;
+export type RecordPeriod = Lenient<Schemas["RecordPeriod"]>;
 export type RelayCheck = Lenient<Schemas["RelayCheck"]>;
 export type ReviewPage = Lenient<Schemas["ReviewPage"]>;
 export type Review = Lenient<Schemas["Review"]>;
@@ -209,7 +211,9 @@ const controller = z.object({
   // The shell banner's three health facts (dashboard v2); a server before them sends none, read as null.
   heap_minute_low_kb: maybe(num), restart_count: maybe(int), gap_log: maybe(code),
 });
-const bandEdges = z.object({ temp_low_f: num.nullable(), temp_high_f: num.nullable(), vpd_low_kpa: num.nullable(), vpd_high_kpa: num.nullable() });
+const bandEdges = z.object({ temp_low_f: num, temp_high_f: num, vpd_low_kpa: num, vpd_high_kpa: num });
+/** The host's band (LawBand.host): an edge it cannot compute is null. */
+const hostBandEdges = z.object({ temp_low_f: maybe(num), temp_high_f: maybe(num), vpd_low_kpa: maybe(num), vpd_high_kpa: maybe(num) });
 /** The greenhouse snapshot (#1346); a server before it sends none. */
 const snapshot = z.object({
   text, generated_at: text, as_of: text, model: text, stale: flag, stale_reason: maybe(code), outdated: flag,
@@ -515,7 +519,7 @@ const lawView = z.object({
   server_time: text, observed_at: maybe(text), reporting: flag,
   band: z.object({
     temp_low_f: maybe(num), temp_high_f: maybe(num), vpd_low_kpa: maybe(num), vpd_high_kpa: maybe(num), repaired: maybe(flag), source: maybe(code),
-    host: maybe(bandEdges), differs: maybe(flag),
+    host: maybe(hostBandEdges), differs: maybe(flag),
   }),
   inputs: z.object({
     temp_f: maybe(num), vpd_kpa: maybe(num), rh_pct: maybe(num), dew_point_f: maybe(num),
@@ -567,8 +571,12 @@ const recordMeans = z.object({
   climate_run_h: maybe(num), heat1_run_h: maybe(num), heat2_run_h: maybe(num), kwh: maybe(num), therms_est: maybe(num), crop_gal: maybe(num),
   drying_h: maybe(num),
 });
+const recordPeriod = z.object({ from: text, to: text, excluded_days: int, means: recordMeans });
 const dailyRecord = z.object({
-  from: text, to: text, days: z.array(recordDay), means: z.object({ d7: maybe(recordMeans), d30: maybe(recordMeans) }), server_time: text,
+  from: text, to: text, days: z.array(recordDay), means: z.object({ d7: maybe(recordMeans), d30: maybe(recordMeans) }),
+  // The periods before and since the law; a server before them sends none, read as null.
+  law_started: maybe(text), baseline: maybe(recordPeriod), since_law: maybe(recordPeriod),
+  server_time: text,
 });
 const relayCheck = z.object({
   days: z.array(z.object({

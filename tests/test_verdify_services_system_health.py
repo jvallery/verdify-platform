@@ -63,7 +63,7 @@ HEALTH_ROW = {
     "wifi_disconnect_count": 2,
     "api_client_count": 2,
 }
-EXTRA_ROW = {"uptime_at": NOW - timedelta(seconds=20), "probe_health": "OK"}
+EXTRA_ROW = {"uptime_s": 35163, "uptime_at": NOW - timedelta(seconds=20), "probe_health": "OK"}
 
 
 def run(coro):
@@ -86,6 +86,7 @@ class FakeConn:
         self.vals = {sh.NOW_SQL: NOW, **(vals or {})}
         self.calls: list[tuple[str, tuple]] = []
         self.readonly: list[bool] = []
+        self.isolation: list[str | None] = []
         self.executed: list[str] = []
 
     @asynccontextmanager
@@ -93,7 +94,8 @@ class FakeConn:
         self.readonly.append(readonly)
         yield
 
-    def transaction(self, readonly=False, **_kwargs):
+    def transaction(self, readonly=False, **kwargs):
+        self.isolation.append(kwargs.get("isolation"))
         return self._tx(readonly)
 
     async def execute(self, sql, *args):
@@ -189,7 +191,8 @@ def test_controller_health_from_live_rows():
     }
     conn = FakeConn(rows)
     health = run(sh.controller(conn))
-    assert conn.readonly == [True]
+    # One snapshot for the whole read: the uptime reading and its time come from statements that must agree.
+    assert conn.readonly == [True] and conn.isolation == ["repeatable_read"]
     assert health.observed_at == NOW - timedelta(seconds=12)
     assert health.firmware.model_dump() == {"version": FW, "pinned": FW, "matches": True}
     assert health.restarts.booted_at == NOW - timedelta(seconds=20 + 35163)
@@ -214,10 +217,19 @@ def test_controller_health_from_live_rows():
     }
 
 
+def test_booted_at_comes_from_one_uptime_reading_and_its_own_time():
+    # CONTROLLER_SQL's uptime_s is newer than the pair: booted_at still pairs the extra row's reading with its time.
+    health = sh.controller_health(
+        NOW, {**CONTROLLER_ROW, "uptime_s": 35223}, HEALTH_ROW, {**EXTRA_ROW, "uptime_s": 35163}, None
+    )
+    assert health.uptime_s == 35223
+    assert health.restarts.booted_at == NOW - timedelta(seconds=20 + 35163)
+
+
 def test_a_silent_controller_is_null_never_zero():
     empty = dict.fromkeys(CONTROLLER_ROW)
     health = sh.controller_health(
-        NOW, empty, dict.fromkeys(HEALTH_ROW), {"uptime_at": None, "probe_health": None}, None
+        NOW, empty, dict.fromkeys(HEALTH_ROW), {"uptime_s": None, "uptime_at": None, "probe_health": None}, None
     )
     body = health.model_dump(mode="json")
     assert schema_errors("ControllerHealth", body) == []
@@ -311,7 +323,7 @@ def test_data_continuity_from_live_rows():
     }
     conn = FakeConn(rows)
     result = run(sh.data(conn, 7))
-    assert conn.readonly == [True]
+    assert conn.readonly == [True] and conn.isolation == ["repeatable_read"]
     assert [args for sql, args in conn.calls if sql in (sh.OUTAGES_SQL, sh.REPLAYED_SQL, sh.BY_DAY_SQL)] == [(7,)] * 3
     body = result.model_dump(mode="json")
     assert schema_errors("DataContinuity", body) == []

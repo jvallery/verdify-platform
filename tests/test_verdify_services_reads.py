@@ -27,7 +27,7 @@ from verdify_schemas import alerts as schema_alerts
 from verdify_schemas.irrigation import LINE_IDS
 from verdify_schemas.policy_vector import live_wire_fields
 from verdify_schemas.tunable_registry import REGISTRY
-from verdify_services import activity, alerts, reads, settings
+from verdify_services import activity, alerts, law, reads, settings
 from verdify_services.actor import ActorRef
 from verdify_services.labels import EQUIPMENT_LABELS, EQUIPMENT_LINE_IDS, LINE_NAMES, name_line_codes
 
@@ -1384,19 +1384,24 @@ def test_now_law_carries_the_band_the_controller_is_using():
 
 
 @pytest.mark.parametrize(
-    "value, heartbeat_s, climate_s, source",
+    "value, heartbeat_s, climate_s, age_s, source",
     [
-        ("station", 30, 20, "station"),
-        ("intake", 30, 20, "intake"),
-        ("none", 30, 20, "none"),
-        ("station", 30, 400, None),  # the controller is not reporting
-        ("satellite", 30, 20, None),  # a value the controller never sends
-        (None, 30, 20, None),
+        ("station", 30, 20, 290, "station"),
+        ("intake", 30, 20, 290, "intake"),
+        ("none", 30, 20, 290, "none"),
+        ("station", 30, 20, 600, "station"),  # twice the 300 s republish is still fresh
+        ("station", 30, 20, 601, None),  # older than that says nothing about now (API-30's rule)
+        ("station", 30, 20, None, None),
+        ("station", 30, 400, 290, None),  # the controller is not reporting
+        ("satellite", 30, 20, 290, None),  # a value the controller never sends
+        (None, 30, 20, 290, None),
     ],
 )
-def test_now_outdoor_source_is_the_controllers_while_it_reports(value, heartbeat_s, climate_s, source):
-    assert reads.outdoor_source(value, reporting(heartbeat_s=heartbeat_s, climate_s=climate_s)) == source
+def test_now_outdoor_source_is_the_controllers_while_it_reports(value, heartbeat_s, climate_s, age_s, source):
+    observed = None if age_s is None else AT - timedelta(seconds=age_s)
+    assert reads.outdoor_source(value, observed, reporting(heartbeat_s=heartbeat_s, climate_s=climate_s)) == source
     assert reads.OUTDOOR_SOURCE_ENTITY in reads._NOW_NEWEST_ENTITIES
+    assert law.OUTDOOR_SOURCE_FRESH is reads.OUTDOOR_SOURCE_FRESH
 
 
 def test_now_review_is_the_reviews_service_today():

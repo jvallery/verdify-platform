@@ -15,7 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from verdify_services import record
+from verdify_services import law, record
 from verdify_services.problems import ServiceError
 
 AT = datetime(2026, 11, 17, 16, 20, tzinfo=UTC)  # 09:20 MST, the live read
@@ -298,9 +298,10 @@ class _Tx:
 
 
 class Conn:
-    def __init__(self, answers, at=AT):
+    def __init__(self, answers, at=AT, first_law_at=None):
         self.answers = answers
         self.at = at
+        self.first_law_at = first_law_at
         self.depth = 0
         self.sent = []
 
@@ -312,7 +313,11 @@ class Conn:
         return _Tx(self)
 
     async def fetchval(self, sql, *args):
-        assert self.depth > 0 and sql == "SELECT now()"
+        assert self.depth > 0
+        if sql == law.FIRST_RECORD_SQL:
+            assert args == ("climate_law_state", law.LAW_RECORDS_FROM)
+            return self.first_law_at
+        assert sql == "SELECT now()"
         return self.at
 
     async def fetch(self, sql, *args):
@@ -322,20 +327,30 @@ class Conn:
         return answer(*args) if callable(answer) else answer
 
 
-def record_conn(at=AT):
+def edits_between(days):
+    def answer(greenhouse, action, start, end):
+        assert (greenhouse, action) == ("vallery", "band.write")
+        return [{"date": day} for day in days if start <= datetime(day.year, day.month, day.day, 12, tzinfo=UTC) < end]
+
+    return answer
+
+
+def record_conn(at=AT, first_law_at=None, band_edits=()):
     return Conn(
         {
             record._RECORD_SQL: between(RECORDS),
             record._BAND_SQL: between(BANDS),
             record._RELAYS_SQL: between(RELAYS),
             record._ALERTS_SQL: between(ALERTS),
+            record._BAND_WRITE_DAYS_SQL: edits_between(band_edits),
         },
         at,
+        first_law_at,
     )
 
 
 def read(**kwargs):
-    conn = record_conn(kwargs.pop("at", AT))
+    conn = record_conn(kwargs.pop("at", AT), kwargs.pop("first_law_at", None), kwargs.pop("band_edits", ()))
     return asyncio.run(record.record_days(conn, **kwargs)), conn
 
 
@@ -348,7 +363,9 @@ def test_the_default_is_the_thirty_days_ending_today_ascending():
     assert [day.date for day in result.days] == [date(2026, 10, 19) + timedelta(days=n) for n in range(30)]
     assert result.server_time == AT
     dumped = result.model_dump(mode="json", by_alias=True)
-    assert set(dumped) == {"from", "to", "days", "means", "server_time"}
+    assert set(dumped) == {"from", "to", "days", "means", "law_started", "baseline", "since_law", "server_time"}
+    # No law record yet: no law day and no periods, never empty ones.
+    assert (dumped["law_started"], dumped["baseline"], dumped["since_law"]) == (None, None, None)
     # The means need 30 complete days before today: every source is read from 10-18, the alerts only for the window.
     for sql, args in conn.sent:
         expected = (date(2026, 10, 19), TODAY) if sql == record._ALERTS_SQL else ("vallery", date(2026, 10, 18), TODAY)
@@ -465,6 +482,51 @@ def test_a_window_past_today_lists_days_through_today():
     result, _ = read(from_=d(16), to=d(20))
     assert result.to == d(20) and [day.date for day in result.days] == [d(16), d(17)]
     assert result.means.d7.days == 7
+
+
+# ── the periods before and since the law ────────────────────────────────────
+
+
+def test_the_law_started_on_the_local_day_of_its_first_record():
+    # The first live record, 2026-11-16 22:03Z, is 15:03 MST on the 16th. Yesterday is that day, so nothing follows it.
+    result, conn = read(first_law_at=datetime(2026, 11, 16, 22, 3, tzinfo=UTC))
+    assert result.law_started == d(16) and result.since_law is None
+    baseline = result.baseline
+    assert (baseline.from_, baseline.to, baseline.excluded_days) == (date(2026, 10, 17), d(15), 0)
+    # The six complete stored days of 10 to 15 November.
+    assert baseline.means.days == 6
+    assert baseline.means.both_pct == round((54.5 + 53.1 + 60.1 + 55.2 + 65.3 + 62.0) / 6, 1)
+    # Every source is read from the baseline's first day.
+    assert [args[1] for sql, args in conn.sent if sql == record._RECORD_SQL] == [date(2026, 10, 17)]
+    dumped = result.model_dump(mode="json", by_alias=True)
+    assert dumped["baseline"]["from"] == "2026-10-17" and "from_" not in dumped["baseline"]
+
+
+def test_band_edit_days_leave_the_baseline_and_since_law_runs_through_yesterday():
+    result, conn = read(first_law_at=datetime(2026, 11, 14, 15, tzinfo=UTC), band_edits=[d(11), d(12), d(14)])
+    assert result.law_started == d(14)
+    baseline = result.baseline
+    # The band was edited on the 11th and the 12th inside the baseline; the 14th is the law's own day.
+    assert (baseline.from_, baseline.to, baseline.excluded_days) == (date(2026, 10, 15), d(13), 2)
+    assert baseline.means.days == 2  # the 10th and the 13th
+    edits_args = next(args for sql, args in conn.sent if sql == record._BAND_WRITE_DAYS_SQL)
+    assert edits_args[2:] == (
+        datetime(2026, 10, 15, tzinfo=record.DENVER),
+        datetime(2026, 11, 14, tzinfo=record.DENVER),
+    )
+    since = result.since_law
+    assert (since.from_, since.to, since.excluded_days, since.means.days) == (d(15), d(16), 0, 2)
+    # The periods do not depend on the window asked for, and today's partial day is in neither.
+    narrow, _ = read(from_=d(17), to=d(17), first_law_at=datetime(2026, 11, 14, 15, tzinfo=UTC), band_edits=[d(11)])
+    assert narrow.since_law == since and [day.date for day in narrow.days] == [d(17)]
+
+
+def test_a_period_with_no_complete_day_has_zero_days_and_null_means():
+    period = record.record_period([], date(2026, 10, 1), date(2026, 10, 30), [date(2026, 10, 3), date(2026, 11, 3)])
+    assert period.excluded_days == 1 and period.means.days == 0
+    assert {key for key, value in period.means.model_dump().items() if value is not None} == {"days"}
+    assert record.record_period([], d(17), d(16), []) is None
+    assert record.law_periods([], None, TODAY, []) == (None, None)
 
 
 # ── refusals ────────────────────────────────────────────────────────────────

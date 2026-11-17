@@ -126,11 +126,22 @@ def test_the_days_status_is_written_else_the_newest_request_else_due_by_the_cloc
 
 
 @pytest.mark.parametrize(
-    "missed_open, status, missed",
-    [(False, "failed", False), (True, "failed", True), (True, "due", True), (True, "written", False)],
+    "missed_open, status, at, missed",
+    [
+        (False, "failed", time(11, 0), False),
+        (True, "failed", time(11, 0), True),
+        (True, "due", time(10, 0), True),
+        (True, "written", time(11, 0), False),
+        # An alert raised for an earlier day is still open: before 10:00 this day is not late yet.
+        (True, "not_due", time(6, 0), False),
+        (True, "due", time(8, 0), False),
+        (True, "failed", time(9, 59), False),
+        # From 10:00 the open alert stands for this day too (the ingestor raises no second one while it is open).
+        (True, "due", time(10, 30), True),
+    ],
 )
-def test_missed_follows_the_open_alert_until_the_day_is_written(missed_open, status, missed):
-    assert reviews.day_missed(missed_open, status) is missed
+def test_missed_follows_the_open_alert_from_ten_until_the_day_is_written(missed_open, status, at, missed):
+    assert reviews.day_missed(missed_open, status, at) is missed
 
 
 @pytest.mark.parametrize(
@@ -346,6 +357,15 @@ def test_a_missed_day_reads_the_open_alert():
 def test_before_seven_the_day_is_not_due_and_missed_is_false():
     day = asyncio.run(_today(Conn(answers(at=local(18, 6, 30), day_rows=[]))))
     assert (day.status, day.missed) == ("not_due", False)
+
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "status", "missed"), [(6, 0, "not_due", False), (8, 0, "due", False), (10, 30, "due", True)]
+)
+def test_yesterdays_open_alert_marks_today_missed_only_from_ten(hour, minute, status, missed):
+    # The alert raised for the review of 11-16 is still open on 11-18, and no review of 11-17 exists.
+    day = asyncio.run(_today(Conn(answers(at=local(18, hour, minute), day_rows=[], missed_open=True))))
+    assert (day.review_date, day.status, day.missed) == (date(2026, 11, 17), status, missed)
 
 
 async def _today(conn):

@@ -2,7 +2,8 @@
 -- owner: scripts/qualify-migration-successor.py --native-fixture runs it at the end of its final session. Each of the
 -- three projections has exactly its specified columns, is verdify's and grants SELECT to the dashboard duty alone. The
 -- dashboard login (the operator API's) attests and reads each one with a bounded read, and still has no privilege on
--- planner_review, daily_relay_record or gap_replay_quarters. The ingestor runtime login is refused on every
+-- planner_review, daily_relay_record or gap_replay_quarters: no table privilege of any kind and no column privilege,
+-- whether granted to it, to its duty or to PUBLIC. The ingestor runtime login is refused on every
 -- projection, and neither the api nor the MCP login nor PUBLIC can read one. Nothing is written. The last line
 -- reports the result to the qualifier.
 DO $views$
@@ -49,10 +50,13 @@ BEGIN
     IF verdify_dashboard_runtime.fn_attest_login() IS NOT TRUE THEN
         RAISE EXCEPTION '320 dashboard login does not attest';
     END IF;
-    IF has_table_privilege(current_user, 'public.planner_review', 'SELECT')
-        OR has_table_privilege(current_user, 'public.daily_relay_record', 'SELECT')
-        OR has_table_privilege(current_user, 'public.gap_replay_quarters', 'SELECT') THEN
-        RAISE EXCEPTION '320 dashboard login reads a base table directly';
+    IF has_table_privilege(current_user, 'public.planner_review', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR has_any_column_privilege(current_user, 'public.planner_review', 'SELECT,INSERT,UPDATE,REFERENCES')
+        OR has_table_privilege(current_user, 'public.daily_relay_record', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR has_any_column_privilege(current_user, 'public.daily_relay_record', 'SELECT,INSERT,UPDATE,REFERENCES')
+        OR has_table_privilege(current_user, 'public.gap_replay_quarters', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR has_any_column_privilege(current_user, 'public.gap_replay_quarters', 'SELECT,INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION '320 dashboard login holds a privilege on a base table';
     END IF;
     PERFORM * FROM public.v_dashboard_review r WHERE r.review_date >= (now() AT TIME ZONE 'America/Denver')::date - 30;
     PERFORM * FROM public.v_dashboard_relay_day d WHERE d.date >= (now() AT TIME ZONE 'America/Denver')::date - 3;

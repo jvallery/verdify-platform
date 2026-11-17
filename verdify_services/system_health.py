@@ -2,8 +2,9 @@
 
 These reads and the operator API's ``/metrics`` (``api/product_metrics.py``) share one definition of each number:
 the statements below are the ones the metrics timer runs, and ``product_metrics`` imports them from here, so the
-dashboard and the estate Prometheus dashboard can never disagree. Each read runs in one read-only transaction
-(``series._read_transaction``: the dashboard login's 10 s timeout, a timeout is 503 ``query_timeout``), every
+dashboard and the estate Prometheus dashboard can never disagree. Each read runs in one read-only repeatable-read
+transaction, so all its statements see one snapshot (``series._read_transaction``: the dashboard login's 10 s timeout,
+a timeout is 503 ``query_timeout``), every
 hypertable predicate is bounded by time, ``diagnostics`` values are the newest non-null value per column over
 15 minutes, and a value nothing reported is null, never 0.
 """
@@ -190,9 +191,11 @@ NVS_STOP_FREE_PCT = 15.0  # firmware/lib/gap_log.h STOP_FREE_PCT
 
 NOW_SQL = "SELECT now()"
 
-# The uptime reading's own time (booted_at) and the probe summary, by CONTROLLER_SQL's rule.
+# The newest uptime reading with its own time (booted_at comes from this one pair) and the probe summary, by
+# CONTROLLER_SQL's rule.
 CONTROLLER_EXTRA_SQL = """
-SELECT (array_agg(ts ORDER BY ts DESC) FILTER (WHERE uptime_s IS NOT NULL))[1] AS uptime_at,
+SELECT (array_agg(uptime_s ORDER BY ts DESC) FILTER (WHERE uptime_s IS NOT NULL))[1] AS uptime_s,
+       (array_agg(ts ORDER BY ts DESC) FILTER (WHERE uptime_s IS NOT NULL))[1] AS uptime_at,
        (array_agg(probe_health ORDER BY ts DESC) FILTER (WHERE probe_health IS NOT NULL))[1] AS probe_health
   FROM diagnostics
  WHERE ts > now() - interval '15 minutes'
@@ -362,7 +365,7 @@ class Probes(_Model):
     health: str | None
 
 
-class Limits(_Model):
+class ControllerLimits(_Model):
     heap_warning_kb: float
     heap_critical_kb: float
     largest_block_kb: float
@@ -374,7 +377,7 @@ class Limits(_Model):
     nvs_stop_free_pct: float
 
 
-LIMITS = Limits(
+LIMITS = ControllerLimits(
     heap_warning_kb=HEAP_WARNING_KB,
     heap_critical_kb=HEAP_CRITICAL_KB,
     largest_block_kb=LARGEST_BLOCK_KB,
@@ -402,7 +405,7 @@ class ControllerHealth(_Model):
     probes: Probes
     band_source: str | None
     gap_log: str | None
-    limits: Limits
+    limits: ControllerLimits
 
 
 class Outage(_Model):
@@ -570,8 +573,9 @@ def controller_health(
     pinned = pinned_payload.get("fw") if pinned_payload else None
     pinned = pinned if isinstance(pinned, str) and pinned else None
     uptime_s = _number(_get(controller, "uptime_s"))
-    uptime_at = _get(extra, "uptime_at")
-    booted_at = uptime_at - timedelta(seconds=uptime_s) if uptime_at is not None and uptime_s is not None else None
+    # The boot time from one reading and its own row time, never a reading of one statement against the time of another.
+    reading_s, reading_at = _number(_get(extra, "uptime_s")), _get(extra, "uptime_at")
+    booted_at = reading_at - timedelta(seconds=reading_s) if reading_at is not None and reading_s is not None else None
     return ControllerHealth(
         observed_at=_ago(at, _get(controller, "age_s")),
         firmware=Firmware(
@@ -694,7 +698,7 @@ def _by_entity(rows: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]
 
 async def controller(conn: asyncpg.Connection) -> ControllerHealth:
     """API-35: the newest non-null diagnostics value per column over 15 minutes, by /metrics' statements."""
-    async with series._read_transaction(conn):
+    async with series._read_transaction(conn, "repeatable_read"):
         at = await conn.fetchval(NOW_SQL)
         controller_row = await conn.fetchrow(CONTROLLER_SQL)
         health_row = await conn.fetchrow(HEALTH_SQL)
@@ -705,7 +709,7 @@ async def controller(conn: asyncpg.Connection) -> ControllerHealth:
 
 async def data(conn: asyncpg.Connection, days: DataDays = 1) -> DataContinuity:
     """API-36: outages the gap log did not restore, the quarters it did, table flow, probe ages and the ingestor."""
-    async with series._read_transaction(conn):
+    async with series._read_transaction(conn, "repeatable_read"):
         at = await conn.fetchval(NOW_SQL)
         health_row = await conn.fetchrow(HEALTH_SQL)
         outages = await conn.fetch(OUTAGES_SQL, days)
@@ -755,7 +759,7 @@ async def delivery(conn: asyncpg.Connection, hours: DeliveryHours = 24) -> Deliv
     """API-37: pushes by source and status, the oldest still waiting, confirmation latency and the failing settings
     over the window, with the dispatcher's stage and the newest readback pass."""
     statements = DELIVERY_STATEMENTS[hours]
-    async with series._read_transaction(conn):
+    async with series._read_transaction(conn, "repeatable_read"):
         at = await conn.fetchval(NOW_SQL)
         by_status = await conn.fetch(statements["delivery"])
         oldest = await conn.fetchval(statements["oldest"])

@@ -22,14 +22,14 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, get_args
 
 import asyncpg
 from pydantic import BaseModel, ConfigDict, Field
 
 from verdify_schemas import climate_law_constants as law_constants
-from verdify_schemas.control_proof import LAW_STATE_ENTITY
+from verdify_schemas.control_proof import LAW_HEARTBEAT_MAX_AGE_S, LAW_STATE_ENTITY
 from verdify_schemas.telemetry import LAW_CONSTANTS_HASH, ClimateDryingMeter, ClimateLawState
 from verdify_schemas.tunable_registry import DRY_COST_LIMIT_PARAM
 from verdify_services import reads, series
@@ -40,16 +40,19 @@ DRYING_METER_ENTITY = "climate_drying_meter"
 CONSTANTS_ENTITY = "climate_law_constants"
 OUTDOOR_SOURCE_ENTITY = "outdoor_source"
 LEAD_FAN_ENTITY = "lead_fan"
+FOG_BLOCK_REASON_ENTITY = "fog_block_reason"
 
 # The newest law record, drying meter and constants hash are looked up over this window: the record beats every
 # 60 s, the meter at least every 300 s and the hash every 3600 s, so a day bounds each lookup to the newest chunk.
 NEWEST_WINDOW = timedelta(days=1)
-# The controller republishes its outdoor source on change and every 300 s; twice that without a row is unknown.
-OUTDOOR_SOURCE_FRESH = timedelta(seconds=600)
+# The outdoor source is unknown after this long with no row (reads.OUTDOOR_SOURCE_FRESH, Now's rule too).
+OUTDOOR_SOURCE_FRESH = reads.OUTDOOR_SOURCE_FRESH
 # API-31: a span of more than this with no law record is unknown (the record beats every 60 s).
 LAW_RECORD_GAP = timedelta(seconds=180)
-# API-31's first_record_at searches this far back, so the scan is bounded by ts (the API-04 window limit).
-FIRST_RECORD_WINDOW = series.MAX_WINDOW
+# The first law record (API-31's first_record_at, API-32's law_started) is searched from here on, so the scan is
+# bounded by ts and the answer never moves: no law record predates the climate refactor's plan of 2026-11-15 (the
+# first law build reached the controller on 2026-11-16).
+LAW_RECORDS_FROM = datetime(2026, 11, 15, tzinfo=UTC)
 # API-31's cost and band columns: the API-04 bucket ladder, at most this many points.
 HISTORY_POINTS = series.POINTS_DEFAULT
 
@@ -76,6 +79,18 @@ KEEPS_MIN_TIMES_AT_LIMITS = frozenset({"fog"})
 
 # The equipment_state keys of the relays the law drives. mister_any is the controller's "any mister running" flag.
 LAW_RELAYS = ("heat1", "heat2", "vent", "fan1", "fan2", "fog", "mister_any")
+# A manual run holds relays outside the law (docs/firmware-fsm-spec.md section 5, climate_law_glue.h relay_pass()):
+# a fan run (vent open or kept closed) runs the fans, keeps the vent where it puts it and stops both heaters; a fogger
+# press runs the fogger. While one runs, or its flag is not known, the host cannot prove a minimum-time hold on them.
+MANUAL_RUN_RELAYS: Mapping[str, tuple[str, ...]] = {
+    "fan_burst_active": ("fan1", "fan2", "vent", "heat1", "heat2"),
+    "vent_bypass_active": ("fan1", "fan2", "vent", "heat1", "heat2"),
+    "fog_burst_active": ("fog",),
+}
+assert set(MANUAL_RUN_RELAYS) == set(reads.BURSTS), MANUAL_RUN_RELAYS
+# The fog_block_reason word the controller publishes while the fogger waits out its minimum off time; any other hold
+# (occupancy, the drips, the budgets, the dew margin) keeps the fogger off for its own reason.
+FOG_MIN_OFF_REASON = "relay_min_off"
 LEAD_FANS: Mapping[str, str] = {"Fan 1": "fan1", "Fan 2": "fan2", "fan1": "fan1", "fan2": "fan2"}
 
 RuleId = Literal["heat1", "heat2", "cooling", "second_fan", "fog", "mist", "drying", "hot_limit", "cold_limit"]
@@ -88,7 +103,9 @@ RefusedReason = Literal[
 BandSource = Literal["onchip_curve", "corridor", "dispatcher_legacy"]
 OutdoorSource = Literal["station", "intake", "none"]
 GapLog = Literal["armed", "not_armed_yet", "nvs_small", "nvs_full", "nvs_slow", "nvs_error"]
-CheckId = Literal["humid", "outdoor_drier", "worth_it", "warm_enough", "not_cooling", "furnace_off"]
+# The drying checks in the order the law refuses (climate_law.h step(): humidity, then cooling, the furnace, the
+# outdoor air, the temperature and the cost), so the first failing check is the refusal reason.
+CheckId = Literal["humid", "not_cooling", "furnace_off", "outdoor_drier", "warm_enough", "worth_it"]
 LaneKey = Literal[
     "request.heat1",
     "request.heat2",
@@ -132,7 +149,9 @@ class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class BandEdges(_Model):
+class HostBandEdges(_Model):
+    """The host's band now (``fn_band_setpoints(now())``): an edge it cannot compute is null."""
+
     temp_low_f: float | None
     temp_high_f: float | None
     vpd_low_kpa: float | None
@@ -148,7 +167,7 @@ class LawBand(_Model):
     vpd_high_kpa: float | None
     repaired: bool | None
     source: BandSource | None
-    host: BandEdges | None
+    host: HostBandEdges | None
     differs: bool | None
 
 
@@ -324,7 +343,7 @@ class CostColumns(_Model):
     limit_kwh_per_kg: list[float | None]
 
 
-class BandColumns(_Model):
+class LawBandColumns(_Model):
     bucket_s: BucketS
     t: list[int]
     temp_low_f: list[float | None]
@@ -344,7 +363,7 @@ class LawHistory(_Model):
     outdoor_source: list[OutdoorSourceInterval]
     band_repaired: list[Span]
     cost: CostColumns
-    band: BandColumns
+    band: LawBandColumns
 
 
 # ── The rules (climate_law.h step(); docs/firmware-fsm-spec.md section 4.2) ─────
@@ -516,7 +535,7 @@ def lead_fan(value: str | None) -> str | None:
     return LEAD_FANS.get(value or "")
 
 
-def band_differs(band: tuple[float, ...] | None, host: BandEdges | None) -> bool | None:
+def band_differs(band: tuple[float, ...] | None, host: HostBandEdges | None) -> bool | None:
     """The band_device_db_divergence test on one record: any edge off by more than 1.0 F or 0.10 kPa."""
     if band is None or host is None:
         return None
@@ -529,15 +548,17 @@ def band_differs(band: tuple[float, ...] | None, host: BandEdges | None) -> bool
 
 
 def drying_checks(record: ClimateLawState | None, temp_f: float | None, *, fresh: bool) -> list[DryingCheck]:
-    """The law's drying decision in the order it applies it (rules 7a, 7b and 7c of climate_law.h step()).
+    """The law's drying decision in the order it refuses (climate_law.h step(), the dry_refusal chain), so the first
+    check that fails is the record's refusal reason (``no_outdoor`` shows as ``outdoor_drier`` unknown).
 
-    ``humid`` is the dry latch; ``outdoor_drier`` the air latch with a moisture difference above the least one (the
-    law prices a run only then, so a cost at its no-price value means the difference is too small); ``worth_it`` the
-    cost against the limit; ``warm_enough`` the house at or above the start line (the stop line while a run is on):
-    from the refusal reason where it settles it, else ``temp_f`` against the band's low edge; ``not_cooling`` neither
-    the cooling latch nor the hot limit; ``furnace_off`` the furnace latch off. Each is None when the record cannot
-    say: no fresh record, no indoor temperature (the law is off), no indoor humidity for ``humid``, no outdoor data for
-    the outdoor checks.
+    ``humid`` is the dry latch; ``not_cooling`` neither the cooling latch nor the hot limit; ``furnace_off`` the
+    furnace latch off; ``outdoor_drier`` the air latch with a moisture difference above the least one (the law prices
+    a run only then, so a cost at its no-price value means the difference is too small); ``warm_enough`` the house at
+    or above the start line: from the refusal reason where it settles it, else ``temp_f`` against the band's low edge;
+    ``worth_it`` the cost against the limit. The temperature and the cost decide only the start: a running run passed
+    both and the law stops it on neither, so both are true while it runs (as ``outdoor_drier``, which a run needs).
+    Each is None when the record cannot say: no fresh record, no indoor temperature (the law is off), no indoor
+    humidity for ``humid``, no outdoor data for the outdoor checks.
     """
     ids: tuple[str, ...] = get_args(CheckId)
     if record is None or not fresh or record.dr == "no_temperature":
@@ -552,7 +573,12 @@ def drying_checks(record: ClimateLawState | None, temp_f: float | None, *, fresh
         outdoor_drier = None
     else:
         outdoor_drier = bool(latches & _LATCH["air"]) and record.e < law_constants.DRY_COST_NONE_KWH_PER_KG
-    worth_it = None if no_price else record.e <= record.lim
+    if running:
+        worth_it: bool | None = True
+    elif no_price:
+        worth_it = None
+    else:
+        worth_it = record.e <= record.lim
     if running or dr == "cost":
         warm_enough: bool | None = True  # the refusal chain reaches cost only at or above the start line
     elif dr == "too_cold":
@@ -563,7 +589,7 @@ def drying_checks(record: ClimateLawState | None, temp_f: float | None, *, fresh
         warm_enough = temp_f >= record.b[0] + law_constants.DRY_START_ABOVE_LOW_F
     not_cooling = not (latches & _LATCH["cool"] or requests & _REQUEST["hot"])
     furnace_off = not latches & _LATCH["h2"]
-    values = (humid, outdoor_drier, worth_it, warm_enough, not_cooling, furnace_off)
+    values = (humid, not_cooling, furnace_off, outdoor_drier, warm_enough, worth_it)
     return [DryingCheck(id=check, ok=ok) for check, ok in zip(ids, values, strict=True)]  # type: ignore[arg-type]
 
 
@@ -582,6 +608,16 @@ def relay_now(track: reads.Track | None) -> RelayNow:
     return RelayNow(on=None if state is None else bool(state), since=reads.run_since(track.spans))
 
 
+def manual_held(bursts: Mapping[str, RelayNow]) -> frozenset[str]:
+    """The relays a manual run holds now, or may hold because its flag is not known (``MANUAL_RUN_RELAYS``)."""
+    held: set[str] = set()
+    for flag, relays in MANUAL_RUN_RELAYS.items():
+        state = bursts.get(flag)
+        if state is None or state.on is not False:
+            held.update(relays)
+    return frozenset(held)
+
+
 def rule_hold(
     rule_id: str,
     requested: bool,
@@ -590,13 +626,21 @@ def rule_hold(
     lead: str | None,
     at: datetime,
     booted_at: datetime | None,
+    held: frozenset[str] = frozenset(),
+    fog_reason: str | None = None,
 ) -> LawHold | None:
     """What the host can prove from the relay's newest switch and the law's minimum times (climate_law.h
     relay_step()): the rule is requested, the relay is wanted and off inside its minimum off time (or the furnace's
     boot wait); or the rule is not requested, the relay is not wanted and on inside its minimum on time. A switch
     before the controller's last boot proves nothing (every relay is free at boot but the furnace), nor does a relay
     with no minimum time (the misters). At a protection limit only the fogger keeps its minimum times. The longest
-    hold of the rule's relays."""
+    hold of the rule's relays.
+
+    Something other than the law can hold a relay, and then the host cannot prove the hold: a manual run holds the
+    relays in ``held`` (``manual_held()``); the irrigation engine shares the fogger's line and can run it while the law
+    does not ask, so the fogger proves a minimum on time only at a protection limit, where the engine's run and a
+    press are both off (climate_law_glue.h relay_pass()); and the fogger's other holds keep it off for their own
+    reasons, so it proves a minimum off time only while the controller says so (``fog_reason`` ``relay_min_off``)."""
     if rule_id in _LIMIT_RULES or booted_at is None:
         return None
     at_limit = bool(requests & (_REQUEST["hot"] | _REQUEST["cold"]))
@@ -604,7 +648,7 @@ def rule_hold(
     for relay in rule_relays(rule_id, lead):
         times = RELAY_MIN_TIMES.get(relay)
         now = relays.get(relay)
-        if times is None or now is None or now.on is None:
+        if times is None or now is None or now.on is None or relay in held:
             continue
         if at_limit and relay not in KEEPS_MIN_TIMES_AT_LIMITS:
             continue
@@ -612,6 +656,8 @@ def rule_hold(
         min_on, min_off = times
         hold: LawHold | None = None
         if requested and wanted is True and not now.on:
+            if relay == "fog" and fog_reason != FOG_MIN_OFF_REASON:
+                continue
             remaining = 0.0
             if now.since is not None and now.since >= booted_at:
                 remaining = min_off - (at - now.since).total_seconds()
@@ -619,7 +665,14 @@ def rule_hold(
                 remaining = max(remaining, FURNACE_BOOT_WAIT_S - (at - booted_at).total_seconds())
             if remaining > 0:
                 hold = LawHold(kind="min_off", remaining_s=math.ceil(remaining))
-        elif not requested and wanted is False and now.on and now.since is not None and now.since >= booted_at:
+        elif (
+            not requested
+            and wanted is False
+            and now.on
+            and (relay != "fog" or at_limit)
+            and now.since is not None
+            and now.since >= booted_at
+        ):
             remaining = min_on - (at - now.since).total_seconds()
             if remaining > 0:
                 hold = LawHold(kind="min_on", remaining_s=math.ceil(remaining))
@@ -636,9 +689,12 @@ def rules_now(
     lead: str | None,
     at: datetime,
     booted_at: datetime | None,
+    held: frozenset[str] = frozenset(),
+    fog_reason: str | None = None,
 ) -> list[LawRule]:
     """The nine rules in their fixed order, with thresholds from the band in use and the record's bits; while the
-    record is not fresh the bits are null, the relays unknown and no hold is shown."""
+    record is not fresh the bits are null, the relays unknown and no hold is shown. ``held`` and ``fog_reason`` are
+    ``rule_hold()``'s."""
     use = record if fresh else None
     band = use.b if use is not None else None
     out = []
@@ -666,7 +722,9 @@ def rules_now(
                 latched=latched,
                 requested=requested,
                 relays=relay_rows,
-                hold=None if use is None else rule_hold(rule.id, bool(requested), use.o, relays, lead, at, booted_at),
+                hold=None
+                if use is None
+                else rule_hold(rule.id, bool(requested), use.o, relays, lead, at, booted_at, held, fog_reason),
             )
         )
     return out
@@ -750,7 +808,7 @@ def law_view(
     host = (
         None
         if all(edge is None for edge in host_edges)
-        else BandEdges(
+        else HostBandEdges(
             temp_low_f=_finite(host_edges[0]),
             temp_high_f=_finite(host_edges[1]),
             vpd_low_kpa=_finite(host_edges[2]),
@@ -783,12 +841,24 @@ def law_view(
     relays = {key: relay_now(tracks.get(key)) for key in LAW_RELAYS}
     uptime, uptime_at = _finite(row["uptime_s"]), row["uptime_at"]
     booted_at = uptime_at - timedelta(seconds=uptime) if uptime is not None and uptime_at is not None else None
-    rules = rules_now(record, fresh=fresh, relays=relays, lead=lead, at=at, booted_at=booted_at)
+    held = manual_held({flag: relay_now(tracks.get(flag)) for flag in MANUAL_RUN_RELAYS})
+    rules = rules_now(
+        record,
+        fresh=fresh,
+        relays=relays,
+        lead=lead,
+        at=at,
+        booted_at=booted_at,
+        held=held,
+        fog_reason=row["fog_block_reason"],
+    )
 
     # The temperature the drying checks compare: the climate row of the record's moment (within the law's freshness).
     temp_for_checks = (
         inputs.temp_f
-        if use is not None and climate_at is not None and abs((climate_at - law_at).total_seconds()) <= 120  # type: ignore[operator]
+        if use is not None
+        and climate_at is not None
+        and abs((climate_at - law_at).total_seconds()) <= LAW_HEARTBEAT_MAX_AGE_S  # type: ignore[operator]
         else None
     )
     drying = LawDrying(
@@ -977,8 +1047,9 @@ def bucket_columns(
 
 # API-30 in one statement: one now(), each entity's newest row through its (entity, ts) index inside a bounded
 # window, diagnostics as the newest non-null value of each column over 15 minutes (api/product_metrics.py
-# CONTROLLER_SQL and HEALTH_SQL), the newest climate row of the last day, the host band now, and the controller's
-# Lead Fan entity (null until the controller publishes it: no fan start is read as a lead).
+# CONTROLLER_SQL and HEALTH_SQL), the newest climate row of the last day, the host band now, the controller's
+# Lead Fan entity (null until the controller publishes it: no fan start is read as a lead) and its newest
+# fog_block_reason (published on change, so looked up over Now's newest-row window).
 VIEW_SQL = """
 SELECT now() AS at,
        law.value AS law_value, law.ts AS law_at,
@@ -993,7 +1064,9 @@ SELECT now() AS at,
        d.band_source, d.sntp_valid, d.last_sntp_sync_age_s, d.active_probe_count, d.sensor_degraded_active,
        d.gap_log_state, d.uptime_s, d.uptime_at,
        (SELECT value FROM system_state WHERE entity = $6 AND ts > now() - $7::interval
-         ORDER BY ts DESC LIMIT 1) AS lead_fan
+         ORDER BY ts DESC LIMIT 1) AS lead_fan,
+       (SELECT value FROM system_state WHERE entity = $8 AND ts > now() - $9::interval
+         ORDER BY ts DESC LIMIT 1) AS fog_block_reason
   FROM (SELECT 1) AS anchor
   LEFT JOIN LATERAL (SELECT value, ts FROM system_state
                       WHERE entity = $1 AND ts > now() - $7::interval ORDER BY ts DESC LIMIT 1) AS law ON true
@@ -1037,13 +1110,16 @@ SELECT value FROM v_desired_state_current WHERE greenhouse_id = $1 AND param = $
 
 # API-31: the law records of [$2, $3) decoded in SQL, cut where the followed fields change or a span of more than $4
 # has no record, and returned one row per run: its first and last record and the record after it. One range scan of
-# the (entity, ts) index over the window's chunks.
+# the (entity, ts) index over the window's chunks. Only version 1 records with both bit fields are read (the version
+# API-30's parse_record accepts); any other row is no record, so its span reads as unknown.
 ISLANDS_SQL = """
 WITH d AS (
     SELECT ts, (value::jsonb ->> 'l')::bigint AS l, (value::jsonb ->> 'o')::bigint AS o,
            value::jsonb ->> 'dr' AS dr, (value::jsonb ->> 'br')::int AS br
       FROM system_state
      WHERE entity = $1 AND ts >= $2::timestamptz AND ts < $3::timestamptz
+       AND value::jsonb ->> 'v' = '1'
+       AND jsonb_typeof(value::jsonb -> 'l') = 'number' AND jsonb_typeof(value::jsonb -> 'o') = 'number'
 ), e AS (
     SELECT ts, l, o, dr, br, lead(ts) OVER w AS next_ts,
            CASE WHEN lag(ts) OVER w IS NULL OR ts - lag(ts) OVER w > $4::interval
@@ -1090,7 +1166,8 @@ SELECT time_bucket($4::interval, ts) AS bucket,
                (value::jsonb -> 'b' ->> 0)::float8 AS b0, (value::jsonb -> 'b' ->> 1)::float8 AS b1,
                (value::jsonb -> 'b' ->> 2)::float8 AS b2, (value::jsonb -> 'b' ->> 3)::float8 AS b3
           FROM system_state
-         WHERE entity = $1 AND ts >= $2::timestamptz AND ts < $3::timestamptz) AS r
+         WHERE entity = $1 AND ts >= $2::timestamptz AND ts < $3::timestamptz
+           AND value::jsonb ->> 'v' = '1') AS r
  GROUP BY 1
  ORDER BY 1
 """
@@ -1099,8 +1176,9 @@ DAY_BUCKETS_SQL = BUCKETS_SQL.replace(
     "time_bucket($4::interval, ts)", "time_bucket($4::interval, ts, 'America/Denver')"
 )
 
+# The first law record ever (LAW_RECORDS_FROM bounds the scan); API-32's law_started is its local day.
 FIRST_RECORD_SQL = """
-SELECT ts FROM system_state WHERE entity = $1 AND ts > now() - $2::interval ORDER BY ts LIMIT 1
+SELECT ts FROM system_state WHERE entity = $1 AND ts >= $2::timestamptz ORDER BY ts LIMIT 1
 """
 
 
@@ -1109,7 +1187,7 @@ SELECT ts FROM system_state WHERE entity = $1 AND ts > now() - $2::interval ORDE
 
 async def law(conn: asyncpg.Connection) -> LawView:
     """API-30 ``GET /v1/law``: what the controller's law is doing now and why, in one bounded read."""
-    async with series._read_transaction(conn):
+    async with series._read_transaction(conn, "repeatable_read"):
         row = await conn.fetchrow(
             VIEW_SQL,
             LAW_STATE_ENTITY,
@@ -1119,10 +1197,12 @@ async def law(conn: asyncpg.Connection) -> LawView:
             reads.HEARTBEAT_ENTITY,
             LEAD_FAN_ENTITY,
             NEWEST_WINDOW,
+            FOG_BLOCK_REASON_ENTITY,
+            reads.NEWEST_ROW_WINDOW,
         )
         today = await conn.fetchrow(TODAY_SQL, reads.GREENHOUSE_ID)
         limit_row = await conn.fetchrow(LIMIT_SQL, reads.GREENHOUSE_ID, DRY_COST_LIMIT_PARAM)
-        tracks = await reads.equipment_tracks(conn, LAW_RELAYS)
+        tracks = await reads.equipment_tracks(conn, (*LAW_RELAYS, *MANUAL_RUN_RELAYS))
     snapshot = {**dict(row), "today": today}
     return law_view(snapshot, tracks, limit_row["value"] if limit_row else None, limit_row is not None)
 
@@ -1144,8 +1224,8 @@ async def history(
     source_islands: list[Island] = []
     bucket_rows: list[Any] = []
     first_record_at: datetime | None = None
-    async with series._read_transaction(conn):
-        first_record_at = await conn.fetchval(FIRST_RECORD_SQL, LAW_STATE_ENTITY, FIRST_RECORD_WINDOW)
+    async with series._read_transaction(conn, "repeatable_read"):
+        first_record_at = await conn.fetchval(FIRST_RECORD_SQL, LAW_STATE_ENTITY, LAW_RECORDS_FROM)
         if from_ < end:
             rows = await conn.fetch(ISLANDS_SQL, LAW_STATE_ENTITY, from_ - LAW_RECORD_GAP, end, LAW_RECORD_GAP)
             islands = [
@@ -1184,5 +1264,5 @@ async def history(
         outdoor_source=history_outdoor(source_pieces),
         band_repaired=history_band_repaired(pieces),
         cost=CostColumns(bucket_s=bucket_s, t=t, **cost),
-        band=BandColumns(bucket_s=bucket_s, t=t, **band),
+        band=LawBandColumns(bucket_s=bucket_s, t=t, **band),
     )

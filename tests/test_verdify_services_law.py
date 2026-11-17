@@ -14,6 +14,7 @@ import json
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -71,6 +72,7 @@ def view_row(**overrides):
         "uptime_s": 35163,
         "uptime_at": AT - timedelta(seconds=1),
         "lead_fan": None,
+        "fog_block_reason": "none",
         "today": {
             "drying_s": 129.8,
             "drying_runs": 1,
@@ -90,7 +92,7 @@ def track(*states):
 
 
 def tracks(**by_relay):
-    base = {relay: track((7200, False)) for relay in law.LAW_RELAYS}
+    base = {relay: track((7200, False)) for relay in (*law.LAW_RELAYS, *law.MANUAL_RUN_RELAYS)}
     base.update(by_relay)
     return base
 
@@ -175,9 +177,7 @@ def test_the_newest_production_record_explained():
         "not_cooling": True,
         "furnace_off": True,
     }
-    assert [check.id for check in drying.checks] == [
-        "humid", "outdoor_drier", "worth_it", "warm_enough", "not_cooling", "furnace_off"
-    ]  # fmt: skip
+    assert [check.id for check in drying.checks] == list(get_args(law.CheckId))
     assert drying.meter == law.DryingMeter(
         seconds=120.0, water_g=247.0, heat_wh=177.0, refused_seconds=22440.0, observed_at=AT - timedelta(minutes=27)
     )
@@ -268,6 +268,71 @@ def test_refusals_settle_their_checks():
     assert {c.id: c.ok for c in cooling}["not_cooling"] is False
 
 
+# The check each refusal reason fails (no_outdoor leaves outdoor_drier unknown rather than false).
+REFUSAL_CHECK = {
+    "humidity_invalid": "humid",
+    "no_outdoor": "outdoor_drier",
+    "cooling": "not_cooling",
+    "furnace": "furnace_off",
+    "not_drier": "outdoor_drier",
+    "too_cold": "warm_enough",
+    "cost": "worth_it",
+}
+
+
+def test_the_checks_follow_the_laws_refusal_chain():
+    header = (ROOT / "firmware/lib/climate_law.h").read_text()
+    block = header[header.index("why drying is wanted and not running") :]
+    block = block[: block.index("return q;")]
+    chain = [name.lower() for name in re.findall(r"q\.dry_refusal = DRY_([A-Z_]+);", block)]
+    assert chain == ["humidity_invalid", "no_outdoor", "cooling", "furnace", "not_drier", "too_cold", "cost"]
+    assert set(REFUSAL_CHECK) | {"none", "no_temperature"} == set(get_args(law.RefusedReason))
+    # The first appearance of each check down the chain, with no_outdoor shown as outdoor_drier unknown.
+    order: list[str] = []
+    for reason in chain:
+        if reason != "no_outdoor" and REFUSAL_CHECK[reason] not in order:
+            order.append(REFUSAL_CHECK[reason])
+    assert order == list(get_args(law.CheckId))
+
+
+DRY, AIR, H1, H2, COOL = 64, 128, 1, 2, 4
+
+
+@pytest.mark.parametrize(
+    "latches, requests, dr, e, temp_f",
+    [
+        (DRY | AIR, 0, "humidity_invalid", 0.633, 70.0),
+        (DRY | AIR | COOL, 4 | 32 | 128, "cooling", 0.633, 81.0),
+        (DRY | COOL, 4 | 32 | 128, "cooling", 1e9, 81.0),  # the outdoor air is not drier either: cooling comes first
+        (DRY | AIR | H1 | H2, 1 | 2, "furnace", 0.9, 60.0),
+        (DRY, 0, "not_drier", 1e9, 60.0),
+        (DRY | AIR, 0, "not_drier", K.DRY_COST_NONE_KWH_PER_KG, 70.0),  # too small a moisture difference
+        (DRY | AIR | H1, 1, "too_cold", 0.9, None),
+        (DRY | AIR, 0, "cost", 0.82, 70.0),
+    ],
+)
+def test_the_first_failing_check_is_the_refusal_reason(latches, requests, dr, e, temp_f):
+    found = law.drying_checks(law.parse_record(record(latches, requests, dr=dr, e=e)), temp_f, fresh=True)
+    first = next(check.id for check in found if check.ok is not True)
+    assert first == REFUSAL_CHECK[dr]
+    assert next(check for check in found if check.id == first).ok is (None if dr == "humidity_invalid" else False)
+
+
+def test_no_outdoor_leaves_the_outdoor_checks_unknown():
+    no_outdoor = law.parse_record(record(DRY, 0, "no_outdoor", e=None))
+    found = {c.id: c.ok for c in law.drying_checks(no_outdoor, 70.0, fresh=True)}
+    assert found["outdoor_drier"] is None and found["worth_it"] is None
+    assert found["humid"] is True and found["not_cooling"] is True and found["furnace_off"] is True
+
+
+def test_a_running_run_passes_the_start_only_checks():
+    # The price rose past the limit and the house cooled below the start line: the law keeps the run (cost and
+    # temperature decide only the start), so both checks pass while it runs.
+    running = law.parse_record(record(449, 293, e=0.9))
+    found = {c.id: c.ok for c in law.drying_checks(running, 67.9, fresh=True)}
+    assert found == dict.fromkeys(get_args(law.CheckId), True)
+
+
 def test_a_stale_record_says_nothing_about_now():
     view = law.law_view(view_row(law_at=AT - timedelta(seconds=300)), tracks(), None, False)
     assert view.reporting is False and view.observed_at == AT - timedelta(seconds=300)
@@ -309,7 +374,7 @@ def test_band_differs_and_constants_mismatch():
     view = law.law_view(row, tracks(), None, False)
     assert view.band.differs is True  # 1.1 F off on the low edge
     assert view.constants.hash == "0" * 64 and view.constants.matches is False
-    assert law.band_differs((67.4, 79.4, 0.81, 1.34), law.BandEdges(
+    assert law.band_differs((67.4, 79.4, 0.81, 1.34), law.HostBandEdges(
         temp_low_f=68.4, temp_high_f=79.4, vpd_low_kpa=0.91, vpd_high_kpa=1.34
     )) is False  # fmt: skip
     assert law.band_differs((67.4, 79.4, 0.81, 1.34), None) is None
@@ -349,10 +414,10 @@ def test_hold_min_off_and_min_on():
     # Past the minimum time, or in the state the law asks for: nothing to prove.
     assert law.rule_hold("heat1", True, 1, relays(heat1=(False, 400)), None, AT, BOOTED) is None
     assert law.rule_hold("heat1", True, 1, relays(heat1=(True, 10)), None, AT, BOOTED) is None
-    # The fogger's own times (120 s).
-    assert law.rule_hold("fog", True, 8, relays(fog=(False, 30)), None, AT, BOOTED) == law.LawHold(
-        kind="min_off", remaining_s=90
-    )
+    # The fogger's own times (120 s), while the controller says the fogger waits out its minimum off time.
+    assert law.rule_hold(
+        "fog", True, 8, relays(fog=(False, 30)), None, AT, BOOTED, fog_reason="relay_min_off"
+    ) == law.LawHold(kind="min_off", remaining_s=90)
 
 
 def test_hold_needs_proof():
@@ -376,6 +441,65 @@ def test_hold_needs_proof():
                          BOOTED) is None  # fmt: skip
     assert law.rule_hold("cooling", True, 4 | 32 | 128, relays(vent=(True, 400), fan1=(False, 10)), "fan1", AT,
                          BOOTED) == law.LawHold(kind="min_off", remaining_s=290)  # fmt: skip
+
+
+def test_the_relays_of_each_rule():
+    assert law.rule_relays("hot_limit", None) == ("vent", "fan1", "fan2")
+    assert law.rule_relays("cold_limit", "fan1") == ("heat1", "heat2")
+    assert law.rule_relays("cooling", "fan2") == ("vent", "fan2")
+    assert law.rule_relays("cooling", None) == ("vent", "fan1", "fan2")
+    assert law.rule_relays("second_fan", "fan2") == ("fan1",) and law.rule_relays("mist", None) == ("mister_any",)
+
+
+def bursts(**on):
+    return {flag: law.RelayNow(on=on.get(flag, False), since=None) for flag in law.MANUAL_RUN_RELAYS}
+
+
+def test_a_manual_run_proves_no_hold():
+    fans_on = relays(vent=(True, 60), fan1=(True, 60), heat1=(False, 60))
+    # Without a manual run, fan1 on 60 s with cooling not requested is inside its minimum on time...
+    free = law.manual_held(bursts())
+    assert free == frozenset()
+    assert law.rule_hold("cooling", False, 0, fans_on, "fan1", AT, BOOTED, free) == law.LawHold(
+        kind="min_on", remaining_s=240
+    )
+    # ...but 60 s into a manual fan run the run holds the fans and the vent, and stops the heaters.
+    held = law.manual_held(bursts(fan_burst_active=True))
+    assert {"fan1", "fan2", "vent", "heat1", "heat2"} == held
+    assert law.rule_hold("cooling", False, 0, fans_on, "fan1", AT, BOOTED, held) is None
+    assert law.rule_hold("heat1", True, 1, fans_on, "fan1", AT, BOOTED, held) is None
+    assert law.manual_held(bursts(vent_bypass_active=True)) == held
+    # A fogger press holds the fogger; a flag the host has not seen proves nothing either.
+    assert law.manual_held(bursts(fog_burst_active=True)) == {"fog"}
+    assert law.manual_held({}) == {relay for group in law.MANUAL_RUN_RELAYS.values() for relay in group}
+    assert law.manual_held(bursts(fan_burst_active=None)) == held
+
+
+def test_a_manual_run_in_the_view():
+    view = law.law_view(
+        view_row(),
+        tracks(
+            fan_burst_active=track((7200, False), (60, True)),
+            vent=track((7200, False), (60, True)),
+            fan1=track((7200, False), (60, True)),
+        ),
+        None,
+        False,
+    )
+    assert rule(view, "cooling").requested is False and rule(view, "cooling").hold is None
+    assert rule(view, "hot_limit").hold is None
+
+
+def test_the_fogger_proves_only_what_the_controller_and_the_limits_settle():
+    fog_off = relays(fog=(False, 30))
+    # Requested and off: the controller names the hold; occupancy or the drips hold it for their own reasons.
+    assert law.rule_hold("fog", True, 8, fog_off, None, AT, BOOTED, fog_reason="occupancy") is None
+    assert law.rule_hold("fog", True, 8, fog_off, None, AT, BOOTED, fog_reason=None) is None
+    # On and not requested: the irrigation engine's run may hold it, except at a protection limit.
+    assert law.rule_hold("fog", False, 0, relays(fog=(True, 30)), None, AT, BOOTED) is None
+    assert law.rule_hold("fog", False, 512, relays(fog=(True, 30)), None, AT, BOOTED) == law.LawHold(
+        kind="min_on", remaining_s=90
+    )
 
 
 def test_the_furnace_boot_wait():
@@ -484,8 +608,10 @@ class Conn:
     def __init__(self, responders):
         self.responders = responders
         self.calls: list[tuple[str, tuple]] = []
+        self.isolation: list[str | None] = []
 
-    def transaction(self, **_kwargs):
+    def transaction(self, **kwargs):
+        self.isolation.append(kwargs.get("isolation"))
         return Transaction()
 
     def is_in_transaction(self):
@@ -530,8 +656,13 @@ def test_the_view_read():
     assert rule(view, "heat1").relays[0].state == "on"
     statements = [sql for sql, _ in conn.calls]
     assert statements[0].startswith("SET LOCAL statement_timeout")
+    # One snapshot: the law record and the relay edges the holds compare it with describe the same moment.
+    assert conn.isolation == ["repeatable_read"]
     view_sql, args = next((sql, args) for sql, args in conn.calls if "AS anchor" in sql)
     assert args[:4] == ("climate_law_state", "climate_drying_meter", "climate_law_constants", "outdoor_source")
+    assert args[7:] == ("fog_block_reason", reads.NEWEST_ROW_WINDOW)
+    tracked = next(args for sql, args in conn.calls if "FROM equipment_state" in sql)[0]
+    assert set(law.MANUAL_RUN_RELAYS) <= set(tracked)
     # Every system_state, diagnostics, climate and equipment_state read is bounded by time.
     for table in ("system_state", "diagnostics", "climate", "equipment_state"):
         for match in re.finditer(rf"FROM {table}\b(.{{0,110}})", view_sql):
@@ -599,6 +730,18 @@ def test_the_history_read_and_its_window_rules():
             assert args[1] < args[2] <= now
     islands_args = next(args for sql, args in conn.calls if "ROW(lag(l)" in sql)
     assert islands_args == ("climate_law_state", T0 - law.LAW_RECORD_GAP, now, law.LAW_RECORD_GAP)
+    first_args = next(args for sql, args in conn.calls if "ORDER BY ts LIMIT 1" in sql)
+    assert first_args == ("climate_law_state", law.LAW_RECORDS_FROM)
+    assert conn.isolation == ["repeatable_read"]
+
+
+def test_history_reads_only_version_1_records():
+    # A record of another version, or one without its bit fields, is no record: its span reads as unknown, as
+    # API-30's parse_record treats it, and never fails the read.
+    assert "value::jsonb ->> 'v' = '1'" in law.ISLANDS_SQL
+    assert "jsonb_typeof(value::jsonb -> 'l') = 'number'" in law.ISLANDS_SQL
+    assert "jsonb_typeof(value::jsonb -> 'o') = 'number'" in law.ISLANDS_SQL
+    assert "value::jsonb ->> 'v' = '1'" in law.BUCKETS_SQL and "value::jsonb ->> 'v' = '1'" in law.DAY_BUCKETS_SQL
 
 
 def test_history_window_rules():
