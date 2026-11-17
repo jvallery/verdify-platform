@@ -598,6 +598,27 @@ TEST(boot_grace_waits_for_all_four_wall_probes_at_most_60_s) {
     PASS();
 }
 
+TEST(manual_fan_run_capped_at_15_min_without_a_valid_temperature) {
+    // Owner decision V-2. A 60 min Fans press with the probes dead ends 15 min from now.
+    const uint32_t now = 100000u, max = running_alone_k::MANUAL_FANS_NO_TEMP_MAX_MS;
+    const uint32_t press = manual_override_deadline_ms(now, 60);
+    ASSERT_EQ(manual_fans_deadline_capped(press, now, false), now + max);
+    // Applied every pass, the cap holds the run's end: it does not move later.
+    uint32_t until = press;
+    for (uint32_t t = now; t < now + max; t += 1000u) until = manual_fans_deadline_capped(until, t, false);
+    ASSERT_EQ(until, now + max);
+    ASSERT_FALSE(manual_latch_active(manual_fans_deadline_capped(until, now + max, false), now + max));
+    // A run already shorter than the cap, no run, and any run with a valid temperature: unchanged.
+    ASSERT_EQ(manual_fans_deadline_capped(now + 600000u, now, false), now + 600000u);
+    ASSERT_EQ(manual_fans_deadline_capped(0u, now, false), 0u);
+    ASSERT_EQ(manual_fans_deadline_capped(press, now, true), press);
+    // millis() wrap: a deadline that wraps to exactly 0 is stored as 1 (0 means no run).
+    ASSERT_EQ(manual_fans_deadline_capped(5u * max, uint32_t(0u - max), false), 1u);
+    // The probes die mid-run: 15 min from that pass.
+    ASSERT_EQ(manual_fans_deadline_capped(press, now + 600000u, false), now + 600000u + max);
+    PASS();
+}
+
 TEST(every_relay_but_the_furnace_is_available_at_boot) {
     // RULINGS G4: stamp 0 = no edge since this boot. Every relay may start at once except the
     // furnace, which waits one minimum off time after ANY boot.

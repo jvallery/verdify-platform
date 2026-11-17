@@ -591,6 +591,10 @@ interval:
           // SUPERSEDE all climate automation; no climate check refuses a press. A latch
           // ends at its timeout, a second press, a clear, or a protection limit (above).
           // Deadlines are wrap-safe signed-difference tests (millis wraps).
+          // V-2: with no valid indoor temperature a fan run ends at most 15 min from now
+          // (the heaters are held while it runs); with a valid one nothing changes.
+          id(manual_fans_until_ms) =
+              manual_fans_deadline_capped(id(manual_fans_until_ms), now_ms, law_temp_valid);
           const bool manual_fans_latched =
               id(manual_fans_until_ms) != 0
               && (int32_t)(id(manual_fans_until_ms) - now_ms) > 0;

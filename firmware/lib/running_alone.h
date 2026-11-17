@@ -38,6 +38,11 @@ constexpr uint32_t BOOT_GRACE_MS = 60000;
 // The no-indoor-temperature rule leaves the vent branch only below the corridor's low
 // edge less this (RULINGS G5).
 constexpr float NO_INDOOR_VENT_HYSTERESIS_F = 1.0f;
+// Owner decision V-2: while there is no valid indoor temperature a manual Fans run (and a
+// vent-bypass run, which shares its deadline) ends at most this long from now. The heaters
+// are held during a manual fan run, so a long run with dead probes would leave the house
+// unheated.
+constexpr uint32_t MANUAL_FANS_NO_TEMP_MAX_MS = 15u * 60000u;
 // Relay counters and fan run seconds: first copy to flash this long after a boot, then
 // at most once per interval (review-1703 minor 7; RULINGS G8).
 constexpr uint32_t COUNTER_FIRST_SAVE_MS = 600000;
@@ -304,6 +309,17 @@ inline IndoorGate indoor_gate(BootGrace& grace, bool temp_valid, bool walls_comp
     if ((temp_valid && walls_complete) || now_ms >= grace_ms) grace.over = true;
     if (!grace.over) return IndoorGate::kBootWait;
     return temp_valid ? IndoorGate::kRun : IndoorGate::kNoIndoor;
+}
+
+// V-2: the manual fan deadline with no valid indoor temperature: at most
+// MANUAL_FANS_NO_TEMP_MAX_MS ahead of now (a later deadline is brought in; 0 = no run stays
+// 0; a deadline that wraps to exactly 0 is stored as 1). With a valid temperature it is
+// returned unchanged.
+inline uint32_t manual_fans_deadline_capped(uint32_t until_ms, uint32_t now_ms, bool temp_valid) noexcept {
+    if (temp_valid || until_ms == 0u) return until_ms;
+    if (int32_t(until_ms - now_ms) <= int32_t(running_alone_k::MANUAL_FANS_NO_TEMP_MAX_MS)) return until_ms;
+    const uint32_t capped = now_ms + running_alone_k::MANUAL_FANS_NO_TEMP_MAX_MS;
+    return capped == 0u ? 1u : capped;
 }
 
 // A relay that has not switched since this boot (stamp 0) is available at once: the
