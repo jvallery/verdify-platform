@@ -616,9 +616,15 @@ async def _refresh_daily_summary_for_date(
         target_day,
     )
     water_available = bool(water_evidence and water_evidence["available_for_scoring"])
-    # water_used_gal stays the quality-filtered meter total (reporting). Water cost is planning water only:
+    # water_used_gal is the quality-filtered meter total (reporting), stored whenever the meter has one, as
+    # daily_record.water_gal is: a discontinuous ledger day is not scored, but its water was still used (#1734
+    # TEL-33). Water cost is planning water only, and it and the mister water stay gated on the scoring flag:
     # climate wetting + wall irrigation + wall fertigation; house/hose use is never a planning input (#1623).
-    water_gal = float(water_evidence["quality_filtered_meter_gal"]) if water_available else None
+    water_gal = (
+        float(water_evidence["quality_filtered_meter_gal"])
+        if water_evidence and water_evidence["quality_filtered_meter_gal"] is not None
+        else None
+    )
     planning_water_gal = (
         float(water_evidence["planning_water_gal"])
         if water_available and water_evidence["planning_water_gal"] is not None
