@@ -137,12 +137,14 @@ def test_file_is_wrap_safe_appends_one_column_and_drops_one_unread_view():
         r"\bTRUNCATE\b",
         r"\bDELETE\b",
         r"\bCREATE TABLE\b",
-        r"\bGRANT\b",
-        r"\bREVOKE\b",
         r"\bOWNER TO\b",
     ):
         assert not re.search(forbidden, code), forbidden
     assert re.findall(r"\bDROP\b[^;$]*", BODY) == ["DROP VIEW public.v_setpoint_forward RESTRICT\n"]
+    assert re.findall(r"\b(?:GRANT|REVOKE)\b[^;]*", BODY) == [
+        "REVOKE ALL ON verdify_grafana_runtime.planner_review FROM PUBLIC",
+        "GRANT SELECT ON verdify_grafana_runtime.planner_review TO verdify_grafana_runtime",
+    ]
     assert re.findall(r"\bALTER\b[^;$]*", BODY) == ["ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb\n"]
     for name, sql in qualifier.sessions(SOURCE, (), qualifier.native_checks(NATIVE)).items():
         assert sql.startswith("BEGIN") and sql.endswith("ROLLBACK;\n"), name
@@ -377,12 +379,36 @@ def test_the_daily_record_stores_the_laws_refused_drying_by_reason():
     assert "COMMENT ON COLUMN public.daily_record.dry_refusal IS" in BODY
 
 
+def test_the_grafana_review_facade_exposes_status_and_times_only():
+    """HOST-LAW's four lab panels read kind, status, review_date and written_at; no review text leaves."""
+    create = re.search(
+        r"CREATE VIEW verdify_grafana_runtime\.planner_review WITH\(security_barrier=true\) AS SELECT (.*?) FROM public\.planner_review;",
+        BODY,
+    )
+    assert create and [c.strip().strip('"') for c in create.group(1).split(",")] == [
+        "id",
+        "kind",
+        "review_date",
+        "status",
+        "requested_at",
+        "written_at",
+    ]
+    for hidden in ("summary", "band_proposal", "tokens", "failure", "run_id", "hermes_run_id", "requested_by"):
+        assert hidden not in create.group(1), hidden
+    assert BODY.count("verdify_grafana_runtime.planner_review") == 4
+
+
 def test_the_native_fixture_reads_as_each_runtime_and_reports_once():
     text = NATIVE.read_text()
     qualifier.native_checks(NATIVE)
-    for login in ("verdify_ingestor_runtime_login", "verdify_mcp_runtime_login", "verdify_dashboard_runtime_login"):
+    for login in (
+        "verdify_ingestor_runtime_login",
+        "verdify_mcp_runtime_login",
+        "verdify_dashboard_runtime_login",
+        "verdify_grafana_runtime_login",
+    ):
         assert f"SET SESSION AUTHORIZATION {login};" in text, login
-    assert text.count("RESET SESSION AUTHORIZATION;") == 3
+    assert text.count("RESET SESSION AUTHORIZATION;") == 4
 
 
 def test_the_projection_is_the_files_literals():

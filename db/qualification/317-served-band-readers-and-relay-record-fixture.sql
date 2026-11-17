@@ -9,7 +9,7 @@
 -- again here (rolled back, about 15 s), carries the law's refused drying; and that every grant stayed. As the ingestor
 -- login it runs the heat-staging alert's function and the house band and reads the schedule and the counter check; as
 -- the MCP login it runs the day scorecard for yesterday and the house band; as the dashboard login it reads the counter
--- check. Every read is bounded.
+-- check; as the Grafana login it runs the lab panels' review query. Every read is bounded.
 -- The last line reports the result to the qualifier.
 DO $catalog$
 DECLARE
@@ -87,6 +87,17 @@ BEGIN
         OR (SELECT p.prosrc FROM pg_catalog.pg_proc p
               WHERE p.oid='public.fn_daily_record_store(date)'::regprocedure) !~ 'climate_law_state'
     THEN RAISE EXCEPTION '317 daily record lacks the refused drying'; END IF;
+    IF (SELECT array_agg(a.attname::text ORDER BY a.attnum) FROM pg_catalog.pg_attribute a
+          WHERE a.attrelid=to_regclass('verdify_grafana_runtime.planner_review') AND a.attnum>0 AND NOT a.attisdropped)
+        IS DISTINCT FROM ARRAY['id', 'kind', 'review_date', 'status', 'requested_at', 'written_at']
+        OR (SELECT c.reloptions FROM pg_catalog.pg_class c WHERE c.oid='verdify_grafana_runtime.planner_review'::regclass)
+            IS DISTINCT FROM ARRAY['security_barrier=true']
+        OR EXISTS(SELECT 1 FROM pg_catalog.pg_class c, LATERAL pg_catalog.aclexplode(c.relacl) a
+            WHERE c.oid='verdify_grafana_runtime.planner_review'::regclass AND a.grantee<>c.relowner
+              AND (a.grantee<>'verdify_grafana_runtime'::regrole OR a.privilege_type<>'SELECT'))
+        OR NOT has_table_privilege('verdify_grafana_runtime', 'verdify_grafana_runtime.planner_review', 'SELECT')
+        OR has_table_privilege('verdify_grafana_runtime', 'public.planner_review', 'SELECT')
+    THEN RAISE EXCEPTION '317 Grafana review facade is not exact'; END IF;
 END $catalog$;
 
 -- The live rows: the last hour of the timeline on a 30-minute step, and the last 10 minutes of v_greenhouse_state.
@@ -168,6 +179,24 @@ BEGIN
 END $mcp$;
 RESET SESSION AUTHORIZATION;
 
+-- The lab panels' two queries, unqualified as Grafana sends them. SET SESSION AUTHORIZATION does not apply the
+-- login's role setting, so its search_path (268: verdify_grafana_runtime first) is set for the block and restored.
+SET SESSION AUTHORIZATION verdify_grafana_runtime_login;
+DO $grafana$
+DECLARE
+    saved text := pg_catalog.current_setting('search_path');
+BEGIN
+    PERFORM pg_catalog.set_config('search_path', 'verdify_grafana_runtime,pg_catalog,public,pg_temp', true);
+    PERFORM review_date, written_at FROM planner_review
+      WHERE kind = 'daily' AND status = 'written' ORDER BY review_date DESC LIMIT 1;
+    PERFORM max(written_at) FROM planner_review WHERE kind = 'daily' AND status = 'written';
+    IF to_regclass('planner_review') IS DISTINCT FROM 'verdify_grafana_runtime.planner_review'::regclass THEN
+        RAISE EXCEPTION '317 Grafana login does not resolve planner_review to its facade';
+    END IF;
+    PERFORM pg_catalog.set_config('search_path', saved, true);
+END $grafana$;
+RESET SESSION AUTHORIZATION;
+
 SET SESSION AUTHORIZATION verdify_dashboard_runtime_login;
 DO $dashboard$
 BEGIN
@@ -182,5 +211,6 @@ SELECT 'QUALIFY native_fixture ' || json_build_object(
                                'greenhouse_state_rows_on_the_band', 'schedule_readback_counts_null',
                                'house_vpd_band_shape', 'daily_record_refused_drying', 'house_vpd_band_rows_served',
                                'yesterday_refused_drying_stored', 'ingestor_reads_its_objects',
-                               'mcp_runs_the_scorecard', 'dashboard_reads_counter_check'),
+                               'mcp_runs_the_scorecard', 'grafana_reads_the_review_facade',
+                               'dashboard_reads_counter_check'),
     'all_passed', true)::text;

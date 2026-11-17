@@ -513,7 +513,7 @@ SUCCESSOR_316_MCP_DIGEST = "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a66
 # rule, and daily_relay_record's run columns are defined. The seals are measured by the native probe; until then the
 # literals are 316's (fail closed). It follows 316.
 SUCCESSOR_317 = "317-served-band-readers-and-relay-record.sql"
-SUCCESSOR_317_SHA256 = "c8158c260260099445bfb898cc7dc3e45208077762e1946a0f399921b2e7589b"
+SUCCESSOR_317_SHA256 = "44d5f7318906bb857f4ff9d1454212dad5a6ca15d580932fd8a364a3ddd02310"
 SUCCESSOR_317_DIGESTS = SUCCESSOR_316_DIGESTS
 SUCCESSOR_317_MCP_DIGEST = SUCCESSOR_316_MCP_DIGEST
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this

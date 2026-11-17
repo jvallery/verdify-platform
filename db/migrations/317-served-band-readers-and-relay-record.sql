@@ -1,7 +1,8 @@
 -- 317 (#1633, host release 5; #1734): the database readers of the band read the served band, the relay run time has
 -- one definition, the retired irrigation readbacks stop reading stale, and the relay counter check judges only a day
 -- whose record was taken after it ended; the house VPD band is the served band; the daily record carries the climate
--- law's refused drying by reason. Views and functions, one appended daily_record column; one unread view is dropped.
+-- law's refused drying by reason; Grafana reads the daily review's status. Views and functions, one appended
+-- daily_record column, one new Grafana facade; one unread view is dropped.
 -- (a) Band readers (validation CTL-24, release 4 review C-7; RULINGS AF2, one band source: fn_band_setpoints):
 --   fn_band_timeline: the crop, projected and fallback VPD edges come from fn_band_setpoints instead of
 --     fn_house_vpd_control_band (the zone-informed house band, 0.32-0.87 kPa where the served band is 0.82-1.34 kPa at
@@ -46,6 +47,11 @@
 --     climate_law_state (l bit 6 drying wanted, dr the refusal), each record held until the next and at most 3
 --     minutes; set when the day is complete, NULL for a day with no law record (every day before the law flash).
 --     fn_daily_record_store writes it; the refresh job restores today and the two days before every run.
+-- (g) verdify_grafana_runtime.planner_review: a security-barrier facade over public.planner_review (313) with id,
+--     kind, review_date, status, requested_at and written_at only (no summary, band proposal, token counts, failure
+--     text or run identifiers), SELECT to verdify_grafana_runtime alone. Readers: the four lab public-share panels
+--     that keep their ids, site-intelligence 3 and 4 and site-evidence-operations 14 and 15 (Latest Review, Review
+--     Age: kind = 'daily' AND status = 'written', review_date and written_at).
 -- Seals: fn_heat_staging_inversion and fn_house_vpd_control_band are in the ordinary boundary digest, the ingestor
 -- duty reads the schedule and counter views and daily_record (its columns are hashed), and MCP executes the scorecard
 -- and house band functions, so the api, ingestor and MCP seals are measured again by
@@ -85,6 +91,10 @@ BEGIN
         OR to_regprocedure('public.fn_band_setpoints(timestamptz)') IS NULL
         OR to_regprocedure('public.fn_zone_vpd_targets(timestamptz)') IS NULL
         OR to_regclass('public.daily_record') IS NULL
+        -- (g) the review table's six read columns, and no facade yet.
+        OR (SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=to_regclass('public.planner_review')
+            AND attname IN ('id', 'kind', 'review_date', 'status', 'requested_at', 'written_at') AND NOT attisdropped)<>6
+        OR to_regclass('verdify_grafana_runtime.planner_review') IS NOT NULL
         OR EXISTS(SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid='public.daily_record'::regclass
             AND attname='dry_refusal' AND NOT attisdropped)
         OR to_regclass('public.v_greenhouse_state') IS NULL OR to_regclass('public.v_heating_staging') IS NULL
@@ -1366,6 +1376,14 @@ COMMENT ON COLUMN public.daily_record.dry_refusal IS
     '(l bit 6); refused_s, an object of refusal reason (dr: no_outdoor, cooling, furnace, not_drier, too_cold, cost, '
     'humidity_invalid, no_temperature) to the wanted seconds it refused; wanted_s minus their sum ran. Set when the '
     'day is complete; NULL for the day in progress and for a day with no law record (before the law flash).';
+
+-- (g) The daily review's status for the lab's public-share panels, built as the other Grafana facades (268).
+CREATE VIEW verdify_grafana_runtime.planner_review WITH(security_barrier=true) AS SELECT "id", "kind", "review_date", "status", "requested_at", "written_at" FROM public.planner_review;
+REVOKE ALL ON verdify_grafana_runtime.planner_review FROM PUBLIC;
+GRANT SELECT ON verdify_grafana_runtime.planner_review TO verdify_grafana_runtime;
+COMMENT ON VIEW verdify_grafana_runtime.planner_review IS
+    'The daily review''s status for Grafana (317): id, kind, review_date, status, requested_at and written_at of '
+    'public.planner_review; the review''s text, band proposal, token counts and failure text stay out.';
 
 -- (c) One definition of a relay's daily run time (validation TEL-23).
 COMMENT ON COLUMN public.daily_relay_record.run_s IS
