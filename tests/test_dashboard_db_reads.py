@@ -641,6 +641,28 @@ def test_writer_differing_counts_from_the_first_row_after_the_last_match_with_ke
 # ── API-07: the plan, lanes and planner health ──────────────────────────────
 
 
+def test_a_manual_row_for_a_deleted_setting_gets_no_plan_lane(dsn):
+    # Release 4 review BM-1: production holds manual rows for settings release 4 deleted (sw_economiser_enabled
+    # among them). Plan would list a lane nobody can open or release (the drawer's read answers 404).
+    assert "sw_economiser_enabled" not in REGISTRY
+
+    async def body(conn, t0):
+        await reporting_now(conn, t0)
+        await conn.execute(
+            "INSERT INTO desired_state (param, value, manual, source, actor, reason, created_at) VALUES "
+            "('sw_economiser_enabled', 1, true, 'dashboard', 'jason', NULL, $1), "
+            "('mister_min_off_s', 60, true, 'dashboard', 'jason', NULL, $1)",
+            t0 - 2 * H,
+        )
+        result = await as_reader(conn, reads.plan, hours=24)
+        assert [lane.param for lane in result.lanes] == ["mister_min_off_s"]
+        assert result.manual_count == 1
+        # The row stays as history.
+        assert await conn.fetchval("SELECT count(*) FROM desired_state WHERE param = 'sw_economiser_enabled'") == 1
+
+    scenario(dsn, body)
+
+
 def test_plan_lanes_waypoints_and_planner_health(dsn):
     trigger_id = uuid.uuid4()
 
