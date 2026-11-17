@@ -96,7 +96,7 @@ test("the answer, then the settings in use by group, and those nothing reads fol
   const order = SETTING_GROUPS.map(([group]) => group);
   const inUse = [...controller, ...host];
   expect(shownIn("settings-in-use")).toEqual(order.flatMap((group) => inUse.filter((row) => row.group === group).map((row) => row.param)));
-  expect(groupsIn("settings-in-use")).toEqual(["crop_band", "controller_safety", "scheduled_policy", "planner_policy", "site_water_caps", "band_in_force", "read_only"]);
+  expect(groupsIn("settings-in-use")).toEqual(["crop_band", "controller_safety", "scheduled_policy", "site_water_caps", "band_in_force", "read_only"]);
   expect(text(panel("settings-in-use").querySelector('tbody[data-group="crop_band"] .ctl-group-head'))).toBe(`The band · ${inUse.filter((row) => row.group === "crop_band").length}`);
   // Nothing reads them: folded, and listed in full when unfolded.
   const unused = panel("settings-unused");

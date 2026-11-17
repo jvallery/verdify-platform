@@ -25,7 +25,7 @@ test("missing help remains searchable and an empty query includes every row", ()
 });
 
 test("what reads a setting: the served effect, else worked out the way the API does", () => {
-  expect(settingEffect({ group: "planner_policy", control_class: "planner_policy", effect: "none" })).toBe("none");
+  expect(settingEffect({ group: "controller_safety", control_class: "controller_safety", effect: "none" })).toBe("none");
   expect(settingEffect({ group: "band_in_force", control_class: "crop_band", effect: "host" })).toBe("host");
   // A server before dashboard v2 sends no effect.
   expect(settingEffect({ group: "band_in_force", control_class: "crop_band" })).toBe("host");
@@ -34,8 +34,8 @@ test("what reads a setting: the served effect, else worked out the way the API d
 });
 
 test("groups follow the fixed order by what a setting is for, an unknown group after them under its code", () => {
-  expect(SETTING_GROUPS.map(([group]) => group)).toEqual(["crop_band", "controller_safety", "scheduled_policy", "planner_policy", "site_water_caps", "band_in_force", "read_only"]);
-  expect(SETTING_GROUPS.map(([, label]) => label)).toEqual(["The band", "Limits and holds", "Lights", "Misting and outdoor readings", "Water limits", "Band in force", "For reference"]);
+  expect(SETTING_GROUPS.map(([group]) => group)).toEqual(["crop_band", "controller_safety", "scheduled_policy", "site_water_caps", "band_in_force", "read_only"]);
+  expect(SETTING_GROUPS.map(([, label]) => label)).toEqual(["The band", "Limits and holds", "Lights", "Water limits", "Band in force", "For reference"]);
   const rows = [{ group: "read_only", n: 1 }, { group: "new_group", n: 2 }, { group: "crop_band", n: 3 }, { group: "read_only", n: 4 }];
   expect(groupRows(rows).map(([group, list]) => [group, list.map((row) => row.n)])).toEqual([["crop_band", [3]], ["read_only", [1, 4]], ["new_group", [2]]]);
   expect(groupLabel("new_group")).toBe("new_group");

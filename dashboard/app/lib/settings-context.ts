@@ -31,7 +31,6 @@ export const SETTING_GROUPS: readonly (readonly [string, string])[] = [
   ["crop_band", "The band"],
   ["controller_safety", "Limits and holds"],
   ["scheduled_policy", "Lights"],
-  ["planner_policy", "Misting and outdoor readings"],
   ["site_water_caps", "Water limits"],
   ["band_in_force", "Band in force"],
   ["read_only", "For reference"],

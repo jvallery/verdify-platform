@@ -34,6 +34,7 @@ import yaml
 
 from verdify_schemas import policy_vector as pv
 from verdify_schemas.tunable_registry import (
+    LIVE_WIRE_FIELDS,
     PLANNER_PUSHABLE_REG,
     POLICY_WIRE_FIELD_COUNT,
     REGISTRY,
@@ -126,7 +127,8 @@ def test_wire_metadata_is_complete_unique_and_representable() -> None:
     assert wire_metadata_errors() == []
     assert WIRE_SCHEMA_VERSION == 2
     assert POLICY_WIRE_FIELD_COUNT == 48
-    assert len(PLANNER_PUSHABLE_REG) == 5  # release 4: the live slots; the other 43 are reserved
+    assert len(LIVE_WIRE_FIELDS) == 5  # release 4: the live slots; the other 43 are reserved
+    assert PLANNER_PUSHABLE_REG == frozenset()  # AR42: operator settings, never planner-pushable
 
 
 def test_wire_assignment_is_frozen() -> None:

@@ -28,6 +28,7 @@ from pathlib import Path
 import irrigation_db_support as support
 import pytest
 
+from verdify_schemas.policy_vector import LIVE_WIRE_FIELDS
 from verdify_schemas.tunable_registry import BAND_OWNED_REG, REGISTRY
 from verdify_services import reads
 
@@ -307,7 +308,7 @@ def candidate_params(count):
     names = [
         name
         for name, spec in sorted(REGISTRY.items())
-        if spec.control_class == "planner_policy"
+        if name in LIVE_WIRE_FIELDS  # the five live settings: operator-owned since release 8, none planner-pushable
         and spec.esp_object_id
         and spec.push_owner != "dispatcher_default"
         and name not in BAND_OWNED_REG

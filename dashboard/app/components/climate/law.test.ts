@@ -66,12 +66,12 @@ test("a rule's state: off, wanted, asked for, on since, waiting and held on, and
 test("the drying decision is a checklist in the law's order with its evidence, then the verdict", () => {
   const refused = law("law-drying-refused-cost");
   const items = dryingChecks(refused);
-  expect(items.map((item) => item.key)).toEqual(["humid", "outdoor_drier", "worth_it", "warm_enough", "not_cooling", "furnace_off"]);
-  expect(items.map((item) => item.mark)).toEqual(["met", "met", "unmet", "met", "met", "met"]);
+  expect(items.map((item) => item.key)).toEqual(["humid", "not_cooling", "furnace_off", "outdoor_drier", "warm_enough", "worth_it"]);
+  expect(items.map((item) => item.mark)).toEqual(["met", "met", "met", "met", "met", "unmet"]);
   expect(items[0].statement).toBe("The house is humid enough to dry");
-  expect(plain(String(items[2].detail))).toBe("Price 0.82 kWh/kg, limit 0.70 kWh/kg.");
+  expect(plain(String(items[5].detail))).toBe("Price 0.82 kWh/kg, limit 0.70 kWh/kg.");
   expect(plain(String(items[0].detail))).toBe("VPD 0.47 kPa; drying is wanted below 0.50 kPa and stops above 0.65 kPa.");
-  expect(plain(String(items[3].detail))).toBe("64.2 °F; venting needs at least 62.7 °F.");
+  expect(plain(String(items[4].detail))).toBe("64.2 °F; venting needs at least 62.7 °F.");
   expect(dryingVerdict(refused.drying)).toBe("Refused: costs more than the limit");
   expect(verdictTone(refused.drying.state)).toBe("warn");
   expect(dryingVerdict(law("law-drying-running").drying)).toBe("Running");
@@ -80,8 +80,8 @@ test("the drying decision is a checklist in the law's order with its evidence, t
   // No outdoor reading: no price, and the check says so.
   const none = { ...refused, inputs: { ...refused.inputs, outdoor: { ...refused.inputs.outdoor, source: "none" } }, drying: { ...refused.drying, cost_kwh_per_kg: null } };
   const blind = dryingChecks(none);
-  expect(blind[1].detail).toBe("No outdoor reading.");
-  expect(plain(String(blind[2].detail))).toBe("No price without an outdoor reading; the limit is 0.70 kWh/kg.");
+  expect(blind[3].detail).toBe("No outdoor reading.");
+  expect(plain(String(blind[5].detail))).toBe("No price without an outdoor reading; the limit is 0.70 kWh/kg.");
   expect(dryingChecks({ ...refused, drying: { ...refused.drying, checks: [{ id: "humid", ok: null }] } })[0].mark).toBe("unknown");
 });
 

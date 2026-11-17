@@ -420,5 +420,5 @@ for _field_name in CANONICAL_FIELD_ORDER:
         raise RuntimeError(f"component route incomplete: {_field_name}")
 for _field_name in TREATMENT_FIELD_ORDER:
     _definition = WIRE_SLOT_DEFS[_field_name]
-    if _definition.push_owner != "planner" or not _definition.planner_pushable or _definition.tier != 1:
-        raise RuntimeError(f"treatment field is not planner-owned Tier 1: {_field_name}")
+    if _definition.push_owner != "operator" or _definition.planner_pushable or _definition.tier != 1:
+        raise RuntimeError(f"treatment field is not an operator-owned Tier 1 setting: {_field_name}")
