@@ -318,6 +318,9 @@ FAMILIES: dict[str, Family] = {
     "verdify_ingestor_reconnects_total": Family("counter", "ESP32 reconnects since the ingestor process started."),
     "verdify_ingestor_rows_rejected_total": Family("counter", "Device rows dropped by schema validation, by table."),
     "verdify_ingestor_payloads_rejected_total": Family("counter", "Versioned controller payloads rejected."),
+    "verdify_ingestor_gap_replay_failures_total": Family(
+        "counter", "Gap replay pass writes that failed; the pass stays queued and is retried."
+    ),
     "verdify_ingestor_counters_age_seconds": Family("gauge", "Seconds since the ingestor's newest counters row."),
     # delivery of settings
     "verdify_setpoint_rows_24h": Family(
@@ -793,6 +796,8 @@ def _ingestor_samples(counters: Mapping[str, Any], age_s: float) -> list[Sample]
         out.append(sample("verdify_ingestor_reconnects_total", reconnects))
     if (payloads := _num(counters.get("pr"))) is not None:
         out.append(sample("verdify_ingestor_payloads_rejected_total", payloads))
+    if (replay_failures := _num(counters.get("gr"))) is not None:
+        out.append(sample("verdify_ingestor_gap_replay_failures_total", replay_failures))
     rejected: dict[str, float] = {}
     for table, count in (counters.get("rj") or {}).items():
         if (number := _num(count)) is not None:
