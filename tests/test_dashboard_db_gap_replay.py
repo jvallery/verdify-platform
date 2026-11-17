@@ -4,7 +4,8 @@ The unit tests in tests/test_gap_replay.py use a stand-in connection, so they co
 the bare timestamp parameter of write_quarter() as an interval (fixed in release 4: every quarter failed in
 production). This file runs write_quarter() and write_pass() unchanged against real tables: climate and
 equipment_state from db/schema.sql's DDL, the climate column and write facade of migration 307, the
-equipment_state write facade as migration 217 generates it, and gap_replay_quarters from migration 314.
+equipment_state write facade as migration 217 generates it, gap_replay_quarters from migration 314, and data_gaps
+with 314's v_data_gaps_unreplayed for the replayed-gap mark (migration 321).
 
 The campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips.
@@ -45,7 +46,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 SCHEMA = "gap_replay_db"
-TABLES = ("climate", "equipment_state", "gap_replay_quarters")
+TABLES = ("climate", "equipment_state", "gap_replay_quarters", "data_gaps")
 VALID = 0b111  # indoor, humidity and outdoor valid
 
 
@@ -68,6 +69,8 @@ def ddl() -> list[str]:
         f"CREATE VIEW {SCHEMA}.v_runtime_equipment_state_write WITH (security_barrier=true, security_invoker=false) "
         f"AS SELECT equipment, greenhouse_id, state, ts FROM {SCHEMA}.equipment_state",
         extract(m314, "CREATE TABLE public.gap_replay_quarters (", "\n);"),
+        extract(schema, "CREATE TABLE public.data_gaps (", ");\n"),
+        extract(m314, "CREATE VIEW public.v_data_gaps_unreplayed", "WHERE NOT isempty(piece.span);"),
     ]
 
 
@@ -196,5 +199,43 @@ def test_a_format_1_quarter_uses_the_five_minute_slot(dsn):
         assert (result.ledgered, result.climate_rows, result.transition_rows) == (True, 1, 1)
         assert await conn.fetchval("SELECT format_version FROM gap_replay_quarters WHERE qseq = 41") == 1
         assert await conn.fetchval("SELECT count(*) FROM climate") == 2
+
+    scenario(dsn, body)
+
+
+def test_a_pass_marks_the_recent_gaps_it_fully_replayed_and_leaves_the_rest(dsn):
+    async def body(conn, t0):
+        # The quarter below spans [t0, t0 + 180 s). Gap 1 lies inside it; gap 2 runs past it; gap 3 has no quarter;
+        # gap 4 is fully replayed by an old quarter but ended before the lookback; gap 5 is already marked.
+        old = t0 - 3 * 86400
+        await conn.execute(
+            "INSERT INTO gap_replay_quarters (boot, qseq, first_ts, last_ts, climate_rows, transition_rows, "
+            "format_version) VALUES (6, 1, $1, $2, 15, 0, 2)",
+            at(old, 0),
+            at(old, 840),
+        )
+        gaps = [
+            (1, at(t0, 30), at(t0, 150), "snapshot_taken"),
+            (2, at(t0, 30), at(t0, 400), "snapshot_taken"),
+            (3, at(t0, 3000), at(t0, 3100), "pending"),
+            (4, at(old, 60), at(old, 600), "pending"),
+            (5, at(t0, 40), at(t0, 50), "replayed"),
+        ]
+        for gap_id, start, end, status in gaps:
+            await conn.execute(
+                "INSERT INTO data_gaps (id, start_ts, end_ts, duration_s, backfill_status) "
+                "VALUES ($1, $2, $3, extract(epoch FROM $3::timestamptz - $2::timestamptz), $4)",
+                gap_id,
+                start,
+                end,
+                status,
+            )
+        q = quarter(2, 42, t0, [record(0, 1), record(60, 2), record(120, 3)], [])
+        [result] = await gap_replay.write_pass(_Pool(conn), replay_pass(q))
+        assert result.ledgered
+        statuses = dict(await conn.fetch("SELECT id, backfill_status FROM data_gaps ORDER BY id"))
+        assert statuses == {1: "replayed", 2: "snapshot_taken", 3: "pending", 4: "pending", 5: "replayed"}
+        assert await conn.fetchval("SELECT count(*) FROM v_data_gaps_unreplayed WHERE id = 1") == 0
+        assert await gap_replay.mark_replayed_gaps(conn) == 0  # idempotent
 
     scenario(dsn, body)

@@ -99,6 +99,7 @@ class FakeConn:
         self.climate: list[tuple[datetime, dict]] = []
         self.equipment: list[tuple[datetime, str, bool]] = []
         self.ledger: dict[tuple[int, int], tuple] = {}
+        self.marks: list[tuple] = []
 
     @asynccontextmanager
     async def transaction(self):
@@ -134,6 +135,9 @@ class FakeConn:
             key = (args[0], args[1])
             assert key not in self.ledger, "unique_violation"
             self.ledger[key] = args[2:]
+        elif "UPDATE data_gaps" in sql:
+            self.marks.append(args)
+            return "UPDATE 1"
         else:
             raise AssertionError(sql)
 
@@ -326,3 +330,37 @@ async def test_a_failing_pass_is_counted_every_flush_and_logged_at_most_once_a_m
     assert host.failures == 13 and len(host.pending) == 1
     assert [r.levelname for r in caplog.records].count("ERROR") == 2  # the first, then once 60 s later
     assert "13 time(s) in a row" in caplog.records[-1].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_a_ledgered_pass_marks_replayed_gaps_once_and_a_resent_one_does_not():
+    conn = FakeConn()
+    host = gap_replay.GapReplayHost()
+    await _replay(host, conn, _pass_lines())
+    assert conn.marks == [(gap_replay.REPLAYED_GAP_LOOKBACK,)]
+    await _replay(host, conn, _pass_lines())  # skipped whole: nothing new ledgered, no mark
+    assert len(conn.marks) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unplaced_quarter_marks_nothing():
+    conn = FakeConn()
+    await _replay(gap_replay.GapReplayHost(), conn, _pass_lines(flags=0, t0=3600))
+    assert conn.marks == [] and not conn.ledger
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mark_is_logged_and_never_requeues_the_pass(caplog):
+    class NoGrant(FakeConn):
+        async def execute(self, sql, *args):
+            if "UPDATE data_gaps" in sql:
+                raise RuntimeError("permission denied for table data_gaps")
+            return await super().execute(sql, *args)
+
+    conn = NoGrant()
+    host = gap_replay.GapReplayHost()
+    caplog.set_level("WARNING", logger="ingestor.gap_replay")
+    (result,) = await _replay(host, conn, _pass_lines())
+    assert result.ledgered and (7, 41) in conn.ledger
+    assert not host.pending and host.failures == 0
+    assert any("could not mark replayed gaps" in r.getMessage() for r in caplog.records)

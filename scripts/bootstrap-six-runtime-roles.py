@@ -1382,6 +1382,36 @@ def sealed_sql_320():
     )
 
 
+INGESTOR_GAP_READS_WATER_RESET_MIGRATION = (
+    321,
+    "321-ingestor-gap-and-compliance-reads-water-reset-delta.sql",
+    "a5b3e2b4433cda6219de4a53fa3afe1cb05d76b2f5dc801e96e22071363c0518",
+)
+# iso-2 F2 and F4, #1668 items 2 and 3 (#1633, #1734): the ingestor runtime gains UPDATE (backfill_status) on data_gaps
+# and SELECT on v_data_gaps_unreplayed and daily_band_compliance, so the seals are measured by the native probe (record:
+# tests/fixtures/321-ingestor-gap-and-compliance-reads-water-reset-delta-native-qualification.json).
+SUCCESSOR_321 = {
+    **SUCCESSOR_320,
+    "api": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
+    "ingestor": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718",
+}
+
+
+def sealed_sql_321():
+    # Keep every 320 predicate and bind the exact 321 runner stamp with its successor seals.
+    predecessor = sealed_sql_320()
+    current = seal_profile_sql(320, SUCCESSOR_320)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(321, SUCCESSOR_321), 1)
+        + " AND "
+        + ledger_row_sql(*INGESTOR_GAP_READS_WATER_RESET_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1466,6 +1496,8 @@ def sealed_sql():
         + sealed_sql_319()
         + " OR "
         + sealed_sql_320()
+        + " OR "
+        + sealed_sql_321()
         + ")"
     )
 

@@ -1,0 +1,10 @@
+{
+  "migration": "321-ingestor-gap-and-compliance-reads-water-reset-delta.sql",
+  "final_migration_qualification_pending": true,
+  "projection": "321 grants verdify_ingestor_runtime UPDATE (backfill_status) on data_gaps and SELECT on v_data_gaps_unreplayed and daily_band_compliance, marks the gaps the gap log fully replayed, and replaces materialize_water_meter_events so a counter reset books the gallons used since boot as a delta from zero. The grants widen the ingestor runtime's boundary, so the seals are measured by the native probe; until then the file carries 319's and fails closed.",
+  "projected_successor": {
+    "api": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
+    "ingestor": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  }
+}

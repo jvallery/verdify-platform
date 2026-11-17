@@ -405,6 +405,8 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "319-band-divergence-mode-ignores-partial-rows.sql",
         # The three dashboard projections and their dashboard grant run forward only.
         "320-dashboard-projections.sql",
+        # The ingestor grants, the replayed-gap mark and the water ledger fixes run forward only.
+        "321-ingestor-gap-and-compliance-reads-water-reset-delta.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(
