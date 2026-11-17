@@ -43,7 +43,7 @@ from verdify_services import activity  # noqa: E402
 KPA = "mister_engage_kpa"
 SETTING = f"/v1/settings/{KPA}"
 BAND = "band_vpd_target_sm"
-SWITCH = "sw_economiser_enabled"  # read back through its equipment_state mirror
+SWITCH = "sw_direct_wet_gate_enabled"  # a live switch (the third flash retired sw_economiser_enabled)
 
 # The dump predates the experiment tables and 282's owner-only stand-ins have only an id: the columns 259's function
 # reads replace those two. alert_log's foreign key needs the greenhouse row.
