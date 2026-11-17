@@ -76,7 +76,8 @@ class SettingWrite(BaseModel):
 
 
 class BandSave(BaseModel):
-    """API-24's body: the simple profile fields to change and Advanced raw anchors, one manual flag and one reason."""
+    """API-24's body: the simple profile fields or the edges to change (one form per axis) and Advanced raw anchors,
+    one manual flag and one reason."""
 
     model_config = ConfigDict(extra="forbid")
 

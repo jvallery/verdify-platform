@@ -21,7 +21,7 @@ function review(id: number, date: string, overrides: Partial<Review> = {}): Revi
 }
 const TODAY = { review_date: "2026-11-01", status: "written", missed: false, expected_after: "07:00", late_after: "10:00" } as const;
 function page(items: Review[], overrides: Partial<ReviewPage> = {}): ReviewPage {
-  return { items, next_cursor: null, today: TODAY, tokens: { last: 355_128, mean_7: 200_000, mean_30: 190_000, rise_pct: 101.5 }, proposal_waiting: null, ...overrides };
+  return { items, next_cursor: null, today: TODAY, tokens: { last: 355_128, mean_7: 200_000, mean_30: 190_000, rise_pct: 101.5, count_7: 5, count_30: 12 }, proposal_waiting: null, ...overrides };
 }
 
 test("a review date reads as day and month", () => {
@@ -148,8 +148,8 @@ test("health: the rise is flagged above 20 %, attempts of the newest, retries an
   expect(health(page(items), items)).toEqual({
     last: 355_128, mean7: 200_000, mean30: 190_000, risePct: 101.5, flagged: true, attempts: 2, retries: 5, failures: 2, reviews: 3, since: "2026-10-03",
   });
-  expect(health(page(items, { tokens: { last: 1, mean_7: 1, mean_30: 1, rise_pct: 20 } }), items).flagged).toBe(false);
-  expect(health(page([], { tokens: { last: null, mean_7: null, mean_30: null, rise_pct: null } }), []).attempts).toBeNull();
+  expect(health(page(items, { tokens: { last: 1, mean_7: 1, mean_30: 1, rise_pct: 20, count_7: 1, count_30: 1 } }), items).flagged).toBe(false);
+  expect(health(page([], { tokens: { last: null, mean_7: null, mean_30: null, rise_pct: null, count_7: 0, count_30: 0 } }), []).attempts).toBeNull();
 });
 
 test("tokens per review day: oldest first, a day with no written review is a gap, two reviews add, a running one is partial", () => {

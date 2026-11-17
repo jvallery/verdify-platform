@@ -36,7 +36,8 @@ async def get_record_days(
     conn: Connection, from_: OptionalFromDate = None, to: date | None = None
 ) -> record.DailyRecord:
     """The daily record per local day (compliance, starts, run time, utilities, drying, alerts) with the 7- and
-    30-day means over complete days."""
+    30-day means over complete days, the day the law started and the means before and since it, whatever window is
+    asked for."""
     return await record.record_days(conn, from_, to)
 
 

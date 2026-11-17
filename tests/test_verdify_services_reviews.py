@@ -126,11 +126,22 @@ def test_the_days_status_is_written_else_the_newest_request_else_due_by_the_cloc
 
 
 @pytest.mark.parametrize(
-    "missed_open, status, missed",
-    [(False, "failed", False), (True, "failed", True), (True, "due", True), (True, "written", False)],
+    "missed_open, status, at, missed",
+    [
+        (False, "failed", time(11, 0), False),
+        (True, "failed", time(11, 0), True),
+        (True, "due", time(10, 0), True),
+        (True, "written", time(11, 0), False),
+        # An alert raised for an earlier day is still open: before 10:00 this day is not late yet.
+        (True, "not_due", time(6, 0), False),
+        (True, "due", time(8, 0), False),
+        (True, "failed", time(9, 59), False),
+        # From 10:00 the open alert stands for this day too (the ingestor raises no second one while it is open).
+        (True, "due", time(10, 30), True),
+    ],
 )
-def test_missed_follows_the_open_alert_until_the_day_is_written(missed_open, status, missed):
-    assert reviews.day_missed(missed_open, status) is missed
+def test_missed_follows_the_open_alert_from_ten_until_the_day_is_written(missed_open, status, at, missed):
+    assert reviews.day_missed(missed_open, status, at) is missed
 
 
 @pytest.mark.parametrize(
@@ -154,7 +165,14 @@ def test_a_proposal_waits_until_a_band_write_answers_it_or_a_newer_review_supers
 
 def test_token_use_compares_the_newest_review_with_the_ones_before_it():
     tokens = reviews.token_use([ROW_2["total_tokens"], ROW_1["total_tokens"]])
-    assert tokens.model_dump() == {"last": 355128, "mean_7": 185792.0, "mean_30": 185792.0, "rise_pct": 91.1}
+    assert tokens.model_dump() == {
+        "last": 355128,
+        "mean_7": 185792.0,
+        "mean_30": 185792.0,
+        "rise_pct": 91.1,
+        "count_7": 1,  # with two reviews, each mean is the one review before the newest
+        "count_30": 1,
+    }
 
 
 def test_token_means_take_seven_and_thirty_reviews_before_the_newest():
@@ -163,6 +181,13 @@ def test_token_means_take_seven_and_thirty_reviews_before_the_newest():
     assert tokens.last == 200 and tokens.mean_7 == 100.0
     assert tokens.mean_30 == round((7 * 100 + 23 * 400) / 30, 1)
     assert tokens.rise_pct == 100.0
+    assert (tokens.count_7, tokens.count_30) == (7, 30)  # the 32nd total is beyond both means
+
+
+def test_token_counts_say_how_many_reviews_each_mean_averages():
+    tokens = reviews.token_use([200, *([100] * 11)])
+    assert (tokens.count_7, tokens.mean_7) == (7, 100.0)
+    assert (tokens.count_30, tokens.mean_30) == (11, 100.0)
 
 
 @pytest.mark.parametrize("totals", [[], [185792]])
@@ -170,6 +195,7 @@ def test_token_use_is_null_without_a_review_to_compare(totals):
     tokens = reviews.token_use(totals)
     assert tokens.mean_7 is None and tokens.rise_pct is None
     assert tokens.last == (totals[0] if totals else None)
+    assert (tokens.mean_30, tokens.count_7, tokens.count_30) == (None, 0, 0)  # 0 beside a null mean
 
 
 # ── the proposal ────────────────────────────────────────────────────────────
@@ -346,6 +372,15 @@ def test_a_missed_day_reads_the_open_alert():
 def test_before_seven_the_day_is_not_due_and_missed_is_false():
     day = asyncio.run(_today(Conn(answers(at=local(18, 6, 30), day_rows=[]))))
     assert (day.status, day.missed) == ("not_due", False)
+
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "status", "missed"), [(6, 0, "not_due", False), (8, 0, "due", False), (10, 30, "due", True)]
+)
+def test_yesterdays_open_alert_marks_today_missed_only_from_ten(hour, minute, status, missed):
+    # The alert raised for the review of 11-16 is still open on 11-18, and no review of 11-17 exists.
+    day = asyncio.run(_today(Conn(answers(at=local(18, hour, minute), day_rows=[], missed_open=True))))
+    assert (day.review_date, day.status, day.missed) == (date(2026, 11, 17), status, missed)
 
 
 async def _today(conn):

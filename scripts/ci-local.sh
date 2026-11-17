@@ -156,6 +156,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_verdify_services_series.py
     tests/test_verdify_services_band_preview.py
     tests/test_band_profile.py
+    tests/test_band_profile_edges.py
     tests/test_vpd_envelope.py
     tests/test_qualify_migration_successor.py
     tests/test_verdify_services_core.py

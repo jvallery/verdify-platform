@@ -126,7 +126,7 @@ SELECT (SELECT count(*) FROM aclexplode(c.relacl) a WHERE a.grantee = c.relowner
          WHERE a.grantee <> c.relowner) AS others,
        (SELECT count(*) FROM pg_attribute t
          WHERE t.attrelid = c.oid AND t.attnum > 0 AND t.attacl IS NOT NULL) AS column_acls,
-       c.relkind, pg_get_userbyid(c.relowner) = current_user AS owned
+       c.relkind::text AS relkind, pg_get_userbyid(c.relowner) = current_user AS owned
   FROM pg_class c WHERE c.oid = $1::text::regclass
 """
 
@@ -152,6 +152,15 @@ async def scenario(dsn: str) -> dict:
         await conn.execute(f"SET ROLE {DUTY}")
         reads = {view: await conn.fetch(f"SELECT * FROM public.{view} ORDER BY 1, 2, 3") for view in COLUMNS}
         duty_base = {name: await refused(conn, f"SELECT 1 FROM public.{name} LIMIT 1") for name in BASE_TABLES}
+        # No privilege of any kind on a base table, by table or by column, held directly or through PUBLIC.
+        duty_privileges = {
+            name: await conn.fetchval(
+                "SELECT has_table_privilege(current_user, $1::text, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')"
+                " OR has_any_column_privilege(current_user, $1::text, 'SELECT,INSERT,UPDATE,REFERENCES')",
+                f"public.{name}",
+            )
+            for name in BASE_TABLES
+        }
         await conn.execute("RESET ROLE")
 
         await conn.execute(f"SET ROLE {INGESTOR}")
@@ -163,6 +172,7 @@ async def scenario(dsn: str) -> dict:
             "view_acls": view_acls,
             "reads": reads,
             "duty_base": duty_base,
+            "duty_privileges": duty_privileges,
             "ingestor": ingestor,
         }
     finally:
@@ -176,6 +186,7 @@ def test_the_duty_reads_each_projection_and_nothing_else_reaches_them():
     # The base tables' table and column ACLs are what they were before 320, and the duty reads none of them.
     assert got["before"] == got["after"] and len(got["before"]) == len(BASE_TABLES)
     assert got["duty_base"] == {name: True for name in BASE_TABLES}
+    assert got["duty_privileges"] == {name: False for name in BASE_TABLES}
 
     # Each view: the owner's entry, one non-grantable SELECT for the duty, no PUBLIC entry, no column ACL.
     for view, acl in got["view_acls"].items():

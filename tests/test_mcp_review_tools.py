@@ -87,6 +87,28 @@ def test_review_write_refuses_a_bad_proposal_or_run_id_before_any_write(mcp_serv
     assert conn.calls == []
 
 
+def test_review_write_stores_a_proposal_that_quotes_its_price_rows_as_a_list(mcp_server, wired):  # noqa: F811
+    # The 2026-11-16 review sent `price` as a list of quoted rows and was refused ("Input should be a valid string"),
+    # so its proposal survived only in the summary text.
+    conn = wired(row={"kind": "daily", "review_date": date(2026, 11, 16)})
+    rows = ["Year: Low edge only, sunrise and midnight 2 F higher: Therms/day +0.31 / +0.31", "Winter: row 3"]
+    proposal = {"anchors": {"band_temp_low_sr": 64.5, "band_temp_low_mid": 62.7}, "price": rows, "reason": "cold"}
+    result = asyncio.run(mcp_server.review_write(trigger_id=RUN_ID, summary="Cold night.", band_proposal=proposal))
+    assert result.isError is False
+    ((_, args),) = conn.calls
+    stored = json.loads(args[2])
+    assert stored["price"] == "\n".join(rows)
+    assert stored["anchors"] == proposal["anchors"] and stored["reason"] == "cold"
+
+
+def test_review_write_names_the_rejected_proposal_field(mcp_server, wired):  # noqa: F811
+    conn = wired()
+    bad_price = {"anchors": {"band_temp_low_sr": 64.5}, "price": {"row": 1}, "reason": "cold"}
+    result = asyncio.run(mcp_server.review_write(trigger_id=RUN_ID, summary="x", band_proposal=bad_price))
+    assert result.isError is True and conn.calls == []
+    assert payload(result)["detail"].startswith("band_proposal.price:")
+
+
 def test_review_write_answers_not_found_for_a_written_or_unknown_run(mcp_server, wired):  # noqa: F811
     wired(row=None)
     result = asyncio.run(mcp_server.review_write(trigger_id=RUN_ID, summary="Second write."))
@@ -117,3 +139,35 @@ def test_review_run_refuses_a_future_day_and_an_unresolved_caller(mcp_server, wi
     result = asyncio.run(mcp_server.review_run())
     assert result.isError is True and payload(result)["code"] == "forbidden"
     assert conn.calls == []
+
+
+def test_review_write_refuses_a_crop_band_row_that_is_not_a_house_anchor(mcp_server, wired):  # noqa: F811
+    from verdify_schemas.band_profile import HOUSE_PARAMS
+    from verdify_schemas.tunable_registry import REGISTRY
+
+    conn = wired()
+    not_house = sorted(n for n, spec in REGISTRY.items() if spec.control_class == "crop_band" and n not in HOUSE_PARAMS)
+    assert not_house, "the registry has crop_band rows the band editor cannot write"
+    proposal = {"anchors": {not_house[0]: REGISTRY[not_house[0]].default}, "price": "row 1", "reason": "x"}
+    result = asyncio.run(mcp_server.review_write(trigger_id=RUN_ID, summary="x", band_proposal=proposal))
+    assert result.isError is True and conn.calls == []
+    problem = payload(result)
+    assert problem["code"] == "invalid_request" and problem["field"] == "band_proposal"
+    assert "anchors allows only the house band anchors" in problem["detail"]
+    assert "band_temp_low_{sr,sm,ss,mid}" in problem["detail"] and "band_vpd_high_{sr,sm,ss,mid}" in problem["detail"]
+
+
+def test_proposal_keys_are_the_band_editors_keys():
+    # One definition: the review accepts exactly what the band editor writes, and its refusal lists exactly those.
+    import re
+
+    from verdify_schemas import band_profile, review
+    from verdify_services import band_profile as editor
+
+    assert review.BAND_PROPOSAL_PARAMS is band_profile.HOUSE_PARAMS is editor.HOUSE_PARAMS
+    listed = {
+        f"{prefix}{anchor}"
+        for prefix, anchors in re.findall(r"(band_\w+?_)\{([a-z,]+)\}", review.BAND_PROPOSAL_KEYS_TEXT)
+        for anchor in anchors.split(",")
+    }
+    assert listed == set(band_profile.HOUSE_PARAMS) and len(band_profile.HOUSE_PARAMS) == 24

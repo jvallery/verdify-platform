@@ -218,8 +218,16 @@ def test_native_fixture_checks_columns_grants_and_reads_as_the_dashboard_login()
         assert f"PERFORM * FROM public.{view} " in text, view
         assert f"PERFORM 1 FROM public.{view} LIMIT 1;" in text, view
         assert f"'{','.join(columns)}'" in flat, view
-        assert f"has_table_privilege(current_user, 'public.{table}', 'SELECT')" in text, table
-    assert not re.search(r"\b(INSERT|UPDATE|DELETE)\b", uncommented(text))
+        # Every table privilege and every column privilege, whoever holds it (the login, its duty or PUBLIC).
+        assert (
+            f"has_table_privilege(current_user, 'public.{table}', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')"
+            in text
+        ), table
+        assert f"has_any_column_privilege(current_user, 'public.{table}', 'SELECT,INSERT,UPDATE,REFERENCES')" in text, (
+            table
+        )
+    # No statement writes: privilege names inside string literals are not statements.
+    assert not re.search(r"\b(INSERT|UPDATE|DELETE)\b", re.sub(r"'[^']*'", "''", uncommented(text)))
     assert text.strip().splitlines()[-1].endswith("'attested', json_build_object('dashboard', true))::text;")
 
 

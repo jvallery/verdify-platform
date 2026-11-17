@@ -792,14 +792,20 @@ def _validate_window(from_: datetime, to: datetime, max_window: timedelta) -> tu
 
 
 @asynccontextmanager
-async def _read_transaction(conn: asyncpg.Connection) -> AsyncIterator[None]:
+async def _read_transaction(
+    conn: asyncpg.Connection, isolation: Literal["repeatable_read"] | None = None
+) -> AsyncIterator[None]:
     """One read-only transaction with the dashboard login's 10 s statement timeout.
 
     Custom plans keep the window parameters constant at plan time, for chunk exclusion and
-    for time_bucket_gapfill's start and finish.
+    for time_bucket_gapfill's start and finish. ``isolation="repeatable_read"`` gives a read of
+    several statements one snapshot, so facts from different statements describe the same moment.
     """
+    options: dict[str, Any] = {"readonly": True}
+    if isolation is not None:
+        options["isolation"] = isolation
     try:
-        async with conn.transaction(readonly=True):
+        async with conn.transaction(**options):
             await conn.execute(
                 f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'; SET LOCAL plan_cache_mode = force_custom_plan"
             )

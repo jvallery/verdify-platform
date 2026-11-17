@@ -405,8 +405,13 @@ paths:
         Read-only (#1334). Reads the 24 house anchors as fn_crop_band_value resolves them and overlays the draft: any
         simple temperature field recompiles the six temperature anchors from day (solar noon) and night (solar
         midnight) values with sunrise and sunset at their midpoint, so the curve is a pure sinusoid that never leaves
-        its noon and midnight values; any VPD field does the same for the VPD anchors; then each anchor= item sets one
-        raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase,
+        its noon and midnight values; any VPD field does the same for the VPD anchors. The edge form does the same
+        from the band's low and high edges: each low or high series given an edge field compiles from its day and
+        night edges with sunrise and sunset halfway between them, on the push step, an edge left out keeping the
+        band's own noon or midnight value, and a series given no edge keeps its anchors; a target whose curve would
+        leave its new edges anywhere in the day moves to their midpoint at all four anchors in the draft, and one
+        whose curve stays between them stays. One axis given in both forms is invalid_request, and the findings of an
+        axis given as edges name the edge field (for band order, the edge the target crosses). Then each anchor= item sets one raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase,
         so the draft is the curve the controller runs. findings with severity error are what
         API-24 refuses. The expected night VPD ribbon is a 14-day indoor dewpoint fit on quiet deep-night hours and
         the forecast; night_heat_kwh is 0.19 kW/°F over the forecast's night hours. Codes: unknown_target (anchor not
@@ -422,6 +427,14 @@ paths:
         - {name: vpd_above_day, in: query, description: kPa above the day target, schema: {type: number, minimum: 0}}
         - {name: vpd_below_night, in: query, description: kPa below the night target, schema: {type: number, minimum: 0}}
         - {name: vpd_above_night, in: query, description: kPa above the night target, schema: {type: number, minimum: 0}}
+        - {name: temp_low_day, in: query, description: 'Edge form: the low edge at solar noon, °F', schema: {type: number}}
+        - {name: temp_high_day, in: query, description: 'Edge form: the high edge at solar noon, °F', schema: {type: number}}
+        - {name: temp_low_night, in: query, description: 'Edge form: the low edge at solar midnight, °F', schema: {type: number}}
+        - {name: temp_high_night, in: query, description: 'Edge form: the high edge at solar midnight, °F', schema: {type: number}}
+        - {name: vpd_low_day, in: query, description: 'Edge form: the VPD low edge at solar noon, kPa', schema: {type: number}}
+        - {name: vpd_high_day, in: query, description: 'Edge form: the VPD high edge at solar noon, kPa', schema: {type: number}}
+        - {name: vpd_low_night, in: query, description: 'Edge form: the VPD low edge at solar midnight, kPa', schema: {type: number}}
+        - {name: vpd_high_night, in: query, description: 'Edge form: the VPD high edge at solar midnight, kPa', schema: {type: number}}
         - name: anchor
           in: query
           description: 'Advanced: one raw house anchor as param:value, repeatable'
@@ -439,11 +452,13 @@ paths:
       tags: [settings]
       summary: Save the band editor's draft, every changed house anchor in one write
       description: >-
-        The same draft as API-23 (profile fields and Advanced anchors). In one transaction: each house anchor the
-        draft changes (by more than half the push quantum, 0.1 °F or 0.01 kPa) is an API-10 write, its desired_state
-        row with the manual flag and its crop_band_anchors rows, and one activity_log row, action band.write, target
-        "house band", detail {desired_ids, changes [{param, desired_id, before, value}], anchor_rows, manual,
-        profile, simple}. The dispatcher's anchor sync delivers the anchors; nothing talks to the controller. Codes:
+        The same draft as API-23 (profile fields or edges, and Advanced anchors). In one transaction: each house
+        anchor the draft changes (by more than half the push quantum, 0.1 °F or 0.01 kPa) is an API-10 write, its
+        desired_state row with the manual flag and its crop_band_anchors rows, and one activity_log row, action
+        band.write, target "house band", detail {desired_ids, changes [{param, desired_id, before, value}],
+        anchor_rows, manual, profile, simple, edges, edges_simple}. Under the edge form a target whose curve would
+        leave its new edges moves to their midpoint at all four anchors in the same write. One axis given in both forms is
+        invalid_request. The dispatcher's anchor sync delivers the anchors; nothing talks to the controller. Codes:
         out_of_range (an API-23 error finding: band order, the 40/100 °F guardrails 5 °F outside the band, the 0.3-3.0
         kPa VPD guardrails or the 0.74 kPa night floor; or an anchor outside its bounds), invalid_request (the draft
         changes nothing), read_only (Iris: the band is operator-owned), unknown_target, request_id_reused.
@@ -1566,6 +1581,15 @@ components:
       description: A band's four edges at one moment
       required: [temp_low_f, temp_high_f, vpd_low_kpa, vpd_high_kpa]
       properties:
+        temp_low_f: {type: number, description: '°F'}
+        temp_high_f: {type: number, description: '°F'}
+        vpd_low_kpa: {type: number, description: kPa}
+        vpd_high_kpa: {type: number, description: kPa}
+    HostBandEdges:
+      type: object
+      description: The host's band at one moment (fn_band_setpoints); an edge it cannot compute is null
+      required: [temp_low_f, temp_high_f, vpd_low_kpa, vpd_high_kpa]
+      properties:
         temp_low_f: {type: [number, 'null'], description: '°F'}
         temp_high_f: {type: [number, 'null'], description: '°F'}
         vpd_low_kpa: {type: [number, 'null'], description: kPa}
@@ -1871,7 +1895,9 @@ components:
         vpd_above_night: {type: number, minimum: 0, description: kPa}
     BandProfilePatch:
       type: object
-      description: The simple fields to change; a field left out keeps the band's own value
+      description: >-
+        The simple fields or edges to change; a field left out keeps the band's own value. An axis is given either as
+        a target with its width or as edges, never both
       additionalProperties: false
       properties:
         temp_day: {type: [number, 'null']}
@@ -1884,17 +1910,64 @@ components:
         vpd_above_day: {type: [number, 'null'], minimum: 0}
         vpd_below_night: {type: [number, 'null'], minimum: 0}
         vpd_above_night: {type: [number, 'null'], minimum: 0}
+        temp_low_day: {type: [number, 'null'], description: 'Edge form: the low edge at solar noon, °F'}
+        temp_high_day: {type: [number, 'null'], description: 'Edge form: the high edge at solar noon, °F'}
+        temp_low_night: {type: [number, 'null'], description: 'Edge form: the low edge at solar midnight, °F'}
+        temp_high_night: {type: [number, 'null'], description: 'Edge form: the high edge at solar midnight, °F'}
+        vpd_low_day: {type: [number, 'null'], description: 'Edge form: the VPD low edge at solar noon, kPa'}
+        vpd_high_day: {type: [number, 'null'], description: 'Edge form: the VPD high edge at solar noon, kPa'}
+        vpd_low_night: {type: [number, 'null'], description: 'Edge form: the VPD low edge at solar midnight, kPa'}
+        vpd_high_night: {type: [number, 'null'], description: 'Edge form: the VPD high edge at solar midnight, kPa'}
     BandProfileState:
       type: object
-      required: [profile, anchors, simple]
+      required: [profile, anchors, simple, edges, edges_simple]
       properties:
         profile: {$ref: '#/components/schemas/BandProfile'}
         anchors: {type: object, additionalProperties: {type: number}, description: 'The 24 band_<series>_<anchor> values'}
         simple: {type: boolean, description: True when sunrise and sunset are the midpoint of noon and midnight}
+        edges: {$ref: '#/components/schemas/BandProfileEdges'}
+        edges_simple: {$ref: '#/components/schemas/BandEdgesSimple'}
+    BandProfileEdges:
+      type: object
+      description: "The band's low and high edges at solar noon (day) and solar midnight (night), as the anchors hold them"
+      additionalProperties: false
+      required: [temp_low_day, temp_high_day, temp_low_night, temp_high_night, vpd_low_day, vpd_high_day, vpd_low_night, vpd_high_night]
+      properties:
+        temp_low_day: {type: number, description: 'temp_low at solar noon, °F'}
+        temp_high_day: {type: number, description: 'temp_high at solar noon, °F'}
+        temp_low_night: {type: number, description: 'temp_low at solar midnight, °F'}
+        temp_high_night: {type: number, description: 'temp_high at solar midnight, °F'}
+        vpd_low_day: {type: number, description: 'vpd_low at solar noon, kPa'}
+        vpd_high_day: {type: number, description: 'vpd_high at solar noon, kPa'}
+        vpd_low_night: {type: number, description: 'vpd_low at solar midnight, kPa'}
+        vpd_high_night: {type: number, description: 'vpd_high at solar midnight, kPa'}
+    BandEdgesSimple:
+      type: object
+      description: >-
+        Per axis, true when the sunrise and sunset anchors of its low and high series are the midpoint of their noon
+        and midnight values on the push step, so the eight edges describe the band in full
+      additionalProperties: false
+      required: [temp, vpd]
+      properties:
+        temp: {type: boolean}
+        vpd: {type: boolean}
+    BandLawLines:
+      type: object
+      description: "Where the law's rules switch on, as offsets from the band's edges, for the preview to draw (the law constants)"
+      additionalProperties: false
+      required: [heat1_on_above_low_f, heat2_on_above_low_f, cool_on_above_high_f, fan2_on_above_high_f, dry_on_above_vpd_low_kpa, fog_on_above_vpd_high_kpa, mist_on_above_vpd_high_kpa]
+      properties:
+        heat1_on_above_low_f: {type: number, description: 'The electric heater comes on below temp_low plus this, °F'}
+        heat2_on_above_low_f: {type: number, description: 'The furnace comes on below temp_low plus this, °F'}
+        cool_on_above_high_f: {type: number, description: 'Cooling comes on above temp_high plus this, °F'}
+        fan2_on_above_high_f: {type: number, description: 'The second fan comes on above temp_high plus this, °F'}
+        dry_on_above_vpd_low_kpa: {type: number, description: 'Drying is wanted below vpd_low plus this, kPa'}
+        fog_on_above_vpd_high_kpa: {type: number, description: 'The fogger comes on above vpd_high plus this, kPa'}
+        mist_on_above_vpd_high_kpa: {type: number, description: 'The misters join above vpd_high plus this, kPa'}
     BandProfilePreview:
       type: object
       description: 'API-23: the house band as stored (current) and drafted, one point per step_s'
-      required: [day, step_s, t, sun, current, draft, changed, temp, vpd, guardrails, overshoot, night_heat_kwh, envelope, findings, measured, forecast]
+      required: [day, step_s, t, sun, current, draft, changed, temp, vpd, guardrails, law_lines, overshoot, night_heat_kwh, envelope, findings, measured, forecast]
       properties:
         day: {type: string, format: date, description: America/Denver day}
         step_s: {type: integer, const: 600}
@@ -1937,6 +2010,7 @@ components:
             min_width_f: {type: number, description: The control law's minimum temperature band width at every point of the day}
             min_width_kpa: {type: number, description: The control law's minimum VPD band width at every point of the day}
             dry_on_above_vpd_low_kpa: {type: number, description: The control law dries the house below vpd_low plus this}
+        law_lines: {$ref: '#/components/schemas/BandLawLines'}
         overshoot: {type: object, additionalProperties: {type: number}, description: 'By series, how far the draft curve leaves its anchor range'}
         night_heat_kwh:
           type: object
@@ -2889,7 +2963,7 @@ components:
           description: 'Where the controller takes its band from (diagnostics.band_source): its own diurnal curve from the pushed anchors, the corridor, or the older dispatcher push'
         host:
           description: 'The band the host computes for now (fn_band_setpoints(now())); null when it cannot'
-          anyOf: [{$ref: '#/components/schemas/BandEdges'}, {type: 'null'}]
+          anyOf: [{$ref: '#/components/schemas/HostBandEdges'}, {type: 'null'}]
         differs: {type: [boolean, 'null'], description: 'The controller''s band and the host''s differ by more than 1.0 °F or 0.10 kPa on an edge (the band_device_db_divergence rule); null when either is missing'}
     LawInputs:
       type: object
@@ -2932,7 +3006,10 @@ components:
         hold:
           description: >-
             Set only when the host can prove it: requested with the relay off inside its minimum off time (min_off), or
-            not requested with the relay on inside its minimum on time (min_on); null otherwise
+            not requested with the relay on inside its minimum on time (min_on); null otherwise. Nothing is proven for a
+            relay a manual run holds (or may hold, while its flag is unknown), for the fogger off unless the controller
+            names its minimum off time as the reason, or for the fogger on outside the protection limits, where the
+            irrigation engine can run it
           anyOf:
             - type: 'null'
             - type: object
@@ -2961,7 +3038,7 @@ components:
         refused_reason:
           type: [string, 'null']
           enum: [none, no_outdoor, cooling, furnace, not_drier, too_cold, cost, humidity_invalid, no_temperature, null]
-          description: "The controller's first reason while no run is on (the record's dr field); none while drying runs or is not wanted"
+          description: "The record's dr field: the first refusal while drying is wanted and not running; humidity_invalid or no_temperature whenever those inputs are missing; none otherwise"
         cost_kwh_per_kg: {type: [number, 'null'], description: 'kWh of heat per kg of water removed (the record''s e field); null when the controller reports no price (no outdoor data)'}
         limit_kwh_per_kg: {type: [number, 'null'], description: 'The drying cost limit in force on the controller (the record''s lim field)'}
         limit_source: {type: string, enum: [owner, default], description: 'owner: a desired_state row for dry_cost_limit_kwh_per_kg exists; default: the controller''s compiled value'}
@@ -2970,12 +3047,14 @@ components:
         min_temp_f: {type: [number, 'null'], description: 'Drying needs the house above this: the band low plus the drying temperature margin'}
         checks:
           type: array
-          description: The decision chain, in the order the law applies it
+          description: >-
+            The decision chain in the order the law refuses, so the first check that fails is refused_reason (no_outdoor
+            leaves outdoor_drier null). warm_enough and worth_it decide only the start: both are true while a run is on
           items:
             type: object
             required: [id, ok]
             properties:
-              id: {type: string, enum: [humid, outdoor_drier, worth_it, warm_enough, not_cooling, furnace_off]}
+              id: {type: string, enum: [humid, not_cooling, furnace_off, outdoor_drier, warm_enough, worth_it]}
               ok: {type: [boolean, 'null']}
         meter:
           type: object
@@ -3131,8 +3210,8 @@ components:
     # ------------------------------------------------------------ daily record (API-32, API-33)
     DailyRecord:
       type: object
-      description: 'API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means'
-      required: [from, to, days, means, server_time]
+      description: 'API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means and the periods before and since the law'
+      required: [from, to, days, means, law_started, baseline, since_law, server_time]
       properties:
         from: {type: string, format: date}
         to: {type: string, format: date, description: Inclusive local day}
@@ -3144,7 +3223,30 @@ components:
           properties:
             d7: {anyOf: [{$ref: '#/components/schemas/RecordMeans'}, {type: 'null'}]}
             d30: {anyOf: [{$ref: '#/components/schemas/RecordMeans'}, {type: 'null'}]}
+        law_started: {type: [string, 'null'], format: date, description: "The local day of the controller's first law record; null when none is stored"}
+        baseline:
+          description: The 30 days before law_started, leaving out days with a band edit (activity_log band.write); null when law_started is null
+          anyOf: [{$ref: '#/components/schemas/RecordPeriod'}, {type: 'null'}]
+        since_law:
+          description: >-
+            The days from the day after law_started through yesterday, band-edit days left out as in baseline; null
+            until one of those days is complete (ended and its record stored)
+          anyOf: [{$ref: '#/components/schemas/RecordPeriod'}, {type: 'null'}]
         server_time: {type: string, format: date-time}
+    RecordPeriod:
+      type: object
+      description: >-
+        A fixed period of local days, from and to inclusive, and its means over its complete days less the days on
+        which the house band was changed. A period with no such day has means.days 0 and every mean null; a real
+        figure, zero included, always comes with days above 0, so a reader tells the two apart by days
+      required: [from, to, excluded_days, means]
+      properties:
+        from: {type: string, format: date}
+        to: {type: string, format: date, description: Inclusive local day}
+        excluded_days: {type: integer, minimum: 0, description: The days in the period left out because the house band was changed on them (band edits)}
+        means:
+          $ref: '#/components/schemas/RecordMeans'
+          description: "Over the period's complete days that are not left out; days 0 with every mean null when there are none"
     RecordDay:
       type: object
       required: [date, complete, band, relays, climate_starts, climate_run_s, energy, gas, water, drying, counter_sample_pct, alerts]
@@ -3306,11 +3408,13 @@ components:
             tokens:
               type: object
               description: The reviewer's token use
-              required: [last, mean_7, mean_30, rise_pct]
+              required: [last, mean_7, mean_30, rise_pct, count_7, count_30]
               properties:
                 last: {type: [integer, 'null'], description: The newest review's total tokens}
                 mean_7: {type: [number, 'null']}
                 mean_30: {type: [number, 'null']}
+                count_7: {type: integer, minimum: 0, maximum: 7, description: How many finished reviews before the newest mean_7 averages; 0 when mean_7 is null}
+                count_30: {type: integer, minimum: 0, maximum: 30, description: How many finished reviews before the newest mean_30 averages; 0 when mean_30 is null}
                 rise_pct: {type: [number, 'null'], description: 'The newest review against the 7-review mean of the reviews before it'}
             proposal_waiting:
               description: The written review whose band proposal waits for the owner; null when none does
@@ -3515,10 +3619,16 @@ components:
           type: array
           items:
             type: object
-            required: [sensor, age_s]
+            required: [sensor, age_s, last_seen_at]
             properties:
               sensor: {type: string, examples: [climate.temp_north]}
               age_s: {type: [number, 'null'], description: Seconds since its newest reading; 7200 means not seen in 2 h}
+              last_seen_at:
+                type: [string, 'null']
+                format: date-time
+                description: >-
+                  For a probe not seen in 2 h, the time of its newest reading in the last 30 days; null when it has none
+                  in 30 days, and null for a probe seen in the last 2 h, whose age already says it
         ingestor:
           type: object
           required: [heartbeat_age_s, reconnects, payloads_rejected, replay_failures, rows_rejected, observed_at]

@@ -20,6 +20,11 @@ const LAW = {
   heat1: [3.5, 4.5], heat2: [0.5, 3.0], cool: [0.0, 2.0], fan2: [1.5, 0.0], fog: [0.0, 0.15], mist: [0.3, 0.05], dry: [0.05, 0.2],
   dry_start_above_low_f: 1.5, hot_f: 100.0, cold_f: 40.0,
 };
+/** API-23's law_lines: where each rule switches on, as an offset from the band edge it reads. */
+export const LAW_LINES = {
+  heat1_on_above_low_f: LAW.heat1[0], heat2_on_above_low_f: LAW.heat2[0], cool_on_above_high_f: LAW.cool[0], fan2_on_above_high_f: LAW.fan2[0],
+  dry_on_above_vpd_low_kpa: LAW.dry[0], fog_on_above_vpd_high_kpa: LAW.fog[0], mist_on_above_vpd_high_kpa: LAW.mist[0],
+};
 const TIMING = {
   relay_min_on_s: 300, relay_min_off_s: 300, fog_min_on_s: 120, fog_min_off_s: 120, furnace_boot_wait_s: 300, mist_pulse_s: 30, mist_gap_s: 60,
   hot_limit_f: LAW.hot_f, cold_limit_f: LAW.cold_f,
@@ -49,6 +54,18 @@ function dewPoint(tempF, rh) {
   const c = (tempF - 32) / 1.8;
   const gamma = Math.log(rh / 100) + (17.27 * c) / (237.3 + c);
   return round(((237.3 * gamma) / (17.27 - gamma)) * 1.8 + 32, 1);
+}
+/**
+ * The outdoor dew point as the API computes it (verdify_schemas.vpd_envelope.outdoor_dewpoint_f, Tetens and its
+ * inverse), unrounded; null when a reading is missing or the humidity is not above zero.
+ */
+function outdoorDewPoint(tempF, rh) {
+  if (tempF === null || tempF === undefined || rh === null || rh === undefined || rh <= 0) return null;
+  const c = ((tempF - 32) * 5) / 9;
+  const vapour = (rh / 100) * 0.6108 * Math.exp((17.27 * c) / (c + 237.3));
+  const g = Math.log(Math.max(vapour, 1e-6) / 0.6108);
+  const value = ((237.3 * g) / (17.27 - g)) * 9 / 5 + 32;
+  return Number.isFinite(value) ? value : null;
 }
 
 // ---------------------------------------------------------------------------------------------------- the base state
@@ -84,13 +101,19 @@ export const LANE_KEYS = Object.keys(PATTERN);
 const REFUSALS = [["19:00", "19:20", "too_cold"], ["19:48", "21:10", "cost"], ["21:31", "22:30", "furnace"]];
 const spansOn = (date, spans) => spans.map(([start, end]) => [at(date, start), end === "24:00" ? at(addDays(date, 1), "00:00") : at(date, end)]);
 
-/** The 8 live daily_record rows (11-17 partial back to 11-10), today first. */
+/**
+ * The 8 live daily_record rows (11-17 partial back to 11-10), today first. The drying meter and the law's drying record
+ * (drying[3..6]) exist only on a day with a law record: today (no drying record until the day is complete), yesterday,
+ * and the three days before it from the fixture's first law record (baseLaw's firstRecordAt, four days back), scaled
+ * from yesterday's live values; every older day is before the law, where migration 317 stores them null.
+ */
 const RECORD = [
   { kwh_partial: 8.25, kwh: null, cov: 31.9, therms: 1.959, water: [1.0, 1.0, 1.0, 0.0, false], sample: 91.9, drying: [129.8, 1, 1, 247, 177, false, null] },
   { kwh_partial: 20.86, kwh: 25.09, cov: 83.1, therms: 2.863, water: [46.0, 44.0, 6.0, 2.0, false], sample: 96.7, drying: [2383.3, 21, 13, 1703, 867, false, { wanted_s: 7260, refused_s: { cost: 466, furnace: 558, too_cold: 5273 } }] },
-  { kwh_partial: 22.25, kwh: 24.73, cov: 90, therms: 3.126, water: [47.0, 46.0, 8.0, 1.0, true], sample: 99.7, drying: [4614.9, 29, 12, null, null, null, null] },
-  { kwh_partial: 25.90, kwh: 29.95, cov: 86.5, therms: 3.216, water: [165.0, 31.0, 4.0, 134.0, false], sample: 98.1, drying: [2639.4, 20, 5, null, null, null, null] },
-  { kwh_partial: 27.22, kwh: 29.84, cov: 91.2, therms: 2.487, water: [33.0, 33.0, 2.0, 0.0, true], sample: 98.9, drying: [1537.4, 12, 7, null, null, null, null] },
+  { kwh_partial: 22.25, kwh: 24.73, cov: 90, therms: 3.126, water: [47.0, 46.0, 8.0, 1.0, true], sample: 99.7, drying: [4614.9, 29, 12, 3298, 1679, false, { wanted_s: 9840, refused_s: { cost: 610, furnace: 720, too_cold: 3895 } }] },
+  { kwh_partial: 25.90, kwh: 29.95, cov: 86.5, therms: 3.216, water: [165.0, 31.0, 4.0, 134.0, false], sample: 98.1, drying: [2639.4, 20, 5, 1886, 960, false, { wanted_s: 6300, refused_s: { cost: 402, furnace: 610, too_cold: 2649 } }] },
+  // The law's first day: its record starts at 13:48 local, so the law's drying record covers only the afternoon.
+  { kwh_partial: 27.22, kwh: 29.84, cov: 91.2, therms: 2.487, water: [33.0, 33.0, 2.0, 0.0, true], sample: 98.9, drying: [1537.4, 12, 7, 1099, 559, false, { wanted_s: 3420, refused_s: { furnace: 212, too_cold: 1190 } }] },
   { kwh_partial: 24.98, kwh: 28.75, cov: 86.9, therms: 1.837, water: [36.0, 32.0, 6.0, 1.0, true], sample: 99.8, drying: [1065.8, 9, 2, null, null, null, null] },
   { kwh_partial: 24.95, kwh: 28.60, cov: 87.2, therms: 2.269, water: [32.0, 32.0, 5.0, 0.0, true], sample: 99.2, drying: [1331.7, 11, 2, null, null, null, null] },
   { kwh_partial: 28.02, kwh: 31.12, cov: 90, therms: 2.042, water: [31.0, 31.0, 1.0, 0.0, false], sample: 98.9, drying: [1006.8, 9, 4, null, null, null, null] },
@@ -184,7 +207,11 @@ function baseLaw(world) {
   const date = today(world);
   return {
     observedAt: now - 35 * SECOND,
-    firstRecordAt: at(addDays(date, -2), "13:48"),
+    // The law's first record, four days back: API-32's since_law then holds three complete days.
+    firstRecordAt: at(addDays(date, -4), "13:48"),
+    // band.write rows from before the activity the fixture lists (API-17): two band edits inside the 30 days before the
+    // law, which API-32's baseline leaves out.
+    bandEdits: [at(addDays(date, -11), "16:17"), at(addDays(date, -26), "09:40")],
     // The newest record: only the outdoor-air latch on (the live l=128, o=0), drying not wanted, nothing refused.
     latches: ["air"], requests: [], drying: "not_wanted", refused: "none", cost: 0.633, limit: 0.7, limitSource: "default", repaired: false,
     // The controller follows its own curve continuously; the host's band (Now.band) is a few minutes older.
@@ -234,7 +261,7 @@ function baseSystem(world) {
     tables: [["climate", 20, 5], ["diagnostics", 45, 5], ["equipment_state", 312, 2], ["setpoint_snapshot", 30, 10], ["energy", 12, 25], ["system_state", 35, 15]]
       .map(([table, age, rows]) => ({ table, last_row_age_s: age, rows_5m: rows })),
     probes: [["climate.temp_north", 20], ["climate.temp_south", 20], ["climate.temp_east", 21], ["climate.temp_west", 20], ["climate.temp_case", 22], ["climate.rh_north", 20]]
-      .map(([sensor, age]) => ({ sensor, age_s: age })),
+      .map(([sensor, age]) => ({ sensor, age_s: age, last_seen_at: null })),
     ingestor: { reconnects: 0, payloads_rejected: 0, replay_failures: 0, rows_rejected: {}, observed_at: iso(now - 25 * SECOND) },
     dispatcherStage: "ordinary",
     readbackPass: { at: iso(now - 4 * MINUTE), stored: 2, of: 102 },
@@ -279,9 +306,10 @@ function reviewToday(world) {
   const reviewDate = addDays(today(world), -1);
   const newest = world.reviews.find((row) => row.review_date === reviewDate) ?? null;
   const due = world.now >= at(today(world), "07:00");
-  return {
-    review_date: reviewDate, status: newest ? newest.status : due ? "due" : "not_due", missed: reviewMissed(world), expected_after: "07:00", late_after: "10:00",
-  };
+  const status = newest ? newest.status : due ? "due" : "not_due";
+  // Missed from 10:00 only: an alert still open from an earlier day says nothing about this one before then.
+  const missed = reviewMissed(world) && status !== "written" && world.now >= at(today(world), "10:00");
+  return { review_date: reviewDate, status, missed, expected_after: "07:00", late_after: "10:00" };
 }
 /** Each review's proposal state: waiting on the newest written review with a proposal, superseded on older ones. */
 function proposalState(world, review) {
@@ -319,48 +347,112 @@ export function nowAdditions(world) {
 const pick = (row, keys) => Object.fromEntries(keys.map((key) => [key, row[key]]));
 
 // ---------------------------------------------------------------------------------------------------- API-30
+/** The relays a rule drives, as verdify_services/law.py rule_relays(): the lead fan for one fan, both while it is not known. */
+function ruleRelays(id, lead) {
+  const other = { fan1: "fan2", fan2: "fan1" }[lead ?? ""];
+  const leads = other ? [lead] : ["fan1", "fan2"];
+  return {
+    heat1: ["heat1"], heat2: ["heat2"], cooling: ["vent", ...leads], second_fan: other ? [other] : ["fan1", "fan2"], fog: ["fog"], mist: ["mister_any"],
+    drying: ["vent", ...leads], hot_limit: ["vent", "fan1", "fan2"], cold_limit: ["heat1", "heat2"],
+  }[id];
+}
 const RULES = [
-  ["heat1", "temp", "below", "h1", "heat1", ["heat1"], (band) => [band.temp_low_f + LAW.heat1[0], band.temp_low_f + LAW.heat1[1]]],
-  ["heat2", "temp", "below", "h2", "heat2", ["heat2"], (band) => [band.temp_low_f + LAW.heat2[0], band.temp_low_f + LAW.heat2[1]]],
-  ["cooling", "temp", "above", "cool", "cooling", ["vent", "fan1"], (band) => [band.temp_high_f + LAW.cool[0], band.temp_high_f - LAW.cool[1]]],
-  ["second_fan", "temp", "above", "cool2", "fan2", ["fan2"], (band) => [band.temp_high_f + LAW.fan2[0], band.temp_high_f + LAW.fan2[1]]],
-  ["fog", "vpd", "above", "wet", "fog", ["fog"], (band) => [band.vpd_high_kpa + LAW.fog[0], band.vpd_high_kpa - LAW.fog[1]]],
-  ["mist", "vpd", "above", "mist", "mist", ["mister_any"], (band) => [band.vpd_high_kpa + LAW.mist[0], band.vpd_high_kpa + LAW.mist[1]]],
-  ["drying", "vpd", "below", "dry", "drying", ["vent", "fan1"], (band) => [band.vpd_low_kpa + LAW.dry[0], band.vpd_low_kpa + LAW.dry[1]]],
-  ["hot_limit", "temp", "above", null, "hot", ["vent", "fan1", "fan2"], () => [LAW.hot_f, LAW.hot_f]],
-  ["cold_limit", "temp", "below", null, "cold", ["heat1", "heat2"], () => [LAW.cold_f, LAW.cold_f]],
+  ["heat1", "temp", "below", "h1", "heat1", (band) => [band.temp_low_f + LAW.heat1[0], band.temp_low_f + LAW.heat1[1]]],
+  ["heat2", "temp", "below", "h2", "heat2", (band) => [band.temp_low_f + LAW.heat2[0], band.temp_low_f + LAW.heat2[1]]],
+  ["cooling", "temp", "above", "cool", "cooling", (band) => [band.temp_high_f + LAW.cool[0], band.temp_high_f - LAW.cool[1]]],
+  ["second_fan", "temp", "above", "cool2", "fan2", (band) => [band.temp_high_f + LAW.fan2[0], band.temp_high_f + LAW.fan2[1]]],
+  ["fog", "vpd", "above", "wet", "fog", (band) => [band.vpd_high_kpa + LAW.fog[0], band.vpd_high_kpa - LAW.fog[1]]],
+  ["mist", "vpd", "above", "mist", "mist", (band) => [band.vpd_high_kpa + LAW.mist[0], band.vpd_high_kpa + LAW.mist[1]]],
+  ["drying", "vpd", "below", "dry", "drying", (band) => [band.vpd_low_kpa + LAW.dry[0], band.vpd_low_kpa + LAW.dry[1]]],
+  ["hot_limit", "temp", "above", null, "hot", () => [LAW.hot_f, LAW.hot_f]],
+  ["cold_limit", "temp", "below", null, "cold", () => [LAW.cold_f, LAW.cold_f]],
 ];
-const MIN_TIMES = { fog: [TIMING.fog_min_on_s, TIMING.fog_min_off_s] };
-const DEDICATED = new Set(["heat1", "heat2", "second_fan", "fog"]);
-/** A hold the host can prove from the relay's newest row: inside its minimum off (or on) time against the request. */
-function holdOf(world, relay, requested, equipment) {
-  if (requested === null || relay.since === null || relay.state === "unknown") return null;
-  const [minOn, minOff] = MIN_TIMES[equipment] ?? [TIMING.relay_min_on_s, TIMING.relay_min_off_s];
-  const elapsed = Math.floor((world.now - Date.parse(relay.since)) / SECOND);
-  if (requested && relay.state === "off" && elapsed < minOff) return { kind: "min_off", remaining_s: minOff - elapsed };
-  if (!requested && relay.state === "on" && elapsed < minOn) return { kind: "min_on", remaining_s: minOn - elapsed };
-  return null;
+/** Each relay's minimum on and off time; the misters have none here. */
+const MIN_TIMES = {
+  heat1: [TIMING.relay_min_on_s, TIMING.relay_min_off_s], heat2: [TIMING.relay_min_on_s, TIMING.relay_min_off_s],
+  fan1: [TIMING.relay_min_on_s, TIMING.relay_min_off_s], fan2: [TIMING.relay_min_on_s, TIMING.relay_min_off_s],
+  vent: [TIMING.relay_min_on_s, TIMING.relay_min_off_s], fog: [TIMING.fog_min_on_s, TIMING.fog_min_off_s],
+};
+/** The relays a manual run holds (verdify_services/law.py MANUAL_RUN_RELAYS), by Now's override kind. */
+const MANUAL_RUN = { fans: ["fan1", "fan2", "vent", "heat1", "heat2"], vent_bypass: ["fan1", "fan2", "vent", "heat1", "heat2"], humidify: ["fog"] };
+const manualHeld = (world) => new Set((world.overrides ?? []).flatMap((run) => MANUAL_RUN[run.kind] ?? []));
+const REQUEST_OF = { heat1: "heat1", heat2: "heat2", vent: "vent", fog: "fog", mister_any: "mist" };
+/** Whether the law's request asks for this relay: the lead fan for one fan, both for two; null while the lead is not known. */
+function relayWanted(law, relay) {
+  if (relay === "fan1" || relay === "fan2") {
+    const one = hasRequest(law, "fan1");
+    const two = hasRequest(law, "fan2");
+    if (two || !one) return two;
+    return law.leadFan ? relay === law.leadFan : null;
+  }
+  return hasRequest(law, REQUEST_OF[relay]);
+}
+/**
+ * The longest hold the host can prove over a rule's relays (verdify_services/law.py rule_hold()): requested with a wanted
+ * relay off inside its minimum off time, or not requested with an unwanted relay on inside its minimum on time. Never at
+ * the limits (but the fogger), never on a relay a manual run holds, the fogger off only while the controller names its
+ * minimum off time, the fogger on only at a limit. The fixture's controller booted long before any of its switches.
+ */
+function holdOf(world, law, id, requested, states) {
+  if (requested === null || id === "hot_limit" || id === "cold_limit") return null;
+  const atLimit = hasRequest(law, "hot") || hasRequest(law, "cold");
+  const held = manualHeld(world);
+  let best = null;
+  for (const { equipment, state, since } of states) {
+    const times = MIN_TIMES[equipment];
+    if (!times || state === "unknown" || since === null || held.has(equipment) || (atLimit && equipment !== "fog")) continue;
+    const [minOn, minOff] = times;
+    const wanted = relayWanted(law, equipment);
+    const elapsed = Math.floor((world.now - Date.parse(since)) / SECOND);
+    let hold = null;
+    if (requested && wanted === true && state === "off") {
+      if (equipment === "fog" && world.reasons?.fog_block_reason?.code !== "relay_min_off") continue;
+      if (elapsed < minOff) hold = { kind: "min_off", remaining_s: minOff - elapsed };
+    } else if (!requested && wanted === false && state === "on" && (equipment !== "fog" || atLimit) && elapsed < minOn) {
+      hold = { kind: "min_on", remaining_s: minOn - elapsed };
+    }
+    if (hold && (!best || hold.remaining_s > best.remaining_s)) best = hold;
+  }
+  return best;
+}
+/** The drying checks in the order the law refuses (verdify_services/law.py drying_checks()); all null without a fresh record. */
+function dryingChecks(law, fresh, temp, minTemp) {
+  const ids = ["humid", "not_cooling", "furnace_off", "outdoor_drier", "warm_enough", "worth_it"];
+  if (!fresh || law.refused === "no_temperature") return ids.map((id) => ({ id, ok: null }));
+  const running = hasLatch(law, "run");
+  // law.cost is null with no price; costIsNone marks the no-price value (too small a moisture difference).
+  const noPrice = law.cost === null && !law.costIsNone;
+  const ok = {
+    humid: law.refused === "humidity_invalid" ? null : hasLatch(law, "dry"),
+    not_cooling: !(hasLatch(law, "cool") || hasRequest(law, "hot")),
+    furnace_off: !hasLatch(law, "h2"),
+    outdoor_drier: running ? true : noPrice ? null : hasLatch(law, "air") && !law.costIsNone,
+    warm_enough: running || law.refused === "cost" ? true : law.refused === "too_cold" ? false : temp === null ? null : temp >= minTemp,
+    worth_it: running ? true : noPrice ? null : !law.costIsNone && law.cost <= law.limit,
+  };
+  return ids.map((id) => ({ id, ok: ok[id] }));
 }
 function lawBody(world) {
   const law = lawOf(world);
   const band = law.band;
   const temp = world.indoor.temp_f.value;
   const rh = world.indoor.rh_pct.value;
-  const outdoorTemp = world.outdoor.temp_f.value;
-  const outdoorRh = world.outdoor.rh_pct.value;
-  const rules = RULES.map(([id, signal, direction, latch, request, relays, thresholds]) => {
+  // The law reads the station or the intake; with no outdoor source it has no outdoor reading.
+  const outdoorKnown = law.outdoorSource === "station" || law.outdoorSource === "intake";
+  const outdoorTemp = outdoorKnown ? world.outdoor.temp_f.value : null;
+  const outdoorRh = outdoorKnown ? world.outdoor.rh_pct.value : null;
+  const fresh = reporting(world);
+  const rules = RULES.map(([id, signal, direction, latch, request, thresholds]) => {
     const [on, off] = thresholds(band);
     const requested = hasRequest(law, request);
-    const states = relays.map((equipment) => ({ equipment, ...itemState(world, equipment) }));
+    const states = ruleRelays(id, law.leadFan).map((equipment) => ({ equipment, ...itemState(world, equipment) }));
     return {
       id, signal, direction, on_at: round(on, signal === "vpd" ? 2 : 1), off_at: round(off, signal === "vpd" ? 2 : 1),
       latched: latch ? hasLatch(law, latch) : requested, requested, relays: states,
-      // Only a relay one rule drives alone proves a hold; the shared vent and fans, and the limits, never do here.
-      hold: DEDICATED.has(id) ? holdOf(world, states[0], requested, relays[0]) : null,
+      hold: fresh ? holdOf(world, law, id, requested, states) : null,
     };
   });
   const record = world.record[0];
-  const heat2 = itemState(world, "heat2");
   const known = law.observedAt !== null;
   const wanted = hasLatch(law, "dry");
   const drier = hasLatch(law, "air");
@@ -378,7 +470,7 @@ function lawBody(world) {
     band: { ...band, repaired: known ? law.repaired : null, source: law.bandSource, host, differs },
     inputs: {
       temp_f: temp, vpd_kpa: world.indoor.vpd_kpa.value, rh_pct: rh, dew_point_f: dewPoint(temp, rh),
-      outdoor: { source: law.outdoorSource, temp_f: outdoorTemp, rh_pct: outdoorRh, dew_point_f: dewPoint(outdoorTemp, outdoorRh) },
+      outdoor: { source: law.outdoorSource, temp_f: outdoorTemp, rh_pct: outdoorRh, dew_point_f: outdoorDewPoint(outdoorTemp, outdoorRh) },
       observed_at: world.indoor.temp_f.observed_at,
     },
     rules,
@@ -386,14 +478,7 @@ function lawBody(world) {
       state: known ? law.drying : "unknown", wanted, outdoor_drier: drier, refused_reason: known ? law.refused : null,
       cost_kwh_per_kg: law.cost, limit_kwh_per_kg: known ? law.limit : null, limit_source: law.limitSource,
       wanted_below_kpa: round(band.vpd_low_kpa + LAW.dry[0], 2), stop_above_kpa: round(band.vpd_low_kpa + LAW.dry[1], 2), min_temp_f: minTemp,
-      checks: [
-        { id: "humid", ok: wanted },
-        { id: "outdoor_drier", ok: drier },
-        { id: "worth_it", ok: law.cost === null || !known ? null : law.cost <= law.limit },
-        { id: "warm_enough", ok: temp === null ? null : temp >= minTemp },
-        { id: "not_cooling", ok: known ? !law.latches.includes("cool") : null },
-        { id: "furnace_off", ok: heat2.state === "unknown" ? null : heat2.state === "off" },
-      ],
+      checks: dryingChecks(law, fresh, temp, minTemp),
       meter: { ...law.meter },
       today: record?.drying ? {
         seconds: record.drying.seconds, runs: record.drying.runs, water_g: record.drying.water_g, heat_wh: record.drying.heat_wh, lower_bound: record.drying.lower_bound,
@@ -420,7 +505,7 @@ const recordsEnd = (world) => (reporting(world) ? world.now : (lawOf(world).obse
 /** One lane's state at `t`: unknown before the first record, after the last, or inside an outage; else on or off. */
 function laneState(world, key, t) {
   const law = lawOf(world);
-  if (t < law.firstRecordAt || t >= recordsEnd(world) || law.gaps.some(([start, end]) => t >= start && t < end)) return "unknown";
+  if (law.firstRecordAt === null || t < law.firstRecordAt || t >= recordsEnd(world) || law.gaps.some(([start, end]) => t >= start && t < end)) return "unknown";
   if ((law.extra[key] ?? []).some(([start, end]) => t >= start && t < end)) return "on";
   return spansOn(local(t).date, PATTERN[key] ?? []).some(([start, end]) => t >= start && t < end) ? "on" : "off";
 }
@@ -434,7 +519,7 @@ function edges(world, from, to) {
     for (const [start, end] of spansOn(date, REFUSALS.map(([s, e]) => [s, e]))) { points.add(start); points.add(end); }
   }
   for (const [start, end] of [...law.gaps, ...Object.values(law.extra).flat(), ...law.extraRefusals, ...law.sourceSpans, ...law.repairedSpans]) { points.add(start); points.add(end); }
-  return [...points].filter((point) => point >= from && point <= to).sort((a, b) => a - b);
+  return [...points].filter((point) => point !== null && point >= from && point <= to).sort((a, b) => a - b);
 }
 /** Change intervals of `stateAt` over the edges, merged where equal. */
 function intervalsOf(points, stateAt) {
@@ -483,7 +568,7 @@ function lawHistoryBody(world, { query }) {
   const live = (start) => laneState(world, "latch.air", start * SECOND) !== "unknown";
   const swing = (start) => (Math.cos((2 * Math.PI * (start * SECOND - world.now)) / DAY) - 1) / 2;
   return {
-    from: iso(from), to: iso(to), first_record_at: iso(law.firstRecordAt), lanes, drying, outdoor_source: outdoor, band_repaired: repaired,
+    from: iso(from), to: iso(to), first_record_at: law.firstRecordAt === null ? null : iso(law.firstRecordAt), lanes, drying, outdoor_source: outdoor, band_repaired: repaired,
     cost: {
       bucket_s: bucket, t,
       cost_kwh_per_kg: t.map((start) => (live(start) && laneState(world, "latch.air", start * SECOND) === "on" ? round((law.cost ?? 0.633) + 0.12 * swing(start), 3) : null)),
@@ -540,7 +625,36 @@ function recordBody(world, { query }) {
   const byDate = new Map(world.record.map((row) => [row.date, row]));
   const days = Array.from({ length: span }, (_, index) => addDays(first, index)).map((date) => structuredClone(byDate.get(date) ?? emptyDay(date)));
   const window = (count) => world.record.filter((row) => row.complete && row.date <= today(world)).slice(0, count);
-  return { from: first, to: last, days, means: { d7: meansOf(window(7)), d30: meansOf(window(30)) }, server_time: iso(world.now) };
+  return {
+    from: first, to: last, days, means: { d7: meansOf(window(7)), d30: meansOf(window(30)) }, ...lawPeriods(world), server_time: iso(world.now),
+  };
+}
+const EMPTY_MEANS = {
+  days: 0, both_pct: null, temp_pct: null, vpd_pct: null, nights_dried: null, climate_starts: null, climate_run_h: null, heat1_run_h: null,
+  heat2_run_h: null, kwh: null, therms_est: null, crop_gal: null, drying_h: null,
+};
+/**
+ * API-32's law day and its two periods (verdify_services/record.py): the 30 days before the law and the days since it
+ * through yesterday, each leaving out the days with a band edit. since_law is null until one of its days is complete.
+ */
+function lawPeriods(world) {
+  const law = lawOf(world);
+  const started = law.firstRecordAt === null ? null : local(law.firstRecordAt).date;
+  if (started === null) return { law_started: null, baseline: null, since_law: null };
+  const writes = [...law.bandEdits, ...(world.activity ?? []).filter((row) => row.action === "band.write").map((row) => Date.parse(row.ts))];
+  const edits = new Set(writes.map((ts) => local(ts).date));
+  const period = (from, to) => {
+    const left = [...edits].filter((date) => date >= from && date <= to);
+    const days = world.record.filter((row) => row.date >= from && row.date <= to && !left.includes(row.date));
+    return { from, to, excluded_days: left.length, means: meansOf(days) ?? { ...EMPTY_MEANS } };
+  };
+  const [sinceFrom, sinceTo] = [addDays(started, 1), addDays(today(world), -1)];
+  const sinceComplete = world.record.some((row) => row.complete && row.date >= sinceFrom && row.date <= sinceTo);
+  return {
+    law_started: started,
+    baseline: period(addDays(started, -30), addDays(started, -1)),
+    since_law: sinceComplete ? period(sinceFrom, sinceTo) : null,
+  };
 }
 function relayCheckBody(world, { query }) {
   lawOf(world);
@@ -578,17 +692,26 @@ function reviewsBody(world, { query }) {
   const start = cursor === null ? 0 : Number(cursor);
   if (!Number.isInteger(start) || start < 0) throw refuse(400, "invalid_request", "cursor is not one this API gave");
   const rows = world.reviews;
-  const totals = rows.map((row) => row.total_tokens).filter((value) => value !== null);
-  const before = rows.slice(1).map((row) => row.total_tokens).filter((value) => value !== null).slice(0, 7);
-  const last = rows[0]?.total_tokens ?? null;
-  const mean7 = mean(totals.slice(0, 7));
-  const prior = mean(before);
   return {
     next_cursor: start + limit < rows.length ? String(start + limit) : null,
     items: rows.slice(start, start + limit).map((row) => reviewBody(world, row)),
     today: reviewToday(world),
-    tokens: { last, mean_7: round(mean7, 1), mean_30: round(mean(totals.slice(0, 30)), 1), rise_pct: last !== null && prior ? round(((last - prior) / prior) * 100, 1) : null },
+    tokens: tokenUse(rows.map((row) => row.total_tokens).filter((value) => value !== null)),
     proposal_waiting: waitingProposal(world),
+  };
+}
+/**
+ * verdify_services/reviews.py token_use(): the finished reviews' totals, newest first; the newest against the mean of
+ * the 7 and the 30 before it (or of as many as there are, counted in count_7 and count_30).
+ */
+function tokenUse(totals) {
+  if (!totals.length) return { last: null, mean_7: null, mean_30: null, rise_pct: null, count_7: 0, count_30: 0 };
+  const [last, ...before] = totals;
+  const [seven, thirty] = [before.slice(0, 7), before.slice(0, 30)];
+  const mean7 = round(mean(seven), 1);
+  return {
+    last, mean_7: mean7, mean_30: round(mean(thirty), 1), rise_pct: mean7 ? round((100 * (last - mean7)) / mean7, 1) : null,
+    count_7: seven.length, count_30: thirty.length,
   };
 }
 
@@ -790,6 +913,25 @@ export const FIXTURES = {
     Object.assign(yesterday.band, { graded_min: 1080 });
     yesterday.counter_sample_pct = 61.2;
     world.relayCheckComparisons = ["partial", "partial", "complete", "partial"];
+  },
+  // No law record is stored (a controller on firmware from before the law): API-32 serves no law day and neither
+  // period, the law view has no record, and its history is unknown throughout. No day has the drying meter or the
+  // law's drying record either, as migration 317 stores them only for a day with a law record.
+  "record-no-periods": (world) => {
+    const law = lawOf(world);
+    Object.assign(law, { observedAt: null, firstRecordAt: null, latches: [], requests: [], cost: null, constantsHash: null, gaps: [], sourceSpans: [] });
+    law.meter = { seconds: null, water_g: null, heat_wh: null, refused_seconds: null, observed_at: null };
+    for (const row of world.record) Object.assign(row.drying, { water_g: null, heat_wh: null, lower_bound: null, wanted_s: null, refused_s: null });
+  },
+  // Four soil probes have gone quiet: three were last seen three days ago, and one has no reading in 30 days.
+  "data-probes-silent": (world) => {
+    lawOf(world);
+    const lastSeen = iso(world.now - 3 * DAY);
+    world.system.probes = [
+      ...world.system.probes,
+      ...[["climate.soil_moisture_south_1", lastSeen], ["climate.soil_moisture_south_2", lastSeen], ["climate.soil_moisture_west", lastSeen], ["climate.soil_ec_south_1", null]]
+        .map(([sensor, seen]) => ({ sensor, age_s: 7200, last_seen_at: seen })),
+    ];
   },
   // The gap log is off because the controller's storage is full: nothing is kept while the host is away.
   "gap-log-off": (world) => {

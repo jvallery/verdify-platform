@@ -130,6 +130,9 @@ def daily_record() -> record.DailyRecord:
         to=date(2026, 11, 17),
         days=[day],
         means=record.RecordMeansPair(d7=None, d30=None),
+        law_started=date(2026, 11, 16),
+        baseline=record.record_period([day], date(2026, 10, 17), date(2026, 11, 15), [date(2026, 11, 2)]),
+        since_law=None,
         server_time=AT,
     )
 
@@ -184,6 +187,36 @@ def test_record_days_passes_the_local_dates_and_answers_from_not_from_(monkeypat
     assert body["from"] == "2026-11-17" and "from_" not in body
     assert body["days"][0]["energy"] == {"kwh": None, "kwh_partial": 8.25, "coverage_pct": 31.9}
     assert body["days"][0]["relays"] == {"heat1": {"starts": 14, "run_s": 25061.0, "repaired_runs": 0}}
+    # The periods: from and to as local dates, never from_; a baseline with no complete day has days 0 and null means.
+    assert body["law_started"] == "2026-11-16" and body["since_law"] is None
+    baseline = body["baseline"]
+    assert (baseline["from"], baseline["to"], baseline["excluded_days"]) == ("2026-10-17", "2026-11-15", 1)
+    assert "from_" not in baseline and baseline["means"]["days"] == 0
+    assert {key for key, value in baseline["means"].items() if value is not None} == {"days"}
+    assert committed_errors("/record/days", body) == []
+
+
+def test_record_days_serves_both_periods_and_null_ones(monkeypatch):
+    served = daily_record()
+    day = served.days[0].model_copy(update={"date": date(2026, 11, 18), "complete": True})
+    with_since = served.model_copy(
+        update={"since_law": record.record_period([day], date(2026, 11, 17), date(2026, 11, 18), [date(2026, 11, 17)])}
+    )
+    recorder(monkeypatch, record, "record_days", with_since)
+    body = client().get("/v1/record/days").json()
+    since = body["since_law"]
+    assert (since["from"], since["to"], since["excluded_days"], since["means"]["days"]) == (
+        "2026-11-17",
+        "2026-11-18",
+        1,
+        1,
+    )
+    assert committed_errors("/record/days", body) == []
+
+    before_law = served.model_copy(update={"law_started": None, "baseline": None, "since_law": None})
+    recorder(monkeypatch, record, "record_days", before_law)
+    body = client().get("/v1/record/days").json()
+    assert (body["law_started"], body["baseline"], body["since_law"]) == (None, None, None)
     assert committed_errors("/record/days", body) == []
 
 
@@ -248,7 +281,14 @@ def test_reviews_pass_limit_and_cursor_through(monkeypatch):
         "expected_after": "07:00",
         "late_after": "10:00",
     }
-    assert body["tokens"] == {"last": 355128, "mean_7": 185792.0, "mean_30": 185792.0, "rise_pct": 91.1}
+    assert body["tokens"] == {
+        "last": 355128,
+        "mean_7": 185792.0,
+        "mean_30": 185792.0,
+        "rise_pct": 91.1,
+        "count_7": 1,
+        "count_30": 1,
+    }
     assert committed_errors("/reviews", body) == []
 
 

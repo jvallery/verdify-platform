@@ -39,7 +39,7 @@ export function dailyRecord(count = 31, to = "2026-11-17"): TestRecord {
   const days = Array.from({ length: count }, (_, index) => recordDay(dateShift(to, index - count + 1), count - 1 - index));
   // Today: so far, the meter under 70 %.
   days[count - 1] = { ...days[count - 1], energy: { kwh: null, kwh_partial: 8.25, coverage_pct: 31.9 } };
-  return { from: days[0].date, to, days, means: { d7: MEANS, d30: MEANS_30 }, server_time: `${to}T17:42:00Z` };
+  return { from: days[0].date, to, days, means: { d7: MEANS, d30: MEANS_30 }, law_started: null, baseline: null, since_law: null, server_time: `${to}T17:42:00Z` };
 }
 
 export const RELAY_CHECK: RelayCheck = {

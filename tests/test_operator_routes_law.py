@@ -109,6 +109,7 @@ def view() -> law.LawView:
         "uptime_s": 35163,
         "uptime_at": AT,
         "lead_fan": "Fan 1",
+        "fog_block_reason": "none",
         "today": None,
     }
     return law.law_view(row, {}, None, False)
@@ -138,6 +139,8 @@ def test_law_view(monkeypatch):
     assert openapi_errors("/v1/law", body) == []
     assert body["reporting"] is True and body["lead_fan"] == "fan1"
     assert [rule["id"] for rule in body["rules"]][:2] == ["heat1", "heat2"]
+    # The outdoor dew point is served as a number, computed from the served outdoor pair (36.37 F, 80.6 %).
+    assert isinstance(body["inputs"]["outdoor"]["dew_point_f"], float)
     assert body["constants"]["hash"] is None and body["constants"]["matches"] is None
 
 
@@ -151,7 +154,7 @@ def test_law_history_passes_the_window(monkeypatch):
         outdoor_source=[],
         band_repaired=[],
         cost=law.CostColumns(bucket_s=60, t=[], cost_kwh_per_kg=[], limit_kwh_per_kg=[]),
-        band=law.BandColumns(bucket_s=60, t=[], temp_low_f=[], temp_high_f=[], vpd_low_kpa=[], vpd_high_kpa=[]),
+        band=law.LawBandColumns(bucket_s=60, t=[], temp_low_f=[], temp_high_f=[], vpd_low_kpa=[], vpd_high_kpa=[]),
     )
     calls = recorder(monkeypatch, "history", result)
     response = app_with().get("/v1/law/history", params={"from": "2026-11-17T06:00:00Z", "to": "2026-11-17T07:00:00Z"})

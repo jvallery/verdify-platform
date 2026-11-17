@@ -7,7 +7,8 @@ review state: API-34's ``today`` and ``proposal_waiting`` and Now's ``review`` b
 - The review of a day is due once the ingestor requests it, at or after 07:00 America/Denver the next day, and late
   at 10:00, when the ingestor raises ``daily_review_missed`` (``ingestor/tasks/heartbeat.py``). ``status`` is
   ``written`` when any review of that day is written, else the newest request's status, else ``due`` from 07:00 and
-  ``not_due`` before. ``missed`` follows the open ``daily_review_missed`` alert while the day is not written.
+  ``not_due`` before. ``missed`` follows the open ``daily_review_missed`` alert while the day is not written, from
+  10:00 on: before then the day cannot be late, and an alert still open from an earlier day says nothing about it.
 - A proposal is ``answered`` when a ``band.write`` (the band editor's Save, API-24) followed the review before the
   next written review, ``superseded`` when a newer review was written first, and ``waiting`` otherwise: then it is the
   newest written review and nothing has answered it.
@@ -114,6 +115,9 @@ class ReviewTokens(_Model):
     mean_7: float | None
     mean_30: float | None
     rise_pct: float | None
+    # How many finished reviews before the newest each mean averages (at most 7 and 30; 0 beside a null mean).
+    count_7: int
+    count_30: int
 
 
 class ProposalWaiting(_Model):
@@ -222,10 +226,15 @@ def day_status(rows: Iterable[Mapping[str, Any]], local_time: time) -> TodayStat
     return "due" if local_time >= REVIEW_LOCAL_TIME else "not_due"
 
 
-def day_missed(missed_open: bool, status: TodayStatus) -> bool:
-    """Missed while the ingestor's ``daily_review_missed`` alert is open and the day's review is not written. The
-    ingestor resolves the alert once the review of the current day is written."""
-    return bool(missed_open) and status != "written"
+def day_missed(missed_open: bool, status: TodayStatus, local_time: time) -> bool:
+    """Missed from 10:00 local while the ingestor's ``daily_review_missed`` alert is open and the day's review is not
+    written.
+
+    The ingestor resolves the alert only when the review of the then-current day is written and raises no second one
+    while it is open, so an alert raised for an earlier day stays open past midnight. Before 10:00 the day is not late
+    yet, whatever is open; from 10:00 the open alert stands for this day too, because the ingestor would have raised
+    one for it."""
+    return bool(missed_open) and status != "written" and local_time >= REVIEW_MISSED_LOCAL_TIME
 
 
 def proposal_state(has_proposal: bool, answered: bool | None, next_written_at: datetime | None) -> ProposalState | None:
@@ -244,13 +253,15 @@ def _mean(values: Sequence[int]) -> float | None:
 
 def token_use(totals: Sequence[int]) -> ReviewTokens:
     """``totals`` are the finished reviews' total tokens, newest first: the newest against the mean of the 7 and the
-    30 before it, and its rise over that 7-review mean in percent."""
+    30 before it (or of as many as there are, counted in ``count_7`` and ``count_30``), and its rise over that 7-review
+    mean in percent."""
     if not totals:
-        return ReviewTokens(last=None, mean_7=None, mean_30=None, rise_pct=None)
+        return ReviewTokens(last=None, mean_7=None, mean_30=None, rise_pct=None, count_7=0, count_30=0)
     last, before = totals[0], totals[1:]
-    mean_7, mean_30 = (_mean(before[:count]) for count in TOKEN_MEANS)
+    count_7, count_30 = (len(before[:count]) for count in TOKEN_MEANS)
+    mean_7, mean_30 = _mean(before[:count_7]), _mean(before[:count_30])
     rise = round(100.0 * (last - mean_7) / mean_7, 1) if mean_7 else None
-    return ReviewTokens(last=last, mean_7=mean_7, mean_30=mean_30, rise_pct=rise)
+    return ReviewTokens(last=last, mean_7=mean_7, mean_30=mean_30, rise_pct=rise, count_7=count_7, count_30=count_30)
 
 
 def _finite(value: object) -> float | None:
@@ -339,14 +350,15 @@ async def today(conn: asyncpg.Connection) -> ReviewDay | None:
     review_date = review_date_of(at)
     rows = await conn.fetch(_DAY_ROWS_SQL, review_date)
     facts = await conn.fetchrow(_DAY_FACTS_SQL, GREENHOUSE_ID, BAND_WRITE, MISSED_ALERT)
-    status = day_status(rows, at.astimezone(DENVER).time())
+    local_time = at.astimezone(DENVER).time()
+    status = day_status(rows, local_time)
     waiting = None
     if facts["written_id"] is not None and facts["has_proposal"] and not facts["answered"]:
         waiting = ProposalWaiting(review_id=facts["written_id"], review_date=facts["written_date"])
     return ReviewDay(
         review_date=review_date,
         status=status,
-        missed=day_missed(facts["missed_open"], status),
+        missed=day_missed(facts["missed_open"], status, local_time),
         written_at=facts["written_at"],
         proposal_waiting=waiting,
     )

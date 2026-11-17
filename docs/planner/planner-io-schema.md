@@ -83,10 +83,11 @@ an unknown run id, answers `not_found`.
 | `failure` | a fixed class only: `gateway_rejected`, `gateway_unreachable`, `hermes_run_failed`, `hermes_run_cancelled`, `completed_without_review`, `attempts_exhausted` |
 | `run_finished_at`, `input_tokens`, `output_tokens`, `total_tokens` | from the Hermes run status (#1661) |
 | `written_at`, `summary` | the review (1 to 4000 characters) |
-| `band_proposal` | optional: `{"anchors": {"<band row>": <value>, ...}, "price": "<price-list rows quoted>", "reason": "<why>"}` |
+| `band_proposal` | optional: `{"anchors": {"<house band anchor>": <value>, ...}, "price": "<price-list rows quoted>", "reason": "<why>"}`; the anchors are the 24 the band editor accepts (`HOUSE_PARAMS`, `verdify_schemas/band_profile.py`) |
 
 A band proposal is a proposal only. Its anchors must be band rows within their registry range
-(`verdify_schemas/review.py`). The owner applies it in the dashboard's band editor, or does not; no tool applies
+(`verdify_schemas/review.py`). `price` is one string; a list of quoted rows is accepted and stored as one string,
+one row a line. The owner applies it in the dashboard's band editor, or does not; no tool applies
 it.
 
 ### 3.2 Irrigation

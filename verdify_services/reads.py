@@ -83,6 +83,10 @@ STATE_WINDOW = timedelta(days=31)  # runs older than this have since null
 # bound: a state that has not changed or been re-snapshotted in 31 days is still
 # known, with since null.
 NEWEST_ROW_WINDOW = timedelta(days=90)
+# The controller republishes its outdoor source on change and every 300 s (greenhouse/controls.yaml); twice that with
+# no row and the source is unknown. Now and API-30/31 (verdify_services.law) share this one rule.
+OUTDOOR_SOURCE_REPUBLISH_S = 300
+OUTDOOR_SOURCE_FRESH = timedelta(seconds=2 * OUTDOOR_SOURCE_REPUBLISH_S)
 DIFFERING_AFTER = timedelta(minutes=10)
 OVERRIDE_COMMAND_LEAD = timedelta(minutes=2)
 # run_causes() looks this far back for what is on now; a run already on keeps its true start.
@@ -714,9 +718,12 @@ def now_review(day: Any | None) -> NowReview | None:
 _OUTDOOR_SOURCES = frozenset(get_args(OutdoorSource))
 
 
-def outdoor_source(value: str | None, rep: Reporting) -> OutdoorSource | None:
-    """The controller's newest ``outdoor_source`` while it reports; null otherwise or for a value it never sends."""
+def outdoor_source(value: str | None, observed_at: datetime | None, rep: Reporting) -> OutdoorSource | None:
+    """The controller's newest ``outdoor_source`` while it reports and the row is at most ``OUTDOOR_SOURCE_FRESH``
+    old (the rule API-30 uses); null otherwise or for a value it never sends."""
     if not rep.controller_reporting or value not in _OUTDOOR_SOURCES:
+        return None
+    if observed_at is None or rep.at - observed_at > OUTDOOR_SOURCE_FRESH:
         return None
     return value  # type: ignore[return-value]
 
@@ -936,12 +943,23 @@ SELECT 'water_temp_f', ts, hydro_water_temp_f FROM
    AND hydro_water_temp_f IS NOT NULL ORDER BY ts DESC LIMIT 1) t
 """
 
+# Now's controller facts: ts is the newest diagnostics row of the last day, and each value is its newest non-null
+# value within the 15 minutes up to that row. The law firmware publishes a row about every 15 s but carries these
+# values on about one row a minute, so the newest row alone usually lacks them. No row in the last day: no row.
 _DIAGNOSTICS_SQL = """
-SELECT ts, firmware_version, uptime_s, reset_reason, heap_bytes, heap_largest_free_block_kb, wifi_rssi
-  FROM diagnostics
- WHERE ts > now() - interval '1 day'
- ORDER BY ts DESC
- LIMIT 1
+SELECT newest.ts,
+       (array_agg(d.firmware_version ORDER BY d.ts DESC)
+            FILTER (WHERE d.firmware_version IS NOT NULL))[1] AS firmware_version,
+       (array_agg(d.uptime_s ORDER BY d.ts DESC) FILTER (WHERE d.uptime_s IS NOT NULL))[1] AS uptime_s,
+       (array_agg(d.reset_reason ORDER BY d.ts DESC) FILTER (WHERE d.reset_reason IS NOT NULL))[1] AS reset_reason,
+       (array_agg(d.heap_bytes ORDER BY d.ts DESC) FILTER (WHERE d.heap_bytes IS NOT NULL))[1] AS heap_bytes,
+       (array_agg(d.heap_largest_free_block_kb ORDER BY d.ts DESC)
+            FILTER (WHERE d.heap_largest_free_block_kb IS NOT NULL))[1] AS heap_largest_free_block_kb,
+       (array_agg(d.wifi_rssi ORDER BY d.ts DESC) FILTER (WHERE d.wifi_rssi IS NOT NULL))[1] AS wifi_rssi
+  FROM (SELECT max(ts) AS ts FROM diagnostics WHERE ts > now() - interval '1 day') AS newest
+  JOIN diagnostics AS d ON d.ts > newest.ts - interval '15 minutes' AND d.ts <= newest.ts
+ WHERE d.ts > now() - interval '1 day 15 minutes'
+ GROUP BY newest.ts
 """
 
 # Now's three hardware-budget facts: each the newest non-null value of the last 15 minutes, the expressions of
@@ -1603,7 +1621,9 @@ async def now(conn: asyncpg.Connection) -> Now:
             climate["outdoor_temp_f"], climate["outdoor_temp_at"], "No outdoor temperature in the last hour"
         ),
         rh_pct=_reading(climate["outdoor_rh_pct"], climate["outdoor_rh_at"], "No outdoor RH in the last hour"),
-        source=outdoor_source(texts.get(OUTDOOR_SOURCE_ENTITY), rep),
+        source=outdoor_source(
+            texts.get(OUTDOOR_SOURCE_ENTITY), (newest_texts.get(OUTDOOR_SOURCE_ENTITY) or {}).get("ts"), rep
+        ),
     )
 
     bands = {row["role"]: row for row in band_rows}

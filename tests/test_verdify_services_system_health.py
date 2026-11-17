@@ -63,7 +63,7 @@ HEALTH_ROW = {
     "wifi_disconnect_count": 2,
     "api_client_count": 2,
 }
-EXTRA_ROW = {"uptime_at": NOW - timedelta(seconds=20), "probe_health": "OK"}
+EXTRA_ROW = {"uptime_s": 35163, "uptime_at": NOW - timedelta(seconds=20), "probe_health": "OK"}
 
 
 def run(coro):
@@ -86,6 +86,7 @@ class FakeConn:
         self.vals = {sh.NOW_SQL: NOW, **(vals or {})}
         self.calls: list[tuple[str, tuple]] = []
         self.readonly: list[bool] = []
+        self.isolation: list[str | None] = []
         self.executed: list[str] = []
 
     @asynccontextmanager
@@ -93,7 +94,8 @@ class FakeConn:
         self.readonly.append(readonly)
         yield
 
-    def transaction(self, readonly=False, **_kwargs):
+    def transaction(self, readonly=False, **kwargs):
+        self.isolation.append(kwargs.get("isolation"))
         return self._tx(readonly)
 
     async def execute(self, sql, *args):
@@ -189,7 +191,8 @@ def test_controller_health_from_live_rows():
     }
     conn = FakeConn(rows)
     health = run(sh.controller(conn))
-    assert conn.readonly == [True]
+    # One snapshot for the whole read: the uptime reading and its time come from statements that must agree.
+    assert conn.readonly == [True] and conn.isolation == ["repeatable_read"]
     assert health.observed_at == NOW - timedelta(seconds=12)
     assert health.firmware.model_dump() == {"version": FW, "pinned": FW, "matches": True}
     assert health.restarts.booted_at == NOW - timedelta(seconds=20 + 35163)
@@ -214,10 +217,19 @@ def test_controller_health_from_live_rows():
     }
 
 
+def test_booted_at_comes_from_one_uptime_reading_and_its_own_time():
+    # CONTROLLER_SQL's uptime_s is newer than the pair: booted_at still pairs the extra row's reading with its time.
+    health = sh.controller_health(
+        NOW, {**CONTROLLER_ROW, "uptime_s": 35223}, HEALTH_ROW, {**EXTRA_ROW, "uptime_s": 35163}, None
+    )
+    assert health.uptime_s == 35223
+    assert health.restarts.booted_at == NOW - timedelta(seconds=20 + 35163)
+
+
 def test_a_silent_controller_is_null_never_zero():
     empty = dict.fromkeys(CONTROLLER_ROW)
     health = sh.controller_health(
-        NOW, empty, dict.fromkeys(HEALTH_ROW), {"uptime_at": None, "probe_health": None}, None
+        NOW, empty, dict.fromkeys(HEALTH_ROW), {"uptime_s": None, "uptime_at": None, "probe_health": None}, None
     )
     body = health.model_dump(mode="json")
     assert schema_errors("ControllerHealth", body) == []
@@ -307,11 +319,12 @@ def test_data_continuity_from_live_rows():
         sh.FRESHNESS_SQL: freshness,
         sh.FLOW_SQL: flow,
         sh.PROBES_SQL: probes,
+        sh.probe_last_seen_sql(["co2_ppm"]): {"co2_ppm": NOW - timedelta(days=3)},
         sh.STATE_ROWS_SQL: STATE,
     }
     conn = FakeConn(rows)
     result = run(sh.data(conn, 7))
-    assert conn.readonly == [True]
+    assert conn.readonly == [True] and conn.isolation == ["repeatable_read"]
     assert [args for sql, args in conn.calls if sql in (sh.OUTAGES_SQL, sh.REPLAYED_SQL, sh.BY_DAY_SQL)] == [(7,)] * 3
     body = result.model_dump(mode="json")
     assert schema_errors("DataContinuity", body) == []
@@ -323,6 +336,9 @@ def test_data_continuity_from_live_rows():
     assert body["tables"][-1] == {"table": "setpoint_changes", "last_row_age_s": None, "rows_5m": 0}
     probe = {p["sensor"]: p["age_s"] for p in body["probes"]}
     assert probe["climate.temp_north"] == 30.0 and probe["climate.co2_ppm"] == 7200
+    seen = {p["sensor"]: p["last_seen_at"] for p in body["probes"]}
+    assert seen["climate.temp_north"] is None and seen["climate.co2_ppm"] == "2026-11-14T16:00:00Z"
+    assert conn.calls.index((sh.probe_last_seen_sql(["co2_ppm"]), ())) > conn.calls.index((sh.PROBES_SQL, ()))
     assert body["ingestor"] == {
         "heartbeat_age_s": 9.0,
         "reconnects": 0,
@@ -331,6 +347,68 @@ def test_data_continuity_from_live_rows():
         "rows_rejected": {"climate": 3},
         "observed_at": "2026-11-17T15:59:30Z",
     }
+
+
+def test_a_silent_probe_says_when_it_last_answered():
+    # Live-shaped: the seven soil probes silent since 2026-11-14, co2 out of the window an hour ago, the rest fresh.
+    soil = [probe for probe in sh.PROBES if probe.startswith("soil_")]
+    row = dict.fromkeys(sh.PROBES, 42.0) | dict.fromkeys([*soil, "co2_ppm"])
+    assert sh.unseen_probes(row) == ["co2_ppm", *soil]  # PROBES order
+    last_seen = dict.fromkeys(soil, NOW - timedelta(days=3)) | {
+        "soil_ec_south_1": None,
+        "co2_ppm": NOW - timedelta(hours=3),
+    }
+    ages = {probe.sensor: probe for probe in sh.probe_ages(row, last_seen)}
+    assert len(ages) == len(sh.PROBES)
+    assert ages["climate.temp_north"].model_dump() == {
+        "sensor": "climate.temp_north",
+        "age_s": 42.0,
+        "last_seen_at": None,
+    }
+    assert ages["climate.co2_ppm"].model_dump() == {
+        "sensor": "climate.co2_ppm",
+        "age_s": 7200,
+        "last_seen_at": NOW - timedelta(hours=3),
+    }
+    assert ages["climate.soil_temp_west"].last_seen_at == NOW - timedelta(days=3)
+    assert ages["climate.soil_ec_south_1"].last_seen_at is None  # no reading in 30 days
+    # A probe inside the window keeps a null last_seen_at even if the row names it.
+    assert sh.probe_ages(row, last_seen | {"temp_north": NOW})[0].last_seen_at is None
+    # No second row (none run, or nothing read): every probe outside the window is null.
+    assert {probe.last_seen_at for probe in sh.probe_ages(None)} == {None}
+    assert {probe.model_dump()["last_seen_at"] for probe in sh.probe_ages(row, None)} == {None}
+
+
+def test_the_last_seen_statement_is_built_from_the_probes_alone_and_bounded():
+    sql = sh.probe_last_seen_sql(["co2_ppm", "soil_ec_south_1"])
+    assert sql == (
+        "SELECT max(ts) FILTER (WHERE co2_ppm IS NOT NULL) AS co2_ppm, "
+        "max(ts) FILTER (WHERE soil_ec_south_1 IS NOT NULL) AS soil_ec_south_1 "
+        "FROM climate WHERE ts > now() - interval '30 days'"
+    )
+    for bad in ([], ["co2_ppm; DROP TABLE climate"], ["temp_avg"], ["co2_ppm", "ts"]):
+        with pytest.raises(ValueError):
+            sh.probe_last_seen_sql(bad)
+    # PROBES_SQL, which /metrics runs too, is unchanged: one 2 h pass of ages.
+    assert sh.PROBES_SQL.endswith(" FROM climate WHERE ts > now() - interval '7200 seconds'")
+    assert "max(ts) FILTER" in sh.PROBES_SQL and "30 days" not in sh.PROBES_SQL
+
+
+def test_every_probe_in_the_window_runs_no_last_seen_statement():
+    rows = {
+        sh.HEALTH_SQL: HEALTH_ROW,
+        sh.OUTAGES_SQL: [],
+        sh.REPLAYED_SQL: [],
+        sh.BY_DAY_SQL: [],
+        sh.FRESHNESS_SQL: dict.fromkeys(sh.FLOW_TABLES, 4.0),
+        sh.FLOW_SQL: dict.fromkeys(sh.FLOW_TABLES, 5),
+        sh.PROBES_SQL: dict.fromkeys(sh.PROBES, 30.0),
+        sh.STATE_ROWS_SQL: STATE,
+    }
+    conn = FakeConn(rows)  # an unexpected statement fails the read
+    result = run(sh.data(conn, 1))
+    assert {probe.last_seen_at for probe in result.probes} == {None}
+    assert not any("30 days" in sql for sql, _ in conn.calls)
 
 
 def test_an_ingestor_with_no_counters_is_null():

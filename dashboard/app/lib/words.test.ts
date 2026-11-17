@@ -371,6 +371,11 @@ test("every enum value of the climate law, daily record, review and system schem
   expectWorded("data_gap_status", ["snapshot_taken", "snapshot_incomplete", "pending", "backfilled", "unrecoverable", "ignored"]);
 });
 
+test("the drying checks are worded in the order the law refuses, as the contract lists them", () => {
+  expect(Object.keys(WORDS.drying_check)).toEqual(enumOf(schemaAt("LawDrying", ["checks", "[]", "id"])));
+  expect(words("band_source", "corridor")).toBe("the widest safe band: the controller has no clock");
+});
+
 test("the law's refusals and states read as the owner would say them, with no internal names", () => {
   expect(["cost", "too_cold", "not_drier", "no_outdoor", "furnace", "cooling"].map((code) => words("drying_refusal", code))).toEqual([
     "costs more than the limit", "the house is too cold to vent", "outdoor air is not drier", "no outdoor reading", "the gas furnace is running",
