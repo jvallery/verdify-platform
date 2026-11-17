@@ -160,7 +160,8 @@ BEGIN
       CROSS JOIN LATERAL verdify_setpoint_server_runtime.fn_house_vpd_control_band(s.ts) w;
     IF n <> 3 OR bad <> 0 THEN RAISE EXCEPTION '317 house VPD band rows: % of % wrong', bad, n; END IF;
     -- Yesterday stored again (the rollback undoes it): complete, with law records, and no more refused than wanted;
-    -- the meter's day present (the meter publishes at least hourly), never negative, flagged or not.
+    -- the meter's day present (a meter row exists since the law flash, so a day without one of its own stores 0),
+    -- never negative, flagged or not.
     SELECT count(*) FILTER (WHERE NOT r.complete OR r.dry_refusal IS NULL
                OR r.drying_water_g IS NULL OR r.drying_heat_wh IS NULL OR r.drying_meter_lower_bound IS NULL
                OR r.drying_water_g < 0 OR r.drying_heat_wh < 0

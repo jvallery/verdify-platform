@@ -2,10 +2,12 @@
 -- plan cycle are retired. Data only: 27 active planner_lessons rows name a setting the controller no longer has, or a
 -- plan waypoint (setpoint_plan) the reviewer no longer writes, so the daily reviewer's lessons, lessons_search and
 -- knowledge_search would teach it tactics it cannot use. Each row is set is_active = false; its text, category,
--- condition, confidence and validation history stay, so it is recoverable. The migrate hook's log keeps the NOTICE
--- naming exactly the ids 318 flipped; the reversal is UPDATE public.planner_lessons SET is_active = true WHERE id IN
--- (<the ids of that NOTICE>), never the full list of 27, which could reactivate a row the reviewer retired before
--- 318 ran. Nothing is deleted, no row is rewritten, and no knowledge_embeddings row changes: fn_search_knowledge_embeddings
+-- condition, confidence and validation history stay, so it is recoverable. The migrate hook does not keep the
+-- NOTICE below (its runner output is captured and not printed), so the release's sync receipt records, read just
+-- before the sync, which of the 27 ids are active: SELECT id, is_active FROM public.planner_lessons WHERE id IN
+-- (<the 27>) ORDER BY id. 318 flips exactly those; the reversal is UPDATE public.planner_lessons SET is_active = true
+-- WHERE id IN (<the ids the receipt shows active>), never the full list of 27, which could reactivate a row the
+-- reviewer retired before 318 ran. Nothing is deleted, no row is rewritten, and no knowledge_embeddings row changes: fn_search_knowledge_embeddings
 -- (296) and MCP's lessons and lessons_search read a lesson only while it is active and not superseded, so the retired
 -- rows drop out of every read at commit, and embed-corpora (incremental) stops collecting them.
 -- The 27 (re-derived on production 2026-11-17 from the 229 active rows; the review listed the first 17):
@@ -28,7 +30,7 @@ BEGIN
     IF current_user <> 'verdify'
         OR NOT EXISTS(SELECT 1 FROM public.schema_migrations WHERE source='db/migrations'
             AND seq=317 AND filename='db/migrations/317-served-band-readers-and-relay-record.sql'
-            AND sha256='01a785794ce3475f954a658c2ca63bc83f32f02dc17916b71e43e9d4f93102a4'
+            AND sha256='d2feff14ff08e8b76f74310cc6fbe3990a4a8e397d1b2aeade3994ec8f2fb54c'
             AND stamp_method='runner')
         OR EXISTS(SELECT 1 FROM public.schema_migrations WHERE source='db/migrations' AND seq>317)
         OR (SELECT count(*) FROM public.runtime_ordinary_login_attestation_receipts)<>2

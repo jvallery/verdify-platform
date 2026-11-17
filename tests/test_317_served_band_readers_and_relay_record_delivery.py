@@ -1,6 +1,6 @@
 """Exact317 delivery: ordered admission, the served-band readers, the relay record, the counter check, the seals.
 
-#1633 host release 5 (#1734; validation CTL-24, TEL-23, release 4 review C-6, C-7, C-10; RULINGS AF2, C4): the band
+#1633 host release 5 (#1734; validation CTL-24, TEL-23, release 4 review C-6, C-7, C-10; #1734 CTL-26): the band
 readers read fn_band_setpoints, fn_band_timeline's thresholds are the climate law's lines, v_setpoint_forward goes,
 the retired irrigation readback counts read NULL, the counter check gains boots and the early-record rule, and
 daily_relay_record's run columns are defined. Views and functions only. test_native_qualification_is_recorded is the
@@ -194,7 +194,7 @@ def test_successor_reseals_every_receipt_with_the_registered_literals():
 
 
 def test_no_replaced_reader_reads_a_retired_band_source():
-    """CTL-24 and C-7 (RULINGS AF2): one band source, fn_band_setpoints."""
+    """CTL-24 and C-7 (#1734 CTL-26): one band source, fn_band_setpoints."""
     retired = r"fn_setpoint_at|setpoint_changes|fn_timeline_setpoint_value|fn_house_vpd_control_band"
     for fn in REPLACED:
         text = uncommented(function(fn))
@@ -206,7 +206,7 @@ def test_no_replaced_reader_reads_a_retired_band_source():
 
 
 def test_the_timeline_keeps_its_56_columns_and_draws_the_laws_lines():
-    """RULINGS C4: signature and whole return type unchanged; the law's numbers are the generated constants."""
+    """Signature and whole return type unchanged; the law's numbers are the generated constants."""
     text = function("fn_band_timeline")
     returns = re.search(r"RETURNS TABLE\((.*?)\)\n", text).group(1)
     assert [c.split()[0] for c in returns.split(", ")] == TIMELINE_COLUMNS
@@ -381,8 +381,8 @@ def test_the_daily_record_stores_the_laws_refused_drying_by_reason():
         "computed_at)" in body
     )
     assert (
-        "CASE WHEN now() >= v_end THEN (SELECT rf.doc FROM refusal rf) END, (SELECT md.water_g FROM meter_day md),"
-        in body
+        "CASE WHEN now() >= v_end THEN (SELECT rf.doc FROM refusal rf) END, "
+        "(SELECT COALESCE(md.water_g, 0) FROM meter_day md)," in body
     )
     assert "dry_refusal = EXCLUDED.dry_refusal," in body
     old = (ROOT / "db/migrations" / GUARDED["fn_daily_record_store"]).read_text()
@@ -413,15 +413,20 @@ def test_the_grafana_review_facade_exposes_status_and_times_only():
 
 
 def test_the_daily_record_carries_the_drying_meters_day():
-    """RLY-70 (plan section 10 item 3): the meter's day, boot-aware, NULL with no row, flagged when a boot lost counts."""
+    """RLY-70 (plan section 10 item 3): the meter's day, boot-aware, 0 on a quiet day, NULL before the first row,
+    flagged when a boot lost counts (behaviour: tests/test_dashboard_db_drying_meter_day.py)."""
     text = SOURCE.split("CREATE OR REPLACE FUNCTION public.fn_daily_record_store(p_day date)", 1)[1]
     body = flat(uncommented(text.split("$store$;", 1)[0]))
     assert "WHERE m.entity = 'climate_drying_meter'" in body
     assert "sum(CASE WHEN z.rebooted THEN z.g ELSE z.g - z.previous_g END)::double precision AS water_g" in body
     assert "sum(CASE WHEN z.rebooted THEN z.wh ELSE z.wh - z.previous_wh END)::double precision AS heat_wh" in body
-    assert "OR EXISTS (SELECT 1 FROM boot b WHERE b.at > y.previous_ts AND b.at <= y.ts)) AS rebooted" in body
+    assert (
+        "OR EXISTS (SELECT 1 FROM boot b WHERE b.at - interval '75 seconds' > y.previous_ts AND b.at <= y.ts)) "
+        "AS rebooted" in body
+    )
+    assert "ORDER BY b.ts DESC LIMIT 1), v_start)" in body and "v_start - interval '1 day'" not in body
     assert "THEN ((l.value::jsonb ->> 'l')::bigint & 256) <> 0 ELSE false END)) AS lower_bound" in body
-    assert "FROM meter_step z HAVING count(*) > 0" in body
+    assert "FROM meter_step z HAVING EXISTS (SELECT 1 FROM meter_raw)" in body
     assert "drying_meter_lower_bound = EXCLUDED.drying_meter_lower_bound" in body
     assert "300 s until the fourth flash (vp#1738)" in SOURCE
     # v_daily_record: 310's text with the three columns appended after computed_at.

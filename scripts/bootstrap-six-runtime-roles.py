@@ -1269,7 +1269,7 @@ def sealed_sql_316():
 SERVED_BAND_READERS_MIGRATION = (
     317,
     "317-served-band-readers-and-relay-record.sql",
-    "01a785794ce3475f954a658c2ca63bc83f32f02dc17916b71e43e9d4f93102a4",
+    "d2feff14ff08e8b76f74310cc6fbe3990a4a8e397d1b2aeade3994ec8f2fb54c",
 )
 # Host release 5 (#1633, #1734): the band readers read the served band, v_setpoint_forward goes, the retired irrigation
 # readback counts read NULL, and the relay counter check gains boots and the early-record rule. fn_heat_staging_inversion
@@ -1298,7 +1298,7 @@ def sealed_sql_317():
 RETIRE_PLAN_CYCLE_LESSONS_MIGRATION = (
     318,
     "318-retire-plan-cycle-lessons.sql",
-    "b76100b250cb2a206c11e8067d16a7a7b9b49728f4341313f47a44958fbb7930",
+    "288bf60308f5ff08c3a1d6b5f0cad2644d785578941a9094e3427d0ea54167fd",
 )
 # Host release 5 (#1633, #1734, review C-9): the 27 planner lessons that teach the retired plan cycle are set inactive.
 # Data only: no catalog object changes, so the seals are 317's (they move together if 317's are re-measured).

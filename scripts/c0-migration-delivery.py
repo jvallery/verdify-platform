@@ -513,13 +513,13 @@ SUCCESSOR_316_MCP_DIGEST = "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a66
 # rule, and daily_relay_record's run columns are defined. The seals are measured by the native probe; until then the
 # literals are 316's (fail closed). It follows 316.
 SUCCESSOR_317 = "317-served-band-readers-and-relay-record.sql"
-SUCCESSOR_317_SHA256 = "01a785794ce3475f954a658c2ca63bc83f32f02dc17916b71e43e9d4f93102a4"
+SUCCESSOR_317_SHA256 = "d2feff14ff08e8b76f74310cc6fbe3990a4a8e397d1b2aeade3994ec8f2fb54c"
 SUCCESSOR_317_DIGESTS = SUCCESSOR_316_DIGESTS
 SUCCESSOR_317_MCP_DIGEST = SUCCESSOR_316_MCP_DIGEST
 # Exact318 (#1633, host release 5; #1734, review C-9): the 27 planner lessons that teach the retired plan cycle are set
 # inactive. Data only, so its seals are 317's. It follows 317.
 SUCCESSOR_318 = "318-retire-plan-cycle-lessons.sql"
-SUCCESSOR_318_SHA256 = "b76100b250cb2a206c11e8067d16a7a7b9b49728f4341313f47a44958fbb7930"
+SUCCESSOR_318_SHA256 = "288bf60308f5ff08c3a1d6b5f0cad2644d785578941a9094e3427d0ea54167fd"
 SUCCESSOR_318_DIGESTS = SUCCESSOR_317_DIGESTS
 SUCCESSOR_318_MCP_DIGEST = SUCCESSOR_317_MCP_DIGEST
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this

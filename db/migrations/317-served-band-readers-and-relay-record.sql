@@ -3,12 +3,12 @@
 -- whose record was taken after it ended; the house VPD band is the served band; the daily record carries the climate
 -- law's refused drying by reason; Grafana reads the daily review's status. Views and functions, one appended
 -- daily_record column, one new Grafana facade; one unread view is dropped.
--- (a) Band readers (validation CTL-24, release 4 review C-7; RULINGS AF2, one band source: fn_band_setpoints):
+-- (a) Band readers (validation CTL-24, release 4 review C-7; #1734 CTL-26, one band source: fn_band_setpoints):
 --   fn_band_timeline: the crop, projected and fallback VPD edges come from fn_band_setpoints instead of
 --     fn_house_vpd_control_band (the zone-informed house band, 0.32-0.87 kPa where the served band is 0.82-1.34 kPa at
 --     2026-11-17 01:23Z; the temperature edges already came from fn_band_setpoints), and the threshold block is the
 --     climate law's lines on the controller's band (verdify_schemas/climate_law.yaml) instead of the retired settings
---     read through fn_timeline_setpoint_value. Signature and all 56 columns unchanged (RULINGS C4); the retired
+--     read through fn_timeline_setpoint_value. Signature and all 56 columns unchanged (#1633); the retired
 --     settings' columns read NULL. Readers: 12 site Grafana dashboards (projected_* and solar_w_m2 only, through the
 --     verdify_grafana_runtime wrapper), v_heat_in_band_7d, the dashboard's graph overlay (its formula only).
 --   fn_climate_action_effectiveness and fn_climate_action_daily_scorecard: the after-band and the recovery check read
@@ -50,7 +50,7 @@
 --     minutes; set when the day is complete, NULL for a day with no law record (every day before the law flash).
 --     fn_daily_record_store writes it; the refresh job restores today and the two days before every run.
 --     drying_water_g and drying_heat_wh (plan section 10 item 3, RLY-70): the day's steps of the controller's drying
---     meter (climate_drying_meter, running totals since its boot), boot-aware, NULL with no meter row;
+--     meter (climate_drying_meter, running totals since its boot), boot-aware, 0 on a quiet day, NULL before the first meter row;
 --     drying_meter_lower_bound marks a day where a boot lost counts (a drying run after the last meter row before the
 --     boot). The meter is held in RAM and was published every 300 s until the fourth flash (vp#1738); since then
 --     when a run ends and every 60 s during one, so a boot loses at most 60 s of a run. v_daily_record shows all
@@ -620,7 +620,7 @@ COMMENT ON VIEW public.v_daily_record IS
 COMMENT ON VIEW public.v_greenhouse_state IS
     'Rolling 14-day climate, relay and band state per climate row. The band columns (sp_temp_low/high, sp_vpd_low/high, '
     'sp_temp_target, sp_vpd_target, the in-band flags and band errors) are the served band, fn_band_setpoints (317, '
-    'RULINGS AF2); the retired settings'' columns (sp_bias_*, sp_vpd_hysteresis, sp_sealed_max_s, sp_relief_s, '
+    '#1734 CTL-26); the retired settings'' columns (sp_bias_*, sp_vpd_hysteresis, sp_sealed_max_s, sp_relief_s, '
     'sp_watch_dwell_s, sp_d_cool_s2, sp_mister_engage) read NULL.';
 
 COMMENT ON VIEW public.v_heating_staging IS
@@ -633,7 +633,7 @@ COMMENT ON VIEW public.v_irrigation_schedule_current IS
     'readbacks are no longer published, so stale_readback_count and readback_drift_count read NULL (317).';
 
 COMMENT ON VIEW public.v_relay_counter_reconciliation_daily IS
-    'Relay counters against the daily relay record (315, #1633, RULINGS AF7): per local day, greenhouse and relay, '
+    'Relay counters against the daily relay record (315, #1633): per local day, greenhouse and relay, '
     'the starts (fans: and run seconds) summed from relay_counters deltas, a negative delta counted as 0, beside '
     'daily_relay_record''s figures from the stored edges, and their difference. A check only; the events are the '
     'source. Valid from the phase 2 flash, 2026-11-16 19:48Z: that day and today read partial; no_record = no '
@@ -866,9 +866,9 @@ ORDER BY r.ts;
 $function$;
 COMMENT ON FUNCTION public.fn_band_timeline(timestamptz, timestamptz, interval, text) IS
     'The band timeline (actual and forecast) on a fixed step: crop and projected edges from the served band '
-    '(fn_band_setpoints, RULINGS AF2), actual edges from the controller''s band readbacks, firmware edges the actual '
+    '(fn_band_setpoints, #1734 CTL-26), actual edges from the controller''s band readbacks, firmware edges the actual '
     'ones with the served band as fallback, and the climate law''s lines on the firmware edges '
-    '(verdify_schemas/climate_law.yaml). The retired settings'' columns read NULL; all 56 columns kept (RULINGS C4; 317).';
+    '(verdify_schemas/climate_law.yaml). The retired settings'' columns read NULL; all 56 columns kept (317).';
 
 CREATE OR REPLACE FUNCTION public.fn_climate_action_effectiveness(p_window interval)
  RETURNS TABLE(action_ts timestamp with time zone, greenhouse_id text, climate_action text, priority_axis text, plan_id text, trigger_id uuid, planner_instance text, temp_band_error_before_f double precision, vpd_band_error_before_kpa double precision, temp_band_error_after_f double precision, vpd_band_error_after_kpa double precision, temp_abs_error_delta_f double precision, vpd_abs_error_delta_kpa double precision, recovered_within_window boolean, time_to_recover_s double precision, wet_relay_duty_pct double precision, vent_fan_duty_pct double precision, fog_duty_pct double precision, mister_water_delta_gal double precision, outdoor_temp_f double precision, outdoor_dewpoint_f double precision, solar_irradiance_w_m2 double precision, wet_assist_allowed boolean, wet_assist_block_reason text, fog_allowed boolean, fog_block_reason text, relay_truth jsonb, resource_cost_estimate jsonb)
@@ -916,7 +916,7 @@ WITH base AS (
         ORDER BY c.ts ASC
         LIMIT 1
     ) c1 ON true
-    -- The served band (fn_band_setpoints, RULINGS AF2) at the after-sample (317). The anchors keep no history: a past
+    -- The served band (fn_band_setpoints, #1734 CTL-26) at the after-sample (317). The anchors keep no history: a past
     -- instant is graded on today's served band curve evaluated at that time, not the band the controller ran then.
     LEFT JOIN LATERAL fn_band_setpoints(COALESCE(c1.ts, l.ts)) ab ON true
     WHERE l.ts >= now() - interval '14 days'
@@ -1037,7 +1037,7 @@ WITH bounds AS (
 -- One row per climate_action_log decision on the target day, with the
 -- migration-142 c0 (last climate sample at or before the action) and c1
 -- (first climate sample in [ts+15m, ts+18m]) lookups inlined verbatim and
--- the after-band from the served band, fn_band_setpoints (RULINGS AF2; 317).
+-- the after-band from the served band, fn_band_setpoints (#1734 CTL-26; 317).
 actions AS (
     SELECT
         row_number() OVER () AS rid,
@@ -1263,7 +1263,7 @@ AS $function$
         SELECT temp_avg FROM climate
         WHERE temp_avg IS NOT NULL ORDER BY ts DESC LIMIT 1
     ),
-    -- The served band's low edge now (fn_band_setpoints, RULINGS AF2; 317). d_heat_stage_2 is a retired setting
+    -- The served band's low edge now (fn_band_setpoints, #1734 CTL-26; 317). d_heat_stage_2 is a retired setting
     -- with no source under the climate law: NULL.
     latest_sp AS (
         SELECT b.temp_low, NULL::double precision AS d_heat_stage_2
@@ -1445,15 +1445,15 @@ BEGIN
         -- boot, held in RAM. g: grams of water and wh: watt-hours of heat the drying runs carried out (a step adds only
         -- what was carried out); s: seconds of a run with the vent open; rw: seconds wanted with no run. Published
         -- within 15 s of a boot, then every 300 s until the fourth flash (vp#1738), which publishes when a run ends and
-        -- every 60 s during one; the host stores a row when the value changes, with keyframes. The last row before the
-        -- day (within a day) is the first step's base.
+        -- every 60 s during one; the host stores a row only when the value changes (and once after an ingestor
+        -- restart), so a quiet day can have none. The last row before the day, however old, is the first step's base.
         SELECT m.ts, (m.value::jsonb ->> 'g')::bigint AS g, (m.value::jsonb ->> 'wh')::bigint AS wh,
                (m.value::jsonb ->> 's')::bigint AS s, (m.value::jsonb ->> 'rw')::bigint AS rw
           FROM public.system_state m
          WHERE m.entity = 'climate_drying_meter' AND m.ts < v_end
-           AND m.ts >= COALESCE((SELECT max(b.ts) FROM public.system_state b
+           AND m.ts >= COALESCE((SELECT b.ts FROM public.system_state b
                                   WHERE b.entity = 'climate_drying_meter' AND b.ts < v_start
-                                    AND b.ts >= v_start - interval '1 day'), v_start)
+                                  ORDER BY b.ts DESC LIMIT 1), v_start)
            AND m.value LIKE '{"v":1,%'
            AND CASE WHEN pg_catalog.pg_input_is_valid(m.value, 'jsonb')
                     THEN (m.value::jsonb ->> 'g') ~ '^[0-9]{1,18}$' AND (m.value::jsonb ->> 'wh') ~ '^[0-9]{1,18}$'
@@ -1472,11 +1472,15 @@ BEGIN
            AND x.uptime_s < x.previous_uptime_s + extract(epoch FROM x.ts - x.previous_ts) - 60
     ), meter_step AS (
         -- A row after a boot (a total fell, or a boot lies between the two rows) counts its whole value; otherwise
-        -- the difference from the row before. A row is the day's when it falls in the day.
+        -- the difference from the row before. A row is the day's when it falls in the day. A boot instant from
+        -- diagnostics is up to 75 s late (the uptime a reconnect sends is up to one 60 s publish old), so a boot
+        -- counts as between two rows only when its earliest possible instant is after the first and its computed
+        -- instant not after the second; otherwise the fallen totals decide.
         SELECT y.ts, y.previous_ts,
                (y.previous_ts IS NULL OR y.g < y.previous_g OR y.wh < y.previous_wh OR y.s < y.previous_s
                 OR y.rw < y.previous_rw
-                OR EXISTS (SELECT 1 FROM boot b WHERE b.at > y.previous_ts AND b.at <= y.ts)) AS rebooted,
+                OR EXISTS (SELECT 1 FROM boot b
+                            WHERE b.at - interval '75 seconds' > y.previous_ts AND b.at <= y.ts)) AS rebooted,
                y.g, y.wh, y.previous_g, y.previous_wh
           FROM (SELECT r.*, lag(r.ts) OVER w AS previous_ts, lag(r.g) OVER w AS previous_g,
                        lag(r.wh) OVER w AS previous_wh, lag(r.s) OVER w AS previous_s, lag(r.rw) OVER w AS previous_rw
@@ -1484,21 +1488,25 @@ BEGIN
          WHERE y.ts >= v_start
     ), meter_day AS (
         -- Lower bound: after a boot, the law's state record shows a drying run (l bit 8) between the last meter row
-        -- before the boot and the boot itself (or the next meter row when no boot instant is known): the counts since
-        -- that row were never published. A day with no meter row stays NULL.
+        -- before the boot and the boot itself: the counts since that row were never published. The boot is taken no
+        -- later than 75 s before its computed instant and 10 s before the first row after it (the meter publishes
+        -- at least 10 s after a boot), so the law records after the boot stay out. Before the law flash there is no
+        -- meter row and the day is NULL; after it, a day whose base exists but which has no row of its own is 0.
         SELECT sum(CASE WHEN z.rebooted THEN z.g ELSE z.g - z.previous_g END)::double precision AS water_g,
                sum(CASE WHEN z.rebooted THEN z.wh ELSE z.wh - z.previous_wh END)::double precision AS heat_wh,
                bool_or(z.rebooted AND z.previous_ts IS NOT NULL AND EXISTS (
                    SELECT 1 FROM public.system_state l
                     WHERE l.entity = 'climate_law_state' AND l.ts >= z.previous_ts
-                      AND l.ts < COALESCE((SELECT min(b.at) FROM boot b WHERE b.at > z.previous_ts AND b.at <= z.ts),
-                                          z.ts)
+                      AND l.ts < LEAST(z.ts - interval '10 seconds',
+                                       COALESCE((SELECT min(b.at) FROM boot b
+                                                  WHERE b.at > z.previous_ts AND b.at <= z.ts + interval '75 seconds'),
+                                                'infinity'::timestamptz) - interval '75 seconds')
                       AND l.value LIKE '{"v":1,%'
                       AND CASE WHEN pg_catalog.pg_input_is_valid(l.value, 'jsonb')
                                     AND (l.value::jsonb ->> 'l') ~ '^[0-9]{1,18}$'
                                THEN ((l.value::jsonb ->> 'l')::bigint & 256) <> 0 ELSE false END)) AS lower_bound
           FROM meter_step z
-        HAVING count(*) > 0
+        HAVING EXISTS (SELECT 1 FROM meter_raw)
     )
     INSERT INTO public.daily_record AS t (
         date, complete, kwh_metered, kwh_metered_24h, meter_coverage_pct, therms_est,
@@ -1519,8 +1527,8 @@ BEGIN
                AND EXISTS (SELECT 1 FROM dry_run d
                             WHERE r.on_at >= d.ended AND r.on_at < d.ended + interval '15 minutes'))::integer,
            CASE WHEN now() >= v_end THEN (SELECT rf.doc FROM refusal rf) END,
-           (SELECT md.water_g FROM meter_day md), (SELECT md.heat_wh FROM meter_day md),
-           (SELECT md.lower_bound FROM meter_day md),
+           (SELECT COALESCE(md.water_g, 0) FROM meter_day md), (SELECT COALESCE(md.heat_wh, 0) FROM meter_day md),
+           (SELECT COALESCE(md.lower_bound, false) FROM meter_day md),
            now()
     ON CONFLICT (date) DO UPDATE SET
         complete = EXCLUDED.complete, kwh_metered = EXCLUDED.kwh_metered,
@@ -1539,14 +1547,16 @@ $store$;
 COMMENT ON COLUMN public.daily_record.drying_water_g IS
     'Grams of water the drying runs carried out in the day (317, plan section 10 item 3): the sum of the steps of the '
     'controller''s drying meter (climate_drying_meter g, a running total since its boot) over the day, a row after a '
-    'boot counting its whole value. NULL for a day with no meter row (every day before the law flash). A lower bound '
+    'boot counting its whole value. 0 for a day with no meter row of its own after one (a quiet day); NULL before the '
+    'first meter row (every day before the law flash). A lower bound '
     'when drying_meter_lower_bound.';
 COMMENT ON COLUMN public.daily_record.drying_heat_wh IS
     'Watt-hours of heat the drying runs carried out in the day (317), from the drying meter''s wh as drying_water_g.';
 COMMENT ON COLUMN public.daily_record.drying_meter_lower_bound IS
     'True when a controller boot lost drying-meter counts: the law''s state record shows a drying run after the last '
     'meter row before the boot, so drying_water_g and drying_heat_wh are lower bounds (317). The meter is held in RAM '
-    'and was published every 300 s until the fourth flash (vp#1738), every 60 s during a run since. NULL with no meter row.';
+    'and was published every 300 s until the fourth flash (vp#1738), every 60 s during a run since. NULL before the '
+    'first meter row.';
 COMMENT ON COLUMN public.daily_record.dry_refusal IS
     'The climate law''s drying record for the day (317, TEL-65), from climate_law_state, each record held until the '
     'next and at most 3 minutes: covered_s, the seconds with a law record; wanted_s, the seconds drying was wanted '

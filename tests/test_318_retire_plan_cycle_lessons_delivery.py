@@ -173,7 +173,8 @@ def test_native_qualification_is_recorded():
     evidence = json.loads(FIXTURE.read_text())
     assert evidence["final_migration_qualification_pending"] is False, (
         "318 native qualification pending: run scripts/qualify-migration-successor.py "
-        "db/migrations/318-retire-plan-cycle-lessons.sql --native-fixture "
+        "db/migrations/318-retire-plan-cycle-lessons.sql "
+        "--apply-first db/migrations/317-served-band-readers-and-relay-record.sql --native-fixture "
         "db/qualification/318-retire-plan-cycle-lessons-fixture.sql --fixture "
         "tests/fixtures/318-retire-plan-cycle-lessons-native-qualification.json after 317's, and commit the fixture"
     )
