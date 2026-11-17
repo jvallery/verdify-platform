@@ -6,10 +6,10 @@ import { formatValue } from "../lib/format";
 import { usePhone } from "../lib/narrow";
 import { csvFilename, windowCsv } from "./csv";
 import { CsvLink, DataTable } from "./data-table";
-import { EVENT_GLYPHS, EVENT_KIND_WORDS, TRIGGER_BADGES, clusterEvents, eventsIn, kindsOf, touches, type ChartEvent, type EventCluster, type EventKind } from "./events";
+import { EVENT_GLYPHS, EVENT_KIND_WORDS, clusterEvents, eventsIn, kindsOf, touches, type ChartEvent, type EventCluster, type EventKind } from "./events";
 import { bandWord, compareLine, inBandShare, type CompareLine } from "./layers";
 import { ChartKey, type KeyItem } from "./legend";
-import { ACHIEVABLE, FORECAST_RULE, PLANNED_AI, SUPERSEDED, bandAt, bandNotes, edgeOf, forecastAt, lastAtOrBefore, type ForecastInput, type StepSegment } from "./marks";
+import { ACHIEVABLE, bandAt, bandNotes, edgeOf, forecastAt, lastAtOrBefore, type ForecastInput, type StepSegment } from "./marks";
 import { InStack, StackLink, type LitLane, type StackLinkValue } from "./stack-context";
 import { gapCount } from "./summary";
 import { clockTime, localDay } from "./time-axis";
@@ -59,8 +59,8 @@ export type ChartStackProps = {
   band?: BandTimeline | null;
   settings?: readonly SettingSteps[];
   forecast?: ForecastInput | null;
-  /** Keys drawn dotted (a cross-check beside the measured trace). */
-  dotted?: readonly string[];
+  /** Keys drawn as a reference line in every panel (Graphs' drying line); see TimeSeriesInput. */
+  reference?: readonly string[];
   /** Epoch seconds. */
   now: number;
   xRange: XRange;
@@ -152,8 +152,8 @@ export function panelStats(model: TimeSeriesModel, compare: CompareLine | null):
 }
 
 /** A step's kind in the words the key and the readout use: the device's line is the setting's own name. */
-const STEP_WORDS: Readonly<Record<StepSegment["kind"], string>> = { device: "", requested: "requested", planned: PLANNED_AI, superseded: SUPERSEDED };
-const stepWords = (step: StepSegment) => (step.kind === "planned" && step.source !== "iris" ? FORECAST_RULE : STEP_WORDS[step.kind]);
+const STEP_WORDS: Readonly<Record<StepSegment["kind"], string>> = { device: "", requested: "requested" };
+const stepWords = (step: StepSegment) => STEP_WORDS[step.kind];
 
 /**
  * The header row at the cursor: each shown trace's value, each shown forecast hour, the band and where the primary sits
@@ -193,7 +193,7 @@ export function panelReadout(model: TimeSeriesModel, hidden: ReadonlySet<string>
 export type PanelKeyItem = KeyItem & { readonly title: string };
 /**
  * A panel's key beside its swatches (#1354): the band, with its source in the hover words, and each setting drawn as
- * steps, by kind, at the value in force now (the plan's next value ahead of now). A value outside the panel's y range
+ * steps, by kind, at the value in force now. A value outside the panel's y range
  * says "above the chart ↑" or "below the chart ↓" instead of stretching the axis.
  */
 export function panelKey(model: TimeSeriesModel, yRange: readonly [number, number] | null, lit: ReadonlySet<string> = new Set()): PanelKeyItem[] {
@@ -201,13 +201,12 @@ export function panelKey(model: TimeSeriesModel, yRange: readonly [number, numbe
   if (model.runs.length) items.push({ key: "band", label: "Band", token: "--c-band-edge", kind: "band", title: bandNotes(model.runs, model.now).join("; ") });
   if (model.achievable.length) items.push({ key: "achievable", label: "Achievable", token: "--c-outdoor", kind: "dashed", title: ACHIEVABLE });
   for (const group of model.stepGroups) {
-    const ahead = group[0].kind === "planned" || group[0].kind === "superseded";
-    const step = ahead ? group.find((item) => item.end > model.now) ?? group[group.length - 1] : [...group].reverse().find((item) => item.start <= model.now) ?? group[0];
+    const step = [...group].reverse().find((item) => item.start <= model.now) ?? group[0];
     const value = formatValue(step.value, model.unit);
     const edge = yRange ? edgeOf(step.value, yRange[0], yRange[1]) : null;
     const where = edge === "above" ? " · above the chart ↑" : edge === "below" ? " · below the chart ↓" : "";
     const kind = step.kind === "device" ? "line" : "dashed";
-    const token = step.kind === "device" ? "--c-setpoint" : step.kind === "requested" ? "--c-requested" : step.kind === "superseded" ? "--c-bound" : model.seriesToken;
+    const token = step.kind === "device" ? "--accent" : "--c-requested";
     items.push({ key: `${step.param}:${step.kind}`, label: `${[step.setting, stepWords(step)].filter(Boolean).join(" · ")} ${value}${where}`, token, kind, title: step.detail, ...(lit.has(step.param) ? { lit: true } : {}) });
   }
   return items;
@@ -269,9 +268,9 @@ function useWidth(ref: MutableRefObject<HTMLElement | null>): number {
 /** "Fan 2 relay stuck, and 2 more": a cluster's name in words. */
 const clusterWords = (cluster: EventCluster) => (cluster.events.length === 1 ? cluster.events[0].label : `${cluster.events.length} events: ${cluster.events.map((event) => event.label).join("; ")}`);
 
-/** An event's icon with a plan's trigger, coloured by its token; the words beside it name it. */
+/** An event's icon, coloured by its token; the words beside it name it. */
 export function EventGlyph({ event }: { event: ChartEvent }) {
-  return <span className="rail-glyph" data-token={event.token} aria-hidden="true">{event.glyph}{event.badge && <span className="rail-badge">{event.badge}</span>}</span>;
+  return <span className="rail-glyph" data-token={event.token} aria-hidden="true">{event.glyph}</span>;
 }
 
 /** What the pointer or focus is on: a mark or a list row, by its events and instant. */
@@ -279,10 +278,9 @@ export type LitEvents = { readonly at: number; readonly events: readonly ChartEv
 
 /**
  * The rail's key (#1355): one toggle per kind of mark in the window, its icon and its word ("✎ setting · ▲ alert ·
- * ▮ water · ◆ plan"); a kind turned off leaves the rail and the list. A plan's trigger reads ↑ sunrise, ↓ sunset,
- * ☾ midnight.
+ * ▮ water"); a kind turned off leaves the rail and the list.
  */
-function RailKey({ kinds, hidden, onToggle, plans }: { kinds: readonly EventKind[]; hidden: ReadonlySet<EventKind>; onToggle: (kind: EventKind) => void; plans: boolean }) {
+function RailKey({ kinds, hidden, onToggle }: { kinds: readonly EventKind[]; hidden: ReadonlySet<EventKind>; onToggle: (kind: EventKind) => void }) {
   if (!kinds.length) return null;
   return <ul className="rail-key" aria-label="Event marks">
     {kinds.map((kind) => <li key={kind}>
@@ -290,7 +288,6 @@ function RailKey({ kinds, hidden, onToggle, plans }: { kinds: readonly EventKind
         <span className="rail-glyph" aria-hidden="true">{EVENT_GLYPHS[kind]}</span>{EVENT_KIND_WORDS[kind]}
       </button>
     </li>)}
-    {plans && <li className="rail-key-note">{Object.entries(TRIGGER_BADGES).map(([trigger, badge]) => `${badge} ${trigger.toLowerCase()}`).join(" · ")}</li>}
   </ul>;
 }
 
@@ -386,10 +383,10 @@ export function ChartStack(props: ChartStackProps) {
   const phone = usePhone();
   const panels = useStableArray(props.panels, (panel) => [panel.id, panel.series, panel.compare, panel.message, panel.unit, ...panel.metrics])!;
   const settings = useStableArray(props.settings, (setting) => [setting.history, setting.label]);
-  const dotted = useStableArray(props.dotted);
+  const reference = useStableArray(props.reference);
   const models = useMemo(() => panels.map((panel) => buildTimeSeriesModel({
-    series: panel.series, metrics: panel.metrics, unit: panel.unit, band, settings, forecast, dotted, now, xRange: { from: xRange.from, to: xRange.to },
-  })), [panels, band, settings, forecast, dotted, now, xRange.from, xRange.to]);
+    series: panel.series, metrics: panel.metrics, unit: panel.unit, band, settings, forecast, reference, now, xRange: { from: xRange.from, to: xRange.to },
+  })), [panels, band, settings, forecast, reference, now, xRange.from, xRange.to]);
   const compareSpec = props.compare ?? null;
   const compares = useMemo(() => panels.map((panel, index) => {
     const model = models[index];
@@ -466,7 +463,7 @@ export function ChartStack(props: ChartStackProps) {
   const tables = models.flatMap((model, index) => (panels[index].series ? dataTables(model, hidden) : []));
   const zoomed = zoomedPanels.size > 0;
   return <section ref={stack} className="chart-stack" aria-label={props.label}>
-    {props.events && <RailKey kinds={kinds} hidden={hiddenKinds} onToggle={toggleKind} plans={shownEvents.some((event) => event.badge)} />}
+    {props.events && <RailKey kinds={kinds} hidden={hiddenKinds} onToggle={toggleKind} />}
     {props.events && <EventRail events={props.events} view={view} hidden={hiddenKinds} lit={lit} reverse={reverse} onLit={setLit} onPick={pick} />}
     <div ref={chip} className="stack-chip" hidden={cursor === null} aria-hidden="true">{cursor === null ? "" : clockTime(cursor, multiDay)}</div>
     <div className="stack-panels">

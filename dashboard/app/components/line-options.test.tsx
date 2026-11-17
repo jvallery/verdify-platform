@@ -50,15 +50,15 @@ test("today's minutes and the headroom sit beside the cap and follow what is typ
   expect(text(screen.getByRole("dialog"))).toContain("0 means none");
 });
 
-test("a line that is not a mister zone has no reserve, and sends none; Manual unticked and a reason go with it", async () => {
+test("a line that is not a mister zone has no reserve, and sends none; no switch about who may change it, and a reason goes with it", async () => {
   const api = open("/water?options=L01");
   expect(drawer().queryByLabelText("VPD reserve")).toBeNull();
+  expect(drawer().queryByRole("checkbox", { name: /Iris/ })).toBeNull();
   type("Daily cap", "90");
-  fireEvent.click(drawer().getByRole("checkbox", { name: "Let Iris change this" }));
   type("Reason (optional)", "Hot week");
   save();
   await advance(0);
-  expect(writes(api).map((row) => row.body)).toEqual([{ daily_cap_min: 90, manual: false, reason: "Hot week" }]);
+  expect(writes(api).map((row) => row.body)).toEqual([{ daily_cap_min: 90, manual: true, reason: "Hot week" }]);
 });
 
 test("the hint flags a reserve above the cap, the API refuses it with out_of_range, and it shows beside its field with the drawer open", async () => {

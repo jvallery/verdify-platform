@@ -1,24 +1,24 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
 /**
- * The real uPlot 1.6.32 for the lanes and the bars: the x-only lanes and the stacked bars must be options uPlot
+ * The real uPlot 1.6.32 for the lanes and the bars: the x-only lanes, the stacked bars and the daily bars must be options uPlot
  * accepts, and a lane must move the panels' cursor to the same instant through `cursor.sync`. jsdom has no canvas,
  * so the 2D context records what is painted and Path2D is a no-op.
  */
 import { act, cleanup, render } from "@testing-library/react";
 import type uPlot from "uplot";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { DailyBars } from "./daily-bars";
 import { EquipmentLanes } from "./equipment-lanes";
 import metricsFixture from "./fixtures/metrics.json";
 import minutesFixture from "./fixtures/minutes.json";
-import planFixture from "./fixtures/plan.json";
 import holeFixture from "./fixtures/series-hole.json";
 import statesFixture from "./fixtures/states.json";
 import { FakeResizeObserver, RecordingContext, TOKENS, load, media, setTokens } from "./fixtures/uplot-mock";
 import { MinutesByZone } from "./minutes-by-zone";
-import { PlanLanes } from "./plan-lanes";
+import { StateLanesChart } from "./state-lanes";
 import { TimeSeries } from "./time-series";
-import type { MetricDef, MinutesReport, Plan, Series, StateLanes } from "./types";
+import type { MetricDef, MinutesReport, Series, StateLanes } from "./types";
 
 const epoch = (instant: string) => Date.parse(instant) / 1000;
 const RANGE = { from: epoch("2026-11-01T06:00:00Z"), to: epoch("2026-11-01T22:00:00Z") };
@@ -41,7 +41,7 @@ function stubContext(canvas: HTMLCanvasElement) {
   });
 }
 // jsdom lays nothing out: each chart box gets the size the stylesheet gives it at 1440 px.
-const SIZES: Record<string, [number, number]> = { plot: [1200, 150], "lanes-canvas": [1000, 9 * 20 + 20 + 36], "plot-bars": [900, 92] };
+const SIZES: Record<string, [number, number]> = { plot: [1200, 150], "lanes-canvas": [1000, 9 * 20 + 20 + 36], "plot-bars": [900, 92], "plot-fixed": [900, 200] };
 const clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
 const clientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
 const sized = (axis: 0 | 1, fallback: PropertyDescriptor) => ({
@@ -109,19 +109,34 @@ test("uPlot stacks the minutes bars through bands, in the causes' colours, over 
   expect([center.scales.y.min, center.scales.y.max]).toEqual([0, 138]);
   expect([plots[4].scales.y.min, plots[4].scales.y.max]).toEqual([0, 35]);
   const filled = new Set(contexts.flatMap((context) => context.fills.map((fill) => fill.color)));
-  for (const token of ["--cause-vpd", "--cause-schedule", "--eq-fert", "--cause-prep", "--forest", "--c-bound"]) expect(filled, token).toContain(TOKENS[token]);
+  for (const token of ["--cause-vpd", "--cause-schedule", "--eq-fert", "--cause-prep", "--accent", "--text-3"]) expect(filled, token).toContain(TOKENS[token]);
 });
 
-test("uPlot takes the plan lanes: an x-only window from now to the horizon, the rows painted in its draw hook", async () => {
-  const now = epoch("2026-11-02T17:00:00Z");
-  render(<PlanLanes plan={load<Plan>(planFixture)} now={now} syncKey="verdify:plan:24h" />);
+test("uPlot takes the daily bars: one carrier series that draws nothing, the bars and the means painted in its draw hook", async () => {
+  render(<DailyBars title="Electricity" unit="kWh" token="--eq-heat1" mean7={11} mean30={10} syncKey="verdify:record:30d"
+    days={[{ date: "2026-11-14", value: 12 }, { date: "2026-11-15", value: null }, { date: "2026-11-16", value: 10 }, { date: "2026-11-17", value: 4, partial: true }]} />);
   await settle();
   const UPlot = (await import("uplot")).default;
-  const [plot] = UPlot.sync("verdify:plan:24h").plots as uPlot[];
-  expect([plot.scales.x.min, plot.scales.x.max]).toEqual([now, now + 24 * 3600]);
-  expect(plot.series).toHaveLength(1);
+  const [plot] = UPlot.sync("verdify:record:30d").plots as uPlot[];
+  expect(plot.series).toHaveLength(2);
+  expect([plot.scales.y.min, plot.scales.y.max]).toEqual([0, 20]);
+  const filled = contexts.flatMap((context) => context.fills.map((fill) => fill.color));
+  expect(filled.filter((color) => color === TOKENS["--eq-heat1"])).toHaveLength(3);
   const painted = contexts.flatMap((context) => context.texts.map((text) => text.text));
-  expect(painted.some((text) => text.endsWith("PLANNED · AI"))).toBe(true);
-  expect(painted.some((text) => text.endsWith("Forecast rule · system"))).toBe(true);
-  expect(painted).toContain("Plan ends 17:30");
+  expect(painted).toEqual(expect.arrayContaining(["7-day mean 11.0\u00a0kWh", "30-day mean 10.0\u00a0kWh"]));
+});
+
+test("uPlot takes the state lanes: an x-only window, each row's spans painted at its pitch", async () => {
+  const range = { from: epoch("2026-11-01T06:00:00Z"), to: epoch("2026-11-01T10:00:00Z") };
+  render(<StateLanesChart title="What the law asked for" range={range} syncKey="verdify:law:4h" rows={[
+    { key: "heat1", label: "Electric heat", token: "--eq-heat1", spans: [{ start: range.from, end: range.from + 3600, state: "on" }] },
+    { key: "drying", label: "Drying", token: "--eq-vent", spans: [{ start: range.from, end: range.from + 1800, state: "refused", label: "costs more than the limit" }] },
+  ]} />);
+  await settle();
+  const UPlot = (await import("uplot")).default;
+  const [plot] = UPlot.sync("verdify:law:4h").plots as uPlot[];
+  expect(plot.series).toHaveLength(1);
+  expect([plot.scales.x.min, plot.scales.x.max]).toEqual([range.from, range.to]);
+  expect(contexts.some((context) => context.rects.some((rect) => rect.color === TOKENS["--eq-heat1"]))).toBe(true);
+  expect(contexts.some((context) => context.strokes.some((stroke) => stroke.stroke === TOKENS["--warn"]))).toBe(true);
 });

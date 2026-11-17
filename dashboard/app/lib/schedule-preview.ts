@@ -18,8 +18,8 @@ const NBSP = " ";
 
 /** A cap's words when a day's planned minutes pass it; the run still saves (irrigation §4.3). */
 export const PAST_CAP_TEXT = "Past the cap: the controller ends the run at the cap";
-/** What API-IRR-02 says of an occurrence planned before the irrigation firmware (irrigation §8.3). */
-const BEFORE_ENGINE_REASON = "arrives with the irrigation firmware";
+/** Why nothing runs while the controller reports no irrigation engine (API-IRR-01 `engine` false). */
+const BEFORE_ENGINE_REASON = "the controller reports no irrigation engine";
 
 type Solar = ScheduleAgenda["solar"][number];
 /** The editor's fields as a schedule, every one filled in; `slot_id` null is a new one. */
@@ -71,7 +71,7 @@ export type PreviewCheck = {
 /** A line's minutes against its cap, as the drawer reads them. */
 export type LineTotal = {
   readonly line_id: string;
-  /** "Mon 12 · Wed 12 · Fri 12 min"; null with nothing planned. */
+  /** "Mon 12 · Wed 12 · Fri 12 min"; null with nothing scheduled. */
   readonly totals: string | null;
   /** "Wall drip cap 60 min a day", or "Center: 8 of 60 min for schedules; 60 kept for VPD"; null while the line is unknown. */
   readonly cap: string | null;

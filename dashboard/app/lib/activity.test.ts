@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
-// The Activity screen's plain functions (#1133): the URL view, the alert groups, people's names and each log row in
-// words. The screen itself is tested in routes/activity.test.tsx against the fixture API.
+// The Activity screen's plain functions (screens.md section 9): the URL view, the alert groups, the page that explains
+// each alert and its window in Graphs, people's names and each log row in words. The screen itself is tested in
+// routes/activity.test.tsx against the fixture API.
 import { expect, test } from "vitest";
 import {
-  LOG_CSV_HEADERS, WHAT_FACETS, WHO_FACETS, activityHref, actorWords, alertIdOf, alertsStatus, catalogOf, causeOf, csvCell, dayHeading, entriesByDay, entryFacts, entryLine,
-  entryTitle, facetsWith, groupAlerts, isDay, logCsv, logCsvName, logQuery, logRedirect, manualText, personName, planChanges, readView, shownActor,
+  LOG_CSV_HEADERS, WHAT_FACETS, WHO_FACETS, activityHref, actorWords, alertIdOf, alertPage, alertWindow, alertsStatus, catalogOf, causeOf, csvCell, dayHeading,
+  entriesByDay, entryFacts, entryLine, entryTitle, facetsWith, groupAlerts, isDay, listedChanges, logCsv, logCsvName, logQuery, logRedirect, manualText, personName,
+  readView, shownActor,
 } from "./activity";
+import { HISTORICAL_ALERT_TYPES, WORDS } from "./words";
 import type { ActivityEntry, Alert, Setting } from "./operator-api";
 
 const NBSP = String.fromCharCode(0xa0);
@@ -38,7 +41,43 @@ test("alerts group by status in API order: a status this build does not know sta
   expect([groups.open, groups.acknowledged, groups.closed].map((rows) => rows.map((alert) => alert.id))).toEqual([[1, 4, 6], [2], [3, 5]]);
 });
 
-test("the signed-in person reads by display name; everyone else, Iris, the agents and the system as the API names them", () => {
+test("each alert type opens the v2 page that explains it (A-02); a retired check and the lab site's have none", () => {
+  const page = (alert_type: string, category = "system") => alertPage({ alert_type, category } as Alert)?.to ?? null;
+  expect([
+    page("drying_refused_all_day"), page("drying_meter_fault"), page("law_state_stale"), page("band_fn_null"), page("esp32_reboot"), page("law_constants_mismatch"),
+    page("setpoint_unconfirmed"), page("daily_record_missing"), page("telemetry_stall"), page("daily_review_missed"), page("leak_detected"),
+    page("irrigation_run_missed"), page("soil_dryout"), page("lighting_cfg_threshold_drift"), page("relay_stuck"), page("relay_counter_mismatch"),
+    page("utility_out_of_baseline"),
+  ]).toEqual([
+    "/climate/drying", "/climate/drying", "/climate", "/climate", "/system/controller", "/system/controller", "/system/data", "/system/data", "/system/data", "/review",
+    "/water", "/water", "/water/soil", "/lights", "/equipment", "/record/equipment", "/record/utilities",
+  ]);
+  expect(alertPage({ alert_type: "drying_refused_all_day", category: "climate" } as Alert)).toEqual({ to: "/climate/drying", label: "Drying" });
+  // A type this build does not know goes by its category; `system` alone sends nowhere.
+  expect([page("new_water_check", "water"), page("new_climate_check", "climate"), page("new_probe_check", "sensor"), page("new_host_check", "system")])
+    .toEqual(["/water", "/climate", "/system/data", null]);
+  for (const type of HISTORICAL_ALERT_TYPES) expect(page(type, "climate"), type).toBeNull();
+  expect(page("site_content_stale")).toBeNull();
+  // Every type with words, retired checks and the lab site's aside, has a page.
+  const without = Object.keys(WORDS.alert_type).filter((type) => !HISTORICAL_ALERT_TYPES.has(type) && type !== "site_content_stale" && page(type, "system") === null);
+  expect(without).toEqual([]);
+});
+
+test("an alert's window in Graphs: 2 h before it was first seen to 2 h after it ended or was last seen, at most 7 days", () => {
+  const at = (iso: string) => Date.parse(iso);
+  const resolved = alertWindow({ first_seen_at: "2026-11-02T14:00:00Z", last_seen_at: "2026-11-02T15:00:00Z", resolved_at: "2026-11-02T16:00:00Z" });
+  expect([resolved?.from, resolved?.to]).toEqual([at("2026-11-02T12:00:00Z"), at("2026-11-02T18:00:00Z")]);
+  expect(resolved?.href).toMatch(/^\/graphs/);
+  const open = alertWindow({ first_seen_at: "2026-11-02T14:00:00Z", last_seen_at: "2026-11-02T15:30:00Z", resolved_at: null });
+  expect(open?.to).toBe(at("2026-11-02T17:30:00Z"));
+  const once = alertWindow({ first_seen_at: "2026-11-02T14:00:00Z", last_seen_at: null, resolved_at: null });
+  expect(once?.to).toBe(at("2026-11-02T16:00:00Z"));
+  const long = alertWindow({ first_seen_at: "2026-10-01T00:00:00Z", last_seen_at: "2026-11-02T00:00:00Z", resolved_at: null });
+  expect(long ? long.to - long.from : null).toBe(7 * 86_400_000);
+  expect(alertWindow({ first_seen_at: "not a time", last_seen_at: null, resolved_at: null })).toBeNull();
+});
+
+test("the signed-in person reads by display name; everyone else, the reviewer, the agents and the host as the API names them", () => {
   const me = { username: "jason", display_name: "Jason" };
   expect(personName("jason", me)).toBe("Jason");
   expect(personName("caretaker", me)).toBe("caretaker");
@@ -48,35 +87,39 @@ test("the signed-in person reads by display name; everyone else, Iris, the agent
   expect(shownActor({ source: "agent:jason", name: "jason" }, me)).toEqual({ source: "agent:jason", name: "jason" });
 });
 
-test("a setting write reads before → after with its unit, the requested value when snapped, and manual; a release reads where control goes", () => {
+test("a setting write reads before → after with its unit, the requested value when snapped, and set by hand; a release reads where control goes", () => {
   const write = entry({ detail: { before: 1.6, value: 1.55, requested: 1.53, manual: { before: false, after: true } } });
   expect(entryTitle(write, CATALOG)).toBe("Set VPD Mister Engage");
-  expect(plain(entryFacts(write, CATALOG))).toEqual(["1.60 → 1.55 kPa", "requested 1.53", "manual"]);
+  expect(plain(entryFacts(write, CATALOG))).toEqual(["1.60 → 1.55 kPa", "requested 1.53", "set by hand"]);
   // The service stores `requested` on every write: one the server did not snap says nothing more.
-  expect(plain(entryFacts(entry({ detail: { before: 1.6, value: 1.55, requested: 1.55, manual: { before: false, after: true } } }), CATALOG))).toEqual(["1.60 → 1.55 kPa", "manual"]);
+  expect(plain(entryFacts(entry({ detail: { before: 1.6, value: 1.55, requested: 1.55, manual: { before: false, after: true } } }), CATALOG))).toEqual(["1.60 → 1.55 kPa", "set by hand"]);
   // No readback before: "—", never 0. A switch reads OFF and ON.
   expect(plain(entryFacts(entry({ detail: { before: null, value: 1.55 } }), CATALOG))).toEqual(["— → 1.55 kPa"]);
   expect(entryFacts(entry({ target: "sw_gl_main_auto_mode", detail: { before: 0, value: 1 } }), CATALOG)).toEqual(["OFF → ON"]);
   const release = entry({ action: "setting.release", detail: { before: 1.55, value: null, manual: { before: true, after: false } } });
   expect(entryTitle(release, CATALOG)).toBe("Released VPD Mister Engage");
-  expect(entryFacts(release, CATALOG)).toEqual(["back to plan, band or default", "manual cleared"]);
+  expect(entryFacts(release, CATALOG)).toEqual(["back to its default", "no longer set by hand"]);
   // A setting API-09 does not list reads raw, numbers without a unit.
   expect([entryTitle(entry({ target: "new_param" }), CATALOG), ...entryFacts(entry({ target: "new_param", detail: { before: 2, value: 3 } }), CATALOG)]).toEqual(["Set new_param", "2 → 3"]);
 });
 
-test("manual reads only when the write left the item manual or took it off manual", () => {
+test("set by hand reads only when the write left the item set by hand or took that mark off", () => {
   expect([manualText({ before: false, after: true }), manualText({ before: true, after: true }), manualText({ before: true, after: false }), manualText({ before: false, after: false }), manualText(true), manualText(undefined)])
-    .toEqual(["manual", "manual", "manual cleared", null, "manual", null]);
+    .toEqual(["set by hand", "set by hand", "no longer set by hand", null, "set by hand", null]);
 });
 
-test("plan changes read from either writer's shape; a rule without a name and an armed experiment still say so", () => {
-  expect(planChanges({ changes: [{ ts: "2026-11-02T20:00:00Z", param: "a", value: 1 }, { at: "2026-11-02T21:00:00Z", param: "b", value: 2 }, { param: "c", before: 3, value: 4 }, { value: 5 }, "x"] }))
+test("a band save reads its edges; an old settings row reads from either writer's shape, a rule by its name or id, and no study", () => {
+  const band = entry({ action: "band.write", target: "house band", detail: { changes: [{ param: "temp_low_sunrise", desired_id: 9, before: 60, value: 62 }] } });
+  expect(entryTitle(band, CATALOG)).toBe("Changed the band");
+  expect(plain(entryFacts(band, CATALOG))).toEqual(["temp_low_sunrise 60 → 62"]);
+  expect(listedChanges({ changes: [{ ts: "2026-11-02T20:00:00Z", param: "a", value: 1 }, { at: "2026-11-02T21:00:00Z", param: "b", value: 2 }, { param: "c", before: 3, value: 4 }, { value: 5 }, "x"] }))
     .toEqual([{ param: "a", value: 1, ts: "2026-11-02T20:00:00Z" }, { param: "b", value: 2, ts: "2026-11-02T21:00:00Z" }, { param: "c", value: 4, before: 3, ts: null }]);
   const iris = entry({ action: "plan.write", target: "iris-20261102-0702", actor: { source: "iris", name: "iris" }, detail: { changes: [{ ts: "2026-11-03T20:00:00Z", param: "mister_engage_kpa", value: 1.7 }] } });
-  // One waypoint on another day than the row carries its date.
+  // A change timed on another day than the row carries its date.
+  expect(entryTitle(iris, CATALOG)).toBe("Settings written before the climate law");
   expect(plain(entryFacts(iris, CATALOG))).toEqual(["VPD Mister Engage 1.70 kPa from Nov 3, 13:00"]);
   const rule = entry({ action: "plan.write", target: "preemptive-1", experiment_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7", detail: { changes: [], rule_id: 7 } });
-  expect(entryFacts(rule, CATALOG)).toEqual(["rule 7", "during experiment 7c9e6679-7425-40de-944b-e07fc1f90ae7"]);
+  expect(entryFacts(rule, CATALOG)).toEqual(["rule 7"]);
   // A named rule reads by its name alone, as the forecast engine's row does ("· rule “hot afternoon”").
   const named = entry({ action: "plan.write", target: "preemptive-2", detail: { changes: [{ param: "mister_engage_kpa", before: 1.6, value: 1.5 }], rule: "hot afternoon", rule_id: 3 } });
   expect(plain(entryFacts(named, CATALOG))).toEqual(["VPD Mister Engage 1.60 → 1.50 kPa", "rule “hot afternoon”"]);
@@ -90,7 +133,7 @@ test("irrigation rows: the action in words with its line, a run's length, the fi
   expect(entryTitle(entry({ action: "irrigation.stop", target: "all" }), CATALOG)).toBe("Stopped every line");
   expect(entryTitle(entry({ action: "irrigation.clear_fault", target: "L04" }), CATALOG)).toBe("Cleared the fault on Center mister");
   const update = entry({ action: "irrigation.line.update", target: "L02", detail: { before: { enabled: false, daily_cap_min: 0, paused_until: "2026-11-02T21:00:00Z" }, value: { enabled: true, daily_cap_min: 30, paused_until: null }, manual: { before: false, after: true } } });
-  expect(plain(entryFacts(update, CATALOG))).toEqual(["Enabled off → on", "Daily cap 0 → 30 min", "resumed", "manual"]);
+  expect(plain(entryFacts(update, CATALOG))).toEqual(["Enabled off → on", "Daily cap 0 → 30 min", "resumed", "set by hand"]);
   // A row that carries only the request lists the fields it set; a schedule names its line.
   expect(plain(entryFacts(entry({ action: "irrigation.schedule.update", target: "11", detail: { line_id: "L01", on_s: 900, days: ["mon"] } }), CATALOG))).toEqual(["Wall drip", "On 900 s"]);
   expect(entryFacts(entry({ action: "irrigation.schedule.delete", target: "11", detail: { line_id: "L01", before: { on_s: 720 } } }), CATALOG)).toEqual(["Wall drip"]);
@@ -102,6 +145,7 @@ test("irrigation rows: the action in words with its line, a run's length, the fi
   expect(entryFacts(entry({ action: "light.on", target: "grow_light_main", detail: { light: "main", state: "on", result: "not_confirmed" } }), CATALOG)).toEqual(["Lutron did not reach the state"]);
   expect(entryTitle(entry({ action: "alert.ack", target: "88", detail: { alert_type: "relay_stuck" } }), CATALOG)).toBe("Acknowledged “Relay stuck”");
   expect(entryTitle(entry({ action: "alert.resolve", target: "88" }), CATALOG)).toBe("Resolved alert 88");
+  expect(entryTitle(entry({ action: "planting.note", target: "12" }), CATALOG)).toBe("Added a note to planting 12");
 });
 
 test("the log asks API-17 for its filters as they are and its dates as instants, the day after `to` excluded", () => {
@@ -114,12 +158,16 @@ test("the log asks API-17 for its filters as they are and its dates as instants,
   expect(logRedirect(new URL("https://d.example/activity?from=2026-11-01"))).toBeNull();
 });
 
-test("the facets: Who and What on API-17's source and action prefix, and an unknown value from the URL kept so it shows", () => {
-  expect(WHO_FACETS.map(([, label]) => label)).toEqual(["People", "Iris", "Agents", "System"]);
-  expect(WHAT_FACETS).toEqual([["setting.", "Settings"], ["irrigation.", "Water"], ["alert.", "Alerts"], ["plan.", "Plan"], ["irrigation.override", "Equipment"]]);
+test("the facets: Who and What on API-17's source and action prefix, no planner, the reviewer and the band; an unknown value from the URL kept so it shows", () => {
+  expect(WHO_FACETS).toEqual([["dashboard", "People"], ["iris", "Reviewer"], ["agent", "Agents"], ["system", "Host"]]);
+  expect(WHAT_FACETS).toEqual([
+    ["band.", "Band"], ["setting.", "Settings"], ["irrigation.", "Water"], ["irrigation.override", "Run by hand"], ["light.", "Lights"], ["planting.", "Crops"], ["alert.", "Alerts"],
+  ]);
   expect(facetsWith(WHO_FACETS, "agent:steward").at(-1)).toEqual(["agent:steward", "steward · agent"]);
   expect(facetsWith(WHO_FACETS, "iris")).toHaveLength(4);
-  expect(facetsWith(WHAT_FACETS, undefined)).toHaveLength(5);
+  expect(facetsWith(WHAT_FACETS, undefined)).toHaveLength(7);
+  // An old link to the retired filter still shows, raw, so it can be cleared.
+  expect(facetsWith(WHAT_FACETS, "plan.").at(-1)?.[0]).toBe("plan.");
 });
 
 test("day headers: Today, Yesterday, else the weekday and date; entries group by America/Denver day in API order", () => {
@@ -129,32 +177,38 @@ test("day headers: Today, Yesterday, else the weekday and date; entries group by
   expect(entriesByDay(rows).map((day) => [day.date, day.entries.map((row) => row.id)])).toEqual([["2026-11-02", [3, 2]], ["2026-11-01", [1]]]);
 });
 
-test("who wrote, in text (R4): a person by name with dashboard, iris and an agent with AI, the system by its writer, a stranger raw", () => {
+test("who wrote, in text (R4): a person by name with dashboard, the reviewer and an agent with AI, the host by its writer, a stranger raw", () => {
   const me = { username: "jason", display_name: "Jason" };
   expect(actorWords({ source: "dashboard", name: "jason" }, me)).toEqual({ text: "Jason · dashboard", ai: false });
-  expect(actorWords({ source: "iris", name: "iris" }, me)).toEqual({ text: "iris", ai: true });
+  expect(actorWords({ source: "iris", name: "iris" }, me)).toEqual({ text: "Iris · reviewer", ai: true });
   expect(actorWords({ source: "agent:steward", name: "steward" }, me)).toEqual({ text: "steward · agent", ai: true });
-  expect(actorWords({ source: "system", name: "forecast-engine" }, me)).toEqual({ text: "forecast-engine · system", ai: false });
+  expect(actorWords({ source: "system", name: "forecast-engine" }, me)).toEqual({ text: "forecast-engine · host", ai: false });
   expect(actorWords({ source: "agent:Bad Name", name: "x" }, me)).toEqual({ text: "x · agent:Bad Name", ai: false });
   expect(actorWords({ source: "mqtt", name: "U123" }, me)).toEqual({ text: "U123 · mqtt", ai: false });
 });
 
-test("one line an entry: a setting's change with its facts, an Iris plan collapsed to its count, an automatic entry led by its cause", () => {
+test("one line an entry: a setting's change with its facts, a band save collapsed to its count, an automatic entry led by its cause", () => {
   const line = (row: Partial<ActivityEntry>) => { const { text, changes } = entryLine(entry(row), CATALOG); return { text: text.replaceAll(NBSP, " "), changes: changes.length }; };
-  expect(line({ detail: { before: 1.6, value: 1.55, requested: 1.53, manual: { before: false, after: true } } })).toEqual({ text: "VPD Mister Engage 1.60 → 1.55 kPa · requested 1.53 · manual", changes: 0 });
+  expect(line({ detail: { before: 1.6, value: 1.55, requested: 1.53, manual: { before: false, after: true } } })).toEqual({ text: "VPD Mister Engage 1.60 → 1.55 kPa · requested 1.53 · set by hand", changes: 0 });
+  const band = { action: "band.write", target: "house band" } as const;
+  const edges = [{ param: "temp_low_sunrise", desired_id: 9, before: 60, value: 62 }, { param: "vpd_high_noon", desired_id: 10, before: 1.4, value: 1.3 }];
+  expect(line({ ...band, detail: { changes: edges } })).toEqual({ text: "Changed the band · 2 changes", changes: 2 });
+  expect(line({ ...band, detail: { changes: edges.slice(0, 1) } })).toEqual({ text: "Changed the band · temp_low_sunrise 60 → 62", changes: 0 });
   const plan = { action: "plan.write", target: "iris-20261102-0702", actor: { source: "iris", name: "iris" } } as const;
   const changes = [{ ts: "2026-11-02T20:00:00Z", param: "mister_engage_kpa", value: 1.7 }, { ts: "2026-11-02T23:30:00Z", param: "x", value: 55 }];
-  expect(line({ ...plan, detail: { trigger: "SUNRISE", changes } })).toEqual({ text: "SUNRISE plan · 2 changes", changes: 2 });
-  expect(line({ ...plan, detail: { changes: changes.slice(0, 1) } })).toEqual({ text: "Plan · VPD Mister Engage 1.70 kPa from 13:00", changes: 0 });
+  expect(line({ ...plan, detail: { trigger: "SUNRISE", changes } })).toEqual({ text: "Settings written before the climate law · 2 changes", changes: 2 });
+  expect(line({ ...plan, detail: { changes: changes.slice(0, 1) } })).toEqual({ text: "Settings written before the climate law · VPD Mister Engage 1.70 kPa from 13:00", changes: 0 });
   const forecast = { action: "plan.write", target: "preemptive-1", actor: { source: "system", name: "forecast-engine" } } as const;
   expect(line({ ...forecast, detail: { changes: [{ param: "mister_engage_kpa", before: 1.6, value: 1.5 }], rule: "hot afternoon" } })).toEqual({ text: "Forecast rule “hot afternoon” · VPD Mister Engage 1.60 → 1.50 kPa", changes: 0 });
   expect(line({ actor: { source: "system", name: "forecast-engine" }, detail: { before: 1.6, value: 1.65 } })).toEqual({ text: "Forecast rule · VPD Mister Engage 1.60 → 1.65 kPa", changes: 0 });
   expect(line({ action: "irrigation.run", target: "L01", actor: { source: "system", name: "scheduler" }, detail: { minutes: 12, schedule_label: "Wall MWF" } })).toEqual({ text: "Schedule “Wall MWF” · Ran Wall drip · 12 min", changes: 0 });
   expect(line({ action: "irrigation.run", target: "L01", detail: { minutes: 12 } })).toEqual({ text: "Ran Wall drip · 12 min", changes: 0 });
+  // The reviewer's watering inside a daily review leads with it.
+  expect(line({ action: "irrigation.run", target: "L01", actor: { source: "iris", name: "iris" }, detail: { minutes: 8, trigger_id: "review-2026-11-02" } })).toEqual({ text: "Daily review · Ran Wall drip · 8 min", changes: 0 });
   expect([causeOf(entry({ actor: { source: "system", name: "seed" } })), causeOf(entry({}))]).toEqual(["seed", null]);
 });
 
-test("CSV of these entries: one row each with the header, quoted where it must be, an Iris plan's changes in its cell, and the BOM", () => {
+test("CSV of these entries: one row each with the header, quoted where it must be, a row's several changes in its cell, and the BOM", () => {
   expect([csvCell("plain"), csvCell("a, b"), csvCell('say "hi"'), csvCell("two\nlines")]).toEqual(["plain", '"a, b"', '"say ""hi"""', '"two\nlines"']);
   const rows = [
     entry({ id: 2, reason: "Vandas, drying", state: "confirmed", confirmed_at: "2026-11-02T14:42:00Z", detail: { before: 1.6, value: 1.55 } }),
@@ -165,7 +219,7 @@ test("CSV of these entries: one row each with the header, quoted where it must b
   const lines = csv.slice(1).split("\r\n");
   expect(lines[0]).toBe(LOG_CSV_HEADERS.join(","));
   expect(lines[1].replaceAll(NBSP, " ")).toBe('2026-11-02 07:41,Jason · dashboard,dashboard,setting.write,mister_engage_kpa,VPD Mister Engage 1.60 → 1.55 kPa,"Vandas, drying",confirmed,2026-11-02 07:42,');
-  expect(lines[2].replaceAll(NBSP, " ")).toBe('2026-11-02 07:02,iris,iris,plan.write,iris-1,"SUNRISE plan · 2 changes\nVPD Mister Engage 1.70 kPa\nx 2",,,,');
+  expect(lines[2].replaceAll(NBSP, " ")).toBe('2026-11-02 07:02,Iris · reviewer,iris,plan.write,iris-1,"Settings written before the climate law · 2 changes\nVPD Mister Engage 1.70 kPa\nx 2",,,,');
   expect(logCsvName(rows)).toBe("verdify-activity-2026-11-02.csv");
 });
 

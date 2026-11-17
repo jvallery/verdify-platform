@@ -21,8 +21,8 @@ function context(values: Partial<PageContext> = {}) {
   provider.set(pageContext, { sourceRevision: REVISION, requestId: REQUEST_ID, authError: null, ...values });
   return provider;
 }
-function args(provider: RouterContextProvider, nonce = "n0nce"): LoaderFunctionArgs {
-  return { request: new Request("https://dashboard.verdify.ai/auth/callback", { headers: { "x-dashboard-csp-nonce": nonce } }), params: {}, context: provider, url: new URL("https://dashboard.verdify.ai/auth/callback"), pattern: "/" } as unknown as LoaderFunctionArgs;
+function args(provider: RouterContextProvider, nonce = "n0nce", cookie?: string): LoaderFunctionArgs {
+  return { request: new Request("https://dashboard.verdify.ai/auth/callback", { headers: { "x-dashboard-csp-nonce": nonce, ...(cookie ? { cookie } : {}) } }), params: {}, context: provider, url: new URL("https://dashboard.verdify.ai/auth/callback"), pattern: "/" } as unknown as LoaderFunctionArgs;
 }
 type Wrapped = { type?: string; data: unknown; init: { status?: number } | null };
 
@@ -48,10 +48,31 @@ test("Now's server render is its loading state, with no greenhouse data and no r
 });
 
 test("the root loader gives the nonce, the BFF's build and request id, and nothing about the greenhouse", () => {
-  expect(loader(args(context()))).toEqual({ nonce: "n0nce", sourceRevision: REVISION, requestId: REQUEST_ID, authError: null });
+  expect(loader(args(context()))).toEqual({ nonce: "n0nce", sourceRevision: REVISION, requestId: REQUEST_ID, theme: "system", authError: null });
   // With no load context (a plain React Router server), the defaults hold.
-  expect(loader(args(new RouterContextProvider(), ""))).toEqual({ nonce: "", sourceRevision: "unknown", requestId: null, authError: null });
+  expect(loader(args(new RouterContextProvider(), ""))).toEqual({ nonce: "", sourceRevision: "unknown", requestId: null, theme: "system", authError: null });
   expect(shouldRevalidate()).toBe(false);
+});
+
+test("the theme cookie reaches the first paint: the loader reads it, and the document carries data-theme and its theme-color", async () => {
+  expect((loader(args(context(), "n", "__Host-verdify_session=abc; theme=dark")) as { theme: string }).theme).toBe("dark");
+  expect((loader(args(context(), "n", "theme=light")) as { theme: string }).theme).toBe("light");
+  expect((loader(args(context(), "n", "theme=sepia")) as { theme: string }).theme).toBe("system");
+  // The error page draws the same document as every page, with the root's data from the server's render.
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const errorPage = (theme: string) => {
+    const Stub = createRoutesStub([{ id: "root", path: "/", Component: () => null, ErrorBoundary }]);
+    const loaderData = { root: { nonce: "", sourceRevision: REVISION, requestId: null, theme, authError: null } };
+    render(<Stub initialEntries={["/"]} hydrationData={{ loaderData, errors: { root: new Error("render failed") } }} />);
+    return screen.findByRole("heading", { level: 1 });
+  };
+  await errorPage("dark");
+  expect(document.querySelector("html[data-theme]")?.getAttribute("data-theme")).toBe("dark");
+  expect([...document.querySelectorAll('meta[name="theme-color"]')].map((meta) => meta.getAttribute("content"))).toEqual(["#111c22", "#111c22"]);
+  cleanup();
+  await errorPage("system");
+  expect(document.querySelector("html[data-theme]")).toBeNull();
+  expect([...document.querySelectorAll('meta[name="theme-color"]')].map((meta) => meta.getAttribute("media"))).toEqual(["(prefers-color-scheme: light)", "(prefers-color-scheme: dark)"]);
 });
 
 test.each([["failed", 400], ["unavailable", 503], ["no_access", 403]] as const)("a %s sign-in answers %i with its refusal at the same URL", (reason, status) => {

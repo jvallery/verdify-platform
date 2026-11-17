@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 /**
- * Activity (redesign §5.8, §5.9; SCR-06), the parts that are plain functions: the view the URL holds, the alert groups
- * and the Alerts status line, people's names, each log entry in one line, the log's facets, day headers and its CSV.
- * `routes/activity.tsx` and `routes/activity-log.tsx` render them.
+ * Activity (dashboard v2 screens.md section 9, parity A-01 to A-04), the parts that are plain functions: the view the
+ * URL holds, the alert groups, the page that explains each alert and its window in Graphs, the Alerts status line,
+ * people's names, each log entry in one line, the log's facets, day headers and its CSV. `routes/activity.tsx` and
+ * `routes/activity-log.tsx` render them.
  */
 import { dateShift, dayHeader, formatNumber, formatValue, localDate, localDayStart, localWallClock, shortDateTime, shortTime } from "./format";
+import { graphWindowUrl } from "./graph-link";
 import { lineById, lineDisplayName } from "./lines";
 import type { ActivityEntry, Actor, Alert, Me, Setting } from "./operator-api";
+import { viewOf, type ViewId } from "./sections";
 import { settingValueText, steppedNumber, withUnit } from "./setting-values";
 import { ACTOR_SOURCE_PATTERN, isAiSource } from "./vocab";
-import { words } from "./words";
+import { HISTORICAL_ALERT_TYPES, words } from "./words";
 
 // ---------------------------------------------------------------------------------------------------- the URL
 /** The log filters, passed to API-17 as the URL holds them. */
@@ -111,6 +114,68 @@ export function groupAlerts(rows: readonly Alert[]): AlertGroups {
   return groups;
 }
 
+// ---------------------------------------------------------------------------------------------------- where an alert is explained
+/**
+ * The v2 view that explains each alert type (parity A-02): drying to Drying; the law, the band and the house's climate
+ * to the climate law; relays to Equipment; the controller and its firmware to Controller; data, gaps, delivery and
+ * values not confirmed to Data; the counters to the equipment record; utilities to Utilities; the review to Review;
+ * water, soil and lights to theirs. A retired check, and the lab site's, have no page.
+ */
+const ALERT_VIEW: Readonly<Record<string, ViewId>> = {
+  drying_meter_fault: "climate-drying", drying_refused_all_day: "climate-drying",
+  law_state_stale: "climate-law", band_device_db_divergence: "climate-law", band_anchor_db_read_failed: "climate-law", band_fn_null: "climate-law",
+  house_temp_band_drift: "climate-law", house_band_drift: "climate-law", temp_safety: "climate-law", vpd_extreme: "climate-law",
+  wetting_below_vpd_band: "climate-law", furnace_saturated: "climate-law", heat_staging_inversion: "climate-law", sensor_fault: "climate-law",
+  outdoor_source_none: "climate-law", outdoor_intake_only: "climate-law", outdoor_none_indoor_degraded: "climate-law", climate_action_proof_stale: "climate-law",
+  relay_stuck: "system-equipment", relay_pair_forbidden: "system-equipment", relay_starts_high: "system-equipment", heat_no_power: "system-equipment",
+  heat_manual_override: "system-equipment",
+  esp32_reboot: "system-controller", heap_pressure_warning: "system-controller", heap_pressure_critical: "system-controller", firmware_version_mismatch: "system-controller",
+  law_constants_mismatch: "system-controller", clock_unconfirmed: "system-controller", boot_stuck: "system-controller", firmware_relief_ceiling: "system-controller",
+  firmware_vent_latched: "system-controller", deploy_override: "system-controller",
+  setpoint_unconfirmed: "system-data", setpoint_delivery_stuck: "system-data", esp32_push_failed: "system-data", owner_value_changed: "system-data",
+  daily_record_missing: "system-data", writer_absent: "system-data", telemetry_stall: "system-data", power_meter_stale: "system-data",
+  payload_rejected: "system-data", alert_validation_failed: "system-data", sensor_offline: "system-data", case_sensor_only: "system-data",
+  probes_disagree: "system-data",
+  relay_counter_mismatch: "record-equipment", relay_counters_backstep: "record-equipment",
+  utility_out_of_baseline: "record-utilities",
+  daily_review_missed: "review", reviewer_wrote_climate: "review", mcp_unreachable: "review", planner_tool_dependency_failed: "review",
+  leak_detected: "water-today", irrigation_fence_breach: "water-today", irrigation_run_missed: "water-today", irrigation_line_faulted: "water-today",
+  irrigation_feedback_gap: "water-today",
+  soil_dryout: "water-soil", soil_sensor_offline: "water-soil",
+  lighting_cfg_threshold_drift: "lights-overview",
+};
+/** A type this build does not know goes by its category; `system` names too many things to send it anywhere. */
+const CATEGORY_VIEW: Readonly<Record<string, ViewId>> = { climate: "climate-law", equipment: "system-equipment", sensor: "system-data", water: "water-today" };
+
+export type AlertPage = { readonly to: string; readonly label: string };
+/** The page that explains `alert` ("Drying", `/climate/drying`), or null for a retired check and a type with no page. */
+export function alertPage(alert: Pick<Alert, "alert_type" | "category">): AlertPage | null {
+  if (HISTORICAL_ALERT_TYPES.has(alert.alert_type) || alert.alert_type === "site_content_stale") return null;
+  const id = Object.hasOwn(ALERT_VIEW, alert.alert_type) ? ALERT_VIEW[alert.alert_type] : Object.hasOwn(CATEGORY_VIEW, alert.category ?? "") ? CATEGORY_VIEW[alert.category ?? ""] : null;
+  if (!id) return null;
+  const view = viewOf(id);
+  return { to: view.path, label: view.title };
+}
+
+/** The margin either side of an alert's span in Graphs, and the longest window opened (Graphs refuses a longer one). */
+const WINDOW_MARGIN_MS = 2 * 3_600_000;
+const WINDOW_MAX_MS = 7 * 86_400_000;
+export type AlertWindow = { readonly from: number; readonly to: number; readonly href: string };
+/**
+ * The alert's window in Graphs (screens.md "A link that leaves the page for evidence opens Graphs on the same time
+ * window"): from 2 h before it was first seen to 2 h after it was resolved, or last seen while open, at most 7 days
+ * from its start. Null when its first-seen time is not a time.
+ */
+export function alertWindow(alert: Pick<Alert, "first_seen_at" | "last_seen_at" | "resolved_at">): AlertWindow | null {
+  const first = Date.parse(alert.first_seen_at);
+  if (!Number.isFinite(first)) return null;
+  const ends = [alert.resolved_at, alert.last_seen_at].map((value) => (value ? Date.parse(value) : Number.NaN)).find(Number.isFinite) ?? first;
+  const from = first - WINDOW_MARGIN_MS;
+  const to = Math.min(Math.max(ends, first) + WINDOW_MARGIN_MS, from + WINDOW_MAX_MS);
+  const href = graphWindowUrl(from, to);
+  return href ? { from, to, href } : null;
+}
+
 /** A string field of an alert's `details`, or null. */
 export function detailText(details: Alert["details"], key: string): string | null {
   const value = details?.[key];
@@ -127,7 +192,7 @@ export type SignedIn = Pick<Me, "username" | "display_name"> | null;
 export function personName(name: string, me: SignedIn): string {
   return me && me.display_name && name === me.username ? me.display_name : name;
 }
-/** The writer as a row names it: a dashboard person through `personName`; Iris, the agents and the system as they are. */
+/** The writer as a row names it: a dashboard person through `personName`; the reviewer, the agents and the host as they are. */
 export function shownActor(actor: Actor, me: SignedIn): Actor {
   return actor.source === "dashboard" ? { source: actor.source, name: personName(actor.name, me) } : actor;
 }
@@ -166,23 +231,27 @@ export function changeText(before: unknown, after: unknown, setting?: SettingInf
   return before === undefined ? valueText(after, setting, unit) : `${beforeText(before, setting, unit)} → ${valueText(after, setting, unit)}`;
 }
 
-/** "manual" when the write left the item manual (Iris skips it); "manual cleared" when it took the item off manual. */
+/**
+ * "set by hand" when the write marked the item as set by a person (the reviewer may not change it); "no longer set by
+ * hand" when it took that mark off.
+ */
 export function manualText(manual: unknown): string | null {
-  if (manual === true) return "manual";
+  if (manual === true) return "set by hand";
   if (!isRecord(manual)) return null;
-  if (manual.before === true && manual.after === false) return "manual cleared";
-  return manual.after === true ? "manual" : null;
+  if (manual.before === true && manual.after === false) return "no longer set by hand";
+  return manual.after === true ? "set by hand" : null;
 }
 
-export type PlanChange = { readonly param: string; readonly value: number | null; readonly before?: number | null; readonly ts: string | null };
+export type ListedChange = { readonly param: string; readonly value: number | null; readonly before?: number | null; readonly ts: string | null };
 /**
- * A `plan.write` row's `detail.changes`, the one list both writers use: Iris's entries carry `ts`, `param` and `value`
- * (#1171), the forecast engine's `param`, `before` and `value` (#1178). An entry without a param is left out.
+ * A row's `detail.changes`: the band's save (`band.write`, each edge with `param`, `before` and `value`) and the retired
+ * `plan.write` rows, whose two writers stored `ts`, `param` and `value` (#1171) or `param`, `before` and `value` (#1178).
+ * An entry without a param is left out.
  */
-export function planChanges(detail: Detail | undefined): PlanChange[] {
+export function listedChanges(detail: Detail | undefined): ListedChange[] {
   const list = detail?.changes;
   if (!Array.isArray(list)) return [];
-  return list.flatMap((item): PlanChange[] => {
+  return list.flatMap((item): ListedChange[] => {
     if (!isRecord(item) || typeof item.param !== "string" || !item.param) return [];
     const ts = typeof item.ts === "string" ? item.ts : typeof item.at === "string" ? item.at : null;
     const change = { param: item.param, value: isNumber(item.value) ? item.value : null, ts };
@@ -190,22 +259,26 @@ export function planChanges(detail: Detail | undefined): PlanChange[] {
   });
 }
 /**
- * One change in words, with the setting's label and unit from API-09: "Mister Pulse Gap 45 → 60 s" (the forecast
- * engine's, with its before), "VPD Mister Engage 1.70 kPa from 13:00" (an Iris waypoint), the date added when the
- * waypoint is on another day than `day`. A param API-09 does not list reads raw.
+ * One change in words, with the setting's label and unit from API-09: "Temp Low Sunrise 60 → 62 °F" (with its before),
+ * "VPD Mister Engage 1.70 kPa from 13:00" (an old row with a time), the date added when that time is on another day
+ * than `day`. A param API-09 does not list reads raw.
  */
-export function planChangeText(change: PlanChange, catalog: Catalog, day?: string): string {
+export function listedChangeText(change: ListedChange, catalog: Catalog, day?: string): string {
   const setting = catalog.get(change.param);
   const when = change.ts && isTime(change.ts) ? ` from ${day !== undefined && localDate(change.ts) !== day ? shortDateTime(change.ts) : shortTime(change.ts)}` : "";
   return `${setting?.label ?? change.param} ${changeText(change.before, change.value, setting)}${when}`;
 }
 
-/** The target as a row names it: a setting's label, an alert's title, "every line" for `all`, a line's name (never its relay code), a light's name; else as the API gives it. */
+/**
+ * The target as a row names it: a setting's label, an alert's title, "every line" for `all`, a line's name (never its
+ * relay code), a light's name; nothing for the band's save and the retired settings rows, whose words say it all; else
+ * as the API gives it.
+ */
 function targetLabel(entry: ActivityEntry, catalog: Catalog): string {
   const { action, target } = entry;
   const detail: Detail = entry.detail ?? {};
   if (action.startsWith("setting.")) return catalog.get(target)?.label ?? target;
-  if (action === "plan.write") return typeof detail.trigger === "string" && detail.trigger ? `${target} (${detail.trigger})` : target;
+  if (action === "plan.write" || action === "band.write") return "";
   if (action.startsWith("alert.")) return typeof detail.alert_type === "string" ? `“${words("alert_type", detail.alert_type)}”` : `alert ${target}`;
   if (action.startsWith("irrigation.") && target === "all") return "every line";
   if (lineById(target)) return lineDisplayName(target);
@@ -214,7 +287,8 @@ function targetLabel(entry: ActivityEntry, catalog: Catalog): string {
 }
 /** A row's title: the action in words, then its target ("Set VPD Mister Engage"). An action this build lacks reads raw. */
 export function entryTitle(entry: ActivityEntry, catalog: Catalog): string {
-  return `${words("activity_action", entry.action)} ${targetLabel(entry, catalog)}`;
+  const label = targetLabel(entry, catalog);
+  return label ? `${words("activity_action", entry.action)} ${label}` : words("activity_action", entry.action);
 }
 
 /** The unit a schedule, line or run field counts in, from its name (`daily_cap_min`, `on_s`). */
@@ -268,24 +342,23 @@ function runText(written: Detail): string | null {
 
 /**
  * What a row changed, after its writer: before → after, with "requested 1.53" when the server snapped the value (the
- * service stores `requested` on every write, so only one that differs from `value` says so); a plan's one change with
- * its rule by name (the forecast engine's, its id only when it has no name) or trigger (Iris's); a run's length; a
- * schedule or line update's fields; a light command Lutron did not confirm, in the words of its result; "manual" or
- * "manual cleared"; and "during experiment <id>" for a write made while one was armed.
+ * service stores `requested` on every write, so only one that differs from `value` says so); the band's one changed
+ * edge; an old settings row's one change with the forecast rule by name (its id only when it has no name); a run's
+ * length; a schedule or line update's fields; a light command Lutron did not confirm, in the words of its result; and
+ * "set by hand" or "no longer set by hand".
  */
 export function entryFacts(entry: ActivityEntry, catalog: Catalog): string[] {
   const detail: Detail = entry.detail ?? {};
   const { action } = entry;
   const facts: string[] = [];
-  if (action === "plan.write") {
-    const changes = planChanges(detail);
-    if (changes.length === 1) facts.push(planChangeText(changes[0], catalog, localDate(entry.ts)));
+  if (action === "plan.write" || action === "band.write") {
+    const changes = listedChanges(detail);
+    if (changes.length === 1) facts.push(listedChangeText(changes[0], catalog, localDate(entry.ts)));
     const ruleId = isNumber(detail.rule_id) || typeof detail.rule_id === "string" ? String(detail.rule_id) : null;
     if (typeof detail.rule === "string" && detail.rule) facts.push(`rule “${detail.rule}”`);
     else if (ruleId) facts.push(`rule ${ruleId}`);
-    if (typeof detail.trigger_id === "string" && detail.trigger_id) facts.push(`trigger ${detail.trigger_id}`);
   } else if (action.startsWith("setting.")) {
-    if (action === "setting.release" || detail.value === null) facts.push("back to plan, band or default");
+    if (action === "setting.release" || detail.value === null) facts.push("back to its default");
     else if ("value" in detail) facts.push(changeText("before" in detail ? detail.before : undefined, detail.value, catalog.get(entry.target)));
     if (isNumber(detail.requested) && detail.requested !== detail.value) facts.push(`requested ${formatNumber(detail.requested)}`);
   } else if (action === "irrigation.run") {
@@ -301,20 +374,25 @@ export function entryFacts(entry: ActivityEntry, catalog: Catalog): string[] {
   }
   const manual = manualText(detail.manual);
   if (manual) facts.push(manual);
-  if (entry.experiment_id) facts.push(`during experiment ${entry.experiment_id}`);
   return facts;
 }
 
 // ---------------------------------------------------------------------------------------------------- the log's facets
 /** A facet: its URL value (API-17's `source`, or an `action` prefix) and its words. */
 export type Facet = readonly [value: string, label: string];
-/** Who wrote (redesign §5.9), on API-17 `source`: people are the dashboard's writes; `agent` is any agent. */
-export const WHO_FACETS: readonly Facet[] = [["dashboard", "People"], ["iris", "Iris"], ["agent", "Agents"], ["system", "System"]];
 /**
- * What changed, on API-17 `action`'s prefix match. Equipment is the overrides the bursts and Restart send
- * (`irrigation.override`), which Water's prefix also holds.
+ * Who wrote, on API-17 `source`: people are the dashboard's writes; the reviewer writes as `iris` (its irrigation writes
+ * in a daily review); `agent` is any agent; the host is `system`.
  */
-export const WHAT_FACETS: readonly Facet[] = [["setting.", "Settings"], ["irrigation.", "Water"], ["alert.", "Alerts"], ["plan.", "Plan"], ["irrigation.override", "Equipment"]];
+export const WHO_FACETS: readonly Facet[] = [["dashboard", "People"], ["iris", "Reviewer"], ["agent", "Agents"], ["system", "Host"]];
+/**
+ * What changed, on API-17 `action`'s prefix match: the band's saves, settings, water, lights, crops and alerts, and the
+ * runs by hand (`irrigation.override`, which Water's prefix also holds).
+ */
+export const WHAT_FACETS: readonly Facet[] = [
+  ["band.", "Band"], ["setting.", "Settings"], ["irrigation.", "Water"], ["irrigation.override", "Run by hand"], ["light.", "Lights"], ["planting.", "Crops"],
+  ["alert.", "Alerts"],
+];
 /** The facets plus the URL's own value when it is none of them (`agent:steward`, an old `action`), so the filter in force always shows. */
 export function facetsWith(facets: readonly Facet[], current: string | undefined): Facet[] {
   if (!current || facets.some(([value]) => value === current)) return [...facets];
@@ -342,51 +420,51 @@ export function entriesByDay(entries: readonly ActivityEntry[]): { readonly date
 }
 
 /**
- * Who wrote, in text (R4): `dashboard` "Jason · dashboard" (the signed-in person by name); `iris` "iris" with AI;
- * `agent:<name>` "<name> · agent" with AI; `system` "<name> · system" ("forecast-engine · system"), never AI. A source
- * this build does not know shows raw, without AI.
+ * Who wrote, in text (R4, words.md section 1: name who decided, never "the system"): `dashboard` "Jason · dashboard"
+ * (the signed-in person by name); `iris` "Iris · reviewer" with AI; `agent:<name>` "<name> · agent" with AI; `system`
+ * "<name> · host" ("forecast-engine · host"), never AI. A source this build does not know shows raw, without AI.
  */
 export function actorWords(actor: Actor, me: SignedIn): { readonly text: string; readonly ai: boolean } {
   const { source, name } = actor;
-  if (source === "iris") return { text: "iris", ai: true };
+  if (source === "iris") return { text: "Iris · reviewer", ai: true };
   if (source === "dashboard") return { text: `${personName(name, me)} · dashboard`, ai: false };
-  if (source === "system") return { text: `${name} · system`, ai: false };
+  if (source === "system") return { text: `${name} · host`, ai: false };
   if (source.startsWith("agent:") && ACTOR_SOURCE_PATTERN.test(source)) return { text: `${source.slice("agent:".length)} · agent`, ai: isAiSource(source) };
   return { text: `${name} · ${source}`, ai: false };
 }
 
 /**
- * Why an automatic entry happened, in words (redesign §5.9): the forecast engine's "Forecast rule", a run's schedule
- * ("Schedule “Wall MWF”"), else the system writer's own name. Null for a person, Iris or an agent, whose own name says it.
+ * Why an automatic entry happened, in words: a run's schedule ("Schedule “Wall MWF”"), the reviewer's write inside a
+ * daily review ("Daily review", its `trigger_id` the review run), the forecast engine's "Forecast rule", else the host
+ * writer's own name. Null for a person or an agent, whose own name says it.
  */
 export function causeOf(entry: ActivityEntry): string | null {
   const detail: Detail = entry.detail ?? {};
   const label = typeof detail.schedule_label === "string" && detail.schedule_label ? detail.schedule_label : typeof detail.label === "string" && entry.action === "irrigation.run" ? detail.label : null;
   if (label) return `Schedule “${label}”`;
+  if (entry.actor.source === "iris") return typeof detail.trigger_id === "string" && detail.trigger_id ? "Daily review" : null;
   if (entry.actor.source !== "system") return null;
   return entry.actor.name === "forecast-engine" ? "Forecast rule" : entry.actor.name;
 }
 
-/** One entry's line: what happened, with its changes; an Iris plan of several changes lists them (`changes`) for its disclosure. */
-export type EntryLine = { readonly text: string; readonly changes: readonly PlanChange[] };
+/** One entry's line: what happened, with its changes; a row of several changes lists them (`changes`) for its disclosure. */
+export type EntryLine = { readonly text: string; readonly changes: readonly ListedChange[] };
 /**
- * One entry in one line (redesign §5.9): the object and what changed, then the facts: "VPD Mister Engage 1.60 → 1.55 kPa
- * · requested 1.53 · manual", "SUNRISE plan · 9 changes" (an Iris plan, whose changes expand), "Forecast rule “hot
- * afternoon” · Mister Pulse Gap 45 → 60 s", "Ran L01 · 12 min". An automatic entry leads with its cause.
+ * One entry in one line: the object and what changed, then the facts: "VPD Mister Engage 1.60 → 1.55 kPa · requested
+ * 1.53 · set by hand", "Changed the band · 4 changes" (whose changes expand), "Forecast rule “hot afternoon” · Mister
+ * Pulse Gap 45 → 60 s", "Daily review · Ran Wall drip · 12 min". An automatic entry leads with its cause; an old
+ * settings row reads "Settings written before the climate law".
  */
 export function entryLine(entry: ActivityEntry, catalog: Catalog): EntryLine {
   const detail: Detail = entry.detail ?? {};
   const join = (parts: readonly (string | null | undefined)[]) => parts.filter(Boolean).join(" · ");
-  if (entry.action === "plan.write") {
-    const changes = planChanges(detail);
+  if (entry.action === "plan.write" || entry.action === "band.write") {
+    const changes = listedChanges(detail);
     const day = localDate(entry.ts);
-    const forecast = entry.actor.source === "system";
     const rule = typeof detail.rule === "string" && detail.rule ? `Forecast rule “${detail.rule}”` : "Forecast rule";
-    const trigger = typeof detail.trigger === "string" && detail.trigger ? `${detail.trigger} plan` : "Plan";
-    const head = forecast ? rule : trigger;
-    const tail = [...(entry.experiment_id ? [`during experiment ${entry.experiment_id}`] : [])];
-    if (changes.length > 1) return { text: join([head, `${changes.length} changes`, ...tail]), changes };
-    return { text: join([head, changes.length ? planChangeText(changes[0], catalog, day) : "no changes", ...tail]), changes: [] };
+    const head = entry.action === "plan.write" && entry.actor.source === "system" ? rule : words("activity_action", entry.action);
+    if (changes.length > 1) return { text: join([head, `${changes.length} changes`]), changes };
+    return { text: join([head, changes.length ? listedChangeText(changes[0], catalog, day) : "no changes"]), changes: [] };
   }
   const facts = entryFacts(entry, catalog);
   const cause = causeOf(entry);
@@ -407,13 +485,13 @@ export function csvCell(text: string): string {
 export const LOG_CSV_HEADERS = ["time (America/Denver)", "who", "source", "action", "target", "what", "reason", "outcome", "confirmed (America/Denver)", "request id"] as const;
 /**
  * "CSV of these entries": exactly the entries loaded, newest first, one row each, with the byte-order mark spreadsheets
- * need to read the units' UTF-8. An Iris plan lists its changes in its "what" cell, one per line.
+ * need to read the units' UTF-8. A row of several changes lists them in its "what" cell, one per line.
  */
 export function logCsv(entries: readonly ActivityEntry[], catalog: Catalog, me: SignedIn): string {
   const time = (instant: string | null | undefined) => (instant && Number.isFinite(Date.parse(instant)) ? localWallClock(Date.parse(instant)).replace("T", " ") : "");
   const rows = entries.map((entry) => {
     const line = entryLine(entry, catalog);
-    const what = line.changes.length ? [line.text, ...line.changes.map((change) => planChangeText(change, catalog, localDate(entry.ts)))].join("\n") : line.text;
+    const what = line.changes.length ? [line.text, ...line.changes.map((change) => listedChangeText(change, catalog, localDate(entry.ts)))].join("\n") : line.text;
     return [time(entry.ts), actorWords(entry.actor, me).text, entry.actor.source, entry.action, entry.target, what, entry.reason ?? "", entry.state ?? "", time(entry.confirmed_at), entry.request_id ?? ""];
   });
   return `\uFEFF${[[...LOG_CSV_HEADERS], ...rows].map((row) => row.map((cell) => csvCell(String(cell))).join(",")).join("\r\n")}\r\n`;

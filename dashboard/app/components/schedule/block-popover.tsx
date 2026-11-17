@@ -7,7 +7,7 @@ import { OperatorOnly } from "../../lib/session";
 import { amountWords, daysWords, occurrenceReasonWords, pauseAfterRun, runSeconds, startWords } from "../../lib/water";
 import { words } from "../../lib/words";
 import { programSyncText } from "../../lib/writes";
-import { Badge, ReadbackBadge } from "../badge";
+import { ReadbackBadge } from "../badge";
 import { PauseAfterRun } from "../pause-lines";
 import { Popover } from "../popover";
 import { STATUS_WORDS, fallbackWindow, nextStarts, spanStatus, type Entry, type LineInfo } from "./model";
@@ -61,7 +61,7 @@ export function BlockPopover({ entry, anchor, onClose, agenda, info, program, no
       <div className="data-pair"><dt>When</dt><dd>{when}</dd></div>
       <div className="data-pair" data-status={status}><dt>{status === "planned" || fallback === "ahead" ? "Status" : "Outcome"}</dt><dd>{outcome}{sync && sync !== "confirmed" && <> <ReadbackBadge state={sync} /></>}</dd></div>
       {schedule && <div className="data-pair"><dt>Rule</dt><dd>
-        {daysWords(schedule.days)} · {startWords(schedule.start)} · {schedule.degraded_only ? "only if VPD sensing is degraded · " : ""}{schedule.manual ? <Badge kind="manual" /> : "Iris may adjust"}
+        {[daysWords(schedule.days), startWords(schedule.start), ...(schedule.degraded_only ? ["only if VPD sensing is degraded"] : [])].join(" · ")}
       </dd></div>}
       {next.length > 0 && <div className="data-pair"><dt>Next</dt><dd>{next.join(" · ")}</dd></div>}
       {!schedule && <div className="data-pair"><dt>Rule</dt><dd>This schedule no longer exists</dd></div>}

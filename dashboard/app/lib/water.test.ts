@@ -6,6 +6,7 @@ import { expect, test } from "vitest";
 import { fixture } from "../../e2e/fixtures/index.mjs";
 import { NBSP, denver } from "../components/test-render";
 import type { IrrigationStatus, MinutesReport, Occupancy, ScheduleAgenda } from "./operator-api";
+import { words } from "./words";
 import {
   HISTORY_DAYS, WET_EQUIPMENT, ZONE_KIND_WORDS, amountShort, amountWords, dayClockWords, dayStatesParams, daysWords, historyDays, historyMeasure, historySummary,
   historyWindows, lastWaterParts, lineZone, newScheduleUrl, nextRunOf, nextRunShort, runSeconds, runningLines, shortfallNote, shortfallWords, startWords, startsWords, tallyMinutes,
@@ -13,7 +14,7 @@ import {
   NO_ENGINE_TEXT, RETRYING_TEXT, ROM_TEXT, agoWords, barsReport, blockAmount, boardLines, faultWords, feedStages, flowWords, headroomWords, lastWaterWords, limitItems,
   minutesCaps, misterLines, nextRunWords, occupancyWords, occurrenceReasonWords, occurrenceWords, pauseAfterRun, pauseWords, pausedNow, plannedToday, programBanner, runAmountWords,
   runGallons, runSpanWords, runsFilters, runsWindow, timeLeftWords, todayWords, weekDays, wetLines, whenWords, waterUseDays, waterUseSplit, type ProgramBannerInput,
-  climateTodayWords, historyPurpose, runPurpose, vpdTodayWords,
+  climateTodayWords, historyPurpose, runPurpose, vpdTodayWords, ZONE_ORDER_TEXT, lastRecordedDay, mistingRows, mistingState, recordWaterDays,
 } from "./water";
 
 const NOW = Date.parse("2026-11-02T17:42:00Z");
@@ -32,20 +33,20 @@ const banner = (input: Partial<ProgramBannerInput> & { status?: ProgramBannerInp
 test("the program banner is the first rule that holds: failing, not reporting, no engine, rom, then the program's sync", () => {
   // API-IRR-01 failing: never idle, whatever else is true.
   expect(banner({ failing: true, controllerReporting: false, status: status("before-engine") })).toMatchObject({ kind: "unavailable", tone: "fault", text: "Water status unavailable." });
-  // The controller not reporting while the ingestor runs: the rev it keeps running, VPD misting and caps.
+  // The controller not reporting while the ingestor runs: the rev it keeps running, misting and the daily limits.
   expect(banner({ controllerReporting: false, climateAt: denver("10:36") })).toMatchObject({
-    kind: "not_reporting", tone: "fault", text: "Controller not reporting since 10:36. If it has power, it keeps running rev 42, VPD misting and caps",
+    kind: "not_reporting", tone: "fault", text: "Controller not reporting since 10:36. If it has power, it keeps running rev 42, misting and the daily limits on its own",
   });
   // Before the engine there is no rev to name; with the built-in program it names that.
   expect(banner({ controllerReporting: false, climateAt: denver("10:36"), status: status("before-engine") }).text)
-    .toBe("Controller not reporting since 10:36. If it has power, it keeps running VPD misting and caps");
+    .toBe("Controller not reporting since 10:36. If it has power, it keeps running misting and the daily limits on its own");
   expect(banner({ controllerReporting: false, climateAt: null, status: status("program-rom") }).text)
-    .toBe("Controller not reporting. If it has power, it keeps running the built-in program, VPD misting and caps");
+    .toBe("Controller not reporting. If it has power, it keeps running the built-in program, misting and the daily limits on its own");
   // While the ingestor is not running the shell's banner says so, and this line is skipped.
   expect(banner({ ingestorRunning: false, controllerReporting: false })).toMatchObject({ kind: "confirmed" });
   expect(banner({ status: null })).toMatchObject({ kind: "loading" });
-  expect(banner({ status: status("before-engine") })).toMatchObject({ kind: "no_engine", text: NO_ENGINE_TEXT });
-  expect(NO_ENGINE_TEXT).toBe("No irrigation engine on the controller yet: relay states only; the wall drip runs, and every line stops, through the bridge");
+  expect(banner({ status: status("before-engine") })).toMatchObject({ kind: "no_engine", tone: "warn", text: NO_ENGINE_TEXT });
+  expect(NO_ENGINE_TEXT).toBe("The controller reports no irrigation engine: relay states only, and no line runs from here until it does");
   expect(banner({ status: status("program-rom") })).toMatchObject({ kind: "rom", tone: "warn", text: ROM_TEXT });
   expect(ROM_TEXT).toBe("Running the built-in program: Center mister VPD only, Wall drip run-now, no schedules");
   expect(banner({})).toEqual({ kind: "confirmed", tone: "info", text: "On controller: rev 42 ·", badge: "confirmed", confirmedAt: new Date(NOW - 120_000).toISOString() });
@@ -63,9 +64,9 @@ test("requested reads \"rev 43 sending\" beside what the controller holds; not c
 });
 
 // ---------------------------------------------------------------------------------------------------- limits
-test("the limits strip: the daily mist & fog limit, the soft target, mister zones with the VPD reserve, drip caps, flow, occupancy", () => {
+test("the limits strip: the daily mist and fog limit, the soft budget, mister zones with the VPD reserve, drip caps, flow, occupancy", () => {
   expect(limitItems(status(), NOW, TODAY).map((item) => plain(item.text))).toEqual([
-    "Daily mist & fog limit 21 of 360 gal", "Daily mist target (soft) 21 of 300 gal", "Center 14 of 120 min (60 kept for VPD)", "South 0 of 45 min (15 kept for VPD)",
+    "Daily mist and fog limit 21 of 360 gal", "Soft daily budget for mist and fog 21 of 300 gal", "Center 14 of 120 min (60 kept for VPD)", "South 0 of 45 min (15 kept for VPD)",
     "West 0 of 45 min (15 kept for VPD)", "Wall drip 0 of 60 min", "Water with no Verdify valve open: none", "Occupancy: nobody detected, misting allowed (last person 05:10)",
   ]);
   // A reserved line stays off the strip until a person enables it; a missing count is "—", never 0.
@@ -75,7 +76,7 @@ test("the limits strip: the daily mist & fog limit, the soft target, mister zone
     lines: base.lines.map((item) => (item.line_id === "L05" ? { ...item, enabled: true, today: { minutes: null, pulses: null, gal: null } } : item)),
   };
   expect(limitItems(enabled, NOW, TODAY).map((item) => [plain(item.text), item.tone])).toEqual(expect.arrayContaining([
-    ["Daily mist & fog limit — of 360 gal", undefined], ["Center drip — of 30 min", undefined], ["Backup misting (sensor fault): on", "warn"],
+    ["Daily mist and fog limit — of 360 gal", undefined], ["Center drip — of 30 min", undefined], ["Backup misting (sensor fault): on", "warn"],
   ]));
 });
 
@@ -453,4 +454,60 @@ test("the day's API-05 read and the Schedules URLs", () => {
   const search = new URLSearchParams("view=day&day=2026-11-04&block=11-1");
   expect(waterUrl("/water/schedules", search, { day: null, view: "week" })).toBe("/water/schedules?view=week&block=11-1");
   expect(newScheduleUrl(search, { line: "L01", at: "13:15" })).toBe("/water/schedules?view=day&day=2026-11-04&line=L01&at=13%3A15&schedule=new");
+});
+
+// ---------------------------------------------------------------------------------------------------- misting (W-30)
+type LawInput = Parameters<typeof mistingRows>[0];
+const lawOf = (vpd: number | null, rules: readonly Record<string, unknown>[], reporting = true) => ({ reporting, inputs: { vpd_kpa: vpd }, rules }) as unknown as LawInput;
+const mistRule = (over: Record<string, unknown> = {}) => ({ id: "mist", latched: false, requested: false, on_at: 1.65, off_at: 1.4, hold: null, relays: [{ state: "off" }], ...over });
+const fogRule = (over: Record<string, unknown> = {}) => ({ id: "fog", latched: false, requested: false, on_at: 2.4, off_at: 2.1, hold: null, relays: [{ state: "off" }], ...over });
+
+test("misting: wanted or not from the law's mist and fog rules, the reason in VPD against the line, and the hold in force in words", () => {
+  const quiet = mistingRows(lawOf(0.62, [mistRule(), fogRule()]), { moisture: { code: "no_vpd_demand", since: null }, fog: { code: "none", since: null } });
+  expect(quiet.map((row) => [row.id, row.wanted, row.running, plain(row.why), row.hold])).toEqual([
+    ["mist", false, false, "VPD 0.62 kPa is below the mist line, 1.65 kPa.", null],
+    ["fog", false, false, "VPD 0.62 kPa is below the fog line, 2.40 kPa.", null],
+  ]);
+  expect(quiet.map((row) => mistingState(row).text)).toEqual(["Not wanted", "Not wanted"]);
+  // Wanted, and held by someone inside: the block reason in words, with its start.
+  const held = mistingRows(lawOf(1.9, [mistRule({ latched: true, requested: true }), fogRule()]), { moisture: { code: "occupancy", since: "2026-11-02T17:30:00Z" } });
+  expect(plain(held[0].why)).toBe("VPD 1.90 kPa is above the mist line, 1.65 kPa; they stop below 1.40 kPa.");
+  expect(held[0].hold).toEqual({ text: words("moisture_block_reason", "occupancy"), since: "2026-11-02T17:30:00Z" });
+  expect(mistingState(held[0])).toEqual({ text: "Wanted, held", tone: "warn" });
+  // A minimum off time the law proves reads as waiting, before any block reason.
+  const waiting = mistingRows(lawOf(1.9, [mistRule({ latched: true, hold: { kind: "min_off", remaining_s: 90 } }), fogRule()]), {});
+  expect(waiting[0].hold?.text).toMatch(/^Waiting: waiting out its minimum off time, .+ left$/);
+  // Running: its relay is on.
+  const running = mistingRows(lawOf(1.9, [mistRule({ latched: true, requested: true, relays: [{ state: "on" }] }), fogRule()]), {});
+  expect(mistingState(running[0])).toEqual({ text: "Misting now", tone: "info" });
+  // A law that does not report never reads "not wanted", and a hold on a rule not wanted is not shown.
+  const silent = mistingRows(lawOf(1.9, [mistRule(), fogRule()], false), { fog: { code: "rh_ceiling", since: null } });
+  expect(silent.map((row) => mistingState(row).text)).toEqual(["Not reported", "Not reported"]);
+  expect(mistingRows(null, {})[0].why).toBe("The climate law is not reporting, so whether it wants them is not known.");
+  expect(mistingRows(lawOf(0.5, [mistRule(), fogRule()]), { fog: { code: "rh_ceiling", since: null } })[1].hold).toBeNull();
+});
+
+test("the zone order is said as the controller makes it, with no retired words", () => {
+  expect(ZONE_ORDER_TEXT).toMatch(/center, south, west, east/);
+  expect(ZONE_ORDER_TEXT).toMatch(/10 minutes/);
+  expect(ZONE_ORDER_TEXT).not.toMatch(/\b(target|plan|mode|bypass|survival|burst)\b/i);
+});
+
+// ---------------------------------------------------------------------------------------------------- the daily record (W-31)
+test("the daily record's water: wetting, crop, house and total per day, a gap never zero, today so far, and the newest complete day", () => {
+  const water = (crop: number | null, complete = true) => ({ wetting_gal: crop === null ? null : crop / 2, crop_gal: crop, house_gal: crop === null ? null : 3, total_gal: crop === null ? null : crop + 3, complete });
+  const days = recordWaterDays([
+    { date: "2026-10-31", complete: true, water: water(40) },
+    { date: "2026-11-01", complete: true, water: water(null) },
+    { date: "2026-11-02", complete: false, water: water(12) },
+  ] as unknown as Parameters<typeof recordWaterDays>[0]);
+  expect(days).toEqual([
+    { date: "2026-10-31", wetting: 20, crop: 40, house: 3, total: 43, note: null },
+    { date: "2026-11-01", wetting: null, crop: null, house: null, total: null, note: null },
+    { date: "2026-11-02", wetting: 6, crop: 12, house: 3, total: 15, note: "so far" },
+  ]);
+  expect(lastRecordedDay(days)?.date).toBe("2026-10-31");
+  expect(lastRecordedDay(days.slice(1))).toBeNull();
+  const short = recordWaterDays([{ date: "2026-10-31", complete: true, water: water(40, false) }] as unknown as Parameters<typeof recordWaterDays>[0]);
+  expect(short[0].note).toBe("meter count incomplete");
 });

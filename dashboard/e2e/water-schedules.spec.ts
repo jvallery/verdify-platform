@@ -24,7 +24,7 @@ test("1440 px: today's timeline has one lane per physical line by kind, with nig
   await expect(timeline(page).locator(".sch-legend")).toBeVisible();
   await expect(timelineRow(page, "L01").locator(".sch-pause")).toContainText("paused until 14:00 · jason");
   await expect(timelineRow(page, "L04").locator(".sch-tick")).not.toHaveCount(0);
-  await expect(timelineRow(page, "L04").getByRole("button", { name: /^Center mister · Dawn drench, Mon 06:50/ })).toBeAttached();
+  await expect(timelineRow(page, "L04").getByRole("button", { name: /^Center\smister\s·\sDawn\sdrench,\sMon\s06:50/ })).toBeAttached();
   await expect(timelineRow(page, "L04").locator(".sch-cap")).toContainText("14 / 120 min");
   await expect(timelineRow(page, "L07").locator(".sch-row-note")).toHaveText("Schedule off for this mister");
   await expect(timelineRow(page, "L07").locator(".sch-block.sch-skipped")).toHaveCount(1);
@@ -69,7 +69,7 @@ test("an empty slot opens a new schedule prefilled with its line, the day and th
   await expect(page).toHaveURL(/\/water\/schedules\?day=2026-11-04&line=L01&at=08%3A00&schedule=new$/);
   await expect(drawer(page).getByLabel("Clock time (HH:MM)")).toHaveValue("08:00");
   await expect(drawer(page).getByRole("button", { name: "Wednesday" })).toHaveAttribute("aria-pressed", "true");
-  await expect(drawer(page).locator(".sch-checks")).toContainText(/Starts 25\smin after Wall MWF on Wall drip: schedules on one line need 30\smin/);
+  await expect(drawer(page).locator(".sch-checks")).toContainText(/Starts\s25\smin\safter\sWall\sMWF\son\sWall\sdrip:\sschedules\son\sone\sline\sneed\s30\smin/);
   await expect(timelineRow(page, "L01").locator(".sch-draft.sch-conflict")).toHaveCount(1);
   await axe(page);
   await drawer(page).getByRole("button", { name: "Cancel" }).click();
@@ -100,12 +100,12 @@ test("the week strip shows past outcomes and future counts side by side, and mov
   await load(page, "/water/schedules");
   const strip = page.locator(".week-days");
   await expect(strip.getByRole("link")).toHaveCount(7);
-  await expect(strip.getByRole("link", { name: /^Monday, Nov 2 \(today\): 2 ok/ })).toHaveAttribute("aria-current", "date");
-  await expect(strip.getByRole("link", { name: /^Wednesday, Nov 4: 2 next/ })).toBeVisible();
+  await expect(strip.getByRole("link", { name: /^Monday,\sNov\s2\s\(today\):\s2\sok/ })).toHaveAttribute("aria-current", "date");
+  await expect(strip.getByRole("link", { name: /^Wednesday,\sNov\s4:\s2\snext/ })).toBeVisible();
   await page.getByRole("link", { name: "Previous week" }).click();
   await expect(page).toHaveURL(/\/water\/schedules\?day=2026-10-26$/);
-  await expect(strip.getByRole("link", { name: /^Sunday, Nov 1: 1 ran ok/ })).toBeVisible();
-  await strip.getByRole("link", { name: /^Sunday, Nov 1/ }).click();
+  await expect(strip.getByRole("link", { name: /^Sunday,\sNov\s1:\s1\sran\sok/ })).toBeVisible();
+  await strip.getByRole("link", { name: /^Sunday,\sNov\s1/ }).click();
   await expect(timelineRow(page, "L02").locator("button.sch-block.sch-skipped")).toHaveAttribute("aria-label", /skipped, line paused by jason$/);
   await expect(page.getByRole("link", { name: "Previous week" })).toHaveCount(0);
 });
@@ -120,8 +120,9 @@ test("the rules list: every schedule under its line, a disabled one muted, with 
   const topUp = rules.locator('[data-slot="15"]');
   await expect(topUp).toHaveClass(/is-muted/);
   await expect(topUp.getByRole("switch")).toHaveAttribute("aria-checked", "false");
-  await expect(rules.locator('[data-slot="14"] .object-row-meta')).toContainText("Iris may adjust · changed by iris (AI)");
-  await expect(rules.locator('[data-slot="11"] .schedule-rule-facts dd')).toHaveText(["Mon Wed Fri", /sunrise \+ 1\sh \(07:35 today\)/, /12\smin/, "Routine watering"]);
+  await expect(rules.locator('[data-slot="14"] .object-row-meta')).toContainText("changed by iris (AI)");
+  await expect(rules.locator('[data-slot="14"] .object-row-meta')).not.toContainText("Iris may adjust");
+  await expect(rules.locator('[data-slot="11"] .schedule-rule-facts dd')).toHaveText(["Mon Wed Fri", /sunrise\s\+\s1\sh\s\(07:35\stoday\)/, /12\smin/, "Routine watering"]);
 });
 
 test("390 px: the agenda is the default, by day, with NEXT and a skipped row hatched with its reason; the week strip's days are links", async ({ page, request }) => {

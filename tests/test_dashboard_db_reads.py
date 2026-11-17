@@ -25,6 +25,7 @@ import uuid
 from datetime import timedelta
 from pathlib import Path
 
+import irrigation_db_support as support
 import pytest
 
 from verdify_schemas.policy_vector import LIVE_WIRE_FIELDS
@@ -134,6 +135,8 @@ def extract(text: str, start: str, end: str) -> str:
 def ddl() -> list[str]:
     schema = (ROOT / "db/schema.sql").read_text()
     statements = [extract(schema, start, end) for start, end in SCHEMA_DDL]
+    # Now (API-02) reads the controller-health columns 314 and 315 added after the dump.
+    statements.append(support.diagnostics_health_columns_sql(SCHEMA))
     statements.append(EXPERIMENT_STAND_INS)
     statements.extend(extract((ROOT / path).read_text(), start, end) for path, start, end in MIGRATION_DDL)
     return statements
@@ -552,6 +555,67 @@ def test_a_stale_heartbeat_or_climate_reads_unknown_with_ages(dsn):
 
     scenario(dsn, stale_heartbeat)
     scenario(dsn, stale_climate)
+
+
+async def diagnostics_row(conn, ts, **columns):
+    names = ["ts", *columns]
+    marks = ", ".join(f"${index}" for index in range(1, len(names) + 1))
+    await conn.execute(f"INSERT INTO diagnostics ({', '.join(names)}) VALUES ({marks})", ts, *columns.values())
+
+
+FULL_DIAGNOSTICS = {
+    "firmware_version": "2026.11.16.2203.9517acb6",
+    "uptime_s": 35163.0,
+    "reset_reason": "Software",
+    "heap_bytes": 41.0,
+    "heap_largest_free_block_kb": 20.0,
+    "wifi_rssi": -61.0,
+}
+
+
+def test_now_controller_serves_the_newest_non_null_values_up_to_the_newest_diagnostics_row(dsn):
+    # The law firmware publishes a diagnostics row about every 15 s and carries these six values on one a minute.
+    async def sparse_after_full(conn, t0):
+        await reporting_now(conn, t0)
+        await diagnostics_row(conn, t0 - 40 * S, **FULL_DIAGNOSTICS)
+        await diagnostics_row(conn, t0 - 25 * S, active_probe_count=4)
+        await diagnostics_row(conn, t0 - 10 * S, active_probe_count=4)
+        controller = (await as_reader(conn, reads.now)).controller
+        assert (
+            controller.firmware_version,
+            controller.uptime_s,
+            controller.reset_reason,
+            controller.heap_free_kb,
+            controller.heap_largest_block_kb,
+            controller.rssi_dbm,
+        ) == ("2026.11.16.2203.9517acb6", 35163, "Software", 41.0, 20.0, -61.0)
+        assert controller.observed_at == t0 - 10 * S  # the newest row, not the full one
+
+    async def full_row_too_old(conn, t0):
+        await reporting_now(conn, t0)
+        await diagnostics_row(conn, t0 - 20 * MIN, **FULL_DIAGNOSTICS)  # more than 15 min before the newest row
+        await diagnostics_row(conn, t0 - 4 * MIN, active_probe_count=4)
+        await diagnostics_row(conn, t0 - 10 * S, active_probe_count=4)
+        controller = (await as_reader(conn, reads.now)).controller
+        assert (
+            controller.firmware_version,
+            controller.uptime_s,
+            controller.reset_reason,
+            controller.heap_free_kb,
+            controller.heap_largest_block_kb,
+            controller.rssi_dbm,
+        ) == (None, None, None, None, None, None)
+        assert controller.observed_at == t0 - 10 * S
+
+    async def no_row_in_a_day(conn, t0):
+        await reporting_now(conn, t0)
+        await diagnostics_row(conn, t0 - 25 * H, **FULL_DIAGNOSTICS)
+        controller = (await as_reader(conn, reads.now)).controller
+        assert controller.firmware_version is None and controller.observed_at is None
+
+    scenario(dsn, sparse_after_full)
+    scenario(dsn, full_row_too_old)
+    scenario(dsn, no_row_in_a_day)
 
 
 # ── API-02: the writer ──────────────────────────────────────────────────────

@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Equipment, ParamsOf, Setting } from "../../lib/operator-api";
 import { fetchRead } from "../../lib/queries";
-import { OperatorOnly } from "../../lib/session";
 import { shortTime } from "../../lib/format";
-import { words } from "../../lib/words";
 import { readback, useCommand, useSettingWrite, type SettingInfo, type WriteError } from "../../lib/writes";
-import { ReadbackBadge } from "../badge";
 import { Button } from "../button";
-import { StateReasonLine } from "../state-reason-line";
 
 export type LightId = ParamsOf<"API-20">["light"];
 export type LightState = ParamsOf<"API-20">["state"];
@@ -26,9 +21,12 @@ export const LIGHTS: readonly { readonly light: LightId; readonly equipment: str
 export const BACK_TO_AUTOMATIC = "Back to automatic";
 /**
  * How long a Turn on or Turn off lasts (#1335): API-20's default `minutes`, like the Fans burst. Then the operator API
- * sends the controller's intent, so the light is back on automatic; the page sends no minutes of its own.
+ * sends the controller's intent, so the light is back on automatic. Now and Equipment send no minutes of their own;
+ * Lights may pick a longer switch, up to `MAX_MANUAL_MINUTES`.
  */
 export const MANUAL_MINUTES = 15;
+/** The longest a Turn on or Turn off may last (API-20's limit, `lights.py` MAX_MANUAL_MINUTES). */
+export const MAX_MANUAL_MINUTES = 120;
 
 const known = (state: string | null | undefined): state is LightState => state === "on" || state === "off";
 /** The controller's intent and the Lutron readback are both known and say different things. */
@@ -89,16 +87,18 @@ export function useLightControl({ light, equipment, autoParam }: (typeof LIGHTS)
   const presses = useRef(0);
 
   // A 503 is logged too, so Activity reads again either way.
-  const switchTo = async (state: LightState, body: { reason: string } | undefined) => {
+  const switchTo = async (state: LightState, body: { reason?: string; minutes?: number } | undefined) => {
     await command.send({ light, state }, body);
     void client.invalidateQueries({ queryKey: ["api", "API-17"] });
   };
-  const turn = (state: LightState) => {
+  /** A timed switch: `minutes` from 1 to `MAX_MANUAL_MINUTES`; the API's default (`MANUAL_MINUTES`) sends no body. */
+  const turn = (state: LightState, minutes: number = MANUAL_MINUTES) => {
     presses.current += 1;
     setPressed(state);
     write.clearError();
     setAutomatic((current) => (current && current.resync !== "done" ? { ...current, resync: "done" } : current));
-    void switchTo(state, undefined);
+    const length = Math.min(MAX_MANUAL_MINUTES, Math.max(1, Math.round(minutes)));
+    void switchTo(state, length === MANUAL_MINUTES ? undefined : { minutes: length });
   };
   const backToAutomatic = async () => {
     presses.current += 1;
@@ -166,71 +166,27 @@ export function automationWords(row: Pick<Setting, "readback"> | undefined): str
 }
 
 /**
- * The row's automatic line, for every role, from the switch's API-09 row (60 s, 5 s while REQUESTED): REQUESTED, NOT
- * CONFIRMED or HELD while the API says so, CONFIRMED once this control's own write reads it, then the device value in
- * words. With no row to read it says "—" rather than its last words.
- */
-function AutomationLine({ control }: { control: LightControl }) {
-  const { setting, writeId } = control;
-  const state = setting?.state ?? "";
-  const pending = state === "requested" || state === "not_confirmed" || state === "held";
-  const own = writeId !== null && setting?.desired?.id === writeId && state === "confirmed";
-  return <p className="light-auto" data-auto={state || "none"}>
-    {(pending || own) && <><ReadbackBadge state={state} />{" "}</>}
-    {!pending && automationWords(setting)}
-    {pending && <StateReasonLine state={state} reason={setting?.desired?.state_reason} requestedAt={setting?.desired?.created_at} />}
-  </p>;
-}
-
-/**
- * What a light row gains (SCR-07, US-EQP-05): its automatic line with the link to that switch's setting drawer, opened
- * in place (`settingTo`, for every role: a viewer's is read-only), and for operators "Activity ›" beside it; then, for
- * operators only, the buttons its state calls for (`lightButtons`): Back to automatic first while the light is
- * overridden, and the switch to its other state, at 44 px, full width on phones, disabled with changes switched off. One
- * tap and no dialog. The board's state only ever comes from the Lutron readback; here are what was said and what is
- * awaited: a 503's `Problem.result` in words, and after 30 s without a match "Lutron hasn't confirmed: still OFF".
- */
-export function LightControls({ control, item, settingTo }: { control: LightControl; item: Pick<LightItem, "label" | "state" | "intent" | "manual_until" | "auto_reason">; settingTo?: string }) {
-  const until = manualUntil(item);
-  const reason = item.auto_reason ?? null;
-  return <div className="light-controls">
-    {until !== null && <p className="state-note" data-light-until="">{item.state === "on" ? "On" : item.state === "off" ? "Off" : "Switched"} {manualUntilWords(until)}, then back to automatic</p>}
-    {reason !== null && <p className="state-note meta" data-light-reason={reason}>Controller: {words("light_reason", reason)}</p>}
-    <div className="light-auto-row">
-      <AutomationLine control={control} />
-      <span className="light-links">
-        {settingTo && <Link className="light-auto-link" to={settingTo} preventScrollReset>Automation setting <span className="screen-reader">of {item.label}</span><span aria-hidden="true">›</span></Link>}
-        <OperatorOnly>
-          <Link className="light-auto-link" to={`/activity/log?target=${encodeURIComponent(control.equipment)}`}>Activity <span className="screen-reader">of {item.label}</span><span aria-hidden="true">›</span></Link>
-        </OperatorOnly>
-      </span>
-    </div>
-    <OperatorOnly><LightButtons control={control} item={item} /></OperatorOnly>
-  </div>;
-}
-
-/**
  * A light's buttons and what they await, shared by Equipment's Lights and Now's quick actions (#1342, as D-UX-05 shares
  * the bursts), so the two pages cannot disagree: the buttons `lightButtons` picks, each Turn on or Turn off timed
- * (`MANUAL_MINUTES`, #1335), then "Waiting for Lutron", 30 s later "Lutron hasn't confirmed: still OFF", a 503's words,
+ * (`minutes`, `MANUAL_MINUTES` unless the Lights page picks another length up to `MAX_MANUAL_MINUTES`), then "Waiting for Lutron", 30 s later "Lutron hasn't confirmed: still OFF", a 503's words,
  * or a refused write. `wide` makes them full width on phones (Equipment); `compact` keeps Now's row short. Operators only:
  * the caller wraps it in `OperatorOnly`.
  */
-export function LightButtons({ control, item, compact = false }: { control: LightControl; item: Pick<LightItem, "label" | "state" | "intent">; compact?: boolean }) {
+export function LightButtons({ control, item, compact = false, minutes = MANUAL_MINUTES }: { control: LightControl; item: Pick<LightItem, "label" | "state" | "intent">; compact?: boolean; minutes?: number }) {
   const { command, write, pressed } = control;
   const busy = command.sending || write.sending;
   // Reading back: a second tap on the same button has nothing to add, though after a refusal it may retry.
   const answering = (state: LightState) => command.phase === "waiting" && pressed === state && !command.error;
   const shown = lightButtons(item, control.setting?.readback?.value, command.sending || (command.phase === "waiting" && !command.error));
-  const turn = (state: LightState) => <Button key={state} write wide={!compact} busy={command.sending && pressed === state} disabled={busy || answering(state)} onClick={() => control.turn(state)}>
-    {state === "on" ? "Turn on" : "Turn off"} <span className="burst-length">{MANUAL_MINUTES} min</span> <span className="screen-reader">{item.label}</span>
+  const turn = (state: LightState) => <Button key={state} write wide={!compact} busy={command.sending && pressed === state} disabled={busy || answering(state)} onClick={() => control.turn(state, minutes)}>
+    {state === "on" ? "Turn on" : "Turn off"} <span className="burst-length">{minutes} min</span> <span className="screen-reader">{item.label}</span>
   </Button>;
   return <>
     <div className="actions light-actions">
       {shown.automatic && <Button write wide={!compact} busy={write.sending || (command.sending && pressed === "automatic")} disabled={busy || control.awaitingConfirm} onClick={() => void control.backToAutomatic()}>Back to automatic <span className="screen-reader">{item.label}</span></Button>}
       {shown.turns.map(turn)}
     </div>
-    {shown.automatic && !compact && <p className="state-note" data-light-timed="">A Turn on or Turn off lasts {MANUAL_MINUTES} min, then the light goes back to automatic</p>}
+    {shown.automatic && !compact && <p className="state-note" data-light-timed="">A Turn on or Turn off lasts {minutes} min, then the light goes back to automatic</p>}
     {command.phase === "waiting" && !command.error && <p className="state-note" data-light-note="waiting">Waiting for Lutron</p>}
     {command.phase === "late" && <p className="state-note" data-light-note="late">{unconfirmedWords(item.state)}</p>}
     {control.unread && <p className="state-note" data-light-note="unread">Couldn't read the light, so Lutron was not matched to the controller</p>}

@@ -23,8 +23,14 @@ const CLIENT_DIR = fileURLToPath(new URL("./build/client", import.meta.url));
 // Route templates for the request log. Any other path logs as "/other", and /api paths as one template each: never
 // raw. The operator API's line, joined by request_id, has its own route template.
 const ROUTES = new Set(["/", "/healthz", "/readyz", "/auth/login", "/auth/callback", "/auth/logout"]);
-// The screens' routes (app/routes.ts, #1124). Any other /auth path, the catch-all and unknown paths stay "/other".
-const PAGES = new Set(["/water", "/water/schedules", "/water/history", "/graphs", "/graphs/zones", "/graphs/statistics", "/graphs/scorecard", "/activity", "/activity/log", "/settings", "/plan", "/equipment"]);
+// The screens' routes and the old paths that redirect (app/routes.ts, dashboard v2 README section 3), each logged as its
+// own template. Any other /auth path, the catch-all and unknown paths stay "/other". "/" is in ROUTES above.
+export const PAGES = new Set([
+  "/climate", "/band", "/climate/drying", "/water", "/water/schedules", "/water/history", "/water/soil", "/lights", "/lights/history",
+  "/crops", "/crops/history", "/hydroponics", "/record", "/record/compliance", "/record/equipment", "/record/utilities", "/graphs",
+  "/graphs/zones", "/review", "/activity", "/activity/log", "/equipment", "/system/controller", "/system/data", "/settings",
+  "/plan", "/planner", "/planner/history", "/graphs/statistics", "/graphs/scorecard", "/graphs/lighting",
+]);
 function routeName(path) {
   if (path.startsWith("/assets/") || path.startsWith("/fonts/") || path === "/favicon.svg") return "assets";
   if (path.startsWith("/api/v1/")) return "/api/v1/*";

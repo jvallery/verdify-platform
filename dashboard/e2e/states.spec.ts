@@ -11,13 +11,15 @@ for (const path of ROUTES) {
     // The shell's backoff puts its second poll 30 s after the first, and the banner waits for that second failure.
     await untilPolled(page, () => expect(page.locator("[data-banner=fault]")).toHaveText("Dashboard API unavailable", { timeout: 1_000 }), 31_000);
     for (const reassurance of ["All OK", "No open alerts", "CONFIRMED"]) await expectNoText(page, reassurance);
-    await expectNoText(page, /\bin band\b/i);
-    await expect(page.locator(".tag-ok, .status-complete, .fresh-ok")).toHaveCount(0);
+    // Record's tab, title and notes name "In band" (README section 3, words.md), so there the badges carry the check.
+    if (!path.startsWith("/record")) await expectNoText(page, /\bin band\b/i);
+    await expect(page.locator(".badge-ok, .tag-ok, .fresh-ok")).toHaveCount(0);
   });
 
   for (const [fixture, banner] of [
-    ["ingestor-not-running", /^Ingestor not running since \d\d:\d\d\. The controller keeps running on its own\./],
-    ["controller-not-reporting", /^Controller not reporting since \d\d:\d\d\. If it has power, it keeps running VPD misting/],
+    // Screens §1 block 1: the controller keeps holding the band on its own (its law runs with or without the host).
+    ["ingestor-not-running", /^Ingestor\snot\srunning\ssince\s\d\d:\d\d\.\sThe\scontroller\skeeps\sholding\sthe\sband\son\sits\sown;\snothing\snew\sis\srecorded\suntil\sit\sis\sback\./],
+    ["controller-not-reporting", /^Controller\snot\sreporting\ssince\s\d\d:\d\d\.\sIf\sit\shas\spower,\sit\skeeps\sholding\sthe\sband\son\sits\sown\sand\skeeps\sits\swater\sschedules/],
   ] as const) {
     test(`${path}: under ${fixture} the banner says so, never "Controller offline" or "No open alerts"`, async ({ page, request }) => {
       await useFixture(request, fixture);

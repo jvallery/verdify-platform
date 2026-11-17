@@ -1,144 +1,117 @@
 // SPDX-License-Identifier: MIT
 /**
- * The zone strip on Now (redesign §5.1; screens SCR-01, US-GRF-06): a tile per zone, in the one zone order Graphs → Zones
- * shares, with its temperature and VPD, a band bar of its VPD against the zone's band in force (one track, the band box
- * and the dot; today's low and high are in its name, not drawn) and a 24 h VPD sparkline over that band of the value the
- * tile shows, the two named by one mono "VPD" label as the hero's bars are, and where its numbers come from in words
- * (`lib/zone-source.ts`, D-IRP-13) only when it is not the zone's own probe ("probe offline · West + East average",
- * "no probe · house average"; the normal MEASURED stays quiet): amber only when a zone with a probe has fallen back to
- * its peers or the house. Each tile opens `/graphs/zones?zone=<zone>` through its title, whose link covers the tile. API-04 over the last
- * 15 minutes and API-06 per tile give the values and the band; the day read (API-04 over 25 h, passed in) the sparkline
- * and today's range. North has no zone band, so it reads against the house band and says so. A stale or missing value
- * reads STALE or "—" with its reason, never 0, and a failed read says so.
+ * Probes on Now (dashboard v2 screens §1 block 9): the four wall probes and the case probe, each with its temperature,
+ * its VPD and a 24 h VPD sparkline, each against the one house band (the band the controller is using). There is no
+ * zone band and no stand-in: a probe that has not reported reads "—" with its reason, never a neighbour's value or 0.
+ *
+ * Reads: API-04 over the last 15 minutes for the wall probes' temperature and VPD (`PROBE_NOW_KEYS`) with API-03 for
+ * their cadences; the day read (API-04 over 25 h, passed in) for the wall sparklines; the case read (the case probe's
+ * temperature and RH, passed in), whose VPD the page works out from them and says so. Each probe opens its zone's charts.
  */
 import { Link } from "react-router";
 import { formatValue } from "../lib/format";
-import type { IrrigationStatus, Series } from "../lib/operator-api";
-import { READ_INTERVAL_MS, panelRead, useApiRead, useBandWindowRead, useSeriesWindowRead, type PanelRead } from "../lib/queries";
+import { houseBand } from "../lib/now-answer";
+import type { Now, Series } from "../lib/operator-api";
+import { panelRead, useRegistryRead, useSeriesWindowRead, type PanelRead } from "../lib/queries";
 import { useApiDown } from "../lib/session";
-import { words } from "../lib/words";
-import {
-  ZONES, ZONE_READS, ZONE_WINDOW_S, ZONE_WORDS, bandZone, newestBand, peersOf, zoneSourceWords, zoneTag, zoneValue, type Zone, type ZoneData, type ZoneTag,
-} from "../lib/zone-source";
+import { ZONE_WINDOW_S, keyValue, type ZoneData, type ZoneValue } from "../lib/zone-source";
 import { Badge } from "./badge";
 import { cls } from "./common";
-import { BandBar, bandPosition, rangeWords, type Range } from "./data/band-bar";
+import { bandPosition, bandRelationWords, rangeWords, type Range } from "./data/band-bar";
 import { Sparkline } from "./data/sparkline";
-import { SPARK_S, ZONE_VPD_KEYS, rangeSince, valuesSince } from "./now/climate";
+import { CASE_KEYS, PROBES, PROBE_NOW_KEYS, SPARK_S, caseVpdSince, newestBucket, probeTempKey, probeVpdKey, valuesSince, vpdFrom, type ProbeId } from "./now/climate";
 import { Panel, type PanelState } from "./panel";
 import { Term } from "./term";
 
-/**
- * Where a tile's numbers come from, as a text mark in words (D-UX-07): muted, amber only when the provenance is the news.
- * A zone read from its own probe (MEASURED) is the normal case, which stays quiet (principle 1): no mark. The tag's code
- * stays on `data-zone-tag` for tests and tools; the page shows only the words.
- */
-export function ZoneTagMark({ zone, tag, data }: { zone: Zone; tag: ZoneTag; data: ZoneData }) {
-  const source = zoneSourceWords(zone, tag, data);
-  if (!source) return null;
-  return <span className={cls("now-zone-tag", source.news && "now-zone-tag-news")} data-zone-tag={tag}>{source.text}</span>;
+export const PROBES_ID = "probes";
+const NOT_REPORTED = "not reported";
+/** The case read's newest bucket counts as current within 20 min of its end. */
+const CASE_FRESH_S = 20 * 60;
+
+export type ProbeReading = { readonly temp: ZoneValue; readonly vpd: ZoneValue; readonly spark: readonly (number | null)[]; readonly derived: boolean };
+
+/** The case probe's current temperature and its VPD from temperature and RH, from the case read's newest buckets. */
+export function caseReading(series: Series | null | undefined, sparkFrom: number): ProbeReading {
+  const temp = newestBucket(series, CASE_KEYS[0]), rh = newestBucket(series, CASE_KEYS[1]);
+  const serverS = series ? Date.parse(series.server_time) / 1000 : Number.NaN;
+  const fresh = (end: number) => Number.isFinite(serverS) && serverS - end <= CASE_FRESH_S;
+  const value = (sample: { value: number; end: number } | null): ZoneValue => (!sample ? { value: null, stale: false, reason: NOT_REPORTED } : { value: sample.value, stale: !fresh(sample.end), reason: fresh(sample.end) ? null : "last data over 20 min old" });
+  const tempValue = value(temp);
+  const vpd = temp && rh ? vpdFrom(temp.value, rh.value) : null;
+  return {
+    temp: tempValue,
+    vpd: vpd === null ? { value: null, stale: false, reason: NOT_REPORTED } : { value: vpd, stale: tempValue.stale, reason: tempValue.reason },
+    spark: caseVpdSince(series, sparkFrom),
+    derived: true,
+  };
 }
 
-/** The day read's VPD keys behind the value a tile shows: its own probe, its peers (averaged) or the house. */
-function sourceKeys(zone: Zone, tag: ZoneTag): string[] {
-  if (tag === "MEASURED") return [ZONE_VPD_KEYS[zone]];
-  if (tag === "HOUSE") return [ZONE_VPD_KEYS.center];
-  return peersOf(zone).map((peer) => ZONE_VPD_KEYS[peer]);
+/** A wall probe's own temperature and VPD from the 15-minute read, and its 24 h VPD from the day read. */
+export function wallReading(id: ProbeId, data: ZoneData, day: Series | null, sparkFrom: number): ProbeReading {
+  return { temp: keyValue(probeTempKey(id), data), vpd: keyValue(probeVpdKey(id), data), spark: valuesSince(day, probeVpdKey(id), sparkFrom), derived: false };
 }
 
-/** Each bucket's mean of the keys that have a value there; a bucket none of them has is a gap. */
-function meanValues(series: Series | null, keys: readonly string[], since: number): (number | null)[] {
-  const columns = keys.map((key) => valuesSince(series, key, since));
-  const length = Math.max(0, ...columns.map((column) => column.length));
-  return Array.from({ length }, (_, index) => {
-    const present = columns.map((column) => column[index]).filter((value): value is number => typeof value === "number");
-    return present.length ? present.reduce((sum, value) => sum + value, 0) / present.length : null;
-  });
-}
+const ZONE_OF: Readonly<Partial<Record<ProbeId, string>>> = { north: "north", east: "east", south: "south", west: "west" };
 
-/** Today's low and high of the averaged values (a peer or house tile), from the bucket means. */
-function meanRange(values: readonly (number | null)[]): Range | null {
-  const present = values.filter((value): value is number => typeof value === "number");
-  return present.length ? { low: Math.min(...present), high: Math.max(...present) } : null;
-}
-
-/**
- * The band words under a tile: "band 0.45–0.80 kPa", north's "house band …", with "above band" first when out of band.
- * The band's name is a `Term` (#1339): its definition is a tap away.
- */
-function BandText({ zone, band }: { zone: Zone; band: { low: number; high: number } | null }) {
-  const name = zone === "north" ? <Term id="house_band">house band</Term> : <Term id="band">band</Term>;
-  return <>{name} {band ? rangeWords(band.low, band.high, "kPa") : "unavailable"}</>;
-}
-
-type DayInput = { readonly series: Series | null; readonly since: number; readonly sparkFrom: number; readonly failed: boolean };
-
-function ZoneTile({ zone, data, day }: { zone: Zone; data: ZoneData; day: DayInput }) {
+function Probe({ id, name, reading, band, sparkState }: { id: ProbeId; name: string; reading: ProbeReading; band: Range | null; sparkState: "ready" | "loading" | "error" | "stale" }) {
   const apiDown = useApiDown();
-  const read = panelRead(useBandWindowRead(bandZone(zone), ZONE_WINDOW_S));
-  const band = read.failed ? null : newestBand(read.data, "vpd");
-  const tag = zoneTag(zone, data);
-  const temp = zoneValue(zone, "temp", tag, data), vpd = zoneValue(zone, "vpd", tag, data);
-  // The sparkline and today's range read the value the tile shows: the zone's own probe, else its peers' mean or the house.
-  const keys = sourceKeys(zone, tag);
-  const source = zoneSourceWords(zone, tag, data);
-  const own = keys.length === 1;
-  const values = own ? valuesSince(day.series, keys[0], day.sparkFrom) : meanValues(day.series, keys, day.sparkFrom);
-  const today = own ? rangeSince(day.series, keys[0], day.since) : meanRange(meanValues(day.series, keys, day.since));
-  // Until API-06 first answers the tile claims no verdict.
-  const position = read.pending || vpd.stale || apiDown ? null : bandPosition(vpd.value, band);
-  const off = position === "above" || position === "below" ? position : null;
-  const name = ZONE_WORDS[zone];
-  return <li className={cls("now-zone", off && "now-zone-off")} data-zone={zone}>
+  const { temp, vpd } = reading;
+  const position = vpd.stale || apiDown ? null : bandPosition(vpd.value, band);
+  const relation = position === null ? null : bandRelationWords(vpd.value, band, "kPa");
+  const off = position === "above" || position === "below";
+  const zone = ZONE_OF[id];
+  return <li className={cls("now-zone", off && "now-zone-off")} data-probe={id}>
     <div className="now-zone-head">
-      <h3 className="now-zone-name"><Link className="now-zone-link" to={`/graphs/zones?zone=${zone}`}>{name}<span className="screen-reader">: open its charts</span></Link></h3>
-      <ZoneTagMark zone={zone} tag={tag} data={data} />
+      <h3 className="now-zone-name">{zone ? <Link className="now-zone-link" to={`/graphs/zones?zone=${zone}`}>{name}<span className="screen-reader">: open its charts</span></Link> : name}</h3>
+      {reading.derived && <span className="now-zone-tag" data-probe-tag="derived">VPD worked out from its temperature and RH</span>}
     </div>
     <p className="now-zone-values">
       <span className={cls("now-zone-value", temp.stale && "value-muted")} data-tile="temp">{formatValue(temp.value, "°F")}</span>
       <span className={cls("now-zone-value", vpd.stale && "value-muted")} data-tile="vpd">{formatValue(vpd.value, "kPa")}</span>
       {(temp.stale || vpd.stale) && <Badge kind="stale" />}
     </p>
-    {/* Both visuals are the VPD: one label names them, as on the hero's bars; each image names itself for a screen reader. */}
-    <div className="now-zone-viz">
-      <span className="now-zone-viz-label" aria-hidden="true">VPD</span>
-      <BandBar label={`${name} VPD`} unit="kPa" value={vpd.value} band={band} today={today} decorative={false} state={read.pending ? "loading" : vpd.stale ? "stale" : "ready"} />
-      <Sparkline values={values} token="vpd" band={band} size="tile" label={`${name} VPD over the last 24 h${source?.news ? `, ${source.text}` : ""}`} state={day.failed && !day.series ? "error" : day.series ? (vpd.stale ? "stale" : "ready") : "loading"} />
-    </div>
+    <Sparkline values={reading.spark} token="vpd" band={band} size="tile" label={`${name} VPD over the last 24 h`} state={sparkState} />
     <p className="now-zone-meta meta">
-      {off && <><span className="now-off">{words("band_verdict", off)}</span> · </>}
-      {read.pending ? "band loading" : <BandText zone={zone} band={band} />}
+      {relation && <><span className={cls(off && "now-off")} data-relation="">{relation}</span> · </>}
+      <Term id="band">band</Term> {band ? rangeWords(band.low, band.high, "kPa") : "not reported"}
       {vpd.value === null && vpd.reason && <> · {vpd.reason}</>}
       {vpd.stale && vpd.reason && <> · {vpd.reason}</>}
     </p>
   </li>;
 }
 
-export type ZoneTilesProps = {
-  readonly irrigation: PanelRead<IrrigationStatus>;
-  /** The day read (API-04 over the last 25 h), for the sparklines and today's range. */
+export type ProbesProps = {
+  readonly now: Now | null;
+  /** The day read (API-04 over the last 25 h): the wall probes' 24 h VPD. */
   readonly day: PanelRead<Series>;
-  /** Local midnight today, epoch seconds: today's range starts there. */
-  readonly since: number;
+  /** The case read (API-04 over the last 25 h): the case probe's temperature and RH. */
+  readonly caseRead: PanelRead<Series>;
 };
 
-export function ZoneTiles({ irrigation, day, since }: ZoneTilesProps) {
-  // The cadences hardly change, so an older answer serves; polled, so a tile left open recovers from a failed read by itself.
-  const registry = panelRead(useApiRead("API-03", {}, { intervalMs: READ_INTERVAL_MS.zones }));
-  const first = panelRead(useSeriesWindowRead(ZONE_READS[0], ZONE_WINDOW_S));
-  const second = panelRead(useSeriesWindowRead(ZONE_READS[1], ZONE_WINDOW_S));
-  const third = panelRead(useSeriesWindowRead(ZONE_READS[2], ZONE_WINDOW_S));
-  const reads = [first, second, third];
-  const failed = (registry.failed && !registry.data) || reads.some((read) => read.failed);
-  const waiting = registry.pending || reads.some((read) => read.pending) || irrigation.pending;
-  const state: PanelState = failed ? "error" : waiting ? "loading" : "ready";
-  const retry = () => { registry.retry(); for (const read of reads) read.retry(); day.retry(); };
-  const data: ZoneData = { series: reads.map((read) => read.data), metrics: registry.data?.items ?? [], lines: irrigation.failed ? null : irrigation.data?.lines ?? null };
-  // The sparklines draw the day read's last 24 h, so they end where its window ends.
+export function Probes({ now, day, caseRead }: ProbesProps) {
+  const registry = panelRead(useRegistryRead());
+  const current = panelRead(useSeriesWindowRead(PROBE_NOW_KEYS, ZONE_WINDOW_S));
+  const failed = (registry.failed && !registry.data) || (current.failed && !current.data);
+  const state: PanelState = failed ? "error" : registry.pending || current.pending || !now ? "loading" : "ready";
+  const retry = () => { registry.retry(); current.retry(); day.retry(); caseRead.retry(); };
+  const data: ZoneData = { series: [current.data], metrics: registry.data?.items ?? [], lines: null };
   const series = day.failed ? null : day.data;
   const end = series ? Date.parse(series.to) / 1000 : Number.NaN;
-  const dayInput: DayInput = { series, since, sparkFrom: Number.isFinite(end) ? end - SPARK_S : Number.POSITIVE_INFINITY, failed: day.failed };
-  return <Panel id="zones" title="Zones" thing="the zones" state={state} reserve="md" onRetry={retry} errorText="Couldn't load the zones." link={{ to: "/graphs/zones", label: "All zones" }}>
-    <ul className="now-zones">{ZONES.map((zone) => <ZoneTile key={zone} zone={zone} data={data} day={dayInput} />)}</ul>
+  const sparkFrom = Number.isFinite(end) ? end - SPARK_S : Number.POSITIVE_INFINITY;
+  const vpd = now ? houseBand(now).vpd : null;
+  const wallSpark = day.failed && !series ? "error" : series ? "ready" : "loading";
+  const caseSeries = caseRead.failed ? null : caseRead.data;
+  const caseEnd = caseSeries ? Date.parse(caseSeries.to) / 1000 : Number.NaN;
+  const caseSpark = caseRead.failed && !caseSeries ? "error" : caseSeries ? "ready" : "loading";
+  return <Panel id={PROBES_ID} title="Probes" thing="the probes" state={state} reserve="md" onRetry={retry} errorText="Couldn't load the probes."
+    link={{ to: "/graphs/zones", label: <>Zones<span className="screen-reader"> in Graphs</span></> }}>
+    <p className="meta now-probes-note">Each probe against the one house band.</p>
+    <ul className="now-zones">
+      {PROBES.map((probe) => probe.id === "case"
+        ? <Probe key={probe.id} id={probe.id} name={probe.name} band={vpd} sparkState={caseSpark} reading={caseRead.failed && !caseSeries
+          ? { temp: { value: null, stale: false, reason: NOT_REPORTED }, vpd: { value: null, stale: false, reason: NOT_REPORTED }, spark: [], derived: true }
+          : caseReading(caseSeries, Number.isFinite(caseEnd) ? caseEnd - SPARK_S : Number.POSITIVE_INFINITY)} />
+        : <Probe key={probe.id} id={probe.id} name={probe.name} band={vpd} sparkState={wallSpark} reading={wallReading(probe.id, data, series, sparkFrom)} />)}
+    </ul>
   </Panel>;
 }

@@ -1,25 +1,62 @@
 // SPDX-License-Identifier: MIT
-// The caretaker's phone: no page scrolls sideways at 360 or 390 px and the bottom bar holds every section tab; with reduced
-// motion emulated, nothing moves. And the shell of redesign §2 at 1440 px and on phones: the eight sections (on one row
-// from 880 px), Control owning its views, the account menu, the fault row that never scrolls away, the warn notices in
-// flow, the count pill's severity, the redirects and the end of /more.
+// The frame of dashboard v2 (design-system sections 3 and 6): no page scrolls sideways at 360, 390, 820 or 1440 px;
+// at 860 px and below the bottom bar holds five and More opens a sheet listing every section by group; above it the
+// rail lists every section in order and marks the current one; with reduced motion nothing moves. And the frame's
+// parts: the top bar, the account menu, the fault row that never scrolls away, the warn notices in flow, the count's
+// severity, and the old paths that redirect with their query.
+import type { Page } from "@playwright/test";
 import { CARD_PAGES, REDIRECTS, ROUTES, SETTING_DRAWERS } from "./routes";
-import {
-  DESKTOP, PHONE, SECTION_LINKS, SMALL_PHONE, WEBKIT, accountMenu, bottomBar, expect, expectNoHorizontalScroll, expectRolePill, load, sectionsNav, test,
-  useFixture,
-} from "./support";
+import { DESKTOP, PHONE, SMALL_PHONE, WEBKIT, accountMenu, bottomBar, expect, expectNoHorizontalScroll, expectRolePill, load, sectionsNav, test, useFixture } from "./support";
 
-for (const viewport of [SMALL_PHONE, PHONE]) {
+const TABLET = { width: 820, height: 1180 };
+/** README section 3: the groups and their sections in order, as the rail and the More sheet list them. */
+const GROUPS = [
+  { label: "Operate", sections: ["Now", "Climate", "Water", "Lights", "Crops", "Hydroponics"] },
+  { label: "Understand", sections: ["Record", "Graphs", "Review", "Activity"] },
+  { label: "System", sections: ["Equipment", "Controller", "Data", "Settings"] },
+] as const;
+const SECTIONS = GROUPS.flatMap((group) => group.sections);
+const SECTION_NAMES = SECTIONS.map((section) => new RegExp(`^${section}`));
+/** The phone bar: four sections and More. */
+const BAR = [/^Now/, /^Climate/, /^Water/, /^Alerts/, /^More/];
+/** The section each path belongs to, as the rail marks it. */
+const SECTION_OF: Readonly<Record<string, string>> = {
+  "/": "Now", "/climate": "Climate", "/band": "Climate", "/climate/drying": "Climate", "/water": "Water", "/water/schedules": "Water",
+  "/water/history": "Water", "/water/soil": "Water", "/lights": "Lights", "/lights/history": "Lights", "/crops": "Crops", "/crops/history": "Crops",
+  "/hydroponics": "Hydroponics", "/record": "Record", "/record/compliance": "Record", "/record/equipment": "Record", "/record/utilities": "Record",
+  "/graphs": "Graphs", "/graphs/zones": "Graphs", "/review": "Review", "/activity": "Activity", "/activity/log": "Activity", "/equipment": "Equipment",
+  "/system/controller": "Controller", "/system/data": "Data", "/settings": "Settings",
+};
+const moreSheet = (page: Page) => page.getByRole("dialog", { name: "More" });
+
+// ---------------------------------------------------------------------------------------------------- every width
+for (const viewport of [SMALL_PHONE, PHONE, TABLET, DESKTOP]) {
   const size = `${viewport.width} × ${viewport.height}`;
+  const narrow = viewport.width <= 860;
   for (const path of ROUTES) {
-    test(`${path} · ${size}: no horizontal scroll, and the bottom bar holds every section tab`, WEBKIT, async ({ page, request }) => {
+    test(`${path} · ${size}: no horizontal scroll, and the ${narrow ? "bottom bar holds five" : "rail lists every section"} with this one marked`, narrow ? WEBKIT : {}, async ({ page, request }) => {
       await useFixture(request, "in-band");
       await page.setViewportSize(viewport);
       await load(page, path);
       await expectNoHorizontalScroll(page);
-      await expect(bottomBar(page).getByRole("link")).toHaveText(SECTION_LINKS);
+      if (narrow) {
+        await expect(bottomBar(page).locator(".bar-item")).toHaveText(BAR);
+        await expect(sectionsNav(page)).toBeHidden();
+        const marked = bottomBar(page).locator("[aria-current]");
+        await expect(marked).toHaveCount(1);
+        const section = SECTION_OF[path];
+        await expect(marked.locator(".bar-label")).toHaveText(["Now", "Climate", "Water"].includes(section) ? section : section === "Activity" ? "Alerts" : "More");
+      } else {
+        await expect(sectionsNav(page).getByRole("link")).toHaveText(SECTION_NAMES);
+        await expect(sectionsNav(page).locator("[aria-current=page] .nav-label")).toHaveText(SECTION_OF[path]);
+        await expect(bottomBar(page)).toBeHidden();
+      }
     });
   }
+}
+
+for (const viewport of [SMALL_PHONE, PHONE]) {
+  const size = `${viewport.width} × ${viewport.height}`;
   for (const { path, fixture, charts } of SETTING_DRAWERS) {
     test(`${path} under ${fixture} · ${size}: the drawer's charts fit, with no horizontal scroll`, WEBKIT, async ({ page, request }) => {
       await useFixture(request, fixture);
@@ -32,13 +69,14 @@ for (const viewport of [SMALL_PHONE, PHONE]) {
     });
   }
   for (const { path, status, heading } of CARD_PAGES) {
-    test(`${path} · ${size}: the card alone, with no horizontal scroll`, WEBKIT, async ({ page, request }) => {
+    test(`${path} · ${size}: the card alone, with no frame and no horizontal scroll`, WEBKIT, async ({ page, request }) => {
       await useFixture(request, "in-band");
       await page.setViewportSize(viewport);
       const response = await load(page, path);
       expect(response.status()).toBe(status);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
       await expect(bottomBar(page)).toHaveCount(0);
+      await expect(page.getByTestId("rail")).toHaveCount(0);
       await expect(page.locator(".role-pill")).toHaveCount(0);
       await expect(page.locator("[data-banner]")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
@@ -69,85 +107,142 @@ for (const path of [...ROUTES, ...CARD_PAGES.map((card) => card.path)]) {
   });
 }
 
-// ---------------------------------------------------------------------------------------------------- the shell
-test("1440 px: the header lists the eight sections; Control opens Settings and is current on Settings and Equipment, Planner on Plan and History", async ({ page, request }) => {
+// ---------------------------------------------------------------------------------------------------- above 860 px
+test("1440 px: the rail is fixed at the left with three labelled groups, an icon per section, the count on Activity and the theme switch", async ({ page, request }) => {
   await useFixture(request, "alerts-merged");
   await page.setViewportSize(DESKTOP);
-  await load(page, "/");
-  await expect(sectionsNav(page).getByRole("link")).toHaveText(SECTION_LINKS);
-  await expect(sectionsNav(page).getByRole("link", { name: /^Control/ })).toHaveAttribute("href", "/settings");
-  for (const [path, section] of [["/settings", "Control"], ["/equipment", "Control"], ["/plan", "Planner"], ["/planner/history", "Planner"]]) {
-    await load(page, path);
-    await expect(sectionsNav(page).locator("[aria-current=page]"), path).toHaveText(section);
-    await expect(page.getByRole("navigation", { name: `${section} views` }).locator("[aria-current=page]"), path).toHaveAttribute("href", path);
+  await load(page, "/record/compliance");
+  const rail = page.getByTestId("rail");
+  await expect(rail.locator(".nav-group-label")).toHaveText(GROUPS.map((group) => group.label));
+  for (const group of GROUPS) {
+    await expect(rail.locator(`.nav-group:has(.nav-group-label:text-is("${group.label}")) .nav-label`)).toHaveText([...group.sections]);
   }
-  // The count pill: API-02 alerts.open, filled by the worst open severity.
-  await expect(sectionsNav(page).locator(".nav-count")).toHaveText("2");
-  await expect(sectionsNav(page).locator(".nav-count")).toHaveAttribute("data-severity", /^(critical|warning|info)$/);
-  // Nothing links to /more any more.
+  await expect(rail.locator(".rail-link svg.nav-icon")).toHaveCount(SECTIONS.length);
+  await expect(rail.locator(".rail-link[aria-current=page] .nav-label")).toHaveText("Record");
+  // The count: API-02 alerts.open, filled by the worst open severity.
+  await expect(rail.locator(".nav-count")).toHaveText("2");
+  await expect(rail.locator(".nav-count")).toHaveAttribute("data-severity", /^(critical|warning|info)$/);
+  await expect(rail.getByRole("group", { name: "Theme" }).getByRole("radio")).toHaveCount(3);
+  // Fixed: it stays at the left edge when the page scrolls, and the content column starts after it.
+  await page.evaluate(() => window.scrollTo(0, 600));
+  const [box, main] = await Promise.all([rail.boundingBox(), page.locator("main#main-content").boundingBox()]);
+  expect([box!.x, box!.y]).toEqual([0, 0]);
+  expect(main!.x).toBeGreaterThanOrEqual(box!.width);
+  for (const link of await rail.locator(".rail-link").all()) expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await expect(page.locator("a[href='/more']")).toHaveCount(0);
 });
 
-for (const width of [880, 1100]) {
-  test(`${width} px: the eight section links fit the tablet row or desktop rail, clear of the lockup and the account button`, async ({ page, request }) => {
-    await useFixture(request, "alerts-merged");
-    await page.setViewportSize({ width, height: 900 });
-    await load(page, "/activity");
-    await expect(sectionsNav(page).getByRole("link")).toHaveText(SECTION_LINKS);
-    await expect(sectionsNav(page).locator(".nav-count")).toHaveText("2");
-    const boxes = async (selector: string) => Promise.all((await page.locator(selector).all()).map(async (element) => (await element.boundingBox())!));
-    const [brand] = await boxes(".site-header > .shell > .brand");
-    const [account] = await boxes(".site-header > .shell > .account-menu");
-    const links = await boxes(".site-header .primary-nav a");
-    expect(links).toHaveLength(8);
-    for (const link of links) {
-      // Tablet navigation occupies a second header row; desktop navigation has its own rail.
-      if (width < 1100) {
-        expect(link.y).toBeGreaterThanOrEqual(brand.y + brand.height);
-        expect(link.height).toBeGreaterThanOrEqual(44);
-      } else {
-        expect(link.x + link.width).toBeLessThanOrEqual(brand.x);
-        expect(link.height).toBeGreaterThanOrEqual(44);
-      }
-    }
-    expect(Math.abs(account.y + account.height / 2 - (brand.y + brand.height / 2))).toBeLessThanOrEqual(2);
-    const nav = await page.locator(".site-header .primary-nav").evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
-    expect(nav.scroll).toBeLessThanOrEqual(nav.client);
-    await expectNoHorizontalScroll(page);
-  });
-}
-
-test("1440 px: every page shares the header's one centred container, so switching views never moves the page's edges; a short page's footer reaches the bottom", async ({ page, request }) => {
+test("1440 px: the sticky top bar holds Search, the freshness chip, Stop all water for an operator and the account menu", async ({ page, request }) => {
   await useFixture(request, "in-band");
   await page.setViewportSize(DESKTOP);
-  // Graphs and Water → Schedules were the wide pages; Activity → Alerts is a short one.
-  for (const path of ["/water/schedules", "/graphs", "/activity"]) {
+  await load(page, "/graphs");
+  const bar = page.getByTestId("topbar");
+  await expect(bar.getByRole("button", { name: /^Search/ })).toBeVisible();
+  await expect(bar.getByTestId("freshness")).toHaveText(/^Last reading/);
+  await expect(bar.getByTestId("freshness")).toHaveAttribute("href", "/system/controller");
+  await expect(bar.getByRole("button", { name: "Stop all water" })).toBeVisible();
+  await expect(bar.locator(".topbar-brand")).toBeHidden();
+  await page.evaluate(() => window.scrollTo(0, 2000));
+  const box = await bar.boundingBox();
+  expect(box!.y).toBe(0);
+  // `/` opens Search; Escape closes it.
+  await page.locator("body").press("/");
+  await expect(page.getByRole("dialog", { name: "Search" })).toBeVisible();
+  await page.keyboard.type("drying");
+  await expect(page.getByRole("dialog", { name: "Search" }).getByRole("option").first()).toContainText("Drying");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Search" })).toHaveCount(0);
+});
+
+test("1440 px: a short page's footer reaches the bottom, and the page keeps one centred column inside --content", async ({ page, request }) => {
+  await useFixture(request, "in-band");
+  await page.setViewportSize(DESKTOP);
+  for (const path of ["/water/schedules", "/graphs", "/review"]) {
     await load(page, path);
-    const [header, main, footer] = await Promise.all([".site-header > .shell", "main#main-content", ".site-footer > .shell"].map((selector) => page.locator(selector).boundingBox()));
-    expect([main!.x, main!.width], path).toEqual([header!.x, header!.width]);
-    expect([footer!.x, footer!.width], path).toEqual([header!.x, header!.width]);
+    const [rail, main] = await Promise.all([page.getByTestId("rail").boundingBox(), page.locator("main#main-content").boundingBox()]);
+    const column = DESKTOP.width - rail!.width;
+    expect(Math.abs(main!.x - rail!.width - (column - main!.width) / 2), path).toBeLessThanOrEqual(1);
   }
   const footer = await page.locator(".site-footer").boundingBox();
   expect(Math.round(footer!.y + footer!.height)).toBeGreaterThanOrEqual(DESKTOP.height);
 });
 
+// ---------------------------------------------------------------------------------------------------- 860 px and below
 for (const viewport of [SMALL_PHONE, PHONE]) {
-  test(`${viewport.width} px: each phone tab is an icon over its label, at least 44 px, and the header keeps the role pill`, WEBKIT, async ({ page, request }) => {
-    await useFixture(request, "in-band");
+  test(`${viewport.width} px: the bar's five are an icon over a label, at least 44 px; the top bar has the lockup, the dot and the account`, WEBKIT, async ({ page, request }) => {
+    await useFixture(request, "alerts-merged");
     await page.setViewportSize(viewport);
     await load(page, "/");
-    const tabs = bottomBar(page).getByRole("link");
-    await expect(tabs).toHaveCount(SECTION_LINKS.length);
-    for (let index = 0; index < SECTION_LINKS.length; index += 1) {
-      const box = await tabs.nth(index).boundingBox();
-      expect(box!.height).toBeGreaterThanOrEqual(44);
-      await expect(tabs.nth(index).locator("svg.tab-icon")).toHaveCount(1);
+    const items = bottomBar(page).locator(".bar-item");
+    await expect(items).toHaveCount(5);
+    for (let index = 0; index < 5; index += 1) {
+      expect((await items.nth(index).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await expect(items.nth(index).locator("svg.bar-icon")).toHaveCount(1);
     }
+    await expect(bottomBar(page).locator("[data-section=activity] .nav-count")).toHaveText("2");
+    const bar = page.getByTestId("topbar");
+    await expect(bar.locator(".topbar-brand")).toBeVisible();
+    await expect(bar.getByTestId("freshness").locator(".dot")).toBeVisible();
+    await expect(bar.locator(".fresh-chip-text")).toHaveCSS("position", "absolute");
+    await expect(bar.getByRole("button", { name: /^Search/ })).toBeHidden();
+    await expect(bar.getByRole("button", { name: "Stop all water" })).toBeHidden();
     await expectRolePill(page, "OPERATOR");
-    await expect(sectionsNav(page)).toBeHidden();
+    // The bar sits on the bottom edge.
+    const box = await bottomBar(page).boundingBox();
+    expect(Math.round(box!.y + box!.height)).toBe(viewport.height);
   });
 }
 
+test("390 px: More opens a sheet listing every section by group with the theme switch and Sign out; Escape and the scrim close it", WEBKIT, async ({ page, request }) => {
+  await useFixture(request, "in-band");
+  await page.setViewportSize(PHONE);
+  await load(page, "/record/utilities");
+  const more = bottomBar(page).getByRole("button", { name: /^More/ });
+  await expect(more).toHaveAttribute("aria-current", "true");
+  await more.click();
+  const sheet = moreSheet(page);
+  await expect(sheet).toBeVisible();
+  await expect(more).toHaveAttribute("aria-expanded", "true");
+  const all = sheet.getByRole("navigation", { name: "All sections" });
+  await expect(all.locator(".nav-group-label")).toHaveText(GROUPS.map((group) => group.label));
+  await expect(all.getByRole("link")).toHaveText(SECTION_NAMES);
+  await expect(all.locator("[aria-current=page]")).toHaveText(/^Record/);
+  await expect(sheet.getByRole("group", { name: "Theme" })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "Sign out" })).toBeVisible();
+  // Focus stays in the sheet: Tab from its last control comes back inside it.
+  for (let index = 0; index < 30; index += 1) await page.keyboard.press("Tab");
+  expect(await sheet.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await expect(more).toBeFocused();
+  // The scrim, above the sheet, closes it too.
+  await more.click();
+  await page.mouse.click(PHONE.width / 2, 10);
+  await expect(moreSheet(page)).toHaveCount(0);
+  // A section chosen in the sheet goes there.
+  await more.click();
+  await moreSheet(page).getByRole("link", { name: "Data" }).click();
+  await expect(page).toHaveURL(/\/system\/data$/);
+  await expect(moreSheet(page)).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Data");
+  await expectNoHorizontalScroll(page);
+});
+
+test("390 px: the theme switch applies at once and the cookie keeps it on the next page load", async ({ page, request }) => {
+  await useFixture(request, "in-band");
+  await page.setViewportSize(PHONE);
+  await load(page, "/");
+  await bottomBar(page).getByRole("button", { name: /^More/ }).click();
+  await moreSheet(page).getByRole("radio", { name: "Dark" }).check();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await load(page, "/water");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await bottomBar(page).getByRole("button", { name: /^More/ }).click();
+  await moreSheet(page).getByRole("radio", { name: "System" }).check();
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", /./);
+});
+
+// ---------------------------------------------------------------------------------------------------- the parts
 for (const viewport of [SMALL_PHONE, DESKTOP]) {
   test(`${viewport.width} px: the account menu reads OPERATOR, opens to the name, the role and Sign out, a POST to /auth/logout`, async ({ page, request }) => {
     await useFixture(request, "in-band");
@@ -170,27 +265,32 @@ for (const viewport of [SMALL_PHONE, DESKTOP]) {
   });
 }
 
-test("the fault banner is a row of the sticky header and stays in view after scrolling 2,000 px; warn banners sit in flow", async ({ page, request }) => {
-  await useFixture(request, ["controller-not-reporting", "writes-off"]);
-  await page.setViewportSize(DESKTOP);
-  await load(page, "/settings");
-  const fault = page.locator("header.site-header [data-banner=fault]");
-  await expect(fault).toHaveText(/^Controller not reporting since/);
-  await expect(page.locator("main [data-banner=warn]")).toHaveText(["Changes are switched off; reading still works"]);
-  await page.evaluate(() => window.scrollTo(0, 2000));
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(2000);
-  const box = await fault.boundingBox();
-  expect(box!.y).toBeGreaterThanOrEqual(0);
-  expect(box!.y + box!.height).toBeLessThanOrEqual(200);
-  await expect(page.locator("main [data-banner=warn]")).not.toBeInViewport();
-});
+for (const viewport of [PHONE, DESKTOP]) {
+  test(`${viewport.width} px: the fault banner is a row of the sticky top bar and stays in view after scrolling 2,000 px; warn banners sit in flow`, async ({ page, request }) => {
+    await useFixture(request, ["controller-not-reporting", "writes-off"]);
+    await page.setViewportSize(viewport);
+    await load(page, "/settings");
+    const fault = page.locator("header.topbar .topbar-fault [data-banner=fault]");
+    await expect(fault).toHaveText(/^Controller not reporting since/);
+    await expect(page.locator("main [data-banner=warn]")).toHaveText(["Changes are switched off; reading still works"]);
+    await page.evaluate(() => window.scrollTo(0, 2000));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(2000);
+    await expect(fault).toBeInViewport();
+    const box = await fault.boundingBox();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(200);
+    await expect(page.locator("main [data-banner=warn]")).not.toBeInViewport();
+    await expectNoHorizontalScroll(page);
+  });
+}
 
 /** The page each redirect lands on, by its h1. */
-const REDIRECT_TITLES: Readonly<Record<string, string>> = { "/graphs/statistics": "Statistics", "/plan": "Plan" };
+const REDIRECT_TITLES: Readonly<Record<string, string>> = { "/review": "Review", "/record": "Daily record", "/lights/history": "Light history" };
 
-test("the old paths: /graphs/scorecard, /planner and a log-filtered /activity redirect with their query, ?alert= stays on Alerts, and /more is not found", async ({ page, request }) => {
+test("the old paths redirect with their query to their v2 view, a log-filtered /activity to the log, and /more is not found", async ({ page, request }) => {
   await useFixture(request, "in-band");
   for (const { path, to } of REDIRECTS) {
+    const response = await page.request.get(`${path}?x=1`, { maxRedirects: 0 });
+    expect([response.status(), response.headers().location], path).toEqual([302, `${to}?x=1`]);
     await load(page, `${path}?x=1`);
     await expect(page).toHaveURL(new RegExp(`${to.replace(/\//g, "\\/")}\\?x=1$`));
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(REDIRECT_TITLES[to]);
@@ -205,24 +305,3 @@ test("the old paths: /graphs/scorecard, /planner and a log-filtered /activity re
   expect(response.status()).toBe(404);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Page not found");
 });
-
-for (const viewport of [PHONE, DESKTOP]) {
-  test(`#1322 · ${viewport.width} px: Now's status items sit a gap apart with a "·" centred in it; a line's first item shows none`, async ({ page, request }) => {
-    await useFixture(request, "in-band");
-    await page.setViewportSize(viewport);
-    await load(page, "/");
-    const boxes = await page.locator(".now-status > li").evaluateAll((items) => items.map((item) => {
-      const box = item.getBoundingClientRect();
-      const list = item.parentElement!.getBoundingClientRect();
-      return { left: box.left, right: box.right, top: box.top, listLeft: list.left };
-    }));
-    expect(boxes.length).toBeGreaterThanOrEqual(3);
-    for (let index = 1; index < boxes.length; index += 1) {
-      const [before, item] = [boxes[index - 1], boxes[index]];
-      // Same line: a gap of at least 10 px between the two (no run-together "holdingIris"); a wrapped item starts at the edge.
-      if (Math.abs(item.top - before.top) < 4) expect(item.left - before.right).toBeGreaterThanOrEqual(10);
-      else expect(Math.abs(item.left - item.listLeft)).toBeLessThanOrEqual(1);
-    }
-    expect(Math.abs(boxes[0].left - boxes[0].listLeft)).toBeLessThanOrEqual(1);
-  });
-}

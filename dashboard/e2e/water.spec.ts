@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 // SCR-04 Water → Today and History (#1135, #1136, redesign §5.2, §5.4) at 1440 and 390 px: zone cards with their rows, the
-// state-aware Stop, Site today, the status line, minutes by zone, the run ledger, Stop all water on all three views, and a
-// row's targets and the run dialog. Schedules is water-schedules.spec.ts; that a viewer sees no Stop is roles.spec.ts, and
+// state-aware Stop, Site today and Misting, the status line, minutes by zone, the daily record's water, the run ledger, Stop
+// all water on every view, the run dialog, and Soil (probe zones, the range and its Edit) at 390, 820 and 1440 px in light
+// and dark. Schedules is water-schedules.spec.ts; that a viewer sees no Stop is roles.spec.ts, and
 // a row's Run… and Stop in a visit are caretaker-visit.spec.ts.
 import type { Page } from "@playwright/test";
 import { CAN_STILL_START, CAN_STILL_START_NO_ENGINE, DESKTOP, PHONE, SMALL_PHONE, STOPPED, axe, expect, expectAboveTheFold, expectNoHorizontalScroll, fixtureWrites, load, test, toastLines, untilPolled, useScreensClock } from "./support";
 
-const VIEWS = ["/water", "/water/schedules", "/water/history"];
+const VIEWS = ["/water", "/water/schedules", "/water/history", "/water/soil"];
 const row = (page: Page, id: string) => page.locator(`article[data-line="${id}"]`);
 const program = (page: Page) => page.locator("[data-program]");
-const stopAll = (page: Page) => page.getByRole("button", { name: "Stop all water" });
+// The page's Stop all water: the top bar holds one more for an operator above 860 px (README section 3.2), outside <main>.
+const stopAll = (page: Page) => page.getByRole("main").getByRole("button", { name: "Stop all water" });
 
 for (const viewport of [DESKTOP, PHONE]) {
   test(`${viewport.width} px: Today puts every line on its physical line's card (#1336), in order; L05 and L06 are reserved and L11 is climate only, run once`, async ({ page, request }) => {
@@ -24,7 +26,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(page.locator('.wat-zone[data-zone="center_mister"] .wat-unwired')).toHaveText("Fertilized · not wired");
     await expect(page.getByRole("article", { name: "Wall drip", exact: true })).toHaveAttribute("data-state", "idle");
     await expect(page.locator('[data-limit="L01"]')).toContainText("0 / 60 min");
-    await expect(row(page, "L01").locator(".wat-next")).toHaveText(/^next Wed 07:35 · 12\smin$/);
+    await expect(row(page, "L01").locator(".wat-next")).toHaveText(/^next\sWed\s07:35\s·\s12\smin$/);
     await expect(row(page, "L02").locator(".line-subrow")).toContainText("Fertilizer valve");
     for (const id of ["L05", "L06"]) await expect(row(page, id).locator(".line-state")).toHaveText("Reserved · disabled");
     await expect(row(page, "L11")).toContainText("Climate only");
@@ -33,19 +35,33 @@ for (const viewport of [DESKTOP, PHONE]) {
   });
 }
 
-test("1440 px: Site today sits beside the zones from 1200 px, sticky, with the daily mist & fog limit linking to its Settings drawer", async ({ page, request }) => {
+test("1440 px: Site today and Misting sit beside the zones from 1200 px, sticky; Change opens each limit's Settings drawer", async ({ page, request }) => {
   await page.setViewportSize(DESKTOP);
   await useScreensClock(page, request, "in-band");
   await load(page, "/water");
-  const site = page.locator(".wat-site");
+  const aside = page.locator(".wat-aside");
+  const site = page.getByRole("region", { name: "Site today" });
   const zones = page.locator(".wat-zones");
-  const [siteBox, zonesBox] = await Promise.all([site.boundingBox(), zones.boundingBox()]);
-  expect(siteBox!.x).toBeGreaterThan(zonesBox!.x + zonesBox!.width - 1);
-  await expect(site.locator('[data-limit="saf4"] a')).toHaveAttribute("href", "/settings?edit=mister_daily_volume_max_gal");
+  const [asideBox, zonesBox] = await Promise.all([aside.boundingBox(), zones.boundingBox()]);
+  expect(asideBox!.x).toBeGreaterThan(zonesBox!.x + zonesBox!.width - 1);
+  await expect(site.getByRole("link", { name: "Change the daily mist and fog limit in Settings" })).toHaveAttribute("href", "/settings?edit=mister_daily_volume_max_gal");
+  await expect(site.getByRole("link", { name: "Change the soft daily budget for mist and fog in Settings" })).toHaveAttribute("href", "/settings?edit=mister_water_budget_gal");
   await expect(site.locator('[data-limit="saf4"]')).toContainText("21 / 360 gal");
+  await expect(site.locator('[data-limit="saf4"]')).toContainText("Nothing is exempt from this limit.");
   await expect(site.locator('[data-limit="occupancy"]')).toHaveText("Occupancy: nobody detected, misting allowed (last person 05:10)");
+  const misting = page.getByRole("region", { name: "Misting" });
+  await expect(misting.locator('.wat-mist-row[data-rule="mist"] .wat-mist-head')).toContainText("Not wanted");
+  await expect(misting.locator('.wat-mist-row[data-rule="fog"] .wat-mist-head')).toContainText("Not wanted");
   await page.evaluate(() => window.scrollTo(0, 900));
   await expect(site).toBeInViewport();
+  await expectNoHorizontalScroll(page);
+});
+
+test("a viewer sees Site today and Misting with no Change", async ({ page, request }) => {
+  await useScreensClock(page, request, ["in-band", "viewer-session"]);
+  await load(page, "/water");
+  await expect(page.getByRole("region", { name: "Misting" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Site today" }).getByRole("link", { name: /^Change/ })).toHaveCount(0);
 });
 
 test("at 390 × 844 with L01 running the status line names it, linked to its row, and Wall's L01 row sits above the fold", async ({ page, request }) => {
@@ -55,10 +71,10 @@ test("at 390 × 844 with L01 running the status line names it, linked to its row
   const short = page.locator(".page-status-short");
   await expect(short.getByRole("link", { name: "Wall drip running" })).toHaveAttribute("href", "#line-L01");
   await expect(page.locator('.wat-zone[data-zone="wall"] .wat-zone-last')).toHaveText("running now");
-  // Site today holds the daily mist & fog limit, the flow and occupancy on a phone; the soft target and backup misting are not the news.
-  await expect(page.locator('.wat-site [data-limit="budget"]')).toBeHidden();
-  await expect(page.locator('.wat-site [data-limit="fallback"]')).toBeHidden();
-  await expect(page.locator('.wat-site [data-limit="saf4"]')).toBeVisible();
+  // Site today holds the daily mist and fog limit, the flow and occupancy on a phone; the soft budget and backup misting are not the news.
+  await expect(page.locator('.wat-site-list [data-limit="budget"]')).toBeHidden();
+  await expect(page.locator('.wat-site-list [data-limit="fallback"]')).toBeHidden();
+  await expect(page.locator('.wat-site-list [data-limit="saf4"]')).toBeVisible();
   await expectAboveTheFold(page, row(page, "L01").locator(".line-state"));
   await expectNoHorizontalScroll(page);
 });
@@ -69,7 +85,7 @@ test("1440 px: the zone heads' cap meters are one width, their minutes and right
   await load(page, "/water");
   const boxes = (selector: string) => page.locator(selector).evaluateAll((nodes) => nodes.map((node) => {
     const box = node.getBoundingClientRect();
-    return { width: Math.round(box.width), right: Math.round(box.right), top: Math.round(box.top), bottom: Math.round(box.bottom) };
+    return { width: Math.round(box.width), right: Math.round(box.right), top: Math.round(box.top), bottom: Math.round(box.bottom), height: box.height };
   }));
   // Each physical line has a cap (#1336); Fog has minutes alone.
   const meters = await boxes(".wat-zone-head .meter");
@@ -82,7 +98,9 @@ test("1440 px: the zone heads' cap meters are one width, their minutes and right
   const [heads, lasts] = await Promise.all([boxes(".wat-zone-head .wat-zone-today > :first-child"), boxes(".wat-zone-head .wat-zone-last")]);
   expect(lasts).toHaveLength(6);
   lasts.forEach((last, index) => expect(last.top, `zone ${index}`).toBeGreaterThanOrEqual(heads[index].bottom));
-  expect(new Set(lasts.map((box) => box.bottom - box.top)).size, JSON.stringify(lasts)).toBe(1);
+  // One line each: the heights agree to within a pixel (top and bottom round apart at a half-pixel line height).
+  const heights = lasts.map((box) => box.height);
+  expect(Math.max(...heights) - Math.min(...heights), JSON.stringify(lasts)).toBeLessThan(1);
 });
 
 test("D-UX-06 (2026-11-06): only the running line has a Stop, filled red, and one Stop all water stops everything", async ({ page, request }) => {
@@ -91,7 +109,7 @@ test("D-UX-06 (2026-11-06): only the running line has a Stop, filled red, and on
   await expect(page.locator("article[data-line] .btn-stop")).toHaveCount(1);
   await expect(page.locator("article[data-line]").getByRole("button", { name: /^Stop/ })).toHaveCount(1);
   await expect(row(page, "L01").locator(".btn-stop")).toHaveText(/^Stop/);
-  await expect(page.locator(".stop-all-water:visible")).toHaveCount(1);
+  await expect(page.locator("main .stop-all-water:visible")).toHaveCount(1);
   await expect(page.locator(".page-status")).toContainText("Wall drip running (run now)");
   await row(page, "L01").getByRole("button", { name: /^Stop/ }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
@@ -115,7 +133,7 @@ test("a latched mister reads its fault as its row's state, with Clear fault; a z
 });
 
 for (const [fixture, says] of [
-  ["before-engine", "No irrigation engine on the controller yet: relay states only; the wall drip runs, and every line stops, through the bridge"],
+  ["before-engine", "The controller reports no irrigation engine: relay states only, and no line runs from here until it does"],
   ["program-rev-42", "Program rev 42 on controller · confirmed 2 min ago"],
   ["program-rom", "Running the built-in program: Center mister VPD only, Wall drip run-now, no schedules"],
 ]) {
@@ -139,7 +157,7 @@ test("History: one period drives the page, four KPIs against the previous period
   await useScreensClock(page, request, "in-band");
   await load(page, "/water/history");
   await expect(page.locator(".wat-kpis .metric-label")).toHaveText(["Watering", "Gallons", "Runs", "Missed, short or cap"], { useInnerText: false });
-  await expect(page.locator(".page-status")).toHaveText(/^Last 7 days: .* watering/);
+  await expect(page.locator(".page-status")).toHaveText(/^Last\s7\sdays:\s.*\swatering/);
   await page.getByRole("list", { name: "Period" }).getByRole("link", { name: "90 d" }).click();
   await expect(page).toHaveURL(/\/water\/history\?range=90d$/);
   await expect(page.locator('[data-kpi="runs"]')).toContainText("Counted over 31 days at most");
@@ -252,4 +270,46 @@ test("at 390 px Stop reads ■ Stop all (the square drawn) and stays reachable w
   await expect(stop.locator(".glyph-stop")).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect(stop).toBeInViewport();
+});
+
+// ---------------------------------------------------------------------------------------------------- Soil (SO-01 to SO-04)
+for (const viewport of [PHONE, { width: 820, height: 1180 }, DESKTOP]) {
+  for (const scheme of ["light", "dark"] as const) {
+    test(`${viewport.width} px ${scheme}: Soil shows one panel per probe zone; a probe with no readings says so and is never drawn as zero`, async ({ page, request }) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme: scheme });
+      await useScreensClock(page, request, "soil-west-unserved");
+      await load(page, "/water/soil");
+      const south = page.getByRole("region", { name: "South 1" });
+      await expect(south.locator('.wat-soil-stat[data-measure="moisture"] .wat-soil-value')).toHaveText(/^\d+\.\d%$/);
+      await expect(south.locator(".wat-soil-range-kv")).toContainText("Range");
+      const west = page.getByRole("region", { name: "West" });
+      await expect(west).toContainText("This probe has not reported in the last 7 days.");
+      await expect(west.locator(".wat-soil-stat")).toHaveCount(0);
+      await expectNoHorizontalScroll(page);
+    });
+  }
+}
+
+test("Soil: an operator edits a zone's moisture range in place and sends only what changed; a viewer sees no Edit", async ({ page, request }) => {
+  await useScreensClock(page, request, "in-band");
+  await load(page, "/water/soil");
+  await page.getByRole("button", { name: "Edit West moisture range" }).click();
+  const form = page.getByRole("form", { name: "Edit West moisture range" });
+  await form.getByLabel("Low end of the range").fill("38");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form).toHaveCount(0);
+  expect((await fixtureWrites(request)).map((write) => [write.operationId, write.body])).toEqual([["API-SOIL-02", { min_pct: 38 }]]);
+  await useScreensClock(page, request, ["in-band", "viewer-session"]);
+  await load(page, "/water/soil");
+  await expect(page.getByRole("region", { name: "West" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /moisture range/ })).toHaveCount(0);
+});
+
+test("History: the day's water from the daily record names the record as its source", async ({ page, request }) => {
+  await useScreensClock(page, request, "in-band");
+  await load(page, "/water/history");
+  const record = page.getByRole("region", { name: "The day's water, from the daily record" });
+  await expect(record).toContainText("Source: the daily record");
+  await expectNoHorizontalScroll(page);
 });

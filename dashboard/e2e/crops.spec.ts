@@ -31,8 +31,8 @@ for (const viewport of [DESKTOP, PHONE]) {
     await useScreensClock(page, request, "crops-planted");
     await load(page, "/hydroponics");
     await expect(page.locator('button[data-cell^="EAST-HYDRO-"]')).toHaveCount(60);
-    await expect(page.getByText(/19 of 60 hydro cells planted/)).toBeVisible();
-    await expect(cell(page, "EAST-HYDRO-1")).toHaveAttribute("aria-label", /^EAST-HYDRO-1, Lettuce, Butterhead, /);
+    await expect(page.getByText(/19\sof\s60\shydro\scells\splanted/)).toBeVisible();
+    await expect(cell(page, "EAST-HYDRO-1")).toHaveAttribute("aria-label", /^EAST-HYDRO-1,\sLettuce,\sButterhead,\s/);
     await expect(page.getByRole("region", { name: /cells, scrolls sideways$/ })).toBeVisible();
     await expectNoHorizontalScroll(page);
     await axe(page);
@@ -61,7 +61,7 @@ test("an operator selects three empty cells and plants them: one API-CROP-07 wit
   await dialog(page).getByLabel("Plants per cell").fill("1");
   await expect(dialog(page).getByRole("status")).toContainText("(3 cells)");
   await dialog(page).getByRole("button", { name: "Save planting" }).click();
-  await expect(cell(page, "EAST-HYDRO-42")).toHaveAttribute("aria-label", /^EAST-HYDRO-42, Lettuce, /);
+  await expect(cell(page, "EAST-HYDRO-42")).toHaveAttribute("aria-label", /^EAST-HYDRO-42,\sLettuce,\s/);
   const writes = await fixtureWrites(request);
   expect(writes.map((row) => row.operationId)).toEqual(["API-CROP-07"]);
   expect(writes[0].body).toMatchObject({ crop: "Lettuce", positions: ["EAST-HYDRO-41..43"] });
@@ -132,4 +132,33 @@ test("the soil planting map excludes hydro spots; the dedicated workspace keeps 
   await load(page, "/hydroponics");
   await expect(page.locator('button[data-cell^="EAST-HYDRO-"]')).toHaveCount(60);
   await expect(page.getByRole("heading", { name: "Water quality" })).toBeVisible();
+});
+
+test("an operator adds a note to a planting from its drawer, and the note is listed in its history", async ({ page, request }) => {
+  await page.setViewportSize(DESKTOP);
+  await useScreensClock(page, request, "crops-planted");
+  await load(page, "/crops/history?planting=16");
+  await dialog(page).getByRole("textbox", { name: "Add a note" }).fill("First flowers on rail A");
+  await dialog(page).getByRole("button", { name: "Save note" }).click();
+  await expect(dialog(page).getByRole("list", { name: "Planting history" })).toContainText("Note · First flowers on rail A");
+  const writes = await fixtureWrites(request);
+  expect(writes.map((row) => row.operationId)).toEqual(["API-CROP-12"]);
+  expect(writes[0].body).toEqual({ note: "First flowers on rail A" });
+});
+
+test("the edit form records the expected harvest", async ({ page, request }) => {
+  await page.setViewportSize(PHONE);
+  await useScreensClock(page, request, "crops-planted");
+  await load(page, "/crops/history?planting=16&do=edit");
+  await dialog(page).getByLabel("Expected harvest (optional)").fill("2026-12-15");
+  await dialog(page).getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(async () => (await fixtureWrites(request)).map((row) => [row.operationId, row.body])).toEqual([["API-CROP-11", { expected_harvest: "2026-12-15" }]]);
+});
+
+test("a viewer opens a planting's drawer and reads its history with no note field", async ({ page, request }) => {
+  await useFixture(request, ["crops-planted", "viewer-session"]);
+  await load(page, "/crops/history?planting=16");
+  await expect(dialog(page).getByRole("heading", { name: "History" })).toBeVisible();
+  await expect(dialog(page).getByRole("textbox", { name: "Add a note" })).toHaveCount(0);
+  await expect(dialog(page).getByRole("button", { name: "Save note" })).toHaveCount(0);
 });

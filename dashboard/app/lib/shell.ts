@@ -100,8 +100,8 @@ function flowBanner(leak: Now["leak"]): ShellBanner {
 
 /**
  * The shell's banners and count from the newest API-01 and API-02 answers (null before the first) and API-02's
- * failures in a row. It never says "Controller offline": the ingestor banner names a dead ingestor, and the controller
- * banner says the controller keeps running what it holds.
+ * failures in a row. It never says "Controller offline": the ingestor banner names a dead ingestor, and both say the
+ * controller keeps holding the band on its own, which its law does with or without the host.
  */
 export function shellStatus(me: Me | null, now: Now | null, consecutiveFailures: number): ShellStatus {
   const apiDown = consecutiveFailures >= API_DOWN_AFTER;
@@ -111,13 +111,13 @@ export function shellStatus(me: Me | null, now: Now | null, consecutiveFailures:
   const climateReporting = now ? climateFresh(now.freshness.climate) : null;
   if (now && !ingestorRunning) {
     faults.push({
-      kind: "ingestor", tone: "fault", link: { to: "/#data", label: "Data on Now" },
-      text: `Ingestor not running${since(now.freshness.ingestor.observed_at)}. The controller keeps running on its own.`,
+      kind: "ingestor", tone: "fault", link: { to: "/system/data", label: "Data" },
+      text: `Ingestor not running${since(now.freshness.ingestor.observed_at)}. The controller keeps holding the band on its own; nothing new is recorded until it is back.`,
     });
   } else if (now && !climateReporting) {
     faults.push({
-      kind: "controller", tone: "fault", link: { to: "/equipment", label: "Equipment" },
-      text: `Controller not reporting${since(now.freshness.climate.observed_at)}. If it has power, it keeps running VPD misting, its caps and (with the irrigation firmware) its schedules.`,
+      kind: "controller", tone: "fault", link: { to: "/system/controller", label: "Controller" },
+      text: `Controller not reporting${since(now.freshness.climate.observed_at)}. If it has power, it keeps holding the band on its own and keeps its water schedules; its gap log fills in the record when it reconnects.`,
     });
   }
   if (now && now.leak.alert_id !== null && now.leak.alert_id !== undefined) faults.push(flowBanner(now.leak));
@@ -125,7 +125,7 @@ export function shellStatus(me: Me | null, now: Now | null, consecutiveFailures:
   if (now?.writer.stuck) {
     const differing = Number.isFinite(now.writer.differing) ? ` (${now.writer.differing} differ)` : "";
     warns.push({
-      kind: "stuck", tone: "warn", link: { to: "/settings?filter=requested", label: "Requested settings" },
+      kind: "stuck", tone: "warn", link: { to: "/system/data", label: "Delivery" },
       text: `Settings not reaching the controller${since(now.writer.oldest_since)}${differing}`,
     });
   }

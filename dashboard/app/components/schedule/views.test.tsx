@@ -99,7 +99,7 @@ test("a block's words take the room beside it: all of them, else its time and ou
   expect(text(document.querySelector(".sch-axis-end"))).toBe("that day / cap");
   cleanup();
   renderUi(<DayTimeline model={model("2026-11-04")} now={NOW} head={<h2>Wednesday</h2>} label="Runs" />);
-  expect(text(document.querySelector(".sch-axis-end"))).toBe("planned / cap");
+  expect(text(document.querySelector(".sch-axis-end"))).toBe("scheduled / cap");
 });
 
 test("a strip without API-05's answer says its valve time is unknown and hatches it up to now; with the answer and nothing in it, none", () => {
@@ -150,7 +150,7 @@ test("the week strip: seven days with their summaries and levels, the selected o
   // The step past what is served keeps its frame at the same height, quieter, so the strip stays balanced (#1308 visual QA 36).
   expect(document.querySelector("span.sch-week-step.sch-week-next.is-off")?.getAttribute("aria-hidden")).toBe("true");
   const css = readFileSync(join(process.cwd(), "app/styles/water.css"), "utf8");
-  expect(css).toContain("span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:var(--radius-sm);");
+  expect(css).toContain("span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--radius-sm);");
 });
 
 test("the agenda: a row is a button that opens its popover, NEXT on the next planned run, and the pauses above the days", () => {
@@ -159,7 +159,7 @@ test("the agenda: a row is a button that opens its popover, NEXT on the next pla
   expect(text(document.querySelector(".sch-agenda-pauses"))).toBe("Wall drip: paused until 14:00 by jason");
   const rows = screen.getAllByRole("button");
   expect(rows.map((row) => row.getAttribute("aria-label")?.replaceAll(" ", " "))).toEqual([
-    "06:50 Center mister · 8 × 60 s, Dawn drench · ok, done", "07:35 Wall drip · 12 min, Wall MWF · ok, done", "06:50 Center mister · 8 × 60 s, Dawn drench · Iris may adjust, next",
+    "06:50 Center mister · 8 × 60 s, Dawn drench · ok, done", "07:35 Wall drip · 12 min, Wall MWF · ok, done", "06:50 Center mister · 8 × 60 s, Dawn drench, next",
   ]);
   fireEvent.click(rows[2]);
   expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ next: true, lineId: "L04" }), rows[2]);

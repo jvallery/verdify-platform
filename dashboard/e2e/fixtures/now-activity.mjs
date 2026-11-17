@@ -25,10 +25,6 @@ export const FIXTURES = {
     const today = local(world.now).date;
     world.scorecard = new Map([[today, scorecardRow(96, 88)], [addDays(today, -1), scorecardRow(94, 91)]]);
   },
-  // A Fans, vent open 15 min burst from Now's quick actions, 3 minutes in: the controller reads it back with 12 minutes left.
-  "fans-burst": (world) => {
-    world.overrides = [{ kind: "fans", since: iso(world.now - 3 * MINUTE), ends_at: iso(world.now + 12 * MINUTE), held_reason: null }];
-  },
   // Two settings the controller has not confirmed for over 10 minutes, with delivery not stuck: Needs someone links them.
   "settings-unconfirmed": (world) => {
     world.writer = { ...world.writer, differing: 2, stuck: false, oldest_since: iso(world.now - 25 * MINUTE) };

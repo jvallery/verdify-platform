@@ -116,6 +116,40 @@ def gap_ledger_sql(*, grants: bool = True) -> str:
     return sql if grants else re.sub(r"^GRANT [^;]*;\n?", "", sql, flags=re.M)
 
 
+HEALTH_COLUMN_MIGRATIONS = (
+    GAP_LEDGER_MIGRATION,
+    REPO_ROOT / "db" / "migrations" / "315-replayed-gaps-counter-check-and-health.sql",
+)
+
+
+def diagnostics_health_columns_sql(schema: str = "public") -> str:
+    """The twelve controller-health columns 314 and 315 add to diagnostics, taken from the delivered files, for a
+    diagnostics table built from the db/schema.sql dump (which predates them). Now (API-02), API-35 and the
+    diagnostics.* series keys read them. ``schema`` names the table's schema when a test builds it elsewhere."""
+    statements = [
+        statement
+        for path in HEALTH_COLUMN_MIGRATIONS
+        for statement in re.findall(r"^ALTER TABLE public\.diagnostics ADD COLUMN [^;]*;", path.read_text(), re.M)
+    ]
+    assert len(statements) == 12, statements
+    return "\n".join(statement.replace("public.diagnostics", f"{schema}.diagnostics") for statement in statements)
+
+
+ENERGY_COLUMNS_MIGRATION = REPO_ROOT / "db" / "migrations" / "248-shelly-source-interval-accounting.sql"
+OPERATOR_METRICS_MIGRATION = REPO_ROOT / "db" / "migrations" / "312-operator-metrics-reads.sql"
+
+
+def energy_view_sql(*, grants: bool = True) -> str:
+    """248's meter columns on an energy table built from the db/schema.sql dump, then 312's body: v_dashboard_energy
+    (the energy.* series keys read it) and, with ``grants``, its SELECT grants to the dashboard duty, which also cover
+    daily_band_compliance and daily_record, so both tables must exist first."""
+    (columns,) = re.findall(r"^ALTER TABLE public\.energy\b.*?;", ENERGY_COLUMNS_MIGRATION.read_text(), re.M | re.S)
+    body = migration_body(OPERATOR_METRICS_MIGRATION)
+    if not grants:
+        (body,) = re.findall(r"^CREATE VIEW public\.v_dashboard_energy AS.*?;", body, re.M | re.S)
+    return columns + "\n" + body
+
+
 def migration_body(path: Path = MINUTES_MIGRATION) -> str:
     """The statements between a delivered file's predecessor and successor blocks."""
     text = path.read_text()

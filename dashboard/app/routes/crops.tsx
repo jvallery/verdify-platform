@@ -2,6 +2,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Outlet, useLocation, useOutletContext, useSearchParams } from "react-router";
 import { CellDrawer, PLANTING_MODES, PlantingDrawer, type PlantingMode } from "../components/crops/drawers";
+import { Page } from "../components/layout/page";
 import { PageHeader } from "../components/layout/page-header";
 import { growingLocations, workspacePlantingCount, hydroTally, selectedPlantings, selectionPositions, type PlaceKey } from "../lib/crops";
 import type { Locations } from "../lib/operator-api";
@@ -75,10 +76,10 @@ export function CropsWorkspace({ hydro = false }: { hydro?: boolean }) {
   }, [locations.data, selected, plantingId]);
   const context: CropsOutlet = { hydro, locations, selected, setSelected, openPlanting, openCell };
   const line = locations.isError || locations.consecutiveFailures > 0 ? "Planting records could not be refreshed" : status(locations.data, hydro);
-  return <div className="crops-page">
+  return <Page className="crops-page">
     <PageHeader view={view} status={view === "crops-history" ? "Planting records across soil and hydroponic locations" : line} />
     <Outlet context={context} />
     {Number.isInteger(plantingId) && plantingId > 0 && <PlantingDrawer key={plantingId} id={plantingId} mode={mode} setMode={setMode} onClose={closeDrawer} selected={forPlanting} />}
     {cell && !params.get("planting") && <CellDrawer key={cell} label={cell} locations={locations.data ?? null} onClose={closeDrawer} />}
-  </div>;
+  </Page>;
 }

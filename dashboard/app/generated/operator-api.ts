@@ -277,12 +277,12 @@ export interface paths {
         };
         /**
          * The house band as stored and as drafted in the band editor, over one day, before Save
-         * @description Read-only (#1334). Reads the 24 house anchors as fn_crop_band_value resolves them and overlays the draft: any simple temperature field recompiles the six temperature anchors from day (solar noon) and night (solar midnight) values with sunrise and sunset at their midpoint, so the curve is a pure sinusoid that never leaves its noon and midnight values; any VPD field does the same for the VPD anchors; then each anchor= item sets one raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase, so the draft is the curve the controller runs. findings with severity error are what API-24 refuses. The expected night VPD ribbon is a 14-day indoor dewpoint fit on quiet deep-night hours and the forecast; night_heat_kwh is 0.19 kW/°F over the forecast's night hours. Codes: unknown_target (anchor not a house band anchor), out_of_range (outside planner_effective_bounds), read_only (no complete anchor set).
+         * @description Read-only (#1334). Reads the 24 house anchors as fn_crop_band_value resolves them and overlays the draft: any simple temperature field recompiles the six temperature anchors from day (solar noon) and night (solar midnight) values with sunrise and sunset at their midpoint, so the curve is a pure sinusoid that never leaves its noon and midnight values; any VPD field does the same for the VPD anchors. The edge form does the same from the band's low and high edges: each low or high series given an edge field compiles from its day and night edges with sunrise and sunset halfway between them, on the push step, an edge left out keeping the band's own noon or midnight value, and a series given no edge keeps its anchors; a target whose curve would leave its new edges anywhere in the day moves to their midpoint at all four anchors in the draft, and one whose curve stays between them stays. One axis given in both forms is invalid_request, and the findings of an axis given as edges name the edge field (for band order, the edge the target crosses). Then each anchor= item sets one raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase, so the draft is the curve the controller runs. findings with severity error are what API-24 refuses. The expected night VPD ribbon is a 14-day indoor dewpoint fit on quiet deep-night hours and the forecast; night_heat_kwh is 0.19 kW/°F over the forecast's night hours. Codes: unknown_target (anchor not a house band anchor), out_of_range (outside planner_effective_bounds), read_only (no complete anchor set).
          */
         readonly get: operations["API-23"];
         /**
          * Save the band editor's draft, every changed house anchor in one write
-         * @description The same draft as API-23 (profile fields and Advanced anchors). In one transaction: each house anchor the draft changes (by more than half the push quantum, 0.1 °F or 0.01 kPa) is an API-10 write, its desired_state row with the manual flag and its crop_band_anchors rows, and one activity_log row, action band.write, target "house band", detail {desired_ids, changes [{param, desired_id, before, value}], anchor_rows, manual, profile, simple}. The dispatcher's anchor sync delivers the anchors; nothing talks to the controller. Codes: out_of_range (an API-23 error finding: band order, the 40/100 °F guardrails 5 °F outside the band, the 0.3-3.0 kPa VPD guardrails or the 0.74 kPa night floor; or an anchor outside its bounds), invalid_request (the draft changes nothing), read_only (Iris: the band is operator-owned), unknown_target, request_id_reused.
+         * @description The same draft as API-23 (profile fields or edges, and Advanced anchors). In one transaction: each house anchor the draft changes (by more than half the push quantum, 0.1 °F or 0.01 kPa) is an API-10 write, its desired_state row with the manual flag and its crop_band_anchors rows, and one activity_log row, action band.write, target "house band", detail {desired_ids, changes [{param, desired_id, before, value}], anchor_rows, manual, profile, simple, edges, edges_simple}. Under the edge form a target whose curve would leave its new edges moves to their midpoint at all four anchors in the same write. One axis given in both forms is invalid_request. The dispatcher's anchor sync delivers the anchors; nothing talks to the controller. Codes: out_of_range (an API-23 error finding: band order, the 40/100 °F guardrails 5 °F outside the band, the 0.3-3.0 kPa VPD guardrails or the 0.74 kPa night floor; or an anchor outside its bounds), invalid_request (the draft changes nothing), read_only (Iris: the band is operator-owned), unknown_target, request_id_reused.
          */
         readonly put: operations["API-24"];
         readonly post?: never;
@@ -408,6 +408,28 @@ export interface paths {
          * @description from_positions (default: every place it is now) close at moved_at and to_positions open then. Codes as API-CROP-07, plus planting_ended and unknown_target.
          */
         readonly post: operations["API-CROP-08"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/crops/plantings/{planting_id}/notes": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly planting_id: components["parameters"]["PlantingId"];
+            };
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Add a note to a planting's history (ended plantings too)
+         * @description The crops service's annotate function, the one MCP annotate_planting uses: one crop_events note row and one activity_log row (action planting.note) in one transaction. Codes: unknown_target (no such planting), request_id_reused.
+         */
+        readonly post: operations["API-CROP-12"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -708,6 +730,46 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/law": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * What the controller's climate law is doing now and why
+         * @description From the newest law record, drying meter and constants hash in system_state (climate_law_state, climate_drying_meter, climate_law_constants, outdoor_source, lead_fan), the newest non-null diagnostics value per column over 15 min, the newest equipment_state row per relay with its start, the newest climate row, fn_band_setpoints(now()) for the host's band, v_desired_state_current for the owner's drying cost limit, today's daily_record row and the law constants this API build was generated from. Every threshold is computed from the band in use and those constants. A value the controller has not reported is null, never 0. Polled every 15 s by Climate, System and Now.
+         */
+        readonly get: operations["API-30"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/law/history": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * The law's requests, latches, drying, outdoor source, drying price and band over a window
+         * @description From the climate_law_state and outdoor_source rows in [from, to), compressed to change intervals in the database. A span of more than 180 s with no law record is unknown. cost and band use API-04's bucket ladder with at most 1,500 points. request.fan1 is at least one fan, request.fan2 both fans. Windows up to 31 days (else 422 window_too_large); the 10 s statement timeout is 503 query_timeout.
+         */
+        readonly get: operations["API-31"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/lighting": {
         readonly parameters: {
             readonly query?: never;
@@ -774,7 +836,7 @@ export interface paths {
         };
         /**
          * Now hero
-         * @description Indoor and outdoor climate with ages, the band in force (the dispatcher's DERIVED band rows) with a verdict per metric, mode, Iris status, equipment running, bursts from the controller's readback, the leak flag, the open-alert count, source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot. Polled every 15 s; the shell banners read `freshness`, `writer`, `leak` and `alerts`. Water and occupancy come from API-IRR-01.
+         * @description Indoor and outdoor climate with ages, the band in force (the dispatcher's DERIVED band rows) with a verdict per metric, mode, Iris status, equipment running, bursts from the controller's readback, the leak flag, the open-alert count, source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot. The climate law's state carries the band the controller is using; review is the daily review's state today (as API-34's today); outdoor.source says where the outdoor reading comes from; controller carries the three health facts the shell's banner reads. Polled every 15 s; the shell banners read `freshness`, `writer`, `leak` and `alerts`. Water and occupancy come from API-IRR-01.
          */
         readonly get: operations["API-02"];
         readonly put?: never;
@@ -817,6 +879,66 @@ export interface paths {
          * @description One entry per America/Denver day, oldest first, from plan_journal, planner_trigger_ledger (MIDNIGHT, SUNRISE and SUNSET are required) and setpoint_changes source plan. Cost comes from planner_inference_runs through migration 302's view: before the Cortex planner (#1350) records a call, cost is null and cost_recorded_from is null, which the page shows as "not recorded". dispatched and proposed_only are null until planner_inference_runs has the Cortex attempt columns (cortex_attempts false).
          */
         readonly get: operations["API-25"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/record/days": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * The daily record per local day with its 7- and 30-day means
+         * @description One row per America/Denver day, oldest first: compliance from daily_band_compliance, relay starts and run time from the daily relay record (v_dashboard_relay_day), utilities, water and drying from daily_record, and the alert counts from v_daily_scorecard. The means cover complete days only. Up to 400 days (else 422 window_too_large); the default is the 30 days ending today.
+         */
+        readonly get: operations["API-32"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/record/relay-check": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * The controller's own relay counters against the stored daily relay record
+         * @description From v_relay_counter_reconciliation_daily, newest day first.
+         */
+        readonly get: operations["API-33"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/reviews": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * The daily reviewer's reviews, newest first, today's review state and the proposal waiting for the owner
+         * @description From v_dashboard_review, the open daily_review_missed alert and the activity_log rows with action band.write. A proposal is waiting on the newest written review that carries one when no band.write followed its written_at; answered when one did; superseded when a newer written review exists. tokens.rise_pct compares the newest review with the 7-review mean of the reviews before it.
+         */
+        readonly get: operations["API-34"];
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
@@ -958,6 +1080,66 @@ export interface paths {
          * @description From equipment_state, seeded with the state at `from` (fn_equip_at). Wet lines carry their cause from the run ledger. Unknown stays unknown. Windows up to 31 days. The grow lights have two lanes each: the Lutron readback (grow_light_main, grow_light_grow; unknown 600 s after its newest row) and the controller's switch intent (grow_light_main_intent, grow_light_grow_intent; Q-09), which the lanes compare with the readback (#1356).
          */
         readonly get: operations["API-05"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/system/controller": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * The controller's hardware budget now, against its limits
+         * @description The newest non-null diagnostics value per column over 15 min, by the same SQL as the operator API's product metrics (CONTROLLER_SQL and HEALTH_SQL), with system_state ingestor_counters and climate_law_constants. limits are the hardware-budget thresholds from their one existing definition. Trends come from API-04.
+         */
+        readonly get: operations["API-35"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/system/data": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Whether telemetry is flowing, what was lost and what the gap log restored
+         * @description From v_data_gaps_unreplayed, v_dashboard_gap_replay, the product metrics' FRESHNESS_SQL, FLOW_SQL and PROBES_SQL, system_state (ingestor_heartbeat, ingestor_counters, setpoint_snapshot_pass, dispatcher_stage) and diagnostics.gap_log_state, over the days ending now.
+         */
+        readonly get: operations["API-36"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/system/delivery": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Whether the controller took what the host pushed
+         * @description From setpoint_changes in the window (by ts), system_state dispatcher_stage and setpoint_snapshot_pass, and the product metrics' DELIVERY_SQL and OLDEST_UNCONFIRMED_SQL, so the dashboard and the estate dashboard agree.
+         */
+        readonly get: operations["API-37"];
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
@@ -1141,6 +1323,39 @@ export interface components {
             readonly low: components["schemas"]["NullableNumbers"];
             readonly target: components["schemas"]["NullableNumbers"];
         };
+        /** @description A band's four edges at one moment */
+        readonly BandEdges: {
+            /** @description °F */
+            readonly temp_high_f: number;
+            /** @description °F */
+            readonly temp_low_f: number;
+            /** @description kPa */
+            readonly vpd_high_kpa: number;
+            /** @description kPa */
+            readonly vpd_low_kpa: number;
+        };
+        /** @description Per axis, true when the sunrise and sunset anchors of its low and high series are the midpoint of their noon and midnight values on the push step, so the eight edges describe the band in full */
+        readonly BandEdgesSimple: {
+            readonly temp: boolean;
+            readonly vpd: boolean;
+        };
+        /** @description Where the law's rules switch on, as offsets from the band's edges, for the preview to draw (the law constants) */
+        readonly BandLawLines: {
+            /** @description Cooling comes on above temp_high plus this, °F */
+            readonly cool_on_above_high_f: number;
+            /** @description Drying is wanted below vpd_low plus this, kPa */
+            readonly dry_on_above_vpd_low_kpa: number;
+            /** @description The second fan comes on above temp_high plus this, °F */
+            readonly fan2_on_above_high_f: number;
+            /** @description The fogger comes on above vpd_high plus this, kPa */
+            readonly fog_on_above_vpd_high_kpa: number;
+            /** @description The electric heater comes on below temp_low plus this, °F */
+            readonly heat1_on_above_low_f: number;
+            /** @description The furnace comes on below temp_low plus this, °F */
+            readonly heat2_on_above_low_f: number;
+            /** @description The misters join above vpd_high plus this, kPa */
+            readonly mist_on_above_vpd_high_kpa: number;
+        };
         readonly BandPosition: {
             readonly high: number | null;
             readonly low: number | null;
@@ -1190,9 +1405,36 @@ export interface components {
             /** @description kPa */
             readonly vpd_night: number;
         };
-        /** @description The simple fields to change; a field left out keeps the band's own value */
+        /** @description The band's low and high edges at solar noon (day) and solar midnight (night), as the anchors hold them */
+        readonly BandProfileEdges: {
+            /** @description temp_high at solar noon, °F */
+            readonly temp_high_day: number;
+            /** @description temp_high at solar midnight, °F */
+            readonly temp_high_night: number;
+            /** @description temp_low at solar noon, °F */
+            readonly temp_low_day: number;
+            /** @description temp_low at solar midnight, °F */
+            readonly temp_low_night: number;
+            /** @description vpd_high at solar noon, kPa */
+            readonly vpd_high_day: number;
+            /** @description vpd_high at solar midnight, kPa */
+            readonly vpd_high_night: number;
+            /** @description vpd_low at solar noon, kPa */
+            readonly vpd_low_day: number;
+            /** @description vpd_low at solar midnight, kPa */
+            readonly vpd_low_night: number;
+        };
+        /** @description The simple fields or edges to change; a field left out keeps the band's own value. An axis is given either as a target with its width or as edges, never both */
         readonly BandProfilePatch: {
             readonly temp_day?: number | null;
+            /** @description Edge form: the high edge at solar noon, °F */
+            readonly temp_high_day?: number | null;
+            /** @description Edge form: the high edge at solar midnight, °F */
+            readonly temp_high_night?: number | null;
+            /** @description Edge form: the low edge at solar noon, °F */
+            readonly temp_low_day?: number | null;
+            /** @description Edge form: the low edge at solar midnight, °F */
+            readonly temp_low_night?: number | null;
             readonly temp_night?: number | null;
             readonly temp_width_day?: number | null;
             readonly temp_width_night?: number | null;
@@ -1201,6 +1443,14 @@ export interface components {
             readonly vpd_below_day?: number | null;
             readonly vpd_below_night?: number | null;
             readonly vpd_day?: number | null;
+            /** @description Edge form: the VPD high edge at solar noon, kPa */
+            readonly vpd_high_day?: number | null;
+            /** @description Edge form: the VPD high edge at solar midnight, kPa */
+            readonly vpd_high_night?: number | null;
+            /** @description Edge form: the VPD low edge at solar noon, kPa */
+            readonly vpd_low_day?: number | null;
+            /** @description Edge form: the VPD low edge at solar midnight, kPa */
+            readonly vpd_low_night?: number | null;
             readonly vpd_night?: number | null;
         };
         /** @description API-23: the house band as stored (current) and drafted, one point per step_s */
@@ -1262,6 +1512,7 @@ export interface components {
                 readonly vpd_max_kpa: number;
                 readonly vpd_min_kpa: number;
             };
+            readonly law_lines: components["schemas"]["BandLawLines"];
             /** @description The last 24 h of the measured house average on t, by America/Denver clock time: a step before now holds today's 10-min bucket, a later step yesterday's */
             readonly measured: {
                 /** @description Per step, the bucket its values come from; null if none */
@@ -1310,6 +1561,8 @@ export interface components {
             readonly anchors: {
                 readonly [key: string]: number;
             };
+            readonly edges: components["schemas"]["BandProfileEdges"];
+            readonly edges_simple: components["schemas"]["BandEdgesSimple"];
             readonly profile: components["schemas"]["BandProfile"];
             /** @description True when sunrise and sunset are the midpoint of noon and midnight */
             readonly simple: boolean;
@@ -1413,14 +1666,300 @@ export interface components {
         /** @description ESP32 diagnostics; a reset of uptime_s confirms a restart */
         readonly Controller: {
             readonly firmware_version?: string | null;
+            /**
+             * @description The gap log's state (diagnostics.gap_log_state), as LawAlone.gap_log words it: armed, not_armed_yet, nvs_small, nvs_full, nvs_slow or nvs_error; a newer state is sent as stored. Null until reported
+             * @example armed
+             * @example nvs_full
+             */
+            readonly gap_log?: string | null;
             /** @description kB, as stored in diagnostics.heap_bytes */
             readonly heap_free_kb?: number | null;
             readonly heap_largest_block_kb?: number | null;
+            /** @description The lowest free heap in the last minute, kB (diagnostics.heap_min_free_minute_kb, newest non-null over 15 min) */
+            readonly heap_minute_low_kb?: number | null;
             /** Format: date-time */
             readonly observed_at?: string | null;
             readonly reset_reason?: string | null;
+            /** @description Restarts the controller has counted (diagnostics.restart_count); null until it reports one */
+            readonly restart_count?: number | null;
             readonly rssi_dbm?: number | null;
             readonly uptime_s?: number | null;
+        };
+        /** @description API-35: the controller's hardware budget, from the newest non-null diagnostics value per column over 15 min. Null means not reported in that window, never 0 */
+        readonly ControllerHealth: {
+            /**
+             * @description As LawBand.source
+             * @example onchip_curve
+             */
+            readonly band_source: string | null;
+            readonly clock: {
+                /** @description Time syncs missed */
+                readonly misses: number | null;
+                readonly sync_age_s: number | null;
+                readonly valid: boolean | null;
+            };
+            readonly firmware: {
+                readonly matches: boolean | null;
+                /** @description The firmware the ingestor expects (system_state ingestor_counters) */
+                readonly pinned: string | null;
+                /** @description The firmware the controller runs */
+                readonly version: string | null;
+            };
+            /**
+             * @description As LawAlone.gap_log
+             * @example armed
+             */
+            readonly gap_log: string | null;
+            /** @description kB */
+            readonly heap: {
+                readonly free_kb: number | null;
+                readonly largest_block_kb: number | null;
+                readonly largest_block_minute_low_kb: number | null;
+                /** @description The lowest since the restart */
+                readonly min_free_kb: number | null;
+                /** @description The lowest in the last minute */
+                readonly minute_low_kb: number | null;
+            };
+            /** @description The hardware-budget thresholds from their one existing definition */
+            readonly limits: {
+                /** @description Free heap under this is critical */
+                readonly heap_critical_kb: number;
+                /** @description Free heap under this for 2 min warns */
+                readonly heap_warning_kb: number;
+                /** @description The largest free block a firmware update needs */
+                readonly largest_block_kb: number;
+                /** @description A control loop slower than this warns */
+                readonly loop_worst_ms: number;
+                /** @description The gap log arms with at least this share of storage free */
+                readonly nvs_arm_free_pct: number;
+                /** @description The gap log stops under this share free */
+                readonly nvs_stop_free_pct: number;
+                /** @description Storage writes slower than this stop the gap log */
+                readonly nvs_write_ms: number;
+                /** @description The free heap a firmware update needs */
+                readonly ota_free_kb: number;
+                /** @description Free stack under this warns */
+                readonly stack_free_b: number;
+            };
+            readonly loop: {
+                /** @description The least free stack seen */
+                readonly stack_free_min_b: number | null;
+                /** @description The slowest control loop in the last minute */
+                readonly worst_ms: number | null;
+            };
+            /** @description The controller's settings storage */
+            readonly nvs: {
+                readonly free_entries: number | null;
+                readonly used_entries: number | null;
+                readonly write_worst_ms: number | null;
+            };
+            /** Format: date-time */
+            readonly observed_at: string | null;
+            readonly probes: {
+                readonly active: number | null;
+                readonly degraded: boolean | null;
+                /**
+                 * @description The controller's probe summary as it sends it
+                 * @example OK
+                 * @example North INVALID, South STALE
+                 */
+                readonly health: string | null;
+            };
+            readonly restarts: {
+                /** Format: date-time */
+                readonly booted_at: string | null;
+                readonly count: number | null;
+                /** @example Software reset */
+                readonly reset_reason: string | null;
+            };
+            readonly uptime_s: number | null;
+            readonly wifi: {
+                /** @description Connections to the controller's API */
+                readonly api_clients: number | null;
+                readonly disconnects: number | null;
+                readonly rssi_dbm: number | null;
+            };
+        };
+        /** @description API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means and the periods before and since the law */
+        readonly DailyRecord: {
+            /** @description The 30 days before law_started, leaving out days with a band edit (activity_log band.write); null when law_started is null */
+            readonly baseline: components["schemas"]["RecordPeriod"] | null;
+            /** @description Ascending by date */
+            readonly days: readonly components["schemas"]["RecordDay"][];
+            /** Format: date */
+            readonly from: string;
+            /**
+             * Format: date
+             * @description The local day of the controller's first law record; null when none is stored
+             */
+            readonly law_started: string | null;
+            /** @description The means the reviewer and the owner compare against, over complete days only; null with no complete day */
+            readonly means: {
+                readonly d7: components["schemas"]["RecordMeans"] | null;
+                readonly d30: components["schemas"]["RecordMeans"] | null;
+            };
+            /** Format: date-time */
+            readonly server_time: string;
+            /** @description The days from the day after law_started through yesterday, band-edit days left out as in baseline; null until one of those days is complete (ended and its record stored) */
+            readonly since_law: components["schemas"]["RecordPeriod"] | null;
+            /**
+             * Format: date
+             * @description Inclusive local day
+             */
+            readonly to: string;
+        };
+        /** @description API-36: whether telemetry is flowing, what was lost and what the gap log restored */
+        readonly DataContinuity: {
+            /** @description Per local day, oldest first */
+            readonly by_day: readonly {
+                /** Format: date */
+                readonly date: string;
+                /** @description Seconds of outages not restored */
+                readonly outage_s: number;
+                /** @description Minutes the gap log restored */
+                readonly replayed_min: number;
+            }[];
+            /** Format: date-time */
+            readonly from: string;
+            /**
+             * @description As LawAlone.gap_log
+             * @example armed
+             */
+            readonly gap_log: string | null;
+            readonly ingestor: {
+                readonly heartbeat_age_s: number | null;
+                /**
+                 * Format: date-time
+                 * @description The ingestor_counters row
+                 */
+                readonly observed_at: string | null;
+                readonly payloads_rejected: number | null;
+                readonly reconnects: number | null;
+                readonly replay_failures: number | null;
+                /** @description Rows that failed validation */
+                readonly rows_rejected: {
+                    readonly [key: string]: number;
+                } | null;
+            };
+            /** @description Telemetry outages the gap log has not restored (v_data_gaps_unreplayed), newest first, at most 200 */
+            readonly outages: readonly {
+                readonly duration_s: number;
+                /** Format: date-time */
+                readonly end: string;
+                /**
+                 * @description Why the ingestor lost telemetry, as stored
+                 * @example ingestor_restart
+                 * @example ingestor_process_restart
+                 */
+                readonly reason: string;
+                /** Format: date-time */
+                readonly start: string;
+                /**
+                 * @description What the ingestor saved when it came back, as stored
+                 * @example snapshot_taken
+                 * @example snapshot_incomplete
+                 */
+                readonly status: string;
+            }[];
+            readonly probes: readonly {
+                /** @description Seconds since its newest reading; 7200 means not seen in 2 h */
+                readonly age_s: number | null;
+                /**
+                 * Format: date-time
+                 * @description For a probe not seen in 2 h, the time of its newest reading in the last 30 days; null when it has none in 30 days, and null for a probe seen in the last 2 h, whose age already says it
+                 */
+                readonly last_seen_at: string | null;
+                /** @example climate.temp_north */
+                readonly sensor: string;
+            }[];
+            /** @description The quarters of one-minute records the controller replayed from its gap log, newest first, at most 200 */
+            readonly replayed: readonly {
+                /** @description The controller boot the quarter belongs to */
+                readonly boot: number;
+                readonly climate_rows: number;
+                /** Format: date-time */
+                readonly first_at: string;
+                /** Format: date-time */
+                readonly last_at: string;
+                /** @description The quarter's number within that boot */
+                readonly qseq: number;
+                /** Format: date-time */
+                readonly received_at: string;
+                readonly transition_rows: number;
+            }[];
+            readonly tables: readonly {
+                readonly last_row_age_s: number | null;
+                /** @description Rows written in the last 5 minutes */
+                readonly rows_5m: number | null;
+                /**
+                 * @example climate
+                 * @example diagnostics
+                 * @example equipment_state
+                 */
+                readonly table: string;
+            }[];
+            /** Format: date-time */
+            readonly to: string;
+        };
+        /** @description API-37: whether the controller took what the host pushed (setpoint_changes in the window) */
+        readonly Delivery: {
+            readonly by_status: readonly {
+                readonly count: number;
+                /**
+                 * @description Who pushed the change
+                 * @example band
+                 * @example manual
+                 * @example plan
+                 * @example esp32
+                 * @example none
+                 */
+                readonly source: string;
+                /**
+                 * @description Where its delivery stands
+                 * @example confirmed
+                 * @example failed
+                 * @example observed
+                 * @example pending
+                 * @example cancelled
+                 * @example superseded
+                 */
+                readonly status: string;
+            }[];
+            /**
+             * @description The dispatcher's stage, as it reports it
+             * @example ordinary
+             * @example paced 12/40
+             */
+            readonly dispatcher_stage: string | null;
+            /** @description Settings with a failed push in the window, worst first, at most 50 */
+            readonly failing: readonly {
+                readonly failed: number;
+                readonly label: string;
+                /** Format: date-time */
+                readonly last_confirmed_at: string | null;
+                /** Format: date-time */
+                readonly last_failed_at: string;
+                readonly param: string;
+            }[];
+            /** Format: date-time */
+            readonly from: string;
+            /** @description From push to readback confirmation */
+            readonly latency: {
+                readonly confirmed: number;
+                readonly p50_s: number | null;
+                readonly p95_s: number | null;
+            };
+            /** @description Age of the oldest push still waiting; 0 when nothing waits */
+            readonly oldest_unconfirmed_s: number | null;
+            /** @description The newest readback pass (system_state setpoint_snapshot_pass) */
+            readonly readback_pass: {
+                /** Format: date-time */
+                readonly at: string | null;
+                readonly of: number | null;
+                readonly stored: number | null;
+            };
+            /** Format: date-time */
+            readonly to: string;
         };
         /** @description The newest desired_state row for a setting and its readback state. value null means released. */
         readonly DesiredSetting: {
@@ -1507,6 +2046,17 @@ export interface components {
             readonly ts?: string | null;
             readonly unit_count?: number | null;
             readonly weight_kg?: number | null;
+        };
+        /** @description The host's band at one moment (fn_band_setpoints); an edge it cannot compute is null */
+        readonly HostBandEdges: {
+            /** @description °F */
+            readonly temp_high_f: number | null;
+            /** @description °F */
+            readonly temp_low_f: number | null;
+            /** @description kPa */
+            readonly vpd_high_kpa: number | null;
+            /** @description kPa */
+            readonly vpd_low_kpa: number | null;
         };
         /** @enum {string} */
         readonly IrrigationCause: "vpd" | "schedule" | "run_now" | "feed" | "prewet" | "flush" | "fallback" | "unknown";
@@ -1648,8 +2198,273 @@ export interface components {
                 };
             };
         };
+        /** @description What the controller needs to keep running without the host */
+        readonly LawAlone: {
+            readonly clock: {
+                /** @description Seconds since its last time sync */
+                readonly sync_age_s: number | null;
+                /** @description The controller's clock is set (diagnostics.sntp_valid) */
+                readonly valid: boolean | null;
+            };
+            /**
+             * @description The gap log that keeps a record while the host is away (diagnostics.gap_log_state): armed, not armed yet since the restart, or off because storage is too small, full, too slow or failing
+             * @enum {string|null}
+             */
+            readonly gap_log: "armed" | "not_armed_yet" | "nvs_small" | "nvs_full" | "nvs_slow" | "nvs_error" | null;
+            readonly host: {
+                /** @description The ingestor is connected to the controller */
+                readonly connected: boolean | null;
+                /** @description Age of the ingestor's heartbeat */
+                readonly heartbeat_age_s: number | null;
+            };
+            readonly probes: {
+                /** @description Probes the controller reads (diagnostics.active_probe_count) */
+                readonly active: number | null;
+                /** @description The controller runs on fewer probes than it should (diagnostics.sensor_degraded_active) */
+                readonly degraded: boolean | null;
+            };
+        };
+        /** @description The band the controller is using now (the law record's b field), and how it compares with the host's */
+        readonly LawBand: {
+            /** @description The controller's band and the host's differ by more than 1.0 °F or 0.10 kPa on an edge (the band_device_db_divergence rule); null when either is missing */
+            readonly differs: boolean | null;
+            /** @description The band the host computes for now (fn_band_setpoints(now())); null when it cannot */
+            readonly host: components["schemas"]["HostBandEdges"] | null;
+            /** @description The controller's band check changed the band it received (the record's br field) */
+            readonly repaired: boolean | null;
+            /**
+             * @description Where the controller takes its band from (diagnostics.band_source): its own diurnal curve from the pushed anchors, the corridor, or the older dispatcher push
+             * @enum {string|null}
+             */
+            readonly source: "onchip_curve" | "corridor" | "dispatcher_legacy" | null;
+            /** @description °F */
+            readonly temp_high_f: number | null;
+            /** @description °F */
+            readonly temp_low_f: number | null;
+            /** @description kPa */
+            readonly vpd_high_kpa: number | null;
+            /** @description kPa */
+            readonly vpd_low_kpa: number | null;
+        };
+        readonly LawConstants: {
+            /** @description The hash of the law constants the controller reports (system_state climate_law_constants) */
+            readonly hash: string | null;
+            /** @description The two hashes are equal; null while the controller has not reported one */
+            readonly matches: boolean | null;
+            /** Format: date-time */
+            readonly observed_at: string | null;
+            /** @description The hash of the constants this API build was generated from */
+            readonly release_hash: string;
+        };
+        /** @description Drying: venting with drier outdoor air when the house is too humid. running: drying runs; refused: the house wants drying and the law refuses it, for refused_reason; not_wanted: the house is dry enough; unknown: no law record */
+        readonly LawDrying: {
+            /** @description The decision chain in the order the law refuses, so the first check that fails is refused_reason (no_outdoor leaves outdoor_drier null). warm_enough and worth_it decide only the start: both are true while a run is on */
+            readonly checks: readonly {
+                /** @enum {string} */
+                readonly id: "humid" | "not_cooling" | "furnace_off" | "outdoor_drier" | "warm_enough" | "worth_it";
+                readonly ok: boolean | null;
+            }[];
+            /** @description kWh of heat per kg of water removed (the record's e field); null when the controller reports no price (no outdoor data) */
+            readonly cost_kwh_per_kg: number | null;
+            /** @description The drying cost limit in force on the controller (the record's lim field) */
+            readonly limit_kwh_per_kg: number | null;
+            /**
+             * @description owner: a desired_state row for dry_cost_limit_kwh_per_kg exists; default: the controller's compiled value
+             * @enum {string}
+             */
+            readonly limit_source: "owner" | "default";
+            /** @description The controller's drying counters since its last restart (system_state climate_drying_meter) */
+            readonly meter: {
+                /** @description Heat carried out with it */
+                readonly heat_wh: number | null;
+                /** Format: date-time */
+                readonly observed_at: string | null;
+                /** @description Seconds drying was wanted and did not run */
+                readonly refused_seconds: number | null;
+                /** @description Seconds drying ran with the vent open */
+                readonly seconds: number | null;
+                /** @description Grams of water carried out */
+                readonly water_g: number | null;
+            };
+            /** @description Drying needs the house above this: the band low plus the drying temperature margin */
+            readonly min_temp_f: number | null;
+            /** @description The air latch: outdoor air holds less water than indoor air */
+            readonly outdoor_drier: boolean | null;
+            /**
+             * @description The record's dr field: the first refusal while drying is wanted and not running; humidity_invalid or no_temperature whenever those inputs are missing; none otherwise
+             * @enum {string|null}
+             */
+            readonly refused_reason: "none" | "no_outdoor" | "cooling" | "furnace" | "not_drier" | "too_cold" | "cost" | "humidity_invalid" | "no_temperature" | null;
+            /** @enum {string} */
+            readonly state: "running" | "refused" | "not_wanted" | "unknown";
+            /** @description Drying stops above this VPD: vpd_low plus the drying-off margin */
+            readonly stop_above_kpa: number | null;
+            /** @description Today's daily_record row; null before it is written */
+            readonly today: null | {
+                readonly heat_wh: number | null;
+                /** @description A restart lost meter counts today */
+                readonly lower_bound: boolean | null;
+                readonly runs: number | null;
+                readonly seconds: number | null;
+                readonly water_g: number | null;
+            };
+            /** @description The dry latch: the house is humid enough to want drying */
+            readonly wanted: boolean | null;
+            /** @description Drying is wanted below this VPD: vpd_low plus the drying-on margin */
+            readonly wanted_below_kpa: number | null;
+        };
+        /** @description API-31: the law's decisions over [from, to). A span of more than 180 s with no law record is unknown */
+        readonly LawHistory: {
+            /** @description The band the controller used, per bucket */
+            readonly band: {
+                /** @enum {integer} */
+                readonly bucket_s: 60 | 300 | 900 | 3600 | 10800 | 86400;
+                /** @description Bucket starts, epoch seconds */
+                readonly t: readonly number[];
+                readonly temp_high_f: components["schemas"]["NullableNumbers"];
+                readonly temp_low_f: components["schemas"]["NullableNumbers"];
+                readonly vpd_high_kpa: components["schemas"]["NullableNumbers"];
+                readonly vpd_low_kpa: components["schemas"]["NullableNumbers"];
+            };
+            /** @description The spans in which the controller's band check changed the band it received */
+            readonly band_repaired: readonly {
+                /** Format: date-time */
+                readonly end: string;
+                /** Format: date-time */
+                readonly start: string;
+            }[];
+            /** @description The drying price and the limit in force, per bucket; null where no record reports one */
+            readonly cost: {
+                /** @enum {integer} */
+                readonly bucket_s: 60 | 300 | 900 | 3600 | 10800 | 86400;
+                readonly cost_kwh_per_kg: components["schemas"]["NullableNumbers"];
+                readonly limit_kwh_per_kg: components["schemas"]["NullableNumbers"];
+                /** @description Bucket starts, epoch seconds */
+                readonly t: readonly number[];
+            };
+            /** @description Drying's state over the window, as change intervals */
+            readonly drying: readonly {
+                /** Format: date-time */
+                readonly end: string;
+                /** @description The refusal reason while refused (LawDrying.refused_reason's values); null otherwise */
+                readonly reason: string | null;
+                /** Format: date-time */
+                readonly start: string;
+                /** @enum {string} */
+                readonly state: "running" | "refused" | "not_wanted" | "unknown";
+            }[];
+            /**
+             * Format: date-time
+             * @description The oldest law record; earlier spans have none
+             */
+            readonly first_record_at: string | null;
+            /** Format: date-time */
+            readonly from: string;
+            /** @description One per request and per latch, in the fixed order of LawLane.key */
+            readonly lanes: readonly components["schemas"]["LawLane"][];
+            readonly outdoor_source: readonly {
+                /** Format: date-time */
+                readonly end: string;
+                /** @enum {string} */
+                readonly source: "station" | "intake" | "none" | "unknown";
+                /** Format: date-time */
+                readonly start: string;
+            }[];
+            /** Format: date-time */
+            readonly to: string;
+        };
+        /** @description What the law is reading */
+        readonly LawInputs: {
+            /** @description Indoor dew point, °F */
+            readonly dew_point_f: number | null;
+            /**
+             * Format: date-time
+             * @description The climate row the readings come from
+             */
+            readonly observed_at: string | null;
+            readonly outdoor: {
+                readonly dew_point_f: number | null;
+                readonly rh_pct: number | null;
+                /**
+                 * @description Where the outdoor reading comes from (system_state outdoor_source): the weather station, the intake probe, or none
+                 * @enum {string|null}
+                 */
+                readonly source: "station" | "intake" | "none" | null;
+                readonly temp_f: number | null;
+            };
+            /** @description Indoor relative humidity */
+            readonly rh_pct: number | null;
+            /** @description The control temperature, °F (climate.temp_control) */
+            readonly temp_f: number | null;
+            /** @description The control VPD, kPa (climate.vpd_control) */
+            readonly vpd_kpa: number | null;
+        };
+        readonly LawLane: {
+            /** @enum {string} */
+            readonly group: "request" | "latch";
+            readonly intervals: readonly {
+                /** Format: date-time */
+                readonly end: string;
+                /** Format: date-time */
+                readonly start: string;
+                /** @enum {string} */
+                readonly state: "on" | "off" | "unknown";
+            }[];
+            /**
+             * @description request.fan1 is at least one fan, request.fan2 both fans
+             * @enum {string}
+             */
+            readonly key: "request.heat1" | "request.heat2" | "request.vent" | "request.fog" | "request.mist" | "request.fan1" | "request.fan2" | "request.cooling" | "request.drying" | "request.hot" | "request.cold" | "latch.h1" | "latch.h2" | "latch.cool" | "latch.cool2" | "latch.wet" | "latch.mist" | "latch.dry" | "latch.air" | "latch.run";
+        };
+        readonly LawRelay: {
+            /** @enum {string} */
+            readonly equipment: "heat1" | "heat2" | "vent" | "fan1" | "fan2" | "fog" | "mister_any";
+            /**
+             * Format: date-time
+             * @description Start of the current run of equal states
+             */
+            readonly since: string | null;
+            /**
+             * @description The newest equipment_state row; unknown while the controller is not reporting
+             * @enum {string}
+             */
+            readonly state: "on" | "off" | "unknown";
+        };
+        /** @description One rule of the law with its thresholds, latch, request and the relays it drives */
+        readonly LawRule: {
+            /**
+             * @description The rule turns on when the signal goes below or above on_at
+             * @enum {string}
+             */
+            readonly direction: "below" | "above";
+            /** @description Set only when the host can prove it: requested with the relay off inside its minimum off time (min_off), or not requested with the relay on inside its minimum on time (min_on); null otherwise. Nothing is proven for a relay a manual run holds (or may hold, while its flag is unknown), for the fogger off unless the controller names its minimum off time as the reason, or for the fogger on outside the protection limits, where the irrigation engine can run it */
+            readonly hold: null | {
+                /** @enum {string} */
+                readonly kind: "min_off" | "min_on";
+                readonly remaining_s: number;
+            };
+            /** @enum {string} */
+            readonly id: "heat1" | "heat2" | "cooling" | "second_fan" | "fog" | "mist" | "drying" | "hot_limit" | "cold_limit";
+            /** @description The rule's latch bit (h1, h2, cool, cool2, wet, mist, dry); hot_limit and cold_limit have no latch and carry their request bits */
+            readonly latched: boolean | null;
+            /** @description Turns off back past this, in the signal's unit */
+            readonly off_at: number | null;
+            /** @description Turns on past this, in the signal's unit, from the band in use and the constants */
+            readonly on_at: number | null;
+            /** @description The relays this rule drives */
+            readonly relays: readonly components["schemas"]["LawRelay"][];
+            /** @description The law's request after its own gates (heat1, heat2, cooling, fans>=2, fog, mist, drying, hot, cold) */
+            readonly requested: boolean | null;
+            /**
+             * @description The reading the rule watches: temperature (°F) or VPD (kPa)
+             * @enum {string}
+             */
+            readonly signal: "temp" | "vpd";
+        };
         /** @description The climate law's newest state record while it is fresh (its 60 s heartbeat, at most 120 s old). Latches and requests are named in bit order; drying is running, refused (the house wants drying and none runs, with the controller's first reason) or not_wanted. */
         readonly LawState: {
+            /** @description The band the controller is using now (the record's b field); null when the record carries none */
+            readonly band?: components["schemas"]["BandEdges"] | null;
             /** @description True when the controller's band check changed the band it received */
             readonly band_repaired: boolean;
             /** @enum {string} */
@@ -1671,6 +2486,45 @@ export interface components {
             /** Format: date-time */
             readonly observed_at: string;
             readonly requests: readonly ("heat1" | "heat2" | "vent" | "fog" | "mist" | "fan1" | "fan2" | "cooling" | "drying" | "hot" | "cold")[];
+        };
+        /** @description The law's timing constants and safety limits, from the generated constants module */
+        readonly LawTiming: {
+            /** @description Everything heats below this, °F */
+            readonly cold_limit_f: number;
+            readonly fog_min_off_s: number;
+            readonly fog_min_on_s: number;
+            readonly furnace_boot_wait_s: number;
+            /** @description Everything cools above this, °F */
+            readonly hot_limit_f: number;
+            readonly mist_gap_s: number;
+            readonly mist_pulse_s: number;
+            readonly relay_min_off_s: number;
+            readonly relay_min_on_s: number;
+        };
+        /** @description API-30: what the controller's climate law is doing now and why. Thresholds come from the band in use and the law constants this API build was generated from, never from a typed value. Null means the controller has not reported it, never 0 */
+        readonly LawView: {
+            readonly alone: components["schemas"]["LawAlone"];
+            readonly band: components["schemas"]["LawBand"];
+            readonly constants: components["schemas"]["LawConstants"];
+            readonly drying: components["schemas"]["LawDrying"];
+            readonly inputs: components["schemas"]["LawInputs"];
+            /**
+             * @description The fan the law starts first (system_state lead_fan); null until the controller says
+             * @enum {string|null}
+             */
+            readonly lead_fan: "fan1" | "fan2" | null;
+            /**
+             * Format: date-time
+             * @description The newest law record's time; null with no law record
+             */
+            readonly observed_at: string | null;
+            /** @description The newest law record is at most 120 s old (the rule control_proof.law_fresh uses) */
+            readonly reporting: boolean;
+            /** @description One per rule, in this fixed order: heat1, heat2, cooling, second_fan, fog, mist, drying, hot_limit, cold_limit */
+            readonly rules: readonly components["schemas"]["LawRule"][];
+            /** Format: date-time */
+            readonly server_time: string;
+            readonly timing: components["schemas"]["LawTiming"];
         };
         /** @description leak_detected: flow on the one site meter with every Verdify valve closed, so also the hose, sink or hydro. It raises the leak alert ("Water flowing with every Verdify valve closed") and nothing else: nothing latches, and the engine firmware forces nothing off (Round 2 #3, Q-05). Until that release the current firmware keeps its fog, mister and drip interlock. The flow banner shows while alert_id is set and reads "Flow stopped at HH:MM" once stopped_at is set, never an all clear */
         readonly Leak: {
@@ -1816,6 +2670,7 @@ export interface components {
              * @example outdoor
              * @example targets
              * @example controller
+             * @example power
              * @example daily
              */
             readonly group: string;
@@ -1954,6 +2809,11 @@ export interface components {
             };
             readonly outdoor: {
                 readonly rh_pct: components["schemas"]["Reading"];
+                /**
+                 * @description Where the controller's outdoor reading comes from (system_state outdoor_source): the weather station, the intake probe, or none; null when the controller has not said
+                 * @enum {string|null}
+                 */
+                readonly source?: "station" | "intake" | "none" | null;
                 readonly temp_f: components["schemas"]["Reading"];
             };
             /** @description Running bursts, from the controller's readback (fan_burst_active, fog_burst_active, vent_bypass_active), never from the command alone */
@@ -1973,6 +2833,28 @@ export interface components {
                  */
                 readonly since: string;
             }[];
+            /** @description The daily review today, as API-34's today, with written_at of the newest written review and whether a band proposal waits for the owner; null when the review projection cannot be read */
+            readonly review?: null | {
+                /** @description The daily_review_missed alert is open */
+                readonly missed: boolean;
+                /** @description A written review's band proposal waits for the owner */
+                readonly proposal_waiting: boolean;
+                /**
+                 * Format: date
+                 * @description The local day the review covers
+                 */
+                readonly review_date: string;
+                /**
+                 * @description As ReviewPage.today.status
+                 * @enum {string}
+                 */
+                readonly status: "written" | "delivered" | "requested" | "failed" | "due" | "not_due";
+                /**
+                 * Format: date-time
+                 * @description The newest written review's written_at
+                 */
+                readonly written_at: string | null;
+            };
             /** @description Equipment commanded on now */
             readonly running: readonly {
                 readonly cause?: components["schemas"]["IrrigationCause"] | null;
@@ -2310,6 +3192,11 @@ export interface components {
             readonly replace?: boolean;
             readonly to_positions: readonly string[];
         };
+        /** @description A note on a planting's history (API-CROP-12, MCP annotate_planting); ended plantings take notes too. */
+        readonly PlantingNote: {
+            readonly note: string;
+            readonly reason?: string | null;
+        };
         /** @description Edit a planting's record (API-CROP-11): only the fields sent change. count null means unknown. */
         readonly PlantingPatch: {
             readonly count?: number | null;
@@ -2444,6 +3331,156 @@ export interface components {
              */
             readonly since: string | null;
         };
+        /** @description The day's compliance with the served band (daily_band_compliance), in percent of graded minutes */
+        readonly RecordBand: {
+            /** @description Minutes above the band with every cooling stage running */
+            readonly above_full_cooling_min: number | null;
+            readonly both_day_pct: number | null;
+            readonly both_night_pct: number | null;
+            /** @description Temperature and VPD both in band */
+            readonly both_pct: number | null;
+            /** @description Minutes with a reading and a band */
+            readonly graded_min: number | null;
+            /** @description The night dried out */
+            readonly night_dried: boolean | null;
+            /** @description Night minutes the house spent drying out */
+            readonly night_dryout_min: number | null;
+            readonly temp_above_pct: number | null;
+            readonly temp_below_pct: number | null;
+            readonly temp_pct: number | null;
+            readonly vpd_above_pct: number | null;
+            readonly vpd_below_pct: number | null;
+            readonly vpd_pct: number | null;
+        };
+        readonly RecordDay: {
+            /** @description Alerts raised that day by severity (v_daily_scorecard); null with no row */
+            readonly alerts: {
+                readonly critical: number;
+                readonly info: number;
+                readonly warning: number;
+            } | null;
+            /** @description daily_band_compliance; null with no row */
+            readonly band: components["schemas"]["RecordBand"] | null;
+            readonly climate_run_s: number | null;
+            /** @description The six climate relays together (heat1, heat2, fan1, fan2, vent, fog) */
+            readonly climate_starts: number | null;
+            /** @description The local day has ended and its record is stored */
+            readonly complete: boolean;
+            /** @description Share of the day the relay counters were sampled */
+            readonly counter_sample_pct: number | null;
+            /** Format: date */
+            readonly date: string;
+            readonly drying: components["schemas"]["RecordDrying"] | null;
+            readonly energy: {
+                /** @description Share of the day the meter reported */
+                readonly coverage_pct: number | null;
+                /** @description The 24-hour figure; null under 70 % meter coverage */
+                readonly kwh: number | null;
+                /** @description What the meter reported */
+                readonly kwh_partial: number | null;
+            };
+            readonly gas: {
+                /** @description Estimated from furnace run time; gas is not metered */
+                readonly therms_est: number | null;
+            };
+            /** @description By equipment (heat1, heat2, fan1, fan2, vent, fog, mister_center, mister_south, mister_west, drip_wall, drip_center), from the daily relay record; null with no row */
+            readonly relays: {
+                readonly [key: string]: {
+                    /** @description Runs whose missing edge the record repaired */
+                    readonly repaired_runs: number;
+                    readonly run_s: number;
+                    readonly starts: number;
+                };
+            } | null;
+            readonly water: {
+                /** @description The meter covered the whole day */
+                readonly complete: boolean | null;
+                /** @description Water for the plants: wetting plus wall irrigation and fertigation (daily_record.planning_water_gal) */
+                readonly crop_gal: number | null;
+                /** @description Water with no Verdify valve open (the hose */
+                readonly house_gal: number | null;
+                /** @description The site meter's day total */
+                readonly total_gal: number | null;
+                /** @description Fog and mister water */
+                readonly wetting_gal: number | null;
+            };
+        };
+        readonly RecordDrying: {
+            /** @description Gas furnace starts soon after a drying run */
+            readonly furnace_starts_after: number | null;
+            readonly heat_wh: number | null;
+            /** @description A restart lost meter counts that day */
+            readonly lower_bound: boolean | null;
+            /** @description Seconds drying was refused, by the refusal reason (LawDrying.refused_reason's values) */
+            readonly refused_s: {
+                readonly [key: string]: number;
+            } | null;
+            readonly runs: number | null;
+            readonly seconds: number | null;
+            /** @description Seconds the house wanted drying */
+            readonly wanted_s: number | null;
+            readonly water_g: number | null;
+        };
+        /** @description Means over complete days only */
+        readonly RecordMeans: {
+            readonly both_pct: number | null;
+            readonly climate_run_h: number | null;
+            readonly climate_starts: number | null;
+            readonly crop_gal: number | null;
+            /** @description How many complete days the mean covers */
+            readonly days: number;
+            readonly drying_h: number | null;
+            readonly heat1_run_h: number | null;
+            readonly heat2_run_h: number | null;
+            readonly kwh: number | null;
+            /** @description Nights that dried out among those days */
+            readonly nights_dried: number | null;
+            readonly temp_pct: number | null;
+            readonly therms_est: number | null;
+            readonly vpd_pct: number | null;
+        };
+        /** @description A fixed period of local days, from and to inclusive, and its means over its complete days less the days on which the house band was changed. A period with no such day has means.days 0 and every mean null; a real figure, zero included, always comes with days above 0, so a reader tells the two apart by days */
+        readonly RecordPeriod: {
+            /** @description The days in the period left out because the house band was changed on them (band edits) */
+            readonly excluded_days: number;
+            /** Format: date */
+            readonly from: string;
+            /** @description Over the period's complete days that are not left out; days 0 with every mean null when there are none */
+            readonly means: components["schemas"]["RecordMeans"];
+            /**
+             * Format: date
+             * @description Inclusive local day
+             */
+            readonly to: string;
+        };
+        /** @description API-33: the controller's own relay counters against the stored daily relay record, newest day first */
+        readonly RelayCheck: {
+            readonly days: readonly {
+                /** @description Controller restarts that day */
+                readonly boots: number | null;
+                /**
+                 * @description complete: counters cover the whole day; partial: counters cover part of it (a restart or their first day); no_record: no stored record for the day; record_early: the record was computed before the day ended
+                 * @enum {string}
+                 */
+                readonly comparison: "complete" | "partial" | "no_record" | "record_early";
+                /** Format: date */
+                readonly date: string;
+                readonly relays: readonly {
+                    /** @description The fans only; the controller counts no run time for the others */
+                    readonly counter_run_s: number | null;
+                    readonly counter_starts: number | null;
+                    /**
+                     * @example heat1
+                     * @example fan1
+                     */
+                    readonly equipment: string;
+                    readonly record_run_s: number | null;
+                    readonly record_starts: number | null;
+                    readonly run_s_difference: number | null;
+                    readonly starts_difference: number | null;
+                }[];
+            }[];
+        };
         /** @description What a place text means and what holds those cells at at. Nothing is written. */
         readonly Resolution: {
             /** Format: date-time */
@@ -2457,6 +3494,114 @@ export interface components {
             readonly cell?: string | null;
             readonly shelf?: string | null;
             readonly zone: string;
+        };
+        /** @description One planner_review row (v_dashboard_review) */
+        readonly Review: {
+            readonly attempts: number;
+            /** Format: date-time */
+            readonly delivered_at: string | null;
+            /**
+             * @description Why a failed review failed (verdify_schemas.review.ReviewFailure)
+             * @enum {string|null}
+             */
+            readonly failure: "gateway_rejected" | "gateway_unreachable" | "hermes_run_failed" | "hermes_run_cancelled" | "completed_without_review" | "attempts_exhausted" | null;
+            readonly id: number;
+            readonly input_tokens: number | null;
+            /**
+             * @description daily: the ingestor wakes the reviewer after 07:00; manual: asked for on demand
+             * @enum {string}
+             */
+            readonly kind: "daily" | "manual";
+            readonly output_tokens: number | null;
+            readonly proposal: components["schemas"]["ReviewProposal"] | null;
+            /**
+             * @description waiting: this is the newest written review with a proposal and no band.write followed its written_at; answered: a band.write followed it; superseded: a newer written review exists. Null without a proposal
+             * @enum {string|null}
+             */
+            readonly proposal_state: "waiting" | "answered" | "superseded" | null;
+            /** Format: date-time */
+            readonly requested_at: string;
+            /** @example ingestor */
+            readonly requested_by: string;
+            /**
+             * Format: date
+             * @description The local day reviewed
+             */
+            readonly review_date: string;
+            /** Format: date-time */
+            readonly run_finished_at: string | null;
+            /** @enum {string} */
+            readonly status: "requested" | "delivered" | "written" | "failed";
+            /** @description The review in words */
+            readonly summary: string | null;
+            readonly total_tokens: number | null;
+            /** Format: date-time */
+            readonly written_at: string | null;
+        };
+        readonly ReviewPage: components["schemas"]["Page"] & {
+            /** @description Newest first */
+            readonly items: readonly components["schemas"]["Review"][];
+            /** @description The written review whose band proposal waits for the owner; null when none does */
+            readonly proposal_waiting: null | {
+                /** Format: date */
+                readonly review_date: string;
+                readonly review_id: number;
+            };
+            /** @description Today's review: due from 07:00 local, late after 10:00. written, delivered, requested and failed are the newest review's status for the day; due when it has none yet and expected_after has passed; not_due before then */
+            readonly today: {
+                /**
+                 * @description Local time the review is due from
+                 * @constant
+                 */
+                readonly expected_after: "07:00";
+                /**
+                 * @description Local time after which it is late
+                 * @constant
+                 */
+                readonly late_after: "10:00";
+                /** @description The daily_review_missed alert is open */
+                readonly missed: boolean;
+                /**
+                 * Format: date
+                 * @description The local day the review covers (yesterday)
+                 */
+                readonly review_date: string;
+                /** @enum {string} */
+                readonly status: "written" | "delivered" | "requested" | "failed" | "due" | "not_due";
+            };
+            /** @description The reviewer's token use */
+            readonly tokens: {
+                /** @description How many finished reviews before the newest mean_7 averages; 0 when mean_7 is null */
+                readonly count_7: number;
+                /** @description How many finished reviews before the newest mean_30 averages; 0 when mean_30 is null */
+                readonly count_30: number;
+                /** @description The newest review's total tokens */
+                readonly last: number | null;
+                readonly mean_7: number | null;
+                readonly mean_30: number | null;
+                /** @description The newest review against the 7-review mean of the reviews before it */
+                readonly rise_pct: number | null;
+            };
+        };
+        /** @description A band edit the review proposes (verdify_schemas.review.BandProposal); the owner applies it or not */
+        readonly ReviewProposal: {
+            readonly changes: readonly {
+                /** @description The stored value now */
+                readonly current: number | null;
+                readonly label: string;
+                /** @example band_temp_low_sr */
+                readonly param: string;
+                readonly proposed: number;
+                /**
+                 * @description The row's registry unit; null for a row the registry gives no unit (the zone priorities)
+                 * @example °F
+                 * @example kPa
+                 */
+                readonly unit: string | null;
+            }[];
+            /** @description The price-list rows the review quotes, as it stored them */
+            readonly price: string;
+            readonly reason: string | null;
         };
         /** @description One run: a drip run, a fertilizer stage or a mist episode, from relay edges joined to its irrigation_ledger row. Listed once it has ended; the run in progress is in API-IRR-01 */
         readonly Run: {
@@ -2696,6 +3841,11 @@ export interface components {
             /** @enum {string} */
             readonly control_class: "planner_policy" | "scheduled_policy" | "controller_safety" | "crop_band" | "irrigation_site" | "readback_context" | "retired";
             readonly desired: components["schemas"]["DesiredSetting"] | null;
+            /**
+             * @description What reads the setting on this build: controller, the connected controller's control loop; host, a host task (the lighting schedule, the dispatcher or the alerts); none, stored and echoed but read by nothing. Derived from the registry and one reviewed list, guarded by a test
+             * @enum {string}
+             */
+            readonly effect?: "controller" | "host" | "none";
             /**
              * @description band_in_force is the "Band in force" group: the dispatcher's DERIVED band rows (band_<zone>_<role>), house and per zone, read-only
              * @enum {string}
@@ -3461,6 +4611,14 @@ export interface operations {
                 readonly day?: string;
                 /** @description Temperature target at solar noon, °F */
                 readonly temp_day?: number;
+                /** @description Edge form: the high edge at solar noon, °F */
+                readonly temp_high_day?: number;
+                /** @description Edge form: the high edge at solar midnight, °F */
+                readonly temp_high_night?: number;
+                /** @description Edge form: the low edge at solar noon, °F */
+                readonly temp_low_day?: number;
+                /** @description Edge form: the low edge at solar midnight, °F */
+                readonly temp_low_night?: number;
                 /** @description Temperature target at solar midnight, °F */
                 readonly temp_night?: number;
                 /** @description ± °F around the day target */
@@ -3477,6 +4635,14 @@ export interface operations {
                 readonly vpd_below_night?: number;
                 /** @description VPD target at solar noon, kPa */
                 readonly vpd_day?: number;
+                /** @description Edge form: the VPD high edge at solar noon, kPa */
+                readonly vpd_high_day?: number;
+                /** @description Edge form: the VPD high edge at solar midnight, kPa */
+                readonly vpd_high_night?: number;
+                /** @description Edge form: the VPD low edge at solar noon, kPa */
+                readonly vpd_low_day?: number;
+                /** @description Edge form: the VPD low edge at solar midnight, kPa */
+                readonly vpd_low_night?: number;
                 /** @description VPD target at solar midnight, kPa */
                 readonly vpd_night?: number;
             };
@@ -3735,6 +4901,37 @@ export interface operations {
         };
         readonly responses: {
             /** @description Moved */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["Planting"];
+                };
+            };
+            readonly 422: components["responses"]["Invalid"];
+            readonly default: components["responses"]["Problem"];
+        };
+    };
+    readonly "API-CROP-12": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                /** @description Optional on every write; stored as request_id on the write's activity_log row and logged as the request id. The same key and payload return the stored result with the header Idempotency-Replayed: true; the same key with a different payload is 422 request_id_reused. */
+                readonly "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            readonly path: {
+                readonly planting_id: components["parameters"]["PlantingId"];
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["PlantingNote"];
+            };
+        };
+        readonly responses: {
+            /** @description Noted; the planting with the note in its history */
             readonly 200: {
                 headers: {
                     readonly [name: string]: unknown;
@@ -4201,6 +5398,53 @@ export interface operations {
             readonly default: components["responses"]["Problem"];
         };
     };
+    readonly "API-30": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["LawView"];
+                };
+            };
+            readonly default: components["responses"]["Problem"];
+        };
+    };
+    readonly "API-31": {
+        readonly parameters: {
+            readonly query: {
+                /** @description Window start (inclusive) */
+                readonly from: components["parameters"]["From"];
+                /** @description Window end (exclusive) */
+                readonly to: components["parameters"]["To"];
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["LawHistory"];
+                };
+            };
+            readonly default: components["responses"]["Problem"];
+        };
+    };
     readonly "API-22": {
         readonly parameters: {
             readonly query: {
@@ -4335,6 +5579,81 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["PlannerHistory"];
+                };
+            };
+            readonly default: components["responses"]["Problem"];
+        };
+    };
+    readonly "API-32": {
+        readonly parameters: {
+            readonly query?: {
+                /** @description First local day; default 29 days before to */
+                readonly from?: string;
+                /** @description Last local day, inclusive; default today */
+                readonly to?: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["DailyRecord"];
+                };
+            };
+            readonly default: components["responses"]["Problem"];
+        };
+    };
+    readonly "API-33": {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Days ending today, today included */
+                readonly days?: 7 | 14 | 30;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["RelayCheck"];
+                };
+            };
+            readonly default: components["responses"]["Problem"];
+        };
+    };
+    readonly "API-34": {
+        readonly parameters: {
+            readonly query?: {
+                /** @description next_cursor from the previous page */
+                readonly cursor?: components["parameters"]["Cursor"];
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ReviewPage"];
                 };
             };
             readonly default: components["responses"]["Problem"];
@@ -4560,6 +5879,75 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["StateLanes"];
+                };
+            };
+            readonly default: components["responses"]["Problem"];
+        };
+    };
+    readonly "API-35": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ControllerHealth"];
+                };
+            };
+            readonly default: components["responses"]["Problem"];
+        };
+    };
+    readonly "API-36": {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Days ending now */
+                readonly days?: 1 | 7 | 30;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["DataContinuity"];
+                };
+            };
+            readonly default: components["responses"]["Problem"];
+        };
+    };
+    readonly "API-37": {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Hours ending now */
+                readonly hours?: 24 | 168;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description OK */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["Delivery"];
                 };
             };
             readonly default: components["responses"]["Problem"];

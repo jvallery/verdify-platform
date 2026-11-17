@@ -5,11 +5,11 @@ import { bandRange } from "../lib/band-range";
 import { formatNumber, formatValue, unitDecimals } from "../lib/format";
 import { csvFilename, windowCsv, type CsvBlock } from "./csv";
 import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "./data-table";
-import { paintAchievableEdges, paintBandEdges, paintBandFill, paintBounds, paintForecast, paintFuture, paintLabels, paintNow, paintRetention, paintSteps, type ChartColors } from "./draw";
+import { FORECAST_DASH, OUTDOOR_DASH, OUTDOOR_WIDTH, REFERENCE_DASH, paintAchievableEdges, paintBandEdges, paintBandFill, paintBounds, paintForecast, paintFuture, paintLabels, paintNow, paintRetention, paintSteps, type ChartColors } from "./draw";
 import { ENVELOPE_MIN_BUCKET_S, compareExtent, envelopeBars, envelopeExtent, excursions, paintCompare, paintEnvelope, paintExcursions, type CompareLine, type EnvelopeBar, type Excursion } from "./layers";
 import { ChartKey, Legend, type KeyItem } from "./legend";
 import {
-  ACHIEVABLE, FORECAST_RULE, PLANNED_AI, SUPERSEDED, achievableRuns, bandAt, bandExtent, bandKindFor, bandNotes, bandRuns, extentUnion, forecastAt, forecastExtent, forecastLines, groupSteps, marksExtent, settingBounds, settingSteps, stepFinder, stepsAt,
+  ACHIEVABLE, achievableRuns, bandAt, bandExtent, bandKindFor, bandNotes, bandRuns, extentUnion, forecastAt, forecastExtent, forecastLines, groupSteps, marksExtent, settingBounds, settingSteps, stepFinder, stepsAt,
   type BandRun, type Bound, type ForecastInput, type ForecastLine, type StepKind, type StepSegment,
 } from "./marks";
 import { DAILY_SUMMARY_NOTE, retentionNote, runAt, staleness, traceGaps, type RetentionNote, type Staleness, type TraceGaps } from "./retention";
@@ -20,10 +20,11 @@ import type { BandTimeline, MetricDef, Series, SeriesColumns, SettingSteps, XRan
 import { UPlotChart, resetZoom, useStableArray, type ChartEnv, type ChartOptions } from "./uplot-chart";
 
 /**
- * TimeSeries (design system §5.2): one unit per plot. Each metric's `avg` is a uPlot series, 2px, `spanGaps: false`,
- * nulls kept as nulls. The band ribbon, the device, requested and planned setting steps, the forecast and the now line
- * are drawn in hooks from their own time arrays (marks.ts, draw.ts), never as series; a settings-only chart (a setting's
- * history) adds the setting's min and max and labels its steps. A climate chart paints no words but "Now" (#1354):
+ * TimeSeries (design system v2 §5): one unit per plot, so one y axis. Each metric's `avg` is a uPlot series, 2 px,
+ * `spanGaps: false`, nulls kept as nulls; an outdoor line is 1.5 px dashed and a forecast 1.5 px dotted, both in
+ * `--c-outdoor`. The band (a wash with 1 px edges), the device and requested setting steps, the forecast and the 1 px Now
+ * rule are drawn in hooks from their own time arrays (marks.ts, draw.ts), never as series; a settings-only chart (a
+ * setting's history) adds the setting's min and max and labels its steps. A climate chart paints no words but "Now" (#1354):
  * the legend, the tooltip and the notes name every line. The chart draws only what its caller passes and never fetches.
  */
 export type TimeSeriesInput = {
@@ -39,8 +40,8 @@ export type TimeSeriesInput = {
   settings?: readonly SettingSteps[];
   /** API-04's forecast keys over the window past now; the key in this unit draws dashed right of now. */
   forecast?: ForecastInput | null;
-  /** Keys drawn dotted: a cross-check beside the measured trace (the controller's own target on `/graphs/zones`). */
-  dotted?: readonly string[];
+  /** Keys drawn as a reference line (Graphs' drying line): `--accent`, 1.5 px dashed, off the palette and never the primary trace. */
+  reference?: readonly string[];
   /** Epoch seconds. */
   now: number;
   xRange: XRange;
@@ -52,8 +53,10 @@ export type Trace = {
   label: string;
   /** Design-system token for the line. */
   token: string;
-  /** Forecast keys draw dashed [8,4], the `dotted` keys dotted. */
+  /** An outdoor key draws dashed and a forecast key dotted, in CSS px; a measured line solid (null). */
   dash: number[] | null;
+  /** 2 px; 1.5 px for an outdoor or forecast line. */
+  width: number;
   columns: SeriesColumns | null;
   /** `avg` aligned to `t`; a gap is null, never 0. */
   values: (number | null)[];
@@ -84,10 +87,10 @@ export type TimeSeriesModel = {
   windowTo: number;
   /** The earlier of the window's end and the server time: where a fresh series' data ends. */
   dataEnd: number;
-  /** The planned steps' colour: the panel's first series. */
+  /** The panel's first series' colour. */
   seriesToken: string;
   /**
-   * The measured trace the band is about: the first that is neither outdoor, a forecast nor a dotted cross-check; -1 when
+   * The measured trace the band is about: the first that is neither outdoor, a forecast nor a reference line; -1 when
    * there is none. Excursions, the envelope, the compare line and the band readout follow it.
    */
   primary: number;
@@ -98,17 +101,18 @@ export type TimeSeriesModel = {
 };
 
 const KEY_TOKENS: Readonly<Record<string, string>> = { "climate.temp_avg": "--c-temp", "climate.vpd_avg": "--c-vpd", "climate.rh_avg": "--c-rh" };
-/** A dotted line: 2 px dots, with the 2 px width a trace has. */
-const DOTTED_DASH = [2, 4];
+/** An outdoor or forecast key: context, not a subject, so it is drawn lighter and never solid (design system v2 §2.3). */
+const isOutdoor = (key: string) => /outdoor|forecast/.test(key);
+const isForecastDash = (dash: readonly number[]) => dash.join() === FORECAST_DASH.join();
 const UNIT_TOKENS: Readonly<Record<string, string>> = { "°F": "--c-temp", kPa: "--c-vpd", "%": "--c-rh" };
 /** More lines in one unit take the equipment tokens, each at least 3:1 on white (design system §5.1). */
 const EXTRA_TOKENS = ["--eq-fan2", "--eq-heat1", "--eq-vent", "--eq-mister", "--eq-light-grow", "--eq-fert", "--eq-heat2", "--eq-fog"];
 
-/** One token per metric: the climate keys their own, outdoor and forecast keys `--c-outdoor`, a dotted cross-check `--c-setpoint`, then the unit's, then the rest. */
-export function traceTokens(metrics: readonly MetricDef[], unit: string, dotted: readonly string[] = []): string[] {
+/** One token per metric: the climate keys their own, outdoor and forecast keys `--c-outdoor`, then the unit's, then the rest. */
+export function traceTokens(metrics: readonly MetricDef[], unit: string): string[] {
   const used = new Set<string>();
   const claimed = metrics.map((metric) => {
-    const token = KEY_TOKENS[metric.key] ?? (/outdoor|forecast/.test(metric.key) ? "--c-outdoor" : dotted.includes(metric.key) ? "--c-setpoint" : null);
+    const token = KEY_TOKENS[metric.key] ?? (isOutdoor(metric.key) ? "--c-outdoor" : null);
     if (!token || used.has(token)) return null;
     used.add(token);
     return token;
@@ -125,6 +129,7 @@ export function traceTokens(metrics: readonly MetricDef[], unit: string, dotted:
 export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
   const unit = input.unit ?? input.metrics[0]?.unit ?? input.settings?.[0]?.history.unit ?? "";
   const metrics = input.metrics.filter((metric) => metric.unit === unit);
+  const reference = new Set(input.reference ?? []);
   const { series, now, xRange } = input;
   // uPlot takes a mutable x column; the parsed Series is read-only.
   const t = series ? [...series.t] : [];
@@ -132,8 +137,10 @@ export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
   const windowFrom = epochOf(series?.from) ?? xRange.from;
   const windowTo = epochOf(series?.to) ?? xRange.to;
   const dataEnd = Math.min(windowTo, epochOf(series?.server_time) ?? windowTo);
-  const tokens = traceTokens(metrics, unit, input.dotted);
-  const traces = metrics.map((metric, position): Trace => {
+  const palette = metrics.filter((metric) => !reference.has(metric.key));
+  const paletteTokens = traceTokens(palette, unit);
+  const traces = metrics.map((metric): Trace => {
+    const isReference = reference.has(metric.key);
     const columns = series?.series[metric.key] ?? null;
     const values = t.map((_, index) => {
       const value = columns?.avg[index];
@@ -141,8 +148,9 @@ export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
     });
     const gaps = traceGaps(t, values, columns, bucketSeconds, series?.gaps ?? []);
     return {
-      metric, key: metric.key, label: metric.label, token: tokens[position],
-      dash: columns?.source === "forecast" ? [8, 4] : input.dotted?.includes(metric.key) ? DOTTED_DASH : null,
+      metric, key: metric.key, label: metric.label, token: isReference ? "--accent" : paletteTokens[palette.indexOf(metric)],
+      dash: isReference ? [...REFERENCE_DASH] : columns?.source === "forecast" ? [...FORECAST_DASH] : isOutdoor(metric.key) ? [...OUTDOOR_DASH] : null,
+      width: isReference || columns?.source === "forecast" || isOutdoor(metric.key) ? OUTDOOR_WIDTH : 2,
       columns, values, daily: columns?.source === "daily_summary", gaps,
       retention: retentionNote(metric, columns, windowFrom, windowTo),
       staleness: staleness(metric, t, gaps.lastValued, bucketSeconds, dataEnd),
@@ -153,7 +161,7 @@ export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
   const prefix = settings.length > 1;
   const steps = settings.flatMap((setting) => settingSteps(setting, unit, now, xRange.to, prefix));
   const runs = bandRuns(input.band, bandKindFor(unit), now);
-  const primary = traces.findIndex((trace) => !/outdoor|forecast/.test(trace.key) && trace.dash === null);
+  const primary = traces.findIndex((trace) => !isOutdoor(trace.key) && trace.dash === null);
   return {
     unit, t, bucketSeconds, traces, runs, achievable: achievableRuns(input.band, bandKindFor(unit)),
     steps, stepGroups: groupSteps(steps),
@@ -161,7 +169,7 @@ export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
     bounds: metrics.length ? [] : settings.flatMap((setting) => settingBounds(setting, unit, prefix)),
     forecast: forecastLines(input.forecast, unit, now),
     now, xRange, windowFrom, windowTo, dataEnd,
-    seriesToken: tokens[0] ?? UNIT_TOKENS[unit] ?? "--c-temp",
+    seriesToken: paletteTokens[0] ?? UNIT_TOKENS[unit] ?? "--c-temp",
     primary,
     excursions: primary >= 0 && runs.length ? excursions(t, traces[primary].values, runs) : [],
     envelope: primary >= 0 ? envelopeBars(t, traces[primary].columns) : [],
@@ -263,7 +271,7 @@ export function tickDecimals(increment: number | null | undefined, unit: string)
  */
 export function valueAxis(unit: string, colors: ChartColors, size?: number): uPlot.Axis {
   return {
-    stroke: colors["--muted"], font: AXIS_FONT,
+    stroke: colors["--text-3"], font: AXIS_FONT,
     grid: { stroke: colors["--c-grid"], width: 1 }, ticks: { stroke: colors["--c-grid"], width: 1, size: 4 },
     incrs: tickIncrements(unitDecimals(unit)),
     size: size ?? ((_plot, values) => Math.max(48, Math.ceil(Math.max(0, ...(values || []).map((value) => String(value).length)) * 7.2) + 16)),
@@ -362,7 +370,7 @@ export function timeSeriesOptions(env: ChartEnv, modelRef: MutableRefObject<Time
     padding: [built.cell ? 6 : 18, 10, 0, 0],
     series: [{}, ...model.traces.map((trace): uPlot.Series => ({
       label: trace.label, scale: "y", show: !hiddenRef.current.has(trace.key),
-      stroke: color(trace.token), width: 2, spanGaps: false,
+      stroke: color(trace.token), width: trace.width, spanGaps: false,
       ...(trace.dash ? { dash: scaled(trace.dash) } : {}),
       points: trace.daily ? { show: true, size: 6, fill: color(trace.token), stroke: color(trace.token) } : { size: 6, filter: isolatedPoints },
       value: (_plot, value) => formatValue(value, unit),
@@ -377,7 +385,7 @@ export function timeSeriesOptions(env: ChartEnv, modelRef: MutableRefObject<Time
       },
     },
     axes: [
-      built.xLabels === false ? silentTimeAxis({ muted: colors["--muted"], grid: colors["--c-grid"] }) : timeAxis({ muted: colors["--muted"], grid: colors["--c-grid"] }),
+      built.xLabels === false ? silentTimeAxis({ muted: colors["--text-3"], grid: colors["--c-grid"] }) : timeAxis({ muted: colors["--text-3"], grid: colors["--c-grid"] }),
       built.yLabels === false ? silentValueAxis(unit, colors) : valueAxis(unit, colors, built.yAxisSize),
     ],
     hooks: {
@@ -467,7 +475,7 @@ export function forecastCsvBlocks(lines: readonly ForecastLine[], unit: string, 
   return lines.filter((line) => !hidden.has(line.key)).map((line) => ({ t: line.t, columns: [{ header: `${line.key} (${unit})`, values: line.values }] }));
 }
 
-const STEP_KINDS: readonly StepKind[] = ["device", "requested", "planned", "superseded"];
+const STEP_KINDS: readonly StepKind[] = ["device", "requested"];
 /**
  * A settings-only chart's CSV: one row at each step's start and end inside the window (a step in force at its start may
  * have begun long before), one column per setting and kind of step drawn, in canonical units, with who asked beside
@@ -489,18 +497,15 @@ export function stepsCsvBlock(model: TimeSeriesModel): CsvBlock {
   return { t, columns };
 }
 
-/** A settings-only chart's legend: the device line, each source present, the plan and the bounds, as drawn. */
+/** A settings-only chart's legend: the device line, each source of a request, and the bounds, as drawn. */
 export function stepKey(model: TimeSeriesModel): KeyItem[] {
   const items = new Map<string, KeyItem>();
   const add = (item: KeyItem) => { if (!items.has(item.key)) items.set(item.key, item); };
   for (const step of model.steps) {
-    if (step.kind === "device") add({ key: "device", label: "Device readback", token: "--c-setpoint", kind: "line" });
-    else if (step.kind === "requested") add({ key: `request:${step.who ?? ""}`, label: step.who ?? "Requested", token: "--c-requested", kind: "dashed" });
-    else if (step.kind === "superseded") add({ key: "superseded", label: SUPERSEDED, token: "--c-bound", kind: "dashed" });
-    else if (step.source === "iris") add({ key: "plan:iris", label: PLANNED_AI, token: model.seriesToken, kind: "dashed" });
-    else add({ key: "plan:rule", label: FORECAST_RULE, token: model.seriesToken, kind: "dashed" });
+    if (step.kind === "device") add({ key: "device", label: "Device readback", token: "--accent", kind: "line" });
+    else add({ key: `request:${step.who ?? ""}`, label: step.who ?? "Requested", token: "--c-requested", kind: "dashed" });
   }
-  if (model.bounds.length) add({ key: "bounds", label: "Min and max", token: "--c-bound", kind: "dotted" });
+  if (model.bounds.length) add({ key: "bounds", label: "Min and max", token: "--text-3", kind: "dotted" });
   return [...items.values()];
 }
 
@@ -548,9 +553,9 @@ export function TimeSeries(props: TimeSeriesProps) {
   const { series, unit, band, now, xRange, linked = false, syncKey } = props;
   const metrics = useStableArray(props.metrics)!;
   const settings = useStableArray(props.settings, (setting) => [setting.history, setting.label]);
-  const dotted = useStableArray(props.dotted);
   const { forecast } = props;
-  const model = useMemo(() => buildTimeSeriesModel({ series, metrics, unit, band, settings, forecast, dotted, now, xRange: { from: xRange.from, to: xRange.to } }), [series, metrics, unit, band, settings, forecast, dotted, now, xRange.from, xRange.to]);
+  const reference = useStableArray(props.reference);
+  const model = useMemo(() => buildTimeSeriesModel({ series, metrics, unit, band, settings, forecast, reference, now, xRange: { from: xRange.from, to: xRange.to } }), [series, metrics, unit, band, settings, forecast, reference, now, xRange.from, xRange.to]);
   const modelRef = useRef(model);
   modelRef.current = model;
   const [ownHidden, setOwnHidden] = useState<ReadonlySet<string>>(() => new Set());
@@ -600,8 +605,8 @@ export function TimeSeries(props: TimeSeriesProps) {
       ? <UPlotChart options={(env) => timeSeriesOptions(env, modelRef, hiddenRef)} data={data} xRange={xRange} structure={structure} className={plotClass} label={chartLabel(model)} syncKey={syncKey} marks={plotted} onZoom={onZoom} onPlot={(plot) => { plotRef.current = plot; }} />
       : <div className={`${plotClass} chart-message`}><p>{props.message ?? "No data in this window"}</p></div>}
     <Legend items={[
-      ...model.traces.map((trace) => ({ key: trace.key, label: trace.label, token: trace.token, shown: !hidden.has(trace.key) })),
-      ...model.forecast.map((line) => ({ key: line.key, label: line.label, token: "--c-outdoor", shown: !hidden.has(line.key) })),
+      ...model.traces.map((trace) => ({ key: trace.key, label: trace.label, token: trace.token, shown: !hidden.has(trace.key), ...(trace.dash ? { kind: trace.width < 2 && isForecastDash(trace.dash) ? "dotted" as const : "dashed" as const } : {}) })),
+      ...model.forecast.map((line) => ({ key: line.key, label: line.label, token: "--c-outdoor", shown: !hidden.has(line.key), kind: "dotted" as const })),
     ]} onToggle={toggle} />
     {stepsOnly && drawable && <ChartKey items={stepKey(model)} />}
     {traces.length > 0 && <ul className="plot-summary">{traces.map((trace) => <li key={trace.key}>{summaryText(trace.label, model.unit, trace.summary, when)}</li>)}</ul>}

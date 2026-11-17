@@ -6,8 +6,12 @@ import { useApiDown } from "../lib/session";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { LocalTime, cls } from "./common";
+import { EmptyState } from "./empty-state";
 import { AgeLabel, FreshnessDot } from "./freshness";
+import { Skeleton } from "./skeleton";
 import { reasonParts } from "./state-reason-line";
+
+export { EmptyState } from "./empty-state";
 
 /**
  * What a panel shows (screens §1.5). `loading` is the first fetch only: while a refetch runs, pass the state of the
@@ -17,7 +21,7 @@ import { reasonParts } from "./state-reason-line";
 export type PanelState = "ready" | "loading" | "empty" | "stale" | "ingestor_down" | "controller_not_reporting" | "error" | "busy";
 const DEVICE_STALE: readonly PanelState[] = ["stale", "ingestor_down", "controller_not_reporting"];
 
-/** "Couldn't load runs." with Retry, in the failing panel only. */
+/** "Couldn't load runs." with Retry, in the failing panel only: a critical soft box, one sentence and one action. */
 export function PanelError({ thing, text, onRetry }: { thing: string; text?: ReactNode; onRetry?: () => void }) {
   return <div className="panel-error"><p className="fault">{text ?? `Couldn't load ${thing}.`}</p>{onRetry && <Button onClick={onRetry}>Retry</Button>}</div>;
 }
@@ -32,21 +36,16 @@ export class PanelErrorBoundary extends Component<{ thing: string; text?: ReactN
   }
 }
 
-/** "No runs today." plus what would appear here and a link that widens the range. */
-export function EmptyState({ message, detail, widen }: { message: ReactNode; detail?: ReactNode; widen?: { to: string; label: ReactNode } }) {
-  return <div className="panel-empty"><p>{message}</p>{detail && <p className="muted">{detail}</p>}{widen && <p><Link to={widen.to}>{widen.label}</Link></p>}</div>;
-}
-
 function ReasonSince({ code, since }: { code: "writer_down" | "controller_not_reporting"; since: string | null | undefined }) {
   return <span>{reasonParts({ code, since }).map((part, index) => (typeof part === "string" ? part : <LocalTime key={index} at={part.time} />))}</span>;
 }
 
 /** The "All … ›" link at a card head's right (redesign §3.5, §4.1). */
 export type HeadLink = { readonly to: string; readonly label: ReactNode };
-/** The head's right side: the actions, then the "All … ›" link, then the ⋯ menu. */
-export function HeadEnd({ actions, link, menu }: { actions?: ReactNode; link?: HeadLink; menu?: ReactNode }) {
-  if (!actions && !link && !menu) return null;
-  return <div className="card-head-end">{actions}{link && <Link className="card-link-all" to={link.to}>{link.label}<span aria-hidden="true"> ›</span></Link>}{menu}</div>;
+/** The head's right side: the as-of time, the actions, then the "All … ›" link, then the ⋯ menu. */
+export function HeadEnd({ asOf, actions, link, menu }: { asOf?: ReactNode; actions?: ReactNode; link?: HeadLink; menu?: ReactNode }) {
+  if (!asOf && !actions && !link && !menu) return null;
+  return <div className="card-head-end">{asOf && <span className="card-asof">{asOf}</span>}{actions}{link && <Link className="card-link-all" to={link.to}>{link.label}<span aria-hidden="true"> ›</span></Link>}{menu}</div>;
 }
 
 export type PanelProps = {
@@ -62,7 +61,7 @@ export type PanelProps = {
   link?: HeadLink;
   /** The ⋯ `Menu`, last in the head. */
   menu?: ReactNode;
-  /** Abnormal: a 3 px `--amber` or `--fault` rule on the left; the background stays white. Dropped while the API is down. */
+  /** Abnormal: a 3 px `--warn` or `--critical` rule at the left edge; the surface stays calm. Dropped while the API is down. */
   tone?: "warn" | "fault";
   /** The foot: a `.meta` line (source, age, resolution) or a "Details ›" link, shown with the data. */
   foot?: ReactNode;
@@ -108,7 +107,7 @@ export function Panel({ title, eyebrow, headingLevel = 2, id, actions, pill, lin
     : state === "busy" ? <><span>Busy, retrying {retryInS !== null && retryInS !== undefined && Number.isFinite(retryInS) ? <>in {duration(Math.max(0, retryInS))}</> : "shortly"}</span>{age && <> {age}</>}</>
     : state === "ready" ? age
     : null;
-  const body = state === "loading" ? <><div className={`skeleton skeleton-${reserve}`} aria-hidden="true" /><p className="screen-reader">Loading {thing}</p></>
+  const body = state === "loading" ? <Skeleton size={reserve} label={thing} />
     : state === "error" ? <PanelError thing={thing} text={errorText} onRetry={onRetry} />
     : state === "empty" ? empty ?? <EmptyState message={`No ${thing}.`} />
     : <PanelErrorBoundary thing={thing} text={errorText} onRetry={onRetry}>{stale ? <div className="panel-muted">{children}</div> : children}</PanelErrorBoundary>;

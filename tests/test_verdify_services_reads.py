@@ -27,7 +27,7 @@ from verdify_schemas import alerts as schema_alerts
 from verdify_schemas.irrigation import LINE_IDS
 from verdify_schemas.policy_vector import live_wire_fields
 from verdify_schemas.tunable_registry import REGISTRY
-from verdify_services import activity, alerts, reads, settings
+from verdify_services import activity, alerts, law, reads, settings
 from verdify_services.actor import ActorRef
 from verdify_services.labels import EQUIPMENT_LABELS, EQUIPMENT_LINE_IDS, LINE_NAMES, name_line_codes
 
@@ -1363,3 +1363,121 @@ def test_words_for_a_person_name_lines_never_relay_codes():
         "only Wall drip, Wall drip (fertilized) and Center mister through West mister (fertilized) do"
     )
     assert name_line_codes("L12 and XL01 stay") == "L12 and XL01 stay"
+
+
+# ── Now's additive fields (dashboard v2 release A) ──────────────────────────
+
+# The live climate_law_state row of 2026-11-17 16:20:00Z (live-db B.1).
+LIVE_LAW = '{"v":1,"l":128,"o":0,"dr":"none","e":0.633,"lim":0.7,"br":0,"b":[67.4,79.4,0.81,1.34]}'
+
+
+def test_now_law_carries_the_band_the_controller_is_using():
+    observed = datetime(2026, 11, 17, 16, 20, tzinfo=UTC)
+    law = reads.law_state(LIVE_LAW, observed, observed + timedelta(seconds=29))
+    assert law.band.model_dump() == {"temp_low_f": 67.4, "temp_high_f": 79.4, "vpd_low_kpa": 0.81, "vpd_high_kpa": 1.34}
+    assert (law.latches, law.drying, law.drying_cost_kwh_per_kg, law.band_repaired) == (
+        ["air"],
+        "not_wanted",
+        0.633,
+        False,
+    )
+    assert reads.law_state(LIVE_LAW, observed, observed + timedelta(seconds=121)) is None  # not fresh: no law, no band
+
+
+@pytest.mark.parametrize(
+    "value, heartbeat_s, climate_s, age_s, source",
+    [
+        ("station", 30, 20, 290, "station"),
+        ("intake", 30, 20, 290, "intake"),
+        ("none", 30, 20, 290, "none"),
+        ("station", 30, 20, 600, "station"),  # twice the 300 s republish is still fresh
+        ("station", 30, 20, 601, None),  # older than that says nothing about now (API-30's rule)
+        ("station", 30, 20, None, None),
+        ("station", 30, 400, 290, None),  # the controller is not reporting
+        ("satellite", 30, 20, 290, None),  # a value the controller never sends
+        (None, 30, 20, 290, None),
+    ],
+)
+def test_now_outdoor_source_is_the_controllers_while_it_reports(value, heartbeat_s, climate_s, age_s, source):
+    observed = None if age_s is None else AT - timedelta(seconds=age_s)
+    assert reads.outdoor_source(value, observed, reporting(heartbeat_s=heartbeat_s, climate_s=climate_s)) == source
+    assert reads.OUTDOOR_SOURCE_ENTITY in reads._NOW_NEWEST_ENTITIES
+    assert law.OUTDOOR_SOURCE_FRESH is reads.OUTDOOR_SOURCE_FRESH
+
+
+def test_now_review_is_the_reviews_service_today():
+    from verdify_services import reviews
+
+    assert reads.now_review(None) is None
+    waiting = reviews.ProposalWaiting(review_id=2, review_date=date(2026, 11, 16))
+    day = reviews.ReviewDay(
+        review_date=date(2026, 11, 16),
+        status="written",
+        missed=False,
+        written_at=datetime(2026, 11, 17, 14, 3, 7, tzinfo=UTC),
+        proposal_waiting=waiting,
+    )
+    assert reads.now_review(day).model_dump() == {
+        "review_date": date(2026, 11, 16),
+        "status": "written",
+        "missed": False,
+        "written_at": datetime(2026, 11, 17, 14, 3, 7, tzinfo=UTC),
+        "proposal_waiting": True,
+    }
+    assert reads.now_review(replace_day(day, proposal_waiting=None)).proposal_waiting is False
+    assert reviews.TodayStatus is reads.ReviewDayStatus
+    # One definition: Now calls the reviews service's today() inside its own snapshot.
+    source = (ROOT / "verdify_services/reads.py").read_text()
+    assert "review_day = await reviews.today(conn)" in source and "review=now_review(review_day)" in source
+
+
+def replace_day(day, **update):
+    from dataclasses import replace
+
+    return replace(day, **update)
+
+
+def test_now_controller_health_uses_the_product_metrics_expressions():
+    import product_metrics
+
+    def expressions(sql):
+        return {" ".join(part.split()) for part in re.findall(r"\(array_agg\(.*?\)\)\[1\] AS \w+", sql, re.S)}
+
+    mine = expressions(reads._CONTROLLER_HEALTH_SQL)
+    assert len(mine) == 3 and mine <= expressions(product_metrics.HEALTH_SQL)
+    assert "interval '15 minutes'" in reads._CONTROLLER_HEALTH_SQL
+
+
+def test_now_controller_values_are_the_newest_non_null_up_to_the_newest_row():
+    """The law firmware carries these six values on about one diagnostics row in four: each is the newest non-null
+    value within 15 minutes up to the newest row, whose time stays observed_at; with no row in a day, no row."""
+    sql = " ".join(reads._DIAGNOSTICS_SQL.split())
+    for column in (
+        "firmware_version",
+        "uptime_s",
+        "reset_reason",
+        "heap_bytes",
+        "heap_largest_free_block_kb",
+        "wifi_rssi",
+    ):
+        assert (
+            f"(array_agg(d.{column} ORDER BY d.ts DESC) FILTER (WHERE d.{column} IS NOT NULL))[1] AS {column}" in sql
+        ), column
+    assert sql.startswith("SELECT newest.ts,")
+    assert "FROM (SELECT max(ts) AS ts FROM diagnostics WHERE ts > now() - interval '1 day') AS newest" in sql
+    assert "d.ts > newest.ts - interval '15 minutes' AND d.ts <= newest.ts" in sql
+    # An inner join grouped by the newest row: no diagnostics row in the last day gives no row, as before.
+    assert "JOIN diagnostics AS d ON" in sql and "LEFT JOIN" not in sql and sql.endswith("GROUP BY newest.ts")
+
+
+def test_now_keeps_every_existing_field_and_adds_the_new_ones_as_optional():
+    for name in ("server_time", "indoor", "outdoor", "band", "mode", "iris", "alerts", "running", "overrides"):
+        assert reads.Now.model_fields[name].is_required(), name
+    for model, names in (
+        (reads.Now, ("review", "law")),
+        (reads.Outdoor, ("source",)),
+        (reads.Controller, ("heap_minute_low_kb", "restart_count", "gap_log")),
+        (reads.LawState, ("band",)),
+    ):
+        for name in names:
+            assert model.model_fields[name].default is None, (model.__name__, name)

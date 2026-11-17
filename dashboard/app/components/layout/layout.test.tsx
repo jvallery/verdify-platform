@@ -59,7 +59,7 @@ test("Panel and Card heads: one pill after the title, actions, All … › and �
   cleanup();
   renderUi(<Card title="Site today" pill={<Badge kind="manual" />} link={{ to: "/water", label: "Water" }} foot="SAF-4 resets at midnight" tone="fault"><p>body</p></Card>);
   expect(document.querySelector(".card")?.className).toBe("card tone-fault");
-  expect(text(document.querySelector(".card-title-row"))).toBe("Site todayManual");
+  expect(text(document.querySelector(".card-title-row"))).toBe("Site todaySet by hand");
   expect(screen.getByRole("link", { name: /^Water/ }).getAttribute("href")).toBe("/water");
   expect(text(document.querySelector(".card-foot"))).toBe("SAF-4 resets at midnight");
   // An interactive card is one link holding no other control.

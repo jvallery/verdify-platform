@@ -142,7 +142,7 @@ test("a cursor on any panel turns every header row into its values there, with o
 });
 
 test("excursions, the envelope and compare paint only when asked", async () => {
-  const red = TOKENS["--tint-warn"], envelope = TOKENS["--ink-muted"], bound = TOKENS["--c-bound"];
+  const red = TOKENS["--warn-soft"], envelope = TOKENS["--border-strong"], bound = TOKENS["--text-3"];
   const paint = () => { for (const plot of created) plot.draw(); return created[0].ctx; };
   // 30 min buckets: the envelope's resolution.
   await mount(<ChartStack label="Climate" panels={panels(1800)} band={band()} now={NOW} xRange={RANGE} syncKey="k" />);
@@ -172,22 +172,22 @@ test("the event rail draws only when given events: an icon per kind, a key that 
   expect(document.querySelector(".stack-rail, .stack-events, .rail-key")).toBeNull();
   cleanup(); MockPlot.reset();
   const events: ChartEvent[] = [
-    { id: "a", at: FROM + 2 * HOUR, source: "people", kind: "setting", glyph: "✎", token: "forest", label: "09:00 · jason · Set VPD Mister Engage", href: "/activity/log?target=mister_engage_kpa#activity-1", touch: { kind: "setting", param: "mister_engage_kpa" } },
-    { id: "b", at: FROM + 10 * HOUR, source: "alerts", kind: "alert", glyph: "▲", token: "fault", label: "17:00 · critical · Relay stuck", href: "/activity?alert=7", touch: { kind: "span", from: FROM + 10 * HOUR, to: FROM + 12 * HOUR } },
-    { id: "p", at: FROM + 14 * HOUR, source: "iris", kind: "plan", glyph: "◆", badge: "↓", token: "ink", label: "21:00 · iris AI · Plan" },
+    { id: "a", at: FROM + 2 * HOUR, source: "people", kind: "setting", glyph: "✎", token: "accent", label: "09:00 · jason · Set VPD Mister Engage", href: "/activity/log?target=mister_engage_kpa#activity-1", touch: { kind: "setting", param: "mister_engage_kpa" } },
+    { id: "b", at: FROM + 10 * HOUR, source: "alerts", kind: "alert", glyph: "▲", token: "critical", label: "17:00 · critical · Relay stuck", href: "/activity?alert=7", touch: { kind: "span", from: FROM + 10 * HOUR, to: FROM + 12 * HOUR } },
+    { id: "p", at: FROM + 14 * HOUR, source: "iris", kind: "other", glyph: "◇", token: "text", label: "21:00 · iris AI · Review written" },
     { id: "c", at: FROM - HOUR, source: "runs", kind: "water", glyph: "▮", token: "eq-water", label: "outside the window" },
   ];
   await mount(<ChartStack label="Climate" panels={panels()} now={NOW} xRange={RANGE} syncKey="k" events={events} />);
   const rail = screen.getByRole("group", { name: "Events on the charts, 3" });
   const marks = within(rail).getAllByRole("button");
   expect(marks.map((mark) => [mark.getAttribute("aria-label"), mark.getAttribute("data-kind"), mark.textContent, mark.getAttribute("tabindex")])).toEqual([
-    ["09:00 · jason · Set VPD Mister Engage", "setting", "✎", "-1"], ["17:00 · critical · Relay stuck", "alert", "▲", "-1"], ["21:00 · iris AI · Plan", "plan", "◆↓", "-1"],
+    ["09:00 · jason · Set VPD Mister Engage", "setting", "✎", "-1"], ["17:00 · critical · Relay stuck", "alert", "▲", "-1"], ["21:00 · iris AI · Review written", "other", "◇", "-1"],
   ]);
-  expect(marks[1].querySelector(".rail-glyph")?.getAttribute("data-token")).toBe("fault");
-  // The key names the kinds in the window, and a plan's triggers.
+  expect(marks[1].querySelector(".rail-glyph")?.getAttribute("data-token")).toBe("critical");
+  // The key names the kinds in the window.
   const key = screen.getByRole("list", { name: "Event marks" });
-  expect(within(key).getAllByRole("button").map((button) => [button.textContent, button.getAttribute("aria-pressed")])).toEqual([["✎setting", "true"], ["◆plan", "true"], ["▲alert", "true"]]);
-  expect(key.textContent).toContain("↑ sunrise · ↓ sunset · ☾ midnight");
+  expect(within(key).getAllByRole("button").map((button) => [button.textContent, button.getAttribute("aria-pressed")])).toEqual([["✎setting", "true"], ["▲alert", "true"], ["◇other", "true"]]);
+  expect(key.textContent).not.toMatch(/sunrise|sunset|midnight|plan/);
   // Hovering the alert draws the hairline and lights its span; the list under the stack lights its row.
   fireEvent.mouseEnter(marks[1]);
   expect(document.querySelector(".stack-hairline")).not.toBeNull();
@@ -224,7 +224,7 @@ test("the event rail draws only when given events: an icon per kind, a key that 
 });
 
 test("marks closer than 8 px stack into one: the first one's icon and +N, every event in its list", async () => {
-  const events: ChartEvent[] = [0, 1, 2].map((n) => ({ id: `s${n}`, at: FROM + 2 * HOUR + n * 60, source: "people", kind: "setting", glyph: "✎", token: "forest", label: `set ${n}` }));
+  const events: ChartEvent[] = [0, 1, 2].map((n) => ({ id: `s${n}`, at: FROM + 2 * HOUR + n * 60, source: "people", kind: "setting", glyph: "✎", token: "accent", label: `set ${n}` }));
   const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
   await mount(<ChartStack label="Climate" panels={panels()} now={NOW} xRange={RANGE} syncKey="k" events={events} />);
   width.mockRestore();

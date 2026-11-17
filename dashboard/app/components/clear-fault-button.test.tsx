@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
 // Clear fault (#1136) against #1122's fixture API in process: one API-IRR-13 on a latch, the readback, no Clear on a
-// back-off or a line the operation does not name, the words before the irrigation firmware, viewers and changes off.
+// back-off or a line the operation does not name, nothing with no engine reported, viewers and changes off.
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import type { IrrigationLine } from "../lib/operator-api";
 import { useIrrigationRead } from "../lib/queries";
 import { OPERATOR, UUID, advance, renderWithApi, startFixtureApi, stopFixtureApi, writes, type FixtureOptions } from "../lib/test-fixture-api";
-import { CLEAR_ARRIVES_TEXT, ClearFaultButton } from "./clear-fault-button";
+import { ClearFaultButton } from "./clear-fault-button";
 import { renderUi, text } from "./test-render";
 
 afterEach(() => { cleanup(); stopFixtureApi(); });
@@ -56,16 +56,11 @@ test("a back-off shows no Clear, nor does a clear line or a fertilizer mister, w
   expect(document.body.textContent).toBe("");
 });
 
-test("before the irrigation firmware a zone says when Clear fault arrives, with no button, for operators only", async () => {
+test("with no irrigation engine reported a zone shows no Clear and no words about it", async () => {
   await open("L04", { fixture: "before-engine" });
-  expect(text(document.querySelector("[data-arrives=clear-fault]"))).toBe(CLEAR_ARRIVES_TEXT);
   expect(clear()).toBeNull();
-  cleanup(); stopFixtureApi();
-  await open("L02", { fixture: "before-engine" });
   expect(document.querySelector("[data-arrives]")).toBeNull();
-  cleanup(); stopFixtureApi();
-  await open("L04", { fixture: "before-engine" }, { role: "viewer", writesEnabled: false });
-  expect(document.querySelector("[data-arrives]")).toBeNull();
+  expect(document.body.textContent).not.toMatch(/arrives|irrigation firmware/);
 });
 
 test("a viewer sees no Clear fault; with changes switched off it is disabled", async () => {

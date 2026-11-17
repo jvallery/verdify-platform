@@ -11,23 +11,23 @@ import { FieldHint, useFieldIds } from "../components/forms";
 import { AgeLabel, useClockValue } from "../components/freshness";
 import { Kv, type KvItem } from "../components/kv";
 import { ListCard } from "../components/layout/list-card";
+import { Page } from "../components/layout/page";
 import { PageHeader } from "../components/layout/page-header";
-import type { PanelState } from "../components/panel";
+import { PanelErrorBoundary, type PanelState } from "../components/panel";
 import { StopAllWater } from "../components/stop-all-water";
 import { useToast } from "../components/toast";
 import {
-  ALERT_LIMIT, RECENT_ALERTS, activityHref, alertIdOf, alertsStatus, catalogOf, dayHeading, detailText, entriesByDay, groupAlerts, isClosed, logRedirect, personName,
-  readView, type ActivityView, type SignedIn,
+  ALERT_LIMIT, RECENT_ALERTS, activityHref, alertIdOf, alertPage, alertWindow, alertsStatus, catalogOf, dayHeading, detailText, entriesByDay, groupAlerts, isClosed,
+  logRedirect, personName, readView, type ActivityView, type SignedIn,
 } from "../lib/activity";
 import { formatNumber, formatValue, localDate, shortTime } from "../lib/format";
-import { graphWindowUrl } from "../lib/graph-link";
 import { lineByEquipment, lineDisplayName } from "../lib/lines";
 import type { Alert, AlertPage, IrrigationStatus, Now } from "../lib/operator-api";
 import { panelRead, useApiRead, type PanelRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
 import { OperatorOnly, useWritesEnabled } from "../lib/session";
 import { useMe, useShellNow, useShellStatus } from "../lib/shell";
-import { words } from "../lib/words";
+import { alertAbout, words } from "../lib/words";
 import { REASON_MAX, useCommand, useRecordWrite } from "../lib/writes";
 
 export const meta = () => viewMeta("activity-alerts");
@@ -53,13 +53,12 @@ const ALERTS_POLL_MS = 15_000;
 const SLOW_POLL_MS = 60_000;
 /** Recent activity: the five newest log entries. */
 const RECENT_ACTIVITY = { limit: 5 } as const;
-/** "Open in Graphs" shows 2 h either side of an alert's first seen. */
-const GRAPH_MARGIN_MS = 2 * 3_600_000;
 
 /**
- * Activity → Alerts (`/activity`, redesign §5.8; SCR-06): what needs someone now. One API-14 read (`status=recent`, every
- * 15 s) gives three groups: "Needs action" (nobody has acknowledged it, by severity then age), "Acknowledged, still open"
- * and "Resolved in the last 24 h", the last two collapsed. Each alert expands in place at `?alert=<id>`, and the status
+ * Activity → Alerts (`/activity`, screens.md section 9, A-01 to A-03): what needs someone now. One API-14 read
+ * (`status=recent`, every 15 s) gives three groups: "Needs action" (nobody has acknowledged it, by severity then age),
+ * "Acknowledged, still open" and "Resolved in the last 24 h", the last two collapsed. Each alert expands in place at
+ * `?alert=<id>` to its one sentence, the page that explains it, its window in Graphs and its runbook, and the status
  * line states the one count. Then "Recent activity": the five newest log entries and "Open the log ›". Operators
  * acknowledge with an optional note and resolve, stop all water from a fence breach and clear a mister latch; viewers
  * read the same page with none of those controls. No greenhouse data renders in SSR: it loads in the browser.
@@ -81,13 +80,15 @@ export default function Activity() {
   // A failed read states no counts, even with an earlier answer kept: its rows may be gone (the groups say why).
   const counts = { open: openAlerts ?? groups.open.length, acknowledged: groups.acknowledged.length, resolved: groups.closed.length, coverage };
   const status = loading || alerts.failed ? null : alertsStatus(counts);
-  return <>
+  return <Page className="act-alerts">
     <PageHeader view="activity-alerts" status={status} statusShort={status === null ? null : alertsStatus({ ...counts, short: true })} />
-    <div className="page act-alerts">
+    <PanelErrorBoundary thing="the alerts" onRetry={alerts.retry}>
       <AlertGroups view={view} params={params} alerts={alerts} me={me} now={now} irrigation={water.failed ? null : water.data} loading={loading} />
+    </PanelErrorBoundary>
+    <PanelErrorBoundary thing="recent activity">
       <RecentActivity me={me} />
-    </div>
-  </>;
+    </PanelErrorBoundary>
+  </Page>;
 }
 
 // ---------------------------------------------------------------------------------------------------- the groups
@@ -161,8 +162,8 @@ function AlertGroup({ summary, holdsExpanded, start = false, children }: { summa
  * One alert as `AlertRow` draws it, plus what its type needs: the flow alert's words and spigot guidance (it has no
  * Stop: no Verdify valve is open), the valve a fence breach opened with Stop all water, and Clear fault on a latched
  * mister while the irrigation firmware runs. Collapsed, it offers Acknowledge with an optional note; expanded (its
- * "Details ›", `?alert=<id>`), every field, the runbook as plain text, "Open in Graphs ±2 h" and the note that
- * Acknowledge and Resolve send.
+ * "Details ›", `?alert=<id>`), what the alert means in one sentence, "Explained on <page> ›", every field, the runbook
+ * as plain text, its window in Graphs and the note that Acknowledge and Resolve send.
  */
 function AlertItem({ alert, context }: { alert: Alert; context: ItemContext }) {
   const { me, now, irrigation, params, expandedId, onAcknowledged } = context;
@@ -208,10 +209,11 @@ function AlertItem({ alert, context }: { alert: Alert; context: ItemContext }) {
     {alert.alert_type === "irrigation_fence_breach" && <ValveLine alert={alert} />}
     {closed && <ClosedLine alert={alert} me={me} />}
     {expanded && <div className="alert-detail" id={detailId}>
+      <AlertAbout alert={alert} />
       <Kv items={alertFields(alert, me)} />
       <h4>Runbook</h4>
       {alert.runbook ? <p className="runbook">{alert.runbook}</p> : <p>No runbook for this alert type.</p>}
-      <GraphLink firstSeen={alert.first_seen_at} />
+      <GraphLink alert={alert} />
       {!closed && <OperatorOnly><div className="alert-respond">
         <NoteField value={note} onChange={setNote} sentWith={unacknowledged ? "Acknowledge or Resolve" : "Resolve"} />
         <div className="actions">
@@ -254,12 +256,29 @@ function ClosedLine({ alert, me }: { alert: Alert; me: SignedIn }) {
   return <p className="act-closed">{words("alert_status", alert.status)}{by}{alert.resolved_at && <> · <LocalTime at={alert.resolved_at} /></>}{alert.resolution && <> · “{alert.resolution}”</>}</p>;
 }
 
-/** "Open in Graphs ›": the window from 2 h before to 2 h after the alert was first seen. */
-function GraphLink({ firstSeen }: { firstSeen: string }) {
-  const first = Date.parse(firstSeen);
-  const href = Number.isFinite(first) ? graphWindowUrl(first - GRAPH_MARGIN_MS, first + GRAPH_MARGIN_MS) : null;
-  if (!href) return null;
-  return <p className="alert-graph"><Link to={href}>Open in Graphs <span aria-hidden="true">›</span></Link> <span className="meta">±2 h around <LocalTime at={firstSeen} /></span></p>;
+/**
+ * What the alert means, in one sentence (words.md "Alert types"), and the v2 page that explains it ("Explained on
+ * Drying ›"; A-02). A retired check says so and has no page.
+ */
+function AlertAbout({ alert }: { alert: Alert }) {
+  const about = alertAbout(alert.alert_type);
+  const page = alertPage(alert);
+  if (!about && !page) return null;
+  return <p className="alert-about">
+    {about}
+    {page && <>{about && " "}<Link to={page.to}>Explained on {page.label}<span aria-hidden="true"> ›</span></Link></>}
+  </p>;
+}
+
+/** "Open in Graphs ›": the alert's window, from 2 h before it was first seen to 2 h after it ended (or was last seen). */
+function GraphLink({ alert }: { alert: Alert }) {
+  const span = alertWindow(alert);
+  if (!span) return null;
+  const from = new Date(span.from).toISOString();
+  const to = new Date(span.to).toISOString();
+  return <p className="alert-graph"><Link to={span.href}>Open in Graphs <span aria-hidden="true">›</span></Link> <span className="meta">
+    <LocalTime at={from} date={localDate(from) !== localDate(to)} /> to <LocalTime at={to} date={localDate(from) !== localDate(to)} />
+  </span></p>;
 }
 
 const ISO_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d/;
@@ -271,15 +290,15 @@ function detailValue(value: unknown): ReactNode {
   return <code>{JSON.stringify(value)}</code>;
 }
 /**
- * Every field of an expanded alert, null as "—". The type and severity read through the words table like every other
- * code (an unknown one raw); `details` shows as stored.
+ * Every field of an expanded alert, null as "—". The type, category and severity read through the words table like
+ * every other code (an unknown one raw); `details` shows as stored.
  */
 function alertFields(alert: Alert, me: SignedIn): KvItem[] {
   const details = Object.entries(alert.details ?? {});
   const by = (who: string | null | undefined, at: string | null | undefined) => (at ? <>{who ? `by ${personName(who, me)} · ` : ""}<LocalTime at={at} date /></> : null);
   const items: KvItem[] = [
     { term: "Type", value: words("alert_type", alert.alert_type) },
-    { term: "Category", value: alert.category || null },
+    { term: "Category", value: alert.category ? words("alert_category", alert.category) : null },
     { term: "Severity", value: words("alert_severity", alert.severity) },
     { term: "Message", value: alert.message || null },
     { term: "Zone", value: alert.zone || null },

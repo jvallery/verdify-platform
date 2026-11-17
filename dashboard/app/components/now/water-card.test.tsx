@@ -8,17 +8,20 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { fixture } from "../../../e2e/fixtures/index.mjs";
 import { parseIrrigationStatus, type IrrigationStatus } from "../../lib/operator-api";
 import type { PanelRead } from "../../lib/queries";
-import { renderUi, text } from "../test-render";
+import { advance, renderWithApi, startFixtureApi, stopFixtureApi } from "../../lib/test-fixture-api";
+import { SAF4_PRIMARY, SAF4_TERM } from "../../lib/water";
+import { text } from "../test-render";
 import { BEFORE_ENGINE_LINE, WaterCard, WATER_UNAVAILABLE, flowText, minutesWords, saf4Text, zoneWater } from "./water-card";
 
 const NOW = Date.parse("2026-11-02T17:42:00Z");
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+beforeEach(() => { startFixtureApi({ fixture: "in-band" }); });
+afterEach(() => { cleanup(); stopFixtureApi(); });
 
 const plain = (value: string) => value.replaceAll(String.fromCharCode(0xa0), " ");
 const statusOf = (names: string | string[]): IrrigationStatus => parseIrrigationStatus(fixture(names, { now: NOW })["API-IRR-01"])!;
 const read = (data: IrrigationStatus | null, failed = false): PanelRead<IrrigationStatus> => ({ data, failed, pending: data === null && !failed, retry: vi.fn() });
-const renderCard = (irrigation: PanelRead<IrrigationStatus>, role: "operator" | "viewer" = "operator") => renderUi(<WaterCard irrigation={irrigation} />, { role, writesEnabled: true });
+const STOP = { stop: vi.fn(), sending: false, confirming: false };
+const renderCard = (irrigation: PanelRead<IrrigationStatus>, role: "operator" | "viewer" = "operator") => renderWithApi(<WaterCard irrigation={irrigation} stop={STOP} />, { role, writesEnabled: true });
 const row = (name: string) => document.querySelector(`[data-water="${name}"]`);
 const rowWords = (name: string) => ({ amount: plain(text(row(name)?.querySelector(".now-water-amount"))), last: plain(text(row(name)?.querySelector(".now-water-last"))) });
 
@@ -33,15 +36,15 @@ test("in band: the daily mist & fog limit first, then a meter per zone, its minu
   expect([...document.querySelectorAll(".now-water-zones .meter")].map((meter) => meter.className.split(" ")[1])).toEqual(["meter-water", "meter-water", "meter-mister", "meter-mister", "meter-mister"]);
   expect(rowWords("saf4")).toEqual({ amount: "21 / 360 gal", last: "all misters and fog" });
   // #1349: words and a tip, never a bare "SAF-4".
-  expect(text(row("saf4")?.querySelector(".now-water-name"))).toBe("Daily mist & fog limit primary daily limit");
+  expect(text(row("saf4")?.querySelector(".now-water-name"))).toBe(`${SAF4_TERM} ${SAF4_PRIMARY}`);
   // #1339 (Jason, 2026-11-06): mist & fog is the primary daily water limit, so it leads the card, above the zones.
   expect(document.querySelector(".now-water-zones > li")?.getAttribute("data-water")).toBe("saf4");
-  expect(screen.getByRole("button", { name: "About Daily mist & fog limit" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: `About ${SAF4_TERM}` })).toBeTruthy();
   expect(document.body.textContent).not.toContain("SAF-4");
   expect(text(row("flow"))).toBe("No flow with every valve closed");
   expect(screen.getByRole("link", { name: /^Water today, by line/ }).getAttribute("href")).toBe("/water");
-  // Stop all water is the first quick action, never here.
-  expect(screen.queryByRole("button", { name: /stop/i })).toBeNull();
+  // The one stop here is Stop all water, the card's last line.
+  expect(screen.getAllByRole("button", { name: /stop/i }).map((button) => text(button))).toEqual(["Stop all water"]);
 });
 
 test("a running zone says so with its cause; a cap reached or passed says so in words", () => {
@@ -113,6 +116,20 @@ test("API-IRR-01 failed or not served: Water status unavailable. with Retry, nev
   renderCard(read(statusOf("in-band")), "viewer");
   expect(rowWords("center").amount).toBe("14 / 120 min");
   expect(document.querySelector("[data-write-control]")).toBeNull();
+  // A viewer has no Stop all water; an operator has it whatever the water status shows.
+  expect(screen.queryByRole("button", { name: /Stop all water/ })).toBeNull();
+  cleanup();
+  renderCard(read(null, true));
+  expect(screen.getByRole("button", { name: /Stop all water/ })).toBeTruthy();
+});
+
+test("the next scheduled run in the next 12 h and occupancy close the card; Stop all water is its last line for an operator", async () => {
+  renderCard(read(statusOf("in-band")));
+  await advance(0);
+  expect(plain(text(document.querySelector("[data-water=next]")))).toMatch(/^(Next scheduled run: .+ at \d\d:\d\d · .+|No run scheduled in the next 12 h)$/);
+  expect(text(document.querySelector("[data-water=occupancy]"))).not.toBe("");
+  fireEvent.click(screen.getByRole("button", { name: /Stop all water/ }));
+  expect(STOP.stop).toHaveBeenCalledOnce();
 });
 
 test("#1348: a zone's minutes stay whole against its cap, with the VPD misting in them said apart, and the day's mist and fog on its own line", () => {

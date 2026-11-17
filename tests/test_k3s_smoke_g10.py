@@ -772,14 +772,20 @@ SWEEP_IDS = [
     "API-05",
     "API-06",
     "API-06 zone=south",
-    "API-07",
     "API-09",
     "API-12",
     "API-13 with its three reasons",
     "API-14",
     "API-17",
     "API-21",
-    "API-25",
+    "API-30",
+    "API-31",
+    "API-32",
+    "API-33",
+    "API-34",
+    "API-35",
+    "API-36",
+    "API-37",
     "API-IRR-01",
     "API-IRR-02",
     "API-IRR-10 with minutes on all 30 days, not no_data",
@@ -805,6 +811,12 @@ def test_sweep_gets_every_read_as_the_viewer_and_writes_nothing(tmp_path):
     assert "/api/v1/irrigation/minutes?from=2025-08-05&to=2025-09-03&group_by=zone" in targets
     assert "/api/v1/water/daily?days=90" in targets
     assert "/api/v1/activity?limit=50" in targets
+    assert "/api/v1/record/days" in targets
+    assert "/api/v1/record/relay-check?days=7" in targets
+    assert "/api/v1/system/data?days=1" in targets
+    assert "/api/v1/system/delivery?hours=24" in targets
+    assert any(target.startswith("/api/v1/law/history?from=") for target in targets)
+    assert not any(target.startswith(("/api/v1/plan", "/api/v1/planner/")) for target in targets)
     assert f"/api/v1/band/preview?param=zone_vpd_target_center_sm&value={(0.4 + 2.0) / 2}" in targets
     assert any(target.startswith("/api/v1/band?zone=south&from=") for target in targets)
     assert any(target.startswith("/api/v1/series?metric=climate.temp_avg&from=") for target in targets)

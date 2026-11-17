@@ -1,26 +1,27 @@
 // SPDX-License-Identifier: MIT
-// What Now's hero and zone strip draw from the climate series (redesign §5.1): today's low and high from local midnight,
-// the zones' last 24 h, time in band today and yesterday, and the band rows' words; a gap stays a gap, never 0.
+// What Now's hero, Today and the probes draw from the climate series and the daily record (dashboard v2 screens §1):
+// today's low and high from local midnight, the probes' last 24 h with their gaps, the case probe's VPD from its
+// temperature and RH, and time in band today and yesterday with last night; a gap stays a gap, never 0.
 import { expect, test } from "vitest";
-import { answer, buildWorld, fixture } from "../../../e2e/fixtures/index.mjs";
-import { dateShift, localDayStart } from "../../lib/format";
-import { parseNow, parseSeries, type Series } from "../../lib/operator-api";
+import { answer, buildWorld } from "../../../e2e/fixtures/index.mjs";
+import { parseSeries, type DailyRecord, type Series } from "../../lib/operator-api";
 import {
-  DAY_KEYS, DAY_POINTS, DAY_WINDOW_S, HOUSE_KEYS, TIB_KEYS, ZONE_VPD_KEYS, bandRows, bandWords, hasTimeInBand, outOfBand, percentText, rangeSince, timeInBand,
-  todayStartS, valuesSince,
+  CASE_KEYS, DAY_KEYS, DAY_POINTS, DAY_WINDOW_S, HOUSE_KEYS, OUTDOOR_KEY, PROBE_NOW_KEYS, caseVpdSince, inBand, newestBucket, nightWords, percentText,
+  probeVpdKey, rangeSince, readingsAsOf, todayStartS, valuesSince, vpdFrom,
 } from "./climate";
 
 const NOW = Date.parse("2026-11-02T17:42:00Z");
-const plain = (value: string | null) => (value ?? "").replaceAll(String.fromCharCode(0xa0), " ");
 const series = (names: string | string[], metric: readonly string[], from: string, to: string, points: number): Series => {
   const query = new URLSearchParams([...metric.map((key) => ["metric", key]), ["from", from], ["to", to], ["points", String(points)]]);
   return parseSeries(answer(buildWorld(names, { now: NOW }), { method: "GET", url: `/v1/series?${query}` }).body)!;
 };
 const day = (names: string | string[] = "in-band") => series(names, DAY_KEYS, new Date(NOW - DAY_WINDOW_S * 1000).toISOString(), new Date(NOW).toISOString(), DAY_POINTS);
 
-test("the day read: seven keys within API-04's eight, 15 min buckets over 25 h, so local midnight is always inside it", () => {
-  expect(DAY_KEYS).toEqual(["climate.temp_avg", "climate.vpd_avg", "climate.rh_avg", "climate.vpd_north", "climate.vpd_south", "climate.vpd_east", "climate.vpd_west"]);
-  expect(ZONE_VPD_KEYS.center).toBe(HOUSE_KEYS.vpd);
+test("the reads: the day read's seven keys and the probes' eight, within API-04's eight; no zone band key and no RH on the day read", () => {
+  expect(DAY_KEYS).toEqual([HOUSE_KEYS.temp, HOUSE_KEYS.vpd, OUTDOOR_KEY, "climate.vpd_north", "climate.vpd_east", "climate.vpd_south", "climate.vpd_west"]);
+  expect(PROBE_NOW_KEYS).toHaveLength(8);
+  expect(PROBE_NOW_KEYS).toContain("climate.temp_west");
+  expect(CASE_KEYS).toEqual(["climate.temp_case", "climate.rh_case"]);
   expect(day().bucket_s).toBe(900);
   // 00:00 MST on Nov 2 is 07:00Z.
   expect(todayStartS(NOW)).toBe(Date.parse("2026-11-02T07:00:00Z") / 1000);
@@ -39,32 +40,54 @@ test("today's low and high: the lowest min and highest max of the buckets from l
   expect(rangeSince(null, HOUSE_KEYS.temp, since)).toBeNull();
 });
 
-test("a zone's last 24 h keeps its gaps: south's probe out reads null for its last 20 minutes", () => {
+test("a probe's last 24 h keeps its gaps: south's probe out reads null for its last 20 minutes", () => {
   const out = day("south-probe-out");
   const from = Date.parse(out.to) / 1000 - 24 * 3600;
-  const values = valuesSince(out, ZONE_VPD_KEYS.south, from);
+  const values = valuesSince(out, probeVpdKey("south"), from);
   expect(values.length).toBeGreaterThanOrEqual(96);
   expect(values.at(-1)).toBeNull();
   expect(values.slice(0, 80).every((value) => typeof value === "number")).toBe(true);
 });
 
-test("time in band today and yesterday from the daily keys' day buckets; a day with no row reads null", () => {
-  const read = series("time-in-band", TIB_KEYS, localDayStart(dateShift("2026-11-02", -1)), localDayStart(dateShift("2026-11-02", 1)), 10);
-  const tib = timeInBand(read, "2026-11-02");
-  expect(tib).toEqual({ temp: { today: 96, yesterday: 94 }, vpd: { today: 88, yesterday: 91 } });
-  expect(hasTimeInBand(tib)).toBe(true);
-  expect(timeInBand(read, "2026-11-04")).toEqual({ temp: { today: null, yesterday: null }, vpd: { today: null, yesterday: null } });
-  expect(hasTimeInBand(timeInBand(null, "2026-11-02"))).toBe(false);
-  expect([percentText(95.6), percentText(null)]).toEqual(["96%", "—"]);
+test("the case probe's VPD from its temperature and RH (Tetens over the leaf at air temperature); a missing input reads null", () => {
+  // 77 °F is 25 °C: saturation 3.17 kPa, so 50% RH leaves 1.58 kPa.
+  expect(vpdFrom(77, 50)).toBeCloseTo(1.58, 2);
+  expect(vpdFrom(68, 100)).toBe(0);
+  expect([vpdFrom(null, 50), vpdFrom(77, null)]).toEqual([null, null]);
+  // An RH over 100% (a wet probe) clamps: saturated air has no deficit.
+  expect(vpdFrom(77, 140)).toBe(0);
+  const read: Series = {
+    from: "2026-11-02T16:00:00Z", to: "2026-11-02T17:00:00Z", server_time: "2026-11-02T17:00:30Z", bucket_s: 1800, t: [Date.parse("2026-11-02T16:00:00Z") / 1000, Date.parse("2026-11-02T16:30:00Z") / 1000],
+    series: {
+      "climate.temp_case": { avg: [77, 80], min: [76, 79], max: [78, 81] },
+      "climate.rh_case": { avg: [50, null], min: [49, null], max: [51, null] },
+    },
+  } as unknown as Series;
+  const values = caseVpdSince(read, 0);
+  expect(values[0]).toBeCloseTo(1.58, 2);
+  expect(values[1]).toBeNull();
+  expect(newestBucket(read, "climate.temp_case")).toEqual({ value: 80, end: Date.parse("2026-11-02T17:00:00Z") / 1000 });
+  expect(newestBucket(read, "climate.rh_case")?.value).toBe(50);
+  expect(newestBucket(null, "climate.rh_case")).toBeNull();
 });
 
-test("the band rows: temperature, VPD and RH with their bands, RH's no band, a verdict word only out of band, and their Graphs anchors", () => {
-  const now = parseNow(fixture("in-band", { now: NOW })["API-02"])!;
-  const rows = bandRows(now, day(), todayStartS(NOW));
-  expect(rows.map((row) => [row.key, plain(bandWords(row)), row.href])).toEqual([
-    ["temp", "band 62.0–70.0 °F", "/graphs?range=24h#temperature"], ["vpd", "band 0.45–0.80 kPa", "/graphs?range=24h#vpd"], ["rh", "no band", "/graphs?range=24h#rh"],
-  ]);
-  expect(rows[0].today?.low).toBeLessThan(rows[0].today?.high ?? Number.NaN);
-  expect([outOfBand("in"), outOfBand("above"), outOfBand("below"), outOfBand("unavailable"), outOfBand(null)]).toEqual([null, "above", "below", null, null]);
-  expect(bandWords({ band: null, unit: "°F", key: "temp", verdict: "unavailable" })).toBe("band unavailable");
+const record = (days: { date: string; both_pct: number | null; night_dried?: boolean | null; night_dryout_min?: number | null }[]) =>
+  ({ days: days.map((row) => ({ date: row.date, complete: true, band: { both_pct: row.both_pct, night_dried: row.night_dried ?? null, night_dryout_min: row.night_dryout_min ?? null } })) }) as unknown as Pick<DailyRecord, "days">;
+
+test("time in band today and yesterday from the daily record's both_pct, and last night from today's row; a day with no row reads null", () => {
+  const read = record([{ date: "2026-11-01", both_pct: 88.4 }, { date: "2026-11-02", both_pct: 91.6, night_dried: true, night_dryout_min: 42 }]);
+  const band = inBand(read, "2026-11-02");
+  expect(band).toEqual({ today: 91.6, yesterday: 88.4, nightDried: true, nightDryoutMin: 42 });
+  expect([percentText(band.today), percentText(null)]).toEqual(["92%", "—"]);
+  expect(nightWords(band)).toBe("Last night dried out for 42 min");
+  expect(nightWords({ nightDried: true, nightDryoutMin: 0 })).toBe("Last night dried out");
+  expect(nightWords({ nightDried: false, nightDryoutMin: null })).toBe("Last night did not dry out");
+  expect(nightWords(inBand(read, "2026-11-04"))).toBeNull();
+  expect(inBand(null, "2026-11-02")).toEqual({ today: null, yesterday: null, nightDried: null, nightDryoutMin: null });
+});
+
+test("muted gauges say when their numbers were read: the oldest time among the readings that have a value", () => {
+  expect(readingsAsOf([{ value: 70, observed_at: "2026-11-02T17:30:00Z" }, { value: 0.9, observed_at: "2026-11-02T17:28:00Z" }])).toBe("2026-11-02T17:28:00Z");
+  expect(readingsAsOf([{ value: null, observed_at: "2026-11-02T17:10:00Z" }, { value: 0.9, observed_at: "2026-11-02T17:28:00Z" }])).toBe("2026-11-02T17:28:00Z");
+  expect(readingsAsOf([{ value: null, observed_at: null }])).toBeNull();
 });

@@ -116,7 +116,7 @@ test("on 2026-11-01 axis times from 01:00 to 01:59 carry their short zone, and t
   expect(details.querySelector("tbody time")!.getAttribute("datetime")).toBe("2026-11-01T06:00:00.000Z");
 });
 
-test("steps: SUPERSEDED muted, the plan in the series colour, a request dashed amber and never the device line; no words in the plot but Now", async () => {
+test("steps: a request dashed amber and never the device line, no plan marker; no words in the plot but Now", async () => {
   const history = load<SettingHistory>(historyFixture);
   const { plot } = await mount({ metrics: [metric("climate.vpd_avg")], band: load<BandTimeline>(bandFixture), settings: [{ history }] });
   plot.draw();
@@ -125,33 +125,33 @@ test("steps: SUPERSEDED muted, the plan in the series colour, a request dashed a
   expect(ctx.depth).toBe(0);
   const kpa = (value: string) => `${value}${NBSP}kPa`;
   // The only words in the plot (#1354): the steps, the bounds and the band are named in the key, tooltip and notes.
-  expect(ctx.texts.map((item) => [item.text, item.color])).toEqual([["Now", TOKENS["--ink"]]]);
+  expect(ctx.texts.map((item) => [item.text, item.color])).toEqual([["Now", TOKENS["--text"]]]);
   const strokes = (color: string, dash: number[]) => ctx.strokes.filter((stroke) => stroke.stroke === color && JSON.stringify(stroke.dash) === JSON.stringify(dash));
-  // Superseded: muted --c-bound, dashed [8,4]; planned: the series colour, dashed [8,4].
-  expect(strokes(TOKENS["--c-bound"], [8, 4])).toHaveLength(2);
-  expect(strokes(TOKENS["--c-vpd"], [8, 4])).toHaveLength(2);
+  // The plan markers are retired (screens.md 7.1): API-12's waypoints draw nothing.
+  expect(strokes(TOKENS["--text-3"], [8, 4])).toHaveLength(0);
+  expect(strokes(TOKENS["--c-vpd"], [8, 4])).toHaveLength(0);
   // Requested: amber, dashed [6,4], its own stroke; the device line is solid forest.
   const requested = strokes(TOKENS["--c-requested"], [6, 4]);
   expect(requested).toHaveLength(1);
   expect(requested[0].width).toBe(2);
-  const device = strokes(TOKENS["--c-setpoint"], []);
+  const device = strokes(TOKENS["--accent"], []);
   expect(device).toHaveLength(2);
   expect(device.every((stroke) => stroke.path.every(([, y]) => y !== requested[0].path[1][1]))).toBe(true);
-  // The now line: 1.5px ink.
-  expect(ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--ink"] && stroke.width === 1.5)).toBe(true);
+  // The now line: a 1 px --text rule (design system v2 §5).
+  expect(ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--text"] && stroke.width === 1)).toBe(true);
   // The setting's min 0.50 and max 2.50 are its allowed range, not climate: no dotted bound on a climate panel (#1354).
-  expect(strokes(TOKENS["--c-bound"], [1, 3])).toHaveLength(0);
+  expect(strokes(TOKENS["--text-3"], [1, 3])).toHaveLength(0);
   // The band wash under the grid, its 1px edges above it.
   expect(ctx.fills.some((fill) => fill.color === TOKENS["--c-band-wash"])).toBe(true);
   expect(ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--c-band-edge"] && stroke.width === 1)).toBe(true);
-  // The tooltip names the request's state, the band and the plan ahead.
+  // The tooltip names the request's state and the band; nothing ahead of now but the band.
   plot.hover(epoch("2026-11-01T09:50:00Z"), 46);
-  expect(tooltip(plot).slice(2)).toEqual([`Band in force · DERIVED ${kpa(String(load<BandTimeline>(bandFixture).band.vpd_low[15]!.toFixed(2)))}–${kpa(load<BandTimeline>(bandFixture).band.vpd_high[15]!.toFixed(2))}`, `mister_engage_kpa device ${kpa("1.50")}`, `mister_engage_kpa REQUESTED ${kpa("1.55")} · jason`]);
+  expect(tooltip(plot).slice(2)).toEqual([`Band in force ${kpa(String(load<BandTimeline>(bandFixture).band.vpd_low[15]!.toFixed(2)))}–${kpa(load<BandTimeline>(bandFixture).band.vpd_high[15]!.toFixed(2))}`, `mister_engage_kpa device ${kpa("1.50")}`, `mister_engage_kpa REQUESTED ${kpa("1.55")} · jason`]);
   plot.hover(epoch("2026-11-01T19:00:00Z"), 47);
-  expect(tooltip(plot)).toContain(`mister_engage_kpa SUPERSEDED ${kpa("1.80")} · Iris plan · ${kpa("1.55")} (jason) holds until a newer plan`);
+  expect(tooltip(plot).some((line) => /SUPERSEDED|PLANNED|plan/.test(line))).toBe(false);
 });
 
-test("the RH panel's plan keeps --c-rh and a request the amber dash; neither is labelled in the plot", async () => {
+test("the RH panel's request keeps the amber dash, unlabelled in the plot; no plan marker draws", async () => {
   const history = load<SettingHistory>(historyFixture);
   const percent = (value: number | null) => (value === null ? null : value * 50);
   const rh: SettingHistory = {
@@ -163,9 +163,7 @@ test("the RH panel's plan keeps --c-rh and a request the amber dash; neither is 
   const { plot } = await mount({ metrics: [metric("climate.rh_avg")], settings: [{ history: rh }] });
   plot.draw();
   const label = (text: string) => plot.ctx.texts.find((item) => item.text === text);
-  // The line keeps --c-rh (3:1 for lines); its label does not.
-  expect(plot.ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--c-rh"] && JSON.stringify(stroke.dash) === "[8,4]")).toBe(true);
-  expect(label("85.0% PLANNED · AI")).toBeUndefined();
+  expect(plot.ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--c-rh"] && JSON.stringify(stroke.dash) === "[8,4]")).toBe(false);
   expect(label("77.5% REQUESTED")).toBeUndefined();
   expect(plot.ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--c-requested"] && JSON.stringify(stroke.dash) === "[6,4]")).toBe(true);
 });
@@ -175,7 +173,7 @@ test("a climate panel draws no bound even inside its y range; the setting's own 
   history.max = 1.75;
   const { plot } = await mount({ metrics: [metric("climate.vpd_avg")], settings: [{ history }] });
   plot.draw();
-  expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--c-bound"] && JSON.stringify(stroke.dash) === "[1,3]")).toHaveLength(0);
+  expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && JSON.stringify(stroke.dash) === "[1,3]")).toHaveLength(0);
   expect(plot.ctx.texts.some((item) => item.text.includes("1.75"))).toBe(false);
   expect(buildTimeSeriesModel(props({ metrics: [metric("climate.vpd_avg")], settings: [{ history }] })).bounds).toEqual([]);
   expect(buildTimeSeriesModel(props({ series: null, metrics: [], unit: "kPa", settings: [{ history }] })).bounds.map((bound) => bound.kind)).toEqual(["min", "max"]);
@@ -205,7 +203,7 @@ test("400 daily summaries draw one point per day and say so; heap reads kB and i
   expect(notes).toEqual(["one point per day · daily summaries", "Daily summaries before 11/02/2025: raw data kept 365 days"]);
   temp.plot.draw();
   expect(temp.plot.ctx.texts.some((item) => item.text === "Daily summaries before 11/02/2025: raw data kept 365 days")).toBe(true);
-  expect(temp.plot.ctx.rects.some((rect) => rect.color === TOKENS["--field"] && rect.width > 0)).toBe(true);
+  expect(temp.plot.ctx.rects.some((rect) => rect.color === TOKENS["--surface-2"] && rect.width > 0)).toBe(true);
   // The data table says so too, on its first row.
   const table = await openTable(temp.container);
   expect(table.querySelector("tbody tr")!.lastElementChild!.textContent).toBe("Daily summaries before 11/02/2025: raw data kept 365 days");
@@ -269,7 +267,7 @@ test("legend: none for one series; with two, buttons toggle setSeries and the ta
 test("the plot is an image that names what is plotted and says a table follows; markup has no style attribute", async () => {
   const { container } = await mount({ metrics: [metric("climate.vpd_avg")], band: load<BandTimeline>(bandFixture), settings: [{ history: load<SettingHistory>(historyFixture), label: "VPD Mister Engage" }] });
   const image = container.querySelector("[role=img]")!;
-  expect(image.getAttribute("aria-label")).toBe("Indoor VPD in kPa over time, America/Denver, with the band ribbon (Band in force · DERIVED; Crop band reconstructed from today's anchors), with setting steps for VPD Mister Engage. Gaps are left empty, never zero. The data table follows.");
+  expect(image.getAttribute("aria-label")).toBe("Indoor VPD in kPa over time, America/Denver, with the band ribbon (Band in force; Stored band), with setting steps for VPD Mister Engage. Gaps are left empty, never zero. The data table follows.");
   expect(container.querySelector("figcaption")!.textContent).toBe("Indoor VPD · kPa");
   expect(container.querySelectorAll("[style]")).toHaveLength(0);
 });
@@ -280,10 +278,9 @@ test("one unit per plot: a metric in another unit is left out; colours never rep
   expect(traceTokens([metric("climate.rh_avg"), metric("climate.soil_moisture_south_1")], "%")).toEqual(["--c-rh", "--eq-fan2"]);
   expect(traceTokens([metric("climate.soil_moisture_south_1"), metric("climate.rh_avg")], "%")).toEqual(["--eq-fan2", "--c-rh"]);
   expect(traceTokens([metric("climate.flow_gpm")], "gal/min")).toEqual(["--eq-fan2"]);
-  // The setpoint token is for a dotted cross-check alone: a target picked on Graphs is a line like any other, not the device step.
-  const target = { ...metric("climate.vpd_avg"), key: "climate.vpd_target_south" };
-  expect(traceTokens([metric("climate.vpd_avg"), target], "kPa")).toEqual(["--c-vpd", "--eq-fan2"]);
-  expect(traceTokens([metric("climate.vpd_avg"), target], "kPa", [target.key])).toEqual(["--c-vpd", "--c-setpoint"]);
+  // A second line in a unit takes the next free series token, never the device step's --accent.
+  const second = { ...metric("climate.vpd_avg"), key: "climate.vpd_south" };
+  expect(traceTokens([metric("climate.vpd_avg"), second], "kPa")).toEqual(["--c-vpd", "--eq-fan2"]);
   expect(tickIncrements(2).slice(0, 6)).toEqual([0.01, 0.02, 0.05, 0.1, 0.2, 0.25]);
 });
 
@@ -330,9 +327,10 @@ test("a settings-only chart: the plot holds only steps; the legend, the data tab
   // The key names what is drawn: no toggles, as a step is no series.
   expect(container.querySelector(".chart-legend")).toBeNull();
   const key = [...container.querySelectorAll(".chart-key li")];
-  expect(key.map((item) => item.textContent)).toEqual(["Device readback", "jason · dashboard", "SUPERSEDED", "PLANNED · AI", "Forecast rule · system", "Min and max"]);
+  // No plan in the key: API-12's waypoints are not drawn (screens.md 7.1).
+  expect(key.map((item) => item.textContent)).toEqual(["Device readback", "jason · dashboard", "Min and max"]);
   expect(key.map((item) => [item.querySelector(".chart-key-swatch")!.getAttribute("data-token"), item.querySelector(".chart-key-swatch")!.getAttribute("data-kind")])).toEqual([
-    ["c-setpoint", "line"], ["c-requested", "dashed"], ["c-bound", "dashed"], ["c-vpd", "dashed"], ["c-vpd", "dashed"], ["c-bound", "dotted"],
+    ["accent", "line"], ["c-requested", "dashed"], ["text-3", "dotted"],
   ]);
   // The tooltip at a time with no bucket still names the steps there.
   plot.hover(epoch("2026-11-01T09:50:00Z"), null);
@@ -340,21 +338,17 @@ test("a settings-only chart: the plot holds only steps; the legend, the data tab
   // No empty table of buckets: only the steps.
   const details = await openTable(container);
   expect([...details.querySelectorAll("table")].map((table) => table.querySelector("caption")!.textContent)).toEqual([`Setting steps · bounds min 0.50${NBSP}kPa, max 2.50${NBSP}kPa`]);
-  expect(details.querySelector("summary")!.textContent).toBe("Data table · 8 rows");
+  expect(details.querySelector("summary")!.textContent).toBe("Data table · 4 rows");
   // One row at each step's start and end inside the window, a column per kind drawn, and who asked beside each request.
   const rows = (await urls[0].text()).split("\r\n");
-  expect(rows[0]).toBe("time (America/Denver),mister_engage_kpa device (kPa),mister_engage_kpa requested (kPa),mister_engage_kpa requested by,mister_engage_kpa planned (kPa),mister_engage_kpa superseded (kPa)");
+  expect(rows[0]).toBe("time (America/Denver),mister_engage_kpa device (kPa),mister_engage_kpa requested (kPa),mister_engage_kpa requested by");
   expect(rows.slice(1, -1)).toEqual([
-    // The device's 05:58 Z step was in force when the window opened at 06:00 Z.
-    "2026-11-01T00:00:00-06:00,1.6,,,,",
-    "2026-11-01T01:25:00-07:00,1.6,1.5,jason · dashboard,,",
-    "2026-11-01T01:31:00-07:00,1.5,1.5,jason · dashboard,,",
-    "2026-11-01T02:45:00-07:00,1.5,1.55,jason · dashboard,,",
-    "2026-11-01T03:00:00-07:00,,,,,1.6",
-    "2026-11-01T06:00:00-07:00,,,,1.7,",
-    "2026-11-01T08:00:00-07:00,,,,1.65,",
-    "2026-11-01T11:00:00-07:00,,,,,1.8",
-    "2026-11-01T15:00:00-07:00,,,,,",
+    // The device's 05:58 Z step was in force when the window opened at 06:00 Z; every step ends at now (03:00 local).
+    "2026-11-01T00:00:00-06:00,1.6,,",
+    "2026-11-01T01:25:00-07:00,1.6,1.5,jason · dashboard",
+    "2026-11-01T01:31:00-07:00,1.5,1.5,jason · dashboard",
+    "2026-11-01T02:45:00-07:00,1.5,1.55,jason · dashboard",
+    "2026-11-01T03:00:00-07:00,,,",
   ]);
   expect(screen.getByRole("link", { name: "CSV of this window" }).getAttribute("download")).toMatch(/^verdify-vpd-mister-engage-kpa-/);
 });
@@ -380,9 +374,10 @@ function forecastInput(avg: (number | null)[] = [50, 52, 54]) {
   };
   return { metrics: [FORECAST_TEMP], series };
 }
-const dashedStrokes = (plot: MockPlot) => plot.ctx.strokes.filter((stroke) => stroke.dash.join() === "8,4");
+/** The forecast's strokes: dotted [2,3] (design system v2 §5). */
+const dashedStrokes = (plot: MockPlot) => plot.ctx.strokes.filter((stroke) => stroke.dash.join() === "2,3");
 
-test("the forecast: dashed in the outdoor token, its issue said once in the notes (never in the plot), in the y range and the tooltip; a data table and CSV rows of its own", async () => {
+test("the forecast: dotted 1.5 px in the outdoor token, its issue said once in the notes (never in the plot), in the y range and the tooltip; a data table and CSV rows of its own", async () => {
   const urls: Blob[] = [];
   URL.createObjectURL = vi.fn((blob: Blob) => { urls.push(blob); return `blob:csv-${urls.length}`; });
   const { plot, container } = await mount({ forecast: forecastInput() });
@@ -390,7 +385,7 @@ test("the forecast: dashed in the outdoor token, its issue said once in the note
   // Joined hour to hour, from its own time arrays: the data columns never hold it.
   const [line] = dashedStrokes(plot);
   expect(line.stroke).toBe(TOKENS["--c-outdoor"]);
-  expect(line.width).toBe(2);
+  expect(line.width).toBe(1.5);
   expect(line.path).toHaveLength(3);
   expect(plot.data).toHaveLength(2);
   expect(plot.ctx.texts.map((item) => item.text)).not.toContain("Forecast · issued 03:00");
@@ -433,30 +428,36 @@ test("a forecast hour missing stays a gap, and a lone hour draws as a dot", asyn
   expect(plot.ctx.rects.filter((rect) => rect.color === TOKENS["--c-outdoor"])).toHaveLength(2);
 });
 
-test("a dotted key draws dotted in the setpoint token; a caller's note goes with its series", async () => {
+test("a reference key (the drying line) draws 1.5 px dashed in the accent and takes no palette colour from the measured line", async () => {
   const south = { ...metric("climate.vpd_avg"), key: "climate.vpd_south", label: "South VPD" };
-  const target = { ...metric("climate.vpd_avg"), key: "climate.vpd_target_south", label: "South VPD target" };
+  const line = { ...metric("climate.vpd_avg"), key: "derived.drying_line_kpa", label: "Drying line" };
   const series = load<Series>(holeFixture);
   const column = series.series["climate.temp_avg"];
-  series.series = { [south.key]: column, [target.key]: column };
-  const notes = [{ key: target.key, text: "Dotted: the controller's own target, a cross-check" }, { text: "A note on the panel" }];
-  const { plot, container } = await mount({ series, metrics: [south, target], unit: "kPa", dotted: [target.key], notes });
-  expect(plot.opts.series.slice(1).map((item) => [item.label, item.stroke, item.dash ?? null])).toEqual([["South VPD", TOKENS["--c-vpd"], null], ["South VPD target", TOKENS["--c-setpoint"], [2, 4]]]);
-  const note = () => [...container.querySelectorAll(".chart-notes li")].map((node) => node.textContent);
-  expect(note()).toEqual(expect.arrayContaining(notes.map((item) => item.text)));
-  fireEvent.click(within(container.querySelector<HTMLElement>(".chart-legend")!).getByRole("button", { name: "South VPD target" }));
-  expect(note()).not.toContain("Dotted: the controller's own target, a cross-check");
-  expect(note()).toContain("A note on the panel");
+  series.series = { [south.key]: column, [line.key]: column };
+  const { plot } = await mount({ series, metrics: [line, south], unit: "kPa", reference: [line.key] });
+  expect(plot.opts.series.slice(1).map((item) => [item.label, item.stroke, item.width])).toEqual([["Drying line", TOKENS["--accent"], 1.5], ["South VPD", TOKENS["--c-vpd"], 2]]);
+  expect(plot.opts.series[1].dash).toBeTruthy();
+  expect(plot.opts.series[2].dash ?? null).toBeNull();
 });
 
-test("a series dash scales with the device pixel ratio, as uPlot's canvas is in device pixels", async () => {
+test("a caller's note goes with its series", async () => {
+  const south = { ...metric("climate.vpd_avg"), key: "climate.vpd_south", label: "South VPD" };
+  const series = load<Series>(holeFixture);
+  series.series = { [south.key]: series.series["climate.temp_avg"] };
+  const notes = [{ text: "A note on the panel" }];
+  const { plot, container } = await mount({ series, metrics: [south], unit: "kPa", notes });
+  expect(plot.opts.series.slice(1).map((item) => [item.label, item.stroke, item.dash ?? null])).toEqual([["South VPD", TOKENS["--c-vpd"], null]]);
+  expect([...container.querySelectorAll(".chart-notes li")].map((node) => node.textContent)).toContain("A note on the panel");
+});
+
+test("an outdoor line is 1.5 px dashed in the outdoor token, its dash scaled by the device pixel ratio", async () => {
   MockPlot.pxRatio = 2;
   try {
-    const target = { ...metric("climate.vpd_avg"), key: "climate.vpd_target_south", label: "South VPD target" };
+    const outdoor = metric("climate.outdoor_temp_f");
     const series = load<Series>(holeFixture);
-    series.series = { [target.key]: series.series["climate.temp_avg"] };
-    const { plot } = await mount({ series, metrics: [target], unit: "kPa", dotted: [target.key] });
-    expect(plot.opts.series[1].dash).toEqual([4, 8]);
+    series.series = { [outdoor.key]: series.series["climate.temp_avg"] };
+    const { plot } = await mount({ series, metrics: [outdoor], unit: outdoor.unit });
+    expect([plot.opts.series[1].stroke, plot.opts.series[1].width, plot.opts.series[1].dash]).toEqual([TOKENS["--c-outdoor"], 1.5, [12, 8]]);
   } finally {
     MockPlot.pxRatio = 1;
   }

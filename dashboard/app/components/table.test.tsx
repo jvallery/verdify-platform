@@ -22,7 +22,7 @@ const rowHeaders = (container: HTMLElement) => [...container.querySelectorAll("t
 test("a focusable, labelled scroll region around a table with a caption", () => {
   const { container } = renderUi(table());
   const region = screen.getByRole("region", { name: "Settings" });
-  expect(region.className).toBe("table-wrap");
+  expect(region.className).toBe("table-wrap table-sticky-first");
   expect(region.getAttribute("tabindex")).toBe("0");
   expect(text(container.querySelector("caption"))).toBe("Every setting");
   expect([...container.querySelectorAll("thead th")].map((th) => th.getAttribute("scope"))).toEqual(["col", "col"]);
@@ -59,4 +59,15 @@ test("columns do not sort, and an empty table shows its empty words", () => {
   expect(container.querySelector("thead button")).toBeNull();
   cleanup();
   expect(text(renderUi(table({ rows: [], empty: <p>No settings yet</p> })).container)).toContain("No settings yet");
+});
+
+test("a numeric column is right-aligned, its header too; the phone list form labels each cell with its header", () => {
+  const numeric: TableColumn<Row>[] = [COLUMNS[0], { key: "n", header: "Minutes", numeric: true, cell: () => "14" }];
+  const { container } = renderUi(<Table<Row> label="Runs" caption="Runs" columns={numeric} rows={ROWS} rowKey={(row) => row.param} phone="list" />);
+  expect(screen.getByRole("region", { name: "Runs" }).className).toBe("table-wrap table-list");
+  expect(container.querySelector("thead th:last-child")?.className).toBe("num");
+  const cell = container.querySelector("tbody td")!;
+  expect(cell.className).toBe("num");
+  expect(cell.getAttribute("data-label")).toBe("Minutes");
+  expect(container.querySelector("tbody th")?.getAttribute("data-label")).toBe("Setting");
 });

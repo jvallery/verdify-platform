@@ -30,3 +30,10 @@ test("an interactive card is one link", () => {
 test("a card with no heading has no head", () => {
   expect(renderUi(<Card><p>Plain</p></Card>).container.querySelector(".card-head")).toBeNull();
 });
+
+test("the title row carries an as-of time before its actions", () => {
+  const { container } = renderUi(<Card title="Climate" asOf="as of 06:42" actions={<Button>Retry</Button>}><p>Body</p></Card>);
+  const end = container.querySelector(".card-head-end")!;
+  expect([...end.children].map((child) => child.className)).toEqual(["card-asof", "btn"]);
+  expect(text(end.querySelector(".card-asof"))).toBe("as of 06:42");
+});

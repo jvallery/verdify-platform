@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
-// The one words table is complete: every code the OpenAPI file, the controller header, the alert schema, the trigger
-// ledger's status check (db/schema.sql) and the plan schema (verdify_schemas/plan.py) define has words, so a PR that
-// adds a ProblemCode, a StateReason or line-state code, a mode, a mist stage, an alert type, a trigger outcome or a
-// stress window kind or severity fails here until it adds them. jvallery/agents#5994's dashboard step runs this file
-// when any of those sources change.
+// The one words table is complete: every code the OpenAPI file, the alert schema, the activity schema and the
+// controller's published reasons define has words, so a PR that adds a ProblemCode, a StateReason or line-state code,
+// an alert type or category, an activity action or a law, record, review or system enum value fails here until it adds
+// them. Each alert type has a title and one sentence. jvallery/agents#5994's dashboard step runs this file when any of
+// those sources change.
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { OUTCOMES } from "./operator-api";
-import { ALERT_SEVERITIES, ALERT_STATUSES, BAND_VERDICTS, BURST_KINDS, LINE_FAULTS, LINE_STATE_CODES, PROBLEM_CODES, REQUIRED_TRIGGERS, STATE_REASON_CODES, TRIGGER_OUTCOMES, VPD_SOURCES } from "./vocab";
-import { WORDS, hasWords, modeWords, words } from "./words";
+import { ALERT_SEVERITIES, ALERT_STATUSES, BAND_VERDICTS, BURST_KINDS, LINE_FAULTS, LINE_STATE_CODES, PROBLEM_CODES, STATE_REASON_CODES, VPD_SOURCES } from "./vocab";
+import { HISTORICAL_ALERT_TYPES, WORDS, alertAbout, hasWords, words } from "./words";
 
 const repo = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
 type Schema = { enum?: (string | null)[]; properties?: Record<string, Schema> };
@@ -20,30 +20,11 @@ const enumOf = (schema: Schema | undefined): string[] => {
   return schema.enum.filter((value): value is string => value !== null);
 };
 
-/** The quoted names of a C array initialiser in firmware/lib/greenhouse_types.h, e.g. `MODE_NAMES[] = {...};`. */
-function headerNames(name: string): string[] {
-  const block = new RegExp(`\\b${name}\\[\\]\\s*=\\s*\\{([^}]*)\\}`).exec(repo("firmware/lib/greenhouse_types.h"));
-  if (!block) throw new Error(`no ${name} in greenhouse_types.h`);
-  return [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-}
 /** `ALERT_TYPES` in verdify_schemas/alerts.py. */
 function alertTypes(): string[] {
   const block = /^ALERT_TYPES: tuple\[str, \.\.\.\] = \(([\s\S]*?)^\)/m.exec(repo("verdify_schemas/alerts.py"));
   if (!block) throw new Error("no ALERT_TYPES in verdify_schemas/alerts.py");
   return [...block[1].matchAll(/"([a-z0-9_]+)"/g)].map((match) => match[1]);
-}
-/** The statuses `planner_trigger_ledger_status_check` allows in db/schema.sql. */
-function ledgerStatuses(): string[] {
-  const check = /CONSTRAINT planner_trigger_ledger_status_check CHECK \(\(status = ANY \(ARRAY\[([^\]]*)\]\)\)\)/.exec(repo("db/schema.sql"));
-  if (!check) throw new Error("no planner_trigger_ledger_status_check in db/schema.sql");
-  return [...check[1].matchAll(/'([a-z_]+)'::text/g)].map((match) => match[1]);
-}
-/** A `Literal[...]` field of `StressWindow` in verdify_schemas/plan.py. */
-function stressWindowLiteral(field: "kind" | "severity"): string[] {
-  const model = /^class StressWindow\(BaseModel\):([\s\S]*?)^class /m.exec(repo("verdify_schemas/plan.py"));
-  const literal = model && new RegExp(`^\\s+${field}: Literal\\[([^\\]]*)\\]`, "m").exec(model[1]);
-  if (!literal) throw new Error(`no StressWindow.${field} Literal in verdify_schemas/plan.py`);
-  return [...literal[1].matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
 }
 /** `RejectCode` in verdify_schemas/irrigation.py: why the controller refused a pushed program. */
 function rejectCodes(): string[] {
@@ -59,23 +40,12 @@ const FOG_BLOCK_REASONS = [
   "none", "served", "leak_detected", "occupancy", "irrigation", "resource_budget", "time_invalid", "time_window", "dew_margin", "wet_taper", "rh_ceiling",
   "temp_low", "vent_interlock", "relay_min_off", "sensor_fault", "fert_master", "water_ceiling",
 ];
-/** `last_mode_reason` in firmware/lib/greenhouse_logic.h, `init` from greenhouse_types.h and `unknown` from controls.yaml's publish. */
-const MODE_REASONS = [
-  "init", "unknown", "idle", "idle_default", "sensor_fault", "safety_cool", "safety_heat", "heat_stage1", "heat_stage2", "temp_high", "temp_vent", "summer_vent",
-  "summer_vent_preempt", "vent_mist_assist", "vent_fog_assist", "vent_humidify", "humidify_enter", "humidify_continue", "humidify_resolved", "fog_enter", "fog_continue",
-  "seal_enter", "seal_continue", "seal_exit", "thermal_relief", "thermal_relief_forced", "relief_cycle_breaker", "vpd_low", "vpd_too_low", "dehum_continue",
-  "dehum_vent_heat", "heat_dehum", "night_dryout_pulse", "night_dryout_reheat", "dry_override", "vpd_min_safe_rescue", "vpd_min_safe_heat_rescue", "mist_backoff", "moisture_blocked", "dwell_hold",
-];
 /** The codes `gh_moisture_block_reason` publishes (firmware/greenhouse/controls.yaml); `leak_detected` is today's firmware, which the engine release drops (Q-05). */
 const MOISTURE_BLOCK_REASONS = [
   "none", "served", "pulse_gap", "leak_detected", "water_budget", "vent_interlock", "no_humidity_demand", "no_vpd_demand", "engage_delay", "below_threshold",
   "dew_margin", "wet_taper", "no_zone_available", "direct_wet_time_invalid", "direct_wet_temp", "direct_wet_window", "irrigation", "occupancy",
 ];
 const quoted = (block: string) => [...block.matchAll(/"([a-z0-9_]+)"/g)].map((match) => match[1]);
-/** Every code `last_mode_reason` is assigned in firmware/lib/greenhouse_logic.h, ternaries included. */
-function modeReasonsInFirmware(): string[] {
-  return [...repo("firmware/lib/greenhouse_logic.h").matchAll(/state\.last_mode_reason\s*=\s*([^;]+);/g)].flatMap((match) => quoted(match[1]));
-}
 /** Every code controls.yaml writes into `name` with snprintf, ternaries included. */
 function snprintfCodes(name: string): string[] {
   return [...repo("firmware/greenhouse/controls.yaml").matchAll(new RegExp(`snprintf\\(\\s*${name}\\s*,\\s*sizeof\\(${name}\\)\\s*,([\\s\\S]*?)\\);`, "g"))]
@@ -119,29 +89,51 @@ test("every ProblemCode, StateReason code, line-state code and alert status in t
   expect([...ALERT_STATUSES].sort()).toEqual([...statuses].sort());
 });
 
-test("every mode and mist stage in firmware/lib/greenhouse_types.h has words, in screens SCR-01's", () => {
-  const modes = headerNames("MODE_NAMES");
-  const stages = headerNames("MIST_NAMES");
-  // The header parsed (8 modes and 4 stages today); a new one fails below until it has words.
-  expect(modes.length).toBeGreaterThanOrEqual(8);
-  expect(stages.length).toBeGreaterThanOrEqual(4);
-  expectWorded("mode", modes);
-  expectWorded("mist_stage", stages);
-  expect(words("mode", "VENTILATE")).toBe("Venting to cool");
-  expect(words("mode", "IDLE")).toBe("In band, holding");
-  expect(modeWords("SEALED_MIST", "S1")).toBe("Sealed, misting one zone");
-  expect(modeWords("SEALED_MIST", "S2")).toBe("Sealed, misting all zones");
-  expect(modeWords("SEALED_MIST", null)).toBe("Sealed to raise humidity");
-  expect(modeWords("VENTILATE", "S1")).toBe("Venting to cool");
-  expect(modeWords("BOOST", null)).toBe("BOOST");
-});
+/** `AlertCategory` in verdify_schemas/alerts.py. */
+function alertCategories(): string[] {
+  const literal = /^AlertCategory = Literal\[([^\]]*)\]/m.exec(repo("verdify_schemas/alerts.py"));
+  if (!literal) throw new Error("no AlertCategory in verdify_schemas/alerts.py");
+  return quoted(literal[1]);
+}
 
-test("every alert type in ALERT_TYPES has words, the leak alert titled as the banner reads", () => {
+test("every alert type in ALERT_TYPES has a title and one sentence, the leak alert titled as the banner reads", () => {
   const types = alertTypes();
-  expect(types.length).toBeGreaterThanOrEqual(40);
+  expect(types.length).toBeGreaterThanOrEqual(70);
   expect(types).toContain("leak_detected");
   expectWorded("alert_type", types);
+  expectWorded("alert_about", types);
+  // Both ways: no title for a type the stack does not raise.
+  expect(Object.keys(WORDS.alert_type).sort()).toEqual([...types].sort());
+  expect(Object.keys(WORDS.alert_about).sort()).toEqual([...types].sort());
   expect(words("alert_type", "leak_detected")).toBe("Water flowing with every Verdify valve closed");
+  for (const type of types) {
+    const about = alertAbout(type)!;
+    // One sentence: a capital, one full stop at the end, no internal names.
+    expect(about, type).toMatch(/^[A-Z][^]*\.$/);
+    expect(about.slice(0, -1).split(/\.\s/), type).toHaveLength(1);
+    expect(`${words("alert_type", type)} ${about}`, type).not.toMatch(/hermes|esp32|nvs|dispatcher|mcp|_/i);
+  }
+  expect(alertAbout("pump_cavitation")).toBeNull();
+});
+
+test("the retired checks keep a title marked as retired, and no other type is so marked", () => {
+  const types = alertTypes();
+  expect([...HISTORICAL_ALERT_TYPES].filter((type) => !types.includes(type))).toEqual([]);
+  for (const type of types) {
+    const historical = HISTORICAL_ALERT_TYPES.has(type);
+    expect(words("alert_type", type).endsWith(" (retired check)"), type).toBe(historical);
+    if (historical) expect(alertAbout(type), type).toMatch(/^A retired check/);
+  }
+  // The planner's types are retired; the reviewer's tool failure, which MCP still raises, is not.
+  expect(HISTORICAL_ALERT_TYPES.has("planner_stale")).toBe(true);
+  expect(HISTORICAL_ALERT_TYPES.has("planner_tool_dependency_failed")).toBe(false);
+});
+
+test("every alert category has words", () => {
+  const categories = alertCategories();
+  expect(categories).toEqual(["sensor", "equipment", "climate", "water", "system"]);
+  expectWorded("alert_category", categories);
+  expect(Object.keys(WORDS.alert_category).sort()).toEqual([...categories].sort());
 });
 
 /** The `equipment_state` keys `ingestor/entity_map.py` maps the controller's relays and switches to. */
@@ -171,20 +163,16 @@ test("every actuator of the fixed list has its plain name, in screens SCR-01's w
   expect(words("equipment", "pump")).toBe("pump");
 });
 
-test("every band verdict, required-trigger state and burst kind in the OpenAPI file has words", () => {
+test("every band verdict and run by hand in the OpenAPI file has words; the runs by hand read by their v2 names", () => {
   const verdicts = enumOf(SCHEMAS.BandPosition?.properties?.verdict);
-  const triggers = enumOf(SCHEMAS.Now?.properties?.iris?.properties?.required_trigger);
   const bursts = enumOf((SCHEMAS.Now?.properties?.overrides as { items?: Schema } | undefined)?.items?.properties?.kind);
   expectWorded("band_verdict", verdicts);
-  expectWorded("required_trigger", triggers);
-  expectWorded("burst", bursts);
+  expectWorded("run_by_hand", bursts);
   expect([...BAND_VERDICTS].sort()).toEqual([...verdicts].sort());
-  expect([...REQUIRED_TRIGGERS].sort()).toEqual([...triggers].sort());
   expect([...BURST_KINDS].sort()).toEqual([...bursts].sort());
   expect(BAND_VERDICTS.map((verdict) => words("band_verdict", verdict))).toEqual(["in band", "above band", "below band", "band unavailable"]);
-  expect(REQUIRED_TRIGGERS.map((state) => words("required_trigger", state))).toEqual(["OK", "Late", "Missed", "Failed"]);
-  expect(words("burst", "fans")).toBe("Fans, vent open");
-  expect(words("mode", "UNKNOWN")).toBe("Mode unknown");
+  expect(["fans", "humidify", "vent_bypass"].map((kind) => words("run_by_hand", kind))).toEqual(["Run the fans", "Humidify", "Circulate"]);
+  expect(hasWords("burst", "fans")).toBe(false);
 });
 
 test("the table has words for every code gh_fog_block_reason publishes", () => {
@@ -195,20 +183,6 @@ test("the table has words for every code gh_fog_block_reason publishes", () => {
   const published = [...fogBlockReturns(), ...snprintfCodes("fog_block_reason")];
   expect(published.length).toBeGreaterThanOrEqual(12);
   expect(published.filter((code) => !hasWords("fog_block_reason", code))).toEqual([]);
-});
-
-test("the table has words for every mode_reason the firmware sets, in the issue's tone", () => {
-  expect(MODE_REASONS).toHaveLength(40);
-  expectWorded("mode_reason", MODE_REASONS);
-  expect(Object.keys(WORDS.mode_reason).sort()).toEqual([...MODE_REASONS].sort());
-  const published = modeReasonsInFirmware();
-  expect(published.length).toBeGreaterThanOrEqual(30);
-  expect(published.filter((code) => !hasWords("mode_reason", code))).toEqual([]);
-  expect(repo("firmware/lib/greenhouse_types.h")).toContain('.last_mode_reason = "init"');
-  expect(repo("firmware/greenhouse/controls.yaml")).toContain('reason ? reason : "unknown"');
-  expect(words("mode_reason", "temp_high")).toBe("Venting: too warm");
-  expect(words("mode_reason", "heat_stage2")).toBe("Heating with heat2 (gas)");
-  expect(words("mode_reason", "brand_new_code")).toBe("brand_new_code");
 });
 
 test("the table has words for every code gh_moisture_block_reason publishes, in the issue's tone", () => {
@@ -246,51 +220,6 @@ test("every grow-light reason the controller sets has words (API-13 auto_reason,
   expect(words("light_reason", "plant_hysteresis_hold")).toBe("On: plant light, holding until it is brighter");
 });
 
-test("every planner trigger outcome has its words, from the OpenAPI enum and the ledger's status check alike", () => {
-  const outcomes = enumOf(SCHEMAS.PlannerTrigger?.properties?.outcome);
-  expect([...TRIGGER_OUTCOMES].sort()).toEqual([...outcomes].sort());
-  expect([...ledgerStatuses()].sort()).toEqual([...outcomes].sort());
-  expect(Object.keys(WORDS.trigger_outcome).sort()).toEqual([...outcomes].sort());
-  // "delivered" and "missed" are their own words, so the words may equal the code but never keep an underscore.
-  for (const outcome of outcomes) expect(words("trigger_outcome", outcome), outcome).not.toMatch(/_/);
-  expect(TRIGGER_OUTCOMES.map((outcome) => words("trigger_outcome", outcome))).toEqual([
-    "due", "delivered", "acknowledged", "plan written", "setting changed", "fallback", "wrong action", "delivery failed", "timed out", "missed",
-  ]);
-  expect(words("trigger_outcome", "rescheduled")).toBe("rescheduled");
-});
-
-test("every planner event in verdify_schemas/plan.py has words, so no trigger code reads on Now (#1339)", () => {
-  const literal = /^PlanDeliveryEventType = Literal\[([\s\S]*?)\]/m.exec(repo("verdify_schemas/plan.py"));
-  if (!literal) throw new Error("no PlanDeliveryEventType Literal in verdify_schemas/plan.py");
-  const triggers = [...literal[1].matchAll(/"([A-Z_]+)"/g)].map((match) => match[1]);
-  expect(triggers).toContain("FORECAST_DEVIATION");
-  expect(Object.keys(WORDS.trigger).sort()).toEqual([...triggers].sort());
-  for (const trigger of triggers) expect(words("trigger", trigger), trigger).not.toMatch(/_|^[A-Z]{3,}/);
-  expect(["SUNRISE", "SOLAR_MAX", "TRANSITION", "SUNSET", "FORECAST_DEVIATION"].map((trigger) => words("trigger", trigger))).toEqual([
-    "Sunrise plan", "Midday check", "Transition", "Sunset plan", "Forecast changed",
-  ]);
-});
-
-test("each setting Iris plans has a short plain name, never its key or a title-cased key", () => {
-  for (const [param, name] of Object.entries(WORDS.tunable_short)) {
-    expect(name, param).not.toMatch(/_/);
-    expect(name.toLowerCase(), param).not.toBe(param.replace(/_/g, " "));
-  }
-  expect(words("tunable_short", "mister_engage_delay_s")).toBe("Wait before misting");
-});
-
-test("every stress window kind and severity in verdify_schemas/plan.py has words", () => {
-  const kinds = stressWindowLiteral("kind");
-  const severities = stressWindowLiteral("severity");
-  expect(kinds).toEqual(["heat", "cold", "vpd_high", "vpd_low"]);
-  expectWorded("stress_kind", kinds);
-  expectWorded("stress_severity", severities);
-  expect(Object.keys(WORDS.stress_kind).sort()).toEqual([...kinds].sort());
-  expect(Object.keys(WORDS.stress_severity).sort()).toEqual([...severities].sort());
-  expect(words("stress_kind", "vpd_high")).toBe("VPD high");
-  expect(words("stress_severity", "high")).toBe("high severity");
-});
-
 test("every activity action the services write has words, each one an action the server can log", () => {
   // The pattern is one or more adjacent raw strings in parentheses; Python joins them.
   const source = /ACTIVITY_ACTION_PATTERN = \(((?:\s*r"[^"]+")+)\s*\)/.exec(repo("verdify_schemas/activity.py"));
@@ -311,7 +240,11 @@ test("every activity action the services write has words, each one an action the
   expectWorded("activity_action", actions);
   expect(Object.keys(WORDS.activity_action).sort()).toEqual([...actions].sort());
   for (const action of actions) expect(server.test(action), action).toBe(true);
-  expect(words("activity_action", "plan.write")).toBe("Plan");
+  // The retired actions read in words that name no plan and no study; the band's save names the band.
+  expect(words("activity_action", "plan.write")).toBe("Settings written before the climate law");
+  expect(words("activity_action", "study.start")).toBe("Started a trial");
+  expect(words("activity_action", "band.write")).toBe("Changed the band");
+  expect(words("activity_action", "planting.note")).toBe("Added a note to planting");
   // An action this build does not know reads raw.
   expect(words("activity_action", "equipment.override")).toBe("equipment.override");
 });
@@ -328,7 +261,7 @@ test("every schedule, line and run field an irrigation write carries has words",
 test("the existing families keep their words", () => {
   expect(Object.keys(WORDS.state_reason).sort()).toEqual([...STATE_REASON_CODES].sort());
   expect(words("state_reason", "no_match")).toBe("No matching readback yet");
-  expect(words("state_reason", "no_engine")).toBe("Applies with the irrigation firmware");
+  expect(words("state_reason", "no_engine")).toBe("Waits for the controller's irrigation engine");
   expect(words("problem_code", "writes_disabled")).toBe("Changes are switched off; reading still works");
 });
 
@@ -367,15 +300,107 @@ test("an unknown code or family renders raw, prototype names included", () => {
   expect(words("state_reason", "constructor")).toBe("constructor");
   expect(words("toString", "valueOf")).toBe("valueOf");
   expect(hasWords("state_reason", "__proto__")).toBe(false);
-  expect(hasWords("mode", "hasOwnProperty")).toBe(false);
+  expect(hasWords("burst", "hasOwnProperty")).toBe(false);
 });
 
-test("the scorecard reasons: the water day's quality in words, and the reasons VD-56 sends in words already as sent", () => {
-  expect(["partial_day", "unavailable", "ledger_incomplete", "discontinuous", "incomplete"].map((code) => words("scorecard_reason", code))).toEqual([
-    "day not finished", "no meter readings", "meter totals not caught up", "meter readings broken up", "meter readings miss part of the day",
+test("the plan-era families are gone with their screens (words.md section 3)", () => {
+  for (const family of ["mode", "mist_stage", "mode_reason", "required_trigger", "trigger_outcome", "trigger", "tunable_short", "stress_kind", "stress_severity", "scorecard_reason"]) {
+    expect(Object.hasOwn(WORDS, family), family).toBe(false);
+  }
+});
+
+/** The schema at `path` under a component schema: a property name, `[]` for an array's items, `?` for the non-null branch of an anyOf. */
+type Node = Schema & { type?: string | string[]; items?: Node; anyOf?: Node[]; properties?: Record<string, Node> };
+function schemaAt(name: string, path: string[]): Schema | undefined {
+  let node: Node | undefined = SCHEMAS[name] as Node | undefined;
+  for (const step of path) {
+    if (!node) return undefined;
+    if (step === "[]") node = node.items;
+    else if (step === "?") node = node.anyOf?.find((branch) => branch.type !== "null");
+    else node = node.properties?.[step];
+  }
+  return node;
+}
+/** Every enum of the climate law's, the daily record's, the daily review's and the system pages' schemas, with its family. */
+const V2_ENUMS: [family: string, schema: string, path: string[]][] = [
+  ["law_rule", "LawRule", ["id"]],
+  ["law_signal", "LawRule", ["signal"]],
+  ["law_direction", "LawRule", ["direction"]],
+  ["law_hold", "LawRule", ["hold", "?", "kind"]],
+  ["law_relay", "LawRelay", ["equipment"]],
+  ["relay_state", "LawRelay", ["state"]],
+  ["relay_state", "LawLane", ["intervals", "[]", "state"]],
+  ["law_lane", "LawLane", ["key"]],
+  ["law_lane_group", "LawLane", ["group"]],
+  ["drying_state", "LawDrying", ["state"]],
+  ["drying_state", "LawHistory", ["drying", "[]", "state"]],
+  ["drying_refusal", "LawDrying", ["refused_reason"]],
+  ["drying_check", "LawDrying", ["checks", "[]", "id"]],
+  ["limit_source", "LawDrying", ["limit_source"]],
+  ["outdoor_source", "LawInputs", ["outdoor", "source"]],
+  ["outdoor_source", "LawHistory", ["outdoor_source", "[]", "source"]],
+  ["outdoor_source", "Now", ["outdoor", "source"]],
+  ["band_source", "LawBand", ["source"]],
+  ["gap_log", "LawAlone", ["gap_log"]],
+  ["review_status", "Review", ["status"]],
+  ["review_status", "ReviewPage", ["allOf"]],
+  ["review_kind", "Review", ["kind"]],
+  ["review_failure", "Review", ["failure"]],
+  ["proposal_state", "Review", ["proposal_state"]],
+  ["relay_comparison", "RelayCheck", ["days", "[]", "comparison"]],
+  ["setting_effect", "Setting", ["effect"]],
+  ["equipment", "LawView", ["lead_fan"]],
+];
+
+test("every enum value of the climate law, daily record, review and system schemas has words", () => {
+  for (const [family, schema, path] of V2_ENUMS) {
+    if (path[0] === "allOf") {
+      // ReviewPage.today.status: the second allOf branch carries it.
+      const today = ((SCHEMAS[schema] as { allOf: Node[] }).allOf[1].properties?.today as Node | undefined)?.properties?.status;
+      expectWorded(family, enumOf(today));
+      continue;
+    }
+    expectWorded(family, enumOf(schemaAt(schema, path)));
+  }
+  // Now.review.status is ReviewPage.today.status.
+  expectWorded("review_status", enumOf(schemaAt("Now", ["review", "?", "status"])));
+  // The stored values the delivery and data-gap readouts word (setpoint_changes, data_gaps), and the device's gap-log states.
+  expectWorded("delivery_status", ["pending", "requested", "queued", "sent", "retrying", "confirmed", "failed", "cancelled", "superseded", "expired", "observed"]);
+  expectWorded("delivery_source", ["band", "plan", "iris_planner", "manual", "esp32", "dispatcher", "system", "ingestor", "none"]);
+  expectWorded("data_gap_reason", ["ingestor_restart", "ingestor_process_restart"]);
+  expectWorded("data_gap_status", ["snapshot_taken", "snapshot_incomplete", "pending", "backfilled", "unrecoverable", "ignored"]);
+});
+
+test("the drying checks are worded in the order the law refuses, as the contract lists them", () => {
+  expect(Object.keys(WORDS.drying_check)).toEqual(enumOf(schemaAt("LawDrying", ["checks", "[]", "id"])));
+  expect(words("band_source", "corridor")).toBe("the widest safe band: the controller has no clock");
+});
+
+test("the law's refusals and states read as the owner would say them, with no internal names", () => {
+  expect(["cost", "too_cold", "not_drier", "no_outdoor", "furnace", "cooling"].map((code) => words("drying_refusal", code))).toEqual([
+    "costs more than the limit", "the house is too cold to vent", "outdoor air is not drier", "no outdoor reading", "the gas furnace is running",
+    "the house is being cooled",
   ]);
-  expectWorded("scorecard_reason", Object.keys(WORDS.scorecard_reason));
-  expect(words("scorecard_reason", "no meter data")).toBe("no meter data");
-  expect(words("scorecard_reason", "band grade kept 3 days")).toBe("band grade kept 3 days");
-  expect(words("scorecard_reason", "meter_offline")).toBe("meter_offline");
+  expect(words("gap_log", "not_armed_yet")).toBe("not armed yet");
+  expect(words("gap_log", "nvs_full")).toBe("off: storage is full");
+  // No internal service or device names in the new families' words.
+  const families = ["law_rule", "law_lane", "drying_refusal", "drying_check", "band_source", "gap_log", "review_failure", "delivery_source", "data_gap_reason", "data_gap_status"];
+  for (const family of families) {
+    for (const text of Object.values(WORDS[family])) expect(text, `${family}: ${text}`).not.toMatch(/hermes|iris|esp32|ingestor|nvs|dispatcher|vanda|orchid/i);
+  }
+});
+
+test("the law's words follow words.md: asked for and wanted, never latched; the widest safe band, never a corridor", () => {
+  for (const text of Object.values(WORDS.law_lane)) expect(text).not.toMatch(/latch/i);
+  expect(["request", "latch"].map((group) => words("law_lane_group", group))).toEqual(["Asked for", "Wanted"]);
+  expect(words("band_source", "corridor")).toMatch(/^the widest safe band/);
+  expect(words("law_rule", "fog")).toBe(words("equipment", "fog"));
+  expect(["controller", "host", "none"].map((effect) => words("setting_effect", effect))).toEqual(["read by the controller", "used by the host", "stored and not used"]);
+});
+
+test("every unit of words.md section 5 has its spoken name", () => {
+  const units = ["°F", "kPa", "%", "kWh", "therms", "gal", "kg", "g", "kWh/kg", "h", "min", "s", "d", "kB", "ms", "B", "dBm"];
+  expectWorded("unit", units);
+  expect(Object.keys(WORDS.unit).sort()).toEqual([...units].sort());
+  expect(words("unit", "therms")).toBe("therms, estimated");
 });

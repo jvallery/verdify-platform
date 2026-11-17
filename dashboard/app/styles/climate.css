@@ -1,0 +1,97 @@
+/* SPDX-License-Identifier: MIT */
+/* Section: Climate (dashboard v2) */
+
+/* Layout (screens rules): above 860 px the side blocks sit in a right column of 4 of 12 beside the main column, starting at
+   the top; the main column's rows keep their own heights, and the last one takes what the side column needs past them. */
+.climate-side{display:grid;gap:var(--space-4);align-content:start;min-width:0}
+@media(min-width:861px){
+  .climate-grid-law{grid-template-rows:auto auto minmax(0,1fr)}
+  .climate-grid-law>.climate-side{grid-column:9/-1;grid-row:1/span 3}
+  .climate-grid-drying{grid-template-rows:auto auto auto auto minmax(0,1fr)}
+  .climate-grid-drying>.climate-side{grid-column:9/-1;grid-row:1/span 5}
+  .climate-side{gap:var(--space-5)}
+}
+
+/* Rules: one signal's ladder, then its rules as rows. */
+.law-signal{display:grid;gap:var(--space-3);min-width:0}
+.law-signal h3{margin:0;font-size:var(--fs-md);font-weight:600}
+.law-relays{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-3);margin:0;padding:0;list-style:none;font-size:var(--fs-sm)}
+.law-relays li{display:inline-flex;align-items:center;gap:var(--space-1);white-space:nowrap}
+.law-notes{display:grid;gap:var(--space-1);margin:var(--space-3) 0 0;padding:0;list-style:none;font-size:var(--fs-sm);color:var(--text-2)}
+.law-verdict{margin:var(--space-4) 0 0;padding-top:var(--space-3);border-top:1px solid var(--border);font-weight:600}
+.law-verdict .eyebrow{margin-right:var(--space-2)}
+.law-timing code{font:400 var(--fs-sm)/1.4 var(--mono)}
+
+/* The rule ladder (design system v2 §5): the SVG track from 520 px of width, the same marks as a list below that. */
+.ladder{container-type:inline-size;min-width:0}
+.ladder-svg{display:none;overflow:visible;font-variant-numeric:tabular-nums}
+.ladder-list{display:grid;margin:0;padding:0;list-style:none;font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+@container (min-width:32.5rem){
+  .ladder-svg{display:block}
+  .ladder-list{display:none}
+}
+.ladder-track{fill:var(--surface-3)}
+.ladder-band{fill:var(--c-band-wash)}
+.ladder-edge{stroke:var(--c-band-edge);stroke-width:1.5}
+.ladder-break-gap{fill:var(--surface)}
+.ladder-break{fill:none;stroke:var(--text-3);stroke-width:1.5}
+.ladder-tick-line{stroke:var(--text-3);stroke-width:1.5}
+.ladder-tick-label,.ladder-edge-label,.ladder-reading-label{font:400 11px/1 var(--mono);fill:var(--text-2)}
+.ladder-edge-label{fill:var(--text-3)}
+.ladder-reading{fill:var(--text);stroke:var(--surface);stroke-width:2}
+.ladder-clamp{fill:var(--text)}
+.ladder-reading-label{font-weight:600;fill:var(--text)}
+.ladder-tick.is-on .ladder-tick-line{stroke:var(--accent);stroke-width:2.5}
+.ladder-tick.is-on .ladder-tick-label{fill:var(--text);font-weight:600}
+.ladder-tick.is-wanted .ladder-tick-line{stroke:var(--c-requested);stroke-width:2}
+.ladder-tick.is-limit .ladder-tick-line{stroke:var(--critical)}
+.ladder-off{display:none}
+.ladder-tick:focus .ladder-off,.ladder-tick:hover .ladder-off{display:inline}
+.ladder-tick:focus .ladder-tick-label,.ladder-tick:hover .ladder-tick-label{fill:var(--text);font-weight:600;text-decoration:underline}
+.ladder-tick:focus .ladder-tick-line{stroke-width:3}
+.ladder-none{margin:0}
+
+/* The phone's ladder: a vertical track on the left, one row per mark, the band's stretch on its wash. */
+.ladder-item{display:grid;grid-template-columns:1rem 5.5rem minmax(0,1fr);align-items:center;gap:var(--space-2);min-height:1.75rem;padding:0 var(--space-2) 0 0;border-left:2px solid var(--surface-3)}
+.ladder-item.in-band{background:var(--c-band-wash);border-left-color:var(--c-band-edge)}
+.ladder-item-mark{justify-self:start;width:.75rem;height:2px;background:var(--text-3)}
+.ladder-item-value{text-align:right;color:var(--text-2)}
+.ladder-item-name{min-width:0;color:var(--text)}
+.ladder-item.is-edge .ladder-item-name,.ladder-item.is-edge .ladder-item-value{color:var(--text-3)}
+.ladder-item.is-edge .ladder-item-mark{height:1.5px;background:var(--c-band-edge)}
+.ladder-item.is-reading .ladder-item-mark{width:.625rem;height:.625rem;border-radius:50%;background:var(--text)}
+.ladder-item.is-reading .ladder-item-name,.ladder-item.is-reading .ladder-item-value{font-weight:600;color:var(--text)}
+.ladder-item.is-on .ladder-item-mark{background:var(--accent);height:3px}
+.ladder-item.is-wanted .ladder-item-mark{background:var(--c-requested)}
+.ladder-item.is-limit .ladder-item-mark{background:var(--critical)}
+
+/* Drying now: the verdict, then the price against the limit on one bar. */
+.drying-verdict{margin:0 0 var(--space-2)}
+.drying-price{margin:0 0 var(--space-2);font-size:var(--fs-lg);font-weight:600;font-variant-numeric:tabular-nums}
+.price-bar{display:block;overflow:visible;margin:0 0 var(--space-3)}
+.price-track{fill:var(--surface-3)}
+.price-fill{fill:var(--accent)}
+.price-fill.is-over{fill:var(--warn)}
+.price-bar.is-neutral .price-fill{fill:var(--neutral)}
+.price-bar.is-unknown .price-track{fill:var(--surface-2);stroke:var(--border-strong);stroke-dasharray:3 3}
+.price-none{font:400 11px/1 var(--mono);fill:var(--text-2)}
+.price-limit{stroke:var(--text);stroke-width:2}
+.price-limit-label{font:400 11px/1 var(--mono);fill:var(--text-2);font-variant-numeric:tabular-nums}
+
+/* The drying cost limit: the value in force, the readback, then the stepper and Save. */
+.drying-limit-value{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);margin:0 0 var(--space-2)}
+.drying-limit-number{font-size:var(--fs-xl);font-weight:600;font-variant-numeric:tabular-nums}
+.drying-limit-readback{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin:var(--space-3) 0}
+.drying-limit-readback .state-reason{flex-basis:100%}
+.drying-limit-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-3);margin:var(--space-3) 0 0}
+.drying-limit-form .field{flex:1 1 16rem;min-width:0}
+.drying-limit-effects{display:grid;gap:var(--space-2);margin:var(--space-4) 0 0;padding:var(--space-3) 0 0;border-top:1px solid var(--border);list-style:none;font-size:var(--fs-sm);color:var(--text-2)}
+.drying-limit-effects strong{color:var(--text)}
+
+/* By day: the charts two to a row above 600 px; the refusals take the whole row. */
+.drying-days>.drying-refused{grid-column:1/-1;min-width:0}
+.drying-days .meta{margin:0}
+
+/* How drying works: prose at reading width. */
+.drying-how p,.drying-steps{max-width:70ch}
+.drying-steps{display:grid;gap:var(--space-2);margin:var(--space-3) 0;padding-left:var(--space-5)}

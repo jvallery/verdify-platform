@@ -9,7 +9,7 @@ type Cause = components["schemas"]["IrrigationCause"];
  * daily water use by cause, the run marks on the Graphs event rail and a line's state dot on Water (#1135). One chart
  * vocabulary (#1354): a colour names what ran (the line's own, `lineToken`) and a cause never borrows a line's colour,
  * so purple is never both "VPD" and a mister. The cause tokens: `--cause-vpd`, `--cause-schedule` and `--cause-prep`
- * (prewet and flush) are their own; run now is a person's action in `--forest`, as a person's write is on the event
+ * (prewet and flush) are their own; run now is a person's action in `--accent`, as a person's write is on the event
  * rail; feed is fertilizer in `--eq-fert`; fallback keeps `--eq-heat1`, as the schedules' fallback-only runs do. The
  * words are what every surface prints, so colour is never alone. A cause the table does not know renders raw, in the
  * "cause unknown" colour.
@@ -30,12 +30,12 @@ export const CAUSE_WORDS = {
 export const CAUSE_TOKENS = {
   vpd: "--cause-vpd",
   schedule: "--cause-schedule",
-  run_now: "--forest",
+  run_now: "--accent",
   feed: "--eq-fert",
   prewet: "--cause-prep",
   flush: "--cause-prep",
   fallback: "--eq-heat1",
-  unknown: "--c-bound",
+  unknown: "--text-3",
 } as const satisfies Record<Cause, string>;
 
 const known = (cause: string): cause is Cause => Object.hasOwn(CAUSE_WORDS, cause);

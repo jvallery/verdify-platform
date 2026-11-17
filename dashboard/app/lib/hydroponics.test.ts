@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { expect, test } from "vitest";
 import { parseSeries } from "./operator-api";
-import { hydroPlotSeries, latestHydroInterval } from "./hydroponics";
+import { RESERVOIR_METRICS, hydroPlotSeries, latestHydroInterval, probeAge } from "./hydroponics";
 
 function series(values: (number | null)[]) {
   const parsed = parseSeries({ from: "2026-11-14T00:00:00Z", to: "2026-11-14T01:00:00Z", bucket_s: 300,
@@ -40,4 +40,14 @@ test("retains long gaps, leading and trailing nulls, zero and all-missing window
     expect(hydroPlotSeries(source, "climate.hydro_ph")!.t).toEqual(source.t);
   }
   expect(hydroPlotSeries(series([0, null, 6.3]), "climate.hydro_ph")!.series["climate.hydro_ph"].avg).toEqual([0, 6.3]);
+});
+
+test("the probe's age is its newest channel's, overdue past the API's limit; no battery channel is read", () => {
+  const now = Date.parse("2026-11-02T17:42:00Z");
+  const reading = (minutes: number | null) => ({ value: minutes === null ? null : 6.1, observed_at: minutes === null ? null : new Date(now - minutes * 60_000).toISOString() });
+  expect(probeAge({ ph: reading(3), ec_us_cm: reading(20), water_temp_f: reading(null), stale_after_s: 600 }, now)).toEqual({ at: "2026-11-02T17:39:00.000Z", age_s: 180, stale: false });
+  expect(probeAge({ ph: reading(12), ec_us_cm: reading(30), water_temp_f: reading(null), stale_after_s: 600 }, now)).toMatchObject({ age_s: 720, stale: true });
+  expect(probeAge({ ph: reading(null), ec_us_cm: reading(null), water_temp_f: reading(null), stale_after_s: 600 }, now)).toEqual({ at: null, age_s: null, stale: true });
+  expect(probeAge(null, now)).toEqual({ at: null, age_s: null, stale: true });
+  expect(RESERVOIR_METRICS.some((key) => /battery|tds|orp/.test(key))).toBe(false);
 });

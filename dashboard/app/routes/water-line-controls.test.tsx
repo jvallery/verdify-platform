@@ -266,9 +266,9 @@ test("with changes switched off every line control is disabled beside the banner
   for (const control of screen.getAllByRole("switch")) expect(control.hasAttribute("disabled")).toBe(true);
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Pause lines…" }).disabled).toBe(true);
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Options… of Center mister" }).disabled).toBe(true);
-  // Both copies (the header's from 861 px, the tabs row's at 860 px and below) stay live.
+  // Every copy (the shell's, the header's from 861 px, the tabs row's at 860 px and below) stays live.
   const stops = screen.getAllByRole<HTMLButtonElement>("button", { name: "Stop all water" });
-  expect(stops).toHaveLength(2);
+  expect(stops.length).toBeGreaterThanOrEqual(2);
   for (const stop of stops) expect(stop.disabled).toBe(false);
 });
 
@@ -280,8 +280,8 @@ test("L04 options with cap 130 and reserve 60 send {daily_cap_min: 130, vpd_rese
   fireEvent.change(dialog().getByLabelText("VPD reserve"), { target: { value: "60" } });
   await press(dialog().getByRole("button", { name: "Save" }));
   expect(writes(api).map((row) => [row.path, row.body])).toEqual([["/api/v1/irrigation/lines/L04", { daily_cap_min: 130, vpd_reserve_min: 60, manual: true }]]);
-  // Before the engine every change waits for the firmware: the status line says so once, and the zone's cap follows.
-  expect(text(document.querySelector("[data-program]"))).toBe("No irrigation engine on the controller yet: relay states only; the wall drip runs, and every line stops, through the bridge");
+  // With no engine reported the status line says so once, and the zone's cap follows.
+  expect(text(document.querySelector("[data-program]"))).toBe("The controller reports no irrigation engine: relay states only, and no line runs from here until it does");
   expect(text(document.querySelector('[data-limit="L04"]'))).toMatch(/^14 \/ 130 min/);
   await advance(6 * 60_000);
   expect(sync("L04")).toBe("");
@@ -301,16 +301,23 @@ test("with the engine, the same options read REQUESTED, then CONFIRMED by the ha
   expect(text(document.querySelector('[data-limit="L04"]'))).toMatch(/^14 \/ 130 min.*60 min kept for VPD/);
 });
 
-test("Site today's daily mist & fog limit (SAF-4) links to its Settings drawer and explains itself in a tip (#1349)", async () => {
+test("Site today's limits: Change opens each one's Settings drawer, the hard limit says nothing is exempt, and a viewer gets no Change (#1349, W-27)", async () => {
   open("/water");
   await load();
-  const link = within(document.querySelector<HTMLElement>('[data-limit="saf4"]')!).getByRole("link");
-  expect(link.getAttribute("href")).toBe("/settings?edit=mister_daily_volume_max_gal");
-  expect(link.textContent).toBe("Daily mist & fog limit, in Settings");
-  await press(screen.getByRole("button", { name: "About Daily mist & fog limit" }));
-  expect(text(screen.getByRole("dialog"))).toContain("The controller stops misting when it reaches this limit; survival fog is exempt.");
-  // No bare firmware term or upper-case budget label anywhere on the page.
-  expect(text(document.querySelector(".wat-site"))).not.toMatch(/SAF-4|SOFT BUDGET|Soft budget/);
+  const saf4 = within(document.querySelector<HTMLElement>('[data-limit="saf4"]')!).getByRole("link");
+  expect(saf4.getAttribute("href")).toBe("/settings?edit=mister_daily_volume_max_gal");
+  expect(saf4.textContent).toBe("Change the daily mist and fog limit in Settings");
+  const budget = within(document.querySelector<HTMLElement>('[data-limit="budget"]')!).getByRole("link");
+  expect(budget.getAttribute("href")).toBe("/settings?edit=mister_water_budget_gal");
+  expect(text(document.querySelector('[data-limit="saf4"]'))).toContain("Nothing is exempt from this limit.");
+  await press(screen.getByRole("button", { name: "About Daily mist and fog limit" }));
+  expect(text(screen.getByRole("dialog"))).toContain("nothing is exempt from this limit");
+  // No bare firmware term, no exemption and no upper-case budget label anywhere on the page.
+  expect(text(document.querySelector(".wat-site-list"))).not.toMatch(/SAF-4|SOFT BUDGET|survival|exempt\b(?! from this limit)/);
+  cleanup(); stopFixtureApi();
+  open("/water", { fixture: "viewer-session" });
+  await load();
+  expect(document.querySelectorAll(".wat-site-change")).toHaveLength(0);
 });
 
 test("a planned block's popover offers \"Pause <line> until after this run\": one minute past its planned end; it then reads skipped, and a past block's offers no pause, only Edit", async () => {

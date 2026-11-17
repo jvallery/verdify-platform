@@ -11,8 +11,9 @@ import { chartLinks } from "../charts/uplot-chart";
 import { GraphNotices, RangeForm, rangeDays } from "../components/graphs/controls";
 import { EVENTS_PAGE, chartEvents } from "../components/graphs/event-marks";
 import { ResolutionLine, elapsedText } from "../components/graphs/resolution-line";
+import { Page } from "../components/layout/page";
 import { PageHeader } from "../components/layout/page-header";
-import { PanelError } from "../components/panel";
+import { Panel, PanelError } from "../components/panel";
 import { dateShift, dayTitle, formatValue, wallClockInstant } from "../lib/format";
 import { forecastSpan } from "../lib/graph-overlay";
 import { GRAPH_POLL_MS, readFailure, slotRead, useGraphClock, useWindowReads, type WindowRead } from "../lib/graph-reads";
@@ -24,7 +25,7 @@ import type { ActivityEntry, LightingCircuit, LightingDay, LightingDays, MetricD
 import { useSettingsRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
 
-export const meta = () => viewMeta("graphs-lighting");
+export const meta = () => viewMeta("lights-history");
 export const links = () => chartLinks();
 
 const REGISTRY = [{ id: "registry", params: {} }] as const;
@@ -33,7 +34,8 @@ export const SOLAR_KEY = "climate.solar_irradiance_w_m2";
 export const SOLAR_FORECAST_KEY = "forecast.solar_w_m2";
 /** API-05's lanes for this page: the readback, the controller's intent and occupancy, which turns the main lights on. */
 export const LIGHT_LANES = ["grow_light_main", "grow_light_grow", "grow_light_main_intent", "grow_light_grow_intent", "occupancy"] as const;
-const DLI_TEXT = "DLI: no interior light sensor yet (#1184). PPFD and DLI join this tab once the PAR meter is live.";
+/** A window of this page as a link (`/lights/history?…`; README section 3.1: `/graphs/lighting` redirects here). */
+export const historyHref = lightingHref;
 
 /** A lighting write: a switch (light.on, light.off) or a change to a grow-light setting (back to automatic included). */
 export function isLightingWrite(entry: Pick<ActivityEntry, "action" | "target">): boolean {
@@ -104,9 +106,10 @@ const hours = (seconds: number) => `${(seconds / 3600).toFixed(1)} h`;
 const dayName = (date: string, partial: boolean) => (partial ? "Today" : dayTitle(date, "short"));
 
 /**
- * Light minutes by day (#1357): for each circuit and day, the qualified light minutes against the target (the bar's
- * track is the target), the hours the light was on and how many times it started. Today counts up to now. Values come
- * from API-22, the controller's own rule: a minute in the photoperiod window counts with enough outdoor lux or the light on.
+ * Light minutes by day (#1357): for each circuit and day, the light minutes counted against the minutes wanted (the
+ * bar's track is the minutes wanted), the hours the light was on and how many times it started. Today counts up to now.
+ * Values come from API-22, the controller's own rule: a minute in the light window counts with enough outdoor light or
+ * the light on.
  */
 export function LightDays({ data, message }: { data: LightingDays | null; message?: string }) {
   if (!data) return <p className="meta">{message ?? "Loading light minutes…"}</p>;
@@ -114,7 +117,7 @@ export function LightDays({ data, message }: { data: LightingDays | null; messag
   if (!dates.length) return <p className="meta">No light minutes in this window.</p>;
   return <div className="table-wrap gr-light-days" role="region" tabIndex={0} aria-label="Light minutes by day, scrolls sideways">
     <table className="gr-light-table">
-      <caption className="eyebrow">LIGHT MINUTES · QUALIFIED AGAINST TARGET</caption>
+      <caption className="eyebrow">LIGHT MINUTES · COUNTED OF WANTED</caption>
       <thead><tr><th scope="col">Light</th>{data.circuits[0].days.map((day) => <th key={day.date} scope="col">{dayName(day.date, day.partial)}</th>)}</tr></thead>
       <tbody>
         {data.circuits.map((circuit) => <tr key={circuit.light} data-light={circuit.light}>
@@ -123,10 +126,10 @@ export function LightDays({ data, message }: { data: LightingDays | null; messag
             const share = day.qualified_min !== null && day.target_min ? Math.min(100, (day.qualified_min / day.target_min) * 100) : 0;
             const met = day.qualified_min !== null && day.target_min !== null && day.qualified_min >= day.target_min;
             return <td key={day.date} data-partial={day.partial ? "true" : undefined}>
-              <span className="gr-light-bar" role="img" aria-label={day.qualified_min === null ? "No policy readback" : `${day.qualified_min} of ${day.target_min ?? "—"} minutes`}>
+              <span className="gr-light-bar" role="img" aria-label={day.qualified_min === null ? "Not reported" : `${day.qualified_min} of ${day.target_min ?? "—"} minutes`}>
                 <span className="gr-light-fill" data-met={met ? "true" : undefined} ref={(element) => { element?.style.setProperty("--share", `${share}%`); }} />
               </span>
-              <span className="gr-light-words">{day.qualified_min === null ? "—" : `${day.qualified_min} / ${day.target_min ?? "—"} min`}</span>
+              <span className="gr-light-words">{day.qualified_min === null ? "—" : `${day.qualified_min} of ${day.target_min ?? "—"} min`}</span>
               <span className="gr-light-facts meta">{hours(day.on_s)} on · {day.starts} {day.starts === 1 ? "start" : "starts"}</span>
             </td>;
           })}
@@ -148,8 +151,9 @@ function spanOf(spec: WindowSpec, window: GraphWindow | null): string {
  * decides on, with each circuit's ON and OFF thresholds as steps and the photoperiod windows shaded, and the solar
  * irradiance with the forecast ahead. The lanes are the lights' Lutron readback with an amber strip where the
  * controller's intent differs, and occupancy, which turns the main lights on at any hour. The rail marks the light
- * switches and the grow-light setting changes. Under the stack, light minutes by day against target with the hours on
- * and the starts. DLI waits for the PAR meter (#1184). Graphs writes nothing; no greenhouse data renders in SSR.
+ * switches and the grow-light setting changes. Under the stack, light minutes by day against the minutes wanted, with
+ * the hours on and the starts. This page writes nothing; no greenhouse data renders in SSR. It lives under Lights at
+ * `/lights/history` (README section 3.1), and `/graphs/lighting` redirects here.
  */
 export default function GraphsLighting() {
   const [params] = useSearchParams();
@@ -231,14 +235,14 @@ export default function GraphsLighting() {
   const multiDay = window !== null && localDay(window.x.from) !== localDay(window.x.to - 1);
   const latest = luxRead.data ? [...(luxRead.data.series[LUX_KEY]?.avg ?? [])].reverse().find((value) => value !== null && value !== undefined) ?? null : null;
 
-  return <>
-    <PageHeader view="graphs-lighting" status={status} />
+  return <Page className="lights-history">
+    <PageHeader view="lights-history" status={status} />
     <GraphNotices notices={notices} />
     <div className="page-toolbar gr-toolbar">
       <RangeToolbar
-        presets={RANGES.map((range) => ({ id: range.id, label: range.label, href: lightingHref({ kind: "range", range: range.id }), current: spec.kind === "range" && spec.range === range.id, wide: range.id === "90d" }))}
-        previous={previous && lightingHref(previous)} next={next && lightingHref(next)} span={spanOf(spec, window)} zoomOut={zoomOut && lightingHref(zoomOut)} customOpen={spec.kind === "days"}
-        custom={<RangeForm initial={rangeDays(spec, window)} action="/graphs/lighting" hidden={[]} href={(from, to) => lightingHref({ kind: "days", from, to })} />} />
+        presets={RANGES.map((range) => ({ id: range.id, label: range.label, href: historyHref({ kind: "range", range: range.id }), current: spec.kind === "range" && spec.range === range.id, wide: range.id === "90d" }))}
+        previous={previous && historyHref(previous)} next={next && historyHref(next)} span={spanOf(spec, window)} zoomOut={zoomOut && historyHref(zoomOut)} customOpen={spec.kind === "days"}
+        custom={<RangeForm initial={rangeDays(spec, window)} action="/lights/history" hidden={[]} href={(from, to) => historyHref({ kind: "days", from, to })} />} />
     </div>
     {failed.length > 0 && <PanelError thing="part of this window" text={registry.error !== null && !catalog ? "Couldn't load the metric list." : "Couldn't load part of this window."}
       onRetry={() => { for (const read of failed) read.refetch(); }} />}
@@ -252,11 +256,10 @@ export default function GraphsLighting() {
       syncKey={`verdify:graphs-lighting:${key}`} events={eventsRead ? events : null} shades={shades} csvName="lighting" tableName="Lighting table" lanesName="Lights"
       lanes={<EquipmentLanes states={lanes.data} xRange={x} syncKey={`verdify:graphs-lighting:${key}`} now={now ?? undefined} message={lanesMessage} zoomControl={false} systems={["lighting", "sensors"]} open={["sensors"]} lightWrites={lightWrites.data?.items ?? null} />}
       foot={<ResolutionLine window={window} bucketSeconds={bucket} daily={daily} now={now} />} />
-    <section className="card gr-light-card" aria-label="Light minutes by day">
-      <h2>Did each circuit meet its light policy?</h2>
-      <p className="meta">A minute qualifies inside the configured light window when outdoor lux is high enough or the light is on. This is the controller's light-duration policy; it does not measure light received at the plants.</p>
+    <Panel title="Light minutes by day" thing="the light minutes" state={!lanesOn ? "empty" : days.data ? "ready" : days.error !== null ? "error" : "loading"} onRetry={days.refetch}
+      empty={<p className="meta">{daysMessage}</p>}
+      foot="A minute counts inside the light window when the outdoor light is bright enough or the light is on. This is the controller's own count; it does not measure the light the plants receive.">
       <LightDays data={days.data} message={daysMessage} />
-      <p className="meta">{DLI_TEXT}</p>
-    </section>
-  </>;
+    </Panel>
+  </Page>;
 }

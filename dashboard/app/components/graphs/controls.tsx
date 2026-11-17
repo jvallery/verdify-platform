@@ -4,20 +4,21 @@ import { Link, useNavigate } from "react-router";
 import { EVENT_SOURCES, EVENT_SOURCE_WORDS, type EventSource } from "../../charts/events";
 import { localDay } from "../../charts/time-axis";
 import {
-  COMPARES, DEFAULT_SETTINGS, PRESETS, daysProblem, graphHref, presetKeys, settingEditHref, withCompare, withEnvelope, withEvents, withMetrics, withOutdoor,
-  withPreset, withSettings, type CompareId, type GraphView, type GraphWindow, type WindowSpec,
+  COMPARES, DEFAULT_PRESET, DEFAULT_SETTINGS, PRESETS, daysProblem, graphHref, presetKeys, settingEditHref, withCompare, withEnvelope, withEvents, withMetrics,
+  withOutdoor, withPreset, withSettings, type CompareId, type GraphView, type GraphWindow, type PresetDef, type WindowSpec,
 } from "../../lib/graph-url";
 import type { MetricDef, Setting } from "../../lib/operator-api";
 import { Chips } from "../chips";
 import { FieldError, describedBy, useFieldIds } from "../forms/field";
 import { Menu } from "../menu";
+import { settingLabel } from "../../lib/settings-context";
 import { settingChipText } from "./setting-chooser";
 
 /**
- * Graphs' controls (redesign §5.5): the Custom… days form of the range toolbar, the Preset and Layers menus, and the
- * chips of what the charts draw beyond the climate traces (each setting's chip opens its drawer on Settings, × takes it
- * off; each picked metric's × takes it off). Every control is a link or a form that changes the URL; Graphs writes
- * nothing.
+ * Graphs' controls (screens.md section 7): the Custom… days form of the toolbar, the Preset and Layers menus, and the
+ * chips of what the charts draw beyond the preset (each setting's chip opens its drawer on Settings, × takes it off; each
+ * added metric's × takes it off). Every control is a link or a form that changes the URL; Graphs writes nothing, so a
+ * viewer and an operator see the same controls.
  */
 
 /** The days the custom range opens with: the window's own, else the local days the window covers. */
@@ -105,7 +106,7 @@ export type ChartChipsProps = {
 
 /**
  * What the charts draw beyond the climate traces, one chip each: a setting's chip opens its drawer on Settings and its
- * × takes it off; a picked metric's × takes it off (a preset's metric turns the preset into the metrics left).
+ * × takes it off; an added metric's × takes it off (a preset's metric turns the view into Climate with the metrics left).
  */
 export function ChartChips({ view, settings, picked, catalog, phone = false }: ChartChipsProps) {
   if (!settings.length && !picked.length) return null;
@@ -119,7 +120,7 @@ export function ChartChips({ view, settings, picked, catalog, phone = false }: C
     {settings.length > 0 && <ul className="graph-chips" aria-label={`Settings drawn as steps${suffix}`}>
       {settings.map((row) => <li key={row.param} className="graph-chip">
         <Link to={settingEditHref(row.param)} title={`${row.param}: edit it on Settings`}>{settingChipText(row)}</Link>
-        <Link to={graphHref(withSettings(view, params.filter((param) => param !== row.param)))} preventScrollReset aria-label={`Take ${row.label} off the charts`}><span aria-hidden="true">×</span></Link>
+        <Link to={graphHref(withSettings(view, params.filter((param) => param !== row.param)))} preventScrollReset aria-label={`Take ${settingLabel(row) || row.param} off the charts`}><span aria-hidden="true">×</span></Link>
       </li>)}
     </ul>}
     {picked.length > 0 && <ul className="graph-chips" aria-label={`Metrics on the charts${suffix}`}>
@@ -131,21 +132,26 @@ export function ChartChips({ view, settings, picked, catalog, phone = false }: C
   </div>;
 }
 
+/** A preset that would draw nothing yet: no climate trace, no chart of its own and no key API-03 lists for it. */
+function emptyPreset(preset: PresetDef, catalog: readonly MetricDef[] | null): boolean {
+  return catalog !== null && preset.climate.length === 0 && preset.extra === null && presetKeys(preset.id as GraphView["preset"], catalog).length === 0;
+}
+
 /** A labelled group inside a menu: a mono label over its chips. */
 function MenuGroup({ label, children }: { label: string; children: ReactNode }) {
   return <div className="gr-menu-group"><p className="eyebrow">{label}</p>{children}</div>;
 }
 
 /**
- * Preset (redesign §5.5): Climate, Water and soil, Light or Controller, each a link that sets `preset` and takes the
- * picked metrics off; a group API-03 lists nothing in reads "none yet". The current one is `aria-current`.
+ * Preset (screens.md section 7.1): the eight fixed lists of panels, each a link that sets `preset` and takes the added
+ * metrics off; one that would draw nothing yet reads "none yet". The current one is `aria-current`.
  */
 export function PresetMenu({ view, catalog }: { view: GraphView; catalog: readonly MetricDef[] | null }) {
-  const current = PRESETS.find((preset) => preset.id === (view.preset ?? "climate"))!;
+  const current = PRESETS.find((preset) => preset.id === (view.preset ?? DEFAULT_PRESET))!;
   return <Menu kind="button" className="gr-menu gr-preset" label={<>Preset <span className="gr-menu-value">{current.label}</span></>}>
     <ul className="gr-menu-list" aria-label="Presets">
       {PRESETS.map((preset) => {
-        const empty = catalog !== null && preset.group !== null && presetKeys(preset.id, catalog).length === 0;
+        const empty = emptyPreset(preset, catalog);
         return <li key={preset.id}>
           <Link to={graphHref(withPreset(view, preset.id))} preventScrollReset aria-current={preset.id === current.id ? "true" : undefined}>
             {preset.label}{empty && <span className="meta"> · none yet</span>}
@@ -157,22 +163,22 @@ export function PresetMenu({ view, catalog }: { view: GraphView; catalog: readon
 }
 
 /**
- * Preset as a row of chips, for the Layers sheet on a phone (redesign §5.5), where the toolbar has no room for its own
- * menu: the same links, the current one `aria-current`.
+ * Preset as a row of chips, for the Layers sheet on a phone, where the toolbar has no room for its own menu: the same
+ * links, the current one `aria-current`.
  */
 export function PresetChips({ view, catalog }: { view: GraphView; catalog: readonly MetricDef[] | null }) {
-  const current = view.preset ?? "climate";
+  const current = view.preset ?? DEFAULT_PRESET;
   return <MenuGroup label="Preset">
     <Chips small label="Presets, phone" items={PRESETS.map((preset) => {
-      const empty = catalog !== null && preset.group !== null && presetKeys(preset.id, catalog).length === 0;
+      const empty = emptyPreset(preset, catalog);
       return { key: preset.id, label: <>{preset.label}{empty && <span className="meta"> · none yet</span>}</>, to: graphHref(withPreset(view, preset.id)), current: preset.id === current, keepScroll: true };
     })} />
   </MenuGroup>;
 }
 
 /**
- * What the charts draw beyond the climate traces, for the Layers sheet on a phone (redesign §5.5): the settings drawn as
- * steps and the picked metrics, each with its ×, then + Setting (`chooser`).
+ * What the charts draw beyond the preset, for the Layers sheet on a phone: the settings drawn as steps and the added
+ * metrics, each with its ×, then + Setting (`chooser`).
  */
 export function DrawnChips({ chooser, ...props }: Omit<ChartChipsProps, "phone"> & { chooser: ReactNode }) {
   return <MenuGroup label="Settings and metrics">
@@ -188,14 +194,14 @@ export type LayersMenuProps = {
   /** The window is longer than 31 days: runs are not marked. */
   long: boolean;
   /**
-   * What the toolbar holds from 861 px but a phone's has no room for (redesign §5.5): Preset, the settings drawn as steps
-   * with + Setting, and the picked metrics; shown at the top of the sheet at 860 px and below only.
+   * What the toolbar holds from 861 px but a phone's has no room for: Preset, the settings drawn as steps with
+   * + Setting, and the added metrics; shown at the top of the sheet at 860 px and below only.
    */
   phone?: ReactNode;
 };
 
 /**
- * Layers (redesign §5.5, §7.1): the outdoor and forecast overlay, the event rail by source, the min–max envelope and
+ * Layers (screens.md section 7.1): the outdoor and forecast overlay, the event rail by source, the min–max envelope and
  * the comparison, each a chip that changes the URL. Choosing one keeps the menu open, so several can change in a row.
  */
 export function LayersMenu({ view, long, phone }: LayersMenuProps) {
@@ -210,7 +216,7 @@ export function LayersMenu({ view, long, phone }: LayersMenuProps) {
           { key: "outdoor", label: "Outdoor", to: graphHref(withOutdoor(view, !view.outdoor)), current: view.outdoor, keepScroll: true },
           { key: "envelope", label: "Min–max", to: graphHref(withEnvelope(view, !view.envelope)), current: view.envelope, keepScroll: true },
         ]} />
-        <p className="meta gr-menu-note">Outdoor adds the forecast past now. Min–max draws from 30 min points, 7 d and longer.</p>
+        <p className="meta gr-menu-note">Outdoor draws on the climate panels and adds the forecast past now. Min–max draws from 30 min points, 7 d and longer.</p>
       </MenuGroup>
       <MenuGroup label="Events">
         <Chips small label="Event sources" items={EVENT_SOURCES.map((source) => ({

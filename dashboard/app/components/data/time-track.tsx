@@ -10,8 +10,8 @@ import { STATE_WORDS, cssVars, rovingKeys, type VizState } from "./viz";
 
 /**
  * What a span is (redesign §4.6, §6.2): done is a solid fill in its token; planned a 1.5 px dashed outline on white;
- * running solid to now and dashed after; skipped and blocked a `--line` hatch with a `--muted` outline; missed a
- * `--fault` outline; unknown a `--muted` hatch (a gap, never missed and never off); conditional, a fallback window that runs
+ * running solid to now and dashed after; skipped and blocked a `--border` hatch with a `--text-3` outline; missed a
+ * `--critical` outline; unknown a `--text-3` hatch (a gap, never missed and never off); conditional, a fallback window that runs
  * only if VPD sensing fails, a dotted `--eq-heat1` outline with no fill (a light's window in which it may switch on, a
  * dotted outline in its own token); intent, what the controller wants where it differs from the readback, a dashed ink
  * outline with no fill over whatever the readback drew.
@@ -69,7 +69,7 @@ export type TimeTrackProps = {
   rows: readonly TrackRow[];
   /** The now rule, a 1.5 px ink line, when inside the window. */
   now?: number | null;
-  /** Night, before sunrise and after sunset: a `--field` wash behind the rows. */
+  /** Night, before sunrise and after sunset: a `--surface-2` wash behind the rows. */
   night?: readonly { readonly from: number; readonly to: number }[];
   /** The tick row: every 3 h at 861 px and up, every 6 h below (both render; the stylesheet shows one). */
   axis?: boolean;

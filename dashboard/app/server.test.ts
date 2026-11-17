@@ -8,7 +8,8 @@ import { join } from "node:path";
 import type { NextFunction, Request, Response } from "express";
 import request from "supertest";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { createApp, createServer, pageLoadContext, readSourceRevision, start } from "../server.mjs";
+import { PAGES, createApp, createServer, pageLoadContext, readSourceRevision, start } from "../server.mjs";
+import { REDIRECTS, ROUTES } from "../e2e/routes";
 import * as entryServer from "./entry.server";
 import { pageContext } from "./lib/page-context";
 import { loader } from "./root";
@@ -170,6 +171,13 @@ test("one JSON line per request: route template, status, duration and request id
   expect(JSON.stringify(lines)).not.toMatch(/synthetic|returnTo|token|L01|L02|plants|cookie/i);
 });
 
+test("PAGES is every screen route but / and every old path that redirects, so each logs as its own template", async () => {
+  expect([...PAGES].sort()).toEqual([...ROUTES.filter((path) => path !== "/"), ...REDIRECTS.map((redirect) => redirect.path)].sort());
+  const { app, lines } = setup();
+  for (const path of ["/climate/drying", "/system/data", "/planner/history", "/graphs/lighting"]) await request(app).get(`${path}?range=7d`).set("Host", HOST);
+  expect(lines.map((line) => [line.route, line.status])).toEqual([["/climate/drying", 302], ["/system/data", 302], ["/planner/history", 302], ["/graphs/lighting", 302]]);
+});
+
 test("four renders at once; the fifth gets 503 busy with Retry-After, and the route manifest never waits", async () => {
   const held: Response[] = [];
   const { app, lines } = setup(undefined, (req, res, next) => { if (req.path === "/__manifest") page(req, res, next); else held.push(res); });
@@ -261,7 +269,7 @@ test("getLoadContext sets the server build's pageContext: the root loader reads 
     const request = new Request(`https://${HOST}/auth/callback`, { headers: { "x-dashboard-csp-nonce": "n0nce" } });
     return loader({ request, context, params: {}, url: new URL(request.url), pattern: "/auth/*" } as unknown as Parameters<typeof loader>[0]) as unknown as { data?: unknown; init?: { status: number } };
   };
-  expect(read({ requestId })).toEqual({ nonce: "n0nce", sourceRevision: REVISION, requestId, authError: null });
+  expect(read({ requestId })).toEqual({ nonce: "n0nce", sourceRevision: REVISION, requestId, theme: "system", authError: null });
   const refused = read({ requestId, authError: { reason: "no_access", requestId } });
   expect(refused.init?.status).toBe(403);
   expect(refused.data).toMatchObject({ sourceRevision: REVISION, authError: { reason: "no_access", requestId } });

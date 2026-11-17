@@ -10,7 +10,7 @@
  * - **R** `useRecordWrite`: API-15 and API-16.
  * - **B** `useBandWrite`: API-24, the band editor's one Save of every changed house anchor.
  * - `useStop`: API-IRR-07 and its result toast.
- * - `useCropWrite`: API-CROP-07 to -11, the planting records (#1330).
+ * - `useCropWrite`: API-CROP-07 to -12, the planting records (#1330).
  * - `useSoilTargetWrite`: API-SOIL-02, one zone's soil-moisture thresholds (#1345).
  *
  * One action, one key: `crypto.randomUUID()` when Save, Run, Stop or Acknowledge is pressed, used for that request only.
@@ -173,11 +173,11 @@ export type SettingSave = { readonly value: number; readonly manual?: boolean; r
 
 /**
  * The Save toast: "Requested 1.55 kPa for VPD Mister Engage", the stored value with `Setting.unit` and then
- * `Setting.label`, plus "(snapped from 1.53)" when the server snapped it; a release reads "Released <label>: plan, band
- * or default applies". The value keeps the decimals it was stored with: Iris's 48.75 taken manual reads 48.75.
+ * `Setting.label`, plus "(snapped from 1.53)" when the server snapped it; a release reads "Released <label>: the host sends
+ * its own value again". The value keeps the decimals it was stored with: 48.75 taken by hand reads 48.75.
  */
 export function settingToast(saved: Pick<DesiredSetting, "value" | "snapped_from">, setting: Pick<SettingInfo, "label" | "kind" | "unit" | "step" | "options">): string {
-  if (saved.value === null) return `Released ${setting.label}: plan, band or default applies`;
+  if (saved.value === null) return `Released ${setting.label}: the host sends its own value again`;
   const snapped = saved.snapped_from !== null && saved.snapped_from !== undefined ? ` (snapped from ${formatNumber(saved.snapped_from)})` : "";
   return `Requested ${keptValueText(saved.value, setting)} for ${setting.label}${snapped}`;
 }
@@ -199,7 +199,7 @@ export function useSettingWrite(setting: SettingInfo, { onSaved }: { onSaved?: (
     if (!outcome.ok) return outcome;
     toast.show({ message: settingToast(outcome.data, latest.current.setting) });
     latest.current.onSaved?.(outcome.data);
-    refresh(client, ["API-09", "API-07", "API-17"]);
+    refresh(client, ["API-09", "API-17"]);
     return outcome;
   }, [client, toast, latest]);
   const unitsOf = useCallback((field: string | null): FieldUnits => (field === "value" ? { unit: latest.current.setting.unit, step: latest.current.setting.step } : {}), [latest]);
@@ -269,7 +269,7 @@ export function useProgramWrite<K extends ProgramOperationId>(operation: K, { on
 
 /**
  * The words beside a program item's badge and on the program banner (screens §1.4 P): REQUESTED reads "rev 43 sending",
- * or "Applies with the irrigation firmware" before the engine; NOT CONFIRMED reads "Not confirmed: <reject in words>".
+ * or "Waits for the controller's irrigation engine" before the engine; NOT CONFIRMED reads "Not confirmed: <reject in words>".
  */
 export function programSyncText(sync: string, status: (Pick<IrrigationStatus, "engine"> & Partial<Pick<IrrigationStatus, "program">>) | null | undefined): string | null {
   if (sync === "requested") {
@@ -526,9 +526,10 @@ export function useBandWrite() {
 }
 
 // ---------------------------------------------------------------------------------------------------- crops
-export type CropOperationId = "API-CROP-07" | "API-CROP-08" | "API-CROP-09" | "API-CROP-10" | "API-CROP-11";
+export type CropOperationId =
+  "API-CROP-07" | "API-CROP-08" | "API-CROP-09" | "API-CROP-10" | "API-CROP-11" | "API-CROP-12";
 /**
- * A planting write (API-CROP-07 to -11): plant, move, harvest, remove and edit. Records only: no device write and no
+ * A planting write (API-CROP-07 to -12): plant, move, harvest, remove, edit and note. Records only: no device write and no
  * readback, so a 2xx is the end state. On success it refetches the map, the plantings, the open planting and cell
  * reads and Activity; a refusal (`position_occupied`, `ambiguous_position`, a field) keeps the form open with `error`.
  */

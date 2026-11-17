@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// Where each zone's numbers come from (#1138, D-IRP-13): the tag rule, the value each tag names and the band in force.
+// Where each zone's numbers come from (#1138, D-IRP-13): the tag rule and the value each tag names. No zone has a band.
 import { expect, test } from "vitest";
 import { fixture } from "../../e2e/fixtures/index.mjs";
 import { GRID_ZONES } from "./graph-url";
-import type { BandTimeline, MetricDef, Series } from "./operator-api";
+import type { MetricDef, Series } from "./operator-api";
 import {
-  PROBE_VPD_KEYS, ZONES, ZONE_READS, bandVerdict, bandZone, newestBand, newestSample, targetKey, targetWords, zoneKey, zoneSourceWords, zoneTag, zoneValue, type Zone, type ZoneData,
+  PROBE_VPD_KEYS, ZONES, keyValue, newestSample, zoneKey, zoneSourceWords, zoneTag, zoneValue, type Zone, type ZoneData,
 } from "./zone-source";
 
 const NOW = Date.parse("2026-11-02T17:42:00Z") / 1000;
@@ -90,38 +90,14 @@ test("a key API-03 does not list has no cadence to be fresh against", () => {
   expect(zoneTag("north", { ...data(probes(["north"])), metrics: [] })).toBe("HOUSE");
 });
 
-test("north reads the house band and the house target; the others their own", () => {
-  // One zone order everywhere (redesign §5.1, §5.6): Now's tiles and Graphs → Zones' columns read the same list.
+test("one zone order everywhere; the probe keys; a probe's own value with no substitution", () => {
   expect([...ZONES]).toEqual(["north", "center", "south", "east", "west"]);
   expect(GRID_ZONES).toBe(ZONES);
-  expect(ZONES.map(bandZone)).toEqual(["house", "center", "south", "east", "west"]);
-  expect(ZONES.map(targetKey)).toEqual(["climate.house_vpd_target", "climate.vpd_target_center", "climate.vpd_target_south", "climate.vpd_target_east", "climate.vpd_target_west"]);
-  const set = data({ "climate.house_vpd_target": { value: 0.62, age: 0 }, "climate.vpd_target_south": { value: 0.6, age: 9 } });
-  expect(targetWords("north", set).replaceAll(" ", " ")).toBe("house target 0.62 kPa");
-  expect(targetWords("south", set).replaceAll(" ", " ")).toBe("target 0.60 kPa · STALE");
-  expect(targetWords("west", set)).toBe("target — (No reading in the last 15 min)");
-});
-
-test("the band in force is the newest non-null point of each axis; the verdict never reads on a missing value", () => {
-  const timeline = (low: (number | null)[]): BandTimeline => ({
-    from: "", to: "", step_s: 300, t: low.map((_, index) => index), crop: { temp_low: [], temp_high: [], vpd_low: [], vpd_high: [] },
-    band: { temp_low: low, temp_high: low.map((value) => (value === null ? null : value + 8)), vpd_low: [null, null, null], vpd_high: [null, null, null] },
-  });
-  expect(newestBand(timeline([60, 62, null]), "temp")).toEqual({ low: 62, high: 70 });
-  expect(newestBand(timeline([60, 62, null]), "vpd")).toBeNull();
-  expect(newestBand(null, "temp")).toBeNull();
-  const band = { low: 62, high: 70 };
-  expect([bandVerdict(66, band), bandVerdict(70, band), bandVerdict(62, band), bandVerdict(70.1, band), bandVerdict(61.9, band), bandVerdict(66, null), bandVerdict(null, band)]).toEqual(["in band", "in band", "in band", "above band", "below band", "band unavailable", null]);
-});
-
-test("Now's reads cover every zone's keys within API-04's 8 per request, each key in one read, and the tag read needs the probes alone", () => {
-  for (const keys of ZONE_READS) expect(keys.length).toBeLessThanOrEqual(8);
-  const all = ZONE_READS.flat();
-  expect(new Set(all).size).toBe(all.length);
-  for (const zone of ZONES) for (const key of [zoneKey(zone, "temp"), zoneKey(zone, "rh"), zoneKey(zone, "vpd"), targetKey(zone)]) expect(all).toContain(key);
-  // Every key is one API-03 serves, or API-04 would refuse the whole read.
-  for (const key of all) expect(METRICS.some((metric) => metric.key === key), key).toBe(true);
   expect(PROBE_VPD_KEYS).toEqual(["climate.vpd_north", "climate.vpd_south", "climate.vpd_east", "climate.vpd_west"]);
+  const set = data({ "climate.temp_north": { value: 64.8, age: 0 }, "climate.temp_south": { value: 66, age: 9 } });
+  expect(keyValue("climate.temp_north", set)).toEqual({ value: 64.8, stale: false, reason: null });
+  expect(keyValue("climate.temp_south", set)).toMatchObject({ value: 66, stale: true });
+  expect(keyValue("climate.temp_west", set)).toEqual({ value: null, stale: false, reason: "No reading in the last 15 min" });
 });
 
 test("the south-probe-out fixture reports L07 on its peers; fixture-api.test.ts checks its series", () => {

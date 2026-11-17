@@ -95,8 +95,8 @@ export type RulesListProps = {
 
 /**
  * The rules list (redesign §6.4), always below the view: every schedule under its line in L01–L10 order, disabled ones
- * muted under theirs. A rule reads its days, its start in words with today's time, its amount, MANUAL or "Iris may
- * adjust", FERT, the degraded-only note, its one sync pill and who changed it last. Operators get the enabled switch, Edit
+ * muted under theirs. A rule reads its days, its start in words with today's time, its amount, FERT, the degraded-only
+ * note, its one sync pill and who changed it last. Operators get the enabled switch, Edit
  * and ⋯ (Duplicate, Delete), and "+ Schedule" per line; viewers read the same rows. A line's fallback schedules
  * (`degraded_only`, two or more) are one "Backup misting when sensors fail (3 times a day)" row (redesign §6.2, #1344) that lists their starts and opens to each
  * schedule's own row. On phones each line folds into a disclosure under the agenda.
@@ -134,8 +134,7 @@ export function RulesList({ groups, agenda, program, today, now, editTo, newTo, 
 /**
  * A line's fallback schedules as one row (redesign §6.2, #1308 visual QA 42, #1344): "Backup misting when sensors fail (3
  * times a day)" with its state first ("Off" when every window is disabled, "2 of 3 on"), their days and amount when they share them, their starts as one list with units ("solar noon −2 h, 0, +2 h"), the degraded-only note, how many are
- * on when not all, and who changed one last; the one pill a member's NOT CONFIRMED or REQUESTED, else MANUAL when every
- * one is. It opens to each schedule's own row, with its switch, Edit and ⋯.
+ * on when not all, and who changed one last; the one pill a member's NOT CONFIRMED or REQUESTED. It opens to each schedule's own row, with its switch, Edit and ⋯.
  */
 function FallbackRow({ schedules, group, solar, program, rows }: {
   schedules: readonly Schedule[]; group: RuleGroup; solar: ScheduleAgenda["solar"][number] | null; program: RulesListProps["program"]; rows: readonly ReactNode[];
@@ -149,12 +148,11 @@ function FallbackRow({ schedules, group, solar, program, rows }: {
   const state = on === 0 ? "off" : on < schedules.length ? `${on} of ${schedules.length} on` : "on";
   const syncs = schedules.map((schedule) => schedule.sync);
   const sync = syncs.includes("not_confirmed") ? "not_confirmed" : syncs.includes("requested") ? "requested" : null;
-  const pill = sync ? <ReadbackBadge state={sync} /> : schedules.every((schedule) => schedule.manual) ? <Badge kind="manual" /> : undefined;
+  const pill = sync ? <ReadbackBadge state={sync} /> : undefined;
   const newest = [...schedules].sort((a, b) => (Date.parse(b.updated_at ?? "") || 0) - (Date.parse(a.updated_at ?? "") || 0))[0];
-  const meta = [BACKUP_HELP, schedules.some((schedule) => schedule.manual) ? null : "Iris may adjust"].filter(Boolean);
   return <ObjectRow as="li" headingLevel={4} className={cls("sch-rule", "sch-rule-fallback", on === 0 && "is-muted")} data={{ "data-fallback": group.lineId }}
     title={title} pill={pill} state={<><span className="sch-fallback-state" data-state={state}>{state === "off" ? "Off" : state === "on" ? "On" : state}</span> · {facts.filter(Boolean).join(" · ")}</>}
-    meta={<>{meta.join(" · ")} · <ChangedBy schedule={newest} />{sync && <> · <span className={cls(sync === "not_confirmed" && "fault")}>{lineSyncWords(sync, program)}</span></>}</>}>
+    meta={<>{BACKUP_HELP} · <ChangedBy schedule={newest} />{sync && <> · <span className={cls(sync === "not_confirmed" && "fault")}>{lineSyncWords(sync, program)}</span></>}</>}>
     <details className="sch-fallback-each">
       <summary>Each schedule <span className="meta">· {schedules.length}</span></summary>
       <ul className="sch-rule-rows sch-fallback-rows">{rows}</ul>
@@ -172,19 +170,17 @@ function RuleRow({ schedule, group, solar, program, now, operator, editTo, copyT
   const name = schedule.label || `Slot ${schedule.slot_id}`;
   const sync = schedule.sync;
   const syncWords = sync !== "confirmed" ? lineSyncWords(sync, program) : null;
-  // One pill (redesign §4.4): NOT CONFIRMED, REQUESTED, then MANUAL, then CONFIRMED while it is news.
-  const pill = sync === "requested" || sync === "not_confirmed" ? <ReadbackBadge state={sync} />
-    : schedule.manual ? <Badge kind="manual" /> : fresh ? <Badge kind="confirmed" /> : null;
+  // One pill (redesign §4.4): NOT CONFIRMED, REQUESTED, then CONFIRMED while it is news.
+  const pill = sync === "requested" || sync === "not_confirmed" ? <ReadbackBadge state={sync} /> : fresh ? <Badge kind="confirmed" /> : null;
 
   const meta = [
-    schedule.manual ? (sync === "requested" || sync === "not_confirmed" ? "manual" : null) : "Iris may adjust",
     schedule.degraded_only ? DEGRADED_WORDS : null,
     !enabled ? "disabled: will not run" : null,
   ].filter(Boolean);
   return <ObjectRow as="li" headingLevel={4} className={cls("sch-rule", !enabled && "is-muted")} data={{ "data-slot": String(schedule.slot_id), "data-sync": sync }}
     title={name} tag={fert ? <Badge kind="fert" /> : undefined} pill={pill}
     visual={<dl className="schedule-rule-facts"><div><dt>Repeat</dt><dd>{daysWords(schedule.days)}</dd></div><div><dt>Start</dt><dd>{startWords(schedule.start, solar)}</dd></div><div><dt>Watering</dt><dd>{amountWords(schedule, group.kind, group.partner)}</dd></div><div><dt>Condition</dt><dd>{schedule.degraded_only ? "Only if VPD sensing fails" : "Routine watering"}</dd></div></dl>}
-    meta={<>{meta.length > 0 && <>{meta.join(" · ")} · </>}<ChangedBy schedule={schedule} />{syncWords && <> · <span className={cls(sync === "not_confirmed" && "fault")}>{syncWords}</span></>}{fresh && schedule.manual && <> · confirmed</>}</>}
+    meta={<>{meta.length > 0 && <>{meta.join(" · ")} · </>}<ChangedBy schedule={schedule} />{syncWords && <> · <span className={cls(sync === "not_confirmed" && "fault")}>{syncWords}</span></>}</>}
     primary={operator ? <>
       <RuleSwitch schedule={schedule} />
       <Link className="button-link" to={editTo(schedule.slot_id)} preventScrollReset data-write-control="true">Edit <span className="screen-reader">{name}</span></Link>

@@ -7,7 +7,7 @@ import { createFixtureHandler } from "../../e2e/fixture-api.mjs";
 import { fixture } from "../../e2e/fixtures/index.mjs";
 import {
   ApiError, type BodyOf, type Fetcher, SessionEnded, apiGet, apiWrite, newIdempotencyKey, operationPath, parseIrrigationStatus, parseMe, parseNow, parseProblem,
-  groupPurpose, parseMinutesReport, parseRunPage, parseSettings, purposeOf,
+  groupPurpose, parseBandProfilePreview, parseDailyRecord, parseDataContinuity, parseMinutesReport, parseReviewPage, parseRunPage, parseSettings, purposeOf,
 } from "./operator-api";
 
 const NOW = Date.parse("2026-11-02T17:42:00Z");
@@ -222,4 +222,68 @@ test("a run, a minutes row and a last water carry their purpose (#1348); from a 
   expect(report.purpose).toBeNull();
   expect([purposeOf("L11", "schedule"), purposeOf("L04", "fallback"), purposeOf("L02", "feed"), groupPurpose("cause", "vpd", "vpd"), groupPurpose("line", "L11", "unknown")])
     .toEqual(["climate", "climate", "irrigation", "climate", "climate"]);
+});
+
+test("the band editor's edge form: API-23 compiles the edges given, serves both states' edges and the law lines, and refuses one axis in both forms", async () => {
+  const fetch = fixtureFetch(createFixtureHandler({ clock: () => NOW }));
+  const draft = await apiGet("API-23", { temp_low_night: 55, temp_high_night: 62.04 }, { fetch });
+  expect(draft.current.edges).toEqual({
+    temp_low_day: 71.8, temp_high_day: 85.8, temp_low_night: 60.7, temp_high_night: 70.7, vpd_low_day: 0.862, vpd_high_day: 1.39, vpd_low_night: 0.738, vpd_high_night: 1.27,
+  });
+  // The live band's sunrise and sunset edges are not the midpoint of noon and midnight.
+  expect(draft.current.edges_simple).toEqual({ temp: false, vpd: false });
+  expect(draft.draft.edges).toMatchObject({ temp_low_day: 71.8, temp_high_day: 85.8, temp_low_night: 55, temp_high_night: 62 });
+  expect(draft.draft.edges_simple).toEqual({ temp: true, vpd: false });
+  // The midnight target (65.7 °F) now lies above its new edges, so the whole target series moves to their midpoint.
+  const anchorsOf = (role: string) => ["sr", "sm", "ss", "mid"].map((key) => draft.draft.anchors[`band_temp_${role}_${key}`]);
+  expect([anchorsOf("low"), anchorsOf("high")]).toEqual([[63.4, 71.8, 63.4, 55], [73.9, 85.8, 73.9, 62]]);
+  // The midpoint of 63.4 and 73.9 is 68.65, snapped half to even as the API snaps.
+  expect(anchorsOf("target")).toEqual([68.6, 78.8, 68.6, 58.5]);
+  // A series given no edge keeps its own anchors: the live low's sunrise 62.5 and sunset 70.0 stay.
+  const highOnly = await apiGet("API-23", { temp_high_night: 72 }, { fetch });
+  expect(["sr", "ss"].map((key) => highOnly.draft.anchors[`band_temp_low_${key}`])).toEqual([62.5, 70]);
+  expect(highOnly.changed).toEqual(["band_temp_high_sr", "band_temp_high_ss", "band_temp_high_mid"]);
+  expect(draft.law_lines).toEqual({
+    heat1_on_above_low_f: 3.5, heat2_on_above_low_f: 0.5, cool_on_above_high_f: 0, fan2_on_above_high_f: 1.5, dry_on_above_vpd_low_kpa: 0.05,
+    fog_on_above_vpd_high_kpa: 0, mist_on_above_vpd_high_kpa: 0.3,
+  });
+  // A finding on an axis given as edges names the edge field.
+  const floor = await apiGet("API-23", { vpd_low_night: 0.5 }, { fetch });
+  expect(floor.findings.find((finding) => finding.code === "night_floor")?.field).toBe("vpd_low_night");
+  const both = await apiGet("API-23", { temp_low_night: 62, temp_night: 66 }, { fetch }).catch((error: unknown) => error);
+  expect(both).toBeInstanceOf(ApiError);
+  expect((both as ApiError).problem).toMatchObject({ status: 400, code: "invalid_request", field: "temp_low_night" });
+  expectTypeOf<{ profile: { vpd_low_night: 0.8 } }>().toExtend<BodyOf<"API-24">>();
+  // An API synced before the edge form still parses; its edges read null.
+  const older = clone(base["API-23"]);
+  for (const state of [older.current, older.draft]) { delete state.edges; delete state.edges_simple; }
+  delete older.law_lines;
+  expect(parseBandProfilePreview(older)).toMatchObject({ current: { edges: null, edges_simple: null }, law_lines: null });
+});
+
+test("the record's periods, the reviewer's token counts and a silent probe's last reading", () => {
+  const record = parseDailyRecord(base["API-32"])!;
+  expect(record.law_started).toBe("2026-10-29");
+  expect(record.baseline).toMatchObject({ from: "2026-09-29", to: "2026-10-28", excluded_days: 2, means: { days: 28 } });
+  expect(record.since_law).toMatchObject({ from: "2026-10-30", to: "2026-11-01", excluded_days: 0, means: { days: 3 } });
+  // The law's drying record is stored for every complete day from the law's first day, and for no day before it.
+  const lawDays = record.days.filter((day) => day.complete && day.date >= record.law_started!).map((day) => day.date);
+  expect(lawDays).toEqual(["2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"]);
+  expect(record.days.filter((day) => day.drying?.wanted_s != null).map((day) => day.date)).toEqual(lawDays);
+  const noLaw = parseDailyRecord(fixture("record-no-periods", { now: NOW })["API-32"])!;
+  expect(noLaw).toMatchObject({ law_started: null, baseline: null, since_law: null });
+  // With no law record, no day carries the drying meter or the law's drying record.
+  expect(noLaw.days.filter((day) => day.drying && [day.drying.wanted_s, day.drying.refused_s, day.drying.water_g].some((value) => value !== null))).toEqual([]);
+  const tokens = parseReviewPage(base["API-34"])!.tokens;
+  expect(tokens).toMatchObject({ last: 355_128, count_7: 7, count_30: 8 });
+  // Both counts are required: a page without them does not parse.
+  const { count_7: _count7, ...noCount } = base["API-34"].tokens;
+  void _count7;
+  expect(parseReviewPage({ ...base["API-34"], tokens: noCount })).toBeNull();
+  expect(parseDataContinuity(base["API-36"])!.probes.every((probe) => probe.last_seen_at === null)).toBe(true);
+  const silent = parseDataContinuity(fixture("data-probes-silent", { now: NOW })["API-36"])!.probes.filter((probe) => probe.age_s === 7200);
+  expect(silent.map((probe) => [probe.sensor, probe.last_seen_at])).toEqual([
+    ["climate.soil_moisture_south_1", "2026-10-30T17:42:00.000Z"], ["climate.soil_moisture_south_2", "2026-10-30T17:42:00.000Z"],
+    ["climate.soil_moisture_west", "2026-10-30T17:42:00.000Z"], ["climate.soil_ec_south_1", null],
+  ]);
 });

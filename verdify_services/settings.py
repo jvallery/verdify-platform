@@ -34,7 +34,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal
 
 import asyncpg
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from verdify_schemas.activity import ActivityLogRow
 from verdify_schemas.band_profile import HOUSE_PARAMS
@@ -132,6 +132,53 @@ ReadOnlyKind = Literal[
     "no_anchor_row",
     "unknown",
 ]
+# What reads a setting on this build (OpenAPI Setting.effect): controller, the connected controller's control loop;
+# host, a host task (the dispatcher's derived Band in force rows, which the daily grade and the alerts read); none,
+# stored and echoed, but read by nothing.
+SettingEffect = Literal["controller", "host", "none"]
+
+_ANCHORS = ("sr", "sm", "ss", "mid")
+_ZONES = ("center", "south", "west", "east")
+# Settings the controller stores and echoes but no control path reads on the band-edge law build. Reviewed against
+# firmware/greenhouse/*.yaml, firmware/greenhouse.yaml and firmware/lib/*.h on 2026-11-17; a setter, a cfg_*
+# readback or a published telemetry value is not a read:
+# - mister_engage_delay_s, mister_min_off_s, sw_direct_wet_gate_enabled (global direct_wet_gate_enabled),
+#   mister_hysteresis_kpa and direct_wet_min_temp_f: only their number or switch entity and their cfg_* readback
+#   read the global; controls.yaml's pol() reads no policy field of theirs, and the misters' minimum off time is the
+#   compiled climate_law::MISTER_MIN_OFF_S.
+# - site_pressure_hpa: feeds the enthalpy sensors, whose difference reaches only SensorInputs.enthalpy_delta, a
+#   field nothing in firmware/lib reads.
+# - the 16 zone VPD targets, 8 widths and the center, south and west priorities: read only in controls.yaml's band
+#   diagnostics block, which publishes the zone targets, deltas and the arbiter's winner and drives nothing.
+# - the 8 house target anchors (band_*_target_*): they set setpts.temp_target and vpd_target, which the law never
+#   reads (it takes only the band edges) and which are published as telemetry.
+NO_CONTROL_READER: frozenset[str] = frozenset(
+    {
+        "mister_engage_delay_s",
+        "mister_min_off_s",
+        "sw_direct_wet_gate_enabled",
+        "mister_hysteresis_kpa",
+        "site_pressure_hpa",
+        "direct_wet_min_temp_f",
+        *(f"zone_vpd_target_{zone}_{anchor}" for zone in _ZONES for anchor in _ANCHORS),
+        *(f"zone_vpd_width_{side}_{zone}" for side in ("below", "above") for zone in _ZONES),
+        *(f"zone_priority_{zone}" for zone in ("center", "south", "west")),
+        *(f"band_{axis}_target_{anchor}" for axis in ("temp", "vpd") for anchor in _ANCHORS),
+    }
+)
+
+
+def setting_effect(param: str) -> SettingEffect:
+    """What reads ``param`` on this build. A row with no registry entry is a Band in force row: the dispatcher
+    derives it and host tasks read it. A retired row, or one in NO_CONTROL_READER, has no reader; every other
+    registry row reaches the controller (its entity, the band anchors or the irrigation program) and its control
+    loop reads it."""
+    spec = REGISTRY.get(param)
+    if spec is None:
+        return "host"
+    if spec.control_class == "retired" or param in NO_CONTROL_READER:
+        return "none"
+    return "controller"
 
 
 # ── Models: the OpenAPI schemas (docs/design/dashboard/openapi/dashboard-api.v1.yaml) ──────────────────────
@@ -214,7 +261,7 @@ class Setting(_Model):
     rows whose registry label is the raw name). ``plan`` stays None here: ``reads.settings_rows`` (API-09) adds the
     plan block and the Band in force rows. ``help`` is the operator text (``verdify_schemas.setting_help``, #1332);
     ``read_only_kind`` names why a row is read-only and ``source_params`` the writable settings a derived row is
-    computed from (#1333).
+    computed from (#1333). ``effect`` is what reads the setting on this build (``setting_effect``).
     """
 
     param: str
@@ -238,6 +285,15 @@ class Setting(_Model):
     plan: SettingPlan | None = None
     applied_from: AppliedFrom
     state: ReadbackState
+    effect: SettingEffect
+
+    @model_validator(mode="before")
+    @classmethod
+    def _effect_from_param(cls, data: Any) -> Any:
+        """``effect`` is ``setting_effect(param)`` unless the caller states it, so every row builder agrees."""
+        if isinstance(data, dict) and "effect" not in data and isinstance(data.get("param"), str):
+            return {**data, "effect": setting_effect(data["param"])}
+        return data
 
 
 class SettingHistory(_Model):
@@ -898,6 +954,7 @@ def _setting(spec: TunableDef, facts: _Facts, shared: _Shared, anchors: Mapping[
         desired=status.desired,
         applied_from=status.applied_from,
         state=status.state,
+        effect=setting_effect(spec.name),
     )
 
 

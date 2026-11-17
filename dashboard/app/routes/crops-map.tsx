@@ -5,6 +5,7 @@ import { PlantDrawer, type PlantTemplate } from "../components/crops/drawers";
 import { CropLegend, MapCardView, type MapSelection } from "../components/crops/map";
 import { useClockValue } from "../components/freshness";
 import { PanelError } from "../components/panel";
+import { Skeleton } from "../components/skeleton";
 import {
   growingLocations, allCells, cellKey, cellRange, cropTones, legend, mapCards, onlyCell, selectedPlantings, selectionPositions, shelfKey, zoneKey, type PlaceKey,
 } from "../lib/crops";
@@ -55,7 +56,7 @@ export default function CropsMap() {
   };
   if (!data) {
     if (locations.isError) return <PanelError thing="the crop map" onRetry={() => void locations.refetch()} />;
-    return <div className="crop-map" aria-busy="true"><div className="skeleton skeleton-lg" aria-hidden="true" /><p className="screen-reader">Loading the crop map</p></div>;
+    return <div className="crop-map" aria-busy="true"><Skeleton size="lg" label="the crop map" /></div>;
   }
   const positions = selectionPositions(selected);
   const known = new Set(allCells(data).map((cell) => cell.label));

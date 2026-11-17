@@ -1,23 +1,28 @@
 // SPDX-License-Identifier: MIT
 /**
- * Water today on Now (redesign §5.1; screens SCR-01, US-NOW-04, US-WAT-13, US-WAT-18) from API-IRR-01: first the daily
- * mist & fog limit's gallons (SAF-4, #1349), the primary daily water limit (#1339), then each watering zone's minutes
- * today against its cap as a `Meter` (the drip zone in `--eq-water`, the mister zones in `--eq-mister`) with when it
- * last got water (`last-water.ts`), and the flow in words. Before the
- * irrigation firmware it says where the wall drip runs from. A failed or not yet served API-IRR-01 reads "Water status
- * unavailable." with Retry, never idle. Stop all water is not here: it is the first quick action, one per page.
+ * Water today on Now (dashboard v2 screens §1 block 6; US-NOW-04, US-WAT-13, US-WAT-18) from API-IRR-01: first the
+ * daily mist & fog limit's gallons (SAF-4, #1349), the primary daily water limit (#1339), then each watering zone's
+ * minutes today against its cap as a `Meter` with when it last got water (`last-water.ts`), the flow in words, the next
+ * scheduled run (API-IRR-02) and occupancy. Before the irrigation firmware it says where the wall drip runs from. A
+ * failed or not yet served API-IRR-01 reads "Water status unavailable." with Retry, never idle. Stop all water (operators)
+ * is the card's last line, one per page; at 860 px and below it is pinned above the bottom bar.
  */
+import type { ReactNode } from "react";
 import { formatValue, shortTime } from "../../lib/format";
 import { WATER_ZONES, WATER_ZONE_WORDS, lastWater, type WaterZone, type ZoneLastWater } from "../../lib/last-water";
 import type { IrrigationLine, IrrigationStatus, Leak } from "../../lib/operator-api";
-import type { PanelRead } from "../../lib/queries";
+import { READ_INTERVAL_MS, panelRead, useApiRead, type PanelRead } from "../../lib/queries";
+import { OperatorOnly } from "../../lib/session";
 import { SAF4_HELP, SAF4_PRIMARY, SAF4_TERM, climateTodayWords } from "../../lib/water";
 import { cls } from "../common";
 import { Meter, meterWords, type MeterDomain } from "../data/meter";
-import { useNow } from "../freshness";
+import { useClockValue, useNow } from "../freshness";
+import { StopAllWater, type StopAllControl } from "../stop-all-water";
 import { InfoTip } from "../info-tip";
 import { Panel, type PanelState } from "../panel";
-import { lineStatesUnknown } from "./status";
+import { AGENDA_PARAMS } from "../coming-up";
+import { nextRunText, nextWindow } from "./next";
+import { lineStatesUnknown, occupancyText } from "./status";
 
 export const WATER_UNAVAILABLE = "Water status unavailable.";
 export const BEFORE_ENGINE_LINE = "The wall drip runs from Water; run-now on the other lines arrives with the irrigation firmware";
@@ -110,9 +115,33 @@ function ZoneRow({ row, stale }: { row: ZoneWater; stale: boolean }) {
   </li>;
 }
 
-export type WaterCardProps = { readonly irrigation: PanelRead<IrrigationStatus> };
+/** The next scheduled run in the next 12 h, from the week's agenda (the read Coming up shares). */
+function NextRun({ engine }: { engine: boolean }) {
+  const agenda = panelRead(useApiRead("API-IRR-02", AGENDA_PARAMS, { intervalMs: READ_INTERVAL_MS.schedules }));
+  const clock = useClockValue((value) => Math.floor(value / 60_000) * 60_000);
+  if (!engine) return null;
+  if (agenda.failed && !agenda.data) return <p className="meta" data-water="next">Next scheduled run: unavailable</p>;
+  if (!agenda.data) return null;
+  const next = nextRunText(agenda.data, nextWindow(clock), clock);
+  return <p className="meta" data-water="next">{next ? <>Next scheduled run: {next}</> : "No run scheduled in the next 12 h"}</p>;
+}
 
-export function WaterCard({ irrigation }: WaterCardProps) {
+/** Stop all water for operators, with the route's own Stop (its reads speed up while it confirms). */
+export function NowStop({ stop }: { stop: StopAllControl & { readonly confirming: boolean } }): ReactNode {
+  return <OperatorOnly>
+    <div className="now-stop">
+      <StopAllWater wide control={stop} />
+      {stop.confirming && <p className="meta">Waiting for the valves to read off</p>}
+    </div>
+  </OperatorOnly>;
+}
+
+export type WaterCardProps = {
+  readonly irrigation: PanelRead<IrrigationStatus>;
+  readonly stop: StopAllControl & { readonly confirming: boolean };
+};
+
+export function WaterCard({ irrigation, stop }: WaterCardProps) {
   const clock = useNow();
   const status = irrigation.failed ? null : irrigation.data;
   const state: PanelState = irrigation.failed ? "error" : status ? "ready" : "loading";
@@ -140,7 +169,11 @@ export function WaterCard({ irrigation }: WaterCardProps) {
         {flow && <p data-water="flow" className={cls("now-water-flow", flow.flowing ? "fault" : "meta")}>{flow.text}</p>}
         {stale && <p className="meta" data-water="unknown">Line states not reported: the minutes are the last the controller sent.</p>}
         {!status.engine && <p className="meta" data-water="before-engine">{BEFORE_ENGINE_LINE}</p>}
+        <NextRun engine={status.engine === true} />
+        <p className="meta" data-water="occupancy">{occupancyText(irrigation, clock)}</p>
       </>}
     </Panel>
+    {/* Outside the panel: Stop all water renders whatever the water status can or cannot show. */}
+    <NowStop stop={stop} />
   </div>;
 }

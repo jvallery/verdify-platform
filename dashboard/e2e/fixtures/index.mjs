@@ -6,9 +6,11 @@
  * base API-09 response is `settings.json`, rendered at test time from the tunable registry by `pnpm fixtures:settings`
  * (VD-12), which `pnpm test` runs first.
  */
+import { FIXTURES as ACTIVITY } from "./activity.mjs";
 import { FIXTURES as CONTROL } from "./control.mjs";
 import { FIXTURES as CROPS } from "./crops.mjs";
 import { FIXTURES as GRAPHS } from "./graphs.mjs";
+import { FIXTURES as LAW } from "./law.mjs";
 import { FIXTURES as NOW_ACTIVITY } from "./now-activity.mjs";
 import { EXAMPLES, OPERATION_IDS, answer } from "./operations.mjs";
 import { FIXTURES as WATER } from "./water.mjs";
@@ -19,8 +21,16 @@ import { FIXTURES, buildWorld, registerFixtures } from "./world.mjs";
  * world.mjs: every user of the registry imports it through this file, so `fixture()`, the fixture API and the contract
  * checks see them all.
  */
-export const PACKAGE_FIXTURES = { "now-activity.mjs": NOW_ACTIVITY, "graphs.mjs": GRAPHS, "water.mjs": WATER, "control.mjs": CONTROL, "crops.mjs": CROPS };
+export const PACKAGE_FIXTURES = {
+  "now-activity.mjs": NOW_ACTIVITY, "graphs.mjs": GRAPHS, "water.mjs": WATER, "control.mjs": CONTROL, "crops.mjs": CROPS,
+  "activity.mjs": ACTIVITY,
+};
 for (const [owner, fixtures] of Object.entries(PACKAGE_FIXTURES)) registerFixtures(owner, fixtures);
+/**
+ * The contract's own fixtures for the climate law, the daily record, the daily review and the system reads (law.mjs,
+ * dashboard v2), beside the base ones rather than a screen package's: every screen reads them.
+ */
+registerFixtures("law.mjs", LAW);
 
 /** Every fixture name, `in-band` first. */
 export const FIXTURE_NAMES = Object.keys(FIXTURES);

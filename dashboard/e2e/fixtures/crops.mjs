@@ -505,6 +505,17 @@ const PERFORM = {
     logged(world, "planting.update", String(row.id), { ref: { table: "crops", id: row.id }, before, after: change }, input.reason, key);
     return { status: 200, body: plantingBody(crops, row) };
   },
+  // A note on the planting's history, ended plantings too (MCP annotate_planting): one note event and one activity row.
+  "API-CROP-12": (world, { params, input, key }) => {
+    const { crops } = world;
+    const row = plantingOf(crops, params.planting_id, "unknown_target");
+    if (typeof input.note !== "string" || input.note.length < 1 || input.note.length > 2000) throw refuse("invalid_request", "note must be text of 1 to 2000 characters", "note");
+    const reason = optionalText(input.reason, "reason", 500);
+    const id = nextOf(crops.events);
+    event(crops, row.id, world.now, "note", { notes: input.note }, world);
+    logged(world, "planting.note", String(row.id), { ref: { table: "crop_events", id }, planting_id: row.id }, reason, key);
+    return { status: 200, body: plantingBody(crops, row) };
+  },
 };
 /** A crop write: its answer on this world and the effect that replays it. A refusal throws `CropRefusal`. */
 export function cropWrite(operationId, world, { params, body: raw, key }) {

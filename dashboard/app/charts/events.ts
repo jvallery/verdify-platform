@@ -8,25 +8,24 @@ import { clockTime, epochOf, localDay } from "./time-axis";
  * The event rail of a chart stack (redesign §7.1, #1355): what happened in the window as marks over the panels. Writes
  * come from API-17, alerts from API-14 (open and recently resolved), runs from API-IRR-11 (windows up to 31 days). Each
  * source can be turned off (`events=` in Graphs' URL), and the rail's key turns each kind of mark off. A mark's icon
- * says what kind of event it is (a setting ✎, a plan ◆ with its trigger, a light ☀, water ▮, an alert ▲, anything else
- * ◇) and its colour who or what caused it; marks closer than 8 px stack into one, which shows the first one's icon and
+ * says what kind of event it is (a setting ✎, a light ☀, water ▮, an alert ▲, anything else ◇) and its colour who or
+ * what caused it; a plan write is not drawn (the plan layer is retired, screens.md 7.1); marks closer than 8 px stack into one, which shows the first one's icon and
  * "+N". Each event names what it touched (a setting, an alert's span, a lane span), which the stack highlights while
  * the mark is hovered. Every mark links to its Activity entry, and the same events are the list under the stack.
  */
 export type EventSource = "people" | "iris" | "agents" | "system" | "alerts" | "runs";
 export const EVENT_SOURCES: readonly EventSource[] = ["people", "iris", "agents", "system", "alerts", "runs"];
-export const EVENT_SOURCE_WORDS: Readonly<Record<EventSource, string>> = { people: "People", iris: "Iris", agents: "Agents", system: "System", alerts: "Alerts", runs: "Runs" };
+/** Each event source by name, as Graphs' event chips read it (words.md: the reviewer, the host, never "the system"). */
+export const EVENT_SOURCE_WORDS: Readonly<Record<EventSource, string>> = { people: "People", iris: "Reviewer", agents: "Agents", system: "Host", alerts: "Alerts", runs: "Water runs" };
 
 /** What an event is, by its action's family: one icon each, named in the rail's key. */
-export type EventKind = "setting" | "plan" | "light" | "water" | "alert" | "other";
-export const EVENT_KINDS: readonly EventKind[] = ["setting", "plan", "light", "water", "alert", "other"];
-export const EVENT_KIND_WORDS: Readonly<Record<EventKind, string>> = { setting: "setting", plan: "plan", light: "light", water: "water", alert: "alert", other: "other" };
+export type EventKind = "setting" | "light" | "water" | "alert" | "other";
+export const EVENT_KINDS: readonly EventKind[] = ["setting", "light", "water", "alert", "other"];
+export const EVENT_KIND_WORDS: Readonly<Record<EventKind, string>> = { setting: "setting", light: "light", water: "water", alert: "alert", other: "other" };
 /** Text icons that read at 12 px in both themes; the sun carries the text presentation selector so it never turns emoji. */
-export const EVENT_GLYPHS: Readonly<Record<EventKind, string>> = { setting: "✎", plan: "◆", light: "☀︎", water: "▮", alert: "▲", other: "◇" };
+export const EVENT_GLYPHS: Readonly<Record<EventKind, string>> = { setting: "✎", light: "☀︎", water: "▮", alert: "▲", other: "◇" };
 /** A resolved alert's icon: the hollow triangle. */
 export const RESOLVED_GLYPH = "△";
-/** An Iris plan's trigger on its mark: sunrise ↑, sunset ↓, midnight ☾. */
-export const TRIGGER_BADGES: Readonly<Record<string, string>> = { SUNRISE: "↑", SUNSET: "↓", MIDNIGHT: "☾" };
 
 /** What an event touched, which the stack highlights: a setting's steps and panel, an alert's span, or a lane span. */
 export type EventTouch =
@@ -42,9 +41,10 @@ export type ChartEvent = {
   readonly kind: EventKind;
   /** The icon drawn: the kind's, or a resolved alert's hollow triangle. */
   readonly glyph: string;
-  /** A plan's trigger beside its icon. */
-  readonly badge?: string;
-  /** Its colour, a token: `forest` (a person), `ink` (Iris), `eq-fan2` (another agent), `muted` (the system), an alert's severity or a run's cause. */
+  /**
+   * Its colour, a chart token without its dashes: `accent` (a person), `text` (Iris), `eq-fan2` (another agent), `text-3`
+   * (the system), an alert's severity (`critical`, `warn-text`, `text-3`) or a run's cause.
+   */
   readonly token: string;
   /** One line in words: "06:47 · jason · Set VPD Mister Engage". */
   readonly label: string;
@@ -54,7 +54,7 @@ export type ChartEvent = {
   readonly touch?: EventTouch;
 };
 
-const SEVERITY_TOKENS: Readonly<Record<string, string>> = { critical: "fault", warning: "warn-text", info: "muted" };
+const SEVERITY_TOKENS: Readonly<Record<string, string>> = { critical: "critical", warning: "warn-text", info: "text-3" };
 const token = (cssVar: string) => cssVar.replace(/^--/, "");
 
 /** When the event happened, in words: "06:47", or "Oct 31, 06:47" when it is not today's. */
@@ -62,10 +62,10 @@ function when(at: number, now: number): string {
   return clockTime(at, localDay(at) !== localDay(now));
 }
 
-/** An activity action's kind: `setting.write` a setting, `plan.write` a plan, `light.on` a light, `irrigation.run` water, `alert.ack` an alert. */
+/** An activity action's kind: `setting.write` a setting, `light.on` a light, `irrigation.run` water, `alert.ack` an alert. */
 export function actionKind(action: string): EventKind {
   const family = action.split(".")[0];
-  return family === "setting" ? "setting" : family === "plan" ? "plan" : family === "light" ? "light" : family === "irrigation" ? "water" : family === "alert" ? "alert" : "other";
+  return family === "setting" ? "setting" : family === "light" ? "light" : family === "irrigation" ? "water" : family === "alert" ? "alert" : "other";
 }
 
 /** What a write touched: its setting, a light's lane from the switch for its minutes, a line's lane at the run. */
@@ -85,20 +85,20 @@ function writeTouch(entry: ActivityEntry, kind: EventKind, at: number): EventTou
 
 /**
  * A write from the activity log: by a person (`dashboard`), Iris, another agent or the system; Iris and the agents
- * carry AI in their words, the system never. `title` names the change in words (Activity's own words for an entry).
+ * carry AI in their words, the system never. `title` names the change in words (Activity's own words for an entry). A
+ * plan write is null: the plan layer is retired.
  */
 export function activityEvent(entry: ActivityEntry, now: number, title: string = `${entry.action} ${entry.target}`): ChartEvent | null {
   const at = epochOf(entry.ts);
-  if (at === null) return null;
+  if (at === null || entry.action.split(".")[0] === "plan") return null;
   const actor = entry.actor.source;
   const source: EventSource = actor === "dashboard" ? "people" : actor === "iris" ? "iris" : actor === "system" ? "system" : "agents";
-  const color = { people: "forest", iris: "ink", agents: "eq-fan2", system: "muted" }[source as "people" | "iris" | "agents" | "system"];
+  const color = { people: "accent", iris: "text", agents: "eq-fan2", system: "text-3" }[source as "people" | "iris" | "agents" | "system"];
   const ai = source === "iris" || source === "agents" ? " AI" : "";
   const kind = actionKind(entry.action);
-  const trigger = kind === "plan" && typeof entry.detail?.trigger === "string" ? TRIGGER_BADGES[entry.detail.trigger] : undefined;
   const touch = writeTouch(entry, kind, at);
   return {
-    id: `activity-${entry.id}`, at, source, kind, glyph: EVENT_GLYPHS[kind], ...(trigger ? { badge: trigger } : {}), token: color,
+    id: `activity-${entry.id}`, at, source, kind, glyph: EVENT_GLYPHS[kind], token: color,
     label: `${when(at, now)} · ${entry.actor.name}${ai} · ${title}`,
     href: `/activity/log?target=${encodeURIComponent(entry.target)}#activity-${entry.id}`,
     ...(touch ? { touch } : {}),
@@ -107,7 +107,7 @@ export function activityEvent(entry: ActivityEntry, now: number, title: string =
 
 /** An alert raised (▲ by severity) and, once resolved, its resolution (△), each linking to it and touching its span. */
 export function alertEvents(alert: Alert, now: number, title: string = alert.alert_type): ChartEvent[] {
-  const color = SEVERITY_TOKENS[alert.severity] ?? "muted";
+  const color = SEVERITY_TOKENS[alert.severity] ?? "text-3";
   const href = `/activity?alert=${alert.id}`;
   const out: ChartEvent[] = [];
   const raised = epochOf(alert.first_seen_at);

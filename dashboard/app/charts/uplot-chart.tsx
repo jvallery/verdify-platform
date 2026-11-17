@@ -4,6 +4,7 @@ import type uPlot from "uplot";
 import uplotStyles from "uplot/dist/uPlot.min.css?url";
 import { TIME_ZONE } from "../lib/format";
 import { narrowViewport, usePhone } from "../lib/narrow";
+import { THEME_EVENT } from "../lib/theme";
 import chartStyles from "./charts.css?url";
 import { CHART_BACKGROUND, type ChartColors } from "./draw";
 import type { XRange } from "./types";
@@ -13,23 +14,56 @@ import type { XRange } from "./types";
  * imported inside an effect, so it is its own chunk and loads only where a chart mounts; charting route modules spread
  * `chartLinks()` into their `links`, so its stylesheet loads only there too. The wrapper owns creation, one
  * ResizeObserver calling `setSize`, `destroy()` and `disconnect()` on unmount, a height the stylesheet reserves, the
- * America/Denver `tzDate`, colours read from the design-system tokens, drag-x zoom on fine pointers only, and live data
- * that keeps the zoom.
+ * America/Denver `tzDate`, colours read from the design-system tokens (again on a theme change), drag-x zoom on fine
+ * pointers only, and live data that keeps the zoom.
  */
 export const chartLinks = () => [{ rel: "stylesheet", href: uplotStyles }, { rel: "stylesheet", href: chartStyles }];
 
-/** Every token a chart reads (design system §2.1 and §2.2). Charts never carry a hex literal. */
+/**
+ * Every token a chart reads (design system v2 §2.1 to §2.3): text, axis and grid, the surfaces behind halos and shading,
+ * the status colours of thresholds and refused spans, and every chart colour. Charts never carry a colour literal.
+ */
 export const CHART_TOKENS = [
-  "--ink", "--muted", "--line", "--field", "--fault", "--warn-text", "--tint-warn", "--ink-muted", "--forest", "--amber",
-  "--c-temp", "--c-vpd", "--c-rh", "--c-outdoor", "--c-band-wash", "--c-band-edge", "--c-setpoint", "--c-requested", "--c-bound", "--c-grid",
-  "--eq-mister", "--eq-fog", "--eq-fan1", "--eq-fan2", "--eq-vent", "--eq-heat1", "--eq-heat2", "--eq-light-main", "--eq-light-grow",
-  "--eq-water", "--eq-fert", "--eq-master", "--cause-vpd", "--cause-schedule", "--cause-prep",
+  "--text", "--text-2", "--text-3", "--border", "--border-strong", "--surface", "--surface-2", "--bg",
+  "--accent", "--warn", "--warn-text", "--warn-soft", "--critical", "--critical-text",
+  "--c-temp", "--c-vpd", "--c-rh", "--c-outdoor", "--c-band-wash", "--c-band-edge", "--c-grid", "--c-requested",
+  "--eq-heat1", "--eq-heat2", "--eq-fan1", "--eq-fan2", "--eq-vent", "--eq-fog", "--eq-mister", "--eq-light-main", "--eq-light-grow",
+  "--eq-water", "--eq-fert", "--eq-master", "--cmp-in", "--cmp-below", "--cmp-above", "--c-day", "--c-night",
+  "--cause-vpd", "--cause-schedule", "--cause-prep",
 ] as const;
+export type ChartToken = (typeof CHART_TOKENS)[number];
 
-/** The token values on `:root`, read when a chart is built, and the page's background behind every label's halo. */
+/**
+ * The token values on `:root` in the theme now showing, read when a chart is built and again when the theme changes,
+ * and the surface a chart sits on, behind every label's halo.
+ */
 export function readColors(): ChartColors {
   const style = getComputedStyle(document.documentElement);
-  return { ...Object.fromEntries(CHART_TOKENS.map((token) => [token, style.getPropertyValue(token).trim()])), [CHART_BACKGROUND]: style.backgroundColor };
+  const colors: Record<string, string> = Object.fromEntries(CHART_TOKENS.map((token) => [token, style.getPropertyValue(token).trim()]));
+  return { ...colors, [CHART_BACKGROUND]: colors["--surface"] || style.backgroundColor };
+}
+
+/** The event the shell's theme switch dispatches on `document` after it changes `data-theme` (lib/theme.ts owns it). */
+export { THEME_EVENT };
+export const DARK_QUERY = "(prefers-color-scheme: dark)";
+/**
+ * Calls `onChange` whenever the colours a chart reads may have changed: the theme switch's event, or the system theme
+ * changing under "System". Returns the unsubscribe.
+ */
+export function onThemeChange(onChange: () => void): () => void {
+  document.addEventListener(THEME_EVENT, onChange);
+  const query = typeof globalThis.matchMedia === "function" ? globalThis.matchMedia(DARK_QUERY) : null;
+  query?.addEventListener?.("change", onChange);
+  return () => {
+    document.removeEventListener(THEME_EVENT, onChange);
+    query?.removeEventListener?.("change", onChange);
+  };
+}
+/** A number that changes with the theme, so a chart rebuilt on it reads its colours again. */
+export function useThemeVersion(): number {
+  const [version, setVersion] = useState(0);
+  useEffect(() => onThemeChange(() => setVersion((value) => value + 1)), []);
+  return version;
 }
 
 let loaded: typeof uPlot | null = null;
@@ -136,6 +170,8 @@ function reservedHeight(element: HTMLElement, className: string): number {
 }
 
 export function UPlotChart(props: UPlotChartProps) {
+  // A theme change rebuilds the chart, so every series, axis and hook-drawn mark takes the new theme's colours.
+  const theme = useThemeVersion();
   const target = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
   const latest = useRef(props);
@@ -198,7 +234,7 @@ export function UPlotChart(props: UPlotChartProps) {
       if (zoomed.current) { zoomed.current = false; latest.current.onZoom?.(false); }
       latest.current.onPlot?.(null);
     };
-  }, [props.structure]);
+  }, [props.structure, theme]);
 
   // New data or marks for the same chart: setData keeps the zoom (x is not auto); an unzoomed chart follows the window.
   const { data, xRange, marks } = props;

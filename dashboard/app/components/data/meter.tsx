@@ -52,9 +52,9 @@ export type MeterProps = {
 };
 
 /**
- * Meter (redesign §4.6): a 6 px `--field` track with a `--line` edge, filled in its domain token up to what is done,
+ * Meter (redesign §4.6): a 6 px `--surface-2` track with a `--border` edge, filled in its domain token up to what is done,
  * the planned minutes as a dashed outline after it and the cap as an ink tick at the end. At or over the cap the tick
- * turns `--fault`, the fill stops at 100% and the words say "cap reached" or "+12 min over". Unknown hatches the track
+ * turns `--critical`, the fill stops at 100% and the words say "cap reached" or "+12 min over". Unknown hatches the track
  * and draws no fill; stale is muted; while the API is down it is neutral.
  */
 export function Meter({ label, unit, value, planned = null, cap = null, max = null, domain = "neutral", showWords = false, decorative = false, state = "ready" }: MeterProps) {
@@ -69,7 +69,7 @@ export function Meter({ label, unit, value, planned = null, cap = null, max = nu
   const words = known ? meterWords(value, cap, unit) : null;
   // The tick turns fault as the words say "cap reached" or "over".
   const reached = known && capped && Boolean(words?.over);
-  const name = words ? `${label}: ${words.amount}${words.over ? `, ${words.over}` : ""}${ahead > 0 ? `, ${formatValue(planned, unit)} planned` : ""}` : `${label}: ${STATE_WORDS[state === "ready" || state === "stale" ? "unknown" : state]}`;
+  const name = words ? `${label}: ${words.amount}${words.over ? `, ${words.over}` : ""}${ahead > 0 ? `, ${formatValue(planned, unit)} scheduled` : ""}` : `${label}: ${STATE_WORDS[state === "ready" || state === "stale" ? "unknown" : state]}`;
   return <span className={cls("meter", `meter-${domain}`, state === "stale" && "is-stale", apiDown && "is-neutral", !known && "is-unknown", reached && "is-capped")}>
     <svg className="meter-bar" width="100%" height="8" {...vizRole(name, decorative || showWords)} focusable="false">
       {!known && <HatchPattern id={hatch} />}

@@ -4,7 +4,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { FakeResizeObserver, MockPlot, TOKENS, created, media, setTokens } from "./fixtures/uplot-mock";
-import { CHART_TOKENS, UPlotChart, chartLinks, readColors, resetZoom, type ChartEnv, type UPlotChartProps } from "./uplot-chart";
+import { CHART_TOKENS, DARK_QUERY, THEME_EVENT, UPlotChart, chartLinks, readColors, resetZoom, type ChartEnv, type UPlotChartProps } from "./uplot-chart";
 
 vi.mock("uplot", async () => ({ default: (await import("./fixtures/uplot-mock")).MockPlot }));
 
@@ -55,7 +55,37 @@ test("colours are read from the design-system tokens on :root", () => {
   const colors = readColors();
   for (const [token, value] of Object.entries(TOKENS)) expect(colors[token]).toBe(value);
   expect(CHART_TOKENS).toContain("--c-band-wash");
-  expect(CHART_TOKENS).toContain("--ink");
+  expect(CHART_TOKENS).toContain("--text");
+});
+
+test("a theme change re-reads the tokens and rebuilds the chart: the switch's event, and the system theme under System", async () => {
+  let systemChange: (() => void) | null = null;
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    ...media({ fine: true })(query),
+    addEventListener: (type: string, listener: () => void) => { if (query === DARK_QUERY && type === "change") systemChange = listener; },
+    removeEventListener: (type: string, listener: () => void) => { if (query === DARK_QUERY && type === "change" && systemChange === listener) systemChange = null; },
+  }));
+  const { unmount } = render(<UPlotChart {...props()} />);
+  await settle();
+  expect(created).toHaveLength(1);
+  // The theme switch sets the dark tokens on :root, then says so.
+  document.documentElement.style.setProperty("--c-temp", "#e9eff1");
+  act(() => { document.dispatchEvent(new Event(THEME_EVENT)); });
+  await settle();
+  expect(created).toHaveLength(2);
+  expect(created[0].destroyed).toBe(true);
+  expect(created[1].opts.series[1].stroke).toBe("#e9eff1");
+  expect(envs.at(-1)?.colors["--c-temp"]).toBe("#e9eff1");
+  expect(systemChange).not.toBeNull();
+  act(() => systemChange!());
+  await settle();
+  expect(created).toHaveLength(3);
+  unmount();
+  expect(systemChange).toBeNull();
+  // Unmounted, a theme event builds nothing.
+  document.dispatchEvent(new Event(THEME_EVENT));
+  await settle();
+  expect(created).toHaveLength(3);
 });
 
 test("one ResizeObserver calls setSize; unmount destroys the chart and disconnects it", async () => {

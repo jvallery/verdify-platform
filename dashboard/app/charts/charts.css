@@ -1,5 +1,15 @@
 /* SPDX-License-Identifier: MIT */
-/* Charts (design system §5): loaded with uPlot.min.css only on charting routes, through chartLinks() in uplot-chart.tsx. Colours are design-system tokens; light theme only. */
+/* Charts (design system v2 §5): loaded with uPlot.min.css only on charting routes, through chartLinks() in uplot-chart.tsx. Colours are design-system tokens; the canvas reads them through readColors() and again when the theme changes. */
+
+/* The plot box and uPlot's own text (weather's .plot, .plot-small and .uplot). */
+.plot{width:100%;min-width:0;min-height:240px;background:var(--surface)}
+.plot canvas{max-width:100%}
+.plot-small{min-height:150px}
+.uplot{font-family:var(--font);color:var(--text)}
+.uplot .u-title{color:var(--text);font-size:var(--fs-sm);font-weight:600}
+.uplot .u-over{cursor:crosshair}
+.plot-summary{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr));gap:var(--space-1) var(--space-4);margin:var(--space-2) 0;padding:0;list-style:none;font-size:var(--fs-sm);color:var(--text-2);font-variant-numeric:tabular-nums}
+/* A day still in progress, in a key or a table: lighter, and labelled "so far". */
 
 /* Reserved heights: weather's .plot and .plot-small, fixed so a chart mounting never shifts the page (§5.2, §6). */
 .chart{margin:.75rem 0;min-width:0}
@@ -9,25 +19,22 @@
 .chart .eyebrow{margin:0 0 .35rem}
 /* The band preview (VD-19): under the drawer's value field, so Manual and Reason stay in sight. */
 .band-preview .chart .plot{height:220px}
-.chart-message{display:flex;align-items:center;justify-content:center;border:1px dashed var(--line-strong);border-radius:var(--radius);color:var(--muted);font-size:.875rem;text-align:center;padding:1rem}
+.chart-message{display:flex;align-items:center;justify-content:center;border:1px dashed var(--border-strong);border-radius:var(--radius);color:var(--text-2);font-size:.875rem;text-align:center;padding:1rem}
 .chart-message p{margin:0}
-.chart-notes{list-style:none;padding:0;margin:0 0 .35rem;display:flex;flex-wrap:wrap;gap:.15rem 1rem;font-size:.8rem;color:var(--muted)}
+.chart-notes{list-style:none;padding:0;margin:0 0 .35rem;display:flex;flex-wrap:wrap;gap:.15rem 1rem;font-size:.8rem;color:var(--text-2)}
 .chart-notes .chart-note-stale{font:600 .72rem/1.4 var(--mono);letter-spacing:.06em;color:var(--warn-text)}
-.chart .u-hz .u-cursor-x{border-right:1px solid var(--muted)}
+.chart .u-hz .u-cursor-x{border-right:1px solid var(--text-2)}
 
 /* Tooltip: positioned with CSSOM transforms, text through textContent. */
-.chart-tooltip{position:absolute;top:0;left:0;z-index:3;pointer-events:none;max-width:22rem;padding:.35rem .55rem;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:#fff;box-shadow:var(--shadow-sm);font-size:.75rem;line-height:1.4;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
-.chart-tooltip div:first-child{font-family:var(--mono);color:var(--muted)}
+.chart-tooltip{position:absolute;top:0;left:0;z-index:3;pointer-events:none;max-width:22rem;padding:.35rem .55rem;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);box-shadow:var(--shadow-2);font-size:.75rem;line-height:1.4;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.chart-tooltip div:first-child{font-family:var(--mono);color:var(--text-2)}
 
 /* Legend: buttons with aria-pressed; the swatch reads its token from data-token. */
 .chart-legend{margin:.35rem 0}
 .chart-legend-items{list-style:none;display:flex;flex-wrap:wrap;gap:.35rem;margin:.25rem 0;padding:0}
-.chart-legend-items button{display:inline-flex;align-items:center;gap:.4rem;min-height:2.25rem;padding:0 .7rem;border-radius:999px;font-weight:500;color:var(--ink)}
-.chart-legend-items button[aria-pressed=false]{color:var(--muted);text-decoration:line-through}
-.chart-swatch{display:inline-block;width:1rem;height:3px;border-radius:2px;background:var(--muted)}
-.chart-swatch[data-token=c-temp]{background:var(--c-temp)}.chart-swatch[data-token=c-vpd]{background:var(--c-vpd)}.chart-swatch[data-token=c-rh]{background:var(--c-rh)}.chart-swatch[data-token=c-outdoor]{background:var(--c-outdoor)}.chart-swatch[data-token=c-setpoint]{background:var(--c-setpoint)}
-.chart-swatch[data-token=eq-fan2]{background:var(--eq-fan2)}.chart-swatch[data-token=eq-heat1]{background:var(--eq-heat1)}.chart-swatch[data-token=eq-vent]{background:var(--eq-vent)}.chart-swatch[data-token=eq-mister]{background:var(--eq-mister)}
-.chart-swatch[data-token=eq-light-grow]{background:var(--eq-light-grow)}.chart-swatch[data-token=eq-fert]{background:var(--eq-fert)}.chart-swatch[data-token=eq-heat2]{background:var(--eq-heat2)}.chart-swatch[data-token=eq-fog]{background:var(--eq-fog)}
+.chart-legend-items button{display:inline-flex;align-items:center;gap:.4rem;min-height:2.25rem;padding:0 .7rem;border-radius:999px;font-weight:500;color:var(--text)}
+.chart-legend-items button[aria-pressed=false]{color:var(--text-2);text-decoration:line-through}
+.chart-swatch{display:inline-block;width:1rem;height:3px;border-radius:2px;background:var(--text-2)}
 
 /* Tools and the data table. */
 .chart-tools{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem .75rem;margin:.5rem 0}
@@ -39,67 +46,47 @@
    paints each row's band at the same pitch, and a spacer under the rows holds the time axis (one line: 36 px, 28 px at 860 px and below, TIME_AXIS_PX). */
 .chart-lanes .lanes-caption{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0 1rem;margin:0 0 .35rem}
 .chart-lanes .lanes-caption .eyebrow{margin:0}
-.lanes-columns{font:400 .72rem/1.3 var(--mono);color:var(--muted)}
-.lanes{position:relative;--lanes-label:10rem;--lanes-stat:12rem;--lanes-pitch:20px;--lanes-axis:36px;--lanes-top:0px}
+.lanes-columns{font:400 .72rem/1.3 var(--mono);color:var(--text-2)}
+.lanes{position:relative;--lanes-label:10rem;--lanes-stat:12rem;--lanes-pitch:20px;--lanes-axis:36px}
 .lanes-rows{list-style:none;margin:0;padding:0}
 .lanes-rows[hidden]{display:none}
 .lanes-row{display:grid;grid-template-columns:var(--lanes-label) minmax(0,1fr) var(--lanes-stat);align-items:center;height:var(--lanes-pitch);font-size:.8rem;line-height:1}
 .lanes-label{grid-column:1;padding-right:.5rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.lanes-stat{grid-column:3;padding-left:.5rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted);font-variant-numeric:tabular-nums}
+.lanes-stat{grid-column:3;padding-left:.5rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-2);font-variant-numeric:tabular-nums}
 /* A group's header (#1356): Climate, Misting, Irrigation, Lighting, Sensors, 20 px (GROUP_HEAD), with its fold. */
-.lanes-group{position:relative;z-index:2;display:flex;align-items:center;gap:var(--space-2);height:24px;border-top:1px solid var(--line);font:600 var(--fs-label)/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--forest);white-space:nowrap}
+.lanes-group{position:relative;z-index:2;display:flex;align-items:center;gap:var(--space-2);height:24px;border-top:1px solid var(--border);font:600 var(--fs-xs)/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--accent);white-space:nowrap}
 .lanes-group:first-child{border-top:0}
-.lanes-group-name{background:#fff;padding-right:var(--space-1)}
-.lanes-group-fold{display:inline-flex;align-items:center;min-height:0;min-width:24px;height:24px;padding:0 var(--space-1);border:0;background:#fff;font-size:var(--fs-xs);font-weight:700;line-height:1;text-transform:none;letter-spacing:0;color:var(--forest)}
+.lanes-group-name{background:var(--surface);padding-right:var(--space-1)}
+.lanes-group-fold{display:inline-flex;align-items:center;min-height:0;min-width:24px;height:24px;padding:0 var(--space-1);border:0;background:var(--surface);font-size:var(--fs-xs);font-weight:700;line-height:1;text-transform:none;letter-spacing:0;color:var(--accent)}
 .lanes-group-fold::after{content:" ›"}
 .lanes-group-fold[aria-expanded=true]::after{content:" ‹"}
 .lanes-axis{height:var(--lanes-axis)}
-.lanes-top{height:var(--lanes-top)}
 .lanes-canvas{position:absolute;top:0;bottom:0;left:var(--lanes-label);right:var(--lanes-stat);overflow:hidden}
 /* Inside a chart stack (redesign §7.1) the lanes draw on the panels' plot area, 56 px (STACK_AXIS_PX) from the left to 10 px from the right, so the cursor and the plots line up, with their own time axis under the rows on the panels' ticks (#1356). Each row's name and facts sit on a 16 px line (LANE_HEAD) over its track. */
 .lanes.lanes-stacked{--lanes-label:56px;--lanes-stat:10px;--lanes-axis:36px;--lanes-head:16px;--lanes-pitch:36px}
 .lanes-stacked .lanes-row{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--fs-xs);line-height:var(--lanes-head);white-space:nowrap;overflow:hidden}
 /* The row's words sit over the canvas on a backing of the card's white, so no gridline or bar strikes them; each backing hugs its words, so the now line and the grid still run between and after them. */
-.lanes-stacked .lanes-label,.lanes-stacked .lanes-stat{position:relative;z-index:1;padding:0 var(--space-1) 0 0;background:#fff;pointer-events:none}
+.lanes-stacked .lanes-label,.lanes-stacked .lanes-stat{position:relative;z-index:1;padding:0 var(--space-1) 0 0;background:var(--surface);pointer-events:none}
 .lanes-stacked .lanes-label{flex:0 1 auto;min-width:0;font-weight:600}
 .lanes-stacked .lanes-stat{flex:0 1 auto;min-width:0}
-.plan-row{height:var(--lanes-pitch)}
-.plan-head{display:flex;align-items:center;gap:0;height:var(--plan-head);margin:0;font-size:.8rem;line-height:1.2;overflow:hidden;white-space:nowrap}
-.plan-label{font-weight:600;flex:none}
-.plan-sep{flex:none;margin:0 .35em;color:var(--muted)}
-.plan-status{overflow:hidden;text-overflow:ellipsis;font:500 .72rem/1.2 var(--mono);color:var(--ink)}
-.plan-line{display:flex;align-items:flex-end;height:24px;margin:0;font-size:.8rem;line-height:1.2;font-variant-numeric:tabular-nums}
-.plan-device{width:var(--lanes-label);padding:0 .5rem 2px 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.plan-row-muted,.plan-row-muted .plan-status{color:var(--muted)}
-.lanes-plan{--lanes-stat:0px;--lanes-top:18px;--plan-head:20px;--lanes-pitch:44px;--lanes-label:6rem}
 @media(max-width:860px){
   .lanes{--lanes-label:6rem;--lanes-stat:4.5rem;--lanes-pitch:24px;--lanes-axis:28px}
   .lanes.lanes-stacked{--lanes-pitch:40px;--lanes-axis:28px}
   .lanes-group-fold{position:relative}
   .lanes-group-fold::before{content:"";position:absolute;inset:-12px 0}
   .lanes .lanes-wide,.lanes-columns .lanes-wide{display:none}
-  .lanes-plan{--lanes-stat:0px;--plan-head:36px;--lanes-pitch:60px;--lanes-label:6rem}
-  .plan-head{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal}
 }
-/* A stale device value is muted; the row end (Plan's Open) is a column beside the plot, the row's full height. */
-.plan-device-stale{color:var(--muted)}
-.lanes-plan.lanes-plan-end{--lanes-stat:3.5rem}
-.lanes-plan-end .plan-row{display:grid;grid-template-columns:minmax(0,1fr) var(--lanes-stat);grid-template-rows:var(--plan-head) 24px}
-.lanes-plan-end .plan-head{grid-area:1/1}
-.lanes-plan-end .plan-line{grid-area:2/1}
-.plan-end{grid-area:1/2/3/3;display:flex;align-items:stretch;justify-content:flex-end;min-width:0}
-.plan-end a{display:inline-flex;align-items:center;justify-content:center;width:100%;min-height:2.75rem;font-size:.8rem;font-weight:700}
 
 /* Minutes by zone (#1127): one small bars chart per zone; the zone's label left, today and the cap right. */
 .minutes-rows{list-style:none;margin:0;padding:0}
-.minutes-row{display:grid;grid-template-columns:6rem minmax(0,1fr) 12rem;align-items:center;gap:0 .75rem;border-top:1px solid var(--line)}
+.minutes-row{display:grid;grid-template-columns:6rem minmax(0,1fr) 12rem;align-items:center;gap:0 .75rem;border-top:1px solid var(--border)}
 .minutes-row:first-child{border-top:0}
 .minutes-label{font-size:.85rem;font-weight:600;overflow-wrap:normal}
-.minutes-note{display:block;font-size:var(--fs-xs);font-weight:400;color:var(--muted)}
+.minutes-note{display:block;font-size:var(--fs-xs);font-weight:400;color:var(--text-2)}
 /* Fog stands apart (design system §5.6): a divider, room above it and a head that names its own scale. */
-.minutes-row.minutes-row-apart{margin-top:var(--space-3);padding-top:var(--space-2);border-top:2px solid var(--line-strong)}
-.minutes-apart{grid-column:1/-1;margin:0 0 var(--space-1);font-size:var(--fs-xs);font-weight:600;color:var(--muted)}
-.minutes-today{font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.minutes-row.minutes-row-apart{margin-top:var(--space-3);padding-top:var(--space-2);border-top:2px solid var(--border-strong)}
+.minutes-apart{grid-column:1/-1;margin:0 0 var(--space-1);font-size:var(--fs-xs);font-weight:600;color:var(--text-2)}
+.minutes-today{font-size:.8rem;color:var(--text-2);font-variant-numeric:tabular-nums}
 /* Every row's plot is 76 px: 8 px above it, and below it 8 px (a row without day labels) or the 28 px day axis. */
 .chart .plot-bars{position:relative;height:92px;overflow:hidden;min-width:0}
 .chart .plot-bars.plot-bars-axis{height:112px}
@@ -114,84 +101,79 @@
   .minutes-note{display:inline}
 }
 
+/* The v2 kinds (daily bars, daily stack, threshold series): heights reserved before data arrives, sm 7.5rem and md 12.5rem (§5). The daily charts are one tab stop each; a chart whose days open shows a pointer. */
+.chart .plot-fixed{position:relative;overflow:hidden;min-width:0;background:var(--surface)}
+.chart .plot-fixed-md{height:12.5rem}
+.chart .plot-fixed-sm{height:7.5rem}
+.plot-daily-pick .u-over{cursor:pointer}
+.daily-focus{border-radius:var(--radius-sm)}
+/* State lanes have no stat column: the rows' names, then the plot to the card's edge. */
+.lanes.lanes-state{--lanes-stat:0px}
+
 /* Key (marks that are not series): swatch and words; the swatch takes its token from data-token as its colour. */
-.chart-key{list-style:none;display:flex;flex-wrap:wrap;gap:.25rem 1rem;margin:.35rem 0;padding:0;font-size:.8rem;color:var(--muted)}
+.chart-key{list-style:none;display:flex;flex-wrap:wrap;gap:.25rem 1rem;margin:.35rem 0;padding:0;font-size:.8rem;color:var(--text-2)}
 .chart-key li{display:inline-flex;align-items:center;gap:.4rem}
-.chart-key-swatch{display:inline-block;flex:none;width:.75rem;height:.75rem;border-radius:2px;color:var(--muted);background:currentColor}
+.chart-key-swatch{display:inline-block;flex:none;width:.75rem;height:.75rem;border-radius:2px;color:var(--text-2);background:currentColor}
 .chart-key-swatch[data-kind=outline]{background:transparent;border:2px solid currentColor}
-.chart-key-swatch[data-kind=hatch]{background:repeating-linear-gradient(135deg,currentColor 0 1px,transparent 1px 4px);border:1px solid var(--line)}
+.chart-key-swatch[data-kind=hatch]{background:repeating-linear-gradient(135deg,currentColor 0 1px,transparent 1px 4px);border:1px solid var(--border)}
 .chart-key-swatch[data-kind=dashed]{background:transparent;border:1px dashed currentColor}
 .chart-key-swatch[data-kind=dotted]{height:0;border-radius:0;background:none;border-top:2px dotted currentColor}
 .chart-key-swatch[data-kind=line]{height:0;border-radius:0;background:none;border-top:2px solid currentColor}
 .chart-key-swatch[data-kind=band]{height:.6rem;border-radius:0;background:var(--c-band-wash);border:1px solid currentColor;border-width:1px 0}
 .stack-key{margin:0}
-.chart-key-swatch[data-token=ink]{color:var(--ink)}.chart-key-swatch[data-token=c-bound]{color:var(--c-bound)}.chart-key-swatch[data-token=fault]{color:var(--fault)}
-.chart-key-swatch[data-token=c-setpoint]{color:var(--c-setpoint)}.chart-key-swatch[data-token=c-requested]{color:var(--c-requested)}.chart-key-swatch[data-token=c-band-edge]{color:var(--c-band-edge)}
-.chart-key-swatch[data-token=c-temp]{color:var(--c-temp)}.chart-key-swatch[data-token=c-vpd]{color:var(--c-vpd)}.chart-key-swatch[data-token=c-rh]{color:var(--c-rh)}.chart-key-swatch[data-token=c-outdoor]{color:var(--c-outdoor)}
-.chart-key-swatch[data-token=eq-mister]{color:var(--eq-mister)}.chart-key-swatch[data-token=eq-water]{color:var(--eq-water)}
-.chart-key-swatch[data-token=eq-master]{color:var(--eq-master)}.chart-key-swatch[data-token=eq-fert]{color:var(--eq-fert)}
-.chart-key-swatch[data-token=eq-fog]{color:var(--eq-fog)}.chart-key-swatch[data-token=eq-heat1]{color:var(--eq-heat1)}
-.chart-key-swatch[data-token=amber]{color:var(--amber)}.chart-key-swatch[data-token=eq-light-main]{color:var(--eq-light-main)}.chart-key-swatch[data-token=eq-light-grow]{color:var(--eq-light-grow)}
-.chart-key-swatch[data-token=cause-vpd]{color:var(--cause-vpd)}.chart-key-swatch[data-token=cause-schedule]{color:var(--cause-schedule)}.chart-key-swatch[data-token=cause-prep]{color:var(--cause-prep)}.chart-key-swatch[data-token=forest]{color:var(--forest)}
 
 /* ChartStack (redesign §7.1): one card of panels on one x scale. Every panel's y axis is 56 px (STACK_AXIS_PX) and its right padding 10 px, so the rail, the hairline and the plots line up; only the last panel adds the time axis to its reserved height. */
-.chart-stack{position:relative;margin:.75rem 0;padding:var(--space-3) var(--space-4) var(--space-4);border:1px solid var(--line);border-radius:var(--radius);background:#fff;box-shadow:var(--shadow-xs);min-width:0}
+.chart-stack{position:relative;margin:.75rem 0;padding:var(--space-3) var(--space-4) var(--space-4);border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-1);min-width:0}
 .stack-panels{position:relative}
 .stack-panel{--plot-h:160px;padding-top:var(--space-2)}
-.stack-panel+.stack-panel{border-top:1px solid var(--line)}
+.stack-panel+.stack-panel{border-top:1px solid var(--border)}
 .stack-panel[data-panel=temperature]{--plot-h:220px}
 .stack-panel[data-panel=vpd]{--plot-h:200px}
 .chart-stack .stack-plot{position:relative;height:var(--plot-h);min-height:0;overflow:hidden}
 .chart-stack .stack-panel-last .stack-plot{height:calc(var(--plot-h) + 36px)}
 .stack-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--space-1) var(--space-3);min-height:1.75rem}
-.stack-name{margin:0;font:600 var(--fs-label)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--forest)}
-.stack-unit{text-transform:none;letter-spacing:0;color:var(--muted)}
+.stack-name{margin:0;font:600 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
+.stack-unit{text-transform:none;letter-spacing:0;color:var(--text-2)}
 /* The statistics and the cursor's readout share one cell: while the readout shows, the statistics hold the cell's height unseen, so a header row never shrinks under a finger (redesign §3.6 rule 8). */
 .stack-text{display:grid;flex:1 1 20rem;min-width:0}
-.stack-stats,.stack-stats-held{grid-area:1/1;min-width:0;margin:0;font-size:var(--fs-sm);color:var(--ink);font-variant-numeric:tabular-nums}
+.stack-stats,.stack-stats-held{grid-area:1/1;min-width:0;margin:0;font-size:var(--fs-sm);color:var(--text);font-variant-numeric:tabular-nums}
 .stack-stats-held{visibility:hidden}
 .stack-swatches{margin:0}
-.stack-chip{position:absolute;top:0;left:0;z-index:var(--z-raised);transform:translateX(calc(var(--chip-x,0px) - 50%));padding:.1rem .4rem;border-radius:var(--radius-sm);background:var(--ink);color:#fff;font:500 var(--fs-xs)/1.4 var(--mono);white-space:nowrap;pointer-events:none}
+.stack-chip{position:absolute;top:0;left:0;z-index:var(--z-raised);transform:translateX(calc(var(--chip-x,0px) - 50%));padding:.1rem .4rem;border-radius:var(--radius-sm);background:var(--text);color:var(--surface);font:500 var(--fs-xs)/1.4 var(--mono);white-space:nowrap;pointer-events:none}
 .stack-chip[hidden]{display:none}
 .stack-overlay{position:absolute;top:0;bottom:0;left:56px;right:10px;z-index:1;pointer-events:none}
-.stack-hairline{position:absolute;top:0;bottom:0;left:calc(var(--at) * 1%);border-left:1px solid var(--ink)}
+.stack-hairline{position:absolute;top:0;bottom:0;left:calc(var(--at) * 1%);border-left:1px solid var(--text)}
 .stack-lanes,.stack-events{margin:var(--space-2) 0 0}
 .stack-event-list{display:grid;gap:2px;margin:0;padding:0;list-style:none;font-size:var(--fs-sm)}
 .stack-event-list li{display:flex;align-items:baseline;gap:var(--space-2);padding:1px var(--space-1);border-radius:var(--radius-sm)}
-.stack-event-list li[data-lit]{background:var(--tint-warn);outline:1px solid var(--line)}
+.stack-event-list li[data-lit]{background:var(--warn-soft);outline:1px solid var(--border)}
 .stack-event-list .rail-glyph{flex:none;width:1.75rem}
 /* On a wide screen the list is always shown, compact: a scrolling block under the lanes. */
 .stack-events-open .stack-event-list{max-height:12rem;overflow:auto}
-.stack-events-head{margin:0 0 var(--space-1);font:600 var(--fs-label)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--forest)}
-.stack-foot{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-4);margin-top:var(--space-2);font-size:var(--fs-sm);color:var(--muted)}
+.stack-events-head{margin:0 0 var(--space-1);font:600 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
+.stack-foot{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-4);margin-top:var(--space-2);font-size:var(--fs-sm);color:var(--text-2)}
 .stack-foot .button-link{min-height:2.25rem}
 
-/* The event rail (#1355): a 20 px strip over the plots, one mark per event or stack. Its icon says what kind of event it is (✎ setting, ◆ plan with its trigger, ☀ light, ▮ water, ▲ alert, △ resolved, ◇ other) and its colour who or what caused it; a stack adds "+N". Colour is the token in data-token, never alone: the key names each icon and each mark is named in words. */
+/* The event rail (#1355): a 20 px strip over the plots, one mark per event or stack. Its icon says what kind of event it is (✎ setting, ☀ light, ▮ water, ▲ alert, △ resolved, ◇ other) and its colour who or what caused it; a stack adds "+N". Colour is the token in data-token, never alone: the key names each icon and each mark is named in words. */
 .stack-rail-wrap{position:relative;margin:0 10px var(--space-1) 56px}
-.stack-rail{position:relative;height:20px;border-bottom:1px solid var(--line)}
-.rail-mark{position:absolute;top:1px;left:calc(var(--at) * 1%);display:inline-flex;align-items:center;gap:1px;min-width:14px;height:17px;min-height:0;padding:0 1px;transform:translateX(-50%);border:0;border-radius:var(--radius-sm);background:#fff;color:var(--muted);font:600 12px/17px var(--mono);white-space:nowrap}
-.rail-mark:hover,.rail-mark[aria-expanded=true],.rail-mark[data-lit]{outline:1.5px solid var(--ink);outline-offset:0}
+.stack-rail{position:relative;height:20px;border-bottom:1px solid var(--border)}
+.rail-mark{position:absolute;top:1px;left:calc(var(--at) * 1%);display:inline-flex;align-items:center;gap:1px;min-width:14px;height:17px;min-height:0;padding:0 1px;transform:translateX(-50%);border:0;border-radius:var(--radius-sm);background:var(--surface);color:var(--text-2);font:600 12px/17px var(--mono);white-space:nowrap}
+.rail-mark:hover,.rail-mark[aria-expanded=true],.rail-mark[data-lit]{outline:1.5px solid var(--text);outline-offset:0}
 .rail-mark[data-lit]{z-index:1}
-.rail-glyph{display:inline-flex;align-items:baseline;color:var(--muted);font:600 12px/1 var(--mono)}
-.rail-badge{font-size:9px;margin-left:1px}
-.rail-more{font:600 10px/1 var(--mono);color:var(--ink)}
-.rail-glyph[data-token=forest]{color:var(--forest)}.rail-glyph[data-token=ink]{color:var(--ink)}.rail-glyph[data-token=eq-fan2]{color:var(--eq-fan2)}
-.rail-glyph[data-token=fault]{color:var(--fault)}.rail-glyph[data-token=warn-text]{color:var(--warn-text)}.rail-glyph[data-token=muted]{color:var(--muted)}
-.rail-glyph[data-token=eq-water]{color:var(--eq-water)}.rail-glyph[data-token=eq-fert]{color:var(--eq-fert)}.rail-glyph[data-token=eq-fog]{color:var(--eq-fog)}
-.rail-glyph[data-token=eq-mister]{color:var(--eq-mister)}.rail-glyph[data-token=eq-heat1]{color:var(--eq-heat1)}.rail-glyph[data-token=eq-master]{color:var(--eq-master)}
-.rail-glyph[data-token=cause-vpd]{color:var(--cause-vpd)}.rail-glyph[data-token=cause-schedule]{color:var(--cause-schedule)}.rail-glyph[data-token=cause-prep]{color:var(--cause-prep)}.rail-glyph[data-token=c-bound]{color:var(--c-bound)}
+.rail-glyph{display:inline-flex;align-items:baseline;color:var(--text-2);font:600 12px/1 var(--mono)}
+.rail-more{font:600 10px/1 var(--mono);color:var(--text)}
+
 /* The rail's key: a toggle per kind of mark in the window, its icon and its word. */
-.rail-key{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-3);margin:0 10px var(--space-1) 56px;padding:0;list-style:none;font-size:var(--fs-xs);color:var(--muted)}
-.rail-key button{display:inline-flex;align-items:center;gap:.3rem;min-height:1.5rem;padding:0 .3rem;border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;color:var(--ink);font-size:var(--fs-xs)}
-.rail-key button[aria-pressed=false]{color:var(--muted);text-decoration:line-through}
-.rail-key-note{font-family:var(--mono)}
+.rail-key{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-3);margin:0 10px var(--space-1) 56px;padding:0;list-style:none;font-size:var(--fs-xs);color:var(--text-2)}
+.rail-key button{display:inline-flex;align-items:center;gap:.3rem;min-height:1.5rem;padding:0 .3rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:var(--fs-xs)}
+.rail-key button[aria-pressed=false]{color:var(--text-2);text-decoration:line-through}
 /* What a hovered mark or row touched (#1355): its span shaded through the panels, its setting's panel and key item marked. */
-.stack-span{position:absolute;top:0;bottom:0;left:calc(var(--from) * 1%);width:calc((var(--to) - var(--from)) * 1%);min-width:2px;background:var(--ink);opacity:.08}
-.stack-panel[data-lit]{box-shadow:inset 3px 0 0 var(--ink)}
+.stack-span{position:absolute;top:0;bottom:0;left:calc(var(--from) * 1%);width:calc((var(--to) - var(--from)) * 1%);min-width:2px;background:var(--text);opacity:.08}
+.stack-panel[data-lit]{box-shadow:inset 3px 0 0 var(--text)}
 .stack-shades{z-index:0}
-.stack-shade{position:absolute;top:0;bottom:0;left:calc(var(--from) * 1%);width:calc((var(--to) - var(--from)) * 1%);background:var(--amber);opacity:.07}
-.chart-key li[data-lit]{color:var(--ink);font-weight:700}
-.rail-list{position:absolute;top:22px;left:min(calc(var(--at) * 1%),calc(100% - 18rem));z-index:var(--z-popover);display:grid;gap:var(--space-1);width:18rem;max-width:100%;margin:0;padding:var(--space-2) var(--space-3);list-style:none;border:1px solid var(--line);border-radius:var(--radius);background:#fff;box-shadow:var(--shadow-sm);font-size:var(--fs-sm)}
+.stack-shade{position:absolute;top:0;bottom:0;left:calc(var(--from) * 1%);width:calc((var(--to) - var(--from)) * 1%);background:var(--warn);opacity:.07}
+.chart-key li[data-lit]{color:var(--text);font-weight:700}
+.rail-list{position:absolute;top:22px;left:min(calc(var(--at) * 1%),calc(100% - 18rem));z-index:var(--z-popover);display:grid;gap:var(--space-1);width:18rem;max-width:100%;margin:0;padding:var(--space-2) var(--space-3);list-style:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-2);font-size:var(--fs-sm)}
 .rail-list a{display:inline-flex;align-items:center;min-height:2.25rem}
 
 /* ChartGrid (redesign §7.1, §5.6): small multiples, one column per zone, one row per metric; the y axis on the first column, the time axis on the last row. On a phone the cells stack, each headed by its column. */
@@ -199,23 +181,23 @@
 /* The row name's column also holds the first column's 56 px y axis (STACK_AXIS_PX): that plot reaches back into it and is that much wider, so every cell's plot box is its column's width, the heads sit over the plots and the cursor sits at one place in each. */
 .grid-heads,.grid-row{display:grid;grid-template-columns:calc(6rem + 56px) repeat(var(--grid-columns,5),minmax(0,1fr));gap:0 var(--space-2);align-items:start}
 .grid-head{min-width:0;font-size:var(--fs-sm)}
-.grid-row-name{align-self:center;margin:0;padding-right:calc(56px - var(--space-2));font:600 var(--fs-label)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--forest)}
+.grid-row-name{align-self:center;margin:0;padding-right:calc(56px - var(--space-2));font:600 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
 @media(min-width:861px){.chart-grid .grid-cell-first .stack-plot{width:calc(100% + 56px);margin-left:-56px}}
 .grid-cell{min-width:0}
 .grid-cell-head{display:none}
 /* Every cell's plot is --grid-cell-h tall under a 6 px top pad; the bottom row adds its one-line time axis under it (TIME_AXIS_PX), so the rows' plots match. */
 .chart-grid .stack-plot,.chart-grid .grid-plot{position:relative;height:calc(var(--grid-cell-h,120px) + 6px);min-height:0;overflow:hidden}
 .chart-grid .grid-cell-axis .stack-plot{height:calc(var(--grid-cell-h,120px) + 6px + 36px)}
-.grid-readout{margin:0 0 var(--space-1);font-size:var(--fs-xs);color:var(--ink);font-variant-numeric:tabular-nums}
+.grid-readout{margin:0 0 var(--space-1);font-size:var(--fs-xs);color:var(--text);font-variant-numeric:tabular-nums}
 
 /* RangeToolbar (redesign §7.1): presets as nav chips, the window steps, Zoom out and Custom…, then the page's own tools. */
 .range-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);margin:var(--space-2) 0 var(--space-3)}
 .range-steps{display:flex;align-items:center;gap:var(--space-1)}
-.range-step,.range-zoom{display:inline-flex;align-items:center;justify-content:center;min-width:2.25rem;min-height:2.25rem;padding:0 .6rem;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:#fff;color:var(--forest);font-size:var(--fs-sm);font-weight:700;text-decoration:none}
-.range-step[aria-disabled=true],.range-zoom[aria-disabled=true]{border-color:var(--line);color:var(--muted)}
+.range-step,.range-zoom{display:inline-flex;align-items:center;justify-content:center;min-width:2.25rem;min-height:2.25rem;padding:0 .6rem;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);color:var(--accent);font-size:var(--fs-sm);font-weight:700;text-decoration:none}
+.range-step[aria-disabled=true],.range-zoom[aria-disabled=true]{border-color:var(--border);color:var(--text-2)}
 .range-custom{margin:0}
 /* Custom… is a control among framed ones: it takes Zoom out's frame. */
-.range-custom>summary{min-height:2.25rem;padding:0 .6rem;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:#fff;color:var(--forest);font-size:var(--fs-sm);font-weight:700}
+.range-custom>summary{min-height:2.25rem;padding:0 .6rem;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);color:var(--accent);font-size:var(--fs-sm);font-weight:700}
 .range-custom-body{padding-top:var(--space-2)}
 .range-tools{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin-left:auto}
 
@@ -246,9 +228,27 @@
   .range-wide-only,.range-zoom{display:none}
   .range-custom{order:1}
   .range-custom[open]{flex-basis:100%}
-  .range-custom>summary{padding:0 .5rem;border:1px solid var(--line-strong);border-radius:999px;background:#fff;color:var(--ink);font-size:.8rem;font-weight:500}
+  .range-custom>summary{padding:0 .5rem;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);color:var(--text);font-size:.8rem;font-weight:500}
   .range-custom>summary::before{content:none}
-  .range-custom[open]>summary{border-color:var(--ink);background:var(--ink);color:#fff}
+  .range-custom[open]>summary{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text)}
   .range-steps{order:2}
   .range-tools{order:3}
 }
+
+/* Every chart token as a swatch colour (design system v2 §2.3): a legend swatch, a key mark or a rail glyph names its token in data-token, and takes its colour here, never from a style attribute. */
+[data-token=text]{--swatch:var(--text)}[data-token=text-2]{--swatch:var(--text-2)}[data-token=text-3]{--swatch:var(--text-3)}[data-token=border]{--swatch:var(--border)}
+[data-token=border-strong]{--swatch:var(--border-strong)}[data-token=surface]{--swatch:var(--surface)}[data-token=surface-2]{--swatch:var(--surface-2)}[data-token=bg]{--swatch:var(--bg)}
+[data-token=accent]{--swatch:var(--accent)}[data-token=warn]{--swatch:var(--warn)}[data-token=warn-text]{--swatch:var(--warn-text)}[data-token=warn-soft]{--swatch:var(--warn-soft)}
+[data-token=critical]{--swatch:var(--critical)}[data-token=critical-text]{--swatch:var(--critical-text)}[data-token=c-temp]{--swatch:var(--c-temp)}[data-token=c-vpd]{--swatch:var(--c-vpd)}
+[data-token=c-rh]{--swatch:var(--c-rh)}[data-token=c-outdoor]{--swatch:var(--c-outdoor)}[data-token=c-band-wash]{--swatch:var(--c-band-wash)}[data-token=c-band-edge]{--swatch:var(--c-band-edge)}
+[data-token=c-grid]{--swatch:var(--c-grid)}[data-token=c-requested]{--swatch:var(--c-requested)}[data-token=eq-heat1]{--swatch:var(--eq-heat1)}[data-token=eq-heat2]{--swatch:var(--eq-heat2)}
+[data-token=eq-fan1]{--swatch:var(--eq-fan1)}[data-token=eq-fan2]{--swatch:var(--eq-fan2)}[data-token=eq-vent]{--swatch:var(--eq-vent)}[data-token=eq-fog]{--swatch:var(--eq-fog)}
+[data-token=eq-mister]{--swatch:var(--eq-mister)}[data-token=eq-light-main]{--swatch:var(--eq-light-main)}[data-token=eq-light-grow]{--swatch:var(--eq-light-grow)}
+[data-token=eq-water]{--swatch:var(--eq-water)}[data-token=eq-fert]{--swatch:var(--eq-fert)}[data-token=eq-master]{--swatch:var(--eq-master)}[data-token=cmp-in]{--swatch:var(--cmp-in)}
+[data-token=cmp-below]{--swatch:var(--cmp-below)}[data-token=cmp-above]{--swatch:var(--cmp-above)}[data-token=c-day]{--swatch:var(--c-day)}[data-token=c-night]{--swatch:var(--c-night)}
+[data-token=cause-vpd]{--swatch:var(--cause-vpd)}[data-token=cause-schedule]{--swatch:var(--cause-schedule)}[data-token=cause-prep]{--swatch:var(--cause-prep)}
+.chart-swatch[data-token]{background:var(--swatch,var(--text-2))}
+.chart-swatch[data-kind=dashed],.chart-swatch[data-kind=dotted]{height:0;border-radius:0;background:none;border-top:2px dashed var(--swatch,var(--text-2))}
+.chart-swatch[data-kind=dotted]{border-top-style:dotted}
+.chart-key-swatch[data-token]{color:var(--swatch,var(--text-2))}
+.rail-glyph[data-token]{color:var(--swatch,var(--text))}

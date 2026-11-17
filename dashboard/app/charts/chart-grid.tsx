@@ -32,9 +32,8 @@ export type GridCell = {
   readonly column: string;
   readonly metrics: readonly MetricDef[];
   readonly series: Series | null;
-  /** This cell's band (each zone has its own). */
+  /** This cell's band (the house band; screens.md 7.2 retires the zone bands). */
   readonly band?: BandTimeline | null;
-  readonly dotted?: readonly string[];
   /** In place of the plot: an error, "Loading…". */
   readonly message?: string;
 };
@@ -119,7 +118,7 @@ export function ChartGrid({ label, columns, rows, now, xRange, syncKey, height =
   const [cursor, setCursor] = useState<number | null>(null);
   const onCursor = useCallback((plot: uPlot) => setCursor(cursorX(plot)), []);
   const models = useMemo(() => rows.map((row) => row.cells.map((cell) => buildTimeSeriesModel({
-    series: cell.series, metrics: cell.metrics, unit: row.unit, band: cell.band, dotted: cell.dotted, now, xRange: { from: xRange.from, to: xRange.to },
+    series: cell.series, metrics: cell.metrics, unit: row.unit, band: cell.band, now, xRange: { from: xRange.from, to: xRange.to },
   }))), [rows, now, xRange.from, xRange.to]);
   const ranges = useMemo(() => models.map((row) => rowRange(row, xRange)), [models, xRange]);
   const layers = useMemo(() => models.map((row, rowIndex) => row.map((_, column): SeriesLayers => ({
