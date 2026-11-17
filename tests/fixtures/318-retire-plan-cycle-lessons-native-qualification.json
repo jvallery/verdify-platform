@@ -1,0 +1,10 @@
+{
+  "migration": "318-retire-plan-cycle-lessons.sql",
+  "final_migration_qualification_pending": true,
+  "projection": "318 sets is_active = false on the 27 planner_lessons rows that name a retired setting or a plan waypoint (release 4 review C-9). Data only: no catalog object changes, so the api, ingestor and MCP seals stay 317's and the successor block re-seals each receipt to the same value; if 317's literals are re-measured, 318's move with them.",
+  "projected_successor": {
+    "api": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "ingestor": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+    "mcp": "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
+  }
+}

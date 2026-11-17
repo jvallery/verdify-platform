@@ -1295,6 +1295,32 @@ def sealed_sql_317():
     )
 
 
+RETIRE_PLAN_CYCLE_LESSONS_MIGRATION = (
+    318,
+    "318-retire-plan-cycle-lessons.sql",
+    "060f25a248f9327f0d577c1011db9749744f02ea5c8d578d83921ecf616ea4df",
+)
+# Host release 5 (#1633, #1734, review C-9): the 27 planner lessons that teach the retired plan cycle are set inactive.
+# Data only: no catalog object changes, so the seals are 317's (they move together if 317's are re-measured).
+SUCCESSOR_318 = {
+    **SUCCESSOR_317,
+}
+
+
+def sealed_sql_318():
+    # Keep every 317 predicate and bind the exact 318 runner stamp with its successor seals.
+    predecessor = sealed_sql_317()
+    current = seal_profile_sql(317, SUCCESSOR_317)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(318, SUCCESSOR_318), 1)
+        + " AND "
+        + ledger_row_sql(*RETIRE_PLAN_CYCLE_LESSONS_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1373,6 +1399,8 @@ def sealed_sql():
         + sealed_sql_316()
         + " OR "
         + sealed_sql_317()
+        + " OR "
+        + sealed_sql_318()
         + ")"
     )
 
