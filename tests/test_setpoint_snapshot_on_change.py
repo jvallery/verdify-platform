@@ -329,25 +329,23 @@ def test_lighting_audit_sees_a_readback_whose_keyframe_is_fifty_minutes_old(monk
     assert audit.live_cfg_readback_params() == set(audit.CFG_READBACK_PARAMS[1:])
 
 
-def test_irrigation_stack_check_takes_freshness_from_the_pass_and_rows_from_two_hours():
-    stack = _load_script("validate-irrigation-stack")
-    n = str(len(stack.IRRIGATION_SCHEDULE_PARAMS))
-    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "42").status == "pass"
-    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "900").status == "fail"  # no pass for 15 min
-    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "-").status == "fail"
-    short = str(len(stack.IRRIGATION_SCHEDULE_PARAMS) - 1)
-    assert stack._schedule_cfg_readbacks_verdict(n, short, "a", "b", "-", "42").status == "fail"
-
-
-def test_irrigation_stack_check_reads_the_pass_marker_and_a_two_hour_window(monkeypatch):
+def test_irrigation_stack_schedule_passes_on_null_counts_and_reads_no_retired_readbacks(monkeypatch):
+    # #1734 C-6, release 5 review R5-ROLL-1: after 317 the schedule view's readback counts are NULL and the irrig_*
+    # readbacks are gone; the schedule check passes on the topology and the cfg readback check no longer runs.
     stack = _load_script("validate-irrigation-stack")
     seen = []
 
     def psql(sql, *, direct_db=False):
         seen.append(sql)
-        n = str(len(stack.IRRIGATION_SCHEDULE_PARAMS))
-        return [[n, n, "a", "b", "-", "30"]]
+        return [
+            ["center", "center", "true", "06:00:00", "4", "0", "0", "engine", "center"],
+            ["wall_shared", "wall_shared", "true", "07:00:00", "6", "2", "1", "engine", "south,west"],
+        ]
 
     monkeypatch.setattr(stack, "_psql", psql)
-    assert stack._check_schedule_cfg_readbacks(True).status == "pass"
-    assert "entity = 'setpoint_snapshot_pass'" in seen[0] and "l.ts >= now() - interval '2 hours'" in seen[0]
+    check = stack._check_schedule_current(True)
+    assert check.status == "pass" and "wall_serves=south,west" in check.detail
+    assert "readback_count" not in seen[0] and "readback_drift" not in seen[0]
+    assert not hasattr(stack, "_check_schedule_cfg_readbacks")
+    source = (Path(__file__).resolve().parents[1] / "scripts" / "validate-irrigation-stack.py").read_text()
+    assert "stale_readback_count" not in source and "readback_drift_count" not in source

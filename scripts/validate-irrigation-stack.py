@@ -81,8 +81,6 @@ FEEDBACK_VALIDATION_EQUIPMENT = (
 REQUIRED_DASHBOARD_PANELS = {
     "Canonical Schedule": (
         "v_irrigation_schedule_current",
-        "stale_readback_count",
-        "readback_drift_count",
         "zone_path",
     ),
     "Last Run Age": ("v_irrigation_fertigation_runs", "run_end"),
@@ -400,7 +398,7 @@ def _check_schedule_current(direct_db: bool) -> Check:
         direct_db=direct_db,
     )
     # The irrig_* schedule readbacks are retired (the irrigation engine program replaced the clocked schedule), so
-    # migration 317 makes stale_readback_count and readback_drift_count NULL; they are no pass criterion (#1734 C-6).
+    # migration 317 makes the two schedule readback counts NULL; they are no pass criterion (#1734 C-6).
     by_id = {row[0]: row for row in rows}
     missing = sorted({"center", "wall_shared"} - set(by_id))
     wall = by_id.get("wall_shared")
@@ -411,56 +409,8 @@ def _check_schedule_current(direct_db: bool) -> Check:
     return Check("current schedule view", status, detail)
 
 
-# Readbacks are stored on change with an hourly keyframe (#1662): freshness is the pass marker (system_state
-# setpoint_snapshot_pass, or the newest readback) within 300 s, and each parameter needs a row within 2 hours.
-READBACK_PASS_MAX_AGE_S = 300
-
-
-def _check_schedule_cfg_readbacks(direct_db: bool) -> Check:
-    values_sql = ",".join(f"('{param}')" for param in IRRIGATION_SCHEDULE_PARAMS)
-    row = _psql(
-        f"""
-        WITH params(parameter) AS (VALUES {values_sql}),
-        latest AS (
-            SELECT DISTINCT ON (parameter) parameter, value, ts
-              FROM setpoint_snapshot
-             WHERE parameter IN (SELECT parameter FROM params) AND band_role IS NULL
-             ORDER BY parameter, ts DESC
-        ),
-        pass AS (
-            SELECT GREATEST(
-                (SELECT max(ts) FROM setpoint_snapshot WHERE band_role IS NULL AND ts > now() - interval '1 day'),
-                (SELECT max(ts) FROM system_state
-                  WHERE entity = 'setpoint_snapshot_pass' AND ts > now() - interval '1 day')) AS ts
-        )
-        SELECT count(l.parameter)::text,
-               count(l.parameter) FILTER (WHERE l.ts >= now() - interval '2 hours')::text,
-               COALESCE(min(l.ts)::text, '-'),
-               COALESCE(max(l.ts)::text, '-'),
-               COALESCE(string_agg(p.parameter, ',' ORDER BY p.parameter) FILTER (WHERE l.parameter IS NULL), '-'),
-               COALESCE((SELECT extract(epoch FROM now() - ts)::int FROM pass)::text, '-')
-          FROM params p
-          LEFT JOIN latest l USING (parameter)
-        """,
-        direct_db=direct_db,
-    )[0]
-    return _schedule_cfg_readbacks_verdict(*row)
-
-
-def _schedule_cfg_readbacks_verdict(
-    present: str, within_2h: str, min_ts: str, max_ts: str, missing: str, pass_age_s: str
-) -> Check:
-    expected = len(IRRIGATION_SCHEDULE_PARAMS)
-    pass_fresh = pass_age_s.isdigit() and int(pass_age_s) <= READBACK_PASS_MAX_AGE_S
-    status = (
-        "pass" if int(present) == expected and int(within_2h) == expected and missing == "-" and pass_fresh else "fail"
-    )
-    return Check(
-        "irrigation cfg readbacks",
-        status,
-        f"present={present}/{expected} within_2h={within_2h}/{expected} pass_age_s={pass_age_s} "
-        f"range={min_ts}..{max_ts} missing={missing}",
-    )
+# The irrig_* schedule readbacks left the controller with the irrigation engine (#1165; newest rows 2026-11-03),
+# so the cfg readback check is retired with C-6 (#1734, release 5 review R5-ROLL-1).
 
 
 def _check_schedule_setpoint_confirmations(direct_db: bool) -> Check:
@@ -2021,7 +1971,6 @@ def run_checks(*, software_only: bool, live_site: bool, direct_db: bool) -> list
         _check_legacy_retired(direct_db),
         _check_data_trust_ledger_canonical_irrigation(direct_db),
         _check_schedule_current(direct_db),
-        _check_schedule_cfg_readbacks(direct_db),
         _check_schedule_setpoint_confirmations(direct_db),
         _check_planner_context_uses_canonical_irrigation(),
         _check_schema_contract_marks_legacy_irrigation_retired(),
