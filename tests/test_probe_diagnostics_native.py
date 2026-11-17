@@ -72,6 +72,7 @@ struct Sensor { float state = 0.0f; };
 uint32_t clock_ms;
 uint32_t millis() { return clock_ms; }
 uint32_t last_case_ms, last_north_ms, last_west_ms, last_south_ms, last_east_ms;
+uint8_t wall_avgs_full = 0;
 Sensor case_temperature, case_humidity;
 Sensor north_wall_temperature, north_wall_humidity, vpd_north;
 Sensor west_wall_temperature, west_wall_humidity, vpd_west;
@@ -105,7 +106,7 @@ int main(int argc, char** argv) {
   if (argc == 23) {
     if (std::string(argv[22]) != "averages") return 64;
     std::cout << std::setprecision(9) << average_temperature() << "|"
-              << average_humidity() << "|" << average_vpd_kpa() << "\n";
+              << average_humidity() << "|" << average_vpd_kpa() << "|" << int(wall_avgs_full) << "\n";
   } else {
     std::cout << int(active_count()) << "|" << probe_status() << "\n";
   }
@@ -185,6 +186,10 @@ def test_recent_samples_remain_fresh_across_uint32_rollover(native_diagnostics):
 
 
 def observe_averages(native_diagnostics, *, now=NOW, overrides=None):
+    return observe_averages_and_mask(native_diagnostics, now=now, overrides=overrides)[:3]
+
+
+def observe_averages_and_mask(native_diagnostics, *, now=NOW, overrides=None):
     binary, manifest = native_diagnostics
     values = {"Case": [(now - 1000) % (1 << 32), 75.0, 60.0, 1.0]}
     values.update({probe: [(now - 1000) % (1 << 32), *fields] for probe, fields in WALL_VALUES.items()})
@@ -198,7 +203,8 @@ def observe_averages(native_diagnostics, *, now=NOW, overrides=None):
         timeout=5,
     )
     assert result.returncode == 0, f"{result.stderr}\n{json.dumps(manifest, sort_keys=True)}"
-    return tuple(float(value) for value in result.stdout.strip().split("|"))
+    *averages, mask = result.stdout.strip().split("|")
+    return (*(float(value) for value in averages), int(mask))
 
 
 @pytest.mark.parametrize("probe", PROBES[1:])
@@ -272,3 +278,11 @@ def test_fresh_steady_and_saturated_zero_vpd_inputs_remain_eligible(native_diagn
     assert observe_averages(native_diagnostics, overrides=values) == pytest.approx((75.0, 100.0, 0.0))
     values = {probe: {0: NOW - 120_000, **fields} for probe, fields in values.items()}
     assert observe_averages(native_diagnostics, overrides=values) == pytest.approx((75.0, 100.0, 0.0))
+
+
+def test_wall_avgs_full_marks_each_aggregate_computed_over_all_four_walls(native_diagnostics):
+    # F5 boot grace: bit 0/1/2 = temperature/humidity/VPD average over all four wall probes.
+    assert observe_averages_and_mask(native_diagnostics)[3] == 7
+    assert observe_averages_and_mask(native_diagnostics, overrides={"East": {0: 0}})[3] == 0
+    assert observe_averages_and_mask(native_diagnostics, overrides={"North": {3: "nan"}})[3] == 3
+    assert observe_averages_and_mask(native_diagnostics, overrides={"West": {1: "nan"}})[3] == 6

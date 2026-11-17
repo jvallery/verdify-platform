@@ -96,10 +96,12 @@ struct Controller {
     RelayOutputs physical{false, false, false, false, false, false};
 
     Tick tick(uint32_t now_ms, const IndoorReading& indoor, const OutdoorReading& outdoor, const Setpoints& sp,
-              float corridor_low, bool humid_latched = false, bool engine_fog_run = false, bool fans_latched = false) {
+              float corridor_low, bool humid_latched = false, bool engine_fog_run = false, bool fans_latched = false,
+              bool walls_complete = true) {
         Tick t{};
         t.indoor = indoor;
-        t.boot_wait = indoor_gate(grace, indoor.source != IndoorSource::kNone, now_ms) == IndoorGate::kBootWait;
+        t.boot_wait = indoor_gate(grace, indoor.source != IndoorSource::kNone, walls_complete, now_ms) ==
+                      IndoorGate::kBootWait;
         SensorInputs in{};
         in.temp_f = indoor.temp_f;
         in.vpd_kpa = indoor.vpd_kpa;
@@ -567,7 +569,26 @@ TEST(boot_grace_waits_for_the_first_indoor_temperature_at_most_60_s) {
     ASSERT_EQ(t.mode, SENSOR_FAULT);
     ASSERT_TRUE(t.out.heat1);
     // The grace never comes back (a millis() wrap included).
-    ASSERT_TRUE(indoor_gate(d.grace, false, 10u) == IndoorGate::kNoIndoor);
+    ASSERT_TRUE(indoor_gate(d.grace, false, false, 10u) == IndoorGate::kNoIndoor);
+    PASS();
+}
+
+TEST(boot_grace_waits_for_all_four_wall_probes_at_most_60_s) {
+    // F5: a valid temperature from part of the walls does not end the grace.
+    BootGrace g{};
+    ASSERT_TRUE(indoor_gate(g, true, false, 3000u) == IndoorGate::kBootWait);
+    ASSERT_TRUE(indoor_gate(g, true, false, 19000u) == IndoorGate::kBootWait);
+    ASSERT_TRUE(indoor_gate(g, true, true, 20000u) == IndoorGate::kRun);
+    // After the grace a probe dropping out changes nothing here (the averages of what is fresh).
+    ASSERT_TRUE(indoor_gate(g, true, false, 21000u) == IndoorGate::kRun);
+    ASSERT_TRUE(indoor_gate(g, false, false, 22000u) == IndoorGate::kNoIndoor);
+    // A probe that never reports: the grace ends at 60 s and the law runs on the others.
+    BootGrace h{};
+    ASSERT_TRUE(indoor_gate(h, true, false, 59999u) == IndoorGate::kBootWait);
+    ASSERT_TRUE(indoor_gate(h, true, false, 60000u) == IndoorGate::kRun);
+    // The case probe alone (walls silent) also waits out the grace.
+    BootGrace k{};
+    ASSERT_TRUE(indoor_gate(k, true, false, 5000u) == IndoorGate::kBootWait);
     PASS();
 }
 

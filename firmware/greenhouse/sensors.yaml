@@ -762,6 +762,7 @@ sensor:
       if(ok(id(last_west_ms))  && std::isfinite(id(west_wall_temperature).state)) { s += id(west_wall_temperature).state;  n++; }
       if(ok(id(last_south_ms)) && std::isfinite(id(south_wall_temperature).state)){ s += id(south_wall_temperature).state; n++; }
       if(ok(id(last_east_ms))  && std::isfinite(id(east_wall_temperature).state)) { s += id(east_wall_temperature).state;  n++; }
+      if (n == 4) id(wall_avgs_full) |= 1; else id(wall_avgs_full) &= uint8_t(~1);  // F5 boot grace
       return n ? s/n : NAN;
 
   - platform: template
@@ -781,6 +782,7 @@ sensor:
       if(ok(id(last_west_ms))  && std::isfinite(id(west_wall_humidity).state)) { s += id(west_wall_humidity).state;  n++; }
       if(ok(id(last_south_ms)) && std::isfinite(id(south_wall_humidity).state)){ s += id(south_wall_humidity).state; n++; }
       if(ok(id(last_east_ms))  && std::isfinite(id(east_wall_humidity).state)) { s += id(east_wall_humidity).state;  n++; }
+      if (n == 4) id(wall_avgs_full) |= 2; else id(wall_avgs_full) &= uint8_t(~2);  // F5 boot grace
       return n ? s/n : NAN;
 
   - platform: template
@@ -799,6 +801,7 @@ sensor:
       if(ok(id(last_west_ms))  && std::isfinite(id(vpd_west).state)) { s += id(vpd_west).state;  n++; }
       if(ok(id(last_south_ms)) && std::isfinite(id(vpd_south).state)){ s += id(vpd_south).state; n++; }
       if(ok(id(last_east_ms))  && std::isfinite(id(vpd_east).state)) { s += id(vpd_east).state;  n++; }
+      if (n == 4) id(wall_avgs_full) |= 4; else id(wall_avgs_full) &= uint8_t(~4);  // F5 boot grace
       return n ? s/n : NAN;
 
   # Complete wall probes eligible to contribute all three climate fields.

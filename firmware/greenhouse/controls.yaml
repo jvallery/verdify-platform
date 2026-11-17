@@ -205,11 +205,12 @@ interval:
               case_fresh, id(case_temperature).state, id(case_humidity).state);
           const float Tin = indoor.temp_f;
           const float RHin = indoor.rh_pct;
-          // G3: after a boot, wait for the first valid indoor temperature, at most
-          // 60 s: no climate relay is switched and the mode is not a sensor fault.
+          // G3, F5: after a boot, wait until all four wall probes are in the wall
+          // averages, at most 60 s: no climate relay is switched and the mode is not a
+          // sensor fault. After 60 s the law runs on the probes it has.
           static BootGrace boot_grace{};
-          const bool boot_wait =
-              indoor_gate(boot_grace, indoor.source != IndoorSource::kNone, now_ms) == IndoorGate::kBootWait;
+          const bool boot_wait = indoor_gate(boot_grace, indoor.source != IndoorSource::kNone,
+                                             id(wall_avgs_full) == 7, now_ms) == IndoorGate::kBootWait;
           // No entity for the validity (RULINGS G2a): the host's staleness alert on the
           // indoor humidity columns is the warning. The log names each change.
           {
@@ -218,7 +219,7 @@ interval:
                 : int8_t(int(indoor.source) * 2 + (indoor.humidity_valid ? 1 : 0));
             if (indoor_now != indoor_logged) {
               if (boot_wait) {
-                ESP_LOGI("sensor", "Boot: waiting up to 60 s for the first indoor temperature");
+                ESP_LOGI("sensor", "Boot: waiting up to 60 s for all four wall probes");
               } else if (indoor.source == IndoorSource::kNone) {
                 ESP_LOGE("sensor", "No valid indoor temperature: SENSOR_FAULT, outdoor rule");
               } else if (!indoor.humidity_valid) {

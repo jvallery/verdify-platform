@@ -2027,6 +2027,87 @@ static void glue_review_t1_t2_t3() {
   }
 }
 
+// -- F5: the boot grace waits for all four wall probes (third-flash boot, 2026-11-17 02:08:33Z) -------------
+// The wall readings of that boot (north, west, south, east): north is the wettest wall. Band 66.3 to 78.8,
+// VPD 0.80 to 1.33; 50 F outside. Each pass averages the probes that have reported, as the sensors.yaml lambdas
+// do, and the gate is told whether all four were in.
+struct F5Boot {
+  int relay_passes = 0, first_relay_s = -1, dry_passes = 0;
+  bool boot_wait_at_end = true;
+};
+static F5Boot f5_boot(const int report_s[4]) {
+  const double Tw[4] = {67.28, 68.90, 71.42, 71.96}, Vw[4] = {0.785, 0.856, 1.148, 1.132};
+  L::State s;
+  L::RelayState r = after_boot_wait();
+  RelayOutputs phys{false, false, false, false, false, false};
+  BootGrace grace{};
+  F5Boot o;
+  for (int sec = 0; sec < 90; ++sec) {
+    double T = 0, V = 0;
+    int n = 0;
+    for (int k = 0; k < 4; ++k)
+      if (report_s[k] >= 0 && sec >= report_s[k]) {
+        T += Tw[k];
+        V += Vw[k];
+        ++n;
+      }
+    const bool valid = n > 0;
+    const bool wait = indoor_gate(grace, valid, n == 4, uint32_t(sec) * 1000u) == IndoorGate::kBootWait;
+    L::Inputs u = base_inputs(valid ? T / n : NAN, valid ? V / n : NAN);
+    u.band = L::Band{66.3, 78.8, 0.80, 1.33};
+    u.temp_valid = !wait && valid;
+    u.humidity_valid = u.temp_valid;
+    u.out_ok = true;
+    u.out_T = 50.0;
+    u.dp_f = 54.0;
+    u.out_dp_f = 40.0;
+    u.w_in = 9.0;
+    u.w_out = 4.0;  // a dry cost near the boot's 0.54 kWh/kg
+    const L::Output q = L::step(s, u);
+    const L::RelayPass p = L::relay_pass(r, q, L::RelayInputs{0, 0, false, 1000}, phys, ManualOverrides{}, false, IDLE);
+    phys = p.out;
+    L::relay_sync(r, phys);
+    const bool any = phys.heat1 || phys.heat2 || phys.vent || phys.fan1 || phys.fan2 || phys.fog;
+    if (any) {
+      ++o.relay_passes;
+      if (o.first_relay_s < 0) o.first_relay_s = sec;
+    }
+    if (q.drying) ++o.dry_passes;
+    o.boot_wait_at_end = wait;
+  }
+  return o;
+}
+
+static void f5_boot_grace_all_walls() {
+  // The hazard: north and west (the first two wall probes on the bus) are a drying request (VPD 0.82, under\n  // low + 0.05; 68.1 F, over low + 1.5); the four walls are not (0.98 kPa). North alone is under the start edge.
+  {
+    L::State s;
+    L::Inputs u = base_inputs((67.28 + 68.90) / 2, (0.785 + 0.856) / 2);  // north and west, first on the bus
+    u.band = L::Band{66.3, 78.8, 0.80, 1.33};
+    u.out_ok = true;
+    u.out_T = 50.0;
+    u.dp_f = 54.0;
+    u.out_dp_f = 40.0;
+    u.w_in = 9.0;
+    u.w_out = 4.0;  // a dry cost near the boot's 0.54 kWh/kg
+    CHECK(L::step(s, u).drying, "F5 setup: north and west alone ask for drying");
+  }
+  // North at 3 s, west at 5 s, south and east at 20 s: no relay before the fourth; then the law runs on the four, no drying.
+  {
+    const int rep[4] = {3, 5, 20, 20};
+    const F5Boot o = f5_boot(rep);
+    CHECK((o.first_relay_s < 0 || o.first_relay_s >= 20) && o.dry_passes == 0 && !o.boot_wait_at_end,
+          "F5: no relay before the fourth probe; no drying run on the four-wall average");
+  }
+  // North at 3 s, west at 5 s, south at 20 s, east never: the grace ends at 60 s and the law runs on three.
+  {
+    const int rep[4] = {3, 5, 20, -1};
+    const F5Boot o = f5_boot(rep);
+    CHECK(o.first_relay_s == 60 && o.dry_passes == 0 && !o.boot_wait_at_end,
+          "F5: a probe that never reports: the grace ends at 60 s and the law runs on three");
+  }
+}
+
 int main() {
   port_equals_reference_law();
   port_equals_simulator_relay_layer();
@@ -2041,6 +2122,7 @@ int main() {
   law_fog_wet_rails();
   glue_heater_air_interlock();
   glue_drying_tail();
+  f5_boot_grace_all_walls();
   glue_review_t1_t2_t3();
   manual_runs();
   deferred_43();

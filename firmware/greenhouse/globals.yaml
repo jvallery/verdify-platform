@@ -105,6 +105,12 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  # F5 (boot grace): bit 0, 1, 2 = average_temperature, average_humidity, average_vpd_kpa
+  # last computed over all four wall probes. 7 = the averages the law reads are whole.
+  - id: wall_avgs_full
+    type: uint8_t
+    restore_value: no
+    initial_value: '0'
   - id: last_case_ms
     type: uint32_t
     restore_value: no

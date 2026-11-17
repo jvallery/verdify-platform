@@ -281,11 +281,14 @@ inline RelayOutputs no_indoor_relays(NoIndoorBranch b, bool lead_is_fan1) noexce
 }
 
 // ── 5. The boot and the relays at boot ────────────────────────────────────
-// Boot grace (RULINGS G3): after a boot the controller waits for the first valid
-// indoor temperature, at most BOOT_GRACE_MS. While it waits no climate relay is
-// switched, the mode is not a sensor fault (so the irrigation engine sees none) and no
-// alert is raised. Once a temperature has been valid, or the grace has run out, a
-// missing temperature is the state of decision 7 at once.
+// Boot grace (RULINGS G3, F5): after a boot the controller waits until every wall
+// probe has reported into the wall averages once, at most BOOT_GRACE_MS. While it waits
+// no climate relay is switched, the mode is not a sensor fault (so the irrigation engine
+// sees none) and no alert is raised. The first probe on the bus alone is not the house:
+// on 2026-11-17 the law dried on the north wall's VPD (0.77 kPa) while the four-wall
+// average was 0.96. When the grace runs out with a probe still silent, the law runs on
+// the probes it has (the averages of whatever is fresh, as after the grace); with no
+// temperature at all it is the state of decision 7. After the grace nothing changes.
 
 enum class IndoorGate : uint8_t { kRun, kBootWait, kNoIndoor };
 
@@ -293,11 +296,13 @@ struct BootGrace {
     bool over;
 };
 
-inline IndoorGate indoor_gate(BootGrace& grace, bool temp_valid, uint32_t now_ms,
+// `walls_complete`: the wall averages the law reads were each last computed over all
+// four wall probes (controls.yaml: the averages' `wall_avgs_full` bits).
+inline IndoorGate indoor_gate(BootGrace& grace, bool temp_valid, bool walls_complete, uint32_t now_ms,
                               uint32_t grace_ms = running_alone_k::BOOT_GRACE_MS) noexcept {
-    if (temp_valid || now_ms >= grace_ms) grace.over = true;
-    if (temp_valid) return IndoorGate::kRun;
-    return grace.over ? IndoorGate::kNoIndoor : IndoorGate::kBootWait;
+    if ((temp_valid && walls_complete) || now_ms >= grace_ms) grace.over = true;
+    if (!grace.over) return IndoorGate::kBootWait;
+    return temp_valid ? IndoorGate::kRun : IndoorGate::kNoIndoor;
 }
 
 // A relay that has not switched since this boot (stamp 0) is available at once: the
