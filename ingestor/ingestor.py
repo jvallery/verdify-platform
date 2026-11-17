@@ -4557,6 +4557,8 @@ async def task_loop(pool: asyncpg.Pool) -> None:
         "irrigation_sync": 150,
         # The hydro reader retries for up to 240 s inside its 300 s cadence (tasks/hydro.py).
         "hydro_probe_sync": 270,
+        # Four 30 s fetches and 1800 s of retry waits inside the 3600 s cadence (tasks/forecast.py).
+        "forecast_sync": 2100,
     }
     TASKS = [
         # (name, interval_seconds, coroutine_factory)
