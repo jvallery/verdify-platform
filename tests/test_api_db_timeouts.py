@@ -139,6 +139,18 @@ async def test_rows_from_a_refresh_older_than_15_minutes_are_not_served(monkeypa
     assert main.trust_ledger_rows() == [] and ledger["rows"] == [{"check_name": "climate_freshness", "status": "ok"}]
 
 
+@pytest.mark.asyncio
+async def test_a_stale_trust_ledger_never_reads_ok(monkeypatch, ledger):
+    # Review TEL-1: the evidence snapshot rates the ledger rows directly; rows older than 15 minutes are not served,
+    # and no rows is "warn", never "ok".
+    ledger.update(rows=[{"check_name": "climate_freshness", "status": "fail"}], at=0.0, ok_at=time.monotonic() - 901)
+    monkeypatch.setattr(main, "pool", _Pool(_Connection(cancel_fetch=True)))
+    rows = main.trust_ledger_rows()
+    await ledger["task"]
+    assert rows == [] and main._overall_data_health(rows) == "warn"
+    assert main._overall_data_health([{"status": "ok"}]) == "ok"
+
+
 def test_the_public_routes_never_query_the_trust_ledger_inline():
     source = (Path(__file__).parents[1] / "api" / "main.py").read_text()
     assert source.count("FROM v_data_trust_ledger") == 1  # TRUST_LEDGER_SQL only

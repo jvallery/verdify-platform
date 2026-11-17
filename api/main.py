@@ -1542,6 +1542,10 @@ def _to_float(value) -> float | None:
 
 
 def _overall_data_health(rows: list[asyncpg.Record]) -> str:
+    # No checks is not "ok": trust_ledger_rows() returns [] before the first refresh and while refreshes fail or the
+    # rows are older than 15 minutes (#1734 C-10, review TEL-1), and the evidence snapshot reads it directly.
+    if not rows:
+        return "warn"
     statuses = {str(r["status"]).lower() for r in rows}
     if "fail" in statuses:
         return "fail"
