@@ -1081,7 +1081,12 @@ CLIMATE_AGE_RECENT_SQL = (
     "SELECT extract(epoch FROM now() - max(ts))::int FROM climate WHERE ts > now() - interval '1 day'"
 )
 CLIMATE_AGE_SQL = "SELECT extract(epoch FROM now() - max(ts))::int FROM climate"
-HEALTH_SCORECARD_SQL = "SELECT compliance_pct, planner_score FROM v_planner_performance WHERE date = CURRENT_DATE"
+# v_planner_performance's date is the greenhouse's local day; CURRENT_DATE is the server's UTC day, which turns
+# over at 17:00 MST (18:00 MDT) and left /health without the two numbers every evening (TEL-26).
+HEALTH_SCORECARD_SQL = (
+    "SELECT compliance_pct, planner_score FROM v_planner_performance "
+    "WHERE date = (now() AT TIME ZONE 'America/Denver')::date"
+)
 # v_planner_performance aggregates the whole history (~1 s per read), and /health is
 # probed several times a minute, so its two scorecard numbers are served from a
 # per-process cache refreshed in the background once they are older than this.
