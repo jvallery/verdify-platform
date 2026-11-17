@@ -1,0 +1,10 @@
+{
+  "migration": "317-served-band-readers-and-relay-record.sql",
+  "final_migration_qualification_pending": true,
+  "projection": "317 puts the band readers on the served band (fn_band_timeline with the climate law's lines and all 56 columns, fn_climate_action_effectiveness, fn_climate_action_daily_scorecard, v_greenhouse_state, v_heating_staging, fn_heat_staging_inversion), drops the unread v_setpoint_forward, sets v_irrigation_schedule_current's two readback counts to NULL, appends boots and record_computed_at to v_relay_counter_reconciliation_daily with the record_early rule, and defines daily_relay_record's run_s and event_run_s. fn_heat_staging_inversion (ordinary digest), the ingestor duty's schedule and counter views and MCP's scorecard function change, so the seals are measured again; until the probe measures them the literals are 316's.",
+  "projected_successor": {
+    "api": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "ingestor": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+    "mcp": "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
+  }
+}

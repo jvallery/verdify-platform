@@ -1266,6 +1266,35 @@ def sealed_sql_316():
     )
 
 
+SERVED_BAND_READERS_MIGRATION = (
+    317,
+    "317-served-band-readers-and-relay-record.sql",
+    "cc67be343b4bdb5374001408d961ebdb3801332bbb39e493aca672a2b2eac76e",
+)
+# Host release 5 (#1633, #1734): the band readers read the served band, v_setpoint_forward goes, the retired irrigation
+# readback counts read NULL, and the relay counter check gains boots and the early-record rule. fn_heat_staging_inversion
+# (ordinary digest), the ingestor duty's schedule and counter views and MCP's scorecard function change, so the seals
+# are measured by the native probe (record: tests/fixtures/317-served-band-readers-and-relay-record-native-qualification.json).
+# Until then, the literals are 316's (fail closed).
+SUCCESSOR_317 = {
+    **SUCCESSOR_316,
+}
+
+
+def sealed_sql_317():
+    # Keep every 316 predicate and bind the exact 317 runner stamp with its successor seals.
+    predecessor = sealed_sql_316()
+    current = seal_profile_sql(316, SUCCESSOR_316)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(317, SUCCESSOR_317), 1)
+        + " AND "
+        + ledger_row_sql(*SERVED_BAND_READERS_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1342,6 +1371,8 @@ def sealed_sql():
         + sealed_sql_315()
         + " OR "
         + sealed_sql_316()
+        + " OR "
+        + sealed_sql_317()
         + ")"
     )
 
