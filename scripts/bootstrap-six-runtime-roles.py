@@ -1354,6 +1354,34 @@ def sealed_sql_319():
     )
 
 
+DASHBOARD_PROJECTIONS_MIGRATION = (
+    320,
+    "320-dashboard-projections.sql",
+    "71deafa19652c44c110e8f7370db4cb5bbfa359853301dd69a680bb26cbcbfc1",
+)
+# The dashboard read model: SELECT for the dashboard duty on v_dashboard_review, v_dashboard_relay_day and
+# v_dashboard_gap_replay, column projections of planner_review, daily_relay_record and gap_replay_quarters owned by
+# verdify. The tables' own ACLs are unchanged and no relation gains an api, ingestor, MCP or PUBLIC entry, so every seal
+# keeps 319's value (tests/fixtures/320-dashboard-projections-native-qualification.json).
+SUCCESSOR_320 = {
+    **SUCCESSOR_319,
+}
+
+
+def sealed_sql_320():
+    # Keep every 319 predicate and bind the exact 320 runner stamp with the unchanged seals.
+    predecessor = sealed_sql_319()
+    current = seal_profile_sql(319, SUCCESSOR_319)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(320, SUCCESSOR_320), 1)
+        + " AND "
+        + ledger_row_sql(*DASHBOARD_PROJECTIONS_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1436,6 +1464,8 @@ def sealed_sql():
         + sealed_sql_318()
         + " OR "
         + sealed_sql_319()
+        + " OR "
+        + sealed_sql_320()
         + ")"
     )
 
