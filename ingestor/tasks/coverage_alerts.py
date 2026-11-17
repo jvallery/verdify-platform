@@ -1069,7 +1069,7 @@ def law_band_alert(rows: Sequence[Mapping]) -> tuple[dict | None, bool]:
 # (2026-11-16 19:48Z to 21:58Z: fog 3 and 3, heat1 1 and 1, the rest 0 and 0, fan run 0 and 0) agreed exactly; the
 # allowance covers a start or a run that straddles midnight against the counters' sample cadence (about 25 min)
 # and a restart's lost increments. A boot needs no allowance of its own: the ingestor stores the OFF edge at the boot
-# and one ON edge for every relay first reported ON after it (RULINGS AF6), so the stored edges show that start. A day
+# and one ON edge for every relay first reported ON after it (#1734), so the stored edges show that start. A day
 # whose record was computed before the day ended reads 'record_early' (317) and, like every other comparison but
 # 'complete', is not judged. A day with fewer than 2 counter rows is not judged.
 COUNTER_STARTS_ABS = 2

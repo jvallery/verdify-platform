@@ -54,13 +54,13 @@ scripts/k3s-smoke.sh device-monitor
 umask 077
 kubectl -n verdify-prod exec deploy/verdify-ingestor -c ingestor -- \
   cat /srv/verdify/state/writer-drift-preview.json \
-  > /private/tmp/verdify-writer-drift-preview.json
+  > "$TMPDIR"/verdify-writer-drift-preview.json
 python scripts/prepare-writer-drift-probe.py \
-  /private/tmp/verdify-writer-drift-preview.json \
-  /private/tmp/verdify-writer-drift-approval.json
+  "$TMPDIR"/verdify-writer-drift-preview.json \
+  "$TMPDIR"/verdify-writer-drift-approval.json
 kubectl -n verdify-prod exec -i deploy/verdify-ingestor -c ingestor -- \
   sh -c 'umask 077; cat > /srv/verdify/state/.writer-drift-approval.tmp && mv /srv/verdify/state/.writer-drift-approval.tmp /srv/verdify/state/writer-drift-approval.json' \
-  < /private/tmp/verdify-writer-drift-approval.json
+  < "$TMPDIR"/verdify-writer-drift-approval.json
 ```
 
 Inspect `writer-drift-state.json`, the two exact `setpoint_changes` timestamps

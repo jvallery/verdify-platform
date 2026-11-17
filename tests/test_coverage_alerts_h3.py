@@ -296,7 +296,7 @@ def test_counter_mismatch_inside_the_tolerance_is_quiet():
 
 
 def test_a_boot_adds_no_start_allowance():
-    # The stored edges carry the ON edge after a boot (RULINGS AF6), so 3 starts over 10 is outside the tolerance.
+    # The stored edges carry the ON edge after a boot (#1734), so 3 starts over 10 is outside the tolerance.
     assert [a["sensor_id"] for a in cov.counter_mismatch_alerts([recon("heat1", 13, 10)])] == [
         "equipment.heat1.counters.2026-11-17"
     ]
