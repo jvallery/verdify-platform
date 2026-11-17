@@ -12,6 +12,8 @@
 //   cd firmware && g++ -std=c++17 -I lib -I ../docs/reviews/control-review-2026-11-15/sim \
 //       -o test/test_climate_law test/test_climate_law.cpp && ./test/test_climate_law
 
+#include <vector>
+
 #include "climate_law.h"
 #include "climate_law_payload.h"
 #include "climate_law_glue.h"
@@ -2151,6 +2153,31 @@ static void f5_boot_grace_all_walls() {
   }
 }
 
+// -- RLY-70: the drying meter publishes at boot, when a run ends, every 60 s in a run, else every 300 s ----------
+static void drying_meter_cadence() {
+  // 1 s passes from boot. Idle to 400 s, a run from 400 s to 525 s, idle after; a short run 900 s to 930 s.
+  std::vector<int> pubs;
+  bool sent = false, was = false;
+  uint32_t last = 0;
+  for (int sec = 0; sec <= 1300; ++sec) {
+    const uint32_t now = uint32_t(sec) * 1000u;
+    const bool running = (sec >= 400 && sec < 525) || (sec >= 900 && sec < 930);
+    if (L::drying_meter_due(sent, now, now, last, running, was)) {
+      pubs.push_back(sec);
+      last = now;
+      sent = true;
+    }
+    was = running;
+  }
+  const std::vector<int> want{10, 310, 400, 460, 520, 525, 825, 900, 930, 1230};
+  CHECK(pubs == want, "RLY-70: boot at 10 s; 300 s idle; at a run's start once 60 s have passed, every 60 s in it, "
+                      "at its end; 300 s idle again");
+  // A restart now loses at most 60 s of a run, never the end of one.
+  CHECK(!L::drying_meter_due(false, 9999, 9999, 0, true, false), "RLY-70: nothing before 10 s of uptime");
+  CHECK(L::drying_meter_due(true, 70000, 70000, 50000, false, true), "RLY-70: a run's end publishes at once");
+  CHECK(!L::drying_meter_due(true, 70000, 70000, 50000, false, false), "RLY-70: idle waits 300 s");
+}
+
 int main() {
   port_equals_reference_law();
   port_equals_simulator_relay_layer();
@@ -2166,6 +2193,7 @@ int main() {
   glue_heater_air_interlock();
   glue_drying_tail();
   f5_boot_grace_all_walls();
+  drying_meter_cadence();
   f5_boot_grace_skewed_readings();
   glue_review_t1_t2_t3();
   manual_runs();
