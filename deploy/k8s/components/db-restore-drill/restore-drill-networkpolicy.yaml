@@ -1,0 +1,14 @@
+# Deny all ingress and egress for the drill pod. The overlay's egress-local-only
+# lists db-restore-drill in its NotIn set, so no other Egress policy selects it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: verdify-db-restore-drill-deny-all
+  labels:
+    app.kubernetes.io/part-of: verdify
+    app.kubernetes.io/component: db-restore-drill
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: db-restore-drill
+  policyTypes: ["Ingress", "Egress"]
