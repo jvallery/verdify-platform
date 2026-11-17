@@ -1603,11 +1603,10 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
             greenhouse_id,
             sorted(FIRMWARE_SETPOINT_PARAMS),
         )
-        # For band-driven params, compute from crop science + house VPD policy.
+        # Band-driven params: all four edges from the served band, fn_band_setpoints (#1734 CTL-26).
         band_row = await conn.fetchrow(
             "SELECT temp_low, temp_high, vpd_low, vpd_high, temp_target, vpd_target FROM fn_band_setpoints(now())"
         )
-        house_row = await conn.fetchrow("SELECT house_vpd_low, house_vpd_high FROM fn_house_vpd_control_band(now())")
         lighting_row = await conn.fetchrow(
             "SELECT target_dli, sunrise_hour, cutoff_hour, target_light_hours FROM fn_lighting_policy(now(), $1)",
             greenhouse_id,
@@ -1622,7 +1621,7 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
         # Without a computed band, recovery tooling would receive partial
         # temp/VPD policy and could mask a dispatcher problem. Better to 503
         # than return a response that looks authoritative but is incomplete.
-        if band_row is None or house_row is None or lighting_row is None:
+        if band_row is None or lighting_row is None:
             existing = await conn.fetchval(
                 "SELECT id FROM alert_log WHERE alert_type = 'band_fn_null' AND disposition = 'open' LIMIT 1"
             )
@@ -1637,7 +1636,6 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
                         ),
                         "details": {
                             "band_row_null": band_row is None,
-                            "house_row_null": house_row is None,
                             "lighting_row_null": lighting_row is None,
                         },
                     }
@@ -1657,16 +1655,9 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
         params = {r["parameter"]: r["value"] for r in rows}
         # Band-driven params: use the same source as the live dispatcher so the
         # compatibility endpoint cannot diverge from direct pushes.
-        if band_row and house_row:
+        if band_row:
             for param in HOUSE_BAND_COMPUTED_PARAMS:
-                if param.startswith("temp"):
-                    band_val = float(band_row[param])
-                    precision = 1
-                else:
-                    key = f"house_{param}"
-                    band_val = float(house_row[key])
-                    precision = 2
-                params[param] = _round_half_up(band_val, precision)
+                params[param] = _round_half_up(float(band_row[param]), 1 if param.startswith("temp") else 2)
         # Lighting policy params: keep the compatibility endpoint identical to the live
         # dispatcher so stale active plans cannot shorten crop photoperiod.
         # #1477: the legacy shared lighting values left the firmware and the

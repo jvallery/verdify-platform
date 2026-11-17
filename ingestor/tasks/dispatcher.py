@@ -705,15 +705,6 @@ async def _write_clamp_audit_rows(
     return written
 
 
-def _control_band_from_house_row(house_row) -> dict[str, float] | None:
-    if not house_row:
-        return None
-    return {
-        "vpd_low": float(house_row["house_vpd_low"]),
-        "vpd_high": float(house_row["house_vpd_high"]),
-    }
-
-
 async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
     global _last_pushed
     reconnect_generation = int(shared.transport_generation)
@@ -785,13 +776,11 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             len(RECONNECT_UNOBSERVED_RESTORE_PARAMS),
         )
     async with pool.acquire() as conn:
-        # Compute crop-science band, per-zone VPD targets, the DB-owned house
-        # VPD control band, and crop-driven lighting policy used by firmware.
+        # The served band (fn_band_setpoints, the one band source: all four edges, #1734 CTL-26) and the
+        # crop-driven lighting policy used by firmware.
         band_row = await conn.fetchrow("SELECT * FROM fn_band_setpoints(now())")
-        house_row = await conn.fetchrow("SELECT * FROM fn_house_vpd_control_band(now())")
         lighting_row = await conn.fetchrow("SELECT * FROM fn_lighting_policy(now())")
         lighting_circuit_rows = await conn.fetch("SELECT * FROM fn_lighting_minutes_policy(now()) ORDER BY light_key")
-        control_band = _control_band_from_house_row(house_row)
 
         # Firmware-v2 deterministic band (contract B2/B6/B7). The solar context
         # and the per-zone band-audit emission are unconditional (compliance
@@ -869,10 +858,9 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         # values and the dispatcher stops pushing them (contract B2 — they become
         # read-only readbacks of the computed band). Until confirmation, both
         # paths run so the device never sees a band gap.
-        if band_row and control_band and not anchors_live:
+        if band_row and not anchors_live:
             for param in ("temp_low", "temp_high", "vpd_low", "vpd_high"):
-                source_row = band_row if param.startswith("temp") else control_band
-                val = float(source_row[param])
+                val = float(band_row[param])
                 val = round(val, 1 if param.startswith("temp") else 2)
                 if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
                     continue
@@ -980,7 +968,7 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         # Mister tuning default: the engage delay is the one mister setting left (release 4 deleted the engage and
         # all-zone thresholds, the all-zone delay and the center penalty with the third flash).
         mister_defaults = {}
-        if band_row and control_band:
+        if band_row:
             mister_defaults = {"mister_engage_delay_s": 30}
             for param, val in mister_defaults.items():
                 if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):

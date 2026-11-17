@@ -280,7 +280,7 @@ def test_dispatcher_band_owned_contract_is_explicit():
 
     src = _tasks_src()
     assert "fn_band_setpoints(now())" in src
-    assert "fn_house_vpd_control_band(now())" in src
+    assert "fn_house_vpd_control_band" not in src  # #1734 CTL-26: fn_band_setpoints is the one band source
     assert "fn_lighting_policy(now())" in src
     assert "fn_lighting_minutes_policy(now())" in src
     assert "LIGHTING_CIRCUIT_DEFAULT_PARAMS" in src
@@ -311,12 +311,12 @@ def test_api_setpoint_fallback_uses_computed_band_not_planner_band_rows():
     assert (
         "SELECT temp_low, temp_high, vpd_low, vpd_high, temp_target, vpd_target FROM fn_band_setpoints(now())" in body
     )
-    assert "SELECT house_vpd_low, house_vpd_high FROM fn_house_vpd_control_band(now())" in body
+    assert "fn_house_vpd_control_band" not in body  # #1734 CTL-26: all four edges from fn_band_setpoints
     assert "SELECT target_dli, sunrise_hour, cutoff_hour, target_light_hours FROM fn_lighting_policy(now(), $1)" in body
     assert "fn_lighting_minutes_policy(now(), $1)" in body
     assert "SELECT * FROM" not in body
     assert "planner_band" not in body
-    assert "params[param] = _round_half_up(band_val, precision)" in body
+    assert 'params[param] = _round_half_up(float(band_row[param]), 1 if param.startswith("temp") else 2)' in body
     # Climate refactor 4.2 (review M3): no plan is overlaid; lighting and direct-wet values always apply.
     assert "v_active_plan" not in body and "plan_params" not in body
     assert "params.update(lighting_values)" in body

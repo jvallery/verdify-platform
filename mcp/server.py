@@ -1692,11 +1692,10 @@ async def outcome_kpi(target_date: str = "") -> str:
                     s.*,
                     COALESCE(temp_low.value, band.temp_low) AS temp_low_f,
                     COALESCE(temp_high.value, band.temp_high) AS temp_high_f,
-                    COALESCE(vpd_low.value, house.house_vpd_low) AS vpd_low_kpa,
-                    COALESCE(vpd_high.value, house.house_vpd_high) AS vpd_high_kpa
+                    COALESCE(vpd_low.value, band.vpd_low) AS vpd_low_kpa,
+                    COALESCE(vpd_high.value, band.vpd_high) AS vpd_high_kpa
                 FROM samples s
                 CROSS JOIN LATERAL fn_band_setpoints(s.bucket) AS band
-                CROSS JOIN LATERAL fn_house_vpd_control_band(s.bucket) AS house
                 LEFT JOIN LATERAL (
                     SELECT value FROM setpoint_snapshot
                     WHERE greenhouse_id = $2 AND parameter = 'band_house_temp_low' AND zone = 'house'
