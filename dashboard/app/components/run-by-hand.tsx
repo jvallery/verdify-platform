@@ -133,17 +133,19 @@ export function RestartController() {
 }
 
 /** Stop: API-IRR-12 `{kind: "clear"}`, which ends every run by hand. */
+// The run buttons carry their whole name as aria-label as well as in a hidden span: a browser works a name out of the
+// content with a space around the hidden span ("Run the fans , 15 min"), and the label is the name as it is written.
 function StopRuns({ name, label = "Stop" }: { name?: string; label?: string }) {
   const command = useRunCommand();
   return <span className="run-stop">
-    <Button write variant="stop" busy={command.sending} onClick={() => void command.send({}, { kind: "clear" })}>{label}{name && <span className="screen-reader">{`: ${name}`}</span>}</Button>
+    <Button write variant="stop" busy={command.sending} aria-label={name && !command.sending ? `${label}: ${name}` : undefined} onClick={() => void command.send({}, { kind: "clear" })}>{label}{name && <span className="screen-reader">{`: ${name}`}</span>}</Button>
     <CommandNote phase={command.phase} message={command.message} error={command.error} />
   </span>;
 }
 function StartRun({ run }: { run: (typeof RUNS)[number] }) {
   const command = useRunCommand();
   return <span className="run-start">
-    <Button write busy={command.sending} onClick={() => void command.send({}, { kind: run.kind, minutes: run.minutes })}>{run.name}<span className="screen-reader">, {run.minutes} min</span></Button>
+    <Button write busy={command.sending} aria-label={command.sending ? undefined : `${run.name}, ${run.minutes} min`} onClick={() => void command.send({}, { kind: run.kind, minutes: run.minutes })}>{run.name}<span className="screen-reader">, {run.minutes} min</span></Button>
     <CommandNote phase={command.phase} message={command.message} error={command.error} />
   </span>;
 }

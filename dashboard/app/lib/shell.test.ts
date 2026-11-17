@@ -56,8 +56,9 @@ test("a fresh heartbeat with climate 6 min old reads Controller not reporting, n
   });
   expect(result).toMatchObject({ ingestorRunning: true, controllerReporting: false });
   for (const name of FIXTURE_NAMES) {
+    const { me, now } = answers(name);
     for (const failures of [0, 2]) {
-      const { fault, warns } = status(name, failures);
+      const { fault, warns } = shellStatus(me, now, failures);
       for (const banner of [fault, ...warns]) expect(banner?.text ?? "", name).not.toMatch(/controller offline/i);
     }
   }
@@ -148,8 +149,9 @@ test("the footer's build line, and the sign-in link that returns to the same pat
 
 test("no banner on any fixture uses the retired words of the old model", () => {
   for (const name of FIXTURE_NAMES) {
+    const { me, now } = answers(name);
     for (const failures of [0, 2]) {
-      const { fault, warns } = status(name, failures);
+      const { fault, warns } = shellStatus(me, now, failures);
       for (const banner of [fault, ...warns]) {
         expect(`${banner?.text ?? ""} ${banner?.link?.label ?? ""}`, name).not.toMatch(/\b(plan|planner|planned|mode|waypoint|target|tunable)s?\b/i);
       }

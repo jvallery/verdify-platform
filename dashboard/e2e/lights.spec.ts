@@ -39,7 +39,7 @@ test("an operator turns the main light on for 30 minutes: one API-20 with those 
   await load(page, "/lights");
   const hand = panel(page, "By hand");
   await hand.getByRole("button", { name: "30 min", exact: true }).click();
-  await hand.getByRole("region", { name: "Main light by hand" }).getByRole("button", { name: /^Turn on 30 min/ }).click();
+  await hand.getByRole("region", { name: "Main light by hand" }).getByRole("button", { name: /^Turn\son\s30\smin/ }).click();
   await expect(panel(page, "Main light")).toContainText("The switch reports it on");
   const writes = await fixtureWrites(request);
   expect(writes.map((row) => row.operationId)).toEqual(["API-20"]);

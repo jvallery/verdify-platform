@@ -32,7 +32,7 @@ for (const viewport of [DESKTOP, PHONE]) {
 test("a relay's why links to the climate law", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
   await load(page, "/equipment");
-  await panel(page, "Climate relays").getByRole("link", { name: /^Climate law: the rules behind Fan 1/ }).click();
+  await panel(page, "Climate relays").getByRole("link", { name: /^Climate\slaw:\sthe\srules\sbehind\sFan\s1/ }).click();
   await expect(page).toHaveURL(/\/climate$/);
 });
 

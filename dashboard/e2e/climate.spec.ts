@@ -30,7 +30,7 @@ test("Drying shows the verdict and the price against the limit; an operator save
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Drying");
   const now = panel(page, "Drying now");
   await expect(now.getByText("Refused: costs more than the limit")).toBeVisible();
-  await expect(now.getByText(/^Price 0\.82 kWh\/kg against the limit 0\.70 kWh\/kg\.$/)).toBeVisible();
+  await expect(now.getByText(/^Price\s0\.82\skWh\/kg\sagainst\sthe\slimit\s0\.70\skWh\/kg\.$/)).toBeVisible();
   const limit = panel(page, "Drying cost limit");
   const field = limit.getByRole("textbox", { name: "New limit" });
   await expect(field).toHaveValue("0.70");
@@ -39,7 +39,7 @@ test("Drying shows the verdict and the price against the limit; an operator save
   await limit.getByRole("button", { name: "Save" }).click();
   await expect.poll(async () => (await fixtureWrites(request)).map((row) => [row.operationId, row.path, row.body]))
     .toEqual([["API-10", "/v1/settings/dry_cost_limit_kwh_per_kg", { value: 0.75, manual: true }]]);
-  await expect(limit.getByText(/Sent 0\.75 kWh\/kg at/)).toBeVisible();
+  await expect(limit.getByText(/Sent\s0\.75\skWh\/kg\sat/)).toBeVisible();
   await expect(panel(page, "Price against limit")).toBeVisible();
   await expect(panel(page, "By day")).toBeVisible();
 });
@@ -49,7 +49,7 @@ test("a viewer reads Law and Drying with no write control, and nothing scrolls s
   await useScreensClock(page, request, ["in-band", "viewer-session"]);
   await load(page, "/climate/drying");
   const limit = panel(page, "Drying cost limit");
-  await expect(limit.getByText(/0\.70 kWh\/kg/).first()).toBeVisible();
+  await expect(limit.getByText(/0\.70\skWh\/kg/).first()).toBeVisible();
   await expect(limit.getByRole("textbox", { name: "New limit" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
   await expectNoHorizontalScroll(page);

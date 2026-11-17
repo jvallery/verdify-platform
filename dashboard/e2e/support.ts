@@ -4,6 +4,14 @@
  * here: `test` guards each page for the whole test, so no spec can forget. Each test selects its fixture first (one
  * fixture API holds one state, so each shard of the suite has its own and runs one worker). No test passes by loosening
  * the app: a CSP violation, a page error or a request off localhost fails it.
+ *
+ * Two things a real browser does that the unit tests' DOM does not, both found by the suite's first CI run:
+ * - The pages put a no-break space between a number and its unit ("0.70 kWh/kg", "24 h"). Playwright normalises
+ *   white space for a string but tests a regular expression against the raw text, so a pattern that can meet a number
+ *   writes `\s` for its spaces (`/^Price\s0\.82\skWh\/kg/`); a literal space there never matches.
+ * - A browser works out an accessible name with a space around a `.screen-reader` span, so a control whose hidden
+ *   suffix starts with punctuation ("Run the fans" + ", 15 min") is named "Run the fans , 15 min" unless it carries
+ *   the whole name as `aria-label`. Name such a control in the component, not by loosening the spec.
  */
 import { setTimeout as sleep } from "node:timers/promises";
 import AxeBuilder from "@axe-core/playwright";

@@ -527,11 +527,12 @@ def test_api30_reads_the_newest_record_with_its_rules_drying_checks_and_alone_st
     assert (rules["cold_limit"].latched, rules["cold_limit"].hold) == (False, None)
 
     drying = view.drying
+    # The controller's own word for no reason is served as it is recorded (api.md: refused_reason "none" | ... | null).
     assert (drying.state, drying.wanted, drying.outdoor_drier, drying.refused_reason) == (
         "not_wanted",
         False,
         True,
-        None,
+        "none",
     )
     assert (drying.cost_kwh_per_kg, drying.limit_kwh_per_kg, drying.limit_source) == (0.633, 0.7, "owner")
     assert drying.wanted_below_kpa == approx(BAND[2] + C.DRY_ON_ABOVE_VPD_LOW_KPA)

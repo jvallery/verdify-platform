@@ -52,7 +52,7 @@ test("Run the fans from Run by hand: one API-IRR-12, then its time left and its 
   const panel = page.locator("#run-by-hand");
   await panel.getByRole("button", { name: "Run the fans, 15 min" }).click();
   await expect.poll(async () => (await fixtureWrites(request)).map((row) => [row.operationId, row.body])).toEqual([["API-IRR-12", { kind: "fans", minutes: 15 }]]);
-  await untilPolled(page, () => expect(panel.locator("[data-run=fans] [data-run-left]")).toHaveText(/^Run the fans · \d+\smin left$/, { timeout: 500 }));
+  await untilPolled(page, () => expect(panel.locator("[data-run=fans] [data-run-left]")).toHaveText(/^Run\sthe\sfans\s·\s\d+\smin\sleft$/, { timeout: 500 }));
   await expect(panel.getByRole("button", { name: "Stop: Run the fans" })).toBeVisible();
 });
 

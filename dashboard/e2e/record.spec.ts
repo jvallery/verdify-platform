@@ -53,7 +53,7 @@ test("/record/compliance: titled Time in band under the In band tab, its six cha
   await expect(page.getByRole("navigation", { name: "Record views" }).getByRole("link", { name: "In band" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("list", { name: "Days shown" }).getByRole("link", { name: "90 d" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator("figure.chart canvas")).toHaveCount(6);
-  await expect(page.getByText(/^Nights dried: \d+ of the 90 days shown/)).toBeVisible();
+  await expect(page.getByText(/^Nights\sdried:\s\d+\sof\sthe\s90\sdays\sshown/)).toBeVisible();
 });
 
 test("/record/equipment: a block per relay and the counter check in words", async ({ page, request }) => {

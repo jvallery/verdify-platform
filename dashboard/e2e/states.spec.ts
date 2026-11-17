@@ -18,8 +18,8 @@ for (const path of ROUTES) {
 
   for (const [fixture, banner] of [
     // Screens §1 block 1: the controller keeps holding the band on its own (its law runs with or without the host).
-    ["ingestor-not-running", /^Ingestor not running since \d\d:\d\d\. The controller keeps holding the band on its own; nothing new is recorded until it is back\./],
-    ["controller-not-reporting", /^Controller not reporting since \d\d:\d\d\. If it has power, it keeps holding the band on its own and keeps its water schedules/],
+    ["ingestor-not-running", /^Ingestor\snot\srunning\ssince\s\d\d:\d\d\.\sThe\scontroller\skeeps\sholding\sthe\sband\son\sits\sown;\snothing\snew\sis\srecorded\suntil\sit\sis\sback\./],
+    ["controller-not-reporting", /^Controller\snot\sreporting\ssince\s\d\d:\d\d\.\sIf\sit\shas\spower,\sit\skeeps\sholding\sthe\sband\son\sits\sown\sand\skeeps\sits\swater\sschedules/],
   ] as const) {
     test(`${path}: under ${fixture} the banner says so, never "Controller offline" or "No open alerts"`, async ({ page, request }) => {
       await useFixture(request, fixture);

@@ -57,7 +57,7 @@ test("an operator's visit at 360 × 740: a run by hand from Now, a run and its s
   expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/equipment/override", body: { kind: "fans", minutes: 15 } });
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   // A regex reads the no-break space before the unit as it is.
-  await untilPolled(page, () => expect(runs.locator("[data-run=fans] [data-run-left]")).toHaveText(/^Run the fans · \d+\smin left$/, { timeout: 500 }));
+  await untilPolled(page, () => expect(runs.locator("[data-run=fans] [data-run-left]")).toHaveText(/^Run\sthe\sfans\s·\s\d+\smin\sleft$/, { timeout: 500 }));
   await expect(runs.getByRole("button", { name: "Stop: Run the fans" })).toBeVisible();
 
   await tab(page, /^Water/).click();

@@ -24,7 +24,7 @@ for (const viewport of VIEWPORTS) {
     await expect(noValve).toHaveAttribute("data-kind", "fill");
     await expect(key.filter({ hasText: /^no data$/ }).locator(".chart-key-swatch")).toHaveAttribute("data-kind", "hatch");
     await expect(key.filter({ hasText: /^partial day$/ }).locator(".chart-key-swatch")).toHaveAttribute("data-kind", "dashed");
-    await expect(panel.locator(".water-summary")).toContainText(/^Last 30 days: \d+\s+gal · \d+\s+gal with no Verdify valve open · 1 day with no data$/);
+    await expect(panel.locator(".water-summary")).toContainText(/^Last\s30\sdays:\s\d+\s+gal\s·\s\d+\s+gal\swith\sno\sVerdify\svalve\sopen\s·\s1\sday\swith\sno\sdata$/);
     await expect(panel.locator("details.chart-table summary")).toHaveText("Data table · 30 rows");
     await panel.locator("details.chart-table summary").click();
     const rows = panel.locator("details.chart-table tbody tr");

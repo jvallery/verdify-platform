@@ -40,7 +40,7 @@ test("alerts-merged: the status line states the count once, Needs action holds t
   await expect(needsAction(page).getByRole("heading", { level: 2 })).toHaveText("Needs action");
   await expect(needsAction(page).locator("ol.alert-list > li")).toHaveCount(2);
   await expect(alertRow(page, 101).locator(".alert-facts")).toHaveText("Fan 2 · ×3 since 06:02 · last 06:40");
-  await expect(group(page, /^Acknowledged, still open \(1\)$/)).not.toHaveAttribute("open", "");
+  await expect(group(page, /^Acknowledged,\sstill\sopen\s\(1\)$/)).not.toHaveAttribute("open", "");
   await expect(group(page, /^Resolved/)).toHaveCount(0);
   expect((await fixtureRequests(request, "API-14")).map((row) => row.path)).toEqual(["/v1/alerts?status=recent&limit=200"]);
 });
@@ -75,7 +75,7 @@ test("an expanded alert: Resolve with a note sends one API-16, and the alert mov
   await alertRow(page, 102).getByRole("button", { name: "Resolve" }).click();
   await expect(needsAction(page).locator("ol.alert-list > li")).toHaveCount(1);
   await expect(page.locator("dialog[open]")).toHaveCount(0);
-  await expect(group(page, /^Resolved in the last 24 h \(1\)$/)).toHaveAttribute("open", "");
+  await expect(group(page, /^Resolved\sin\sthe\slast\s24\sh\s\(1\)$/)).toHaveAttribute("open", "");
   await expect(alertRow(page, 102)).toContainText("Resolved by Jason · 10:42 · “Probe reseated”");
   const sent = await fixtureRequests(request, "API-16");
   expect(sent.map((item) => [item.path, item.body])).toEqual([["/v1/alerts/102/resolve", { resolution: "Probe reseated" }]]);

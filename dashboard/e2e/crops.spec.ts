@@ -31,8 +31,8 @@ for (const viewport of [DESKTOP, PHONE]) {
     await useScreensClock(page, request, "crops-planted");
     await load(page, "/hydroponics");
     await expect(page.locator('button[data-cell^="EAST-HYDRO-"]')).toHaveCount(60);
-    await expect(page.getByText(/19 of 60 hydro cells planted/)).toBeVisible();
-    await expect(cell(page, "EAST-HYDRO-1")).toHaveAttribute("aria-label", /^EAST-HYDRO-1, Lettuce, Butterhead, /);
+    await expect(page.getByText(/19\sof\s60\shydro\scells\splanted/)).toBeVisible();
+    await expect(cell(page, "EAST-HYDRO-1")).toHaveAttribute("aria-label", /^EAST-HYDRO-1,\sLettuce,\sButterhead,\s/);
     await expect(page.getByRole("region", { name: /cells, scrolls sideways$/ })).toBeVisible();
     await expectNoHorizontalScroll(page);
     await axe(page);
@@ -61,7 +61,7 @@ test("an operator selects three empty cells and plants them: one API-CROP-07 wit
   await dialog(page).getByLabel("Plants per cell").fill("1");
   await expect(dialog(page).getByRole("status")).toContainText("(3 cells)");
   await dialog(page).getByRole("button", { name: "Save planting" }).click();
-  await expect(cell(page, "EAST-HYDRO-42")).toHaveAttribute("aria-label", /^EAST-HYDRO-42, Lettuce, /);
+  await expect(cell(page, "EAST-HYDRO-42")).toHaveAttribute("aria-label", /^EAST-HYDRO-42,\sLettuce,\s/);
   const writes = await fixtureWrites(request);
   expect(writes.map((row) => row.operationId)).toEqual(["API-CROP-07"]);
   expect(writes[0].body).toMatchObject({ crop: "Lettuce", positions: ["EAST-HYDRO-41..43"] });

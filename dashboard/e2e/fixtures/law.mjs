@@ -502,12 +502,33 @@ function lawBody(world) {
 // ---------------------------------------------------------------------------------------------------- API-31
 /** Where the law's records end: now while it reports, else a minute after the newest record. */
 const recordsEnd = (world) => (reporting(world) ? world.now : (lawOf(world).observedAt ?? lawOf(world).firstRecordAt) + MINUTE);
-/** One lane's state at `t`: unknown before the first record, after the last, or inside an outage; else on or off. */
-function laneState(world, key, t) {
+/**
+ * The lanes' states for one answer: `(key, t)` is unknown before the first record, after the last, or inside an
+ * outage; else on or off. A state needs the local date of its instant and that day's spans as instants, and both are
+ * time-zone conversions. One answer asks for the same instants for every lane and the same days for every instant
+ * (some 100,000 conversions for a day's window, most of a second on a CI runner), so each is worked out once here.
+ */
+function laneReader(world) {
   const law = lawOf(world);
-  if (law.firstRecordAt === null || t < law.firstRecordAt || t >= recordsEnd(world) || law.gaps.some(([start, end]) => t >= start && t < end)) return "unknown";
-  if ((law.extra[key] ?? []).some(([start, end]) => t >= start && t < end)) return "on";
-  return spansOn(local(t).date, PATTERN[key] ?? []).some(([start, end]) => t >= start && t < end) ? "on" : "off";
+  const end = recordsEnd(world);
+  const dates = new Map();
+  const spans = new Map();
+  const dateOf = (t) => {
+    let date = dates.get(t);
+    if (date === undefined) { date = local(t).date; dates.set(t, date); }
+    return date;
+  };
+  const spansOf = (key, date) => {
+    const id = `${key} ${date}`;
+    let found = spans.get(id);
+    if (found === undefined) { found = spansOn(date, PATTERN[key] ?? []); spans.set(id, found); }
+    return found;
+  };
+  return (key, t) => {
+    if (law.firstRecordAt === null || t < law.firstRecordAt || t >= end || law.gaps.some(([start, stop]) => t >= start && t < stop)) return "unknown";
+    if ((law.extra[key] ?? []).some(([start, stop]) => t >= start && t < stop)) return "on";
+    return spansOf(key, dateOf(t)).some(([start, stop]) => t >= start && t < stop) ? "on" : "off";
+  };
 }
 const BUCKETS = [60, 300, 900, 3600, 10_800, 86_400];
 /** Every edge between `from` and `to` that a lane, drying or the outdoor source can change at. */
@@ -547,39 +568,42 @@ function lawHistoryBody(world, { query }) {
   const to = Date.parse(query.get("to") ?? "");
   if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) throw refuse(400, "invalid_request", "from and to must be date-times, to after from");
   if (to - from > 31 * DAY) throw refuse(422, "window_too_large", "The window is at most 31 days");
+  const stateOf = laneReader(world);
   const points = edges(world, from, to);
   const lanes = LANE_KEYS.map((key) => ({
     key, group: key.split(".")[0],
-    intervals: intervalsOf(points, (t) => laneState(world, key, t)).map(({ start, end, state }) => ({ start: iso(start), end: iso(end), state })),
+    intervals: intervalsOf(points, (t) => stateOf(key, t)).map(({ start, end, state }) => ({ start: iso(start), end: iso(end), state })),
   }));
   const drying = intervalsOf(points, (t) => {
-    const run = laneState(world, "latch.run", t);
+    const run = stateOf("latch.run", t);
     if (run === "unknown") return { state: "unknown", reason: null };
     if (run === "on") return { state: "running", reason: null };
-    if (laneState(world, "latch.dry", t) === "on") return { state: "refused", reason: refusalAt(world, t) };
+    if (stateOf("latch.dry", t) === "on") return { state: "refused", reason: refusalAt(world, t) };
     return { state: "not_wanted", reason: null };
   }).map(({ start, end, state }) => ({ start: iso(start), end: iso(end), ...state }));
-  const outdoor = intervalsOf(points, (t) => (laneState(world, "latch.air", t) === "unknown" ? "unknown"
+  const outdoor = intervalsOf(points, (t) => (stateOf("latch.air", t) === "unknown" ? "unknown"
     : law.sourceSpans.find(([start, end]) => t >= start && t < end)?.[2] ?? law.outdoorSource)).map(({ start, end, state }) => ({ start: iso(start), end: iso(end), source: state }));
   const repaired = law.repairedSpans.filter(([start, end]) => end > from && start < to).map(([start, end]) => ({ start: iso(Math.max(start, from)), end: iso(Math.min(end, to)) }));
   const bucket = BUCKETS.find((size) => (to - from) / (size * SECOND) <= 1500) ?? 86_400;
   const t = [];
   for (let start = Math.floor(from / (bucket * SECOND)) * bucket; start * SECOND < to; start += bucket) t.push(start);
-  const live = (start) => laneState(world, "latch.air", start * SECOND) !== "unknown";
+  // The outdoor-air latch at each bucket's start, read once: a bucket has values only where a record covers it.
+  const air = t.map((start) => stateOf("latch.air", start * SECOND));
   const swing = (start) => (Math.cos((2 * Math.PI * (start * SECOND - world.now)) / DAY) - 1) / 2;
+  const where = (value) => t.map((start, index) => (air[index] === "unknown" ? null : value(start)));
   return {
     from: iso(from), to: iso(to), first_record_at: law.firstRecordAt === null ? null : iso(law.firstRecordAt), lanes, drying, outdoor_source: outdoor, band_repaired: repaired,
     cost: {
       bucket_s: bucket, t,
-      cost_kwh_per_kg: t.map((start) => (live(start) && laneState(world, "latch.air", start * SECOND) === "on" ? round((law.cost ?? 0.633) + 0.12 * swing(start), 3) : null)),
-      limit_kwh_per_kg: t.map((start) => (live(start) ? law.limit : null)),
+      cost_kwh_per_kg: t.map((start, index) => (air[index] === "on" ? round((law.cost ?? 0.633) + 0.12 * swing(start), 3) : null)),
+      limit_kwh_per_kg: where(() => law.limit),
     },
     band: {
       bucket_s: bucket, t,
-      temp_low_f: t.map((start) => (live(start) ? round(law.band.temp_low_f + 4 * swing(start), 1) : null)),
-      temp_high_f: t.map((start) => (live(start) ? round(law.band.temp_high_f + 6 * swing(start), 1) : null)),
-      vpd_low_kpa: t.map((start) => (live(start) ? round(law.band.vpd_low_kpa + 0.05 * swing(start), 2) : null)),
-      vpd_high_kpa: t.map((start) => (live(start) ? round(law.band.vpd_high_kpa + 0.08 * swing(start), 2) : null)),
+      temp_low_f: where((start) => round(law.band.temp_low_f + 4 * swing(start), 1)),
+      temp_high_f: where((start) => round(law.band.temp_high_f + 6 * swing(start), 1)),
+      vpd_low_kpa: where((start) => round(law.band.vpd_low_kpa + 0.05 * swing(start), 2)),
+      vpd_high_kpa: where((start) => round(law.band.vpd_high_kpa + 0.08 * swing(start), 2)),
     },
   };
 }

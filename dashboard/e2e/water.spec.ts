@@ -26,7 +26,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(page.locator('.wat-zone[data-zone="center_mister"] .wat-unwired')).toHaveText("Fertilized · not wired");
     await expect(page.getByRole("article", { name: "Wall drip", exact: true })).toHaveAttribute("data-state", "idle");
     await expect(page.locator('[data-limit="L01"]')).toContainText("0 / 60 min");
-    await expect(row(page, "L01").locator(".wat-next")).toHaveText(/^next Wed 07:35 · 12\smin$/);
+    await expect(row(page, "L01").locator(".wat-next")).toHaveText(/^next\sWed\s07:35\s·\s12\smin$/);
     await expect(row(page, "L02").locator(".line-subrow")).toContainText("Fertilizer valve");
     for (const id of ["L05", "L06"]) await expect(row(page, id).locator(".line-state")).toHaveText("Reserved · disabled");
     await expect(row(page, "L11")).toContainText("Climate only");
@@ -85,7 +85,7 @@ test("1440 px: the zone heads' cap meters are one width, their minutes and right
   await load(page, "/water");
   const boxes = (selector: string) => page.locator(selector).evaluateAll((nodes) => nodes.map((node) => {
     const box = node.getBoundingClientRect();
-    return { width: Math.round(box.width), right: Math.round(box.right), top: Math.round(box.top), bottom: Math.round(box.bottom) };
+    return { width: Math.round(box.width), right: Math.round(box.right), top: Math.round(box.top), bottom: Math.round(box.bottom), height: box.height };
   }));
   // Each physical line has a cap (#1336); Fog has minutes alone.
   const meters = await boxes(".wat-zone-head .meter");
@@ -98,7 +98,9 @@ test("1440 px: the zone heads' cap meters are one width, their minutes and right
   const [heads, lasts] = await Promise.all([boxes(".wat-zone-head .wat-zone-today > :first-child"), boxes(".wat-zone-head .wat-zone-last")]);
   expect(lasts).toHaveLength(6);
   lasts.forEach((last, index) => expect(last.top, `zone ${index}`).toBeGreaterThanOrEqual(heads[index].bottom));
-  expect(new Set(lasts.map((box) => box.bottom - box.top)).size, JSON.stringify(lasts)).toBe(1);
+  // One line each: the heights agree to within a pixel (top and bottom round apart at a half-pixel line height).
+  const heights = lasts.map((box) => box.height);
+  expect(Math.max(...heights) - Math.min(...heights), JSON.stringify(lasts)).toBeLessThan(1);
 });
 
 test("D-UX-06 (2026-11-06): only the running line has a Stop, filled red, and one Stop all water stops everything", async ({ page, request }) => {
@@ -155,7 +157,7 @@ test("History: one period drives the page, four KPIs against the previous period
   await useScreensClock(page, request, "in-band");
   await load(page, "/water/history");
   await expect(page.locator(".wat-kpis .metric-label")).toHaveText(["Watering", "Gallons", "Runs", "Missed, short or cap"], { useInnerText: false });
-  await expect(page.locator(".page-status")).toHaveText(/^Last 7 days: .* watering/);
+  await expect(page.locator(".page-status")).toHaveText(/^Last\s7\sdays:\s.*\swatering/);
   await page.getByRole("list", { name: "Period" }).getByRole("link", { name: "90 d" }).click();
   await expect(page).toHaveURL(/\/water\/history\?range=90d$/);
   await expect(page.locator('[data-kpi="runs"]')).toContainText("Counted over 31 days at most");

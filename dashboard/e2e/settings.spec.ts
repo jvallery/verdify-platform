@@ -17,8 +17,8 @@ test("the page loads with its answer, the settings in use by group, and the unus
   const controller = items.filter((item) => (item.effect ?? "controller") === "controller").length;
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Settings");
   await expect(page.locator(".page-status")).toHaveText(new RegExp(`^${items.length} settings · \\d+ read by the controller · 0 not confirmed$`));
-  await expect(page.getByRole("link", { name: /^All \d+$/ })).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("link", { name: /^Read by the controller \d+$/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^All\s\d+$/ })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: /^Read\sby\sthe\scontroller\s\d+$/ })).toBeVisible();
   await expect(page.locator("#settings-in-use tbody[data-group]").first()).toHaveAttribute("data-group", "crop_band");
   await expect(row(page, "outdoor_staleness_max_s").locator(".setting-state")).toHaveText("Confirmed");
   await expect(row(page, "band_temp_low_sr").getByRole("link", { name: "Change on Band" })).toHaveAttribute("href", "/band");
@@ -39,7 +39,7 @@ test("Edit → Save sends one API-10; the row reads Not confirmed since, then Co
   await drawer(page).getByRole("button", { name: "Save" }).click();
   await expect(drawer(page)).toHaveCount(0);
   const engage = row(page, "outdoor_staleness_max_s");
-  await expect(engage.locator(".setting-state")).toHaveText(/^Not confirmed since \d{2}:\d{2}/);
+  await expect(engage.locator(".setting-state")).toHaveText(/^Not\sconfirmed\ssince\s\d{2}:\d{2}/);
   await untilPolled(page, () => expect(engage.locator(".setting-state")).toHaveText("Confirmed", { timeout: 500 }));
   await expect(engage.locator(".setting-value-text")).toHaveText(/^630\s+s$/);
   const sent = await fixtureWrites(request);
