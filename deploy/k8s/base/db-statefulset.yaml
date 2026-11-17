@@ -91,16 +91,27 @@ spec:
           volumeMounts:
             - name: db-data
               mountPath: /var/lib/postgresql/data
+          # vp#1547 (D-333): crash recovery and WAL replay after an unclean stop
+          # can run long. The startup window (180 x 10 s = 30 min) holds liveness
+          # off until the first pg_isready success, so a recovering database is
+          # never killed mid-replay; 5 s timeouts stop a busy node from failing
+          # a 1 s exec probe.
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "verdify", "-d", "verdify"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 180
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "verdify", "-d", "verdify"]
-            initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "verdify", "-d", "verdify"]
-            initialDelaySeconds: 30
             periodSeconds: 30
+            timeoutSeconds: 5
   volumeClaimTemplates:
     - apiVersion: v1
       kind: PersistentVolumeClaim
