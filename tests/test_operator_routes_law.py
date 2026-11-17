@@ -139,6 +139,8 @@ def test_law_view(monkeypatch):
     assert openapi_errors("/v1/law", body) == []
     assert body["reporting"] is True and body["lead_fan"] == "fan1"
     assert [rule["id"] for rule in body["rules"]][:2] == ["heat1", "heat2"]
+    # The outdoor dew point is served as a number, computed from the served outdoor pair (36.37 F, 80.6 %).
+    assert isinstance(body["inputs"]["outdoor"]["dew_point_f"], float)
     assert body["constants"]["hash"] is None and body["constants"]["matches"] is None
 
 

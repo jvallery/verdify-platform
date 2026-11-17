@@ -32,6 +32,7 @@ from verdify_schemas import climate_law_constants as law_constants
 from verdify_schemas.control_proof import LAW_HEARTBEAT_MAX_AGE_S, LAW_STATE_ENTITY
 from verdify_schemas.telemetry import LAW_CONSTANTS_HASH, ClimateDryingMeter, ClimateLawState
 from verdify_schemas.tunable_registry import DRY_COST_LIMIT_PARAM
+from verdify_schemas.vpd_envelope import outdoor_dewpoint_f
 from verdify_services import reads, series
 
 # ── Constants ───────────────────────────────────────────────────────────────
@@ -787,9 +788,19 @@ def outdoor_input(row: Mapping[str, Any], at: datetime) -> OutdoorInput:
         source=source if source in get_args(OutdoorSource) else None,
         temp_f=temp,
         rh_pct=rh,
-        # No stored column carries the outdoor dew point the law computes on the controller.
-        dew_point_f=None,
+        dew_point_f=outdoor_dew_point(temp, rh),
     )
+
+
+def outdoor_dew_point(temp_f: float | None, rh_pct: float | None) -> float | None:
+    """The outdoor dew point from the served outdoor pair; no stored column holds it, so the host computes it.
+
+    Null when either reading is missing or the humidity is not above zero. Served unrounded, as the indoor dew point
+    beside it is served as stored.
+    """
+    if temp_f is None or rh_pct is None or rh_pct <= 0:
+        return None
+    return _finite(outdoor_dewpoint_f(temp_f, rh_pct))
 
 
 def law_view(

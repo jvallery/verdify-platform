@@ -13,7 +13,7 @@ import {
   manifold, minutesZone, nextId, runLine, settingOf, stopLines,
 } from "./world.mjs";
 import { CROP_READS, CROP_WRITES, CropRefusal, cropWrite } from "./crops.mjs";
-import { LAW_READS, LawRefusal, nowAdditions } from "./law.mjs";
+import { LAW_LINES, LAW_READS, LawRefusal, nowAdditions } from "./law.mjs";
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
@@ -435,13 +435,39 @@ const BAND_ANCHORS = ["sr", "sm", "ss", "mid"];
 const HOUSE_BAND = BAND_SERIES.flatMap((series) => BAND_ANCHORS.map((anchor) => `band_${series}_${anchor}`));
 const TEMP_FIELDS = ["temp_day", "temp_night", "temp_width_day", "temp_width_night"];
 const VPD_FIELDS = ["vpd_day", "vpd_night", "vpd_below_day", "vpd_above_day", "vpd_below_night", "vpd_above_night"];
+/** The edge form (API spec §4.1), in the order a both-forms refusal names its field; day is solar noon, night solar midnight. */
+const TEMP_EDGES = ["temp_low_day", "temp_high_day", "temp_low_night", "temp_high_night"];
+const VPD_EDGES = ["vpd_low_day", "vpd_high_day", "vpd_low_night", "vpd_high_night"];
+const EDGE_FIELDS = [...TEMP_EDGES, ...VPD_EDGES];
+const AXES = [["temp", TEMP_FIELDS, TEMP_EDGES], ["vpd", VPD_FIELDS, VPD_EDGES]];
+const EDGE_ANCHOR = { day: "sm", night: "mid" };
+/** `temp_low_day` → `band_temp_low_sm`. */
+const edgeParam = (name) => {
+  const cut = name.lastIndexOf("_");
+  return `band_${name.slice(0, cut)}_${EDGE_ANCHOR[name.slice(cut + 1)]}`;
+};
+/** The live house anchors (crop_band_anchors on 2026-11-17): the band API-23 and API-24 start from until a write. */
+const LIVE_HOUSE_BAND = {
+  temp_low: [62.5, 71.8, 70.0, 60.7], temp_target: [67.5, 78.79, 77.0, 65.7], temp_high: [72.5, 85.8, 84.0, 70.7],
+  vpd_low: [0.755, 0.862, 0.845, 0.738], vpd_target: [0.935, 1.042, 1.025, 0.83], vpd_high: [1.29, 1.39, 1.37, 1.27],
+};
 const NIGHT_FLOOR_KPA = 0.74;
 const DRY_ON_KPA = 0.05;
 const MIN_WIDTH_F = 6.5;
 const MIN_WIDTH_KPA = 0.35;
 const bandStep = (param) => (param.includes("temp_") ? 0.1 : 0.01);
-const onStep = (value, step) => Number((Math.round(value / step) * step).toFixed(step < 0.1 ? 2 : 1));
-const houseAnchors = (world) => Object.fromEntries(HOUSE_BAND.map((param) => [param, bandValue(world, param)]));
+/** On the push step, half to even, as the settings service's snap rounds. */
+const onStep = (value, step) => {
+  const steps = value / step;
+  const nearest = Math.abs(steps % 1) === 0.5 ? 2 * Math.round(steps / 2) : Math.round(steps);
+  return Number((nearest * step).toFixed(step < 0.1 ? 2 : 1));
+};
+const liveAnchor = (param) => {
+  const [, series, anchor] = /^band_(.+)_(sr|sm|ss|mid)$/.exec(param);
+  return LIVE_HOUSE_BAND[series][BAND_ANCHORS.indexOf(anchor)];
+};
+/** The 24 house anchors as stored: an API-10 or API-24 write, else the live band. */
+const houseAnchors = (world) => Object.fromEntries(HOUSE_BAND.map((param) => [param, world.bandStored[param] ?? liveAnchor(param)]));
 const at = (anchors, series, anchor) => anchors[`band_${series}_${anchor}`];
 /** verdify_schemas.band_profile.decompose: noon and midnight values, the temperature half-width and the VPD gaps. */
 function profileOf(a) {
@@ -468,16 +494,59 @@ function compileProfile(p) {
   }
   return out;
 }
-/** The draft from a query or a body: patched axes recompiled, then raw anchors. */
+/** Does the curve of `upper` fall below the curve of `lower` anywhere in the day (400 samples, as the API checks)? */
+function dipsBelow(lower, upper) {
+  const gap = upper.map((value, index) => value - lower[index]);
+  return Array.from({ length: 400 }, (_, index) => harmonicAt(gap, (4 * index) / 400)).some((value) => value < -1e-9);
+}
+/**
+ * compile_edges: each low or high series given an edge takes the given noon and midnight edges (the band's own where
+ * one is left out) with sunrise and sunset at their midpoint, on the push step, and a series given no edge keeps its
+ * anchors; a target whose curve leaves the new edges anywhere in the day moves to their midpoint at all four anchors,
+ * one whose curve stays between them stays.
+ */
+function compileEdges(anchors, edges) {
+  const out = {};
+  for (const [axis, , edgeNames] of AXES) {
+    if (!edgeNames.some((name) => name in edges)) continue;
+    const step = bandStep(axis + "_");
+    for (const side of ["low", "high"]) {
+      const series = `${axis}_${side}`;
+      if (!(`${series}_day` in edges) && !(`${series}_night` in edges)) continue;
+      const noon = onStep(edges[`${series}_day`] ?? at(anchors, series, "sm"), step);
+      const midnight = onStep(edges[`${series}_night`] ?? at(anchors, series, "mid"), step);
+      const shoulder = onStep((noon + midnight) / 2, step);
+      Object.assign(out, { [`band_${series}_sr`]: shoulder, [`band_${series}_sm`]: noon, [`band_${series}_ss`]: shoulder, [`band_${series}_mid`]: midnight });
+    }
+    const compiled = { ...anchors, ...out };
+    const [low, target, high] = ["low", "target", "high"].map((role) => BAND_ANCHORS.map((key) => at(compiled, `${axis}_${role}`, key)));
+    if (dipsBelow(low, target) || dipsBelow(target, high)) {
+      BAND_ANCHORS.forEach((anchor, index) => { out[`band_${axis}_target_${anchor}`] = onStep((low[index] + high[index]) / 2, step); });
+    }
+  }
+  return out;
+}
+/** One axis in both forms is refused, naming the first edge field given on it. */
+function oneFormPerAxis(fields) {
+  for (const [axis, profileNames, edgeNames] of AXES) {
+    const edge = edgeNames.find((name) => name in fields);
+    const profile = profileNames.find((name) => name in fields);
+    if (edge && profile) throw invalid(`Give the ${axis} band either as edges or as a target and width, not both (${edge} and ${profile})`, edge);
+  }
+}
+/** The draft from a query or a body: patched axes recompiled (from the profile or from the edges), then raw anchors. */
 function draftOf(current, fields, anchors) {
+  oneFormPerAxis(fields);
   const draft = { ...current };
-  const given = Object.keys(fields);
+  const given = Object.keys(fields).filter((name) => !EDGE_FIELDS.includes(name));
   if (given.length) {
-    const compiled = compileProfile({ ...profileOf(current), ...fields });
+    const profile = Object.fromEntries(given.map((name) => [name, fields[name]]));
+    const compiled = compileProfile({ ...profileOf(current), ...profile });
     for (const [names, axis] of [[TEMP_FIELDS, "temp_"], [VPD_FIELDS, "vpd_"]]) {
       if (given.some((name) => names.includes(name))) for (const param of HOUSE_BAND) if (param.includes(axis)) draft[param] = compiled[param];
     }
   }
+  Object.assign(draft, compileEdges(draft, Object.fromEntries(Object.entries(fields).filter(([name]) => EDGE_FIELDS.includes(name)))));
   for (const [param, value] of Object.entries(anchors)) {
     if (!HOUSE_BAND.includes(param)) throw refuse(422, "unknown_target", "Not a house band anchor", `${param} is not a house band anchor`, { field: "anchor" });
     if (typeof value !== "number" || !Number.isFinite(value)) throw invalid(`${param} must be a number`, "anchor");
@@ -487,6 +556,31 @@ function draftOf(current, fields, anchors) {
 }
 const changedOf = (current, draft) => HOUSE_BAND.filter((param) => Math.abs(current[param] - draft[param]) > bandStep(param) / 2 + 1e-9);
 const isSimple = (anchors) => changedOf(anchors, compileProfile(profileOf(anchors))).length === 0;
+/** The eight edges as the anchors hold them, unsnapped. */
+const edgesOf = (anchors) => Object.fromEntries(EDGE_FIELDS.map((name) => [name, anchors[edgeParam(name)]]));
+/** Per axis: are the sunrise and sunset anchors of its low and high series the midpoint of noon and midnight, on the step? */
+function edgesSimple(anchors) {
+  const simple = (axis) => ["low", "high"].every((side) => {
+    const step = bandStep(axis + "_");
+    const [sr, sm, ss, mid] = BAND_ANCHORS.map((key) => at(anchors, `${axis}_${side}`, key));
+    const shoulder = onStep((onStep(sm, step) + onStep(mid, step)) / 2, step);
+    return [sr, ss].every((value) => Math.abs(value - shoulder) <= step / 2 + 1e-9);
+  });
+  return { temp: simple("temp"), vpd: simple("vpd") };
+}
+/**
+ * band_profile.edge_field, for the checks this fixture makes: on an axis given as edges, a width finding names the
+ * edge given at that time of day (the high edge when both or neither are), and the night floor the night low edge.
+ */
+function edgeFinding(finding, fields) {
+  const axis = finding.field.startsWith("temp_") ? "temp" : finding.field.startsWith("vpd_") ? "vpd" : null;
+  if (!axis || !AXES.find(([name]) => name === axis)[2].some((name) => name in fields)) return finding;
+  if (finding.code === "night_floor") return { ...finding, field: "vpd_low_night" };
+  if (finding.code !== "band_width") return finding;
+  const time = finding.field.endsWith("_night") ? "night" : "day";
+  const side = `${axis}_low_${time}` in fields && !(`${axis}_high_${time}` in fields) ? "low" : "high";
+  return { ...finding, field: `${axis}_${side}_${time}` };
+}
 /** A fixed solar day: sunrise 07:00, solar noon 12:30, sunset 18:00, solar midnight 00:30, as fn_solar_phase's 0-4. */
 function phaseOf(hours) {
   const h = hours < 7 ? hours + 24 : hours;
@@ -507,9 +601,12 @@ function bandFindings(anchors) {
   const out = [];
   const points = (series) => BAND_ANCHORS.map((key) => at(anchors, series, key));
   const samples = (from, to) => Array.from({ length: 201 }, (_, index) => from + ((to - from) * index) / 200);
-  for (const [axis, minimum, unit, field] of [["temp", MIN_WIDTH_F, "°F", "temp_width_night"], ["vpd", MIN_WIDTH_KPA, "kPa", "vpd_above_night"]]) {
-    const widths = samples(0, 4).map((phase) => harmonicAt(points(`${axis}_high`), phase) - harmonicAt(points(`${axis}_low`), phase));
+  for (const [axis, minimum, unit, fields] of [["temp", MIN_WIDTH_F, "°F", ["temp_width_day", "temp_width_night"]], ["vpd", MIN_WIDTH_KPA, "kPa", ["vpd_above_day", "vpd_above_night"]]]) {
+    const phases = samples(0, 4);
+    const widths = phases.map((phase) => harmonicAt(points(`${axis}_high`), phase) - harmonicAt(points(`${axis}_low`), phase));
     const narrowest = Math.min(...widths);
+    // Named by where the band is narrowest: the night field from sunset (phase 2) on, as findings() does.
+    const field = phases[widths.indexOf(narrowest)] >= 2 ? fields[1] : fields[0];
     if (narrowest < minimum - 1e-9) out.push({ code: "band_width", severity: "error", field, detail: `The band narrows to ${narrowest.toFixed(axis === "temp" ? 1 : 2)} ${unit}; the control law needs it at least ${minimum} ${unit} wide at every point of the day` });
   }
   const floor = Math.min(...samples(2, 4).map((phase) => harmonicAt(points("vpd_low"), phase)));
@@ -518,7 +615,7 @@ function bandFindings(anchors) {
   if (!isSimple(anchors)) out.push({ code: "overshoot", severity: "warning", field: "band_temp_low_sr", detail: "temp_low leaves its anchor range by 1.5 °F: sunrise and sunset are not the midpoint of noon and midnight" });
   return out;
 }
-const fieldsOf = (source) => Object.fromEntries([...TEMP_FIELDS, ...VPD_FIELDS].flatMap((name) => {
+const fieldsOf = (source) => Object.fromEntries([...TEMP_FIELDS, ...VPD_FIELDS, ...EDGE_FIELDS].flatMap((name) => {
   const value = source(name);
   if (value === undefined || value === null) return [];
   if (typeof value !== "number" || !Number.isFinite(value)) throw invalid(`${name} must be a number`, name);
@@ -545,17 +642,18 @@ function profileBody(world, { query }) {
   const night = (values, shift) => values.map((value, index) => (phases[index] >= 2 ? round(value + shift, 3) : null));
   const heat = (curve) => round(phases.reduce((sum, phase, index) => sum + (phase >= 2 ? 0.19 * Math.max(0, curve.target[index] - 35) / 6 : 0), 0), 1);
   const mark = (hours) => Math.round((start + hours * HOUR) / 1000);
-  const state = (anchors) => ({ profile: profileOf(anchors), anchors, simple: isSimple(anchors) });
+  const state = (anchors) => ({ profile: profileOf(anchors), anchors, simple: isSimple(anchors), edges: edgesOf(anchors), edges_simple: edgesSimple(anchors) });
   return {
     day: date, step_s: 600, t, sun: { sunrise: mark(7), solar_noon: mark(12.5), sunset: mark(18), solar_midnight: mark(0.5) },
     current: state(current), draft: state(draft), changed: changedOf(current, draft),
     temp: { current: temp, draft: tempDraft },
     vpd: { current: vpd, draft: vpdDraft, expected_low: night(vpdDraft.target, -0.2), expected_high: night(vpdDraft.target, 0.05) },
     guardrails: { temp_min_f: 40, temp_max_f: 100, margin_f: 5, vpd_min_kpa: 0.3, vpd_max_kpa: 3, night_vpd_floor_kpa: NIGHT_FLOOR_KPA, min_width_f: MIN_WIDTH_F, min_width_kpa: MIN_WIDTH_KPA, dry_on_above_vpd_low_kpa: DRY_ON_KPA },
+    law_lines: { ...LAW_LINES },
     overshoot: Object.fromEntries(BAND_SERIES.map((series) => [series, isSimple(draft) ? 0 : series.startsWith("temp") ? 1.54 : 0.015])),
     night_heat_kwh: { current: heat(temp), draft: heat(tempDraft) },
     envelope: { hours: 140, days: 14, rmse_f: 4.5, dewpoint_p10_f: 44 },
-    findings: bandFindings(draft),
+    findings: bandFindings(draft).map((finding) => edgeFinding(finding, fields)),
     measured: measuredOf(world, t, temp, vpd),
     forecast: { temp: t.map((epoch) => round(38 + 12 * Math.sin((epoch * 1000 - start) / DAY * 2 * Math.PI - Math.PI / 2), 2)), vpd: t.map(() => 0.45), issued_at: iso(world.now - HOUR) },
   };
@@ -581,7 +679,7 @@ function saveBand(world, { body, serial, key }) {
   const reason = text(input.reason, "reason");
   const current = houseAnchors(world);
   const draft = draftOf(current, fields, anchors);
-  const error = bandFindings(draft).find((finding) => finding.severity === "error");
+  const error = bandFindings(draft).map((finding) => edgeFinding(finding, fields)).find((finding) => finding.severity === "error");
   if (error) throw refuse(422, "out_of_range", "Out of range", error.detail, { field: error.field });
   const changed = changedOf(current, draft);
   if (!changed.length) throw invalid("The draft changes no anchor", "anchor");
@@ -600,7 +698,7 @@ function saveBand(world, { body, serial, key }) {
     next.activity = next.activity.filter((entry) => !(entry.action === "setting.write" && rows.some((row) => row.param === entry.target && entry.ts === row.created_at)));
     activity(next, {
       ts: iso(created), actor: actorOf(next), action: "band.write", target: "house band", reason, request_id: key ?? null,
-      detail: { desired_ids: rows.map((row) => row.id), changes: rows.map((row) => ({ param: row.param, desired_id: row.id, before: current[row.param], value: row.value })), manual: { after: input.manual ?? true }, profile: profileOf(draft), simple: isSimple(draft) },
+      detail: { desired_ids: rows.map((row) => row.id), changes: rows.map((row) => ({ param: row.param, desired_id: row.id, before: current[row.param], value: row.value })), manual: { after: input.manual ?? true }, profile: profileOf(draft), simple: isSimple(draft), edges: edgesOf(draft), edges_simple: edgesSimple(draft) },
     });
   };
   return { status: 200, body: { changed: rows }, effect };

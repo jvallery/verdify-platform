@@ -441,6 +441,8 @@ class TableFlow(_Model):
 class ProbeAge(_Model):
     sensor: str
     age_s: float | None
+    # Null inside the 2 h window (age_s says it); outside it, the newest reading in 30 days, null when there is none.
+    last_seen_at: AwareDatetime | None
 
 
 class Ingestor(_Model):
@@ -634,12 +636,43 @@ def table_flows(freshness: Mapping[str, Any] | None, flow: Mapping[str, Any] | N
     ]
 
 
-def probe_ages(row: Mapping[str, Any] | None) -> list[ProbeAge]:
-    """PROBES_SQL per probe; a probe not seen in the 2 h window reads PROBE_WINDOW_S, as /metrics serves it."""
+# API-36 only: when a probe is outside the 2 h window, the time of its newest reading in this many days.
+PROBE_LAST_SEEN_DAYS = 30
+
+
+def probe_last_seen_sql(columns: Sequence[str]) -> str:
+    """One pass over the last 30 days of climate rows (about 43,000, one a minute; chunks older than 7 days are
+    compressed, so only ts and the named columns are decompressed): the newest non-null reading of each named probe.
+
+    The identifiers come from PROBES alone: a name that is not one of them is refused."""
+    unknown = [column for column in columns if column not in PROBES]
+    if not columns or unknown:
+        raise ValueError(f"not probe columns: {unknown or columns}")
+    return (
+        "SELECT "
+        + ", ".join(f"max(ts) FILTER (WHERE {column} IS NOT NULL) AS {column}" for column in columns)
+        + f" FROM climate WHERE ts > now() - interval '{PROBE_LAST_SEEN_DAYS} days'"
+    )
+
+
+def unseen_probes(row: Mapping[str, Any] | None) -> list[str]:
+    """The probes PROBES_SQL did not see in the 2 h window, in PROBES order."""
+    return [probe for probe in PROBES if _number(_get(row, probe)) is None]
+
+
+def probe_ages(row: Mapping[str, Any] | None, last_seen: Mapping[str, Any] | None = None) -> list[ProbeAge]:
+    """PROBES_SQL per probe; a probe not seen in the 2 h window reads PROBE_WINDOW_S, as /metrics serves it, with
+    its newest reading of the last 30 days from ``last_seen`` (probe_last_seen_sql's row)."""
     out = []
     for probe in PROBES:
         age = _number(_get(row, probe))
-        out.append(ProbeAge(sensor=f"climate.{probe}", age_s=PROBE_WINDOW_S if age is None else age))
+        out.append(
+            ProbeAge(
+                sensor=f"climate.{probe}",
+                age_s=PROBE_WINDOW_S if age is None else age,
+                last_seen_at=_get(last_seen, probe) if age is None else None,
+            )
+        )
     return out
 
 
@@ -718,6 +751,8 @@ async def data(conn: asyncpg.Connection, days: DataDays = 1) -> DataContinuity:
         freshness = await conn.fetchrow(FRESHNESS_SQL)
         flow = await conn.fetchrow(FLOW_SQL)
         probes = await conn.fetchrow(PROBES_SQL)
+        unseen = unseen_probes(probes)
+        last_seen = await conn.fetchrow(probe_last_seen_sql(unseen)) if unseen else None
         state = _by_entity(await conn.fetch(STATE_ROWS_SQL, list(DATA_ENTITIES)))
     return DataContinuity(
         from_=at - timedelta(days=days),
@@ -750,7 +785,7 @@ async def data(conn: asyncpg.Connection, days: DataDays = 1) -> DataContinuity:
             for row in by_day
         ],
         tables=table_flows(freshness, flow),
-        probes=probe_ages(probes),
+        probes=probe_ages(probes, last_seen),
         ingestor=ingestor(at, state.get("ingestor_heartbeat"), state.get("ingestor_counters")),
     )
 

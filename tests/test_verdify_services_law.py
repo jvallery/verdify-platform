@@ -19,6 +19,7 @@ from typing import get_args
 import pytest
 
 from verdify_schemas import climate_law_constants as K
+from verdify_schemas.vpd_envelope import outdoor_dewpoint_f
 from verdify_services import law, reads, series
 from verdify_services.problems import ServiceError
 
@@ -184,7 +185,9 @@ def test_the_newest_production_record_explained():
     assert drying.today == law.DryingToday(seconds=129.8, runs=1, water_g=247.0, heat_wh=177.0, lower_bound=False)
 
     assert view.inputs.temp_f == 70.65 and view.inputs.vpd_kpa == 0.914 and view.inputs.dew_point_f == 58.0
-    assert view.inputs.outdoor == law.OutdoorInput(source="station", temp_f=36.37, rh_pct=80.6, dew_point_f=None)
+    assert view.inputs.outdoor == law.OutdoorInput(
+        source="station", temp_f=36.37, rh_pct=80.6, dew_point_f=outdoor_dewpoint_f(36.37, 80.6)
+    )
     assert view.alone == law.LawAlone(
         clock=law.AloneClock(valid=True, sync_age_s=691.0),
         probes=law.AloneProbes(active=4, degraded=False),
@@ -391,6 +394,41 @@ def test_outdoor_source_and_small_words():
         "armed", "nvs_full", None, None
     ]  # fmt: skip
     assert [law.lead_fan(v) for v in ("Fan 1", "Fan 2", "fan2", "", None)] == ["fan1", "fan2", "fan2", None, None]
+
+
+def test_outdoor_dew_point_is_computed_from_the_served_pair():
+    # A known pair against the helper: 40 F at 30 % is a dew point of about 11.15 F.
+    assert law.outdoor_dew_point(40.0, 30.0) == outdoor_dewpoint_f(40.0, 30.0)
+    assert law.outdoor_dew_point(40.0, 30.0) == pytest.approx(11.15, abs=0.01)
+    station = law.outdoor_input(view_row(), AT)
+    assert station.dew_point_f == outdoor_dewpoint_f(36.37, 80.6)
+    intake = law.outdoor_input(view_row(outdoor_source="intake"), AT)
+    assert intake.dew_point_f == outdoor_dewpoint_f(37.04, 79.0)  # the intake pair, not the station's
+
+    # Null whenever the pair is not a reading, or the source gives none.
+    for overrides in (
+        {"outdoor_temp_f": None},
+        {"outdoor_rh_pct": None},
+        {"outdoor_temp_f": float("nan")},
+        {"outdoor_rh_pct": float("inf")},
+        {"outdoor_rh_pct": 0.0},
+        {"outdoor_rh_pct": -3.0},
+        {"outdoor_source": "none"},
+        {"outdoor_source": "satellite"},  # a value the controller never sends
+        {"outdoor_source_at": AT - timedelta(minutes=11)},  # unknown: the source row is stale
+        {"outdoor_source": None, "outdoor_source_at": None},
+    ):
+        assert law.outdoor_input(view_row(**overrides), AT).dew_point_f is None, overrides
+
+    # The indoor fields are untouched.
+    view = law.law_view(view_row(outdoor_temp_f=None), tracks(), None, False)
+    assert (view.inputs.temp_f, view.inputs.vpd_kpa, view.inputs.rh_pct, view.inputs.dew_point_f) == (
+        70.65,
+        0.914,
+        64.3,
+        58.0,
+    )
+    assert law.law_view(view_row(), tracks(), None, False).inputs.dew_point_f == 58.0
 
 
 # ── LawRule.hold: only what the host can prove ──────────────────────────────

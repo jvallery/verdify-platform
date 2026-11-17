@@ -1447,6 +1447,28 @@ def test_now_controller_health_uses_the_product_metrics_expressions():
     assert "interval '15 minutes'" in reads._CONTROLLER_HEALTH_SQL
 
 
+def test_now_controller_values_are_the_newest_non_null_up_to_the_newest_row():
+    """The law firmware carries these six values on about one diagnostics row in four: each is the newest non-null
+    value within 15 minutes up to the newest row, whose time stays observed_at; with no row in a day, no row."""
+    sql = " ".join(reads._DIAGNOSTICS_SQL.split())
+    for column in (
+        "firmware_version",
+        "uptime_s",
+        "reset_reason",
+        "heap_bytes",
+        "heap_largest_free_block_kb",
+        "wifi_rssi",
+    ):
+        assert (
+            f"(array_agg(d.{column} ORDER BY d.ts DESC) FILTER (WHERE d.{column} IS NOT NULL))[1] AS {column}" in sql
+        ), column
+    assert sql.startswith("SELECT newest.ts,")
+    assert "FROM (SELECT max(ts) AS ts FROM diagnostics WHERE ts > now() - interval '1 day') AS newest" in sql
+    assert "d.ts > newest.ts - interval '15 minutes' AND d.ts <= newest.ts" in sql
+    # An inner join grouped by the newest row: no diagnostics row in the last day gives no row, as before.
+    assert "JOIN diagnostics AS d ON" in sql and "LEFT JOIN" not in sql and sql.endswith("GROUP BY newest.ts")
+
+
 def test_now_keeps_every_existing_field_and_adds_the_new_ones_as_optional():
     for name in ("server_time", "indoor", "outdoor", "band", "mode", "iris", "alerts", "running", "overrides"):
         assert reads.Now.model_fields[name].is_required(), name

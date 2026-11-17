@@ -135,6 +135,14 @@ async def band_profile_preview(
     vpd_above_day: Annotated[float | None, _field("kPa above the day target", 0)] = None,
     vpd_below_night: Annotated[float | None, _field("kPa below the night target", 0)] = None,
     vpd_above_night: Annotated[float | None, _field("kPa above the night target", 0)] = None,
+    temp_low_day: Annotated[float | None, _field("Edge form: the low edge at solar noon, °F")] = None,
+    temp_high_day: Annotated[float | None, _field("Edge form: the high edge at solar noon, °F")] = None,
+    temp_low_night: Annotated[float | None, _field("Edge form: the low edge at solar midnight, °F")] = None,
+    temp_high_night: Annotated[float | None, _field("Edge form: the high edge at solar midnight, °F")] = None,
+    vpd_low_day: Annotated[float | None, _field("Edge form: the VPD low edge at solar noon, kPa")] = None,
+    vpd_high_day: Annotated[float | None, _field("Edge form: the VPD high edge at solar noon, kPa")] = None,
+    vpd_low_night: Annotated[float | None, _field("Edge form: the VPD low edge at solar midnight, kPa")] = None,
+    vpd_high_night: Annotated[float | None, _field("Edge form: the VPD high edge at solar midnight, kPa")] = None,
     anchor: Annotated[list[str] | None, Query(description="Advanced: a raw house anchor as param:value")] = None,
     day: Annotated[date | None, Query(description="America/Denver day; default today")] = None,
 ) -> band_profile.BandProfilePreview:
@@ -149,6 +157,14 @@ async def band_profile_preview(
         vpd_above_day=vpd_above_day,
         vpd_below_night=vpd_below_night,
         vpd_above_night=vpd_above_night,
+        temp_low_day=temp_low_day,
+        temp_high_day=temp_high_day,
+        temp_low_night=temp_low_night,
+        temp_high_night=temp_high_night,
+        vpd_low_day=vpd_low_day,
+        vpd_high_day=vpd_high_day,
+        vpd_low_night=vpd_low_night,
+        vpd_high_night=vpd_high_night,
     )
     overrides = band_profile.parse_anchor_overrides(anchor or [])
     return await band_profile.preview(conn, patch, overrides, day)

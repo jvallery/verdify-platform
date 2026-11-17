@@ -32,6 +32,7 @@ from test_dashboard_db_projections_320 import body_320, table
 
 from verdify_schemas import climate_law_constants as C
 from verdify_schemas.setting_help import setting_label
+from verdify_schemas.vpd_envelope import outdoor_dewpoint_f
 from verdify_services import law, reads, record, reviews, series, settings, system_health
 
 pytestmark = pytest.mark.skipif(DSN is None, reason="needs VERDIFY_ISOLATED_TEST_DSN (campaign private PostgreSQL)")
@@ -440,11 +441,15 @@ async def _seed(conn, w: World) -> dict[str, int]:
 
 
 def scene(work):
-    """``work(conn, world, ids)`` as the dashboard login after seeding, in one transaction that rolls back."""
+    """``work(conn, world, ids)`` as the dashboard login after seeding, in one transaction that rolls back.
+
+    The outer transaction is repeatable read because the API-30, API-31 and API-35 to API-37 reads open their own
+    repeatable-read transaction: nested in this one it becomes a savepoint, and the seeds stay visible to it.
+    """
 
     async def go():
         conn = await connect()
-        transaction = conn.transaction()
+        transaction = conn.transaction(isolation="repeatable_read")
         await transaction.start()
         try:
             world = World(await conn.fetchval("SELECT now()"))
@@ -483,7 +488,12 @@ def test_api30_reads_the_newest_record_with_its_rules_drying_checks_and_alone_st
         55.0,
         w.ago(seconds=20),
     )
-    assert inputs.outdoor.model_dump() == {"source": "station", "temp_f": 40.0, "rh_pct": 30.0, "dew_point_f": None}
+    assert inputs.outdoor.model_dump() == {
+        "source": "station",
+        "temp_f": 40.0,
+        "rh_pct": 30.0,
+        "dew_point_f": pytest.approx(outdoor_dewpoint_f(40.0, 30.0)),  # 11.15 F, computed on the host
+    }
 
     rules = {rule.id: rule for rule in view.rules}
     assert list(rules) == [
@@ -701,6 +711,97 @@ def test_api32_reads_each_day_from_its_rows_and_averages_the_complete_days(built
             "drying_h": 0.75,
         }
 
+    # system_state holds law records from the last hour only, as if older rows were gone; yesterday's stored law
+    # drying record (dry_refusal) still names yesterday as the day the law started.
+    assert result.law_started == y and result.since_law is None
+    baseline = result.baseline
+    edit_day = w.ago(hours=36).astimezone(DENVER).date()  # the seeded band edit: yesterday or the day before
+    left_out = edit_day == y - timedelta(days=1)
+    assert (baseline.from_, baseline.to, baseline.excluded_days) == (
+        y - timedelta(days=30),
+        y - timedelta(days=1),
+        int(left_out),
+    )
+    expected = record.means_of([] if left_out else [days[y - timedelta(days=1)]])
+    assert baseline.means == expected and baseline.means.days == (0 if left_out else 1)
+
+
+@pytest.mark.parametrize("case", ["plain", "edit_yesterday", "yesterday_open"])
+def test_api32_finds_the_first_law_day_and_leaves_band_edit_days_out_of_both_periods(built, case):
+    edit_yesterday = case == "edit_yesterday"
+
+    async def work(conn, w, ids):
+        y = w.yesterday
+        # As the owner: the law's first record at 15:00 two days back (after law.LAW_RECORDS_FROM whenever this runs
+        # from 2026-11-17 on), then nothing until the seeded records of the last hour, as across a controller restart;
+        # a complete stored day inside the baseline, and the band edits.
+        await conn.execute("RESET ROLE")
+        await _state(conn, [(local(y - timedelta(days=1), 15), "climate_law_state", EARLIER_RECORD)])
+        if case == "yesterday_open":
+            # Yesterday has ended but its record is not complete yet: no complete day since the law.
+            await conn.execute("UPDATE public.daily_record SET complete = false WHERE date = $1", y)
+        await conn.execute(
+            """INSERT INTO public.daily_record (date, complete, kwh_metered_24h, drying_s, drying_runs,
+                   furnace_starts_after_drying)
+               VALUES ($1, true, 30.0, 0, 0, 0)""",
+            y - timedelta(days=3),
+        )
+        await conn.execute("DELETE FROM public.activity_log WHERE action = $1", record.BAND_WRITE)
+        edits = [
+            local(y - timedelta(days=5), 12),  # in the baseline, a day with no record
+            local(y - timedelta(days=1), 12),  # the law's own day: in neither period
+            w.ago(seconds=1),  # today: never read
+        ]
+        if edit_yesterday:
+            edits.append(local(y, 23) + timedelta(minutes=30))  # since the law, late in the local day
+        await conn.executemany(
+            """INSERT INTO public.activity_log (greenhouse_id, ts, source, actor, action, target)
+               VALUES ('vallery', $1, 'dashboard', 'jason', $2, 'band')""",
+            [(ts, record.BAND_WRITE) for ts in edits],
+        )
+        await conn.execute(f"SET LOCAL ROLE {LOGIN}")
+        full = await record.record_days(conn)
+        week = await record.record_days(conn, w.today - timedelta(days=6), w.today)
+        return full, week
+
+    w, _, (full, week) = scene(work)
+    y = w.yesterday
+    assert full.law_started == y - timedelta(days=1)
+    baseline, since = full.baseline, full.since_law
+    assert (baseline.from_, baseline.to, baseline.excluded_days) == (y - timedelta(days=31), y - timedelta(days=2), 1)
+    assert (baseline.means.days, baseline.means.kwh) == (1, 30.0)  # the stored day; the day before is incomplete
+    days = {day.date: day for day in full.days}
+    if case == "yesterday_open":
+        assert since is None
+        assert (week.law_started, week.baseline, week.since_law) == (full.law_started, baseline, None)
+        return
+    assert (since.from_, since.to, since.excluded_days) == (y, y, int(edit_yesterday))
+    assert since.means == record.means_of([] if edit_yesterday else [days[y]])
+    if edit_yesterday:
+        assert since.means.days == 0
+        assert {key for key, value in since.means.model_dump().items() if value is not None} == {"days"}
+    else:
+        assert (since.means.days, since.means.both_pct, since.means.kwh) == (1, 40.0, 21.5)
+    # A 7-day request serves the same law day and periods.
+    assert (week.law_started, week.baseline, week.since_law) == (full.law_started, baseline, since)
+    assert len(week.days) == 7
+
+
+def test_api32_serves_no_law_day_and_no_periods_before_any_law_record(built):
+    async def work(conn, w, ids):
+        # As the owner: no law record from law.LAW_RECORDS_FROM on (one just before it does not count) and no stored
+        # law drying record.
+        await conn.execute("RESET ROLE")
+        await conn.execute("DELETE FROM public.system_state WHERE entity = 'climate_law_state'")
+        await _state(conn, [(law.LAW_RECORDS_FROM - timedelta(minutes=1), "climate_law_state", EARLIER_RECORD)])
+        await conn.execute("UPDATE public.daily_record SET dry_refusal = NULL")
+        await conn.execute(f"SET LOCAL ROLE {LOGIN}")
+        return await record.record_days(conn)
+
+    w, _, result = scene(work)
+    assert (result.law_started, result.baseline, result.since_law) == (None, None, None)
+    assert result.means.d7.days == 2 and len(result.days) == 30
+
 
 def test_api33_compares_today_s_counters_with_the_record_and_calls_the_day_partial(built):
     w, _, result = scene(lambda conn, w, ids: record.relay_check(conn, 7))
@@ -782,7 +883,14 @@ def test_api34_pages_the_reviews_with_their_proposal_state_and_token_use(built):
     }
     assert first.proposal_waiting.model_dump() == {"review_id": ids["newest"], "review_date": w.yesterday}
     # The newest finished review against the two before it.
-    assert first.tokens.model_dump() == {"last": 355128, "mean_7": 315000.0, "mean_30": 315000.0, "rise_pct": 12.7}
+    assert first.tokens.model_dump() == {
+        "last": 355128,
+        "mean_7": 315000.0,
+        "mean_30": 315000.0,
+        "rise_pct": 12.7,
+        "count_7": 2,
+        "count_30": 2,
+    }
 
 
 # ── API-35 to API-37: the controller, data continuity and delivery ──────────
@@ -859,6 +967,27 @@ def test_api36_reads_the_unreplayed_outage_the_replayed_quarter_and_the_flow(bui
     }
 
 
+def test_api36_says_when_a_silent_probe_last_answered(built):
+    async def work(conn, w, ids):
+        # As the owner: co2 last read three days back, lux only 31 days back (outside the 30-day search).
+        await conn.execute("RESET ROLE")
+        await conn.executemany(
+            "INSERT INTO public.climate (ts, greenhouse_id, co2_ppm, lux) VALUES ($1, 'vallery', $2, $3)",
+            [(w.ago(days=3), 650.0, None), (w.ago(days=31), None, 1200.0)],
+        )
+        await conn.execute(f"SET LOCAL ROLE {LOGIN}")
+        return await system_health.data(conn, 1)
+
+    w, _, result = scene(work)
+    probes = {item.sensor: item for item in result.probes}
+    # Inside the 2 h window: its age says it.
+    assert (probes["climate.temp_north"].age_s, probes["climate.temp_north"].last_seen_at) == (20.0, None)
+    window = float(system_health.PROBE_WINDOW_S)
+    assert (probes["climate.co2_ppm"].age_s, probes["climate.co2_ppm"].last_seen_at) == (window, w.ago(days=3))
+    assert (probes["climate.lux"].age_s, probes["climate.lux"].last_seen_at) == (window, None)
+    assert probes["climate.soil_ec_south_1"].last_seen_at is None
+
+
 def test_api37_counts_the_pushes_and_names_the_failing_settings(built):
     w, _, result = scene(lambda conn, w, ids: system_health.delivery(conn, 24))
 
@@ -891,6 +1020,28 @@ def test_api37_counts_the_pushes_and_names_the_failing_settings(built):
     ]
     assert result.dispatcher_stage == "ordinary"
     assert result.readback_pass.model_dump() == {"at": w.ago(minutes=1), "stored": 2, "of": 102}
+
+
+def test_a_snapshot_read_opens_its_own_repeatable_read_transaction_on_an_idle_connection(built):
+    """The handler's connection is in no transaction, so the read's own BEGIN is the top level, as in production."""
+
+    async def go():
+        conn = await connect()
+        try:
+            await conn.execute(f"SET ROLE {LOGIN}")
+            try:
+                idle_before = not conn.is_in_transaction()
+                health = await system_health.controller(conn)
+                idle_after = not conn.is_in_transaction()
+            finally:
+                await conn.execute("RESET ROLE")
+            return idle_before, health, idle_after
+        finally:
+            await conn.close()
+
+    idle_before, health, idle_after = run(go())
+    assert idle_before and idle_after
+    assert health.limits == system_health.LIMITS
 
 
 # ── API-02, API-04 and API-09: Now, the series keys and each setting's effect ─

@@ -126,7 +126,7 @@ SELECT (SELECT count(*) FROM aclexplode(c.relacl) a WHERE a.grantee = c.relowner
          WHERE a.grantee <> c.relowner) AS others,
        (SELECT count(*) FROM pg_attribute t
          WHERE t.attrelid = c.oid AND t.attnum > 0 AND t.attacl IS NOT NULL) AS column_acls,
-       c.relkind, pg_get_userbyid(c.relowner) = current_user AS owned
+       c.relkind::text AS relkind, pg_get_userbyid(c.relowner) = current_user AS owned
   FROM pg_class c WHERE c.oid = $1::text::regclass
 """
 

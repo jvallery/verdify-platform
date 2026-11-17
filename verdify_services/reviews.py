@@ -115,6 +115,9 @@ class ReviewTokens(_Model):
     mean_7: float | None
     mean_30: float | None
     rise_pct: float | None
+    # How many finished reviews before the newest each mean averages (at most 7 and 30; 0 beside a null mean).
+    count_7: int
+    count_30: int
 
 
 class ProposalWaiting(_Model):
@@ -250,13 +253,15 @@ def _mean(values: Sequence[int]) -> float | None:
 
 def token_use(totals: Sequence[int]) -> ReviewTokens:
     """``totals`` are the finished reviews' total tokens, newest first: the newest against the mean of the 7 and the
-    30 before it, and its rise over that 7-review mean in percent."""
+    30 before it (or of as many as there are, counted in ``count_7`` and ``count_30``), and its rise over that 7-review
+    mean in percent."""
     if not totals:
-        return ReviewTokens(last=None, mean_7=None, mean_30=None, rise_pct=None)
+        return ReviewTokens(last=None, mean_7=None, mean_30=None, rise_pct=None, count_7=0, count_30=0)
     last, before = totals[0], totals[1:]
-    mean_7, mean_30 = (_mean(before[:count]) for count in TOKEN_MEANS)
+    count_7, count_30 = (len(before[:count]) for count in TOKEN_MEANS)
+    mean_7, mean_30 = _mean(before[:count_7]), _mean(before[:count_30])
     rise = round(100.0 * (last - mean_7) / mean_7, 1) if mean_7 else None
-    return ReviewTokens(last=last, mean_7=mean_7, mean_30=mean_30, rise_pct=rise)
+    return ReviewTokens(last=last, mean_7=mean_7, mean_30=mean_30, rise_pct=rise, count_7=count_7, count_30=count_30)
 
 
 def _finite(value: object) -> float | None:

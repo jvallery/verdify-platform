@@ -943,12 +943,23 @@ SELECT 'water_temp_f', ts, hydro_water_temp_f FROM
    AND hydro_water_temp_f IS NOT NULL ORDER BY ts DESC LIMIT 1) t
 """
 
+# Now's controller facts: ts is the newest diagnostics row of the last day, and each value is its newest non-null
+# value within the 15 minutes up to that row. The law firmware publishes a row about every 15 s but carries these
+# values on about one row a minute, so the newest row alone usually lacks them. No row in the last day: no row.
 _DIAGNOSTICS_SQL = """
-SELECT ts, firmware_version, uptime_s, reset_reason, heap_bytes, heap_largest_free_block_kb, wifi_rssi
-  FROM diagnostics
- WHERE ts > now() - interval '1 day'
- ORDER BY ts DESC
- LIMIT 1
+SELECT newest.ts,
+       (array_agg(d.firmware_version ORDER BY d.ts DESC)
+            FILTER (WHERE d.firmware_version IS NOT NULL))[1] AS firmware_version,
+       (array_agg(d.uptime_s ORDER BY d.ts DESC) FILTER (WHERE d.uptime_s IS NOT NULL))[1] AS uptime_s,
+       (array_agg(d.reset_reason ORDER BY d.ts DESC) FILTER (WHERE d.reset_reason IS NOT NULL))[1] AS reset_reason,
+       (array_agg(d.heap_bytes ORDER BY d.ts DESC) FILTER (WHERE d.heap_bytes IS NOT NULL))[1] AS heap_bytes,
+       (array_agg(d.heap_largest_free_block_kb ORDER BY d.ts DESC)
+            FILTER (WHERE d.heap_largest_free_block_kb IS NOT NULL))[1] AS heap_largest_free_block_kb,
+       (array_agg(d.wifi_rssi ORDER BY d.ts DESC) FILTER (WHERE d.wifi_rssi IS NOT NULL))[1] AS wifi_rssi
+  FROM (SELECT max(ts) AS ts FROM diagnostics WHERE ts > now() - interval '1 day') AS newest
+  JOIN diagnostics AS d ON d.ts > newest.ts - interval '15 minutes' AND d.ts <= newest.ts
+ WHERE d.ts > now() - interval '1 day 15 minutes'
+ GROUP BY newest.ts
 """
 
 # Now's three hardware-budget facts: each the newest non-null value of the last 15 minutes, the expressions of

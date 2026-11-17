@@ -64,9 +64,18 @@ export type BandProfile = Lenient<Schemas["BandProfile"]>;
 /** The law's three guardrails (#1633 package 1.6) are null from an API synced before them: the web can ship first. */
 type LawGuardrails = "min_width_f" | "min_width_kpa" | "dry_on_above_vpd_low_kpa";
 type ProfileGuardrails = Schemas["BandProfilePreview"]["guardrails"];
-export type BandProfilePreview = Lenient<Omit<Schemas["BandProfilePreview"], "guardrails"> & {
+/** The edge form (dashboard v2, API spec §4.1) is null from an API synced before it, so the editor can ship first. */
+type ProfileState = Schemas["BandProfileState"];
+type EdgeState = Omit<ProfileState, "edges" | "edges_simple"> & { edges: ProfileState["edges"] | null; edges_simple: ProfileState["edges_simple"] | null };
+export type BandProfilePreview = Lenient<Omit<Schemas["BandProfilePreview"], "guardrails" | "current" | "draft" | "law_lines"> & {
   guardrails: Omit<ProfileGuardrails, LawGuardrails> & { [K in LawGuardrails]: ProfileGuardrails[K] | null };
+  current: EdgeState; draft: EdgeState; law_lines: Schemas["BandLawLines"] | null;
 }>;
+export type BandProfileState = BandProfilePreview["current"];
+export type BandProfileEdges = Lenient<Schemas["BandProfileEdges"]>;
+export type BandEdgesSimple = Lenient<Schemas["BandEdgesSimple"]>;
+export type BandLawLines = Lenient<Schemas["BandLawLines"]>;
+export type BandProfilePatch = Lenient<Schemas["BandProfilePatch"]>;
 export type BandWrite = Lenient<Schemas["BandWrite"]>;
 export type LightCommand = Lenient<Schemas["LightCommand"]>;
 export type SoilTarget = Lenient<Schemas["SoilTarget"]>;
@@ -289,7 +298,19 @@ const soilTarget = z.object({
   updated_at: maybe(text), updated_by: maybe(actor), reason: maybe(text),
 });
 const soilTargets = z.object({ targets: z.array(soilTarget) });
-const bandProfileState = z.object({ profile: bandProfile, anchors: z.record(z.string(), num), simple: flag });
+const bandProfileEdges = z.object({
+  temp_low_day: num, temp_high_day: num, temp_low_night: num, temp_high_night: num,
+  vpd_low_day: num, vpd_high_day: num, vpd_low_night: num, vpd_high_night: num,
+});
+const bandLawLines = z.object({
+  heat1_on_above_low_f: num, heat2_on_above_low_f: num, cool_on_above_high_f: num, fan2_on_above_high_f: num,
+  dry_on_above_vpd_low_kpa: num, fog_on_above_vpd_high_kpa: num, mist_on_above_vpd_high_kpa: num,
+});
+const bandProfileState = z.object({
+  profile: bandProfile, anchors: z.record(z.string(), num), simple: flag,
+  // The edge form; an API from before it sends none, read as null.
+  edges: maybe(bandProfileEdges), edges_simple: maybe(z.object({ temp: flag, vpd: flag })),
+});
 const bandProfilePreview = z.object({
   day: text, step_s: int, t: z.array(int),
   sun: z.object({ sunrise: maybe(int), solar_noon: maybe(int), sunset: maybe(int), solar_midnight: maybe(int) }),
@@ -298,6 +319,7 @@ const bandProfilePreview = z.object({
   vpd: z.object({ current: bandCurve, draft: bandCurve, expected_low: nullableNumbers, expected_high: nullableNumbers }),
   guardrails: z.object({ temp_min_f: num, temp_max_f: num, margin_f: num, vpd_min_kpa: num, vpd_max_kpa: num, night_vpd_floor_kpa: num,
     min_width_f: maybe(num), min_width_kpa: maybe(num), dry_on_above_vpd_low_kpa: maybe(num) }),
+  law_lines: maybe(bandLawLines),
   overshoot: z.record(z.string(), num),
   night_heat_kwh: z.object({ current: maybe(num), draft: maybe(num) }),
   envelope: maybe(z.object({ hours: int, days: int, rmse_f: num, dewpoint_p10_f: num })),
@@ -599,7 +621,7 @@ const review = z.object({
 const reviewPage = z.object({
   ...page, items: z.array(review),
   today: z.object({ review_date: text, status: code, missed: flag, expected_after: text, late_after: text }),
-  tokens: z.object({ last: maybe(int), mean_7: maybe(num), mean_30: maybe(num), rise_pct: maybe(num) }),
+  tokens: z.object({ last: maybe(int), mean_7: maybe(num), mean_30: maybe(num), rise_pct: maybe(num), count_7: int, count_30: int }),
   proposal_waiting: maybe(z.object({ review_id: int, review_date: text })),
 });
 // System (API-35 to API-37).
@@ -628,7 +650,7 @@ const dataContinuity = z.object({
   })),
   by_day: z.array(z.object({ date: text, outage_s: int, replayed_min: int })),
   tables: z.array(z.object({ table: text, last_row_age_s: maybe(num), rows_5m: maybe(int) })),
-  probes: z.array(z.object({ sensor: text, age_s: maybe(num) })),
+  probes: z.array(z.object({ sensor: text, age_s: maybe(num), last_seen_at: text.nullable() })),
   ingestor: z.object({
     heartbeat_age_s: maybe(num), reconnects: maybe(int), payloads_rejected: maybe(int), replay_failures: maybe(int),
     rows_rejected: maybe(z.record(z.string(), int)), observed_at: maybe(text),

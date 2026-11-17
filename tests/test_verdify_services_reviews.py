@@ -165,7 +165,14 @@ def test_a_proposal_waits_until_a_band_write_answers_it_or_a_newer_review_supers
 
 def test_token_use_compares_the_newest_review_with_the_ones_before_it():
     tokens = reviews.token_use([ROW_2["total_tokens"], ROW_1["total_tokens"]])
-    assert tokens.model_dump() == {"last": 355128, "mean_7": 185792.0, "mean_30": 185792.0, "rise_pct": 91.1}
+    assert tokens.model_dump() == {
+        "last": 355128,
+        "mean_7": 185792.0,
+        "mean_30": 185792.0,
+        "rise_pct": 91.1,
+        "count_7": 1,  # with two reviews, each mean is the one review before the newest
+        "count_30": 1,
+    }
 
 
 def test_token_means_take_seven_and_thirty_reviews_before_the_newest():
@@ -174,6 +181,13 @@ def test_token_means_take_seven_and_thirty_reviews_before_the_newest():
     assert tokens.last == 200 and tokens.mean_7 == 100.0
     assert tokens.mean_30 == round((7 * 100 + 23 * 400) / 30, 1)
     assert tokens.rise_pct == 100.0
+    assert (tokens.count_7, tokens.count_30) == (7, 30)  # the 32nd total is beyond both means
+
+
+def test_token_counts_say_how_many_reviews_each_mean_averages():
+    tokens = reviews.token_use([200, *([100] * 11)])
+    assert (tokens.count_7, tokens.mean_7) == (7, 100.0)
+    assert (tokens.count_30, tokens.mean_30) == (11, 100.0)
 
 
 @pytest.mark.parametrize("totals", [[], [185792]])
@@ -181,6 +195,7 @@ def test_token_use_is_null_without_a_review_to_compare(totals):
     tokens = reviews.token_use(totals)
     assert tokens.mean_7 is None and tokens.rise_pct is None
     assert tokens.last == (totals[0] if totals else None)
+    assert (tokens.mean_30, tokens.count_7, tokens.count_30) == (None, 0, 0)  # 0 beside a null mean
 
 
 # ── the proposal ────────────────────────────────────────────────────────────

@@ -277,12 +277,12 @@ export interface paths {
         };
         /**
          * The house band as stored and as drafted in the band editor, over one day, before Save
-         * @description Read-only (#1334). Reads the 24 house anchors as fn_crop_band_value resolves them and overlays the draft: any simple temperature field recompiles the six temperature anchors from day (solar noon) and night (solar midnight) values with sunrise and sunset at their midpoint, so the curve is a pure sinusoid that never leaves its noon and midnight values; any VPD field does the same for the VPD anchors; then each anchor= item sets one raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase, so the draft is the curve the controller runs. findings with severity error are what API-24 refuses. The expected night VPD ribbon is a 14-day indoor dewpoint fit on quiet deep-night hours and the forecast; night_heat_kwh is 0.19 kW/°F over the forecast's night hours. Codes: unknown_target (anchor not a house band anchor), out_of_range (outside planner_effective_bounds), read_only (no complete anchor set).
+         * @description Read-only (#1334). Reads the 24 house anchors as fn_crop_band_value resolves them and overlays the draft: any simple temperature field recompiles the six temperature anchors from day (solar noon) and night (solar midnight) values with sunrise and sunset at their midpoint, so the curve is a pure sinusoid that never leaves its noon and midnight values; any VPD field does the same for the VPD anchors. The edge form does the same from the band's low and high edges: each low or high series given an edge field compiles from its day and night edges with sunrise and sunset halfway between them, on the push step, an edge left out keeping the band's own noon or midnight value, and a series given no edge keeps its anchors; a target whose curve would leave its new edges anywhere in the day moves to their midpoint at all four anchors in the draft, and one whose curve stays between them stays. One axis given in both forms is invalid_request, and the findings of an axis given as edges name the edge field (for band order, the edge the target crosses). Then each anchor= item sets one raw anchor (Advanced). Curves are the controller's four-anchor harmonic at 10-min steps of fn_solar_phase, so the draft is the curve the controller runs. findings with severity error are what API-24 refuses. The expected night VPD ribbon is a 14-day indoor dewpoint fit on quiet deep-night hours and the forecast; night_heat_kwh is 0.19 kW/°F over the forecast's night hours. Codes: unknown_target (anchor not a house band anchor), out_of_range (outside planner_effective_bounds), read_only (no complete anchor set).
          */
         readonly get: operations["API-23"];
         /**
          * Save the band editor's draft, every changed house anchor in one write
-         * @description The same draft as API-23 (profile fields and Advanced anchors). In one transaction: each house anchor the draft changes (by more than half the push quantum, 0.1 °F or 0.01 kPa) is an API-10 write, its desired_state row with the manual flag and its crop_band_anchors rows, and one activity_log row, action band.write, target "house band", detail {desired_ids, changes [{param, desired_id, before, value}], anchor_rows, manual, profile, simple}. The dispatcher's anchor sync delivers the anchors; nothing talks to the controller. Codes: out_of_range (an API-23 error finding: band order, the 40/100 °F guardrails 5 °F outside the band, the 0.3-3.0 kPa VPD guardrails or the 0.74 kPa night floor; or an anchor outside its bounds), invalid_request (the draft changes nothing), read_only (Iris: the band is operator-owned), unknown_target, request_id_reused.
+         * @description The same draft as API-23 (profile fields or edges, and Advanced anchors). In one transaction: each house anchor the draft changes (by more than half the push quantum, 0.1 °F or 0.01 kPa) is an API-10 write, its desired_state row with the manual flag and its crop_band_anchors rows, and one activity_log row, action band.write, target "house band", detail {desired_ids, changes [{param, desired_id, before, value}], anchor_rows, manual, profile, simple, edges, edges_simple}. Under the edge form a target whose curve would leave its new edges moves to their midpoint at all four anchors in the same write. One axis given in both forms is invalid_request. The dispatcher's anchor sync delivers the anchors; nothing talks to the controller. Codes: out_of_range (an API-23 error finding: band order, the 40/100 °F guardrails 5 °F outside the band, the 0.3-3.0 kPa VPD guardrails or the 0.74 kPa night floor; or an anchor outside its bounds), invalid_request (the draft changes nothing), read_only (Iris: the band is operator-owned), unknown_target, request_id_reused.
          */
         readonly put: operations["API-24"];
         readonly post?: never;
@@ -1334,6 +1334,28 @@ export interface components {
             /** @description kPa */
             readonly vpd_low_kpa: number;
         };
+        /** @description Per axis, true when the sunrise and sunset anchors of its low and high series are the midpoint of their noon and midnight values on the push step, so the eight edges describe the band in full */
+        readonly BandEdgesSimple: {
+            readonly temp: boolean;
+            readonly vpd: boolean;
+        };
+        /** @description Where the law's rules switch on, as offsets from the band's edges, for the preview to draw (the law constants) */
+        readonly BandLawLines: {
+            /** @description Cooling comes on above temp_high plus this, °F */
+            readonly cool_on_above_high_f: number;
+            /** @description Drying is wanted below vpd_low plus this, kPa */
+            readonly dry_on_above_vpd_low_kpa: number;
+            /** @description The second fan comes on above temp_high plus this, °F */
+            readonly fan2_on_above_high_f: number;
+            /** @description The fogger comes on above vpd_high plus this, kPa */
+            readonly fog_on_above_vpd_high_kpa: number;
+            /** @description The electric heater comes on below temp_low plus this, °F */
+            readonly heat1_on_above_low_f: number;
+            /** @description The furnace comes on below temp_low plus this, °F */
+            readonly heat2_on_above_low_f: number;
+            /** @description The misters join above vpd_high plus this, kPa */
+            readonly mist_on_above_vpd_high_kpa: number;
+        };
         readonly BandPosition: {
             readonly high: number | null;
             readonly low: number | null;
@@ -1383,9 +1405,36 @@ export interface components {
             /** @description kPa */
             readonly vpd_night: number;
         };
-        /** @description The simple fields to change; a field left out keeps the band's own value */
+        /** @description The band's low and high edges at solar noon (day) and solar midnight (night), as the anchors hold them */
+        readonly BandProfileEdges: {
+            /** @description temp_high at solar noon, °F */
+            readonly temp_high_day: number;
+            /** @description temp_high at solar midnight, °F */
+            readonly temp_high_night: number;
+            /** @description temp_low at solar noon, °F */
+            readonly temp_low_day: number;
+            /** @description temp_low at solar midnight, °F */
+            readonly temp_low_night: number;
+            /** @description vpd_high at solar noon, kPa */
+            readonly vpd_high_day: number;
+            /** @description vpd_high at solar midnight, kPa */
+            readonly vpd_high_night: number;
+            /** @description vpd_low at solar noon, kPa */
+            readonly vpd_low_day: number;
+            /** @description vpd_low at solar midnight, kPa */
+            readonly vpd_low_night: number;
+        };
+        /** @description The simple fields or edges to change; a field left out keeps the band's own value. An axis is given either as a target with its width or as edges, never both */
         readonly BandProfilePatch: {
             readonly temp_day?: number | null;
+            /** @description Edge form: the high edge at solar noon, °F */
+            readonly temp_high_day?: number | null;
+            /** @description Edge form: the high edge at solar midnight, °F */
+            readonly temp_high_night?: number | null;
+            /** @description Edge form: the low edge at solar noon, °F */
+            readonly temp_low_day?: number | null;
+            /** @description Edge form: the low edge at solar midnight, °F */
+            readonly temp_low_night?: number | null;
             readonly temp_night?: number | null;
             readonly temp_width_day?: number | null;
             readonly temp_width_night?: number | null;
@@ -1394,6 +1443,14 @@ export interface components {
             readonly vpd_below_day?: number | null;
             readonly vpd_below_night?: number | null;
             readonly vpd_day?: number | null;
+            /** @description Edge form: the VPD high edge at solar noon, kPa */
+            readonly vpd_high_day?: number | null;
+            /** @description Edge form: the VPD high edge at solar midnight, kPa */
+            readonly vpd_high_night?: number | null;
+            /** @description Edge form: the VPD low edge at solar noon, kPa */
+            readonly vpd_low_day?: number | null;
+            /** @description Edge form: the VPD low edge at solar midnight, kPa */
+            readonly vpd_low_night?: number | null;
             readonly vpd_night?: number | null;
         };
         /** @description API-23: the house band as stored (current) and drafted, one point per step_s */
@@ -1455,6 +1512,7 @@ export interface components {
                 readonly vpd_max_kpa: number;
                 readonly vpd_min_kpa: number;
             };
+            readonly law_lines: components["schemas"]["BandLawLines"];
             /** @description The last 24 h of the measured house average on t, by America/Denver clock time: a step before now holds today's 10-min bucket, a later step yesterday's */
             readonly measured: {
                 /** @description Per step, the bucket its values come from; null if none */
@@ -1503,6 +1561,8 @@ export interface components {
             readonly anchors: {
                 readonly [key: string]: number;
             };
+            readonly edges: components["schemas"]["BandProfileEdges"];
+            readonly edges_simple: components["schemas"]["BandEdgesSimple"];
             readonly profile: components["schemas"]["BandProfile"];
             /** @description True when sunrise and sunset are the midpoint of noon and midnight */
             readonly simple: boolean;
@@ -1722,7 +1782,7 @@ export interface components {
         };
         /** @description API-32: one row per America/Denver day, oldest first, with the 7- and 30-day means and the periods before and since the law */
         readonly DailyRecord: {
-            /** @description The 30 days before law_started, leaving out days with a band edit (activity_log band.write); null before the first law record */
+            /** @description The 30 days before law_started, leaving out days with a band edit (activity_log band.write); null when law_started is null */
             readonly baseline: components["schemas"]["RecordPeriod"] | null;
             /** @description Ascending by date */
             readonly days: readonly components["schemas"]["RecordDay"][];
@@ -1730,7 +1790,7 @@ export interface components {
             readonly from: string;
             /**
              * Format: date
-             * @description The local day of the first law record; null before it
+             * @description The local day of the controller's first law record; null when none is stored
              */
             readonly law_started: string | null;
             /** @description The means the reviewer and the owner compare against, over complete days only; null with no complete day */
@@ -1740,7 +1800,7 @@ export interface components {
             };
             /** Format: date-time */
             readonly server_time: string;
-            /** @description The days from the day after law_started through yesterday; null until such a day exists */
+            /** @description The days from the day after law_started through yesterday, band-edit days left out as in baseline; null until one of those days is complete (ended and its record stored) */
             readonly since_law: components["schemas"]["RecordPeriod"] | null;
             /**
              * Format: date
@@ -1804,6 +1864,11 @@ export interface components {
             readonly probes: readonly {
                 /** @description Seconds since its newest reading; 7200 means not seen in 2 h */
                 readonly age_s: number | null;
+                /**
+                 * Format: date-time
+                 * @description For a probe not seen in 2 h, the time of its newest reading in the last 30 days; null when it has none in 30 days, and null for a probe seen in the last 2 h, whose age already says it
+                 */
+                readonly last_seen_at: string | null;
                 /** @example climate.temp_north */
                 readonly sensor: string;
             }[];
@@ -3374,12 +3439,13 @@ export interface components {
             readonly therms_est: number | null;
             readonly vpd_pct: number | null;
         };
-        /** @description A fixed period's means over its complete days */
+        /** @description A fixed period of local days, from and to inclusive, and its means over its complete days less the days on which the house band was changed. A period with no such day has means.days 0 and every mean null; a real figure, zero included, always comes with days above 0, so a reader tells the two apart by days */
         readonly RecordPeriod: {
-            /** @description Days left out of the period (band edits) */
+            /** @description The days in the period left out because the house band was changed on them (band edits) */
             readonly excluded_days: number;
             /** Format: date */
             readonly from: string;
+            /** @description Over the period's complete days that are not left out; days 0 with every mean null when there are none */
             readonly means: components["schemas"]["RecordMeans"];
             /**
              * Format: date
@@ -3505,6 +3571,10 @@ export interface components {
             };
             /** @description The reviewer's token use */
             readonly tokens: {
+                /** @description How many finished reviews before the newest mean_7 averages; 0 when mean_7 is null */
+                readonly count_7: number;
+                /** @description How many finished reviews before the newest mean_30 averages; 0 when mean_30 is null */
+                readonly count_30: number;
                 /** @description The newest review's total tokens */
                 readonly last: number | null;
                 readonly mean_7: number | null;
@@ -4541,6 +4611,14 @@ export interface operations {
                 readonly day?: string;
                 /** @description Temperature target at solar noon, °F */
                 readonly temp_day?: number;
+                /** @description Edge form: the high edge at solar noon, °F */
+                readonly temp_high_day?: number;
+                /** @description Edge form: the high edge at solar midnight, °F */
+                readonly temp_high_night?: number;
+                /** @description Edge form: the low edge at solar noon, °F */
+                readonly temp_low_day?: number;
+                /** @description Edge form: the low edge at solar midnight, °F */
+                readonly temp_low_night?: number;
                 /** @description Temperature target at solar midnight, °F */
                 readonly temp_night?: number;
                 /** @description ± °F around the day target */
@@ -4557,6 +4635,14 @@ export interface operations {
                 readonly vpd_below_night?: number;
                 /** @description VPD target at solar noon, kPa */
                 readonly vpd_day?: number;
+                /** @description Edge form: the VPD high edge at solar noon, kPa */
+                readonly vpd_high_day?: number;
+                /** @description Edge form: the VPD high edge at solar midnight, kPa */
+                readonly vpd_high_night?: number;
+                /** @description Edge form: the VPD low edge at solar noon, kPa */
+                readonly vpd_low_day?: number;
+                /** @description Edge form: the VPD low edge at solar midnight, kPa */
+                readonly vpd_low_night?: number;
                 /** @description VPD target at solar midnight, kPa */
                 readonly vpd_night?: number;
             };
