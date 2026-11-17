@@ -44,7 +44,7 @@ test("in band: Running now, the next 12 h in time order with who planned each ch
   expect(within(card()).getByRole("heading", { level: 2 }).textContent).toBe("Equipment & scheduled work");
   expect(text(card().querySelector(".now-next-now"))).toBe("Running nowNothing running");
   expect(coming("run")).toEqual(["11:47Center mister · 4 × 45 s · sensor-fault backup · only if VPD sensing is degraded", "13:47Center mister · 4 × 45 s · sensor-fault backup · only if VPD sensing is degraded"]);
-  expect(coming("plan")).toEqual(["13:00Misting starts at VPD 1.60 → 1.70 kPa AI", "16:30Mist pulse gap 45.0 → 55.0 s AI"]);
+  expect(coming("plan")).toEqual(["13:00Oldest outdoor reading used 660.0 → 720.0 s AI", "16:30Mister Min Off 45.0 → 55.0 s AI"]);
   expect(coming("iris")).toEqual(["12:41Iris: Midday check", "16:50Iris: Sunset plan"]);
   expect(coming("sun")).toEqual(["16:58Sunset"]);
   expect(coming("later")).toEqual(["Later No schedule: Wall drip, South mister, West mister"]);

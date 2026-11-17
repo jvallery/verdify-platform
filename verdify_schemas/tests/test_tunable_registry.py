@@ -42,13 +42,15 @@ from verdify_schemas.tunable_registry import (
     CFG_READBACK_MAP_REG,
     FIRMWARE_V2_STAGED_REG,
     IRRIGATION_SITE_PARAMS,
+    LIVE_WIRE_FIELDS,
     PLANNER_PUSHABLE_REG,
     REGISTRY,
+    RESERVED_WIRE_SLOTS,
     RETIRED_TUNABLES_REG,
     RETIRING_TUNABLES,
     SETPOINT_MAP_REG,
-    THIRD_FLASH_INERT_WIRE_REG,
     TIER1_REG,
+    WIRE_SLOT_DEFS,
     TunableDef,
     planner_effective_bounds,
     registry_value_error,
@@ -256,7 +258,7 @@ class TestDriftGuard:
         to_check = {
             n: d
             for n, d in REGISTRY.items()
-            if d.kind == "numeric" and d.fw_clamp_lo is not None and n not in THIRD_FLASH_INERT_WIRE_REG
+            if d.kind == "numeric" and d.fw_clamp_lo is not None and n not in RESERVED_WIRE_SLOTS
         }
         missing: list[str] = []
         mismatched: list[str] = []
@@ -308,7 +310,7 @@ class TestDriftGuard:
               - platform: template
                 id: num_renamed_engage
                 name: "Renamed Engage Threshold"
-                lambda: "return verdify_policy::policy_read(verdify_policy::kPF_mister_engage_kpa, id(mister_engage_kpa));"
+                lambda: "return verdify_policy::policy_read(verdify_policy::kPF_mister_engage_delay_s, id(mister_engage_delay_s));"
               - platform: template
                 id: num_brand_new_knob
                 name: "Brand New Knob (s)"
@@ -509,20 +511,9 @@ class TestDriftGuard:
             == "Retired: the engine ranks zones whenever more than one is a VPD member."
         )
         assert REGISTRY["sw_arbiter_zone_enabled"].cfg_readback_object_id == "cfg_arbiter_zone_enabled"
-        for param in (
-            "cool_stage2_over_high_f",
-            "cool_exit_hysteresis_f",
-            "cold_vent_guard_delta_f",
-            "sw_cool_all_fans_at_high_enabled",
-            "sw_direct_wet_stress_override_enabled",
-            "direct_wet_stress_vpd_margin_kpa",
-            "direct_wet_stress_min_dew_margin_f",
-            # fog_stress_* removed (BC-11/ADR0003 §6.7): retired dead registry rows.
-            # direct_wet_stress_latest_hour retired (wire schema v2, #588):
-            # zero firmware presence — asserted below.
-        ):
-            assert param in TIER1_REG
-            assert param in PLANNER_PUSHABLE_REG
+        # Release 4 (#1633): the planner-pushable rows are exactly the five live policy-wire slots.
+        assert PLANNER_PUSHABLE_REG == LIVE_WIRE_FIELDS
+        for param in LIVE_WIRE_FIELDS:
             assert REGISTRY[param].cfg_readback_object_id
         assert "direct_wet_stress_latest_hour" not in TIER1_REG
         assert "direct_wet_stress_latest_hour" not in PLANNER_PUSHABLE_REG
@@ -575,10 +566,10 @@ class TestDriftGuard:
         assert tunable_control_class("mister_on_s", REGISTRY["mister_on_s"]) == "retired"
 
     def test_registry_value_error_reports_bounds_and_nearest_safe(self) -> None:
-        err = registry_value_error("mister_all_kpa", 2.8)
+        err = registry_value_error("mister_hysteresis_kpa", 0.8)
         assert err is not None
-        assert "mister_all_kpa=2.8 outside registry bounds [1, 2.5]" in err
-        assert "nearest_safe=2.5" in err
+        assert "mister_hysteresis_kpa=0.8 outside registry bounds [0.05, 0.5]" in err
+        assert "nearest_safe=0.5" in err
 
 
 class TestActivityDirectWetGuards:
@@ -626,13 +617,13 @@ class TestActivityDirectWetGuards:
         # VD-47 retired the day-mask rows with their cfg_* readbacks.
         for name in self.RETIRED_IRRIGATION_MASKS:
             assert name not in REGISTRY
+        # Release 4 (#1633) deleted the direct-wet stress override and its two margins with their wire rows.
         for name in (
             "direct_wet_stress_vpd_margin_kpa",
             "direct_wet_stress_min_dew_margin_f",
             "sw_direct_wet_stress_override_enabled",
         ):
-            assert REGISTRY[name].planner_pushable
-            assert REGISTRY[name].control_class == "planner_policy"
+            assert name not in REGISTRY
         # Retired (wire schema v2, #588): zero firmware presence; the row stays
         # for history + the PR3 dispatch gate but is no longer planner-writable.
         assert not REGISTRY["direct_wet_stress_latest_hour"].planner_pushable
@@ -851,18 +842,10 @@ _BAND_CURVE_ANCHOR_RE = re.compile(r"^(?:band_\w+_(?:sr|sm|ss|mid)|zone_vpd_targ
 
 
 class TestPlannerWriteContractLockout:
-    def test_band_track_fraction_is_planner_float_only(self) -> None:
-        """ADR-0004: planner may set the reversible float flip to 0, but not
-        re-tighten the control band toward the target line."""
-        row = REGISTRY["band_track_fraction"]
-        assert row.planner_pushable
-        assert row.default == 0.0
-        assert row.min == 0.0
-        assert row.max == 0.0
-        assert registry_value_error("band_track_fraction", 0.0) is None
-        err = registry_value_error("band_track_fraction", 0.25)
-        assert err is not None
-        assert "nearest_safe=0" in err
+    def test_band_track_fraction_left_the_registry(self) -> None:
+        """Release 4 (#1633): the float-flip lever is a reserved policy-wire slot, not a setting."""
+        assert "band_track_fraction" not in REGISTRY
+        assert "band_track_fraction" in RESERVED_WIRE_SLOTS
 
     def test_all_band_curve_anchors_non_pushable_crop_band(self) -> None:
         """Every band-CURVE anchor (band_*_{sr,sm,ss,mid}, zone_vpd_*, zone_priority_*)
@@ -984,7 +967,7 @@ def _parse_entities(text: str) -> tuple[dict[str, tuple[str, float | None]], dic
 
 # The policy-wire settings the third flash deleted keep their copied entity name until their rows go with the wire
 # change; the guards skip them.
-_THIRD_FLASH_DELETED = THIRD_FLASH_INERT_WIRE_REG
+_THIRD_FLASH_DELETED = frozenset(RESERVED_WIRE_SLOTS)
 
 
 def _lost_entity(name: str, spec: TunableDef) -> str:
@@ -1113,7 +1096,11 @@ class TestStepLabelUnitDriftGuard:
 
         assert len(ENTITY_GRIDS) == 48
         mismatched = {}
+        # Release 4 (#1633): only the live slots are settings with a step; the 43 reserved slots have none.
         for name, grid in ENTITY_GRIDS.items():
+            if name not in LIVE_WIRE_FIELDS:
+                assert WIRE_SLOT_DEFS[name].wire_id is not None, name
+                continue
             expected = 1.0 if grid.step is None else float(grid.step)
             if REGISTRY[name].step != expected:
                 mismatched[name] = (REGISTRY[name].step, expected)
@@ -1395,6 +1382,6 @@ def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None
     assert not retired_1477 & set(REGISTRY)
     assert "zone_priority_east" in CROP_BAND_REG
     assert LEGACY_SHARED_LIGHTING_REG == frozenset()
-    # Inert on the band-first controller but decoded from the policy wire: retiring them is a wire change.
+    # Release 4 (#1633, shape B): inert slots left the registry but keep their reserved policy-wire slot.
     for name in ("mist_thermal_relief_s", "sw_direct_wet_stress_override_enabled"):
-        assert REGISTRY[name].control_class == "planner_policy" and REGISTRY[name].wire_id is not None
+        assert name not in REGISTRY and RESERVED_WIRE_SLOTS[name].wire_id is not None

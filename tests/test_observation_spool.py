@@ -28,7 +28,7 @@ TS = datetime(2000, 1, 1, tzinfo=UTC)
 EVENTS = [
     ("system_state", {"entity": "greenhouse_state", "value": "HEAT"}),
     ("override", {"override_type": "fog_gate_rh", "mode": "HEAT"}),
-    ("setpoint_observed", {"parameter": "vent_prefer_temp_delta_f", "value": 5}),
+    ("setpoint_observed", {"parameter": "mister_min_off_s", "value": 45}),
     ("esp32_log", {"level": "WARN", "tag": "test", "message": "original"}),
     ("diagnostics", {"uptime_s": 30}),
 ]
@@ -209,7 +209,7 @@ def test_all_five_schema_acceptance_and_original_setpoint_observation():
     assert ingestor._accept_observations(EVENTS, TS)
     rows = ingestor._get_observation_spool().queue.rows()
     assert [r[0] for r in rows] == [e[0] for e in EVENTS]
-    assert rows[2][2]["payload"] == {"parameter": "vent_prefer_temp_delta_f", "value": 5}
+    assert rows[2][2]["payload"] == {"parameter": "mister_min_off_s", "value": 45}
     pool = Pool()
     asyncio.run(ingestor._get_observation_spool().drain(pool))
     assert pool.calls[2][2] == TS
@@ -226,12 +226,12 @@ def test_duplicate_batch_uuid_collision_rolls_back_every_row():
 def test_callback_setpoint_is_accepted_before_cache_change(monkeypatch):
     ingestor.state.key_to_object_id[1] = "test_number"
     ingestor.state.key_to_type[1] = "number"
-    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_number", "vent_prefer_temp_delta_f")
+    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_number", "mister_min_off_s")
     monkeypatch.setattr(ingestor, "_equipment_source_now", lambda: TS)
     monkeypatch.setattr(ingestor, "_mirror_irrigation_number_readback", lambda *_: None)
-    ingestor.on_state_change(SimpleNamespace(key=1, state=5))
+    ingestor.on_state_change(SimpleNamespace(key=1, state=45))
     assert ingestor.state.pending_setpoints == []
-    assert ingestor.state.setpoints["vent_prefer_temp_delta_f"] == 5
+    assert ingestor.state.setpoints["mister_min_off_s"] == 45
     row = ingestor._get_observation_spool().queue.rows()[0]
     assert row[0] == "setpoint_observed" and row[2]["observed_at"] == TS.isoformat()
 
@@ -283,13 +283,13 @@ def test_new_insert_fanout_keeps_original_time_and_retry_does_not_repeat():
 def test_suppressed_number_echo_updates_native_cache_without_acceptance(monkeypatch):
     ingestor.state.key_to_object_id[1] = "test_number"
     ingestor.state.key_to_type[1] = "number"
-    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_number", "vent_prefer_temp_delta_f")
+    monkeypatch.setitem(ingestor.SETPOINT_MAP, "test_number", "mister_min_off_s")
     monkeypatch.setattr(ingestor, "_accept_setpoint", lambda *_: True)
     monkeypatch.setattr(ingestor, "_mirror_irrigation_number_readback", lambda *_: None)
     monkeypatch.setattr(ingestor, "_same_pushed_value", lambda *_: True)
-    monkeypatch.setitem(ingestor.shared.recently_pushed, "vent_prefer_temp_delta_f", __import__("time").time())
-    ingestor.on_state_change(SimpleNamespace(key=1, state=5))
-    assert ingestor.state.setpoints["vent_prefer_temp_delta_f"] == 5
+    monkeypatch.setitem(ingestor.shared.recently_pushed, "mister_min_off_s", __import__("time").time())
+    ingestor.on_state_change(SimpleNamespace(key=1, state=45))
+    assert ingestor.state.setpoints["mister_min_off_s"] == 45
     assert ingestor._get_observation_spool().queue.rows() == []
 
 

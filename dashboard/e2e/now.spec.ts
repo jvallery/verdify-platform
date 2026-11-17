@@ -276,7 +276,7 @@ test("Running and next on a phone: Running now and the Next 12 h list, with each
   await load(page, "/");
   const coming = page.locator("#coming-up");
   await expect(coming.locator(".now-track")).toBeVisible();
-  await expect(coming.locator("[data-coming=plan]")).toHaveText(["13:00Misting starts at VPD 1.60 → 1.70 kPa AI", "13:00Wait before misting 60.0 → 90.0 s · Forecast rule · system", "16:30Mist pulse gap 45.0 → 55.0 s AI"]);
+  await expect(coming.locator("[data-coming=plan]")).toHaveText(["13:00Oldest outdoor reading used 660.0 → 720.0 s AI", "13:00Wait before misting 60.0 → 90.0 s · Forecast rule · system", "16:30Mister Min Off 45.0 → 55.0 s AI"]);
   await expect(coming.locator("[data-coming=iris]")).toHaveText(["16:50Iris: Sunset plan"]);
   await expect(coming.locator("[data-coming=sun]")).toHaveText(["16:58Sunset"]);
   await expect(coming.locator("[data-coming=later]")).toContainText("Wall drip paused until 14:00 by Jason: rain · next Wed 07:35");

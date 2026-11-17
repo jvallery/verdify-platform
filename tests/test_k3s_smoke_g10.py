@@ -27,11 +27,11 @@ import pytest
 import yaml
 
 from verdify_schemas.component_executor import CANONICAL_FIELD_ORDER
-from verdify_schemas.tunable_registry import THIRD_FLASH_INERT_WIRE_REG
+from verdify_schemas.tunable_registry import LIVE_WIRE_FIELDS
 
-# Step 3 expects the canonical fields the controller still reads back (review F1): the third flash keeps the
-# THIRD_FLASH_INERT_WIRE_REG fields as inert wire slots with no readback.
-READBACK_FIELDS = sum(1 for name in CANONICAL_FIELD_ORDER if name not in THIRD_FLASH_INERT_WIRE_REG)
+# Step 3 expects the canonical fields the controller still reads back (review F1). Release 4 (shape B) keeps the
+# 48-slot layout frozen with five live settings; the other 43 slots are reserved and never read back.
+READBACK_FIELDS = sum(1 for name in CANONICAL_FIELD_ORDER if name in LIVE_WIRE_FIELDS)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/k3s-smoke.sh"

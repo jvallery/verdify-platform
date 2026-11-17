@@ -500,10 +500,10 @@ class TestContractDriftGuardrails:
     def test_sw_mister_closes_vent_routes_end_to_end(self):
         """AD1 (g): the third flash deleted the switch and its readback. The firmware names it nowhere, so no
         equipment or readback route may claim it; its wire slot stays inert until host release 4 (RULINGS AE7a)."""
-        from verdify_schemas.tunable_registry import THIRD_FLASH_INERT_WIRE_REG
+        from verdify_schemas.tunable_registry import RESERVED_WIRE_SLOTS
 
         entity_map = _repo_entity_map()
-        assert "sw_mister_closes_vent" in THIRD_FLASH_INERT_WIRE_REG
+        assert "sw_mister_closes_vent" in RESERVED_WIRE_SLOTS
         assert "mister_closes_vent" not in entity_map.EQUIPMENT_SWITCH_MAP
         assert "sw_mister_closes_vent" not in entity_map.CFG_READBACK_MAP
         for name in ("tunables.yaml", "sensors.yaml", "controls.yaml", "globals.yaml"):

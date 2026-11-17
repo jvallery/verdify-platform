@@ -17,7 +17,9 @@ from verdify_schemas.component_qualification import (
     RuntimeEntityMetadata,
     build_live_entity_grid_evidence,
 )
-from verdify_schemas.tunable_registry import REGISTRY
+
+# The frozen 48-slot layout (release 4, shape B).
+from verdify_schemas.tunable_registry import WIRE_SLOT_DEFS as REGISTRY
 
 NOW = datetime(2026, 8, 26, 1, 2, 3, 456789, tzinfo=UTC)
 SOURCE_REVISION = "a" * 40

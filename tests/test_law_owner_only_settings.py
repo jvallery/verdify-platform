@@ -201,7 +201,7 @@ def dispatcher():
 
 def skip(dispatcher, param, **flags):
     return dispatcher._desired_skip_reason(
-        param, lighting_circuit=True, lighting_target_minutes=True, direct_wet=True, ai_moisture_stress=True, **flags
+        param, lighting_circuit=True, lighting_target_minutes=True, direct_wet=True, **flags
     )
 
 
@@ -209,8 +209,8 @@ def test_the_limit_is_not_sent_until_the_controller_lists_its_entity(dispatcher,
     assert skip(dispatcher, LIMIT) == "firmware has no drying cost limit"
     assert skip(dispatcher, LIMIT, dry_cost_limit=False) == "firmware has no drying cost limit"
     assert skip(dispatcher, LIMIT, dry_cost_limit=True) is None
-    assert skip(dispatcher, "mister_engage_kpa") is None
-    monkeypatch.setitem(dispatcher.shared.esp32, "keys", {"mister_engage_kpa": 7})
+    assert skip(dispatcher, "mister_water_budget_gal") is None
+    monkeypatch.setitem(dispatcher.shared.esp32, "keys", {"mister_water_budget_gal": 7})
     assert dispatcher._dry_cost_limit_supported() is False
     monkeypatch.setitem(dispatcher.shared.esp32, "keys", {DRY_COST_LIMIT_OBJECT_ID: 9})
     assert dispatcher._dry_cost_limit_supported() is False

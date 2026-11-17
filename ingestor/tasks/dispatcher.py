@@ -51,8 +51,6 @@ from verdify_schemas.tunable_registry import (
 from . import band_anchors
 from ._common import (
     _PHYSICS_INVARIANTS,
-    AI_MOISTURE_STRESS_POLICY_PARAMS,
-    AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS,
     BAND_DRIVEN_PARAMS,
     CROP_BAND_REG,
     DIRECT_WET_DEFAULTS,
@@ -359,14 +357,6 @@ def _direct_wet_policy_supported() -> bool:
     return any(param in shared.cfg_readback for param in DIRECT_WET_POLICY_PARAMS)
 
 
-def _ai_moisture_stress_policy_supported() -> bool:
-    """Return true once firmware exposes PR3 direct-wet/fog stress controls."""
-    keys = shared.esp32.get("keys") or {}
-    if keys:
-        return AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS.issubset(set(keys))
-    return AI_MOISTURE_STRESS_POLICY_PARAMS.issubset(set(shared.cfg_readback))
-
-
 def _dry_cost_limit_supported() -> bool:
     """Whether the connected controller lists the drying cost limit's number entity and its readback (phase 3
     firmware). Until it does, a stored limit or its release is not sent, so an older build, or a rollback to one,
@@ -486,7 +476,6 @@ def _desired_skip_reason(
     lighting_circuit: bool,
     lighting_target_minutes: bool,
     direct_wet: bool,
-    ai_moisture_stress: bool,
     dry_cost_limit: bool = False,
 ) -> str | None:
     """Why the dispatcher sends nothing for this desired_state row, or None.
@@ -510,8 +499,6 @@ def _desired_skip_reason(
         return "firmware has no lighting target minutes"
     if param in DIRECT_WET_POLICY_PARAMS and not direct_wet:
         return "firmware has no direct-wet policy"
-    if param in AI_MOISTURE_STRESS_POLICY_PARAMS and not ai_moisture_stress:
-        return "firmware has no moisture-stress policy"
     if param == DRY_COST_LIMIT_PARAM and not dry_cost_limit:
         return "firmware has no drying cost limit"
     return None
@@ -836,7 +823,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
             param in shared.cfg_readback for param in LIGHTING_TARGET_MINUTE_PARAMS
         )
         direct_wet_supported = _direct_wet_policy_supported()
-        ai_moisture_stress_supported = _ai_moisture_stress_policy_supported()
         dry_cost_limit_supported = _dry_cost_limit_supported()
         quiet_state = await _fetch_quiet_state(conn)
         quiet_mode = quiet_state.get(QUIET_MODE_ENTITY)
@@ -991,17 +977,11 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
         # The safety limits are not dispatched: the controller compiles 40 F and 100 F, and the third flash deleted
         # their number entities (RULINGS AE7a).
 
-        # Mister tuning defaults: band-derived fallbacks (left to package 4.3, which retires these settings).
+        # Mister tuning default: the engage delay is the one mister setting left (release 4 deleted the engage and
+        # all-zone thresholds, the all-zone delay and the center penalty with the third flash).
         mister_defaults = {}
         if band_row and control_band:
-            vpd_hi = float(control_band["vpd_high"])
-            mister_defaults = {
-                "mister_engage_kpa": round(vpd_hi + 0.05, 2),
-                "mister_all_kpa": round(vpd_hi + 0.25, 2),
-                "mister_engage_delay_s": 30,
-                "mister_all_delay_s": 60,
-                "mister_center_penalty": 0.5,
-            }
+            mister_defaults = {"mister_engage_delay_s": 30}
             for param, val in mister_defaults.items():
                 if _should_skip(_last_pushed.get(param), val) and not _readback_drift(param, val):
                     continue
@@ -1036,7 +1016,6 @@ async def setpoint_dispatcher(pool: asyncpg.Pool) -> None:
                 lighting_circuit=lighting_circuit_supported,
                 lighting_target_minutes=lighting_target_minutes_supported,
                 direct_wet=direct_wet_supported,
-                ai_moisture_stress=ai_moisture_stress_supported,
                 dry_cost_limit=dry_cost_limit_supported,
             )
             if skip is None and desired["value"] is not None and not math.isfinite(float(desired["value"])):

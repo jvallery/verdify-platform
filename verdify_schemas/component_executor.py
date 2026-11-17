@@ -26,7 +26,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from verdify_schemas.policy_vector import wire_fields
-from verdify_schemas.tunable_registry import REGISTRY
+from verdify_schemas.tunable_registry import WIRE_SLOT_DEFS
 
 type ComponentValue = bool | float
 type RawComponentValue = bool | int | float | Decimal
@@ -344,7 +344,7 @@ def fixed_order_differences(
     for field_name in order:
         if normalized_observed[field_name] == normalized_target[field_name]:
             continue
-        definition = REGISTRY[field_name]
+        definition = WIRE_SLOT_DEFS[field_name]
         grid = ENTITY_GRIDS[field_name]
         if definition.esp_object_id is None or definition.cfg_readback_object_id is None:
             raise ComponentContractError("component_route_missing", field_name)
@@ -378,7 +378,7 @@ def fixed_order_complete_bundle(
         raise ComponentContractError("recovery_order_not_source_locked")
     changes: list[ComponentChange] = []
     for field_name in order:
-        definition = REGISTRY[field_name]
+        definition = WIRE_SLOT_DEFS[field_name]
         grid = ENTITY_GRIDS[field_name]
         if definition.esp_object_id is None or definition.cfg_readback_object_id is None:
             raise ComponentContractError("component_route_missing", field_name)
@@ -414,10 +414,10 @@ if tuple(ENTITY_GRIDS) != CANONICAL_FIELD_ORDER:
 if len(TREATMENT_FIELD_ORDER) != 11 or not set(TREATMENT_FIELD_ORDER).issubset(ENTITY_GRIDS):
     raise RuntimeError("component treatment allowlist must contain exactly 11 canonical fields")
 for _field_name in CANONICAL_FIELD_ORDER:
-    _definition = REGISTRY[_field_name]
+    _definition = WIRE_SLOT_DEFS[_field_name]
     if _definition.esp_object_id is None or _definition.cfg_readback_object_id is None:
         raise RuntimeError(f"component route incomplete: {_field_name}")
 for _field_name in TREATMENT_FIELD_ORDER:
-    _definition = REGISTRY[_field_name]
+    _definition = WIRE_SLOT_DEFS[_field_name]
     if _definition.push_owner != "planner" or not _definition.planner_pushable or _definition.tier != 1:
         raise RuntimeError(f"treatment field is not planner-owned Tier 1: {_field_name}")

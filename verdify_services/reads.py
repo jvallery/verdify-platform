@@ -47,7 +47,7 @@ from verdify_schemas.band_rows import HOUSE_SERIES, ZONES
 from verdify_schemas.climate_law_constants import DRY_COST_NONE_KWH_PER_KG
 from verdify_schemas.control_proof import LAW_STATE_ENTITY, law_fresh
 from verdify_schemas.irrigation import purpose_of
-from verdify_schemas.policy_vector import wire_fields
+from verdify_schemas.policy_vector import live_wire_fields
 from verdify_schemas.setting_help import band_in_force_help, band_in_force_sources, setting_label
 from verdify_schemas.setting_values import readback_matches, readback_tolerance, resolve_effective
 from verdify_schemas.telemetry import ClimateLawState
@@ -135,7 +135,7 @@ _FOG_NOT_HELD = frozenset({"", "none", "served"})
 # writer.differing judges the values the dispatcher delivers: the writable
 # classes it pushes from desired rows (no plan reaches it since climate refactor 4.2).
 _DISPATCHED_CLASSES = frozenset({"planner_policy", "scheduled_policy", "controller_safety"})
-_POLICY_WIRE_FIELDS = frozenset(spec.name for spec in wire_fields())
+_POLICY_WIRE_FIELDS = frozenset(spec.name for spec in live_wire_fields())  # the five live slots (release 4)
 _IRRIGATION_COMMAND_COLUMNS = ("kind", "args", "status", "sent_at")
 
 # API-09's Band in force rows: the dispatcher's band_<zone>_<role> setpoint_snapshot

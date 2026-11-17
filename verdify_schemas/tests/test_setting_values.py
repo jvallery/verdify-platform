@@ -101,7 +101,7 @@ def test_snap_rejects_non_finite_values_and_bad_steps(value: float, step: float 
 @pytest.mark.parametrize(
     ("name", "value", "expected"),
     [
-        ("mister_engage_kpa", 1.53, 1.55),
+        ("mister_hysteresis_kpa", 0.234, 0.23),
         ("site_pressure_hpa", 845.4, 845.0),
         ("mister_engage_delay_s", 48.75, 60.0),
         ("gl_main_lux_threshold", 120, 100.0),  # off-grid min stays reachable
@@ -109,7 +109,7 @@ def test_snap_rejects_non_finite_values_and_bad_steps(value: float, step: float 
         ("band_vpd_low_sr", 0.734, 0.73),  # anchors snap to the push quanta
         ("band_temp_low_sr", 61.26, 61.3),
         ("zone_priority_center", 2.4, 2.0),
-        ("sw_fog_closes_vent", 1, 1.0),
+        ("sw_direct_wet_gate_enabled", 1, 1.0),
         ("fog_time_window_start", 7.3, 7.3),  # no entity, no step
     ],
 )
@@ -157,16 +157,16 @@ def test_readback_abs_tolerance_covers_only_the_second_based_params() -> None:
 @pytest.mark.parametrize(
     ("parameter", "observed", "desired", "equivalent"),
     [
-        ("mister_vpd_weight", 0.75, 0.75, True),
-        ("mister_vpd_weight", 0.7501, 0.75, True),
-        ("mister_vpd_weight", 0.70, 0.75, False),
+        ("dry_cost_limit_kwh_per_kg", 0.75, 0.75, True),
+        ("dry_cost_limit_kwh_per_kg", 0.7501, 0.75, True),
+        ("dry_cost_limit_kwh_per_kg", 0.70, 0.75, False),
         ("mister_engage_delay_s", 44.0, 45.0, True),
         ("mister_engage_delay_s", 43.0, 45.0, False),
-        ("mister_pulse_on_s", 33.0, 33.75, True),
-        ("mister_pulse_on_s", 30.0, 33.75, False),
+        ("mister_min_off_s", 59.0, 59.75, True),
+        ("mister_min_off_s", 57.0, 59.75, False),
         ("site_pressure_hpa", 840.0, 845.0, True),
-        ("mister_vpd_weight", None, 0.75, False),
-        ("mister_vpd_weight", "n/a", 0.75, False),
+        ("dry_cost_limit_kwh_per_kg", None, 0.75, False),
+        ("dry_cost_limit_kwh_per_kg", "n/a", 0.75, False),
     ],
 )
 def test_readback_values_equivalent_keeps_its_behaviour(
@@ -209,10 +209,10 @@ def test_binary32_ulp_rejects_values_binary32_cannot_hold(x: float) -> None:
     ("param", "value", "tolerance"),
     [
         ("site_pressure_hpa", 845.0, 0.5),  # half of step 1
-        ("mister_pulse_on_s", 30.0, 2.5),  # half of step 5 beats the 1 s tolerance
+        ("mister_min_off_s", 30.0, 2.5),  # half of step 5 beats the 1 s tolerance
         ("mister_engage_delay_s", 60.0, 15.0),
         ("band_vpd_low_sr", 0.73, 0.005),  # anchor push quantum 0.01
-        ("sw_fog_closes_vent", 1.0, 0.5),
+        ("sw_direct_wet_gate_enabled", 1.0, 0.5),
         ("fog_time_window_start", 1.6, 2.0**-23),  # no step: the binary32 ULP
         ("not_a_setting", 1.6, 2.0**-23),
     ],
@@ -228,8 +228,8 @@ def test_readback_tolerance(param: str, value: float, tolerance: float) -> None:
         ("site_pressure_hpa", 840.0, 845.0, False),
         ("site_pressure_hpa", 845.0, 845.0, True),
         ("site_pressure_hpa", _float32(845.0), 845.0, True),
-        ("mister_engage_kpa", _float32(1.6), 1.6, True),
-        ("mister_engage_kpa", _float32(1.55), 1.6, False),
+        ("mister_hysteresis_kpa", _float32(0.3), 0.3, True),
+        ("mister_hysteresis_kpa", _float32(0.29), 0.3, False),
         # The binary32 ULP term confirms a transport-rounded value with no step.
         ("fog_time_window_start", _float32(1.6), 1.6, True),
         ("not_a_setting", 1.600000023841858, 1.6, True),
@@ -238,8 +238,8 @@ def test_readback_tolerance(param: str, value: float, tolerance: float) -> None:
         ("mister_engage_delay_s", 44.0, 45.0, True),
         ("band_vpd_low_sr", _float32(0.73), 0.73, True),
         ("band_vpd_low_sr", _float32(0.74), 0.73, False),
-        ("sw_fog_closes_vent", 1.0, 0.0, False),
-        ("sw_fog_closes_vent", True, 1.0, True),
+        ("sw_direct_wet_gate_enabled", 1.0, 0.0, False),
+        ("sw_direct_wet_gate_enabled", True, 1.0, True),
         # Missing, non-numeric, non-finite or out-of-range sides never match.
         ("site_pressure_hpa", None, 845.0, False),
         ("site_pressure_hpa", 845.0, None, False),

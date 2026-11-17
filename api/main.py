@@ -29,7 +29,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 import asyncpg
@@ -743,7 +743,6 @@ def _public_crop_zone_sql_predicate(
 
 
 EQUIPMENT_SWITCH_SETPOINTS = {
-    "sw_fog_closes_vent": "fog_closes_vent",
     "sw_irrigation_enabled": "irrigation_enabled",
     "sw_irrigation_wall_enabled": "irrigation_wall_enabled",
     "sw_irrigation_center_enabled": "irrigation_center_enabled",
@@ -954,19 +953,40 @@ async def _fetchrow_optional(
         return None
 
 
-async def _fetch_optional(
-    conn: asyncpg.Connection,
-    statement: str,
-    *args: object,
-    timeout_ms: int = 3_000,
-) -> list[asyncpg.Record]:
-    """Fetch optional public evidence rows within a fail-soft DB budget."""
+# v_data_trust_ledger takes about 23 s on production, longer than either public route may wait (#1633 release 4).
+# The routes never query it inline: they read the newest rows one background refresh per TRUST_LEDGER_TTL_S holds,
+# per API pod, stale while a refresh runs and empty until the first refresh after start ends.
+TRUST_LEDGER_TTL_S = 300.0
+TRUST_LEDGER_TIMEOUT_MS = 60_000
+TRUST_LEDGER_SQL = """
+    SELECT check_name, lower(status) AS status, metric_value, threshold_value, details
+    FROM v_data_trust_ledger
+    ORDER BY
+      CASE lower(status) WHEN 'fail' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END,
+      check_name
+"""
+_trust_ledger: dict[str, Any] = {"rows": None, "at": None, "task": None}
+
+
+async def _refresh_trust_ledger() -> None:
+    """One read of the ledger with its own long timeout; a failure keeps the previous rows until the next TTL."""
     try:
-        async with conn.transaction():
-            await conn.execute(f"SET LOCAL statement_timeout = '{timeout_ms}ms'")
-            return await conn.fetch(statement, *args)
-    except asyncpg.QueryCanceledError:
-        return []
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute("SET LOCAL jit = off")
+            await conn.execute(f"SET LOCAL statement_timeout = '{TRUST_LEDGER_TIMEOUT_MS}ms'")
+            _trust_ledger["rows"] = [dict(r) for r in await conn.fetch(TRUST_LEDGER_SQL)]
+    except Exception as exc:  # noqa: BLE001 - a public health read must not fail on its slowest input
+        log.warning("v_data_trust_ledger refresh failed: %s", type(exc).__name__)
+    finally:
+        _trust_ledger["at"] = time.monotonic()
+
+
+def trust_ledger_rows() -> list[dict[str, Any]]:
+    """The cached ledger rows; starts a background refresh when they are older than the TTL and none is running."""
+    at, task = _trust_ledger["at"], _trust_ledger["task"]
+    if (at is None or time.monotonic() - at >= TRUST_LEDGER_TTL_S) and (task is None or task.done()):
+        _trust_ledger["task"] = asyncio.create_task(_refresh_trust_ledger())
+    return list(_trust_ledger["rows"] or [])
 
 
 @asynccontextmanager
@@ -980,6 +1000,7 @@ async def lifespan(app: FastAPI):
         init=_init_db_connection,
         setup=_setup_db_connection,
     )
+    trust_ledger_rows()  # the first refresh starts with the pod, not with the first public request
     try:
         yield
     finally:
@@ -1656,11 +1677,6 @@ async def get_setpoints(greenhouse_id: str = DEFAULT_GREENHOUSE):
             }
             params.update(lighting_values)
         params.update(_direct_wet_policy_values(lighting_row, lighting_circuit_rows))
-        # Mister tuning: the last delivered value (setpoint_changes), else the band default.
-        if house_row:
-            vpd_hi = float(house_row["house_vpd_high"])
-            params.setdefault("mister_engage_kpa", _round_half_up(vpd_hi + 0.05, 2))
-            params.setdefault("mister_all_kpa", _round_half_up(vpd_hi + 0.25, 2))
         outdoor = await conn.fetchrow(
             """
             SELECT outdoor_temp_f, outdoor_rh_pct FROM climate
@@ -2677,21 +2693,7 @@ async def public_data_health():
             "SELECT extract(epoch FROM now() - max(ts))::int FROM climate_action_log"
         )
         climate_action_proof_missing = await conn.fetchval(CLIMATE_ACTION_PROOF_MISSING_SQL)
-        try:
-            async with conn.transaction():
-                await conn.execute("SET LOCAL jit = off")
-                await conn.execute("SET LOCAL statement_timeout = '6000ms'")
-                trust_rows = await conn.fetch(
-                    """
-                    SELECT check_name, lower(status) AS status, metric_value, threshold_value, details
-                    FROM v_data_trust_ledger
-                    ORDER BY
-                      CASE lower(status) WHEN 'fail' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END,
-                      check_name
-                    """
-                )
-        except Exception:
-            trust_rows = []
+    trust_rows = trust_ledger_rows()
 
     pipeline_by_source = {r["source"]: r for r in pipeline_rows}
     climate_pipeline = pipeline_by_source.get("climate")
@@ -3671,16 +3673,7 @@ async def public_evidence_snapshot(greenhouse_id: str = DEFAULT_GREENHOUSE):
             """,
             greenhouse_id,
         )
-        data_checks = await _fetch_optional(
-            conn,
-            """
-            SELECT check_name, lower(status) AS status, metric_value, threshold_value, details
-            FROM v_data_trust_ledger
-            ORDER BY
-              CASE lower(status) WHEN 'fail' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END,
-              check_name
-            """,
-        )
+        data_checks = trust_ledger_rows()
         planner_health = await conn.fetchrow(
             f"SELECT {_sql_columns('h', PUBLIC_PLANNER_HEALTH_FIELDS)} FROM v_planner_trigger_health h"
         )

@@ -608,24 +608,6 @@ DIRECT_WET_REQUIRED_OBJECT_IDS = frozenset(
 )
 
 
-AI_MOISTURE_STRESS_POLICY_PARAMS = frozenset(
-    {
-        "sw_direct_wet_stress_override_enabled",
-        "direct_wet_stress_vpd_margin_kpa",
-        "direct_wet_stress_min_dew_margin_f",
-        # The retired clock-window field has no firmware entity (#588).
-        # Require only the three current PR3 routes; a removed entity must not
-        # suppress source-owned policy for fields the device still exposes.
-        # fog_stress_* removed (BC-11/ADR0003 §6.7): retired dead registry rows.
-    }
-)
-
-
-AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS = frozenset(
-    REGISTRY[param].esp_object_id for param in AI_MOISTURE_STRESS_POLICY_PARAMS if REGISTRY[param].esp_object_id
-)
-
-
 QUIET_STATE_ENTITIES = (
     QUIET_MODE_ENTITY,
     QUIET_UNTIL_ENTITY,
@@ -633,15 +615,7 @@ QUIET_STATE_ENTITIES = (
 )
 
 
-MISTER_DEFAULTS = frozenset(
-    {
-        "mister_engage_kpa",
-        "mister_all_kpa",
-        "mister_engage_delay_s",
-        "mister_all_delay_s",
-        "mister_center_penalty",
-    }
-)
+MISTER_DEFAULTS = frozenset({"mister_engage_delay_s"})
 
 
 # FW-3 (Sprint 18): dispatcher guardrails are derived from the registry's
@@ -873,8 +847,6 @@ __all__ = [
     "RETIRED_UNROUTABLE_PARAMS",
     "DIRECT_WET_POLICY_PARAMS",
     "DIRECT_WET_REQUIRED_OBJECT_IDS",
-    "AI_MOISTURE_STRESS_POLICY_PARAMS",
-    "AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS",
     "QUIET_STATE_ENTITIES",
     "MISTER_DEFAULTS",
     "_PHYSICS_INVARIANTS",

@@ -181,7 +181,7 @@ function inBand(now) {
   const written = at("07:02");
   const planId = `iris-${local(written).date.replaceAll("-", "")}-${hhmm(written)}`;
   const waypoint = (time, value) => ({ at: iso(time), value, source: "iris", effective: true });
-  const kpaNext = waypoint(at("13:00"), 1.7);
+  const kpaNext = waypoint(at("13:00"), 720);
   const gapNext = waypoint(at("16:30"), 55);
   const device = (value, minutes) => reading(value, now - minutes * MINUTE);
   const line = (id, fields = {}) => {
@@ -256,12 +256,12 @@ function inBand(now) {
         hypothesis: "Hot, dry afternoon: engage misting earlier from 13:00 and widen the pulse gap at dusk.", experiment: null,
         expected_outcome: "VPD stays under 0.80 kPa through the afternoon peak.", conditions_summary: "Clear, 58 °F high outside, RH falling to 20%.",
         outcome_score: null, lesson: null,
-        detail: { climate_intents: [{ param: "mister_engage_kpa", rationale: "Engage earlier before the 13:00 dry spell." }, { param: "mister_pulse_gap_s", rationale: "Longer evaporation dwell at dusk." }] },
+        detail: { climate_intents: [{ param: "outdoor_staleness_max_s", rationale: "Engage earlier before the 13:00 dry spell." }, { param: "mister_min_off_s", rationale: "Longer evaporation dwell at dusk." }] },
       },
       no_plan_since: null,
       lanes: [
-        { param: "mister_engage_kpa", label: "VPD Mister Engage", unit: "kPa", device: device(1.6, 2), waypoints: [kpaNext], desired: null, applied_from: "plan" },
-        { param: "mister_pulse_gap_s", label: "Mister Pulse Gap", unit: "s", device: device(45, 1), waypoints: [gapNext], desired: null, applied_from: "plan" },
+        { param: "outdoor_staleness_max_s", label: "Outdoor Staleness Max", unit: "s", device: device(660, 2), waypoints: [kpaNext], desired: null, applied_from: "plan" },
+        { param: "mister_min_off_s", label: "Mister Min Off", unit: "s", device: device(45, 1), waypoints: [gapNext], desired: null, applied_from: "plan" },
         { param: "mister_engage_delay_s", label: "Mister Engage Delay", unit: "s", device: device(60, 3), waypoints: [], desired: null, applied_from: "plan" },
       ],
       manual_count: 0,
@@ -278,8 +278,8 @@ function inBand(now) {
     // this world's plan id.
     settings: baseSettings(now).map((row) => (row.plan?.source === "iris" ? { ...row, plan: { ...row.plan, plan_id: planId } } : row)),
     activity: [
-      { id: 14, ts: iso(written), actor: actor("iris", "iris"), action: "plan.write", target: planId, detail: { trigger: "SUNRISE", changes: [{ param: "mister_engage_kpa", at: iso(at("13:00")), value: 1.7 }, { param: "mister_pulse_gap_s", at: iso(at("16:30")), value: 55 }] }, reason: "Hot, dry afternoon: engage misting earlier from 13:00 and widen the pulse gap at dusk.", state: "confirmed", confirmed_at: iso(written + 2 * MINUTE), experiment_id: null, request_id: null },
-      { id: 13, ts: iso(at("06:30")), actor: actor("system", "forecast-engine"), action: "setting.write", target: "mister_pulse_gap_s", detail: { before: 45, value: 50 }, reason: "Forecast rule: hot afternoon", state: "confirmed", confirmed_at: iso(at("06:31")), experiment_id: null, request_id: null },
+      { id: 14, ts: iso(written), actor: actor("iris", "iris"), action: "plan.write", target: planId, detail: { trigger: "SUNRISE", changes: [{ param: "outdoor_staleness_max_s", at: iso(at("13:00")), value: 720 }, { param: "mister_min_off_s", at: iso(at("16:30")), value: 55 }] }, reason: "Hot, dry afternoon: engage misting earlier from 13:00 and widen the pulse gap at dusk.", state: "confirmed", confirmed_at: iso(written + 2 * MINUTE), experiment_id: null, request_id: null },
+      { id: 13, ts: iso(at("06:30")), actor: actor("system", "forecast-engine"), action: "setting.write", target: "mister_min_off_s", detail: { before: 45, value: 50 }, reason: "Forecast rule: hot afternoon", state: "confirmed", confirmed_at: iso(at("06:31")), experiment_id: null, request_id: null },
       { id: 12, ts: iso(at("06:45", -1)), actor: JASON, action: "alert.ack", target: "88", detail: { alert_type: "relay_stuck" }, reason: "breaker reset", state: null, confirmed_at: null, experiment_id: null, request_id: "4f9d2c1e-7b8a-4c3d-9e2f-1a2b3c4d5e6f" },
       { id: 11, ts: iso(at("07:31", -3)), actor: JASON, action: "irrigation.run", target: "L01", detail: { minutes: 12, command_id: "0b6c3f52-1d4e-4a7b-8c9d-2e3f4a5b6c7d" }, reason: "Flush the stagnant line", state: null, confirmed_at: null, experiment_id: null, request_id: "0b6c3f52-1d4e-4a7b-8c9d-2e3f4a5b6c7d" },
     ],
@@ -538,7 +538,7 @@ export const FIXTURES = {
       ...world.activity.filter((row) => row.action === "irrigation.run").slice(0, 1),
       entry({
         id: 21, ts: iso(at("06:30")), actor: actor("system", "forecast-engine"), action: "plan.write", target: `preemptive-${local(at("06:30")).date.replaceAll("-", "")}-0630`,
-        detail: { changes: [{ param: "mister_pulse_gap_s", before: 45, value: 60 }], rule: "hot afternoon", rule_id: 3 },
+        detail: { changes: [{ param: "mister_min_off_s", before: 45, value: 60 }], rule: "hot afternoon", rule_id: 3 },
         // The engine's setpoint_plan.reason, which VD-65 also logs as the row's reason.
         reason: "Forecast: hot afternoon — temp_f > 88 (actual 92 at 14:00)",
       }),
@@ -555,7 +555,7 @@ export const FIXTURES = {
         id: 24, ts: plan.written_at, actor: actor("iris", "iris"), action: "plan.write", target: plan.plan_id,
         detail: {
           changes: [
-            { ts: iso(at("13:00")), param: "mister_engage_kpa", value: 1.7 }, { ts: iso(at("16:30")), param: "mister_pulse_gap_s", value: 55 },
+            { ts: iso(at("13:00")), param: "outdoor_staleness_max_s", value: 720 }, { ts: iso(at("16:30")), param: "mister_min_off_s", value: 55 },
             { ts: iso(at("19:00")), param: "mister_engage_delay_s", value: 90 },
           ],
           trigger_id: "5f0c6a1e-2b7d-4c9a-8e3f-1d2c3b4a5e6f", planner_instance: "iris",
@@ -563,8 +563,8 @@ export const FIXTURES = {
         reason: plan.hypothesis,
       }),
       entry({
-        id: 25, ts: iso(at("07:41")), actor: JASON, action: "setting.write", target: "mister_engage_kpa",
-        detail: { before: 1.6, value: 1.55, requested: 1.53, manual: { before: false, after: true } }, reason: "Vandas drying", state: "confirmed",
+        id: 25, ts: iso(at("07:41")), actor: JASON, action: "setting.write", target: "outdoor_staleness_max_s",
+        detail: { before: 660, value: 630, requested: 640, manual: { before: false, after: true } }, reason: "Vandas drying", state: "confirmed",
         confirmed_at: iso(at("07:42")), request_id: "2c4e6a8b-0d1f-4e3a-9b5c-7d9e1f3a5b7c",
       }),
     ];
@@ -572,7 +572,7 @@ export const FIXTURES = {
   // #1133: more activity than one API-17 page holds at its default limit of 50, so the log offers Load older.
   "activity-paged": (world) => {
     world.activity = Array.from({ length: 60 }, (_, index) => ({
-      id: 100 + index, ts: iso(world.now - (index + 1) * MINUTE), actor: JASON, action: "setting.write", target: "mister_pulse_gap_s",
+      id: 100 + index, ts: iso(world.now - (index + 1) * MINUTE), actor: JASON, action: "setting.write", target: "mister_min_off_s",
       detail: { before: 45, value: 50 }, reason: null, state: null, confirmed_at: null, experiment_id: null, request_id: null,
     }));
   },
@@ -630,6 +630,7 @@ export const FIXTURES = {
   "push-button-burst": (world) => { world.overrides = [{ kind: "fans", since: iso(world.now - 2 * MINUTE), ends_at: null, held_reason: null }]; },
   // #1136: emergency cooling, when the controller ignores bursts.
   "safety-cool": (world) => { world.mode = { code: "SAFETY_COOL", stage: null, reason: "safety_cool", since: iso(world.now - 3 * MINUTE) }; },
+  "sensor-fault-mode": (world) => { world.mode = { code: "SENSOR_FAULT", stage: null, reason: "sensor_fault", since: iso(world.now - 3 * MINUTE) }; },
   // J9 (#1136): the caretaker's morning, in band with nothing open: the wall watered at 07:31 for 12 min, center misted at
   // 09:58 on VPD, and Frigate saw someone a minute ago.
   "caretaker-visit": (world) => {
@@ -658,46 +659,46 @@ export const FIXTURES = {
   "superseded-lane": (world) => {
     const at = clock(world.now);
     const desired = {
-      id: 7, param: "mister_engage_kpa", value: 1.55, snapped_from: null, manual: false, manual_before: false, state: "confirmed", state_reason: null,
+      id: 7, param: "outdoor_staleness_max_s", value: 630, snapped_from: null, manual: false, manual_before: false, state: "confirmed", state_reason: null,
       confirmed_at: iso(at("08:01")), actor: JASON, reason: "Vandas drying", created_at: iso(at("08:00")),
     };
-    const row = settingOf(world, "mister_engage_kpa");
-    Object.assign(row, { desired, applied_from: "desired", readback: reading(1.55, at("08:01")), plan: { ...row.plan, next: { ...row.plan.next, effective: false } } });
-    const lane = laneOf(world, "mister_engage_kpa");
-    Object.assign(lane, { desired, applied_from: "desired", device: reading(1.55, at("08:01")), waypoints: lane.waypoints.map((point) => ({ ...point, effective: false })) });
+    const row = settingOf(world, "outdoor_staleness_max_s");
+    Object.assign(row, { desired, applied_from: "desired", readback: reading(630, at("08:01")), plan: { ...row.plan, next: { ...row.plan.next, effective: false } } });
+    const lane = laneOf(world, "outdoor_staleness_max_s");
+    Object.assign(lane, { desired, applied_from: "desired", device: reading(630, at("08:01")), waypoints: lane.waypoints.map((point) => ({ ...point, effective: false })) });
   },
-  // #1139: iris asked for 1.60 at 07:02, then Jason took it manual at 1.55 at 08:00, so the 13:00 waypoint is held off.
+  // #1139: iris asked for 660 at 07:02, then Jason took it manual at 630 at 08:00, so the 13:00 waypoint is held off.
   "setting-history": (world) => {
     const at = clock(world.now);
-    const row = settingOf(world, "mister_engage_kpa");
+    const row = settingOf(world, "outdoor_staleness_max_s");
     const asked = (id, value, manual, who, written, confirmed, reason) => ({
       id, param: row.param, value, snapped_from: null, manual, manual_before: false, state: "confirmed", state_reason: null, confirmed_at: iso(confirmed), actor: who, reason, created_at: iso(written),
     });
-    const newest = asked(202, 1.55, true, JASON, at("08:00"), at("08:01"), "Vandas drying");
-    world.desiredLog[row.param] = [asked(201, 1.6, false, actor("iris", "iris"), at("07:02"), at("07:03"), null), newest];
-    world.readbackLog[row.param] = [{ at: iso(at("05:40", -1)), value: 1.5 }, { at: iso(at("07:03")), value: 1.6 }, { at: iso(at("08:01")), value: 1.55 }];
-    Object.assign(row, { desired: newest, applied_from: "manual", state: "confirmed", readback: reading(1.55, at("08:01")), plan: { ...row.plan, next: { ...row.plan.next, effective: false } } });
+    const newest = asked(202, 630, true, JASON, at("08:00"), at("08:01"), "Vandas drying");
+    world.desiredLog[row.param] = [asked(201, 660, false, actor("iris", "iris"), at("07:02"), at("07:03"), null), newest];
+    world.readbackLog[row.param] = [{ at: iso(at("05:40", -1)), value: 600 }, { at: iso(at("07:03")), value: 660 }, { at: iso(at("08:01")), value: 630 }];
+    Object.assign(row, { desired: newest, applied_from: "manual", state: "confirmed", readback: reading(630, at("08:01")), plan: { ...row.plan, next: { ...row.plan.next, effective: false } } });
     const lane = laneOf(world, row.param);
-    Object.assign(lane, { desired: newest, applied_from: "manual", device: reading(1.55, at("08:01")), waypoints: lane.waypoints.map((point) => ({ ...point, effective: false })) });
+    Object.assign(lane, { desired: newest, applied_from: "manual", device: reading(630, at("08:01")), waypoints: lane.waypoints.map((point) => ({ ...point, effective: false })) });
   },
   // #1139: as setting-history, but the row before Jason's is a release, so Revert goes back to auto.
   "setting-history-release": (world) => {
     FIXTURES["setting-history"](world);
-    const [released] = world.desiredLog.mister_engage_kpa;
+    const [released] = world.desiredLog.outdoor_staleness_max_s;
     Object.assign(released, { value: null, state: "released", confirmed_at: null, actor: JASON, reason: "Back to the plan" });
   },
-  // #1139: the history lies before the 7 d window: steward's 1.60 twelve days back, then Jason's 1.55 nine days back, the
+  // #1139: the history lies before the 7 d window: steward's 660 twelve days back, then Jason's 630 nine days back, the
   // row in force at the window's start. The window holds it alone, so Revert reads 90 days back to find steward's.
   "setting-history-older": (world) => {
     FIXTURES["setting-history"](world);
     const at = clock(world.now);
-    const [earlier, newest] = world.desiredLog.mister_engage_kpa;
+    const [earlier, newest] = world.desiredLog.outdoor_staleness_max_s;
     Object.assign(earlier, { actor: actor("agent:steward", "steward"), created_at: iso(at("07:02", -12)), confirmed_at: iso(at("07:03", -12)) });
     Object.assign(newest, { created_at: iso(at("08:00", -9)), confirmed_at: iso(at("08:01", -9)) });
-    const readback = reading(1.55, at("08:01", -9));
-    world.readbackLog.mister_engage_kpa = [{ at: iso(at("05:40", -13)), value: 1.5 }, { at: iso(at("07:03", -12)), value: 1.6 }, { at: iso(at("08:01", -9)), value: 1.55 }];
-    settingOf(world, "mister_engage_kpa").readback = readback;
-    laneOf(world, "mister_engage_kpa").device = readback;
+    const readback = reading(630, at("08:01", -9));
+    world.readbackLog.outdoor_staleness_max_s = [{ at: iso(at("05:40", -13)), value: 600 }, { at: iso(at("07:03", -12)), value: 660 }, { at: iso(at("08:01", -9)), value: 630 }];
+    settingOf(world, "outdoor_staleness_max_s").readback = readback;
+    laneOf(world, "outdoor_staleness_max_s").device = readback;
   },
   // #1139: a center VPD anchor no dashboard write has touched: the API-19 example previews it, its device value has held
   // at 1.10 since 10/31 (in binary32, as setpoint_snapshot reports it), and a draft outside 0.10–3.00 is refused.
@@ -719,15 +720,15 @@ export const FIXTURES = {
     for (const lane of world.plan.lanes) Object.assign(lane, { waypoints: [], applied_from: unplanned(lane.applied_from) });
     for (const row of world.settings.filter((item) => item.plan)) Object.assign(row, { plan: null, applied_from: unplanned(row.applied_from) });
   },
-  // #1131: Jason took mister_pulse_on_s manual on 10/30, so Iris skips it: API-07 gives it a lane with no waypoints.
+  // #1131: Jason took sw_direct_wet_gate_enabled manual on 10/30, so Iris skips it: API-07 gives it a lane with no waypoints.
   "manual-lane": (world) => {
     const at = clock(world.now);
     const desired = {
-      id: 38, param: "mister_pulse_on_s", value: 60, snapped_from: null, manual: true, manual_before: false, state: "confirmed", state_reason: null,
+      id: 38, param: "sw_direct_wet_gate_enabled", value: 0, snapped_from: null, manual: true, manual_before: false, state: "confirmed", state_reason: null,
       confirmed_at: iso(at("09:01", -3)), actor: JASON, reason: "Hold while the nozzles are cleaned", created_at: iso(at("09:00", -3)),
     };
     Object.assign(settingOf(world, desired.param), { desired, applied_from: "manual" });
-    world.plan.lanes.push({ param: desired.param, label: "Mister Pulse ON", unit: "s", device: reading(60, world.now - MINUTE), waypoints: [], desired, applied_from: "manual" });
+    world.plan.lanes.push({ param: desired.param, label: "Direct Wet Gate Enabled", unit: null, device: reading(0, world.now - MINUTE), waypoints: [], desired, applied_from: "manual" });
   },
   // #1131 (Q-04): the forecast action engine plans mister_engage_delay_s 90 s from 14:00; it reads "Forecast rule · system", never AI.
   "forecast-rule": (world) => {
@@ -846,7 +847,7 @@ export const FIXTURES = {
   "plan-next": (world) => {
     const at = clock(world.now);
     FIXTURES["manual-lane"](world);
-    laneOf(world, "mister_pulse_on_s").waypoints = [{ at: iso(at("12:00")), value: 75, source: "iris", effective: true }];
+    laneOf(world, "sw_direct_wet_gate_enabled").waypoints = [{ at: iso(at("12:00")), value: 1, source: "iris", effective: true }];
     laneOf(world, "mister_engage_delay_s").waypoints = [{ at: iso(at("13:00")), value: 90, source: "preemptive", effective: true }];
     Object.assign(world.plan.health.find((row) => row.trigger === "SOLAR_MAX" && row.outcome === "expected"), { outcome: "plan_written", resolved_at: iso(world.now - 5 * MINUTE) });
   },

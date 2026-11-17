@@ -35,15 +35,7 @@ from verdify_schemas.tunable_registry import get, planner_effective_bounds
 SECOND_READBACK_ABS_TOLERANCE_PARAMS = frozenset(
     {
         "mister_engage_delay_s",
-        "mister_all_delay_s",
-        "mister_pulse_on_s",
-        "mister_pulse_gap_s",
-        "min_fog_on_s",
-        "min_fog_off_s",
-        "mist_backoff_s",
-        "mist_max_closed_vent_s",
-        "mist_thermal_relief_s",
-        "vpd_watch_dwell_s",
+        "mister_min_off_s",
     }
 )
 

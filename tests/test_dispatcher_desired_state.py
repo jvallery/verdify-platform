@@ -66,7 +66,6 @@ def _knobs() -> list[Knob]:
         | _common.LIGHTING_CIRCUIT_DEFAULT_PARAMS  # gated on per-circuit lighting firmware
         | _common.LIGHTING_POLICY_PARAMS
         | _common.LIGHTING_TARGET_MINUTE_PARAMS
-        | _common.AI_MOISTURE_STRESS_POLICY_PARAMS
         | _common.RETIRED_UNROUTABLE_PARAMS
         | _common.SECOND_READBACK_ABS_TOLERANCE_PARAMS
         | frozenset(band_anchors.ANCHOR_SYNC_PARAMS)
@@ -104,6 +103,10 @@ def _knobs() -> list[Knob]:
 
 
 KNOBS = _knobs()
+# Release 4 (#1633): the registry has 3 plain desired-writable knobs, so the two pacing cases set a batch of BATCH
+# (the dispatcher's MAX_RECONNECT_COMMANDS is 12): LOADED = BATCH + 1 rows pace into two passes.
+BATCH = 2
+LOADED = BATCH + 1
 PLANNED = [knob for knob in KNOBS if knob.param in PLANNER_PUSHABLE_REG]
 # A policy-vector wire field: the fields experiment_policy_hold could own.
 HELD = next(knob for knob in PLANNED if knob.param in {defn.name for defn in wire_fields()})
@@ -382,7 +385,7 @@ class Controller:
 
 @pytest.fixture
 def env(monkeypatch, tmp_path):
-    assert len(KNOBS) >= 21, "the registry no longer offers enough plain desired-writable settings"
+    assert len(KNOBS) >= LOADED, "the registry no longer offers enough plain desired-writable settings"
     monkeypatch.setenv("VERDIFY_BAND_SOURCE", "legacy")
     for name, value in {
         "transport_generation": 0,
@@ -454,8 +457,8 @@ async def settle(env) -> None:
 
 
 @pytest.mark.asyncio
-async def test_twenty_desired_rows_that_match_the_device_send_nothing(env):
-    knobs = KNOBS[:20]
+async def test_desired_rows_that_match_the_device_send_nothing(env):
+    knobs = KNOBS[:LOADED]
     connect(env, knobs)
     for knob in knobs:
         env.db.write(knob.param, knob.device, at=T0 - timedelta(minutes=5))
@@ -467,26 +470,28 @@ async def test_twenty_desired_rows_that_match_the_device_send_nothing(env):
 
 
 @pytest.mark.asyncio
-async def test_twenty_new_desired_rows_converge_in_passes_of_at_most_twelve(env):
-    knobs = KNOBS[:20]
+async def test_more_new_desired_rows_than_a_batch_converge_in_paced_passes(env, monkeypatch):
+    monkeypatch.setattr(dispatcher, "MAX_RECONNECT_COMMANDS", BATCH)
+    knobs = KNOBS[:LOADED]
+    paced = f"paced {BATCH}/{LOADED}"
     connect(env, knobs)
     for knob in knobs:
         env.db.write(knob.param, knob.desired, at=T0 - timedelta(minutes=1))
 
     await env.run_pass()
     first = env.controller.sent_params()
-    assert first == sorted(knob.param for knob in knobs)[:12]  # all differ since the same moment
-    assert env.db.stage_rows == ["paced 12/20"] and shared.setpoint_dispatch_requested.is_set()
+    assert first == sorted(knob.param for knob in knobs)[:BATCH]  # all differ since the same moment
+    assert env.db.stage_rows == [paced] and shared.setpoint_dispatch_requested.is_set()
 
     env.controller.publish(env.db)
     env.clock.advance(40)
     await env.run_pass()
-    second = env.controller.sent_params()[12:]
-    assert len(second) == 8 and sorted(first + second) == sorted(knob.param for knob in knobs)
-    assert env.db.stage_rows == ["paced 12/20", "ordinary"] and not shared.setpoint_dispatch_requested.is_set()
+    second = env.controller.sent_params()[BATCH:]
+    assert len(second) == LOADED - BATCH and sorted(first + second) == sorted(knob.param for knob in knobs)
+    assert env.db.stage_rows == [paced, "ordinary"] and not shared.setpoint_dispatch_requested.is_set()
 
     await settle(env)
-    assert len(env.controller.sent) == 20 and all(sent.desired for sent in env.controller.sent)
+    assert len(env.controller.sent) == LOADED and all(sent.desired for sent in env.controller.sent)
     assert {row["source"] for row in env.db.changes} == {"manual"}
     assert all(row["delivery_status"] == "confirmed" for row in env.db.changes)
     assert {knob.param: env.controller.values[knob.param] for knob in knobs} == {
@@ -564,7 +569,7 @@ async def test_a_desired_row_for_a_retired_unknown_or_read_only_parameter_never_
 async def test_a_setting_the_controller_does_not_list_is_skipped_and_sent_again_when_it_is_listed(env, monkeypatch):
     """#1633 phase 4 generic skip: a manual row for a setting whose entity the connected controller does not list
     writes no request and raises no failure; a controller that lists it again (a rollback) gets it."""
-    manual, present = PLANNED[0], PLANNED[2]
+    manual, present = PLANNED[0], PLANNED[1]  # release 4 (#1633): two planner knobs remain
     connect(env, [manual, present])
     listed = {_common.PARAM_TO_ENTITY[knob.param]: index for index, knob in enumerate(KNOBS)}
     del listed[_common.PARAM_TO_ENTITY[manual.param]]
@@ -587,12 +592,13 @@ async def test_a_setting_the_controller_does_not_list_is_skipped_and_sent_again_
 
 @pytest.mark.asyncio
 async def test_omitted_settings_never_fill_a_paced_batch(env, monkeypatch, caplog):
-    """DISPATCHER-02: thirteen settings the controller does not list (no readback, never pushed, the oldest
+    """DISPATCHER-02: a batch's worth of settings the controller does not list (no readback, never pushed, the oldest
     differences) are dropped before pacing, so the one real change goes out in the first batch with no wake.
     DISPATCHER-07: the skip is logged once each, as a setting not sent, never as a desired_state skip."""
     caplog.set_level(logging.INFO)
     monkeypatch.setattr(dispatcher, "_DESIRED_SKIPS_LOGGED", set())
-    omitted, real = KNOBS[:13], KNOBS[13]
+    monkeypatch.setattr(dispatcher, "MAX_RECONNECT_COMMANDS", BATCH)
+    omitted, real = KNOBS[:BATCH], KNOBS[BATCH]  # BATCH omitted would fill a batch (13 of 12 in production)
     connect(env, [real])
     listed = {_common.PARAM_TO_ENTITY[knob.param]: index for index, knob in enumerate(KNOBS)}
     for knob in omitted:

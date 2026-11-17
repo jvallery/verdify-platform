@@ -69,7 +69,6 @@ from .daily import (  # noqa: F401
 )
 from .dispatcher import *  # noqa: F401,F403
 from .dispatcher import (  # noqa: F401
-    _ai_moisture_stress_policy_supported,
     _apply_manual_overlay,
     _coerce_registry_value,
     _control_band_from_house_row,

@@ -121,7 +121,7 @@ from verdify_schemas.experiment_config import (
     policy_vector_mode,
 )
 from verdify_schemas.policy_transport import POLICY_IDENTITY_SENSOR
-from verdify_schemas.policy_vector import wire_fields
+from verdify_schemas.policy_vector import live_wire_fields
 from verdify_schemas.telemetry import LAW_CONSTANTS_HASH, VERSIONED_TEXT_PAYLOADS, expand_moisture_exchange_wire
 from verdify_schemas.tunable_registry import get as get_tunable
 
@@ -3941,7 +3941,8 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
         published,
         ts,
         canonical_complete=shared.transport_readbacks_ready(generation)
-        and {spec.name for spec in wire_fields()} <= {param for _ts, param, _val in stored_rows},
+        # Release 4: the live wire fields only; the 43 reserved slots have no entity and no readback.
+        and {spec.name for spec in live_wire_fields()} <= {param for _ts, param, _val in stored_rows},
     )
     log.info(
         "setpoint_snapshot publication=committed reason=%s generation=%d rows=%d stored=%d "
@@ -4160,6 +4161,9 @@ async def esp32_loop(pool: asyncpg.Pool = None) -> None:
             port=ESP32_PORT,
             password="",
             noise_psk=ESP32_API_KEY,
+            # The gap log takes this connection for the recorder by its name (firmware/lib/gap_log.h
+            # is_recorder_client); repository tools announce "verdify-tool" and are never the recorder.
+            client_info="verdify-ingestor",
         )
 
         # Event that fires when native transport liveness fails (on_stop callback)

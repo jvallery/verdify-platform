@@ -888,17 +888,17 @@ def test_grafana_render_cache_warmer_is_retired():
 def test_dispatcher_coerces_registry_bounds_before_insert_and_push():
     import tasks
 
-    high_value, high_reason = tasks._coerce_registry_value("mister_all_kpa", 2.8)
-    assert high_value == 2.5
+    high_value, high_reason = tasks._coerce_registry_value("mister_water_budget_gal", 320.0)
+    assert high_value == 300.0
     assert high_reason is not None
-    assert "nearest_safe=2.5" in high_reason
+    assert "nearest_safe=300" in high_reason
 
     low_value, low_reason = tasks._coerce_registry_value("mister_engage_delay_s", 0)
     assert low_value == 30.0
     assert low_reason is not None
     assert "nearest_safe=30" in low_reason
 
-    switch_value, switch_reason = tasks._coerce_registry_value("sw_dwell_gate_enabled", 2.0)
+    switch_value, switch_reason = tasks._coerce_registry_value("sw_direct_wet_gate_enabled", 2.0)
     assert switch_value is None
     assert switch_reason is not None
     assert "outside registry switch values [0, 1]" in switch_reason
@@ -914,85 +914,6 @@ def test_dispatcher_direct_push_uses_dispatchable_changes_only():
     assert "dispatchable_changes.append((param, float(val), source))" in body
     assert "for param, val, _source in dispatchable_changes:" in body
     assert "for param, val in changes:" in body
-
-
-def test_dispatcher_gates_ai_moisture_stress_until_firmware_supports_entities():
-    """PR3 plan rows may exist before the OTA exposes matching ESPHome entities."""
-    import tasks
-
-    # fog_stress_* removed (BC-11/ADR0003 §6.7): retired dead registry rows.
-    assert {
-        "sw_direct_wet_stress_override_enabled",
-        "direct_wet_stress_vpd_margin_kpa",
-        "direct_wet_stress_min_dew_margin_f",
-    } == tasks.AI_MOISTURE_STRESS_POLICY_PARAMS
-    assert {
-        "direct_wet_stress_override_enabled",
-        "direct_wet_stress_vpd_margin_kpa",
-        "direct_wet_stress_min_dew_margin_f",
-    } == tasks.AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS
-
-    src = _tasks_src()
-    start = src.index("async def setpoint_dispatcher")
-    end = src.index("def _fetch_forecast", start)
-    body = src[start:end]
-    assert "ai_moisture_stress_supported = _ai_moisture_stress_policy_supported()" in body
-    assert "param in AI_MOISTURE_STRESS_POLICY_PARAMS and not ai_moisture_stress" in src  # _desired_skip_reason
-
-    original_keys = dict(tasks.shared.esp32.get("keys") or {})
-    original_readback = dict(tasks.shared.cfg_readback)
-    try:
-        tasks.shared.esp32["keys"] = {}
-        tasks.shared.cfg_readback.clear()
-        assert tasks._ai_moisture_stress_policy_supported() is False
-
-        tasks.shared.cfg_readback.update({param: 0.0 for param in tasks.AI_MOISTURE_STRESS_POLICY_PARAMS})
-        assert tasks._ai_moisture_stress_policy_supported() is True
-        for required in tasks.AI_MOISTURE_STRESS_POLICY_PARAMS:
-            tasks.shared.cfg_readback.pop(required)
-            assert tasks._ai_moisture_stress_policy_supported() is False
-            tasks.shared.cfg_readback[required] = 0.0
-
-        tasks.shared.cfg_readback.clear()
-        tasks.shared.esp32["keys"] = {key: object() for key in tasks.AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS}
-        assert tasks._ai_moisture_stress_policy_supported() is True
-        # Every current physical route remains mandatory. The retired clock
-        # route is absent from this successful connected-firmware fixture.
-        for required in tasks.AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS:
-            tasks.shared.esp32["keys"].pop(required)
-            assert tasks._ai_moisture_stress_policy_supported() is False
-            tasks.shared.esp32["keys"][required] = object()
-        assert "direct_wet_stress_latest_hour" not in tasks.AI_MOISTURE_STRESS_REQUIRED_OBJECT_IDS
-    finally:
-        tasks.shared.esp32["keys"] = original_keys
-        tasks.shared.cfg_readback.clear()
-        tasks.shared.cfg_readback.update(original_readback)
-
-
-def test_ai_moisture_stress_backfill_is_dry_run_first_and_routine_only():
-    script = (REPO_ROOT / "scripts" / "backfill-ai-moisture-stress-defaults.sh").read_text()
-    assert "Dry run only. Re-run with APPLY=1" in script
-    assert 'APPLY="${APPLY:-0}"' in script
-    assert "plan_id NOT LIKE 'iris-oneshot-%'" in script
-    assert "ON CONFLICT (ts, parameter, plan_id) DO UPDATE" in script
-    assert "WHERE setpoint_plan.is_active = false" in script
-    assert "PR3 default backfill for AI moisture stress contract alignment" in script
-    assert "from verdify_schemas.tunable_registry import REGISTRY" in script
-    assert "DEFAULTS_SQL" in script
-    assert "candidate_default_values" in script
-    assert "default_values" in script
-    assert "('fog_stress_window_latest_hour', 22.0)" not in script
-    assert "('fog_stress_min_dew_margin_f', 8.0)" not in script
-    for param in {
-        "sw_direct_wet_stress_override_enabled",
-        "direct_wet_stress_vpd_margin_kpa",
-        "direct_wet_stress_min_dew_margin_f",
-        "direct_wet_stress_latest_hour",
-        "sw_fog_stress_window_extend_enabled",
-        "fog_stress_window_latest_hour",
-        "fog_stress_min_dew_margin_f",
-    }:
-        assert param in script
 
 
 def test_dispatcher_writes_guardrail_hold_audits_without_setpoint_push():

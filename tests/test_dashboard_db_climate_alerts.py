@@ -161,8 +161,8 @@ def test_delivery_reads_each_requested_value_against_its_readback(dsn):
         # Matches by the confirmation's tolerances: a binary32 readback, and 1 s on a second-valued setting.
         await request(conn, t0 - 2 * H, "vpd_low", 0.8, confirmed_at=t0 - 2 * H + MIN)
         await readbacks(conn, "vpd_low", [(t0 - MIN, 0.800000011920929)])
-        await request(conn, t0 - 2 * H, "mister_pulse_on_s", 30.0, confirmed_at=t0 - 2 * H + MIN)
-        await readbacks(conn, "mister_pulse_on_s", [(t0 - MIN, 30.6)])
+        await request(conn, t0 - 2 * H, "mister_min_off_s", 30.0, confirmed_at=t0 - 2 * H + MIN)
+        await readbacks(conn, "mister_min_off_s", [(t0 - MIN, 30.6)])
         # A superseded newest request is not what the host asks for; an esp32 row is the controller's own.
         await request(conn, t0 - 2 * H, "gl_grow_sunset_hour", 21.0, status="superseded")
         await readbacks(conn, "gl_grow_sunset_hour", [(t0 - MIN, 20.0)])

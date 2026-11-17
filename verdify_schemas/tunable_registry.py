@@ -209,203 +209,6 @@ REGISTRY: dict[str, TunableDef] = {
         tier=2,
         notes="Crop band — dispatcher pushes every cycle.",
     ),
-    "cool_stage2_over_high_f": TunableDef(
-        name="cool_stage2_over_high_f",
-        kind="numeric",
-        min=0.0,
-        max=3.0,
-        default=1.0,
-        fw_clamp_lo=0.0,
-        fw_clamp_hi=3.0,
-        esp_object_id="cool_stage_2_over_high__f",
-        cfg_readback_object_id="cfg___cool_s2_over_high___f_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.1 F -> scale 10; [0,3] F -> raw [0,30]
-        wire_id=5,
-        wire_kind="u8",
-        wire_scale=10,
-        wire_unit="degF",
-        notes=("Live band-first fan2 threshold above temp_high."),
-    ),
-    "cool_exit_hysteresis_f": TunableDef(
-        name="cool_exit_hysteresis_f",
-        kind="numeric",
-        min=0.3,
-        max=3.0,
-        default=1.5,
-        fw_clamp_lo=0.3,
-        fw_clamp_hi=3.0,
-        esp_object_id="cool_exit_hysteresis__f",
-        cfg_readback_object_id="cfg___cool_exit_hyst___f_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.1 F -> scale 10; [0.3,3] F -> raw [3,30]
-        wire_id=3,
-        wire_kind="u8",
-        wire_scale=10,
-        wire_unit="degF",
-        notes="Cooling hold exits at temp_high minus this margin in the live band-first controller.",
-    ),
-    "cool_stage2_exit_hysteresis_f": TunableDef(
-        name="cool_stage2_exit_hysteresis_f",
-        kind="numeric",
-        min=0.3,
-        max=3.0,
-        default=1.0,
-        fw_clamp_lo=0.3,
-        fw_clamp_hi=3.0,
-        esp_object_id="cool_stage_2_exit_hyst__f",
-        cfg_readback_object_id="cfg___cool_s2_exit_hyst___f_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.1 F -> scale 10; [0.3,3] F -> raw [3,30]
-        wire_id=4,
-        wire_kind="u8",
-        wire_scale=10,
-        wire_unit="degF",
-        notes=(
-            "BC-8 (ADR0003 §6.5): de-escalation hysteresis for the fan1->fan2 stage. "
-            "fan2 latches at temp_high+cool_stage2_over_high_f and clears at that minus "
-            "this, so stage 2 cannot chatter at the threshold (mirrors the heat2 latch)."
-        ),
-    ),
-    "vent_exchange_fraction": TunableDef(
-        name="vent_exchange_fraction",
-        kind="numeric",
-        min=0.1,
-        max=0.6,
-        default=0.30,
-        fw_clamp_lo=0.1,
-        fw_clamp_hi=0.6,
-        esp_object_id="vent_exchange_fraction",
-        cfg_readback_object_id="cfg___vent_exchange_fraction",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.05 -> scale 20; [0.1,0.6] -> raw [2,12]
-        wire_id=45,
-        wire_kind="u8",
-        wire_scale=20,
-        wire_unit="fraction",
-        notes=(
-            "BC-13 (ADR0003 §6.4, Jason 2026-06-17): single-cycle air-exchange fraction "
-            "toward outdoor used by the moisture-exchange estimator's vent VPD-gain "
-            "projection. AI-tunable; structural proxy for the house air-change rate."
-        ),
-    ),
-    "band_track_fraction": TunableDef(
-        name="band_track_fraction",
-        kind="numeric",
-        min=0.0,
-        max=0.0,
-        default=0.0,
-        fw_clamp_lo=0.0,
-        fw_clamp_hi=1.0,
-        esp_object_id="band_track_fraction",
-        cfg_readback_object_id="cfg___band_track_fraction",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.05 -> scale 20; wire envelope is the fw clamp [0,1] (planner pins 0, ADR-0004) -> raw [0,20]
-        wire_id=1,
-        wire_kind="u8",
-        wire_scale=20,
-        wire_unit="fraction",
-        notes=(
-            "Control-band tracking tightness. Pinches the band toward "
-            "temp_target/vpd_target when nonzero, but ADR-0004 makes 0 the only "
-            "planner-valid value: float within the served crop corridor and act at "
-            "the edges. Firmware still clamps [0,1] for operator diagnostics and "
-            "readback continuity; MCP/plan validation rejects planner values above 0 "
-            "so AI cannot reintroduce target hugging. Safety rails untouched."
-        ),
-    ),
-    "cold_vent_guard_delta_f": TunableDef(
-        name="cold_vent_guard_delta_f",
-        kind="numeric",
-        min=0.0,
-        max=15.0,
-        default=10.0,
-        fw_clamp_lo=0.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="cold_vent_guard_delta__f",
-        cfg_readback_object_id="cfg___cold_vent_guard_delta___f_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.5 F -> scale 2; [0,15] F -> raw [0,30]
-        wire_id=2,
-        wire_kind="u8",
-        wire_scale=2,
-        wire_unit="degF",
-        notes=(
-            "Cold-outdoor ventilation guard. Outdoor air below temp_low minus "
-            "this delta requires extra cooling margin before opening the vent."
-        ),
-    ),
-    "sw_cool_all_fans_at_high_enabled": TunableDef(
-        name="sw_cool_all_fans_at_high_enabled",
-        kind="switch",
-        min=0.0,
-        max=1.0,
-        default=0.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id="cool_all_fans_at_high",
-        cfg_readback_object_id="cfg___cool_all_fans_at_high",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: boolean -> one wire byte, 0x00/0x01
-        wire_id=37,
-        wire_kind="bool",
-        wire_scale=1,
-        notes="When enabled, VENTILATE runs both fans immediately above temp_high.",
-    ),
-    "temp_hysteresis": TunableDef(
-        name="temp_hysteresis",
-        kind="numeric",
-        min=0.5,
-        max=3.0,
-        default=1.5,
-        fw_clamp_lo=0.5,
-        fw_clamp_hi=3.0,
-        esp_object_id="temp_hysteresis__f",
-        cfg_readback_object_id="cfg___temp_hyst___f_",
-        push_owner="band",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.1 F -> scale 10; [0.5,3] F -> raw [5,30]
-        wire_id=44,
-        wire_kind="u8",
-        wire_scale=10,
-        wire_unit="degF",
-        notes="Forecast-tuned temperature transition hysteresis. Wider values reduce mode churn; narrower values tighten band tracking.",
-    ),
-    "heat_hysteresis": TunableDef(
-        name="heat_hysteresis",
-        kind="numeric",
-        min=0.0,
-        max=3.0,
-        default=1.0,
-        fw_clamp_lo=0.0,
-        fw_clamp_hi=3.0,
-        esp_object_id="heat_hysteresis__f",
-        cfg_readback_object_id="cfg___heat_hyst___f_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.1 F -> scale 10; [0,3] F -> raw [0,30]
-        wire_id=13,
-        wire_kind="u8",
-        wire_scale=10,
-        wire_unit="degF",
-        notes="Forecast-tuned heat-stage clear margin above the interior heating target. Higher values hold heat longer.",
-    ),
     "vpd_low": TunableDef(
         name="vpd_low",
         kind="numeric",
@@ -436,26 +239,6 @@ REGISTRY: dict[str, TunableDef] = {
         tier=2,
         notes="Crop band high-VPD threshold; firmware seal entry trigger.",
     ),
-    "vpd_hysteresis": TunableDef(
-        name="vpd_hysteresis",
-        kind="numeric",
-        min=0.05,
-        max=0.5,
-        default=0.30,
-        fw_clamp_lo=0.05,
-        fw_clamp_hi=0.5,
-        esp_object_id="vpd_hysteresis_kpa",
-        cfg_readback_object_id="cfg___vpd_hyst__kpa_",
-        push_owner="band",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.05 kPa -> scale 20; [0.05,0.5] kPa -> raw [1,10]
-        wire_id=48,
-        wire_kind="u8",
-        wire_scale=20,
-        wire_unit="kPa",
-        notes="In MCP TIER1 — planner tunes to widen/tighten seal exit during humid regimes.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # Safety rails (push_owner="safety"). Operator-only. Planner cannot push
     # these (planner_pushable=False) — drift guard will keep MCP from
@@ -464,55 +247,6 @@ REGISTRY: dict[str, TunableDef] = {
     # ─────────────────────────────────────────────────────────────────────
     # Mister engage thresholds + delays (push_owner="planner", tier=1).
     # ─────────────────────────────────────────────────────────────────────
-    "mister_engage_kpa": TunableDef(
-        name="mister_engage_kpa",
-        kind="numeric",
-        min=0.5,
-        max=2.5,
-        default=1.6,
-        fw_clamp_lo=0.5,
-        fw_clamp_hi=2.5,
-        esp_object_id="vpd_mister_engage_kpa",
-        cfg_readback_object_id="cfg_mister_engage__kpa_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.05 kPa -> scale 20; [0.5,2.5] kPa -> raw [10,50]
-        wire_id=29,
-        wire_kind="u8",
-        wire_scale=20,
-        wire_unit="kPa",
-        notes=(
-            "Physical S1 mister-pulse threshold once humidity/zone demand exists. "
-            "SEALED_MIST entry is vpd_high plus vpd_watch_dwell_s. During live "
-            "VPD-high stress with healthy dew margin, dispatcher clamps overly "
-            "conservative values back near the active vpd_high band."
-        ),
-    ),
-    "mister_all_kpa": TunableDef(
-        name="mister_all_kpa",
-        kind="numeric",
-        min=1.0,
-        max=2.5,
-        default=1.9,
-        fw_clamp_lo=1.0,
-        fw_clamp_hi=2.5,
-        esp_object_id="vpd_mister_all_kpa",
-        cfg_readback_object_id="cfg_mister_all__kpa_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.05 kPa -> scale 20; [1,2.5] kPa -> raw [20,50]
-        wire_id=26,
-        wire_kind="u8",
-        wire_scale=20,
-        wire_unit="kPa",
-        notes=(
-            "Physical all-zone mister rotation threshold. Keep close to active "
-            "vpd_high on hot/dry ventilation cycles; dispatcher clamps values "
-            "that would prevent all-zone assist during live VPD-high or near-edge VENTILATE stress."
-        ),
-    ),
     "mister_engage_delay_s": TunableDef(
         name="mister_engage_delay_s",
         kind="numeric",
@@ -533,27 +267,6 @@ REGISTRY: dict[str, TunableDef] = {
         wire_unit="s",
         notes="Delay before first physical mister pulse during a sealed or vent-assist moisture cycle. "
         "Tightened to 30-300s so plans cannot postpone humidity response through an entire stress window.",
-    ),
-    "mister_all_delay_s": TunableDef(
-        name="mister_all_delay_s",
-        kind="numeric",
-        min=60,
-        max=600,
-        default=300,
-        fw_clamp_lo=60,
-        fw_clamp_hi=600,
-        esp_object_id="mister_all_delay__s_",
-        cfg_readback_object_id="cfg___mister_all_delay__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 30) -> scale 1; [60,600] -> u16
-        wire_id=25,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Dwell before physical all-zone rotation. Also feeds the header mist-stage delay; "
-        "stress defaults stay near 60-90s.",
     ),
     "mister_on_s": TunableDef(
         name="mister_on_s",
@@ -638,46 +351,6 @@ REGISTRY: dict[str, TunableDef] = {
     # ─────────────────────────────────────────────────────────────────────
     # Mister pulse-rotation model (tier=1). Phase-1c added cfg_* readbacks.
     # ─────────────────────────────────────────────────────────────────────
-    "mister_pulse_on_s": TunableDef(
-        name="mister_pulse_on_s",
-        kind="numeric",
-        min=30,
-        max=90,
-        default=60,
-        fw_clamp_lo=30,
-        fw_clamp_hi=90,
-        esp_object_id="mister_pulse_on__s_",
-        cfg_readback_object_id="cfg___mister_pulse_on__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 5) -> scale 1; [30,90] fits u8
-        wire_id=32,
-        wire_kind="u8",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Pulse-rotation ON duration per zone.",
-    ),
-    "mister_pulse_gap_s": TunableDef(
-        name="mister_pulse_gap_s",
-        kind="numeric",
-        min=10,
-        max=60,
-        default=45,
-        fw_clamp_lo=10,
-        fw_clamp_hi=60,
-        esp_object_id="mister_pulse_gap__s_",
-        cfg_readback_object_id="cfg___mister_pulse_gap__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 5) -> scale 1; [10,60] fits u8
-        wire_id=31,
-        wire_kind="u8",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Pulse-rotation OFF (evap dwell) between zones.",
-    ),
     "mister_min_off_s": TunableDef(
         name="mister_min_off_s",
         kind="numeric",
@@ -700,52 +373,6 @@ REGISTRY: dict[str, TunableDef] = {
         "this of its own last off. Default 45s == the designed pulse gap, so it "
         "only fences sub-gap chatter (never extends a pulse / over-waters). "
         "Raise to cut mister cycling/wear when re-fires are faster than needed.",
-    ),
-    "mister_vpd_weight": TunableDef(
-        name="mister_vpd_weight",
-        kind="numeric",
-        min=0.5,
-        max=3.0,
-        default=1.5,
-        fw_clamp_lo=0.5,
-        fw_clamp_hi=3.0,
-        esp_object_id="mister_vpd_weight",
-        cfg_readback_object_id="cfg___mister_vpd_weight",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.5 -> scale 2; [0.5,3] -> raw [1,6]
-        wire_id=33,
-        wire_kind="u8",
-        wire_scale=2,
-        wire_unit="ratio",
-        notes=(
-            "Pulse-length multiplier, not a selection weight: in S2 all-zone rotation a pulse lasts "
-            "mister_pulse_on_s times this value when its zone is the driest (first S2 pulse: south or west within "
-            "5% of the highest VPD) or its VPD exceeds 1.2x its vpd_target_<zone> (later pulses); otherwise the "
-            "normal pulse (controls.yaml weighted_ms). Zone choice never reads it. Capped at 3.0 until replay "
-            "proves higher values help."
-        ),
-    ),
-    "night_vpd_bias_kpa": TunableDef(
-        name="night_vpd_bias_kpa",
-        kind="numeric",
-        min=0.0,
-        max=0.25,
-        default=0.0,
-        fw_clamp_lo=0.0,
-        fw_clamp_hi=0.25,
-        esp_object_id="night_vpd_bias_kpa",
-        cfg_readback_object_id="cfg_night_vpd_bias_kpa",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.01 kPa -> scale 100; [0,0.25] kPa -> raw [0,25]
-        wire_id=35,
-        wire_kind="u8",
-        wire_scale=100,
-        wire_unit="kPa",
-        notes="Item-4 night-dry lever: kPa added to the OVERNIGHT VPD band (smooth sin^2 weight peaking at solar midnight, 0 at sunset/sunrise). Raises the night dryness floor so the dryer keeps running on a humid-night forecast WITHOUT moving the crop_band_anchors curve. Clamped 0..0.25.",
     ),
     "sw_arbiter_zone_enabled": TunableDef(
         name="sw_arbiter_zone_enabled",
@@ -783,8 +410,7 @@ REGISTRY: dict[str, TunableDef] = {
         push_owner="operator",
         planner_pushable=False,
         tier=2,
-        notes="IRR-2 mister VPD hysteresis floor, kPa. The mister state machine uses max(this, "
-        "mister_engage_kpa x 0.25), capped at the band width, so misting cannot chatter inside a "
+        notes="IRR-2 mister VPD hysteresis floor, kPa, so misting cannot chatter inside a "
         "tight band. Its cfg_* readback ships with the engine release OTA; until then the native "
         "number state is the readback.",
     ),
@@ -810,169 +436,9 @@ REGISTRY: dict[str, TunableDef] = {
     # profile) + related scoring tunables. Tier=2: visible context, not
     # planner-writable unless promoted in a replay-backed contract PR.
     # ─────────────────────────────────────────────────────────────────────
-    "mister_center_penalty": TunableDef(
-        name="mister_center_penalty",
-        kind="numeric",
-        min=0.0,
-        max=1.0,
-        default=0.5,
-        fw_clamp_lo=0.0,
-        fw_clamp_hi=1.0,
-        esp_object_id="mister_center_penalty",
-        cfg_readback_object_id="cfg___mister_center_penalty",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=2,
-        # wire: ESPHome step 0.1 -> scale 10; [0,1] -> raw [0,10]
-        wire_id=27,
-        wire_kind="u8",
-        wire_scale=10,
-        wire_unit="fraction",
-        notes="Score penalty on center zone to discourage over-misting seedlings.",
-    ),
-    "min_fog_on_s": TunableDef(
-        name="min_fog_on_s",
-        kind="numeric",
-        min=15,
-        max=300,
-        default=60,
-        fw_clamp_lo=15,
-        fw_clamp_hi=300,
-        esp_object_id="min_fog_on__s_",
-        cfg_readback_object_id="cfg___min_fog_on__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 15) -> scale 1; [15,300] -> u16
-        wire_id=17,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Fog minimum ON time — in MCP TIER1.",
-    ),
-    "min_fog_off_s": TunableDef(
-        name="min_fog_off_s",
-        kind="numeric",
-        min=15,
-        max=300,
-        default=60,
-        fw_clamp_lo=15,
-        fw_clamp_hi=300,
-        esp_object_id="min_fog_off__s_",
-        cfg_readback_object_id="cfg___min_fog_off__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 15) -> scale 1; [15,300] -> u16
-        wire_id=16,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Fog minimum OFF time — in MCP TIER1.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # Equipment timing (heaters/fans/vent/bursts).
     # ─────────────────────────────────────────────────────────────────────
-    "min_heat_on_s": TunableDef(
-        name="min_heat_on_s",
-        kind="numeric",
-        min=30,
-        max=300,
-        default=120,
-        fw_clamp_lo=30,
-        fw_clamp_hi=300,
-        esp_object_id="min_heat_on__s_",
-        cfg_readback_object_id="cfg___min_heat_on__s_",
-        push_owner="operator",
-        planner_pushable=True,
-        tier=2,
-        # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
-        wire_id=19,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Heater relay protection dwell. Operator/firmware policy, not routine planner policy.",
-    ),
-    "min_fan_on_s": TunableDef(
-        name="min_fan_on_s",
-        kind="numeric",
-        min=30,
-        max=300,
-        default=120,
-        fw_clamp_lo=30,
-        fw_clamp_hi=300,
-        esp_object_id="min_fan_on__s_",
-        cfg_readback_object_id="cfg___min_fan_on__s_",
-        push_owner="operator",
-        planner_pushable=True,
-        tier=2,
-        # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
-        wire_id=15,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Fan relay protection dwell. Operator/firmware policy.",
-    ),
-    "min_fan_off_s": TunableDef(
-        name="min_fan_off_s",
-        kind="numeric",
-        min=30,
-        max=300,
-        default=90,
-        fw_clamp_lo=30,
-        fw_clamp_hi=300,
-        esp_object_id="min_fan_off__s_",
-        cfg_readback_object_id="cfg___min_fan_off__s_",
-        push_owner="operator",
-        planner_pushable=True,
-        tier=2,
-        # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
-        wire_id=14,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Fan relay protection dwell. Operator/firmware policy.",
-    ),
-    "min_vent_on_s": TunableDef(
-        name="min_vent_on_s",
-        kind="numeric",
-        min=10,
-        max=300,
-        default=60,
-        fw_clamp_lo=10,
-        fw_clamp_hi=300,
-        esp_object_id="min_vent_on__s_",
-        cfg_readback_object_id="cfg___min_vent_on__s_",
-        push_owner="operator",
-        planner_pushable=True,
-        tier=2,
-        # wire: integer seconds (ESPHome step 10) -> scale 1; [10,300] -> u16
-        wire_id=21,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Vent actuator protection dwell. Operator/firmware policy, not routine planner policy.",
-    ),
-    "min_vent_off_s": TunableDef(
-        name="min_vent_off_s",
-        kind="numeric",
-        min=10,
-        max=300,
-        default=60,
-        fw_clamp_lo=10,
-        fw_clamp_hi=300,
-        esp_object_id="min_vent_off__s_",
-        cfg_readback_object_id="cfg___min_vent_off__s_",
-        push_owner="operator",
-        planner_pushable=True,
-        tier=2,
-        # wire: integer seconds (ESPHome step 10) -> scale 1; [10,300] -> u16
-        wire_id=20,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Vent actuator protection dwell. Operator/firmware policy, not routine planner policy.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # Fog safety gates. Tier=2 — operator rarely tunes.
     # ─────────────────────────────────────────────────────────────────────
@@ -1024,66 +490,6 @@ REGISTRY: dict[str, TunableDef] = {
     # ─────────────────────────────────────────────────────────────────────
     # VPD-primary state machine dwell / lead / reopen (MCP TIER1 core).
     # ─────────────────────────────────────────────────────────────────────
-    "vpd_watch_dwell_s": TunableDef(
-        name="vpd_watch_dwell_s",
-        kind="numeric",
-        min=15,
-        max=120,
-        default=60,
-        fw_clamp_lo=15,
-        fw_clamp_hi=120,
-        esp_object_id="vpd_watch_dwell__s_",
-        cfg_readback_object_id="cfg___vpd_watch_dwell__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 15) -> scale 1; [15,120] fits u8
-        wire_id=49,
-        wire_kind="u8",
-        wire_scale=1,
-        wire_unit="s",
-        notes="VPD_WATCH observation window before engaging mist.",
-    ),
-    "mist_max_closed_vent_s": TunableDef(
-        name="mist_max_closed_vent_s",
-        kind="numeric",
-        min=120,
-        max=900,
-        default=600,
-        fw_clamp_lo=120,
-        fw_clamp_hi=900,
-        esp_object_id="mist_max_closed_vent__s_",
-        cfg_readback_object_id="cfg___mist_max_closed_vent__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 60) -> scale 1; [120,900] -> u16
-        wire_id=23,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Maximum time vent can stay closed during misting before thermal-relief burst.",
-    ),
-    "mist_thermal_relief_s": TunableDef(
-        name="mist_thermal_relief_s",
-        kind="numeric",
-        min=30,
-        max=300,
-        default=90,
-        fw_clamp_lo=30,
-        fw_clamp_hi=300,
-        esp_object_id="mist_thermal_relief__s_",
-        cfg_readback_object_id="cfg___mist_thermal_relief__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 30) -> scale 1; [30,300] -> u16
-        wire_id=24,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Mandatory vent-open relief duration if mist-closed-vent cap hit.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # Direct-wet gates.
     # ─────────────────────────────────────────────────────────────────────
@@ -1101,68 +507,6 @@ REGISTRY: dict[str, TunableDef] = {
         planner_pushable=False,
         tier=2,
         notes="Minimum house temperature for automated direct wetting across misters, fert paths, and drips.",
-    ),
-    "sw_direct_wet_stress_override_enabled": TunableDef(
-        name="sw_direct_wet_stress_override_enabled",
-        kind="switch",
-        min=0,
-        max=1,
-        default=0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id="direct_wet_stress_override_enabled",
-        cfg_readback_object_id="cfg_direct_wet_stress_override_enabled",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: boolean -> one wire byte, 0x00/0x01
-        wire_id=39,
-        wire_kind="bool",
-        wire_scale=1,
-        notes=(
-            "Allows direct-wet mister zones to bypass drydown windows only during VPD-high stress. "
-            "Firmware still enforces direct-wet master gate, min temp, irrigation/occupancy locks, latest hour, and dew margin."
-        ),
-    ),
-    "direct_wet_stress_vpd_margin_kpa": TunableDef(
-        name="direct_wet_stress_vpd_margin_kpa",
-        kind="numeric",
-        min=0,
-        max=0.5,
-        default=0.05,
-        fw_clamp_lo=0,
-        fw_clamp_hi=0.5,
-        esp_object_id="direct_wet_stress_vpd_margin_kpa",
-        cfg_readback_object_id="cfg_direct_wet_stress_vpd_margin_kpa",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.05 kPa -> scale 20; [0,0.5] kPa -> raw [0,10]
-        wire_id=8,
-        wire_kind="u8",
-        wire_scale=20,
-        wire_unit="kPa",
-        notes="VPD excess above active vpd_high required before direct-wet stress override can open drydown-gated zones.",
-    ),
-    "direct_wet_stress_min_dew_margin_f": TunableDef(
-        name="direct_wet_stress_min_dew_margin_f",
-        kind="numeric",
-        min=3,
-        max=15,
-        default=8,
-        fw_clamp_lo=3,
-        fw_clamp_hi=15,
-        esp_object_id="direct_wet_stress_min_dew_margin_f",
-        cfg_readback_object_id="cfg_direct_wet_stress_min_dew_margin_f",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.5 F -> scale 2; [3,15] F -> raw [6,30]
-        wire_id=7,
-        wire_kind="u8",
-        wire_scale=2,
-        wire_unit="degF",
-        notes="Minimum indoor temp-minus-dewpoint margin required for direct-wet stress override.",
     ),
     "direct_wet_stress_latest_hour": TunableDef(
         name="direct_wet_stress_latest_hour",
@@ -1506,46 +850,6 @@ REGISTRY: dict[str, TunableDef] = {
     # ─────────────────────────────────────────────────────────────────────
     # Economiser (enthalpy-based vent gating).
     # ─────────────────────────────────────────────────────────────────────
-    "enthalpy_open": TunableDef(
-        name="enthalpy_open",
-        kind="numeric",
-        min=-5.0,
-        max=0.0,
-        default=-2.0,
-        fw_clamp_lo=-5.0,
-        fw_clamp_hi=0.0,
-        esp_object_id="enthalpy_open__kj_kg_",
-        cfg_readback_object_id="cfg___enthalpy_open__kj_kg___",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.5 kJ/kg -> scale 2; signed [-5,0] -> raw [-10,0] (i16)
-        wire_id=11,
-        wire_kind="i16",
-        wire_scale=2,
-        wire_unit="kJ/kg",
-        notes="Economiser opens when outdoor-indoor enthalpy ≤ this. In MCP TIER1.",
-    ),
-    "enthalpy_close": TunableDef(
-        name="enthalpy_close",
-        kind="numeric",
-        min=-5.0,
-        max=20.0,
-        default=1.0,
-        fw_clamp_lo=-5.0,
-        fw_clamp_hi=20.0,
-        esp_object_id="enthalpy_close__kj_kg_",
-        cfg_readback_object_id="cfg___enthalpy_close__kj_kg___",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.5 kJ/kg -> scale 2; signed [-5,20] -> raw [-10,40] (i16)
-        wire_id=10,
-        wire_kind="i16",
-        wire_scale=2,
-        wire_unit="kJ/kg",
-        notes="Economiser closes when enthalpy ≥ this. In MCP TIER1.",
-    ),
     "site_pressure_hpa": TunableDef(
         name="site_pressure_hpa",
         kind="numeric",
@@ -1625,62 +929,6 @@ REGISTRY: dict[str, TunableDef] = {
     # Sprint-15 summer-vent gate (the class of tunable that repeatedly hit
     # the TIER1 drift bug). Definitive source-of-truth for min/max + clamps.
     # ─────────────────────────────────────────────────────────────────────
-    "sw_summer_vent_enabled": TunableDef(
-        name="sw_summer_vent_enabled",
-        kind="switch",
-        default=1,
-        esp_object_id="summer_vent_enabled",
-        cfg_readback_object_id="cfg_summer_vent_enabled",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: boolean -> one wire byte, 0x00/0x01
-        wire_id=43,
-        wire_kind="bool",
-        wire_scale=1,
-        notes="Master switch for the sprint-15 outdoor-cooler-and-drier gate. "
-        "Default ON: firmware behavior without it is wrong in summer.",
-    ),
-    "vent_prefer_temp_delta_f": TunableDef(
-        name="vent_prefer_temp_delta_f",
-        kind="numeric",
-        min=2.0,
-        max=15.0,
-        default=5.0,
-        fw_clamp_lo=2.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="vent_prefer_temp_delta__f_",
-        cfg_readback_object_id="cfg___vent_prefer_temp_delta__f_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.5 F -> scale 2; [2,15] F -> raw [4,30]
-        wire_id=47,
-        wire_kind="u8",
-        wire_scale=2,
-        wire_unit="degF",
-        notes="Outdoor must be ≥ this many °F cooler than indoor for gate to fire.",
-    ),
-    "vent_prefer_dp_delta_f": TunableDef(
-        name="vent_prefer_dp_delta_f",
-        kind="numeric",
-        min=2.0,
-        max=15.0,
-        default=5.0,
-        fw_clamp_lo=2.0,
-        fw_clamp_hi=15.0,
-        esp_object_id="vent_prefer_dp_delta__f_",
-        cfg_readback_object_id="cfg___vent_prefer_dp_delta__f_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.5 F -> scale 2; [2,15] F -> raw [4,30]
-        wire_id=46,
-        wire_kind="u8",
-        wire_scale=2,
-        wire_unit="degF",
-        notes="Outdoor dewpoint must be ≥ this many °F below indoor DP for gate.",
-    ),
     "outdoor_staleness_max_s": TunableDef(
         name="outdoor_staleness_max_s",
         kind="numeric",
@@ -1704,38 +952,6 @@ REGISTRY: dict[str, TunableDef] = {
         "jitter doesn't intermittently disqualify the gate.",
     ),
     # ── Sprint-15.1 vent-close interlocks (fixes 4/5/7) ──────────────
-    "sw_fog_closes_vent": TunableDef(
-        name="sw_fog_closes_vent",
-        kind="switch",
-        default=1,
-        esp_object_id="fog_closes_vent",
-        cfg_readback_object_id="cfg_fog_closes_vent",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: boolean -> one wire byte, 0x00/0x01
-        wire_id=41,
-        wire_kind="bool",
-        wire_scale=1,
-        notes="Fog is suppressed while the vent is physically open, except vent-mist assist. "
-        "Default ON; disabling re-enables open-vent fog during VENTILATE (tradeoff).",
-    ),
-    "sw_mister_closes_vent": TunableDef(
-        name="sw_mister_closes_vent",
-        kind="switch",
-        default=0,  # globals.yaml initial_value 'false'
-        esp_object_id="mister_closes_vent",
-        cfg_readback_object_id="cfg_mister_closes_vent",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: boolean -> one wire byte, 0x00/0x01
-        wire_id=42,
-        wire_kind="bool",
-        wire_scale=1,
-        notes="Normal mister pulses are suppressed while the vent is physically open. "
-        "The explicit VENTILATE vent-mist assist path bypasses this interlock.",
-    ),
     "sw_direct_wet_gate_enabled": TunableDef(
         name="sw_direct_wet_gate_enabled",
         kind="switch",
@@ -1754,114 +970,9 @@ REGISTRY: dict[str, TunableDef] = {
     # ─────────────────────────────────────────────────────────────────────
     # Legacy compatibility/readback knobs.
     # ─────────────────────────────────────────────────────────────────────
-    "min_heat_off_s": TunableDef(
-        name="min_heat_off_s",
-        kind="numeric",
-        min=60,
-        max=600,
-        default=180,
-        fw_clamp_lo=60,
-        fw_clamp_hi=600,
-        esp_object_id="min_heat_off__s_",
-        cfg_readback_object_id="cfg___min_heat_off__s_",
-        push_owner="operator",
-        planner_pushable=True,
-        tier=2,
-        # wire: integer seconds (ESPHome step 10) -> scale 1; [60,600] -> u16
-        wire_id=18,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Heater relay protection dwell. Default 180s from Sprint-15.1; operator/firmware policy.",
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # Phase-2 dwell gate.
     # ─────────────────────────────────────────────────────────────────────
-    "sw_dwell_gate_enabled": TunableDef(
-        name="sw_dwell_gate_enabled",
-        kind="switch",
-        default=0,
-        esp_object_id="dwell_gate_enabled",
-        cfg_readback_object_id="cfg_dwell_gate_enabled",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: boolean -> one wire byte, 0x00/0x01
-        wire_id=40,
-        wire_kind="bool",
-        wire_scale=1,
-        notes="Master switch for Phase-2 mode-dwell gate. ClimateIntent may "
-        "enable this on the single live controller path when relay-churn "
-        "preference warrants it; offline replay remains diagnostic only.",
-    ),
-    "dwell_gate_ms": TunableDef(
-        name="dwell_gate_ms",
-        kind="numeric",
-        min=60000,
-        max=1800000,
-        default=300000,
-        fw_clamp_lo=60000,
-        fw_clamp_hi=1800000,
-        esp_object_id="dwell_gate__ms_",
-        cfg_readback_object_id="cfg_dwell_gate_ms",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer milliseconds (ESPHome step 30000) -> scale 1; [60000,1800000] needs u32
-        wire_id=9,
-        wire_kind="u32",
-        wire_scale=1,
-        wire_unit="ms",
-        notes="Dwell hold duration. Default 5 min. Safety rails + R2-3 "
-        "dry override + vpd_min_safe rescue preempt unconditionally.",
-    ),
-    "mist_backoff_s": TunableDef(
-        name="mist_backoff_s",
-        kind="numeric",
-        min=60,
-        max=3600,
-        default=600,
-        fw_clamp_lo=60,
-        fw_clamp_hi=3600,
-        esp_object_id="mist_backoff__s_",
-        cfg_readback_object_id="cfg___mist_backoff__s_",
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: integer seconds (ESPHome step 60) -> scale 1; [60,3600] -> u16
-        wire_id=22,
-        wire_kind="u16",
-        wire_scale=1,
-        wire_unit="s",
-        notes="Controller lockout after sealed humidification times out. "
-        "Suppresses another SEALED_MIST attempt without forcing venting.",
-    ),
-    "fog_escalation_kpa": TunableDef(
-        name="fog_escalation_kpa",
-        kind="numeric",
-        min=0.1,
-        max=0.5,
-        default=0.4,
-        fw_clamp_lo=0.1,
-        fw_clamp_hi=0.5,
-        esp_object_id="fog_escalation__kpa_",
-        cfg_readback_object_id="cfg___fog_escalation__kpa_",  # Phase 1c added readback
-        push_owner="planner",
-        planner_pushable=True,
-        tier=1,
-        # wire: ESPHome step 0.1 kPa -> scale 10; [0.1,0.5] kPa -> raw [1,5]
-        wire_id=12,
-        wire_kind="u8",
-        wire_scale=10,
-        wire_unit="kPa",
-        notes=(
-            "VPD delta above vpd_high for the fog-first ladder: a sealed humidify run starts on fog, and "
-            "the misters join (S1, then S2) once VPD stays above vpd_high + this delta for mister_all_delay_s; "
-            " while VENTILATE cools, fog assists the vent above the same edge. The dispatcher caps "
-            "overly conservative deltas during live VPD-high or near-edge VENTILATE stress when dew margin "
-            "is healthy. Tightened to 0.5 kPa max so plans stay band-relative."
-        ),
-    ),
     # ─────────────────────────────────────────────────────────────────────
     # Readback-only firmware inputs. These are in ALL_TUNABLES because
     # setpoint_snapshot rows validate against that schema, but there is no
@@ -2153,6 +1264,903 @@ REGISTRY: dict[str, TunableDef] = {
     ),
 }
 
+# ── The frozen policy wire (#1633 release 4, RULINGS AE7a, AK8; coordinator shape B) ─────────────────────
+# The 48-slot wire layout (verdify_schemas/policy_vector.py, WIRE_SCHEMA_VERSION 2) stays byte-identical to what the
+# firmware carries, so no flash follows release 4. Five slots are live settings in REGISTRY (LIVE_WIRE_FIELDS). The
+# other 43 are RESERVED: their settings left with the third flash and release 4 deleted their rows; these definitions
+# only hold the slot layout (wire_id, kind, scale, bounds). Nothing writes, reads, pushes or shows them. Shrinking the
+# wire is a carry for the next firmware change.
+RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
+    "cool_stage2_over_high_f": TunableDef(
+        name="cool_stage2_over_high_f",
+        kind="numeric",
+        min=0.0,
+        max=3.0,
+        default=1.0,
+        fw_clamp_lo=0.0,
+        fw_clamp_hi=3.0,
+        esp_object_id="cool_stage_2_over_high__f",
+        cfg_readback_object_id="cfg___cool_s2_over_high___f_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.1 F -> scale 10; [0,3] F -> raw [0,30]
+        wire_id=5,
+        wire_kind="u8",
+        wire_scale=10,
+        wire_unit="degF",
+        notes=("Live band-first fan2 threshold above temp_high."),
+    ),
+    "cool_exit_hysteresis_f": TunableDef(
+        name="cool_exit_hysteresis_f",
+        kind="numeric",
+        min=0.3,
+        max=3.0,
+        default=1.5,
+        fw_clamp_lo=0.3,
+        fw_clamp_hi=3.0,
+        esp_object_id="cool_exit_hysteresis__f",
+        cfg_readback_object_id="cfg___cool_exit_hyst___f_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.1 F -> scale 10; [0.3,3] F -> raw [3,30]
+        wire_id=3,
+        wire_kind="u8",
+        wire_scale=10,
+        wire_unit="degF",
+        notes="Cooling hold exits at temp_high minus this margin in the live band-first controller.",
+    ),
+    "cool_stage2_exit_hysteresis_f": TunableDef(
+        name="cool_stage2_exit_hysteresis_f",
+        kind="numeric",
+        min=0.3,
+        max=3.0,
+        default=1.0,
+        fw_clamp_lo=0.3,
+        fw_clamp_hi=3.0,
+        esp_object_id="cool_stage_2_exit_hyst__f",
+        cfg_readback_object_id="cfg___cool_s2_exit_hyst___f_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.1 F -> scale 10; [0.3,3] F -> raw [3,30]
+        wire_id=4,
+        wire_kind="u8",
+        wire_scale=10,
+        wire_unit="degF",
+        notes=(
+            "BC-8 (ADR0003 §6.5): de-escalation hysteresis for the fan1->fan2 stage. "
+            "fan2 latches at temp_high+cool_stage2_over_high_f and clears at that minus "
+            "this, so stage 2 cannot chatter at the threshold (mirrors the heat2 latch)."
+        ),
+    ),
+    "vent_exchange_fraction": TunableDef(
+        name="vent_exchange_fraction",
+        kind="numeric",
+        min=0.1,
+        max=0.6,
+        default=0.30,
+        fw_clamp_lo=0.1,
+        fw_clamp_hi=0.6,
+        esp_object_id="vent_exchange_fraction",
+        cfg_readback_object_id="cfg___vent_exchange_fraction",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.05 -> scale 20; [0.1,0.6] -> raw [2,12]
+        wire_id=45,
+        wire_kind="u8",
+        wire_scale=20,
+        wire_unit="fraction",
+        notes=(
+            "BC-13 (ADR0003 §6.4, Jason 2026-06-17): single-cycle air-exchange fraction "
+            "toward outdoor used by the moisture-exchange estimator's vent VPD-gain "
+            "projection. AI-tunable; structural proxy for the house air-change rate."
+        ),
+    ),
+    "band_track_fraction": TunableDef(
+        name="band_track_fraction",
+        kind="numeric",
+        min=0.0,
+        max=0.0,
+        default=0.0,
+        fw_clamp_lo=0.0,
+        fw_clamp_hi=1.0,
+        esp_object_id="band_track_fraction",
+        cfg_readback_object_id="cfg___band_track_fraction",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.05 -> scale 20; wire envelope is the fw clamp [0,1] (planner pins 0, ADR-0004) -> raw [0,20]
+        wire_id=1,
+        wire_kind="u8",
+        wire_scale=20,
+        wire_unit="fraction",
+        notes=(
+            "Control-band tracking tightness. Pinches the band toward "
+            "temp_target/vpd_target when nonzero, but ADR-0004 makes 0 the only "
+            "planner-valid value: float within the served crop corridor and act at "
+            "the edges. Firmware still clamps [0,1] for operator diagnostics and "
+            "readback continuity; MCP/plan validation rejects planner values above 0 "
+            "so AI cannot reintroduce target hugging. Safety rails untouched."
+        ),
+    ),
+    "cold_vent_guard_delta_f": TunableDef(
+        name="cold_vent_guard_delta_f",
+        kind="numeric",
+        min=0.0,
+        max=15.0,
+        default=10.0,
+        fw_clamp_lo=0.0,
+        fw_clamp_hi=15.0,
+        esp_object_id="cold_vent_guard_delta__f",
+        cfg_readback_object_id="cfg___cold_vent_guard_delta___f_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.5 F -> scale 2; [0,15] F -> raw [0,30]
+        wire_id=2,
+        wire_kind="u8",
+        wire_scale=2,
+        wire_unit="degF",
+        notes=(
+            "Cold-outdoor ventilation guard. Outdoor air below temp_low minus "
+            "this delta requires extra cooling margin before opening the vent."
+        ),
+    ),
+    "sw_cool_all_fans_at_high_enabled": TunableDef(
+        name="sw_cool_all_fans_at_high_enabled",
+        kind="switch",
+        min=0.0,
+        max=1.0,
+        default=0.0,
+        fw_clamp_lo=None,
+        fw_clamp_hi=None,
+        esp_object_id="cool_all_fans_at_high",
+        cfg_readback_object_id="cfg___cool_all_fans_at_high",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: boolean -> one wire byte, 0x00/0x01
+        wire_id=37,
+        wire_kind="bool",
+        wire_scale=1,
+        notes="When enabled, VENTILATE runs both fans immediately above temp_high.",
+    ),
+    "temp_hysteresis": TunableDef(
+        name="temp_hysteresis",
+        kind="numeric",
+        min=0.5,
+        max=3.0,
+        default=1.5,
+        fw_clamp_lo=0.5,
+        fw_clamp_hi=3.0,
+        esp_object_id="temp_hysteresis__f",
+        cfg_readback_object_id="cfg___temp_hyst___f_",
+        push_owner="band",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.1 F -> scale 10; [0.5,3] F -> raw [5,30]
+        wire_id=44,
+        wire_kind="u8",
+        wire_scale=10,
+        wire_unit="degF",
+        notes="Forecast-tuned temperature transition hysteresis. Wider values reduce mode churn; narrower values tighten band tracking.",
+    ),
+    "heat_hysteresis": TunableDef(
+        name="heat_hysteresis",
+        kind="numeric",
+        min=0.0,
+        max=3.0,
+        default=1.0,
+        fw_clamp_lo=0.0,
+        fw_clamp_hi=3.0,
+        esp_object_id="heat_hysteresis__f",
+        cfg_readback_object_id="cfg___heat_hyst___f_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.1 F -> scale 10; [0,3] F -> raw [0,30]
+        wire_id=13,
+        wire_kind="u8",
+        wire_scale=10,
+        wire_unit="degF",
+        notes="Forecast-tuned heat-stage clear margin above the interior heating target. Higher values hold heat longer.",
+    ),
+    "vpd_hysteresis": TunableDef(
+        name="vpd_hysteresis",
+        kind="numeric",
+        min=0.05,
+        max=0.5,
+        default=0.30,
+        fw_clamp_lo=0.05,
+        fw_clamp_hi=0.5,
+        esp_object_id="vpd_hysteresis_kpa",
+        cfg_readback_object_id="cfg___vpd_hyst__kpa_",
+        push_owner="band",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.05 kPa -> scale 20; [0.05,0.5] kPa -> raw [1,10]
+        wire_id=48,
+        wire_kind="u8",
+        wire_scale=20,
+        wire_unit="kPa",
+        notes="In MCP TIER1 — planner tunes to widen/tighten seal exit during humid regimes.",
+    ),
+    "mister_engage_kpa": TunableDef(
+        name="mister_engage_kpa",
+        kind="numeric",
+        min=0.5,
+        max=2.5,
+        default=1.6,
+        fw_clamp_lo=0.5,
+        fw_clamp_hi=2.5,
+        esp_object_id="vpd_mister_engage_kpa",
+        cfg_readback_object_id="cfg_mister_engage__kpa_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.05 kPa -> scale 20; [0.5,2.5] kPa -> raw [10,50]
+        wire_id=29,
+        wire_kind="u8",
+        wire_scale=20,
+        wire_unit="kPa",
+        notes=(
+            "Physical S1 mister-pulse threshold once humidity/zone demand exists. "
+            "SEALED_MIST entry is vpd_high plus vpd_watch_dwell_s. During live "
+            "VPD-high stress with healthy dew margin, dispatcher clamps overly "
+            "conservative values back near the active vpd_high band."
+        ),
+    ),
+    "mister_all_kpa": TunableDef(
+        name="mister_all_kpa",
+        kind="numeric",
+        min=1.0,
+        max=2.5,
+        default=1.9,
+        fw_clamp_lo=1.0,
+        fw_clamp_hi=2.5,
+        esp_object_id="vpd_mister_all_kpa",
+        cfg_readback_object_id="cfg_mister_all__kpa_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.05 kPa -> scale 20; [1,2.5] kPa -> raw [20,50]
+        wire_id=26,
+        wire_kind="u8",
+        wire_scale=20,
+        wire_unit="kPa",
+        notes=(
+            "Physical all-zone mister rotation threshold. Keep close to active "
+            "vpd_high on hot/dry ventilation cycles; dispatcher clamps values "
+            "that would prevent all-zone assist during live VPD-high or near-edge VENTILATE stress."
+        ),
+    ),
+    "mister_all_delay_s": TunableDef(
+        name="mister_all_delay_s",
+        kind="numeric",
+        min=60,
+        max=600,
+        default=300,
+        fw_clamp_lo=60,
+        fw_clamp_hi=600,
+        esp_object_id="mister_all_delay__s_",
+        cfg_readback_object_id="cfg___mister_all_delay__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 30) -> scale 1; [60,600] -> u16
+        wire_id=25,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Dwell before physical all-zone rotation. Also feeds the header mist-stage delay; "
+        "stress defaults stay near 60-90s.",
+    ),
+    "mister_pulse_on_s": TunableDef(
+        name="mister_pulse_on_s",
+        kind="numeric",
+        min=30,
+        max=90,
+        default=60,
+        fw_clamp_lo=30,
+        fw_clamp_hi=90,
+        esp_object_id="mister_pulse_on__s_",
+        cfg_readback_object_id="cfg___mister_pulse_on__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 5) -> scale 1; [30,90] fits u8
+        wire_id=32,
+        wire_kind="u8",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Pulse-rotation ON duration per zone.",
+    ),
+    "mister_pulse_gap_s": TunableDef(
+        name="mister_pulse_gap_s",
+        kind="numeric",
+        min=10,
+        max=60,
+        default=45,
+        fw_clamp_lo=10,
+        fw_clamp_hi=60,
+        esp_object_id="mister_pulse_gap__s_",
+        cfg_readback_object_id="cfg___mister_pulse_gap__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 5) -> scale 1; [10,60] fits u8
+        wire_id=31,
+        wire_kind="u8",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Pulse-rotation OFF (evap dwell) between zones.",
+    ),
+    "mister_vpd_weight": TunableDef(
+        name="mister_vpd_weight",
+        kind="numeric",
+        min=0.5,
+        max=3.0,
+        default=1.5,
+        fw_clamp_lo=0.5,
+        fw_clamp_hi=3.0,
+        esp_object_id="mister_vpd_weight",
+        cfg_readback_object_id="cfg___mister_vpd_weight",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.5 -> scale 2; [0.5,3] -> raw [1,6]
+        wire_id=33,
+        wire_kind="u8",
+        wire_scale=2,
+        wire_unit="ratio",
+        notes=(
+            "Pulse-length multiplier, not a selection weight: in S2 all-zone rotation a pulse lasts "
+            "mister_pulse_on_s times this value when its zone is the driest (first S2 pulse: south or west within "
+            "5% of the highest VPD) or its VPD exceeds 1.2x its vpd_target_<zone> (later pulses); otherwise the "
+            "normal pulse (controls.yaml weighted_ms). Zone choice never reads it. Capped at 3.0 until replay "
+            "proves higher values help."
+        ),
+    ),
+    "night_vpd_bias_kpa": TunableDef(
+        name="night_vpd_bias_kpa",
+        kind="numeric",
+        min=0.0,
+        max=0.25,
+        default=0.0,
+        fw_clamp_lo=0.0,
+        fw_clamp_hi=0.25,
+        esp_object_id="night_vpd_bias_kpa",
+        cfg_readback_object_id="cfg_night_vpd_bias_kpa",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.01 kPa -> scale 100; [0,0.25] kPa -> raw [0,25]
+        wire_id=35,
+        wire_kind="u8",
+        wire_scale=100,
+        wire_unit="kPa",
+        notes="Item-4 night-dry lever: kPa added to the OVERNIGHT VPD band (smooth sin^2 weight peaking at solar midnight, 0 at sunset/sunrise). Raises the night dryness floor so the dryer keeps running on a humid-night forecast WITHOUT moving the crop_band_anchors curve. Clamped 0..0.25.",
+    ),
+    "mister_center_penalty": TunableDef(
+        name="mister_center_penalty",
+        kind="numeric",
+        min=0.0,
+        max=1.0,
+        default=0.5,
+        fw_clamp_lo=0.0,
+        fw_clamp_hi=1.0,
+        esp_object_id="mister_center_penalty",
+        cfg_readback_object_id="cfg___mister_center_penalty",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=2,
+        # wire: ESPHome step 0.1 -> scale 10; [0,1] -> raw [0,10]
+        wire_id=27,
+        wire_kind="u8",
+        wire_scale=10,
+        wire_unit="fraction",
+        notes="Score penalty on center zone to discourage over-misting seedlings.",
+    ),
+    "min_fog_on_s": TunableDef(
+        name="min_fog_on_s",
+        kind="numeric",
+        min=15,
+        max=300,
+        default=60,
+        fw_clamp_lo=15,
+        fw_clamp_hi=300,
+        esp_object_id="min_fog_on__s_",
+        cfg_readback_object_id="cfg___min_fog_on__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 15) -> scale 1; [15,300] -> u16
+        wire_id=17,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Fog minimum ON time — in MCP TIER1.",
+    ),
+    "min_fog_off_s": TunableDef(
+        name="min_fog_off_s",
+        kind="numeric",
+        min=15,
+        max=300,
+        default=60,
+        fw_clamp_lo=15,
+        fw_clamp_hi=300,
+        esp_object_id="min_fog_off__s_",
+        cfg_readback_object_id="cfg___min_fog_off__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 15) -> scale 1; [15,300] -> u16
+        wire_id=16,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Fog minimum OFF time — in MCP TIER1.",
+    ),
+    "min_heat_on_s": TunableDef(
+        name="min_heat_on_s",
+        kind="numeric",
+        min=30,
+        max=300,
+        default=120,
+        fw_clamp_lo=30,
+        fw_clamp_hi=300,
+        esp_object_id="min_heat_on__s_",
+        cfg_readback_object_id="cfg___min_heat_on__s_",
+        push_owner="operator",
+        planner_pushable=True,
+        tier=2,
+        # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
+        wire_id=19,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Heater relay protection dwell. Operator/firmware policy, not routine planner policy.",
+    ),
+    "min_fan_on_s": TunableDef(
+        name="min_fan_on_s",
+        kind="numeric",
+        min=30,
+        max=300,
+        default=120,
+        fw_clamp_lo=30,
+        fw_clamp_hi=300,
+        esp_object_id="min_fan_on__s_",
+        cfg_readback_object_id="cfg___min_fan_on__s_",
+        push_owner="operator",
+        planner_pushable=True,
+        tier=2,
+        # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
+        wire_id=15,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Fan relay protection dwell. Operator/firmware policy.",
+    ),
+    "min_fan_off_s": TunableDef(
+        name="min_fan_off_s",
+        kind="numeric",
+        min=30,
+        max=300,
+        default=90,
+        fw_clamp_lo=30,
+        fw_clamp_hi=300,
+        esp_object_id="min_fan_off__s_",
+        cfg_readback_object_id="cfg___min_fan_off__s_",
+        push_owner="operator",
+        planner_pushable=True,
+        tier=2,
+        # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
+        wire_id=14,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Fan relay protection dwell. Operator/firmware policy.",
+    ),
+    "min_vent_on_s": TunableDef(
+        name="min_vent_on_s",
+        kind="numeric",
+        min=10,
+        max=300,
+        default=60,
+        fw_clamp_lo=10,
+        fw_clamp_hi=300,
+        esp_object_id="min_vent_on__s_",
+        cfg_readback_object_id="cfg___min_vent_on__s_",
+        push_owner="operator",
+        planner_pushable=True,
+        tier=2,
+        # wire: integer seconds (ESPHome step 10) -> scale 1; [10,300] -> u16
+        wire_id=21,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Vent actuator protection dwell. Operator/firmware policy, not routine planner policy.",
+    ),
+    "min_vent_off_s": TunableDef(
+        name="min_vent_off_s",
+        kind="numeric",
+        min=10,
+        max=300,
+        default=60,
+        fw_clamp_lo=10,
+        fw_clamp_hi=300,
+        esp_object_id="min_vent_off__s_",
+        cfg_readback_object_id="cfg___min_vent_off__s_",
+        push_owner="operator",
+        planner_pushable=True,
+        tier=2,
+        # wire: integer seconds (ESPHome step 10) -> scale 1; [10,300] -> u16
+        wire_id=20,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Vent actuator protection dwell. Operator/firmware policy, not routine planner policy.",
+    ),
+    "vpd_watch_dwell_s": TunableDef(
+        name="vpd_watch_dwell_s",
+        kind="numeric",
+        min=15,
+        max=120,
+        default=60,
+        fw_clamp_lo=15,
+        fw_clamp_hi=120,
+        esp_object_id="vpd_watch_dwell__s_",
+        cfg_readback_object_id="cfg___vpd_watch_dwell__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 15) -> scale 1; [15,120] fits u8
+        wire_id=49,
+        wire_kind="u8",
+        wire_scale=1,
+        wire_unit="s",
+        notes="VPD_WATCH observation window before engaging mist.",
+    ),
+    "mist_max_closed_vent_s": TunableDef(
+        name="mist_max_closed_vent_s",
+        kind="numeric",
+        min=120,
+        max=900,
+        default=600,
+        fw_clamp_lo=120,
+        fw_clamp_hi=900,
+        esp_object_id="mist_max_closed_vent__s_",
+        cfg_readback_object_id="cfg___mist_max_closed_vent__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 60) -> scale 1; [120,900] -> u16
+        wire_id=23,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Maximum time vent can stay closed during misting before thermal-relief burst.",
+    ),
+    "mist_thermal_relief_s": TunableDef(
+        name="mist_thermal_relief_s",
+        kind="numeric",
+        min=30,
+        max=300,
+        default=90,
+        fw_clamp_lo=30,
+        fw_clamp_hi=300,
+        esp_object_id="mist_thermal_relief__s_",
+        cfg_readback_object_id="cfg___mist_thermal_relief__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 30) -> scale 1; [30,300] -> u16
+        wire_id=24,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Mandatory vent-open relief duration if mist-closed-vent cap hit.",
+    ),
+    "sw_direct_wet_stress_override_enabled": TunableDef(
+        name="sw_direct_wet_stress_override_enabled",
+        kind="switch",
+        min=0,
+        max=1,
+        default=0,
+        fw_clamp_lo=None,
+        fw_clamp_hi=None,
+        esp_object_id="direct_wet_stress_override_enabled",
+        cfg_readback_object_id="cfg_direct_wet_stress_override_enabled",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: boolean -> one wire byte, 0x00/0x01
+        wire_id=39,
+        wire_kind="bool",
+        wire_scale=1,
+        notes=(
+            "Allows direct-wet mister zones to bypass drydown windows only during VPD-high stress. "
+            "Firmware still enforces direct-wet master gate, min temp, irrigation/occupancy locks, latest hour, and dew margin."
+        ),
+    ),
+    "direct_wet_stress_vpd_margin_kpa": TunableDef(
+        name="direct_wet_stress_vpd_margin_kpa",
+        kind="numeric",
+        min=0,
+        max=0.5,
+        default=0.05,
+        fw_clamp_lo=0,
+        fw_clamp_hi=0.5,
+        esp_object_id="direct_wet_stress_vpd_margin_kpa",
+        cfg_readback_object_id="cfg_direct_wet_stress_vpd_margin_kpa",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.05 kPa -> scale 20; [0,0.5] kPa -> raw [0,10]
+        wire_id=8,
+        wire_kind="u8",
+        wire_scale=20,
+        wire_unit="kPa",
+        notes="VPD excess above active vpd_high required before direct-wet stress override can open drydown-gated zones.",
+    ),
+    "direct_wet_stress_min_dew_margin_f": TunableDef(
+        name="direct_wet_stress_min_dew_margin_f",
+        kind="numeric",
+        min=3,
+        max=15,
+        default=8,
+        fw_clamp_lo=3,
+        fw_clamp_hi=15,
+        esp_object_id="direct_wet_stress_min_dew_margin_f",
+        cfg_readback_object_id="cfg_direct_wet_stress_min_dew_margin_f",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.5 F -> scale 2; [3,15] F -> raw [6,30]
+        wire_id=7,
+        wire_kind="u8",
+        wire_scale=2,
+        wire_unit="degF",
+        notes="Minimum indoor temp-minus-dewpoint margin required for direct-wet stress override.",
+    ),
+    "enthalpy_open": TunableDef(
+        name="enthalpy_open",
+        kind="numeric",
+        min=-5.0,
+        max=0.0,
+        default=-2.0,
+        fw_clamp_lo=-5.0,
+        fw_clamp_hi=0.0,
+        esp_object_id="enthalpy_open__kj_kg_",
+        cfg_readback_object_id="cfg___enthalpy_open__kj_kg___",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.5 kJ/kg -> scale 2; signed [-5,0] -> raw [-10,0] (i16)
+        wire_id=11,
+        wire_kind="i16",
+        wire_scale=2,
+        wire_unit="kJ/kg",
+        notes="Economiser opens when outdoor-indoor enthalpy ≤ this. In MCP TIER1.",
+    ),
+    "enthalpy_close": TunableDef(
+        name="enthalpy_close",
+        kind="numeric",
+        min=-5.0,
+        max=20.0,
+        default=1.0,
+        fw_clamp_lo=-5.0,
+        fw_clamp_hi=20.0,
+        esp_object_id="enthalpy_close__kj_kg_",
+        cfg_readback_object_id="cfg___enthalpy_close__kj_kg___",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.5 kJ/kg -> scale 2; signed [-5,20] -> raw [-10,40] (i16)
+        wire_id=10,
+        wire_kind="i16",
+        wire_scale=2,
+        wire_unit="kJ/kg",
+        notes="Economiser closes when enthalpy ≥ this. In MCP TIER1.",
+    ),
+    "sw_summer_vent_enabled": TunableDef(
+        name="sw_summer_vent_enabled",
+        kind="switch",
+        default=1,
+        esp_object_id="summer_vent_enabled",
+        cfg_readback_object_id="cfg_summer_vent_enabled",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: boolean -> one wire byte, 0x00/0x01
+        wire_id=43,
+        wire_kind="bool",
+        wire_scale=1,
+        notes="Master switch for the sprint-15 outdoor-cooler-and-drier gate. "
+        "Default ON: firmware behavior without it is wrong in summer.",
+    ),
+    "vent_prefer_temp_delta_f": TunableDef(
+        name="vent_prefer_temp_delta_f",
+        kind="numeric",
+        min=2.0,
+        max=15.0,
+        default=5.0,
+        fw_clamp_lo=2.0,
+        fw_clamp_hi=15.0,
+        esp_object_id="vent_prefer_temp_delta__f_",
+        cfg_readback_object_id="cfg___vent_prefer_temp_delta__f_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.5 F -> scale 2; [2,15] F -> raw [4,30]
+        wire_id=47,
+        wire_kind="u8",
+        wire_scale=2,
+        wire_unit="degF",
+        notes="Outdoor must be ≥ this many °F cooler than indoor for gate to fire.",
+    ),
+    "vent_prefer_dp_delta_f": TunableDef(
+        name="vent_prefer_dp_delta_f",
+        kind="numeric",
+        min=2.0,
+        max=15.0,
+        default=5.0,
+        fw_clamp_lo=2.0,
+        fw_clamp_hi=15.0,
+        esp_object_id="vent_prefer_dp_delta__f_",
+        cfg_readback_object_id="cfg___vent_prefer_dp_delta__f_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.5 F -> scale 2; [2,15] F -> raw [4,30]
+        wire_id=46,
+        wire_kind="u8",
+        wire_scale=2,
+        wire_unit="degF",
+        notes="Outdoor dewpoint must be ≥ this many °F below indoor DP for gate.",
+    ),
+    "sw_fog_closes_vent": TunableDef(
+        name="sw_fog_closes_vent",
+        kind="switch",
+        default=1,
+        esp_object_id="fog_closes_vent",
+        cfg_readback_object_id="cfg_fog_closes_vent",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: boolean -> one wire byte, 0x00/0x01
+        wire_id=41,
+        wire_kind="bool",
+        wire_scale=1,
+        notes="Fog is suppressed while the vent is physically open, except vent-mist assist. "
+        "Default ON; disabling re-enables open-vent fog during VENTILATE (tradeoff).",
+    ),
+    "sw_mister_closes_vent": TunableDef(
+        name="sw_mister_closes_vent",
+        kind="switch",
+        default=0,  # globals.yaml initial_value 'false'
+        esp_object_id="mister_closes_vent",
+        cfg_readback_object_id="cfg_mister_closes_vent",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: boolean -> one wire byte, 0x00/0x01
+        wire_id=42,
+        wire_kind="bool",
+        wire_scale=1,
+        notes="Normal mister pulses are suppressed while the vent is physically open. "
+        "The explicit VENTILATE vent-mist assist path bypasses this interlock.",
+    ),
+    "min_heat_off_s": TunableDef(
+        name="min_heat_off_s",
+        kind="numeric",
+        min=60,
+        max=600,
+        default=180,
+        fw_clamp_lo=60,
+        fw_clamp_hi=600,
+        esp_object_id="min_heat_off__s_",
+        cfg_readback_object_id="cfg___min_heat_off__s_",
+        push_owner="operator",
+        planner_pushable=True,
+        tier=2,
+        # wire: integer seconds (ESPHome step 10) -> scale 1; [60,600] -> u16
+        wire_id=18,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Heater relay protection dwell. Default 180s from Sprint-15.1; operator/firmware policy.",
+    ),
+    "sw_dwell_gate_enabled": TunableDef(
+        name="sw_dwell_gate_enabled",
+        kind="switch",
+        default=0,
+        esp_object_id="dwell_gate_enabled",
+        cfg_readback_object_id="cfg_dwell_gate_enabled",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: boolean -> one wire byte, 0x00/0x01
+        wire_id=40,
+        wire_kind="bool",
+        wire_scale=1,
+        notes="Master switch for Phase-2 mode-dwell gate. ClimateIntent may "
+        "enable this on the single live controller path when relay-churn "
+        "preference warrants it; offline replay remains diagnostic only.",
+    ),
+    "dwell_gate_ms": TunableDef(
+        name="dwell_gate_ms",
+        kind="numeric",
+        min=60000,
+        max=1800000,
+        default=300000,
+        fw_clamp_lo=60000,
+        fw_clamp_hi=1800000,
+        esp_object_id="dwell_gate__ms_",
+        cfg_readback_object_id="cfg_dwell_gate_ms",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer milliseconds (ESPHome step 30000) -> scale 1; [60000,1800000] needs u32
+        wire_id=9,
+        wire_kind="u32",
+        wire_scale=1,
+        wire_unit="ms",
+        notes="Dwell hold duration. Default 5 min. Safety rails + R2-3 "
+        "dry override + vpd_min_safe rescue preempt unconditionally.",
+    ),
+    "mist_backoff_s": TunableDef(
+        name="mist_backoff_s",
+        kind="numeric",
+        min=60,
+        max=3600,
+        default=600,
+        fw_clamp_lo=60,
+        fw_clamp_hi=3600,
+        esp_object_id="mist_backoff__s_",
+        cfg_readback_object_id="cfg___mist_backoff__s_",
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: integer seconds (ESPHome step 60) -> scale 1; [60,3600] -> u16
+        wire_id=22,
+        wire_kind="u16",
+        wire_scale=1,
+        wire_unit="s",
+        notes="Controller lockout after sealed humidification times out. "
+        "Suppresses another SEALED_MIST attempt without forcing venting.",
+    ),
+    "fog_escalation_kpa": TunableDef(
+        name="fog_escalation_kpa",
+        kind="numeric",
+        min=0.1,
+        max=0.5,
+        default=0.4,
+        fw_clamp_lo=0.1,
+        fw_clamp_hi=0.5,
+        esp_object_id="fog_escalation__kpa_",
+        cfg_readback_object_id="cfg___fog_escalation__kpa_",  # Phase 1c added readback
+        push_owner="planner",
+        planner_pushable=True,
+        tier=1,
+        # wire: ESPHome step 0.1 kPa -> scale 10; [0.1,0.5] kPa -> raw [1,5]
+        wire_id=12,
+        wire_kind="u8",
+        wire_scale=10,
+        wire_unit="kPa",
+        notes=(
+            "VPD delta above vpd_high for the fog-first ladder: a sealed humidify run starts on fog, and "
+            "the misters join (S1, then S2) once VPD stays above vpd_high + this delta for mister_all_delay_s; "
+            " while VENTILATE cools, fog assists the vent above the same edge. The dispatcher caps "
+            "overly conservative deltas during live VPD-high or near-edge VENTILATE stress when dew margin "
+            "is healthy. Tightened to 0.5 kPa max so plans stay band-relative."
+        ),
+    ),
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Firmware-v2 staged contract (docs/design/firmware-v2-contract-2026-06-10.md
@@ -2413,18 +2421,7 @@ def split_entity_name(name: str) -> tuple[str, str | None]:
 
 # Number entity ``step:`` per registry row.
 _ENTITY_STEPS: dict[str, float] = {
-    "band_track_fraction": 0.05,
-    "cold_vent_guard_delta_f": 0.5,
-    "cool_exit_hysteresis_f": 0.1,
-    "cool_stage2_exit_hysteresis_f": 0.1,
-    "cool_stage2_over_high_f": 0.1,
     "direct_wet_min_temp_f": 1.0,
-    "direct_wet_stress_min_dew_margin_f": 0.5,
-    "direct_wet_stress_vpd_margin_kpa": 0.05,
-    "dwell_gate_ms": 30000.0,
-    "enthalpy_close": 0.5,
-    "enthalpy_open": 0.5,
-    "fog_escalation_kpa": 0.1,
     "gl_grow_lux_hysteresis": 250.0,
     "gl_grow_lux_threshold": 500.0,
     "gl_grow_min_off_s": 30.0,
@@ -2443,63 +2440,26 @@ _ENTITY_STEPS: dict[str, float] = {
     "gl_main_sunset_hour": 1.0,
     "gl_main_sunset_offset_min": 15.0,
     "gl_main_target_light_minutes": 15.0,
-    "heat_hysteresis": 0.1,
-    "min_fan_off_s": 10.0,
-    "min_fan_on_s": 10.0,
-    "min_fog_off_s": 15.0,
-    "min_fog_on_s": 15.0,
-    "min_heat_off_s": 10.0,
-    "min_heat_on_s": 10.0,
-    "min_vent_off_s": 10.0,
-    "min_vent_on_s": 10.0,
-    "mist_backoff_s": 60.0,
-    "mist_max_closed_vent_s": 60.0,
-    "mist_thermal_relief_s": 30.0,
-    "mister_all_delay_s": 30.0,
-    "mister_all_kpa": 0.05,
     "mister_all_off_s": 30.0,
     "mister_all_on_s": 30.0,
-    "mister_center_penalty": 0.1,
     "mister_engage_delay_s": 30.0,
-    "mister_engage_kpa": 0.05,
     "mister_hysteresis_kpa": 0.01,
     "mister_min_off_s": 5.0,
     "mister_off_s": 30.0,
     "mister_on_s": 30.0,
-    "mister_pulse_gap_s": 5.0,
-    "mister_pulse_on_s": 5.0,
-    "mister_vpd_weight": 0.5,
     "mister_water_budget_gal": 10.0,
-    "night_vpd_bias_kpa": 0.01,
     "outdoor_staleness_max_s": 30.0,
     "site_pressure_hpa": 1.0,
     "temp_high": 0.5,
-    "temp_hysteresis": 0.1,
     "temp_low": 0.5,
-    "vent_exchange_fraction": 0.05,
-    "vent_prefer_dp_delta_f": 0.5,
-    "vent_prefer_temp_delta_f": 0.5,
     "vpd_high": 0.05,
-    "vpd_hysteresis": 0.05,
     "vpd_low": 0.05,
-    "vpd_watch_dwell_s": 15.0,
 }
 
 # Number and switch entity ``name:`` per registry row; split_entity_name() of it
 # gives the row's label and unit.
 _ENTITY_NAMES: dict[str, str] = {
-    "band_track_fraction": "Band Track Fraction",
-    "cold_vent_guard_delta_f": "Cold Vent Guard Delta °F",
-    "cool_exit_hysteresis_f": "Cool Exit Hysteresis °F",
-    "cool_stage2_exit_hysteresis_f": "Cool Stage 2 Exit Hyst °F",
-    "cool_stage2_over_high_f": "Cool Stage 2 Over High °F",
     "direct_wet_min_temp_f": "Direct Wet Min Temp (F)",
-    "direct_wet_stress_min_dew_margin_f": "Direct Wet Stress Min Dew Margin F",
-    "direct_wet_stress_vpd_margin_kpa": "Direct Wet Stress VPD Margin kPa",
-    "dwell_gate_ms": "Dwell Gate (ms)",
-    "enthalpy_close": "Enthalpy Close (kJ⁄kg)",
-    "enthalpy_open": "Enthalpy Open (kJ⁄kg)",
-    "fog_escalation_kpa": "Fog Escalation (kPa)",
     "gl_grow_lux_hysteresis": "GL Grow Lux Hysteresis",
     "gl_grow_lux_threshold": "GL Grow Lux Threshold",
     "gl_grow_min_off_s": "GL Grow Min Off S",
@@ -2518,61 +2478,29 @@ _ENTITY_NAMES: dict[str, str] = {
     "gl_main_sunset_hour": "GL Main Sunset Hour",
     "gl_main_sunset_offset_min": "GL Main Sunset Offset Min",
     "gl_main_target_light_minutes": "GL Main Target Light Minutes",
-    "heat_hysteresis": "Heat Hysteresis °F",
-    "min_fan_off_s": "Min Fan OFF (s)",
-    "min_fan_on_s": "Min Fan ON (s)",
-    "min_fog_off_s": "Min Fog OFF (s)",
-    "min_fog_on_s": "Min Fog ON (s)",
-    "min_heat_off_s": "Min Heat OFF (s)",
-    "min_heat_on_s": "Min Heat ON (s)",
-    "min_vent_off_s": "Min Vent OFF (s)",
-    "min_vent_on_s": "Min Vent ON (s)",
-    "mist_backoff_s": "Mist Backoff (s)",
-    "mist_max_closed_vent_s": "Mist Max Closed Vent (s)",
-    "mist_thermal_relief_s": "Mist Thermal Relief (s)",
-    "mister_all_delay_s": "Mister All Delay (s)",
-    "mister_all_kpa": "VPD Mister All kPa",
     "mister_all_off_s": "Mister All OFF (s)",
     "mister_all_on_s": "Mister All ON (s)",
-    "mister_center_penalty": "Mister Center Penalty",
     "mister_engage_delay_s": "Mister Engage Delay (s)",
-    "mister_engage_kpa": "VPD Mister Engage kPa",
     "mister_hysteresis_kpa": "Mister Hysteresis (kPa)",
     "mister_min_off_s": "Mister Min Off (s)",
     "mister_off_s": "Mister OFF (s)",
     "mister_on_s": "Mister ON (s)",
-    "mister_pulse_gap_s": "Mister Pulse Gap (s)",
-    "mister_pulse_on_s": "Mister Pulse ON (s)",
-    "mister_vpd_weight": "Mister VPD Weight",
     "mister_water_budget_gal": "Mister Water Budget (gal)",
-    "night_vpd_bias_kpa": "Night VPD Bias kPa",
     "outdoor_staleness_max_s": "Outdoor Staleness Max (s)",
     "site_pressure_hpa": "Site Pressure (hPa)",
     "sw_arbiter_zone_enabled": "Arbiter Zone Enabled",
-    "sw_cool_all_fans_at_high_enabled": "Cool All Fans At High",
     "sw_direct_wet_gate_enabled": "Direct Wet Gate Enabled",
-    "sw_direct_wet_stress_override_enabled": "Direct Wet Stress Override Enabled",
-    "sw_dwell_gate_enabled": "Dwell Gate Enabled",
-    "sw_fog_closes_vent": "Fog Closes Vent",
     "sw_gl_grow_auto_mode": "GL Grow Auto Mode",
     "sw_gl_grow_out_of_service": "GL Grow Out Of Service",
     "sw_gl_grow_solar_phasing": "GL Grow Solar Phasing",
     "sw_gl_main_auto_mode": "GL Main Auto Mode",
     "sw_gl_main_out_of_service": "GL Main Out Of Service",
     "sw_gl_main_solar_phasing": "GL Main Solar Phasing",
-    "sw_mister_closes_vent": "Mister Closes Vent",
     "sw_occupancy_inhibit": "Occupancy Mist Inhibit",
-    "sw_summer_vent_enabled": "Summer Vent Enabled",
     "temp_high": "Set Temp High °F",
-    "temp_hysteresis": "Temp Hysteresis °F",
     "temp_low": "Set Temp Low °F",
-    "vent_exchange_fraction": "Vent Exchange Fraction",
-    "vent_prefer_dp_delta_f": "Vent Prefer DP Delta (F)",
-    "vent_prefer_temp_delta_f": "Vent Prefer Temp Delta (F)",
     "vpd_high": "Set VPD High kPa",
-    "vpd_hysteresis": "VPD Hysteresis kPa",
     "vpd_low": "Set VPD Low kPa",
-    "vpd_watch_dwell_s": "VPD Watch Dwell (s)",
 }
 
 assert set(_ENTITY_STEPS) <= set(_ENTITY_NAMES), "every _ENTITY_STEPS row needs its entity name"
@@ -2587,56 +2515,26 @@ for _name, _spec in list(REGISTRY.items()):
         REGISTRY[_name] = _spec.model_copy(update={"label": _name})
 
 # ── The third flash (#1633 package 4.3, RULINGS AD1, AE7a) ─────────────────────
-# Host release 4 deleted the 47 rows the third flash left entity-less (and everything that named them).
-# THIRD_FLASH_INERT_WIRE_REG: the 43 policy-wire fields the firmware no longer reads.
-THIRD_FLASH_INERT_WIRE_REG: frozenset[str] = frozenset(
-    {
-        "band_track_fraction",
-        "cold_vent_guard_delta_f",
-        "cool_exit_hysteresis_f",
-        "cool_stage2_exit_hysteresis_f",
-        "cool_stage2_over_high_f",
-        "direct_wet_stress_min_dew_margin_f",
-        "direct_wet_stress_vpd_margin_kpa",
-        "dwell_gate_ms",
-        "enthalpy_close",
-        "enthalpy_open",
-        "fog_escalation_kpa",
-        "heat_hysteresis",
-        "min_fan_off_s",
-        "min_fan_on_s",
-        "min_fog_off_s",
-        "min_fog_on_s",
-        "min_heat_off_s",
-        "min_heat_on_s",
-        "min_vent_off_s",
-        "min_vent_on_s",
-        "mist_backoff_s",
-        "mist_max_closed_vent_s",
-        "mist_thermal_relief_s",
-        "mister_all_delay_s",
-        "mister_all_kpa",
-        "mister_center_penalty",
-        "mister_engage_kpa",
-        "mister_pulse_gap_s",
-        "mister_pulse_on_s",
-        "mister_vpd_weight",
-        "night_vpd_bias_kpa",
-        "sw_cool_all_fans_at_high_enabled",
-        "sw_direct_wet_stress_override_enabled",
-        "sw_dwell_gate_enabled",
-        "sw_fog_closes_vent",
-        "sw_mister_closes_vent",
-        "sw_summer_vent_enabled",
-        "temp_hysteresis",
-        "vent_exchange_fraction",
-        "vent_prefer_dp_delta_f",
-        "vent_prefer_temp_delta_f",
-        "vpd_hysteresis",
-        "vpd_watch_dwell_s",
-    }
-)
-assert all(REGISTRY[n].wire_id is not None for n in THIRD_FLASH_INERT_WIRE_REG)
+# Host release 4 deleted the 47 rows the third flash left entity-less and the 43 settings of the reserved wire slots
+# (RESERVED_WIRE_SLOTS, above), with everything that named them.
+# LIVE_WIRE_FIELDS: the five policy-wire slots that are still settings. The other 43 of the frozen 48-slot layout are
+# reserved: never written, never read, never shown.
+LIVE_WIRE_FIELDS: frozenset[str] = frozenset(name for name, spec in REGISTRY.items() if spec.wire_id is not None)
+# The whole frozen layout: the live rows and the reserved slots, by name (policy_vector.py orders it by wire_id).
+WIRE_SLOT_DEFS: dict[str, TunableDef] = {
+    **{name: REGISTRY[name] for name in LIVE_WIRE_FIELDS},
+    **RESERVED_WIRE_SLOTS,
+}
+assert LIVE_WIRE_FIELDS == {
+    "mister_engage_delay_s",
+    "mister_min_off_s",
+    "mister_water_budget_gal",
+    "outdoor_staleness_max_s",
+    "sw_direct_wet_gate_enabled",
+}, "a live wire slot changed: update policy_vector.py's frozen-layout note and its test"
+assert not LIVE_WIRE_FIELDS & set(RESERVED_WIRE_SLOTS)
+assert all(spec.wire_id is not None for spec in RESERVED_WIRE_SLOTS.values())
+assert len(LIVE_WIRE_FIELDS) + len(RESERVED_WIRE_SLOTS) == POLICY_WIRE_FIELD_COUNT
 
 FIRMWARE_V2_STAGED_REG: frozenset[str] = frozenset(_FW2_STAGED_DEFS)
 # The staged rows' exact readback slugs; the three window anchors the third flash deleted have none.
@@ -3166,7 +3064,7 @@ def wire_value_bounds(name: str) -> tuple[float, float]:
     ``band_track_fraction`` is planner-pinned to 0 (ADR-0004) but firmware
     clamps and reads back [0, 1]. Switches use the boolean envelope [0, 1].
     """
-    tunable = get(name)
+    tunable = get(name) or RESERVED_WIRE_SLOTS.get(name)
     if tunable is None:
         raise ValueError(f"{name!r} is not registered in tunable_registry")
     if tunable.wire_id is None:
@@ -3191,20 +3089,21 @@ def wire_metadata_errors() -> list[str]:
     """
     errors: list[str] = []
     seen_ids: dict[int, str] = {}
-    wired = sorted(n for n, d in REGISTRY.items() if d.wire_id is not None)
+    wired = sorted(WIRE_SLOT_DEFS)
+    live = sorted(n for n, d in REGISTRY.items() if d.wire_id is not None)
 
-    if set(wired) != set(PLANNER_PUSHABLE_REG):
-        extra = sorted(set(wired) - set(PLANNER_PUSHABLE_REG))
-        missing = sorted(set(PLANNER_PUSHABLE_REG) - set(wired))
-        errors.append(f"wire surface != planner-pushable surface: extra={extra} missing={missing}")
-    if len(PLANNER_PUSHABLE_REG) != POLICY_WIRE_FIELD_COUNT:
+    if set(live) != set(PLANNER_PUSHABLE_REG):
+        extra = sorted(set(live) - set(PLANNER_PUSHABLE_REG))
+        missing = sorted(set(PLANNER_PUSHABLE_REG) - set(live))
+        errors.append(f"live wire surface != planner-pushable surface: extra={extra} missing={missing}")
+    if len(wired) != POLICY_WIRE_FIELD_COUNT:
         errors.append(
-            f"planner-pushable count {len(PLANNER_PUSHABLE_REG)} != frozen POLICY_WIRE_FIELD_COUNT "
-            f"{POLICY_WIRE_FIELD_COUNT}; a v1 wire-schema change requires a WIRE_SCHEMA_VERSION bump"
+            f"wire slot count {len(wired)} != frozen POLICY_WIRE_FIELD_COUNT "
+            f"{POLICY_WIRE_FIELD_COUNT}; a wire-schema change requires a WIRE_SCHEMA_VERSION bump"
         )
 
     for name in wired:
-        d = REGISTRY[name]
+        d = WIRE_SLOT_DEFS[name]
         prefix = f"{name} (wire_id={d.wire_id})"
         if not isinstance(d.wire_id, int) or not 1 <= d.wire_id <= 0xFFFF:
             errors.append(f"{prefix}: wire_id must be an int in [1, 65535]")

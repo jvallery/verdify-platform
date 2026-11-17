@@ -129,11 +129,11 @@ async def activity_detail(conn, desired_id: int) -> tuple[str, dict]:
 
 def test_writes_snap_store_the_flag_as_passed_and_refuse_with_problems(dsn):
     async def check(mcp):
-        result = await settings.write(mcp, PERSON, "mister_engage_kpa", 1.53, True, "campaign", uuid.uuid4())
+        result = await settings.write(mcp, PERSON, "outdoor_staleness_max_s", 640, True, "campaign", uuid.uuid4())
         desired = result.value
         assert (desired.value, desired.snapped_from, desired.manual, desired.manual_before, desired.state) == (
-            1.55,
-            1.53,
+            630,
+            640,
             True,
             False,
             "requested",
@@ -142,7 +142,7 @@ def test_writes_snap_store_the_flag_as_passed_and_refuse_with_problems(dsn):
             "SELECT value, manual, source, actor, reason FROM public.desired_state WHERE id = $1", desired.id
         )
         assert dict(stored) == {
-            "value": 1.55,
+            "value": 630,
             "manual": True,
             "source": "dashboard",
             "actor": "jason",
@@ -152,14 +152,14 @@ def test_writes_snap_store_the_flag_as_passed_and_refuse_with_problems(dsn):
         assert action == "setting.write"
         assert {key: detail[key] for key in ("desired_id", "value", "requested", "manual")} == {
             "desired_id": desired.id,
-            "value": 1.55,
-            "requested": 1.53,
+            "value": 630,
+            "requested": 640,
             "manual": {"before": False, "after": True},
         }
         assert detail["ref"] == {"table": "desired_state", "id": desired.id}
 
-        problem = await refused(settings.write(mcp, PERSON, "mister_engage_kpa", 2.6, True, None, None))
-        assert (problem.code, problem.min, problem.max, problem.retryable) == ("out_of_range", 0.5, 2.5, False)
+        problem = await refused(settings.write(mcp, PERSON, "outdoor_staleness_max_s", 1900, True, None, None))
+        assert (problem.code, problem.min, problem.max, problem.retryable) == ("out_of_range", 120, 1800, False)
         problem = await refused(settings.write(mcp, PERSON, "sw_onchip_band_enabled", 1, True, None, None))
         assert problem.code == "read_only"
         problem = await refused(settings.write(mcp, PERSON, "no_such_setting", 1, True, None, None))
@@ -308,7 +308,7 @@ def test_status_reasons_and_their_since(dsn):
 def test_the_catalog_reads_as_the_mcp_login(dsn):
     async def check(mcp):
         rows = {row.param: row for row in await settings.catalog(mcp)}
-        assert (rows["mister_engage_kpa"].label, rows["mister_engage_kpa"].unit) == ("VPD Mister Engage", "kPa")
+        assert (rows["mister_hysteresis_kpa"].label, rows["mister_hysteresis_kpa"].unit) == ("Mister Hysteresis", "kPa")
         assert rows["zone_vpd_target_center_sm"].writable is True  # its rows exist (the band test)
         assert rows["zone_priority_center"].group == "read_only"
 

@@ -312,3 +312,20 @@ def test_initial_observer_late_packet_after_timeout_cannot_complete_persisted_ga
     assert pool.connection.calls == persisted
     assert _gap_status(pool) == "snapshot_incomplete"
     assert len(persisted) == 1  # No stale cached equipment row was invented.
+
+
+def test_the_ingestor_is_the_recorder_by_name_and_the_tools_are_not():
+    """The gap log keys liveness and replay on the recorder's own connection (contracts gap-log GL-1): the ingestor
+    announces client_info "verdify-ingestor", which the firmware's prefix matches; a repository tool announces
+    "verdify-tool", which it does not, so a tool attached during an ingestor outage is never taken for the recorder."""
+    import re
+
+    header = (ROOT / "firmware" / "lib" / "gap_log.h").read_text()
+    prefix = re.search(r'RECORDER_PREFIX = "([^"]+)"', header).group(1)
+    exact = re.search(r'RECORDER_EXACT = "([^"]+)"', header).group(1)
+    source = (ROOT / "ingestor" / "ingestor.py").read_text()
+    assert source.count('client_info="verdify-ingestor"') == 1
+    assert "verdify-ingestor".startswith(prefix)
+    tool = (ROOT / "scripts" / "validate-irrigation-feedback.py").read_text()
+    assert 'client_info="verdify-tool"' in tool
+    assert not "verdify-tool".startswith(prefix) and "verdify-tool" != exact

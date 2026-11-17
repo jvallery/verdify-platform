@@ -51,7 +51,7 @@ L01_BRIDGE_ROWS = (
 @pytest.mark.parametrize(
     "name",
     [
-        "mister_engage_kpa",  # planner_policy
+        "mister_water_budget_gal",  # planner_policy
         "gl_main_lux_threshold",  # scheduled_policy
         "gl_main_target_light_minutes",  # per-circuit gl_* rows stay writable: a release hands them back to the policy
         "site_pressure_hpa",  # controller_safety

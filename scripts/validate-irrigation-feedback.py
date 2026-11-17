@@ -464,7 +464,7 @@ async def _fetch_esphome_entities_async() -> list[dict[str, Any]]:
     from aioesphomeapi import APIClient
 
     host, port, key = _esphome_config()
-    client = APIClient(address=host, port=port, password="", noise_psk=key)
+    client = APIClient(address=host, port=port, password="", noise_psk=key, client_info="verdify-tool")
     try:
         await client.connect(login=True)
         entities, _services = await client.list_entities_services()

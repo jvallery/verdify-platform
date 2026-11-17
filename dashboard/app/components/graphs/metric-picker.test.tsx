@@ -39,15 +39,15 @@ test("groups every metric but the forecast keys in the picker's order, the daily
 });
 
 test("a choice links to the view plus m=<key>; the climate traces and picked metrics read On the charts", () => {
-  picker("range=7d&set=mister_engage_kpa&m=climate.flow_gpm");
+  picker("range=7d&set=mister_hysteresis_kpa&m=climate.flow_gpm");
   const list = within(dialog());
   expect(document.activeElement).toBe(list.getByLabelText("Filter metrics"));
-  expect(list.getByRole("link", { name: /South soil moisture 1/ }).getAttribute("href")).toBe("/graphs?range=7d&set=mister_engage_kpa&m=climate.flow_gpm&m=climate.soil_moisture_south_1");
+  expect(list.getByRole("link", { name: /South soil moisture 1/ }).getAttribute("href")).toBe("/graphs?range=7d&set=mister_hysteresis_kpa&m=climate.flow_gpm&m=climate.soil_moisture_south_1");
   expect(list.queryByRole("link", { name: /Site water flow/ })).toBeNull();
   expect(list.queryByRole("link", { name: /Indoor temperature/ })).toBeNull();
   expect(text(dialog())).toContain("Indoor temperatureclimate.temp_avg · °F · every 60 s · MEASUREDOn the charts");
   // A daily key is a choice like any other: one point per day, in a panel of its own.
-  expect(list.getByRole("link", { name: /Water used/ }).getAttribute("href")).toBe("/graphs?range=7d&set=mister_engage_kpa&m=climate.flow_gpm&m=daily.water_gal");
+  expect(list.getByRole("link", { name: /Water used/ }).getAttribute("href")).toBe("/graphs?range=7d&set=mister_hysteresis_kpa&m=climate.flow_gpm&m=daily.water_gal");
   fireEvent.change(list.getByLabelText("Filter metrics"), { target: { value: "heap" } });
   expect(list.getAllByRole("link").map((link) => link.textContent)).toEqual(["Controller free heapdiagnostics.heap_free_kb · kB · every 60 s · MEASURED"]);
   fireEvent.change(list.getByLabelText("Filter metrics"), { target: { value: "ppfd" } });
@@ -66,8 +66,8 @@ test("+ Setting lists numeric settings in an open panel's unit, never the Band i
   // A panel is checked for its rows rather than listed in full: VD-12 makes API-09's base fixture the whole rendered registry.
   const listed = (unit: string) => groups.find((group) => group.unit === unit)?.items.map((row) => row.param) ?? [];
   expect(groups.map((group) => group.unit)).toEqual(units);
-  expect(listed("°F")).toContain("cool_stage2_over_high_f");
-  expect(listed("kPa")).toEqual(expect.arrayContaining(["mister_engage_kpa", "band_vpd_low_sm"]));
+  expect(listed("°F")).toContain("direct_wet_min_temp_f");
+  expect(listed("kPa")).toEqual(expect.arrayContaining(["mister_hysteresis_kpa", "band_vpd_low_sm"]));
   // The legacy wide limits and other read-only rows are left out, and only those: a numeric row outside the group stays.
   expect(SETTINGS.find((row) => row.param === "temp_low")?.group).toBe("read_only");
   expect(listed("°F")).not.toContain("temp_low");
@@ -75,16 +75,16 @@ test("+ Setting lists numeric settings in an open panel's unit, never the Band i
   expect(listed("%")).toEqual(["sched_mist_rh_max_pct"]);
   expect(SETTINGS.some((row) => row.group === "band_in_force")).toBe(true);
   expect(groups.flatMap((group) => group.items).filter((row) => row.group === "band_in_force" || row.group === "read_only" || row.kind !== "numeric")).toEqual([]);
-  expect(chooserGroups(SETTINGS, ["kPa"], "engage").flatMap((group) => group.items.map((row) => row.param))).toEqual(["mister_engage_kpa"]);
-  expect(settingChipText(SETTINGS.find((row) => row.param === "mister_engage_kpa")!)).toBe("VPD Mister Engage · VPD");
-  const resolved = resolveView(parseGraphUrl("range=72h&set=mister_engage_kpa").view, METRICS, SETTINGS);
+  expect(chooserGroups(SETTINGS, ["kPa"], "hysteresis").flatMap((group) => group.items.map((row) => row.param))).toEqual(["mister_hysteresis_kpa"]);
+  expect(settingChipText(SETTINGS.find((row) => row.param === "mister_hysteresis_kpa")!)).toBe("Mister Hysteresis · VPD");
+  const resolved = resolveView(parseGraphUrl("range=72h&set=mister_hysteresis_kpa").view, METRICS, SETTINGS);
   renderUi(<SettingChooser view={resolved.view} settings={SETTINGS} chosen={resolved.settings} units={resolved.units} />);
   fireEvent.click(screen.getByRole("button", { name: "+ Setting" }));
   const list = within(dialog());
-  expect(list.getByRole("link", { name: /Scheduled-mist RH ceiling/ }).getAttribute("href")).toBe("/graphs?range=72h&set=mister_engage_kpa&set=sched_mist_rh_max_pct");
+  expect(list.getByRole("link", { name: /Scheduled-mist RH ceiling/ }).getAttribute("href")).toBe("/graphs?range=72h&set=mister_hysteresis_kpa&set=sched_mist_rh_max_pct");
   expect(text(list.getByRole("link", { name: /Scheduled-mist RH ceiling/ }))).toMatch(/^Scheduled-mist RH ceilingsched_mist_rh_max_pct · % · device \d+\.0%$/);
-  expect(text(dialog())).toContain("VPD Mister Engagemister_engage_kpa · kPa · device 1.60 kPaOn the charts");
-  expect(text(dialog())).not.toMatch(/band_house|band_center|sw_gl_main_auto_mode|mister_pulse_gap_s/);
+  expect(text(dialog())).toContain("Mister Hysteresismister_hysteresis_kpa · kPa · device 0.10 kPaOn the charts");
+  expect(text(dialog())).not.toMatch(/band_house|band_center|sw_gl_main_auto_mode|mister_min_off_s/);
   fireEvent.click(list.getByRole("button", { name: "Close" }));
   expect(dialog().open).toBe(false);
 });

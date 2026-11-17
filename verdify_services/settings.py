@@ -39,7 +39,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from verdify_schemas.activity import ActivityLogRow
 from verdify_schemas.band_profile import HOUSE_PARAMS
 from verdify_schemas.band_rows import BandRows, band_rows, rows_in_force
-from verdify_schemas.policy_vector import wire_fields
+from verdify_schemas.policy_vector import live_wire_fields
 from verdify_schemas.setting_help import SettingHelp, setting_help, setting_label, source_params
 from verdify_schemas.setting_values import (
     binary32_ulp,
@@ -82,7 +82,7 @@ DEVICE_OBSERVED_SOURCE = "esp32"
 DEFERRED_STATUS = "deferred_heap_pressure"
 FAILED_STATUS = "failed"
 # The 48 policy fields: an armed experiment serves them to the controller, so their settings read held.
-POLICY_FIELDS = frozenset(spec.name for spec in wire_fields())
+POLICY_FIELDS = frozenset(spec.name for spec in live_wire_fields())  # the five live slots (release 4)
 NO_ANCHOR_ROW = "no crop_band_anchors row holds it"
 NO_READBACK_REASON = "no readback in the last 24 h"
 NO_PROGRAM_READBACK = "applies with the irrigation firmware"

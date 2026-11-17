@@ -49,7 +49,7 @@ export const FIXTURES = {
     world.activity = [
       ...world.activity,
       entry({ id: 30, ts: iso(at("18:20", -1)), actor: JASON, action: "irrigation.run", target: "L01", detail: { minutes: 10 }, reason: "Hand check" }),
-      entry({ id: 31, ts: iso(at("09:05", -3)), actor: JASON, action: "setting.write", target: "mister_engage_kpa", detail: { before: 1.5, value: 1.6 }, state: "confirmed", confirmed_at: iso(at("09:06", -3)) }),
+      entry({ id: 31, ts: iso(at("09:05", -3)), actor: JASON, action: "setting.write", target: "outdoor_staleness_max_s", detail: { before: 600, value: 660 }, state: "confirmed", confirmed_at: iso(at("09:06", -3)) }),
     ];
   },
 };

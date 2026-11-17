@@ -85,13 +85,13 @@ def test_the_guardrails_are_marked_and_state_the_controller_rule():
 
 
 def test_the_served_text_is_the_entry_without_its_refs():
-    served = setting_help("mister_engage_kpa")
-    entry = HELP["mister_engage_kpa"]
+    served = setting_help("mister_engage_delay_s")
+    entry = HELP["mister_engage_delay_s"]
     assert served is not None
     body = served.model_dump(mode="json")
     assert set(body) == {"summary", "effect", "raise", "lower", "caution", "guardrail", "reference_url"}
     assert (body["summary"], body["raise"], body["lower"]) == (entry.summary, entry.raise_, entry.lower)
-    assert body["reference_url"].endswith("/reference/ai-tunables/#mister_engage_kpa")
+    assert body["reference_url"].endswith("/reference/ai-tunables/#mister_engage_delay_s")
     assert setting_help("not_a_setting") is None
 
 

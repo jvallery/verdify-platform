@@ -42,14 +42,14 @@ const where = () => screen.getByTestId("where").textContent;
 const chips = (name: string) => within(screen.getByRole("list", { name })).getAllByRole("link");
 
 test("the custom range opens on the window's local days and Show writes from and to, keeping the rest of the view", () => {
-  mount("/graphs?range=7d&set=mister_engage_kpa&m=climate.flow_gpm&cmp=day");
+  mount("/graphs?range=7d&set=mister_hysteresis_kpa&m=climate.flow_gpm&cmp=day");
   const form = screen.getByRole("form", { name: "Custom range" });
   expect((within(form).getByLabelText("From") as HTMLInputElement).value).toBe("2026-10-26");
   expect((within(form).getByLabelText("To") as HTMLInputElement).value).toBe("2026-11-02");
   fireEvent.change(within(form).getByLabelText("From"), { target: { value: "2026-10-31" } });
   fireEvent.change(within(form).getByLabelText("To"), { target: { value: "2026-11-01" } });
   fireEvent.click(within(form).getByRole("button", { name: "Show" }));
-  expect(where()).toBe("/graphs?from=2026-10-31&to=2026-11-01&set=mister_engage_kpa&m=climate.flow_gpm&cmp=day");
+  expect(where()).toBe("/graphs?from=2026-10-31&to=2026-11-01&set=mister_hysteresis_kpa&m=climate.flow_gpm&cmp=day");
   // The new window starts the fields over from it.
   expect((within(screen.getByRole("form", { name: "Custom range" })).getByLabelText("From") as HTMLInputElement).value).toBe("2026-10-31");
 });
@@ -80,21 +80,21 @@ test("without script the form submits the same query: from, to and every other p
 
 test("the chips: a setting chip opens its drawer on Settings and × takes it off; a metric chip's × takes it off", () => {
   // No setting draws by default (#1354): these two are asked for by name.
-  mount("/graphs?range=72h&set=mister_engage_kpa&set=sched_mist_rh_max_pct&m=climate.flow_gpm");
+  mount("/graphs?range=72h&set=mister_hysteresis_kpa&set=sched_mist_rh_max_pct&m=climate.flow_gpm");
   const settings = screen.getByRole("list", { name: "Settings drawn as steps" });
   // Each chip reads its setting by its label (the words layer), then the panel it draws on; its key is its title.
-  expect(within(settings).getAllByRole("listitem").map(text)).toEqual(["VPD Mister Engage · VPD×", "Scheduled-mist RH ceiling · RH×"]);
-  const chip = within(settings).getByRole("link", { name: "VPD Mister Engage · VPD" });
-  expect([chip.getAttribute("href"), chip.getAttribute("title")]).toEqual(["/settings?edit=mister_engage_kpa", "mister_engage_kpa: edit it on Settings"]);
+  expect(within(settings).getAllByRole("listitem").map(text)).toEqual(["Mister Hysteresis · VPD×", "Scheduled-mist RH ceiling · RH×"]);
+  const chip = within(settings).getByRole("link", { name: "Mister Hysteresis · VPD" });
+  expect([chip.getAttribute("href"), chip.getAttribute("title")]).toEqual(["/settings?edit=mister_hysteresis_kpa", "mister_hysteresis_kpa: edit it on Settings"]);
   // Taking one off keeps the other in the URL.
-  expect(within(settings).getByRole("link", { name: "Take VPD Mister Engage off the charts" }).getAttribute("href")).toBe("/graphs?range=72h&set=sched_mist_rh_max_pct&m=climate.flow_gpm");
+  expect(within(settings).getByRole("link", { name: "Take Mister Hysteresis off the charts" }).getAttribute("href")).toBe("/graphs?range=72h&set=sched_mist_rh_max_pct&m=climate.flow_gpm");
   const metrics = screen.getByRole("list", { name: "Metrics on the charts" });
   expect(within(metrics).getAllByRole("listitem").map(text)).toEqual(["Site water flow · gal/min×"]);
   fireEvent.click(within(metrics).getByRole("link", { name: "Take Site water flow off the charts" }));
-  expect(where()).toBe("/graphs?range=72h&set=mister_engage_kpa&set=sched_mist_rh_max_pct");
+  expect(where()).toBe("/graphs?range=72h&set=mister_hysteresis_kpa&set=sched_mist_rh_max_pct");
   fireEvent.click(within(screen.getByRole("list", { name: "Settings drawn as steps" })).getByRole("link", { name: "Take Scheduled-mist RH ceiling off the charts" }));
-  expect(where()).toBe("/graphs?range=72h&set=mister_engage_kpa");
-  fireEvent.click(screen.getByRole("link", { name: "Take VPD Mister Engage off the charts" }));
+  expect(where()).toBe("/graphs?range=72h&set=mister_hysteresis_kpa");
+  fireEvent.click(screen.getByRole("link", { name: "Take Mister Hysteresis off the charts" }));
   expect(where()).toBe("/graphs?range=72h&set=");
   expect(screen.queryByRole("list", { name: "Settings drawn as steps" })).toBeNull();
 });

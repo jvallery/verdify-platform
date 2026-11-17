@@ -54,13 +54,13 @@ SPEC = yaml.safe_load((ROOT / "docs/design/dashboard/openapi/dashboard-api.v1.ya
 AT = datetime(2026, 11, 2, 18, 0, tzinfo=UTC)
 KEY = "6f9619ff-8b86-4011-b42d-00c04fc964ff"
 JASON = Actor.person("jason", "operator")
-KPA = "mister_engage_kpa"
+KPA = "mister_hysteresis_kpa"  # release 4 (#1633): a kPa setting on a 0.01 grid, bounds 0.05-0.5
 SETTING = f"/v1/settings/{KPA}"
 ACK = "/v1/alerts/7/ack"
 RESOLVE = "/v1/alerts/7/resolve"
 # method, path, JSON body and the stored object's schema, one per route.
 WRITES = (
-    ("PUT", SETTING, {"value": 1.53}, "DesiredSetting"),
+    ("PUT", SETTING, {"value": 0.153}, "DesiredSetting"),
     ("DELETE", SETTING, None, "DesiredSetting"),
     ("POST", ACK, {"note": "checked"}, "Alert"),
     ("POST", RESOLVE, {"resolution": "fixed"}, "Alert"),
@@ -68,8 +68,8 @@ WRITES = (
 DESIRED = settings.DesiredSetting(
     id=41,
     param=KPA,
-    value=1.55,
-    snapped_from=1.53,
+    value=0.15,
+    snapped_from=0.153,
     manual=True,
     manual_before=False,
     state="requested",
@@ -194,10 +194,10 @@ def test_put_passes_the_session_actor_the_body_and_the_key_to_one_service_call(c
     response = client.put(
         SETTING,
         headers={**operator, "Idempotency-Key": KEY},
-        json={"value": 1.53, "manual": False, "reason": "Vandas drying"},
+        json={"value": 0.153, "manual": False, "reason": "Vandas drying"},
     )
     assert response.status_code == 200, response.text
-    assert services.calls == [("write", JASON, KPA, 1.53, False, "Vandas drying", uuid.UUID(KEY))]
+    assert services.calls == [("write", JASON, KPA, 0.153, False, "Vandas drying", uuid.UUID(KEY))]
     assert response.json() == DESIRED.model_dump(mode="json")
     assert response.headers["content-type"] == "application/json"
     assert "idempotency-replayed" not in response.headers
@@ -291,11 +291,11 @@ def test_any_other_key_format_is_400_invalid_request_and_runs_nothing(
 
 def test_the_key_is_case_blind_and_becomes_the_request_id_of_the_answer_and_the_log(client, operator, services, capsys):
     capsys.readouterr()
-    services.refusal = problem("out_of_range", "Must be 0.50-2.50 kPa", field="value", min=0.5, max=2.5, current=1.6)
+    services.refusal = problem("out_of_range", "Must be 0.05-0.50 kPa", field="value", min=0.05, max=0.5, current=0.16)
     response = client.put(
         SETTING,
         headers={**operator, "Idempotency-Key": KEY.upper(), "X-Request-Id": "another-id"},
-        json={"value": 2.6},
+        json={"value": 0.6},
     )
     assert assert_problem(response, 422, "out_of_range")["request_id"] == KEY
     assert services.calls[0][-1] == uuid.UUID(KEY)
@@ -320,7 +320,7 @@ def test_without_a_key_the_request_id_stays_the_x_request_id(client, operator, s
 @pytest.mark.parametrize(
     "refusal",
     [
-        problem("out_of_range", "Must be 0.50-2.50 kPa", field="value", min=0.5, max=2.5, current=1.6),
+        problem("out_of_range", "Must be 0.05-0.50 kPa", field="value", min=0.05, max=0.5, current=0.16),
         problem("unknown_target", "'x' is not a setting", field="param"),
         problem("read_only", "x is read-only", field="param", min=0, max=1, current=1),
         problem("request_id_reused", "This request id was already used", field="request_id"),
@@ -439,7 +439,7 @@ def test_only_the_session_names_the_actor(client, operator, services, method, pa
 @pytest.mark.parametrize(
     ("method", "path", "template", "body"),
     [
-        ("PUT", SETTING, "/v1/settings/{param}", {"value": 1.53, "reason": "body-marker"}),
+        ("PUT", SETTING, "/v1/settings/{param}", {"value": 0.153, "reason": "body-marker"}),
         ("DELETE", SETTING, "/v1/settings/{param}", None),
         ("POST", ACK, "/v1/alerts/{id}/ack", {"note": "body-marker"}),
         ("POST", RESOLVE, "/v1/alerts/{id}/resolve", {"resolution": "body-marker"}),
@@ -456,13 +456,13 @@ def test_the_log_line_has_the_id_template_status_and_hashed_user_and_no_body_or_
     assert (line["method"], line["route"], line["status"]) == (method, template, 200)
     assert line["request_id"] == KEY and line["user"] == hashlib.sha256(b"jason").hexdigest()[:12]
     assert set(line) == {"service", "method", "route", "status", "duration_ms", "request_id", "user"}
-    for marker in ("body-marker", "query-marker", "jason", "1.53"):
+    for marker in ("body-marker", "query-marker", "jason", "0.153"):
         assert marker not in out
 
 
 def test_the_operator_api_does_not_read_the_writes_flag(client, operator, services, monkeypatch):
     monkeypatch.setenv("DASHBOARD_WRITES_ENABLED", "false")
-    assert client.put(SETTING, headers=operator, json={"value": 1.53}).status_code == 200
+    assert client.put(SETTING, headers=operator, json={"value": 0.153}).status_code == 200
     assert services.calls
 
 
@@ -492,34 +492,34 @@ def alert_db(client) -> FakeAlertDB:
 
 def test_the_same_write_twice_stores_one_row_and_another_payload_is_request_id_reused(client, operator, setting_db):
     headers = {**operator, "Idempotency-Key": KEY}
-    first = client.put(SETTING, headers=headers, json={"value": 1.53, "manual": True, "reason": "dry"})
+    first = client.put(SETTING, headers=headers, json={"value": 0.153, "manual": True, "reason": "dry"})
     assert first.status_code == 200, first.text
-    assert (first.json()["value"], first.json()["snapped_from"], first.json()["state"]) == (1.55, 1.53, "requested")
+    assert (first.json()["value"], first.json()["snapped_from"], first.json()["state"]) == (0.15, 0.153, "requested")
     # Omitting manual is the same request: REST's default is part of the payload the hash covers.
-    again = client.put(SETTING, headers=headers, json={"value": 1.53, "reason": "dry"})
+    again = client.put(SETTING, headers=headers, json={"value": 0.153, "reason": "dry"})
     assert again.headers["idempotency-replayed"] == "true" and again.json() == first.json()
     assert (len(setting_db.desired), len(setting_db.activity)) == (1, 1)
     [logged] = setting_db.activity
     assert (logged["source"], logged["actor"], logged["request_id"]) == ("dashboard", "jason", uuid.UUID(KEY))
     assert logged["request_sha256"] == activity.request_hash(
-        "API-10", KPA, {"value": 1.53, "manual": True, "reason": "dry"}
+        "API-10", KPA, {"value": 0.153, "manual": True, "reason": "dry"}
     )
 
-    for other in (client.put(SETTING, headers=headers, json={"value": 1.6}), client.delete(SETTING, headers=headers)):
+    for other in (client.put(SETTING, headers=headers, json={"value": 0.16}), client.delete(SETTING, headers=headers)):
         refused = assert_problem(other, 422, "request_id_reused")
         assert (refused["retryable"], refused["request_id"]) == (False, KEY)
     assert (len(setting_db.desired), len(setting_db.activity)) == (1, 1)
 
 
 def test_a_rest_write_that_omits_manual_stores_true_and_one_that_says_false_stores_false(client, operator, setting_db):
-    assert client.put(SETTING, headers=operator, json={"value": 1.5}).json()["manual"] is True
-    answered = client.put(SETTING, headers=operator, json={"value": 1.5, "manual": False}).json()
+    assert client.put(SETTING, headers=operator, json={"value": 0.15}).json()["manual"] is True
+    answered = client.put(SETTING, headers=operator, json={"value": 0.15, "manual": False}).json()
     assert (answered["manual"], answered["manual_before"]) == (False, True)
     assert [row["manual"] for row in setting_db.desired] == [True, False]
 
 
 def test_a_release_stores_value_null_manual_false_and_reads_released(client, operator, setting_db):
-    client.put(SETTING, headers=operator, json={"value": 1.5})
+    client.put(SETTING, headers=operator, json={"value": 0.15})
     released = client.delete(SETTING, headers={**operator, "Idempotency-Key": KEY}, params={"reason": "back to Iris"})
     assert released.status_code == 200, released.text
     body = released.json()
@@ -532,20 +532,20 @@ def test_a_release_stores_value_null_manual_false_and_reads_released(client, ope
     assert len(setting_db.desired) == 2
 
 
-def test_2_6_is_out_of_range_with_the_bounds_and_the_current_value(client, operator, setting_db):
-    setting_db.snapshots.append((KPA, setting_db.at, 1.6))
-    response = client.put(SETTING, headers={**operator, "Idempotency-Key": KEY}, json={"value": 2.6})
+def test_0_6_is_out_of_range_with_the_bounds_and_the_current_value(client, operator, setting_db):
+    setting_db.snapshots.append((KPA, setting_db.at, 0.16))
+    response = client.put(SETTING, headers={**operator, "Idempotency-Key": KEY}, json={"value": 0.6})
     assert assert_problem(response, 422, "out_of_range") == {
         "type": "about:blank",
         "title": "Out of range",
         "status": 422,
-        "detail": "Must be 0.50-2.50 kPa",
+        "detail": "Must be 0.05-0.50 kPa",
         "code": "out_of_range",
         "retryable": False,
         "field": "value",
-        "min": 0.5,
-        "max": 2.5,
-        "current": 1.6,
+        "min": 0.05,
+        "max": 0.5,
+        "current": 0.16,
         "request_id": KEY,
     }
     assert setting_db.desired == [] and setting_db.activity == []

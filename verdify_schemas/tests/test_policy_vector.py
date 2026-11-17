@@ -37,8 +37,8 @@ from verdify_schemas.tunable_registry import (
     PLANNER_PUSHABLE_REG,
     POLICY_WIRE_FIELD_COUNT,
     REGISTRY,
+    RESERVED_WIRE_SLOTS,
     RETIRED_WIRE_IDS,
-    THIRD_FLASH_INERT_WIRE_REG,
     WIRE_SCHEMA_VERSION,
     wire_metadata_errors,
     wire_value_bounds,
@@ -126,13 +126,11 @@ def test_wire_metadata_is_complete_unique_and_representable() -> None:
     assert wire_metadata_errors() == []
     assert WIRE_SCHEMA_VERSION == 2
     assert POLICY_WIRE_FIELD_COUNT == 48
-    assert len(PLANNER_PUSHABLE_REG) == 48
+    assert len(PLANNER_PUSHABLE_REG) == 5  # release 4: the live slots; the other 43 are reserved
 
 
 def test_wire_assignment_is_frozen() -> None:
-    actual = {
-        d.name: (d.wire_id, d.wire_kind, d.wire_scale, d.wire_unit) for d in REGISTRY.values() if d.wire_id is not None
-    }
+    actual = {d.name: (d.wire_id, d.wire_kind, d.wire_scale, d.wire_unit) for d in pv.wire_fields()}
     assert actual == FROZEN_WIRE_TABLE
     assert RETIRED_WIRE_IDS == frozenset({6})
     assert not RETIRED_WIRE_IDS & {wire_id for wire_id, *_ in FROZEN_WIRE_TABLE.values()}
@@ -429,7 +427,7 @@ def test_every_wire_field_maps_to_a_firmware_entity_and_global(
             continue
         # The third flash's inert slots (RULINGS AE7a): the entity is gone and must stay gone until host release 4
         # decides the wire (inert slots or a WIRE_SCHEMA_VERSION bump).
-        if defn.name in THIRD_FLASH_INERT_WIRE_REG:
+        if defn.name in RESERVED_WIRE_SLOTS:
             if defn.esp_object_id in firmware_entities:
                 problems.append(f"{defn.name}: an inert third-flash slot has an entity again")
             continue
@@ -458,3 +456,29 @@ def test_firmware_absent_exemption_is_retired_and_stays_retired(firmware_entitie
     assert defn.esp_object_id not in firmware_entities
     with pytest.raises(ValueError, match="not part of the policy wire schema"):
         wire_value_bounds("direct_wet_stress_latest_hour")
+
+
+def test_the_frozen_layout_has_five_live_slots_and_43_reserved_ones_nothing_reads():
+    """#1633 release 4, shape B: the 48-slot layout stays byte-identical to the firmware's generated files. Five slots
+    are live settings; the other 43 are reserved: not settings, not in any help, intent or dispatch path."""
+    from verdify_schemas.climate_intent import CLIMATE_INTENT_FIELD_DOCS
+    from verdify_schemas.setting_help import HELP
+    from verdify_schemas.tunable_registry import LIVE_WIRE_FIELDS, REGISTRY, RESERVED_WIRE_SLOTS, TIER1_REG
+
+    live = {
+        "mister_engage_delay_s",
+        "mister_min_off_s",
+        "mister_water_budget_gal",
+        "outdoor_staleness_max_s",
+        "sw_direct_wet_gate_enabled",
+    }
+    assert LIVE_WIRE_FIELDS == live == {d.name for d in pv.live_wire_fields()}
+    assert len(pv.wire_fields()) == 48 and len(RESERVED_WIRE_SLOTS) == 43
+    assert {d.name for d in pv.wire_fields()} == live | set(RESERVED_WIRE_SLOTS)
+    reserved = set(RESERVED_WIRE_SLOTS)
+    assert not reserved & set(REGISTRY)
+    assert not reserved & set(HELP)
+    assert not reserved & set(TIER1_REG)
+    assert not reserved & {knob for doc in CLIMATE_INTENT_FIELD_DOCS for knob in doc.materialized_knobs}
+    source = (REPO_ROOT / "verdify_schemas" / "policy_vector.py").read_text()
+    assert "Five slots are live settings" in source and "The other 43 are RESERVED" in source

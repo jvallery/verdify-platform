@@ -32,7 +32,7 @@ from verdify_schemas.tunable_registry import (
     FIRMWARE_V2_CFG_WIRE_IDS,
     FIRMWARE_V2_STAGED_REG,
     REGISTRY,
-    THIRD_FLASH_INERT_WIRE_REG,
+    RESERVED_WIRE_SLOTS,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -434,9 +434,13 @@ HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
 # readback, but their rows keep the route until host release 4 decides the wire (contracts: inert slots or a
 # WIRE_SCHEMA_VERSION bump). Release 3's generic skip sends nothing for an entity the controller does not list.
 THIRD_FLASH_DEAD_ROUTES: dict[str, set[str]] = {
-    "SETPOINT_MAP": {REGISTRY[n].esp_object_id for n in THIRD_FLASH_INERT_WIRE_REG if REGISTRY[n].esp_object_id},
+    "SETPOINT_MAP": {
+        RESERVED_WIRE_SLOTS[n].esp_object_id for n in RESERVED_WIRE_SLOTS if RESERVED_WIRE_SLOTS[n].esp_object_id
+    },
     "CFG_READBACK_MAP": {
-        REGISTRY[n].cfg_readback_object_id for n in THIRD_FLASH_INERT_WIRE_REG if REGISTRY[n].cfg_readback_object_id
+        RESERVED_WIRE_SLOTS[n].cfg_readback_object_id
+        for n in RESERVED_WIRE_SLOTS
+        if RESERVED_WIRE_SLOTS[n].cfg_readback_object_id
     },
 }
 

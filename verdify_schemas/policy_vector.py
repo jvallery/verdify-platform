@@ -56,9 +56,10 @@ from collections.abc import Mapping
 from fractions import Fraction
 
 from .tunable_registry import (
+    LIVE_WIRE_FIELDS,
     POLICY_WIRE_FIELD_COUNT,
-    REGISTRY,
     WIRE_SCHEMA_VERSION,
+    WIRE_SLOT_DEFS,
     TunableDef,
     wire_value_bounds,
 )
@@ -87,13 +88,22 @@ _U64_MAX = 2**64 - 1
 
 
 def wire_fields() -> tuple[TunableDef, ...]:
-    """The 48 wire-schema fields ordered by permanent ``wire_id``."""
+    """The 48 wire-schema slots ordered by permanent ``wire_id`` (the frozen layout; most are reserved)."""
     return _WIRE_FIELDS
 
 
-_WIRE_FIELDS: tuple[TunableDef, ...] = tuple(
-    sorted((d for d in REGISTRY.values() if d.wire_id is not None), key=lambda d: d.wire_id or 0)
-)
+def live_wire_fields() -> tuple[TunableDef, ...]:
+    """The wire slots that are still settings (LIVE_WIRE_FIELDS), ordered by ``wire_id``."""
+    return tuple(d for d in _WIRE_FIELDS if d.name in LIVE_WIRE_FIELDS)
+
+
+# FROZEN LAYOUT (#1633 release 4, coordinator shape B). The 48 slots stay exactly what the firmware's generated
+# policy_vector headers, goldens and consumer manifest carry, so release 4 needs no flash. Five slots are live settings:
+# mister_engage_delay_s, mister_min_off_s, mister_water_budget_gal, outdoor_staleness_max_s and
+# sw_direct_wet_gate_enabled. The other 43 are RESERVED (tunable_registry.RESERVED_WIRE_SLOTS): never written, never
+# read, never shown; they only keep the layout. Nothing sends a policy vector today. Shrinking the wire is a carry for
+# the next firmware change. verdify_schemas/tests/test_policy_vector.py pins this split.
+_WIRE_FIELDS: tuple[TunableDef, ...] = tuple(sorted(WIRE_SLOT_DEFS.values(), key=lambda d: d.wire_id or 0))
 assert len(_WIRE_FIELDS) == POLICY_WIRE_FIELD_COUNT
 
 # Component index (migration 207 policy_*_components.component_index, 0..47

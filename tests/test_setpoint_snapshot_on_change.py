@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT / "ingestor"))
 import shared  # noqa: E402
 
 import ingestor  # noqa: E402
-from verdify_schemas.policy_vector import wire_fields  # noqa: E402
+from verdify_schemas.policy_vector import live_wire_fields  # noqa: E402
 
 T0 = datetime(2026, 11, 20, 12, 0, 30, tzinfo=UTC)
 
@@ -46,49 +46,49 @@ async def publish(pool, at, reason="periodic"):
 
 
 def test_first_pass_and_a_restart_store_every_readback():
-    frozen = {"temp_high": 80.0, "mister_all_kpa": 1.25}
+    frozen = {"temp_high": 80.0, "mister_water_budget_gal": 125.0}
     store = ingestor.ReadbackStore()
     chosen = ingestor.readbacks_to_store(frozen, store, now=T0, generation=3, written_at={})
     assert chosen == set(frozen)
 
 
 def test_unchanged_values_are_not_stored_again():
-    frozen = {"temp_high": 80.0, "mister_all_kpa": 1.25}
+    frozen = {"temp_high": 80.0, "mister_water_budget_gal": 125.0}
     store = ingestor.ReadbackStore({name: (value, T0, 3) for name, value in frozen.items()})
     chosen = ingestor.readbacks_to_store(frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at={})
     assert chosen == set()
 
 
 def test_float32_noise_is_not_a_change_and_a_real_change_is():
-    assert ingestor.readback_unchanged("mister_all_kpa", 1.6, float32(1.6))
+    assert ingestor.readback_unchanged("mister_water_budget_gal", 160.3, float32(160.3))
     assert ingestor.readback_unchanged("temp_high", float32(80.3), 80.3)
-    assert not ingestor.readback_unchanged("mister_all_kpa", 1.6, 1.7)
+    assert not ingestor.readback_unchanged("mister_water_budget_gal", 160.3, 170.3)
     assert not ingestor.readback_unchanged("temp_high", 80.0, 80.01)
     # Second-quantized readbacks keep their registry tolerance of one second.
-    assert ingestor.readback_unchanged("mister_pulse_on_s", 10.0, 10.6)
-    assert not ingestor.readback_unchanged("mister_pulse_on_s", 10.0, 11.5)
-    store = ingestor.ReadbackStore({"mister_all_kpa": (1.6, T0, 3)})
+    assert ingestor.readback_unchanged("mister_min_off_s", 45.0, 45.6)
+    assert not ingestor.readback_unchanged("mister_min_off_s", 45.0, 46.5)
+    store = ingestor.ReadbackStore({"mister_water_budget_gal": (160.3, T0, 3)})
     chosen = ingestor.readbacks_to_store(
-        {"mister_all_kpa": float32(1.6)}, store, now=T0 + timedelta(minutes=1), generation=3, written_at={}
+        {"mister_water_budget_gal": float32(160.3)}, store, now=T0 + timedelta(minutes=1), generation=3, written_at={}
     )
     assert chosen == set()
 
 
 def test_a_reconnect_stores_every_readback():
-    frozen = {"temp_high": 80.0, "mister_all_kpa": 1.25}
+    frozen = {"temp_high": 80.0, "mister_water_budget_gal": 125.0}
     store = ingestor.ReadbackStore({name: (value, T0, 3) for name, value in frozen.items()})
     chosen = ingestor.readbacks_to_store(frozen, store, now=T0 + timedelta(seconds=60), generation=4, written_at={})
     assert chosen == set(frozen)
 
 
 def test_a_write_newer_than_the_stored_row_gets_a_row_even_when_the_value_repeats():
-    frozen = {"temp_high": 80.0, "mister_all_kpa": 1.25}
+    frozen = {"temp_high": 80.0, "mister_water_budget_gal": 125.0}
     store = ingestor.ReadbackStore({name: (value, T0, 3) for name, value in frozen.items()})
-    written = {"mister_all_kpa": T0 + timedelta(seconds=20), "temp_high": T0 - timedelta(minutes=5)}
+    written = {"mister_water_budget_gal": T0 + timedelta(seconds=20), "temp_high": T0 - timedelta(minutes=5)}
     chosen = ingestor.readbacks_to_store(
         frozen, store, now=T0 + timedelta(seconds=60), generation=3, written_at=written
     )
-    assert chosen == {"mister_all_kpa"}
+    assert chosen == {"mister_water_budget_gal"}
 
 
 def test_the_write_lookup_reads_no_plan_and_has_no_dense_fallback():
@@ -99,7 +99,7 @@ def test_the_write_lookup_reads_no_plan_and_has_no_dense_fallback():
 
 
 def test_keyframes_are_hourly_and_staggered_across_the_passes():
-    names = sorted({spec.name for spec in wire_fields()} | {f"extra_{i}" for i in range(150)})
+    names = sorted({spec.name for spec in live_wire_fields()} | {f"extra_{i}" for i in range(150)})
     frozen = dict.fromkeys(names, 1.0)
     store = ingestor.ReadbackStore({name: (1.0, T0, 3) for name in names})
     per_pass = []
@@ -147,19 +147,19 @@ async def test_unchanged_pass_stores_no_readback_but_confirms_all_and_marks_the_
 async def test_a_changed_value_is_stored_alone(context):  # noqa: F811
     values, connection, pool = context
     await publish(pool, T0)
-    values["mister_all_kpa"] = 1.5
+    values["mister_water_budget_gal"] = 150.0
     await publish(pool, T0 + timedelta(seconds=60))
-    assert connection.rows == [(T0 + timedelta(seconds=60), "mister_all_kpa", 1.5)]
+    assert connection.rows == [(T0 + timedelta(seconds=60), "mister_water_budget_gal", 150.0)]
 
 
 @pytest.mark.asyncio
 async def test_a_write_that_repeats_the_current_value_gets_its_confirming_row(context):  # noqa: F811
     values, connection, pool = context
     await publish(pool, T0)
-    connection.writes = [("mister_all_kpa", T0 + timedelta(seconds=30))]
+    connection.writes = [("mister_water_budget_gal", T0 + timedelta(seconds=30))]
     await publish(pool, T0 + timedelta(seconds=60))
-    assert connection.rows == [(T0 + timedelta(seconds=60), "mister_all_kpa", 1.25)]
-    assert ("mister_all_kpa", 1.25, 0.0) in connection.confirmations
+    assert connection.rows == [(T0 + timedelta(seconds=60), "mister_water_budget_gal", 125.0)]
+    assert ("mister_water_budget_gal", 125.0, 0.0) in connection.confirmations
     # The next pass, with the same write still in the lookup, stores nothing: the row is newer than the write.
     await publish(pool, T0 + timedelta(seconds=120))
     assert connection.rows == []
@@ -214,16 +214,16 @@ async def test_a_partial_cache_at_reconnect_still_gives_every_parameter_a_post_b
 async def test_a_clamped_write_stores_what_the_controller_reads_back(context):  # noqa: F811
     values, connection, pool = context
     await publish(pool, T0)
-    # Asked for 2.0; the controller clamps and keeps 1.25. The row after the write is the readback, and the
-    # confirmation runs against 1.25, which the request's 2.0 does not match, so it stays unconfirmed.
-    connection.writes = [("mister_all_kpa", T0 + timedelta(seconds=30))]
+    # Asked for 200.0; the controller clamps and keeps 125.0. The row after the write is the readback, and the
+    # confirmation runs against 125.0, which the request's 200.0 does not match, so it stays unconfirmed.
+    connection.writes = [("mister_water_budget_gal", T0 + timedelta(seconds=30))]
     await publish(pool, T0 + timedelta(seconds=60))
-    assert connection.rows == [(T0 + timedelta(seconds=60), "mister_all_kpa", 1.25)]
-    assert ("mister_all_kpa", 1.25, 0.0) in connection.confirmations
+    assert connection.rows == [(T0 + timedelta(seconds=60), "mister_water_budget_gal", 125.0)]
+    assert ("mister_water_budget_gal", 125.0, 0.0) in connection.confirmations
     # Clamped to a new value instead: stored at once as a change.
-    values["mister_all_kpa"] = 1.75
+    values["mister_water_budget_gal"] = 175.0
     await publish(pool, T0 + timedelta(seconds=120))
-    assert connection.rows == [(T0 + timedelta(seconds=120), "mister_all_kpa", 1.75)]
+    assert connection.rows == [(T0 + timedelta(seconds=120), "mister_water_budget_gal", 175.0)]
 
 
 @pytest.mark.asyncio
@@ -232,9 +232,9 @@ async def test_only_a_pass_that_stored_every_canonical_field_serves_a_writer_adm
     now = datetime.now(UTC)
     await publish(pool, now - timedelta(seconds=60))  # first pass after a restart stores every readback
     assert shared.setpoint_snapshot_is_current(3)
-    values["mister_all_kpa"] = 1.5
+    values["mister_water_budget_gal"] = 150.0
     await publish(pool, now)
-    assert stored_names(connection) == {"mister_all_kpa"}
+    assert stored_names(connection) == {"mister_water_budget_gal"}
     assert not shared.setpoint_snapshot_is_current(3)  # a request would ask for a complete batch
     await publish(pool, now, reason="writer_admission")  # dormant in production (no caller)
     assert stored_names(connection) == set(values)
@@ -258,11 +258,10 @@ def test_smoke_reads_the_pass_and_the_newest_row_of_each_canonical_field():
     assert f"entity='{ingestor.READBACK_PASS_ENTITY}'" in smoke
     assert "SELECT DISTINCT ON (parameter) parameter FROM setpoint_snapshot" in smoke
     assert "ts>now()-interval '2 hours'" in smoke
-    # Review F1: the expected count is the canonical fields the controller still reads back (the third flash keeps
-    # THIRD_FLASH_INERT_WIRE_REG as inert wire slots with no readback), so the check passes on the law build and the
-    # third flash alike.
+    # Review F1, then release 4 (shape B): the expected count is the live wire fields, the only canonical fields the
+    # controller still reads back; the 43 reserved slots have no readback.
     assert '[ "${snapshot_count}" = "${expected_fields}" ]' in smoke
-    assert "if n not in THIRD_FLASH_INERT_WIRE_REG" in smoke
+    assert "if n in LIVE_WIRE_FIELDS" in smoke
     assert '= "48" ]' not in smoke and "len(CANONICAL_FIELD_ORDER) == 48" not in smoke
     assert "HAVING count(DISTINCT parameter)=48" not in smoke
 

@@ -81,14 +81,15 @@ def test_one_setting_per_registry_row_in_its_class_group_with_tunabledef_label_u
     assert set(groups) == WRITABLE_GROUPS | {"site_water_caps", "read_only"}
 
 
-def test_mister_engage_kpa_reads_its_entity_name_unit_bounds_and_step(rows):
-    row = rows["mister_engage_kpa"]
+def test_outdoor_staleness_max_s_reads_its_entity_name_unit_bounds_and_step(rows):
+    # Release 4 (#1633): mister_engage_kpa left the registry with the other reserved policy-wire slots.
+    row = rows["outdoor_staleness_max_s"]
     assert (row["label"], row["unit"], row["min"], row["max"], row["step"], row["group"], row["writable"]) == (
-        "VPD Mister Engage",
-        "kPa",
-        0.5,
-        2.5,
-        0.05,
+        "Outdoor Staleness Max",
+        "s",
+        120.0,
+        1800.0,
+        30.0,
         "planner_policy",
         True,
     )
@@ -194,16 +195,19 @@ def test_band_in_force_rows_as_api_09_serves_them(payload):
 
 
 def test_scenario_rows_the_screens_and_named_fixtures_rely_on(rows):
-    engage = rows["mister_engage_kpa"]
-    assert engage["readback"]["value"] == 1.6
-    assert engage["applied_from"] == "plan"
-    assert engage["plan"]["source"] == "iris"
-    assert engage["plan"]["next"] == {
+    staleness = rows["outdoor_staleness_max_s"]
+    assert staleness["readback"]["value"] == 660.0
+    assert staleness["applied_from"] == "plan"
+    assert staleness["plan"]["source"] == "iris"
+    assert staleness["plan"]["next"] == {
         "at": "2026-11-02T20:00:00.000Z",
-        "value": 1.7,
+        "value": 720.0,
         "source": "iris",
         "effective": True,
     }
+    off = rows["mister_min_off_s"]
+    assert (off["readback"]["value"], off["applied_from"], off["plan"]["next"]["value"]) == (45.0, "plan", 55.0)
+    assert off["plan"]["next"]["at"] == "2026-11-02T23:30:00.000Z"
     # iris-unsnapped puts Iris's 48.75 on this plan.
     assert rows["mister_engage_delay_s"]["plan"]["source"] == "iris"
     agent = rows["mister_water_budget_gal"]
