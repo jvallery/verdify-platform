@@ -406,16 +406,21 @@ class TestViewsCompute:
             SELECT crop_vpd_low,
                    crop_vpd_high,
                    house_vpd_low,
-                   house_vpd_high,
-                   house_vpd_high - house_vpd_low AS width
+                   house_vpd_high
               FROM fn_house_vpd_control_band(now())
             """
         )
         assert row, "fn_house_vpd_control_band returned no rows"
-        crop_low, crop_high, house_low, house_high, width = [float(v) for v in row[0].split("|")]
-        assert 0.1 <= crop_low < crop_high <= 5.0
-        assert 0.1 <= house_low < house_high <= 5.0
-        assert width >= 0.55 - 1e-6
+        crop_low, crop_high, house_low, house_high = [float(v) for v in row[0].split("|")]
+        # The band is the served band (#1633): its width is whatever the crop curve gives, so only its order and
+        # the registry bounds of the two edges hold by design.
+        from verdify_schemas.tunable_registry import REGISTRY
+
+        low_def, high_def = REGISTRY["vpd_low"], REGISTRY["vpd_high"]
+        for low, high in ((crop_low, crop_high), (house_low, house_high)):
+            assert low < high
+            assert low_def.min <= low <= low_def.max
+            assert high_def.min <= high <= high_def.max
 
     def test_lighting_policy_tracks_highest_active_crop_dli(self):
         rows = db_query_rows(
