@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT
-// Activity (redesign §5.8 Alerts, §5.9 Log; SCR-06): the three alert groups from one read with the count stated once,
-// repeat counts, Acknowledge in one tap with an optional note, details in place with the runbook and Open in Graphs ±2 h,
-// the flow alert's spigot words and no Stop, Stop all water on a fence breach, Clear fault, Recent activity; and the
-// log's facets in the URL, sticky day headers, one-line entries, an Iris plan collapsed to its changes, Load older and
-// the CSV of the loaded entries.
+// Activity (dashboard v2 screens.md section 9, A-01 to A-04): the three alert groups from one read with the count stated
+// once, repeat counts, Acknowledge in one tap with an optional note, details in place with what the alert means, the
+// page that explains it, the runbook and its window in Graphs, the flow alert's spigot words and no Stop, Stop all water
+// on a fence breach, Clear fault, Recent activity; and the log's facets in the URL (the reviewer and the band, no
+// planner), sticky day headers, one-line entries, a band save collapsed to its edges, Load older and the CSV of the
+// loaded entries; a viewer sees no control, and nothing scrolls sideways at 390 px.
 import { readFile } from "node:fs/promises";
 import type { Page } from "@playwright/test";
-import { CAN_STILL_START, CAN_STILL_START_NO_ENGINE, PHONE, STOPPED, expect, fixtureRequests, fixtureWrites, load, test, toastLines, untilPolled, useScreensClock } from "./support";
+import {
+  CAN_STILL_START, CAN_STILL_START_NO_ENGINE, DESKTOP, PHONE, STOPPED, WEBKIT, expect, expectNoHorizontalScroll, fixtureRequests, fixtureWrites, load, test, toastLines,
+  untilPolled, useScreensClock, writeControls,
+} from "./support";
 
 const needsAction = (page: Page) => page.getByRole("region", { name: "Needs action" });
 const status = (page: Page) => page.locator(".page-status");
@@ -117,16 +121,16 @@ test("Recent activity sits under the log's day headers: each time HH:MM on one l
   expect(Math.abs((quote?.x ?? 0) - (words?.x ?? -10))).toBeLessThan(1);
 });
 
-test("activity-mixed: one line an entry, who wrote in text, AI for Iris and the agent only, an Iris plan collapsed to its changes, causes first", async ({ page, request }) => {
+test("activity-mixed: one line an entry, who wrote in text, AI for the reviewer and the agent only, an old settings row collapsed to its changes, causes first", async ({ page, request }) => {
   await useScreensClock(page, request, "activity-mixed");
   await load(page, "/activity/log");
   const dashboard = logRow(page, "Outdoor Staleness Max 660 → 630 s");
   await expect(writtenBy(dashboard)).toHaveText("Jason · dashboard");
-  await expect(dashboard.locator(".act-entry-text")).toHaveText("Outdoor Staleness Max 660 → 630 s · requested 640 · manual");
+  await expect(dashboard.locator(".act-entry-text")).toHaveText("Outdoor Staleness Max 660 → 630 s · requested 640 · set by hand");
   await expect(dashboard.locator(".event-by [data-badge=ai]")).toHaveCount(0);
   await expect(dashboard.locator(".event-reason")).toHaveText("“Vandas drying”");
-  const iris = logRow(page, "Plan · 3 changes");
-  await expect(writtenBy(iris)).toHaveText("iris AI");
+  const iris = logRow(page, "Settings written before the climate law · 3 changes");
+  await expect(writtenBy(iris)).toHaveText("Iris · reviewer AI");
   await expect(iris.locator(".event-by [data-badge=ai]")).toHaveCount(1);
   await iris.locator("summary").click();
   await expect(iris.locator(".plan-changes li")).toHaveText(["Outdoor Staleness Max 720 s from 13:00", "Mister Min Off 55 s from 16:30", "Mister Engage Delay 90 s from 19:00"]);
@@ -134,7 +138,7 @@ test("activity-mixed: one line an entry, who wrote in text, AI for Iris and the 
   await expect(writtenBy(agent)).toHaveText("steward · agent AI");
   const forecast = logRow(page, "Forecast rule “hot afternoon”");
   await expect(forecast.locator(".act-entry-text")).toHaveText("Forecast rule “hot afternoon” · Mister Min Off 45 → 60 s");
-  await expect(writtenBy(forecast)).toHaveText("forecast-engine · system");
+  await expect(writtenBy(forecast)).toHaveText("forecast-engine · host");
   await expect(forecast.locator(".event-by [data-badge=ai]")).toHaveCount(0);
 });
 
@@ -146,7 +150,7 @@ test("the log groups by day under sticky headers: Today, Yesterday, then the wee
   expect(await heads.first().evaluate((node) => getComputedStyle(node).position)).toBe("sticky");
 });
 
-test("the flow alert reads its plain title, expands with its runbook and Open in Graphs ±2 h, and offers the spigot, never a Stop", async ({ page, request }) => {
+test("the flow alert reads its plain title, expands with what it means, its page, its runbook and its window in Graphs, and offers the spigot, never a Stop", async ({ page, request }) => {
   await useScreensClock(page, request, "flow-valves-closed");
   await load(page, "/activity?alert=201");
   const flow = alertRow(page, 201);
@@ -154,7 +158,10 @@ test("the flow alert reads its plain title, expands with its runbook and Open in
   await expect(flow).toContainText("If no one is using water, close the spigot.");
   await expect(flow.getByRole("button", { name: /Stop/ })).toHaveCount(0);
   await expect(flow.locator(".runbook")).toContainText("Walk the wall line and the manifold for a break.");
-  await expect(flow.getByRole("link", { name: /^Open in Graphs/ })).toHaveAttribute("href", "/graphs?from=2026-11-02T15:38:00Z&to=2026-11-02T19:38:00Z");
+  await expect(flow.getByRole("link", { name: /^Open in Graphs/ })).toHaveAttribute("href", "/graphs?from=2026-11-02T15:38:00Z&to=2026-11-02T19:41:20Z");
+  await expect(flow.locator(".alert-about")).toContainText("The water meter counted flow while every valve the controller drives was closed");
+  await flow.getByRole("link", { name: /^Explained on Water today/ }).click();
+  await expect(page).toHaveURL(/\/water$/);
   await expect(flow).not.toContainText("leak_detected");
 });
 
@@ -261,4 +268,58 @@ test("activity-paged: Load older adds the older page under the newer one, and CS
   const lines = (await readFile(await download.path(), "utf8")).replace(/^\uFEFF/, "").trim().split("\r\n");
   expect(lines).toHaveLength(61);
   expect(lines[0]).toBe("time (America/Denver),who,source,action,target,what,reason,outcome,confirmed (America/Denver),request id");
+});
+
+// ---------------------------------------------------------------------------------------------------- v2 (activity.mjs)
+test("alerts-v2: each alert names its page in the new words, its evidence opens Graphs on its window, and a retired check has no page", async ({ page, request }) => {
+  await useScreensClock(page, request, ["alerts-v2"]);
+  await load(page, "/activity?alert=601");
+  const drying = alertRow(page, 601);
+  await expect(drying.locator("h3")).toHaveText("Drying refused all day on price");
+  await expect(drying.locator(".alert-detail .kv")).toContainText("CategoryClimate");
+  await expect(drying.locator(".runbook")).toContainText("Open Drying and read the price against the limit.");
+  await expect(drying.getByRole("link", { name: /^Explained on Drying/ })).toHaveAttribute("href", "/climate/drying");
+  await expect(drying.getByRole("link", { name: /^Open in Graphs/ })).toHaveAttribute("href", /^\/graphs\?from=2026-11-02T11:00:00Z&to=/);
+  await load(page, "/activity?alert=602");
+  await expect(alertRow(page, 602).getByRole("link", { name: /^Explained on Controller/ })).toHaveAttribute("href", "/system/controller");
+  await load(page, "/activity?alert=603");
+  await expect(alertRow(page, 603).getByRole("link", { name: /^Explained on Review/ })).toHaveAttribute("href", "/review");
+  await load(page, "/activity?alert=604&resolved=24h");
+  const retired = alertRow(page, 604);
+  await expect(retired.locator("h3")).toContainText("(retired check)");
+  await expect(retired.locator(".alert-about")).toHaveText("A retired check: nothing raises it now, and old alerts keep its name.");
+  await expect(retired.getByRole("link", { name: /^Explained on/ })).toHaveCount(0);
+});
+
+test("activity-v2: the band save collapses to its edges, the reviewer's watering leads with its daily review, and Who and What offer the reviewer and the band, never a plan", async ({ page, request }) => {
+  await page.setViewportSize(DESKTOP);
+  await useScreensClock(page, request, ["activity-v2"]);
+  await load(page, "/activity/log");
+  const band = logRow(page, "Changed the band · 4 changes");
+  await band.locator("summary").click();
+  await expect(band.locator(".plan-changes li")).toHaveCount(4);
+  await expect(band.locator(".event-reason")).toHaveText("“Cooler nights for winter”");
+  const review = logRow(page, "Daily review · Ran Wall drip · 8 min");
+  await expect(writtenBy(review)).toHaveText("Iris · reviewer AI");
+  await expect(logRow(page, "Added a note to planting 12")).toHaveCount(1);
+  await expect(filters(page).getByRole("list", { name: "Who" }).getByRole("link")).toHaveText(["All", "People", "Reviewer", "Agents", "Host"]);
+  await expect(filters(page).getByRole("list", { name: "What" }).getByRole("link")).toHaveText(["All", "Band", "Settings", "Water", "Run by hand", "Lights", "Crops", "Alerts"]);
+  await filters(page).getByRole("list", { name: "What" }).getByRole("link", { name: "Band" }).click();
+  await expect(page).toHaveURL(/\/activity\/log\?action=band\.$/);
+  expect((await fixtureRequests(request, "API-17")).at(-1)?.path).toBe("/v1/activity?action=band.");
+  await expect(page.locator("main")).not.toContainText(/\bplan\b|planner|Iris plans/i);
+});
+
+test("a viewer reads Alerts and the log with no control, and nothing scrolls sideways at 390 px", WEBKIT, async ({ page, request }) => {
+  await page.setViewportSize(PHONE);
+  await useScreensClock(page, request, ["fence-breach", "alerts-v2", "activity-v2", "viewer-session"]);
+  await load(page, "/activity?alert=601");
+  await expect(alertRow(page, 601).locator(".runbook")).toBeVisible();
+  await expect(writeControls(page)).toHaveCount(0);
+  await expect(page.getByLabel("Note (optional)")).toHaveCount(0);
+  await expectNoHorizontalScroll(page);
+  await load(page, "/activity/log");
+  await expect(logRows(page)).toHaveCount(3);
+  await expect(writeControls(page)).toHaveCount(0);
+  await expectNoHorizontalScroll(page);
 });

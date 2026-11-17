@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
-// The setting drawer's change history and Revert (#1139, redesign §5.10) against #1122's fixture API in process, with
-// uPlot mocked. The clock is 10:42 America/Denver on 2026-11-02 (MST).
+// The setting drawer's change history and Revert (dashboard v2 screens §10.4) against #1122's fixture API in process,
+// with uPlot mocked. The chart ends at now: the law retired the values planned ahead. The clock is 10:42 America/Denver on 2026-11-02 (MST).
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -9,7 +9,7 @@ import { fixture } from "../../e2e/fixtures/index.mjs";
 import { FakeResizeObserver, MockPlot, TOKENS, created, media, setTokens } from "../charts/fixtures/uplot-mock";
 import type { Setting } from "../lib/operator-api";
 import { NOW, OPERATOR, UUID, advance, renderWithApi, requests, startFixtureApi, stopFixtureApi, writes, type FixtureApi, type FixtureOptions } from "../lib/test-fixture-api";
-import { NO_READBACK_TEXT, PLAN_AHEAD_S, SettingHistoryPanel, type SettingHistoryProps } from "./setting-history";
+import { NO_READBACK_TEXT, SettingHistoryPanel, type SettingHistoryProps } from "./setting-history";
 import { text } from "./test-render";
 
 vi.mock("uplot", async () => ({ default: (await import("../charts/fixtures/uplot-mock")).MockPlot }));
@@ -39,7 +39,7 @@ async function mount({ path, props, setting, param = ENGAGE, role, ...options }:
   setTokens();
   const row = { ...settingOf(options.fixture ?? "in-band", param), ...setting };
   const onReverted = vi.fn();
-  const view = renderWithApi(<><SettingHistoryPanel setting={row} manual onReverted={onReverted} {...props} /><Here /></>, role === "viewer" ? { role: "viewer", writesEnabled: true } : OPERATOR, path ?? `/settings?edit=${param}`);
+  const view = renderWithApi(<><SettingHistoryPanel setting={row} onReverted={onReverted} {...props} /><Here /></>, role === "viewer" ? { role: "viewer", writesEnabled: true } : OPERATOR, path ?? `/settings?edit=${param}`);
   await settle();
   return { api, onReverted, view, row };
 }
@@ -57,28 +57,28 @@ const keyItems = () => [...document.querySelectorAll(".chart-key li")].map((item
 beforeEach(() => { MockPlot.reset(); FakeResizeObserver.instances = []; });
 afterEach(() => { cleanup(); stopFixtureApi(); document.documentElement.removeAttribute("style"); });
 
-test("API-12 reads from the window's start to 12 h after now, 7 d by default; the chips stay in the URL beside edit", async () => {
+test("API-12 reads from the window's start to now, 7 d by default; the chips stay in the URL beside edit", async () => {
   const { api } = await mount({ fixture: "setting-history" });
-  expect(windows(api)).toEqual([[iso(S - 7 * DAY_S), iso(S + PLAN_AHEAD_S)]]);
+  expect(windows(api)).toEqual([[iso(S - 7 * DAY_S), iso(S)]]);
   expect(chips()).toEqual([["24 h", null], ["7 d", "true"], ["30 d", null], ["90 d", null]]);
-  expect(plot().opts.scales!.x).toMatchObject({ min: S - 7 * DAY_S, max: S + PLAN_AHEAD_S });
+  expect(plot().opts.scales!.x).toMatchObject({ min: S - 7 * DAY_S, max: S });
   fireEvent.click(screen.getByRole("link", { name: "30 d" }));
   await settle();
   expect(here()).toBe(`/settings?edit=${ENGAGE}&hist=30d`);
   expect(chips().find(([, current]) => current)?.[0]).toBe("30 d");
-  expect(windows(api)[1]).toEqual([iso(S - 30 * DAY_S), iso(S + PLAN_AHEAD_S)]);
-  expect(plot().scaleCalls.at(-1)).toMatchObject({ key: "x", min: S - 30 * DAY_S, max: S + PLAN_AHEAD_S });
+  expect(windows(api)[1]).toEqual([iso(S - 30 * DAY_S), iso(S)]);
+  expect(plot().scaleCalls.at(-1)).toMatchObject({ key: "x", min: S - 30 * DAY_S, max: S });
   fireEvent.click(screen.getByRole("link", { name: "90 d" }));
   await settle();
-  expect(windows(api)[2]).toEqual([iso(S - 90 * DAY_S), iso(S + PLAN_AHEAD_S)]);
+  expect(windows(api)[2]).toEqual([iso(S - 90 * DAY_S), iso(S)]);
   cleanup();
   stopFixtureApi();
   const direct = await mount({ fixture: "setting-history", path: `/settings?edit=${ENGAGE}&hist=24h` });
-  expect(windows(direct.api)).toEqual([[iso(S - DAY_S), iso(S + PLAN_AHEAD_S)]]);
+  expect(windows(direct.api)).toEqual([[iso(S - DAY_S), iso(S)]]);
   cleanup();
   stopFixtureApi();
   const unknown = await mount({ fixture: "setting-history", path: `/settings?edit=${ENGAGE}&hist=1y` });
-  expect(windows(unknown.api)).toEqual([[iso(S - 7 * DAY_S), iso(S + PLAN_AHEAD_S)]]);
+  expect(windows(unknown.api)).toEqual([[iso(S - 7 * DAY_S), iso(S)]]);
   expect(chips().find(([, current]) => current)?.[0]).toBe("7 d");
 });
 
@@ -89,33 +89,32 @@ test("a window chip starts the chart on that window, whatever was zoomed before"
   fireEvent.click(screen.getByRole("link", { name: "30 d" }));
   await settle();
   expect(screen.queryByRole("button", { name: "Reset zoom" })).toBeNull();
-  expect(plot().scales.x).toMatchObject({ min: S - 30 * DAY_S, max: S + PLAN_AHEAD_S });
+  expect(plot().scales.x).toMatchObject({ min: S - 30 * DAY_S, max: S });
 });
 
-test("the chart: the device line solid, requests dashed amber and labelled by who asked, the plan ahead and the bounds", async () => {
-  // Over 24 h the plan has room for its label; over 7 d a crowded chart may drop it (the key and the table keep its words).
+test("the chart: the device line solid, requests dashed amber and labelled by who asked, and the bounds; nothing planned ahead", async () => {
   await mount({ fixture: "setting-history", path: `/settings?edit=${ENGAGE}&hist=24h` });
   const drawn = labels();
   expect(drawn).toContain("Now");
   expect(drawn).toContain("630 s device");
   expect(drawn).toContain("jason · dashboard");
   expect(drawn).toContain("iris · AI");
-  expect(drawn).toContain("720 s SUPERSEDED");
+  expect(drawn.some((label) => /SUPERSEDED|PLANNED/.test(label))).toBe(false);
   // max 1800 is above the y range and min 120 below it: edge labels at the right.
   expect(drawn).toContain("max 1800 s ↑");
   expect(drawn).toContain("min 120 s ↓");
   const strokes = plot().ctx.strokes;
   expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--accent"] && !stroke.dash.length).length).toBeGreaterThanOrEqual(3);
   expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--c-requested"] && JSON.stringify(stroke.dash) === "[6,4]")).toHaveLength(2);
-  expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && JSON.stringify(stroke.dash) === "[8,4]")).toHaveLength(1);
-  expect(keyItems()).toEqual(["Device readback", "iris · AI", "jason · dashboard", "SUPERSEDED", "Min and max"]);
+  expect(strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && JSON.stringify(stroke.dash) === "[8,4]")).toHaveLength(0);
+  expect(keyItems()).toEqual(["Device readback", "iris · AI", "jason · dashboard", "Min and max"]);
   expect(screen.queryByText(NO_READBACK_TEXT)).toBeNull();
 });
 
 test("the data table lists each step with who asked and whether the device followed", async () => {
   await mount({ fixture: "setting-history" });
   const details = document.querySelector<HTMLDetailsElement>("details.chart-table")!;
-  expect(text(details.querySelector("summary"))).toBe("Data table · 6 rows");
+  expect(text(details.querySelector("summary"))).toBe("Data table · 5 rows");
   act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
   await settle();
   expect(text(details.querySelector("caption")).replaceAll(" ", " ")).toBe("Setting steps · bounds min 120 s, max 1800 s");
@@ -148,7 +147,7 @@ test("readback_via none draws no device line and says so; a read-only row and a 
   expect(screen.queryByLabelText("Revert reason")).toBeNull();
 });
 
-test("Revert is one tap: one API-10 with the previous value, the Manual box and the prefilled reason, then the drawer closes", async () => {
+test("Revert is one tap: one API-10 with the previous value and the prefilled reason, then the drawer closes", async () => {
   const { api, onReverted } = await mount({ fixture: "setting-history" });
   expect(words(revertButton())).toBe("Revert to 660 s (iris, 11/02 07:02)");
   expect((screen.getByLabelText("Revert reason") as HTMLInputElement).value).toBe("Revert to 660 s (iris, 11/02 07:02)");
@@ -162,14 +161,14 @@ test("Revert is one tap: one API-10 with the previous value, the Manual box and 
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-test("Revert sends the drawer's Manual box as it stands; the reason can be edited or cleared; Enter in it presses nothing", async () => {
-  const { api } = await mount({ fixture: "setting-history", props: { manual: false } });
+test("the reason can be edited or cleared; Enter in it presses nothing; the API's manual flag is always sent and never shown", async () => {
+  const { api } = await mount({ fixture: "setting-history" });
   const reason = screen.getByLabelText("Revert reason") as HTMLInputElement;
   expect(fireEvent.keyDown(reason, { key: "Enter" })).toBe(false);
   fireEvent.change(reason, { target: { value: "Back to Iris's value" } });
   fireEvent.click(revertButton()!);
   await settle();
-  expect(writes(api).map((row) => row.body)).toEqual([{ value: 660, manual: false, reason: "Back to Iris's value" }]);
+  expect(writes(api).map((row) => row.body)).toEqual([{ value: 660, manual: true, reason: "Back to Iris's value" }]);
   cleanup();
   stopFixtureApi();
   const cleared = await mount({ fixture: "setting-history" });
@@ -177,6 +176,7 @@ test("Revert sends the drawer's Manual box as it stands; the reason can be edite
   fireEvent.click(revertButton()!);
   await settle();
   expect(writes(cleared.api).map((row) => row.body)).toEqual([{ value: 660, manual: true }]);
+  expect(document.querySelector(".drawer-history")!.textContent).not.toMatch(/manual/i);
 });
 
 test("a double tap sends once", async () => {
@@ -188,12 +188,12 @@ test("a double tap sends once", async () => {
   expect(writes(api)).toHaveLength(1);
 });
 
-test("with setting-history-release, Revert reads Revert to auto and sends one API-11 with its reason", async () => {
+test("with setting-history-release, Revert reads Revert to default and sends one API-11 with its reason", async () => {
   const { api, onReverted } = await mount({ fixture: "setting-history-release" });
-  expect(text(revertButton())).toBe("Revert to auto");
+  expect(text(revertButton())).toBe("Revert to default");
   fireEvent.click(revertButton()!);
   await settle();
-  expect(writes(api)).toEqual([expect.objectContaining({ method: "DELETE", operationId: "API-11", path: `/api/v1/settings/${ENGAGE}?reason=Revert+to+auto+%28jason%2C+11%2F02+07%3A02%29`, body: null })]);
+  expect(writes(api)).toEqual([expect.objectContaining({ method: "DELETE", operationId: "API-11", path: `/api/v1/settings/${ENGAGE}?reason=Revert+to+default+%28jason%2C+11%2F02+07%3A02%29`, body: null })]);
   expect(onReverted).toHaveBeenCalledOnce();
 });
 
@@ -216,12 +216,11 @@ test("a release ends the step before it with Released; with no step before it th
   fireEvent.click(screen.getByRole("link", { name: "24 h" }));
   await settle();
   expect(labels()).toContain("Released");
-  expect(labels()).toContain("iris · AI");
 });
 
 test("when the window holds only the newest row, Revert reads 90 days back once and goes back to the row it finds", async () => {
   const { api } = await mount({ fixture: "setting-history-older" });
-  expect(windows(api)).toEqual([[iso(S - 7 * DAY_S), iso(S + PLAN_AHEAD_S)], [iso(S - 90 * DAY_S), iso(S + PLAN_AHEAD_S)]]);
+  expect(windows(api)).toEqual([[iso(S - 7 * DAY_S), iso(S)], [iso(S - 90 * DAY_S), iso(S)]]);
   expect(words(revertButton())).toBe("Revert to 660 s (steward, 10/21 08:02)");
   // The chart stays on the chosen window.
   expect(labels()).not.toContain("steward · agent · AI");
@@ -232,24 +231,24 @@ test("when the window holds only the newest row, Revert reads 90 days back once 
   expect(writes(api).map((row) => row.body)).toEqual([expect.objectContaining({ value: 660, manual: true })]);
 });
 
-test("with still no earlier row Revert releases to auto; the 90 d window needs no second read", async () => {
+test("with still no earlier row Revert releases to the default; the 90 d window needs no second read", async () => {
   const param = "mister_water_budget_gal";
   const { api } = await mount({ param });
-  expect(windows(api)).toEqual([[iso(S - 7 * DAY_S), iso(S + PLAN_AHEAD_S)], [iso(S - 90 * DAY_S), iso(S + PLAN_AHEAD_S)]]);
-  expect(text(revertButton())).toBe("Revert to auto");
+  expect(windows(api)).toEqual([[iso(S - 7 * DAY_S), iso(S)], [iso(S - 90 * DAY_S), iso(S)]]);
+  expect(text(revertButton())).toBe("Revert to default");
   fireEvent.click(revertButton()!);
   await settle();
   expect(writes(api).map((row) => row.operationId)).toEqual(["API-11"]);
   cleanup();
   stopFixtureApi();
   const direct = await mount({ param, path: `/settings?edit=${param}&hist=90d` });
-  expect(windows(direct.api)).toEqual([[iso(S - 90 * DAY_S), iso(S + PLAN_AHEAD_S)]]);
-  expect(text(revertButton())).toBe("Revert to auto");
+  expect(windows(direct.api)).toEqual([[iso(S - 90 * DAY_S), iso(S)]]);
+  expect(text(revertButton())).toBe("Revert to default");
 });
 
-test("a setting with no desired row has no Revert: Iris's plan values are not desired rows", async () => {
+test("a setting with no desired row has no Revert and draws nothing planned", async () => {
   const { api } = await mount({ path: `/settings?edit=${ENGAGE}&hist=24h` });
-  expect(labels()).toContain("720 s PLANNED · AI");
+  expect(labels().some((label) => label.includes("PLANNED"))).toBe(false);
   expect(revertButton()).toBeNull();
   expect(screen.queryByLabelText("Revert reason")).toBeNull();
   expect(requests(api, "API-12")).toHaveLength(1);
@@ -289,7 +288,7 @@ test("bounds moved so the previous value is outside them: refused the same way, 
 test("with changes switched off Revert and its reason are disabled; while Save is out Revert waits", async () => {
   startFixtureApi({ fixture: "setting-history" });
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
-  renderWithApi(<SettingHistoryPanel setting={settingOf("setting-history", ENGAGE)} manual onReverted={() => {}} />, { role: "operator", writesEnabled: false }, `/settings?edit=${ENGAGE}`);
+  renderWithApi(<SettingHistoryPanel setting={settingOf("setting-history", ENGAGE)} onReverted={() => {}} />, { role: "operator", writesEnabled: false }, `/settings?edit=${ENGAGE}`);
   await settle();
   expect(revertButton()!.hasAttribute("disabled")).toBe(true);
   expect((screen.getByLabelText("Revert reason") as HTMLInputElement).disabled).toBe(true);
@@ -319,7 +318,7 @@ test("a failed 90-day read says so and offers Retry, and never guesses a release
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.stubGlobal("matchMedia", media({ fine: true }));
   refuse((input) => input.includes("/history") && new URL(input, "http://dashboard.invalid").searchParams.get("from") === iso(S - 90 * DAY_S), 503, { code: "unavailable" });
-  renderWithApi(<SettingHistoryPanel setting={settingOf("in-band", param)} manual onReverted={() => {}} />, OPERATOR, `/settings?edit=${param}`);
+  renderWithApi(<SettingHistoryPanel setting={settingOf("in-band", param)} onReverted={() => {}} />, OPERATOR, `/settings?edit=${param}`);
   await settle();
   expect(screen.getByText("Couldn't check the older history for Revert.")).toBeTruthy();
   expect(revertButton()).toBeNull();
@@ -332,17 +331,17 @@ test("a new desired row while the drawer is open reads the history again from th
   // API-09's polls with nothing new read nothing here.
   await advance(90_000);
   expect(requests(api, "API-12")).toHaveLength(1);
-  view.rerender(<><SettingHistoryPanel setting={{ ...row, desired: { ...row.desired!, id: row.desired!.id + 1 } }} manual onReverted={() => {}} /><Here /></>);
+  view.rerender(<><SettingHistoryPanel setting={{ ...row, desired: { ...row.desired!, id: row.desired!.id + 1 } }} onReverted={() => {}} /><Here /></>);
   await settle();
-  expect(windows(api)[1]).toEqual([iso(S + 90 - 7 * DAY_S), iso(S + 90 + PLAN_AHEAD_S)]);
+  expect(windows(api)[1]).toEqual([iso(S + 90 - 7 * DAY_S), iso(S + 90)]);
 });
 
-test("the changes in this window read in words, newest first: from, to, who, manual, the reason and the readback state with its time", async () => {
+test("the changes in this window read in words, newest first: from, to, who, the reason and the readback state with its time", async () => {
   await mount({ fixture: "setting-history" });
   expect(text(document.querySelector(".drawer-history h3"))).toBe("Change history");
   expect([...document.querySelectorAll(".ctl-change")].map((entry) => words(entry))).toEqual([
     // With no shell here API-01 is not read, so the signed-in person reads by username.
-    "660 s →to 630 s · jason · manual · “Vandas drying” · Confirmed 08:01",
+    "660 s →to 630 s · jason · “Vandas drying” · Confirmed 08:01",
     "660 s · iris · AI · Confirmed 07:03",
   ]);
   expect(document.querySelector(".ctl-change [data-badge=ai]")!.className).toBe("ctl-mark");
@@ -351,8 +350,8 @@ test("the changes in this window read in words, newest first: from, to, who, man
   // A release reads as one, with no value; a setting with no desired row in the window says so.
   await mount({ fixture: "setting-history-release" });
   expect([...document.querySelectorAll(".ctl-change")].map((entry) => words(entry))).toEqual([
-    "630 s · jason · manual · “Vandas drying” · Confirmed 08:01",
-    "Released to auto · jason · “Back to the plan” · Released 07:02",
+    "630 s · jason · “Vandas drying” · Confirmed 08:01",
+    "Released · jason · “Back to the plan” · Released 07:02",
   ]);
   cleanup();
   stopFixtureApi();

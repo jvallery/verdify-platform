@@ -1,2 +1,18 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Record (dashboard v2) */
+/* The window control under the tabs; the date cell (the day as a link, today's "so far" badge) never wraps. */
+.rc-toolbar{display:flex;justify-content:flex-start}
+.rc-date{display:inline-flex;align-items:center;gap:var(--space-2);white-space:nowrap}
+/* Small multiples: one block per relay, as many columns as fit at 18 rem. */
+.rc-multiples{display:grid;gap:var(--space-5) var(--space-4);grid-template-columns:repeat(auto-fill,minmax(min(100%,18rem),1fr))}
+.rc-relay{display:grid;gap:var(--space-2);min-width:0;padding-top:var(--space-3);border-top:1px solid var(--border)}
+.rc-relay-name{display:flex;align-items:center;gap:var(--space-2);margin:0;font-size:var(--fs-md);font-weight:600}
+.rc-swatch{flex:none;width:.75rem;height:.75rem;border-radius:var(--radius-pill);background:var(--text-3)}
+.rc-swatch[data-token=eq-heat1]{background:var(--eq-heat1)}.rc-swatch[data-token=eq-heat2]{background:var(--eq-heat2)}
+.rc-swatch[data-token=eq-fan1]{background:var(--eq-fan1)}.rc-swatch[data-token=eq-fan2]{background:var(--eq-fan2)}
+.rc-swatch[data-token=eq-vent]{background:var(--eq-vent)}.rc-swatch[data-token=eq-fog]{background:var(--eq-fog)}
+.rc-swatch[data-token=eq-mister]{background:var(--eq-mister)}.rc-swatch[data-token=eq-water]{background:var(--eq-water)}
+/* The counter check's differences under their badge. */
+.rc-diffs{margin:var(--space-1) 0 0;padding-left:1.25rem;font-size:var(--fs-sm);color:var(--text-2)}
+/* The notes: prose at most 70 characters wide. */
+.rc-notes{display:grid;gap:var(--space-2);max-width:70ch;margin:0;padding-left:1.25rem;color:var(--text-2)}

@@ -32,8 +32,9 @@ export type GridCell = {
   readonly column: string;
   readonly metrics: readonly MetricDef[];
   readonly series: Series | null;
-  /** This cell's band (each zone has its own). */
+  /** This cell's band (the house band; screens.md 7.2 retires the zone bands). */
   readonly band?: BandTimeline | null;
+  /** Retired (screens.md 7.1, the target series): the keys listed are not drawn. Kept optional until callers stop passing it. */
   readonly dotted?: readonly string[];
   /** In place of the plot: an error, "Loading…". */
   readonly message?: string;

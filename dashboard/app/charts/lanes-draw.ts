@@ -4,7 +4,7 @@ import { LABEL_FONT, type PaintTarget } from "./draw";
 import { fullTime, localDay } from "./time-axis";
 
 /**
- * Canvas painting shared by the lanes (EquipmentLanes, PlanLanes): the row layout, the hatch for unknown spans and
+ * Canvas painting shared by the lanes (EquipmentLanes, StateLanesChart): the row layout, the hatch for unknown spans and
  * label fitting. Rows are HTML (their labels and the right-hand stats are text); the canvas sits over the plot column
  * and paints each row's band at a fixed pitch from the plot's top, so canvas rows and HTML rows line up exactly. Every
  * colour is a token value read by UPlotChart, and painting restores the context it changed, because uPlot caches its
@@ -23,6 +23,8 @@ export type Band = { top: number; height: number; middle: number };
 export const LANE_PITCH = { wide: 20, narrow: 24 } as const;
 /** Inside a chart stack each equipment row adds a 16 px line over its track for its name (charts.css mirrors it). */
 export const LANE_HEAD = 16;
+/** A group header's height in CSS px (charts.css mirrors it): its fold is a 24 px touch target (WCAG 2.5.8). */
+export const GROUP_HEAD = 24;
 
 /** Row `index`'s band: the row from the plot's top, under its head line, inset by `inset` CSS px above and below. */
 export function rowBand(plot: Pick<PaintTarget, "bbox">, layout: RowLayout, index: number, px: number, inset = 3): Band {

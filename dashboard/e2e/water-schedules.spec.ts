@@ -120,7 +120,8 @@ test("the rules list: every schedule under its line, a disabled one muted, with 
   const topUp = rules.locator('[data-slot="15"]');
   await expect(topUp).toHaveClass(/is-muted/);
   await expect(topUp.getByRole("switch")).toHaveAttribute("aria-checked", "false");
-  await expect(rules.locator('[data-slot="14"] .object-row-meta')).toContainText("Iris may adjust · changed by iris (AI)");
+  await expect(rules.locator('[data-slot="14"] .object-row-meta')).toContainText("changed by iris (AI)");
+  await expect(rules.locator('[data-slot="14"] .object-row-meta')).not.toContainText("Iris may adjust");
   await expect(rules.locator('[data-slot="11"] .schedule-rule-facts dd')).toHaveText(["Mon Wed Fri", /sunrise \+ 1\sh \(07:35 today\)/, /12\smin/, "Routine watering"]);
 });
 

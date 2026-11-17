@@ -1,2 +1,87 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: System (dashboard v2) */
+
+/* Page frame: one column of blocks in screens order; pairs sit side by side above 860 px. Nothing is wider than its column. */
+.sys-page{min-width:0}
+.sys-blocks{min-width:0}
+.sys-blocks>*,.sys-pair>*{min-width:0}
+.sys-pair{display:grid;gap:var(--space-4);grid-template-columns:minmax(0,1fr)}
+.sys-section-title{margin:0 0 var(--space-3);font-size:var(--fs-lg)}
+.sys-subtitle{margin:0 0 var(--space-2);font-size:var(--fs-md)}
+.sys-lead{margin:0 0 var(--space-3)}
+.sys-note{margin:var(--space-3) 0 0}
+.sys-raw,.sys-hash,.sys-firmware,.sys-line-id{font-family:var(--mono);font-size:var(--fs-sm);overflow-wrap:anywhere}
+.sys-plain-list{margin:0;padding-left:var(--space-5)}
+
+/* Relay rows (Equipment): name and state on one line, facts and why beneath. */
+.sys-relays{display:grid;gap:var(--space-3);margin:0;padding:0;list-style:none;grid-template-columns:minmax(0,1fr)}
+.sys-relay{min-width:0;padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius)}
+.sys-relay-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.sys-relay-name{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.sys-relay-facts{margin:var(--space-1) 0 0;font-size:var(--fs-sm);color:var(--text-2);font-variant-numeric:tabular-nums}
+.sys-relay-why{margin:var(--space-2) 0 0;font-size:var(--fs-sm);overflow-wrap:anywhere}
+.sys-relay-hold{color:var(--warn-text)}
+.sys-relay-link{white-space:nowrap}
+.sys-line-id{color:var(--text-2)}
+.sys-line-note{color:var(--warn-text)}
+
+/* State word with its equipment dot: filled in the equipment's colour when on, an outline when off, hatched when not reported. */
+.sys-state{display:inline-flex;align-items:center;gap:.35rem;font:600 var(--fs-xs)/1.4 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text);white-space:nowrap}
+.sys-dot{flex:none;width:.55rem;height:.55rem;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--border-strong)}
+.sys-state.is-on .sys-dot{box-shadow:none;background:var(--text)}
+.sys-state.is-unknown{color:var(--text-2)}
+.sys-state.is-unknown .sys-dot{background:repeating-linear-gradient(135deg,var(--text-2) 0 1px,transparent 1px 3px)}
+.sys-dot[data-token=eq-heat1]{background:var(--eq-heat1)}.sys-dot[data-token=eq-heat2]{background:var(--eq-heat2)}
+.sys-dot[data-token=eq-fan1]{background:var(--eq-fan1)}.sys-dot[data-token=eq-fan2]{background:var(--eq-fan2)}
+.sys-dot[data-token=eq-vent]{background:var(--eq-vent)}.sys-dot[data-token=eq-fog]{background:var(--eq-fog)}
+.sys-dot[data-token=eq-water]{background:var(--eq-water)}.sys-dot[data-token=eq-fert]{background:var(--eq-fert)}
+.sys-dot[data-token=eq-master]{background:var(--eq-master)}.sys-dot[data-token=eq-mister]{background:var(--eq-mister)}
+.sys-dot[data-token=eq-light-main]{background:var(--eq-light-main)}.sys-dot[data-token=eq-light-grow]{background:var(--eq-light-grow)}
+.sys-state.is-neutral .sys-dot[data-token]{background:var(--text-2)}
+
+/* Flags. */
+.sys-flags{display:grid;gap:var(--space-2);margin:0;padding:0;list-style:none;grid-template-columns:minmax(0,1fr)}
+.sys-flag{display:flex;flex-wrap:wrap;justify-content:space-between;gap:var(--space-2);min-width:0}
+.sys-flag-name{font-weight:600}
+.sys-flag-state{color:var(--text-2)}
+.sys-flag.is-warn .sys-flag-state{color:var(--warn-text)}
+.sys-flag.is-critical .sys-flag-state,.sys-flag.is-fault .sys-flag-state{color:var(--critical-text)}
+
+/* Controller: verdict, budget tiles with meters, trends. */
+.sys-verdict-title{margin:0 0 var(--space-2)}
+.sys-verdict-text{margin:0;font-size:var(--fs-md)}
+.sys-tiles{display:grid;gap:var(--space-3);grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))}
+.sys-meter{display:block;margin-top:var(--space-2);overflow:visible}
+.sys-meter-track{fill:var(--surface-2)}
+.sys-meter-fill{fill:var(--text-2)}
+.sys-meter.is-warn .sys-meter-fill{fill:var(--warn)}
+.sys-meter.is-critical .sys-meter-fill{fill:var(--critical)}
+.sys-meter-warn{stroke:var(--warn);stroke-width:2}
+.sys-meter-critical{stroke:var(--critical);stroke-width:2}
+.sys-meter.is-stale .sys-meter-fill,.sys-meter.is-neutral .sys-meter-fill{fill:var(--text-3)}
+.sys-meter.is-neutral .sys-meter-warn,.sys-meter.is-neutral .sys-meter-critical{stroke:var(--text-3)}
+.sys-trends{display:grid;gap:var(--space-4);grid-template-columns:minmax(0,1fr)}
+.sys-trends>*{min-width:0}
+.sys-as-reported{margin-top:var(--space-3)}
+
+/* Restart: a disclosure inside a card; the list says what it interrupts. */
+.sys-restart-list{margin:var(--space-2) 0 var(--space-3);padding-left:var(--space-5)}
+
+/* Data: outcome bars, a plain list with one bar of each outcome's share. */
+.sys-bars{display:grid;gap:var(--space-2);margin:0 0 var(--space-4);padding:0;list-style:none}
+.sys-bar{display:grid;grid-template-columns:minmax(0,9rem) minmax(3rem,auto) minmax(0,1fr);align-items:center;gap:var(--space-2);min-width:0}
+.sys-bar-label{min-width:0;overflow-wrap:anywhere}
+.sys-bar-count{text-align:right;font-variant-numeric:tabular-nums}
+.sys-bar-track{display:block;height:.5rem;border-radius:var(--radius-pill);background:var(--surface-2);overflow:hidden}
+.sys-bar-fill{display:block;height:100%;width:var(--share,0%);background:var(--text-2)}
+.sys-bar[data-status=failed] .sys-bar-fill{background:var(--critical)}
+.sys-bar[data-status=pending] .sys-bar-fill,.sys-bar[data-status=sent] .sys-bar-fill{background:var(--warn)}
+.sys-bar[data-status=confirmed] .sys-bar-fill,.sys-bar[data-status=observed] .sys-bar-fill{background:var(--accent)}
+.sys-continuity-bars{margin-top:var(--space-2)}
+
+@media(min-width:861px){
+  .sys-pair{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sys-relays{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sys-flags{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sys-trends{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

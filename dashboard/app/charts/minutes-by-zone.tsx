@@ -213,7 +213,7 @@ export function minutesTooltip(zone: ZoneBars, plot: Pick<uPlot, "cursor">, name
   lines.push(formatValue(day.total, zone.unit));
   if (day.coverage === "partial") lines.push("partial");
   lines.push(...day.parts.map((part) => partWords(part, names)));
-  if (position === zone.today && zone.planned !== null) lines.push(`still planned today ${formatValue(zone.planned, "min")}`);
+  if (position === zone.today && zone.planned !== null) lines.push(`still scheduled today ${formatValue(zone.planned, "min")}`);
   if (zone.cap !== null) lines.push(`cap ${zone.cap} min`);
   return lines;
 }
@@ -328,7 +328,7 @@ export function minutesTables(model: MinutesModel, names?: Readonly<Record<strin
     rows: () => zone.days.map((day, position) => [
       <time key="day" dateTime={day.day}>{dayTitle(day.day, "short")}</time>,
       day.total === null ? "—" : formatValue(day.total, zone.unit),
-      [...day.parts.map((part) => partWords(part, names)), ...(position === zone.today && zone.planned !== null ? [`still planned today ${formatValue(zone.planned, "min")}`] : [])].join("; "),
+      [...day.parts.map((part) => partWords(part, names)), ...(position === zone.today && zone.planned !== null ? [`still scheduled today ${formatValue(zone.planned, "min")}`] : [])].join("; "),
       coverageWords(day.coverage),
     ]),
   }));
@@ -353,7 +353,7 @@ export function minutesKey(model: MinutesModel): KeyItem[] {
   if (model.days.some((day) => day.coverage === "no_data")) items.push({ key: "no-data", label: "no data", token: "--text-3", kind: "hatch" });
   if (model.days.some((day) => day.coverage === "partial")) items.push({ key: "partial", label: "partial day", token: "--text", kind: "dashed" });
   // The outline sits on today's bar, so a no-data today (hatched) draws none.
-  if (model.zones.some((zone) => zone.planned !== null && zone.today >= 0 && zone.days[zone.today].total !== null)) items.push({ key: "planned", label: "still planned today", token: "--text-3", kind: "dashed" });
+  if (model.zones.some((zone) => zone.planned !== null && zone.today >= 0 && zone.days[zone.today].total !== null)) items.push({ key: "planned", label: "still scheduled today", token: "--text-3", kind: "dashed" });
   if (model.zones.some((zone) => zone.cap !== null)) items.push({ key: "cap", label: "daily cap", token: "--text-3", kind: "dotted" });
   return items;
 }

@@ -478,7 +478,7 @@ export type AgendaRow = {
   readonly status: SpanStatus;
   /** "L01 Wall drip · 12 min". */
   readonly title: string;
-  /** "Wall MWF · ok", "Midday mist · Iris may adjust", "skipped · RH 92%". */
+  /** "Wall MWF · ok", "Midday mist", "skipped · RH 92%". */
   readonly detail: string;
   readonly next: boolean;
 };
@@ -509,9 +509,7 @@ export function agendaDays(entries: readonly Entry[], { first, days, last, today
       const kind = info.kindOf(occurrence.line_id);
       const status = spanStatus(occurrence, schedule);
       const note = entryNote(entry, now);
-      const iris = schedule && "manual" in schedule && schedule.manual === false ? "Iris may adjust" : null;
-      const ahead = status === "planned" || fallbackWindow(occurrence, schedule) === "ahead";
-      const detail = [schedule?.label || (schedule ? null : `slot ${occurrence.slot_id}`), note ?? (status === "planned" ? null : STATUS_WORDS[status]), ahead ? iris : null].filter(Boolean);
+      const detail = [schedule?.label || (schedule ? null : `slot ${occurrence.slot_id}`), note ?? (status === "planned" ? null : STATUS_WORDS[status])].filter(Boolean);
       return {
         key: occurrenceKey(occurrence), blockKey: occurrenceKey(occurrence), entry, lineId: occurrence.line_id, at: occurrence.planned_start, status,
         title: `${info.nameOf(occurrence.line_id)}${schedule ? ` · ${amountShort(schedule, kind)}` : ""}`, detail: [...new Set(detail)].join(" · "), next: entry === next,

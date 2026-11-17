@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
-// Needs someone (redesign §5.1, US-ACT-02) against #1122's fixture API in process: the top three unacknowledged alerts by
-// severity then age with the one count in the head (unless the answer counts them); Acknowledge sends one API-15 request
-// with one Idempotency-Key and the row then reads "Acknowledged by jason · 10:42"; a mister's latch with Clear fault, read
-// once; the settings not confirmed; a fence breach pointing to the quick action; the empty and degraded text, with what
-// was resolved in the last 24 h (linked only when there is some); viewers get no Acknowledge.
+// Needs you (dashboard v2 screens §1 block 3, US-ACT-02) against #1122's fixture API in process: a late or failed daily
+// review and a waiting proposal, each with Open into Review; the top three unacknowledged alerts by severity then age with
+// the one count in the head (unless the answer counts them); Acknowledge sends one API-15 request with one
+// Idempotency-Key; a mister's latch with Clear fault, read once; the settings not confirmed, into System → Data; a fence
+// breach pointing to Stop all water; "Nothing needs you." with what was resolved in the last 24 h (linked only when there
+// is some); viewers get no Acknowledge.
 import { cleanup, fireEvent, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { RECENT_ALERTS } from "../../lib/activity";
@@ -13,7 +14,7 @@ import { nowAnswer } from "../../lib/now-answer";
 import { panelRead, useApiRead, useNowRead } from "../../lib/queries";
 import { UUID, advance, renderWithApi, startFixtureApi, stopFixtureApi, writes } from "../../lib/test-fixture-api";
 import { text } from "../test-render";
-import { NeedsSomeone, RESOLVED_HREF, emptyLine, faultText, resolvedCount, topAlerts } from "./needs-someone";
+import { NOT_CONFIRMED_HREF, NeedsYou, RESOLVED_HREF, emptyLine, faultText, resolvedCount, reviewRow, topAlerts } from "./needs-someone";
 
 afterEach(() => { cleanup(); stopFixtureApi(); });
 
@@ -23,7 +24,7 @@ function Harness({ apiFailed = false }: { apiFailed?: boolean }) {
   const irrigation = panelRead(useApiRead("API-IRR-01", {}, { intervalMs: 15_000 }));
   const now = useNowRead();
   const answer = nowAnswer({ now: now.data ?? null, failed: apiFailed });
-  return <NeedsSomeone alerts={alerts} now={now.data ?? null} answer={answer} apiFailed={apiFailed} openCount={now.data?.alerts.open ?? null} irrigation={irrigation} />;
+  return <NeedsYou alerts={alerts} now={now.data ?? null} answer={answer} apiFailed={apiFailed} openCount={now.data?.alerts.open ?? null} irrigation={irrigation} />;
 }
 const panel = () => document.querySelector<HTMLElement>("section.panel")!;
 const rows = () => [...panel().querySelectorAll<HTMLElement>("li.alert-row")];
@@ -34,7 +35,7 @@ test("alerts-merged: the unacknowledged rows, warning before info, Details links
   renderWithApi(<Harness />);
   await advance(0);
   // The answer reads "2 things need someone", so the head does not count again (redesign §2.5).
-  expect(title()).toBe("Needs someone");
+  expect(title()).toBe("Needs you");
   expect(rows().map((row) => row.getAttribute("data-severity"))).toEqual(["warning", "info"]);
   expect(rows().map((row) => text(row.querySelector("h3")))).toEqual(["Relay stuck", "Soil probe offline"]);
   expect(text(rows()[0].querySelector(".alert-facts"))).toBe("Fan 2 · ×3 since 06:02 · last 06:40");
@@ -59,17 +60,17 @@ test("Acknowledge sends one API-15 request with one key, then the row disappears
   expect(within(rows()[0]).getByRole("button", { name: /^Acknowledge/ })).toBeTruthy();
   await advance(0);
   // One open now, and the answer still counts it ("1 thing needs someone").
-  expect(title()).toBe("Needs someone");
+  expect(title()).toBe("Needs you");
 });
 
 test("the head counts the open alerts when the answer says something else first: an out-of-band reading", async () => {
   startFixtureApi({ fixture: ["alerts-merged", "too-hot"] });
   renderWithApi(<Harness />);
   await advance(0);
-  expect(title()).toBe("Needs someone · 2");
+  expect(title()).toBe("Needs you · 2");
 });
 
-test("a latched mister reads once, on its alert's row with Clear fault; the settings not confirmed link to Settings, unless the stuck banner says so", async () => {
+test("a latched mister reads once, on its alert's row with Clear fault; the settings not confirmed link to System → Data, unless the stuck banner says so", async () => {
   const api = startFixtureApi({ fixture: ["mister-fault", "settings-unconfirmed"] });
   renderWithApi(<Harness />);
   await advance(0);
@@ -79,7 +80,7 @@ test("a latched mister reads once, on its alert's row with Clear fault; the sett
   await advance(0);
   expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-IRR-13", body: { line_id: "L04" } })]);
   const unconfirmed = within(panel()).getByRole("link", { name: /^2 settings not confirmed/ });
-  expect(unconfirmed.getAttribute("href")).toBe("/settings?filter=not_confirmed");
+  expect(unconfirmed.getAttribute("href")).toBe("/system/data");
   cleanup();
   stopFixtureApi();
   // With no alert naming it, a latch has its own row; while delivery is stuck the banner says so and the link does not repeat it.
@@ -96,20 +97,20 @@ test("a mister's fault in words: a back-off until its time, a latch until midnig
   expect(faultText({ ...line, fault: "brand_new" })).toBe("South mister: brand_new");
 });
 
-test("a fence breach in Needs someone points to Stop all water in the quick actions instead of repeating it", async () => {
+test("a fence breach in Needs you points to Stop all water under Water today instead of repeating it", async () => {
   startFixtureApi({ fixture: "fence-breach" });
   renderWithApi(<Harness />);
   await advance(0);
-  expect(text(panel())).toContain("Stop all water is in the quick actions above.");
+  expect(text(panel())).toContain("Stop all water is under Water today.");
   expect(within(panel()).queryByRole("button", { name: /Stop all water/ })).toBeNull();
-  // A viewer has no quick actions, so the row points at none.
+  // A viewer has no Stop all water, so the row points at none.
   cleanup();
   stopFixtureApi();
   startFixtureApi({ fixture: ["fence-breach", "viewer-session"] });
   renderWithApi(<Harness />, { role: "viewer", writesEnabled: true });
   await advance(0);
   expect(rows().length).toBeGreaterThan(0);
-  expect(text(panel())).not.toContain("quick actions");
+  expect(text(panel())).not.toContain("Stop all water is under");
 });
 
 test("an optional note goes with the acknowledgement, at most 500 characters", async () => {
@@ -142,8 +143,8 @@ test("Acknowledge is disabled while changes are switched off, and a viewer sees 
 });
 
 test.each([
-  ["in-band", "No open alerts · nothing resolved in 24 h", null],
-  ["alert-resolved", "No open alerts", "1 resolved in 24 h ›"],
+  ["in-band", "Nothing needs you. Nothing resolved in 24 h.", null],
+  ["alert-resolved", "Nothing needs you.", "1 resolved in 24 h ›"],
   ["ingestor-not-running", "In-app alerts may be missing: ingestor not running since 10:38", null],
   ["controller-not-reporting", "In-app alerts may be missing: no data since 10:36", null],
 ])("%s with nothing open reads \"%s\", linking %s", async (name, expected, link) => {
@@ -151,7 +152,7 @@ test.each([
   renderWithApi(<Harness />);
   await advance(0);
   expect(text(panel().querySelector(".panel-empty p"))).toBe(expected);
-  // Only an honest "No open alerts" offers the alerts resolved in the last 24 h, and only when there are some to open.
+  // Only an honest "Nothing needs you." offers the alerts resolved in the last 24 h, and only when there are some to open.
   const widen = panel().querySelector(".panel-empty a");
   expect(widen ? [text(widen), widen.getAttribute("href")] : null).toEqual(link ? [link, RESOLVED_HREF] : null);
   expect(RESOLVED_HREF).toBe("/activity?resolved=24h");
@@ -164,11 +165,11 @@ test("the resolved count: closed rows on a whole page, unknown on a cut one; the
   expect(resolvedCount({ ...page, next_cursor: "c2" })).toBeNull();
   expect(resolvedCount(null)).toBeNull();
   const words = (line: ReturnType<typeof emptyLine>) => [line.message, line.widen ? text(renderWithApi(<>{line.widen.label}</>).container) : null];
-  expect(words(emptyLine("No open alerts", 3))).toEqual(["No open alerts", "3 resolved in 24 h ›"]);
+  expect(words(emptyLine("No open alerts", 3))).toEqual(["Nothing needs you.", "3 resolved in 24 h ›"]);
   cleanup();
-  expect(words(emptyLine("No open alerts", null))).toEqual(["No open alerts", "Resolved in the last 24 h ›"]);
+  expect(words(emptyLine("No open alerts", null))).toEqual(["Nothing needs you.", "Resolved in the last 24 h ›"]);
   cleanup();
-  expect(emptyLine("No open alerts", 0)).toEqual({ message: "No open alerts · nothing resolved in 24 h" });
+  expect(emptyLine("No open alerts", 0)).toEqual({ message: "Nothing needs you. Nothing resolved in 24 h." });
   expect(emptyLine("In-app alerts may be missing: no data since 10:36", 3)).toEqual({ message: "In-app alerts may be missing: no data since 10:36" });
 });
 
@@ -185,7 +186,7 @@ test("while the ingestor is not running the rows show with a note that more may 
   await advance(0);
   expect(text(panel().querySelector(".panel-error"))).toBe("Alerts unavailableRetry");
   expect(within(panel()).getByRole("button", { name: "Retry" })).toBeTruthy();
-  expect(text(panel())).not.toContain("No open alerts");
+  expect(text(panel())).not.toContain("Nothing needs you");
 });
 
 test("with API-02 failing an empty list cannot vouch for itself", async () => {
@@ -215,4 +216,38 @@ test("the top three: critical, warning, info, each in API-14's order; acknowledg
   const resolved = [...items, alert(6, "critical", "2026-11-02T08:00:00Z", "resolved")];
   expect(topAlerts(resolved, new Map([[6, resolved[5]]])).map((item) => item.id)).toEqual([3, 2, 4]);
   expect(topAlerts(items.map((item) => (item.id === 5 ? { ...item, status: "resolved" } : item)), new Map([[5, items[4]]])).map((item) => item.id)).toEqual([3, 2, 4]);
+});
+
+test("a late daily review: one row with Open into Review, and its daily_review_missed alert is not listed again", async () => {
+  startFixtureApi({ fixture: "review-missed" });
+  renderWithApi(<Harness />);
+  await advance(0);
+  const row = panel().querySelector<HTMLElement>("[data-needs=review]")!;
+  expect(text(row.querySelector("h3"))).toMatch(/^Daily review late for /);
+  expect(within(row).getByRole("link", { name: /^Open/ }).getAttribute("href")).toBe("/review");
+  expect(rows().some((alert) => alert.getAttribute("data-type") === "daily_review_missed" || /review/i.test(text(alert.querySelector("h3"))))).toBe(false);
+});
+
+test("a failed review reads failed; a waiting proposal has its own row with Open into Review", async () => {
+  startFixtureApi({ fixture: "review-failed" });
+  renderWithApi(<Harness />);
+  await advance(0);
+  expect(text(panel().querySelector("[data-needs=review] h3"))).toMatch(/^Daily review failed for /);
+  cleanup();
+  stopFixtureApi();
+  startFixtureApi({ fixture: "review-proposal-waiting" });
+  renderWithApi(<Harness />);
+  await advance(0);
+  const proposal = panel().querySelector<HTMLElement>("[data-needs=proposal]")!;
+  expect(text(proposal.querySelector("h3"))).toBe("A band proposal is waiting for you");
+  expect(within(proposal).getByRole("link", { name: /^Open/ }).getAttribute("href")).toBe("/review");
+  expect(NOT_CONFIRMED_HREF).toBe("/system/data");
+});
+
+test("the review row: late or failed only", () => {
+  const review = { missed: false, proposal_waiting: false, review_date: "2026-11-02", status: "written", written_at: "2026-11-02T14:10:00Z" } as const;
+  expect(reviewRow(review)).toBeNull();
+  expect(reviewRow(null)).toBeNull();
+  expect(reviewRow({ ...review, missed: true, status: "due" })?.title).toBe("Daily review late for Nov 2");
+  expect(reviewRow({ ...review, status: "failed" })?.tone).toBe("fault");
 });

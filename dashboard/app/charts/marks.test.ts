@@ -4,7 +4,7 @@ import bandFixture from "./fixtures/band.json";
 import historyFixture from "./fixtures/setting-history.json";
 import { load } from "./fixtures/uplot-mock";
 import {
-  BAND_AHEAD, BAND_BEFORE, BAND_IN_FORCE, BAND_RETENTION_S, CROP_BAND, bandNotes, bandAt, bandKindFor, bandRuns, boundLabel, extentUnion, forecastAt, forecastExtent, forecastLines, forecastRuns, groupSteps, lastAtOrBefore,
+  BAND_AHEAD, BAND_BEFORE, BAND_IN_FORCE, BAND_RETENTION_S, STORED_BAND, bandNotes, bandAt, bandKindFor, bandRuns, boundLabel, extentUnion, forecastAt, forecastExtent, forecastLines, forecastRuns, groupSteps, lastAtOrBefore,
   marksExtent, paddedRange, requesterWords, settingBounds, settingSteps, stepsAt,
 } from "./marks";
 import type { BandTimeline, MetricDef, Series, SettingHistory } from "./types";
@@ -19,32 +19,34 @@ test("binary search finds the last value at or before x", () => {
   expect([0, 9, 10, 15, 30, 31].map((x) => lastAtOrBefore([10, 20, 30], x))).toEqual([-1, -1, 0, 0, 2, 2]);
 });
 
-test("the ribbon is the band in force up to now, the crop band after it, and a null in force stays a gap", () => {
+test("the ribbon is the band in force up to now, the stored band after it, and a null in force stays a gap", () => {
   const band = load<BandTimeline>(bandFixture);
   const runs = bandRuns(band, "temp", NOW);
   expect(runs.map((run) => [run.source, run.label, new Date(run.t[0] * 1000).toISOString(), new Date(run.t[run.t.length - 1] * 1000).toISOString()])).toEqual([
     ["band", BAND_IN_FORCE, "2026-11-01T06:00:00.000Z", "2026-11-01T07:45:00.000Z"],
-    // 08:00Z is null in force: the ribbon breaks there, not fills it from the crop band.
+    // 08:00Z is null in force: the ribbon breaks there, not fills it from the stored band.
     ["band", BAND_IN_FORCE, "2026-11-01T08:15:00.000Z", "2026-11-01T10:00:00.000Z"],
-    // After now: the crop band, starting a step back so the ribbon meets at the boundary.
-    ["crop", CROP_BAND, "2026-11-01T10:00:00.000Z", "2026-11-01T22:00:00.000Z"],
+    // After now: the stored band, starting a step back so the ribbon meets at the boundary.
+    ["crop", STORED_BAND, "2026-11-01T10:00:00.000Z", "2026-11-01T22:00:00.000Z"],
   ]);
-  expect(BAND_IN_FORCE).toBe("Band in force · DERIVED");
-  expect(CROP_BAND).toBe("Crop band reconstructed from today's anchors");
-  // Their provenance is said once in the notes, never painted on the band (#1354): in force to now, the crop band ahead.
+  // v2 words: no DERIVED badge and no crop band (words.md section 3).
+  expect(BAND_IN_FORCE).toBe("Band in force");
+  expect(STORED_BAND).toBe("Stored band");
+  expect([BAND_AHEAD, BAND_BEFORE]).toEqual(["Band ahead of now · the stored band", "Band before the 90 days kept · the stored band"]);
+  // Their provenance is said once in the notes, never painted on the band (#1354): in force to now, the stored band ahead.
   expect(bandNotes(runs, NOW)).toEqual([BAND_IN_FORCE, BAND_AHEAD]);
   expect(bandNotes(runs.slice(0, 1), NOW + 200 * 86_400)).toEqual([BAND_IN_FORCE]);
   expect(bandNotes([{ ...runs[2], t: [NOW - 100 * 86_400] }], NOW)).toEqual([BAND_BEFORE]);
   expect(bandAt(runs, epoch("2026-11-01T08:00:00Z"))).toBeNull();
   expect(bandAt(runs, epoch("2026-11-01T09:07:00Z"))).toEqual({ label: BAND_IN_FORCE, low: band.band.temp_low[12], high: band.band.temp_high[12] });
-  expect(bandAt(runs, epoch("2026-11-01T15:00:00Z"))!.label).toBe(CROP_BAND);
+  expect(bandAt(runs, epoch("2026-11-01T15:00:00Z"))!.label).toBe(STORED_BAND);
   expect(bandRuns(band, "vpd", NOW)[0].low[0]).toBe(band.band.vpd_low[0]);
   // RH has no ribbon: BandColumns holds temperature and VPD only.
   expect([bandKindFor("°F"), bandKindFor("kPa"), bandKindFor("%"), bandKindFor("gal/min")]).toEqual(["temp", "vpd", null, null]);
   expect(bandRuns(band, null, NOW)).toEqual([]);
 });
 
-test("spans older than the band's 90 days draw the crop band", () => {
+test("spans older than the band's 90 days draw the stored band", () => {
   const band = load<BandTimeline>(bandFixture);
   // Seen from 90 days and 3 hours later, 06:00Z-09:00Z are past retention; the in-force rows there read null.
   const later = epoch("2026-11-01T09:00:00Z") + BAND_RETENTION_S;
@@ -56,7 +58,7 @@ test("spans older than the band's 90 days draw the crop band", () => {
   expect(runs.map((run) => [run.source, iso(run.t[0]), iso(run.t[run.t.length - 1])])).toEqual([["crop", "06:00", "09:00"], ["band", "09:00", "10:00"]]);
 });
 
-test("steps: the device holds each readback, a request is dashed until confirmed or now, and the plan runs right of now", () => {
+test("steps: the device holds each readback, a request is dashed until confirmed or now, and API-12's plan draws nothing", () => {
   const history = load<SettingHistory>(historyFixture);
   const steps = settingSteps({ history }, "kPa", NOW, END);
   const view = steps.map((step) => [step.kind, new Date(step.start * 1000).toISOString().slice(11, 16), new Date(step.end * 1000).toISOString().slice(11, 16), step.label]);
@@ -65,21 +67,15 @@ test("steps: the device holds each readback, a request is dashed until confirmed
     ["device", "08:31", "10:00", kpa("1.50") + " device"],
     // Confirmed rows are the device line's; the requested one runs from its request to now.
     ["requested", "09:45", "10:00", kpa("1.55") + " REQUESTED"],
-    // The waypoint in force at now is superseded: muted from now, never the plan ahead.
-    ["superseded", "10:00", "13:00", kpa("1.60") + " SUPERSEDED"],
-    ["planned", "13:00", "15:00", kpa("1.70") + " PLANNED · AI"],
-    // A forecast rule is the system, never AI.
-    ["planned", "15:00", "18:00", kpa("1.65") + " Forecast rule · system"],
-    ["superseded", "18:00", "22:00", kpa("1.80") + " SUPERSEDED"],
   ]);
-  expect(steps.filter((step) => step.source === "preemptive").every((step) => !step.label.includes("AI") && !step.detail.includes("AI"))).toBe(true);
+  // The fixture's four waypoints are not drawn: the plan markers are retired (screens.md 7.1).
+  expect(load<SettingHistory>(historyFixture).plan).toHaveLength(4);
+  expect(steps.every((step) => step.kind === "device" || step.kind === "requested")).toBe(true);
   expect(steps.find((step) => step.kind === "requested")!.detail).toBe(`mister_engage_kpa REQUESTED ${kpa("1.55")} · jason`);
   const groups = groupSteps(steps);
-  expect(groups.map((group) => group.length)).toEqual([2, 1, 4]);
+  expect(groups.map((group) => group.length)).toEqual([2, 1]);
   expect(stepsAt(groups, epoch("2026-11-01T09:50:00Z")).map((step) => step.kind)).toEqual(["device", "requested"]);
-  expect(stepsAt(groups, epoch("2026-11-01T14:00:00Z")).map((step) => step.label)).toEqual([kpa("1.70") + " PLANNED · AI"]);
-  expect(stepsAt(groups, epoch("2026-11-01T18:00:00Z")).map((step) => step.kind)).toEqual(["superseded"]);
-  expect(stepsAt(groups, epoch("2026-11-01T22:00:00Z"))).toEqual([]);
+  expect(stepsAt(groups, epoch("2026-11-01T14:00:00Z"))).toEqual([]);
 });
 
 test("a request ends at its confirmation or the next request; not confirmed and held say so, with the reason", () => {
@@ -94,22 +90,6 @@ test("a request ends at its confirmation or the next request; not confirmed and 
   // Released rows (value null) and confirmed rows draw nothing.
   history.desired = [{ ...history.desired[0], value: null, state: "released" }];
   expect(settingSteps({ history }, "kPa", NOW, END).some((step) => step.kind === "requested")).toBe(false);
-});
-
-test("a superseded waypoint says what holds it off: a manual value until the setting is written again, else until a newer plan", () => {
-  const history = load<SettingHistory>(historyFixture);
-  const superseded = () => settingSteps({ history }, "kPa", NOW, END).filter((step) => step.kind === "superseded").map((step) => step.detail);
-  expect(superseded()).toEqual([
-    `mister_engage_kpa SUPERSEDED ${kpa("1.60")} · Iris plan · ${kpa("1.55")} (jason) holds until a newer plan`,
-    `mister_engage_kpa SUPERSEDED ${kpa("1.80")} · Iris plan · ${kpa("1.55")} (jason) holds until a newer plan`,
-  ]);
-  // A dashboard write is manual by default (R3): Iris's next plan does not end it.
-  history.desired[1].manual = true;
-  history.plan[3].source = "preemptive";
-  expect(superseded()[1]).toBe(`mister_engage_kpa SUPERSEDED ${kpa("1.80")} · Forecast rule · system · manual ${kpa("1.55")} (jason) holds until the setting is written again`);
-  // No desired row in force at now: the API's own words.
-  history.desired = [];
-  expect(superseded()[0]).toBe(`mister_engage_kpa SUPERSEDED ${kpa("1.60")} · Iris plan · a newer or manual value keeps it from applying`);
 });
 
 test("bounds label at the right edge, or as an edge arrow outside the y range; several settings name theirs", () => {
@@ -128,12 +108,13 @@ test("the y range is the union of traces, band and steps in view, padded 5%", ()
   const runs = bandRuns(band, "vpd", NOW);
   const steps = settingSteps({ history: load<SettingHistory>(historyFixture) }, "kPa", NOW, END);
   const extent = marksExtent(runs, steps, epoch("2026-11-01T06:00:00Z"), END)!;
-  expect(extent[1]).toBe(1.8);
+  const top = Math.max(1.6, ...runs.flatMap((run) => run.high));
+  expect(extent[1]).toBe(top);
   expect(extent[0]).toBe(Math.min(...runs.flatMap((run) => run.low)));
   const [low, high] = paddedRange([0.8, 1.04], extent);
-  expect(low).toBeCloseTo(extent[0] - (1.8 - extent[0]) * 0.05, 9);
-  expect(high).toBeCloseTo(1.8 + (1.8 - extent[0]) * 0.05, 9);
-  // Zoomed into the past hour, the plan ahead no longer stretches the range.
+  expect(low).toBeCloseTo(extent[0] - (top - extent[0]) * 0.05, 9);
+  expect(high).toBeCloseTo(top + (top - extent[0]) * 0.05, 9);
+  // Zoomed into the early morning, only the device step there stretches the range.
   expect(marksExtent([], steps, epoch("2026-11-01T06:00:00Z"), epoch("2026-11-01T08:00:00Z"))).toEqual([1.6, 1.6]);
   expect(paddedRange([null, null], null)).toEqual([0, 1]);
   expect(paddedRange([2, 2], null)).toEqual([1.9, 2.1]);

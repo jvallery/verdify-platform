@@ -2,12 +2,12 @@
 import type { BandExtent } from "../lib/band-range";
 import { formatValue, sinceClock } from "../lib/format";
 import { isAiSource } from "../lib/vocab";
-import type { Actor, BandTimeline, MetricDef, PlanWaypoint, ReadbackState, Series, SettingSteps } from "./types";
+import type { Actor, BandTimeline, MetricDef, ReadbackState, Series, SettingSteps } from "./types";
 import { epochOf } from "./time-axis";
 
 /**
- * The marks a TimeSeries draws in hooks from their own time arrays, never as series: the band ribbon, the device,
- * requested and planned setting steps, the bounds and the forecast (design system §5.1). Pure: the painter (draw.ts)
+ * The marks a TimeSeries draws in hooks from their own time arrays, never as series: the band ribbon, the device and
+ * requested setting steps, the bounds and the forecast (design system v2 §5). Pure: the painter (draw.ts)
  * and the tooltip read these, and the tests check them without a canvas.
  */
 
@@ -23,8 +23,10 @@ export function lastAtOrBefore(sorted: readonly number[], x: number): number {
 
 // ---------------------------------------------------------------- band ribbon
 
-export const BAND_IN_FORCE = "Band in force · DERIVED";
-export const CROP_BAND = "Crop band reconstructed from today's anchors";
+/** The band the controller used, from its band rows: words.md "Band in force". */
+export const BAND_IN_FORCE = "Band in force";
+/** The band the owner stored, drawn where no band rows are kept: ahead of now and before the 90 days kept. */
+export const STORED_BAND = "Stored band";
 /** The dispatcher's band rows (setpoint_snapshot) are kept 90 days (Round 2b D). */
 export const BAND_RETENTION_S = 90 * 86_400;
 
@@ -34,12 +36,15 @@ export function bandKindFor(unit: string): BandKind | null {
   return unit === "°F" ? "temp" : unit === "kPa" ? "vpd" : null;
 }
 
-/** A stretch of the ribbon with one source and its label; a null breaks the ribbon into runs. */
+/**
+ * A stretch of the ribbon with one source and its label; a null breaks the ribbon into runs. `source` names API-06's
+ * column: `band` the band in force, `crop` the stored band.
+ */
 export type BandRun = { source: "band" | "crop"; label: string; t: number[]; low: number[]; high: number[] };
 
 /**
- * The ribbon as runs. Within the band's 90-day retention and up to now it is the band in force (DERIVED), where a
- * null stays a gap; older spans and the span after now draw the crop band reconstructed from today's anchors.
+ * The ribbon as runs. Within the band's 90-day retention and up to now it is the band in force, where a null stays a
+ * gap; older spans and the span after now draw the stored band (API-06's `crop` column).
  * Where the source changes, the runs meet at a shared point so the ribbon does not read as a gap.
  */
 export function bandRuns(timeline: BandTimeline | null | undefined, kind: BandKind | null, now: number): BandRun[] {
@@ -62,7 +67,7 @@ export function bandRuns(timeline: BandTimeline | null | undefined, kind: BandKi
       return;
     }
     const previous: BandRun | null = current;
-    const run: BandRun = { source, label: source === "band" ? BAND_IN_FORCE : CROP_BAND, t: [], low: [], high: [] };
+    const run: BandRun = { source, label: source === "band" ? BAND_IN_FORCE : STORED_BAND, t: [], low: [], high: [] };
     if (previous) {
       // Contiguous change of source: carry the earlier run one point forward, else start this one a point back.
       const ahead = pair(previous.source, index), behind = pair(source, index - 1);
@@ -101,9 +106,9 @@ export function leavesBand(run: BandRun, edge: "low" | "high", index: number, ba
 }
 
 /** The band's provenance, said once in the notes above a chart (never painted on the band, #1354). */
-export const BAND_AHEAD = "Band ahead of now · reconstructed from today's crop anchors";
-export const BAND_BEFORE = "Band before the 90 days kept · reconstructed from today's crop anchors";
-/** The provenance of each kind of run drawn: the band in force, the crop band ahead of now, the crop band before retention. */
+export const BAND_AHEAD = "Band ahead of now · the stored band";
+export const BAND_BEFORE = "Band before the 90 days kept · the stored band";
+/** The provenance of each kind of run drawn: the band in force, the stored band ahead of now, the stored band before retention. */
 export function bandNotes(runs: readonly BandRun[], now: number): string[] {
   const notes = new Set<string>();
   for (const run of runs) {
@@ -125,7 +130,8 @@ export function bandAt(runs: readonly BandRun[], x: number): { label: string; lo
 
 // ---------------------------------------------------------------- setting steps and bounds
 
-export type StepKind = "device" | "requested" | "planned" | "superseded";
+/** A setting's steps: what the controller read back, and what was asked for and not yet confirmed. */
+export type StepKind = "device" | "requested";
 /** One horizontal step, held from `start` until `end` (epoch seconds). */
 export type StepSegment = {
   kind: StepKind;
@@ -142,15 +148,10 @@ export type StepSegment = {
   detail: string;
   /** A request's writer in words (`requesterWords`), when every desired row draws. */
   who?: string;
-  /** `iris`, or `preemptive` for the forecast rule; a newer source reads as a forecast rule, never AI. */
-  source?: PlanWaypoint["source"];
   state?: ReadbackState;
 };
 
 const REQUESTED_WORDS: Partial<Record<ReadbackState, string>> = { requested: "REQUESTED", not_confirmed: "NOT CONFIRMED", held: "HELD" };
-export const PLANNED_AI = "PLANNED · AI";
-export const FORECAST_RULE = "Forecast rule · system";
-export const SUPERSEDED = "SUPERSEDED";
 export const RELEASED = "Released";
 const STATE_WORDS: Partial<Record<ReadbackState, string>> = { ...REQUESTED_WORDS, confirmed: "CONFIRMED" };
 
@@ -175,11 +176,10 @@ const byTime = <T,>(items: readonly T[], at: (item: T) => string) => items
  * next desired row or now, whichever comes first; never drawn as the device line. With `allRequests` every desired row
  * draws until the next desired row or now, labelled with who asked, and a release ends the step before it with
  * "Released"; its device line is one step for readings that print alike (the ingestor's 0.83 and the snapshot's
- * 0.8299999833 alternate) and only its newest step is labelled, as a tuned setting changes dozens of times a day. Planned: Iris and forecast-rule waypoints right of now only, each until the next waypoint or the window's
- * end; a waypoint the API marks not effective is SUPERSEDED, never the plan ahead, and says which value holds it off; a
- * forecast rule never reads AI.
+ * 0.8299999833 alternate) and only its newest step is labelled, as a setting can change dozens of times a day. API-12's
+ * `plan` is not drawn: the plan markers are retired (screens.md 7.1), and `windowEnd` is kept for the callers.
  */
-export function settingSteps(input: SettingSteps, unit: string, now: number, windowEnd: number, prefix = false): StepSegment[] {
+export function settingSteps(input: SettingSteps, unit: string, now: number, _windowEnd: number, prefix = false): StepSegment[] {
   const { history } = input;
   const setting = input.label || history.param;
   const named = (text: string) => (prefix ? `${setting} ${text}` : text);
@@ -224,38 +224,16 @@ export function settingSteps(input: SettingSteps, unit: string, now: number, win
     steps.push({ kind: "requested", param: history.param, setting, start: at, end, value: item.value, state: item.state, label: named(`${value(item.value)} ${word}`), detail: `${setting} ${word} ${value(item.value)} · ${item.actor.name}${why ? ` · ${why}` : ""}` });
   });
 
-  // What holds a superseded waypoint off (architecture §5.2) is the desired row in force now: a manual one holds until
-  // the setting is written again, whatever plan comes; any other holds until a newer plan.
-  const holder = desired.filter(({ at }) => at <= now).pop()?.item;
-  const heldBy = !holder || holder.value === null
-    ? "a newer or manual value keeps it from applying"
-    : holder.manual
-      ? `manual ${value(holder.value)} (${holder.actor.name}) holds until the setting is written again`
-      : `${value(holder.value)} (${holder.actor.name}) holds until a newer plan`;
-  const plan = byTime(history.plan, (waypoint) => waypoint.at);
-  plan.forEach(({ item, at }, index) => {
-    const end = index + 1 < plan.length ? plan[index + 1].at : windowEnd;
-    const start = Math.max(at, now);
-    if (item.value === null || end <= start) return;
-    const ai = item.source === "iris";
-    const who = ai ? PLANNED_AI : FORECAST_RULE;
-    const words = item.effective ? who : SUPERSEDED;
-    const detail = item.effective
-      ? `${setting} ${who} ${value(item.value)}`
-      : `${setting} ${SUPERSEDED} ${value(item.value)} · ${ai ? "Iris plan" : FORECAST_RULE} · ${heldBy}`;
-    steps.push({ kind: item.effective ? "planned" : "superseded", param: history.param, setting, start, end, value: item.value, source: item.source, label: named(`${value(item.value)} ${words}`), detail });
-  });
   return steps;
 }
 
 /**
- * Steps in runs that never overlap, each ordered by start: per setting, the device line, the requests and the plan
- * (planned and superseded waypoints share one run).
+ * Steps in runs that never overlap, each ordered by start: per setting, the device line and the requests.
  */
 export function groupSteps(steps: readonly StepSegment[]): StepSegment[][] {
   const groups = new Map<string, StepSegment[]>();
   for (const step of steps) {
-    const key = `${step.param}:${step.kind === "superseded" ? "planned" : step.kind}`;
+    const key = `${step.param}:${step.kind}`;
     const group = groups.get(key);
     if (group) group.push(step); else groups.set(key, [step]);
   }

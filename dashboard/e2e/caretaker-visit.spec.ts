@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // J9, the caretaker's visit, at 360 × 740 against the fixture API (redesign §10.3, product §J9) on the five sections: an
-// operator starts Exchange air · 15 min from Now's quick actions, runs and stops the wall drip on Water, then acknowledges the flow
+// operator starts Run the fans (15 min) from Now's Run by hand, runs and stops the wall drip on Water, then acknowledges the flow
 // alert with a note on Activity; a viewer walks the same pages with no control and the spigot guidance. Every write is
 // counted in the browser with page.on('request'), across the fixture switch to flowing water, which clears the fixture
 // API's own log.
@@ -37,11 +37,11 @@ async function expectMorning(page: Page) {
   await expect(page.locator("#data")).toHaveText("Updated 20 s ago");
   await expect(page.locator("[data-water=wall] .now-water-last")).toHaveText("last 07:31, 12 min");
   await expect(page.locator("[data-water=center] .now-water-last")).toHaveText("misted 09:58 (VPD)");
-  await expect(page.locator("[data-chip=occupancy]")).toHaveText(OCCUPIED);
+  await expect(page.locator("[data-water=occupancy]")).toHaveText(OCCUPIED);
   await expectNoHorizontalScroll(page);
 }
 
-test("an operator's visit at 360 × 740: a burst from Now, a run and its stop on Water, then a note on the flow alert in Activity, each one request", WEBKIT, async ({ page, request }) => {
+test("an operator's visit at 360 × 740: a run by hand from Now, a run and its stop on Water, then a note on the flow alert in Activity, each one request", WEBKIT, async ({ page, request }) => {
   // The whole visit on the CI pod.
   test.slow();
   await page.setViewportSize(SMALL_PHONE);
@@ -50,14 +50,15 @@ test("an operator's visit at 360 × 740: a burst from Now, a run and its stop on
   await load(page, "/");
   await expectMorning(page);
 
-  // Now's quick actions hold the bursts (D-UX-05): no trip to Equipment.
-  await page.getByRole("button", { name: "Exchange air · 15 min" }).click();
+  // Now's Run by hand holds the runs (D-UX-05): no trip to Equipment.
+  const runs = page.locator("#run-by-hand");
+  await runs.getByRole("button", { name: "Run the fans, 15 min" }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]).toMatchObject({ method: "POST", path: "/api/v1/equipment/override", body: { kind: "fans", minutes: 15 } });
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   // A regex reads the no-break space before the unit as it is.
-  await untilPolled(page, () => expect(page.locator(".now-running [data-chip=burst]")).toHaveText(/^Fans, vent open · \d+\smin left$/, { timeout: 500 }));
-  await expect(page.getByRole("button", { name: "Stop manual runs" })).toBeVisible();
+  await untilPolled(page, () => expect(runs.locator("[data-run=fans] [data-run-left]")).toHaveText(/^Run the fans · \d+\smin left$/, { timeout: 500 }));
+  await expect(runs.getByRole("button", { name: "Stop: Run the fans" })).toBeVisible();
 
   await tab(page, /^Water/).click();
   const wall = lineRow(page, "L01");
@@ -107,7 +108,7 @@ test("a viewer's visit at 360 × 740: the same pages with no control, no write a
   await useScreensClock(page, request, [VISIT, "viewer-session"]);
   await load(page, "/");
   await expectMorning(page);
-  await expect(page.locator(".now-actions")).toHaveCount(0);
+  await expect(page.locator("#run-by-hand")).toHaveCount(0);
   await expectNoControl(page);
 
   await tab(page, /^Water/).click();

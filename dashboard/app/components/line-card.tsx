@@ -19,7 +19,7 @@ import { LineEnable } from "./line-enable";
 import { OptionsButton } from "./line-options";
 import { Menu } from "./menu";
 import { ResumeLine } from "./pause-lines";
-import { RUN_ARRIVES_TEXT, RunControl, runOffer } from "./run-dialog";
+import { RunControl, runOffer } from "./run-dialog";
 import { useFreshConfirmed } from "./schedule/rules-list";
 import { StopButton } from "./stop-button";
 
@@ -37,7 +37,7 @@ export function TimeLeft({ until }: { until: string }) {
   return <span className="time-left"><time dateTime={until} title={localTime(until)}>{timeLeftWords(Date.parse(until) - now)}</time> left</span>;
 }
 
-/** The relay as the API reports it before the engine: running is ON, unknown stays unknown, every other state OFF. */
+/** The relay as the API reports it with no engine: running is ON, unknown stays unknown, every other state OFF. */
 export const relayState = (code: string): "on" | "off" | "unknown" => (code === "running" ? "on" : code === "unknown" ? "unknown" : "off");
 
 /** The running dot in its cause's colour (redesign §4.4: a dot beside the word, no tint); neutral while the API is down. */
@@ -49,7 +49,7 @@ function RunningDot({ cause }: { cause: string | null | undefined }) {
  * A line's state in one sentence (`irr_state`, the API's call, redesign §5.2): "Running · VPD · since 06:58" or with the
  * time left; "Paused until Sat 09:00 · VPD misting continues"; "Faulted: no misting until midnight (watchdog)"; "Idle ·
  * last 07:31, 12 min · ok"; "Off · no check recorded"; "Reserved · disabled"; "Unknown · 3 min ago" only when the API
- * says unknown. Before the irrigation firmware, the relay ("Relay ON since 07:31").
+ * says unknown. With no irrigation engine reported, the relay alone ("Relay ON since 07:31").
  */
 export function LineStateText({ line, engine, today, scheduleLabels }: { line: IrrigationLine; engine: boolean; today: string; scheduleLabels?: ReadonlyMap<number, string> }) {
   const { state } = line;
@@ -127,7 +127,7 @@ export function LineCard({ line, master = null, engine, program, today, schedule
   const latched = engine && line.fault === "mister_fault";
   const paused = useClockValue((at) => pausedNow(line, at));
   const fresh = useFreshConfirmed(line.sync, null, now);
-  // Before the engine every line waits for the firmware: the status line says so once, not a pill on every row.
+  // With no engine reported the status line says so once, not a pill on every row.
   const pill = fog || !engine ? null : line.sync === "requested" || line.sync === "not_confirmed" ? <ReadbackBadge state={line.sync} /> : fresh ? <ReadbackBadge state="confirmed" /> : null;
   const syncWords = fog || !engine ? null : line.sync !== "confirmed" ? lineSyncWords(line.sync, { engine, program }) : null;
   const last = lastWaterParts(line, today);
@@ -149,8 +149,6 @@ export function LineCard({ line, master = null, engine, program, today, schedule
       <div className="wat-menu-switch" data-menu-keep=""><LineEnable line={line} /></div>
       <OptionsButton line={line} />
       <PauseThisLine line={line} />
-      {offer === "arrives" && <p className="state-note" data-arrives="run">{RUN_ARRIVES_TEXT}</p>}
-      {!engine && line.kind === "mister" && <ClearFaultButton line={line} engine={engine} />}
     </OperatorOnly>}
     {fog && engine && <OperatorOnly><div className="wat-menu-switch" data-menu-keep=""><LineEnable line={line} /></div></OperatorOnly>}
     <Link to={`/activity/log?target=${encodeURIComponent(id)}`}>Activity for {title}<span aria-hidden="true"> ›</span></Link>

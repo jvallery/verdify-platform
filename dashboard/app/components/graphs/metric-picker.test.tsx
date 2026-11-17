@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
-// "+ Metric" and "+ Setting" (#1130): the dialogs list only what Graphs can draw (the daily keys too, last, D-UX-04),
-// every choice is a link that changes the URL, the picker stops at 8 metrics per window, and nothing is hard-coded: the
-// keys are API-03's.
+// "+ Metric" and "+ Setting" (screens.md section 7.1): the dialogs list only what Graphs can draw (the daily keys too,
+// last, D-UX-04), never a key or setting the law retired, every choice is a link that changes the URL, the picker stops
+// at 8 metrics per window, a metric's registry note shows where it is offered, and the keys are API-03's.
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { fixture } from "../../../e2e/fixtures/index.mjs";
@@ -20,17 +20,19 @@ afterEach(cleanup);
 
 function picker(search = "") {
   const resolved = resolveView(parseGraphUrl(search).view, METRICS, SETTINGS);
-  renderUi(<MetricPicker view={resolved.view} metrics={METRICS} picked={resolved.picked} />);
+  renderUi(<MetricPicker view={resolved.view} metrics={METRICS} drawn={[...resolved.climate, ...resolved.picked]} />);
   fireEvent.click(screen.getByRole("button", { name: "+ Metric" }));
 }
 
-test("groups every metric but the forecast keys in the picker's order, the daily keys last, and the filter matches label, key, unit and note", () => {
+test("groups every metric but the forecast and retired keys in the picker's order, the daily keys last, and the filter matches label, key, unit and note", () => {
   const groups = pickerGroups(METRICS);
-  expect(groups.map((group) => group.group)).toEqual(["house climate", "zones", "water and soil", "light", "outdoor", "targets", "controller", "daily"]);
-  expect(groups.at(-1)!.items.map((metric) => metric.key)).toEqual(METRICS.filter((metric) => metric.group === "daily").map((metric) => metric.key));
-  expect(groups.flatMap((group) => group.items).some((metric) => metric.key.startsWith("forecast."))).toBe(false);
+  expect(groups.map((group) => group.group)).toEqual(["house climate", "zones", "water and soil", "light", "outdoor", "controller", "power", "daily"]);
+  expect(groups.at(-1)!.items.map((metric) => metric.key)).toEqual(METRICS.filter((metric) => metric.group === "daily" && !metric.key.startsWith("daily.iris_")).map((metric) => metric.key));
+  const listed = groups.flatMap((group) => group.items);
+  expect(listed.some((metric) => metric.key.startsWith("forecast."))).toBe(false);
+  expect(listed.some((metric) => metric.group === "targets" || metric.key.startsWith("daily.iris_"))).toBe(false);
   expect(pickerGroups(METRICS, "gal/min").flatMap((group) => group.items.map((metric) => metric.key))).toEqual(["climate.flow_gpm"]);
-  expect(pickerGroups(METRICS, "SOUTH").flatMap((group) => group.items.map((metric) => metric.key))).toEqual(["climate.temp_south", "climate.rh_south", "climate.vpd_south", "climate.soil_moisture_south_1", "climate.vpd_target_south"]);
+  expect(pickerGroups(METRICS, "SOUTH").flatMap((group) => group.items.map((metric) => metric.key))).toEqual(["climate.temp_south", "climate.rh_south", "climate.vpd_south", "climate.soil_moisture_south_1"]);
   // A group the picker does not name follows the named ones, before the daily keys.
   const extra = { ...METRICS[0], key: "climate.hydro_ph", label: "Hydro pH", group: "hydro", unit: "pH" };
   expect(pickerGroups([...METRICS, extra]).map((group) => group.group).slice(-2)).toEqual(["hydro", "daily"]);
@@ -48,13 +50,20 @@ test("a choice links to the view plus m=<key>; the climate traces and picked met
   expect(text(dialog())).toContain("Indoor temperatureclimate.temp_avg · °F · every 60 s · MEASUREDOn the charts");
   // A daily key is a choice like any other: one point per day, in a panel of its own.
   expect(list.getByRole("link", { name: /Water used/ }).getAttribute("href")).toBe("/graphs?range=7d&set=mister_hysteresis_kpa&m=climate.flow_gpm&m=daily.water_gal");
-  fireEvent.change(list.getByLabelText("Filter metrics"), { target: { value: "heap" } });
+  fireEvent.change(list.getByLabelText("Filter metrics"), { target: { value: "controller free heap" } });
   expect(list.getAllByRole("link").map((link) => link.textContent)).toEqual(["Controller free heapdiagnostics.heap_free_kb · kB · every 60 s · MEASURED"]);
   fireEvent.change(list.getByLabelText("Filter metrics"), { target: { value: "ppfd" } });
   expect(text(dialog())).toContain("Nothing matches “ppfd”.");
 });
 
-test("at 8 metrics per window the picker says so and offers no more", () => {
+test("a metric's registry note shows where it is offered", () => {
+  const noted = METRICS.find((metric) => metric.note);
+  if (!noted) return;
+  picker();
+  expect(text(dialog())).toContain(noted.note!);
+});
+
+test("at 8 metrics per window, the preset's climate traces included, the picker says so and offers no more", () => {
   picker(["climate.temp_south", "climate.soil_moisture_south_1", "climate.flow_gpm", "climate.outdoor_temp_f", "climate.outdoor_rh_pct"].map((key) => `m=${key}`).join("&"));
   expect(within(dialog()).getByRole("status").textContent).toBe(CAP_TEXT);
   expect(within(dialog()).queryAllByRole("link")).toHaveLength(0);

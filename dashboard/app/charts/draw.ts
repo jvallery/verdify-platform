@@ -351,14 +351,9 @@ export function paintAchievableEdges(plot: PaintTarget, runs: readonly BandRun[]
   });
 }
 
-/** Stroke, width and dash of each step kind (design system §5.1). */
-export function stepStyle(kind: StepSegment["kind"], colors: ChartColors, seriesColor: string, px: number): { stroke: string; width: number; dash: number[] } {
-  switch (kind) {
-    case "device": return { stroke: colors["--accent"], width: 2 * px, dash: [] };
-    case "requested": return { stroke: colors["--c-requested"], width: 2 * px, dash: [6 * px, 4 * px] };
-    case "planned": return { stroke: seriesColor, width: 2 * px, dash: [8 * px, 4 * px] };
-    case "superseded": return { stroke: colors["--text-3"], width: 2 * px, dash: [8 * px, 4 * px] };
-  }
+/** Stroke, width and dash of each step kind (design system v2 §2.3): the readback in `--accent`, a request dashed in `--c-requested`. */
+export function stepStyle(kind: StepSegment["kind"], colors: ChartColors, _seriesColor: string, px: number): { stroke: string; width: number; dash: number[] } {
+  return kind === "device" ? { stroke: colors["--accent"], width: 2 * px, dash: [] } : { stroke: colors["--c-requested"], width: 2 * px, dash: [6 * px, 4 * px] };
 }
 
 /** draw: each step held from its start to its end; device steps join with risers where one follows the next. */
@@ -384,14 +379,22 @@ export function paintSteps(plot: PaintTarget, steps: readonly StepSegment[], col
   });
 }
 
-/** draw: the forecast in `--c-outdoor`, 2px dashed [8,4], joined hour to hour; a lone hour is a dot. */
+/**
+ * The outdoor line (design system v2 §2.3, §5): `--c-outdoor`, 1.5 px, dashed; the forecast is the same colour, dotted.
+ * Lengths are CSS px, scaled by the device pixel ratio where they are drawn.
+ */
+export const OUTDOOR_WIDTH = 1.5;
+export const OUTDOOR_DASH: readonly number[] = [6, 4];
+export const FORECAST_DASH: readonly number[] = [2, 3];
+
+/** draw: the forecast in `--c-outdoor`, 1.5 px dotted, joined hour to hour; a lone hour is a dot. */
 export function paintForecast(plot: PaintTarget, lines: readonly ForecastLine[], colors: ChartColors, px: number) {
   clipToPlot(plot, () => {
     const { ctx } = plot;
     ctx.strokeStyle = colors["--c-outdoor"];
     ctx.fillStyle = colors["--c-outdoor"];
-    ctx.lineWidth = 2 * px;
-    ctx.setLineDash([8 * px, 4 * px]);
+    ctx.lineWidth = OUTDOOR_WIDTH * px;
+    ctx.setLineDash(FORECAST_DASH.map((length) => length * px));
     for (const line of lines) {
       for (const [first, last] of forecastRuns(line)) {
         if (first === last) {
@@ -483,8 +486,8 @@ export type LabelInput = {
  * retention, the retention note at the shaded span (decisions 2026-11-05, #1354): its lines, the band's and the
  * forecast's provenance and any setting steps are named in the legend or key, the tooltip or header readout, and the
  * notes above it, so no word sits on the band edge or a trace. A setting's own history (`labelSteps`) also labels its steps
- * and bounds, most important first (bounds, the plan ahead from the soonest step, the request and the device from the
- * newest). A step's label sits at its start, else ends at its end.
+ * and bounds, most important first (bounds, then the request and the device from the newest). A step's label sits at its
+ * start, else ends at its end.
  */
 export function paintLabels(plot: PaintTarget, input: LabelInput, colors: ChartColors, seriesColor: string, px: number) {
   // uPlot caches the context's font and colours between draws: every change here is undone on the way out.
@@ -510,9 +513,8 @@ function placeLabels(plot: PaintTarget, input: LabelInput, colors: ChartColors, 
     const line = label.edge === "top" ? top : label.edge === "bottom" ? bottom : y(plot, bound.value);
     labels.place(label.text, [{ at: right, line, align: "right" }], colors["--text-3"]);
   }
-  const ahead = input.steps.filter((step) => step.kind === "planned" || step.kind === "superseded");
   const behind = input.steps.filter((step) => step.kind === "requested").reverse().concat(input.steps.filter((step) => step.kind === "device").reverse());
-  for (const step of [...ahead, ...behind]) {
+  for (const step of behind) {
     const color = labelColor(stepStyle(step.kind, colors, seriesColor, px).stroke, colors[step.kind === "requested" ? "--warn-text" : "--text"]);
     const line = y(plot, step.value);
     const ends = x(plot, step.end);

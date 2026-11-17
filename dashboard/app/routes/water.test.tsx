@@ -118,14 +118,15 @@ test("Today: zone cards in their fixed order, each line a row in its zone (L01�
   expect(text(zone("center_mister").querySelector(".mister-source"))).toBe("VPD from the house average");
   expect(text(zone("fog").querySelector(".wat-zone-today"))).toMatch(/^6 min today/);
   // Site today, in words with its hooks.
-  expect([...document.querySelectorAll(".wat-site [data-limit]")].map((node) => [node.getAttribute("data-limit"), text(node)])).toEqual([
-    ["saf4", "Daily mist & fog limit, in Settingsprimary daily limit21 / 360 gal"], ["budget", "Daily mist target (soft)21 / 300 gal"], ["flow", "Water with no Verdify valve open: none"],
+  expect([...document.querySelectorAll(".wat-site-list [data-limit]")].map((node) => [node.getAttribute("data-limit"), text(node)])).toEqual([
+    ["saf4", "Daily mist and fog limithard daily limitChange the daily mist and fog limit in Settings21 / 360 galNothing is exempt from this limit."],
+    ["budget", "Soft daily budget for mist and fogChange the soft daily budget for mist and fog in Settings21 / 300 galThe owner sets this budget."], ["flow", "Water with no Verdify valve open: none"],
     ["occupancy", "Occupancy: nobody detected, misting allowed (last person 05:10)"], ["fallback", "Backup misting (sensor fault): off"],
   ]);
   expect(program()).toBe("Program rev 42 on controller · confirmed 2 min ago");
   expect(status()).toBe("Program rev 42 on controller · confirmed 2 min ago · nothing running");
   // SAF-4 caps gallons, so both meters fill --eq-water, as Now's SAF-4 meter does (#1308 visual QA 25).
-  expect([...document.querySelectorAll(".wat-site .meter")].map((meter) => meter.className.split(" ")[1])).toEqual(["meter-water", "meter-water"]);
+  expect([...document.querySelectorAll(".wat-site-list .meter")].map((meter) => meter.className.split(" ")[1])).toEqual(["meter-water", "meter-water"]);
   // Each zone head: the meter or the minutes first, and the same second line last (#1308 visual QA 27); the stylesheet
   // gives the meter 12rem and its minutes 7rem on every zone, so the meters stacked down the page line up.
   for (const node of document.querySelectorAll(".wat-zone-today")) {
@@ -190,7 +191,7 @@ test("a phone's status line names a running line too, linked to its row; the zon
 });
 
 test("on a phone Site today holds SAF-4, the flow and occupancy: the soft budget and fallback misting only once they are the news", async () => {
-  const quiet = () => [...document.querySelectorAll(".wat-site [data-limit]")].filter((node) => node.classList.contains("wat-site-quiet")).map((node) => node.getAttribute("data-limit"));
+  const quiet = () => [...document.querySelectorAll(".wat-site-list [data-limit]")].filter((node) => node.classList.contains("wat-site-quiet")).map((node) => node.getAttribute("data-limit"));
   open("/water", { fixture: "in-band" });
   await load();
   expect(quiet()).toEqual(["budget", "fallback"]);
@@ -205,7 +206,7 @@ test("on a phone Site today holds SAF-4, the flow and occupancy: the soft budget
   });
   await load();
   expect(quiet()).toEqual([]);
-  expect(text(document.querySelector('.wat-site [data-limit="budget"]'))).toContain("cap reached");
+  expect(text(document.querySelector('.wat-site-list [data-limit="budget"]'))).toContain("cap reached");
   // The stylesheet hides the quiet rows at 860 px and below only.
   const css = readFileSync(join(process.cwd(), "app/styles/water.css"), "utf8");
   const phone = css.slice(css.indexOf("@media(max-width:860px){"));
@@ -213,14 +214,14 @@ test("on a phone Site today holds SAF-4, the flow and occupancy: the soft budget
   expect(css.slice(0, css.indexOf("@media(max-width:860px){"))).not.toContain(".wat-site-quiet");
 });
 
-test("before the engine: relay states, the bridge in the status line once, and no per-line REQUESTED pill", async () => {
+test("with no engine reported: relay states, the status line says it once, and no per-line REQUESTED pill", async () => {
   open("/water", { fixture: "before-engine" });
   await load();
   expect(program()).toBe(NO_ENGINE_TEXT);
-  expect(NO_ENGINE_TEXT).toBe("No irrigation engine on the controller yet: relay states only; the wall drip runs, and every line stops, through the bridge");
+  expect(NO_ENGINE_TEXT).toBe("The controller reports no irrigation engine: relay states only, and no line runs from here until it does");
   for (const node of document.querySelectorAll("article[data-line]")) expect(text(node.querySelector(".line-state")), node.getAttribute("data-line") ?? "").toMatch(/^Relay (On|Off) since /);
   expect(document.querySelectorAll("article[data-line] .object-row-pill")).toHaveLength(0);
-  expect(text(document.querySelector("main"))).not.toContain("Applies with the irrigation firmware");
+  expect(text(document.querySelector("main"))).not.toMatch(/irrigation firmware|bridge|arrives/);
   cleanup(); stopFixtureApi();
   open("/water", { fixture: ["before-engine", "program-rev-42"] });
   await load();
@@ -242,7 +243,7 @@ test("with API-IRR-01 failing the page says \"Water status unavailable\", never 
 test("not reporting: the status line names what the controller keeps running; with the ingestor down the shell's banner says so instead", async () => {
   open("/water", { fixture: "controller-not-reporting" });
   await load();
-  expect(program()).toBe("Controller not reporting since 10:36. If it has power, it keeps running rev 42, VPD misting and caps");
+  expect(program()).toBe("Controller not reporting since 10:36. If it has power, it keeps running rev 42, misting and the daily limits on its own");
   expect(text(row("L01").querySelector(".line-state"))).toBe("No current valve report · 3 days ago");
   cleanup(); stopFixtureApi();
   open("/water", { fixture: "ingestor-not-running" });
@@ -255,7 +256,7 @@ test("flow, a latched mister and a zone on its peers read as Today says", async 
   const flow = async (names: string) => {
     open("/water", { fixture: names });
     await load();
-    const item = document.querySelector('.wat-site [data-limit="flow"]')!;
+    const item = document.querySelector('.wat-site-list [data-limit="flow"]')!;
     return [text(item), item.className];
   };
   expect(await flow("flow-valves-closed")).toEqual(["Water flowing with every Verdify valve closed since 10:38 · 3 gal in 10 min", "limit-fault"]);
@@ -396,7 +397,7 @@ test("a block opens its popover in the URL: the run, its rule, its next starts, 
   const pop = within(document.querySelector<HTMLElement>("dialog.popover")!);
   expect(text(document.querySelector("dialog.popover h2"))).toBe("Wall drip · Wall MWF");
   expect([...document.querySelectorAll("dialog.popover dd")].map((node) => text(node))).toEqual([
-    "Wed 4 Nov · 07:35 (sunrise + 1 h) · 12 min", "Planned", "Mon Wed Fri · sunrise + 1 h · Manual", "Wed 07:35 · Fri 07:35",
+    "Wed 4 Nov · 07:35 (sunrise + 1 h) · 12 min", "Planned", "Mon Wed Fri · sunrise + 1 h", "Wed 07:35 · Fri 07:35",
   ]);
   // Edit opens the editor over the popover, so closing it comes back here.
   expect(pop.getByRole("link", { name: "Edit schedule" }).getAttribute("href")).toBe("/water/schedules?day=2026-11-04&block=11-1793802900&schedule=11");
@@ -438,9 +439,10 @@ test("the rules list: every schedule under its line with its words, who changed 
   expect([...rules.querySelectorAll(".sch-rule-group")].map((group) => group.getAttribute("data-line"))).toEqual(["L01", "L02", "L04"]);
   const rule = (slot: number) => rules.querySelector<HTMLElement>(`[data-slot="${slot}"]`)!;
   expect([...rule(11).querySelectorAll(".schedule-rule-facts dd")].map(text)).toEqual(["Mon Wed Fri", "sunrise + 1 h (07:35 today)", "12 min", "Routine watering"]);
-  expect(text(rule(11).querySelector(".object-row-pill"))).toBe("Manual");
+  // No pill while the program is confirmed and not news: a schedule is never marked as locked against anyone.
+  expect(text(rule(11).querySelector(".object-row-pill"))).toBe("");
   expect(text(rule(11).querySelector(".object-row-meta"))).toBe("changed by jason 2 days ago");
-  expect(text(rule(13).querySelector(".object-row-meta"))).toBe("Iris may adjust · changed by steward (AI) 2 days ago");
+  expect(text(rule(13).querySelector(".object-row-meta"))).toBe("changed by steward (AI) 2 days ago");
   expect([...rule(12).querySelectorAll(".schedule-rule-facts dd")].map(text)).toEqual(["Sun", "sunrise + 1 h (07:35 today)", "feed 5 min · prewet 2 min · flush 4 min on Wall drip", "Routine watering"]);
   fireEvent.click(within(rule(11)).getByRole("switch"));
   await advance(0);
@@ -461,7 +463,7 @@ test("a line's fallback schedules are one row, Backup misting when sensors fail 
   // #1344: plain words, its state first.
   expect(text(fallback.querySelector(".object-row-title"))).toBe("Backup misting when sensors fail (3 times a day)");
   expect(text(fallback.querySelector(".object-row-state"))).toBe("On · Daily · solar noon −2 h, 0, +2 h (09:47, 11:47, 13:47 today) · 4 × 45 s, 60 s gap");
-  expect(text(fallback.querySelector(".object-row-meta"))).toBe("Runs only while the VPD sensors are faulty; otherwise each window passes as not needed · Iris may adjust · changed by seed 12 days ago");
+  expect(text(fallback.querySelector(".object-row-meta"))).toBe("Runs only while the VPD sensors are faulty; otherwise each window passes as not needed · changed by seed 12 days ago");
   // One row at the line's level; each schedule's own row, with its switch, Edit and ⋯, inside its disclosure.
   expect([...group.querySelectorAll(":scope > .sch-rule-rows > li")]).toEqual([fallback]);
   const each = fallback.querySelector<HTMLDetailsElement>("details.sch-fallback-each")!;
@@ -649,19 +651,13 @@ test("each row's actions with the irrigation firmware (#1343): Run… or Mist no
   expect(screen.getByRole("button", { name: "Run… Wall drip" }).className).toContain("btn-wide");
 });
 
-test("before the irrigation firmware no idle row has Stop, only L01 has Run…, and ⋯ says when the rest arrive", async () => {
+test("with no engine reported no row offers Run…, Stop or Clear fault, and nothing says when they arrive", async () => {
   open("/water", { fixture: "before-engine" });
   await load();
   expect(everyRow()).toEqual({
-    L01: ["Run… Wall drip"], L02: [], L04: [], L05: [], L06: [], L07: [], L08: [], L09: [], L10: [], L11: [],
+    L01: [], L02: [], L04: [], L05: [], L06: [], L07: [], L08: [], L09: [], L10: [], L11: [],
   });
-  for (const id of ["L02", "L05", "L06", "L08", "L10"]) expect(text(row(id).querySelector(".menu [data-arrives=run]")), id).toBe("Run arrives with the irrigation firmware");
-  for (const id of ["L04", "L07", "L09"]) expect(text(row(id).querySelector(".menu [data-arrives=clear-fault]")), id).toBe("Clear fault arrives with the irrigation firmware");
-  // L01's dialog names its setting (API-09 has no row for it since the bridge's rows retired, #1165).
-  fireEvent.click(screen.getByRole("button", { name: "Run… Wall drip" }));
-  await advance(1);
-  expect(text(document.querySelector("dialog .dialog-note"))).toBe("Runs for the Wall drip duration (irrig_wall_duration_min)");
-  fireEvent.click(within(document.querySelector("dialog")!).getByRole("button", { name: "Cancel" }));
+  expect(document.querySelectorAll("[data-arrives]")).toHaveLength(0);
 });
 
 test("Stop on a running row is filled and is its primary: one API-IRR-07 {line_id: L01} with no dialog, the relay edge turns the row off, and the toast offers Disable", async () => {

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
-// Graphs' controls (redesign §5.5): the custom range writes local days to the URL and refuses more than 400 days; the
-// chips of what the charts draw take one off with ×, a setting's chip opens its drawer on Settings; Preset sets a
-// group's metrics; Layers toggles the overlay, the envelope, each event source and the comparison, all in the URL.
+// Graphs' controls (screens.md section 7.1): the custom range writes local days to the URL and refuses more than 400
+// days; the chips of what the charts draw take one off with ×, a setting's chip opens its drawer on Settings; Preset is
+// one of the eight fixed lists of panels; Layers toggles the overlay, the envelope, each event source (named as words.md
+// names who decided) and the comparison, all in the URL.
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createRoutesStub, useLocation } from "react-router";
 import { afterEach, expect, test } from "vitest";
@@ -69,11 +70,11 @@ test("more than 400 days is refused beside the fields: Up to 400 days", () => {
 });
 
 test("without script the form submits the same query: from, to and every other part of the view as hidden fields", () => {
-  mount("/graphs?range=24h&preset=water-soil&set=&m=climate.temp_south&outdoor=0&events=alerts&env=0&cmp=week");
+  mount("/graphs?range=24h&preset=water&set=&m=climate.temp_south&outdoor=0&events=alerts&env=0&cmp=week");
   const form = screen.getByRole("form", { name: "Custom range" }) as HTMLFormElement;
   expect([form.method, new URL(form.action).pathname]).toEqual(["get", "/graphs"]);
   expect([...new FormData(form).entries()]).toEqual([
-    ["from", "2026-11-01"], ["to", "2026-11-02"], ["preset", "water-soil"], ["set", ""], ["m", "climate.temp_south"], ["outdoor", "0"], ["events", "alerts"], ["env", "0"], ["cmp", "week"],
+    ["from", "2026-11-01"], ["to", "2026-11-02"], ["preset", "water"], ["set", ""], ["m", "climate.temp_south"], ["outdoor", "0"], ["events", "alerts"], ["env", "0"], ["cmp", "week"],
   ]);
   expect(rangeDays({ kind: "exact", from: "a", to: "b", start: NOW - 7200, end: NOW }, graphWindow({ kind: "exact", from: "a", to: "b", start: NOW - 7200, end: NOW }, NOW))).toEqual({ from: "2026-11-02", to: "2026-11-02" });
 });
@@ -99,15 +100,16 @@ test("the chips: a setting chip opens its drawer on Settings and × takes it off
   expect(screen.queryByRole("list", { name: "Settings drawn as steps" })).toBeNull();
 });
 
-test("Preset: each a link that sets the preset and takes the picked metrics off", () => {
+test("Preset: the eight presets, each a link that sets the preset and takes the added metrics off", () => {
   mount("/graphs?range=7d&m=climate.flow_gpm");
   expect(text(document.querySelector(".gr-menu > summary"))).toBe("Preset Climate");
   expect(chips("Presets").map((link) => [text(link), link.getAttribute("href"), link.getAttribute("aria-current")])).toEqual([
-    ["Climate", "/graphs?range=7d", "true"], ["Water and soil", "/graphs?range=7d&preset=water-soil", null],
-    ["Light", "/graphs?range=7d&preset=light", null], ["Controller", "/graphs?range=7d&preset=controller", null],
+    ["Climate", "/graphs?range=7d", "true"], ["Law and equipment", "/graphs?range=7d&preset=law", null], ["Drying", "/graphs?range=7d&preset=drying", null],
+    ["Outdoor", "/graphs?range=7d&preset=outdoor", null], ["Water and soil", "/graphs?range=7d&preset=water", null], ["Light", "/graphs?range=7d&preset=light", null],
+    ["Controller", "/graphs?range=7d&preset=controller", null], ["Hydroponics · none yet", "/graphs?range=7d&preset=hydroponics", null],
   ]);
   fireEvent.click(screen.getByRole("link", { name: "Water and soil" }));
-  expect(where()).toBe("/graphs?range=7d&preset=water-soil");
+  expect(where()).toBe("/graphs?range=7d&preset=water");
   // A preset's metric chip turns the preset into the metrics left.
   expect(within(screen.getByRole("list", { name: "Metrics on the charts" })).getByRole("link", { name: "Take South soil moisture 1 off the charts" }).getAttribute("href")).toBe("/graphs?range=7d&m=climate.flow_gpm");
 });
@@ -122,13 +124,14 @@ test("Layers: the overlay and the envelope, each event source and the comparison
     ["None", "true", "/graphs?range=24h"], ["Yesterday", null, "/graphs?range=24h&cmp=day"], ["Last week", null, "/graphs?range=24h&cmp=week"],
   ]);
   expect(screen.getByRole("list", { name: "Event sources" }).closest("[data-menu-keep]")).not.toBeNull();
+  expect(chips("Event sources").map((link) => link.textContent)).toEqual(["People", "Reviewer", "Agents", "Host", "Alerts", "Water runs"]);
   fireEvent.click(screen.getByRole("link", { name: "Yesterday" }));
   expect(where()).toBe("/graphs?range=24h&cmp=day");
-  fireEvent.click(screen.getByRole("link", { name: "Runs" }));
+  fireEvent.click(screen.getByRole("link", { name: "Water runs" }));
   expect(where()).toBe("/graphs?range=24h&events=people,iris,agents,system,alerts&cmp=day");
   expect(text(document.querySelector(".gr-layers .gr-menu-value"))).toBe(" · 2 changed");
   // Turning the last one back on is every source again: no parameter.
-  fireEvent.click(screen.getByRole("link", { name: "Runs" }));
+  fireEvent.click(screen.getByRole("link", { name: "Water runs" }));
   expect(where()).toBe("/graphs?range=24h&cmp=day");
 });
 

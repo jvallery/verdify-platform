@@ -92,3 +92,17 @@ a.crop-chip:hover{border-color:var(--text)}
 .crop-filter-form label{display:grid;gap:var(--space-1);font-weight:600}
 .crop-filter-form a{display:inline-flex;align-items:center;min-height:var(--tap)}
 .crop-where{overflow-wrap:anywhere}
+.crop-note{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border)}
+.crop-note textarea{width:100%;min-height:5rem;font:inherit;font-size:var(--fs-md)}
+.crop-note-actions{display:flex;justify-content:flex-end;margin-top:var(--space-2)}
+
+/* ---------------------------------------------------------------- Hydroponics: the reservoir and its spots */
+.hydro-probe{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:0 0 var(--space-3);font-size:var(--fs-sm)}
+.hydro-now{display:grid;gap:0;margin:0}
+.hydro-now>div{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--space-1) var(--space-3);padding:var(--space-2) 0;border-top:1px solid var(--border)}
+.hydro-now dt{color:var(--text-2)}
+.hydro-now dd{margin:0;font-size:var(--fs-xl);font-weight:600;font-variant-numeric:tabular-nums}
+.hydro-now dd .meta{font-size:var(--fs-sm);font-weight:400}
+.hydro-spots{display:grid;gap:var(--space-2);min-width:0}
+.hydro-spots-title{margin:var(--space-4) 0 0;font-size:var(--fs-lg)}
+.hydro-spots>p{margin:0}

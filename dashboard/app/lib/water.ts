@@ -10,10 +10,10 @@ import { useCallback } from "react";
 import { useOutletContext, useSearchParams } from "react-router";
 import type { MinutesGroup } from "../charts/minutes-by-zone";
 import type { MinutesReport as BarsReport } from "../charts/types";
-import { TIME_UNAVAILABLE, TIME_ZONE, dateShift, duration, formatValue, localDate, localDayStart, shortDateTime, shortTime } from "./format";
+import { TIME_UNAVAILABLE, TIME_ZONE, dateShift, duration, formatNumber, formatValue, localDate, localDayStart, shortDateTime, shortTime } from "./format";
 import { LINES, ZONE_WORDS, lineById, lineDisplayName, minutesZone, nameLineCodes, type MinutesZone } from "./lines";
 import {
-  CAUSES, OUTCOMES, groupPurpose, purposeOf, type IrrigationLine, type IrrigationStatus, type Leak, type MinutesReport, type Occupancy, type Occurrence,
+  CAUSES, OUTCOMES, groupPurpose, purposeOf, type IrrigationLine, type IrrigationStatus, type LawView, type Leak, type RecordDay, type MinutesReport, type Occupancy, type Occurrence,
   type Purpose, type Run, type Schedule, type ScheduleAgenda,
 } from "./operator-api";
 import type { PolledQueryResult } from "./use-current";
@@ -169,15 +169,22 @@ export function flowWords(leak: Leak): { readonly text: string; readonly tone?: 
 
 /**
  * The site limits in words (#1349), never the firmware's bare "SAF-4" or "SOFT BUDGET": what Now's water card, Water's Site
- * today and the limits strip call them, and what each one's info tip says. SAF-4 (irrigation §4.5) caps every mister
- * relay's water plus climate fog; the soft target is `mister_water_budget_gal`, which holds routine misting once reached.
+ * today and the limits strip call them, and what each one's info tip says (words.md: "daily mist and fog limit"). The hard
+ * limit caps every mister relay's water plus fog, and nothing is exempt from it (screens section 3.1); the soft budget is
+ * `mister_water_budget_gal`, which the owner sets and which holds routine misting once reached.
  */
-export const SAF4_TERM = "Daily mist & fog limit";
-export const SAF4_HELP = "The primary daily water limit: water through all the misters and fog today. The controller stops misting when it reaches this limit; survival fog is exempt. Total water, drip irrigation included, is secondary. (Firmware documents call it SAF-4.)";
-/** The tag beside its name on Now and Water (Jason, 2026-11-06, #1339): mist & fog is the primary daily water limit. */
-export const SAF4_PRIMARY = "primary daily limit";
-export const BUDGET_TERM = "Daily mist target (soft)";
-export const BUDGET_HELP = "A softer daily amount for mist and fog water. Once it is used the controller holds routine misting; in a VPD emergency it may go past it, up to the daily mist & fog limit.";
+export const SAF4_TERM = "Daily mist and fog limit";
+export const SAF4_HELP = "The hard limit on water through the misters and the fogger in one day. Once today's total reaches it, no mister and no fog runs again that day, whatever asks for it: nothing is exempt from this limit.";
+/** The tag beside its name on Now and Water (Jason, 2026-11-06, #1339): mist and fog is the primary daily water limit. */
+export const SAF4_PRIMARY = "hard daily limit";
+export const BUDGET_TERM = "Soft daily budget for mist and fog";
+export const BUDGET_HELP = "Set by the owner. Once today's mist and fog water reaches it, the controller holds routine misting. When the air is very dry (VPD above 2.5 kPa) it may go past it, up to the daily mist and fog limit.";
+/** The setting behind the soft budget: Change opens its drawer in Settings (API-10). */
+export const BUDGET_PARAM = "mister_water_budget_gal";
+/** The setting behind the hard limit. */
+export const SAF4_PARAM = "mister_daily_volume_max_gal";
+/** A setting's drawer in Settings, by its name. */
+export const settingUrl = (param: string): string => `/settings?edit=${encodeURIComponent(param)}`;
 /** What used to read "Unexplained flow": the meter's flow while every Verdify valve is closed. */
 export const FLOW_TERM = "Water with no Verdify valve open";
 /** The `degraded_only` schedules, in words (#1344): they run only while VPD sensing fails. */
@@ -204,7 +211,7 @@ const byLineId = <T extends { readonly line_id: string }>(a: T, b: T) => lineRan
 
 export type LimitItem = { readonly key: string; readonly text: string; readonly tone?: "fault" | "warn" };
 /**
- * The limits strip (Board): the daily mist & fog limit (SAF-4) and the soft target in whole gallons; each mister zone's minutes against its duty cap
+ * The limits strip (Board): the daily mist and fog limit (SAF-4) and the soft budget in whole gallons; each mister zone's minutes against its duty cap
  * with the VPD reserve marked; each capped drip line; the flow state; occupancy; "VPD fallback active" while the
  * `degraded_only` schedules run. A reserved line that is still disabled has no cap shown.
  */
@@ -232,7 +239,8 @@ export function limitItems(status: IrrigationStatus, now: number, today: string)
 
 // ---------------------------------------------------------------------------------------------------- the program banner
 export const UNAVAILABLE_TEXT = "Water status unavailable.";
-export const NO_ENGINE_TEXT = "No irrigation engine on the controller yet: relay states only; the wall drip runs, and every line stops, through the bridge";
+/** `engine` false: the controller does not report its irrigation engine, so only the relays are shown and nothing runs from here. */
+export const NO_ENGINE_TEXT = "The controller reports no irrigation engine: relay states only, and no line runs from here until it does";
 export const ROM_TEXT = "Running the built-in program: Center mister VPD only, Wall drip run-now, no schedules";
 export const RETRYING_TEXT = "retrying at 1, 5 and 15 min";
 /** A program item's words beside its badge (screens SCR-04 "Not confirmed"): `programSyncText`, then the retries while the controller refuses it. */
@@ -272,10 +280,10 @@ export function programBanner({ failing, status, ingestorRunning, controllerRepo
     const since = validTime(climateAt) ? ` since ${shortTime(climateAt)}` : "";
     const program = status?.engine ? status.program : null;
     const held = program?.src === "rom" ? "the built-in program, " : program && finite(program.applied_revision) ? `rev ${program.applied_revision}, ` : "";
-    return { kind: "not_reporting", tone: "fault", text: `Controller not reporting${since}. If it has power, it keeps running ${held}VPD misting and caps` };
+    return { kind: "not_reporting", tone: "fault", text: `Controller not reporting${since}. If it has power, it keeps running ${held}misting and the daily limits on its own` };
   }
   if (!status) return { kind: "loading", tone: "info", text: "" };
-  if (!status.engine) return { kind: "no_engine", tone: "info", text: NO_ENGINE_TEXT };
+  if (!status.engine) return { kind: "no_engine", tone: "warn", text: NO_ENGINE_TEXT };
   const { program } = status;
   if (program.src === "rom") return { kind: "rom", tone: "warn", text: ROM_TEXT };
   if (program.state === "confirmed") {
@@ -436,8 +444,12 @@ export function feedStages(schedule: Pick<Schedule, "on_s" | "count" | "prewet_s
 /** `Occurrence.reason` through the words table, each "; "-joined note on its own; null when there is none. */
 export function occurrenceReasonWords(reason: string | null | undefined): string | null {
   if (!reason) return null;
-  return reason.split("; ").map((part) => words("occurrence_reason", part.trim())).join(" · ");
+  return reason.split("; ").map((part) => (part.trim() === SERVER_NO_ENGINE_REASON ? NO_ENGINE_REASON : words("occurrence_reason", part.trim()))).join(" · ");
 }
+/** API-IRR-02's reason for an occurrence while the controller reports no irrigation engine, as the server writes it. */
+const SERVER_NO_ENGINE_REASON = "arrives with the irrigation firmware";
+/** The same, said without a promise of when. */
+const NO_ENGINE_REASON = "the controller reports no irrigation engine";
 
 /**
  * What a block says after its time and amount: a past one its outcome word (ok, short, stopped, preempted, skipped,
@@ -575,6 +587,104 @@ export function vpdTodayWords(today: { readonly climate_minutes?: number | null;
   if (!today || !finite(today.climate_minutes) || today.climate_minutes <= 0) return null;
   const pulses = finite(today.climate_pulses) ? `${today.climate_pulses} ${today.climate_pulses === 1 ? "pulse" : "pulses"}, ` : "";
   return `VPD mist today: ${pulses}${Math.max(1, Math.round(today.climate_minutes))}${NBSP}min`;
+}
+
+// ---------------------------------------------------------------------------------------------------- misting (Today)
+/**
+ * How the controller picks a mister zone (screens section 3.1; firmware `ZONE_RANK_*`, `MISTER_OVERDUE_S`): a fixed order
+ * against the one house band, and a turn for a zone that has waited 10 minutes. Paragraphs, for the Misting block and the
+ * VPD control info tip.
+ */
+export const ZONE_ORDER_TEXT = "One mister zone runs at a time. The controller takes them in a fixed order, center, south, west, east, each zone's VPD read against the one house band; a zone that has waited 10 minutes without a pulse takes the next turn.";
+
+/** A code of `moisture_block_reason` that holds nothing: the misters are running, or nothing asks for them. */
+const NOT_A_HOLD: readonly string[] = ["none", "served", "no_vpd_demand", "no_humidity_demand"];
+
+export type MistingRow = {
+  /** The law's rule: misters or fog. */
+  readonly id: "mist" | "fog";
+  /** Wanted (its latch is set), not wanted, or not reported. */
+  readonly wanted: boolean | null;
+  /** The law asked for it after its own gates. */
+  readonly asked: boolean | null;
+  /** Its relay is on now; null when not reported. */
+  readonly running: boolean | null;
+  /** The reason in words: VPD against the rule's line ("VPD 0.62 kPa is below the mist line, 1.65 kPa"). */
+  readonly why: string;
+  /** What holds it, in words, with the hold's start (ISO); null with no hold. */
+  readonly hold: { readonly text: string; readonly since: string | null } | null;
+};
+
+type MistingLaw = Pick<LawView, "reporting" | "rules" | "inputs">;
+type BlockReason = { readonly code: string | null; readonly since: string | null } | null | undefined;
+const kpa = (value: number) => `${formatNumber(value, 2)}${NBSP}kPa`;
+
+/**
+ * Why the misters and the fog are or are not running (screens section 3.1, parity W-30), from the law (API-30, rules mist
+ * and fog: wanted is the latch, asked for is the request, the line is `on_at` and `off_at` on VPD) and the controller's
+ * block reasons (API-13): the hold in force in words. A law that does not report says so, never "not wanted"; a hold the
+ * law proves (a minimum on or off time) reads as waiting.
+ */
+export function mistingRows(law: MistingLaw | null, reasons: { readonly moisture?: BlockReason; readonly fog?: BlockReason }): MistingRow[] {
+  return (["mist", "fog"] as const).map((id) => {
+    const rule = law?.rules.find((item) => item.id === id) ?? null;
+    const reporting = Boolean(law?.reporting) && rule !== null;
+    const wanted = reporting ? rule.latched ?? null : null;
+    const asked = reporting ? rule.requested ?? null : null;
+    const relays = rule?.relays ?? [];
+    const running = !reporting || !relays.length || relays.some((relay) => relay.state === "unknown") ? null : relays.some((relay) => relay.state === "on");
+    const name = id === "mist" ? "mist line" : "fog line";
+    const vpd = law?.inputs.vpd_kpa;
+    const why = !reporting ? "The climate law is not reporting, so whether it wants them is not known."
+      : !finite(vpd) || !rule || !finite(rule.on_at) ? `The ${name} or the VPD reading is not reported.`
+      : wanted ? `VPD ${kpa(vpd)} is above the ${name}, ${kpa(rule.on_at)}; they stop below ${finite(rule.off_at) ? kpa(rule.off_at) : "—"}.`
+      : `VPD ${kpa(vpd)} is below the ${name}, ${kpa(rule.on_at)}.`;
+    const reason = id === "mist" ? reasons.moisture : reasons.fog;
+    const code = reason?.code ?? null;
+    const family = id === "mist" ? "moisture_block_reason" : "fog_block_reason";
+    const blocked = code !== null && !NOT_A_HOLD.includes(code);
+    const hold = reporting && rule.hold ? { text: `Waiting: ${words("law_hold", rule.hold.kind)}, ${duration(rule.hold.remaining_s)} left`, since: null }
+      : blocked && wanted !== false ? { text: words(family, code), since: reason?.since ?? null } : null;
+    return { id, wanted, asked, running, why, hold };
+  });
+}
+
+/** A misting row's headline: "Misting now", "Wanted, held", "Wanted", "Not wanted", "Not reported". */
+export function mistingState(row: MistingRow): { readonly text: string; readonly tone: "warn" | "info" | "neutral" } {
+  const thing = row.id === "mist" ? "Misting" : "Fogging";
+  if (row.running) return { text: `${thing} now`, tone: "info" };
+  if (row.wanted === null) return { text: "Not reported", tone: "neutral" };
+  if (!row.wanted) return { text: "Not wanted", tone: "neutral" };
+  return row.hold ? { text: "Wanted, held", tone: "warn" } : { text: row.asked ? "Wanted, asked for" : "Wanted", tone: "neutral" };
+}
+
+// ---------------------------------------------------------------------------------------------------- the daily record (History)
+export type RecordWaterDay = {
+  readonly date: string;
+  readonly wetting: number | null;
+  readonly crop: number | null;
+  readonly house: number | null;
+  readonly total: number | null;
+  /** The day has not ended, or its water count is not complete: drawn lighter, with this note. */
+  readonly note: string | null;
+};
+/**
+ * The day's water as the daily record counts it (API-32, parity W-31): wetting (mist and fog), crop (wetting plus wall
+ * irrigation and fertigation, the compared figure) and house (the rest of the metered water), ascending by date. A day
+ * with no record is all null, never zero; today reads "so far", and a day whose water count is not complete says so.
+ */
+export function recordWaterDays(days: readonly Pick<RecordDay, "date" | "complete" | "water">[]): RecordWaterDay[] {
+  return days.map((day) => {
+    const { water } = day;
+    const note = !day.complete ? "so far" : water.complete === false ? "meter count incomplete" : null;
+    return { date: day.date, wetting: finiteOrNull(water.wetting_gal), crop: finiteOrNull(water.crop_gal), house: finiteOrNull(water.house_gal), total: finiteOrNull(water.total_gal), note };
+  });
+}
+const finiteOrNull = (value: number | null | undefined): number | null => (finite(value) ? value : null);
+/** The newest complete day with a crop figure: the record's answer for "the day's water". */
+export function lastRecordedDay(days: readonly RecordWaterDay[]): RecordWaterDay | null {
+  for (let index = days.length - 1; index >= 0; index -= 1) if (days[index].note !== "so far" && days[index].crop !== null) return days[index];
+  return null;
 }
 
 // ---------------------------------------------------------------------------------------------------- the run ledger

@@ -10,7 +10,7 @@ import { Ago } from "../freshness";
 import { Panel, type PanelState } from "../panel";
 
 /**
- * The flags (redesign §5.12): occupancy from API-IRR-01 (Frigate through Home Assistant), and the leak flag and the site
+ * Flags (screens section 10.1, row 5): occupancy from API-IRR-01 (Frigate through Home Assistant), and the leak flag and the site
  * meter's flow from API-02 `leak`. Each says what it is in words; missing reports name the unavailable signal, never off or 0, and while the
  * ingestor is not running or the API is down the API-02 flags read unknown, because their last values are old news.
  */
@@ -49,9 +49,9 @@ export function flowFlag(leak: Leak | null | undefined): FlagWords {
 }
 
 function Flag({ flag, name, words }: { flag: string; name: string; words: FlagWords }) {
-  return <li className={cls("ctl-flag", words.tone && `is-${words.tone}`)} data-flag={flag} data-state={words.state}>
-    <span className="ctl-flag-name">{name}</span>
-    <span className="ctl-flag-state">{words.text}</span>
+  return <li className={cls("sys-flag", words.tone && `is-${words.tone}`)} data-flag={flag} data-state={words.state}>
+    <span className="sys-flag-name">{name}</span>
+    <span className="sys-flag-state">{words.text}</span>
   </li>;
 }
 
@@ -66,8 +66,8 @@ export function FlagsCard({ today }: { today: string }) {
   const occupancy = irrigation.failed ? null : irrigation.data?.occupancy ?? null;
   const state: PanelState = !now && shell.pending && irrigation.pending ? "loading" : "ready";
   return <Panel title="Flags" thing="the flags" state={state} reserve="sm">
-    <ul className="ctl-flags">
-      <Flag flag="occupancy" name="Occupancy" words={occupancyFlag(occupancy, today)} />
+    <ul className="sys-flags">
+      <Flag flag="occupancy" name="Someone inside" words={occupancyFlag(occupancy, today)} />
       <Flag flag="leak" name="Leak" words={leakFlag(leak)} />
       <Flag flag="flow" name="Water flowing" words={flowFlag(leak)} />
     </ul>

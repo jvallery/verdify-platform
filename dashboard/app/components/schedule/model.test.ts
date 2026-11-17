@@ -83,8 +83,8 @@ test("a degraded_only fallback window is conditional, never a planned run: ahead
   // The agenda: the past window "not needed", the ones ahead with the note; none is NEXT.
   const [day] = agendaDays(entriesOf(agenda, null, NOW), { first: TODAY, days: 1, last, today: TODAY, now: NOW, lines: status.lines });
   expect(day.rows.map((row) => [shortTime(row.at), row.status, plain(row.detail), row.next])).toEqual([
-    ["09:47", "conditional", "sensor-fault backup · not needed", false], ["11:47", "conditional", "sensor-fault backup · only if VPD sensing is degraded · Iris may adjust", false],
-    ["13:47", "conditional", "sensor-fault backup · only if VPD sensing is degraded · Iris may adjust", false],
+    ["09:47", "conditional", "sensor-fault backup · not needed", false], ["11:47", "conditional", "sensor-fault backup · only if VPD sensing is degraded", false],
+    ["13:47", "conditional", "sensor-fault backup · only if VPD sensing is degraded", false],
   ]);
 });
 

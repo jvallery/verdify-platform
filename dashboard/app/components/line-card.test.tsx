@@ -161,19 +161,16 @@ test("one pill: REQUESTED with the revision while it travels, NOT CONFIRMED with
   expect(pill(lineOf(before, "L01"), { engine: false, program: before.program })).toEqual(["", ""]);
 });
 
-test("before the irrigation firmware a row shows its relay; only L01 runs, through the bridge, and the rest say when Run arrives in ⋯", () => {
+test("with no irrigation engine reported a row shows its relay, offers no Run, and says nothing about when anything arrives", () => {
   const before = status("before-engine");
-  const idle = row(lineOf(before, "L01"), { engine: false });
-  expect(idle.state).toMatch(/^Relay Off since \d\d:\d\d$/);
-  expect(idle.buttons).toEqual(["Run… Wall drip"]);
-  cleanup();
-  const other = row(lineOf(before, "L04"), { engine: false });
-  expect(other.buttons).toEqual([]);
-  expect(text(other.menu!.querySelector("[data-arrives=clear-fault]"))).toBe("Clear fault arrives with the irrigation firmware");
-  cleanup();
-  const feed = row(lineOf(before, "L02"), { engine: false });
-  expect(text(feed.menu!.querySelector("[data-arrives=run]"))).toBe("Run arrives with the irrigation firmware");
-  cleanup();
+  for (const id of ["L01", "L02", "L04"]) {
+    const idle = row(lineOf(before, id), { engine: false });
+    expect(idle.state, id).toMatch(/^Relay Off since \d\d:\d\d$/);
+    expect(idle.buttons, id).toEqual([]);
+    expect(idle.article.querySelector("[data-arrives]"), id).toBeNull();
+    expect(idle.article.textContent, id).not.toMatch(/arrives|irrigation firmware/);
+    cleanup();
+  }
   expect(row(lineOf(status(["l01-running", "before-engine"]), "L01"), { engine: false }).state).toBe("Relay On since 10:30");
 });
 

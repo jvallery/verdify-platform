@@ -149,6 +149,17 @@ export class MockPlot {
     this.cursor = { left: this.valToPos(x, "x") - this.bbox.left, top, idx, event: synced ? null : { type: "mousemove" } };
     this.fire("setCursor");
   }
+  /** Moves the cursor as `plot.setCursor` would (a keyboard readout): to the nearest x of the data, with no event of its own. */
+  setCursor(opts: { left: number; top: number }) {
+    const xs = this.data[0] as number[];
+    const at = this.posToVal(opts.left, "x");
+    let idx: number | null = null;
+    xs.forEach((x, index) => { if (idx === null || Math.abs(x - at) < Math.abs(xs[idx] - at)) idx = index; });
+    this.cursor = { left: opts.left, top: opts.top, idx, event: null };
+    this.setCursorCalls.push({ left: opts.left, top: opts.top });
+    this.fire("setCursor");
+  }
+  setCursorCalls: { left: number; top: number }[] = [];
   batch(transaction: () => void) { transaction(); }
   redraw() {}
   destroy() {

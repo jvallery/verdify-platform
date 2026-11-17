@@ -13,10 +13,10 @@ const SINCE = denver("06:02");
 const DETAIL: Partial<Record<StateReasonCode, string>> = { clamped: "VPD-high moisture guardrail", experiment: "e-vanda-night", push_failed: "timeout" };
 // The words each code reads, with `since` at 06:02 and with `since` null (design system §4.2; VD-03).
 const WITH_SINCE: Record<StateReasonCode, string> = {
-  clamped: "Clamped to 1.15 kPa: VPD-high moisture guardrail",
-  experiment: "Held by experiment e-vanda-night: applies when it ends",
-  deferred: "Sent 06:02; waiting: controller heap low",
-  push_failed: "Sent 06:02; push failed: timeout",
+  clamped: "Changed to 1.15 kPa to fit its limits: VPD-high moisture guardrail",
+  experiment: "Held back by the host: applies when the hold ends",
+  deferred: "Sent 06:02; waiting: the controller is short of memory",
+  push_failed: "Sent 06:02; sending failed: timeout",
   writer_down: "Ingestor not running since 06:02",
   controller_not_reporting: "Controller not reporting since 06:02",
   no_engine: "Applies with the irrigation firmware",
@@ -24,8 +24,8 @@ const WITH_SINCE: Record<StateReasonCode, string> = {
 };
 const WITHOUT_SINCE: Record<StateReasonCode, string> = {
   ...WITH_SINCE,
-  deferred: "Waiting: controller heap low",
-  push_failed: "Push failed: timeout",
+  deferred: "Waiting: the controller is short of memory",
+  push_failed: "Sending failed: timeout",
   writer_down: "Ingestor not running",
   controller_not_reporting: "Controller not reporting",
   no_match: "No matching readback yet",
@@ -99,10 +99,10 @@ test("reasonShows and reasonParts follow the same rules without rendering", () =
   expect(reasonShows("held", null, null, now)).toBe(true);
   expect(reasonShows("confirmed", { code: "no_match" }, denver("06:00"), now)).toBe(false);
   // A clamp without its unit keeps the applied value's digits; a clamp without an applied value or detail says only that.
-  expect(reasonParts({ code: "clamped", applied_value: 1.15, detail: null })).toEqual(["Clamped to 1.15"]);
-  expect(reasonParts({ code: "clamped", applied_value: -0.4, detail: null }, "°F")).toEqual([`Clamped to −0.4${NBSP}°F`]);
-  expect(reasonParts({ code: "clamped" })).toEqual(["Clamped"]);
-  expect(reasonParts({ code: "experiment", detail: "  " })).toEqual(["Held by an experiment: applies when it ends"]);
+  expect(reasonParts({ code: "clamped", applied_value: 1.15, detail: null })).toEqual(["Changed to 1.15 to fit its limits"]);
+  expect(reasonParts({ code: "clamped", applied_value: -0.4, detail: null }, "°F")).toEqual([`Changed to −0.4${NBSP}°F to fit its limits`]);
+  expect(reasonParts({ code: "clamped" })).toEqual(["Changed to fit its limits"]);
+  expect(reasonParts({ code: "experiment", detail: "  " })).toEqual(["Held back by the host: applies when the hold ends"]);
   // An unparseable since drops out like a null one.
   expect(reasonParts({ code: "writer_down", since: "not a time" })).toEqual(["Ingestor not running"]);
 });

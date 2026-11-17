@@ -38,3 +38,30 @@ export function hydroPlotSeries(series: Series | null, key: string): Series | nu
     },
   } };
 }
+
+// ---------------------------------------------------------------------------------------------------- the reservoir now
+/**
+ * The three reservoir channels the probe measures (H-01, `climate.hydro_*`). The meter runs on mains power and reports no battery, so no
+ * battery channel is read or charted (H-05); TDS and ORP are not measured either.
+ */
+export const RESERVOIR_METRICS = ["climate.hydro_ph", "climate.hydro_ec_us_cm", "climate.hydro_water_temp_f"] as const;
+export const RESERVOIR_READINGS = [
+  { key: "ph", label: "pH", unit: "pH" },
+  { key: "ec_us_cm", label: "Conductivity", unit: "µS/cm" },
+  { key: "water_temp_f", label: "Water temperature", unit: "°F" },
+] as const;
+
+type Reading = { readonly value: number | null; readonly observed_at: string | null; readonly reason?: string | null };
+export type ReservoirNow = { readonly ph: Reading; readonly ec_us_cm: Reading; readonly water_temp_f: Reading; readonly stale_after_s: number };
+
+/**
+ * The probe's age (H-04): seconds since its newest reading of any channel at `now` (epoch ms), and whether that is past
+ * the API's `stale_after_s`. Null age when no channel has a time.
+ */
+export function probeAge(hydro: ReservoirNow | null | undefined, now: number): { readonly at: string | null; readonly age_s: number | null; readonly stale: boolean } {
+  const times = RESERVOIR_READINGS.map(({ key }) => hydro?.[key]?.observed_at ?? null).filter((at): at is string => at !== null && Number.isFinite(Date.parse(at)));
+  if (!hydro || !times.length) return { at: null, age_s: null, stale: true };
+  const at = times.reduce((newest, time) => (Date.parse(time) > Date.parse(newest) ? time : newest));
+  const age = Math.max(0, Math.floor((now - Date.parse(at)) / 1000));
+  return { at, age_s: age, stale: age > hydro.stale_after_s };
+}

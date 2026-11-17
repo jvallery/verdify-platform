@@ -98,13 +98,13 @@ test("a settings-only chart: uPlot takes no data at all, ranges y from the steps
   const UPlot = (await import("uplot")).default;
   const [plot] = UPlot.sync(KEY).plots as uPlot[];
   expect([plot.scales.x.min, plot.scales.x.max]).toEqual([RANGE.from, RANGE.to]);
-  // The lowest step is 1.50 kPa and the highest 1.80: the y range holds both, padded 5%.
-  expect(plot.scales.y.min).toBeCloseTo(1.5 - 0.3 * 0.05, 9);
-  expect(plot.scales.y.max).toBeCloseTo(1.8 + 0.3 * 0.05, 9);
+  // The lowest step is 1.50 kPa and the highest 1.60 (no plan waypoint draws): the y range holds both, padded 5%.
+  expect(plot.scales.y.min).toBeCloseTo(1.5 - 0.1 * 0.05, 9);
+  expect(plot.scales.y.max).toBeCloseTo(1.6 + 0.1 * 0.05, 9);
   const painted = contexts.flatMap((context) => context.texts.map((text) => text.text));
   expect(painted).toContain("Now");
   expect(painted).toContain("jason · dashboard");
-  expect(painted.some((text) => text.endsWith("PLANNED · AI"))).toBe(true);
+  expect(painted.some((text) => /PLANNED|SUPERSEDED|Forecast rule/.test(text))).toBe(false);
   // The cursor over no data still names the steps at that time.
   const over = plot.over;
   const tip = over.querySelector<HTMLElement>(".chart-tooltip")!;

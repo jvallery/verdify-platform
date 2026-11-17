@@ -9,7 +9,7 @@ import type { IrrigationLine } from "../lib/operator-api";
 import { useIrrigationRead } from "../lib/queries";
 import { OPERATOR, UUID, advance, renderWithApi, requests, startFixtureApi, stopFixtureApi, writes, type FixtureOptions } from "../lib/test-fixture-api";
 import { words } from "../lib/words";
-import { LINE_OFF_TEXT, RUN_ARRIVES_TEXT, RunControl, WaterRuns, runOffer } from "./run-dialog";
+import { LINE_OFF_TEXT, RunControl, WaterRuns, runOffer } from "./run-dialog";
 import { text } from "./test-render";
 import { lineDisplayName } from "../lib/lines";
 
@@ -41,7 +41,7 @@ const fieldNames = () => [...dialog()!.querySelectorAll(".dialog-fields label")]
 type Offered = Pick<IrrigationLine, "line_id" | "kind" | "enabled" | "reserved">;
 const line = (line_id: string, kind: string, enabled: boolean, reserved = false): Offered => ({ line_id, kind, enabled, reserved });
 
-test("what a line offers (#1343): every enabled wet line runs once, Mist now… with Schedule on or off; a disabled line enables first; before the firmware only L01", () => {
+test("what a line offers (#1343): every enabled wet line runs once, Mist now… with Schedule on or off; a disabled line enables first; with no engine reported, nothing", () => {
   expect(runOffer(line("L01", "drip", true), true)).toBe("run");
   expect(runOffer(line("L02", "fert_drip", true), true)).toBe("run");
   expect(runOffer(line("L08", "fert_mister", true), true)).toBe("run");
@@ -56,9 +56,7 @@ test("what a line offers (#1343): every enabled wet line runs once, Mist now… 
   expect(runOffer(line("L11", "fog", false), true)).toBe("enable");
   expect(runOffer(line("L11", "fog", true), false)).toBeNull();
   expect(runOffer(line("L03", "master", true), true)).toBeNull();
-  expect(runOffer(line("L01", "drip", true), false)).toBe("run");
-  expect(runOffer(line("L01", "drip", false), false)).toBeNull();
-  for (const other of [line("L02", "fert_drip", true), line("L04", "mister", true, true), line("L05", "drip", false)]) expect(runOffer(other, false)).toBe("arrives");
+  for (const other of [line("L01", "drip", true), line("L01", "drip", false), line("L02", "fert_drip", true), line("L04", "mister", true, true), line("L05", "drip", false)]) expect(runOffer(other, false)).toBeNull();
   expect(runOffer(line("L11", "fog", true), false)).toBeNull();
 });
 
@@ -198,44 +196,14 @@ test("each refusal reads its code in words from the words table, and the dialog 
   await refused("L04", "not_schedule_member", ["run-dialogs", "firmware-before-1343"], update("L04", { schedule_member: false }));
 });
 
-test("before the irrigation firmware L01 has no Duration: API-09 has no irrig_wall_duration_min row, so the dialog names the setting and sends {} plus the reason", async () => {
-  const api = await open("L01", { fixture: "before-engine" });
-  // API-09 is read when the dialog opens, not with the card. The bridge's rows retired once the engine was last-good
-  // (#1165), so its answer carries no device value for the run.
-  expect(requests(api, "API-09")).toEqual([]);
-  press("Run… Wall drip");
-  await advance(0);
-  expect(requests(api, "API-09")).toHaveLength(1);
-  expect(screen.queryByLabelText("Duration")).toBeNull();
-  expect(notes()).toEqual(["Runs for the Wall drip duration (irrig_wall_duration_min)"]);
-  expect(title()).toBe("Run Wall drip (clean)?");
-  fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Wall plants are dry" } });
-  press("Run");
-  await advance(0);
-  expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-IRR-06", path: "/api/v1/irrigation/lines/L01/run", body: { reason: "Wall plants are dry" } })]);
-  expect(dialog()).toBeNull();
-  await readBack(5000);
-  expect(screen.getByTestId("state").textContent).toBe("running");
-});
-
-test("before the irrigation firmware, without API-09 the dialog names the setting only, and still sends {}", async () => {
-  const api = await open("L01", { fixture: "before-engine", fail: { "API-09": 503 } });
-  press("Run… Wall drip");
-  await advance(0);
-  expect(notes()).toEqual(["Runs for the Wall drip duration (irrig_wall_duration_min)"]);
-  expect(title()).toBe("Run Wall drip (clean)?");
-  press("Run");
-  await advance(0);
-  expect(writes(api)).toEqual([expect.objectContaining({ operationId: "API-IRR-06", body: {} })]);
-});
-
-test("before the irrigation firmware the other lines say when Run arrives, for operators only", async () => {
-  await open("L02", { fixture: "before-engine" });
-  expect(text(document.querySelector("[data-arrives=run]"))).toBe(RUN_ARRIVES_TEXT);
-  expect(screen.queryByRole("button")).toBeNull();
-  cleanup(); stopFixtureApi();
-  await open("L02", { fixture: "before-engine" }, { role: "viewer", writesEnabled: false });
-  expect(document.querySelector("[data-arrives]")).toBeNull();
+test("with no irrigation engine reported no line offers Run…, and nothing says when it arrives", async () => {
+  for (const lineId of ["L01", "L02"]) {
+    const api = await open(lineId, { fixture: "before-engine" });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(document.querySelector("[data-arrives]")).toBeNull();
+    expect(requests(api, "API-09")).toEqual([]);
+    cleanup(); stopFixtureApi();
+  }
 });
 
 test("a viewer sees no Run…; with changes switched off Run… is disabled", async () => {

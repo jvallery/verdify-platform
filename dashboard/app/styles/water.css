@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Water (WP3) */
-/* Water (SCR-04, redesign §5.2–§5.4 and §6): the status line, Today's zone cards, line rows, today strips and Site today; Schedules' week strip, day timeline, week matrix, agenda, rules list, popovers and editor; History's period bar, KPIs and run ledger. New classes use the prefixes wat- and sch-; the hooks the specs keep (line-card, mister-zone, week-table, week-days, line-subrow, line-fault, schedule-preview) keep their names. Loaded by root.tsx in the fixed order of design-system v2 §6. Colours are tokens only; this file never redefines :focus-visible or the input borders that base.css sets. */
+/* Water (screens section 3, redesign §5.2–§5.4 and §6): the status line, Today's zone cards, line rows, today strips, Site today and Misting; Schedules' week strip, day timeline, week matrix, agenda, rules list, popovers and editor; History's period bar, KPIs, the daily record's water and run ledger; Soil's probe zones. New classes use the prefixes wat- and sch-; the hooks the specs keep (line-card, mister-zone, week-table, week-days, line-subrow, line-fault, schedule-preview) keep their names. Loaded by root.tsx in the fixed order of design-system v2 §6. Colours are tokens only; this file never redefines :focus-visible or the input borders that base.css sets. */
 
 /* ---------------------------------------------------------------------------------------------------- the header */
 /* Stop all water (redesign §2.5): the last header action from 861 px; at 860 px and below the sticky tabs row's "■ Stop all". Both render and the stylesheet shows one (§9.6); History's actions hold Stop alone, so on a phone they go. */
@@ -15,10 +15,10 @@
 .page-status .wat-retry,.page-status-short .wat-retry{min-height:2rem;padding-block:0;margin-left:var(--space-1)}
 
 /* ---------------------------------------------------------------------------------------------------- Today: the layout */
-/* Site today first in reading order; from 1200 px it moves to the aside, sticky under the header, and the zones take the main column. */
+/* Site today and Misting first in reading order; from 1200 px they move to the aside, sticky under the header, and the zones take the main column. */
 .wat-today{display:grid;gap:var(--space-4);align-items:start;min-width:0}
 .wat-zones{display:grid;gap:var(--space-4);min-width:0}
-.wat-aside{min-width:0}
+.wat-aside{display:grid;gap:var(--space-4);min-width:0;align-content:start}
 @media(min-width:1200px){
   .wat-today{grid-template-columns:minmax(0,1fr) var(--aside);gap:var(--space-5)}
   .wat-today>.wat-zones{grid-column:1;grid-row:1}
@@ -34,6 +34,19 @@
 .wat-site-term{display:inline-flex;align-items:center;font-size:var(--fs-sm);font-weight:600;color:var(--text)}
 .wat-site-term a{display:inline-flex;align-items:center;min-height:24px;color:inherit;text-underline-offset:.25em}
 .wat-site-primary{margin-left:var(--space-2);font-weight:400}
+/* Change beside a limit: a text link with a 44 px target, pushed to the row's end. */
+.wat-site-term{flex-wrap:wrap;gap:0 var(--space-2)}
+.wat-site-change{display:inline-flex;align-items:center;min-height:var(--tap);margin-left:auto;font-weight:600;color:var(--accent);text-underline-offset:.25em}
+.wat-site-change:hover{color:var(--accent-hover)}
+.wat-site-note{margin:0}
+
+/* Misting: one row per rule (misters, fog), its state badge, the reason in VPD against its line and the hold in force. */
+.wat-mist-list{display:grid;margin:0 0 var(--space-3);padding:0;list-style:none}
+.wat-mist-row{padding:var(--space-3) 0;border-top:1px solid var(--border)}
+.wat-mist-row:first-child{padding-top:0;border-top:0}
+.wat-mist-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:0}
+.wat-mist-why,.wat-mist-hold{margin:var(--space-1) 0 0;font-size:var(--fs-sm);color:var(--text-2)}
+.wat-mist-hold{color:var(--warn-text);font-weight:600}
 .limit-fault{color:var(--critical);font-weight:600}
 .limit-warn{color:var(--warn-text);font-weight:600}
 
@@ -173,7 +186,7 @@ button.sch-block:hover,.sch-block.is-selected{box-shadow:0 0 0 2px var(--text)}
 .sch-week-days{grid-area:days}
 .sch-week-step{flex:none;min-width:var(--tap);padding:0;font-size:1.2rem}
 /* A step past what API-IRR-02 serves keeps its frame at the same height, quieter, so the strip stays balanced and never reads as a slip. */
-span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--border-strong)}
+span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-3)}
 .sch-week-days{display:grid;flex:1;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--space-1);min-width:0;margin:0;padding:0;list-style:none}
 .sch-week-day{min-width:0}
 .sch-week-day>a,.sch-week-none{display:grid;align-content:start;gap:3px;height:100%;min-height:var(--tap);padding:var(--space-2);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);text-decoration:none}
@@ -202,7 +215,7 @@ span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content
 .sch-day-nav{display:flex;gap:var(--space-1)}
 .sch-day-nav .button-link{min-width:var(--tap);padding-inline:var(--space-3)}
 .sch-day-nav .button-link[aria-current=date]{border-color:var(--text);color:var(--text)}
-.sch-day-nav span.is-off{color:var(--border-strong)}
+.sch-day-nav span.is-off{color:var(--text-3)}
 .sch-day-body{--sch-label:11.5rem;--sch-end:12.5rem;--sch-row:28px;padding:var(--space-3) var(--space-4) var(--space-4);border-radius:0 0 var(--radius) var(--radius)}
 .sch-axis-row{display:grid;grid-template-columns:var(--sch-label) minmax(0,1fr) var(--sch-end);align-items:end;gap:0 var(--space-3)}
 .sch-axis-end{font-size:var(--fs-xs);text-align:right}
@@ -434,3 +447,24 @@ button.sch-agenda-row:hover{border-color:var(--accent-hover);color:var(--text)}
 .schedule-rule-facts{display:grid;grid-template-columns:1fr 1.5fr 1.5fr 1.5fr;gap:var(--space-3);margin:var(--space-2) 0}
 .sch-rule-group{border-radius:0;box-shadow:none;border-width:0 0 1px}
 @media(max-width:860px){.schedule-rule-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ---------------------------------------------------------------------------------------------------- History: the daily record's water */
+.wat-record-day{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:var(--space-3);margin:0 0 var(--space-4)}
+.wat-record-day dt{font-size:var(--fs-xs);color:var(--text-3)}
+.wat-record-day dd{margin:0;font-size:var(--fs-lg);font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ---------------------------------------------------------------------------------------------------- Soil */
+/* One panel per probe zone, two columns above 860 px (`.l-cols-2`): the readings now, the 7-day chart, the range. */
+.wat-soil{min-width:0}
+.wat-soil-now{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:var(--space-3);margin:0 0 var(--space-4)}
+.wat-soil-stat dt{font-size:var(--fs-xs);color:var(--text-3)}
+.wat-soil-stat dd{margin:0}
+.wat-soil-value{font-size:var(--fs-xl);font-weight:600;font-variant-numeric:tabular-nums}
+.wat-soil-now[data-probe=never] .wat-soil-value{font-size:var(--fs-md);color:var(--text-2)}
+.wat-soil-range{margin-top:var(--space-4)}
+.wat-soil-range-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.wat-soil-range-head h4{margin:0;font-size:var(--fs-md)}
+.wat-soil-range-kv{margin:var(--space-2) 0}
+.wat-soil-form{display:grid;gap:var(--space-3);margin-top:var(--space-3)}
+.wat-soil-fields{display:grid;gap:var(--space-3);grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))}
+.wat-soil-actions{display:flex;flex-wrap:wrap;gap:var(--space-2)}

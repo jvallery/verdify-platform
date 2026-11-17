@@ -3,7 +3,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { BADGES, BADGE_STATUSES, Badge, ChemistryBadge, EquipmentStateBadge, ReadbackBadge, StatusBadge, badgeClass, lineChemistry, type BadgeKind } from "./badge";
-import { denver, renderUi, text } from "./test-render";
+import { renderUi, text } from "./test-render";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 const badgeIn = (container: HTMLElement) => container.querySelector("[data-badge]");
@@ -12,7 +12,7 @@ test("every badge of design system v2 §4 carries its word, its status class and
   const expected: Record<string, [string, string]> = {
     requested: ["Requested", "badge badge-warn"], confirmed: ["Confirmed", "badge badge-ok"],
     not_confirmed: ["Not confirmed", "badge badge-serious"], held: ["Held", "badge badge-info"], no_readback: ["No readback", "badge badge-neutral"],
-    manual: ["Manual", "badge badge-info"], ai: ["AI", "badge badge-neutral"], planned: ["Planned", "badge badge-neutral"],
+    manual: ["Manual", "badge badge-info"], ai: ["AI", "badge badge-neutral"],
     superseded: ["Superseded", "badge badge-neutral"], stale: ["Stale", "badge badge-warn"], clean: ["Clean", "badge badge-neutral badge-clean"],
     fert: ["Fert", "badge badge-neutral badge-fert"], running: ["Running", "badge badge-ok"], idle: ["Idle", "badge badge-neutral"],
     disabled: ["Disabled", "badge badge-neutral"], on: ["On", "badge badge-ok"], off: ["Off", "badge badge-neutral"], unknown: ["Not reported", "badge badge-neutral"],
@@ -46,24 +46,14 @@ test("ReadbackState renders its badge; NO READBACK also when readback_via is non
   }
   expect(badgeIn(renderUi(<ReadbackBadge state="requested" readbackVia="none" />).container)?.getAttribute("data-badge")).toBe("no_readback");
   cleanup();
-  // With no readback, HELD and Iris's override still say who or what applies; released still has no badge.
+  // With no readback, HELD still says what applies; released still has no badge.
   expect(badgeIn(renderUi(<ReadbackBadge state="held" readbackVia="none" />).container)?.getAttribute("data-badge")).toBe("held");
-  cleanup();
-  expect(text(renderUi(<ReadbackBadge state="overridden" readbackVia="none" overriddenAt={denver("14:05")} />).container)).toBe("AI Iris changed this at 14:05");
   cleanup();
   expect(renderUi(<ReadbackBadge state="released" readbackVia="none" />).container.textContent).toBe("");
   cleanup();
   expect(renderUi(<ReadbackBadge state="released" />).container.textContent).toBe("");
   cleanup();
   expect(text(renderUi(<ReadbackBadge state="pending_review" />).container)).toBe("pending_review");
-});
-
-test("overridden is AI with \"Iris changed this at HH:MM\"", () => {
-  const { container } = renderUi(<ReadbackBadge state="overridden" overriddenAt={denver("14:05")} />);
-  expect(badgeIn(container)?.getAttribute("data-badge")).toBe("ai");
-  expect(text(container)).toBe("AI Iris changed this at 14:05");
-  cleanup();
-  expect(text(renderUi(<ReadbackBadge state="overridden" />).container)).toBe("AI Iris changed this");
 });
 
 test("CLEAN and FERT", () => {

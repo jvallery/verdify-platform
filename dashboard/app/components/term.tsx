@@ -2,7 +2,7 @@
 /**
  * A term with its definition one tap away (#1339): the words stay visible, dotted underneath, and a tap or Enter opens
  * the glossary entry (`lib/glossary.ts`) in a `Popover`, under the term from 861 px and as a bottom sheet on a phone.
- * Never hover-only: a phone has no hover. The popover links to the whole table at Control → Settings.
+ * Never hover-only: a phone has no hover. The popover links to the whole table in Settings (`#glossary`).
  */
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -33,7 +33,7 @@ export function Term({ id, children, className }: TermProps) {
   </>;
 }
 
-/** The whole table as a definition list, for Control → Settings' "Words on the pages" (`#glossary`). */
+/** The whole table as a definition list, for Settings' glossary (`#glossary`). */
 export function GlossaryList({ entries }: { entries: readonly { readonly id: string; readonly term: string; readonly definition: string }[] }) {
   return <dl className="glossary-list">
     {entries.map((entry) => <div key={entry.id} className="glossary-item" id={`term-${entry.id}`}>

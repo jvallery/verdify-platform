@@ -1,100 +1,70 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Now and Activity (WP1) */
-/* Now (redesign §5.1) and Activity (§5.8 Alerts, §5.9 Log), on the primitives of §3 and §4. Loaded by root.tsx after tokens.css, base.css, primitives.css and shell.css, in the fixed order of design-system v2 §6. Colours are tokens only; this file never redefines :focus-visible or the input borders that base.css sets. Phones are 860 px and below, where every link, button, chip and summary is at least 44 px. */
+/* Now (dashboard v2 screens §1) and Activity (§5.8 Alerts, §5.9 Log), on the primitives of §3 and §4. Loaded by root.tsx after tokens.css, base.css, primitives.css and shell.css, in the fixed order of design-system v2 §6. Colours are tokens only; this file never redefines :focus-visible or the input borders that base.css sets. Phones are 860 px and below, where every link, button, chip and summary is at least 44 px. */
 
 /* ---------------------------------------------------------------- Now: the page */
-/* The page is a .page stack (primitives.css); its head is the hero with the quick actions under it, at the card gap. */
-.now-head{display:grid;gap:var(--space-4);min-width:0}
-/* The pair side by side, each card at its own height: a short Needs someone ("No open alerts") is never a tall empty card beside Water today. */
-.now-pair{display:grid;gap:var(--space-4);align-items:start;min-width:0}
-@media(min-width:861px){.now-pair{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Two columns above 860 px: the main column (hero, doing, Today, Water today, Probes) and the side column (Needs you, Run by hand, the review, the reservoir). At 860 px and below both columns dissolve (display:contents) and the blocks take the phone's order: hero, doing, Needs you, Today, Run by hand, Water today, review, reservoir, probes. */
+.now-main,.now-side{display:grid;gap:var(--space-4);align-content:start;min-width:0}
+.now-slot{min-width:0}
+@media(min-width:861px){.now-page{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(18rem,1fr);gap:var(--space-4);align-items:start}}
+@media(max-width:860px){
+  .now-page{display:flex;flex-direction:column;gap:var(--space-3)}
+  .now-main,.now-side{display:contents}
+  .now-slot-hero{order:1}.now-slot-doing{order:2}.now-slot-needs{order:3}.now-slot-today{order:4}.now-slot-runs{order:5}
+  .now-slot-water{order:6}.now-slot-review{order:7}.now-slot-reservoir{order:8}.now-slot-probes{order:9}
+}
 
-/* The ink hero (redesign §4.2 "Status hero"): the answer and the hero value on the left, the three band bars and time in band on the right, then the status line and "All readings" across. */
-.now-hero{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);grid-template-areas:"main climate" "status status" "readings readings";align-items:center;gap:var(--space-4) var(--space-6)}
-/* With nothing to draw on the right (the API down: no band bars and no time in band), the hero is one column, never an empty block beside the answer. */
-.now-hero.now-hero-plain{grid-template-columns:minmax(0,1fr);grid-template-areas:"main" "status" "readings"}
+/* The ink hero: the answer on the left; the two band gauges, the band's source and the plain values on the right; "All readings" across. */
+.now-hero{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);grid-template-areas:"main climate" "readings readings";align-items:center;gap:var(--space-4) var(--space-6)}
+/* With nothing to draw on the right (the API down), the hero is one column, never an empty block beside the answer. */
+.now-hero.now-hero-plain{grid-template-columns:minmax(0,1fr);grid-template-areas:"main" "readings"}
 .now-hero-main{grid-area:main;min-width:0}
 .now-hero-climate{grid-area:climate;display:grid;gap:var(--space-2);min-width:0}
-/* The headline is plain text (never a link or underlined); under it one plain line says what is out of band, each phrase with a quiet "Graphs ›" (Jason 2026-11-05). */
 .now-condition{margin:var(--space-1) 0 0;font-size:var(--fs-sm);line-height:1.4;color:var(--hero-text);font-variant-numeric:tabular-nums}
-.now-condition-link{display:inline-flex;align-items:center;min-height:24px;color:var(--hero-accent);text-decoration:none;white-space:nowrap}
+.now-condition-link{display:inline-flex;align-items:center;min-height:24px;color:var(--hero-accent);text-decoration:none;font-weight:600}
 .now-condition-link:hover{color:var(--hero-text)}
-/* The greenhouse snapshot (#1346): one paragraph under the condition line, written by the local Cortex model, with its author, time and the AI text mark (D-UX-07). Muted when stale, with its "as of" time. */
-.now-snapshot{margin:var(--space-2) 0 0;max-width:62ch;font-size:var(--fs-sm);line-height:1.5;color:var(--hero-text)}
-.now-snapshot.value-muted{color:var(--hero-text-2)}
-.now-snapshot-mark{font:500 var(--fs-xs)/1.2 var(--mono);color:var(--hero-text-2);white-space:nowrap}
-.now-snapshot-more{display:none;min-height:24px;padding:0 var(--space-1);border:0;background:none;color:inherit;font:500 var(--fs-xs)/1.2 var(--mono);text-decoration:underline dotted;text-underline-offset:.25em;cursor:pointer}
-/* #1346: on a phone the snapshot keeps to two lines until Read all, so Stop all water stays above the fold. */
-@media(max-width:640px){
-  .now-snapshot-more{display:inline-flex;align-items:center}
-  .now-snapshot:not([data-open]) .now-snapshot-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
-}
-.now-hero-value{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--space-1) var(--space-3);margin:var(--space-2) 0 var(--space-1)}
-.now-hero-value .hero-temp{margin:0}
-.now-hero-verdict{font:500 var(--fs-xs)/1.2 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--hero-accent)}
 .now-fresh{flex-wrap:wrap;min-height:1.75rem}
-.now-fresh-link{display:inline-flex;align-items:center;min-height:24px;color:inherit;text-decoration:underline dotted;text-decoration-color:var(--hero-text-2);text-underline-offset:.25em}
+.now-fresh-link{display:inline-flex;align-items:center;min-height:24px;color:inherit;text-decoration:underline dotted}
 .now-fresh-link:hover{color:var(--hero-text)}
 .now-fresh .btn{min-height:2.25rem;padding:.25rem .75rem}
-
-/* The band bars: a mono label that links to the metric's Graphs panel (its link covers the row), the bar, the value, then the band; a verdict word only out of band. */
+/* The two gauges: a mono label that links to the metric's Graphs panel (its link covers the row), the bar, the value, then the relation and the band in words. */
 .now-bands{display:grid;gap:var(--space-1);margin:0;padding:0;list-style:none}
-.now-band{position:relative;display:grid;grid-template-columns:2.75rem minmax(5rem,1fr) 5.5rem minmax(0,10.5rem);align-items:center;gap:0 var(--space-3);min-height:2.25rem;margin:0 calc(-1 * var(--space-2));padding:0 var(--space-2);border-radius:var(--radius-sm)}
+.now-band{position:relative;display:grid;grid-template-columns:2.75rem minmax(5rem,1fr) 5.5rem minmax(0,10.5rem);align-items:center;gap:var(--space-3);min-height:2.25rem;padding:0 var(--space-1);border-radius:var(--radius-sm)}
 .now-band:hover{background:color-mix(in srgb,var(--hero-text) 8%,var(--hero))}
 .now-band-label{display:inline-flex;align-items:center;min-height:24px;font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--hero-accent);text-decoration:none}
 .now-band-label::after{content:"";position:absolute;inset:0;border-radius:inherit}
 .now-band:hover .now-band-label{text-decoration:underline}
 .now-band-bar{min-width:0}
-.now-band-value{font-size:var(--fs-md);font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;color:var(--hero-text)}
-.now-band-meta{min-width:0;font-size:var(--fs-sm);color:var(--hero-text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.now-band-value{font-size:var(--fs-md);font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;text-align:right}
+.now-band-meta{min-width:0;font-size:var(--fs-sm);color:var(--hero-text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .now-off{font-weight:600;color:var(--warn-text)}
 .hero .now-off{color:var(--warn)}
-/* Muted (stale or not reporting), the group says when its numbers were read, in amber words as the STALE pill and the dot do. */
-.now-bands-asof{margin:0;font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--warn)}
-
-/* Time in band today against yesterday: a mono label and two shares, only with data. */
-.now-tib{min-height:1.5em;margin:var(--space-1) 0 0;font-size:var(--fs-sm);color:var(--hero-text-2);font-variant-numeric:tabular-nums}
-.now-tib-label{margin-right:var(--space-2);font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--hero-accent)}
-.now-tib strong{font-weight:600;color:var(--hero-text)}
-.now-tib.value-muted strong{color:var(--hero-text-2)}
-
-/* The status line: quiet phrases separated by middle dots; Iris turns amber when its newest required trigger was late, missed or failed. */
-.now-status{--now-sep:calc(var(--space-2) * 2 + .4em);grid-area:status;display:flex;flex-wrap:wrap;align-items:center;column-gap:var(--now-sep);clip-path:inset(-1rem -1rem -1rem -5px);min-height:calc(1.75rem + var(--space-3));margin:0;padding:var(--space-3) 0 0;list-style:none;border-top:1px solid color-mix(in srgb,var(--hero-text-2) 22%,transparent);font-size:var(--fs-sm);color:var(--hero-text-2)}
-/* #1322: the items sit a column gap apart, and each one draws its "·" centred in the gap before it (outside its own
-   box). The item that starts a line (the first, or one that wrapped) draws its "·" left of the list's edge, where the
-   clip-path hides it; 5 px of the left edge stay inside the clip for the 2 px focus ring and its 2 px offset. */
-.now-status>li{position:relative;display:flex;align-items:center;min-width:0}
-.now-status>li::before{content:"·" / "";position:absolute;top:0;bottom:0;right:100%;display:flex;align-items:center;justify-content:center;width:var(--now-sep);color:var(--hero-text-2)}
-.now-status-item{display:inline-flex;align-items:center;min-height:24px;color:var(--hero-text);text-decoration:none}
-a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
-.now-status-static{color:var(--hero-text-2)}
-.now-status-item[data-tone=warn]{font-weight:600;color:var(--warn)}
-.now-readings{grid-area:readings}
+.now-bands-asof{margin:0;font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--hero-text-2)}
+.now-band-source{margin:0;font-size:var(--fs-xs);color:var(--hero-text-2)}
+.now-plain{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-5);margin:0;font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+.now-plain>div{display:flex;gap:var(--space-2);align-items:baseline;min-width:0}
+.now-plain dt{font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--hero-text-2)}
+.now-plain dd{margin:0;color:var(--hero-text)}
+.now-plain.value-muted dd{color:var(--hero-text-2)}
+/* All readings: the AI snapshot as a labelled paragraph, then every reading with its source and time. */
+.now-readings{grid-area:readings;min-width:0}
 .now-readings-hint{font-weight:400;color:var(--hero-text-2)}
 .now-readings-list{margin:var(--space-2) 0 var(--space-3)}
+.now-snapshot{display:grid;gap:var(--space-1);margin:var(--space-2) 0 0;max-width:62ch;font-size:var(--fs-sm);line-height:1.5;color:var(--hero-text)}
+.now-snapshot p{margin:0}
+.now-snapshot-label{color:var(--hero-text-2)}
+.now-snapshot.value-muted{color:var(--hero-text-2)}
+.now-snapshot-mark{font:500 var(--fs-xs)/1.2 var(--mono);color:var(--hero-text-2)}
 .hero .kv dt{color:var(--hero-text-2)}
 .hero .kv dd{color:var(--hero-text)}
 .hero .skeleton{background:color-mix(in srgb,var(--hero-text-2) 16%,transparent)}
 .now-skeleton-value{min-height:6.25rem;margin-top:var(--space-2)}
 .now-skeleton-bands{min-height:8.5rem}
-.now-skeleton-status{grid-column:1/-1;min-height:2.5rem}
 
-/* Quick actions (operators): Stop all water first, then the three bursts, each a name over its length on a phone. */
-.now-actions{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-2) var(--space-5)}
-.now-stop{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3)}
-.now-bursts{display:flex;flex-wrap:wrap;gap:var(--space-2)}
-.now-burst{display:grid;gap:var(--space-1);justify-items:start;min-width:0}
-.now-burst .state-note,.now-burst .field-error{font-size:var(--fs-xs)}
-.now-bursts-skeleton{width:min(100%,24rem);min-height:var(--tap)}
-.now-actions-note{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);min-height:var(--tap);margin:0}
-.now-actions-term{align-self:center;margin:0}
-/* The lights (#1342): after the bursts, each light's name and state over its buttons; the link to Equipment's Lights under them. */
-.now-lights{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-2) var(--space-5)}
-.now-light{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-3);min-width:0}
-.now-light-head{margin:0;font-size:var(--fs-sm);font-weight:600}
-.now-light .light-actions{margin:0}
-.now-light .state-note,.now-light .field-error{flex-basis:100%;margin:0;font-size:var(--fs-xs)}
-.now-lights-more{align-self:center;margin:0}
+/* What the controller is doing: the law's sentences, then a chip per relay that is on. */
+.now-doing-text{margin:0;font-size:var(--fs-md);line-height:1.45;max-width:62ch}
+.now-relays{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:var(--space-3) 0 0;padding:0;list-style:none}
+.chip-static{cursor:default;white-space:normal;min-height:2rem}
 
 /* The alert row (redesign §5.8), on Now and Activity: an ObjectRow with its severity rule and word first, the place and when, the message, then Acknowledge with its note. */
 .alert-list{margin:0;padding:0;list-style:none}
@@ -110,15 +80,16 @@ a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
 .alert-ack .ack-note .field{max-width:28rem;margin:var(--space-1) 0 0}
 .alert-ack .field-error{flex-basis:100%;margin:0}
 
-/* Needs someone: the alerts, a mister's fault and the settings not confirmed, in one list card. */
+/* Needs you: a late or failed review, a waiting proposal, the alerts, a mister's fault and the settings not confirmed, in one list card. */
 .now-needs-note{margin:0 0 var(--space-2)}
 .alert-list+.alert-list>li:first-child{border-top:1px solid var(--border)}
 .now-fault .object-row-state{font-size:var(--fs-sm);color:var(--text-2)}
 .now-breach-note{margin:var(--space-1) 0 0}
 .now-unconfirmed{margin:var(--space-2) 0 0;padding-top:var(--space-3);border-top:1px solid var(--border)}
 .now-unconfirmed a{display:inline-flex;align-items:center;min-height:24px;font-weight:700;text-decoration:none}
+.now-review-rows .object-row-state{font-size:var(--fs-sm);color:var(--text-2)}
 
-/* Water today: the daily mist & fog limit (SAF-4, the primary daily limit) first, then a row per zone, its minutes against the cap and when it last got water, and the flow. */
+/* Water today: the daily mist & fog limit (SAF-4, the primary daily limit) first, then a row per zone, its minutes against the cap and when it last got water, the flow, the next run and occupancy. */
 .now-water-zones{display:grid;gap:var(--space-2);margin:0;padding:0;list-style:none;container-type:inline-size}
 .now-water-row{display:grid;grid-template-columns:3.75rem minmax(0,1fr) minmax(0,9.5rem);align-items:center;gap:var(--space-1) var(--space-3);min-height:1.75rem}
 .now-water-name{font-size:var(--fs-sm);font-weight:600}
@@ -136,7 +107,7 @@ a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
 .now-water p{margin:var(--space-3) 0 0}
 .now-water-flow{font-size:var(--fs-sm)}
 .now-water-flow.fault{font-weight:600}
-/* In a narrow card (a phone, or the pair below 1100 px) when it last got water goes under the meter. */
+/* In a narrow card (a phone, or the side by side columns) when it last got water goes under the meter. */
 @container (max-width:28rem){
   .now-water-row{grid-template-columns:3.5rem minmax(0,1fr)}
   .now-water-last{grid-column:2;white-space:normal}
@@ -147,25 +118,11 @@ a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
   .now-water-sep{display:none}
 }
 
-/* Running and next: what runs now as chips with a dot in the equipment's token, then the track from 861 px or the two lists below it. */
+/* Today: the two linked charts, what ran, then Coming up. */
+.now-tib{font-size:var(--fs-sm);color:var(--text-2);font-variant-numeric:tabular-nums}
+.now-today-charts{display:grid;gap:var(--space-3);min-width:0;margin-bottom:var(--space-3)}
 .now-sub{margin:0 0 var(--space-2);font-size:var(--fs-sm);font-weight:620;color:var(--text)}
-.now-next-now{margin-bottom:var(--space-4)}
-.now-running{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:0;padding:0;list-style:none}
-.now-chip{display:inline-flex;align-items:center;gap:var(--space-2);min-height:2.25rem;padding:.3rem .8rem;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:var(--fs-sm);line-height:1.3}
-.now-chip-action{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
-.now-running-note{margin:0}
-.now-dot{flex:none;width:.55rem;height:.55rem;border-radius:50%;background:var(--text-2)}
-.now-dot[data-token=eq-heat1]{background:var(--eq-heat1)}.now-dot[data-token=eq-heat2]{background:var(--eq-heat2)}.now-dot[data-token=eq-vent]{background:var(--eq-vent)}
-.now-dot[data-token=eq-fan1]{background:var(--eq-fan1)}.now-dot[data-token=eq-fan2]{background:var(--eq-fan2)}.now-dot[data-token=eq-fog]{background:var(--eq-fog)}
-.now-dot[data-token=eq-mister]{background:var(--eq-mister)}.now-dot[data-token=eq-water]{background:var(--eq-water)}.now-dot[data-token=eq-fert]{background:var(--eq-fert)}
-.now-dot.is-neutral{background:var(--text-2)}
-.now-track{min-height:21rem}
-/* The row names read in full (#1340): they wrap rather than cut. */
-.now-track .tt-label{overflow:visible;text-overflow:clip;white-space:normal;line-height:1.15}
-.now-track-caption{font-weight:400;color:var(--text-2)}
-.now-track .tt-track{overflow:hidden}
-/* A marker's words stop where the next marker, span or the now rule starts (TimeTrack's --tt-room), so the plan's row keeps the height of the others. */
-.now-next{display:none}
+.now-next{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border)}
 .now-next-list{margin:0;padding:0;list-style:none}
 .now-next-item{display:grid;grid-template-columns:3.5rem minmax(0,1fr);gap:var(--space-3);padding:var(--space-2) 0;border-top:1px solid var(--border);font-size:var(--fs-sm)}
 .now-next-item:first-child{border-top:0}
@@ -173,12 +130,32 @@ a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
 .now-next-skipped .now-next-what{color:var(--text-2)}
 .now-next-failed{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:0 0 var(--space-2)}
 .now-skeleton-list{min-height:8rem}
-.now-skeleton-chips{min-height:2.25rem}
 .now-later{margin:var(--space-3) 0 0;padding-top:var(--space-3);border-top:1px solid var(--border)}
 .now-later-label{margin-right:var(--space-2);font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
 
-/* The zone strip: five tiles, each its values, a band bar of its VPD and a 24 h sparkline; the title's link covers the tile. */
-/* One card (redesign §5.1): the tiles have no frame of their own; 1 px dividers part the columns (rows on a phone), a --surface-2 wash marks the one under the pointer, and a zone out of band keeps its 3 px amber rule. The strip reaches into the card's padding by its tiles' own, so their words line up with the card's head. */
+/* Run by hand (shared with Equipment): each run its name and what it does, its time left while it runs, and Start or Stop. */
+.run-list{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.run-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3) 0;border-bottom:1px solid var(--border)}
+.run-row[data-running]{box-shadow:inset 3px 0 0 var(--accent);padding-left:var(--space-3)}
+.run-what{display:grid;gap:var(--space-1);min-width:0}
+.run-name{font-weight:600}
+.run-left{font-size:var(--fs-sm);font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.run-start,.run-stop{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--space-1) var(--space-2);flex-shrink:0;max-width:60%}
+.run-start .state-note,.run-start .field-error,.run-stop .state-note,.run-stop .field-error{flex-basis:100%;margin:0;font-size:var(--fs-xs);text-align:right}
+.run-restart{margin-top:var(--space-3)}
+/* The lights (#1342), under the runs on Now: each light's name and state over its buttons, then the link to Lights. */
+.now-lights{display:grid;gap:var(--space-3);margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--border)}
+.now-light{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-3);min-width:0}
+.now-light-head{margin:0;font-size:var(--fs-sm);font-weight:600}
+.now-light .light-actions{margin:0}
+.now-light .state-note,.now-light .field-error{flex-basis:100%;margin:0;font-size:var(--fs-xs)}
+.now-lights-more{margin:0}
+
+/* Stop all water: under the water card; pinned above the bottom bar at 860 px and below (experience.css). */
+.now-stop{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);margin-top:var(--space-3)}
+
+/* Probes: five tiles, each its values, a 24 h VPD sparkline and its relation to the one house band; the title's link covers the tile. */
+.now-probes-note{margin:0 0 var(--space-2)}
 .now-zones{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;margin:0 calc(-1 * var(--space-3));padding:0;list-style:none}
 .now-zone{position:relative;display:grid;align-content:start;gap:var(--space-2);min-width:0;padding:var(--space-3);background:var(--surface)}
 .now-zone:hover{background:var(--surface-2)}
@@ -190,11 +167,7 @@ a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
 .now-zone-link{display:inline-flex;align-items:center;min-height:24px;color:var(--text);text-decoration:none}
 .now-zone-link::after{content:"";position:absolute;inset:0}
 .now-zone-link:hover{color:var(--accent);text-decoration:underline}
-.now-zone-tag{font:400 var(--fs-xs)/1.3 var(--mono);letter-spacing:.08em;color:var(--text-2)}
-.now-zone-tag-news{font-weight:600;color:var(--warn-text)}
-/* The band bar and the sparkline are both the zone's VPD: one mono label beside them names the two, as the hero's labels name its bars. */
-.now-zone-viz{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:var(--space-2)}
-.now-zone-viz-label{grid-row:span 2;align-self:start;font:400 var(--fs-xs)/16px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
+.now-zone-tag{font-size:var(--fs-xs);color:var(--text-2)}
 .now-zone-values{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-3);margin:0}
 .now-zone-value{font-size:var(--fs-lg);font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .now-zone-meta{margin:0;font-size:var(--fs-xs)}
@@ -203,25 +176,16 @@ a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
   .now-zone:nth-child(even){border-left:0}
   .now-zone+.now-zone{border-top:1px solid var(--border)}
 }
-@media(min-width:861px){
-  .now-zones{grid-template-columns:repeat(5,minmax(0,1fr))}
-  .now-zone:nth-child(n){border-top:0}
-  .now-zone+.now-zone{border-left:1px solid var(--border)}
-}
 
-/* The burst panel, shared with Equipment (SCR-07): the buttons, Clear, More actions and what runs. A burst's button reads the same on Now and Equipment: its name bold, its length muted. */
-.burst-length{font-weight:500;color:var(--text-2)}
-.burst-button:hover .burst-length{color:inherit}
-.chip-static{cursor:default;white-space:normal;min-height:2rem}
-.skeleton-chips{min-height:2.75rem}
-.burst-body{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem}
-.burst-body>*{margin:0}
-.burst-body>.skeleton,.burst-body>.panel-error{flex:1 1 100%}
-.burst-actions .state-note,.burst-actions .field-error{flex-basis:100%}
-.burst-more{margin-left:auto}
-.burst-more[open]{flex:1 1 100%;margin-left:0}
-.burst-more[open] .burst-actions{margin-top:.5rem}
-.burst-running{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem}
+/* The daily review and the reservoir. */
+.now-review-text{margin:var(--space-2) 0 0;max-width:62ch;line-height:1.5}
+.reservoir-now{padding-block:var(--space-4)}
+.reservoir-now [data-stale=true] .meta{color:var(--warn-text)}
+/* Compact measured values keep current conditions and operator actions together. */
+.reservoir-now .hydro-readings>div{background:transparent;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:.65rem 0}
+.reservoir-now .hydro-readings dt{text-transform:none}
+.reservoir-now .hydro-readings dd{margin:.25rem 0;font-size:1.4rem}
+.reservoir-now .hydro-readings .meta{margin-top:.2rem}
 
 /* ---------------------------------------------------------------- Activity → Alerts */
 /* The page is a .page stack: the alert groups at the card gap, then Recent activity. */
@@ -290,33 +254,23 @@ a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
 
 /* ---------------------------------------------------------------- Phones (860 px and below) */
 @media(max-width:860px){
-  .now-head,.now-pair,.act-groups{gap:var(--space-3)}
+  .act-groups{gap:var(--space-3)}
   .now-fresh .btn,.act-csv,.act-unavailable .btn{min-height:var(--tap)}
-  .act-resolved-none a{min-height:var(--tap)}
-  .now-hero{grid-template-columns:minmax(0,1fr);grid-template-areas:"main" "climate" "status" "readings";gap:var(--space-3);padding:var(--space-4)}
-  .now-hero .hero-temp{font-size:2.75rem}
+  .now-hero{grid-template-columns:minmax(0,1fr);grid-template-areas:"main" "climate" "readings";gap:var(--space-3);padding:var(--space-4)}
   .now-hero .hero-meta{font-size:var(--fs-sm)}
-  .now-fresh-link,.now-condition-link,.now-band-label,.now-status-item,.now-zone-link,.now-unconfirmed a,.alert-open,.alert-graph a,.act-plan>summary{min-height:var(--tap)}
+  .now-fresh-link,.now-condition-link,.now-band-label,.now-zone-link,.now-unconfirmed a,.alert-open,.alert-graph a,.act-plan>summary{min-height:var(--tap)}
   .now-band{grid-template-columns:2.5rem minmax(0,1fr) auto;gap:0 var(--space-2);min-height:var(--tap)}
   .now-band-meta{grid-column:2/-1}
   .now-band-range{display:none}
   .now-band-meta:not(:has(.now-off,.now-band-why)){display:none}
-  .now-status{padding-top:var(--space-1)}
-  .now-sr-phone{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .now-readings-hint{display:none}
-  .now-actions{display:grid;grid-template-columns:minmax(0,1fr)}
-  .now-stop .btn{width:100%;min-height:3rem}
-  .now-bursts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
-  .now-burst{justify-items:stretch}
-  .now-burst-button{flex-direction:column;gap:0;width:100%;min-height:3rem;padding:var(--space-1) var(--space-2);line-height:1.2}
-  .now-burst-button .burst-length{font-size:var(--fs-xs)}
-  .now-lights{display:grid;grid-template-columns:minmax(0,1fr)}
+  .now-doing-text{font-size:var(--fs-sm)}
+  .run-row{align-items:flex-start}
+  .run-start .btn,.run-stop .btn{min-height:var(--tap)}
   .now-light{display:grid;gap:var(--space-1)}
   .now-light .light-actions .btn{flex:1 1 0}
-  .now-chip{min-height:var(--tap)}
-  .now-running{display:grid;justify-items:start}
-  .now-track{display:none}
-  .now-next{display:block}
+  .now-stop .btn{width:100%;min-height:3rem}
+  .act-resolved-none a{min-height:var(--tap)}
   .act-facets{display:none}
   .act-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .act-fields>.act-select{display:flex}
@@ -328,84 +282,4 @@ a.now-status-item:hover{color:var(--hero-accent);text-decoration:underline}
   .act-entry-what{grid-column:1/-1}
   .act-entry-outcome{grid-column:3;grid-row:1}
   .act-entry .event-reason{display:block;margin-left:0}
-}
-
-/* Operator actions: purpose, effect, then the bounded action. */
-.now-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-5)}
-.now-stop{grid-column:1/-1;justify-self:start}
-.now-action-group{border-top:1px solid var(--border);padding-top:var(--space-4);min-width:0}
-.now-action-group>h3{margin:0 0 var(--space-3)}
-.now-bursts{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
-.now-burst{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3) 0;border-bottom:1px solid var(--border)}
-.now-burst h4,.now-burst p{margin:0}
-/* NOW-CARDS: the heater note stays on the fan cards; two lines at most keep the row, and Needs someone, in the first
-   screen at 1440 x 900 (e2e/now.spec.ts). The full text is in the title. */
-.now-burst-detail{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
-.now-burst .btn{flex-shrink:0;min-width:7rem}
-.now-actions-term{margin-top:var(--space-3)}
-.now-lights{display:grid;gap:var(--space-4)}
-.now-next{display:block;margin-top:var(--space-5);border-top:1px solid var(--border);padding-top:var(--space-4)}
-.now-track{min-height:0;min-width:0;max-width:100%;display:block;overflow:auto}
-.now-track .tt{min-width:35rem;--tt-label:10rem}
-@media(max-width:860px){.now-actions{grid-template-columns:minmax(0,1fr)}.now-burst-button{width:auto;flex-direction:row}.now-stop{justify-self:stretch}}
-
-.plan-settings-table{overflow:auto;margin-top:var(--space-4)}
-.plan-settings-table table{width:100%;border-collapse:collapse;text-align:left;min-width:42rem}
-.plan-settings-table th,.plan-settings-table td{padding:var(--space-3);border-bottom:1px solid var(--border);vertical-align:top}
-.plan-settings-table thead{background:var(--surface-2)}
-.plan-settings-table td>.meta{display:block}
-.plan-change-list{list-style:none;padding:0;margin:0;display:grid;gap:var(--space-2)}
-.plan-change-list li{display:grid;grid-template-columns:8rem minmax(0,1fr);gap:var(--space-2)}
-.plan-change-list .meta{display:block}
-
-.plan-settings-table caption{text-align:left;padding-bottom:var(--space-3);color:var(--text-2)}
-.plan-settings-table .plan-status{position:static;white-space:normal}
-.reservoir-now{padding-block:var(--space-4)}
-.reservoir-now [data-stale=true] .meta{color:var(--warn-text)}
-
-@media(min-width:1200px){
-  .now-head{display:grid;grid-template-columns:minmax(0,2fr) minmax(17rem,1fr);gap:var(--space-5);align-items:start}
-  .now-head>.now-actions{grid-column:1/-1}
-  .now-head>.reservoir-now{border-left:1px solid var(--border);padding-left:var(--space-5)}
-  .now-head .hydro-readings{grid-template-columns:1fr;margin-block:var(--space-3)}
-}
-@media(max-width:1199px){.now-head{display:flex;flex-direction:column}.now-head>.now-actions{order:2;width:100%}.now-head>.reservoir-now{order:3;width:100%}}
-
-/* Compact measured values keep current conditions and operator actions together. */
-.reservoir-now .hydro-readings>div{background:transparent;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:.65rem 0}
-.reservoir-now .hydro-readings dt{text-transform:none}
-.reservoir-now .hydro-readings dd{margin:.25rem 0;font-size:1.4rem}
-.reservoir-now .hydro-readings .meta{margin-top:.2rem}
-
-.now-actions,.now-action-group{min-width:0}
-@media(max-width:600px){.now-burst{align-items:flex-start}.now-burst>div{min-width:0}.now-burst .btn{font-size:var(--fs-sm);padding-inline:var(--space-2)}}
-
-@media(max-width:600px){
-  .plan-settings-table table{min-width:0}
-  .plan-settings-table caption{display:block;white-space:normal}
-  .plan-settings-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-  .plan-settings-table tbody,.plan-settings-table tr,.plan-settings-table th,.plan-settings-table td{display:block;width:100%}
-  .plan-settings-table tbody tr{padding:var(--space-3) 0;border-bottom:1px solid var(--border)}
-  .plan-settings-table tbody th,.plan-settings-table td{border:0;padding:var(--space-2) 0}
-  .plan-settings-table td::before{content:attr(data-label);display:block;color:var(--text-2);font-size:var(--fs-xs);margin-bottom:var(--space-1)}
-  .plan-change-list li{grid-template-columns:7rem minmax(0,1fr)}
-}
-@media(min-width:1200px){
-  .now-head>.now-hero{padding:var(--space-4);gap:var(--space-3);grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}
-  .now-head>.now-hero .hero-temp{font-size:3.25rem}
-  .now-head .now-snapshot:not([data-open]) .now-snapshot-text{-webkit-line-clamp:2;line-clamp:2}
-  .now-head .now-snapshot-more{min-height:24px}
-  .now-actions{grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--space-3)}
-  .now-bursts{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3)}
-  .now-burst{flex-direction:column;align-items:stretch;gap:var(--space-2);padding:0;border:0}
-  .now-burst .btn{font-size:var(--fs-sm);padding-inline:var(--space-2)}
-  .now-lights{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-3)}
-}
-
-.plan-setting-link{display:inline-flex;align-items:center;min-height:44px}
-@media(min-width:1200px){
-  .now-page{gap:var(--space-5)}
-  .now-head>.reservoir-now{padding-block:0}
-  .now-head .hydro-readings>div{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:0 var(--space-3);padding:.5rem 0}
-  .now-head .hydro-readings dd{text-align:right;margin:0}
 }

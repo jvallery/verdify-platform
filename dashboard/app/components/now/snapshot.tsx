@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: MIT
 /**
- * The greenhouse snapshot (#1346): one paragraph in the hero, after the measured value and its freshness, written by the
- * local Cortex model (Qwen) from the current conditions every 15 minutes or on a change (API-02 `snapshot`). Its author,
- * time and the AI text mark (D-UX-07) follow the text.
+ * The greenhouse snapshot (#1346; dashboard v2 screens §1 block 7): a labelled paragraph inside the hero's "All readings",
+ * written by the local Cortex model from the current conditions (API-02 `snapshot`), with its author, time and the AI
+ * mark. It explains; it never answers: the hero's answer and the controller's sentence stand without it.
  *
- * Fallback: stale (older than two cadences, or a later attempt failed) reads muted with "as of HH:MM"; outdated (a band
- * verdict or the alerts changed since it was written) and anything older than 2 h never show, so the deterministic
- * status line stands alone. The page's own muting (stale readings, the API down) mutes it too.
- *
- * The text previews two lines on phones and three on wider screens, with "Read all" at every size.
- * The full text stays in the page (the clamp is visual only), while measured state and quick controls stay prominent.
+ * Stale (older than two cadences, or a later attempt failed) reads muted with "as of HH:MM"; outdated (the band verdict
+ * or the alerts changed since it was written) and anything older than 2 h never show. The page's own muting mutes it too.
  */
-import { useId, useState } from "react";
 import type { Now } from "../../lib/operator-api";
 import { LocalTime, cls } from "../common";
 
 export const SNAPSHOT_AUTHOR = "Qwen (Cortex)";
+export const SNAPSHOT_LABEL = "AI snapshot";
 /** The server stops serving a snapshot after 2 h; a Now held through an outage is checked against the clock too. */
 export const SNAPSHOT_HIDE_AFTER_MS = 2 * 60 * 60 * 1000;
 
@@ -30,21 +26,17 @@ export function snapshotState(snapshot: Snapshot | null | undefined, clockMs: nu
 }
 
 export function NowSnapshot({ snapshot, clock, muted }: { snapshot: Snapshot | null | undefined; clock: number; muted: boolean }) {
-  const [open, setOpen] = useState(false);
-  const textId = useId();
   const state = snapshotState(snapshot, clock);
   if (!state || !snapshot) return null;
   const quiet = muted || state === "stale";
-  return <p className={cls("now-snapshot", quiet && "value-muted")} data-snapshot={quiet ? "stale" : "fresh"} data-open={open || undefined}>
-    <span className="now-snapshot-text" id={textId}>{snapshot.text}</span>{" "}
-    <span className="now-snapshot-mark">
+  return <div className={cls("now-snapshot", quiet && "value-muted")} data-snapshot={quiet ? "stale" : "fresh"}>
+    <p className="now-snapshot-label eyebrow">{SNAPSHOT_LABEL}</p>
+    <p className="now-snapshot-text">{snapshot.text}</p>
+    <p className="meta now-snapshot-mark">
       {quiet
         ? <>Written by {SNAPSHOT_AUTHOR} · as of <LocalTime at={snapshot.as_of} /></>
         : <>Written by {SNAPSHOT_AUTHOR} at <LocalTime at={snapshot.generated_at} /></>}
       {" · AI"}
-    </span>{" "}
-    <button type="button" className="now-snapshot-more" aria-controls={textId} aria-expanded={open} onClick={() => setOpen((was) => !was)}>
-      {open ? "Show less" : "Read all"}
-    </button>
-  </p>;
+    </p>
+  </div>;
 }

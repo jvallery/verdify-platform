@@ -6,7 +6,8 @@ import { useNarrow } from "./uplot-chart";
  * above 860 px, inside a `<details>` at 860 px and below, and none on a single-series chart. The swatch takes its colour
  * from the token named in `data-token` (charts.css), never from a style attribute.
  */
-export type LegendItem = { key: string; label: string; token: string; shown: boolean };
+/** `kind` draws the swatch as the line is drawn: an outdoor line dashed, a forecast dotted; a solid line by default. */
+export type LegendItem = { key: string; label: string; token: string; shown: boolean; kind?: "dashed" | "dotted" };
 
 export function Legend({ items, onToggle }: { items: readonly LegendItem[]; onToggle: (key: string) => void }) {
   const narrow = useNarrow();
@@ -14,7 +15,7 @@ export function Legend({ items, onToggle }: { items: readonly LegendItem[]; onTo
   const buttons = <ul className="chart-legend-items">
     {items.map((item) => <li key={item.key}>
       <button type="button" aria-pressed={item.shown} onClick={() => onToggle(item.key)}>
-        <span className="chart-swatch" data-token={item.token.replace(/^--/, "")} aria-hidden="true" />{item.label}
+        <span className="chart-swatch" data-token={item.token.replace(/^--/, "")} data-kind={item.kind} aria-hidden="true" />{item.label}
       </button>
     </li>)}
   </ul>;

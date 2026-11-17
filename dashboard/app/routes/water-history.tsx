@@ -17,8 +17,9 @@ import { Sparkline } from "../components/data/sparkline";
 import { lineLabel } from "../components/forms";
 import { useClockValue, useHydrated } from "../components/freshness";
 import { SectionHeader } from "../components/layout/section-header";
-import { PanelError } from "../components/panel";
+import { PanelError, PanelErrorBoundary } from "../components/panel";
 import { Table, type TableColumn } from "../components/table";
+import { RecordWater } from "../components/water/record-water";
 import { dateShift, daySpan, localDayStart } from "../lib/format";
 import { runGraphUrl } from "../lib/graph-link";
 import { LINES } from "../lib/lines";
@@ -312,7 +313,8 @@ function RunsSection({ names, today, days, purpose, search, setSearch }: {
  * SCR-04 History (`/water/history`, redesign §5.4): which history (`purpose`, #1348: irrigation by default, or the climate
  * mist and fog, so fog and VPD pulses never bury the watering), one period for the page (`range=7d|30d|90d|365d`), Group by
  * (zone, line, cause) and Measure (minutes, gallons), all in the URL; then the KPIs against the previous equal period, minutes or
- * gallons by group, daily water use and the run ledger. The period's summary is the page's status line.
+ * gallons by group, daily water use, the day's water from the daily record (API-32: wetting, crop and house, the record
+ * named as the source) and the run ledger. The period's summary is the page's status line.
  */
 export default function WaterHistory() {
   const { irrigation, setSummary } = useWaterOutlet();
@@ -364,6 +366,7 @@ export default function WaterHistory() {
       retry={{ minutes: () => void current.refetch(), runs: () => void runs.refetch() }} />
     <MinutesSection read={current} days={days} lines={lines} names={names} today={today} group={group} measure={measure} purpose={purpose} />
     <WaterUseSection days={days} names={names} search={search} />
+    <PanelErrorBoundary thing="the daily record's water"><RecordWater from={windows.current.from} to={windows.current.to} /></PanelErrorBoundary>
     <RunsSection names={names} today={today} days={days} purpose={purpose} search={search} setSearch={setSearch} />
   </div>;
 }

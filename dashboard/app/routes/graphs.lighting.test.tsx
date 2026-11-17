@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
-// Graphs → Lighting (#1357) against #1122's fixture API in process, with uPlot mocked. The fixture clock is 10:42 on
+// Lights → History (#1357, at /lights/history since dashboard v2) against #1122's fixture API in process, with uPlot mocked. The fixture clock is 10:42 on
 // 2026-11-02 (MST); the fall-back was 2026-11-01.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
@@ -12,14 +12,14 @@ import { text } from "../components/test-render";
 import type { LightingDay, LightingDays } from "../lib/operator-api";
 import { SessionProvider } from "../lib/session";
 import { NOW, advance, requests, startFixtureApi, stopFixtureApi, type FixtureApi } from "../lib/test-fixture-api";
-import GraphsLighting, { LightDays, isLightingWrite, localHour, photoperiodShades, thresholdSteps, windowNote } from "./graphs.lighting";
+import GraphsLighting, { LightDays, historyHref, isLightingWrite, localHour, photoperiodShades, thresholdSteps, windowNote } from "./graphs.lighting";
 
 vi.mock("uplot", async () => ({ default: (await import("../charts/fixtures/uplot-mock")).MockPlot }));
 
 const S = NOW / 1000;
 const HOUR = 3600;
 const iso = (epochSeconds: number) => new Date(epochSeconds * 1000).toISOString();
-const Stub = createRoutesStub([{ path: "/graphs/lighting", Component: GraphsLighting }]);
+const Stub = createRoutesStub([{ path: "/lights/history", Component: GraphsLighting }]);
 
 async function open(path: string): Promise<FixtureApi> {
   const api = startFixtureApi({});
@@ -45,6 +45,11 @@ test("local hours are the America/Denver wall clock across the fall-back; 24 is 
   expect(iso(localHour("2026-11-02", 7))).toBe("2026-11-02T14:00:00.000Z");
   expect(iso(localHour("2026-10-31", 7))).toBe("2026-10-31T13:00:00.000Z");
   expect(iso(localHour("2026-11-01", 24))).toBe("2026-11-02T07:00:00.000Z");
+});
+
+test("a window's link is this page's path with the window's query", () => {
+  expect(historyHref({ kind: "range", range: "7d" })).toMatch(/^\/lights\/history(\?|$)/);
+  expect(historyHref({ kind: "days", from: "2026-10-30", to: "2026-11-01" })).toMatch(/^\/lights\/history\?.*from=2026-10-30/);
 });
 
 test("the rail takes light switches and grow-light setting changes, nothing else", () => {
@@ -76,25 +81,25 @@ test("the ON and OFF thresholds are steps in lx per circuit, each day's readback
   ]);
 });
 
-test("light minutes by day: qualified against target, hours on and starts; today counts so far; no readback says so", () => {
+test("light minutes by day: counted of wanted, hours on and starts; today counts so far; a day not reported says so", () => {
   render(<LightDays data={data([day("2026-11-01", { qualified_min: 800 }), day("2026-11-02", { partial: true, qualified_min: 120, on_s: 5400, starts: 1 })], [day("2026-11-01", { qualified_min: null, window_min: null }), day("2026-11-02", { partial: true })])} />);
   const table = screen.getByRole("table");
   expect([...table.querySelectorAll("thead th")].map(text)).toEqual(["Light", "Nov 1", "Today"]);
   const main = table.querySelector("[data-light=main]")!;
   expect([...main.querySelectorAll("td")].map((cell) => [text(cell.querySelector(".gr-light-words")), text(cell.querySelector(".gr-light-facts")), cell.querySelector("[data-met]") !== null])).toEqual([
-    ["800 / 780 min", "9.0 h on · 2 starts", true], ["120 / 780 min", "1.5 h on · 1 start", false],
+    ["800 of 780 min", "9.0 h on · 2 starts", true], ["120 of 780 min", "1.5 h on · 1 start", false],
   ]);
-  expect(within(table.querySelector<HTMLElement>("[data-light=grow]")!).getAllByRole("img").map((bar) => bar.getAttribute("aria-label"))).toEqual(["No policy readback", "700 of 780 minutes"]);
+  expect(within(table.querySelector<HTMLElement>("[data-light=grow]")!).getAllByRole("img").map((bar) => bar.getAttribute("aria-label"))).toEqual(["Not reported", "700 of 780 minutes"]);
   cleanup();
   render(<LightDays data={null} message="Light minutes cover at most 31 days. Narrow the range to see them" />);
   expect(text(document.querySelector("p"))).toBe("Light minutes cover at most 31 days. Narrow the range to see them");
 });
 
-test("/graphs/lighting: outdoor lux and solar radiation on one stack, the light lanes and occupancy, the rail's light writes, light minutes by day and the DLI placeholder", async () => {
+test("/lights/history: outdoor lux and solar radiation on one stack, the light lanes and occupancy, the rail's light writes and light minutes by day, with no daily light integral", async () => {
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.stubGlobal("matchMedia", media({ fine: true }));
   setTokens();
-  const api = await open("/graphs/lighting");
+  const api = await open("/lights/history");
   // The 72 h + 72 h default: the panels read the past 72 h, the lanes and light minutes the same, the forecast ahead.
   const window = (path: string) => { const params = new URL(path, "http://x").searchParams; return [params.getAll("metric").join(), params.get("from"), params.get("to")]; };
   expect(requests(api, "API-04").map((row) => window(row.path))).toEqual(expect.arrayContaining([
@@ -115,13 +120,16 @@ test("/graphs/lighting: outdoor lux and solar radiation on one stack, the light 
   expect(notes).toEqual(expect.arrayContaining(["Shaded: the photoperiod window · Main 07:00–20:00 · Grow 07:00–22:00", "Occupancy turns the main lights on at any hour; the grow lights keep their photoperiod"]));
   const card = screen.getByRole("region", { name: "Light minutes by day" });
   expect(card.querySelectorAll("tbody tr")).toHaveLength(2);
-  expect(text(card)).toContain("DLI: no interior light sensor yet (#1184)");
+  expect(text(card)).not.toMatch(/DLI|[Dd]aily light integral|PPFD|[Tt]arget/);
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Light history");
+  // Every range link stays on this page.
+  expect([...document.querySelectorAll<HTMLAnchorElement>(".gr-toolbar a[href]")].map((link) => link.getAttribute("href")).every((href) => href!.startsWith("/lights/history"))).toBe(true);
   expect(text(document.querySelector(".page-status"))).toMatch(/today Main \d+ of 780 light min, Grow \d+ of 900 light min$/);
 });
 
 test("the server render draws no greenhouse data and no style attribute", () => {
   const client = new QueryClient();
-  const html = renderToString(<QueryClientProvider client={client}><SessionProvider apiDown={false}><Stub initialEntries={["/graphs/lighting"]} /></SessionProvider></QueryClientProvider>);
+  const html = renderToString(<QueryClientProvider client={client}><SessionProvider apiDown={false}><Stub initialEntries={["/lights/history"]} /></SessionProvider></QueryClientProvider>);
   expect(html).not.toMatch(/style=/);
   expect(html).not.toContain("light min");
 });

@@ -8,42 +8,29 @@
  * controller runs the firmware that takes it. The fertilizer master has no card controls: it opens only with a fertilized
  * run (#1336). A refusal keeps the dialog open with the code in words; nothing else is sent and nothing queues.
  *
- * Before the irrigation firmware only L01 runs, through the bridge, for the controller's own `irrig_wall_duration_min`:
- * no Duration field, the value read from API-09 when the dialog opens (without it the dialog names the setting only), and
- * a body of `{}` plus the optional reason. Other lines say when Run arrives. The engine flag is API-IRR-01's alone.
+ * A controller that reports no irrigation engine (API-IRR-01 `engine` false) runs nothing from here: no line offers Run.
  *
  * The dialog opens from the URL (`?run=<line_id>`, as VD-69's drawers do) and it and each line's command live in the Water
  * layout (`WaterRuns`), so a failed status read, which replaces the Board with its error, leaves an open dialog and what
  * was typed in it. A card's button opens it, and its notes come back through context.
  */
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { lineDisplayName } from "../lib/lines";
 import type { IrrigationLine, IrrigationStatus } from "../lib/operator-api";
-import { fetchRead } from "../lib/queries";
 import { OperatorOnly, useRole } from "../lib/session";
 import { boardLines, useWaterDrawer } from "../lib/water";
 import { useCommand } from "../lib/writes";
 import { Button } from "./button";
 import { ConfirmDialog, type RunBody } from "./forms/confirm-dialog";
 
-export const RUN_ARRIVES_TEXT = "Run arrives with the irrigation firmware";
-/** The API-09 row whose device value is how long the bridge's L01 run lasts (irrigation §6.5). */
-export const WALL_DURATION_PARAM = "irrig_wall_duration_min";
-/** The one line the bridge runs. */
-const BRIDGE_LINE = "L01";
-
 /**
- * What a line's card offers: Run…, Mist now…, the same button on a disabled line that enables it first ("enable"), the
- * words that Run arrives with the firmware, or nothing. A reserved line has no valve wired, so it offers nothing while off.
+ * What a line's card offers: Run…, Mist now…, the same button on a disabled line that enables it first ("enable"), or
+ * nothing. A reserved line has no valve wired, so it offers nothing while off; with no engine reported, no line offers Run.
  */
-export type RunOffer = "run" | "mist" | "enable" | "arrives" | null;
+export type RunOffer = "run" | "mist" | "enable" | null;
 export function runOffer(line: Pick<IrrigationLine, "line_id" | "kind" | "enabled" | "reserved">, engine: boolean): RunOffer {
-  if (line.kind === "master") return null;
-  // Fog runs once under the climate path's own rails once it is enabled, like any line; before the engine, nothing.
-  if (line.kind === "fog" && !engine) return null;
-  if (!engine && line.line_id !== BRIDGE_LINE) return "arrives";
-  if (!line.enabled) return engine && !line.reserved ? "enable" : null;
+  if (line.kind === "master" || !engine) return null;
+  if (!line.enabled) return line.reserved ? null : "enable";
   return line.kind === "mister" ? "mist" : "run";
 }
 /** The button's words for an offer: a mister mists, every other wet line runs. */
@@ -56,22 +43,6 @@ export const runLines = (lines: readonly IrrigationLine[]): IrrigationLine[] => 
 /** What a disabled line's button says beside it (#1343). */
 export const LINE_OFF_TEXT = "This line is off: enable it to run it";
 
-/** The row's device value from one API-09 read when `open` turns true; null until it answers, or when it has none. */
-function useWallDuration(open: boolean): number | null {
-  const client = useQueryClient();
-  const [minutes, setMinutes] = useState<number | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    let current = true;
-    fetchRead(client, "API-09", {}).then(
-      (settings) => { if (current) setMinutes(settings.items.find((row) => row.param === WALL_DURATION_PARAM)?.readback?.value ?? null); },
-      () => { if (current) setMinutes(null); },
-    );
-    return () => { current = false; };
-  }, [client, open]);
-  return minutes;
-}
-
 /** What a line's card says of its last run: the readback's note, and a refusal that answered a run the dialog was cancelled during. */
 type RunNote = { readonly note: string | null; readonly refusal: string | null };
 const RunNotes = createContext<Readonly<Record<string, RunNote>>>({});
@@ -83,7 +54,6 @@ function LineRun({ line, engine, publish }: { line: IrrigationLine; engine: bool
   const open = value === line.line_id && (offer === "run" || offer === "mist");
   const command = useCommand({ operation: "API-IRR-06" });
   const { clearError } = command;
-  const fixed = useWallDuration(open && !engine);
   // Opening starts clean, and so does closing: only a refusal that answers after the dialog closed stays on the card.
   useEffect(() => clearError(), [open, clearError]);
   const run = async (body: RunBody) => (await command.send({ line_id: line.line_id }, body)).ok;
@@ -93,7 +63,7 @@ function LineRun({ line, engine, publish }: { line: IrrigationLine; engine: bool
   const refusal = !open ? command.error?.message ?? null : null;
   useEffect(() => publish(line.line_id, { note, refusal }), [publish, line.line_id, note, refusal]);
   const fog = line.kind === "fog";
-  return open ? <ConfirmDialog open onClose={close} line={line} fixed={engine ? null : { minutes: fixed }} onRun={run} sending={command.sending} error={command.error}
+  return open ? <ConfirmDialog open onClose={close} line={line} onRun={run} sending={command.sending} error={command.error}
     bounds={fog ? FOG_RUN_BOUNDS : undefined} defaults={fog ? FOG_RUN_DEFAULTS : undefined} /> : null;
 }
 
@@ -133,9 +103,5 @@ function RunButton({ line, label, off = false }: { line: IrrigationLine; label: 
 export function RunControl({ line, engine }: { line: IrrigationLine; engine: boolean }) {
   const offer = runOffer(line, engine);
   if (offer === null) return null;
-  return <OperatorOnly>
-    {offer === "arrives"
-      ? <span className="state-note" data-arrives="run">{RUN_ARRIVES_TEXT}</span>
-      : <RunButton line={line} label={runLabel(line)} off={offer === "enable"} />}
-  </OperatorOnly>;
+  return <OperatorOnly><RunButton line={line} label={runLabel(line)} off={offer === "enable"} /></OperatorOnly>;
 }

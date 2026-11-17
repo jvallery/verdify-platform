@@ -6,7 +6,7 @@ import type { IrrigationLine } from "../lib/operator-api";
 import { useRole } from "../lib/session";
 import { boardLines, useCheckThenRun, useWaterDrawer } from "../lib/water";
 import { MANUAL_DEFAULT, errorFor, formError, useProgramWrite } from "../lib/writes";
-import { EditDrawer, FieldError, ManualToggle, Reason } from "./forms";
+import { EditDrawer, FieldError, Reason } from "./forms";
 import { useToast } from "./toast";
 
 /** What ticking Checked goes with: enabling the line, or turning its Schedule on (D-IRP-07, D-IRP-08). */
@@ -43,7 +43,7 @@ function CheckForm({ line, action, forRun, onClose }: { line: IrrigationLine; ac
   const asks = !line.check;
   const [checked, setChecked] = useState(false);
   const [note, setNote] = useState("");
-  const [manual, setManual] = useState(MANUAL_DEFAULT);
+  const manual = MANUAL_DEFAULT;
   const [reason, setReason] = useState("");
   const words = WORDS[action];
   const write = useProgramWrite("API-IRR-08", {
@@ -73,14 +73,12 @@ function CheckForm({ line, action, forRun, onClose }: { line: IrrigationLine; ac
       {boxError && <FieldError id={`${line.line_id}-checked-error`}>{boxError}</FieldError>}
       <Reason label="Note (optional)" value={note} onChange={setNote} error={errorFor(write.error, "check_note")} />
     </>}
-    <ManualToggle checked={manual} onChange={setManual} />
     <Reason value={reason} onChange={setReason} error={errorFor(write.error, "reason")} />
   </EditDrawer>;
 }
 
 /**
- * The check sheet (`?check=<line_id>`, the one edit drawer): "Checked: <the line's check>", Note, Manual (ticked) and
- * Reason. Its one action stays disabled until Checked is ticked, then sends `{enabled: true, checked: true, check_note,
+ * The check sheet (`?check=<line_id>`, the one edit drawer): "Checked: <the line's check>", Note and Reason. Its one action stays disabled until Checked is ticked, then sends `{enabled: true, checked: true, check_note,
  * manual, reason}`, or `{schedule_member: true, ...}` for a mister's Schedule; the API takes who and when from the
  * session. A viewer, or a link to a line with nothing to ask, gets no sheet.
  */

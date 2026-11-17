@@ -1,2 +1,36 @@
 /* SPDX-License-Identifier: MIT */
-/* Section: Lights (dashboard v2) */
+/* Section: Lights (dashboard v2). Lights → Lights: the two circuits, By hand, how they are switched, the settings and the last seven days. Classes use the prefix lights-; colours are tokens only. */
+
+/* ---------------------------------------------------------------- A circuit */
+.lights-circuit{display:grid;gap:var(--space-2);min-width:0}
+.lights-circuit p{margin:0}
+.lights-answer{font-size:var(--fs-lg)}
+.lights-mismatch{display:flex;align-items:flex-start;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);font-size:var(--fs-sm)}
+.lights-mismatch-warn{background:var(--warn-soft);color:var(--warn-text)}
+.lights-mismatch-info{background:var(--info-soft);color:var(--info-text)}
+.lights-mismatch>.banner-icon{margin-top:.15rem}
+.lights-timer{font-size:var(--fs-sm);color:var(--text-2)}
+.lights-today{margin:0}
+
+/* ---------------------------------------------------------------- By hand */
+.lights-hand{display:grid;gap:var(--space-4);min-width:0}
+.lights-hand-row{display:grid;gap:var(--space-2);align-content:start;min-width:0}
+.lights-hand-row h3{margin:0;font-size:var(--fs-md)}
+.lights-hand-row p{margin:0}
+.lights-hand-row .light-actions{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+
+/* ---------------------------------------------------------------- How they are switched */
+.lights-checks{display:grid;gap:var(--space-3);margin:var(--space-3) 0 0;padding:0;list-style:none}
+.lights-checks li{display:grid;gap:var(--space-1)}
+.lights-check-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font-weight:600}
+
+/* ---------------------------------------------------------------- Settings */
+.lights-settings h3{margin:0 0 var(--space-2);font-size:var(--fs-md)}
+.lights-setting-group+.lights-setting-group{margin-top:var(--space-3)}
+.lights-setting-group h4{margin:0 0 var(--space-1)}
+.lights-setting-rows{margin:0;padding:0;list-style:none;border-top:1px solid var(--border)}
+.lights-setting-rows li{border-bottom:1px solid var(--border)}
+.lights-setting{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-1) var(--space-3);min-height:var(--tap);padding:var(--space-1) var(--space-2);color:var(--text);text-decoration:none}
+.lights-setting:hover{background:var(--surface-2)}
+.lights-setting-label{min-width:0;overflow-wrap:anywhere}
+.lights-setting-value{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}

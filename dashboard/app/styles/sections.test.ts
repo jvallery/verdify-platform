@@ -33,8 +33,6 @@ test("app/styles holds exactly the fifteen stylesheets, and root.tsx loads them 
 
 test("each stylesheet opens with its licence and its section name", () => {
   for (const { name, text } of sections) expect(text, name).toMatch(/^\/\* SPDX-License-Identifier: MIT \*\/\n\/\* Section: [^*\n]+ \*\/\n/);
-  // The five sections v2 adds start empty: their header and nothing else until their screen lands.
-  for (const name of ["climate.css", "record.css", "review.css", "system.css", "lights.css"]) expect(uncommented(read(`./${name}`)).trim(), name).toBe("");
 });
 
 test("no stylesheet but tokens.css holds a colour literal, a :root or a theme rule", () => {

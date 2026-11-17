@@ -172,7 +172,7 @@ test("a disabled draft has no occurrences, as a disabled schedule has none", () 
 
 test("before the engine a draft reads as its saved blocks will, and the occurrences then planned still count against the caps", () => {
   const preview = previewSchedule(draft(), context("before-engine"));
-  expect(seen(preview)).toEqual([["07:35", "blocked", "arrives with the irrigation firmware"], ["07:35", "blocked", "arrives with the irrigation firmware"], ["07:35", "blocked", "arrives with the irrigation firmware"]]);
+  expect(seen(preview)).toEqual([["07:35", "blocked", "the controller reports no irrigation engine"], ["07:35", "blocked", "the controller reports no irrigation engine"], ["07:35", "blocked", "the controller reports no irrigation engine"]]);
   expect(row(preview, "L01")?.totals).toBe("Mon 12 · Wed 12 · Fri 12 min");
   // A stored feed's prewet and flush count too, blocked as they read.
   expect(row(previewSchedule(draft({ days: ["sun"], start: { kind: "clock", clock: "12:00" } }), context(["schedules-paused", "before-engine"])), "L01")?.totals).toBe("Mon 12 · Wed 12 · Fri 12 · Sun 18 min");

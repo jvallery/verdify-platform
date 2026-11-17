@@ -159,7 +159,7 @@ test("the agenda: a row is a button that opens its popover, NEXT on the next pla
   expect(text(document.querySelector(".sch-agenda-pauses"))).toBe("Wall drip: paused until 14:00 by jason");
   const rows = screen.getAllByRole("button");
   expect(rows.map((row) => row.getAttribute("aria-label")?.replaceAll(" ", " "))).toEqual([
-    "06:50 Center mister · 8 × 60 s, Dawn drench · ok, done", "07:35 Wall drip · 12 min, Wall MWF · ok, done", "06:50 Center mister · 8 × 60 s, Dawn drench · Iris may adjust, next",
+    "06:50 Center mister · 8 × 60 s, Dawn drench · ok, done", "07:35 Wall drip · 12 min, Wall MWF · ok, done", "06:50 Center mister · 8 × 60 s, Dawn drench, next",
   ]);
   fireEvent.click(rows[2]);
   expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ next: true, lineId: "L04" }), rows[2]);

@@ -48,7 +48,7 @@
 .chart-lanes .lanes-caption{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0 1rem;margin:0 0 .35rem}
 .chart-lanes .lanes-caption .eyebrow{margin:0}
 .lanes-columns{font:400 .72rem/1.3 var(--mono);color:var(--text-2)}
-.lanes{position:relative;--lanes-label:10rem;--lanes-stat:12rem;--lanes-pitch:20px;--lanes-axis:36px;--lanes-top:0px}
+.lanes{position:relative;--lanes-label:10rem;--lanes-stat:12rem;--lanes-pitch:20px;--lanes-axis:36px}
 .lanes-rows{list-style:none;margin:0;padding:0}
 .lanes-rows[hidden]{display:none}
 .lanes-row{display:grid;grid-template-columns:var(--lanes-label) minmax(0,1fr) var(--lanes-stat);align-items:center;height:var(--lanes-pitch);font-size:.8rem;line-height:1}
@@ -62,7 +62,6 @@
 .lanes-group-fold::after{content:" ›"}
 .lanes-group-fold[aria-expanded=true]::after{content:" ‹"}
 .lanes-axis{height:var(--lanes-axis)}
-.lanes-top{height:var(--lanes-top)}
 .lanes-canvas{position:absolute;top:0;bottom:0;left:var(--lanes-label);right:var(--lanes-stat);overflow:hidden}
 /* Inside a chart stack (redesign §7.1) the lanes draw on the panels' plot area, 56 px (STACK_AXIS_PX) from the left to 10 px from the right, so the cursor and the plots line up, with their own time axis under the rows on the panels' ticks (#1356). Each row's name and facts sit on a 16 px line (LANE_HEAD) over its track. */
 .lanes.lanes-stacked{--lanes-label:56px;--lanes-stat:10px;--lanes-axis:36px;--lanes-head:16px;--lanes-pitch:36px}
@@ -71,32 +70,13 @@
 .lanes-stacked .lanes-label,.lanes-stacked .lanes-stat{position:relative;z-index:1;padding:0 var(--space-1) 0 0;background:var(--surface);pointer-events:none}
 .lanes-stacked .lanes-label{flex:0 1 auto;min-width:0;font-weight:600}
 .lanes-stacked .lanes-stat{flex:0 1 auto;min-width:0}
-.plan-row{height:var(--lanes-pitch)}
-.plan-head{display:flex;align-items:center;gap:0;height:var(--plan-head);margin:0;font-size:.8rem;line-height:1.2;overflow:hidden;white-space:nowrap}
-.plan-label{font-weight:600;flex:none}
-.plan-sep{flex:none;margin:0 .35em;color:var(--text-2)}
-.plan-status{overflow:hidden;text-overflow:ellipsis;font:500 .72rem/1.2 var(--mono);color:var(--text)}
-.plan-line{display:flex;align-items:flex-end;height:24px;margin:0;font-size:.8rem;line-height:1.2;font-variant-numeric:tabular-nums}
-.plan-device{width:var(--lanes-label);padding:0 .5rem 2px 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.plan-row-muted,.plan-row-muted .plan-status{color:var(--text-2)}
-.lanes-plan{--lanes-stat:0px;--lanes-top:18px;--plan-head:20px;--lanes-pitch:44px;--lanes-label:6rem}
 @media(max-width:860px){
   .lanes{--lanes-label:6rem;--lanes-stat:4.5rem;--lanes-pitch:24px;--lanes-axis:28px}
   .lanes.lanes-stacked{--lanes-pitch:40px;--lanes-axis:28px}
   .lanes-group-fold{position:relative}
   .lanes-group-fold::before{content:"";position:absolute;inset:-12px 0}
   .lanes .lanes-wide,.lanes-columns .lanes-wide{display:none}
-  .lanes-plan{--lanes-stat:0px;--plan-head:36px;--lanes-pitch:60px;--lanes-label:6rem}
-  .plan-head{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal}
 }
-/* A stale device value is muted; the row end (Plan's Open) is a column beside the plot, the row's full height. */
-.plan-device-stale{color:var(--text-2)}
-.lanes-plan.lanes-plan-end{--lanes-stat:3.5rem}
-.lanes-plan-end .plan-row{display:grid;grid-template-columns:minmax(0,1fr) var(--lanes-stat);grid-template-rows:var(--plan-head) 24px}
-.lanes-plan-end .plan-head{grid-area:1/1}
-.lanes-plan-end .plan-line{grid-area:2/1}
-.plan-end{grid-area:1/2/3/3;display:flex;align-items:stretch;justify-content:flex-end;min-width:0}
-.plan-end a{display:inline-flex;align-items:center;justify-content:center;width:100%;min-height:2.75rem;font-size:.8rem;font-weight:700}
 
 /* Minutes by zone (#1127): one small bars chart per zone; the zone's label left, today and the cap right. */
 .minutes-rows{list-style:none;margin:0;padding:0}
@@ -121,6 +101,15 @@
   .minutes-row-apart .plot-bars{grid-row:3}
   .minutes-note{display:inline}
 }
+
+/* The v2 kinds (daily bars, daily stack, threshold series): heights reserved before data arrives, sm 7.5rem and md 12.5rem (§5). The daily charts are one tab stop each; a chart whose days open shows a pointer. */
+.chart .plot-fixed{position:relative;overflow:hidden;min-width:0;background:var(--surface)}
+.chart .plot-fixed-md{height:12.5rem}
+.chart .plot-fixed-sm{height:7.5rem}
+.plot-daily-pick .u-over{cursor:pointer}
+.daily-focus{border-radius:var(--radius-sm)}
+/* State lanes have no stat column: the rows' names, then the plot to the card's edge. */
+.lanes.lanes-state{--lanes-stat:0px}
 
 /* Key (marks that are not series): swatch and words; the swatch takes its token from data-token as its colour. */
 .chart-key{list-style:none;display:flex;flex-wrap:wrap;gap:.25rem 1rem;margin:.35rem 0;padding:0;font-size:.8rem;color:var(--text-2)}
@@ -166,21 +155,19 @@
 .stack-foot{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-4);margin-top:var(--space-2);font-size:var(--fs-sm);color:var(--text-2)}
 .stack-foot .button-link{min-height:2.25rem}
 
-/* The event rail (#1355): a 20 px strip over the plots, one mark per event or stack. Its icon says what kind of event it is (✎ setting, ◆ plan with its trigger, ☀ light, ▮ water, ▲ alert, △ resolved, ◇ other) and its colour who or what caused it; a stack adds "+N". Colour is the token in data-token, never alone: the key names each icon and each mark is named in words. */
+/* The event rail (#1355): a 20 px strip over the plots, one mark per event or stack. Its icon says what kind of event it is (✎ setting, ☀ light, ▮ water, ▲ alert, △ resolved, ◇ other) and its colour who or what caused it; a stack adds "+N". Colour is the token in data-token, never alone: the key names each icon and each mark is named in words. */
 .stack-rail-wrap{position:relative;margin:0 10px var(--space-1) 56px}
 .stack-rail{position:relative;height:20px;border-bottom:1px solid var(--border)}
 .rail-mark{position:absolute;top:1px;left:calc(var(--at) * 1%);display:inline-flex;align-items:center;gap:1px;min-width:14px;height:17px;min-height:0;padding:0 1px;transform:translateX(-50%);border:0;border-radius:var(--radius-sm);background:var(--surface);color:var(--text-2);font:600 12px/17px var(--mono);white-space:nowrap}
 .rail-mark:hover,.rail-mark[aria-expanded=true],.rail-mark[data-lit]{outline:1.5px solid var(--text);outline-offset:0}
 .rail-mark[data-lit]{z-index:1}
 .rail-glyph{display:inline-flex;align-items:baseline;color:var(--text-2);font:600 12px/1 var(--mono)}
-.rail-badge{font-size:9px;margin-left:1px}
 .rail-more{font:600 10px/1 var(--mono);color:var(--text)}
 
 /* The rail's key: a toggle per kind of mark in the window, its icon and its word. */
 .rail-key{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-3);margin:0 10px var(--space-1) 56px;padding:0;list-style:none;font-size:var(--fs-xs);color:var(--text-2)}
 .rail-key button{display:inline-flex;align-items:center;gap:.3rem;min-height:1.5rem;padding:0 .3rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:var(--fs-xs)}
 .rail-key button[aria-pressed=false]{color:var(--text-2);text-decoration:line-through}
-.rail-key-note{font-family:var(--mono)}
 /* What a hovered mark or row touched (#1355): its span shaded through the panels, its setting's panel and key item marked. */
 .stack-span{position:absolute;top:0;bottom:0;left:calc(var(--from) * 1%);width:calc((var(--to) - var(--from)) * 1%);min-width:2px;background:var(--text);opacity:.08}
 .stack-panel[data-lit]{box-shadow:inset 3px 0 0 var(--text)}
@@ -262,5 +249,7 @@
 [data-token=cmp-below]{--swatch:var(--cmp-below)}[data-token=cmp-above]{--swatch:var(--cmp-above)}[data-token=c-day]{--swatch:var(--c-day)}[data-token=c-night]{--swatch:var(--c-night)}
 [data-token=cause-vpd]{--swatch:var(--cause-vpd)}[data-token=cause-schedule]{--swatch:var(--cause-schedule)}[data-token=cause-prep]{--swatch:var(--cause-prep)}
 .chart-swatch[data-token]{background:var(--swatch,var(--text-2))}
+.chart-swatch[data-kind=dashed],.chart-swatch[data-kind=dotted]{height:0;border-radius:0;background:none;border-top:2px dashed var(--swatch,var(--text-2))}
+.chart-swatch[data-kind=dotted]{border-top-style:dotted}
 .chart-key-swatch[data-token]{color:var(--swatch,var(--text-2))}
 .rail-glyph[data-token]{color:var(--swatch,var(--text))}

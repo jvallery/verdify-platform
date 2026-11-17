@@ -62,7 +62,7 @@ test("a no-data day is a hatched full-height gap, never a zero bar, and today is
     [Math.round(centre(center, 6) - 24), Math.round(centre(center, 6) + 24), center.valToPos(46, "y")],
   ]);
   center.hover((center.data[0] as number[])[6], 6, 30);
-  expect(tooltip(center)).toEqual(["Nov 2 · Center", min(46), "partial", `Center mister · VPD · ${min(46)} · 3 gal`, `still planned today ${min(20)}`, `cap 120 ${"min"}`]);
+  expect(tooltip(center)).toEqual(["Nov 2 · Center", min(46), "partial", `Center mister · VPD · ${min(46)} · 3 gal`, `still scheduled today ${min(20)}`, `cap 120 ${"min"}`]);
   center.hover((center.data[0] as number[])[3], 3, 30);
   expect(tooltip(center)).toEqual(["Oct 30 · Center", "no data"]);
   expect([...container.querySelectorAll(".minutes-today")].map((cell) => cell.textContent)).toEqual([
@@ -74,7 +74,7 @@ test("a no-data day is a hatched full-height gap, never a zero bar, and today is
   expect(details.querySelector("summary")!.textContent).toBe("Data table · 35 rows");
   const centerRows = [...details.querySelectorAll(".table-wrap")[1].querySelectorAll("tbody tr")].map((row) => [...row.children].map((cell) => cell.textContent));
   expect(centerRows[3]).toEqual(["Oct 30", "—", "", "no data"]);
-  expect(centerRows[6]).toEqual(["Nov 2", min(46), `Center mister · VPD · ${min(46)} · 3 gal; still planned today ${min(20)}`, "partial"]);
+  expect(centerRows[6]).toEqual(["Nov 2", min(46), `Center mister · VPD · ${min(46)} · 3 gal; still scheduled today ${min(20)}`, "partial"]);
 });
 
 test("bars are uPlot.paths.bars stacked by cause, clean below fertilizer, each coloured as the cause table says", async () => {
@@ -142,7 +142,7 @@ test("rows share one cursor, have no drag zoom, and only the last shows the day 
   expect(created.map((plot) => plot.opts.axes![0].show)).toEqual([false, false, false, false, true]);
   const values = created[4].opts.axes![0].values as (self: unknown, splits: number[]) => string[];
   expect(values(null, [epoch("2026-10-27T06:00:00Z"), epoch("2026-11-02T07:00:00Z")])).toEqual(["Oct 27", "Nov 2"]);
-  expect([...container.querySelectorAll(".chart-key li")].map((item) => item.textContent)).toEqual(["VPD", "schedule", "run now", "feed", "prewet", "flush", "cause unknown", "no data", "partial day", "still planned today", "daily cap"]);
+  expect([...container.querySelectorAll(".chart-key li")].map((item) => item.textContent)).toEqual(["VPD", "schedule", "run now", "feed", "prewet", "flush", "cause unknown", "no data", "partial day", "still scheduled today", "daily cap"]);
   // 30 days, oldest first: one bar slot per day and the window half a day past each end.
   const month: MinutesReport = {
     ...load<MinutesReport>(minutesFixture), from: "2026-10-04",

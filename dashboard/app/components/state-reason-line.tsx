@@ -26,11 +26,12 @@ export function reasonParts(reason: StateReason | null | undefined, unit?: strin
   switch (reason.code) {
     case "clamped": {
       const value = reason.applied_value;
-      const head = value === null || value === undefined || !Number.isFinite(value) ? base : `${base} to ${applied(value, unit)}`;
+      const head = value === null || value === undefined || !Number.isFinite(value) ? base : `Changed to ${applied(value, unit)} to fit its limits`;
       return [detail ? `${head}: ${detail}` : head];
     }
     case "experiment":
-      return [detail ? `Held by experiment ${detail}: applies when it ends` : `${base}: applies when it ends`];
+      // The host held the value back; the code is the retired model's, and its detail named what held it, never shown.
+      return [`${base}: applies when the hold ends`];
     case "deferred":
     case "no_match":
       return since ? ["Sent ", { time: since }, `; ${lowerFirst(base)}`] : [base];

@@ -7,7 +7,7 @@ import { causeWords } from "./causes";
 import { csvFilename, tableCsv } from "./csv";
 import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "./data-table";
 import { labelColor, paintNow, type ChartColors, type PaintTarget } from "./draw";
-import { LANE_HEAD, LANE_PITCH, RowLabels, clipColumns, intervalText, paintHatch, rowBand, spanDuration, spanPixels, type RowLayout } from "./lanes-draw";
+import { GROUP_HEAD, LANE_HEAD, LANE_PITCH, RowLabels, clipColumns, intervalText, paintHatch, rowBand, spanDuration, spanPixels, type RowLayout } from "./lanes-draw";
 import { ChartKey, type KeyItem } from "./legend";
 import { lastAtOrBefore } from "./marks";
 import { lineKindToken } from "./palette";
@@ -306,8 +306,8 @@ export function laneEntries(model: LanesModel, open: ReadonlySet<LaneSystem>): L
   });
 }
 
-/** A group header's height in CSS px (charts.css mirrors it): its fold is a 24 px touch target (WCAG 2.5.8). */
-export const GROUP_HEAD = 24;
+/** A group header's height: lanes-draw.ts holds it for every kind of lanes. */
+export { GROUP_HEAD };
 
 /** What the canvas paints: one entry per shown line (null for a group header), each line's top, the row pitch and now. */
 export type LanesView = {

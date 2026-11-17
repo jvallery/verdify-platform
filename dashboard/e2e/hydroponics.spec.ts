@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-import { DESKTOP, PHONE, axe, expect, expectNoHorizontalScroll, fixtureRequests, load, test, useScreensClock } from "./support";
+import { DESKTOP, PHONE, WEBKIT, axe, expect, expectNoHorizontalScroll, fixtureRequests, load, test, useFixture, useScreensClock, writeControls } from "./support";
 
 for (const viewport of [DESKTOP, PHONE]) {
-  test(`${viewport.width}px: reservoir trends and all 60 editable positions share an accessible workspace`, async ({ page, request }) => {
+  test(`${viewport.width}px: the reservoir with its probe age, its trends and all 60 editable positions share an accessible workspace`, async ({ page, request }) => {
     await page.setViewportSize(viewport);
     await useScreensClock(page, request, ["hydro-live", "crops-planted"]);
     await load(page, "/hydroponics");
@@ -12,14 +12,16 @@ for (const viewport of [DESKTOP, PHONE]) {
     const spot = await page.locator('button[data-cell="EAST-HYDRO-1"]').boundingBox();
     expect(spot!.width).toBeGreaterThanOrEqual(44);
     expect(spot!.height).toBeGreaterThanOrEqual(44);
-    await page.getByRole("link", { name: "Manage planting spots ↓" }).click();
-    await expect(page.getByRole("heading", { name: "Your planting spots" })).toBeInViewport();
+    const reservoir = page.getByRole("region", { name: "Reservoir", exact: true });
+    await expect(reservoir).toContainText("The probe last reported 3 min ago");
+    await expect(reservoir).not.toContainText(/[Bb]attery|TDS|ORP/);
+    await expect(page.getByRole("heading", { name: "Planting spots" })).toBeVisible();
     await expectNoHorizontalScroll(page);
     await axe(page);
   });
 }
 
-test("changing the hydro range reads exactly the three reservoir metrics over seven days", async ({ page, request }) => {
+test("changing the hydro range reads exactly the three reservoir metrics over seven days, never a battery series", async ({ page, request }) => {
   await useScreensClock(page, request, "hydro-live");
   await load(page, "/hydroponics");
   await page.getByRole("link", { name: "7 days", exact: true }).click();
@@ -28,6 +30,7 @@ test("changing the hydro range reads exactly the three reservoir metrics over se
   const calls = await fixtureRequests(request, "API-04");
   const query = new URL(calls.at(-1)!.path, "http://fixture.invalid").searchParams;
   expect(query.getAll("metric")).toEqual(["climate.hydro_ph", "climate.hydro_ec_us_cm", "climate.hydro_water_temp_f"]);
+  expect((await fixtureRequests(request, "API-04")).some((call) => call.path.includes("battery"))).toBe(false);
   expect(Date.parse(query.get("to")!) - Date.parse(query.get("from")!)).toBe(7 * 86400000);
 });
 
@@ -58,12 +61,23 @@ test("place selection explains a location outside the hydro workspace instead of
 test("Now and Hydroponics share timestamped probe readings independent of the chart range", async ({ page, request }) => {
   await useScreensClock(page, request, "hydro-live");
   await load(page, "/");
-  const reservoir = page.getByRole("region", { name: "Reservoir now" });
-  await expect(reservoir).toContainText("1,889.0");
-  await expect(reservoir).toContainText("Updated 3 min ago");
-  await expect(reservoir).not.toContainText(/TDS|ORP/);
+  const now = page.getByRole("region", { name: "Reservoir now" });
+  await expect(now).toContainText("1,889.0");
+  await expect(now).toContainText("Updated 3 min ago");
+  await expect(now).not.toContainText(/TDS|ORP/);
   await load(page, "/hydroponics?range=30d");
+  const reservoir = page.getByRole("region", { name: "Reservoir", exact: true });
   await expect(reservoir).toContainText("1,889.0");
   await expect(reservoir).toContainText("Updated 3 min ago");
   await expect(page.locator(".stack-plot canvas")).toHaveCount(3);
+});
+
+test("a viewer reads the reservoir and the spots with no write control", WEBKIT, async ({ page, request }) => {
+  await page.setViewportSize(PHONE);
+  await useFixture(request, ["hydro-live", "crops-planted", "viewer-session"]);
+  await load(page, "/hydroponics");
+  await expect(page.getByRole("region", { name: "Reservoir", exact: true })).toContainText("pH");
+  await expect(writeControls(page)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Plant/ })).toHaveCount(0);
+  await expectNoHorizontalScroll(page);
 });
