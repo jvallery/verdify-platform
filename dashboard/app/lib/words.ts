@@ -369,6 +369,7 @@ const ALERT_TYPE = {
   wetting_below_vpd_band: "Fog or misters running in wet air",
   drying_meter_fault: "Drying meter not counting",
   relay_counters_backstep: "Relay counters went backwards",
+  relay_counter_mismatch: "Relay counters and the daily relay record disagree",
   utility_out_of_baseline: "Yesterday's utility use out of the ordinary",
   drying_refused_all_day: "Drying refused all day for cost",
   probes_disagree: "Wall temperature probes disagree",
