@@ -772,8 +772,9 @@ def owner_held_alert(rows: Sequence[Mapping]) -> dict | None:
 # `sensor_degraded_active` for 10 min, or two or more wall probes stale". "Any indoor degradation" is read here as
 # fewer than the full set of wall probes valid (Active Probe Count below 4, the firmware's count of fresh wall probes
 # behind Avg Temp, on every diagnostics row of the 10 minutes) or the case probe alone (no wall probe value in the
-# 10 minutes of climate rows). `sensor_degraded_active` itself is published by the controller but not stored by the
-# host (no entity_map row), so its humidity-invalid leg is not judged here. The page needs both held 10 minutes; the
+# 10 minutes of climate rows). `sensor_degraded_active` is stored since release 3 (diagnostics.sensor_degraded_active)
+# and pages on its own through monitoring-stack's VerdifyControllerSensorDegraded (critical, 1 for 10 minutes), so it
+# is not judged again here. The page needs both held 10 minutes; the
 # warning alone (outdoor_source_none) and the case-only page (case_sensor_only, HOST-LAW) stay as they are.
 # No row opens while a reading is absent or unknown: the newest outdoor_source row must be at most 600 s old (it is
 # stored on every receipt, every 300 s) with a value the contract names, and every diagnostics row of the window must
