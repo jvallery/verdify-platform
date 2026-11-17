@@ -14,6 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from verdify_schemas.band_profile import HOUSE_PARAMS
+from verdify_schemas.band_rows import ANCHOR_KEYS, HOUSE_SERIES
 from verdify_schemas.tunable_registry import REGISTRY
 
 REVIEW_KINDS = ("daily", "manual")
@@ -31,10 +33,11 @@ ReviewFailure = Literal[
 REVIEW_SUMMARY_MAX_CHARS = 4000
 REVIEW_TEXT_MAX_CHARS = 1000
 
-# The rows a proposal may name: the house band's crop-band rows (the band editor's rows).
-BAND_PROPOSAL_PARAMS: frozenset[str] = frozenset(
-    name for name, spec in REGISTRY.items() if spec.control_class == "crop_band"
-)
+# The rows a proposal may name: the 24 house anchors the dashboard band editor writes to crop_band_anchors
+# (``verdify_services.band_profile`` refuses any other name). One definition, shared with the editor.
+BAND_PROPOSAL_PARAMS: tuple[str, ...] = HOUSE_PARAMS
+# The same keys, written compactly enough to fit a tool refusal: band_<series>_{sr,sm,ss,mid} for each house series.
+BAND_PROPOSAL_KEYS_TEXT = ", ".join(f"band_{series}_{{{','.join(ANCHOR_KEYS)}}}" for series in HOUSE_SERIES)
 
 
 class _Model(BaseModel):
@@ -53,7 +56,10 @@ class BandProposal(_Model):
     def _band_rows_in_range(cls, anchors: dict[str, float]) -> dict[str, float]:
         for name, value in anchors.items():
             if name not in BAND_PROPOSAL_PARAMS:
-                raise ValueError(f"{name} is not a band row")
+                # The allowed keys go first so that a long name, not the list, is what a refusal's cut drops.
+                raise ValueError(
+                    f"anchors allows only the house band anchors {BAND_PROPOSAL_KEYS_TEXT}; refused: {name[:40]}"
+                )
             spec = REGISTRY[name]
             if not math.isfinite(value) or (spec.min is not None and value < spec.min):
                 raise ValueError(f"{name}={value} is below {spec.min}")
