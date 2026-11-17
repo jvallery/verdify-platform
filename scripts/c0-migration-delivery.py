@@ -525,6 +525,13 @@ SUCCESSOR_318 = "318-retire-plan-cycle-lessons.sql"
 SUCCESSOR_318_SHA256 = "58910b66c5f9bcc2b771d7b3ae43e084e122e990095bd083f60647860f9368b3"
 SUCCESSOR_318_DIGESTS = SUCCESSOR_317_DIGESTS
 SUCCESSOR_318_MCP_DIGEST = SUCCESSOR_317_MCP_DIGEST
+# Exact319 (#1770, host release 6; #1633, #1734): v_band_device_divergence's mode reads the newest diagnostics row that
+# carries a band_source. The view is in a runtime's readable set, so the seals are measured by the native probe; until
+# then the literals are 318's (fail closed). It follows 318.
+SUCCESSOR_319 = "319-band-divergence-mode-ignores-partial-rows.sql"
+SUCCESSOR_319_SHA256 = "119114ed6a343e26279eec361c99ca462c120a398f92c5e41e3845093cabee6a"
+SUCCESSOR_319_DIGESTS = dict(SUCCESSOR_318_DIGESTS)
+SUCCESSOR_319_MCP_DIGEST = SUCCESSOR_318_MCP_DIGEST
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
@@ -602,6 +609,7 @@ def reviewed_post_254(later, files=None):
         SUCCESSOR_316,
         SUCCESSOR_317,
         SUCCESSOR_318,
+        SUCCESSOR_319,
     )
     require(successors == list(reviewed[: len(successors)]), "unreviewed post-254 receipt successor")
     if successors:
@@ -668,6 +676,7 @@ def reviewed_post_254(later, files=None):
                 SUCCESSOR_316_SHA256,
                 SUCCESSOR_317_SHA256,
                 SUCCESSOR_318_SHA256,
+                SUCCESSOR_319_SHA256,
             ),
             strict=True,
         ):
@@ -973,6 +982,7 @@ COMMIT;"""
         (SUCCESSOR_316, SUCCESSOR_316_DIGESTS),
         (SUCCESSOR_317, SUCCESSOR_317_DIGESTS),
         (SUCCESSOR_318, SUCCESSOR_318_DIGESTS),
+        (SUCCESSOR_319, SUCCESSOR_319_DIGESTS),
     ):
         if name in later:
             expected["api"] = expected["api_receipt"] = digests["verdify_api_runtime_login"]
@@ -1110,6 +1120,8 @@ COMMIT;"""
             expected_mcp = SUCCESSOR_317_MCP_DIGEST
         if SUCCESSOR_318 in later:
             expected_mcp = SUCCESSOR_318_MCP_DIGEST
+        if SUCCESSOR_319 in later:
+            expected_mcp = SUCCESSOR_319_MCP_DIGEST
         if hotfix_predecessor_263:
             require(
                 mcp_state.get("mcp")

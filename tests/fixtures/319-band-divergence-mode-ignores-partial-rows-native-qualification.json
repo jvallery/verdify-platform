@@ -1,0 +1,10 @@
+{
+  "migration": "319-band-divergence-mode-ignores-partial-rows.sql",
+  "final_migration_qualification_pending": true,
+  "projection": "319 recreates v_band_device_divergence with AND d.band_source IS NOT NULL in latest_mode (#1770); columns, owner, grants and comment unchanged. The view is in the ingestor runtime's readable set, so the seals are measured by the native probe; until then the literals are 318's (fail closed).",
+  "projected_successor": {
+    "api": "956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d",
+    "ingestor": "d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  }
+}

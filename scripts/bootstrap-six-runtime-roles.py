@@ -1324,6 +1324,33 @@ def sealed_sql_318():
     )
 
 
+BAND_DIVERGENCE_MODE_MIGRATION = (
+    319,
+    "319-band-divergence-mode-ignores-partial-rows.sql",
+    "119114ed6a343e26279eec361c99ca462c120a398f92c5e41e3845093cabee6a",
+)
+# Host release 6 (#1770; #1633, #1734): v_band_device_divergence's mode reads the newest diagnostics row that carries a
+# band_source. The view is in a runtime's readable set, so the seals are measured by the native probe (record:
+# tests/fixtures/319-band-divergence-mode-ignores-partial-rows-native-qualification.json). Until then they are 318's.
+SUCCESSOR_319 = {
+    **SUCCESSOR_318,
+}
+
+
+def sealed_sql_319():
+    # Keep every 318 predicate and bind the exact 319 runner stamp with its successor seals.
+    predecessor = sealed_sql_318()
+    current = seal_profile_sql(318, SUCCESSOR_318)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(319, SUCCESSOR_319), 1)
+        + " AND "
+        + ledger_row_sql(*BAND_DIVERGENCE_MODE_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1404,6 +1431,8 @@ def sealed_sql():
         + sealed_sql_317()
         + " OR "
         + sealed_sql_318()
+        + " OR "
+        + sealed_sql_319()
         + ")"
     )
 

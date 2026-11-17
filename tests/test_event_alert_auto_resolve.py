@@ -37,9 +37,11 @@ def _load(path: Path, names: set[str]) -> dict:
 class Recorder:
     def __init__(self):
         self.calls: list[tuple[str, str]] = []
+        self.args: list[tuple] = []
 
     async def execute(self, sql, *args):
         self.calls.append(("execute", sql))
+        self.args.append(args)
 
     async def fetchrow(self, sql, *args):
         self.calls.append(("fetchrow", sql))
@@ -51,9 +53,12 @@ def _norm(sql: str) -> str:
 
 
 def test_push_failures_resolve_only_when_every_parameter_was_confirmed_since():
-    ns = _load(ALERTS, {"_RESOLVE_RECOVERED_PUSH_FAILURES_SQL", "_resolve_recovered_push_failures"})
+    ns = _load(ALERTS, {"_READBACK_MATCH", "_RESOLVE_RECOVERED_PUSH_FAILURES_SQL", "_resolve_recovered_push_failures"})
+    ns["SECOND_READBACK_ABS_TOLERANCE_PARAMS"] = frozenset({"sec_param"})
+    ns["_pushable_params"] = lambda: ["live_param", "sec_param"]
     conn = Recorder()
     asyncio.run(ns["_resolve_recovered_push_failures"](conn))
+    assert conn.args == [(["sec_param"], ["live_param", "sec_param"])]
     ((kind, sql),) = conn.calls
     sql = _norm(sql)
     assert kind == "execute"
@@ -63,9 +68,13 @@ def test_push_failures_resolve_only_when_every_parameter_was_confirmed_since():
     assert "f.details -> 'parameters'" in sql and "f.details ->> 'parameter'" in sql
     # A row naming no parameter (validation fallback) stays open.
     assert "cardinality(p.params) > 0" in sql
-    # Every parameter, not any: NOT EXISTS an unconfirmed one.
-    assert "NOT EXISTS ( SELECT 1 FROM unnest(p.params) AS q(param) WHERE NOT EXISTS" in sql
+    # Every parameter, not any: NOT EXISTS an unsettled one. A retired parameter ($2: not pushed) is settled (#1762).
+    assert (
+        "NOT EXISTS ( SELECT 1 FROM unnest(p.params) AS q(param) WHERE q.param = ANY($2::text[]) AND NOT EXISTS" in sql
+    )
     assert "s.confirmed_at > p.created_at" in sql
+    # #1762: or the readback after the alert opened equals the newest requested value.
+    assert "r.ts > p.created_at" in sql and "COALESCE(w.source, '') <> 'esp32'" in sql
 
 
 def test_alert_monitor_runs_the_push_failure_resolver_each_cycle():

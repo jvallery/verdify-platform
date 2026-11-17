@@ -170,6 +170,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_316_experiment_v2_and_shadow_drops_delivery.py
     tests/test_317_served_band_readers_and_relay_record_delivery.py
     tests/test_318_retire_plan_cycle_lessons_delivery.py
+    tests/test_319_band_divergence_mode_delivery.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py
@@ -451,6 +452,7 @@ if in_part rest; then
     tests/test_fixed_panel_native_route.py \
     tests/test_fixed_panel_native_source.py \
     tests/test_event_alert_auto_resolve.py \
+    tests/test_1762_push_failure_settled.py \
     tests/test_forecast_replay.py \
     tests/test_forecast_verification_contract.py \
     tests/test_freeze_winter_target.py \
