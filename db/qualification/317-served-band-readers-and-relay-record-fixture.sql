@@ -159,20 +159,34 @@ BEGIN
       CROSS JOIN LATERAL public.fn_house_vpd_control_band(s.ts) h
       CROSS JOIN LATERAL verdify_setpoint_server_runtime.fn_house_vpd_control_band(s.ts) w;
     IF n <> 3 OR bad <> 0 THEN RAISE EXCEPTION '317 house VPD band rows: % of % wrong', bad, n; END IF;
-    -- Yesterday stored again (the rollback undoes it): complete, with law records, and no more refused than wanted;
-    -- the meter's day present (a meter row exists since the law flash, so a day without one of its own stores 0),
-    -- never negative, flagged or not.
-    SELECT count(*) FILTER (WHERE NOT r.complete OR r.dry_refusal IS NULL
-               OR r.drying_water_g IS NULL OR r.drying_heat_wh IS NULL OR r.drying_meter_lower_bound IS NULL
+    -- Yesterday and today stored again (the rollback undoes it). The refusal record is stored only for a day that
+    -- has ended and has a law record (none before the law flash); the meter's day is present once a meter row exists
+    -- by the day's end (NULL before the first one, 0 for a quiet day after it), never negative, flagged or not. So the
+    -- check holds whenever it runs, and from the first local day after the law flash it reads both records.
+    SELECT count(*) FILTER (WHERE (d.k = 1 AND NOT r.complete)
+               OR (r.dry_refusal IS NULL) IS DISTINCT FROM (d.k = 0 OR NOT EXISTS (
+                      SELECT 1 FROM public.system_state s
+                       WHERE s.entity = 'climate_law_state'
+                         AND s.ts >= (d.day::timestamp AT TIME ZONE 'America/Denver')
+                         AND s.ts < ((d.day + 1)::timestamp AT TIME ZONE 'America/Denver')))
+               OR (r.drying_water_g IS NULL OR r.drying_heat_wh IS NULL OR r.drying_meter_lower_bound IS NULL)
+                  IS DISTINCT FROM NOT EXISTS (
+                      SELECT 1 FROM public.system_state s
+                       WHERE s.entity = 'climate_drying_meter'
+                         AND s.ts < LEAST(now(), ((d.day + 1)::timestamp AT TIME ZONE 'America/Denver')))
                OR r.drying_water_g < 0 OR r.drying_heat_wh < 0
-               OR (r.dry_refusal->>'covered_s')::numeric <= 0
-               OR (r.dry_refusal->>'wanted_s')::numeric > (r.dry_refusal->>'covered_s')::numeric
-               OR jsonb_typeof(r.dry_refusal->'refused_s') <> 'object'
-               OR (SELECT COALESCE(sum(v::numeric), 0) FROM jsonb_each_text(r.dry_refusal->'refused_s') e(k, v))
-                  > (r.dry_refusal->>'wanted_s')::numeric)
-      INTO bad
-      FROM public.fn_daily_record_store((now() AT TIME ZONE 'America/Denver')::date - 1) r;
-    IF bad <> 0 THEN RAISE EXCEPTION '317 yesterday''s refused drying is not recorded'; END IF;
+               OR (r.dry_refusal IS NOT NULL AND (
+                      (r.dry_refusal->>'covered_s')::numeric <= 0
+                   OR (r.dry_refusal->>'wanted_s')::numeric > (r.dry_refusal->>'covered_s')::numeric
+                   OR jsonb_typeof(r.dry_refusal->'refused_s') <> 'object'
+                   OR (SELECT COALESCE(sum(v::numeric), 0) FROM jsonb_each_text(r.dry_refusal->'refused_s') e(k, v))
+                      > (r.dry_refusal->>'wanted_s')::numeric))),
+           count(*) FILTER (WHERE r.dry_refusal IS NOT NULL)
+      INTO bad, n
+      FROM (VALUES (1, (now() AT TIME ZONE 'America/Denver')::date - 1),
+                   (0, (now() AT TIME ZONE 'America/Denver')::date)) AS d(k, day)
+      CROSS JOIN LATERAL public.fn_daily_record_store(d.day) r;
+    IF bad <> 0 THEN RAISE EXCEPTION '317 daily record drying rows: % bad (% with a refusal record)', bad, n; END IF;
 END $values$;
 
 -- SET SESSION AUTHORIZATION needs the superuser owner; the rollback undoes it.
