@@ -129,4 +129,11 @@ regexes = [
   '''^verdify\-t2\-api\-tunnel$''',
   '''^verdify\-t2\-lab$''',
   '''^w_1\.equipment$''',
+  # Native function-seal digests (sha256 hex) for migrations 317-319 in
+  # scripts/c0-migration-delivery.py, scripts/bootstrap-six-runtime-roles.py and
+  # tests/fixtures/31[789]-*-native-qualification.json (keys api, ingestor, mcp,
+  # verdify_api_runtime_login). Content hashes, not credentials; the pre-#1765
+  # digest shape covered them. Reviewed value-blind 2026-11-17 (VERDIFY-COORD 13:00:19Z).
+  '''^956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d$''',
+  '''^b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd$''',
 ]
