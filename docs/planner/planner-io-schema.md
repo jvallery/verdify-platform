@@ -1,5 +1,8 @@
 # The daily reviewer: inputs, outputs and what it cannot write
 
+This is the planner's input and output contract. For control, see the control document
+[`CONTROL-ARCHITECTURE.md`](../CONTROL-ARCHITECTURE.md).
+
 Iris, the Hermes agent `verdify-hermes-iris`, is the greenhouse's daily reviewer. It is woken once a day and on
 a manual request, reads the record of a day, and stores one review. It writes no climate value: the controller
 decides climate alone with the band-edge law and its compiled constants

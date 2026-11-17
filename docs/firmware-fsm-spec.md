@@ -1,5 +1,9 @@
 # Firmware Control Specification: the Band-Edge Law and its Relay Layer
 
+This is the part of the control document [`CONTROL-ARCHITECTURE.md`](CONTROL-ARCHITECTURE.md) that gives the
+state machine and its invariants; its other part is [`firmware-control-contract.md`](firmware-control-contract.md)
+(who may write what).
+
 **Scope:** what the controller does every second to the six climate relays and the climate mister pulses: its
 inputs, the band-edge law, the relay layer, the holds, the manual runs, the states with missing inputs, the gap log,
 what it publishes, and the tests that pin it. The design is
@@ -223,11 +227,12 @@ irrigation engine for one pulse at a time through `irr_vpd_grant()`:
 
 ## 7. Missing inputs
 
-### 7.1 Boot grace (`indoor_gate()`)
+### 7.1 Boot grace
 
-After a boot the controller waits for the first valid indoor temperature, at most 60 s. Meanwhile no climate relay
-is switched by the law, the label is not a sensor fault (so the irrigation engine sees none), no alert is raised and
-no state record is published; the manual runs still act. After the first valid temperature, or 60 s, a missing
+After a boot the controller waits. The boot grace ends when the indoor temperature is valid and every wall average
+the law reads was last computed over all four wall probes, or 60 seconds after boot, whichever comes first; until
+then no climate relay is switched. Meanwhile the label is not a sensor fault (so the irrigation engine sees none), no
+alert is raised and no state record is published; the manual runs still act. After the grace, a missing indoor
 temperature is the state of section 7.2 at once.
 
 ### 7.2 No valid indoor temperature (plan decision 7; `no_indoor_branch()`)

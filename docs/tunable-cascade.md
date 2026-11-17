@@ -1,3 +1,5 @@
+> **Status: history.** This describes the removed control stack. Superseded by [CONTROL-ARCHITECTURE.md](CONTROL-ARCHITECTURE.md) and [firmware-fsm-spec.md](firmware-fsm-spec.md).
+
 # Tunable Cascade — End-to-End Spec
 
 **Status:** IN PROGRESS — started 2026-04-20 pre-Jason-departure. Critical control-loop rows filled; registry coverage is now complete as of the 2026-04-27 firmware control-contract audit.

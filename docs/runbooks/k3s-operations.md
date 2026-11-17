@@ -116,8 +116,9 @@ and a `secrets.yaml` reconstructed outside the repo (mode 0600, from the `verdif
 - **Wet relays during an upload (#1276):** the upload blocks the main loop, so once the password check passes
   `ota.on_begin` closes every wet relay (L01 to L10 and fog). Fans, vent and heat keep their state until the
   reboot.
-- **What a flash resets.** The controller's relays drop at the reboot. Under the law every relay is available at
-  once after a boot except the furnace, which waits one minimum off time (300 s; not at or below 40 F). The band
+- **What a flash resets.** The controller's relays drop at the reboot. Under the law no climate relay is switched
+  until the boot grace ends (a valid indoor temperature and every wall average computed over all four wall probes,
+  or 60 s after boot, whichever comes first); then every relay is available except the furnace, which waits one minimum off time (300 s; not at or below 40 F). The band
   edges, the drying cost limit and the soft water budget are kept in the controller's flash, and the law's
   constants are compiled, so a flash loses no climate setting. The ingestor writes an OFF edge at the boot
   time for every relay it held on, and one ON edge at max(first report, boot) for every relay first reported ON

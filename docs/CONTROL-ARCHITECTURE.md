@@ -1,5 +1,9 @@
 # Greenhouse Control Architecture
 
+This is the one control document and its entry point. Its two named parts are
+[`firmware-control-contract.md`](firmware-control-contract.md) (who may write what) and
+[`firmware-fsm-spec.md`](firmware-fsm-spec.md) (the state machine and invariants).
+
 **How the band, the controller, the host and the reviewer fit together, and where each thing is changed.**
 
 Status: living reference for the system after the climate refactor (epic #1633). The ratified design is
@@ -178,7 +182,7 @@ heat carried out per kilogram of water is within the drying cost limit; it stops
 modes, no clock, season or zone branch, and no setting a planner can change.
 
 **Relay layer.** Minimum on and off times of 300 s for the heaters, fans and vent and 120 s for the fogger. Every
-relay is available at once after a boot except the furnace, which waits 300 s (at or below 40 F it starts at once).
+relay is available as soon as the boot grace ends except the furnace, which waits 300 s (at or below 40 F it starts at once).
 A fan runs only with the vent open; the furnace and the vent are never on together; the electric heater does not
 start into, and is cut by, an open vent or a running fan, except the law's own drying (including the drying run's
 vent and fan finishing their minimum on time) and the 40 F limit. The lead fan alternates per episode. At a
@@ -204,7 +208,7 @@ holds that protect equipment and water (the fertiliser master, a drip, the daily
 |---|---|
 | WiFi down | Keeps running; no restart (`wifi.reboot_timeout: 0s`). A stuck WiFi stack stays stuck until a manual restart, with the house still controlled. |
 | Ingestor, API or reviewer down | No effect on climate. |
-| Reboot | Constants compiled; anchors and the drying cost limit from flash; every relay but the furnace available at once, the furnace after 300 s; no climate relay switched until the first valid indoor temperature, for at most 60 s; fan run seconds and relay counters restored; no manual run survives. |
+| Reboot | Constants compiled; anchors and the drying cost limit from flash; every relay but the furnace available at once, the furnace after 300 s; no climate relay switched until the boot grace ends (a valid indoor temperature and every wall average the law reads computed over all four wall probes, or 60 s, whichever comes first); fan run seconds and relay counters restored; no manual run survives. |
 | Clock not trusted (no SNTP sync since boot) | The corridor band; fog and misters work. Irrigation and lighting keep their own clock tests. |
 | No outdoor data | The intake probe on the controller's own sensor bus takes over from the weather station; with neither fresh (600 s) there is no drying with outdoor air. |
 | Wall probes invalid | The case sensor, less its 1.6 F offset, for the temperature rules; fog, misters and drying hold. |

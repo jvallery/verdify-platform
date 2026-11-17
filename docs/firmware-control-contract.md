@@ -1,5 +1,8 @@
 # Firmware Control Contract
 
+This is the part of the control document [`CONTROL-ARCHITECTURE.md`](CONTROL-ARCHITECTURE.md) that says who may
+write what; its other part is [`firmware-fsm-spec.md`](firmware-fsm-spec.md) (the state machine and invariants).
+
 This document defines how a value is allowed to enter the controller's control loop, who may write it, and how its
 delivery is confirmed. The design is [`design/climate-refactor-plan-2026-11-15.md`](design/climate-refactor-plan-2026-11-15.md)
 sections 3.2, 4.4 and 7; the firmware internals are in [`firmware-fsm-spec.md`](firmware-fsm-spec.md) and the
@@ -193,7 +196,7 @@ reboot, and invalid controller time still forces both relays OFF.
 
 | Category | Where | Rule |
 |---|---|---|
-| Indoor plausibility (-20 to 140 F), wall humidity read as 100 % up to 110 %, probe staleness (300 s), boot grace (60 s), no-indoor hysteresis (1.0 F), counter save times | `firmware/lib/running_alone.h` (`running_alone_k`) | Named constants, host-tested in `firmware/test/test_running_alone.cpp` |
+| Indoor plausibility (-20 to 140 F), wall humidity read as 100 % up to 110 %, probe staleness (300 s), boot grace (at most 60 s), no-indoor hysteresis (1.0 F), counter save times | `firmware/lib/running_alone.h` (`running_alone_k`) | Named constants, host-tested in `firmware/test/test_running_alone.cpp` |
 | The doubly blind restart windows (10 and 60 minutes) | `running_alone.h` | Named there so the constants hash does not move; ratified by the owner |
 | State record cadence (5 s on change, 60 s heartbeat) | `climate_law_glue.h` | Presentation, not control |
 | Gap log format, ring size, arming and stopping gates, replay conditions | `firmware/lib/gap_log.h` | Named constants, host-tested in `firmware/test/test_gap_log.cpp` |
