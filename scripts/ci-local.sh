@@ -361,6 +361,8 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_writer_outbound_boundary.py
     tests/test_verify_component_proof_packet.py
     tests/test_writer_lease_fence.py
+    tests/test_coverage_alerts.py
+    tests/test_coverage_alerts_h3.py
   )
   case "$VALIDATE_PART" in
     pure-logic-1) shard=0 ;;
