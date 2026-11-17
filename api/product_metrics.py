@@ -30,6 +30,7 @@ execution, shared buffers hit, none read from disk):
   probes      300 s   PROBES_SQL               14.5 ms     0.8 ms    1,125
   flow        300 s   FLOW_SQL                 29.0 ms     2.2 ms    2,445
                       GAPS_SQL                  5.2 ms     0.4 ms      541
+                      UNREPLAYED_SQL           25.7 ms     9.2 ms       ~30  (production, 2026-11-17)
   compliance  300 s   COMPLIANCE_SQL            4.3 ms     0.1 ms      509
   utilities   300 s   METER_SQL                 9.0 ms     0.2 ms      848  (on energy; the view is a projection)
                       DAILY_RECORD_SQL          primary-key lookup of one row; daily_record arrives with 310, so
@@ -315,6 +316,11 @@ FAMILIES: dict[str, Family] = {
     "verdify_data_gap_seconds_7d": Family(
         "gauge", "Seconds of unreplayed data_gaps pieces (v_data_gaps_unreplayed) started in the last 7 days."
     ),
+    "verdify_data_gaps_unreplayed": Family(
+        "gauge",
+        "Gaps with an unreplayed piece of at least 120 s (v_data_gaps_unreplayed) that ended 30 min to 24 h ago "
+        "while the gap log was armed: the gap log should have replayed them.",
+    ),
     "verdify_ingestor_reconnects_total": Family("counter", "ESP32 reconnects since the ingestor process started."),
     "verdify_ingestor_rows_rejected_total": Family("counter", "Device rows dropped by schema validation, by table."),
     "verdify_ingestor_payloads_rejected_total": Family("counter", "Versioned controller payloads rejected."),
@@ -558,6 +564,22 @@ SELECT coalesce(backfill_status, 'none') AS status, count(DISTINCT id) AS n,
   FROM v_data_gaps_unreplayed
  WHERE start_ts > now() - interval '7 days'
  GROUP BY 1
+"""
+
+# verdify_data_gaps_unreplayed: a gap the controller's gap log should have replayed and did not. Every data_gaps row
+# is a recorder disconnect of more than 120 s (ingestor.py), and a quarter the recorder was not attached for is not
+# live, so the log replays it once the recorder has been back 60 s; the quarter holding a gap's end closes at most
+# 15 minutes after it. So 30 minutes after a gap ended its pieces are gone when the log was armed (its newest
+# gap_log_state in the hour before the piece), and a piece of 120 s or more left then is a broken replay. Shorter
+# pieces are left to clock skew between the host's gap times and the controller's record times.
+UNREPLAYED_SQL = """
+SELECT count(DISTINCT u.id)
+  FROM v_data_gaps_unreplayed u
+ WHERE u.duration_s >= 120
+   AND u.end_ts > now() - interval '24 hours' AND u.end_ts <= now() - interval '30 minutes'
+   AND (SELECT d.gap_log_state FROM diagnostics d
+         WHERE d.gap_log_state IS NOT NULL AND d.ts <= u.start_ts AND d.ts > u.start_ts - interval '1 hour'
+         ORDER BY d.ts DESC LIMIT 1) = 'armed'
 """
 
 DELIVERY_SQL = """
@@ -850,8 +872,12 @@ def freshness_samples(row: Mapping[str, Any] | None) -> list[Sample]:
     return out
 
 
-def flow_samples(row: Mapping[str, Any] | None, gaps: Sequence[Mapping[str, Any]]) -> list[Sample]:
+def flow_samples(
+    row: Mapping[str, Any] | None, gaps: Sequence[Mapping[str, Any]], unreplayed: Any = None
+) -> list[Sample]:
     out: list[Sample] = []
+    if (count := _num(unreplayed)) is not None:
+        out.append(sample("verdify_data_gaps_unreplayed", count))
     for table in FLOW_TABLES:
         if row is not None and (count := _num(row[table])) is not None:
             out.append(sample("verdify_table_rows_5m", count, table=table))
@@ -1000,7 +1026,7 @@ async def _collect_probes(conn: Any, metrics: ProductMetrics) -> list[Sample]:
 
 async def _collect_flow(conn: Any, metrics: ProductMetrics) -> list[Sample]:
     row = await conn.fetchrow(FLOW_SQL)
-    return flow_samples(row, await conn.fetch(GAPS_SQL))
+    return flow_samples(row, await conn.fetch(GAPS_SQL), await conn.fetchval(UNREPLAYED_SQL))
 
 
 async def _collect_compliance(conn: Any, metrics: ProductMetrics) -> list[Sample]:
