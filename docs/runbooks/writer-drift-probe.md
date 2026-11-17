@@ -1,3 +1,7 @@
+> **Status: history.** This probe belongs to the plan-driven control stack that the climate refactor (#1633)
+> replaced: no active plan exists and the planner writes no climate setting. See
+> [`../CONTROL-ARCHITECTURE.md`](../CONTROL-ARCHITECTURE.md).
+
 # #433 one-field cfg drift proof
 
 This source-only probe is for the **sole running ingestor** after Gate R/C1
