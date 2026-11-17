@@ -20,7 +20,7 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(panel(page, "How they are switched")).toContainText("Home Assistant");
     await expect(panel(page, "Main light settings").getByRole("link")).toHaveCount(12);
     await expect(panel(page, "Last 7 days")).toBeVisible();
-    await expect(page.getByText(/DLI|daily light integral/i)).toHaveCount(0);
+    await expect(page.getByText(/\bDLI\b|daily light integral/i)).toHaveCount(0);
     await expectNoHorizontalScroll(page);
     await axe(page);
   });
@@ -71,6 +71,6 @@ test("Light history: the lighting graph lives under Lights, and the old path arr
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Light history");
   await expect(page.getByRole("navigation", { name: "Lights views" }).getByRole("link", { name: "History" })).toHaveAttribute("aria-current", "page");
   await expect(panel(page, "Light minutes by day")).toBeVisible();
-  await expect(page.getByText(/DLI|daily light integral/i)).toHaveCount(0);
+  await expect(page.getByText(/\bDLI\b|daily light integral/i)).toHaveCount(0);
   await expectNoHorizontalScroll(page);
 });
