@@ -166,7 +166,11 @@ SELECT d.date,
  ORDER BY d.date
 """
 
-_HISTORY_COST_SQL = """
+# The retired shadow planner's calls (165, the last before release 2) were never the planner's cost: only rows whose
+# mode is not shadow are shown, so with no live row the cost reads "not recorded" and has no "recorded from" date.
+_LIVE_RUN = "coalesce(r.attempt ->> 'mode', '') <> 'shadow'"
+
+_HISTORY_COST_SQL = f"""
 SELECT (r.started_at AT TIME ZONE 'America/Denver')::date AS date,
        count(*)::int AS calls,
        array_remove(array_agg(DISTINCT r.model_id), NULL) AS models,
@@ -180,10 +184,11 @@ SELECT (r.started_at AT TIME ZONE 'America/Denver')::date AS date,
   FROM v_planner_inference_runs AS r
  WHERE r.started_at >= $1::date::timestamp AT TIME ZONE 'America/Denver'
    AND r.started_at < ($2::date + 1)::timestamp AT TIME ZONE 'America/Denver'
+   AND {_LIVE_RUN}
  GROUP BY 1
 """
 
-_COST_FROM_SQL = "SELECT min(started_at) FROM v_planner_inference_runs"
+_COST_FROM_SQL = f"SELECT min(r.started_at) FROM v_planner_inference_runs AS r WHERE {_LIVE_RUN}"
 
 _PLANS_SQL = f"""
 SELECT pj.plan_id, pj.created_at, pj.hypothesis, pj.outcome_score, pj.trigger_id,
@@ -198,14 +203,14 @@ SELECT pj.plan_id, pj.created_at, pj.hypothesis, pj.outcome_score, pj.trigger_id
  LIMIT $2
 """
 
-_PLAN_COST_SQL = """
+_PLAN_COST_SQL = f"""
 SELECT DISTINCT ON (r.attempt ->> 'trigger_id') r.attempt ->> 'trigger_id' AS trigger_id, r.model_id,
        r.input_tokens, r.output_tokens, r.energy_wh::float8 AS energy_wh,
        coalesce((r.attempt ->> 'latency_ms')::int, (extract(epoch FROM r.ended_at - r.started_at) * 1000)::int)
            AS latency_ms,
        r.attempt ->> 'status' AS status
   FROM v_planner_inference_runs AS r
- WHERE r.attempt ->> 'trigger_id' = ANY($1::text[])
+ WHERE r.attempt ->> 'trigger_id' = ANY($1::text[]) AND {_LIVE_RUN}
  ORDER BY r.attempt ->> 'trigger_id', (r.attempt ->> 'status') = 'ok' DESC, r.started_at DESC
 """
 
