@@ -139,3 +139,35 @@ def test_review_run_refuses_a_future_day_and_an_unresolved_caller(mcp_server, wi
     result = asyncio.run(mcp_server.review_run())
     assert result.isError is True and payload(result)["code"] == "forbidden"
     assert conn.calls == []
+
+
+def test_review_write_refuses_a_crop_band_row_that_is_not_a_house_anchor(mcp_server, wired):  # noqa: F811
+    from verdify_schemas.band_profile import HOUSE_PARAMS
+    from verdify_schemas.tunable_registry import REGISTRY
+
+    conn = wired()
+    not_house = sorted(n for n, spec in REGISTRY.items() if spec.control_class == "crop_band" and n not in HOUSE_PARAMS)
+    assert not_house, "the registry has crop_band rows the band editor cannot write"
+    proposal = {"anchors": {not_house[0]: REGISTRY[not_house[0]].default}, "price": "row 1", "reason": "x"}
+    result = asyncio.run(mcp_server.review_write(trigger_id=RUN_ID, summary="x", band_proposal=proposal))
+    assert result.isError is True and conn.calls == []
+    problem = payload(result)
+    assert problem["code"] == "invalid_request" and problem["field"] == "band_proposal"
+    assert "anchors allows only the house band anchors" in problem["detail"]
+    assert "band_temp_low_{sr,sm,ss,mid}" in problem["detail"] and "band_vpd_high_{sr,sm,ss,mid}" in problem["detail"]
+
+
+def test_proposal_keys_are_the_band_editors_keys():
+    # One definition: the review accepts exactly what the band editor writes, and its refusal lists exactly those.
+    import re
+
+    from verdify_schemas import band_profile, review
+    from verdify_services import band_profile as editor
+
+    assert review.BAND_PROPOSAL_PARAMS is band_profile.HOUSE_PARAMS is editor.HOUSE_PARAMS
+    listed = {
+        f"{prefix}{anchor}"
+        for prefix, anchors in re.findall(r"(band_\w+?_)\{([a-z,]+)\}", review.BAND_PROPOSAL_KEYS_TEXT)
+        for anchor in anchors.split(",")
+    }
+    assert listed == set(band_profile.HOUSE_PARAMS) and len(band_profile.HOUSE_PARAMS) == 24
