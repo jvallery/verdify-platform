@@ -544,18 +544,24 @@ TEST(cold_vent_guard_assumes_cold_with_no_outdoor_reading) {
 
 // ── 5. The boot: grace for the first reading; the furnace waits ──────────
 
-TEST(boot_grace_waits_for_the_first_indoor_temperature_at_most_60_s) {
-    // RULINGS G3. Probes answer after 20 s: no relay switched and no sensor fault before.
+TEST(boot_grace_waits_for_whole_walls_at_most_60_s) {
+    // RULINGS G3, F5. The walls are whole at 20 s: no relay switched and no sensor fault before. Every tick
+    // before the walls are whole passes walls_complete = false explicitly (the default true is for ticks past
+    // the grace).
     Controller c;
     c.physical = {false, false, false, false, false, false};
-    Tick t = c.tick(1000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f);
+    Tick t = c.tick(1000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f, false, false, false, false);
     ASSERT_TRUE(t.boot_wait);
     ASSERT_EQ(t.mode, IDLE);
     ASSERT_EQ(std::string(c.st.last_mode_reason), std::string("init"));
     ASSERT_TRUE(relays_eq(t.out, {false, false, false, false, false, false}));
-    t = c.tick(19000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f);
+    t = c.tick(19000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f, false, false, false, false);
     ASSERT_TRUE(t.boot_wait && t.mode == IDLE);
-    t = c.tick(20000u, wall(60.0f, 70.0f), outdoor_at(10.0f), band(), 60.7f);
+    // A valid temperature from part of the walls does not end the grace.
+    t = c.tick(19500u, wall(60.0f, 70.0f), outdoor_at(10.0f), band(), 60.7f, false, false, false, false);
+    ASSERT_TRUE(t.boot_wait && t.mode == IDLE);
+    ASSERT_TRUE(relays_eq(t.out, {false, false, false, false, false, false}));
+    t = c.tick(20000u, wall(60.0f, 70.0f), outdoor_at(10.0f), band(), 60.7f, false, false, false, true);
     ASSERT_FALSE(t.boot_wait);
     ASSERT_TRUE(t.out.heat1);
     // Once a temperature has been valid, losing it is the state of decision 7 at once.
@@ -563,8 +569,8 @@ TEST(boot_grace_waits_for_the_first_indoor_temperature_at_most_60_s) {
     ASSERT_EQ(t.mode, SENSOR_FAULT);
     // No probe at all: decision 7 at 60 s, not before.
     Controller d;
-    ASSERT_TRUE(d.tick(59999u, no_indoor(), outdoor_at(10.0f), band(), 60.7f).boot_wait);
-    t = d.tick(60000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f);
+    ASSERT_TRUE(d.tick(59999u, no_indoor(), outdoor_at(10.0f), band(), 60.7f, false, false, false, false).boot_wait);
+    t = d.tick(60000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f, false, false, false, false);
     ASSERT_FALSE(t.boot_wait);
     ASSERT_EQ(t.mode, SENSOR_FAULT);
     ASSERT_TRUE(t.out.heat1);

@@ -2078,8 +2078,51 @@ static F5Boot f5_boot(const int report_s[4]) {
   return o;
 }
 
+// F5 SF-1: the wall readings become whole at different times (the templates update on their own 15 s clocks):
+// temperature and humidity at 20 s, VPD at 35 s, the dew point (from the pair) at 50 s. Until every one is whole
+// the gate holds: no relay and no drying, and the grace ends at 50 s, not at 20 or 35.
+static void f5_boot_grace_skewed_readings() {
+  const double T4 = (67.28 + 68.90 + 71.42 + 71.96) / 4, T2 = (67.28 + 68.90) / 2;
+  const double V4 = (0.785 + 0.856 + 1.148 + 1.132) / 4, V2 = (0.785 + 0.856) / 2;
+  L::State s;
+  L::RelayState r = after_boot_wait();
+  RelayOutputs phys{false, false, false, false, false, false};
+  BootGrace grace{};
+  int grace_end_s = -1, relay_before = 0, dry = 0;
+  for (int sec = 0; sec < 90; ++sec) {
+    if (sec < 3) continue;  // the first probes answer at 3 s
+    const bool t_whole = sec >= 20, v_whole = sec >= 35, dp_whole = sec >= 50;
+    const uint8_t mask = uint8_t((t_whole ? 3 : 0) | (v_whole ? 4 : 0) | (dp_whole ? 8 : 0));
+    const bool wait = indoor_gate(grace, true, mask == 15, uint32_t(sec) * 1000u) == IndoorGate::kBootWait;
+    if (!wait && grace_end_s < 0) grace_end_s = sec;
+    L::Inputs u = base_inputs(t_whole ? T4 : T2, v_whole ? V4 : V2);
+    u.band = L::Band{66.3, 78.8, 0.80, 1.33};
+    u.temp_valid = u.humidity_valid = !wait;
+    u.out_ok = true;
+    u.out_T = 50.0;
+    u.dp_f = dp_whole ? 58.0 : 54.0;
+    u.out_dp_f = 40.0;
+    u.w_in = 9.0;
+    u.w_out = 4.0;
+    const L::Output q = L::step(s, u);
+    const L::RelayPass p = L::relay_pass(r, q, L::RelayInputs{0, 0, false, 1000}, phys, ManualOverrides{}, false, IDLE);
+    phys = p.out;
+    L::relay_sync(r, phys);
+    const bool any = phys.heat1 || phys.heat2 || phys.vent || phys.fan1 || phys.fan2 || phys.fog;
+    if (any && wait) ++relay_before;
+    if (q.drying) ++dry;
+  }
+  CHECK(grace_end_s == 50 && relay_before == 0 && dry == 0,
+        "F5 SF-1: the grace waits for the last wall reading (the dew point); no relay or drying before");
+  // The dew point bit alone missing holds the gate; with it the gate opens.
+  BootGrace g{};
+  CHECK(indoor_gate(g, true, uint8_t(7) == 15, 40000u) == IndoorGate::kBootWait, "F5 SF-1: mask 7 (no dew point) waits");
+  CHECK(indoor_gate(g, true, uint8_t(15) == 15, 41000u) == IndoorGate::kRun, "F5 SF-1: mask 15 runs");
+}
+
 static void f5_boot_grace_all_walls() {
-  // The hazard: north and west (the first two wall probes on the bus) are a drying request (VPD 0.82, under\n  // low + 0.05; 68.1 F, over low + 1.5); the four walls are not (0.98 kPa). North alone is under the start edge.
+  // The hazard: north and west (the first two wall probes on the bus) are a drying request (VPD 0.82, under
+  // low + 0.05; 68.1 F, over low + 1.5); the four walls are not (0.98 kPa). North alone is under the start edge.
   {
     L::State s;
     L::Inputs u = base_inputs((67.28 + 68.90) / 2, (0.785 + 0.856) / 2);  // north and west, first on the bus
@@ -2123,6 +2166,7 @@ int main() {
   glue_heater_air_interlock();
   glue_drying_tail();
   f5_boot_grace_all_walls();
+  f5_boot_grace_skewed_readings();
   glue_review_t1_t2_t3();
   manual_runs();
   deferred_43();

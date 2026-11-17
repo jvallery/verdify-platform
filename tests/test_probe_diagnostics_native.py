@@ -39,6 +39,7 @@ def native_diagnostics(tmp_path_factory, record_testsuite_property):
         name: next(item["lambda"] for item in sensors["sensor"] if item.get("id") == name)
         for name in ("average_temperature", "average_humidity", "average_vpd_kpa")
     }
+    dewpoint = next(item["lambda"] for item in sensors["sensor"] if item.get("id") == "dewpoint_avg")
     helper = ROOT / "firmware/lib/probe_validity.h"
     manifest = {
         "source": str(source_path.relative_to(ROOT)),
@@ -48,6 +49,7 @@ def native_diagnostics(tmp_path_factory, record_testsuite_property):
         "aggregate_lambda_sha256": {
             name: hashlib.sha256(body.encode()).hexdigest() for name, body in aggregates.items()
         },
+        "dewpoint_lambda_sha256": hashlib.sha256(dewpoint.encode()).hexdigest(),
         "helper_sha256": hashlib.sha256(helper.read_bytes()).hexdigest() if helper.exists() else None,
         "scope": "Actual diagnostic and aggregate lambdas; clock and sensor storage adapters only",
     }
@@ -73,6 +75,7 @@ uint32_t clock_ms;
 uint32_t millis() { return clock_ms; }
 uint32_t last_case_ms, last_north_ms, last_west_ms, last_south_ms, last_east_ms;
 uint8_t wall_avgs_full = 0;
+Sensor avg_t_state, avg_rh_state;  // the averages' published states, read by the dew point lambda
 Sensor case_temperature, case_humidity;
 Sensor north_wall_temperature, north_wall_humidity, vpd_north;
 Sensor west_wall_temperature, west_wall_humidity, vpd_west;
@@ -85,9 +88,12 @@ float active_count() {
         + health
         + "\n}\n"
         + "\n".join(f"float {name}() {{\n{body}\n}}\n" for name, body in aggregates.items())
+        + "float dewpoint_avg() {\n"
+        + dewpoint.replace("id(average_temperature)", "avg_t_state").replace("id(average_humidity)", "avg_rh_state")
+        + "\n}\n"
         + r"""
 int main(int argc, char** argv) {
-  if (argc != 22 && argc != 23) return 64;
+  if (argc != 22 && argc != 23 && argc != 24) return 64;
   clock_ms = uint32_t(std::strtoul(argv[1], nullptr, 10));
   struct Fields { uint32_t* last; Sensor* temp; Sensor* rh; Sensor* vpd; } fields[] = {
     {&last_case_ms, &case_temperature, &case_humidity, nullptr},
@@ -102,6 +108,30 @@ int main(int argc, char** argv) {
     fields[i].temp->state = std::strtof(argv[pos + 1], nullptr);
     fields[i].rh->state = std::strtof(argv[pos + 2], nullptr);
     if (fields[i].vpd) fields[i].vpd->state = std::strtof(argv[pos + 3], nullptr);
+  }
+  if (argc == 24 && std::string(argv[22]) == "seq") {
+    // A sequence of template updates: a = the three averages, d = the dew point, x<i> = wall probe i
+    // (1..4) stops reporting, r<i> = it reports again. Prints the mask after each step.
+    const uint32_t stamps[5] = {*fields[0].last, *fields[1].last, *fields[2].last, *fields[3].last, *fields[4].last};
+    const std::string ops = argv[23];
+    for (size_t k = 0; k < ops.size(); ++k) {
+      const char op = ops[k];
+      if (op == 'a') {
+        avg_t_state.state = average_temperature();
+        avg_rh_state.state = average_humidity();
+        (void)average_vpd_kpa();
+      } else if (op == 'd') {
+        (void)dewpoint_avg();
+      } else if (op == 'x' || op == 'r') {
+        const int i = ops[++k] - '0';
+        *fields[i].last = op == 'x' ? 0u : stamps[i];
+        continue;
+      } else {
+        return 64;
+      }
+      std::cout << int(wall_avgs_full) << (k + 1 < ops.size() ? "," : "\n");
+    }
+    return 0;
   }
   if (argc == 23) {
     if (std::string(argv[22]) != "averages") return 64;
@@ -281,8 +311,36 @@ def test_fresh_steady_and_saturated_zero_vpd_inputs_remain_eligible(native_diagn
 
 
 def test_wall_avgs_full_marks_each_aggregate_computed_over_all_four_walls(native_diagnostics):
-    # F5 boot grace: bit 0/1/2 = temperature/humidity/VPD average over all four wall probes.
+    # F5 boot grace: bits 1/2/4 = temperature/humidity/VPD average over all four wall probes.
     assert observe_averages_and_mask(native_diagnostics)[3] == 7
     assert observe_averages_and_mask(native_diagnostics, overrides={"East": {0: 0}})[3] == 0
     assert observe_averages_and_mask(native_diagnostics, overrides={"North": {3: "nan"}})[3] == 3
     assert observe_averages_and_mask(native_diagnostics, overrides={"West": {1: "nan"}})[3] == 6
+
+
+def observe_mask_sequence(native_diagnostics, ops):
+    binary, manifest = native_diagnostics
+    values = {"Case": [NOW - 1000, 75.0, 60.0, 1.0]}
+    values.update({probe: [NOW - 1000, *fields] for probe, fields in WALL_VALUES.items()})
+    result = subprocess.run(
+        [str(binary), str(NOW), *(str(v) for probe in PROBES for v in values[probe]), "seq", ops],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 0, f"{result.stderr}\n{json.dumps(manifest, sort_keys=True)}"
+    return [int(v) for v in result.stdout.strip().split(",")]
+
+
+def test_dewpoint_bit_needs_a_whole_temperature_and_humidity_pair(native_diagnostics):
+    # SF-1: the dew point is whole (bit 8) only when computed from whole averages. Computed before the
+    # averages are whole it stays clear until it is recomputed, even once they are whole.
+    assert observe_mask_sequence(native_diagnostics, "ad") == [7, 15]
+    assert observe_mask_sequence(native_diagnostics, "x4adr4a") == [0, 0, 7]
+    assert observe_mask_sequence(native_diagnostics, "x4adr4ad") == [0, 0, 7, 15]
+
+
+def test_wall_avgs_full_clears_when_a_probe_drops_out_after_being_whole(native_diagnostics):
+    # The clear branch from a set state: every bit falls on the next update after a wall probe drops out.
+    assert observe_mask_sequence(native_diagnostics, "adx2a") == [7, 15, 8]
+    assert observe_mask_sequence(native_diagnostics, "adx2ad") == [7, 15, 8, 0]

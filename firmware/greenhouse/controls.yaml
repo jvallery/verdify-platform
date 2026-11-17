@@ -205,12 +205,25 @@ interval:
               case_fresh, id(case_temperature).state, id(case_humidity).state);
           const float Tin = indoor.temp_f;
           const float RHin = indoor.rh_pct;
-          // G3, F5: after a boot, wait until all four wall probes are in the wall
-          // averages, at most 60 s: no climate relay is switched and the mode is not a
-          // sensor fault. After 60 s the law runs on the probes it has.
+          // G3, F5: after a boot, wait until all four wall probes are in every wall
+          // reading the law uses (the three averages and the dew point: wall_avgs_full
+          // 15), at most 60 s: no climate relay is switched and the mode is not a sensor
+          // fault. After 60 s the law runs on the probes it has.
           static BootGrace boot_grace{};
+          const bool walls_whole = id(wall_avgs_full) == 15;
           const bool boot_wait = indoor_gate(boot_grace, indoor.source != IndoorSource::kNone,
-                                             id(wall_avgs_full) == 7, now_ms) == IndoorGate::kBootWait;
+                                             walls_whole, now_ms) == IndoorGate::kBootWait;
+          // F5 SF-2: one WARN line per boot when the grace ends (the host keeps WARN),
+          // with the mask, so a start on a partial wall set is visible.
+          {
+            static bool grace_end_logged = false;
+            if (!grace_end_logged && !boot_wait) {
+              grace_end_logged = true;
+              const bool whole_start = walls_whole && indoor.source != IndoorSource::kNone;
+              ESP_LOGW("sensor", "boot grace over at %u ms walls=%u%s", unsigned(now_ms),
+                       unsigned(id(wall_avgs_full)), whole_start ? "" : " (ceiling)");
+            }
+          }
           // No entity for the validity (RULINGS G2a): the host's staleness alert on the
           // indoor humidity columns is the warning. The log names each change.
           {

@@ -31,8 +31,9 @@ constexpr float INDOOR_TEMP_MAX_F = 140.0f;
 // An averaged wall humidity above 100 % and up to this is a sensor at saturation and
 // reads as 100 % (RULINGS G2). Above it, or below 0 %, there is no humidity reading.
 constexpr float WALL_RH_SATURATION_MAX_PCT = 110.0f;
-// After a boot the controller waits this long for the first valid indoor temperature
-// before it enters the state of decision 7 (RULINGS G3).
+// After a boot the controller waits at most this long for all four wall probes to be in
+// the wall readings (F5) before the law runs on what it has, or with no temperature
+// enters the state of decision 7 (RULINGS G3).
 constexpr uint32_t BOOT_GRACE_MS = 60000;
 // The no-indoor-temperature rule leaves the vent branch only below the corridor's low
 // edge less this (RULINGS G5).
@@ -284,9 +285,9 @@ inline RelayOutputs no_indoor_relays(NoIndoorBranch b, bool lead_is_fan1) noexce
 // Boot grace (RULINGS G3, F5): after a boot the controller waits until every wall
 // probe has reported into the wall averages once, at most BOOT_GRACE_MS. While it waits
 // no climate relay is switched, the mode is not a sensor fault (so the irrigation engine
-// sees none) and no alert is raised. The first probe on the bus alone is not the house:
-// on 2026-11-17 the law dried on the north wall's VPD (0.77 kPa) while the four-wall
-// average was 0.96. When the grace runs out with a probe still silent, the law runs on
+// sees none) and no alert is raised. The first probes on the bus are not the house: on
+// 2026-11-17 the law dried on north and west (0.82 kPa) while the four-wall average was
+// 0.96 to 0.98 kPa. When the grace runs out with a probe still silent, the law runs on
 // the probes it has (the averages of whatever is fresh, as after the grace); with no
 // temperature at all it is the state of decision 7. After the grace nothing changes.
 
@@ -296,8 +297,8 @@ struct BootGrace {
     bool over;
 };
 
-// `walls_complete`: the wall averages the law reads were each last computed over all
-// four wall probes (controls.yaml: the averages' `wall_avgs_full` bits).
+// `walls_complete`: every wall reading the law uses (the three averages and the dew
+// point) was last computed over all four wall probes (controls.yaml: wall_avgs_full 15).
 inline IndoorGate indoor_gate(BootGrace& grace, bool temp_valid, bool walls_complete, uint32_t now_ms,
                               uint32_t grace_ms = running_alone_k::BOOT_GRACE_MS) noexcept {
     if ((temp_valid && walls_complete) || now_ms >= grace_ms) grace.over = true;
