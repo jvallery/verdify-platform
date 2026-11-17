@@ -393,26 +393,21 @@ def _check_schedule_current(direct_db: bool) -> Check:
                fert_duration_min::text,
                flush_min::text,
                schedule_source,
-               stale_readback_count::text,
-               readback_drift_count::text,
                array_to_string(serves_zones, ',')
           FROM v_irrigation_schedule_current
          ORDER BY schedule_id
         """,
         direct_db=direct_db,
     )
+    # The irrig_* schedule readbacks are retired (the irrigation engine program replaced the clocked schedule), so
+    # migration 317 makes stale_readback_count and readback_drift_count NULL; they are no pass criterion (#1734 C-6).
     by_id = {row[0]: row for row in rows}
     missing = sorted({"center", "wall_shared"} - set(by_id))
     wall = by_id.get("wall_shared")
-    stale = sum(int(row[8]) for row in rows)
-    drift = sum(int(row[9]) for row in rows)
-    topology_ok = wall is not None and wall[10] == "south,west" and wall[1] == "wall_shared"
+    topology_ok = wall is not None and wall[8] == "south,west" and wall[1] == "wall_shared"
     enabled_ok = all(row[2] == "true" for row in rows)
-    status = "pass" if not missing and topology_ok and enabled_ok and stale == 0 and drift == 0 else "fail"
-    detail = (
-        f"rows={len(rows)} missing={missing or '-'} enabled_ok={enabled_ok} "
-        f"wall_serves={wall[10] if wall else '-'} stale_readbacks={stale} readback_drift={drift}"
-    )
+    status = "pass" if not missing and topology_ok and enabled_ok else "fail"
+    detail = f"rows={len(rows)} missing={missing or '-'} enabled_ok={enabled_ok} wall_serves={wall[8] if wall else '-'}"
     return Check("current schedule view", status, detail)
 
 
