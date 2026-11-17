@@ -22,7 +22,7 @@ STUB = textwrap.dedent(
     q="${@: -1}"
     case "$q" in
       *"preflight:topology"*) printf '%s\n' "$STUB_TOPOLOGY" ;;
-      *"preflight:cycling"*) printf '%s\n' "$STUB_CYCLING" ;;
+      *"preflight:cycling"*) printf '%s\n' "$q" > "$HOME/cycling.sql"; printf '%s\n' "$STUB_CYCLING" ;;
       *"preflight:outdoor"*) printf '%s\n' "$STUB_OUTDOOR" ;;
       *"preflight:law-heartbeat"*) printf '%s\n' "$STUB_LAW_AGE" ;;
       *"preflight:law-dr"*) printf '%s\n' "$STUB_LAW_DR" ;;
@@ -135,3 +135,18 @@ def test_an_outdoor_source_of_none_is_outdoor_blind(tmp_path):
     res = run_preflight(tmp_path, outdoor_source="none")
     assert "The controller reports no outdoor reading (outdoor_source=none)" in res.stdout + res.stderr
     assert res.returncode != 0
+
+
+def test_cycling_bound_is_the_laws_compiled_relay_times(tmp_path):
+    """C-m8 (package 4.3): the bound comes from verdify_schemas/climate_law.yaml, not the retired min_* readbacks."""
+    import yaml
+
+    res = run_preflight(tmp_path)
+    assert "✓ Relay cycling within the dwell bound" in res.stdout, res.stdout + res.stderr
+    sql = (tmp_path / "cycling.sql").read_text()
+    assert "setpoint_snapshot" not in sql and "min_" not in sql
+    law = yaml.safe_load((REPO_ROOT / "verdify_schemas" / "climate_law.yaml").read_text())
+    flat = {k: v for group in law.values() if isinstance(group, dict) for k, v in group.items() if isinstance(v, dict)}
+    for family in ("heat", "fan", "fog", "vent"):
+        on_s, off_s = flat[f"{family}_min_on_s"]["value"], flat[f"{family}_min_off_s"]["value"]
+        assert f"('{family}',{on_s},{off_s})" in sql

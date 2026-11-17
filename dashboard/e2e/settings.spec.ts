@@ -76,9 +76,9 @@ test("one row per registry row; read-only rows show why and have no Edit; the ba
   await expect(band.locator("[data-badge=no_readback], .setting-edit")).toHaveCount(0);
   // Who wrote the value in force: Iris and an agent with AI as a text mark; a forecast rule as the system, never AI.
   await expect(row(page, "mister_pulse_gap_s").locator(".setting-writer")).toHaveText("Iris changed this at 07:02 · AI");
-  await expect(row(page, "fog_rh_ceiling_pct").locator(".setting-writer")).toHaveText("steward changed this at 06:47 · “Dry afternoon ahead” · AI");
-  await expect(row(page, "sw_economiser_enabled").locator(".setting-writer")).toHaveText("Forecast rule · system");
-  await expect(row(page, "sw_economiser_enabled").locator("[data-badge=ai]")).toHaveCount(0);
+  await expect(row(page, "mister_water_budget_gal").locator(".setting-writer")).toHaveText("steward changed this at 06:47 · “Dry afternoon ahead” · AI");
+  await expect(row(page, "sw_gl_main_solar_phasing").locator(".setting-writer")).toHaveText("Forecast rule · system");
+  await expect(row(page, "sw_gl_main_solar_phasing").locator("[data-badge=ai]")).toHaveCount(0);
 });
 
 test("the rail's Show filters carry counts, filter the rows and survive a reload of the URL; Groups jump to their group", async ({ page, request }) => {
@@ -272,7 +272,7 @@ test("with setting-history-release Revert to auto sends one API-11 and the row r
 
 test("with no earlier row in 90 days Revert reads 90 days back once, then goes back to auto; with an older row, to that row", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
-  await load(page, "/settings?q=fog_rh_ceiling_pct&edit=fog_rh_ceiling_pct");
+  await load(page, "/settings?q=mister_water_budget_gal&edit=mister_water_budget_gal");
   await expect(drawer(page).getByRole("button", { name: "Revert to auto" })).toBeVisible();
   const now = Date.parse(NOW);
   expect((await fixtureRequests(request, "API-12")).map((row) => windowOf(row.path)[0])).toEqual([iso(now - 7 * DAY_MS), iso(now - 90 * DAY_MS)]);

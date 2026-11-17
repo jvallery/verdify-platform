@@ -142,6 +142,9 @@ test-greenhouse-logic: ## Native C++ climate logic unit tests (same code as ESP3
 test-running-alone: ## Phase 2 "running alone" host tests (lib/running_alone.h: clock trust, corridor, sensors, outdoor data, boot, counters)
 	cd firmware && g++ -std=c++17 -I lib -o test/test_running_alone test/test_running_alone.cpp && ./test/test_running_alone
 
+test-gap-log: ## Package 2.3 gap log (gap_log.h, gap_log_esphome.h against an in-memory NVS): format, ring, clockless stamping, arming and stopping, replay and its drained mark; both record formats
+	cd firmware && for f in 2 1; do g++ -std=c++17 -DGAP_LOG_FORMAT=$$f -I lib -o test/test_gap_log test/test_gap_log.cpp && ./test/test_gap_log && g++ -std=c++17 -DGAP_LOG_FORMAT=$$f -DESP_PLATFORM -I test/fake_idf -I lib -o test/test_gap_log_device test/test_gap_log_device.cpp && ./test/test_gap_log_device > /dev/null && echo "device side format $$f: ok" || exit 1; done
+
 test-climate-law: ## The band-edge climate law (climate_law.h): equals the reference law, rules, relay layer, invariants (#1671)
 	cd firmware && g++ -std=c++17 -I lib -I ../docs/reviews/control-review-2026-11-15/sim -o test/test_climate_law test/test_climate_law.cpp && ./test/test_climate_law
 
@@ -152,7 +155,7 @@ climate-law-replay: ## The band-edge law over the recorded corpus: interlocks, G
 	cd firmware && g++ -std=c++17 -O2 -I lib -o test/test_climate_law_replay test/test_climate_law_replay.cpp
 	gzip -cd $(REPLAY_CORPUS_GZ) | ./firmware/test/test_climate_law_replay
 
-test-firmware: test-policy-vector test-policy-engine test-policy-recovery test-policy-injection test-zone-vpd test-irrigation-program test-greenhouse-logic test-running-alone test-climate-law ## Run native C++ logic tests + replay against golden CSV (same code as ESP32)
+test-firmware: test-policy-vector test-policy-engine test-policy-recovery test-policy-injection test-zone-vpd test-irrigation-program test-greenhouse-logic test-running-alone test-gap-log test-climate-law ## Run native C++ logic tests + replay against golden CSV (same code as ESP32)
 	# OBS-1e (Sprint 16) — replay validation against 8 months of real telemetry.
 	# Replay validation complements unit tests because unit tests alone
 	# cannot catch structural flag regressions (e.g. the shipped-and-caught

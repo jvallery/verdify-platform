@@ -239,6 +239,62 @@ def test_firmware_check_follows_the_firmware_tree_and_ci_plumbing(repo):
     assert repo({"api/main.py": "x = 2\n"})["checks"]["firmware-check"] is False
 
 
+def _repo_import_closure(script: Path) -> set[str]:
+    """Repository files the script imports, transitively (package __init__ files included)."""
+    import ast
+
+    def module_file(name: str) -> Path | None:
+        path = ROOT.joinpath(*name.split("."))
+        if (path / "__init__.py").is_file():
+            return path / "__init__.py"
+        return path.with_suffix(".py") if path.with_suffix(".py").is_file() else None
+
+    seen: set[Path] = set()
+    pending = [(script, "")]
+    while pending:
+        path, package = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                base = package.split(".")[: len(package.split(".")) - node.level + 1] if node.level else []
+                module = ".".join([*base, *([node.module] if node.module else [])])
+                names = [module, *(f"{module}.{alias.name}" for alias in node.names)]
+            else:
+                continue
+            for name in names:
+                parts = name.split(".")
+                for depth in range(1, len(parts) + 1):
+                    found = module_file(".".join(parts[:depth]))
+                    if found:
+                        owner = parts[:depth] if found.name == "__init__.py" else parts[: depth - 1]
+                        pending.append((found, ".".join(owner)))
+    return {str(path.relative_to(ROOT)) for path in seen}
+
+
+def test_the_dashboard_fixture_inputs_are_the_generator_import_closure():
+    script = ROOT / "scripts" / "gen-dashboard-settings-fixture.py"
+    assert set(IMPACT.DASHBOARD_FIXTURE_INPUTS) == _repo_import_closure(script)
+
+
+def test_a_setting_help_change_selects_the_dashboard_job(repo):
+    # #1722: setting_help text feeds the browser tests' settings fixture.
+    receipt = repo({"verdify_schemas/setting_help/_planner.py": "x = 1\n"})
+    assert receipt["checks"]["dashboard-check"] is True
+    assert receipt["light"] == "none"
+    assert IMPACT.checks_for(["verdify_schemas/tunable_registry.py"])["dashboard-check"] is True
+    assert IMPACT.checks_for(["scripts/gen-dashboard-settings-fixture.py"])["dashboard-check"] is True
+
+
+def test_firmware_only_and_unrelated_schema_changes_skip_the_dashboard_job():
+    assert IMPACT.checks_for(["firmware/greenhouse/controls.yaml", "firmware/lib/logic.h"])["dashboard-check"] is False
+    assert IMPACT.checks_for(["verdify_schemas/embeddings.py"])["dashboard-check"] is False
+    assert IMPACT.checks_for(["verdify_schemas/tests/test_tunable_registry.py"])["dashboard-check"] is False
+
+
 def test_missing_base_falls_back_to_the_full_run(tmp_path):
     git(tmp_path, "init", "-q")
     git(

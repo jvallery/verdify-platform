@@ -38,6 +38,7 @@ from verdify_schemas.tunable_registry import (
     POLICY_WIRE_FIELD_COUNT,
     REGISTRY,
     RETIRED_WIRE_IDS,
+    THIRD_FLASH_INERT_WIRE_REG,
     WIRE_SCHEMA_VERSION,
     wire_metadata_errors,
     wire_value_bounds,
@@ -425,6 +426,12 @@ def test_every_wire_field_maps_to_a_firmware_entity_and_global(
     problems: list[str] = []
     for defn in pv.wire_fields():
         if defn.name in FIRMWARE_ABSENT_WIRE_FIELDS:
+            continue
+        # The third flash's inert slots (RULINGS AE7a): the entity is gone and must stay gone until host release 4
+        # decides the wire (inert slots or a WIRE_SCHEMA_VERSION bump).
+        if defn.name in THIRD_FLASH_INERT_WIRE_REG:
+            if defn.esp_object_id in firmware_entities:
+                problems.append(f"{defn.name}: an inert third-flash slot has an entity again")
             continue
         entity = firmware_entities.get(defn.esp_object_id or "")
         if entity is None:

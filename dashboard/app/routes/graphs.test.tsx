@@ -328,7 +328,7 @@ test("the event rail marks writes, alerts and runs by source, each linking to Ac
     ["plan", "ink", "◆↑", "07:02 · iris AI · Plan iris-20261102-0702 (SUNRISE)"],
     ["alert", "warn-text", "▲", "08:00 · warning · The greenhouse is outside its band"],
     ["setting", "forest", "✎", "08:42 · jason · Set VPD Mister Engage"],
-    ["setting", "eq-fan2", "✎", "09:00 · steward AI · Set Fog RH Ceiling"],
+    ["setting", "eq-fan2", "✎", "09:00 · steward AI · Set Mister Water Budget"],
     ["alert", "warn-text", "△", "09:30 · resolved · The greenhouse is outside its band"],
   ]);
   // The key toggles each kind on the rail and names a plan's trigger.
@@ -336,7 +336,7 @@ test("the event rail marks writes, alerts and runs by source, each linking to Ac
   const disclosure = screen.getByRole("region", { name: "Events in this window (7)" });
   expect(within(disclosure).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
     "/activity/log?target=mister_pulse_gap_s#activity-13", "/water/history?line=L04", "/activity/log?target=iris-20261102-0702#activity-14", "/activity?alert=501",
-    "/activity/log?target=mister_engage_kpa#activity-15", "/activity/log?target=fog_rh_ceiling_pct#activity-16", "/activity?alert=501",
+    "/activity/log?target=mister_engage_kpa#activity-15", "/activity/log?target=mister_water_budget_gal#activity-16", "/activity?alert=501",
   ]);
   // Layers: each source is a chip that turns it off in the URL; the menu stays open while they change.
   const sources = links_("Event sources");

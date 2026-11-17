@@ -37,7 +37,7 @@ test("the marks of the sources shown, in time order: writes by who wrote them, a
   expect(all.map((event) => event.at)).toEqual([...all.map((event) => event.at)].sort((a, b) => a - b));
   expect(new Set(all.map((event) => event.source))).toEqual(new Set(["people", "iris", "agents", "system", "runs"]));
   const writes = chartEvents({ activity: ACTIVITY, settings: SETTINGS, sources: ["agents"], now: S });
-  expect(writes.map((event) => [event.label, event.href])).toEqual([["09:00 · steward AI · Set Fog RH Ceiling", "/activity/log?target=fog_rh_ceiling_pct#activity-16"]]);
+  expect(writes.map((event) => [event.label, event.href])).toEqual([["09:00 · steward AI · Set Mister Water Budget", "/activity/log?target=mister_water_budget_gal#activity-16"]]);
   expect(chartEvents({ activity: ACTIVITY, sources: [], now: S })).toEqual([]);
   expect(WRITE_SOURCES).toEqual(["people", "iris", "agents", "system"]);
 });

@@ -46,7 +46,7 @@ SWITCH = "sw_occupancy_inhibit"
 KPA = "mister_engage_kpa"  # planner_policy, a policy field, step 0.05, bounds 0.5-2.5 kPa, cfg readback
 DELAY = "mister_engage_delay_s"  # planner_policy, step 30 s
 PRESSURE = "site_pressure_hpa"  # controller_safety, not a policy field, step 1 hPa
-ECON = "sw_economiser_enabled"  # a switch read back through its equipment_state mirror
+ECON = "sw_occupancy_inhibit"  # a switch read back through its equipment_state mirror (the third flash kept it)
 
 
 def run(coroutine):
@@ -749,18 +749,18 @@ def test_a_setting_nobody_requested_with_no_readback_is_no_readback_never_not_co
     """#1333: not_confirmed means a request at least 5 min old that the readback does not match. A cfg-routed
     setting with no desired row, plan or push and no readback is no_readback; with a readback it is confirmed."""
     db = FakeDB()
-    result = status(db, "safety_vpd_min")
+    result = status(db, "mister_hysteresis_kpa")
     assert (result.readback_via, result.desired, result.state, result.state_reason) == (
         "cfg",
         None,
         "no_readback",
         None,
     )
-    db.snapshots.append(("safety_vpd_min", ago(minutes=1), 0.3))
-    assert status(db, "safety_vpd_min").state == "confirmed"
+    db.snapshots.append(("mister_hysteresis_kpa", ago(minutes=1), 0.1))
+    assert status(db, "mister_hysteresis_kpa").state == "confirmed"
     db = FakeDB()
-    db.add_desired("safety_vpd_min", 0.3, at=ago(minutes=6))
-    assert status(db, "safety_vpd_min").state == "not_confirmed"
+    db.add_desired("mister_hysteresis_kpa", 0.1, at=ago(minutes=6))
+    assert status(db, "mister_hysteresis_kpa").state == "not_confirmed"
 
 
 def test_an_irrigation_site_write_stays_requested_before_the_engine():
@@ -1231,7 +1231,9 @@ def test_every_catalog_row_carries_its_help_and_a_read_only_row_its_kind():
     assert rows["outdoor_temp_f"].read_only_kind == "readback_context"
     assert rows["sw_onchip_band_enabled"].read_only_kind == "band_owner"
     assert "activity_start_hour" not in rows  # #1477: retired with its firmware entity
-    assert rows["safety_max"].help.guardrail and rows["safety_max"].writable
+    # The third flash deleted the rails' entities (the law compiles 40 F and 100 F): read-only, still a guardrail.
+    assert rows["safety_max"].help.guardrail and not rows["safety_max"].writable
+    assert rows["safety_max"].read_only_kind == "retired"
     assert rows[KPA].model_dump(mode="json")["help"]["raise"] == setting_help(KPA).raise_
 
 

@@ -31,7 +31,7 @@ ENTRIES: dict[str, HelpEntry] = {
             f"{_LOGIC}::const bool safety_heat = in.temp_f <= sp.safety_min;",
             f"{_LOGIC}::out.heat1 = true; out.heat2 = true;",
             f"{_TYPES}::if (!(sp.safety_min >= 30.0f && sp.safety_min <= 70.0f)) sp.safety_min = kSafetyMinF;",
-            f'{_DISPATCHER}::"safety_min": 40.0',
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
         ),
     ),
     "safety_max": HelpEntry(
@@ -52,7 +52,7 @@ ENTRIES: dict[str, HelpEntry] = {
             f"{_LOGIC}::const bool safety_cool = in.temp_f >= sp.safety_max;",
             f"{_LOGIC}::out.fan1 = true; out.fan2 = true;",
             f"{_TYPES}::if (!(sp.safety_max >= 70.0f && sp.safety_max <= 120.0f)) sp.safety_max = kSafetyMaxF;",
-            f'{_DISPATCHER}::"safety_max": 100.0',
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
         ),
     ),
     "safety_vpd_min": HelpEntry(
@@ -152,7 +152,7 @@ ENTRIES: dict[str, HelpEntry] = {
         ),
         refs=(
             f"{_LOGIC}::inline bool past_wet_taper(const SensorInputs&, const Setpoints&) noexcept {{",
-            f"{_CONTROLS}::.sw_wet_taper_enabled = id(sw_wet_taper_enabled),",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
         ),
     ),
     "sw_night_stress_wet_enabled": HelpEntry(
@@ -163,7 +163,7 @@ ENTRIES: dict[str, HelpEntry] = {
         ),
         refs=(
             f"{_LOGIC}::inline bool stress_wet_override_permitted(const SensorInputs&, const Setpoints&) noexcept {{",
-            f"{_CONTROLS}::.sw_night_stress_wet_enabled = id(sw_night_stress_wet_enabled),",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
         ),
     ),
     "east_adjacency_factor": HelpEntry(
@@ -182,7 +182,7 @@ ENTRIES: dict[str, HelpEntry] = {
         raise_="The lead fan swaps less often when run times are close.",
         lower="The lead fan swaps more often, spreading wear more evenly.",
         refs=(
-            f"{_CONTROLS}::LEAD_ROTATE_TIMEOUT_MS",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
             f"{_LOGIC}::if (!any_fan_running && wall_clock_rotate_due) {{",
         ),
     ),
@@ -193,7 +193,7 @@ ENTRIES: dict[str, HelpEntry] = {
         lower="Fog stops earlier as humidity rises: less wetting risk, less humidifying.",
         refs=(
             f"{_LOGIC}::return (in.rh_pct  <= sp.fog_rh_ceiling)",
-            f"{_CONTROLS}::.fog_rh_ceiling = (float)id(fog_rh_ceiling_pct),",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
         ),
     ),
     "fog_min_temp_f": HelpEntry(
@@ -203,7 +203,7 @@ ENTRIES: dict[str, HelpEntry] = {
         lower="Fog may run in a cooler house: more humidifying, more chilling of cold air.",
         refs=(
             f"{_LOGIC}::&& (in.temp_f  >= sp.fog_min_temp);",
-            f"{_CONTROLS}::.fog_min_temp = (float)id(fog_min_temp_f),",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
         ),
     ),
     "max_relief_cycles": HelpEntry(
@@ -332,7 +332,7 @@ ENTRIES: dict[str, HelpEntry] = {
         raise_="On: no drying vents while outside air is unhelpful; the electric heater may dry the air instead.",
         lower="Off: drying vents run whatever the outside air, and the heater never runs just to dry the air.",
         refs=(
-            f"{_CONTROLS}::if(!id(economiser_enabled)){{",
+            "verdify_schemas/tunable_registry.py::THIRD_FLASH_RETIRED_REG",
             f"{_LOGIC}::bool vpd_too_low_enter = vpd_trusted && in.vpd_kpa < (vpd_low_eff - HV) && !sp.econ_block;",
         ),
     ),

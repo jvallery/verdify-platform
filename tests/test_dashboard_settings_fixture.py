@@ -110,10 +110,11 @@ def test_read_only_rows_follow_architecture_5_3_step_1(rows, generator):
     # The legacy wide limits read "legacy limit, read-only" (screens SCR-05).
     for name in ("temp_low", "temp_high", "vpd_low", "vpd_high"):
         assert reason(name) == "legacy limit, read-only: not the band while the on-chip band runs"
-    # The zone VPD targets are computed but still used by the controller, so they are not legacy limits.
+    # The third flash deleted the legacy zone VPD target entities (zone misting reads the zone_vpd_target_* anchors),
+    # so their rows are retired (RULINGS AE7a).
     for name in ("vpd_target_center", "vpd_target_west"):
-        assert reason(name).startswith("zone VPD target, read-only"), name
-        assert rows[name]["read_only_kind"] == "zone_vpd_target", name
+        assert reason(name).startswith("retired"), name
+        assert rows[name]["read_only_kind"] == "retired", name
     # #1477: the activity mirror left the registry with its firmware entities.
     for name in ("activity_start_hour", "activity_start_minute", "activity_duration_min"):
         assert name not in rows, name
@@ -137,7 +138,7 @@ def test_read_only_rows_follow_architecture_5_3_step_1(rows, generator):
         "zone_vpd_width_below_center",
         "gl_main_lux_threshold",
         "sw_gl_main_auto_mode",
-        "fog_rh_ceiling_pct",
+        "mister_water_budget_gal",
     ):
         assert rows[name]["writable"] is True, name
         assert rows[name]["group"] == rows[name]["control_class"], name
@@ -209,11 +210,11 @@ def test_scenario_rows_the_screens_and_named_fixtures_rely_on(rows):
     }
     # iris-unsnapped puts Iris's 48.75 on this plan.
     assert rows["mister_engage_delay_s"]["plan"]["source"] == "iris"
-    agent = rows["fog_rh_ceiling_pct"]
+    agent = rows["mister_water_budget_gal"]  # the third flash retired fog_rh_ceiling_pct (AE7a)
     assert agent["applied_from"] == "desired"
     assert agent["desired"]["actor"] == {"source": "agent:steward", "name": "steward"}
     assert agent["desired"]["manual"] is False
-    forecast = rows["sw_economiser_enabled"]
+    forecast = rows["sw_gl_main_solar_phasing"]  # and sw_economiser_enabled
     assert (forecast["applied_from"], forecast["plan"]["source"]) == ("plan", "preemptive")
     assert forecast["plan"]["plan_id"].startswith("preemptive-")
     assert rows["temp_low"]["readback"]["value"] == 40.0

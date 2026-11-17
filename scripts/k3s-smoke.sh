@@ -381,15 +381,23 @@ PY
   #    synthetic setpoint write or confirmation claim for a particular plan.
   #    Readbacks are stored on change with an hourly keyframe (#1662): the pass
   #    (its system_state marker, or the newest readback) must be under 300 s old
-  #    and each of the 48 canonical fields must have a row in the last 2 hours.
+  #    and each canonical field the controller still reads back must have a row
+  #    in the last 2 hours. The third flash keeps 43 policy-wire fields as inert
+  #    slots with no readback (THIRD_FLASH_INERT_WIRE_REG), so they are not
+  #    expected; the law build still reads them back, and the rest pass on both.
   echo "[3] setpoint observation — fresh snapshot"
-  local snapshot fields snapshot_age snapshot_count
+  local snapshot fields snapshot_age snapshot_count expected_fields=""
   fields="$(PYTHONPATH="${REPO_ROOT}" "${PY}" -c '
 from verdify_schemas.component_executor import CANONICAL_FIELD_ORDER
-assert len(CANONICAL_FIELD_ORDER) == 48
-assert all(name.replace("_", "").isalnum() for name in CANONICAL_FIELD_ORDER)
-print("ARRAY[" + ",".join("\x27" + name + "\x27" for name in CANONICAL_FIELD_ORDER) + "]::text[]")
+from verdify_schemas.tunable_registry import THIRD_FLASH_INERT_WIRE_REG
+names = [n for n in CANONICAL_FIELD_ORDER if n not in THIRD_FLASH_INERT_WIRE_REG]
+assert names and all(name.replace("_", "").isalnum() for name in names)
+print(str(len(names)) + " ARRAY[" + ",".join("\x27" + name + "\x27" for name in names) + "]::text[]")
 ' 2>/dev/null || true)"
+  if [ -n "${fields}" ]; then
+    expected_fields="${fields%% *}"
+    fields="${fields#* }"
+  fi
   if [ -n "${fields}" ]; then
     snapshot="$(bounded_kubectl exec verdify-db-0 -c postgres -- psql -U verdify -d verdify -At \
       -c "WITH newest AS (SELECT DISTINCT ON (parameter) parameter FROM setpoint_snapshot WHERE greenhouse_id='vallery' AND zone IS NULL AND band_role IS NULL AND parameter=ANY(${fields}) AND ts>now()-interval '2 hours' ORDER BY parameter, ts DESC), pass AS (SELECT GREATEST((SELECT max(ts) FROM setpoint_snapshot WHERE greenhouse_id='vallery' AND band_role IS NULL AND ts>now()-interval '1 day'), (SELECT max(ts) FROM system_state WHERE entity='setpoint_snapshot_pass' AND ts>now()-interval '1 day')) AS ts) SELECT coalesce(extract(epoch from now()-(SELECT ts FROM pass))::int,999999),(SELECT count(*) FROM newest)" \
@@ -398,11 +406,11 @@ print("ARRAY[" + ",".join("\x27" + name + "\x27" for name in CANONICAL_FIELD_ORD
     snapshot=""
   fi
   IFS='|' read -r snapshot_age snapshot_count <<< "${snapshot}"
-  if [[ "${snapshot_age}" =~ ^[0-9]+$ ]] && [ "${snapshot_count}" = "48" ] &&
-     [ "${snapshot_age}" -le 300 ]; then
-    pass "setpoint snapshot fresh (pass ${snapshot_age}s; all 48 canonical fields within 2 h)"
+  if [[ "${snapshot_age}" =~ ^[0-9]+$ ]] && [[ "${expected_fields}" =~ ^[0-9]+$ ]] &&
+     [ "${snapshot_count}" = "${expected_fields}" ] && [ "${snapshot_age}" -le 300 ]; then
+    pass "setpoint snapshot fresh (pass ${snapshot_age}s; all ${expected_fields} read-back canonical fields within 2 h)"
   else
-    fail "setpoint snapshot stale/incomplete/unavailable (pass age=${snapshot_age:-?}s; canonical fields=${snapshot_count:-?}/48)"
+    fail "setpoint snapshot stale/incomplete/unavailable (pass age=${snapshot_age:-?}s; canonical fields=${snapshot_count:-?}/${expected_fields:-?})"
   fi
   echo ""
 

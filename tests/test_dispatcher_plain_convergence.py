@@ -39,7 +39,6 @@ from verdify_schemas.tunable_registry import (  # noqa: E402
 )
 
 T0 = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
-SAFETY_READBACKS = {"safety_max": 100.0, "safety_min": 40.0}
 
 
 def _plain_planner_params() -> list[tuple[str, float, float]]:
@@ -58,7 +57,6 @@ def _plain_planner_params() -> list[tuple[str, float, float]]:
         | _common.AI_MOISTURE_STRESS_POLICY_PARAMS
         | _common.FORCED_ON_SWITCH_PARAMS
         | _common.RETIRED_UNROUTABLE_PARAMS
-        | _common.SAFETY_PARAMS
         | _common.MISTER_DEFAULTS
         | _common.SECOND_READBACK_ABS_TOLERANCE_PARAMS
         | frozenset(band_anchors.ANCHOR_SYNC_PARAMS)
@@ -88,7 +86,7 @@ def _plain_planner_params() -> list[tuple[str, float, float]]:
 
 
 PARAMS = _plain_planner_params()
-ENTITY_PARAMS = {_common.PARAM_TO_ENTITY[param]: param for param in [*(p for p, _, _ in PARAMS), *SAFETY_READBACKS]}
+ENTITY_PARAMS = {_common.PARAM_TO_ENTITY[param]: param for param, _, _ in PARAMS}
 
 
 class Clock:
@@ -211,7 +209,7 @@ class Controller:
         self.generation = 0
 
     def connect(self, values: dict[str, float]) -> None:
-        self.values = {**values, **SAFETY_READBACKS}
+        self.values = dict(values)
         self.generation = shared.note_transport_connected(frozenset(self.values))
         for param, value in self.values.items():
             shared.note_cfg_readback_observed(param, value, self.generation)
@@ -645,7 +643,7 @@ def test_paced_order_is_oldest_difference_first_then_name(monkeypatch):
 
 def _connect_with_replay_held_back(env, held_back: frozenset[str]) -> dict[str, float]:
     """A connection whose readback replay never delivers ``held_back``."""
-    values = {param: device for param, device, _plan in PARAMS[:2]} | SAFETY_READBACKS
+    values = {param: device for param, device, _plan in PARAMS[:2]}
     env.db.plan = {}
     env.controller.values = dict(values)
     env.controller.generation = shared.note_transport_connected(frozenset(values))

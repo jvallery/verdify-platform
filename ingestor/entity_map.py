@@ -226,7 +226,6 @@ EQUIPMENT_BINARY_MAP: dict[str, str] = {
     "vent_open": "vent",
     "mister_running": "mister_any",
     "mister_budget_exceeded": "mister_budget_exceeded",
-    "economiser_blocked": "economiser_blocked",
     "leak_detected": "leak_detected",  # SAFETY CRITICAL
     "water_flowing": "water_flowing",
     "heap_pressure_warning": "heap_pressure_warning",
@@ -258,9 +257,8 @@ EQUIPMENT_SWITCH_MAP: dict[str, str] = {
     # readback that ha_sensor_sync records from Home Assistant.
     "grow_light_main": "grow_light_main_intent",
     "grow_light_grow": "grow_light_grow_intent",
-    # Config switches (boolean tunables exposed as HA switches)
-    "economiser_enabled": "economiser_enabled",
-    "fog_closes_vent": "fog_closes_vent",
+    # Config switches (boolean tunables exposed as HA switches): the third flash deleted the last two
+    # (economiser_enabled, fog_closes_vent; RULINGS AE7a).
     # The L01 bridge's irrigation_* switch routes retired with its rows once the
     # irrigation engine was last-good (#1165), and the shared GL Auto Mode switch
     # with its entity (#1477); equipment_state history keeps the names
@@ -384,10 +382,6 @@ DIAGNOSTIC_MAP: dict[str, str] = {
     "vpd_watch_timer_s": "vpd_watch_timer_s",
     "mist_backoff_timer_s": "mist_backoff_timer_s",
     "vent_mist_assist_active": "vent_mist_assist_active",
-    "effective_heat_target___f_": "effective_heat_target_f",
-    "effective_cool_stage_2_delta___f_": "effective_cool_stage2_delta_f",
-    "effective_vpd_hysteresis__kpa_": "effective_vpd_hysteresis_kpa",
-    "effective_dehum_aggressive__kpa_": "effective_dehum_aggressive_kpa",
     "controller_time_epoch": "controller_time_epoch",  # TextSensorInfo exact epoch string
     "controller_local_hour": "controller_local_hour",
     "sntp_valid": "sntp_valid",

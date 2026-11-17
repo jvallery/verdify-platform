@@ -49,7 +49,10 @@ struct APIConnection {
   struct Flags { bool remove{false}; } flags_;
   ActiveIterator active_iterator_{ActiveIterator::NONE};
   DeferredBatch deferred_batch_;
+  uint32_t verdify_connection_id_{0};
   struct Helper {
+    const char *client_name_{"Home Assistant 2026.11.1"};
+    const char *get_client_name() const { return client_name_; }
     esphome::api::APIBuffer rx_buf_;
     esphome::api::APIOverflowBuffer overflow_buf_;
 """
@@ -102,7 +105,18 @@ int main() {
   a.helper_->overflow_buf_.try_drain(&sock);
   const size_t before_alloc=calls, before_live=outstanding, before_new=new_calls;
   const auto *items=a.deferred_batch_.items;
+  // Review GL-1: the recorder among the clients, by its Hello name; the oldest of several, never a removed one.
+  for(size_t i=0;i<20;++i) server.clients[i]->verdify_connection_id_=uint32_t(100+i);
+  auto is_rec=[](const char *n){ return std::strcmp(n,"aioesphomeapi")==0; };
+  assert(server.recorder_snapshot(+is_rec).connection_id==0);
+  b.helper_->client_name_="aioesphomeapi";  // removed: not the recorder
+  a.helper_->client_name_="aioesphomeapi";
+  server.clients[7]->helper_->client_name_="aioesphomeapi";
   for(size_t repeat=0;repeat<10000;++repeat) {
+    auto rec=server.recorder_snapshot(+is_rec);
+    assert(rec.connection_id==100 && rec.syncing==1 && rec.batch_items==10);
+    assert(rec.pending_bytes==a.helper_->overflow_pending_bytes() && rec.pending_bytes>0 && rec.pending_bytes<150);
+    assert(rec.overflow_bytes==a.helper_->overflow_allocated_bytes() && rec.overflow_bytes>0);
     auto out=server.heap_snapshot();
     assert(out.peers==20 && out.removing==1 && out.syncing==1);
     assert(out.overflow_entries==2);
@@ -118,6 +132,9 @@ int main() {
   b.helper_->overflow_buf_.try_drain(&sock);
   a.deferred_batch_.clear(); a.deferred_batch_.release_buffer();
   b.helper_->rx_buf_.release();
+  a.flags_.remove=true;
+  { auto rec=server.recorder_snapshot(+is_rec); assert(rec.connection_id==107 && rec.syncing==0 && rec.batch_items==0); }
+  a.flags_.remove=false;
   auto drained=server.heap_snapshot();
   assert(drained.overflow_entries==0 && drained.overflow_bytes==0 && drained.pending_bytes==0);
   assert(drained.batch_bytes==0 && drained.rx_bytes==0 && drained.shared_bytes==1390);
@@ -159,7 +176,13 @@ def test_new_header_sources_exact_and_idempotent():
 def test_counter_logs_only_existing_snapshot_events():
     config = (ROOT / "firmware/greenhouse.yaml").read_text()
     controls = (ROOT / "firmware/greenhouse/controls.yaml").read_text()
-    assert config.count("heap_snapshot()") == controls.count("heap_snapshot()") == 1
+    assert config.count("heap_snapshot()") == 1
+    # The 15-minute heap_profile log. The gap log's replay gate reads the recorder's own connection through
+    # recorder_snapshot() (review GL-1), in the control pass (liveness) and the 250 ms pump (the gate); both
+    # snapshots are allocation-free and read-only.
+    assert controls.count("heap_snapshot()") == 1
+    assert controls.count("recorder_snapshot(gap_log::is_recorder_client)") == 2
+    assert controls.count("gap_log::ReplayConditions c;") == 1
     assert "return heap_kb < 15.0f;" in config
     assert "gh_take_control_loop_overrun_count()" in controls
     for text in [config, controls]:
@@ -167,10 +190,11 @@ def test_counter_logs_only_existing_snapshot_events():
 
 
 def test_existing_allocator_and_api_loop_bytes_preserved():
-    # All executable allocator/send/drain/iterator code remains exact fe466.
+    # All executable allocator/send/drain/iterator code remains exact fe466. api_connection.h adds only the gap log's
+    # per-connection id (review GL-1: a counter in a default member initializer, no allocation, no send path).
     for name, digest in {
         "api_connection.cpp": "29c45da79cf5d6a8c3db0eb1c91f4997ed6c04fc0bc83687d4e200a542fbde9d",
-        "api_connection.h": "eb5bd763e06e73ad50c6f96e1c0563315892628d2f8e713d97863198e821bfb1",
+        "api_connection.h": "d440d47068e314d6372e7e1295837bf0803b42959ae2e526257411ab7c041390",
         "api_overflow_buffer.cpp": "370db5e67ad5c4145e6f1f7d93558a1502cb9680064f4cf28bbdae511d289003",
     }.items():
         actual = PATCH.transform(name, (FIXTURE / name).read_text()).encode()

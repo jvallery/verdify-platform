@@ -20,104 +20,6 @@ globals:
     type: float
     restore_value: no
     initial_value: '95.0'
-  - id: stage2_heat_delta_f
-    type: float
-    restore_value: no
-    initial_value: '5.0'
-  - id: stage2_cool_delta_f
-    type: float
-    restore_value: no
-    initial_value: '3.0'
-  - id: cool_stage2_over_high_f
-    type: float
-    restore_value: no
-    initial_value: '1.0'
-  - id: cool_exit_hysteresis_f
-    type: float
-    restore_value: no
-    initial_value: '1.5'
-  # BC-8 (ADR0003 §6.5): fan2 de-escalation hysteresis (latch hold band below the
-  # stage-2 entry) — the symmetric twin of the heat2 latch so fan2 cannot chatter.
-  - id: cool_stage2_exit_hysteresis_f
-    type: float
-    restore_value: no
-    initial_value: '1.0'
-  - id: cold_vent_guard_delta_f
-    type: float
-    restore_value: no
-    initial_value: '10.0'
-  - id: cool_all_fans_at_high_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-  - id: hyst_temp_f
-    type: float
-    restore_value: no
-    initial_value: '1.0'
-  - id: heat_hysteresis_f
-    type: float
-    restore_value: no
-    initial_value: '1.0'
-  # ADR-0004 floating-corridor tracking tightness [0,1]. restore_value:no so a boot
-  # before the first planner push uses this cold-start default. Default 0.0 = float
-  # inside the served crop corridor and act at the edges. Nonzero values remain an
-  # explicit operator/diagnostic escape hatch only; planner registry accepts 0.
-  # Takes effect on the next firmware OTA; the live no-OTA value remains operator-scoped.
-  - id: band_track_fraction
-    type: float
-    restore_value: no
-    initial_value: '0.0'
-  # BC-13 (ADR0003 §6.4): AI-tunable single-cycle air-exchange fraction toward outdoor
-  # for the moisture-exchange estimator (Jason 2026-06-17). Default 0.30; rails [0.1,0.6].
-  - id: vent_exchange_fraction
-    type: float
-    restore_value: no
-    initial_value: '0.30'
-  # BC-13 (ADR0003 §6.4): device-side constants for the moisture-exchange selector.
-  # Kept as globals so live Setpoints initialization has readback-visible policy values
-  # instead of hardcoded literals.
-  - id: dehum_vent_gain_margin_kpa
-    type: float
-    restore_value: no
-    initial_value: '0.02'
-  - id: dehum_heat_assist_min_dwell_ms
-    type: uint32_t
-    restore_value: no
-    initial_value: '300000'
-  # #410 (ADR0003 §6.4 addendum): vent+reheat HELD-TEMP dehum candidate master
-  # enable. Ships OFF — the OTA is behavior-identical until an operator/planner
-  # enables it by a logged tunable push (revert needs no OTA). restore_value: no
-  # so a reboot before the first push always boots the safe OFF default.
-  - id: dehum_vent_hold_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-  # #1365 night dry-out: vent + reheat pulses with confirmed-drier outdoor air
-  # (Jason 2026-11-05). Ships ON with the next signed flash; the defaults match
-  # default_setpoints() in greenhouse_types.h. restore_value: no, so a reboot
-  # boots these defaults until the dispatcher pushes the desired values.
-  - id: night_dryout_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'true'
-  - id: night_dryout_pulse_s
-    type: uint32_t
-    restore_value: no
-    initial_value: '120'
-  - id: night_dryout_rest_s
-    type: uint32_t
-    restore_value: no
-    initial_value: '780'
-  - id: night_dryout_dp_margin_f
-    type: float
-    restore_value: no
-    initial_value: '3.0'
-  # 10 kWh a night of heat1 reheat (estimate). Higher than the research's 5 kWh
-  # because the target is a full dry-out at >= 0.74 kPa, not the 0.50 plant floor.
-  - id: night_dryout_kwh_cap
-    type: float
-    restore_value: no
-    initial_value: '10.0'
 
   # Phase 3 (#1671, rule 7): the drying cost limit, kWh of heat carried out per kg of
   # water. Owner-only; climate_law::dry_cost_limit() clamps it and turns an unreadable
@@ -137,89 +39,12 @@ globals:
     type: float
     restore_value: no
     initial_value: '2.80'
-  - id: hyst_vpd_kpa
-    type: float
-    restore_value: no
-    initial_value: '0.30'
-
-  # Legacy fallback band fields: unread since phase 3 (RULINGS T6 F1, X5 P9);
-  # the pushed-scalar band reads the _kpa twins. Nothing writes them either;
-  # package 4.3 removes them.
-  - id: target_vpd_low
-    type: float
-    restore_value: no
-    initial_value: '0.6'
-  - id: target_vpd_high
-    type: float
-    restore_value: no
-    initial_value: '1.2'
-
-  # ─── Feed-forward biases & safety rails (°F & kPa) ───
-  - id: bias_heat_f
-    type: float
-    restore_value: no
-    initial_value: '0.0'
-  - id: bias_cool_f
-    type: float
-    restore_value: no
-    initial_value: '0.0'
-  # Hard temperature guardrails: 40 °F / 100 °F (Jason 2026-11-05, #1333).
-  - id: safety_min_f
-    type: float
-    restore_value: no
-    initial_value: '40.0'
-  - id: safety_max_f
-    type: float
-    restore_value: no
-    initial_value: '100.0'
-  - id: safety_vpd_min_kpa
-    type: float
-    restore_value: no
-    initial_value: '0.30'
-  - id: safety_vpd_max_kpa
-    type: float
-    restore_value: no
-    initial_value: '2.50'
-  - id: safety_max_seal_margin_f
-    type: float
-    restore_value: no
-    initial_value: '5.0'
 
   # ─── Economiser (enthalpy thresholds) ───
   - id: site_pressure_hpa
     type: float
     restore_value: no
     initial_value: '840.0'  # adjust to local elevation
-  - id: enthalpy_open_kjkg
-    type: float
-    restore_value: no
-    initial_value: '-2.0'
-  - id: enthalpy_close_kjkg
-    type: float
-    restore_value: no
-    initial_value: '1.0'
-  - id: economiser_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'true'
-  - id: econ_heat_margin_f
-    type: float
-    restore_value: no
-    initial_value: '5.0'
-
-  # ─── Controller relief / latch policy ───
-  - id: max_relief_cycles
-    type: int
-    restore_value: no
-    initial_value: '3'
-  - id: dehum_aggressive_kpa
-    type: float
-    restore_value: no
-    initial_value: '0.6'
-  - id: vent_latch_timeout_ms
-    type: uint32_t
-    restore_value: no
-    initial_value: '1800000'
 
   # ─── Fog / evap-assist thresholds ───
   # (removed unused fog_offset_f and AH thresholds)
@@ -254,6 +79,14 @@ globals:
     type: bool
     restore_value: yes
     initial_value: 'false'
+  # Package 2.4: restarts since the count first existed. Stored by gap_log_dev::count_restart() in its own NVS key
+  # (namespace gaplog, key restarts), +1 and committed in on_boot (reviews GL-4, F3-UR-5: one write per boot, not
+  # the 60 s preference flush), so this global only mirrors it. Published as Restart Count; a step without a flash
+  # is a restart the host alerts on. 0 = NVS could not store it.
+  - id: restart_count
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
   # ─── Per-probe health timestamps (ms, A2) ───
   - id: last_north_ms
@@ -563,31 +396,6 @@ globals:
     restore_value: no
     initial_value: 'true'
 
-  - id: direct_wet_stress_override_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: direct_wet_stress_vpd_margin_kpa
-    type: float
-    restore_value: no
-    initial_value: '0.05'
-
-  - id: direct_wet_stress_min_dew_margin_f
-    type: float
-    restore_value: no
-    initial_value: '8.0'
-
-  # ─── ENV-2: night econ-heat suppression (Vanda day/night-drop companion) ───
-  # When enabled, the IDLE econ VPD-rescue heat path is suppressed at night so
-  # we never chase overnight humidity with heat (which would erase the >=10F
-  # diurnal drop). v2: "night" = solar phase >= 2.0 (on-chip ephemeris); the
-  # fixed night_start_hour/night_end_hour clock window is retired.
-  - id: sw_night_econ_heat_suppress_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'true'
-
   # Retired compatibility state. The commissioned wall sequence never arms a
   # global post-feed hold: fertilizer turns off and wall-local clean flush starts
   # immediately. Kept at zero so older readback consumers remain harmless.
@@ -608,49 +416,6 @@ globals:
     initial_value: '0'
 
   - id: feed_end_hour
-    type: int
-    restore_value: no
-    initial_value: '0'
-
-  # Retired deliberate dawn/midday center-watering fields. Center misters run
-  # only as part of the base climate/VPD cycle; these compatibility values are
-  # fixed off/zero and are not writable.
-  - id: sw_dawn_rehydrate_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: dawn_rehydrate_window_min
-    type: int
-    restore_value: no
-    initial_value: '0'
-
-  - id: dawn_rehydrate_on_s
-    type: int
-    restore_value: no
-    initial_value: '0'
-
-  - id: dawn_rehydrate_gap_s
-    type: int
-    restore_value: no
-    initial_value: '0'
-
-  - id: sw_midday_drench_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: midday_drench_window_min
-    type: int
-    restore_value: no
-    initial_value: '0'
-
-  - id: midday_drench_on_s
-    type: int
-    restore_value: no
-    initial_value: '0'
-
-  - id: midday_drench_gap_s
     type: int
     restore_value: no
     initial_value: '0'
@@ -934,42 +699,6 @@ globals:
     restore_value: yes
     initial_value: 'false'
 
-  # Wet taper: routine wetting blocked when minutes_to_sunset < taper or
-  # phase >= 2 (replaces the dusk_cutoff_hour / fog_window clock rails).
-  - id: sw_wet_taper_enabled
-    type: bool
-    restore_value: yes
-    initial_value: 'true'
-
-  - id: wet_taper_before_sunset_min
-    type: int
-    restore_value: yes
-    initial_value: '120'
-
-  # Night stress wetting: the single replacement rule for direct_wet_stress_*
-  # and fog_stress_window_* — stress wetting past taper allowed while
-  # vpd > band_high + dew margin, never past sunset (phase < 2).
-  - id: sw_night_stress_wet_enabled
-    type: bool
-    restore_value: yes
-    initial_value: 'true'
-
-  - id: night_stress_min_dew_margin_f
-    type: float
-    restore_value: yes
-    initial_value: '6.0'
-
-  # Retired deliberate center-watering offsets; fixed at zero/readback only.
-  - id: dawn_boost_offset_min
-    type: int
-    restore_value: no
-    initial_value: '0'
-
-  - id: midday_boost_offset_min
-    type: int
-    restore_value: no
-    initial_value: '0'
-
   # Push-button latch timeout (minutes) for the deadline latches below.
   - id: manual_override_timeout_min
     type: int
@@ -990,10 +719,13 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
-  - id: vent_bypass_until_ms
-    type: uint32_t
+  # AB12/AD1: the fan latch's vent flag: true runs the fans with the vent
+  # closed (house air), false with it open. Read only while manual_fans_until_ms
+  # is set.
+  - id: manual_fans_vent_closed
+    type: bool
     restore_value: no
-    initial_value: '0'
+    initial_value: 'false'
   # #1335: the per-circuit manual light holds. API-20's timed switch sends
   # manual_override light_<main|grow>_<on|off> with its minutes, which sets the
   # deadline and the held state; light_<main|grow>_auto (Back to automatic)
@@ -1097,52 +829,6 @@ globals:
     restore_value: no
     initial_value: '0'
 
-  # ─── Control diagnostics ───
-  # true if the economiser (enthalpy gate) is currently blocking venting
-  - id: econ_block_state
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  # ─── Lead/lag rotation timeout (s) ───
-  - id: lead_rotate_timeout_s
-    type: int
-    restore_value: no
-    initial_value: '600'
-
-  # ─── Relay min on/off timing (seconds, tunable via HA) ───
-  - id: min_heat_on_s
-    type: int
-    restore_value: no
-    initial_value: '120'
-  - id: min_heat_off_s
-    type: int
-    restore_value: no
-    initial_value: '180'     # sprint-15.1 fix 6: lowered 300→180s. Study 2/6 showed 54% of heat1 off-phases pinned at the 300s rail; per-night σ 1.22°F drops to ~0.7°F at 180s without stressing the igniter cooldown.
-  - id: min_fan_on_s
-    type: int
-    restore_value: no
-    initial_value: '120'
-  - id: min_fan_off_s
-    type: int
-    restore_value: no
-    initial_value: '90'
-  - id: min_vent_on_s
-    type: int
-    restore_value: no
-    initial_value: '60'
-  - id: min_vent_off_s
-    type: int
-    restore_value: no
-    initial_value: '60'
-
-  # fog_closes_vent: when true, the vent damper is forced closed during active
-  # fog pulses to prevent dry outside air from negating humidity gains.
-  - id: fog_closes_vent
-    type: bool
-    restore_value: no
-    initial_value: 'true'
-
     # ─── Mister state machine (HUMID_S2/S3) ───
   - id: mister_state
     type: int
@@ -1190,26 +876,10 @@ globals:
     restore_value: no
     initial_value: '0.0'
 
-  # ─── Mister tunables (persisted) ───
-  - id: mister_engage_kpa
-    type: float
-    restore_value: no
-    initial_value: '1.6'
-
-  - id: mister_all_kpa
-    type: float
-    restore_value: no
-    initial_value: '1.9'
-
   - id: mister_engage_delay_s
     type: int
     restore_value: no
     initial_value: '45'
-
-  - id: mister_all_delay_s
-    type: int
-    restore_value: no
-    initial_value: '300'
 
   - id: mister_on_s
     type: int
@@ -1336,7 +1006,6 @@ globals:
     restore_value: no
     initial_value: '0'
 
-
   # ─── Mister pulse-rotation model ───
   - id: mister_pulse_zone
     type: int
@@ -1353,16 +1022,6 @@ globals:
     restore_value: no
     initial_value: '0'
 
-  - id: mister_pulse_on_s
-    type: int
-    restore_value: no
-    initial_value: '60'
-
-  - id: mister_pulse_gap_s
-    type: int
-    restore_value: no
-    initial_value: '45'
-
   # Mister re-fire dwell floor (s). A zone may not re-energize within this of
   # its own last turn-off — suppresses the sub-gap on/off chatter the misters
   # (uniquely among relays) had no min-on/off protection against. Default 45s
@@ -1373,111 +1032,6 @@ globals:
     type: int
     restore_value: no
     initial_value: '45'
-
-  - id: mister_vpd_weight
-    type: float
-    restore_value: no
-    initial_value: '1.5'
-
-  # Item-4 night-dry lever: planner-pushable VPD bias added to the overnight band
-  # (clamped 0..0.25 kPa, smooth sin^2 weight peaking at solar midnight). Lets the
-  # AI pre-empt a humid night without touching the crop_band_anchors curve.
-  - id: night_vpd_bias_kpa
-    type: float
-    restore_value: no
-    initial_value: '0.0'
-
-  # ─── Per-zone VPD targets (set by band dispatcher from crop data) ───
-  - id: vpd_target_south
-    type: float
-    restore_value: no
-    initial_value: '1.3'
-
-  - id: vpd_target_west
-    type: float
-    restore_value: no
-    initial_value: '1.2'
-
-  - id: vpd_target_east
-    type: float
-    restore_value: no
-    initial_value: '1.0'
-
-  - id: vpd_target_center
-    type: float
-    restore_value: no
-    initial_value: '0.8'
-
-  - id: mister_center_penalty
-    type: float
-    restore_value: no
-    initial_value: '0.5'
-
-  - id: east_adjacency_factor
-    type: float
-    restore_value: no
-    initial_value: '0.3'
-
-  - id: min_fog_on_s
-    type: int
-    restore_value: no
-    initial_value: '60'
-
-  - id: min_fog_off_s
-    type: int
-    restore_value: no
-    initial_value: '60'
-
-  # VPD_WATCH dwell — observation period before misting
-  - id: vpd_watch_dwell_s
-    type: int
-    restore_value: no
-    initial_value: '60'
-
-  # Vent coordination for misting (binary vent)
-  - id: mist_vent_close_lead_s
-    type: int
-    restore_value: no
-    initial_value: '15'
-
-  - id: mist_max_closed_vent_s
-    type: int
-    restore_value: no
-    initial_value: '600'
-
-  # Fog escalation threshold (VPD delta above vpd_high)
-  - id: fog_escalation_kpa
-    type: float
-    restore_value: no
-    initial_value: '0.4'
-
-  # Vent reopen delay after misting completes (let evaporation settle)
-  - id: mist_vent_reopen_delay_s
-    type: int
-    restore_value: no
-    initial_value: '45'
-
-  # Mandatory thermal relief opening duration
-  - id: mist_thermal_relief_s
-    type: int
-    restore_value: no
-    initial_value: '90'
-
-  # Fog safety gates
-  - id: fog_rh_ceiling_pct
-    type: int
-    restore_value: no
-    initial_value: '90'
-
-  - id: fog_min_temp_f
-    type: int
-    restore_value: no
-    initial_value: '55'
-
-  - id: mister_closes_vent
-    type: bool
-    restore_value: no
-    initial_value: 'false'
 
   - id: mister_vpd_at_start
     type: float
@@ -1512,63 +1066,10 @@ globals:
     restore_value: no
     initial_value: 'false'
 
-  # ─── Sprint-15: summer thermal-driven vent gate tunables ──────────
-  # Operator-tunable parameters for the new gate that pre-empts
-  # VPD-seal entry when outdoor air is cooler+drier than indoor.
-  # Defaults match the spec; clamps live in ESPHome tunables and dispatcher validation.
-  # See docs/firmware-sprint-15-summer-vent-spec.md.
-  - id: sw_summer_vent_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'true'    # ON by default — sealing is wrong in summer
-
-  - id: vent_prefer_temp_delta_f
-    type: float
-    restore_value: no
-    initial_value: '5.0'
-
-  - id: vent_prefer_dp_delta_f
-    type: float
-    restore_value: no
-    initial_value: '5.0'
-
   - id: outdoor_staleness_max_s
     type: int
     restore_value: no
     initial_value: '600'     # sprint-15.1: 10 min — 2× dispatcher cadence, covers push jitter
-
-  - id: summer_vent_min_runtime_s
-    type: int
-    restore_value: no
-    initial_value: '180'
-
-  # ─── Phase-2 dwell gate ───────────────────────────────────────────
-  # 5-min hold on non-safety mode transitions to kill whipsaw. Default
-  # OFF until replay/invariant evidence and an explicit live activation request allow direct
-  # activation in the single live controller path.
-  - id: sw_dwell_gate_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: dwell_gate_ms
-    type: int
-    restore_value: no
-    initial_value: '300000'   # 5 min
-
-  # ─── Unified band-first controller ───────────────────────────────────────
-  # Compatibility/readback field for planner and dispatcher contracts.
-  # The ESPHome control loop forces it ON so there is one live controller path:
-  # temp-band first, VPD-band second, failed sealed misting enters backoff.
-  - id: sw_fsm_controller_enabled
-    type: bool
-    restore_value: no
-    initial_value: 'true'
-
-  - id: mist_backoff_s
-    type: int
-    restore_value: no
-    initial_value: '600'
 
   # ─── Occupancy-based mist inhibit ───
   - id: greenhouse_occupied

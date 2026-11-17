@@ -47,6 +47,8 @@ from verdify_schemas.tunable_registry import (
     RETIRED_TUNABLES_REG,
     RETIRING_TUNABLES,
     SETPOINT_MAP_REG,
+    THIRD_FLASH_INERT_WIRE_REG,
+    THIRD_FLASH_RETIRED_REG,
     TIER1_REG,
     TunableDef,
     planner_effective_bounds,
@@ -250,8 +252,13 @@ class TestDriftGuard:
         min_value/max_value and doesn't update the registry, this fails.
         """
         bounds = _parse_number_bounds(tunables_yaml)
-        # Only check numeric tunables with explicit fw_clamp declared.
-        to_check = {n: d for n, d in REGISTRY.items() if d.kind == "numeric" and d.fw_clamp_lo is not None}
+        # Only check numeric tunables with explicit fw_clamp declared. The third flash's inert wire slots have no
+        # entity until host release 4 decides the wire (RULINGS AE7a).
+        to_check = {
+            n: d
+            for n, d in REGISTRY.items()
+            if d.kind == "numeric" and d.fw_clamp_lo is not None and n not in THIRD_FLASH_INERT_WIRE_REG
+        }
         missing: list[str] = []
         mismatched: list[str] = []
         for name, d in to_check.items():
@@ -281,8 +288,8 @@ class TestDriftGuard:
         RETIRING_TUNABLES, the entities the engine release removes.
         """
         entities = _tunable_entities(tunables_yaml)
-        # 142 numbers and switches since VD-47 retired 25 of them.
-        assert len(entities) > 120, f"tunables.yaml entity parse came back short: {len(entities)}"
+        # 49 numbers and switches since the third flash deleted the old controller's settings (package 4.3, AD1).
+        assert len(entities) > 40, f"tunables.yaml entity parse came back short: {len(entities)}"
         missing = _unregistered_entities(tunables_yaml, REGISTRY, RETIRING_TUNABLES)
         assert not missing, (
             f"{len(missing)} tunables.yaml entities have no REGISTRY row and are not in RETIRING_TUNABLES "
@@ -342,33 +349,33 @@ class TestDriftGuard:
         assert not stale, f"RETIRING_TUNABLES names entities tunables.yaml no longer has: {stale}"
 
     def test_controls_setpoints_are_not_literal_policy(self, controls_yaml: str) -> None:
-        """Setpoints fields must come from globals/handler values, not local
-        literals. Literal safety bounds belong in validate_setpoints(), where
-        they are fallback clamps, not in the live ESPHome Setpoints builder.
-        """
-        m = re.search(r"Setpoints setpts\s*=\s*\{(?P<body>.*?)\n\s*\};", controls_yaml, re.DOTALL)
-        assert m, "Could not find Setpoints setpts initializer in controls.yaml"
-        literal_fields = [match.group("field") for match in _SETPOINT_LITERAL_RE.finditer(m.group("body"))]
-        assert not literal_fields, (
-            "Setpoints initializer has hardcoded numeric policy literals: "
-            f"{literal_fields}. Add globals/tunables/readbacks and assign from id(...)."
-        )
+        """Setpoints carries only the band the law used and the served targets (package 4.3, AD1): built from
+        default_setpoints(), the served band and law_band, with no other field assigned and no numeric policy
+        literal (the midpoint's 0.5 is arithmetic, not policy)."""
+        assert "Setpoints setpts = default_setpoints();" in controls_yaml
+        assigned = re.findall(r"\n\s*setpts\.(?P<field>[a-zA-Z0-9_]+)\s*=\s*(?P<rhs>[^;]*);", controls_yaml)
+        assert {field for field, _ in assigned} == {
+            "temp_low",
+            "temp_high",
+            "vpd_low",
+            "vpd_high",
+            "temp_target",
+            "vpd_target",
+        }
+        for field, rhs in assigned:
+            assert "sv2_" in rhs or "law_band." in rhs or "setpts." in rhs, (field, rhs)
+            assert not re.search(r"(?<![\w.])\d+(?:\.\d+)?f?\b(?!\s*\))", rhs.replace("0.5f", "")), (field, rhs)
 
     def test_boot_sanity_clamps_match_registry_for_core_policy_bounds(self, greenhouse_yaml: str) -> None:
-        """Root boot-sanity guards must not silently narrow planner-policy bounds.
+        """Root boot-sanity guards must not silently narrow policy bounds.
 
         The main number-entity drift guard checks `greenhouse/tunables.yaml`, but
         `greenhouse.yaml` also has boot-time corruption guards. If those guards
-        are narrower than the registry, a valid planner value can survive MCP and
-        dispatcher validation but be reset after reboot.
+        are narrower than the registry, a valid value can survive MCP and
+        dispatcher validation but be reset after reboot. The third flash deleted the
+        other guarded settings with their entities; the water budget's guard remains.
         """
-        cases = {
-            "mister_engage_kpa": "mister_engage_kpa",
-            "mister_all_kpa": "mister_all_kpa",
-            "fog_escalation_kpa": "fog_escalation_kpa",
-            "stage2_heat_delta_f": "d_heat_stage_2",
-            "stage2_cool_delta_f": "d_cool_stage_2",
-        }
+        cases = {"mister_water_budget_gal": "mister_water_budget_gal"}
         mismatched: list[str] = []
         for global_id, param in cases.items():
             m = re.search(_BOOT_RANGE_RE.format(global_id=re.escape(global_id)), greenhouse_yaml)
@@ -490,7 +497,8 @@ class TestDriftGuard:
             assert not REGISTRY[param].planner_pushable
             assert REGISTRY[param].tier == 2
         assert REGISTRY["temp_low"].control_class == "crop_band"
-        assert REGISTRY["safety_min"].control_class == "controller_safety"
+        assert REGISTRY["mister_hysteresis_kpa"].control_class == "controller_safety"
+        assert REGISTRY["safety_min"].control_class == "retired"  # the third flash: the law compiles 40/100 F
         assert REGISTRY["fallback_window_s"].control_class == "readback_context"
         assert REGISTRY["mister_on_s"].control_class == "retired"
         assert REGISTRY["d_cool_stage_2"].control_class == "retired"
@@ -888,12 +896,14 @@ class TestPlannerWriteContractLockout:
 
     def test_hard_safety_rails_locked_out(self) -> None:
         """The hard rails (push_owner='safety') and the whole controller_safety
-        class are non-pushable and absent from the planner-writable surface."""
+        class are non-pushable and absent from the planner-writable surface. The
+        third flash deleted the rails' entities (the law compiles 40 F and 100 F),
+        so their rows are retired."""
         rails = sorted(n for n, d in REGISTRY.items() if d.push_owner == "safety")
         assert {"safety_min", "safety_max", "safety_vpd_min", "safety_vpd_max"} <= set(rails)
         for n in rails:
             assert not REGISTRY[n].planner_pushable
-            assert REGISTRY[n].control_class == "controller_safety"
+            assert REGISTRY[n].control_class == "retired" and n in THIRD_FLASH_RETIRED_REG
             assert n not in PLANNER_PUSHABLE_REG
         safety_class = [n for n, d in REGISTRY.items() if d.control_class == "controller_safety"]
         leaked = [n for n in safety_class if n in PLANNER_PUSHABLE_REG]
@@ -907,47 +917,17 @@ class TestPlannerWriteContractLockout:
         assert "sw_fsm_controller_enabled" not in PLANNER_PUSHABLE_REG
         assert "sw_fsm_controller_enabled" not in AGENT_SETTABLE_PARAMS
 
-    def test_dehum_vent_hold_flag_is_operator_only(self) -> None:
-        """#410/#420: the S8 vent+reheat hold activation flag is operator-scoped.
-
-        OFF-default switch; activation is a safety-checked wave step (STEP-06)
-        through the sanctioned logged push path. Iris must never toggle it:
-        controller_safety class, absent from every planner-writable surface
-        (MCP set_tunable gates on PLANNER_PUSHABLE_REG). The canonical name is
-        sw_-prefixed because the dispatcher/RT-listener push paths select
-        switch_command by that prefix; the esp/cfg object_ids are the wire
-        NAME slugs per the #421 validation finding.
-        """
+    def test_dehum_vent_hold_flag_left_with_its_entity(self) -> None:
+        """#410/#420: the S8 vent+reheat hold flag. The third flash deleted the switch and its readback
+        (package 4.3), so the row is entity-less, retired and never planner-named (RULINGS AE7a)."""
         row = REGISTRY["sw_dehum_vent_hold_enabled"]
-        assert row.kind == "switch"
-        assert row.default == 0
-        assert row.push_owner == "operator"
-        assert not row.planner_pushable
-        assert row.tier == 2
-        assert row.control_class == "controller_safety"
+        assert row.kind == "switch" and not row.planner_pushable and row.tier == 2
+        assert row.control_class == "retired" and "sw_dehum_vent_hold_enabled" in THIRD_FLASH_RETIRED_REG
+        assert row.esp_object_id is None and row.cfg_readback_object_id is None
         assert "sw_dehum_vent_hold_enabled" not in PLANNER_PUSHABLE_REG
-        assert "sw_dehum_vent_hold_enabled" not in TIER1_REG
-        # Wire forms (aioesphomeapi delivers NAME slugs, not YAML ids).
-        assert row.esp_object_id == "dehum_vent_hold_enabled"
-        assert row.cfg_readback_object_id == "cfg___dehum_vent_hold_enabled"
-        # The sanctioned push path validates through the shared boundary check.
-        assert registry_value_error("sw_dehum_vent_hold_enabled", 1.0) is None
-        assert registry_value_error("sw_dehum_vent_hold_enabled", 0.0) is None
-        assert registry_value_error("sw_dehum_vent_hold_enabled", 0.5) is not None
-        # Never agent-settable and never named in the review prompt.
+        assert "cfg___dehum_vent_hold_enabled" not in _entity_map().CFG_READBACK_MAP
         assert "sw_dehum_vent_hold_enabled" not in AGENT_SETTABLE_PARAMS
         assert "dehum_vent_hold_enabled" not in (REPO_ROOT / "ingestor" / "review_prompt.py").read_text()
-
-    def test_dehum_vent_hold_readback_route_is_registry_derived_only(self) -> None:
-        """#420 reconciliation: exactly ONE authoritative CFG route.
-
-        A hand-written route for this readback would shadow the registry-derived
-        one with the old unregistered param name, and setpoint_snapshot rows
-        would keep being rejected (issue #420 break (b)). CFG_READBACK_MAP must
-        resolve it to the registry row.
-        """
-        assert CFG_READBACK_MAP_REG["cfg___dehum_vent_hold_enabled"] == "sw_dehum_vent_hold_enabled"
-        assert _entity_map().CFG_READBACK_MAP["cfg___dehum_vent_hold_enabled"] == "sw_dehum_vent_hold_enabled"
 
     def test_agents_may_set_only_operator_switches(self) -> None:
         """Climate refactor 4.2: an agent's set_setting reaches only the operator switches."""
@@ -1013,6 +993,11 @@ def _parse_entities(text: str) -> tuple[dict[str, tuple[str, float | None]], dic
     return numbers, switches
 
 
+# The settings the third flash deleted keep their copied entity name until host release 4 deletes the rows
+# (RULINGS AE7a); the guards skip them.
+_THIRD_FLASH_DELETED = THIRD_FLASH_RETIRED_REG | THIRD_FLASH_INERT_WIRE_REG
+
+
 def _lost_entity(name: str, spec: TunableDef) -> str:
     return (
         f"{name}: copied from a tunables.yaml entity (_ENTITY_NAMES), but no {spec.kind} entity "
@@ -1040,7 +1025,7 @@ def _step_mismatches(registry: Mapping[str, TunableDef], tunables_text: str) -> 
         elif spec.kind == "switch" and key in switches:
             if spec.step != 1.0:
                 mismatches.append(f"{name}: a switch entity holds 0/1, so step must be 1.0, registry step={spec.step}")
-        elif name in _ENTITY_NAMES:
+        elif name in _ENTITY_NAMES and name not in _THIRD_FLASH_DELETED:
             mismatches.append(_lost_entity(name, spec))
     return mismatches
 
@@ -1077,7 +1062,7 @@ def _label_mismatches(registry: Mapping[str, TunableDef], tunables_text: str) ->
         elif spec.kind == "switch" and key in switches:
             expected = split_entity_name(switches[key])
         else:
-            if name in _ENTITY_NAMES:
+            if name in _ENTITY_NAMES and name not in _THIRD_FLASH_DELETED:
                 mismatches.append(_lost_entity(name, spec))
             continue
         if (spec.label, spec.unit) != expected:
@@ -1088,18 +1073,18 @@ def _label_mismatches(registry: Mapping[str, TunableDef], tunables_text: str) ->
 class TestStepLabelUnitDriftGuard:
     def test_registry_steps_match_tunables_yaml(self, tunables_yaml: str) -> None:
         numbers, switches = _parse_entities(tunables_yaml)
-        assert len(numbers) > 100 and len(switches) > 20, "tunables.yaml entity parse came back short"
+        assert len(numbers) > 30 and len(switches) > 5, "tunables.yaml entity parse came back short"
         mismatches = _step_mismatches(REGISTRY, tunables_yaml)
         assert not mismatches, f"step drift in {len(mismatches)} rows:\n  " + "\n  ".join(mismatches)
         assert REGISTRY["site_pressure_hpa"].step == 1.0
-        assert REGISTRY["mister_engage_kpa"].step == 0.05
+        assert REGISTRY["mister_engage_delay_s"].step == 30.0
 
     @pytest.mark.parametrize(
         ("name", "step"),
         [
             ("site_pressure_hpa", 5.0),  # number entity, wrong step
-            ("mister_engage_kpa", None),  # number entity, step missing
-            ("sw_fog_closes_vent", None),  # switch entity, step not 1.0
+            ("mister_engage_delay_s", None),  # number entity, step missing
+            ("sw_occupancy_inhibit", None),  # switch entity, step not 1.0
         ],
     )
     def test_step_guard_fails_on_a_patched_row(self, tunables_yaml: str, name: str, step: float | None) -> None:
@@ -1108,7 +1093,7 @@ class TestStepLabelUnitDriftGuard:
 
     @pytest.mark.parametrize(
         ("name", "entity_name"),
-        [("site_pressure_hpa", "Site Pressure (hPa)"), ("sw_fog_closes_vent", "Fog Closes Vent")],
+        [("site_pressure_hpa", "Site Pressure (hPa)"), ("sw_occupancy_inhibit", "Occupancy Mist Inhibit")],
     )
     def test_guards_fail_when_a_copied_entity_is_gone(self, tunables_yaml: str, name: str, entity_name: str) -> None:
         """A renamed or removed entity leaves a stale literal: both guards fail on it."""
@@ -1176,17 +1161,26 @@ class TestStepLabelUnitDriftGuard:
     def test_registry_labels_match_tunables_yaml(self, tunables_yaml: str) -> None:
         mismatches = _label_mismatches(REGISTRY, tunables_yaml)
         assert not mismatches, f"label/unit drift in {len(mismatches)} rows:\n  " + "\n  ".join(mismatches)
-        assert (REGISTRY["mister_engage_kpa"].label, REGISTRY["mister_engage_kpa"].unit) == ("VPD Mister Engage", "kPa")
-        assert (REGISTRY["fog_min_temp_f"].label, REGISTRY["fog_min_temp_f"].unit) == ("Fog Min Temp", "°F")
-        assert (REGISTRY["sw_fog_closes_vent"].label, REGISTRY["sw_fog_closes_vent"].unit) == ("Fog Closes Vent", None)
+        assert (REGISTRY["mister_engage_delay_s"].label, REGISTRY["mister_engage_delay_s"].unit) == (
+            "Mister Engage Delay",
+            "s",
+        )
+        assert (REGISTRY["direct_wet_min_temp_f"].label, REGISTRY["direct_wet_min_temp_f"].unit) == (
+            "Direct Wet Min Temp",
+            "°F",
+        )
+        assert (REGISTRY["sw_occupancy_inhibit"].label, REGISTRY["sw_occupancy_inhibit"].unit) == (
+            "Occupancy Mist Inhibit",
+            None,
+        )
 
     @pytest.mark.parametrize(
         ("name", "field", "value"),
         [
-            ("mister_engage_kpa", "label", "VPD Mister Engage kPa"),
-            ("mister_engage_kpa", "unit", "°F"),
-            ("fog_min_temp_f", "unit", None),
-            ("sw_fog_closes_vent", "label", "sw_fog_closes_vent"),
+            ("mister_engage_delay_s", "label", "Mister Engage Delay s"),
+            ("mister_engage_delay_s", "unit", "°F"),
+            ("direct_wet_min_temp_f", "unit", None),
+            ("sw_occupancy_inhibit", "label", "sw_occupancy_inhibit"),
         ],
     )
     def test_label_guard_fails_on_a_patched_row(
@@ -1207,7 +1201,8 @@ class TestStepLabelUnitDriftGuard:
         assert len(FIRMWARE_V2_STAGED_REG) == 56
         missing: list[str] = []
         rewired: list[str] = []
-        for name in sorted(FIRMWARE_V2_STAGED_REG):
+        # The three window anchors the third flash deleted have no readback (RULINGS AE7a).
+        for name in sorted(FIRMWARE_V2_STAGED_REG - THIRD_FLASH_RETIRED_REG):
             spec = REGISTRY[name]
             rebuilt = f"Cfg • {spec.label}" + (f" ({spec.unit})" if spec.unit else "")
             if rebuilt not in readback_names:
@@ -1260,7 +1255,7 @@ class TestStepLabelUnitDriftGuard:
         assert split_entity_name(name) == expected
 
 
-# ─── VD-63: the six firmware tunables that had no row, and the dead fog rows ───
+# ─── VD-63: the firmware tunables that had no row (two left after the third flash), and the dead fog rows ───
 #
 # name: (kind, min, max, step, default, esp_object_id, cfg_readback_object_id,
 #        push_owner, control_class). Bounds equal the fw_clamp pair. The ids are
@@ -1278,50 +1273,6 @@ _VD63_ROWS: dict[str, tuple] = {
         "operator",
         "controller_safety",
     ),
-    "night_stress_min_dew_margin_f": (
-        "numeric",
-        3.0,
-        15.0,
-        0.5,
-        6.0,
-        "night_stress_min_dew_margin___f_",
-        "cfg___night_stress_min_dew_margin___f_",
-        "safety",
-        "controller_safety",
-    ),
-    "sw_night_econ_heat_suppress_enabled": (
-        "switch",
-        None,
-        None,
-        1.0,
-        1.0,
-        "night_econ_heat_suppress_enabled",
-        "cfg_night_econ_heat_suppress_enabled",
-        "operator",
-        "controller_safety",
-    ),
-    "sw_wet_taper_enabled": (
-        "switch",
-        None,
-        None,
-        1.0,
-        1.0,
-        "wet_taper_enabled",
-        "cfg_wet_taper_enabled",
-        "operator",
-        "retired",
-    ),
-    "sw_night_stress_wet_enabled": (
-        "switch",
-        None,
-        None,
-        1.0,
-        1.0,
-        "night_stress_wet_enabled",
-        "cfg_night_stress_wet_enabled",
-        "operator",
-        "retired",
-    ),
     "sw_onchip_band_enabled": (
         "switch",
         None,
@@ -1336,7 +1287,23 @@ _VD63_ROWS: dict[str, tuple] = {
 }
 
 
+# VD-63 rows whose entity and readback the third flash deleted (package 4.3): entity-less and retired (RULINGS AE7a).
+_VD63_THIRD_FLASH_RETIRED = (
+    "night_stress_min_dew_margin_f",
+    "sw_night_econ_heat_suppress_enabled",
+    "sw_wet_taper_enabled",
+    "sw_night_stress_wet_enabled",
+)
+
+
 class TestRegisteredFirmwareTunables:
+    @pytest.mark.parametrize("name", _VD63_THIRD_FLASH_RETIRED)
+    def test_third_flash_rows_are_off(self, name: str) -> None:
+        spec = REGISTRY[name]
+        assert name in THIRD_FLASH_RETIRED_REG and spec.control_class == "retired"
+        assert spec.esp_object_id is None and spec.cfg_readback_object_id is None
+        assert not spec.planner_pushable and name not in PLANNER_PUSHABLE_REG and spec.wire_id is None
+
     @pytest.mark.parametrize("name", sorted(_VD63_ROWS))
     def test_row_contract(self, name: str) -> None:
         kind, lo, hi, step, default, esp_id, cfg_id, owner, control_class = _VD63_ROWS[name]
@@ -1440,7 +1407,7 @@ def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None
         "gl_grow_dli_target",
     }
     assert not retired_1477 & set(REGISTRY)
-    assert {"wet_taper_before_sunset_min", "zone_priority_east"} <= CROP_BAND_REG
+    assert "zone_priority_east" in CROP_BAND_REG
     assert LEGACY_SHARED_LIGHTING_REG == frozenset()
     # Inert on the band-first controller but decoded from the policy wire: retiring them is a wire change.
     for name in ("mist_thermal_relief_s", "sw_direct_wet_stress_override_enabled"):

@@ -48,6 +48,7 @@ class FirmwareProfileTest(unittest.TestCase):
         self.commit()
         self.source = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         self.commands = []
+        self.ram_used = {}
 
     def tearDown(self):
         os.chdir(self.old)
@@ -95,6 +96,10 @@ class FirmwareProfileTest(unittest.TestCase):
             for prefix in ("xtensa-esp-elf", "xtensa-esp32-elf", "xtensa-esp32s2-elf", "xtensa-esp32s3-elf"):
                 for suffix in ("as", "g++", "gcc", "ld"):
                     (pkg / "bin" / f"{prefix}-{suffix}").write_bytes(b"NONDEPLOYABLE compiler fixture")
+            ram = self.ram_used.get(config.stem, 113000)
+            return subprocess.CompletedProcess(
+                cmd, 0, f"RAM:   [=         ]  34.5% (used {ram} bytes from 327680 bytes)\n".encode()
+            )
         return subprocess.CompletedProcess(cmd, 0)
 
     def invoke(self, runner=None, version="2026.6.5", bound=None, target=""):
@@ -209,12 +214,30 @@ class FirmwareProfileTest(unittest.TestCase):
         for result in (subprocess.CompletedProcess([], 1, b"network down"), subprocess.CompletedProcess([], 0, b"")):
 
             def broken(cmd, **kw):
-                if kw.get("stdout") == subprocess.PIPE:
+                if cmd[-2] == "compile" and "CI_NONDEPLOYABLE_GENERATED" in Path(cmd[-1]).read_text():
                     return result
                 return self.fake_compile(cmd, **kw)
 
             with self.assertRaisesRegex(RuntimeError, r"broken generated C\+\+"):
                 self.invoke(broken)
+
+    def test_static_dram_gate_prints_one_line_and_fails_above_the_limit(self):
+        # Review F3-UR-4 (RULINGS W9a): one FIRMWARE_STATIC_DRAM line per target, the greenhouse limit 114,128 B.
+        self.ram_used = {"greenhouse": 114128}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            MODULE.static_dram_gate("greenhouse", b"RAM:   [===       ]  34.8% (used 114128 bytes from 327680 bytes)\n")
+        self.assertEqual(
+            out.getvalue().strip(), "FIRMWARE_STATIC_DRAM target=greenhouse used=114128 limit=114128 of=327680 PASS"
+        )
+        receipt = self.invoke()
+        self.assertEqual({t["target"]: t["static_dram_bytes"] for t in receipt["targets"]}["greenhouse"], 114128)
+        self.ram_used = {"greenhouse": 114129}
+        with self.assertRaisesRegex(RuntimeError, "static DRAM 114129 B above the 114128 B limit"):
+            self.invoke()
+        with self.assertRaisesRegex(RuntimeError, "no RAM line"):
+            MODULE.static_dram_gate("greenhouse", b"Linking .pioenvs/greenhouse/firmware.elf\n")
+        self.assertIsNone(MODULE.static_dram_gate("greenhouse-recovery", b""))
 
 
 class FirmwareCompilerProvenanceTest(unittest.TestCase):

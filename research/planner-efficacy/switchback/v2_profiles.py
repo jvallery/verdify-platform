@@ -46,9 +46,9 @@ TREATMENT_ALLOWLIST = frozenset(
 FIRMWARE_GRID_PATH = Path("firmware/greenhouse/tunables.yaml")
 # Frozen evidence for the experiment-v2 pin chain.  The artifact records this
 # snapshot's hash as `source_entity_grid_sha256`, and migrations 220/222/225, the
-# shadow-v2 locks and the direct-launch bootstrap pin the artifact's bytes, so a
-# firmware edit elsewhere in tunables.yaml must not move it.  The study binds only
-# to the grid values, which must stay identical to the snapshot's.
+# shadow-v2 locks and the direct-launch bootstrap pin the artifact's bytes, so no
+# firmware edit may move it.  The study binds to the snapshot's grid values; the
+# artifact still names FIRMWARE_GRID_PATH as their original source.
 FROZEN_GRID_SNAPSHOT_PATH = Path("research/planner-efficacy/protocols/frozen-sources/tunables-v1.yaml.txt")
 
 
@@ -58,7 +58,7 @@ def _esphome_object_id(name: str) -> str:
 
 
 def source_entity_grid(
-    repo_root: Path = REPO_ROOT, source: Path = FIRMWARE_GRID_PATH
+    repo_root: Path = REPO_ROOT, source: Path = FROZEN_GRID_SNAPSHOT_PATH
 ) -> dict[str, tuple[float, float, float]]:
     """Parse every numeric wire field's exact min/max/step from firmware source."""
     path = repo_root / source
@@ -95,7 +95,10 @@ def source_entity_grid(
     return grid
 
 
-# Compatibility export, but derived from the source file rather than duplicated.
+# The study's grid, read from its frozen snapshot: the third flash deleted most of
+# these number entities from the live tunables.yaml (#1633 RULINGS AE7a), so the
+# frozen snapshot is the only source left. Its hash is the artifact's
+# source_entity_grid_sha256.
 SOURCE_ENTITY_GRID = source_entity_grid()
 
 # Explicit source/design decisions, applied before validation.  They are not a
@@ -190,11 +193,6 @@ def build_profile_artifact(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     firmware_grid_path = repo_root / FIRMWARE_GRID_PATH
     frozen_grid_path = repo_root / FROZEN_GRID_SNAPSHOT_PATH
     source_grid = source_entity_grid(repo_root)
-    if source_entity_grid(repo_root, FROZEN_GRID_SNAPSHOT_PATH) != source_grid:
-        raise ValueError(
-            f"the {FIRMWARE_GRID_PATH} entity grid no longer equals the frozen snapshot {FROZEN_GRID_SNAPSHOT_PATH}; "
-            "re-freeze the switchback v2 profile artifact and every lock that pins it"
-        )
     baseline_source = json.loads(baseline_path.read_text())
     candidates_source = json.loads(candidates_path.read_text())
     original_baseline = {name: row["quantized_value"] for name, row in baseline_source["fields"].items()}

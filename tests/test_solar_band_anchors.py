@@ -178,18 +178,22 @@ class TestAnchorContract:
         from verdify_schemas.tunable_registry import FIRMWARE_V2_CFG_WIRE_IDS
 
         retired_center_watering_offsets = {"dawn_boost_offset_min", "midday_boost_offset_min"}
+        # The third flash deleted the two offsets' readbacks and the wet taper with them (RULINGS AE7a).
+        third_flash_deleted = retired_center_watering_offsets | {"wet_taper_before_sunset_min"}
         for name in band_anchors.ANCHOR_SYNC_PARAMS:
             spec = REGISTRY[name]
-            assert spec.cfg_readback_object_id == FIRMWARE_V2_CFG_WIRE_IDS[name]
             assert spec.planner_pushable is False, f"{name} must not be planner-authorable"
-            if name in retired_center_watering_offsets:
-                assert spec.esp_object_id is None
-                assert spec.default == 0
-                assert spec.push_owner == "firmware_internal"
+            if name in third_flash_deleted:
+                assert spec.esp_object_id is None and spec.cfg_readback_object_id is None
+                assert name not in FIRMWARE_V2_CFG_WIRE_IDS
                 assert spec.control_class == "retired"
-            else:
-                assert spec.esp_object_id == name
-                assert spec.push_owner == "band"
+                if name in retired_center_watering_offsets:
+                    assert spec.default == 0
+                    assert spec.push_owner == "firmware_internal"
+                continue
+            assert spec.cfg_readback_object_id == FIRMWARE_V2_CFG_WIRE_IDS[name]
+            assert spec.esp_object_id == name
+            assert spec.push_owner == "band"
 
     def test_zone_crop_mapping(self):
         assert band_anchors.ZONE_CROP == {

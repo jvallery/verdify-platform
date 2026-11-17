@@ -79,4 +79,7 @@ firmware/test/test_policy_recovery
 # briefing-only CLAUDE.md into the worktree until its runtime change ships; never commit it.
 CLAUDE.md
 firmware/test/test_climate_law
+firmware/test/test_gap_log
+firmware/test/test_gap_log_f1
+firmware/test/test_gap_log_device
 firmware/test/test_climate_law_replay

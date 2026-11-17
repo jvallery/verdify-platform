@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -17,10 +18,39 @@ inline uint32_t gh_control_loop_last_us_value = 0;
 inline uint32_t gh_control_loop_max_us_value = 0;
 inline uint32_t gh_control_loop_overrun_count_value = 0;
 
+// Package 2.4 health readings (contracts/controller-hardware-budget.md section 5b): each 60 s sensor takes, that is
+// reads and resets, its own one-minute window, independent of the 15-minute heap_profile log's window.
+struct GhMinuteLow {
+    uint32_t value = UINT32_MAX;
+    void note(uint32_t sample) {
+        if (sample < value) value = sample;
+    }
+    // The window's lowest sample including `now_sample` (taken at publish time, so an empty window still reads
+    // a real value), then a new window starts.
+    uint32_t take(uint32_t now_sample) {
+        note(now_sample);
+        const uint32_t v = value;
+        value = UINT32_MAX;
+        return v;
+    }
+};
+
+inline GhMinuteLow gh_heap_free_minute_low;
+inline GhMinuteLow gh_heap_block_minute_low;
+inline uint32_t gh_heap_free_minute_low_last_bytes = 0;  // the last published low (the gap log's replay gate)
+inline uint32_t gh_control_loop_minute_max_us_value = 0;
+
 inline void gh_record_control_loop_duration_us(uint32_t duration_us) {
     gh_control_loop_last_us_value = duration_us;
     if (duration_us > gh_control_loop_max_us_value) gh_control_loop_max_us_value = duration_us;
+    if (duration_us > gh_control_loop_minute_max_us_value) gh_control_loop_minute_max_us_value = duration_us;
     if (duration_us > GH_CONTROL_LOOP_WARN_US) gh_control_loop_overrun_count_value++;
+}
+
+inline uint32_t gh_take_control_loop_minute_max_us() {
+    const uint32_t value = gh_control_loop_minute_max_us_value;
+    gh_control_loop_minute_max_us_value = 0;
+    return value;
 }
 
 inline uint32_t gh_control_loop_last_us() { return gh_control_loop_last_us_value; }
@@ -37,6 +67,12 @@ inline uint32_t gh_take_control_loop_overrun_count() {
     return value;
 }
 
+// RULINGS AF9(b): WiFi drops since boot, counted by wifi on_disconnect. RAM only: the restart count and the uptime
+// reset tell a reader where a boot starts.
+inline uint32_t gh_wifi_disconnect_count_value = 0;
+inline void gh_note_wifi_disconnect() { gh_wifi_disconnect_count_value++; }
+inline uint32_t gh_wifi_disconnect_count() { return gh_wifi_disconnect_count_value; }
+
 inline bool gh_pre_ota_heap_floor_met(float free_kb, float largest_block_kb) {
     return free_kb >= GH_PRE_OTA_MIN_FREE_HEAP_KB
         && largest_block_kb >= GH_PRE_OTA_MIN_LARGEST_BLOCK_KB;
@@ -48,7 +84,15 @@ inline bool gh_pre_ota_heap_floor_met(float free_kb, float largest_block_kb) {
 #include "esp_flash.h"
 #include "esp_partition.h"
 #include "nvs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <cstdio>
+
+// RULINGS AF9(b): the fewest bytes of stack the calling task has ever had free (ESP-IDF counts StackType_t in
+// bytes). Called from a sensor update, which runs on ESPHome's loop task, the task that runs the control pass.
+inline float gh_loop_stack_high_water_bytes() {
+    return float(uxTaskGetStackHighWaterMark(nullptr));
+}
 
 inline float gh_free_heap_kb() {
     return esp_get_free_heap_size() / 1024.0f;
@@ -60,6 +104,29 @@ inline float gh_min_free_heap_kb() {
 
 inline float gh_largest_free_heap_block_kb() {
     return heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) / 1024.0f;
+}
+
+// Once per control pass (1 s): the per-minute lows. A dip shorter than a pass (inside an API burst) is missed
+// here; the since-boot minimum (esp_get_minimum_free_heap_size) still records it.
+inline void gh_note_heap_sample() {
+    gh_heap_free_minute_low.note(esp_get_free_heap_size());
+    gh_heap_block_minute_low.note(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
+
+inline float gh_take_heap_free_minute_low_kb() {
+    gh_heap_free_minute_low_last_bytes = gh_heap_free_minute_low.take(esp_get_free_heap_size());
+    return gh_heap_free_minute_low_last_bytes / 1024.0f;
+}
+
+inline float gh_take_heap_block_minute_low_kb() {
+    return gh_heap_block_minute_low.take(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)) / 1024.0f;
+}
+
+// NVS entries (32 B each) in use and free, from the default partition; NAN when the call fails.
+inline float gh_nvs_entries(bool used) {
+    nvs_stats_t st = {};
+    if (nvs_get_stats(NULL, &st) != ESP_OK) return NAN;
+    return float(used ? st.used_entries : st.free_entries);
 }
 // RULINGS W1/W2: the device's own partition table (OTA never rewrites it), NVS use and the flash chip, for the
 // flash-backed buffer's design. Read-only, static buffers, no heap; a failed call reports its error code.
@@ -100,4 +167,9 @@ inline void gh_flash_profile(const char** parts_line, const char** nvs_line) {
 inline float gh_free_heap_kb() { return 0.0f; }
 inline float gh_min_free_heap_kb() { return 0.0f; }
 inline float gh_largest_free_heap_block_kb() { return 0.0f; }
+inline void gh_note_heap_sample() {}
+inline float gh_take_heap_free_minute_low_kb() { return 0.0f; }
+inline float gh_take_heap_block_minute_low_kb() { return 0.0f; }
+inline float gh_nvs_entries(bool) { return 0.0f; }
+inline float gh_loop_stack_high_water_bytes() { return 0.0f; }
 #endif

@@ -28,7 +28,13 @@ import pytest
 import yaml
 
 from verdify_schemas.telemetry import OVERRIDE_EVENT_TYPES
-from verdify_schemas.tunable_registry import FIRMWARE_V2_CFG_WIRE_IDS, FIRMWARE_V2_STAGED_REG, REGISTRY
+from verdify_schemas.tunable_registry import (
+    FIRMWARE_V2_CFG_WIRE_IDS,
+    FIRMWARE_V2_STAGED_REG,
+    REGISTRY,
+    THIRD_FLASH_INERT_WIRE_REG,
+    THIRD_FLASH_RETIRED_REG,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 YAML_DIRS = [
@@ -420,6 +426,16 @@ HOST_BEFORE_FIRMWARE: dict[str, set[str]] = {
     },
 }
 
+# The third flash's inert policy-wire slots (RULINGS AE7a): the firmware deleted their number or switch entity and
+# readback, but their rows keep the route until host release 4 decides the wire (contracts: inert slots or a
+# WIRE_SCHEMA_VERSION bump). Release 3's generic skip sends nothing for an entity the controller does not list.
+THIRD_FLASH_DEAD_ROUTES: dict[str, set[str]] = {
+    "SETPOINT_MAP": {REGISTRY[n].esp_object_id for n in THIRD_FLASH_INERT_WIRE_REG if REGISTRY[n].esp_object_id},
+    "CFG_READBACK_MAP": {
+        REGISTRY[n].cfg_readback_object_id for n in THIRD_FLASH_INERT_WIRE_REG if REGISTRY[n].cfg_readback_object_id
+    },
+}
+
 
 @pytest.mark.parametrize("map_name", MAP_NAMES)
 def test_entity_map_keys_exist_in_firmware(map_name, fw_ids, entity_map):
@@ -429,7 +445,11 @@ def test_entity_map_keys_exist_in_firmware(map_name, fw_ids, entity_map):
     if em_map is None:
         pytest.skip(f"{map_name} not present in entity_map")
     expected = set(em_map.keys())
-    allowed_drift = KNOWN_PRE_EXISTING_DRIFT.get(map_name, set()) | HOST_BEFORE_FIRMWARE.get(map_name, set())
+    allowed_drift = (
+        KNOWN_PRE_EXISTING_DRIFT.get(map_name, set())
+        | HOST_BEFORE_FIRMWARE.get(map_name, set())
+        | THIRD_FLASH_DEAD_ROUTES.get(map_name, set())
+    )
     new_missing = sorted((expected - fw_ids) - allowed_drift)
     assert not new_missing, (
         f"{map_name} has {len(new_missing)} NEW entity id(s) the firmware doesn't emit: "
@@ -485,7 +505,10 @@ def test_firmware_v2_cfg_fixture_matches_every_exact_wire_slug(entity_map):
     alternate candidate hid all 56 mismatches from the earlier drift guard.
     """
     firmware_wire = _firmware_cfg_sensor_wire_ids()
-    assert len(FIRMWARE_V2_CFG_WIRE_IDS) == len(FIRMWARE_V2_STAGED_REG) == 56
+    # The third flash deleted the three window anchors (dawn and midday boost offsets, wet taper) and their readbacks.
+    assert len(FIRMWARE_V2_STAGED_REG) == 56
+    assert set(FIRMWARE_V2_CFG_WIRE_IDS) == FIRMWARE_V2_STAGED_REG - THIRD_FLASH_RETIRED_REG
+    assert len(FIRMWARE_V2_CFG_WIRE_IDS) == 53
 
     missing_fixture: list[str] = []
     mismatches: dict[str, tuple[str, str]] = {}
@@ -506,40 +529,24 @@ def test_firmware_v2_cfg_fixture_matches_every_exact_wire_slug(entity_map):
     assert not unrouted, f"firmware-v2 exact wire ids not routed to canonical params: {unrouted}"
 
 
-def _override_flag_fields() -> set[str]:
-    src = (REPO_ROOT / "firmware" / "lib" / "greenhouse_types.h").read_text()
-    block = re.search(r"struct\s+OverrideFlags\s*\{(?P<body>.*?)\};", src, re.S)
-    assert block, "OverrideFlags struct not found in greenhouse_types.h"
-    return set(re.findall(r"\bbool\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", block.group("body")))
-
-
-def _published_override_tags() -> dict[str, str]:
+def _published_override_tags() -> list[str]:
     src = (REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text()
-    return dict(re.findall(r"if\(of\.([A-Za-z_][A-Za-z0-9_]*)\)\s*add\(\"([^\"]+)\"\)", src))
+    block = src[src.index("/*** OBS-1e") : src.index("id(gh_overrides).publish_state(overrides);")]
+    return re.findall(r"add\(\"([^\"]+)\"\)", block)
 
 
 def test_override_event_schema_matches_firmware_published_tags():
-    """Override tags are a wire contract: firmware fields → controls.yaml
-    payloads → ingestor OverrideEvent schema. A rename in any layer must
-    force a coordinated update.
+    """Override tags are a wire contract: controls.yaml payloads -> ingestor OverrideEvent schema. Package 4.3
+    (C-m6) publishes only the tags that still act under the law; the schema keeps the retired tags so the rows of
+    the old controller still validate. A tag the firmware publishes must be one the schema accepts.
     """
-    aliases = {"summer_vent_active": "summer_vent"}
-    fields = _override_flag_fields()
     published = _published_override_tags()
-
-    expected_tags = {aliases.get(field, field) for field in fields}
-    assert set(published) == fields, (
-        "controls.yaml must publish exactly one tag for every OverrideFlags field. "
-        f"missing={sorted(fields - set(published))}, extra={sorted(set(published) - fields)}"
+    assert published == ["occupancy_blocks_equipment", "vent_mist_assist"], published
+    assert set(published) <= set(OVERRIDE_EVENT_TYPES), (
+        "verdify_schemas.telemetry.OVERRIDE_EVENT_TYPES must accept every firmware-published override tag. "
+        f"published={published}, schema={sorted(OVERRIDE_EVENT_TYPES)}"
     )
-    assert set(published.values()) == expected_tags, (
-        "controls.yaml override tags must match OverrideFlags names, except documented aliases. "
-        f"expected={sorted(expected_tags)}, got={sorted(published.values())}"
-    )
-    assert set(OVERRIDE_EVENT_TYPES) == expected_tags, (
-        "verdify_schemas.telemetry.OVERRIDE_EVENT_TYPES must match firmware-published override tags. "
-        f"expected={sorted(expected_tags)}, got={sorted(OVERRIDE_EVENT_TYPES)}"
-    )
+    assert "evaluate_overrides(" not in (REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text()
 
 
 # The nine Home Assistant buttons (irrigation §7 HA-01 to HA-03): eight template buttons by id,
@@ -554,7 +561,9 @@ HA_BUTTON_IDS = (
     "btn_manual_humidify",
     "btn_vent_bypass",
 )
-MANUAL_LATCHES = ("manual_fans_until_ms", "manual_fog_until_ms", "vent_bypass_until_ms")
+# AB12/AD1: one fan latch with its vent flag, and the fogger latch.
+MANUAL_LATCHES = ("manual_fans_until_ms", "manual_fog_until_ms")
+MANUAL_FAN_VENT_FLAG = "manual_fans_vent_closed"
 # #1335: the per-circuit manual light holds manual_override also sets (API-20's timed switch).
 LIGHT_HOLDS = ("gl_main_hold_until_ms", "gl_main_hold_on", "gl_grow_hold_until_ms", "gl_grow_hold_on")
 _ID_WRITE_RE = re.compile(
@@ -586,8 +595,9 @@ def _firmware_yaml_docs() -> dict[str, dict]:
 def test_home_assistant_buttons_and_the_quiet_override_are_gone():
     """F12 and HA-01 to HA-03 (VD-47, #1162): no Home Assistant button, no burst script and no
     occupancy quiet override is left, and manual_override is the only remote way to a burst: its
-    lambda writes only the three deadline latches (restart only reboots), never a relay and never
-    occupancy, so a burst leaves mist and fog held while someone is inside."""
+    lambda writes only the manual latches and the fan latch's vent flag (restart only reboots),
+    never a relay and never occupancy. (RULINGS AD1: a fogger press is not held by occupancy; the
+    law's fog, the misters and a run-once still are.)"""
     sources = _firmware_sources()
     assert any(path.name == "irrigation_engine.yaml" for path in sources), "firmware sources not found"
     entity_map_source = (REPO_ROOT / "ingestor" / "entity_map.py").read_text()
@@ -617,11 +627,13 @@ def test_home_assistant_buttons_and_the_quiet_override_are_gone():
     assert override["variables"] == {"kind": "string", "minutes": "int"}
     (step,) = override["then"]
     code = _code_only(step["lambda"])
-    assert _id_writes(code) == set(MANUAL_LATCHES) | set(LIGHT_HOLDS), _id_writes(code)
-    for latch, kind in zip(MANUAL_LATCHES, ("fans", "humidify", "vent_bypass"), strict=True):
-        assert f'kind == "{kind}"' in code
+    assert _id_writes(code) == set(MANUAL_LATCHES) | {MANUAL_FAN_VENT_FLAG} | set(LIGHT_HOLDS), _id_writes(code)
+    assert 'kind == "fans" || kind == "vent_bypass"' in code
+    assert f'id({MANUAL_FAN_VENT_FLAG}) = kind == "vent_bypass";' in code
+    assert 'kind == "humidify"' in code
+    for latch in MANUAL_LATCHES:
         assert f"id({latch}) = manual_override_deadline_ms(now_ms, minutes);" in code
-        assert f"id({latch}) = 0;" in code  # clear zeroes all three
+        assert f"id({latch}) = 0;" in code  # clear zeroes both
     # #1335: light_<circuit>_<on|off> sets that circuit's hold, light_<circuit>_auto releases it, and clear
     # (the bursts' Clear) leaves the light holds alone.
     for circuit in ("main", "grow"):
@@ -644,33 +656,42 @@ def test_home_assistant_buttons_and_the_quiet_override_are_gone():
 
 
 def test_push_buttons_toggle_the_burst_latches_and_the_indicators_read_them():
-    """F12 (VD-47): each panel push button toggles its own latch in its own handler, and the three
-    burst indicators (fan_burst_active, vent_bypass_active, fog_burst_active) read the latches."""
+    """F12 (VD-47), AB12/AD1: Fan and Vent press the one fan latch with their vent state, Fog toggles
+    the fogger latch, each in its own handler; the three burst indicators (fan_burst_active,
+    vent_bypass_active, fog_burst_active) read the latches and the vent flag."""
     root = yaml.safe_load((REPO_ROOT / "firmware" / "greenhouse.yaml").read_text())
     sensors = {entry["id"]: entry for entry in root["binary_sensor"] if "id" in entry}
-    for button, latch in (
-        ("fans_switch", "manual_fans_until_ms"),
-        ("fog_switch", "manual_fog_until_ms"),
-        ("vent_bypass_switch", "vent_bypass_until_ms"),
-    ):
+    for button, vent_closed in (("fans_switch", "false"), ("vent_bypass_switch", "true")):
         (action,) = sensors[button]["on_press"]["then"]
         code = _code_only(action["lambda"])
-        assert _id_writes(code) == {latch}, (button, _id_writes(code))
-        assert f"id({latch}) = manual_latch_toggle(id({latch}), millis(), id(manual_override_timeout_min));" in code
+        assert (
+            f"manual_fan_press(id(manual_fans_until_ms), id({MANUAL_FAN_VENT_FLAG}), {vent_closed}, millis(), "
+            "id(manual_override_timeout_min));" in code
+        ), button
         assert "occupan" not in code, button
-    for indicator, name, latch in (
-        ("bs_manual_fan", "Fan Burst Active", "manual_fans_until_ms"),
-        ("bs_manual_fog", "Fog Burst Active", "manual_fog_until_ms"),
-        ("bs_vent_lock", "Vent Bypass Active", "vent_bypass_until_ms"),
+    (action,) = sensors["fog_switch"]["on_press"]["then"]
+    code = _code_only(action["lambda"])
+    assert _id_writes(code) == {"manual_fog_until_ms"}, _id_writes(code)
+    assert (
+        "id(manual_fog_until_ms) = manual_latch_toggle(id(manual_fog_until_ms), millis(), "
+        "id(manual_override_timeout_min));" in code
+    )
+    assert "occupan" not in code
+    fans_on = "manual_latch_active(id(manual_fans_until_ms), millis())"
+    for indicator, name, body in (
+        ("bs_manual_fan", "Fan Burst Active", f"{fans_on} && !id({MANUAL_FAN_VENT_FLAG})"),
+        ("bs_manual_fog", "Fog Burst Active", "manual_latch_active(id(manual_fog_until_ms), millis())"),
+        ("bs_vent_lock", "Vent Bypass Active", f"{fans_on} && id({MANUAL_FAN_VENT_FLAG})"),
     ):
         assert sensors[indicator]["name"] == name
-        assert sensors[indicator]["lambda"] == f"return manual_latch_active(id({latch}), millis());"
-    # The override layer reads only the latches, and fog also the engine's fog run-once (#1343 follow-up).
+        assert sensors[indicator]["lambda"] == f"return {body};"
+    # The manual runs read only the latches and the vent flag; the engine's fog run-once is apart from them.
     controls = (REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text()
     for line in (
-        "const bool manual_fans_eff   = manual_fans_latched;",
-        "const bool manual_fog_eff    = manual_fog_latched || irr_fog_run();",
-        "const bool vent_bypass_eff   = vent_bypass_latched;",
+        "manual_fans_latched,                 // fans",
+        f"id({MANUAL_FAN_VENT_FLAG}),         // vent_closed",
+        "manual_fog_latched,                  // fog",
+        "manual_ov, irr_fog_run(), mode);",
     ):
         assert line in controls, line
 

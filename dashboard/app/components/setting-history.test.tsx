@@ -233,7 +233,7 @@ test("when the window holds only the newest row, Revert reads 90 days back once 
 });
 
 test("with still no earlier row Revert releases to auto; the 90 d window needs no second read", async () => {
-  const param = "fog_rh_ceiling_pct";
+  const param = "mister_water_budget_gal";
   const { api } = await mount({ param });
   expect(windows(api)).toEqual([[iso(S - 7 * DAY_S), iso(S + PLAN_AHEAD_S)], [iso(S - 90 * DAY_S), iso(S + PLAN_AHEAD_S)]]);
   expect(text(revertButton())).toBe("Revert to auto");
@@ -314,7 +314,7 @@ test("a failed read shows Retry in this panel only, keeps the chips and offers n
 });
 
 test("a failed 90-day read says so and offers Retry, and never guesses a release", async () => {
-  const param = "fog_rh_ceiling_pct";
+  const param = "mister_water_budget_gal";
   const api = startFixtureApi();
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.stubGlobal("matchMedia", media({ fine: true }));

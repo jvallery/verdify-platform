@@ -470,7 +470,7 @@ int main(int argc, char** argv) {
   }
   if (!cfgb("edge.dry", true)) { E.k.d_on = -9.0; E.k.d_off = -8.9; E.k.d2_on = 99.0; }   // never dry with outdoor air (the reference for its cost)
   const int mist_zones = (int)cfgd("edge.mist_zones", 3);       // misters opted in for VPD control: 0, 1 (centre) or 3
-  const bool lead_by_runtime = cfgb("edge.lead_by_runtime", true);   // false: fan 1 always leads
+  const bool lead_by_runtime = cfgb("edge.lead_by_runtime", true);   // true: the relay layer picks the lead (AB8 alternation); false: fan 1 always leads
   // ---- forecast pre-staging, perfect foresight (an upper bound): future outdoor extremes read from the forcing itself
   const double pre_heat_delta = cfgd("pre.heat_delta_f", NAN);  // pre-heat when min(low-edge anchors) - forecast min outdoor > this
   const double pre_heat_h = cfgd("pre.heat_h", 12);
@@ -528,6 +528,7 @@ int main(int argc, char** argv) {
   double water_today = 0; int last_day = -1;
   const bool is_fw = (ctrl == "fw"), is_edge = (ctrl == "edge");
   bool lead1 = true; int zone = 0;                 // edge relay layer: which fan leads; which mister zone pulses next
+  bool led_once = false, last_led1 = true;         // AB8: which fan actually led the last fan episode
 
   std::map<std::string, Acc> acc;
   FILE* trace = nullptr;
@@ -632,7 +633,14 @@ int main(int argc, char** argv) {
           q.mode = e.cooling ? VENTILATE : (e.drying ? DEHUM_VENT : (e.fog ? SEALED_MIST : IDLE));
           // ---- minimal relay layer: minimum on and off times, fans only with the vent open, furnace only with it closed
           const bool hot = z.temp_f >= E.k.safe_max;
-          if (!R[R_F1].on && !R[R_F2].on) lead1 = !lead_by_runtime || R[R_F1].on_s <= R[R_F2].on_s;   // fewer run seconds leads next
+          // AB8: the lead alternates by episode (fewer run seconds only for the first one); m7: a fan in its minimum
+          // off time hands its turn to the other, and the order continues from the fan that actually led
+          const bool fans_off = !R[R_F1].on && !R[R_F2].on;
+          if (fans_off) {
+            const bool turn1 = led_once ? !last_led1 : R[R_F1].on_s <= R[R_F2].on_s;
+            const bool m1 = R[R_F1].can_on(now), m2 = R[R_F2].can_on(now);
+            lead1 = !lead_by_runtime || (m1 != m2 ? m1 : turn1);
+          }
           bool want_f1 = lead1 ? e.fans >= 1 : e.fans >= 2, want_f2 = lead1 ? e.fans >= 2 : e.fans >= 1;
           bool want_vent = e.vent;
           if (R[R_H2].on && !hot) { want_vent = false; want_f1 = want_f2 = false; }   // air waits for the furnace to stop
@@ -641,6 +649,7 @@ int main(int argc, char** argv) {
           R[R_H2].set(now, e.heat2 && !air_on, false, hot);                           // the furnace waits for the vent to close
           R[R_F1].set(now, want_f1 && R[R_VENT].on, false, false);
           R[R_F2].set(now, want_f2 && R[R_VENT].on, false, false);
+          if (fans_off && (R[R_F1].on || R[R_F2].on)) { last_led1 = R[R_F1].on && R[R_F2].on ? lead1 : R[R_F1].on; led_once = true; }
           R[R_VENT].set(now, want_vent || want_f1 || want_f2 || R[R_F1].on || R[R_F2].on, false, false);
           R[R_FOG].set(now, e.fog, false, false);
           static const int ZR[3] = {R_MC, R_MS, R_MW};                                // mister zones pulse in turn, one at a time

@@ -198,20 +198,20 @@ test("a plan value being applied reads plan.value with Iris and AI, or the forec
   expect(pill()).toEqual(["not_confirmed"]);
   expect(text(document.querySelector(".setting-device .state-reason"))).toBe("No matching readback yet");
   cleanup();
-  draw(row("sw_economiser_enabled", { state: "requested", plan: { ...row("sw_economiser_enabled").plan!, value: 1, written_at: denver("10:41") } }));
+  draw(row("sw_gl_main_solar_phasing", { state: "requested", plan: { ...row("sw_gl_main_solar_phasing").plan!, value: 1, written_at: denver("10:41") } }));
   expect(lines(".setting-request")).toEqual(["→ ON · 1 min · Forecast rule · system"]);
   expect(document.querySelector(".setting-request [data-badge=ai]")).toBeNull();
 });
 
 test("who wrote the value in force: Iris and agents by name with AI, a person's non-manual value Iris may adjust, a forecast rule never AI", () => {
-  draw(row("fog_rh_ceiling_pct"));
+  draw(row("mister_water_budget_gal"));
   expect(lines(".setting-writer")).toEqual(["steward changed this at 06:47 · “Dry afternoon ahead” · AI"]);
-  expect(changedByAgent(row("fog_rh_ceiling_pct"))).toBe(true);
+  expect(changedByAgent(row("mister_water_budget_gal"))).toBe(true);
   cleanup();
-  draw(row("sw_economiser_enabled"));
+  draw(row("sw_gl_main_solar_phasing"));
   expect(lines(".setting-writer")).toEqual(["Forecast rule · system"]);
   expect(document.querySelector("[data-badge=ai]")).toBeNull();
-  expect(changedByAgent(row("sw_economiser_enabled"))).toBe(false);
+  expect(changedByAgent(row("sw_gl_main_solar_phasing"))).toBe(false);
   cleanup();
   const superseded = row("mister_engage_kpa", {}, "superseded-lane");
   draw(superseded);
@@ -305,12 +305,13 @@ test("read-only rows show their kind and Details, no Edit; temp_low reads \"Lega
   }
 });
 
-test("a zone VPD target reads as computed and still used, not as a legacy limit", () => {
+test("a legacy zone VPD target reads as retired, not as a legacy limit: the third flash deleted its entity", () => {
+  // Zone misting reads the zone_vpd_target_* anchors on that build (RULINGS AE7a); the row stays for its history.
   const target = row("vpd_target_center");
-  expect([target.writable, target.read_only_kind]).toEqual([false, "zone_vpd_target"]);
+  expect([target.writable, target.read_only_kind]).toEqual([false, "retired"]);
   draw(target);
-  expect(text(document.querySelector(".setting-note"))).toBe("Computed zone target, still used");
-  expect(document.querySelector(".setting-note")!.getAttribute("title")).toContain("how long a pulse lasts");
+  expect(text(document.querySelector(".setting-note"))).toBe("Retired");
+  expect(document.querySelector(".setting-note")!.getAttribute("title")).toContain("no longer uses it");
   expect(edit()).toBeNull();
 });
 

@@ -39,6 +39,53 @@ PROFILES = {
     # PlatformIO platform and toolchain baked in). It copies nothing from the repository.
     "esphome-ci": "ci/esphome-ci.Dockerfile",
 }
+# The dashboard tests (vitest and the browser shards) render e2e/fixtures/settings.json at
+# test time with scripts/gen-dashboard-settings-fixture.py, so every repository file that
+# script imports is a dashboard input (#1722 changed setting_help text and broke a
+# browser test the dashboard job never ran). verdify_schemas/__init__.py imports most
+# of the package, so this is most of verdify_schemas/*.py; it reads no data files.
+# tests/test_gha_ci_light_paths.py recomputes this import closure and fails on drift.
+DASHBOARD_FIXTURE_INPUTS = (
+    "scripts/gen-dashboard-settings-fixture.py",
+    "verdify_schemas/__init__.py",
+    "verdify_schemas/activity.py",
+    "verdify_schemas/alerts.py",
+    "verdify_schemas/api.py",
+    "verdify_schemas/band_rows.py",
+    "verdify_schemas/catalog.py",
+    "verdify_schemas/climate_intent.py",
+    "verdify_schemas/climate_law_constants.py",
+    "verdify_schemas/crop_profiles.py",
+    "verdify_schemas/crops.py",
+    "verdify_schemas/daily.py",
+    "verdify_schemas/external.py",
+    "verdify_schemas/fixed_panel_native_route.py",
+    "verdify_schemas/forecast.py",
+    "verdify_schemas/irrigation.py",
+    "verdify_schemas/lessons.py",
+    "verdify_schemas/mcp_responses.py",
+    "verdify_schemas/media.py",
+    "verdify_schemas/operations.py",
+    "verdify_schemas/physical_crop_band.py",
+    "verdify_schemas/plan.py",
+    "verdify_schemas/realized_dryout.py",
+    "verdify_schemas/setpoint.py",
+    "verdify_schemas/setting_help/__init__.py",
+    "verdify_schemas/setting_help/_entry.py",
+    "verdify_schemas/setting_help/_planner.py",
+    "verdify_schemas/setting_help/_reference.py",
+    "verdify_schemas/setting_help/_safety.py",
+    "verdify_schemas/setting_help/_scheduled.py",
+    "verdify_schemas/setting_values.py",
+    "verdify_schemas/solar.py",
+    "verdify_schemas/system_infra.py",
+    "verdify_schemas/telemetry.py",
+    "verdify_schemas/topology.py",
+    "verdify_schemas/tunable_registry.py",
+    "verdify_schemas/tunables.py",
+    "verdify_schemas/vault.py",
+    "verdify_schemas/views.py",
+)
 # jvallery/agents#5994: check flags beside the profile flags. They select the PR
 # checks that run on the exact checkout, not image builds; every fallback sets both.
 CHECKS = {
@@ -46,8 +93,8 @@ CHECKS = {
     "dashboard-check": (
         "dashboard/**",
         "docs/design/dashboard/openapi/**",
-        "verdify_schemas/alerts.py",
         "firmware/lib/greenhouse_types.h",
+        *DASHBOARD_FIXTURE_INPUTS,
     ),
     # The ESPHome secretless compile and the registry firmware-logic step: the
     # firmware tree, the compile program and its job image, and the CI plumbing

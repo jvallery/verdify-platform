@@ -274,13 +274,14 @@ def test_status_reasons_and_their_since(dsn):
             "since": clamp["ts"],
         }
 
-        await settings.write(mcp, PERSON, "fog_rh_ceiling_pct", 90, True, None, None)
+        # A writable setting the controller still reads (the third flash retired fog_rh_ceiling_pct, used before).
+        await settings.write(mcp, PERSON, "mister_water_budget_gal", 250, True, None, None)
         [push] = await owner_fetch(
             dsn,
             "INSERT INTO public.setpoint_changes (ts, parameter, value, source, delivery_status) "
-            "VALUES (now(), 'fog_rh_ceiling_pct', 90, 'manual', 'deferred_heap_pressure') RETURNING ts",
+            "VALUES (now(), 'mister_water_budget_gal', 250, 'manual', 'deferred_heap_pressure') RETURNING ts",
         )
-        reason = (await settings.status(mcp, "fog_rh_ceiling_pct")).state_reason
+        reason = (await settings.status(mcp, "mister_water_budget_gal")).state_reason
         assert (reason.code, reason.since) == ("deferred", push["ts"])
 
         await owner_execute(
@@ -292,9 +293,9 @@ def test_status_reasons_and_their_since(dsn):
             dsn, "INSERT INTO public.climate (ts) VALUES (now() - interval '6 minutes') RETURNING ts"
         )
         # A writable controller row outside the 48 policy fields, with no clamp or push of its own (#1165's
-        # follow-up retired irrig_wall_duration_min, which this check used before).
-        await settings.write(mcp, PERSON, "max_relief_cycles", 4, True, None, None)
-        status = await settings.status(mcp, "max_relief_cycles")
+        # follow-up retired irrig_wall_duration_min and the third flash max_relief_cycles, which this check used).
+        await settings.write(mcp, PERSON, "sw_occupancy_inhibit", 1, True, None, None)
+        status = await settings.status(mcp, "sw_occupancy_inhibit")
         assert (status.state, status.state_reason.code, status.state_reason.since) == (
             "requested",
             "controller_not_reporting",
