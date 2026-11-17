@@ -349,3 +349,42 @@ def test_irrigation_stack_schedule_passes_on_null_counts_and_reads_no_retired_re
     assert not hasattr(stack, "_check_schedule_cfg_readbacks")
     source = (Path(__file__).resolve().parents[1] / "scripts" / "validate-irrigation-stack.py").read_text()
     assert "stale_readback_count" not in source and "readback_drift_count" not in source
+
+
+# #1666: while the controller is silent the cache is memory, not a readback.
+REAL_DEVICE_VALUE_SINCE = ingestor.device_value_since
+
+
+def test_a_pass_needs_a_controller_value_since_the_last_one():
+    assert not REAL_DEVICE_VALUE_SINCE(None, None)
+    assert REAL_DEVICE_VALUE_SINCE(T0, None)
+    assert not REAL_DEVICE_VALUE_SINCE(T0, T0)
+    assert REAL_DEVICE_VALUE_SINCE(T0 + timedelta(seconds=1), T0)
+
+
+@pytest.mark.asyncio
+async def test_a_silent_controller_gets_no_readback_row_confirmation_or_pass_marker(context, monkeypatch):  # noqa: F811
+    values, connection, pool = context
+    monkeypatch.setattr(ingestor, "device_value_since", REAL_DEVICE_VALUE_SINCE)
+    monkeypatch.setattr(ingestor.state, "device_value_at", T0 - timedelta(seconds=5))
+    await publish(pool, T0)
+    assert stored_names(connection) == set(values)
+    passes = len(connection.passes)
+    connection.rows.clear()
+    connection.confirmations.clear()
+    # The controller goes silent: a write lands (it would have earned a confirming row) and a keyframe falls due,
+    # but no value arrives, so the next passes store nothing, confirm nothing and mark no pass.
+    values["mister_water_budget_gal"] = 150.0
+    for minute in range(1, 17):
+        await publish(pool, T0 + timedelta(minutes=minute))
+    assert connection.rows == [] and connection.confirmations == [] and len(connection.passes) == passes
+    assert not shared.setpoint_snapshot_is_current(int(shared.transport_generation))
+    # The controller speaks again: the next pass runs.
+    monkeypatch.setattr(ingestor.state, "device_value_at", T0 + timedelta(minutes=17))
+    await publish(pool, T0 + timedelta(minutes=17, seconds=5))
+    assert ("mister_water_budget_gal" in stored_names(connection)) and len(connection.passes) == passes + 1
+
+
+def test_the_state_callback_records_the_controller_value_time():
+    source = inspect.getsource(ingestor.on_state_change)
+    assert source.index("state.device_value_at = datetime.now(UTC)") < source.index("key = entity_state.key")
