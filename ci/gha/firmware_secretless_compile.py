@@ -27,6 +27,11 @@ BAKED_CORE = Path("/opt/verdify-platformio")
 # prints one FIRMWARE_STATIC_DRAM line per target; the coordinator reads it before the merge and from the signed
 # build's log before the flash.
 STATIC_DRAM_LIMIT = {"greenhouse": 114128}
+# Image size gate (#1719, the controller hardware budget): the OTA image may fill at most 85 % of its app slot.
+# The 4 MB build's partition table gives each of the two app slots 0x1C0000 B (1,835,008 B); 85 % is 1,559,756 B.
+# One FIRMWARE_IMAGE_SIZE line per target. Static DRAM's budget line is 120,000 B; the gate above holds it tighter.
+OTA_SLOT_BYTES = 0x1C0000
+IMAGE_LIMIT_BYTES = OTA_SLOT_BYTES * 85 // 100
 RAM_LINE = re.compile(rb"RAM:\s+\[[^\]]*\]\s+[0-9.]+%\s+\(used (\d+) bytes from (\d+) bytes\)")
 
 
@@ -48,6 +53,21 @@ def static_dram_gate(target, output):
     if verdict == "FAIL":
         raise RuntimeError(f"static DRAM {used} B above the {limit} B limit (RULINGS W9a)")
     return used
+
+
+def image_size_gate(target, image_bytes):
+    """Print the image size against 85 % of the OTA slot and fail above it."""
+    verdict = "PASS" if image_bytes <= IMAGE_LIMIT_BYTES else "FAIL"
+    print(
+        f"FIRMWARE_IMAGE_SIZE target={target} bytes={image_bytes} limit={IMAGE_LIMIT_BYTES} slot={OTA_SLOT_BYTES} "
+        f"pct={100.0 * image_bytes / OTA_SLOT_BYTES:.1f} {verdict}",
+        flush=True,
+    )
+    if verdict == "FAIL":
+        raise RuntimeError(
+            f"image {image_bytes} B above {IMAGE_LIMIT_BYTES} B, 85 % of the {OTA_SLOT_BYTES} B OTA slot"
+        )
+    return image_bytes
 
 
 DUMMY = "wifi_ssid: CI-NONDEPLOYABLE\nwifi_password: CI-NONDEPLOYABLE-NOT-A-WLAN-PASSWORD\nota_password: CI-NONDEPLOYABLE-NOT-AN-OTA-PASSWORD\napi_encryption_key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
@@ -195,6 +215,7 @@ def main():
             binary = firmware / ".esphome/build/greenhouse/.pioenvs/greenhouse/firmware.ota.bin"
             if not binary.is_file() or not binary.stat().st_size:
                 raise RuntimeError("compiler succeeded without OTA-format binary")
+            image_size_gate(target, binary.stat().st_size)
             report["targets"].append(
                 {
                     "target": target,

@@ -239,6 +239,25 @@ class FirmwareProfileTest(unittest.TestCase):
             MODULE.static_dram_gate("greenhouse", b"Linking .pioenvs/greenhouse/firmware.elf\n")
         self.assertIsNone(MODULE.static_dram_gate("greenhouse-recovery", b""))
 
+    def test_image_size_gate_fails_above_85_percent_of_the_ota_slot(self):
+        # #1719: the image may fill at most 85 % of the 0x1C0000 B app slot (1,559,756 B).
+        self.assertEqual(MODULE.IMAGE_LIMIT_BYTES, 1559756)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            MODULE.image_size_gate("greenhouse", 1559756)
+        self.assertEqual(
+            out.getvalue().strip(),
+            "FIRMWARE_IMAGE_SIZE target=greenhouse bytes=1559756 limit=1559756 slot=1835008 pct=85.0 PASS",
+        )
+        with self.assertRaisesRegex(RuntimeError, "image 1559757 B above 1559756 B"):
+            MODULE.image_size_gate("greenhouse", 1559757)
+        # The compile path applies it to every target's image: the fixture image passes, a lowered limit fails.
+        receipt = self.invoke()
+        self.assertTrue(all(0 < t["binary_bytes"] <= MODULE.IMAGE_LIMIT_BYTES for t in receipt["targets"]))
+        with patch.object(MODULE, "IMAGE_LIMIT_BYTES", 4):
+            with self.assertRaisesRegex(RuntimeError, "above 4 B, 85 % of the"):
+                self.invoke()
+
 
 class FirmwareCompilerProvenanceTest(unittest.TestCase):
     """Fixture byte identities only; these tests never earn real compile credit."""
