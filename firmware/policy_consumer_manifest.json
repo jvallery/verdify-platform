@@ -435,7 +435,7 @@
         },
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 1091,
+          "line": 1097,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
@@ -518,7 +518,7 @@
       "sites": [
         {
           "file": "firmware/greenhouse/controls.yaml",
-          "line": 1618,
+          "line": 1624,
           "category": "control",
           "access": "read",
           "migrated_to_snapshot": true
