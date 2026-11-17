@@ -580,9 +580,11 @@ if in_part containment-firmware && [ -n "${CI_BASE_REF:-}" ]; then
   BASE=$(git merge-base "${CI_BASE_REF}" HEAD)
 
   step "no-new-fire-and-forget (rule 6, num_* + sw_*) vs ${BASE}"
-  NEW_IDS=$(git diff "$BASE" HEAD -- firmware/greenhouse/tunables.yaml 2>/dev/null \
-    | grep -oE '^\+[[:space:]]+id:[[:space:]]+(num|sw)_[a-z0-9_]+' \
-    | sed -E 's/.*id:[[:space:]]+(num|sw)_//' | sort -u || true)
+  # New = in HEAD's tunables.yaml and not in the base's: a block that only moves (a deletion around it can make the
+  # diff show it as added) is not new.
+  tunable_ids() { grep -oE '^[[:space:]]+id:[[:space:]]+(num|sw)_[a-z0-9_]+' | sed -E 's/.*id:[[:space:]]+(num|sw)_//' | sort -u; }
+  NEW_IDS=$(comm -13 <(git show "$BASE:firmware/greenhouse/tunables.yaml" 2>/dev/null | tunable_ids) \
+    <(tunable_ids < firmware/greenhouse/tunables.yaml) || true)
   MISSING=""
   for id in $NEW_IDS; do
     grep -qE "id: cfg_(sw_)?${id}\b" firmware/greenhouse/sensors.yaml || MISSING="$MISSING $id"
