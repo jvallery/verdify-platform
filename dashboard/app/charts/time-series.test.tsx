@@ -428,17 +428,26 @@ test("a forecast hour missing stays a gap, and a lone hour draws as a dot", asyn
   expect(plot.ctx.rects.filter((rect) => rect.color === TOKENS["--c-outdoor"])).toHaveLength(2);
 });
 
-test("a retired dotted key (the target series) is not drawn at all; a caller's note goes with its series", async () => {
+test("a reference key (the drying line) draws 1.5 px dashed in the accent and takes no palette colour from the measured line", async () => {
   const south = { ...metric("climate.vpd_avg"), key: "climate.vpd_south", label: "South VPD" };
-  const target = { ...metric("climate.vpd_avg"), key: "climate.vpd_target_south", label: "South VPD target" };
+  const line = { ...metric("climate.vpd_avg"), key: "derived.drying_line_kpa", label: "Drying line" };
   const series = load<Series>(holeFixture);
   const column = series.series["climate.temp_avg"];
-  series.series = { [south.key]: column, [target.key]: column };
+  series.series = { [south.key]: column, [line.key]: column };
+  const { plot } = await mount({ series, metrics: [line, south], unit: "kPa", reference: [line.key] });
+  expect(plot.opts.series.slice(1).map((item) => [item.label, item.stroke, item.width])).toEqual([["Drying line", TOKENS["--accent"], 1.5], ["South VPD", TOKENS["--c-vpd"], 2]]);
+  expect(plot.opts.series[1].dash).toBeTruthy();
+  expect(plot.opts.series[2].dash ?? null).toBeNull();
+});
+
+test("a caller's note goes with its series", async () => {
+  const south = { ...metric("climate.vpd_avg"), key: "climate.vpd_south", label: "South VPD" };
+  const series = load<Series>(holeFixture);
+  series.series = { [south.key]: series.series["climate.temp_avg"] };
   const notes = [{ text: "A note on the panel" }];
-  const { plot, container } = await mount({ series, metrics: [south, target], unit: "kPa", dotted: [target.key], notes });
+  const { plot, container } = await mount({ series, metrics: [south], unit: "kPa", notes });
   expect(plot.opts.series.slice(1).map((item) => [item.label, item.stroke, item.dash ?? null])).toEqual([["South VPD", TOKENS["--c-vpd"], null]]);
   expect([...container.querySelectorAll(".chart-notes li")].map((node) => node.textContent)).toContain("A note on the panel");
-  expect(container.textContent).not.toContain("South VPD target");
 });
 
 test("an outdoor line is 1.5 px dashed in the outdoor token, its dash scaled by the device pixel ratio", async () => {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
-import { EVENT_SOURCES, type EventSource } from "../../charts/events";
+import { EVENT_SOURCES, EVENT_SOURCE_WORDS, type EventSource } from "../../charts/events";
 import { localDay } from "../../charts/time-axis";
 import {
   COMPARES, DEFAULT_PRESET, DEFAULT_SETTINGS, PRESETS, daysProblem, graphHref, presetKeys, settingEditHref, withCompare, withEnvelope, withEvents, withMetrics,
@@ -11,6 +11,7 @@ import type { MetricDef, Setting } from "../../lib/operator-api";
 import { Chips } from "../chips";
 import { FieldError, describedBy, useFieldIds } from "../forms/field";
 import { Menu } from "../menu";
+import { settingLabel } from "../../lib/settings-context";
 import { settingChipText } from "./setting-chooser";
 
 /**
@@ -19,9 +20,6 @@ import { settingChipText } from "./setting-chooser";
  * added metric's × takes it off). Every control is a link or a form that changes the URL; Graphs writes nothing, so a
  * viewer and an operator see the same controls.
  */
-
-/** The event sources in words (words.md: name who decided, never "the system"). */
-export const EVENT_SOURCE_LABELS: Readonly<Record<EventSource, string>> = { people: "People", iris: "Reviewer", agents: "Agents", system: "Host", alerts: "Alerts", runs: "Water runs" };
 
 /** The days the custom range opens with: the window's own, else the local days the window covers. */
 export function rangeDays(spec: WindowSpec, window: GraphWindow | null): { from: string; to: string } {
@@ -122,7 +120,7 @@ export function ChartChips({ view, settings, picked, catalog, phone = false }: C
     {settings.length > 0 && <ul className="graph-chips" aria-label={`Settings drawn as steps${suffix}`}>
       {settings.map((row) => <li key={row.param} className="graph-chip">
         <Link to={settingEditHref(row.param)} title={`${row.param}: edit it on Settings`}>{settingChipText(row)}</Link>
-        <Link to={graphHref(withSettings(view, params.filter((param) => param !== row.param)))} preventScrollReset aria-label={`Take ${row.label} off the charts`}><span aria-hidden="true">×</span></Link>
+        <Link to={graphHref(withSettings(view, params.filter((param) => param !== row.param)))} preventScrollReset aria-label={`Take ${settingLabel(row) || row.param} off the charts`}><span aria-hidden="true">×</span></Link>
       </li>)}
     </ul>}
     {picked.length > 0 && <ul className="graph-chips" aria-label={`Metrics on the charts${suffix}`}>
@@ -222,7 +220,7 @@ export function LayersMenu({ view, long, phone }: LayersMenuProps) {
       </MenuGroup>
       <MenuGroup label="Events">
         <Chips small label="Event sources" items={EVENT_SOURCES.map((source) => ({
-          key: source, label: EVENT_SOURCE_LABELS[source], to: graphHref(withEvents(view, toggled(sources, source))), current: sources.includes(source), keepScroll: true,
+          key: source, label: EVENT_SOURCE_WORDS[source], to: graphHref(withEvents(view, toggled(sources, source))), current: sources.includes(source), keepScroll: true,
         }))} />
         {long && sources.includes("runs") && <p className="meta gr-menu-note">Runs are marked for windows up to 31 days.</p>}
       </MenuGroup>

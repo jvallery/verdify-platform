@@ -445,8 +445,8 @@ export function weekCells(monday: string, { agenda, lines, today, first, last }:
     const level: StripLevel | null | undefined = !inRange ? null : when === "future" ? undefined : missed > 0 ? 3 : shortfall > 0 ? 1 : 0;
     let summary: string;
     if (!inRange) summary = "no data";
-    else if (when === "future") summary = next ? `${next} next` : "nothing planned";
-    else if (when === "today") summary = [ran ? `${ran} ${ran === ok ? "ok" : "ran"}` : null, missed ? `${missed} missed` : null, next ? `${next} next` : null].filter(Boolean).join(", ") || "nothing planned";
+    else if (when === "future") summary = next ? `${next} next` : "nothing scheduled";
+    else if (when === "today") summary = [ran ? `${ran} ${ran === ok ? "ok" : "ran"}` : null, missed ? `${missed} missed` : null, next ? `${next} next` : null].filter(Boolean).join(", ") || "nothing scheduled";
     else if (missed) summary = ran ? `${missed} missed, ${ran} ran` : `${missed} missed`;
     else if (shortfall) summary = `${ran} ran, ${shortfall} short`;
     else if (ran) summary = ran === ok ? `${ran} ran ok` : `${ran} ran`;
@@ -454,7 +454,7 @@ export function weekCells(monday: string, { agenda, lines, today, first, last }:
     return { date, inRange, when, ok, next, missed, short: shortfall, skipped, unknown, minutes, capSum, level, summary, fallback: inRange ? fallback : 0 };
   });
 }
-/** A week cell's name: "Wednesday, Nov 4: 3 next · 34 of 60 min", "… nothing planned · 3 fallback windows". */
+/** A week cell's name: "Wednesday, Nov 4: 3 next · 34 of 60 min", "… nothing scheduled · 3 fallback windows". */
 export function weekCellName(cell: WeekCell): string {
   const totals = cell.inRange && cell.minutes > 0 ? ` · ${Math.round(cell.minutes)}${cell.capSum ? ` of ${cell.capSum}` : ""}${NBSP}min` : "";
   return `${dayTitle(cell.date).replace(/, \d{4}$/, "")}${cell.when === "today" ? " (today)" : ""}: ${cell.summary}${cell.fallback ? ` · ${fallbackCount(cell.fallback)}` : ""}${totals}`;

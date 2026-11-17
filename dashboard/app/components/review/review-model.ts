@@ -6,7 +6,7 @@
  * API-34 (`ReviewPage`) as the client parses it.
  */
 import type { DailyBarDay } from "../../charts/daily-bars";
-import { dateShift, dayHeader, formatValue } from "../../lib/format";
+import { dateShift, dayMonth, formatValue } from "../../lib/format";
 import type { Review, ReviewPage, ReviewProposal } from "../../lib/operator-api";
 import { words } from "../../lib/words";
 import type { BadgeStatus } from "../badge";
@@ -20,11 +20,8 @@ export const COLLAPSE_LINES = 12;
 /** The prose measure (design-system 2.5: at most 70 characters a line), for the line estimate. */
 const LINE_CHARS = 70;
 
-/** "16 Nov": a review date in the words.md form (dayHeader's "Mon 16 Nov" without the weekday). */
-export function reviewDay(date: string): string {
-  const head = dayHeader(date);
-  return head === date ? date : head.split(" ").slice(1).join(" ");
-}
+/** "16 Nov": a review date in the words.md form (`dayMonth`). */
+export const reviewDay = dayMonth;
 
 // ---------------------------------------------------------------------------------------------------- today
 /** The pieces of today's state: a badge and one sentence whose times the page renders as `LocalTime`. */

@@ -12,7 +12,7 @@ test("every badge of design system v2 §4 carries its word, its status class and
   const expected: Record<string, [string, string]> = {
     requested: ["Requested", "badge badge-warn"], confirmed: ["Confirmed", "badge badge-ok"],
     not_confirmed: ["Not confirmed", "badge badge-serious"], held: ["Held", "badge badge-info"], no_readback: ["No readback", "badge badge-neutral"],
-    manual: ["Manual", "badge badge-info"], ai: ["AI", "badge badge-neutral"],
+    manual: ["Set by hand", "badge badge-info"], ai: ["AI", "badge badge-neutral"],
     superseded: ["Superseded", "badge badge-neutral"], stale: ["Stale", "badge badge-warn"], clean: ["Clean", "badge badge-neutral badge-clean"],
     fert: ["Fert", "badge badge-neutral badge-fert"], running: ["Running", "badge badge-ok"], idle: ["Idle", "badge badge-neutral"],
     disabled: ["Disabled", "badge badge-neutral"], on: ["On", "badge badge-ok"], off: ["Off", "badge badge-neutral"], unknown: ["Not reported", "badge badge-neutral"],

@@ -22,8 +22,8 @@
  *   last week dashed.
  *
  * Zones (`/graphs/zones`): the window as Explore reads it, `zone=` to focus one zone, and `metric=temp|vpd|rh`, repeated,
- * for the rows of the grid (temperature and VPD by default). Statistics (`/graphs/statistics`, now a redirect to Record):
- * `days=30|90|365` or `from` and `to` local days, and `typical=14|30`.
+ * for the rows of the grid (temperature and VPD by default). Light history (`/lights/history`, once Graphs → Lighting):
+ * the window as Explore reads it.
  */
 import { EVENT_SOURCES, type EventSource } from "../charts/events";
 import { futurePad } from "../charts/range-toolbar";
@@ -612,66 +612,16 @@ export function zonesHref(zone: Zone | null, window: WindowSpec, metrics: readon
   return `/graphs/zones?${[...(zone ? [`zone=${zone}`] : []), ...windowQuery(window), ...(custom ? rows.map((metric) => `metric=${metric}`) : [])].join("&")}`;
 }
 
-// ---------------------------------------------------------------------------------------------------- /graphs/lighting
-/** `/graphs/lighting`'s view (#1357): the window as Climate reads it; what it cannot use is dropped with a notice. */
+// ---------------------------------------------------------------------------------------------------- /lights/history
+/** Light history's view (#1357, `/lights/history`): the window as Explore reads it; what it cannot use is dropped with a notice. */
 export type LightingView = { readonly window: WindowSpec; readonly notices: readonly string[] };
 export function parseLightingUrl(search: string): LightingView {
   const notices: string[] = [];
   const window = windowOf(new URLSearchParams(search), notices);
   return { window, notices };
 }
-/** The Lighting URL: the window, none for the 72 h default. */
+/** The Light history URL: the window, none for the 72 h default. */
 export function lightingHref(window: WindowSpec): string {
   const query = window.kind === "range" && window.range === DEFAULT_RANGE ? [] : windowQuery(window);
-  return query.length ? `/graphs/lighting?${query.join("&")}` : "/graphs/lighting";
-}
-
-// ---------------------------------------------------------------------------------------------------- /graphs/statistics
-export const STATS_DAYS = [30, 90, 365] as const;
-export type StatsDays = (typeof STATS_DAYS)[number];
-export const TYPICAL_DAYS = [14, 30] as const;
-export type TypicalDays = (typeof TYPICAL_DAYS)[number];
-export type StatsSpan = { readonly kind: "days"; readonly days: StatsDays } | { readonly kind: "custom"; readonly from: string; readonly to: string };
-export type StatsView = { readonly span: StatsSpan; readonly typical: TypicalDays; readonly notices: readonly string[] };
-const DEFAULT_STATS: StatsSpan = { kind: "days", days: 30 };
-
-/** Statistics' view: the last 30, 90 or 365 days or a custom run of local days (From and To win), and the typical day's 14 or 30 days. */
-export function parseStatsUrl(search: string): StatsView {
-  const params = new URLSearchParams(search);
-  const notices: string[] = [];
-  let span: StatsSpan = DEFAULT_STATS;
-  const days = params.get("days");
-  if (days !== null) {
-    const count = Number(days);
-    if ((STATS_DAYS as readonly number[]).includes(count) && String(count) === days) span = { kind: "days", days: count as StatsDays };
-    else notices.push(`Removed unknown period ${quoted(days)}`);
-  }
-  const from = params.get("from"), to = params.get("to");
-  if (from !== null || to !== null) {
-    const problem = daysProblem(from ?? "", to ?? "");
-    if (problem === null) span = { kind: "custom", from: from!, to: to! };
-    else notices.push(`Removed the days ${quoted(from ?? "") || "(none)"} to ${quoted(to ?? "") || "(none)"}: ${problem.toLowerCase()}`);
-  }
-  const typical = params.get("typical");
-  let typicalDays: TypicalDays = 30;
-  if (typical !== null) {
-    if (typical === "14" || typical === "30") typicalDays = Number(typical) as TypicalDays;
-    else notices.push(`Removed unknown typical-day length ${quoted(typical)}`);
-  }
-  return { span, typical: typicalDays, notices };
-}
-/** The Statistics URL: the period (nothing for the default 30 days) and the typical day's length when it is 14. */
-export function statsHref(span: StatsSpan, typical: TypicalDays): string {
-  const parts = span.kind === "custom" ? [`from=${span.from}`, `to=${span.to}`] : span.days === 30 ? [] : [`days=${span.days}`];
-  if (typical !== 30) parts.push(`typical=${typical}`);
-  return `/graphs/statistics${parts.length ? `?${parts.join("&")}` : ""}`;
-}
-/** The scorecard's old path (D-UX-04): `/graphs/scorecard?…` → `/graphs/statistics?…`, the query kept. */
-export function statisticsHref(url: string): string {
-  return `/graphs/statistics${new URL(url).search}`;
-}
-/** The local days a span covers, From and To included, at `today`. */
-export function statsDays(span: StatsSpan, today: string): { readonly from: string; readonly to: string; readonly count: number } {
-  if (span.kind === "custom") return { from: span.from, to: span.to, count: dayCount(span.from, span.to) };
-  return { from: dateShift(today, -(span.days - 1)), to: today, count: span.days };
+  return query.length ? `/lights/history?${query.join("&")}` : "/lights/history";
 }

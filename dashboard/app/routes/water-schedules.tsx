@@ -46,7 +46,7 @@ function ScheduleKey() {
     <Popover open={anchor !== null} anchor={anchor} onClose={() => setAnchor(null)} title="Key" className="sch-key-pop">
       <ul className="sch-key">
         <li><span className="sch-swatch sch-done sch-eq-water" aria-hidden="true" />ran (solid)</li>
-        <li><span className="sch-swatch sch-planned sch-eq-water" aria-hidden="true" />planned (dashed)</li>
+        <li><span className="sch-swatch sch-planned sch-eq-water" aria-hidden="true" />scheduled (dashed)</li>
         <li><span className="sch-swatch sch-skipped" aria-hidden="true" />will not run, or skipped (hatched)</li>
         <li><span className="sch-swatch sch-missed" aria-hidden="true" />missed (fault outline)</li>
         <li><span className="sch-swatch sch-unknown" aria-hidden="true" />outcome unknown</li>
@@ -130,7 +130,7 @@ export default function WaterSchedules() {
   const days = useMemo(() => agendaDays(entries, { first: day, days: AGENDA_DAYS, last, today, now, lines }), [entries, day, last, today, now, lines]);
   const groups = agenda.data ? ruleGroups(agenda.data.schedules, lines, agenda.data.solar.find((item) => item.date === today)) : [];
   // The fallback windows ahead in the days served (they run only if VPD sensing fails): the header's status line counts
-  // them beside "no run planned this week", as the week strip and the today strips do.
+  // them beside "no run scheduled this week", as the week strip and the today strips do.
   const fallbacks = agenda.data ? agenda.data.occurrences.filter((occurrence) => Date.parse(occurrence.planned_start) > now
     && fallbackWindow(occurrence, agenda.data?.schedules.find((schedule) => schedule.slot_id === occurrence.slot_id)) === "ahead").length : 0;
   const fallbackWords = fallbacks > 0 ? fallbackCount(fallbacks) : null;

@@ -153,7 +153,7 @@ test("Today's strips: each line's runs today with the now rule and its next run;
   expect(row("L05").classList.contains("is-off")).toBe(true);
   expect(row("L05").querySelector(".wat-day")).not.toBeNull();
   // The legend is on show above the cards, no click needed.
-  expect([...document.querySelectorAll(".wat-legend li")].map((node) => text(node))).toEqual(["day", "night", "now", "clean", "fertilized", "ran (solid)", "planned (dashed)", "skipped", "backup window", "valve open"]);
+  expect([...document.querySelectorAll(".wat-legend li")].map((node) => text(node))).toEqual(["day", "night", "now", "clean", "fertilized", "ran (solid)", "scheduled (dashed)", "skipped", "backup window", "valve open"]);
   // Fog: its valve's time, no next run (it is not scheduled).
   expect(row("L11").querySelector(".wat-next")).toBeNull();
 });
@@ -336,15 +336,15 @@ test("fallback windows are conditional, never planned runs: dotted on the strips
   expect(strip.querySelectorAll(".sch-block.sch-conditional")).toHaveLength(3);
   expect(strip.querySelectorAll(".sch-planned, .sch-skipped")).toHaveLength(0);
   expect(strip.getAttribute("aria-label")?.replaceAll("\u00a0", " ")).toContain("sensor-fault backup, Mon 09:47, 4 × 45 s, fallback, not needed; sensor-fault backup, Mon 11:47, 4 × 45 s, fallback, only if VPD sensing is degraded");
-  expect(text(row("L04").querySelector(".wat-next"))).toBe("nothing planned · 2 fallback windows");
+  expect(text(row("L04").querySelector(".wat-next"))).toBe("nothing scheduled · 2 fallback windows");
   cleanup(); stopFixtureApi();
   open("/water/schedules", { fixture: "in-band" });
   await load();
-  expect(status()).toBe("Program rev 42 on controller · confirmed 2 min ago · no run planned this week, 20 fallback windows");
-  expect(text(document.querySelector(".page-status-short"))).toBe("Rev 42 confirmed · no run planned this week, 20 fallback windows");
+  expect(status()).toBe("Program rev 42 on controller · confirmed 2 min ago · no run scheduled this week, 20 fallback windows");
+  expect(text(document.querySelector(".page-status-short"))).toBe("Rev 42 confirmed · no run scheduled this week, 20 fallback windows");
   const today = document.querySelector<HTMLElement>('.week-days a[aria-current="date"]')!;
-  expect([text(today.querySelector(".sch-day-summary")), text(today.querySelector(".sch-day-fallback"))]).toEqual(["nothing planned", "2 fallback windows"]);
-  expect(today.getAttribute("aria-label")).toBe("Monday, Nov 2 (today): nothing planned · 2 fallback windows");
+  expect([text(today.querySelector(".sch-day-summary")), text(today.querySelector(".sch-day-fallback"))]).toEqual(["nothing scheduled", "2 fallback windows"]);
+  expect(today.getAttribute("aria-label")).toBe("Monday, Nov 2 (today): nothing scheduled · 2 fallback windows");
   const blocks = [...timelineRow("L04").querySelectorAll(".sch-block")];
   expect(blocks.map((block) => block.className.includes("sch-conditional"))).toEqual([true, true, true]);
   expect(blocks[0].getAttribute("aria-label")?.replaceAll("\u00a0", " ")).toBe("Center mister · sensor-fault backup, Mon 09:47, 4 × 45 s, fallback, not needed");

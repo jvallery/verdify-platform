@@ -34,10 +34,8 @@ export const SOLAR_KEY = "climate.solar_irradiance_w_m2";
 export const SOLAR_FORECAST_KEY = "forecast.solar_w_m2";
 /** API-05's lanes for this page: the readback, the controller's intent and occupancy, which turns the main lights on. */
 export const LIGHT_LANES = ["grow_light_main", "grow_light_grow", "grow_light_main_intent", "grow_light_grow_intent", "occupancy"] as const;
-/** This page's own path (README section 3.1: `/graphs/lighting` redirects here). */
-export const HISTORY_PATH = "/lights/history";
-/** A window of this page as a link: `lightingHref`'s query on `/lights/history`. */
-export const historyHref = (window: WindowSpec): string => HISTORY_PATH + lightingHref(window).replace(/^\/graphs\/lighting/, "");
+/** A window of this page as a link (`/lights/history?…`; README section 3.1: `/graphs/lighting` redirects here). */
+export const historyHref = lightingHref;
 
 /** A lighting write: a switch (light.on, light.off) or a change to a grow-light setting (back to automatic included). */
 export function isLightingWrite(entry: Pick<ActivityEntry, "action" | "target">): boolean {
@@ -244,7 +242,7 @@ export default function GraphsLighting() {
       <RangeToolbar
         presets={RANGES.map((range) => ({ id: range.id, label: range.label, href: historyHref({ kind: "range", range: range.id }), current: spec.kind === "range" && spec.range === range.id, wide: range.id === "90d" }))}
         previous={previous && historyHref(previous)} next={next && historyHref(next)} span={spanOf(spec, window)} zoomOut={zoomOut && historyHref(zoomOut)} customOpen={spec.kind === "days"}
-        custom={<RangeForm initial={rangeDays(spec, window)} action={HISTORY_PATH} hidden={[]} href={(from, to) => historyHref({ kind: "days", from, to })} />} />
+        custom={<RangeForm initial={rangeDays(spec, window)} action="/lights/history" hidden={[]} href={(from, to) => historyHref({ kind: "days", from, to })} />} />
     </div>
     {failed.length > 0 && <PanelError thing="part of this window" text={registry.error !== null && !catalog ? "Couldn't load the metric list." : "Couldn't load part of this window."}
       onRetry={() => { for (const read of failed) read.refetch(); }} />}

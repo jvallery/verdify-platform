@@ -192,7 +192,7 @@ test("a mist schedule on L07 with Schedule off saves, and its blocks read \"Skip
   expect(shownDay()).toBe("Tuesday, Nov 3");
   expect(blocks("L07")).toEqual([{ name: "South mister, Tue 14:00, 4 × 45 s, draft, not saved, Skipped until Schedule is on", draft: true, hatched: true, capped: false, conflict: false }]);
   expect(preview()).toContain("Skipped until Schedule is on");
-  expect(previewLine("L07")).toBe("South mister no minutes plannedSouth: 0 of 30 min for schedules; 15 kept for VPD");
+  expect(previewLine("L07")).toBe("South mister no minutes scheduledSouth: 0 of 30 min for schedules; 15 kept for VPD");
   await save();
   expect(writes(api)[0].body).toMatchObject({ line_id: "L07", days: ["tue"], start: { kind: "clock", clock: "14:00" }, on_s: 45, count: 4, gap_s: 60, degraded_only: false });
   expect(drawer()).toBeNull();
@@ -212,7 +212,7 @@ test("a degraded_only draft follows VPD control: on L04 \"only if VPD sensing is
   expect(blocks("L04").find((block) => block.draft)).toMatchObject({ name: "Center mister, Tue 06:50, 4 × 45 s, draft, not saved, fallback, only if VPD sensing is degraded", hatched: false });
   expect(day().querySelector('.sch-row[data-line="L04"] .sch-draft')?.className).toContain("sch-eq-heat1");
   expect(preview()).toContain("only if VPD sensing is degraded");
-  expect(previewLine("L04")).toBe("Center mister no minutes plannedCenter: 0 of 60 min for schedules; 60 kept for VPD");
+  expect(previewLine("L04")).toBe("Center mister no minutes scheduledCenter: 0 of 60 min for schedules; 60 kept for VPD");
   setLine("L07");
   expect(blocks("L07")).toEqual([{ name: "South mister, Tue 06:50, 4 × 45 s, draft, not saved, Skipped: VPD control is off", draft: true, hatched: true, capped: false, conflict: false }]);
   expect(preview()).toContain("Skipped: VPD control is off");

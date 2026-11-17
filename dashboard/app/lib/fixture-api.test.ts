@@ -319,10 +319,6 @@ test("API-19: current is the band as stored, which API-10 moves and API-11 leave
 
 test("#1140's fixtures: the reasons, the lights' answers and readbacks, and 90 days of water", () => {
   const set = (name: string | string[]) => fixture(name, { now: NOW });
-  expect(set("why-reasons")["API-13"]).toMatchObject({
-    mode_reason: { code: "temp_high", since: "2026-11-01T20:40:00.000Z" }, fog_block_reason: { code: "rh_ceiling", since: "2026-11-02T16:12:00.000Z" }, moisture_block_reason: { code: "no_vpd_demand", since: "2026-11-02T14:12:00.000Z" },
-  });
-  expect(set("why-unknown-code")["API-13"].mode_reason.code).toBe("brand_new_code");
   // Not reporting: no code or since on any reason, and the newest row's time stays.
   const quiet = set("controller-not-reporting")["API-13"];
   for (const name of ["mode_reason", "fog_block_reason", "moisture_block_reason"]) expect(quiet[name], name).toMatchObject({ code: null, since: null, observed_at: expect.any(String) });
@@ -391,32 +387,6 @@ test("each named fixture serves what the table says", () => {
   const fault = set("mister-fault")["API-IRR-01"].lines.find((row: Body) => row.line_id === "L04");
   expect(fault).toMatchObject({ fault: "mister_fault", fault_until: "2026-11-03T07:00:00.000Z" });
   expect(set("mister-fault")["API-14"].items).toEqual([expect.objectContaining({ alert_type: "irrigation_line_faulted", status: "open" })]);
-  const lane = set("superseded-lane")["API-07"].lanes.find((row: Body) => row.param === "outdoor_staleness_max_s");
-  expect(lane).toMatchObject({ applied_from: "desired", desired: { value: 630, manual: false, created_at: "2026-11-02T15:00:00.000Z" }, waypoints: [{ at: "2026-11-02T20:00:00.000Z", value: 720, effective: false }] });
-  expect(set("superseded-lane")["API-07"].plan).toMatchObject({ written_at: "2026-11-02T14:02:00.000Z", plan_id: "iris-20261102-0702" });
-  const missed = set("missed-sunset");
-  expect(missed["API-02"].iris.required_trigger).toBe("missed");
-  expect(missed["API-07"].health.find((row: Body) => row.outcome === "missed")).toMatchObject({ trigger: "SUNSET", required: true });
-  expect(Date.parse(missed["API-07"].health.find((row: Body) => row.outcome === "missed").due_at)).toBeLessThan(NOW);
-  // #1131: no plan in force since 09:30, with device values only; one manual lane, counted; a forecast rule's waypoint.
-  const unplanned = set("no-plan");
-  expect(unplanned["API-07"]).toMatchObject({ plan: null, no_plan_since: "2026-11-02T16:30:00.000Z", manual_count: 0 });
-  expect((unplanned["API-07"].lanes as Body[]).map((row) => [row.param, row.waypoints, row.applied_from])).toEqual([
-    ["outdoor_staleness_max_s", [], "default"], ["mister_min_off_s", [], "default"], ["mister_engage_delay_s", [], "default"],
-  ]);
-  expect(unplanned["API-02"].iris).toMatchObject({ plan_id: null, trigger: null, valid_until: null });
-  expect((unplanned["API-09"].items as Body[]).filter((row) => row.plan !== null)).toEqual([]);
-  const manualLane = set("manual-lane")["API-07"];
-  expect(manualLane.manual_count).toBe(1);
-  expect((manualLane.lanes as Body[]).find((row) => row.param === "sw_direct_wet_gate_enabled")).toMatchObject({
-    applied_from: "manual", waypoints: [], desired: { value: 0, manual: true, actor: { source: "dashboard", name: "jason" }, created_at: "2026-10-30T16:00:00.000Z" },
-  });
-  expect(set("manual-lane")["API-09"].items.find((row: Body) => row.param === "sw_direct_wet_gate_enabled")).toMatchObject({ applied_from: "manual", desired: { manual: true } });
-  const rule = set("forecast-rule");
-  expect(rule["API-07"].lanes.find((row: Body) => row.param === "mister_engage_delay_s").waypoints).toEqual([
-    { at: "2026-11-02T21:00:00.000Z", value: 90, source: "preemptive", effective: true },
-  ]);
-  expect(rule["API-09"].items.find((row: Body) => row.param === "mister_engage_delay_s").plan).toMatchObject({ source: "iris", next: { source: "preemptive", value: 90 } });
   const lights = set("grow-lights-differ")["API-13"].items.find((item: Body) => item.equipment === "grow_light_grow");
   expect(lights).toMatchObject({ state: "off", intent: "on" });
   // The base's Lutron rows are one Home Assistant poll old: known. Down, they are 11 min old: unknown, the intent kept.
@@ -484,7 +454,6 @@ test("each named fixture serves what the table says", () => {
   const stuck = set("stuck-delivery");
   expect(stuck["API-02"].writer).toMatchObject({ stuck: true, differing: 4, oldest_since: "2026-11-02T13:10:00.000Z" });
   expect(stuck["API-14"].items).toEqual([expect.objectContaining({ alert_type: "setpoint_delivery_stuck" })]);
-  expect(set("iris-unsnapped")["API-09"].items.find((row: Body) => row.param === "mister_engage_delay_s")).toMatchObject({ step: 30, plan: { value: 48.75 } });
 });
 
 test("Now's fixtures (#1129): too hot alone, a null RH, band rows with no time, and the occupancy states", () => {
@@ -785,14 +754,7 @@ test("the forecast keys read source forecast with issued_at; below a 1 h bucket 
   expect((none.avg as unknown[]).every((value) => value === null)).toBe(true);
 });
 
-test("plan-next: a manual lane with a waypoint, Iris's 13:00 and a forecast rule at the same time, and SUNSET the next trigger; l01-paused names who paused it and why", () => {
-  const plan = get(handler("plan-next"), "/v1/plan");
-  const lane = (param: string) => (plan.lanes as Body[]).find((row) => row.param === param)!;
-  expect(lane("sw_direct_wet_gate_enabled")).toMatchObject({ applied_from: "manual", waypoints: [{ value: 1, source: "iris", effective: true }] });
-  expect(lane("outdoor_staleness_max_s")).toMatchObject({ waypoints: [{ value: 720, source: "iris", at: "2026-11-02T20:00:00.000Z" }] });
-  expect(lane("mister_engage_delay_s")).toMatchObject({ waypoints: [{ value: 90, source: "preemptive", at: "2026-11-02T20:00:00.000Z" }] });
-  const ahead = (plan.health as Body[]).filter((row) => row.outcome === "expected").map((row) => row.trigger);
-  expect(ahead).toEqual(["SUNSET", "MIDNIGHT"]);
+test("l01-paused names who paused L01 and why, and its next planned run", () => {
   const paused = handler("l01-paused");
   expect(line(paused, "L01")).toMatchObject({ paused_until: "2026-11-02T21:00:00.000Z", paused_by: { source: "dashboard", name: "jason" }, pause_reason: "rain" });
   const occurrences = get(paused, "/v1/irrigation/schedules?days=7").occurrences as Body[];
@@ -800,8 +762,8 @@ test("plan-next: a manual lane with a waypoint, Iris's 13:00 and a forecast rule
 });
 
 test("each screen package registers its own fixtures once, after the base ones, and can never shadow a name", () => {
-  // The four package files of redesign §10.1, in package order, then Crops (#1330).
-  expect(Object.keys(PACKAGE_FIXTURES)).toEqual(["now-activity.mjs", "graphs.mjs", "water.mjs", "control.mjs", "crops.mjs"]);
+  // The four package files of redesign §10.1, in package order, then Crops (#1330) and Activity (dashboard v2).
+  expect(Object.keys(PACKAGE_FIXTURES)).toEqual(["now-activity.mjs", "graphs.mjs", "water.mjs", "control.mjs", "crops.mjs", "activity.mjs"]);
   for (const fixtures of Object.values(PACKAGE_FIXTURES)) for (const name of Object.keys(fixtures)) expect(FIXTURE_NAMES).toContain(name);
   expect(FIXTURE_NAMES[0]).toBe("in-band");
   expect(() => registerFixtures("graphs.mjs", { "in-band": () => {} })).toThrow("Fixture in-band from graphs.mjs is already registered");

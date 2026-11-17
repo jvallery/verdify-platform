@@ -99,9 +99,9 @@ test("the route links the chart styles; the server renders the head, the toolbar
   expect(requests(api)).toEqual([]);
 });
 
-test("/graphs?range=72h&set=mister_hysteresis_kpa: one stack of three panels on one time axis, the band, the setting's steps and the lanes on one cursor", async () => {
+test("/graphs?range=72h&set=band_vpd_low_sm: one stack of three panels on one time axis, the band, the setting's steps and the lanes on one cursor", async () => {
   chartStubs();
-  const api = await open("/graphs?range=72h&set=mister_hysteresis_kpa");
+  const api = await open("/graphs?range=72h&set=band_vpd_low_sm");
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Graphs");
   expect(ids()).toEqual(["temperature", "vpd", "rh"]);
   expect([name("temperature"), name("vpd"), name("rh")]).toEqual(["Temperature °F", "VPD kPa", "RH %"]);
@@ -121,7 +121,7 @@ test("/graphs?range=72h&set=mister_hysteresis_kpa: one stack of three panels on 
   expect(seriesAsked(api)).toEqual(["climate.temp_avg", "climate.vpd_avg", "climate.rh_avg"].map((key) => ({ metric: [key], from: iso(S - 72 * HOUR), to: iso(S) })));
   const window = (row: { path: string }) => [query(row.path).get("from"), query(row.path).get("to")];
   expect(requests(api, "API-06").map(window)).toEqual([[iso(S - 72 * HOUR), iso(S + 72 * HOUR)]]);
-  expect(requests(api, "API-12").map((row) => [new URL(row.path, "http://x").pathname, ...window(row)])).toEqual([["/api/v1/settings/mister_hysteresis_kpa/history", iso(S - 72 * HOUR), iso(S + 72 * HOUR)]]);
+  expect(requests(api, "API-12").map((row) => [new URL(row.path, "http://x").pathname, ...window(row)])).toEqual([["/api/v1/settings/band_vpd_low_sm/history", iso(S - 72 * HOUR), iso(S + 72 * HOUR)]]);
   expect(requests(api, "API-05").map(window)).toEqual([[iso(S - 72 * HOUR), iso(S)]]);
   // The band on temperature and VPD only; the steps on VPD only: the device line.
   expect([temp, vpd, rh].map((plot) => { plot.draw(); return plot.ctx.fills.some((fill) => fill.color === TOKENS["--c-band-wash"]); })).toEqual([true, true, false]);
@@ -129,7 +129,7 @@ test("/graphs?range=72h&set=mister_hysteresis_kpa: one stack of three panels on 
   for (const plot of [temp, vpd, rh]) expect(texts(plot).filter((item) => /kPa|°F|%|PLANNED|device|Band|Forecast/.test(item))).toEqual([]);
   // The band is 0.45–0.80 kPa and the setting 0.10: the axis stays on the band and the key says the step is below it.
   // Release 4 (#1633): Iris plans only seconds and gallons now, so no setting a panel draws has a PLANNED step.
-  expect(keyItems("vpd")).toEqual(["Band", "Mister Hysteresis 0.10 kPa · below the chart ↓"]);
+  expect(keyItems("vpd")).toEqual(["Band", "VPD low edge at solar noon 0.86 kPa"]);
   expect(vpd.scales.y.min!).toBeGreaterThan(0.1);
   expect(keyItems("temperature")).toEqual(["Band"]);
   expect(keyItems("rh")).toEqual([]);
@@ -143,25 +143,25 @@ test("/graphs?range=72h&set=mister_hysteresis_kpa: one stack of three panels on 
   expect(texts(lanesPlot()!)).toContain("VPD");
   // The range chips keep the setting; the setting's chip opens its drawer.
   expect(links_("Range").map((chip) => [chip.textContent, chip.getAttribute("href"), chip.getAttribute("aria-current")])).toEqual([
-    ["Today", "/graphs?range=today&set=mister_hysteresis_kpa", null], ["24 h", "/graphs?range=24h&set=mister_hysteresis_kpa", null],
-    ["72 h", "/graphs?range=72h&set=mister_hysteresis_kpa", "page"], ["7 d", "/graphs?range=7d&set=mister_hysteresis_kpa", null],
-    ["30 d", "/graphs?range=30d&set=mister_hysteresis_kpa", null], ["90 d", "/graphs?range=90d&set=mister_hysteresis_kpa", null],
+    ["Today", "/graphs?range=today&set=band_vpd_low_sm", null], ["24 h", "/graphs?range=24h&set=band_vpd_low_sm", null],
+    ["72 h", "/graphs?range=72h&set=band_vpd_low_sm", "page"], ["7 d", "/graphs?range=7d&set=band_vpd_low_sm", null],
+    ["30 d", "/graphs?range=30d&set=band_vpd_low_sm", null], ["90 d", "/graphs?range=90d&set=band_vpd_low_sm", null],
   ]);
-  expect(within(screen.getByRole("list", { name: "Settings drawn as steps" })).getAllByRole("listitem").map(text)).toEqual(["Mister Hysteresis · VPD×"]);
-  expect(within(screen.getByRole("list", { name: "Settings drawn as steps" })).getByRole("link", { name: "Mister Hysteresis · VPD" }).getAttribute("href")).toBe("/settings?edit=mister_hysteresis_kpa");
+  expect(within(screen.getByRole("list", { name: "Settings drawn as steps" })).getAllByRole("listitem").map(text)).toEqual(["VPD low edge at solar noon · VPD×"]);
+  expect(within(screen.getByRole("list", { name: "Settings drawn as steps" })).getByRole("link", { name: "VPD low edge at solar noon · VPD" }).getAttribute("href")).toBe("/settings?edit=band_vpd_low_sm");
 
   // Reloading the copied URL renders the same view from the same requests.
   const first = requests(api).map((row) => row.path).sort();
   const firstHeads = ids().map(head);
   cleanup(); stopFixtureApi(); MockPlot.reset(); chartStubs();
-  const again = await open("/graphs?range=72h&set=mister_hysteresis_kpa");
+  const again = await open("/graphs?range=72h&set=band_vpd_low_sm");
   expect(requests(again).map((row) => row.path).sort()).toEqual(first);
   expect(ids().map(head)).toEqual(firstHeads);
 });
 
 test("a cursor on one panel turns every header row into the values there, with one time chip and no tooltip", async () => {
   chartStubs();
-  await open("/graphs?range=72h&set=mister_hysteresis_kpa&outdoor=0");
+  await open("/graphs?range=72h&set=band_vpd_low_sm&outdoor=0");
   const [, vpd] = panels();
   vpd.fire("ready");
   const at = S - 2 * HOUR - 120;
@@ -170,7 +170,7 @@ test("a cursor on one panel turns every header row into the values there, with o
   // The window spans days, so the chip carries the date.
   expect(text(document.querySelector(".stack-chip"))).toBe("Nov 2, 08:40");
   // The readout names the step drawn there too, as the plot no longer labels it (#1354).
-  expect(head("vpd")).toMatch(/^\d\.\d\d · band 0\.45–0\.80 · in · Mister Hysteresis 0\.10$/);
+  expect(head("vpd")).toMatch(/^\d\.\d\d · band 0\.45–0\.80 · in · VPD low edge at solar noon 0\.86$/);
   expect(head("temperature")).toMatch(/^\d\d\.\d · band 62\.0–70\.0 · in$/);
   expect(head("rh")).toMatch(/^\d\d\.\d$/);
   expect(document.querySelector(".chart-tooltip")).toBeNull();
@@ -228,17 +228,17 @@ test("Today runs from local midnight to the next; 24 h has 24 h ahead; ‹ › s
 test("a request still REQUESTED draws from the request, never a plan ahead", async () => {
   chartStubs();
   const api = startFixtureApi();
-  api.respond({ method: "PUT", url: "/v1/settings/mister_hysteresis_kpa", body: { value: 0.12, manual: false, reason: "Vandas drying" }, headers: { "Idempotency-Key": "5f0c6a52-8e1d-4c3b-9a7f-2d4e6b8c0a1e" } });
+  api.respond({ method: "PUT", url: "/v1/settings/band_vpd_low_sm", body: { value: 0.12, manual: false, reason: "Vandas drying" }, headers: { "Idempotency-Key": "5f0c6a52-8e1d-4c3b-9a7f-2d4e6b8c0a1e" } });
   // Half an hour later the request has not been confirmed: the controller still reads 0.10.
   await advance(30 * 60_000);
-  mount("/graphs?range=24h&set=mister_hysteresis_kpa");
+  mount("/graphs?range=24h&set=band_vpd_low_sm");
   await settle();
   // The stack's own data table, after the lanes' in their disclosure.
   const details = document.querySelector<HTMLDetailsElement>(".chart-stack > details.chart-table")!;
   act(() => { details.open = true; details.dispatchEvent(new Event("toggle")); });
   const steps = [...details.querySelectorAll("table")].find((table) => table.caption?.textContent?.startsWith("Setting steps"))!;
   expect([...steps.querySelectorAll("tbody tr")].map((row) => text(row.querySelectorAll("td")[1]))).toEqual([
-    "Mister Hysteresis device 0.10 kPa", "Mister Hysteresis REQUESTED 0.12 kPa · jason",
+    "VPD low edge at solar noon device 0.86 kPa", "VPD low edge at solar noon REQUESTED 0.12 kPa · jason",
   ]);
   expect(texts(panels()[1]).some((item) => item.includes("PLANNED"))).toBe(false);
 });
@@ -361,8 +361,11 @@ test("the event rail marks writes, alerts and runs by source, each linking to Ac
 test("Preset Water and soil draws its own panels, no band and no climate trace, with the water lanes; the menu marks the current one", async () => {
   chartStubs();
   const api = await open("/graphs?range=7d&preset=water&outdoor=0");
-  expect(ids()).toEqual(["climate.soil_moisture_south_1", "climate.flow_gpm"]);
-  expect(seriesAsked(api).map((row) => row.metric)).toEqual([["climate.soil_moisture_south_1"], ["climate.flow_gpm"]]);
+  expect(ids()).toEqual(["climate.soil_temp_south_1", "climate.soil_moisture_south_1", "climate.soil_ec_south_1", "climate.flow_gpm"]);
+  expect(seriesAsked(api).map((row) => row.metric)).toEqual([
+    ["climate.soil_temp_south_1", "climate.soil_temp_south_2", "climate.soil_temp_west"],
+    ["climate.soil_moisture_south_1", "climate.soil_moisture_south_2", "climate.soil_moisture_west"], ["climate.soil_ec_south_1"], ["climate.flow_gpm"],
+  ]);
   expect(requests(api, "API-06")).toEqual([]);
   const presets = links_("Presets");
   expect(presets.map((link) => [text(link).replace(/ · none yet$/, ""), link.getAttribute("aria-current"), link.getAttribute("href")])).toEqual([
@@ -373,7 +376,9 @@ test("Preset Water and soil draws its own panels, no band and no climate trace, 
   expect(text(document.querySelector(".gr-menu .gr-menu-value"))).toBe("Water and soil");
   // Taking a preset's metric off turns the view into Climate with the metrics left.
   const chips = within(screen.getByRole("list", { name: "Metrics on the charts" }));
-  expect(chips.getByRole("link", { name: "Take Site water flow off the charts" }).getAttribute("href")).toBe("/graphs?range=7d&m=climate.soil_moisture_south_1&outdoor=0");
+  expect(chips.getByRole("link", { name: "Take Site water flow off the charts" }).getAttribute("href")).toBe(
+    "/graphs?range=7d&m=climate.soil_moisture_south_1&m=climate.soil_temp_south_1&m=climate.soil_ec_south_1&m=climate.soil_moisture_south_2&m=climate.soil_temp_south_2&m=climate.soil_moisture_west&m=climate.soil_temp_west&outdoor=0",
+  );
   expect(text(document.querySelector("[data-system=irrigation] .lanes-group-name"))).toBe("Irrigation");
   expect([...document.querySelectorAll(".lanes-group-name")].map(text)).not.toContain("Climate");
 });
@@ -518,7 +523,7 @@ test("unknown or undrawable entries from an old link are dropped with a notice, 
   await open("/graphs?range=fortnight&m=climate.nope&m=forecast.temp_f&set=nope&set=mister_min_off_s&cmp=month");
   expect(within(screen.getByRole("list", { name: "Changes to this link" })).getAllByRole("listitem").map(text)).toEqual([
     "Removed unknown range fortnight", "Removed unknown comparison month", "Removed unknown metric climate.nope", "Removed forecast.temp_f: the outdoor layer draws the forecast",
-    "Removed unknown setting nope", "Removed setting mister_min_off_s: no chart in s",
+    "Removed unknown setting nope", "Removed setting mister_min_off_s: nothing reads it on this controller",
   ]);
   expect(panels()).toHaveLength(3);
   expect(within(screen.getByRole("list", { name: "Range" })).getByRole("link", { name: "7 d" }).getAttribute("href")).toBe("/graphs?range=7d&set=");
@@ -534,7 +539,7 @@ test("an empty window says so with a Last 24 h link", async () => {
 
 test("while the controller is not reporting each trace stops at its last sample and the notes say STALE once; the band and the step still draw", async () => {
   chartStubs();
-  await open("/graphs?range=24h&outdoor=0&set=mister_hysteresis_kpa", { fixture: "controller-not-reporting" });
+  await open("/graphs?range=24h&outdoor=0&set=band_vpd_low_sm", { fixture: "controller-not-reporting" });
   const [temp, vpd, rh] = panels();
   expect([...document.querySelectorAll(".gr-notes li")].map(text)).toEqual(["STALE · last data 10:36", "Temperature and VPD: Band in force", "Temperature and VPD: Band ahead of now · the stored band"]);
   for (const plot of [temp, vpd, rh]) {
@@ -544,7 +549,7 @@ test("while the controller is not reporting each trace stops at its last sample 
     expect(values.slice(last + 1).every((value) => value === null)).toBe(true);
   }
   expect([temp, vpd, rh].map((plot) => { plot.draw(); return plot.ctx.fills.some((fill) => fill.color === TOKENS["--c-band-wash"]); })).toEqual([true, true, false]);
-  expect(keyItems("vpd").map((item) => item.replace(/ · (above|below) the chart [↑↓]$/, ""))).toEqual(["Band", "Mister Hysteresis 0.10 kPa"]);
+  expect(keyItems("vpd").map((item) => item.replace(/ · (above|below) the chart [↑↓]$/, ""))).toEqual(["Band", "VPD low edge at solar noon 0.86 kPa"]);
   expect(document.querySelector(".panel-empty")).toBeNull();
 });
 

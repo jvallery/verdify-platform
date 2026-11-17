@@ -386,6 +386,8 @@ export function paintSteps(plot: PaintTarget, steps: readonly StepSegment[], col
 export const OUTDOOR_WIDTH = 1.5;
 export const OUTDOOR_DASH: readonly number[] = [6, 4];
 export const FORECAST_DASH: readonly number[] = [2, 3];
+/** A reference line the page derives (Graphs' drying line): `--accent`, 1.5 px, dashed [4, 3]; never a palette colour. */
+export const REFERENCE_DASH: readonly number[] = [4, 3];
 
 /** draw: the forecast in `--c-outdoor`, 1.5 px dotted, joined hour to hour; a lone hour is a dot. */
 export function paintForecast(plot: PaintTarget, lines: readonly ForecastLine[], colors: ChartColors, px: number) {

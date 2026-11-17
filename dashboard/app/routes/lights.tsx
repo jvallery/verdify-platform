@@ -9,15 +9,13 @@ import { CIRCUITS, circuitOf, lightsStatus, localToday, weekWindow, type HandMin
 import { ByHandPanel, CircuitPanel, SettingsPanel, SwitchingPanel, WeekPanel } from "../components/lights/panels";
 import { PanelErrorBoundary } from "../components/panel";
 import type { Setting } from "../lib/operator-api";
-import { panelRead, useApiRead, useEquipmentRead, useSettingsRead } from "../lib/queries";
+import { panelRead, useEquipmentRead, useLightingDaysRead, useSettingsRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
 import { OperatorOnly, useRole } from "../lib/session";
 
 export const meta = () => viewMeta("lights-overview");
 export const links = () => chartLinks();
 
-/** API-22 over the last seven days: once a minute, like the other daily reads. */
-const WEEK_POLL_MS = 60_000;
 const settingOf = (items: readonly Setting[] | undefined, param: string) => items?.find((item) => item.param === param);
 
 /**
@@ -34,7 +32,7 @@ export default function Lights() {
   const equipment = panelRead(equipmentQuery);
   const settingsQuery = useSettingsRead();
   const settings = panelRead(settingsQuery);
-  const week = panelRead(useApiRead("API-22", weekWindow(today), { intervalMs: WEEK_POLL_MS }));
+  const week = panelRead(useLightingDaysRead(weekWindow(today)));
   const settingItems = settingsQuery.data?.items;
   const [main, grow] = LIGHTS;
   const controls = [useLightControl(main, settingOf(settingItems, main.autoParam)), useLightControl(grow, settingOf(settingItems, grow.autoParam))];

@@ -6,7 +6,7 @@
  */
 import { duration, formatValue, shortTime } from "../../lib/format";
 import type { LawAlone, LawBand, LawDrying, LawRule, LawView } from "../../lib/operator-api";
-import { words } from "../../lib/words";
+import { hasWords, words } from "../../lib/words";
 import { rangeWords } from "../data/band-bar";
 import type { CheckMark, ChecklistItem } from "../data/checklist";
 
@@ -93,12 +93,9 @@ export const rulesOf = (rules: readonly LawRule[], signal: "temp" | "vpd"): LawR
 // ---------------------------------------------------------------------------------------------------- the drying decision
 /** The verdict words of screens §2.1 block 3 and §2.3 block 1: Running, Refused: <reason>, Not wanted. */
 export function dryingVerdict(drying: Pick<LawDrying, "state" | "refused_reason">): string {
-  switch (drying.state) {
-    case "running": return "Running";
-    case "refused": return drying.refused_reason && drying.refused_reason !== "none" ? `Refused: ${words("drying_refusal", drying.refused_reason)}` : "Refused";
-    case "not_wanted": return "Not wanted";
-    default: return "Not reported";
-  }
+  const verdict = words("drying_verdict", hasWords("drying_verdict", drying.state) ? drying.state : "unknown");
+  const reason = drying.refused_reason && drying.refused_reason !== "none" ? words("drying_refusal", drying.refused_reason) : null;
+  return drying.state === "refused" && reason ? `${verdict}: ${reason}` : verdict;
 }
 /** The verdict's status: running ok, refused warn, the rest neutral. */
 export const verdictTone = (state: string): "ok" | "warn" | "neutral" => (state === "running" ? "ok" : state === "refused" ? "warn" : "neutral");

@@ -92,7 +92,6 @@ a.picker-item:hover{background:var(--surface-2)}
 .gr-wide-only{display:flex}
 .gr-chips-label{font-size:var(--fs-sm);font-weight:600;color:var(--text-2)}
 
-
 @media(max-width:860px){
   /* Two toolbar rows on a phone (screens.md section 7): the range, then ‹ ›, Custom…, Layers and + Metric, so the first plot is on the first screen. 90 d and Zoom out are left out; Preset, + Setting and the chips of what is drawn live in the Layers sheet. */
   .gr-tb{gap:var(--space-2)}
@@ -121,7 +120,6 @@ a.picker-item:hover{background:var(--surface-2)}
 }
 
 /* Graphs → Lighting (#1357): light minutes by day, each cell a bar whose track is the day's target. */
-.gr-light-card{margin:.75rem 0;padding:var(--space-3) var(--space-4)}
 .gr-light-table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
 .gr-light-table caption{text-align:left;margin-bottom:var(--space-2)}
 .gr-light-table th,.gr-light-table td{padding:var(--space-1) var(--space-2);text-align:left;vertical-align:top}

@@ -30,8 +30,8 @@ export function reasonParts(reason: StateReason | null | undefined, unit?: strin
       return [detail ? `${head}: ${detail}` : head];
     }
     case "experiment":
-      // The host held the value back; the code is the retired model's, and its detail named what held it, never shown.
-      return [`${base}: applies when the hold ends`];
+      // The host kept the value back; the code is the retired model's, and its detail named why, never shown.
+      return [`${base}: sent once it is released`];
     case "deferred":
     case "no_match":
       return since ? ["Sent ", { time: since }, `; ${lowerFirst(base)}`] : [base];

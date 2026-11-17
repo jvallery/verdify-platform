@@ -66,7 +66,8 @@ test("the trends ask API-04 for the registry's controller keys, 24 h by default 
   const api = await open();
   expect(requests(api, "API-03").length).toBeGreaterThan(0);
   const query = new URL(requests(api, "API-04")[0].path, "http://x").searchParams;
-  expect(query.getAll("metric")).toEqual(["diagnostics.heap_minute_low_kb", "diagnostics.heap_largest_block_minute_low_kb", "diagnostics.loop_worst_ms", "diagnostics.nvs_write_worst_ms"]);
+  expect(query.getAll("metric")).toEqual(["diagnostics.heap_minute_low_kb", "diagnostics.heap_largest_block_minute_low_kb", "diagnostics.loop_worst_ms", "diagnostics.nvs_write_worst_ms",
+    "diagnostics.rssi_dbm"]);
   expect((Date.parse(query.get("to")!) - Date.parse(query.get("from")!)) / 3_600_000).toBe(24);
   cleanup(); stopFixtureApi();
   const week = await open({}, OPERATOR, "/system/controller?trend=7d");

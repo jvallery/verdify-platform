@@ -110,101 +110,8 @@
 .drawer-revert .btn{width:100%}
 .drawer-revert .field-error{margin-top:var(--space-1)}
 
-/* ---------------------------------------------------------------- Equipment (redesign §5.12) */
-/* The page is a .page stack: two balanced columns from 861 px (Climate, Lights and Flags; Water relays and the Controller), then the bursts, Why, the lanes and the daily runtime full width, each block's cards at the card gap. */
-.ctl-board{display:grid;gap:var(--space-3);grid-template-columns:minmax(0,1fr);align-items:start}
-.ctl-board-col,.ctl-equipment-more{display:grid;gap:var(--space-3);align-content:start;min-width:0}
-.ctl-equipment-more>*{margin:0}
-@media(min-width:861px){.ctl-board{grid-template-columns:repeat(2,minmax(0,1fr))}.ctl-board,.ctl-board-col,.ctl-equipment-more{gap:var(--space-4)}}
-
-/* A board row: the name, the state as a word with a dot, then since, time on today and cycles; one line from 1200 px, two below. Unknown is muted with a hatched dot. */
-.equipment-rows{list-style:none;margin:0;padding:0}
-.equipment-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:.1rem var(--space-3);padding:var(--space-2) 0;border-top:1px solid var(--border);min-width:0}
-.equipment-row:first-child{padding-top:0;border-top:0}
-.equipment-row:last-child{padding-bottom:0}
-.equipment-name{font-weight:600;min-width:0;overflow-wrap:anywhere}
-.equipment-key{font:500 var(--fs-sm)/1.4 var(--mono);color:var(--text-2)}
-.equipment-state{font-size:var(--fs-sm);text-align:right;font-variant-numeric:tabular-nums}
-.equipment-facts{grid-column:1/-1;margin:0;font-size:var(--fs-xs);color:var(--text-2);font-variant-numeric:tabular-nums}
-.equipment-row-light .light-controls{grid-column:1/-1}
-.equipment-note{font-size:var(--fs-xs)}
-@media(min-width:1200px){
-  .equipment-rows-climate .equipment-row,.equipment-rows-water .equipment-row{grid-template-columns:minmax(8rem,1fr) 6.5rem minmax(0,1.4fr)}
-  .equipment-rows-climate .equipment-state,.equipment-rows-water .equipment-state{text-align:left}
-  .equipment-rows-climate .equipment-facts,.equipment-rows-water .equipment-facts{grid-column:auto;text-align:right}
-}
-.ctl-state{display:inline-flex;align-items:center;gap:.35rem;font:600 var(--fs-xs)/1.4 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text);white-space:nowrap}
-.ctl-dot{flex:none;width:.55rem;height:.55rem;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--border-strong)}
-.ctl-state.is-on .ctl-dot{box-shadow:none;background:var(--text)}
-.ctl-state.is-unknown{color:var(--text-2)}
-.ctl-state.is-unknown .ctl-dot{background:repeating-linear-gradient(135deg,var(--text-2) 0 1px,transparent 1px 3px)}
-.ctl-dot[data-token=eq-fan1]{background:var(--eq-fan1)}.ctl-dot[data-token=eq-fan2]{background:var(--eq-fan2)}.ctl-dot[data-token=eq-vent]{background:var(--eq-vent)}
-.ctl-dot[data-token=eq-heat1]{background:var(--eq-heat1)}.ctl-dot[data-token=eq-heat2]{background:var(--eq-heat2)}.ctl-dot[data-token=eq-water]{background:var(--eq-water)}
-.ctl-dot[data-token=eq-fert]{background:var(--eq-fert)}.ctl-dot[data-token=eq-master]{background:var(--eq-master)}.ctl-dot[data-token=eq-mister]{background:var(--eq-mister)}
-.ctl-dot[data-token=eq-fog]{background:var(--eq-fog)}.ctl-dot[data-token=eq-light-main]{background:var(--eq-light-main)}.ctl-dot[data-token=eq-light-grow]{background:var(--eq-light-grow)}
-.ctl-state.is-neutral .ctl-dot[data-token]{background:var(--text-2)}
-
-/* The Controller card: free heap against the 32 kB floor as a meter (fault below it), then the facts as a data list. */
-.ctl-heap-row{display:grid;gap:var(--space-1);margin:0 0 var(--space-3)}
-.ctl-heap-words{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);margin:0}
-.ctl-heap-words .eyebrow{flex-basis:100%;margin:0}
-.ctl-heap-value{font-size:var(--fs-xl);font-weight:620;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.ctl-heap-low{color:var(--critical);font-weight:600}
-.ctl-heap{display:block;overflow:visible}
-.ctl-heap-track{fill:var(--surface-2);stroke:var(--border);stroke-width:1}
-.ctl-heap-fill{fill:var(--text-2)}
-.ctl-heap.is-below .ctl-heap-fill{fill:var(--critical)}
-.ctl-heap-floor{stroke:var(--text);stroke-width:2}
-/* The firmware version breaks only after a dot (its <wbr>), and from 600 px takes two of the facts' columns. */
-.ctl-firmware{overflow-wrap:normal}
-@media(min-width:600px){.ctl-controller-facts .data-pair:has(.ctl-firmware){grid-column:span 2}}
-
-/* Flags: occupancy, the leak flag and the site flow, each a name and its state in words; fault and warn in their text colours. */
-.ctl-flags{list-style:none;margin:0;padding:0}
-.ctl-flag{display:grid;grid-template-columns:minmax(0,8rem) minmax(0,1fr);gap:0 var(--space-3);padding:var(--space-2) 0;border-top:1px solid var(--border);font-size:var(--fs-sm)}
-.ctl-flag:first-child{padding-top:0;border-top:0}
-.ctl-flag:last-child{padding-bottom:0}
-.ctl-flag-name{font-weight:600}
-.ctl-flag[data-state=unknown] .ctl-flag-state{color:var(--text-2)}
-.ctl-flag.is-fault .ctl-flag-state{color:var(--critical);font-weight:600}
-.ctl-flag.is-warn .ctl-flag-state{color:var(--warn-text)}
-
-/* Daily runtime: one bar row per actuator on a shared scale, each in its equipment's colour, with its daily average; the table is under it. */
-.ctl-runtime{list-style:none;margin:0;padding:0}
-.ctl-runtime-row{display:grid;grid-template-columns:minmax(6rem,10rem) minmax(0,1fr) 10rem;align-items:center;gap:0 var(--space-4);padding:var(--space-2) 0;border-top:1px solid var(--border)}
-.ctl-runtime-row:first-child{border-top:0}
-.ctl-runtime-name{font-size:var(--fs-sm);font-weight:600;overflow-wrap:anywhere}
-.ctl-runtime-bars{min-width:0}
-.ctl-runtime-average{text-align:right;font-variant-numeric:tabular-nums}
-.ctl-runtime-figure{font-weight:600}
-.ctl-runtime-today{display:block;font-size:var(--fs-xs)}
-.ctl-runtime-row[data-equipment=heat1] .spark:not(.is-neutral):not(.is-stale) .spark-bar:not(.spark-bar-partial){fill:var(--eq-heat1)}
-.ctl-runtime-row[data-equipment=heat2] .spark:not(.is-neutral):not(.is-stale) .spark-bar:not(.spark-bar-partial){fill:var(--eq-heat2)}
-.ctl-runtime-row[data-equipment=fan1] .spark:not(.is-neutral):not(.is-stale) .spark-bar:not(.spark-bar-partial){fill:var(--eq-fan1)}
-.ctl-runtime-row[data-equipment=fan2] .spark:not(.is-neutral):not(.is-stale) .spark-bar:not(.spark-bar-partial){fill:var(--eq-fan2)}
-.ctl-runtime-row[data-equipment=vent] .spark:not(.is-neutral):not(.is-stale) .spark-bar:not(.spark-bar-partial){fill:var(--eq-vent)}
-.ctl-runtime-row[data-equipment=fog] .spark:not(.is-neutral):not(.is-stale) .spark-bar:not(.spark-bar-partial){fill:var(--eq-fog)}
-.ctl-runtime-table .table-wrap{max-height:24rem;overflow:auto}
-.ctl-num{text-align:right;font-variant-numeric:tabular-nums}
-@media(max-width:600px){.ctl-runtime-row{grid-template-columns:minmax(0,1fr) auto}.ctl-runtime-bars{grid-column:1/-1;grid-row:2}}
-
-/* Equipment depth (SCR-07, VD-20): the Why panel, one row per reason at every width (at phone width its label heads the row), and a grow light's controls, each a 44 px target, the buttons full width on phones (.btn-wide). */
-.why-rows{list-style:none;margin:0;padding:0}
-.why-row{display:grid;grid-template-columns:14rem minmax(0,1fr) auto;align-items:center;gap:0 .75rem;border-top:1px solid var(--border);min-width:0}
-.why-row:first-child{border-top:0}
-.why-label{font-weight:600}
-.why-words{min-width:0;padding:.35rem 0;font-size:var(--fs-sm)}
-.why-since{color:var(--text-2);font-variant-numeric:tabular-nums}
-.why-raw{font:500 var(--fs-sm)/1.4 var(--mono);overflow-wrap:anywhere}
-.why-link,.light-auto-link{display:inline-flex;align-items:center;min-height:2.75rem;font-weight:700}
-.light-links{display:flex;flex-wrap:wrap;gap:0 var(--space-4)}
-@media(max-width:860px){.why-row{grid-template-columns:minmax(0,1fr) auto;padding-top:.35rem}.why-label{grid-column:1/-1}}
-.light-controls{margin-top:.35rem}
-.light-auto-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 var(--space-3)}
-.light-auto{margin:0;font-size:var(--fs-sm)}
-.light-auto-link{font-size:var(--fs-sm)}
+/* ---------------------------------------------------------------- Lights' buttons */
 .light-actions{margin:.5rem 0 0}
-.light-controls .state-note,.light-controls .field-error{margin:.35rem 0 0}
 
 /* What a setting is and does (C28), and what Settings' words mean. */
 .ctl-legend summary{min-height:var(--tap);display:flex;align-items:center;font-weight:700;cursor:pointer}
@@ -235,10 +142,3 @@
 .ctl-band-form legend{font-weight:600;margin-bottom:var(--space-2)}
 .ctl-band-advanced table input{width:5.5rem;min-height:var(--tap)}
 /* Soil targets (#1345): one row per probe zone; an operator's edit opens under its row. */
-.ctl-soil{width:100%;border-collapse:collapse;margin-top:var(--space-3)}
-.ctl-soil th,.ctl-soil td{padding:var(--space-2);text-align:left;border-bottom:1px solid var(--border)}
-.ctl-soil td.num{font-variant-numeric:tabular-nums}
-.ctl-soil-note{display:block;font-weight:400}
-.ctl-soil-fields{display:grid;gap:var(--space-3);grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))}
-.ctl-soil-actions{display:flex;gap:var(--space-2);margin-top:var(--space-3)}
-@media(max-width:600px){.ctl-soil{display:block;overflow-x:auto}}

@@ -69,7 +69,7 @@ export function Meter({ label, unit, value, planned = null, cap = null, max = nu
   const words = known ? meterWords(value, cap, unit) : null;
   // The tick turns fault as the words say "cap reached" or "over".
   const reached = known && capped && Boolean(words?.over);
-  const name = words ? `${label}: ${words.amount}${words.over ? `, ${words.over}` : ""}${ahead > 0 ? `, ${formatValue(planned, unit)} planned` : ""}` : `${label}: ${STATE_WORDS[state === "ready" || state === "stale" ? "unknown" : state]}`;
+  const name = words ? `${label}: ${words.amount}${words.over ? `, ${words.over}` : ""}${ahead > 0 ? `, ${formatValue(planned, unit)} scheduled` : ""}` : `${label}: ${STATE_WORDS[state === "ready" || state === "stale" ? "unknown" : state]}`;
   return <span className={cls("meter", `meter-${domain}`, state === "stale" && "is-stale", apiDown && "is-neutral", !known && "is-unknown", reached && "is-capped")}>
     <svg className="meter-bar" width="100%" height="8" {...vizRole(name, decorative || showWords)} focusable="false">
       {!known && <HatchPattern id={hatch} />}

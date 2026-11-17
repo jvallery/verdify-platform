@@ -5,8 +5,7 @@
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { renderUi, text } from "../test-render";
-import { ARRIVING_TEXT, ArrivingPage } from "./page";
-import { PageHeader, SectionTabs } from "./page-header";
+import { PageHeader, SectionTabs, keptQuery } from "./page-header";
 
 afterEach(cleanup);
 const crumbs = () => screen.getByRole("navigation", { name: "Breadcrumb" });
@@ -85,13 +84,8 @@ test("the tabs are a labelled nav.tabs of links, the current one aria-current=pa
   expect(document.querySelector(".page-tabs")).toBeNull();
 });
 
-test("a page that has not shipped draws its frame and one paragraph; under a layout it draws the paragraph alone", () => {
-  renderUi(<ArrivingPage view="climate-drying" />);
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Drying");
-  expect(within(screen.getByRole("navigation", { name: "Climate views" })).getAllByRole("link").map(text)).toEqual(["Law", "Band", "Drying"]);
-  expect(text(document.querySelector(".page-arriving-text"))).toBe(ARRIVING_TEXT);
-  cleanup();
-  renderUi(<ArrivingPage view="water-soil" header={false} />);
-  expect(screen.queryByRole("heading")).toBeNull();
-  expect(text(document.querySelector(".page-arriving-text"))).toBe(ARRIVING_TEXT);
+test("a section that keeps a query (Record's window) carries it on every tab; other parameters and an unset one stay off", () => {
+  expect(keptQuery("?days=90&alert=4", ["days"])).toBe("?days=90");
+  expect(keptQuery("?alert=4", ["days"])).toBe("");
+  expect(keptQuery("?days=90", undefined)).toBe("");
 });

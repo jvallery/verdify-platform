@@ -2,8 +2,7 @@
 // Water depth (#1140, redesign §5.4) at 1440 and 390 px: daily water use with the no-valve water apart and missing days as
 // gaps, the window it serves for the page's period, its cause chips, a failed API-21 read in its own panel, and a failed
 // status read that leaves the Run dialog open.
-// What the bars paint on their canvas is daily-water-use.test.tsx; here are the key, the table and the summary. Split
-// from equipment-water-depth.spec.ts (redesign §10.2, WP0.1); the Equipment half is equipment-depth.spec.ts.
+// What the bars paint on their canvas is daily-water-use.test.tsx; here are the key, the table and the summary.
 import { DESKTOP, PHONE, axe, expect, expectNoHorizontalScroll, fixtureRequests, load, test, untilPolled, useScreensClock } from "./support";
 
 const VIEWPORTS = [DESKTOP, PHONE];

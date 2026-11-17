@@ -1,77 +1,17 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Experience */
-/* Cross-screen refinements that are not the frame (shell.css) or a primitive (primitives.css): Now's hero size, the settings overview and tasks, the schedule overview, the hydroponics workspace, the crop selection return and the phone's pinned Stop. Colours are tokens only. */
-@media(min-width:861px){.now-hero-value .hero-temp{font-size:clamp(3.5rem,5vw,5rem)}}
+/* Cross-screen refinements that are not the frame (shell.css) or a primitive (primitives.css): the hydroponics workspace, the crop selection return, the schedule draft, the band form and the phone's pinned Stop. Colours are tokens only. */
+
 .workspace-heading{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin:2rem 0 1rem}
 .workspace-heading h2{font-size:1.4rem}
-.hydro-intro{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2rem;padding:2rem;border:1px solid var(--border-strong);border-radius:1.25rem;background:var(--surface)}
-.hydro-intro h2{font-size:clamp(1.5rem,2.5vw,2rem);max-width:24ch}
-.hydro-intro p{max-width:60ch}
-.hydro-capacity{display:flex;flex-direction:column;justify-content:center;gap:.5rem;border-left:1px solid var(--border);padding-left:2rem}
-.hydro-capacity strong{font-size:2.5rem;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
-.hydro-ranges{display:flex;gap:.25rem;flex-wrap:wrap;padding:.25rem;background:var(--surface);border:1px solid var(--border);border-radius:.75rem}
-.hydro-ranges a{display:flex;align-items:center;min-height:44px;padding:.5rem .9rem;text-decoration:none;border-radius:.5rem;font-size:.875rem;font-weight:600}
-.hydro-ranges a[aria-current=page]{background:var(--accent);color:var(--on-accent)}
 .hydro-workspace .crop-toolbar{margin-top:1rem}
-@media(max-width:860px){
- .hydro-intro{grid-template-columns:1fr;padding:1.25rem;gap:1rem}
- .hydro-capacity{border-left:0;border-top:1px solid var(--border);padding:1rem 0 0}
- .hydro-capacity strong{font-size:2rem}
-}
-
-.settings-tasks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin:0 0 2rem}
-.settings-tasks>a{display:flex;flex-direction:column;gap:.55rem;min-height:9rem;padding:1.2rem;border:1px solid var(--border);border-radius:1rem;background:var(--surface);color:var(--text);text-decoration:none}
-.settings-tasks>a:hover{border-color:var(--accent);box-shadow:var(--shadow-2)}
-.settings-tasks strong{font-size:1.05rem;line-height:1.3}
-.settings-tasks span:last-child{color:var(--text-2);font-size:var(--fs-sm)}
-.ctl-settings-main{min-width:0}
 .schedule-draft-summary{padding:1rem;margin:.75rem 0;background:var(--surface-2);border-left:3px solid var(--accent);border-radius:.5rem}
 .schedule-draft-summary p+p{margin-top:.5rem}
-#why{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem);margin-bottom:1.5rem}
-.settings-overview{margin-bottom:2rem;border:1px solid var(--border);border-radius:1rem;background:var(--surface);padding:1.5rem}
-.settings-overview-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:2rem;padding-bottom:1.25rem;border-bottom:1px solid var(--border)}
-.settings-overview-heading h2{font-size:1.3rem;letter-spacing:-.025em}
-.settings-overview-heading>p{max-width:43ch;color:var(--text-2);font-size:var(--fs-sm)}
-.settings-overview-columns{display:grid;grid-template-columns:1fr 2fr;gap:2rem;padding-top:1.25rem}
-.settings-overview h3{font-size:1rem;margin-bottom:.5rem}
-.settings-authority>strong{font-size:1.65rem;letter-spacing:-.035em}
-.settings-authority p,.settings-attention>p{font-size:var(--fs-sm);color:var(--text-2);line-height:1.5;margin:.5rem 0}
-.settings-authority>a{display:inline-flex;min-height:44px;align-items:center;font-weight:600}
-.settings-attention ul{list-style:none;padding:0;margin:0}
-.settings-attention li{padding:.65rem 0;border-bottom:1px solid var(--border)}
-.settings-attention li>a{display:flex;justify-content:space-between;gap:1rem;min-height:44px;align-items:center;text-decoration:none}
-.settings-attention li>a:hover strong{text-decoration:underline}
-.settings-attention li>a>span{font-size:var(--fs-sm)}
-.settings-overview-quiet{display:grid;grid-template-columns:1fr 2fr;gap:2rem;padding:1rem 1.5rem}
-.settings-overview-quiet a{display:flex;align-items:center;min-height:44px;font-weight:600}
-.settings-overview-quiet h2{font-size:1rem;margin:.2rem 0 .5rem}
-.settings-overview-quiet p{margin:0}
 .crop-history-view .table-wrap{max-width:100%;overflow:auto}
 .crop-history-view table{min-width:52rem}
 .crop-history-view thead th{overflow-wrap:normal;word-break:normal}
-.planner-history .table-wrap{max-width:100%;overflow:auto}
-.planner-history table{min-width:56rem}
-.planner-history thead th{overflow-wrap:normal;word-break:normal}
 .page-stack{display:grid;gap:1.5rem;min-width:0}
-@media(max-width:860px){.settings-overview{padding:1rem}.settings-overview-heading{display:block}.settings-overview-heading>p{margin-top:.5rem}.settings-overview-columns{grid-template-columns:1fr;gap:1rem}.settings-attention li>a{flex-wrap:wrap;gap:.25rem}}
-@media(max-width:600px){.settings-overview-quiet{grid-template-columns:1fr;gap:1rem}}
-.schedule-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin:1rem 0 1.5rem}
-.schedule-overview-card{display:flex;flex-direction:column;align-items:flex-start;gap:.65rem;padding:1.25rem;border:1px solid var(--border);border-radius:1rem;background:var(--surface);color:var(--text);text-decoration:none;min-width:0}
-.schedule-overview-card strong{font-size:1.45rem;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
-.schedule-overview-card>span:not(.eyebrow){font-size:var(--fs-sm);line-height:1.5}
-.schedule-overview-card>span:not(.eyebrow):not(.schedule-overview-action){color:var(--text-2)}
-.schedule-overview-backup{border-style:dashed;background:var(--surface-2)}
-.schedule-overview-action{margin-top:auto;padding-top:.4rem;color:var(--accent);font-weight:600}
-a.schedule-overview-card:hover{border-color:var(--accent);box-shadow:var(--shadow-2)}
 #sch-rules-title{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem)}
-@media(max-width:860px){.schedule-overview{grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}.schedule-overview-card{padding:1rem}.schedule-overview-card:last-child{grid-column:1/-1}.schedule-overview-card strong{font-size:1.25rem}}
-@media(max-width:600px){.schedule-overview-card{gap:.4rem;padding:.8rem}.schedule-overview-card strong{font-size:1.1rem}.schedule-overview-card>span:not(.eyebrow){font-size:.8rem;line-height:1.4}}
-@media(max-width:1099px){.settings-tasks{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:480px){.settings-tasks{gap:.6rem}.settings-tasks>a{padding:.85rem;min-height:10rem}}
-
-.workspace-jumps{display:flex;flex-wrap:wrap;gap:.75rem;margin:1rem 0}
-.workspace-jumps a{display:inline-flex;align-items:center;min-height:44px;padding:.5rem 1rem;border:1px solid var(--border-strong);border-radius:.65rem;background:var(--surface);text-decoration:none;font-weight:600}
-.workspace-jumps a:first-child{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .hydro-workspace h2[id]{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem)}
 
 .crop-toolbar{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem)}
@@ -90,10 +30,8 @@ a.schedule-overview-card:hover{border-color:var(--accent);box-shadow:var(--shado
 .hydro-readings .meta{display:block;margin-top:.4rem;font-size:var(--fs-xs);font-weight:400;letter-spacing:normal}
 @media(max-width:1099px){.hydro-readings{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.hydro-readings{grid-template-columns:repeat(2,minmax(0,1fr))}.hydro-readings>div{padding:.85rem}}
-@media(max-width:600px){.hydro-intro{padding:1rem;gap:.75rem}.hydro-intro h2{font-size:1.25rem}.hydro-intro p{margin-bottom:0}.hydro-capacity{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;align-items:center;padding-top:.75rem}.hydro-capacity>.eyebrow{grid-column:1/-1}.hydro-capacity strong{font-size:1.5rem}.hydro-capacity>span:last-child{font-size:var(--fs-sm)}}
 
 /* Keep the measured state and quick controls prominent even when the snapshot paragraph is long. */
-.now-snapshot-more{display:inline-flex;align-items:center;min-height:var(--tap)}
 @media(min-width:641px){.now-snapshot:not([data-open]) .now-snapshot-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}}
 
 /* Stop all water stays one touch away on Now at 860 px and below: pinned above the bottom bar while the page scrolls. */

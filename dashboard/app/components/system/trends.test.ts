@@ -12,8 +12,11 @@ test("the trends are the registry's controller keys, in order; the fallback only
   const registry = answers["API-03"] as Metrics;
   expect(trendSpecs(registry, false).map((spec) => spec.key)).toEqual([
     "diagnostics.heap_minute_low_kb", "diagnostics.heap_largest_block_minute_low_kb", "diagnostics.loop_worst_ms", "diagnostics.nvs_write_worst_ms",
+    "diagnostics.rssi_dbm",
   ]);
-  expect(trendSpecs({ items: [...registry.items, { ...registry.items[0], key: "diagnostics.rssi_dbm" }] }, false).at(-1)?.title).toBe("Wi-Fi signal");
+  expect(trendSpecs(registry, false).at(-1)?.title).toBe("Wi-Fi signal");
+  // A key the registry does not serve is not drawn.
+  expect(trendSpecs({ items: registry.items.filter((item) => item.key !== "diagnostics.rssi_dbm") }, false).map((spec) => spec.key)).not.toContain("diagnostics.rssi_dbm");
   expect(trendSpecs(null, false)).toEqual([]);
   expect(trendSpecs(null, true)).toEqual([...TRENDS]);
 });

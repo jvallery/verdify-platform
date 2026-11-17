@@ -210,7 +210,7 @@
 .alert-detail p{margin:0}
 .alert-detail .runbook{white-space:pre-line;color:var(--text)}
 .kv-nested{font-size:var(--fs-sm)}
-.alert-graph a{display:inline-flex;align-items:center;min-height:24px;font-weight:700}
+.alert-graph a,.alert-about a{display:inline-flex;align-items:center;min-height:24px;font-weight:700}
 .alert-respond{max-width:36rem}
 .alert-respond .field{margin:0}
 .alert-respond .actions{margin:var(--space-2) 0 0}
@@ -258,7 +258,7 @@
   .now-fresh .btn,.act-csv,.act-unavailable .btn{min-height:var(--tap)}
   .now-hero{grid-template-columns:minmax(0,1fr);grid-template-areas:"main" "climate" "readings";gap:var(--space-3);padding:var(--space-4)}
   .now-hero .hero-meta{font-size:var(--fs-sm)}
-  .now-fresh-link,.now-condition-link,.now-band-label,.now-zone-link,.now-unconfirmed a,.alert-open,.alert-graph a,.act-plan>summary{min-height:var(--tap)}
+  .now-fresh-link,.now-condition-link,.now-band-label,.now-zone-link,.now-unconfirmed a,.alert-open,.alert-graph a,.alert-about a,.act-plan>summary{min-height:var(--tap)}
   .now-band{grid-template-columns:2.5rem minmax(0,1fr) auto;gap:0 var(--space-2);min-height:var(--tap)}
   .now-band-meta{grid-column:2/-1}
   .now-band-range{display:none}

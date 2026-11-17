@@ -12,7 +12,7 @@ import { Link } from "react-router";
 import { formatValue } from "../lib/format";
 import { houseBand } from "../lib/now-answer";
 import type { Now, Series } from "../lib/operator-api";
-import { READ_INTERVAL_MS, panelRead, useApiRead, useSeriesWindowRead, type PanelRead } from "../lib/queries";
+import { panelRead, useRegistryRead, useSeriesWindowRead, type PanelRead } from "../lib/queries";
 import { useApiDown } from "../lib/session";
 import { ZONE_WINDOW_S, keyValue, type ZoneData, type ZoneValue } from "../lib/zone-source";
 import { Badge } from "./badge";
@@ -89,7 +89,7 @@ export type ProbesProps = {
 };
 
 export function Probes({ now, day, caseRead }: ProbesProps) {
-  const registry = panelRead(useApiRead("API-03", {}, { intervalMs: READ_INTERVAL_MS.zones }));
+  const registry = panelRead(useRegistryRead());
   const current = panelRead(useSeriesWindowRead(PROBE_NOW_KEYS, ZONE_WINDOW_S));
   const failed = (registry.failed && !registry.data) || (current.failed && !current.data);
   const state: PanelState = failed ? "error" : registry.pending || current.pending || !now ? "loading" : "ready";

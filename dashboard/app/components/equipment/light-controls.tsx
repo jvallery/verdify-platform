@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Equipment, ParamsOf, Setting } from "../../lib/operator-api";
 import { fetchRead } from "../../lib/queries";
-import { OperatorOnly } from "../../lib/session";
 import { shortTime } from "../../lib/format";
-import { words } from "../../lib/words";
 import { readback, useCommand, useSettingWrite, type SettingInfo, type WriteError } from "../../lib/writes";
-import { ReadbackBadge } from "../badge";
 import { Button } from "../button";
-import { StateReasonLine } from "../state-reason-line";
 
 export type LightId = ParamsOf<"API-20">["light"];
 export type LightState = ParamsOf<"API-20">["state"];
@@ -168,50 +163,6 @@ export function automationWords(row: Pick<Setting, "readback"> | undefined): str
   const value = row?.readback?.value;
   if (value === null || value === undefined) return row?.readback?.reason ? `Automation — ${row.readback.reason}` : "Automation —";
   return value === 0 ? "Automation off" : "Automatic";
-}
-
-/**
- * The row's automatic line, for every role, from the switch's API-09 row (60 s, 5 s while REQUESTED): REQUESTED, NOT
- * CONFIRMED or HELD while the API says so, CONFIRMED once this control's own write reads it, then the device value in
- * words. With no row to read it says "—" rather than its last words.
- */
-function AutomationLine({ control }: { control: LightControl }) {
-  const { setting, writeId } = control;
-  const state = setting?.state ?? "";
-  const pending = state === "requested" || state === "not_confirmed" || state === "held";
-  const own = writeId !== null && setting?.desired?.id === writeId && state === "confirmed";
-  return <p className="light-auto" data-auto={state || "none"}>
-    {(pending || own) && <><ReadbackBadge state={state} />{" "}</>}
-    {!pending && automationWords(setting)}
-    {pending && <StateReasonLine state={state} reason={setting?.desired?.state_reason} requestedAt={setting?.desired?.created_at} />}
-  </p>;
-}
-
-/**
- * What a light row gains (SCR-07, US-EQP-05): its automatic line with the link to that switch's setting drawer, opened
- * in place (`settingTo`, for every role: a viewer's is read-only), and for operators "Activity ›" beside it; then, for
- * operators only, the buttons its state calls for (`lightButtons`): Back to automatic first while the light is
- * overridden, and the switch to its other state, at 44 px, full width on phones, disabled with changes switched off. One
- * tap and no dialog. The board's state only ever comes from the Lutron readback; here are what was said and what is
- * awaited: a 503's `Problem.result` in words, and after 30 s without a match "Lutron hasn't confirmed: still OFF".
- */
-export function LightControls({ control, item, settingTo }: { control: LightControl; item: Pick<LightItem, "label" | "state" | "intent" | "manual_until" | "auto_reason">; settingTo?: string }) {
-  const until = manualUntil(item);
-  const reason = item.auto_reason ?? null;
-  return <div className="light-controls">
-    {until !== null && <p className="state-note" data-light-until="">{item.state === "on" ? "On" : item.state === "off" ? "Off" : "Switched"} {manualUntilWords(until)}, then back to automatic</p>}
-    {reason !== null && <p className="state-note meta" data-light-reason={reason}>Controller: {words("light_reason", reason)}</p>}
-    <div className="light-auto-row">
-      <AutomationLine control={control} />
-      <span className="light-links">
-        {settingTo && <Link className="light-auto-link" to={settingTo} preventScrollReset>Automation setting <span className="screen-reader">of {item.label}</span><span aria-hidden="true">›</span></Link>}
-        <OperatorOnly>
-          <Link className="light-auto-link" to={`/activity/log?target=${encodeURIComponent(control.equipment)}`}>Activity <span className="screen-reader">of {item.label}</span><span aria-hidden="true">›</span></Link>
-        </OperatorOnly>
-      </span>
-    </div>
-    <OperatorOnly><LightButtons control={control} item={item} /></OperatorOnly>
-  </div>;
 }
 
 /**

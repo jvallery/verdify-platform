@@ -99,7 +99,7 @@ test("a block's words take the room beside it: all of them, else its time and ou
   expect(text(document.querySelector(".sch-axis-end"))).toBe("that day / cap");
   cleanup();
   renderUi(<DayTimeline model={model("2026-11-04")} now={NOW} head={<h2>Wednesday</h2>} label="Runs" />);
-  expect(text(document.querySelector(".sch-axis-end"))).toBe("planned / cap");
+  expect(text(document.querySelector(".sch-axis-end"))).toBe("scheduled / cap");
 });
 
 test("a strip without API-05's answer says its valve time is unknown and hatches it up to now; with the answer and nothing in it, none", () => {

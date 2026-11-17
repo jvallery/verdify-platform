@@ -59,8 +59,8 @@ export type ChartStackProps = {
   band?: BandTimeline | null;
   settings?: readonly SettingSteps[];
   forecast?: ForecastInput | null;
-  /** Retired (screens.md 7.1, the target series): the keys listed are not drawn. Kept optional until callers stop passing it. */
-  dotted?: readonly string[];
+  /** Keys drawn as a reference line in every panel (Graphs' drying line); see TimeSeriesInput. */
+  reference?: readonly string[];
   /** Epoch seconds. */
   now: number;
   xRange: XRange;
@@ -383,10 +383,10 @@ export function ChartStack(props: ChartStackProps) {
   const phone = usePhone();
   const panels = useStableArray(props.panels, (panel) => [panel.id, panel.series, panel.compare, panel.message, panel.unit, ...panel.metrics])!;
   const settings = useStableArray(props.settings, (setting) => [setting.history, setting.label]);
-  const dotted = useStableArray(props.dotted);
+  const reference = useStableArray(props.reference);
   const models = useMemo(() => panels.map((panel) => buildTimeSeriesModel({
-    series: panel.series, metrics: panel.metrics, unit: panel.unit, band, settings, forecast, dotted, now, xRange: { from: xRange.from, to: xRange.to },
-  })), [panels, band, settings, forecast, dotted, now, xRange.from, xRange.to]);
+    series: panel.series, metrics: panel.metrics, unit: panel.unit, band, settings, forecast, reference, now, xRange: { from: xRange.from, to: xRange.to },
+  })), [panels, band, settings, forecast, reference, now, xRange.from, xRange.to]);
   const compareSpec = props.compare ?? null;
   const compares = useMemo(() => panels.map((panel, index) => {
     const model = models[index];

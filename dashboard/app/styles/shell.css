@@ -106,7 +106,6 @@
 .page-crumbs li{display:inline-flex;align-items:center;gap:var(--space-1)}
 .page-crumbs [aria-current=page]{color:var(--text-2)}
 .page-crumb-sep{color:var(--text-3)}
-.page-arriving-text{max-width:70ch;color:var(--text-2)}
 
 /* The footer: both builds, the time zone, the sibling sites and the font licences. */
 .site-footer{border-top:1px solid var(--border);background:var(--surface-2);color:var(--text-2);font-size:var(--fs-sm)}

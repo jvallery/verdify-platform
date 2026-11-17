@@ -7,6 +7,7 @@
  */
 import { EVENT_SOURCES, activityEvent, alertEvents, runEvent, type ChartEvent, type EventSource } from "../../charts/events";
 import type { ActivityEntry, Alert, Run, Setting } from "../../lib/operator-api";
+import { settingLabel } from "../../lib/settings-context";
 import { words } from "../../lib/words";
 
 /** API-17 and API-IRR-11 give at most this many rows a page; the rail reads one page of each. */
@@ -42,7 +43,7 @@ export type EventInput = {
 
 /** Every mark of the sources shown, in time order; the stack keeps those inside its view. */
 export function chartEvents({ activity, alerts, runs, settings, sources, now }: EventInput): ChartEvent[] {
-  const labels = new Map((settings ?? []).map((row) => [row.param, row.label]));
+  const labels = new Map((settings ?? []).map((row) => [row.param, settingLabel(row)]));
   const out: ChartEvent[] = [];
   for (const entry of activity ?? []) {
     if (isPlanWrite(entry)) continue;

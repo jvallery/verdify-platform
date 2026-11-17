@@ -21,7 +21,7 @@ import { GraphToolbar } from "../components/graphs/toolbar";
 import { PageHeader } from "../components/layout/page-header";
 import { PanelError } from "../components/panel";
 import { Skeleton } from "../components/skeleton";
-import { CONTROLLER_PANELS, DRYING_LINE_METRIC, controllerCharts, dryingOffset, withDryingLine } from "../lib/graph-law";
+import { CONTROLLER_PANELS, DRYING_LINE_KEY, DRYING_LINE_METRIC, controllerCharts, dryingOffset, withDryingLine } from "../lib/graph-law";
 import { NO_OVERLAY, OUTDOOR_TEMP_KEY, forecastSpan, outdoorOverlay, outdoorSource, withOutdoor } from "../lib/graph-overlay";
 import { GRAPH_POLL_MS, identity, readFailure, slotRead, useGraphClock, useWindowReads, type WindowRead } from "../lib/graph-reads";
 import { climateDimensions, climateStory, windowWords } from "../lib/graph-story";
@@ -32,6 +32,7 @@ import {
 } from "../lib/graph-url";
 import type { StateLanes } from "../lib/operator-api";
 import { useControllerHealthRead, useLawRead, useSettingsRead } from "../lib/queries";
+import { settingLabel } from "../lib/settings-context";
 import { viewMeta } from "../lib/sections";
 import { useApiDown } from "../lib/session";
 import { unitLabel } from "../lib/setting-values";
@@ -66,6 +67,8 @@ const valued = (value: number | null | undefined) => value !== null && value !==
 /** True when the Series has no value at all for `keys`. */
 const noValues = (series: Series, keys: readonly string[]) => keys.every((key) => !(series.series[key]?.avg ?? []).some(valued));
 const REGISTRY = [{ id: "registry", params: {} }] as const;
+/** The drying line draws as a reference line, not a palette trace. */
+const REFERENCE_KEYS = [DRYING_LINE_KEY] as const;
 /** The preset's climate panels before API-03 answers: their frames at their reserved heights, nothing to read yet. */
 const FRAMES: readonly PanelPlan[] = [
   { id: "temperature", name: "Temperature", unit: "°F", metrics: [], daily: false },
@@ -216,7 +219,7 @@ export default function Graphs() {
 
   const steps: SettingSteps[] = resolved.settings.flatMap((row, index) => {
     const history = historyList[index]?.data;
-    return history ? [{ history: inPanelUnit(history), label: row.label }] : [];
+    return history ? [{ history: inPanelUnit(history), label: settingLabel(row) || row.param }] : [];
   });
   const panels: StackPanel[] = plans.map((plan, index) => {
     const read = panelReads[index];
@@ -320,7 +323,7 @@ export default function Graphs() {
     </ul>}
     {window && <RecordGaps gaps={gaps} />}
     {stacked
-      ? <ChartStack label={`${preset.label}, ${lead.charAt(0).toLowerCase()}${lead.slice(1)}`} panels={panels} band={shownBand} settings={steps} forecast={forecast}
+      ? <ChartStack label={`${preset.label}, ${lead.charAt(0).toLowerCase()}${lead.slice(1)}`} panels={panels} band={shownBand} settings={steps} forecast={forecast} reference={REFERENCE_KEYS}
         now={now ?? 0} xRange={xRange} syncKey={syncKey} excursions={!apiDown} envelope={view.envelope}
         compare={compared} events={eventsRead && sources.length > 0 ? events : null} csvName="graphs" tableName={`${preset.label} table`}
         lanesName={preset.lanes === false ? undefined : "lanesName" in preset ? preset.lanesName : undefined}

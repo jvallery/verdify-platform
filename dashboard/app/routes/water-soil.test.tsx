@@ -35,7 +35,7 @@ const load = async () => { await advance(0); await act(async () => { await vi.dy
 const panel = (name: string) => screen.getByRole("region", { name });
 
 test("Soil: one panel per probe zone; a probe the registry does not serve says it has not reported and draws nothing, never zero", async () => {
-  open("/water/soil", { fixture: "in-band" });
+  open("/water/soil", { fixture: ["in-band", "soil-west-unserved"] });
   await load();
   const south1 = panel("South 1");
   expect(text(south1.querySelector('[data-measure="moisture"] .wat-soil-value'))).toMatch(/^\d+\.\d%$/);

@@ -31,18 +31,23 @@ export const CARD_PAGES = [
   { path: "/auth/login", status: 503, heading: "Sign-in is unavailable" },
 ] as const;
 
-/** The setting drawer with its charts drawn (#1139): the history with Revert, and a crop-band anchor's curve preview above its history. */
+/**
+ * The setting drawer with its chart drawn (#1139): the history with Revert. Dashboard v2's drawer draws the history only;
+ * the band's preview lives on the Band page.
+ */
 export const SETTING_DRAWERS = [
   { path: "/settings?q=outdoor_staleness_max_s&edit=outdoor_staleness_max_s", fixture: "setting-history", charts: 1 },
-  { path: "/settings?q=zone_vpd_target_center_sm&edit=zone_vpd_target_center_sm", fixture: "band-preview-center", charts: 2 },
 ] as const;
 
 /**
  * The routes that hold a write control for an operator under the roles fixtures (`alerts-merged`, `l01-running`,
  * `mister-fault`), so a viewer's "no write control" means something there. Every route also has the top bar's Stop all
- * water for an operator above 860 px. The other routes write nothing of their own: the Graphs views and the Activity
- * log by design, the pages that arrive with v2 not yet, and Crops because its writes (Plant…, Move…, Harvest…,
- * Remove…, Edit…) follow a selection or open from a planting's drawer; crops.spec.ts covers them, and the viewer check
- * here still finds none.
+ * water for an operator above 860 px. The other routes write nothing of their own: Climate law, Record, Graphs, Review,
+ * Data and the Activity log by design, and Crops because its writes (Plant…, Move…, Harvest…, Remove…, Edit…, Save
+ * note) follow a selection or open from a planting's drawer; crops.spec.ts covers them, and the viewer check here still
+ * finds none. Controller's Restart sits in a closed disclosure.
  */
-export const WRITE_ROUTES: readonly RoutePath[] = ["/", "/water", "/water/schedules", "/water/history", "/settings", "/band", "/activity", "/equipment"];
+export const WRITE_ROUTES: readonly RoutePath[] = [
+  "/", "/band", "/climate/drying", "/water", "/water/schedules", "/water/history", "/water/soil", "/lights", "/activity", "/equipment",
+  "/system/controller", "/settings",
+];

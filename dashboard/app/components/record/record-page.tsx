@@ -10,6 +10,9 @@ import { Segmented } from "../segmented";
 import { WINDOWS, windowDays, windowHref, type WindowDays } from "./record-model";
 import type { RecordWindow } from "./use-record";
 
+/** The query a tab change between Record's views keeps: the window. */
+const RECORD_QUERY = ["days"] as const;
+
 /** "7 d" … "365 d", each a link that keeps the view and its other parameters. */
 export function WindowControl({ days }: { days: WindowDays }) {
   const { pathname, search } = useLocation();
@@ -35,7 +38,7 @@ export function RecordPage({ view, window, children }: { view: ViewId; window: R
   const record = window.read.data;
   const status = record ? windowStatus(record, window.days) : null;
   return <Page className="record">
-    <PageHeader view={view} status={status?.long ?? null} statusShort={status?.short ?? null} />
+    <PageHeader view={view} status={status?.long ?? null} statusShort={status?.short ?? null} keepQuery={RECORD_QUERY} />
     <WindowControl days={window.days} />
     {children}
   </Page>;

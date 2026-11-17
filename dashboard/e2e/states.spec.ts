@@ -11,7 +11,8 @@ for (const path of ROUTES) {
     // The shell's backoff puts its second poll 30 s after the first, and the banner waits for that second failure.
     await untilPolled(page, () => expect(page.locator("[data-banner=fault]")).toHaveText("Dashboard API unavailable", { timeout: 1_000 }), 31_000);
     for (const reassurance of ["All OK", "No open alerts", "CONFIRMED"]) await expectNoText(page, reassurance);
-    await expectNoText(page, /\bin band\b/i);
+    // Record's tab, title and notes name "In band" (README section 3, words.md), so there the badges carry the check.
+    if (!path.startsWith("/record")) await expectNoText(page, /\bin band\b/i);
     await expect(page.locator(".badge-ok, .tag-ok, .fresh-ok")).toHaveCount(0);
   });
 

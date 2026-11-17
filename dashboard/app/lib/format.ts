@@ -103,10 +103,10 @@ export function dayHeader(value: string, year?: string): string {
   const words = DAY_HEAD.format(date).replace(",", "");
   return year === undefined || value.slice(0, 4) === year ? words : `${words} ${value.slice(0, 4)}`;
 }
-/** "October 2026" for YYYY-MM. */
-export function monthTitle(month: string): string {
-  const date = new Date(`${month}-15T12:00:00Z`);
-  return Number.isNaN(date.getTime()) ? month : new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" }).format(date);
+/** A calendar date (YYYY-MM-DD) in words.md section 5's short form, "16 Nov": the day header without its weekday. */
+export function dayMonth(value: string): string {
+  const head = dayHeader(value);
+  return head === value ? value : head.split(" ").slice(1).join(" ");
 }
 /** Elapsed seconds as "12 s", "4 min", "2 h", "3 d". */
 export function duration(seconds: number): string {

@@ -11,7 +11,7 @@
 import { StateLanesChart, spansFromIntervals, type StateLaneRow } from "../../charts/state-lanes";
 import { TimeSeries } from "../../charts/time-series";
 import type { IrrigationStatus, MetricDef, Series } from "../../lib/operator-api";
-import { READ_INTERVAL_MS, panelRead, useApiRead, useBandWindowRead, useLawHistoryRead, type PanelRead } from "../../lib/queries";
+import { panelRead, useBandWindowRead, useLawHistoryRead, useRegistryRead, type PanelRead } from "../../lib/queries";
 import { useApiDown } from "../../lib/session";
 import { useClockValue } from "../freshness";
 import { Button } from "../button";
@@ -87,7 +87,7 @@ export type TodayProps = {
 export function Today({ day, irrigation, today }: TodayProps) {
   // The minute on the server's clock: the window moves once a minute.
   const now = useClockValue((value) => Math.floor(value / 60_000) * 60);
-  const registry = panelRead(useApiRead("API-03", {}, { intervalMs: READ_INTERVAL_MS.zones }));
+  const registry = panelRead(useRegistryRead());
   const metrics = registry.failed ? [] : registry.data?.items ?? [];
   return <Panel id={TODAY_ID} title="Today" thing="today" state="ready" actions={<InBandLine today={today} />}
     link={{ to: "/graphs?range=24h", label: <>Graphs<span className="screen-reader"> for the last 24 h</span></> }}>

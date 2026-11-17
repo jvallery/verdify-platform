@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router";
 import { ThresholdSeries } from "../../charts/threshold-series";
 import { epochOf } from "../../charts/time-axis";
 import type { ControllerHealth } from "../../lib/operator-api";
-import { READ_INTERVAL_MS, panelRead, useApiRead, useSeriesWindowRead, type PanelRead } from "../../lib/queries";
+import { panelRead, useRegistryRead, useSeriesWindowRead, type PanelRead } from "../../lib/queries";
 import { Panel } from "../panel";
 import { Segmented } from "../segmented";
 import { TREND_RANGES, trendRange, trendSeries, trendSpecs, type TrendSpec } from "./trends";
@@ -51,7 +51,7 @@ function TrendCharts({ specs, range, health, retryRegistry }: { specs: TrendSpec
 export function ControllerTrends({ health }: { health: PanelRead<ControllerHealth> }) {
   const [params] = useSearchParams();
   const range = trendRange(params.get("trend"));
-  const registry = panelRead(useApiRead("API-03", {}, { intervalMs: READ_INTERVAL_MS.settings }));
+  const registry = panelRead(useRegistryRead());
   const specs = useMemo(() => trendSpecs(registry.failed ? null : registry.data, registry.failed), [registry.data, registry.failed]);
   if (specs.length > 0) return <TrendCharts specs={specs} range={range} health={health} retryRegistry={registry.retry} />;
   return <Panel id="trends" title="Trends" thing="the controller's trends" state={registry.pending ? "loading" : "empty"} reserve="lg" empty={EMPTY} actions={<RangeControl range={range} />} />;

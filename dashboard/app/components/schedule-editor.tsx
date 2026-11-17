@@ -370,7 +370,7 @@ export function ScheduleEditor({ slotId, schedule, agenda, status, today, now, o
       {!preview && <p className="field-hint">Enter a valid start and a whole number in each field to preview it.</p>}
       {refusals.length > 0 && <ul className="sch-checks sch-checks-refusal">{refusals.map((check) => <li key={check.code} data-check={check.code}>{check.text}</li>)}</ul>}
       {preview?.totals.map((row) => <div key={row.line_id} className="schedule-preview-line" data-line={row.line_id}>
-        <p><strong>{lineDisplayName(row.line_id)}</strong> {row.totals ?? "no minutes planned"}</p>
+        <p><strong>{lineDisplayName(row.line_id)}</strong> {row.totals ?? "no minutes scheduled"}</p>
         {row.cap && <p className="field-hint">{row.cap}</p>}
         {row.past && <p className="schedule-past-cap">{PAST_CAP_TEXT} ({row.past})</p>}
       </div>)}

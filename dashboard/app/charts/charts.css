@@ -10,7 +10,6 @@
 .uplot .u-over{cursor:crosshair}
 .plot-summary{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr));gap:var(--space-1) var(--space-4);margin:var(--space-2) 0;padding:0;list-style:none;font-size:var(--fs-sm);color:var(--text-2);font-variant-numeric:tabular-nums}
 /* A day still in progress, in a key or a table: lighter, and labelled "so far". */
-.chart-so-far{color:var(--text-3);font-style:normal}
 
 /* Reserved heights: weather's .plot and .plot-small, fixed so a chart mounting never shifts the page (§5.2, §6). */
 .chart{margin:.75rem 0;min-width:0}

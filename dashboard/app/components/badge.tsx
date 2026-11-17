@@ -20,7 +20,7 @@ export const BADGES = {
   not_confirmed: { status: "serious", text: "Not confirmed" },
   held: { status: "info", text: "Held" },
   no_readback: { status: "neutral", text: "No readback" },
-  manual: { status: "info", text: "Manual" },
+  manual: { status: "info", text: "Set by hand" },
   ai: { status: "neutral", text: "AI" },
   superseded: { status: "neutral", text: "Superseded" },
   stale: { status: "warn", text: "Stale" },

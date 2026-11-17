@@ -213,8 +213,6 @@ export function onlyCell(selected: ReadonlySet<PlaceKey>): string | null {
   const [key] = [...selected];
   return key.startsWith("cell:") ? key.slice(5) : null;
 }
-/** The selection in words: "EAST-HYDRO-1..10, west_shelf_top". */
-export const selectionText = (selected: Iterable<PlaceKey>): string => selectionPositions(selected).join(", ");
 /**
  * Shift-click: the cells of one shelf from `anchor` to `target` by number (hydro 5 to 14 is 5…14 across a rail
  * boundary, as the rack is numbered). Cells of different shelves give just the target.

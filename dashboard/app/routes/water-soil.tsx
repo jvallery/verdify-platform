@@ -4,15 +4,12 @@ import { chartLinks } from "../charts/uplot-chart";
 import { EmptyState, Panel, PanelErrorBoundary } from "../components/panel";
 import { soilSummary } from "../components/water/soil-model";
 import { SoilZone, type ZoneReport } from "../components/water/soil-zone";
-import { READ_INTERVAL_MS, panelRead, useApiRead } from "../lib/queries";
+import { READ_INTERVAL_MS, panelRead, useApiRead, useRegistryRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
 import { useWaterOutlet } from "../lib/water";
 
 export const meta = () => viewMeta("water-soil");
 export const links = () => chartLinks();
-
-/** The metric registry changes only with a release: read it every 5 minutes. */
-const REGISTRY_POLL_MS = 300_000;
 
 /**
  * Water → Soil (`/water/soil`, screens section 3.4, parity SO-01 to SO-03): is each zone's soil where I want it? One
@@ -24,7 +21,7 @@ const REGISTRY_POLL_MS = 300_000;
 export default function WaterSoil() {
   const { setSummary } = useWaterOutlet();
   const targets = panelRead(useApiRead("API-SOIL-01", {}, { intervalMs: READ_INTERVAL_MS.settings }));
-  const registry = panelRead(useApiRead("API-03", {}, { intervalMs: REGISTRY_POLL_MS }));
+  const registry = panelRead(useRegistryRead());
   const [reports, setReports] = useState<Readonly<Record<string, ZoneReport>>>({});
   const onReport = useCallback((report: ZoneReport) => setReports((current) => {
     const before = current[report.zone];

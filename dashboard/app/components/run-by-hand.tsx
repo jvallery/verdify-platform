@@ -33,13 +33,12 @@ import { Panel, PanelError, type PanelState } from "./panel";
 export type RunKind = "fans" | "humidify" | "vent_bypass";
 /** The three runs by hand, in the order the panel lists them. */
 export const RUNS: readonly { readonly kind: RunKind; readonly minutes: number; readonly name: string; readonly what: string }[] = [
-  { kind: "fans", minutes: 15, name: "Run the fans", what: "Both fans, vent open" },
-  { kind: "humidify", minutes: 5, name: "Humidify", what: "The fogger" },
-  { kind: "vent_bypass", minutes: 10, name: "Circulate", what: "Both fans, vent closed" },
+  { kind: "fans", minutes: 15, name: words("run_by_hand", "fans"), what: "Both fans, vent open" },
+  { kind: "humidify", minutes: 5, name: words("run_by_hand", "humidify"), what: "The fogger" },
+  { kind: "vent_bypass", minutes: 10, name: words("run_by_hand", "vent_bypass"), what: "Both fans, vent closed" },
 ];
 export const RUN_NAMES: Readonly<Record<string, string>> = Object.fromEntries(RUNS.map((run) => [run.kind, run.name]));
 export const RUNS_ARRIVE_TEXT = "Runs by hand arrive with the irrigation firmware";
-export const RESTART_ARRIVES_TEXT = "Restart arrives with the irrigation firmware";
 export const RESTART_SENT_TEXT = "Restart sent";
 export const NOTHING_BY_HAND = "Nothing is running by hand.";
 export const RUNS_UNKNOWN = "What runs by hand is not known: no current controller report.";

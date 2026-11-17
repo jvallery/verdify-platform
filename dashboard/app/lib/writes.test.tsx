@@ -207,22 +207,22 @@ test("a site cap before the irrigation firmware saves, reads REQUESTED with the 
   expect(requests(api, "API-10")[0]).toMatchObject({ path: "/api/v1/settings/sched_mist_rh_max_pct", body: { value: 88, manual: true } });
   expect(toasts("status")).toEqual(["Requested 88% for Scheduled-mist RH ceiling"]);
   expect(badge()).toBe("requested");
-  expect(text(screen.getByTestId("row").querySelector(".state-reason"))).toBe("Applies with the irrigation firmware");
+  expect(text(screen.getByTestId("row").querySelector(".state-reason"))).toBe("Waits for the controller's irrigation engine");
   const reads = sentAt("API-09").length;
   await advance(20_000);
   expect(sentAt("API-09")).toHaveLength(reads);
 });
 
 test("Release to auto sends API-11 with the reason and no body, and toasts the release", async () => {
-  const api = startFixtureApi({ fixture: "superseded-lane" });
+  const api = startFixtureApi({ fixture: "setting-history" });
   renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-  fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Back to the plan" } });
+  fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Back to its own value" } });
   fireEvent.click(screen.getByRole("button", { name: "Release to auto" }));
   await advance(0);
-  expect(writes(api)).toEqual([expect.objectContaining({ method: "DELETE", operationId: "API-11", path: "/api/v1/settings/outdoor_staleness_max_s?reason=Back+to+the+plan", body: null })]);
-  expect(toasts("status")).toEqual(["Released Outdoor Staleness Max: plan, band or default applies"]);
+  expect(writes(api)).toEqual([expect.objectContaining({ method: "DELETE", operationId: "API-11", path: "/api/v1/settings/outdoor_staleness_max_s?reason=Back+to+its+own+value", body: null })]);
+  expect(toasts("status")).toEqual(["Released Outdoor Staleness Max: the host sends its own value again"]);
   expect(settingToast({ value: 1, snapped_from: null }, { label: "GL Main Auto Mode", kind: "switch" })).toBe("Requested ON for GL Main Auto Mode");
   expect(settingToast({ value: 60, snapped_from: 48.75 }, { label: "Mister Engage Delay", kind: "numeric", unit: "s", step: 30 })).toBe("Requested 60\u00a0s for Mister Engage Delay (snapped from 48.75)");
 });
@@ -276,13 +276,13 @@ test("P: a schedule and an inline switch send manual true, a pause none; the ite
   expect(sentAt("API-IRR-02")).toHaveLength(schedules + 1);
 });
 
-test("P before the irrigation firmware: the item stays REQUESTED with \"Applies with the irrigation firmware\" and polls slowly", async () => {
+test("P before the irrigation firmware: the item stays REQUESTED with \"Waits for the controller's irrigation engine\" and polls slowly", async () => {
   startFixtureApi({ fixture: "before-engine" });
   renderWithApi(<Program />);
   await advance(0);
   fireEvent.click(screen.getByRole("button", { name: "VPD control" }));
   await advance(0);
-  expect(screen.getByTestId("sync").textContent).toBe("requested · Applies with the irrigation firmware");
+  expect(screen.getByTestId("sync").textContent).toBe("requested · Waits for the controller's irrigation engine");
   const reads = sentAt("API-IRR-01").length;
   await advance(10_000);
   expect(sentAt("API-IRR-01")).toHaveLength(reads);

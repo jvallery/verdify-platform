@@ -5,8 +5,7 @@ import { index, route, type RouteConfig } from "@react-router/dev/routes";
 // links and alert links keep working. The old paths of section 3.1 answer a redirect with their query from one module
 // per destination (a route id each). Water's four views share its layout (the page head, the program banner and Stop
 // all water); Crops' Map and History share theirs. SCR-09's sign-in pages render through the root at /auth/* (the BFF
-// answers sign-in itself), and the catch-all answers 404. routes/plan.tsx, routes/planner-history.tsx and
-// routes/graphs-statistics.tsx stay on disk unregistered until their area lane retires them.
+// answers sign-in itself), and the catch-all answers 404.
 export default [
   index("routes/now.tsx"),
   route("climate", "routes/climate.tsx"),

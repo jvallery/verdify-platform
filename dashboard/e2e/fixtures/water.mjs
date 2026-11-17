@@ -14,6 +14,11 @@ import { FIXTURES as BASE, JASON, clock, iso, lineOf } from "./world.mjs";
 const EVERY_DAY = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 export const FIXTURES = {
+  // Soil: the west probe's columns are not in the series registry (API-03), as before that probe was wired: its panel says
+  // it has not reported and draws nothing.
+  "soil-west-unserved": (world) => {
+    world.metrics = world.metrics.filter((metric) => !String(metric.key).endsWith("_west") || !String(metric.key).startsWith("climate.soil_"));
+  },
   /**
    * Schedules' day (redesign §6.2, §6.6) with something on every kind of row: schedules-paused's week, L01 paused until
    * 14:00 by jason because of rain (a pause band across today's track), and Iris's "Midday mist" at 13:00 on L07, whose

@@ -28,7 +28,7 @@ async function open(page: "law" | "drying", options: FixtureOptions = {}, sessio
 }
 afterEach(() => { cleanup(); stopFixtureApi(); vi.unstubAllGlobals(); document.documentElement.removeAttribute("style"); });
 
-const panel = (name: string) => screen.getByRole("heading", { name, exact: true }).closest("section") as HTMLElement;
+const panel = (name: string) => screen.getByRole("heading", { name }).closest("section") as HTMLElement;
 const windowOf = (path: string) => {
   const query = new URL(path, "http://x").searchParams;
   return (Date.parse(query.get("to") ?? "") - Date.parse(query.get("from") ?? "")) / 1000;

@@ -7,6 +7,7 @@
 import { GLOSSARY, GLOSSARY_PATH } from "../../lib/glossary";
 import { LINES } from "../../lib/lines";
 import { ALL_VIEWS, sectionOf } from "../../lib/sections";
+import { settingLabel } from "../../lib/settings-context";
 import { WORDS } from "../../lib/words";
 
 export type ResultGroup = "pages" | "settings" | "relays" | "lines" | "terms";
@@ -53,8 +54,8 @@ export const TERM_ITEMS: readonly SearchItem[] = Object.entries(GLOSSARY).map(([
 /** A setting as the settings read (API-09) lists it; opening one opens its drawer on Settings. */
 export function settingItems(settings: readonly { readonly param: string; readonly label: string }[] | null | undefined): SearchItem[] {
   return (settings ?? []).map((setting) => ({
-    id: `setting:${setting.param}`, group: "settings", label: setting.label || setting.param, detail: setting.param,
-    to: `/settings?${new URLSearchParams({ edit: setting.param })}`, keywords: setting.param.replace(/_/g, " "),
+    id: `setting:${setting.param}`, group: "settings", label: settingLabel(setting) || setting.param, detail: setting.param,
+    to: `/settings?${new URLSearchParams({ edit: setting.param })}`, keywords: `${setting.label} ${setting.param.replace(/_/g, " ")}`,
   }));
 }
 

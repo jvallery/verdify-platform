@@ -139,7 +139,7 @@ export function ScheduleLegend({ className }: { className?: string }) {
     <li><span className="sch-swatch sch-done sch-eq-water" aria-hidden="true" />clean</li>
     <li><span className="sch-swatch sch-done sch-eq-fert" aria-hidden="true" />fertilized</li>
     <li><span className="sch-swatch sch-done" aria-hidden="true" />ran (solid)</li>
-    <li><span className="sch-swatch sch-planned" aria-hidden="true" />planned (dashed)</li>
+    <li><span className="sch-swatch sch-planned" aria-hidden="true" />scheduled (dashed)</li>
     <li><span className="sch-swatch sch-skipped" aria-hidden="true" />skipped</li>
     <li><span className="sch-swatch sch-conditional" aria-hidden="true" />backup window</li>
     <li><span className="sch-swatch sch-tick-swatch" aria-hidden="true" />valve open</li>
@@ -174,7 +174,7 @@ export function DayAxis({ scale, className }: { scale: TimeScale; className?: st
  */
 export function minutesAgainstCap(done: number | null, cap: number, planned = 0): { amount: string; over: string | null; name: string } {
   const { amount, over } = meterWords(done, cap, "min");
-  return { amount, over, name: `${amount}${over ? `, ${over}` : ""}${planned > 0 ? `, ${Math.round(planned)}\u00a0min more planned` : ""}` };
+  return { amount, over, name: `${amount}${over ? `, ${over}` : ""}${planned > 0 ? `, ${Math.round(planned)}\u00a0min more scheduled` : ""}` };
 }
 
 /** A minutes meter against a cap (redesign §4.6): the Meter's bar (planned dashed, the cap's tick) and its words in minutes. */
@@ -192,7 +192,7 @@ export function CapMeter({ row, when }: { row: Pick<DayRow, "name" | "kind" | "d
   const label = `${row.name} minutes ${when === "today" ? "today" : when === "past" ? "that day" : "planned"}`;
   if (row.cap === null) {
     const minutes = when === "future" ? row.planned : row.done;
-    return <span className="sch-cap sch-cap-none">{minutes === null ? "—" : formatValue(minutes, "min")}{when === "future" && minutes ? " planned" : ""}<span className="screen-reader">, no daily cap</span></span>;
+    return <span className="sch-cap sch-cap-none">{minutes === null ? "—" : formatValue(minutes, "min")}{when === "future" && minutes ? " scheduled" : ""}<span className="screen-reader">, no daily cap</span></span>;
   }
   return <span className="sch-cap"><MinutesMeter label={label} done={row.done} planned={row.planned} cap={row.cap} kind={row.kind} /></span>;
 }
@@ -214,7 +214,7 @@ export type DayTimelineProps = {
 };
 
 /** The end column's head: what its minutes are against the cap, by the day shown. */
-const END_HEAD: Readonly<Record<DayModel["when"], string>> = { today: "today / cap", past: "that day / cap", future: "planned / cap" };
+const END_HEAD: Readonly<Record<DayModel["when"], string>> = { today: "today / cap", past: "that day / cap", future: "scheduled / cap" };
 
 /**
  * The day timeline (redesign §6.2, #1347): one local day across the width (25 h on the fall-back day), one lane per

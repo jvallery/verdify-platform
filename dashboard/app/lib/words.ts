@@ -20,12 +20,12 @@ type Codes<T> = Exclude<T, null | undefined>;
 const STATE_REASON = {
   clamped: "Changed to fit its limits",
   // The experiment platform is gone (migration 316); an old row still reads, in words that name no study.
-  experiment: "Held back by the host",
+  experiment: "Kept back by the host",
   deferred: "Waiting: the controller is short of memory",
   push_failed: "Sending failed",
   writer_down: "Ingestor not running",
   controller_not_reporting: "Controller not reporting",
-  no_engine: "Applies with the irrigation firmware",
+  no_engine: "Waits for the controller's irrigation engine",
   no_match: "No matching readback yet",
 } as const satisfies Record<StateReasonCode, string>;
 
@@ -186,8 +186,8 @@ const EQUIPMENT = {
   grow_light_grow_intent: "Grow light (controller)",
 } as const;
 
-/** API-02 `overrides[].kind`: the three timed runs an operator starts, by the names words.md gives them everywhere. */
-const BURST = { fans: "Run the fans", humidify: "Humidify", vent_bypass: "Circulate" } as const satisfies Record<BurstKind, string>;
+/** API-02 `overrides[].kind`: the three timed runs an operator starts (words.md "Run by hand"), by the same names everywhere. */
+const RUN_BY_HAND = { fans: "Run the fans", humidify: "Humidify", vent_bypass: "Circulate" } as const satisfies Record<BurstKind, string>;
 
 /** `BandPosition.verdict`: a reading against the band in force. */
 const BAND_VERDICT = { in: "in band", above: "above band", below: "below band", unavailable: "band unavailable" } as const satisfies Record<BandVerdict, string>;
@@ -239,7 +239,7 @@ const MOISTURE_BLOCK_REASON = {
   direct_wet_time_invalid: "The controller's clock is not set yet",
   direct_wet_temp: "Too cold to mist",
   direct_wet_window: "Outside the hours misting may run",
-  irrigation: "A watering run is using the water",
+  irrigation: "A drip line is running",
   occupancy: "Someone inside",
 } as const;
 
@@ -616,6 +616,13 @@ const DRYING_STATE = {
   not_wanted: "dry enough",
   unknown: "not reported",
 } as const satisfies Record<Schemas["LawDrying"]["state"], string>;
+/** `LawDrying.state` standing alone, as a verdict (Climate's drying decision and Drying now; screens 2.1 and 2.3). */
+const DRYING_VERDICT = {
+  running: "Running",
+  refused: "Refused",
+  not_wanted: "Not wanted",
+  unknown: "Not reported",
+} as const satisfies Record<Schemas["LawDrying"]["state"], string>;
 /** `LawDrying.refused_reason`: the controller's first reason not to dry while the house wants it (words.md "Refused"). */
 const DRYING_REFUSAL = {
   none: "nothing in the way",
@@ -757,7 +764,7 @@ export const WORDS: { readonly [family: string]: { readonly [code: string]: stri
   alert_type: ALERT_TYPE,
   alert_about: ALERT_ABOUT,
   equipment: EQUIPMENT,
-  burst: BURST,
+  run_by_hand: RUN_BY_HAND,
   band_verdict: BAND_VERDICT,
   activity_action: ACTIVITY_ACTION,
   irrigation_field: IRRIGATION_FIELD,
@@ -777,6 +784,7 @@ export const WORDS: { readonly [family: string]: { readonly [code: string]: stri
   law_lane: LAW_LANE,
   law_lane_group: LAW_LANE_GROUP,
   drying_state: DRYING_STATE,
+  drying_verdict: DRYING_VERDICT,
   drying_refusal: DRYING_REFUSAL,
   drying_check: DRYING_CHECK,
   limit_source: LIMIT_SOURCE,
@@ -795,9 +803,9 @@ export const WORDS: { readonly [family: string]: { readonly [code: string]: stri
   data_gap_status: DATA_GAP_STATUS,
 };
 export type WordFamily = "state_reason" | "alert_severity" | "alert_status" | "alert_category" | "problem_code" | "line_state" | "fog_block_reason"
-  | "moisture_block_reason" | "light_result" | "light_reason" | "light_target" | "alert_type" | "alert_about" | "equipment" | "burst" | "band_verdict"
+  | "moisture_block_reason" | "light_result" | "light_reason" | "light_target" | "alert_type" | "alert_about" | "equipment" | "run_by_hand" | "band_verdict"
   | "activity_action" | "irrigation_field" | "unit" | "run_outcome" | "fallback_window" | "vpd_source" | "line_fault" | "program_reject" | "occurrence_reason"
-  | "law_rule" | "law_signal" | "law_direction" | "law_hold" | "law_relay" | "relay_state" | "law_lane" | "law_lane_group" | "drying_state"
+  | "law_rule" | "law_signal" | "law_direction" | "law_hold" | "law_relay" | "relay_state" | "law_lane" | "law_lane_group" | "drying_state" | "drying_verdict"
   | "drying_refusal" | "drying_check" | "limit_source" | "outdoor_source" | "band_source" | "gap_log" | "review_status" | "review_kind"
   | "review_failure" | "proposal_state" | "relay_comparison" | "setting_effect" | "delivery_status" | "delivery_source" | "data_gap_reason"
   | "data_gap_status";

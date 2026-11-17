@@ -63,11 +63,11 @@ export function vizRole(label: string | undefined, decorative: boolean): { role?
  * a screen reader browses them as the links and buttons they are, and each screen also lists them as text (the agenda,
  * the data table).
  */
-export function rovingKeys(selector = "[data-roving]") {
-  return (event: KeyboardEvent<HTMLElement>) => {
-    const items = [...event.currentTarget.querySelectorAll<HTMLElement>(selector)];
+export function rovingKeys<E extends Element = HTMLElement>(selector = "[data-roving]") {
+  return (event: KeyboardEvent<E>) => {
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement | SVGElement>(selector)];
     if (!items.length) return;
-    const index = items.indexOf(event.target as HTMLElement);
+    const index = items.indexOf(event.target as HTMLElement | SVGElement);
     const next = event.key === "ArrowRight" || event.key === "ArrowDown" ? (index < 0 ? 0 : Math.min(items.length - 1, index + 1))
       : event.key === "ArrowLeft" || event.key === "ArrowUp" ? (index < 0 ? items.length - 1 : Math.max(0, index - 1))
       : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;

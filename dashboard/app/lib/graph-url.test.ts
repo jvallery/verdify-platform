@@ -7,7 +7,7 @@ import { expect, test } from "vitest";
 import { fixture } from "../../e2e/fixtures/index.mjs";
 import {
   CAP_TEXT, DEFAULT_VIEW, LANES_MAX_S, MAX_WINDOW_S, dayHref, daysProblem, dayCount, graphHref, graphSearch, graphWindow, instantOf, isDay, lanesAllowed, panelPlans,
-  PRESETS, legacyPresetHref, parseGraphUrl, parseStatsUrl, parseZonesUrl, presetClimateKeys, presetKeys, retiredReason, rangeSeconds, rangeText, resolveView, settingEditHref, settingProblem, statsDays, statsHref, stepSpec,
+  PRESETS, legacyPresetHref, parseGraphUrl, parseZonesUrl, presetClimateKeys, presetKeys, retiredReason, rangeSeconds, rangeText, resolveView, settingEditHref, settingProblem, stepSpec,
   withCompare, withEnvelope, withEvents, withMetrics, withOutdoor, withPreset, withSettings, withWindow, within400, zoomOutSpec, zonesHref, type GraphView,
 } from "./graph-url";
 import type { MetricDef, Setting } from "./operator-api";
@@ -78,7 +78,10 @@ test("the eight presets in order; a preset picks its keys from API-03, never a r
   expect(PRESETS.map((preset) => preset.label)).toEqual(["Climate", "Law and equipment", "Drying", "Outdoor", "Water and soil", "Light", "Controller", "Hydroponics"]);
   const water = view("preset=water&m=climate.flow_gpm");
   expect(water.preset).toBe("water");
-  expect(presetKeys("water", METRICS)).toEqual(["climate.soil_moisture_south_1", "climate.flow_gpm"]);
+  expect(presetKeys("water", METRICS)).toEqual([
+    "climate.soil_moisture_south_1", "climate.soil_temp_south_1", "climate.soil_ec_south_1", "climate.soil_moisture_south_2", "climate.soil_temp_south_2",
+    "climate.soil_moisture_west", "climate.soil_temp_west", "climate.flow_gpm",
+  ]);
   expect(presetKeys("climate", METRICS)).toEqual([]);
   expect(presetClimateKeys("climate")).toEqual(["climate.temp_avg", "climate.vpd_avg", "climate.rh_avg"]);
   expect(presetClimateKeys("law")).toEqual(["climate.temp_avg", "climate.vpd_avg"]);
@@ -86,7 +89,7 @@ test("the eight presets in order; a preset picks its keys from API-03, never a r
   expect(presetClimateKeys("outdoor")).toEqual([]);
   const resolved = resolveView(water, METRICS, SETTINGS);
   expect(resolved.climate).toEqual([]);
-  expect(resolved.picked.map((metric) => metric.key)).toEqual(["climate.soil_moisture_south_1", "climate.flow_gpm"]);
+  expect(resolved.picked.map((metric) => metric.key)).toEqual(presetKeys("water", METRICS));
   // The preset's own keys stay the preset's: the URL keeps only what it adds.
   expect(graphSearch(resolved.view)).toBe("range=72h&preset=water");
   expect(graphSearch(withPreset(view("m=climate.flow_gpm"), "controller"))).toBe("range=72h&preset=controller");
@@ -135,18 +138,7 @@ test("/graphs/zones: no zone is the grid; zone, the window and the rows live in 
   expect(parseZonesUrl("zone=east&from=2026-10-31&to=2026-11-01").window).toEqual({ kind: "days", from: "2026-10-31", to: "2026-11-01" });
 });
 
-test("/graphs/statistics: 30, 90 or 365 days, or From and To; the typical day's 14 or 30 days; the default is the last 30 days", () => {
-  expect(parseStatsUrl("")).toEqual({ span: { kind: "days", days: 30 }, typical: 30, notices: [] });
-  expect(parseStatsUrl("days=365&typical=14")).toEqual({ span: { kind: "days", days: 365 }, typical: 14, notices: [] });
-  expect(parseStatsUrl("from=2026-10-01&to=2026-10-14&days=90").span).toEqual({ kind: "custom", from: "2026-10-01", to: "2026-10-14" });
-  expect(parseStatsUrl("days=7&typical=60&from=2026-10-14&to=2026-10-01").notices).toEqual([
-    "Removed unknown period 7", "Removed the days 2026-10-14 to 2026-10-01: to is before from", "Removed unknown typical-day length 60",
-  ]);
-  expect(statsHref({ kind: "days", days: 30 }, 30)).toBe("/graphs/statistics");
-  expect(statsHref({ kind: "days", days: 90 }, 14)).toBe("/graphs/statistics?days=90&typical=14");
-  expect(statsHref({ kind: "custom", from: "2026-10-01", to: "2026-10-14" }, 30)).toBe("/graphs/statistics?from=2026-10-01&to=2026-10-14");
-  expect(statsDays({ kind: "days", days: 30 }, "2026-11-02")).toEqual({ from: "2026-10-04", to: "2026-11-02", count: 30 });
-  expect(statsDays({ kind: "custom", from: "2026-10-31", to: "2026-11-01" }, "2026-11-02")).toEqual({ from: "2026-10-31", to: "2026-11-01", count: 2 });
+test("a day of the record opens Explore on that local day", () => {
   expect(dayHref("2026-10-28")).toBe("/graphs?from=2026-10-28&to=2026-10-28");
 });
 
@@ -314,16 +306,16 @@ test("resolveView: unknown keys drop with a notice, climate keys silently, daily
 test("resolveView: no setting draws by default (#1354); a named one must be numeric, not a band row, and in an open panel's unit", () => {
   expect(resolveView(view(""), METRICS, SETTINGS).settings).toEqual([]);
   expect(resolveView(view("set="), METRICS, SETTINGS).settings).toEqual([]);
-  const named = resolveView(view("set=mister_hysteresis_kpa&set=nope&set=band_house_vpd_low&set=sw_gl_main_auto_mode&set=mister_min_off_s"), METRICS, SETTINGS);
-  expect(named.settings.map((row) => row.param)).toEqual(["mister_hysteresis_kpa"]);
+  const named = resolveView(view("set=band_vpd_low_sm&set=nope&set=band_house_vpd_low&set=sw_gl_main_auto_mode&set=mister_min_off_s"), METRICS, SETTINGS);
+  expect(named.settings.map((row) => row.param)).toEqual(["band_vpd_low_sm"]);
   expect(named.notices).toEqual([
     "Removed unknown setting nope", "Removed setting band_house_vpd_low: the band ribbon draws it",
-    "Removed setting sw_gl_main_auto_mode: only numeric settings draw as steps", "Removed setting mister_min_off_s: no chart in s",
+    "Removed setting sw_gl_main_auto_mode: only numeric settings draw as steps", "Removed setting mister_min_off_s: nothing reads it on this controller",
   ]);
-  expect(graphSearch(named.view)).toBe("range=72h&set=mister_hysteresis_kpa");
+  expect(graphSearch(named.view)).toBe("range=72h&set=band_vpd_low_sm");
   // No `set` stays no `set` in links.
   expect(resolveView(view(""), METRICS, SETTINGS).view.settings).toBeNull();
-  const row = SETTINGS.find((item) => item.param === "mister_hysteresis_kpa")!;
+  const row = SETTINGS.find((item) => item.param === "band_vpd_low_sm")!;
   expect(settingProblem(row, ["°F", "%"])).toBe("no chart in kPa");
-  expect(graphSearch(withWindow(named.view, { kind: "days", from: "2026-10-31", to: "2026-11-01" }))).toBe("from=2026-10-31&to=2026-11-01&set=mister_hysteresis_kpa");
+  expect(graphSearch(withWindow(named.view, { kind: "days", from: "2026-10-31", to: "2026-11-01" }))).toBe("from=2026-10-31&to=2026-11-01&set=band_vpd_low_sm");
 });

@@ -704,6 +704,25 @@ export const FIXTURES = {
     law.extraRefusals = [[start - 20 * MINUTE, world.now + HOUR, "cost"]];
     turnOn(world, "heat1", start);
   },
+  // The hot limit: the house reads 101.2 °F, past the fixed 100 °F, so the law asks for the hot rule and the vent and
+  // both fans run (Now's controller sentence names the limit; Climate's ladder draws the reading in its end zone).
+  "law-hot-limit": (world) => {
+    const law = lawOf(world);
+    const start = world.now - 3 * MINUTE;
+    Object.assign(world.indoor.temp_f, { value: 101.2 });
+    Object.assign(law, { latches: [], requests: ["hot"], drying: "not_wanted", refused: "none" });
+    law.extra = { "request.hot": [[start, world.now + HOUR]] };
+    turnOn(world, "vent", start);
+    turnOn(world, "fan1", start + 10 * SECOND);
+    turnOn(world, "fan2", start + 20 * SECOND);
+  },
+  // No indoor temperature: the reading is null with its reason and drying is refused because the temperature cannot be
+  // read, so Run by hand says a fan run stops after 15 minutes.
+  "law-no-temperature": (world) => {
+    const law = lawOf(world);
+    world.indoor.temp_f = { value: null, observed_at: null, reason: "No indoor temperature" };
+    Object.assign(law, { latches: ["dry"], requests: [], drying: "refused", refused: "no_temperature" });
+  },
   // No law record for 9 minutes while the controller is connected: Now carries no law, Climate shows the newest
   // record as old, and the law_state_stale alert is open.
   "law-not-reporting": (world) => {

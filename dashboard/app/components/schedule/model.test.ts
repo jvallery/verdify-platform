@@ -73,11 +73,11 @@ test("a degraded_only fallback window is conditional, never a planned run: ahead
   // None counts as planned minutes, so the day's row plans nothing.
   const model = dayModel({ day: TODAY, today: TODAY, now: NOW, agenda, lines: status.lines, lanes: null, entries: entriesOf(agenda, null, NOW) });
   expect(model.groups[1].rows[0].planned).toBe(0);
-  // The week counts them apart from the runs: nothing planned, with the windows still ahead; a past day of unneeded windows ran nothing and skipped nothing.
+  // The week counts them apart from the runs: nothing scheduled, with the windows still ahead; a past day of unneeded windows ran nothing and skipped nothing.
   const first = "2026-10-26", last = "2026-11-08";
   const week = weekCells(mondayOf(TODAY), { agenda, lines: status.lines, today: TODAY, first, last });
-  expect(week.map((cell) => [cell.summary, cell.fallback])).toEqual([["nothing planned", 2], ...Array(6).fill(["nothing planned", 3])]);
-  expect(plain(weekCellName(week[0]))).toBe("Monday, Nov 2 (today): nothing planned · 2 fallback windows");
+  expect(week.map((cell) => [cell.summary, cell.fallback])).toEqual([["nothing scheduled", 2], ...Array(6).fill(["nothing scheduled", 3])]);
+  expect(plain(weekCellName(week[0]))).toBe("Monday, Nov 2 (today): nothing scheduled · 2 fallback windows");
   const lastWeek = weekCells("2026-10-26", { agenda, lines: status.lines, today: TODAY, first, last });
   expect(lastWeek.map((cell) => [cell.summary, cell.skipped, cell.fallback, cell.level])).toEqual(Array(7).fill(["no runs", 0, 0, 0]));
   // The agenda: the past window "not needed", the ones ahead with the note; none is NEXT.

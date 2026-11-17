@@ -31,8 +31,11 @@ export const MEANS: RecordMeans = {
 };
 export const MEANS_30: RecordMeans = { ...MEANS, days: 30, both_pct: 60, nights_dried: 5, kwh: 26.4 };
 
+/** A daily record whose days a test may replace one by one. */
+export type TestRecord = Omit<DailyRecord, "days"> & { days: RecordDay[] };
+
 /** `count` days ending `to` (today, so far), oldest first. */
-export function dailyRecord(count = 31, to = "2026-11-17"): DailyRecord {
+export function dailyRecord(count = 31, to = "2026-11-17"): TestRecord {
   const days = Array.from({ length: count }, (_, index) => recordDay(dateShift(to, index - count + 1), count - 1 - index));
   // Today: so far, the meter under 70 %.
   days[count - 1] = { ...days[count - 1], energy: { kwh: null, kwh_partial: 8.25, coverage_pct: 31.9 } };
@@ -48,6 +51,6 @@ export const RELAY_CHECK: RelayCheck = {
 };
 
 /** A read as a panel sees it. */
-export function readOf<T>(data: T | null, { failed = false, pending = false } = {}): PanelRead<T> {
+export function readOf<T>(data: NoInfer<T> | null, { failed = false, pending = false } = {}): PanelRead<T> {
   return { data, failed, pending, retry: () => undefined };
 }

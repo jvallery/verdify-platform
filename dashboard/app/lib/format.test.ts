@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { expect, test } from "vitest";
-import { TIME_UNAVAILABLE, ageSeconds, dayHeader, daySpan, duration, formatNumber, formatValue, localDate, localDayStart, localTime, localWallClock, monthDayClock, plotTime, repeatedLocalTime, shortDateTime, shortTime, sinceClock, unitDecimals, wallClockInstant } from "./format";
+import { TIME_UNAVAILABLE, ageSeconds, dayHeader, dayMonth, daySpan, duration, formatNumber, formatValue, localDate, localDayStart, localTime, localWallClock, monthDayClock, plotTime, repeatedLocalTime, shortDateTime, shortTime, sinceClock, unitDecimals, wallClockInstant } from "./format";
 
 const NBSP = " ";
 const MINUS = "−";
@@ -156,6 +156,7 @@ test("the date styles: a short day, a span of days, and the log's day header wit
   expect(daySpan("2026-10-27", "2026-11-02")).toBe("Oct 27 – Nov 2");
   expect(daySpan("2026-11-02", "2026-11-02")).toBe("Nov 2");
   expect(dayHeader("2026-11-03")).toBe("Tue 3 Nov");
+  expect([dayMonth("2026-11-16"), dayMonth("2026-10-24"), dayMonth("not a date")]).toEqual(["16 Nov", "24 Oct", "not a date"]);
   expect(dayHeader("2026-10-30", "2026")).toBe("Fri 30 Oct");
   expect(dayHeader("2025-12-31", "2026")).toBe("Wed 31 Dec 2025");
   expect(dayHeader("not a day")).toBe("not a day");

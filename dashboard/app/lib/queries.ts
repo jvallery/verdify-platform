@@ -12,7 +12,7 @@
  */
 import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { useServerSkew } from "../components/freshness";
-import { apiGet, type BandTimeline, type IrrigationStatus, type LawHistory, type ParamsOf, type Parsed, type ReadOperationId, type ActivityPage, type ScheduleAgenda, type Series, type Settings, type StateLanes } from "./operator-api";
+import { apiGet, type BandTimeline, type IrrigationStatus, type LawHistory, type ParamsOf, type Parsed, type ReadOperationId, type ScheduleAgenda, type Series, type Settings, type StateLanes } from "./operator-api";
 import { POLL_TIMEOUT_MS, usePolledQuery, type PolledQueryResult } from "./use-current";
 
 /** The one key for a read: `["api", operationId]`, plus the params when there are any. */
@@ -22,8 +22,9 @@ export function readKey<K extends ReadOperationId>(operationId: K, params?: Para
 
 /** Base cadences (architecture §3). */
 export const READ_INTERVAL_MS = {
-  now: 15_000, irrigation: 15_000, equipment: 15_000, settings: 60_000, schedules: 60_000, states: 60_000, plan: 60_000, zones: 60_000,
+  now: 15_000, irrigation: 15_000, equipment: 15_000, settings: 60_000, schedules: 60_000, states: 60_000, zones: 60_000,
   law: 15_000, lawHistory: 60_000, record: 60_000, reviews: 60_000, controller: 15_000, continuity: 60_000, delivery: 60_000,
+  registry: 300_000, lighting: 60_000,
 } as const;
 /** A setting or irrigation write still REQUESTED, or a command still pending, is read every 5 s until it settles. */
 export const SETTLING_INTERVAL_MS = 5_000;
@@ -106,14 +107,6 @@ export function useIrrigationRead() {
 export function useSettingsRead() {
   return useApiRead("API-09", {}, { intervalMs: READ_INTERVAL_MS.settings, settling: settingsSettling });
 }
-/**
- * API-IRR-01 for Settings' site caps (SCR-05): `Setting.readback` carries no program revision, so the "Site water
- * caps" group reads the engine flag and `program.applied_revision` here, every 60 s while that group is on screen. It
- * shares the one API-IRR-01 entry, so a page that also shows water keeps that read's faster cadence.
- */
-export function useProgramRevisionRead() {
-  return useApiRead("API-IRR-01", {}, { intervalMs: READ_INTERVAL_MS.settings });
-}
 /** API-IRR-02, schedules and the week (60 s; 5 s while a schedule reads REQUESTED and the engine is not known missing). */
 export function useSchedulesRead(params: ParamsOf<"API-IRR-02"> = {}) {
   const client = useQueryClient();
@@ -139,18 +132,6 @@ export function useStatesWindowRead(seconds: number) {
   }, READ_INTERVAL_MS.states);
 }
 
-/**
- * API-17's light switches (`light.*`) for the API-05 window of the last `seconds`, from `leadSeconds` before it (60 s),
- * the same way: the equipment lanes read a light's spans as manual or automatic from them (#1407). One page is plenty:
- * a light switches a few times a day.
- */
-export function useLightSwitchesWindowRead(seconds: number, leadSeconds: number) {
-  const skewMs = useServerSkew();
-  return usePolledQuery<ActivityPage>(["api", "API-17", { last_s: seconds, lead_s: leadSeconds, action: "light." }], (signal) => {
-    const to = Date.now() - skewMs;
-    return apiGet("API-17", { action: "light.", from: new Date(to - (seconds + leadSeconds) * 1000).toISOString(), to: new Date(to).toISOString(), limit: 200 }, { signal });
-  }, READ_INTERVAL_MS.states);
-}
 
 /**
  * API-04 over the last `seconds` (60 s), as `useStatesWindowRead` reads API-05: the window ends at each poll's own moment
@@ -170,6 +151,15 @@ export function useBandWindowRead(zone: NonNullable<ParamsOf<"API-06">["zone"]>,
     const to = Date.now() - skewMs;
     return apiGet("API-06", { zone, from: new Date(to - seconds * 1000).toISOString(), to: new Date(to).toISOString() }, { signal });
   }, READ_INTERVAL_MS.zones);
+}
+
+/** API-03, the metric registry (5 min): a page asks API-04 only for keys it lists, since API-04 refuses an unknown key. */
+export function useRegistryRead() {
+  return useApiRead("API-03", {}, { intervalMs: READ_INTERVAL_MS.registry });
+}
+/** API-22, the light minutes per local day over `params`' days (60 s): Lights' last 7 days. */
+export function useLightingDaysRead(params: ParamsOf<"API-22">) {
+  return useApiRead("API-22", params, { intervalMs: READ_INTERVAL_MS.lighting });
 }
 
 /** API-30, what the controller's law is doing now and why (15 s): Climate, System and Now share it. */

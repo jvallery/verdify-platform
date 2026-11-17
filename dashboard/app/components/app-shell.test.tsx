@@ -161,13 +161,14 @@ test("in band: the shell reads API-01 and API-02 once each, shows no banner, and
   }
   requests = [];
   mount("/climate"); await advance(0);
-  // A page that has not shipped reads nothing of its own: only the shell's two polls, and Search's settings read waits
-  // until Search opens.
-  expect(requests.sort()).toEqual(["/api/v1/me", "/api/v1/now"]);
+  // The shell's own reads beside the page's: API-01 and API-02 once each, and Search's settings read waits until Search
+  // opens.
+  const shell = () => requests.filter((path) => path === "/api/v1/me" || path === "/api/v1/now" || path.startsWith("/api/v1/settings")).sort();
+  expect(shell()).toEqual(["/api/v1/me", "/api/v1/now"]);
   // API-02 every 15 s, API-01 every 60 s: one poll each, never a second.
   requests = [];
   await advance(NOW_POLL_MS);
-  expect(requests).toEqual(["/api/v1/now"]);
+  expect(shell()).toEqual(["/api/v1/now"]);
   await advance(60_000 - NOW_POLL_MS);
   expect(requests.filter((path) => path === "/api/v1/me")).toHaveLength(1);
 });
@@ -331,7 +332,7 @@ test("every page has a page header: the breadcrumb names group and section, the 
     expect(text(screen.getByRole("navigation", { name: "Breadcrumb" })), path).toBe(crumbs);
     expect(screen.getByRole("heading", { level: 1 }).textContent, path).toBe(h1);
     expect(screen.queryByRole("navigation", { name: /views$/ }), path).toBeNull();
-    expect(text(document.querySelector(".page-arriving-text")), path).toBe("This page arrives with the v2 release of the dashboard.");
+    expect(document.querySelector(".page-arriving-text"), path).toBeNull();
     cleanup();
   }
 });

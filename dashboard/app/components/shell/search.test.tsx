@@ -29,7 +29,9 @@ test("pages, relays, lines and terms come from the one model and the shared word
 test("results are grouped in a fixed order, a label that starts with the query first, every word required, empty finds nothing", () => {
   expect(labels("")).toEqual([]);
   expect(labels("   ")).toEqual([]);
-  expect(labels("drying")).toEqual([["Pages", ["Drying"]]]);
+  expect(labels("drying")).toEqual([
+    ["Pages", ["Drying"]], ["Terms", ["Drying", "Drying cost limit", "Price of drying", "Rule", "Refused", "Daily record", "Night dried"]],
+  ]);
   // By label or by name; by any word of either.
   const settings = settingItems([{ param: "mister_engage_kpa", label: "Mister engage VPD" }]);
   for (const query of ["mister engage", "engage_kpa", "engage kpa", "MISTER_ENGAGE"]) expect(labels(query, settings), query).toEqual([["Settings", ["Mister engage VPD"]]]);

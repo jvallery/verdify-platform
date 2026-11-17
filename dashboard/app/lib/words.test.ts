@@ -163,15 +163,16 @@ test("every actuator of the fixed list has its plain name, in screens SCR-01's w
   expect(words("equipment", "pump")).toBe("pump");
 });
 
-test("every band verdict and burst kind in the OpenAPI file has words; the runs by hand read by their v2 names", () => {
+test("every band verdict and run by hand in the OpenAPI file has words; the runs by hand read by their v2 names", () => {
   const verdicts = enumOf(SCHEMAS.BandPosition?.properties?.verdict);
   const bursts = enumOf((SCHEMAS.Now?.properties?.overrides as { items?: Schema } | undefined)?.items?.properties?.kind);
   expectWorded("band_verdict", verdicts);
-  expectWorded("burst", bursts);
+  expectWorded("run_by_hand", bursts);
   expect([...BAND_VERDICTS].sort()).toEqual([...verdicts].sort());
   expect([...BURST_KINDS].sort()).toEqual([...bursts].sort());
   expect(BAND_VERDICTS.map((verdict) => words("band_verdict", verdict))).toEqual(["in band", "above band", "below band", "band unavailable"]);
-  expect(["fans", "humidify", "vent_bypass"].map((kind) => words("burst", kind))).toEqual(["Run the fans", "Humidify", "Circulate"]);
+  expect(["fans", "humidify", "vent_bypass"].map((kind) => words("run_by_hand", kind))).toEqual(["Run the fans", "Humidify", "Circulate"]);
+  expect(hasWords("burst", "fans")).toBe(false);
 });
 
 test("the table has words for every code gh_fog_block_reason publishes", () => {
@@ -260,7 +261,7 @@ test("every schedule, line and run field an irrigation write carries has words",
 test("the existing families keep their words", () => {
   expect(Object.keys(WORDS.state_reason).sort()).toEqual([...STATE_REASON_CODES].sort());
   expect(words("state_reason", "no_match")).toBe("No matching readback yet");
-  expect(words("state_reason", "no_engine")).toBe("Applies with the irrigation firmware");
+  expect(words("state_reason", "no_engine")).toBe("Waits for the controller's irrigation engine");
   expect(words("problem_code", "writes_disabled")).toBe("Changes are switched off; reading still works");
 });
 

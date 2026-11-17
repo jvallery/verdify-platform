@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-import type { KeyboardEventHandler } from "react";
 import { formatValue } from "../../lib/format";
 import { words } from "../../lib/words";
 import { cls } from "../common";
@@ -10,7 +9,7 @@ import { BREAK_AT, buildLadder, type LadderInput, type LadderModel, type PlacedR
 const ROW_H = 14;
 const TOP = 4;
 /** The shared roving keys, typed for the SVG (its ticks are focusable SVG elements, which `focus()` the same way). */
-const svgKeys = rovingKeys() as unknown as KeyboardEventHandler<SVGSVGElement>;
+const svgKeys = rovingKeys<SVGSVGElement>();
 const pct = (value: number) => `${Math.round(value * 100) / 100}%`;
 
 /** The class of a tick by its rule's state: on, asked for or waiting, a protection limit, or idle. */

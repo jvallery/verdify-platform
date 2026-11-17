@@ -71,7 +71,7 @@ export type PreviewCheck = {
 /** A line's minutes against its cap, as the drawer reads them. */
 export type LineTotal = {
   readonly line_id: string;
-  /** "Mon 12 · Wed 12 · Fri 12 min"; null with nothing planned. */
+  /** "Mon 12 · Wed 12 · Fri 12 min"; null with nothing scheduled. */
   readonly totals: string | null;
   /** "Wall drip cap 60 min a day", or "Center: 8 of 60 min for schedules; 60 kept for VPD"; null while the line is unknown. */
   readonly cap: string | null;

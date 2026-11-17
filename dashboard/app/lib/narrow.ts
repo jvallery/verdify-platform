@@ -15,8 +15,6 @@ export const WIDE_PX = 1200;
 
 /** 860 px and below: the phone bar, the phone chart axes and stacked table rows. */
 export const NARROW_QUERY = `(max-width: ${NARROW_PX}px)`;
-/** The same query under the name the screens use: a phone is 860 px and below (screens §1.1). */
-export const PHONE_QUERY = NARROW_QUERY;
 
 /** True at 860 px and below, now; false where there is no window (SSR, tests without a stub). */
 export function narrowViewport(): boolean {

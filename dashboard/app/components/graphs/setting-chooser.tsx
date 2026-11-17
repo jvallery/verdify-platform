@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { formatValue } from "../../lib/format";
 import { graphHref, panelName, settingProblem, withSettings, type GraphView } from "../../lib/graph-url";
 import type { Setting } from "../../lib/operator-api";
+import { settingLabel } from "../../lib/settings-context";
 import { unitLabel } from "../../lib/setting-values";
 import { PickerDialog } from "./metric-picker";
 
@@ -22,12 +23,12 @@ export function chooserGroups(settings: readonly Setting[], units: readonly stri
   return units.map((unit) => ({
     unit,
     items: settings.filter((row) => row.group !== "read_only" && unitLabel(row.unit) === unit && settingProblem(row, units) === null
-      && (!needle || [row.label, row.param, row.unit, row.control_class].join(" ").toLowerCase().includes(needle))),
+      && (!needle || [settingLabel(row), row.label, row.param, row.unit, row.control_class].join(" ").toLowerCase().includes(needle))),
   })).filter((group) => group.items.length > 0);
 }
 
 /** "VPD Mister Engage · VPD": the setting by its label (its key when it has none), then the panel its steps draw on. */
-export const settingChipText = (row: Pick<Setting, "param" | "label" | "unit">): string => `${row.label || row.param} · ${panelName(unitLabel(row.unit))}`;
+export const settingChipText = (row: Pick<Setting, "param" | "label" | "unit">): string => `${settingLabel(row) || row.param} · ${panelName(unitLabel(row.unit))}`;
 
 export type SettingChooserProps = {
   view: GraphView;
@@ -51,7 +52,7 @@ export function SettingChooser({ view, settings, failed = false, chosen, units, 
   const item = (row: Setting) => {
     const device = row.readback?.value;
     const body = <>
-      <span className="picker-label">{row.label}</span>
+      <span className="picker-label">{settingLabel(row) || row.param}</span>
       <span className="picker-facts"><span className="mono">{row.param}</span>{` · ${unitLabel(row.unit)}${device !== null && device !== undefined ? ` · device ${formatValue(device, unitLabel(row.unit))}` : ""}`}</span>
     </>;
     if (on.has(row.param)) return <div className="picker-item picker-item-on">{body}<span className="badge badge-neutral badge-sm">On the charts</span></div>;

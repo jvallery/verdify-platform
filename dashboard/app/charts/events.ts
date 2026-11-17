@@ -15,7 +15,8 @@ import { clockTime, epochOf, localDay } from "./time-axis";
  */
 export type EventSource = "people" | "iris" | "agents" | "system" | "alerts" | "runs";
 export const EVENT_SOURCES: readonly EventSource[] = ["people", "iris", "agents", "system", "alerts", "runs"];
-export const EVENT_SOURCE_WORDS: Readonly<Record<EventSource, string>> = { people: "People", iris: "Iris", agents: "Agents", system: "System", alerts: "Alerts", runs: "Runs" };
+/** Each event source by name, as Graphs' event chips read it (words.md: the reviewer, the host, never "the system"). */
+export const EVENT_SOURCE_WORDS: Readonly<Record<EventSource, string>> = { people: "People", iris: "Reviewer", agents: "Agents", system: "Host", alerts: "Alerts", runs: "Water runs" };
 
 /** What an event is, by its action's family: one icon each, named in the rail's key. */
 export type EventKind = "setting" | "light" | "water" | "alert" | "other";

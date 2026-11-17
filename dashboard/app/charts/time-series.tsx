@@ -5,7 +5,7 @@ import { bandRange } from "../lib/band-range";
 import { formatNumber, formatValue, unitDecimals } from "../lib/format";
 import { csvFilename, windowCsv, type CsvBlock } from "./csv";
 import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "./data-table";
-import { FORECAST_DASH, OUTDOOR_DASH, OUTDOOR_WIDTH, paintAchievableEdges, paintBandEdges, paintBandFill, paintBounds, paintForecast, paintFuture, paintLabels, paintNow, paintRetention, paintSteps, type ChartColors } from "./draw";
+import { FORECAST_DASH, OUTDOOR_DASH, OUTDOOR_WIDTH, REFERENCE_DASH, paintAchievableEdges, paintBandEdges, paintBandFill, paintBounds, paintForecast, paintFuture, paintLabels, paintNow, paintRetention, paintSteps, type ChartColors } from "./draw";
 import { ENVELOPE_MIN_BUCKET_S, compareExtent, envelopeBars, envelopeExtent, excursions, paintCompare, paintEnvelope, paintExcursions, type CompareLine, type EnvelopeBar, type Excursion } from "./layers";
 import { ChartKey, Legend, type KeyItem } from "./legend";
 import {
@@ -40,11 +40,8 @@ export type TimeSeriesInput = {
   settings?: readonly SettingSteps[];
   /** API-04's forecast keys over the window past now; the key in this unit draws dashed right of now. */
   forecast?: ForecastInput | null;
-  /**
-   * Retired (screens.md 7.1, the target series): the keys listed are not drawn at all. Optional and kept so callers still
-   * passing it compile until they stop.
-   */
-  dotted?: readonly string[];
+  /** Keys drawn as a reference line (Graphs' drying line): `--accent`, 1.5 px dashed, off the palette and never the primary trace. */
+  reference?: readonly string[];
   /** Epoch seconds. */
   now: number;
   xRange: XRange;
@@ -93,7 +90,7 @@ export type TimeSeriesModel = {
   /** The panel's first series' colour. */
   seriesToken: string;
   /**
-   * The measured trace the band is about: the first that is neither outdoor, a forecast nor a dotted cross-check; -1 when
+   * The measured trace the band is about: the first that is neither outdoor, a forecast nor a reference line; -1 when
    * there is none. Excursions, the envelope, the compare line and the band readout follow it.
    */
   primary: number;
@@ -131,8 +128,8 @@ export function traceTokens(metrics: readonly MetricDef[], unit: string): string
 
 export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
   const unit = input.unit ?? input.metrics[0]?.unit ?? input.settings?.[0]?.history.unit ?? "";
-  const retired = new Set(input.dotted ?? []);
-  const metrics = input.metrics.filter((metric) => metric.unit === unit && !retired.has(metric.key));
+  const metrics = input.metrics.filter((metric) => metric.unit === unit);
+  const reference = new Set(input.reference ?? []);
   const { series, now, xRange } = input;
   // uPlot takes a mutable x column; the parsed Series is read-only.
   const t = series ? [...series.t] : [];
@@ -140,8 +137,10 @@ export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
   const windowFrom = epochOf(series?.from) ?? xRange.from;
   const windowTo = epochOf(series?.to) ?? xRange.to;
   const dataEnd = Math.min(windowTo, epochOf(series?.server_time) ?? windowTo);
-  const tokens = traceTokens(metrics, unit);
-  const traces = metrics.map((metric, position): Trace => {
+  const palette = metrics.filter((metric) => !reference.has(metric.key));
+  const paletteTokens = traceTokens(palette, unit);
+  const traces = metrics.map((metric): Trace => {
+    const isReference = reference.has(metric.key);
     const columns = series?.series[metric.key] ?? null;
     const values = t.map((_, index) => {
       const value = columns?.avg[index];
@@ -149,9 +148,9 @@ export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
     });
     const gaps = traceGaps(t, values, columns, bucketSeconds, series?.gaps ?? []);
     return {
-      metric, key: metric.key, label: metric.label, token: tokens[position],
-      dash: columns?.source === "forecast" ? [...FORECAST_DASH] : isOutdoor(metric.key) ? [...OUTDOOR_DASH] : null,
-      width: columns?.source === "forecast" || isOutdoor(metric.key) ? OUTDOOR_WIDTH : 2,
+      metric, key: metric.key, label: metric.label, token: isReference ? "--accent" : paletteTokens[palette.indexOf(metric)],
+      dash: isReference ? [...REFERENCE_DASH] : columns?.source === "forecast" ? [...FORECAST_DASH] : isOutdoor(metric.key) ? [...OUTDOOR_DASH] : null,
+      width: isReference || columns?.source === "forecast" || isOutdoor(metric.key) ? OUTDOOR_WIDTH : 2,
       columns, values, daily: columns?.source === "daily_summary", gaps,
       retention: retentionNote(metric, columns, windowFrom, windowTo),
       staleness: staleness(metric, t, gaps.lastValued, bucketSeconds, dataEnd),
@@ -170,7 +169,7 @@ export function buildTimeSeriesModel(input: TimeSeriesInput): TimeSeriesModel {
     bounds: metrics.length ? [] : settings.flatMap((setting) => settingBounds(setting, unit, prefix)),
     forecast: forecastLines(input.forecast, unit, now),
     now, xRange, windowFrom, windowTo, dataEnd,
-    seriesToken: tokens[0] ?? UNIT_TOKENS[unit] ?? "--c-temp",
+    seriesToken: paletteTokens[0] ?? UNIT_TOKENS[unit] ?? "--c-temp",
     primary,
     excursions: primary >= 0 && runs.length ? excursions(t, traces[primary].values, runs) : [],
     envelope: primary >= 0 ? envelopeBars(t, traces[primary].columns) : [],
@@ -554,9 +553,9 @@ export function TimeSeries(props: TimeSeriesProps) {
   const { series, unit, band, now, xRange, linked = false, syncKey } = props;
   const metrics = useStableArray(props.metrics)!;
   const settings = useStableArray(props.settings, (setting) => [setting.history, setting.label]);
-  const dotted = useStableArray(props.dotted);
   const { forecast } = props;
-  const model = useMemo(() => buildTimeSeriesModel({ series, metrics, unit, band, settings, forecast, dotted, now, xRange: { from: xRange.from, to: xRange.to } }), [series, metrics, unit, band, settings, forecast, dotted, now, xRange.from, xRange.to]);
+  const reference = useStableArray(props.reference);
+  const model = useMemo(() => buildTimeSeriesModel({ series, metrics, unit, band, settings, forecast, reference, now, xRange: { from: xRange.from, to: xRange.to } }), [series, metrics, unit, band, settings, forecast, reference, now, xRange.from, xRange.to]);
   const modelRef = useRef(model);
   modelRef.current = model;
   const [ownHidden, setOwnHidden] = useState<ReadonlySet<string>>(() => new Set());

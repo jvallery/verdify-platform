@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import type { ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { groupOf, sectionOf, viewOf, type RetiredViewId, type ViewId } from "../../lib/sections";
 import { cls } from "../common";
 
@@ -11,13 +11,25 @@ type AnyViewId = ViewId | RetiredViewId;
  * `aria-current="page"`, underlined by primitives.css and scrolling sideways rather than wrapping. A tab is a link, so a
  * tab change adds to history and Back returns to the previous tab. A section with one view has none.
  */
-export function SectionTabs({ view }: { view: AnyViewId }) {
+export function SectionTabs({ view, keepQuery }: { view: AnyViewId; keepQuery?: readonly string[] }) {
+  const { search } = useLocation();
   const current = viewOf(view);
   const section = sectionOf(current.section);
   if (section.views.length < 2) return null;
+  const kept = keptQuery(search, keepQuery);
   return <nav className="tabs" aria-label={`${section.label} views`}>
-    {section.views.map((item) => <Link key={item.id} className="tab" to={item.path} aria-current={item.id === current.id ? "page" : undefined}>{item.tab}</Link>)}
+    {section.views.map((item) => <Link key={item.id} className="tab" to={item.path + kept} aria-current={item.id === current.id ? "page" : undefined}>{item.tab}</Link>)}
   </nav>;
+}
+
+/** The `names` of `search` that a tab change keeps (Record's `days`), as a query string, or "" when none is set. */
+export function keptQuery(search: string, names: readonly string[] | undefined): string {
+  if (!names?.length) return "";
+  const params = new URLSearchParams(search);
+  const kept = new URLSearchParams();
+  for (const name of names) for (const value of params.getAll(name)) kept.append(name, value);
+  const query = kept.toString();
+  return query ? `?${query}` : "";
 }
 
 export type PageHeaderProps = {
@@ -43,6 +55,8 @@ export type PageHeaderProps = {
   tabsEnd?: ReactNode;
   /** The tabs row sticks under the top bar at 860 px and below (Water). */
   stickyTabs?: boolean;
+  /** The query parameters a tab change keeps, so a section's views share them (Record's window, `days`). */
+  keepQuery?: readonly string[];
 };
 
 /**
@@ -50,7 +64,7 @@ export type PageHeaderProps = {
  * default view unless the page is that view), the one h1, the purpose line, the status line and the actions, then the
  * section's tabs. Now has no page header: its hero is its head.
  */
-export function PageHeader({ view, title, purpose, status, statusShort, actions, tabsEnd, stickyTabs = false }: PageHeaderProps) {
+export function PageHeader({ view, title, purpose, status, statusShort, actions, tabsEnd, stickyTabs = false, keepQuery }: PageHeaderProps) {
   const current = viewOf(view);
   const section = sectionOf(current.section);
   const group = groupOf(section.group);
@@ -74,7 +88,7 @@ export function PageHeader({ view, title, purpose, status, statusShort, actions,
       {actions && <div className="page-actions">{actions}</div>}
     </div>
     {section.views.length > 1 && <div className={cls("page-tabs", stickyTabs && "page-tabs-sticky")}>
-      <SectionTabs view={current.id} />
+      <SectionTabs view={current.id} keepQuery={keepQuery} />
       {tabsEnd && <div className="page-tabs-end">{tabsEnd}</div>}
     </div>}
   </>;

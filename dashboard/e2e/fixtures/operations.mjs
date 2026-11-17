@@ -160,7 +160,16 @@ const WAVES = {
   "climate.vpd_target_west": [0.6, 0.05], "climate.vpd_target_east": [0.7, 0.05], "forecast.temp_f": [47, 11], "forecast.rh_pct": [52, -14], "forecast.vpd_kpa": [0.5, 0.25],
   "climate.soil_moisture_south_1": [38, -2], "climate.flow_gpm": [0, 0], "climate.outdoor_temp_f": [45, 10], "climate.outdoor_rh_pct": [55, -15],
   "climate.outdoor_lux": [30000, 30000], "climate.solar_irradiance_w_m2": [300, 300], "forecast.solar_w_m2": [300, 300],
-  "diagnostics.heap_free_kb": [38, 1.5], "daily.temp_in_band_pct": [92, 4], "daily.vpd_in_band_pct": [88, 6], "daily.time_in_band_day_pct": [90, 3],
+  "diagnostics.heap_free_kb": [38, 1.5],
+  // The case probe, the soil probes and the controller's hardware budget, inside their limits (law.mjs LIMITS).
+  "climate.temp_case": [78, 4], "climate.rh_case": [42, -6], "climate.soil_temp_south_1": [61, 2], "climate.soil_ec_south_1": [820, 40],
+  "climate.soil_moisture_south_2": [41, -2], "climate.soil_temp_south_2": [61.5, 2], "climate.soil_moisture_west": [35, -2], "climate.soil_temp_west": [60, 2],
+  "diagnostics.heap_largest_block_kb": [22.4, 0.6], "diagnostics.rssi_dbm": [-61, 2], "diagnostics.heap_min_free_kb": [34.6, 0],
+  "diagnostics.heap_minute_low_kb": [36.9, 1.2], "diagnostics.heap_largest_block_minute_low_kb": [21.8, 0.5], "diagnostics.loop_worst_ms": [11.4, 3],
+  "diagnostics.loop_stack_free_min_b": [1848, 0], "diagnostics.nvs_used_entries": [1711, 0], "diagnostics.nvs_free_entries": [12_023, 0],
+  "diagnostics.nvs_write_worst_ms": [3.9, 1.2], "diagnostics.wifi_disconnects": [2, 0], "diagnostics.api_clients": [2, 0], "diagnostics.restart_count": [2, 0],
+  "diagnostics.active_probes": [4, 0], "diagnostics.sntp_sync_age_s": [690, 300], "energy.ch0_power_w": [900, 600], "energy.ch1_power_w": [120, 40],
+  "daily.temp_in_band_pct": [92, 4], "daily.vpd_in_band_pct": [88, 6], "daily.time_in_band_day_pct": [90, 3],
   "daily.time_in_band_night_pct": [81, 5], "daily.water_gal": [24, 0], "daily.iris_required_written": [3, 0], "daily.iris_required_missed": [0, 0],
   "daily.alerts_critical": [0, 0], "daily.alerts_warning": [1, 0], "daily.alerts_info": [2, 0],
 };
