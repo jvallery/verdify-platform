@@ -546,12 +546,12 @@ SUCCESSOR_320_MCP_DIGEST = SUCCESSOR_319_MCP_DIGEST
 # Exact321 (iso-2 F2 and F4, #1668 items 2 and 3; #1633, #1734): the ingestor runtime may mark replayed gaps and read
 # v_data_gaps_unreplayed and daily_band_compliance; a water counter reset keeps the gallons used since boot, a flap
 # delta is held out of the totals and an all-wetting overlap is scoped climate_wetting. The grants widen the ingestor
-# boundary, so the seals are measured by the native probe (until then 320's, fail closed). It follows 320.
+# boundary, so the seals are measured by the native probe. It follows 320.
 SUCCESSOR_321 = "321-ingestor-gap-and-compliance-reads-water-reset-delta.sql"
-SUCCESSOR_321_SHA256 = "a5b3e2b4433cda6219de4a53fa3afe1cb05d76b2f5dc801e96e22071363c0518"
+SUCCESSOR_321_SHA256 = "614190ef3f32c728d8ca667e854d0559c36573ab204c9ef03851d57395787a5c"
 SUCCESSOR_321_DIGESTS = {
-    "verdify_api_runtime_login": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
-    "verdify_ingestor_runtime_login": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+    "verdify_api_runtime_login": "6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c",
+    "verdify_ingestor_runtime_login": "b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42",
 }
 SUCCESSOR_321_MCP_DIGEST = "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this

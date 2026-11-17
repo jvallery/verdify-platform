@@ -194,7 +194,7 @@ def test_an_overlap_of_wetting_relays_only_is_climate_wetting(dsn):
 
 def test_the_one_time_rewrites_zero_flaps_and_scope_wetting_overlaps(dsn):
     # Rows booked by 194 (a 499 gal flap; a fog + mister overlap with no scope), then 321's two UPDATE statements.
-    zero = extract(M321, "UPDATE public.water_meter_events\n   SET raw = COALESCE", "AND delta_gal <> 0;")
+    zero = extract(M321, "UPDATE public.water_meter_events\n   SET raw = COALESCE", "? 'held_delta_gal');")
     scope = extract(M321, "UPDATE public.water_meter_events\n   SET attributed_scope", "]::text[];")
     wet = [(70, "fog", True), (80, "mister_south", True), (110, "fog", False), (115, "mister_south", False)]
 

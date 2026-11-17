@@ -136,4 +136,7 @@ regexes = [
   # digest shape covered them. Reviewed value-blind 2026-11-17 (VERDIFY-COORD 13:00:19Z).
   '''^956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d$''',
   '''^b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd$''',
+  # Migration 321's native seals (api, ingestor; AR39), same files and shape as above.
+  '''^6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c$''',
+  '''^b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42$''',
 ]

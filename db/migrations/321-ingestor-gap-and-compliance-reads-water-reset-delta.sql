@@ -576,13 +576,15 @@ SELECT r.ts, r.greenhouse_id, r.source, r.meter_id, 'delta', b.since, 0, r.total
 -- Once (#1668 items 2 and 3, AR49): every stored high_delta row (counter flaps; 909 rows, 1,379,214 gal on
 -- 2026-11-17) gets delta_gal 0, so an unfiltered sum of the table is safe; its gallons move to raw.held_delta_gal and
 -- prior_total_gal/total_gal stay as recorded. No reader changes: every reader of delta_gal filters quality_flag = 'ok'.
+-- The 81 high_delta rows already at 0 (2026-01 to 2026-03) get held_delta_gal 0, so every high_delta row carries it,
+-- as every row the function books from now on does.
 UPDATE public.water_meter_events
    SET raw = COALESCE(raw, '{}'::jsonb)
              || jsonb_build_object('held_delta_gal', delta_gal, 'delta_zeroed_by', 'migration_321'),
        delta_gal = 0
  WHERE event_type = 'delta'
    AND quality_flag = 'high_delta'
-   AND delta_gal <> 0;
+   AND NOT (COALESCE(raw, '{}'::jsonb) ? 'held_delta_gal');
 
 -- Once: an overlap of wetting relays only (fog and misters) is climate wetting whichever relay used the water. Its
 -- class stays ambiguous_overlap (the relay is still unknown; the daily partition and the irrigation run reads key on
@@ -602,13 +604,13 @@ UPDATE public.water_meter_events
 -- then they are 320's (319's values), so the file fails closed.
 DO $successor$
 BEGIN
-    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM 'b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd'
-        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM '12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c'
+    IF encode(public.fn_runtime_ordinary_boundary_digest('verdify_api_runtime_login'),'hex') IS DISTINCT FROM '6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c'
+        OR encode(public.fn_runtime_ordinary_boundary_digest('verdify_ingestor_runtime_login'),'hex') IS DISTINCT FROM 'b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42'
         OR encode(public.fn_mcp_runtime_boundary_digest(),'hex') IS DISTINCT FROM 'aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718'
     THEN RAISE EXCEPTION '321 refuses an unqualified successor'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_api_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '321 missing api receipt'; END IF;
-    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
+    UPDATE public.runtime_ordinary_login_attestation_receipts SET boundary_sha256=decode('b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42','hex'), captured_at=clock_timestamp() WHERE login_name='verdify_ingestor_runtime_login';
     IF NOT FOUND THEN RAISE EXCEPTION '321 missing ingestor receipt'; END IF;
     UPDATE public.mcp_runtime_boundary_receipt SET boundary_sha256=decode('aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718','hex') WHERE singleton;
     IF NOT FOUND THEN RAISE EXCEPTION '321 missing mcp receipt'; END IF;
