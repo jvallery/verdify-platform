@@ -1,8 +1,10 @@
 # #782 bounded pre-draw seasonal and retention sensitivity
 
+> The study package `research/planner-efficacy/` was removed from `main` after its campaign closed (#1657). Its files, including every path this page names, are kept at the Git tag `research-package-archive-20261117`.
+
 ## Calendar decision from this audit
 
-The separate [warm-season calendar preregistration](../../research/planner-efficacy/protocols/warm-season-calendar-prereg-2027-v1.json)
+The separate [warm-season calendar preregistration](https://github.com/jvallery/verdify-platform/blob/research-package-archive-20261117/research/planner-efficacy/protocols/warm-season-calendar-prereg-2027-v1.json)
 selects **June 1–July 30, 2027 inclusive** as the first future 60-local-day,
 UTC-offset-stable window supported by the audited complete climate-eligible analogue:
 the same 2026 dates yielded 60/60 eligible days and 30/30 necessary

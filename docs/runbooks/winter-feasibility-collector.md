@@ -16,9 +16,9 @@ RWO, `deploy/k8s/overlays/prod/winter-feasibility-archive-pvc.yaml`, annotated
 `Prune=false,Delete=false`). It holds the staged source snapshot
 (`source/`), the registered instance and the immutable day files and
 manifests (`winter-2026-27/`); the last day file is 2026-11-14. It stays until
-the owner decides otherwise. The extractor source stays in
-`research/planner-efficacy/winter_feasibility.py` until #1657 moves the
-research package.
+the owner decides otherwise. The extractor source,
+`research/planner-efficacy/winter_feasibility.py`, is kept at the Git tag
+`research-package-archive-20261117` (#1657 removed the research package from `main`).
 
 To read the archive, mount the claim read-only in a short-lived Pod in
 `verdify-prod` (no database credential, no service-account token), copy what

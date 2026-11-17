@@ -34,7 +34,8 @@ type EntityType = Literal["number", "switch"]
 
 GRID_REVISION = "live-entity-grid-v1:sha256:f2ce504cd79a01d9f9f8994f85bf48df1bde7450ebafc071d54ead427398af98"
 # Exact file SHA-256 of
-# research/planner-efficacy/qualification/direct-launch-risk-order-v1.json.
+# research/planner-efficacy/qualification/direct-launch-risk-order-v1.json (archived at
+# tag research-package-archive-20261117).
 # The distinct prefix prevents this accepted-risk 27/48 receipt from being
 # mistaken for a generalized 48/48 prefix-replay qualification.
 ORDER_REVISION = "direct-launch-risk-replay-v1:sha256:d72b0a56becac1c14b02d0d47f04a4bc61ff5418b6795bc9164d11541a9482d8"

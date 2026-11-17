@@ -1,5 +1,7 @@
 # August 2026 fixed-panel historical replay: bounded result
 
+> The study package `research/planner-efficacy/` was removed from `main` after its campaign closed (#1657). Its files, including every path this page names, are kept at the Git tag `research-package-archive-20261117`.
+
 This is a read-only September 27 replay of the July 11–August 13 Denver-local
 current-firmware archive for #779. The original 0.3079 kPa corridor-distance
 and 42.1% nine-stream-runtime comparisons remain historical hypotheses. This

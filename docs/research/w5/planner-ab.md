@@ -1,5 +1,7 @@
 # Measuring the AI planner's advantage: experiment system state, study design and power
 
+> The study package `research/planner-efficacy/` was removed from `main` after its campaign closed (#1657). Its files, including every path this page names, are kept at the Git tag `research-package-archive-20261117`.
+
 Track `planner-ab`. Issues: #1359 (research), #1360 (study build), #1361 (Planner section). Research date 2026-11-05. Read-only throughout.
 
 ## Question(s)

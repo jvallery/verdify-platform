@@ -193,6 +193,24 @@ sensor fault stop the fogger and misters at once; an engine drip in progress, th
 emergency) and the daily water ceiling stop the fogger except at the 100 F limit, and the misters always, through the
 engine's grant. Occupancy holds wetting only: the law's fans and vent run with a person inside.
 
+**What each heat stage can hold** (#1670). Each row is dated and marked measured, inferred or simulated. Sources:
+the control effectiveness review
+([`reviews/greenhouse-control-effectiveness-review-2026-11-15.md`](reviews/greenhouse-control-effectiveness-review-2026-11-15.md)
+sections 4.4, 5.3 and appendix A1) and the evidence in #1670. Gas is not metered, so furnace gas use is computed at
+the nameplate input.
+
+| Quantity | Value | Basis | Window |
+|---|---|---|---|
+| Envelope heat loss | 0.233 kW per F (95% interval 0.200 to 0.273); time constant 5.6 h | measured | 60 days from 2026-09-15 |
+| Electric heater (1.44 kW) alone, steady state | about 6 F above outdoors (5.3 to 7.2) | measured | same 60 days |
+| Electric heater alone, with stored daytime heat and the lights | carried autumn nights down to about 45 to 50 F outdoors (98% duty at a 15 to 20 F difference) | measured | autumn 2026 |
+| Heating rate during a run | furnace 19.4 F per hour (burns about 11 min); electric heater 1.65 F per hour | measured | autumn 2026 |
+| Furnace, autumn | highest hourly duty 0.51, at 35 F outdoors; only 3 hours below 35 F, so no saturation test | measured | autumn 2026 |
+| Furnace, deep cold (no electric heat that winter) | 48 h at 95% duty or more at -3.9 to 17.4 F outdoors; below 0 F (6.9 h) it ran continuously, house minimum 57.3 F on 2026-01-26 | measured | 2026-01-23 to 2026-01-26 |
+| House shortfall below 0 F outdoors | 3.9 F below its setpoint on average (setpoint inferred from where the furnace switched on; no band was recorded) | inferred | 2026-01-23 to 2026-01-26 |
+| Furnace alone, saturation | holds about 56 to 61 F above outdoors; a working electric heater adds 4.6 to 6.5 F | inferred | 2026-01-23 to 2026-01-26 |
+| January with today's band and a working heater (model A / B) | furnace 9.8 / 10.9 h per day (7.4 / 8.2 therms per day); electric heater 23.7 h per day; house below the temperature band 8.7 / 9.7% of the time | simulated | January 2026 weather |
+
 **Manual actions.** Three timed latches: the fogger; both fans with the vent open; both fans with the vent closed
 (the two fan actions are one latch with a vent flag). A press is never refused on the band, humidity, dew point, the
 clock or fog hours, and works with no indoor temperature. A run ends at its timeout, on a second press of its

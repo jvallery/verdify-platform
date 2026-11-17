@@ -1276,7 +1276,7 @@ def test_ingestor_solar_reexports_the_moved_ephemeris(monkeypatch: pytest.Monkey
 
 def test_ingestor_solar_imports_with_only_the_ingestor_dir_on_the_path(tmp_path: Path) -> None:
     """``ingestor/solar.py`` stays importable as before: a caller that adds only ``ingestor/`` to
-    ``sys.path`` (research/planner-efficacy/sep4_fixed_panel_counterfactual.py does) still gets it."""
+    ``sys.path`` (the retired study package did) still gets it."""
     code = (
         "import sys; "
         f"sys.path.insert(0, {str(REPO_ROOT / 'ingestor')!r}); "

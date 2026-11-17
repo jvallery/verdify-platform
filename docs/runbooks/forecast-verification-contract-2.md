@@ -1,5 +1,7 @@
 # Outdoor forecast verification contract 2 — #780
 
+> The study package `research/planner-efficacy/` was removed from `main` after its campaign closed (#1657). Its files, including every path this page names, are kept at the Git tag `research-package-archive-20261117`.
+
 Migration 242 replaces indoor/outdoor VPD comparisons and duplicated sample
 counts with versioned outdoor verification. It does not establish indoor response,
 crop outcomes, causal control benefit or a new study protocol.

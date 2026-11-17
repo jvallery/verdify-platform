@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-from datetime import timedelta
+import json
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import asyncpg
@@ -16,15 +17,15 @@ from verdify_schemas.route_only_crop_band_reader import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("route_fixture", ROOT / "tests/test_route_only_crop_band.py")
-assert spec and spec.loader
-fixture_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(fixture_module)
-DAY, END = fixture_module.DAY, fixture_module.END
+# A diagnostic built once by the retired study package's route-only builder (archived at tag
+# research-package-archive-20261117) for this day, frozen so the product reader keeps its test.
+DIAGNOSTIC = ROOT / "tests/fixtures/route-only-crop-band-diagnostic.json"
+DAY = date(2026, 11, 2)
+END = datetime(2026, 11, 3, 7, 0, tzinfo=UTC)
 
 
 def row():
-    diagnostic = fixture_module.route.build(*fixture_module.fixture()).model_dump(mode="json")
+    diagnostic = json.loads(DIAGNOSTIC.read_text())
     return {
         "day": DAY,
         "greenhouse_id": "vallery",

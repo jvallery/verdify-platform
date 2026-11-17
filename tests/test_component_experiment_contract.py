@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import struct
 from decimal import Decimal
 from pathlib import Path
@@ -17,7 +15,6 @@ from verdify_schemas.component_executor import (
     DIRECT_LAUNCH_EXPERIMENT_ID,
     ENTITY_GRIDS,
     GRID_REVISION,
-    ORDER_REVISION,
     RECOVERY_ORDER,
     ROLLBACK_ORDER,
     TREATMENT_FIELD_ORDER,
@@ -84,23 +81,6 @@ def test_live_grid_and_direct_launch_risk_order_are_scoped_to_the_exact_study(mo
     assert physical_execution_qualified(qualified_grid, None) is False
     assert physical_execution_qualified(qualified_grid, qualified_grid[:-1] + "c") is False
     assert physical_execution_qualified(qualified_grid, qualified_grid) is True
-
-
-def test_direct_launch_risk_revision_is_the_exact_reviewed_artifact() -> None:
-    path = ROOT / "research/planner-efficacy/qualification/direct-launch-risk-order-v1.json"
-    raw = path.read_bytes()
-    artifact = json.loads(raw)
-    assert ORDER_REVISION == f"direct-launch-risk-replay-v1:sha256:{hashlib.sha256(raw).hexdigest()}"
-    assert artifact["authorization"]["scope"] == DIRECT_LAUNCH_EXPERIMENT_ID
-    # This immutable historical accepted-risk receipt predates periodic sensors.
-    # Metadata adoption does not rewrite its replay/HIL authorization.
-    assert artifact["live_grid"]["grid_revision"] == (
-        "live-entity-grid-v1:sha256:c10f21f692f4772acd98a41f7ee28e43e534e03d4009d3f963fc2e0fb96aa436"
-    )
-    assert artifact["replay"]["compiled_covered_field_count"] == 27
-    assert artifact["replay"]["compiled_uncovered_field_count"] == 21
-    assert artifact["replay"]["interlock_unsafe"] == 0
-    assert set(artifact["forbidden_failures"].values()) == {0}
 
 
 def test_every_numeric_grid_accepts_bounds_and_one_step_without_rounding() -> None:
