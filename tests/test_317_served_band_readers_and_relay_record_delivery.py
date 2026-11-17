@@ -30,6 +30,15 @@ REPLACED = {
     "fn_climate_action_daily_scorecard": "260-restore-climate-action-daily-scorecard.sql",
     "fn_heat_staging_inversion": "079-heating-observability.sql",
 }
+GUARDED = {
+    **REPLACED,
+    "fn_house_vpd_control_band": "145-vanda-band-and-join-fix.sql",
+    "fn_daily_record_store": "310-daily-record.sql",
+}
+HOUSE_COLUMNS = (
+    "crop_vpd_low crop_vpd_high vpd_target_south vpd_target_west vpd_target_east vpd_target_center zone_vpd_min "
+    "zone_vpd_median zone_vpd_max house_vpd_low house_vpd_high house_vpd_min_width_kpa house_vpd_low_margin_kpa"
+).split()
 TIMELINE_COLUMNS = (
     "ts greenhouse_id timeline_phase crop_temp_low crop_temp_high crop_vpd_low crop_vpd_high projected_temp_low "
     "projected_temp_high projected_vpd_low projected_vpd_high actual_temp_low actual_temp_high actual_vpd_low "
@@ -114,7 +123,7 @@ def test_exact_ordered_source_admission_denies_unknown_changed_and_skipped():
             c0.reviewed_post_254(invalid, files())
 
 
-def test_file_is_wrap_safe_changes_no_table_and_drops_one_unread_view():
+def test_file_is_wrap_safe_appends_one_column_and_drops_one_unread_view():
     assert not safety.classify(MIGRATION).self_committing
     qualifier.refuse_transaction_control(SOURCE)
     code = qualifier._code_only(SOURCE)[0].upper()
@@ -127,7 +136,6 @@ def test_file_is_wrap_safe_changes_no_table_and_drops_one_unread_view():
         r"\bTRIGGER\b",
         r"\bTRUNCATE\b",
         r"\bDELETE\b",
-        r"\bALTER TABLE\b",
         r"\bCREATE TABLE\b",
         r"\bGRANT\b",
         r"\bREVOKE\b",
@@ -135,6 +143,7 @@ def test_file_is_wrap_safe_changes_no_table_and_drops_one_unread_view():
     ):
         assert not re.search(forbidden, code), forbidden
     assert re.findall(r"\bDROP\b[^;$]*", BODY) == ["DROP VIEW public.v_setpoint_forward RESTRICT\n"]
+    assert re.findall(r"\bALTER\b[^;$]*", BODY) == ["ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb\n"]
     for name, sql in qualifier.sessions(SOURCE, (), qualifier.native_checks(NATIVE)).items():
         assert sql.startswith("BEGIN") and sql.endswith("ROLLBACK;\n"), name
 
@@ -153,15 +162,16 @@ def test_predecessor_binds_exact316_with_its_registered_seals():
 
 def test_predecessor_guards_each_replaced_functions_live_body():
     """md5(prosrc): the text between the dollar quotes of the migration that last defined each function."""
-    for fn, filename in REPLACED.items():
+    for fn, filename in GUARDED.items():
         text = (ROOT / "db/migrations" / filename).read_text()
-        starts = [m.end() for m in re.finditer(rf"CREATE OR REPLACE FUNCTION (?:public\.)?{fn}\s*\(", text, re.I)]
+        pattern = rf"CREATE (?:OR REPLACE )?FUNCTION (?:public\.)?{fn}\s*\("
+        starts = [m.end() for m in re.finditer(pattern, text, re.I)]
         start = starts[-1]
         tag = re.search(r"AS\s+(\$\w*\$)", text[start:])
         begin = start + tag.end()
         digest = hashlib.md5(text[begin : text.index(tag.group(1), begin)].encode()).hexdigest()  # noqa: S324
         assert f"'{digest}')" in PRED_BLOCK, fn
-    assert ") AS want(fn, body_md5) ON p.oid=to_regprocedure(want.fn) AND md5(p.prosrc)=want.body_md5)<>4" in (
+    assert ") AS want(fn, body_md5) ON p.oid=to_regprocedure(want.fn) AND md5(p.prosrc)=want.body_md5)<>6" in (
         PRED_BLOCK
     )
 
@@ -308,6 +318,9 @@ def test_the_run_columns_carry_one_definition():
 
 def test_the_views_go_first_in_a_bounded_retry():
     block = flat(BODY[BODY.index("DO $views$") : BODY.index("END $views$;")])
+    assert block.index(
+        "('public.daily_record', $record$ ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb $record$)"
+    ) < block.index("('public.v_greenhouse_state'")
     for name, tag in (
         ("v_greenhouse_state", "state"),
         ("v_heating_staging", "staging"),
@@ -321,6 +334,47 @@ def test_the_views_go_first_in_a_bounded_retry():
     assert "IF attempt >= 8 THEN" in block and "'317 could not lock % exclusively" in block
     assert "LOCK TABLE" not in BODY
     assert BODY.index("END $views$;") < BODY.index("CREATE OR REPLACE FUNCTION public.fn_band_timeline(")
+
+
+def test_the_house_vpd_band_is_the_served_band_with_its_13_columns():
+    """CTL-26: same signature and return type as 145, so every reader and an old pod agree at once."""
+    old = (ROOT / "db/migrations" / GUARDED["fn_house_vpd_control_band"]).read_text()
+    head = re.compile(
+        r"fn_house_vpd_control_band\(target_ts timestamp with time zone\)\s+RETURNS TABLE\((.*?)\)\s+", re.S
+    )
+    for text in (old, "fn_house_vpd_control_band(" + function("fn_house_vpd_control_band")):
+        columns = [c.split()[0] for c in " ".join(head.search(text).group(1).split()).split(", ")]
+        assert columns == HOUSE_COLUMNS
+    body = flat(uncommented(function("fn_house_vpd_control_band")))
+    assert "LANGUAGE plpgsql STABLE ROWS 1" in body
+    assert (
+        "SELECT b.vpd_low, b.vpd_high INTO crop_vpd_low, crop_vpd_high FROM public.fn_band_setpoints(target_ts)" in body
+    )
+    assert "house_vpd_low := crop_vpd_low; house_vpd_high := crop_vpd_high;" in body
+    assert "house_vpd_min_width_kpa := NULL; house_vpd_low_margin_kpa := NULL;" in body
+    assert "fn_center_band_setpoints" not in body and "0.55" not in body and "0.20" not in body
+    assert "COMMENT ON FUNCTION public.fn_house_vpd_control_band(timestamptz) IS" in BODY
+
+
+def test_the_daily_record_stores_the_laws_refused_drying_by_reason():
+    """TEL-65: 310's store plus the law CTEs; the column is set for a complete day only."""
+    text = SOURCE.split("CREATE OR REPLACE FUNCTION public.fn_daily_record_store(p_day date)", 1)[1]
+    text = text.split("$store$;", 1)[0]
+    body = flat(text)
+    assert "FROM public.system_state s WHERE s.entity = 'climate_law_state'" in body
+    assert "((s.value::jsonb ->> 'l')::integer & 64) <> 0 AS wanted" in body
+    assert "COALESCE(s.value::jsonb ->> 'dr', 'unknown') AS reason" in body
+    assert "s.ts + interval '3 minutes'" in body and "s.value LIKE '{\"v\":1,%'" in body
+    assert "FILTER (WHERE r.reason <> 'none' AND r.wanted_s > 0)" in body
+    assert "furnace_starts_after_drying, dry_refusal, computed_at)" in body
+    assert "CASE WHEN now() >= v_end THEN (SELECT rf.doc FROM refusal rf) END, now()" in body
+    assert "dry_refusal = EXCLUDED.dry_refusal," in body
+    old = (ROOT / "db/migrations" / GUARDED["fn_daily_record_store"]).read_text()
+    old_body = old.split("CREATE FUNCTION public.fn_daily_record_store(p_day date)", 1)[1].split("$store$;", 1)[0]
+    for line in old_body.splitlines():
+        if "computed_at" not in line and "now()" not in line:
+            assert line in text, line
+    assert "COMMENT ON COLUMN public.daily_record.dry_refusal IS" in BODY
 
 
 def test_the_native_fixture_reads_as_each_runtime_and_reports_once():

@@ -4,9 +4,12 @@
 -- more; that fn_band_timeline keeps its 56 columns and puts the served band and the law's lines on the live rows; that
 -- v_greenhouse_state carries the served band; that v_setpoint_forward is gone; that the schedule's readback counts read
 -- NULL with every schedule value unchanged in type; that the counter check has its two new columns and the early-record
--- rule; that the daily relay record's run columns carry their definitions; and that every grant stayed. As the ingestor
--- login it runs the heat-staging alert's function and reads the schedule and the counter check; as the MCP login it
--- runs the day scorecard for yesterday; as the dashboard login it reads the counter check. Every read is bounded.
+-- rule; that the daily relay record's run columns carry their definitions; that fn_house_vpd_control_band keeps its 13
+-- columns and returns the served band (the setpoint server's wrapper too); that yesterday's daily record, stored
+-- again here (rolled back, about 15 s), carries the law's refused drying; and that every grant stayed. As the ingestor
+-- login it runs the heat-staging alert's function and the house band and reads the schedule and the counter check; as
+-- the MCP login it runs the day scorecard for yesterday and the house band; as the dashboard login it reads the counter
+-- check. Every read is bounded.
 -- The last line reports the result to the qualifier.
 DO $catalog$
 DECLARE
@@ -55,7 +58,35 @@ BEGIN
         OR to_regclass('public.v_heating_staging_summary') IS NULL
         OR to_regclass('public.v_heat_in_band_7d') IS NULL
         OR to_regclass('public.v_climate_action_daily_scorecard') IS NULL
+        OR NOT has_function_privilege('verdify_api_runtime', 'public.fn_house_vpd_control_band(timestamptz)', 'EXECUTE')
+        OR NOT has_function_privilege('verdify_ingestor_runtime', 'public.fn_house_vpd_control_band(timestamptz)', 'EXECUTE')
+        OR NOT has_function_privilege('verdify_mcp_runtime', 'public.fn_house_vpd_control_band(timestamptz)', 'EXECUTE')
+        OR NOT has_function_privilege('verdify_setpoint_server_runtime',
+            'verdify_setpoint_server_runtime.fn_house_vpd_control_band(timestamptz)', 'EXECUTE')
+        OR NOT has_function_privilege('verdify_matview_refresh_runtime',
+            'verdify_matview_refresh_runtime.fn_refresh_daily_record()', 'EXECUTE')
+        OR has_function_privilege('verdify_ingestor_runtime', 'public.fn_daily_record_store(date)', 'EXECUTE')
+        OR NOT has_table_privilege('verdify_ingestor_runtime', 'public.daily_record', 'SELECT')
+        OR NOT has_table_privilege('verdify_dashboard_runtime', 'public.daily_record', 'SELECT')
+        OR to_regclass('public.v_band_device_divergence') IS NULL
     THEN RAISE EXCEPTION '317 lost a grant or a dependant'; END IF;
+    IF (SELECT array_agg(a ORDER BY o) FROM pg_catalog.pg_proc p, unnest(p.proargnames, p.proargmodes) WITH ORDINALITY u(a, m, o)
+          WHERE p.oid='public.fn_house_vpd_control_band(timestamptz)'::regprocedure AND u.m='t')
+        IS DISTINCT FROM ARRAY['crop_vpd_low', 'crop_vpd_high', 'vpd_target_south', 'vpd_target_west', 'vpd_target_east',
+                               'vpd_target_center', 'zone_vpd_min', 'zone_vpd_median', 'zone_vpd_max', 'house_vpd_low',
+                               'house_vpd_high', 'house_vpd_min_width_kpa', 'house_vpd_low_margin_kpa']
+        OR (SELECT p.prosrc FROM pg_catalog.pg_proc p
+              WHERE p.oid='public.fn_house_vpd_control_band(timestamptz)'::regprocedure) !~ 'fn_band_setpoints'
+    THEN RAISE EXCEPTION '317 house VPD band is not the served band''s shape'; END IF;
+    IF (SELECT format_type(a.atttypid, a.atttypmod) FROM pg_catalog.pg_attribute a
+          WHERE a.attrelid='public.daily_record'::regclass AND a.attname='dry_refusal' AND NOT a.attisdropped)
+        IS DISTINCT FROM 'jsonb'
+        OR pg_catalog.col_description('public.daily_record'::regclass,
+            (SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid='public.daily_record'::regclass
+               AND attname='dry_refusal')) !~ '^The climate law''s drying record'
+        OR (SELECT p.prosrc FROM pg_catalog.pg_proc p
+              WHERE p.oid='public.fn_daily_record_store(date)'::regprocedure) !~ 'climate_law_state'
+    THEN RAISE EXCEPTION '317 daily record lacks the refused drying'; END IF;
 END $catalog$;
 
 -- The live rows: the last hour of the timeline on a 30-minute step, and the last 10 minutes of v_greenhouse_state.
@@ -92,6 +123,28 @@ BEGIN
                WHERE stale_readback_count IS NOT NULL OR readback_drift_count IS NOT NULL)
         OR (SELECT count(*) FROM public.v_irrigation_schedule_current) <> 2
     THEN RAISE EXCEPTION '317 schedule readback counts are not NULL'; END IF;
+    -- The house VPD band at the last hour's half hours and now: the served band, the wrapper the same.
+    SELECT count(*), count(*) FILTER (WHERE
+               h.house_vpd_low IS DISTINCT FROM b.vpd_low OR h.house_vpd_high IS DISTINCT FROM b.vpd_high
+            OR h.crop_vpd_low IS DISTINCT FROM b.vpd_low OR h.crop_vpd_high IS DISTINCT FROM b.vpd_high
+            OR h.house_vpd_min_width_kpa IS NOT NULL OR h.house_vpd_low_margin_kpa IS NOT NULL
+            OR (w.house_vpd_low, w.house_vpd_high) IS DISTINCT FROM (h.house_vpd_low, h.house_vpd_high))
+      INTO n, bad
+      FROM (VALUES (now() - interval '1 hour'), (now() - interval '30 minutes'), (now())) AS s(ts)
+      CROSS JOIN LATERAL public.fn_band_setpoints(s.ts) b
+      CROSS JOIN LATERAL public.fn_house_vpd_control_band(s.ts) h
+      CROSS JOIN LATERAL verdify_setpoint_server_runtime.fn_house_vpd_control_band(s.ts) w;
+    IF n <> 3 OR bad <> 0 THEN RAISE EXCEPTION '317 house VPD band rows: % of % wrong', bad, n; END IF;
+    -- Yesterday stored again (the rollback undoes it): complete, with law records, and no more refused than wanted.
+    SELECT count(*) FILTER (WHERE NOT r.complete OR r.dry_refusal IS NULL
+               OR (r.dry_refusal->>'covered_s')::numeric <= 0
+               OR (r.dry_refusal->>'wanted_s')::numeric > (r.dry_refusal->>'covered_s')::numeric
+               OR jsonb_typeof(r.dry_refusal->'refused_s') <> 'object'
+               OR (SELECT COALESCE(sum(v::numeric), 0) FROM jsonb_each_text(r.dry_refusal->'refused_s') e(k, v))
+                  > (r.dry_refusal->>'wanted_s')::numeric)
+      INTO bad
+      FROM public.fn_daily_record_store((now() AT TIME ZONE 'America/Denver')::date - 1) r;
+    IF bad <> 0 THEN RAISE EXCEPTION '317 yesterday''s refused drying is not recorded'; END IF;
 END $values$;
 
 -- SET SESSION AUTHORIZATION needs the superuser owner; the rollback undoes it.
@@ -99,6 +152,7 @@ SET SESSION AUTHORIZATION verdify_ingestor_runtime_login;
 DO $ingestor$
 BEGIN
     PERFORM * FROM public.fn_heat_staging_inversion();
+    PERFORM house_vpd_low, house_vpd_high FROM public.fn_house_vpd_control_band(now());
     PERFORM 1 FROM public.v_irrigation_schedule_current LIMIT 1;
     PERFORM 1 FROM public.v_relay_counter_reconciliation_daily
       WHERE greenhouse_id = 'vallery' AND comparison = 'complete'
@@ -110,6 +164,7 @@ SET SESSION AUTHORIZATION verdify_mcp_runtime_login;
 DO $mcp$
 BEGIN
     PERFORM 1 FROM public.fn_climate_action_daily_scorecard((now() AT TIME ZONE 'America/Denver')::date - 1) LIMIT 1;
+    PERFORM house_vpd_low, house_vpd_high FROM public.fn_house_vpd_control_band(now());
 END $mcp$;
 RESET SESSION AUTHORIZATION;
 
@@ -125,5 +180,7 @@ SELECT 'QUALIFY native_fixture ' || json_build_object(
                                'views_read_the_served_band', 'timeline_keeps_56_columns', 'counter_check_exact',
                                'run_columns_defined', 'grants_and_dependants_kept', 'timeline_rows_on_the_law',
                                'greenhouse_state_rows_on_the_band', 'schedule_readback_counts_null',
-                               'ingestor_reads_its_objects', 'mcp_runs_the_scorecard', 'dashboard_reads_counter_check'),
+                               'house_vpd_band_shape', 'daily_record_refused_drying', 'house_vpd_band_rows_served',
+                               'yesterday_refused_drying_stored', 'ingestor_reads_its_objects',
+                               'mcp_runs_the_scorecard', 'dashboard_reads_counter_check'),
     'all_passed', true)::text;

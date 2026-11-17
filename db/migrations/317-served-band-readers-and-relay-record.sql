@@ -1,6 +1,7 @@
 -- 317 (#1633, host release 5; #1734): the database readers of the band read the served band, the relay run time has
 -- one definition, the retired irrigation readbacks stop reading stale, and the relay counter check judges only a day
--- whose record was taken after it ended. Views and functions only; one unread view is dropped; no table changes shape.
+-- whose record was taken after it ended; the house VPD band is the served band; the daily record carries the climate
+-- law's refused drying by reason. Views and functions, one appended daily_record column; one unread view is dropped.
 -- (a) Band readers (validation CTL-24, release 4 review C-7; RULINGS AF2, one band source: fn_band_setpoints):
 --   fn_band_timeline: the crop, projected and fallback VPD edges come from fn_band_setpoints instead of
 --     fn_house_vpd_control_band (the zone-informed house band, 0.32-0.87 kPa where the served band is 0.82-1.34 kPa at
@@ -24,6 +25,14 @@
 --   Kept as built: v_heat_in_band_7d (it reads fn_band_timeline's firmware band and the heater states only) and
 --     v_plan_tactical_outcome_daily (history of past plans' tactical settings beside daily_summary; the public
 --     v_forecast_plan_outcome_mart depends on it, and no plan has been active since 315).
+--   fn_house_vpd_control_band (validation CTL-26): house_vpd_low/high and crop_vpd_low/high are fn_band_setpoints'
+--     vpd_low/vpd_high (the zone-informed widening, low = max(crop low, lowest zone target - 0.20) held 0.55 kPa wide,
+--     is retired); the zone targets and their min/median/max stay as information; house_vpd_min_width_kpa and
+--     house_vpd_low_margin_kpa read NULL. Same signature and 13 columns, so every reader agrees at once, an old pod
+--     during a rollout included: the dispatcher's pre-anchor vpd_low/vpd_high and its mister default gate, the API's
+--     compatibility band, MCP's outcome_kpi fallback, fn_setpoint_at('vpd_low'/'vpd_high'), fn_band_trace,
+--     fn_band_setpoint_provenance, fn_realized_solar_night_dryout (served_vpd_low), the planner's band_series,
+--     v_band_device_divergence and the setpoint server's wrapper. A later release drops it once no code reads it.
 -- (b) daily_summary.water_used_gal is the ingestor's writer (tasks/daily.py); nothing for it here.
 -- (c) daily_relay_record: run_s is a relay's daily run time; event_run_s is a diagnostic (column comments).
 -- (d) v_irrigation_schedule_current: the 18 irrig_* readbacks left the controller with the clocked schedule (the
@@ -33,8 +42,13 @@
 -- (e) v_relay_counter_reconciliation_daily: comparison reads 'record_early' while the day's relay record was computed
 --     before the day ended, and two columns are appended: boots (controller boots on the day, from diagnostics uptime
 --     falls) and record_computed_at. The tolerance itself is the ingestor's (relay_counter_mismatch).
--- Seals: fn_heat_staging_inversion is in the ordinary boundary digest, the ingestor duty reads the schedule and
--- counter views, and MCP executes the scorecard function, so the api, ingestor and MCP seals are measured again by
+-- (f) daily_record.dry_refusal (validation TEL-65): the climate law's wanted-but-refused drying time by reason, from
+--     climate_law_state (l bit 6 drying wanted, dr the refusal), each record held until the next and at most 3
+--     minutes; set when the day is complete, NULL for a day with no law record (every day before the law flash).
+--     fn_daily_record_store writes it; the refresh job restores today and the two days before every run.
+-- Seals: fn_heat_staging_inversion and fn_house_vpd_control_band are in the ordinary boundary digest, the ingestor
+-- duty reads the schedule and counter views and daily_record (its columns are hashed), and MCP executes the scorecard
+-- and house band functions, so the api, ingestor and MCP seals are measured again by
 -- the rolled-back native qualification (tests/fixtures/317-served-band-readers-and-relay-record-native-qualification.json).
 -- Until measured, the successor literals are 316's (fail closed). 317 chains from exact316.
 SET LOCAL search_path=pg_catalog,public,pg_temp;
@@ -58,15 +72,21 @@ BEGIN
         OR NOT EXISTS(SELECT 1 FROM public.mcp_runtime_boundary_receipt WHERE singleton
             AND boundary_sha256=public.fn_mcp_runtime_boundary_digest())
         -- md5 of each replaced function's live body (prosrc): the text between its dollar quotes in the migration that
-        -- last defined it (309, 142, 260, 079).
+        -- last defined it (309, 142, 260, 079, 145, 310).
         OR (SELECT count(*) FROM pg_catalog.pg_proc p
              JOIN (VALUES
                  ('public.fn_band_timeline(timestamptz,timestamptz,interval,text)', 'fb2ec095203f71b99930770fed5060e2'),
                  ('public.fn_climate_action_effectiveness(interval)', '2aea42f8283fc90bc28be9431fdd1aec'),
                  ('public.fn_climate_action_daily_scorecard(date)', 'fbfc7aff058b7e86d337fad0d23b6b17'),
-                 ('public.fn_heat_staging_inversion()', 'a6df226852d03b72e2c741f82fccca5a')
-             ) AS want(fn, body_md5) ON p.oid=to_regprocedure(want.fn) AND md5(p.prosrc)=want.body_md5)<>4
+                 ('public.fn_heat_staging_inversion()', 'a6df226852d03b72e2c741f82fccca5a'),
+                 ('public.fn_house_vpd_control_band(timestamptz)', '16642395e284f7dee234784a05b0000d'),
+                 ('public.fn_daily_record_store(date)', 'c215189380c0a8a44645002112d879cf')
+             ) AS want(fn, body_md5) ON p.oid=to_regprocedure(want.fn) AND md5(p.prosrc)=want.body_md5)<>6
         OR to_regprocedure('public.fn_band_setpoints(timestamptz)') IS NULL
+        OR to_regprocedure('public.fn_zone_vpd_targets(timestamptz)') IS NULL
+        OR to_regclass('public.daily_record') IS NULL
+        OR EXISTS(SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid='public.daily_record'::regclass
+            AND attname='dry_refusal' AND NOT attisdropped)
         OR to_regclass('public.v_greenhouse_state') IS NULL OR to_regclass('public.v_heating_staging') IS NULL
         OR to_regclass('public.v_irrigation_schedule_current') IS NULL
         -- 315's counter check, not yet extended.
@@ -85,9 +105,9 @@ BEGIN
     THEN RAISE EXCEPTION '317 refuses an unqualified predecessor'; END IF;
 END $predecessor$;
 
--- The view statements run first, each in a bounded retry (as 315 and 316): a reader of a view holds AccessShare, so
+-- The table and view statements run first, each in a bounded retry (as 315 and 316): a reader of a view holds AccessShare, so
 -- each statement waits at most 5 s per attempt, up to 8 attempts 1 s apart, and the file raises naming the view when
--- every attempt is lost. lock_timeout is set inside each attempt and restored after it. EXECUTE, not LOCK TABLE: a
+-- every attempt is lost (the band-curve refresh job writes daily_record for about 45 s at :02 and :32). lock_timeout is set inside each attempt and restored after it. EXECUTE, not LOCK TABLE: a
 -- lock on a view also locks every relation it reads.
 DO $views$
 DECLARE
@@ -96,6 +116,10 @@ DECLARE
     attempt integer;
 BEGIN
     FOR rec IN SELECT * FROM (VALUES
+-- (f) The refused-drying record, appended (no reader selects by position: v_daily_record names its columns).
+        ('public.daily_record', $record$
+ALTER TABLE public.daily_record ADD COLUMN dry_refusal jsonb
+$record$),
 -- (a) The live definition (217) with the served band in place of the settings ledger.
         ('public.v_greenhouse_state', $state$
 CREATE OR REPLACE VIEW public.v_greenhouse_state AS
@@ -1142,6 +1166,206 @@ AS $function$
     WHERE h2.state = true AND h1.state = false
       AND EXTRACT(EPOCH FROM now() - h2.ts) > 60;
 $function$;
+
+-- (a) CTL-26: the house VPD band is the served band. The live definition (145) widened the crop band around the
+-- zone targets; the zone targets stay as information, the width and margin constants are retired (NULL).
+CREATE OR REPLACE FUNCTION public.fn_house_vpd_control_band(target_ts timestamp with time zone)
+RETURNS TABLE(crop_vpd_low double precision, crop_vpd_high double precision,
+              vpd_target_south double precision, vpd_target_west double precision,
+              vpd_target_east double precision, vpd_target_center double precision,
+              zone_vpd_min double precision, zone_vpd_median double precision,
+              zone_vpd_max double precision, house_vpd_low double precision,
+              house_vpd_high double precision, house_vpd_min_width_kpa double precision,
+              house_vpd_low_margin_kpa double precision)
+LANGUAGE plpgsql
+STABLE ROWS 1
+AS $function$
+BEGIN
+    SELECT b.vpd_low, b.vpd_high
+      INTO crop_vpd_low, crop_vpd_high
+      FROM public.fn_band_setpoints(target_ts) AS b
+     LIMIT 1;
+
+    IF crop_vpd_low IS NULL OR crop_vpd_high IS NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT z.vpd_target_south, z.vpd_target_west, z.vpd_target_east, z.vpd_target_center
+      INTO vpd_target_south, vpd_target_west, vpd_target_east, vpd_target_center
+      FROM public.fn_zone_vpd_targets(target_ts) AS z
+     LIMIT 1;
+
+    SELECT min(t.v), percentile_cont(0.5) WITHIN GROUP (ORDER BY t.v), max(t.v)
+      INTO zone_vpd_min, zone_vpd_median, zone_vpd_max
+      FROM (VALUES (vpd_target_south), (vpd_target_west), (vpd_target_east), (vpd_target_center)) AS t(v)
+     WHERE t.v IS NOT NULL AND t.v > 0 AND t.v < 10;
+
+    house_vpd_low := crop_vpd_low;
+    house_vpd_high := crop_vpd_high;
+    house_vpd_min_width_kpa := NULL;
+    house_vpd_low_margin_kpa := NULL;
+    RETURN NEXT;
+END;
+$function$;
+COMMENT ON FUNCTION public.fn_house_vpd_control_band(timestamptz) IS
+    'Compatibility reader of the one band (317, CTL-26): house_vpd_low/high and crop_vpd_low/high are '
+    'fn_band_setpoints'' vpd_low/vpd_high, the served house band; vpd_target_* and zone_vpd_min/median/max are the '
+    'zone targets for information; house_vpd_min_width_kpa and house_vpd_low_margin_kpa are retired (NULL). New code '
+    'reads fn_band_setpoints; a later release drops this function.';
+
+-- (f) TEL-65: the daily record carries the law's refused drying. The live definition (310) plus the law CTEs and
+-- the dry_refusal column.
+CREATE OR REPLACE FUNCTION public.fn_daily_record_store(p_day date)
+RETURNS public.daily_record
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $store$
+DECLARE
+    v_start timestamptz;
+    v_end timestamptz;
+    stored public.daily_record;
+BEGIN
+    IF p_day IS NULL OR p_day > (now() AT TIME ZONE 'America/Denver')::date THEN
+        RAISE EXCEPTION 'daily record day % is not a past or current local day', p_day USING ERRCODE = '22023';
+    END IF;
+    v_start := p_day::timestamp AT TIME ZONE 'America/Denver';
+    v_end := (p_day + 1)::timestamp AT TIME ZONE 'America/Denver';
+
+    WITH run AS MATERIALIZED (
+        SELECT * FROM public.fn_relay_run_intervals(v_start, v_end)
+    ), event AS (
+        SELECT DISTINCT r.equipment, r.event_on_at, r.event_off_at FROM run r WHERE r.event_on_at IS NOT NULL
+    ), per_relay AS (
+        SELECT x.equipment,
+               (SELECT count(*) FROM run r
+                 WHERE r.equipment = x.equipment AND r.on_at >= v_start AND r.on_at < v_end)::integer AS starts,
+               COALESCE((SELECT sum(extract(epoch FROM LEAST(r.off_at, v_end) - GREATEST(r.on_at, v_start)))
+                           FROM run r WHERE r.equipment = x.equipment), 0)::double precision AS run_s,
+               COALESCE((SELECT sum(extract(epoch FROM LEAST(e.event_off_at, v_end) - GREATEST(e.event_on_at, v_start)))
+                           FROM event e WHERE e.equipment = x.equipment), 0)::double precision AS event_run_s,
+               (SELECT count(*) FROM run r WHERE r.equipment = x.equipment AND r.repair <> 'none')::integer AS repaired_runs
+          FROM public.fn_daily_record_relays() x
+    ), relay_rows AS (
+        INSERT INTO public.daily_relay_record AS t
+            (date, equipment, starts, run_s, event_run_s, repaired_runs, computed_at)
+        SELECT p_day, p.equipment, p.starts, p.run_s, p.event_run_s, p.repaired_runs, now() FROM per_relay p
+        ON CONFLICT (date, equipment) DO UPDATE SET
+            starts = EXCLUDED.starts, run_s = EXCLUDED.run_s, event_run_s = EXCLUDED.event_run_s,
+            repaired_runs = EXCLUDED.repaired_runs, computed_at = EXCLUDED.computed_at
+        RETURNING t.equipment, t.run_s
+    ), action AS (
+        SELECT a.ts, a.climate_action = 'DEHUM_VENT' AS drying,
+               lead(a.ts) OVER (ORDER BY a.ts) AS next_ts
+          FROM public.climate_action_log a
+         WHERE a.greenhouse_id = 'vallery' AND a.ts >= v_start - interval '1 hour' AND a.ts < v_end
+    ), dry_row AS (
+        SELECT d.ts, LEAST(COALESCE(d.next_ts, LEAST(v_end, now())), d.ts + interval '3 minutes') AS until
+          FROM action d WHERE d.drying
+    ), dry_island AS (
+        SELECT d.ts, d.until,
+               sum(CASE WHEN d.previous_until IS NULL OR d.ts > d.previous_until THEN 1 ELSE 0 END)
+                   OVER (ORDER BY d.ts) AS island
+          FROM (SELECT y.ts, y.until, lag(y.until) OVER (ORDER BY y.ts) AS previous_until FROM dry_row y) d
+    ), dry_run AS (
+        SELECT min(i.ts) AS began, max(i.until) AS ended FROM dry_island i GROUP BY i.island
+    ), gas AS (
+        SELECT rc.nominal_value
+          FROM public.equipment eq
+          JOIN public.resource_coefficients rc ON rc.equipment_id = eq.id
+         WHERE eq.greenhouse_id = 'vallery' AND eq.slug = 'heat2' AND eq.is_active
+           AND rc.resource_kind = 'gas_btu_per_hour'
+           AND rc.valid_from <= v_start AND (rc.valid_to IS NULL OR rc.valid_to > v_start)
+         ORDER BY rc.valid_from DESC, rc.id DESC
+         LIMIT 1
+    ), energy AS (
+        -- The day at full coverage only when the meter reported at least 70 % of it (before 2026-10-24 it did not).
+        SELECT ed.measured_kwh::double precision AS kwh,
+               CASE WHEN ed.meter_coverage_pct >= 70
+                    THEN ed.avg_watts * extract(epoch FROM v_end - v_start) / 3600.0 / 1000.0 END::double precision
+                   AS kwh_24h,
+               ed.meter_coverage_pct::double precision AS coverage
+          FROM public.v_energy_daily ed
+         WHERE ed.date = p_day AND ed.greenhouse_id = 'vallery'
+    ), water AS (
+        SELECT w.quality_filtered_meter_gal::double precision AS gal,
+               w.climate_wetting_gal::double precision AS wetting,
+               w.planning_water_gal::double precision AS planning,
+               w.manual_or_unattributed_gal::double precision AS house,
+               w.available_for_scoring AS complete
+          FROM public.v_water_attribution_daily w
+         WHERE w.date = p_day AND w.greenhouse_id = 'vallery'
+    ), evidence AS (
+        -- The heat1 counter stream, one sample per 30 s: below 100 the lost-OFF detector was partly blind.
+        SELECT LEAST(100.0, count(*) * 30.0 * 100.0 / extract(epoch FROM LEAST(v_end, now()) - v_start))::double precision
+                   AS counter_sample_pct
+          FROM public.equipment_counter_samples c
+         WHERE c.greenhouse_id = 'vallery' AND c.stream = 'heat1'
+           AND c.source_observed_at >= v_start AND c.source_observed_at < v_end
+    ), law AS (
+        -- The climate law's state record (one a minute, and on a change): each record holds until the next, at most
+        -- 3 minutes, so a gap (a boot, a lost link) counts as no record. l bit 6: drying wanted; dr: why it is not
+        -- running ('none' while it runs).
+        SELECT s.ts,
+               LEAST(COALESCE(lead(s.ts) OVER (ORDER BY s.ts), LEAST(v_end, now())), s.ts + interval '3 minutes') AS until,
+               ((s.value::jsonb ->> 'l')::integer & 64) <> 0 AS wanted,
+               COALESCE(s.value::jsonb ->> 'dr', 'unknown') AS reason
+          FROM public.system_state s
+         WHERE s.entity = 'climate_law_state' AND s.ts >= v_start - interval '3 minutes' AND s.ts < v_end
+           AND s.value LIKE '{"v":1,%'
+    ), law_reason AS (
+        SELECT l.reason,
+               sum(GREATEST(extract(epoch FROM LEAST(l.until, v_end) - GREATEST(l.ts, v_start)), 0)) AS covered_s,
+               sum(GREATEST(extract(epoch FROM LEAST(l.until, v_end) - GREATEST(l.ts, v_start)), 0))
+                   FILTER (WHERE l.wanted) AS wanted_s
+          FROM law l
+         GROUP BY l.reason
+    ), refusal AS (
+        SELECT jsonb_build_object(
+                   'covered_s', round(sum(r.covered_s)),
+                   'wanted_s', round(COALESCE(sum(r.wanted_s), 0)),
+                   'refused_s', COALESCE(jsonb_object_agg(r.reason, round(r.wanted_s))
+                                             FILTER (WHERE r.reason <> 'none' AND r.wanted_s > 0), '{}'::jsonb)) AS doc
+          FROM law_reason r
+        HAVING sum(r.covered_s) > 0
+    )
+    INSERT INTO public.daily_record AS t (
+        date, complete, kwh_metered, kwh_metered_24h, meter_coverage_pct, therms_est,
+        water_gal, wetting_gal, planning_water_gal, house_water_gal, water_complete, counter_sample_pct,
+        drying_s, drying_runs, furnace_starts_after_drying, dry_refusal, computed_at)
+    SELECT p_day, now() >= v_end,
+           (SELECT e.kwh FROM energy e), (SELECT e.kwh_24h FROM energy e), (SELECT e.coverage FROM energy e),
+           (SELECT rr.run_s / 3600.0 * g.nominal_value::double precision / 100000.0
+              FROM relay_rows rr, gas g WHERE rr.equipment = 'heat2'),
+           (SELECT w.gal FROM water w), (SELECT w.wetting FROM water w), (SELECT w.planning FROM water w),
+           (SELECT w.house FROM water w), (SELECT w.complete FROM water w), (SELECT ev.counter_sample_pct FROM evidence ev),
+           COALESCE((SELECT sum(GREATEST(extract(epoch FROM LEAST(d.until, v_end) - GREATEST(d.ts, v_start)), 0))
+                       FROM dry_row d), 0),
+           (SELECT count(*) FROM dry_run d WHERE d.began >= v_start)::integer,
+           (SELECT count(*) FROM run r
+             WHERE r.equipment = 'heat2' AND r.on_at >= v_start AND r.on_at < v_end
+               AND EXISTS (SELECT 1 FROM dry_run d
+                            WHERE r.on_at >= d.ended AND r.on_at < d.ended + interval '15 minutes'))::integer,
+           CASE WHEN now() >= v_end THEN (SELECT rf.doc FROM refusal rf) END,
+           now()
+    ON CONFLICT (date) DO UPDATE SET
+        complete = EXCLUDED.complete, kwh_metered = EXCLUDED.kwh_metered,
+        kwh_metered_24h = EXCLUDED.kwh_metered_24h, meter_coverage_pct = EXCLUDED.meter_coverage_pct,
+        therms_est = EXCLUDED.therms_est, water_gal = EXCLUDED.water_gal, wetting_gal = EXCLUDED.wetting_gal,
+        planning_water_gal = EXCLUDED.planning_water_gal, house_water_gal = EXCLUDED.house_water_gal,
+        water_complete = EXCLUDED.water_complete, counter_sample_pct = EXCLUDED.counter_sample_pct,
+        drying_s = EXCLUDED.drying_s, drying_runs = EXCLUDED.drying_runs,
+        furnace_starts_after_drying = EXCLUDED.furnace_starts_after_drying, dry_refusal = EXCLUDED.dry_refusal,
+        computed_at = EXCLUDED.computed_at
+    RETURNING t.* INTO stored;
+    RETURN stored;
+END
+$store$;
+COMMENT ON COLUMN public.daily_record.dry_refusal IS
+    'The climate law''s drying record for the day (317, TEL-65), from climate_law_state, each record held until the '
+    'next and at most 3 minutes: covered_s, the seconds with a law record; wanted_s, the seconds drying was wanted '
+    '(l bit 6); refused_s, an object of refusal reason (dr: no_outdoor, cooling, furnace, not_drier, too_cold, cost, '
+    'humidity_invalid, no_temperature) to the wanted seconds it refused; wanted_s minus their sum ran. Set when the '
+    'day is complete; NULL for the day in progress and for a day with no law record (before the law flash).';
 
 -- (c) One definition of a relay's daily run time (validation TEL-23).
 COMMENT ON COLUMN public.daily_relay_record.run_s IS

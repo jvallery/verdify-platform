@@ -1269,7 +1269,7 @@ def sealed_sql_316():
 SERVED_BAND_READERS_MIGRATION = (
     317,
     "317-served-band-readers-and-relay-record.sql",
-    "cc67be343b4bdb5374001408d961ebdb3801332bbb39e493aca672a2b2eac76e",
+    "c8158c260260099445bfb898cc7dc3e45208077762e1946a0f399921b2e7589b",
 )
 # Host release 5 (#1633, #1734): the band readers read the served band, v_setpoint_forward goes, the retired irrigation
 # readback counts read NULL, and the relay counter check gains boots and the early-record rule. fn_heat_staging_inversion
