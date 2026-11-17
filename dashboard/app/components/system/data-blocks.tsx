@@ -18,7 +18,7 @@ import { Segmented } from "../segmented";
 import { Table } from "../table";
 import {
   CONTINUITY_DAYS, DELIVERY_HOURS, type ContinuityDays, type DeliveryHours, type FailingRow, type ProbeSummary, type SenderRow, type StateLine,
-  STANDING_WORDS, confirmTimeWords, continuityBars, failingRows, oldestWords, probeAge, readbackWords, senderRows, tableWords,
+  STANDING_WORDS, confirmTimeWords, continuityBars, failingRows, oldestWaiting, oldestWords, probeAge, readbackWords, senderRows, tableWords,
 } from "./data-words";
 import { hostState } from "./states";
 
@@ -196,7 +196,7 @@ export function DeliveryPanel({ read, hours, catalog, catalogSettled = true }: {
     actions={<Segmented label="Range" size="sm" value={String(hours)} segments={DELIVERY_HOURS.map((value) => ({ value: String(value), label: value === 24 ? "24 h" : "7 d", to: href(value), keepScroll: true }))} />}>
     {data && <>
       <DataList items={[
-        { key: "oldest", term: "Oldest unconfirmed", value: oldestWords(data.oldest_unconfirmed_s) },
+        { key: "oldest", term: "Oldest unconfirmed", value: oldestWords(oldestWaiting(data)) },
         { key: "latency", term: "Time to confirm", value: confirmTimeWords(data.latency), reason: "none confirmed" },
         { key: "pass", term: "Last readback pass", value: data.readback_pass.at ? <><LocalTime at={data.readback_pass.at} />: {readbackWords(data.readback_pass)}</> : null, reason: "not reported" },
         { key: "stage", term: "Sending", value: sending ? sentenceStart(sending) : null, reason: "not reported" },

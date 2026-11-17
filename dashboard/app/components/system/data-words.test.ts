@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { fixture } from "../../../e2e/fixtures/index.mjs";
 import type { DataContinuity, Delivery, Setting } from "../../lib/operator-api";
 import {
-  STANDING_WORDS, continuityBars, continuityDays, continuitySentence, deliveryHours, deliveryLine, failingNow, failingRows, flowLine, oldestWords, probeAge, probeKind, probeSummary,
+  STANDING_WORDS, continuityBars, continuityDays, continuitySentence, deliveryHours, deliveryLine, failingNow, failingRows, flowLine, oldestWaiting, oldestWords, probeAge, probeKind, probeSummary,
   probeWords, probesLine, readbackWords, senderRows, stoppedWords, tableWords,
 } from "./data-words";
 
@@ -86,7 +86,12 @@ test("against the catalogue a setting is failing, in force, recovered or retired
 test("the delivery line warns on a setting failing now or a push waiting over 30 min; otherwise counts what was confirmed", () => {
   const ok = deliveryLine({ by_status: [{ source: "band", status: "confirmed", count: 12 }], failing: [], oldest_unconfirmed_s: 0 } as never, 24, null);
   expect([ok.tone, plain(ok.text)]).toEqual(["ok", "12 pushes confirmed in 24 h, none failing"]);
-  expect(deliveryLine({ by_status: [], failing: [], oldest_unconfirmed_s: 2400 } as never, 168, null).tone).toBe("warn");
+  const late = deliveryLine({ by_status: [{ source: "band", status: "pending", count: 1 }], failing: [], oldest_unconfirmed_s: 2400 } as never, 168, null);
+  expect([late.tone, plain(late.text)]).toEqual(["warn", "0 pushes confirmed in 7 days, none failing · the oldest unconfirmed has waited 40 min"]);
+  // A cancelled push waits for nothing: with no push still waiting in the window, the API's age is not a wait.
+  const cancelled = { by_status: [{ source: "band", status: "confirmed", count: 12 }, { source: "band", status: "cancelled", count: 3 }, { source: "esp32", status: "observed", count: 400 }], failing: [], oldest_unconfirmed_s: 76_908 };
+  expect([deliveryLine(cancelled as never, 24, null).tone, plain(deliveryLine(cancelled as never, 24, null).text)]).toEqual(["ok", "12 pushes confirmed in 24 h, none failing"]);
+  expect([oldestWaiting(cancelled as never), oldestWaiting({ ...cancelled, by_status: [{ source: "manual", status: "pending", count: 1 }] } as never), oldestWaiting({ by_status: [], oldest_unconfirmed_s: null } as never)]).toEqual([0, 76_908, null]);
   const one = [{ param: "x", failed: 1, last_failed_at: at("10:00"), last_confirmed_at: null }];
   const failing = deliveryLine({ by_status: [], failing: one, oldest_unconfirmed_s: 0 } as never, 24, null);
   expect([failing.tone, failing.text]).toEqual(["warn", "1 setting is not taken now"]);

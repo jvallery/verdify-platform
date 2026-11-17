@@ -289,7 +289,9 @@ A setting is not taken now only when no push was confirmed after its last failur
 show the controller holding the wanted value: the delivery ledger knows only pushes, the catalogue knows what the
 controller holds. A setting the catalogue reads confirmed is listed as In force (with its readback time) and one the
 catalogue no longer has as Retired; both are listed but not counted in the status line, the answer or the panel's tone.
-While API-09 has not answered, delivery counts nothing; when it fails, the ledger alone decides.
+While API-09 has not answered, delivery counts nothing; when it fails, the ledger alone decides. A push is
+still waiting only while its status is not an outcome (confirmed, not taken, cancelled, replaced): API-37's age of the
+oldest unconfirmed push also counts a cancelled one, so with no push waiting the page reads "Nothing is waiting".
 
 ### 10.4 Settings `/settings`
 

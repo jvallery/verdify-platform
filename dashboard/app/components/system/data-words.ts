@@ -184,6 +184,17 @@ export function senderRows(rows: Delivery["by_status"]): SenderRow[] {
 }
 /** Every push of the window that was confirmed, across senders. */
 export const confirmedPushes = (rows: readonly SenderRow[]): number => rows.reduce((sum, row) => sum + row.counts.confirmed, 0);
+/**
+ * How long the oldest push still waiting for its readback has waited, in seconds; null when the API does not say. API-37's
+ * `oldest_unconfirmed_s` also counts a cancelled push, which waits for nothing, so while the window's pushes hold none
+ * that is still waiting (every status is an outcome) nothing waits and this is 0. The API drops cancelled pushes from
+ * that age in its next release.
+ */
+export function oldestWaiting(data: Pick<Delivery, "by_status" | "oldest_unconfirmed_s">): number | null {
+  if (!finite(data.oldest_unconfirmed_s)) return null;
+  const waiting = data.by_status.some((row) => !isControllerReport(row.source) && row.count > 0 && !(row.status in OUTCOME_OF));
+  return waiting ? data.oldest_unconfirmed_s : 0;
+}
 
 type Failing = Delivery["failing"][number];
 /**
@@ -262,7 +273,7 @@ export function deliveryLine(data: Pick<Delivery, "by_status" | "failing" | "old
   const failing = failingNow(data.failing, catalog);
   if (failing > 0) return { tone: "warn", text: `${failing} ${failing === 1 ? "setting is" : "settings are"} not taken now` };
   const confirmed = confirmedPushes(senderRows(data.by_status));
-  const oldest = finite(data.oldest_unconfirmed_s) ? data.oldest_unconfirmed_s : 0;
+  const oldest = oldestWaiting(data) ?? 0;
   const waiting = oldest > 0 ? ` · the oldest unconfirmed has waited ${duration(oldest)}` : "";
   return { tone: oldest > WAITING_LATE_S ? "warn" : "ok", text: `${formatValue(confirmed, "count")} pushes confirmed in ${window}, none failing${waiting}` };
 }
