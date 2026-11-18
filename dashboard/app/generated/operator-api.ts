@@ -236,8 +236,8 @@ export interface paths {
             readonly cookie?: never;
         };
         /**
-         * Band in force and the reconstructed crop band, for the house or one zone
-         * @description band is the history of the dispatcher's band rows for `zone` (setpoint_snapshot band_role): DERIVED from crop_band_anchors with the controller's formula, kept 90 days, null before that. crop is reconstructed from today's anchors over the whole window: for house, fn_band_setpoints(ts) over the step series, which gives the same crop values as fn_band_timeline; for another zone, the house temperature crop band with fn_zone_vpd_targets(ts) ∓ the zone crop's crop_band_anchors widths. The step matches the window: at least 5 min and at most 2,000 points. With achievable (house, windows up to 35 days; #1433), achievable adds the band the house can be expected to hold: at night the band widened to the expected VPD ribbon of a rolling 14-day indoor-dewpoint fit (verdify_schemas.vpd_envelope), by day the band itself, and each night graded against both bands.
+         * The house band in force and the reconstructed crop band
+         * @description band is the history of the dispatcher's house band rows (setpoint_snapshot band_role): DERIVED from crop_band_anchors with the controller's formula, kept 90 days, null before that. crop is reconstructed from today's anchors over the whole window: fn_band_setpoints(ts) over the step series, which gives the same crop values as fn_band_timeline. Release C retired the zone bands (center, south, west, east): zones are probes, and the law has one band. The step matches the window: at least 5 min and at most 2,000 points. With achievable (house, windows up to 35 days; #1433), achievable adds the band the house can be expected to hold: at night the band widened to the expected VPD ribbon of a rolling 14-day indoor-dewpoint fit (verdify_schemas.vpd_envelope), by day the band itself, and each night graded against both bands.
          */
         readonly get: operations["API-06"];
         readonly put?: never;
@@ -256,8 +256,8 @@ export interface paths {
             readonly cookie?: never;
         };
         /**
-         * Preview a crop-band edit as the day's diurnal curve, before Save
-         * @description Read-only; Save stays API-10. Overlays the draft value on the crop_band_anchors rows fn_crop_band_value reads and returns the current and draft curves at 10-min steps with its four-anchor harmonic. A house temperature or VPD param returns that axis's low, target and high; a zone param returns the zone's VPD target and the target ∓ its widths. Codes: unknown_target (not a crop-band anchor or width), out_of_range (outside planner_effective_bounds).
+         * Preview a house band anchor edit as the day's diurnal curve, before Save
+         * @description Read-only; Save stays API-10. Overlays the draft value on the crop_band_anchors rows fn_crop_band_value reads and returns the current and draft curves at 10-min steps with its four-anchor harmonic: the param's axis's low, target and high. Release C retired the zone VPD targets and widths (zones are probes, and the law has one band). Codes: unknown_target (not a house band anchor), out_of_range (outside planner_effective_bounds).
          */
         readonly get: operations["API-19"];
         readonly put?: never;
@@ -836,49 +836,9 @@ export interface paths {
         };
         /**
          * Now hero
-         * @description Indoor and outdoor climate with ages, the band in force (the dispatcher's DERIVED band rows) with a verdict per metric, mode, Iris status, equipment running, bursts from the controller's readback, the leak flag, the open-alert count, source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot. The climate law's state carries the band the controller is using; review is the daily review's state today (as API-34's today); outdoor.source says where the outdoor reading comes from; controller carries the three health facts the shell's banner reads. Polled every 15 s; the shell banners read `freshness`, `writer`, `leak` and `alerts`. Water and occupancy come from API-IRR-01.
+         * @description Indoor and outdoor climate with ages, the band in force (the dispatcher's DERIVED band rows) with a verdict per metric, equipment running, bursts from the controller's readback, the leak flag, the open-alert count, source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot. The climate law's state carries the band the controller is using; review is the daily review's state today (as API-34's today); outdoor.source says where the outdoor reading comes from; controller carries the three health facts the shell's banner reads. Polled every 15 s; the shell banners read `freshness`, `writer`, `leak` and `alerts`. Water and occupancy come from API-IRR-01.
          */
         readonly get: operations["API-02"];
-        readonly put?: never;
-        readonly post?: never;
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
-    readonly "/v1/plan": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        /**
-         * Plan in force, one lane per planned setting, manual settings and planner health
-         * @description Each lane says whose value applies now (applied_from) and marks waypoints that will not apply (effective false), for example while a newer non-manual desired row holds until Iris's next plan. Waypoints carry their source: iris, or preemptive for the forecast action engine (a forecast rule, never shown as AI). health is planner_trigger_ledger: the rows expected in the last 36 h and the expected rows ahead.
-         */
-        readonly get: operations["API-07"];
-        readonly put?: never;
-        readonly post?: never;
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
-    readonly "/v1/planner/history": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        /**
-         * Plans per day, required plans written, failed and late, dispatched changes, cost and the newest plans
-         * @description One entry per America/Denver day, oldest first, from plan_journal, planner_trigger_ledger (MIDNIGHT, SUNRISE and SUNSET are required) and setpoint_changes source plan. Cost comes from planner_inference_runs through migration 302's view: before the Cortex planner (#1350) records a call, cost is null and cost_recorded_from is null, which the page shows as "not recorded". dispatched and proposed_only are null until planner_inference_runs has the Cortex attempt columns (cortex_attempts false).
-         */
-        readonly get: operations["API-25"];
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
@@ -974,7 +934,7 @@ export interface paths {
             readonly path?: never;
             readonly cookie?: never;
         };
-        /** Every registry row with its device value, desired row, plan value and state, and the Band in force rows */
+        /** Every registry row with its device value, desired row and state, and the Band in force rows */
         readonly get: operations["API-09"];
         readonly put?: never;
         readonly post?: never;
@@ -1003,7 +963,7 @@ export interface paths {
         readonly post?: never;
         /**
          * Release to auto
-         * @description Appends a value = null row. The plan, the band or the dispatcher's default applies again; a writable setting with none of these returns to its registry default (TunableDef.default). manual is cleared.
+         * @description Appends a value = null row. The band or the dispatcher's default applies again; a writable setting with none of these returns to its registry default (TunableDef.default). manual is cleared.
          */
         readonly delete: operations["API-11"];
         readonly options?: never;
@@ -1018,7 +978,7 @@ export interface paths {
             readonly path?: never;
             readonly cookie?: never;
         };
-        /** Desired rows, plan values and readback steps over a window (also the Graphs setting steps) */
+        /** Desired rows and readback steps over a window (also the Graphs setting steps) */
         readonly get: operations["API-12"];
         readonly put?: never;
         readonly post?: never;
@@ -1530,7 +1490,7 @@ export interface components {
                 readonly current: number | null;
                 readonly draft: number | null;
             };
-            /** @description By series, how far the draft curve leaves its anchor range */
+            /** @description By edge series (temp_low, temp_high, vpd_low, vpd_high), how far the draft curve leaves its anchor range. The stored middle lines (temp_target, vpd_target), which the law does not read, have no key and no finding since release C part 2 */
             readonly overshoot: {
                 readonly [key: string]: number;
             };
@@ -1583,7 +1543,7 @@ export interface components {
             readonly achievable?: components["schemas"]["AchievableColumns"] | null;
             /** @description In force (DERIVED band rows of the requested zone); null beyond 90 days */
             readonly band: components["schemas"]["BandColumns"];
-            /** @description Reconstructed from today's anchors (API-06 says how per zone) */
+            /** @description Reconstructed from today's anchors (API-06 says how) */
             readonly crop: components["schemas"]["BandColumns"];
             /** Format: date-time */
             readonly from: string;
@@ -2025,8 +1985,6 @@ export interface components {
                  */
                 readonly state: "on" | "off" | "unknown";
             }[];
-            /** @description Which branch chose the climate mode */
-            readonly mode_reason?: components["schemas"]["ReasonState"];
             /** @description What holds the misters off */
             readonly moisture_block_reason?: components["schemas"]["ReasonState"];
         };
@@ -2668,7 +2626,6 @@ export interface components {
              * @example water and soil
              * @example light
              * @example outdoor
-             * @example targets
              * @example controller
              * @example power
              * @example daily
@@ -2773,40 +2730,9 @@ export interface components {
                 readonly temp_f: components["schemas"]["Reading"];
                 readonly vpd_kpa: components["schemas"]["Reading"];
             };
-            readonly iris: {
-                /** @description Always null since climate refactor 4.2: no plan applies, so band and defaults */
-                readonly plan_id: string | null;
-                /**
-                 * @description The daily review (5.1): missed or failed while its daily_review_missed alert is open, else ok; late no longer occurs
-                 * @enum {string}
-                 */
-                readonly required_trigger: "ok" | "late" | "missed" | "failed";
-                readonly trigger?: string | null;
-                /** Format: date-time */
-                readonly valid_until?: string | null;
-            };
-            /** @description The climate law's state record while it is fresh; null before the law build (the mode then says what the controller does) */
+            /** @description The climate law's state record while it is fresh; null before the law build or while the record is stale (release C retired mode and iris; law and review replace them) */
             readonly law?: components["schemas"]["LawState"] | null;
             readonly leak: components["schemas"]["Leak"];
-            readonly mode: {
-                /**
-                 * @example IDLE
-                 * @example SEALED_MIST
-                 * @example SAFETY_COOL
-                 */
-                readonly code: string;
-                /** @description mode_reason */
-                readonly reason?: string | null;
-                /** Format: date-time */
-                readonly since?: string | null;
-                /**
-                 * @example WATCH
-                 * @example FOG
-                 * @example S1
-                 * @example S2
-                 */
-                readonly stage?: string | null;
-            };
             readonly outdoor: {
                 readonly rh_pct: components["schemas"]["Reading"];
                 /**
@@ -2871,7 +2797,7 @@ export interface components {
             readonly server_time: string;
             /** @description The greenhouse snapshot (#1346): the newest 3-5 sentence summary the local Cortex model wrote from the current conditions (CronJob verdify-greenhouse-brief); null when none was written in the last 2 h */
             readonly snapshot?: components["schemas"]["Snapshot"] | null;
-            /** @description Device writer health (Round 2 #1): the writer-health tile and the stuck-delivery banner. age_s is the setpoints pipeline age (v_data_pipeline_health source setpoints: the newest setpoint push or device-reported change). stuck is true while the setpoint_delivery_stuck alert is open. differing counts settings whose effective value has differed from the newest readback for more than 10 min, leaving out held and clamped ones */
+            /** @description Device writer health (Round 2 #1): the writer-health tile and the stuck-delivery banner. age_s is the setpoints pipeline age (v_data_pipeline_health source setpoints: the newest setpoint push or device-reported change). stuck is true while the setpoint_delivery_stuck alert is open. differing counts settings whose effective value has differed from the newest readback for more than 10 min, leaving out clamped ones */
             readonly writer: {
                 readonly age_s: number | null;
                 readonly differing: number;
@@ -2937,156 +2863,6 @@ export interface components {
             /** Format: date-time */
             readonly until?: string | null;
             readonly zone: string;
-        };
-        readonly Plan: {
-            /** @description planner_trigger_ledger: rows expected in the last 36 h and the expected rows ahead */
-            readonly health: readonly components["schemas"]["PlannerTrigger"][];
-            readonly lanes: readonly components["schemas"]["PlanLane"][];
-            readonly manual_count: number;
-            /**
-             * Format: date-time
-             * @description With no plan, band and defaults apply since then
-             */
-            readonly no_plan_since?: string | null;
-            /** @description Null when no plan is in force */
-            readonly plan: components["schemas"]["PlanRecord"] | null;
-        };
-        readonly PlanCost: {
-            readonly energy_wh: number | null;
-            readonly input_tokens: number | null;
-            readonly latency_ms: number | null;
-            readonly model_id: string | null;
-            readonly output_tokens: number | null;
-            readonly status: string | null;
-        };
-        readonly PlanLane: {
-            /**
-             * @description Computed by verdify_services with the dispatcher's rule
-             * @enum {string}
-             */
-            readonly applied_from: "manual" | "desired" | "plan" | "band" | "default";
-            /** @description Newest desired row; Iris skips it if manual */
-            readonly desired: components["schemas"]["DesiredSetting"] | null;
-            /** @description Newest readback */
-            readonly device: components["schemas"]["Reading"];
-            readonly label: string;
-            readonly param: string;
-            readonly unit?: string | null;
-            /** @description Plan values to the horizon */
-            readonly waypoints: readonly components["schemas"]["PlanWaypoint"][];
-        };
-        readonly PlannerDayCost: {
-            readonly calls: number;
-            /** @description Calls whose plan was dispatched; null before the Cortex attempt columns */
-            readonly dispatched: number | null;
-            readonly energy_wh: number | null;
-            readonly input_tokens: number | null;
-            readonly latency_ms_median: number | null;
-            readonly models: readonly string[];
-            readonly output_tokens: number | null;
-            /** @description Calls stored but not sent (shadow or a baseline day) */
-            readonly proposed_only: number | null;
-        };
-        /** @description API-25: the planner over 30 or 90 local days. Null means not recorded, never 0 */
-        readonly PlannerHistory: {
-            /** @description planner_inference_runs has the Cortex attempt columns (migration 294) */
-            readonly cortex_attempts: boolean;
-            /**
-             * Format: date-time
-             * @description The first recorded planner call; null: cost not recorded yet (before #1350)
-             */
-            readonly cost_recorded_from: string | null;
-            /** @description One per America/Denver day, oldest first */
-            readonly days: readonly {
-                /** @description Dispatched changes the device confirmed by readback */
-                readonly changes_confirmed: number;
-                readonly changes_dispatched: number;
-                /** @description Null: no planner call recorded that day */
-                readonly cost: components["schemas"]["PlannerDayCost"] | null;
-                /** Format: date */
-                readonly date: string;
-                /** @description Distinct settings the plan path changed on the device (setpoint_changes source plan) */
-                readonly params_dispatched: number;
-                /** @description plan_journal rows written that day */
-                readonly plans_written: number;
-                /** @description Required triggers (MIDNIGHT, SUNRISE, SUNSET) expected by now */
-                readonly required_due: number;
-                /** @description Missed, timed out, failed delivery, wrong action or neutral fallback */
-                readonly required_failed: number;
-                /** @description Written after the trigger's due time */
-                readonly required_late: number;
-                readonly required_written: number;
-                /** @description Plans by trigger (UNKNOWN when unmatched) */
-                readonly triggers: {
-                    readonly [key: string]: number;
-                };
-            }[];
-            /** Format: date */
-            readonly from: string;
-            /** @description The newest plans in the window, newest first (at most 60) */
-            readonly plans: readonly {
-                readonly cost: components["schemas"]["PlanCost"] | null;
-                readonly hypothesis: string | null;
-                /** @description The planner's own score of the plan */
-                readonly outcome_score: number | null;
-                readonly params_dispatched: number;
-                readonly plan_id: string;
-                readonly trigger: string;
-                /** Format: date-time */
-                readonly written_at: string;
-            }[];
-            /**
-             * Format: date
-             * @description Inclusive local day: today, a partial day
-             */
-            readonly to: string;
-        };
-        /** @description One planner_trigger_ledger row */
-        readonly PlannerTrigger: {
-            /**
-             * Format: date-time
-             * @description expected_at plus the SLA
-             */
-            readonly due_at: string;
-            /**
-             * Format: date-time
-             * @description When the trigger fires
-             */
-            readonly expected_at: string;
-            readonly failure_class?: string | null;
-            /**
-             * @description The ledger status verbatim; the UI maps it to words (missed and wrong_action included)
-             * @enum {string}
-             */
-            readonly outcome: "expected" | "delivered" | "acked" | "plan_written" | "action_completed" | "neutral_fallback" | "wrong_action" | "delivery_failed" | "timed_out" | "missed";
-            /** @description MIDNIGHT, SUNRISE and SUNSET are required */
-            readonly required: boolean;
-            /** Format: date-time */
-            readonly resolved_at?: string | null;
-            readonly trigger: string;
-        };
-        /** @description A plan_journal row; history rows omit detail */
-        readonly PlanRecord: {
-            readonly conditions_summary?: string | null;
-            /** @description hypothesis_structured and climate_intents as stored (stress windows, per-setting rationale) */
-            readonly detail?: Record<string, unknown>;
-            readonly expected_outcome?: string | null;
-            readonly experiment?: string | null;
-            readonly hypothesis?: string | null;
-            readonly lesson?: string | null;
-            readonly outcome_score?: number | null;
-            /** @example iris-20261101-0702 */
-            readonly plan_id: string;
-            /** @description lifecycle_status */
-            readonly status?: string | null;
-            /** @description MIDNIGHT, SUNRISE, SOLAR_MAX, TRANSITION, SUNSET, WEEKLY, FORECAST_DEVIATION or MANUAL */
-            readonly trigger: string;
-            /** Format: date-time */
-            readonly valid_from?: string | null;
-            /** Format: date-time */
-            readonly valid_until?: string | null;
-            /** Format: date-time */
-            readonly written_at: string;
         };
         /** @description A planting as the Crops page and the agents show it. cells are its open cells; places its open occupancy at every level; count null is unknown. */
         readonly Planting: {
@@ -3208,18 +2984,6 @@ export interface components {
             readonly stage?: "seed" | "germination" | "seedling" | "vegetative" | "flowering" | "fruiting" | "harvest" | "cleared" | null;
             readonly variety?: string | null;
         };
-        readonly PlanWaypoint: {
-            /** Format: date-time */
-            readonly at: string;
-            /** @description false when a manual or newer desired row keeps it from applying (SUPERSEDED) */
-            readonly effective: boolean;
-            /**
-             * @description preemptive is the forecast action engine, shown as "Forecast rule · system", never AI
-             * @enum {string}
-             */
-            readonly source: "iris" | "preemptive";
-            readonly value: number | null;
-        };
         /** @description Who has held one cell: the current occupant first, then the rest newest first. */
         readonly PositionHistory: {
             readonly items: readonly components["schemas"]["Tenure"][];
@@ -3257,10 +3021,10 @@ export interface components {
             readonly type?: string;
         };
         /**
-         * @description Stable codes shared with MCP (architecture §5.3, irrigation §4.3 and §4.7). manual is for Iris only. position_occupied, ambiguous_position and planting_ended are the plantings' refusals (API-CROP-06 to -11); study_state was the retired planner study's (API-28); it stays so older records still parse
+         * @description Stable codes shared with MCP (architecture §5.3, irrigation §4.3 and §4.7). manual is for Iris only. position_occupied, ambiguous_position and planting_ended are the plantings' refusals (API-CROP-06 to -11). study_state, the retired planner study's (API-28), was removed in release C
          * @enum {string}
          */
-        readonly ProblemCode: "invalid_request" | "unauthenticated" | "forbidden" | "origin_mismatch" | "not_found" | "writes_disabled" | "query_timeout" | "unavailable" | "window_too_large" | "unknown_target" | "read_only" | "out_of_range" | "manual" | "request_id_reused" | "check_required" | "too_close" | "too_many_schedules" | "line_disabled" | "line_paused" | "line_faulted" | "not_schedule_member" | "line_busy" | "manifold_busy" | "cap_reached" | "position_occupied" | "ambiguous_position" | "planting_ended" | "study_state";
+        readonly ProblemCode: "invalid_request" | "unauthenticated" | "forbidden" | "origin_mismatch" | "not_found" | "writes_disabled" | "query_timeout" | "unavailable" | "window_too_large" | "unknown_target" | "read_only" | "out_of_range" | "manual" | "request_id_reused" | "check_required" | "too_close" | "too_many_schedules" | "line_disabled" | "line_paused" | "line_faulted" | "not_schedule_member" | "line_busy" | "manifold_busy" | "cap_reached" | "position_occupied" | "ambiguous_position" | "planting_ended";
         /** @description The compiled program against the controller (irr_program_id); confirmed when the device hash matches */
         readonly ProgramSync: {
             /** @description First 16 hex of the applied sha256 */
@@ -3290,10 +3054,10 @@ export interface components {
             readonly state: components["schemas"]["ReadbackState"];
         };
         /**
-         * @description Computed on every read (architecture §5.5); display only. held means the platform applies something else on purpose (a dispatcher clamp, or an armed experiment manifest serving the field). Irrigation items and the irrigation_site settings use requested, confirmed and not_confirmed against the controller's program hash; before the engine firmware they stay requested. not_confirmed is only a request at least 5 min old the readback does not match; a setting nobody requested with no readback reads no_readback (#1333).
+         * @description Computed on every read (architecture §5.5); display only. A dispatcher clamp reads not_confirmed at once, with state_reason clamped (release C retired held, which a clamp or an armed experiment read). Irrigation items and the irrigation_site settings use requested, confirmed and not_confirmed against the controller's program hash; before the engine firmware they stay requested. not_confirmed is only a request at least 5 min old the readback does not match; a setting nobody requested with no readback reads no_readback (#1333).
          * @enum {string}
          */
-        readonly ReadbackState: "requested" | "confirmed" | "not_confirmed" | "held" | "no_readback" | "overridden" | "released";
+        readonly ReadbackState: "requested" | "confirmed" | "not_confirmed" | "no_readback" | "overridden" | "released";
         readonly Readiness: {
             /**
              * @description BFF only; reported, not gating
@@ -3834,10 +3598,10 @@ export interface components {
         /** @description One tunable_registry row, or a read-only Band in force row, as the Settings screen shows it */
         readonly Setting: {
             /**
-             * @description What the dispatcher applies now
+             * @description What the dispatcher applies now (release C retired plan, which no setting has read since climate refactor 4.2); a legacy wide limit reads default, because the host no longer sends it and the controller's own value is in force
              * @enum {string}
              */
-            readonly applied_from: "manual" | "desired" | "plan" | "band" | "default";
+            readonly applied_from: "manual" | "desired" | "band" | "default";
             /** @enum {string} */
             readonly control_class: "planner_policy" | "scheduled_policy" | "controller_safety" | "crop_band" | "irrigation_site" | "readback_context" | "retired";
             readonly desired: components["schemas"]["DesiredSetting"] | null;
@@ -3867,20 +3631,6 @@ export interface components {
             }[];
             /** @example gl_main_lux_threshold */
             readonly param: string;
-            readonly plan: null | {
-                /** @description Next planned change; effective false while a newer desired row holds it off */
-                readonly next: components["schemas"]["PlanWaypoint"] | null;
-                readonly plan_id: string;
-                /**
-                 * @description preemptive is the forecast action engine
-                 * @enum {string}
-                 */
-                readonly source: "iris" | "preemptive";
-                /** @description Plan value in force now, as stored (unsnapped) */
-                readonly value: number | null;
-                /** Format: date-time */
-                readonly written_at: string;
-            };
             /**
              * @description Why a read-only row cannot be written (#1333): the tunable_registry READ_ONLY_REASONS key, no_anchor_row (a crop-band row with no crop_band_anchors row) or band_in_force (derived band rows); null on a writable row
              * @enum {string|null}
@@ -3934,8 +3684,6 @@ export interface components {
             readonly max?: number | null;
             readonly min?: number | null;
             readonly param: string;
-            /** @description Iris and forecast-rule values in the window, future waypoints included, each with its source and effective, so API-12 alone draws the Graphs setting steps */
-            readonly plan: readonly components["schemas"]["PlanWaypoint"][];
             /** @description cfg_* readback change points */
             readonly readback: readonly components["schemas"]["TimedValue"][];
             /** Format: date-time */
@@ -4048,12 +3796,12 @@ export interface components {
             /** Format: date-time */
             readonly to: string;
         };
-        /** @description Why a value is held or not confirmed, when the platform knows (architecture §5.5): clamped (a dispatcher clamp; applied_value), experiment (an armed manifest serves the field), deferred (controller heap low), push_failed (setpoint_changes.delivery_status after the request), writer_down (the ingestor heartbeat is older than 180 s: "Ingestor not running since HH:MM"), controller_not_reporting (heartbeat fresh, newest climate row older than 300 s: "Controller not reporting since HH:MM"), no_engine (an irrigation_site write stored before the engine firmware: "applies with the irrigation firmware"; it stays requested) or no_match ("Sent HH:MM; no matching readback yet"). since gives each HH:MM */
+        /** @description Why a value is not confirmed, when the platform knows (architecture §5.5): clamped (a dispatcher clamp; applied_value), deferred (controller heap low), push_failed (setpoint_changes.delivery_status after the request), writer_down (the ingestor heartbeat is older than 180 s: "Ingestor not running since HH:MM"), controller_not_reporting (heartbeat fresh, newest climate row older than 300 s: "Controller not reporting since HH:MM"), no_engine (an irrigation_site write stored before the engine firmware: "applies with the irrigation firmware"; it stays requested) or no_match ("Sent HH:MM; no matching readback yet"). since gives each HH:MM */
         readonly StateReason: {
             /** @description What the dispatcher sent instead, when clamped */
             readonly applied_value?: number | null;
             /** @enum {string} */
-            readonly code: "clamped" | "experiment" | "deferred" | "push_failed" | "writer_down" | "controller_not_reporting" | "no_engine" | "no_match";
+            readonly code: "clamped" | "deferred" | "push_failed" | "writer_down" | "controller_not_reporting" | "no_engine" | "no_match";
             /** @description In words, e.g. the guard that clamped it or the push status */
             readonly detail?: string | null;
             /**
@@ -4552,8 +4300,8 @@ export interface operations {
                 readonly from: components["parameters"]["From"];
                 /** @description Window end (exclusive) */
                 readonly to: components["parameters"]["To"];
-                /** @description North has no zone band and is not offered */
-                readonly zone?: "house" | "center" | "south" | "west" | "east";
+                /** @description house: the law has one band, and zones are probes */
+                readonly zone?: "house";
             };
             readonly header?: never;
             readonly path?: never;
@@ -4578,7 +4326,7 @@ export interface operations {
             readonly query: {
                 /** @description America/Denver day; default today */
                 readonly day?: string;
-                /** @description A crop-band anchor or width: band_<series>_<anchor>, zone_vpd_target_<zone>_<anchor>, zone_vpd_width_below_<zone> or zone_vpd_width_above_<zone> */
+                /** @description A house band anchor: band_<series>_<anchor> */
                 readonly param: string;
                 /** @description The draft value, in the setting's unit */
                 readonly value: number;
@@ -5531,54 +5279,6 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["Now"];
-                };
-            };
-            readonly default: components["responses"]["Problem"];
-        };
-    };
-    readonly "API-07": {
-        readonly parameters: {
-            readonly query?: {
-                /** @description Lane horizon; live waypoints rarely reach past a few hours */
-                readonly hours?: 24 | 72;
-            };
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly requestBody?: never;
-        readonly responses: {
-            /** @description OK */
-            readonly 200: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": components["schemas"]["Plan"];
-                };
-            };
-            readonly default: components["responses"]["Problem"];
-        };
-    };
-    readonly "API-25": {
-        readonly parameters: {
-            readonly query?: {
-                /** @description Days ending today, today included */
-                readonly days?: 30 | 90;
-            };
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly requestBody?: never;
-        readonly responses: {
-            /** @description OK */
-            readonly 200: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": components["schemas"]["PlannerHistory"];
                 };
             };
             readonly default: components["responses"]["Problem"];

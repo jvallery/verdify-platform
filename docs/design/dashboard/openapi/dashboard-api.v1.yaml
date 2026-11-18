@@ -27,12 +27,12 @@ info:
 
     | Topic | Rule |
     |---|---|
-    | Ids | `operationId` is the design id: API-01 to API-25 and API-30 to API-37 (API-26 to API-28, the planner study, retired with the planner's write role; API-29 is left unused), API-IRR-01 to API-IRR-13, API-CROP-01 to API-CROP-12, BFF-01 to BFF-03, INT-01, INT-02, OPS-01, OPS-02 and OPS-04. API-08, API-18, API-IRR-09 and OPS-03 are reserved (cut); ids are never reused |
+    | Ids | `operationId` is the design id: API-01 to API-24 and API-30 to API-37 (API-07, the plan, and API-25, the planner history, retired in release C; API-26 to API-28, the planner study, retired with the planner's write role; API-29 is left unused), API-IRR-01 to API-IRR-13, API-CROP-01 to API-CROP-12, BFF-01 to BFF-03, INT-01, INT-02, OPS-01, OPS-02 and OPS-04. API-08, API-18, API-IRR-09 and OPS-03 are reserved (cut); ids are never reused |
     | Data | JSON. Times are ISO 8601 with an offset; days are America/Denver. Units are in field names or `unit` (°F, %, kPa, gal, min, s). `null` means unavailable, never 0; gaps stay gaps |
     | Roles | GET: `viewer` and `operator`. Every other method: `operator` (403 `forbidden`) |
-    | Writes | Validated on submit (registry min/max, enums, step snap). The newest write wins. No agent writes a climate value (climate refactor 4.2: `set_plan` and `set_tunable` are retired, and an agent's `set_setting` reaches only the operator switches). On a `manual: true` item Iris's irrigation writes are refused with `manual`; people and other agents may overwrite it, attributed, and each write stores the `manual` it carries. Every write appends one `activity_log` row: source (`dashboard`, `iris`, `agent:<name>` or `system`), actor, time, reason, and the experiment id while one is armed. Nothing is refused because an experiment is armed |
+    | Writes | Validated on submit (registry min/max, enums, step snap). The newest write wins. No agent writes a climate value (climate refactor 4.2: `set_plan` and `set_tunable` are retired, and an agent's `set_setting` reaches only the operator switches). On a `manual: true` item Iris's irrigation writes are refused with `manual`; people and other agents may overwrite it, attributed, and each write stores the `manual` it carries. Every write appends one `activity_log` row: source (`dashboard`, `iris`, `agent:<name>` or `system`), actor, time, reason, and the experiment id while one is armed |
     | Idempotency | Every write takes an optional `Idempotency-Key` (MCP `request_id`). The same key and payload return the stored result again with `Idempotency-Replayed: true`; the same key with a different payload is 422 `request_id_reused` |
-    | Readback | Setting and program writes return the stored object with `state: requested`; later reads show `confirmed`, `held` or `not_confirmed`. Display only, never a gate. Commands return 202 and a `Command` (`pending`, then `sent` or `failed`); relay edges and `irr_state` show what happened |
+    | Readback | Setting and program writes return the stored object with `state: requested`; later reads show `confirmed` or `not_confirmed`. Display only, never a gate. Commands return 202 and a `Command` (`pending`, then `sent` or `failed`); relay edges and `irr_state` show what happened |
     | BFF | Non-GET `/api/*` needs `Origin: https://dashboard.verdify.ai` exactly (403 `origin_mismatch`). A path with a `.` or `..` segment, or containing `%2e`, `%2f`, `%5c` or a backslash, gets 400 `invalid_request`. While `DASHBOARD_WRITES_ENABLED` is not `true`, every non-GET `/api/*` except API-IRR-07 (Stop) gets 503 `writes_disabled`. `/api` and `/auth` responses are `Cache-Control: no-store`. Paths with `x-served-by` are served by the BFF (or by both tiers) |
     | Errors | `application/problem+json`: 400 `invalid_request`, 401 `unauthenticated`, 403 `forbidden` or `origin_mismatch`, 404 `not_found` (unknown id on a read), 422 validation and refusal codes (`unknown_target` on a write, as on MCP), 503 `writes_disabled`, `query_timeout` (narrow the window) or `unavailable`. `retryable` is true only for `line_busy`, `manifold_busy`, `query_timeout` and `unavailable`. Until the engine firmware is on the controller, an operation that needs it is 503 `unavailable` with `retryable: false` and the detail "arrives with the irrigation firmware" |
 servers:
@@ -44,14 +44,12 @@ tags:
   - {name: session, description: 'Who am I, sign-in, sign-out and the BFF-only session routes'}
   - {name: now, description: The Now hero}
   - {name: graphs, description: 'Metric registry, series, equipment states and band ribbons'}
-  - {name: plan, description: 'Iris plan in force, lanes and planner health'}
   - {name: settings, description: 'Every registry setting, writes and history'}
   - {name: equipment, description: Equipment board}
   - {name: alerts, description: 'In-app alerts (alert_log); critical ones page through Alertmanager (OPS-04), never Slack (#1352)'}
   - {name: activity, description: 'activity_log: every write by people, Iris, agents and the system'}
   - {name: irrigation, description: 'Lines L01-L11, schedules, runs, minutes by zone and commands'}
   - {name: crops, description: 'Plantings on the location tree: zones, shelves and cells, moves, harvests and history'}
-  - {name: planner, description: 'The Planner section (#1361): plan history and cost'}
   - {name: law, description: 'What the controller''s climate law is doing now and why, and its decisions over time'}
   - {name: record, description: 'The daily record: band compliance, relay starts and run time, utilities and drying per local day'}
   - {name: review, description: 'The daily reviewer''s written reviews and band proposals'}
@@ -79,8 +77,8 @@ paths:
       summary: Now hero
       description: >-
         Indoor and outdoor climate with ages, the band in force (the dispatcher's DERIVED band rows) with a verdict
-        per metric, mode, Iris status, equipment running, bursts from the controller's readback, the leak flag, the
-        open-alert count, source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot.
+        per metric, equipment running, bursts from the controller's readback, the leak flag, the open-alert count,
+        source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot.
         The climate law's state carries the band the controller is using; review is the daily review's state today
         (as API-34's today); outdoor.source says where the outdoor reading comes from; controller carries the three
         health facts the shell's banner reads. Polled every 15 s; the shell banners read `freshness`, `writer`, `leak`
@@ -159,13 +157,13 @@ paths:
     get:
       operationId: API-06
       tags: [graphs]
-      summary: Band in force and the reconstructed crop band, for the house or one zone
+      summary: The house band in force and the reconstructed crop band
       description: >-
-        band is the history of the dispatcher's band rows for `zone` (setpoint_snapshot band_role): DERIVED from
+        band is the history of the dispatcher's house band rows (setpoint_snapshot band_role): DERIVED from
         crop_band_anchors with the controller's formula, kept 90 days, null before that. crop is reconstructed from
-        today's anchors over the whole window: for house, fn_band_setpoints(ts) over the step series, which gives the
-        same crop values as fn_band_timeline; for another zone, the house temperature crop band with
-        fn_zone_vpd_targets(ts) ∓ the zone crop's crop_band_anchors widths. The step matches the window: at least 5
+        today's anchors over the whole window: fn_band_setpoints(ts) over the step series, which gives the same crop
+        values as fn_band_timeline. Release C retired the zone bands (center, south, west, east): zones are probes,
+        and the law has one band. The step matches the window: at least 5
         min and at most 2,000 points. With achievable (house, windows up to 35 days; #1433), achievable adds the
         band the house can be expected to hold: at night the band widened to the expected VPD ribbon of a rolling
         14-day indoor-dewpoint fit (verdify_schemas.vpd_envelope), by day the band itself, and each night graded
@@ -175,8 +173,8 @@ paths:
         - $ref: '#/components/parameters/To'
         - name: zone
           in: query
-          description: North has no zone band and is not offered
-          schema: {type: string, enum: [house, center, south, west, east], default: house}
+          description: 'house: the law has one band, and zones are probes'
+          schema: {type: string, enum: [house], default: house}
         - name: achievable
           in: query
           description: The house's achievable VPD band and its nightly grades (#1433); windows up to 35 days
@@ -184,29 +182,11 @@ paths:
       responses:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/BandTimeline'}}}}
         default: {$ref: '#/components/responses/Problem'}
-  /v1/plan:
-    get:
-      operationId: API-07
-      tags: [plan]
-      summary: Plan in force, one lane per planned setting, manual settings and planner health
-      description: >-
-        Each lane says whose value applies now (applied_from) and marks waypoints that will not apply (effective
-        false), for example while a newer non-manual desired row holds until Iris's next plan. Waypoints carry their
-        source: iris, or preemptive for the forecast action engine (a forecast rule, never shown as AI). health is
-        planner_trigger_ledger: the rows expected in the last 36 h and the expected rows ahead.
-      parameters:
-        - name: hours
-          in: query
-          description: Lane horizon; live waypoints rarely reach past a few hours
-          schema: {type: integer, enum: [24, 72], default: 24}
-      responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Plan'}}}}
-        default: {$ref: '#/components/responses/Problem'}
   /v1/settings:
     get:
       operationId: API-09
       tags: [settings]
-      summary: Every registry row with its device value, desired row, plan value and state, and the Band in force rows
+      summary: Every registry row with its device value, desired row and state, and the Band in force rows
       responses:
         '200':
           description: OK
@@ -256,7 +236,7 @@ paths:
       tags: [settings]
       summary: Release to auto
       description: >-
-        Appends a value = null row. The plan, the band or the dispatcher's default applies again; a writable setting
+        Appends a value = null row. The band or the dispatcher's default applies again; a writable setting
         with none of these returns to its registry default (TunableDef.default). manual is cleared.
       parameters: [{$ref: '#/components/parameters/Reason'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses:
@@ -269,7 +249,7 @@ paths:
     get:
       operationId: API-12
       tags: [settings]
-      summary: Desired rows, plan values and readback steps over a window (also the Graphs setting steps)
+      summary: Desired rows and readback steps over a window (also the Graphs setting steps)
       parameters: [{$ref: '#/components/parameters/Param'}, {$ref: '#/components/parameters/From'}, {$ref: '#/components/parameters/To'}]
       responses:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/SettingHistory'}}}}
@@ -370,19 +350,18 @@ paths:
     get:
       operationId: API-19
       tags: [settings]
-      summary: Preview a crop-band edit as the day's diurnal curve, before Save
+      summary: Preview a house band anchor edit as the day's diurnal curve, before Save
       description: >-
         Read-only; Save stays API-10. Overlays the draft value on the crop_band_anchors rows fn_crop_band_value reads
-        and returns the current and draft curves at 10-min steps with its four-anchor harmonic. A house temperature or
-        VPD param returns that axis's low, target and high; a zone param returns the zone's VPD target and the target
-        ∓ its widths. Codes: unknown_target (not a crop-band anchor or width), out_of_range (outside
-        planner_effective_bounds).
+        and returns the current and draft curves at 10-min steps with its four-anchor harmonic: the param's axis's
+        low, target and high. Release C retired the zone VPD targets and widths (zones are probes, and the law has one
+        band). Codes: unknown_target (not a house band anchor), out_of_range (outside planner_effective_bounds).
       parameters:
         - name: param
           in: query
           required: true
-          description: 'A crop-band anchor or width: band_<series>_<anchor>, zone_vpd_target_<zone>_<anchor>, zone_vpd_width_below_<zone> or zone_vpd_width_above_<zone>'
-          schema: {type: string, pattern: '^[a-z][a-z0-9_]*$', examples: [band_vpd_low_sm, zone_vpd_target_center_sm]}
+          description: 'A house band anchor: band_<series>_<anchor>'
+          schema: {type: string, pattern: '^[a-z][a-z0-9_]*$', examples: [band_vpd_low_sm, band_temp_high_ss]}
         - name: value
           in: query
           required: true
@@ -576,27 +555,6 @@ paths:
         - $ref: '#/components/parameters/To'
       responses:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/LightingDays'}}}}
-        default: {$ref: '#/components/responses/Problem'}
-
-  # ---------------------------------------------------------------- planner section (#1361, #1360)
-  /v1/planner/history:
-    get:
-      operationId: API-25
-      tags: [planner]
-      summary: Plans per day, required plans written, failed and late, dispatched changes, cost and the newest plans
-      description: >-
-        One entry per America/Denver day, oldest first, from plan_journal, planner_trigger_ledger (MIDNIGHT, SUNRISE
-        and SUNSET are required) and setpoint_changes source plan. Cost comes from planner_inference_runs through
-        migration 302's view: before the Cortex planner (#1350) records a call, cost is null and cost_recorded_from is
-        null, which the page shows as "not recorded". dispatched and proposed_only are null until planner_inference_runs
-        has the Cortex attempt columns (cortex_attempts false).
-      parameters:
-        - name: days
-          in: query
-          description: Days ending today, today included
-          schema: {type: integer, enum: [30, 90], default: 30}
-      responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/PlannerHistory'}}}}
         default: {$ref: '#/components/responses/Problem'}
 
   # ---------------------------------------------------------------- climate law, daily record, daily review and system (dashboard v2)
@@ -1337,12 +1295,12 @@ components:
       type: string
       description: >-
         Stable codes shared with MCP (architecture §5.3, irrigation §4.3 and §4.7). manual is for Iris only.
-        position_occupied, ambiguous_position and planting_ended are the plantings' refusals (API-CROP-06 to -11);
-        study_state was the retired planner study's (API-28); it stays so older records still parse
+        position_occupied, ambiguous_position and planting_ended are the plantings' refusals (API-CROP-06 to -11).
+        study_state, the retired planner study's (API-28), was removed in release C
       enum: [invalid_request, unauthenticated, forbidden, origin_mismatch, not_found, writes_disabled, query_timeout,
         unavailable, window_too_large, unknown_target, read_only, out_of_range, manual, request_id_reused,
         check_required, too_close, too_many_schedules, line_disabled, line_paused, line_faulted, not_schedule_member,
-        line_busy, manifold_busy, cap_reached, position_occupied, ambiguous_position, planting_ended, study_state]
+        line_busy, manifold_busy, cap_reached, position_occupied, ambiguous_position, planting_ended]
     Actor:
       type: object
       description: 'Who wrote (R4). system is the platform itself, for example the forecast action engine'
@@ -1379,17 +1337,17 @@ components:
     ReadbackState:
       type: string
       description: >-
-        Computed on every read (architecture §5.5); display only. held means the platform applies something else on
-        purpose (a dispatcher clamp, or an armed experiment manifest serving the field). Irrigation items and the
+        Computed on every read (architecture §5.5); display only. A dispatcher clamp reads not_confirmed at once, with
+        state_reason clamped (release C retired held, which a clamp or an armed experiment read). Irrigation items and the
         irrigation_site settings use requested, confirmed and not_confirmed against the controller's program hash;
         before the engine firmware they stay requested. not_confirmed is only a request at least 5 min old the
         readback does not match; a setting nobody requested with no readback reads no_readback (#1333).
-      enum: [requested, confirmed, not_confirmed, held, no_readback, overridden, released]
+      enum: [requested, confirmed, not_confirmed, no_readback, overridden, released]
     StateReason:
       type: object
       description: >-
-        Why a value is held or not confirmed, when the platform knows (architecture §5.5): clamped (a dispatcher
-        clamp; applied_value), experiment (an armed manifest serves the field), deferred (controller heap low),
+        Why a value is not confirmed, when the platform knows (architecture §5.5): clamped (a dispatcher
+        clamp; applied_value), deferred (controller heap low),
         push_failed (setpoint_changes.delivery_status after the request), writer_down (the ingestor heartbeat is older
         than 180 s: "Ingestor not running since HH:MM"), controller_not_reporting (heartbeat fresh, newest climate row
         older than 300 s: "Controller not reporting since HH:MM"), no_engine (an irrigation_site write stored before
@@ -1397,7 +1355,7 @@ components:
         matching readback yet"). since gives each HH:MM
       required: [code]
       properties:
-        code: {type: string, enum: [clamped, experiment, deferred, push_failed, writer_down, controller_not_reporting, no_engine, no_match]}
+        code: {type: string, enum: [clamped, deferred, push_failed, writer_down, controller_not_reporting, no_engine, no_match]}
         detail: {type: [string, 'null'], description: 'In words, e.g. the guard that clamped it or the push status'}
         applied_value: {type: [number, 'null'], description: 'What the dispatcher sent instead, when clamped'}
         since:
@@ -1596,11 +1554,11 @@ components:
         vpd_high_kpa: {type: [number, 'null'], description: kPa}
     Now:
       type: object
-      required: [server_time, indoor, outdoor, band, mode, iris, alerts, running, overrides, leak, freshness, writer]
+      required: [server_time, indoor, outdoor, band, alerts, running, overrides, leak, freshness, writer]
       properties:
         server_time: {type: string, format: date-time}
         law:
-          description: The climate law's state record while it is fresh; null before the law build (the mode then says what the controller does)
+          description: The climate law's state record while it is fresh; null before the law build or while the record is stale (release C retired mode and iris; law and review replace them)
           anyOf: [{$ref: '#/components/schemas/LawState'}, {type: 'null'}]
         hydroponics:
           type: [object, 'null']
@@ -1655,22 +1613,6 @@ components:
             vpd_kpa: {$ref: '#/components/schemas/BandPosition'}
             rh_pct: {anyOf: [{$ref: '#/components/schemas/BandPosition'}, {type: 'null'}]}
             observed_at: {type: [string, 'null'], format: date-time, description: 'ts of the newest house band rows, for the band''s age; null with no rows'}
-        mode:
-          type: object
-          required: [code]
-          properties:
-            code: {type: string, examples: [IDLE, SEALED_MIST, SAFETY_COOL]}
-            stage: {type: [string, 'null'], examples: [WATCH, FOG, S1, S2]}
-            reason: {type: [string, 'null'], description: mode_reason}
-            since: {type: [string, 'null'], format: date-time}
-        iris:
-          type: object
-          required: [plan_id, required_trigger]
-          properties:
-            plan_id: {type: [string, 'null'], description: 'Always null since climate refactor 4.2: no plan applies, so band and defaults'}
-            trigger: {type: [string, 'null']}
-            valid_until: {type: [string, 'null'], format: date-time}
-            required_trigger: {type: string, enum: [ok, late, missed, failed], description: 'The daily review (5.1): missed or failed while its daily_review_missed alert is open, else ok; late no longer occurs'}
         alerts:
           type: object
           description: >-
@@ -1727,7 +1669,7 @@ components:
             Device writer health (Round 2 #1): the writer-health tile and the stuck-delivery banner. age_s is the
             setpoints pipeline age (v_data_pipeline_health source setpoints: the newest setpoint push or device-reported
             change). stuck is true while the setpoint_delivery_stuck alert is open. differing counts settings whose
-            effective value has differed from the newest readback for more than 10 min, leaving out held and clamped ones
+            effective value has differed from the newest readback for more than 10 min, leaving out clamped ones
           required: [age_s, stuck, differing]
           properties:
             last_at: {type: [string, 'null'], format: date-time}
@@ -1762,7 +1704,7 @@ components:
       properties:
         key: {type: string, examples: [climate.temp_avg, climate.vpd_avg, climate.flow_gpm, diagnostics.heap_free_kb]}
         label: {type: string}
-        group: {type: string, examples: [house climate, zones, water and soil, light, outdoor, targets, controller, power, daily]}
+        group: {type: string, examples: [house climate, zones, water and soil, light, outdoor, controller, power, daily]}
         unit: {type: string}
         cadence_s: {type: integer}
         retention_days: {type: integer, description: 'Raw retention: climate 365, diagnostics 180, setpoint_snapshot 90'}
@@ -1806,7 +1748,7 @@ components:
         step_s: {type: integer, minimum: 300}
         t: {type: array, items: {type: integer}, description: Epoch seconds}
         band: {$ref: '#/components/schemas/BandColumns', description: 'In force (DERIVED band rows of the requested zone); null beyond 90 days'}
-        crop: {$ref: '#/components/schemas/BandColumns', description: 'Reconstructed from today''s anchors (API-06 says how per zone)'}
+        crop: {$ref: '#/components/schemas/BandColumns', description: 'Reconstructed from today''s anchors (API-06 says how)'}
         achievable:
           description: 'Asked for with achievable: the house''s achievable VPD band and grades; null otherwise, for a zone or past 35 days'
           anyOf: [{$ref: '#/components/schemas/AchievableColumns'}, {type: 'null'}]
@@ -2011,7 +1953,7 @@ components:
             min_width_kpa: {type: number, description: The control law's minimum VPD band width at every point of the day}
             dry_on_above_vpd_low_kpa: {type: number, description: The control law dries the house below vpd_low plus this}
         law_lines: {$ref: '#/components/schemas/BandLawLines'}
-        overshoot: {type: object, additionalProperties: {type: number}, description: 'By series, how far the draft curve leaves its anchor range'}
+        overshoot: {type: object, additionalProperties: {type: number}, description: 'By edge series (temp_low, temp_high, vpd_low, vpd_high), how far the draft curve leaves its anchor range. The stored middle lines (temp_target, vpd_target), which the law does not read, have no key and no finding since release C part 2'}
         night_heat_kwh:
           type: object
           required: [current, draft]
@@ -2104,73 +2046,11 @@ components:
         notes: {type: [string, 'null'], maxLength: 500}
         reason: {type: string, maxLength: 500}
 
-    # ------------------------------------------------------------ plan and settings
-    PlanRecord:
-      type: object
-      description: A plan_journal row; history rows omit detail
-      required: [plan_id, trigger, written_at]
-      properties:
-        plan_id: {type: string, examples: [iris-20261101-0702]}
-        trigger: {type: string, description: 'MIDNIGHT, SUNRISE, SOLAR_MAX, TRANSITION, SUNSET, WEEKLY, FORECAST_DEVIATION or MANUAL'}
-        written_at: {type: string, format: date-time}
-        valid_from: {type: [string, 'null'], format: date-time}
-        valid_until: {type: [string, 'null'], format: date-time}
-        status: {type: [string, 'null'], description: lifecycle_status}
-        hypothesis: {type: [string, 'null']}
-        experiment: {type: [string, 'null']}
-        expected_outcome: {type: [string, 'null']}
-        conditions_summary: {type: [string, 'null']}
-        outcome_score: {type: [number, 'null']}
-        lesson: {type: [string, 'null']}
-        detail: {type: object, description: 'hypothesis_structured and climate_intents as stored (stress windows, per-setting rationale)'}
-    PlannerTrigger:
-      type: object
-      description: One planner_trigger_ledger row
-      required: [trigger, required, expected_at, due_at, outcome]
-      properties:
-        trigger: {type: string}
-        required: {type: boolean, description: 'MIDNIGHT, SUNRISE and SUNSET are required'}
-        expected_at: {type: string, format: date-time, description: When the trigger fires}
-        due_at: {type: string, format: date-time, description: expected_at plus the SLA}
-        outcome:
-          type: string
-          description: The ledger status verbatim; the UI maps it to words (missed and wrong_action included)
-          enum: [expected, delivered, acked, plan_written, action_completed, neutral_fallback, wrong_action,
-            delivery_failed, timed_out, missed]
-        resolved_at: {type: [string, 'null'], format: date-time}
-        failure_class: {type: [string, 'null']}
-    PlanWaypoint:
-      type: object
-      required: [at, value, source, effective]
-      properties:
-        at: {type: string, format: date-time}
-        value: {type: [number, 'null']}
-        source: {type: string, enum: [iris, preemptive], description: 'preemptive is the forecast action engine, shown as "Forecast rule · system", never AI'}
-        effective: {type: boolean, description: 'false when a manual or newer desired row keeps it from applying (SUPERSEDED)'}
-    PlanLane:
-      type: object
-      required: [param, label, device, waypoints, desired, applied_from]
-      properties:
-        param: {type: string}
-        label: {type: string}
-        unit: {type: [string, 'null']}
-        device: {$ref: '#/components/schemas/Reading', description: Newest readback}
-        waypoints: {type: array, items: {$ref: '#/components/schemas/PlanWaypoint'}, description: Plan values to the horizon}
-        desired: {anyOf: [{$ref: '#/components/schemas/DesiredSetting'}, {type: 'null'}], description: 'Newest desired row; Iris skips it if manual'}
-        applied_from: {type: string, enum: [manual, desired, plan, band, default], description: 'Computed by verdify_services with the dispatcher''s rule'}
-    Plan:
-      type: object
-      required: [plan, lanes, manual_count, health]
-      properties:
-        plan: {anyOf: [{$ref: '#/components/schemas/PlanRecord'}, {type: 'null'}], description: Null when no plan is in force}
-        no_plan_since: {type: [string, 'null'], format: date-time, description: 'With no plan, band and defaults apply since then'}
-        lanes: {type: array, items: {$ref: '#/components/schemas/PlanLane'}}
-        manual_count: {type: integer}
-        health: {type: array, items: {$ref: '#/components/schemas/PlannerTrigger'}, description: 'planner_trigger_ledger: rows expected in the last 36 h and the expected rows ahead'}
+    # ------------------------------------------------------------ settings
     Setting:
       type: object
       description: One tunable_registry row, or a read-only Band in force row, as the Settings screen shows it
-      required: [param, label, control_class, group, kind, writable, readback_via, readback, desired, plan, applied_from, state]
+      required: [param, label, control_class, group, kind, writable, readback_via, readback, desired, applied_from, state]
       properties:
         param: {type: string, examples: [gl_main_lux_threshold]}
         label: {type: string, description: 'For a registry row, TunableDef.label (VD-29), filled from the setting''s entity name in firmware/greenhouse/tunables.yaml and drift-tested'}
@@ -2205,18 +2085,7 @@ components:
           description: 'cfg_* sensor, a native number, switch or equipment_state mirror, the irrigation program hash (irrigation_site), or none'
         readback: {anyOf: [{$ref: '#/components/schemas/Reading'}, {type: 'null'}], description: 'Newest readback; for irrigation_site rows the value in the applied program'}
         desired: {anyOf: [{$ref: '#/components/schemas/DesiredSetting'}, {type: 'null'}]}
-        plan:
-          anyOf:
-            - type: 'null'
-            - type: object
-              required: [value, plan_id, source, written_at, next]
-              properties:
-                value: {type: [number, 'null'], description: 'Plan value in force now, as stored (unsnapped)'}
-                plan_id: {type: string}
-                source: {type: string, enum: [iris, preemptive], description: 'preemptive is the forecast action engine'}
-                written_at: {type: string, format: date-time}
-                next: {anyOf: [{$ref: '#/components/schemas/PlanWaypoint'}, {type: 'null'}], description: 'Next planned change; effective false while a newer desired row holds it off'}
-        applied_from: {type: string, enum: [manual, desired, plan, band, default], description: What the dispatcher applies now}
+        applied_from: {type: string, enum: [manual, desired, band, default], description: 'What the dispatcher applies now (release C retired plan, which no setting has read since climate refactor 4.2); a legacy wide limit reads default, because the host no longer sends it and the controller''s own value is in force'}
         state: {$ref: '#/components/schemas/ReadbackState', description: 'Of the newest write, else of the applied value against the readback'}
         effect:
           type: string
@@ -2252,7 +2121,7 @@ components:
         reason: {type: string, maxLength: 500}
     SettingHistory:
       type: object
-      required: [param, from, to, desired, plan, readback]
+      required: [param, from, to, desired, readback]
       properties:
         param: {type: string}
         unit: {type: [string, 'null']}
@@ -2261,7 +2130,6 @@ components:
         from: {type: string, format: date-time}
         to: {type: string, format: date-time}
         desired: {type: array, items: {$ref: '#/components/schemas/DesiredSetting'}, description: 'Oldest first, from the row in force at from'}
-        plan: {type: array, items: {$ref: '#/components/schemas/PlanWaypoint'}, description: 'Iris and forecast-rule values in the window, future waypoints included, each with its source and effective, so API-12 alone draws the Graphs setting steps'}
         readback: {type: array, items: {$ref: '#/components/schemas/TimedValue'}, description: cfg_* readback change points}
 
     # ------------------------------------------------------------ equipment, alerts, activity
@@ -2302,7 +2170,6 @@ components:
                   Grow lights only: the controller's newest reason for its intent (gl_main_reason, gl_grow_reason), for
                   example plant_lux_low, plant_hysteresis_hold, outside_window or auto_disabled; null while the
                   controller is not reporting or before any reason row (#1335)
-        mode_reason: {$ref: '#/components/schemas/ReasonState', description: Which branch chose the climate mode}
         fog_block_reason: {$ref: '#/components/schemas/ReasonState', description: 'What holds fog (L11) off'}
         moisture_block_reason: {$ref: '#/components/schemas/ReasonState', description: 'What holds the misters off'}
     ReasonState:
@@ -2831,69 +2698,6 @@ components:
                     target_min: {type: [integer, 'null'], description: 'Target qualified light minutes'}
                     window_min: {type: [integer, 'null'], description: 'Minutes of the window counted so far'}
                     qualified_min: {type: [integer, 'null'], description: 'Minutes in the window with enough outdoor light or the light on; null without a policy readback'}
-    PlannerHistory:
-      type: object
-      description: 'API-25: the planner over 30 or 90 local days. Null means not recorded, never 0'
-      required: [from, to, cost_recorded_from, cortex_attempts, days, plans]
-      properties:
-        from: {type: string, format: date}
-        to: {type: string, format: date, description: 'Inclusive local day: today, a partial day'}
-        cost_recorded_from: {type: [string, 'null'], format: date-time, description: 'The first recorded planner call; null: cost not recorded yet (before #1350)'}
-        cortex_attempts: {type: boolean, description: 'planner_inference_runs has the Cortex attempt columns (migration 294)'}
-        days:
-          type: array
-          description: One per America/Denver day, oldest first
-          items:
-            type: object
-            required: [date, plans_written, triggers, params_dispatched, changes_dispatched, changes_confirmed, required_due, required_written, required_failed, required_late, cost]
-            properties:
-              date: {type: string, format: date}
-              plans_written: {type: integer, description: plan_journal rows written that day}
-              triggers: {type: object, additionalProperties: {type: integer}, description: 'Plans by trigger (UNKNOWN when unmatched)'}
-              params_dispatched: {type: integer, description: 'Distinct settings the plan path changed on the device (setpoint_changes source plan)'}
-              changes_dispatched: {type: integer}
-              changes_confirmed: {type: integer, description: Dispatched changes the device confirmed by readback}
-              required_due: {type: integer, description: 'Required triggers (MIDNIGHT, SUNRISE, SUNSET) expected by now'}
-              required_written: {type: integer}
-              required_failed: {type: integer, description: 'Missed, timed out, failed delivery, wrong action or neutral fallback'}
-              required_late: {type: integer, description: Written after the trigger's due time}
-              cost: {anyOf: [{$ref: '#/components/schemas/PlannerDayCost'}, {type: 'null'}], description: 'Null: no planner call recorded that day'}
-        plans:
-          type: array
-          description: The newest plans in the window, newest first (at most 60)
-          items:
-            type: object
-            required: [plan_id, trigger, written_at, hypothesis, outcome_score, params_dispatched, cost]
-            properties:
-              plan_id: {type: string}
-              trigger: {type: string}
-              written_at: {type: string, format: date-time}
-              hypothesis: {type: [string, 'null']}
-              outcome_score: {type: [number, 'null'], description: The planner's own score of the plan}
-              params_dispatched: {type: integer}
-              cost: {anyOf: [{$ref: '#/components/schemas/PlanCost'}, {type: 'null'}]}
-    PlannerDayCost:
-      type: object
-      required: [calls, models, input_tokens, output_tokens, energy_wh, latency_ms_median, dispatched, proposed_only]
-      properties:
-        calls: {type: integer}
-        models: {type: array, items: {type: string}}
-        input_tokens: {type: [integer, 'null']}
-        output_tokens: {type: [integer, 'null']}
-        energy_wh: {type: [number, 'null']}
-        latency_ms_median: {type: [integer, 'null']}
-        dispatched: {type: [integer, 'null'], description: 'Calls whose plan was dispatched; null before the Cortex attempt columns'}
-        proposed_only: {type: [integer, 'null'], description: 'Calls stored but not sent (shadow or a baseline day)'}
-    PlanCost:
-      type: object
-      required: [model_id, input_tokens, output_tokens, energy_wh, latency_ms, status]
-      properties:
-        model_id: {type: [string, 'null']}
-        input_tokens: {type: [integer, 'null']}
-        output_tokens: {type: [integer, 'null']}
-        energy_wh: {type: [number, 'null']}
-        latency_ms: {type: [integer, 'null']}
-        status: {type: [string, 'null']}
     Run:
       type: object
       description: >-

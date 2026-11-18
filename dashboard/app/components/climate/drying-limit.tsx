@@ -33,7 +33,7 @@ import { StateReasonLine } from "../state-reason-line";
 export const DRYING_LIMIT_PARAM = "dry_cost_limit_kwh_per_kg";
 export const LIMIT_UNIT = "kWh/kg";
 /** Readback states the badge shows; any other shows nothing here. */
-const SHOWN_STATES = new Set(["requested", "confirmed", "not_confirmed", "held"]);
+const SHOWN_STATES = new Set(["requested", "confirmed", "not_confirmed"]);
 
 export type DryingLimitProps = {
   /**

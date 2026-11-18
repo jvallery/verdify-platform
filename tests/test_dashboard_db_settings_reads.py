@@ -379,9 +379,8 @@ def test_api09_lists_every_registry_row_with_its_label_and_unit_and_the_band_in_
                 list(band_in_force_sources(zone, role)),
             )
             assert item.unit == ("°F" if role.startswith("temp") else "kPa")
-            assert (item.readback_via, item.desired, item.plan, item.applied_from, item.state) == (
+            assert (item.readback_via, item.desired, item.applied_from, item.state) == (
                 "none",
-                None,
                 None,
                 "band",
                 "no_readback",
@@ -422,10 +421,9 @@ def test_a_plan_in_force_is_never_shown_or_applied_since_climate_refactor_4_2(ds
 
         rows = {item.param: item for item in (await as_role(conn, MCP_ROLE, reads.settings_rows)).items}
         delay = rows["mister_engage_delay_s"]
-        # The plan rows stay, but no plan applies: no plan block, and the source is never plan.
-        assert (delay.desired, delay.plan) == (None, None) and delay.applied_from != "plan"
-        assert rows["sw_gl_main_solar_phasing"].plan is None and rows["sw_gl_main_solar_phasing"].applied_from != "plan"
-        assert rows["mister_min_off_s"].plan is None
+        # The plan rows stay, but no plan applies: no plan block (release C), and the source is never plan.
+        assert delay.desired is None and delay.applied_from != "plan" and "plan" not in delay.model_dump()
+        assert rows["sw_gl_main_solar_phasing"].applied_from != "plan"
 
     scenario(dsn, body)
 
@@ -531,7 +529,7 @@ def test_activity_by_agent_steward_is_that_agent_only_newest_first_and_paged(dsn
     scenario(dsn, body)
 
 
-# ── API-12: desired rows, plan values and readbacks over a window ───────────
+# ── API-12: desired rows and readbacks; the MCP history adds the plan values ─
 
 
 def test_api12_marks_forecast_rule_superseded_and_overridden_waypoints(dsn):
@@ -556,10 +554,11 @@ def test_api12_marks_forecast_rule_superseded_and_overridden_waypoints(dsn):
         await snapshot(conn, t0 - 3 * H, param, 0.16)
         await snapshot(conn, t0 - 90 * MIN, param, 0.155)
 
-        history = await as_role(conn, MCP_ROLE, reads.setting_history, param, t0 - 10 * H, t0 + 6 * H)
-        body_json = history.model_dump(mode="json")
+        served = await as_role(conn, MCP_ROLE, reads.setting_history, param, t0 - 10 * H, t0 + 6 * H)
+        body_json = served.model_dump(mode="json")
         assert openapi_errors({"$ref": "#/components/schemas/SettingHistory"}, body_json) == []
-        assert "from" in body_json and "from_" not in body_json
+        assert "from" in body_json and "from_" not in body_json and "plan" not in body_json  # release C
+        history = await as_role(conn, MCP_ROLE, reads.setting_history_with_plan, param, t0 - 10 * H, t0 + 6 * H)
         assert (history.unit, history.min, history.max) == ("kPa", 0.05, 0.5)
         assert [(point.at, point.value, point.source, point.effective) for point in history.plan] == [
             (t0 - 8 * H, 0.14, "iris", True),
@@ -589,16 +588,16 @@ def test_api12_a_plan_is_never_superseded_by_its_own_journal_row(dsn):
         rows = [(written, param, 0.14), (t0 - 1 * H, param, 0.145), (t0 + 1 * H, param, 0.15)]
         await full_plan(conn, "iris-vd55-late", written, status="effective", rows=rows, active=True, journal_after=S)
 
-        history = await as_role(conn, MCP_ROLE, reads.setting_history, param, t0 - 6 * H, t0 + 6 * H)
+        history = await as_role(conn, MCP_ROLE, reads.setting_history_with_plan, param, t0 - 6 * H, t0 + 6 * H)
         assert [(point.value, point.effective) for point in history.plan] == [(0.14, True), (0.145, True), (0.15, True)]
 
     scenario(dsn, body)
 
 
-# ── API-07: Plan and Settings show the same state and reason ────────────────
+# ── a clamp reads not_confirmed with its reason (release C retired held) ────
 
 
-def test_plan_lanes_take_their_state_and_reason_from_settings(dsn):
+def test_a_clamped_setting_reads_not_confirmed_with_the_clamp_as_its_reason(dsn):
     async def body(conn, t0):
         await reporting_now(conn, t0)
         held = (await settings.write(conn, PERSON, "site_pressure_hpa", 845, True, "clamp test", None)).value
@@ -608,11 +607,9 @@ def test_plan_lanes_take_their_state_and_reason_from_settings(dsn):
         )
         await snapshot(conn, await conn.fetchval("SELECT now()"), "site_pressure_hpa", 840.0)
 
-        lanes = {lane.param: lane for lane in (await as_role(conn, DASHBOARD_ROLE, reads.plan)).lanes}
-        rows = {item.param: item for item in (await as_role(conn, MCP_ROLE, reads.settings_rows)).items}
-        lane, row = lanes["site_pressure_hpa"], rows["site_pressure_hpa"]
-        assert (lane.applied_from, lane.desired.id, lane.desired.state) == ("manual", held.id, "held")
-        assert lane.desired.state_reason.code == "clamped" and lane.desired.state_reason.applied_value == 840.0
-        assert lane.desired == row.desired and lane.applied_from == row.applied_from
+        rows = {item.param: item for item in (await as_role(conn, DASHBOARD_ROLE, reads.settings_rows)).items}
+        row = rows["site_pressure_hpa"]
+        assert (row.applied_from, row.desired.id, row.desired.state) == ("manual", held.id, "not_confirmed")
+        assert row.desired.state_reason.code == "clamped" and row.desired.state_reason.applied_value == 840.0
 
     scenario(dsn, body)

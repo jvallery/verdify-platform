@@ -53,13 +53,13 @@ export function clientLoader({ request }: { request: Request }) {
 }
 
 /**
- * A setting history in its panel's unit, with the retired planner's waypoints taken off (screens.md section 7.1: no plan
- * layer), so only the controller's readback and the requests on their way draw. One copy per answer.
+ * A setting history in its panel's unit, so the controller's readback and the requests on their way draw (release C
+ * retired the plan values; the parser drops them from an older server). One copy per answer.
  */
 const unitFixed = new WeakMap<SettingHistory, SettingHistory>();
 function inPanelUnit(history: SettingHistory): SettingHistory {
   let fixed = unitFixed.get(history);
-  if (!fixed) { fixed = { ...history, unit: unitLabel(history.unit), plan: [] }; unitFixed.set(history, fixed); }
+  if (!fixed) { fixed = { ...history, unit: unitLabel(history.unit) }; unitFixed.set(history, fixed); }
   return fixed;
 }
 

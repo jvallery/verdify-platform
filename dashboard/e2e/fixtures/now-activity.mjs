@@ -16,7 +16,7 @@ const MINUTE = 60_000;
 /** A v_daily_scorecard row with only whole-day time in band, as the day's partial row reads before the grading runs. */
 const scorecardRow = (temp, vpd) => ({
   temp_in_band_pct: temp, vpd_in_band_pct: vpd, time_in_band_day_pct: null, time_in_band_night_pct: null, band_reason: "band grade kept 3 days",
-  water_gal: null, water_reason: "partial_day", iris_required_written: 2, iris_required_missed: 0, alerts_critical: 0, alerts_warning: 0, alerts_info: 0,
+  water_gal: null, water_reason: "partial_day", alerts_critical: 0, alerts_warning: 0, alerts_info: 0,
 });
 
 export const FIXTURES = {

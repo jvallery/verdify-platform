@@ -162,12 +162,14 @@ SELECT coalesce(delivery_status, 'pending') AS status, coalesce(source, 'none') 
  GROUP BY 1, 2
 """
 
-# idx_setpoint_changes_unconfirmed (ts DESC) WHERE confirmed_at IS NULL
+# idx_setpoint_changes_unconfirmed (ts DESC) WHERE confirmed_at IS NULL: the predicate is the index's, and the
+# delivery_status filter runs on its rows. A push that ended (superseded, failed, expired, cancelled) or a value the
+# controller reported (observed) waits for nothing.
 _OLDEST_UNCONFIRMED_TEMPLATE = """
 SELECT coalesce(extract(epoch FROM now() - min(ts)), 0)::float8
   FROM setpoint_changes
  WHERE ts > now() - interval '{window}' AND confirmed_at IS NULL
-   AND coalesce(delivery_status, 'pending') NOT IN ('superseded', 'failed', 'expired', 'observed')
+   AND coalesce(delivery_status, 'pending') NOT IN ('superseded', 'failed', 'expired', 'cancelled', 'observed')
 """
 
 DELIVERY_SQL = _DELIVERY_TEMPLATE.format(window="24 hours")

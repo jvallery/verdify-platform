@@ -154,6 +154,18 @@ def test_the_product_metrics_run_the_same_statements():
             assert f"ts > now() - interval '{hours} hours'" in sql
 
 
+def test_the_oldest_unconfirmed_push_waits_on_no_ended_push_and_keeps_its_index():
+    """A cancelled push read as 21 h of waiting (live, 2026-11-17): every ended status is left out, and the WHERE
+    keeps idx_setpoint_changes_unconfirmed's predicate and its time bound."""
+    for hours in (24, 168):
+        sql = sh.DELIVERY_STATEMENTS[hours]["oldest"]
+        assert "confirmed_at IS NULL" in sql and f"ts > now() - interval '{hours} hours'" in sql
+        excluded = re.search(r"NOT IN \(([^)]*)\)", sql)
+        assert excluded is not None
+        statuses = {item.strip().strip("'") for item in excluded.group(1).split(",")}
+        assert statuses == {"superseded", "failed", "expired", "cancelled", "observed"}
+
+
 def test_every_new_statement_is_bounded_by_time():
     for sql in (
         sh.CONTROLLER_EXTRA_SQL,

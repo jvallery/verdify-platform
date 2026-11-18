@@ -151,13 +151,12 @@ test("steps: a request dashed amber and never the device line, no plan marker; n
   expect(tooltip(plot).some((line) => /SUPERSEDED|PLANNED|plan/.test(line))).toBe(false);
 });
 
-test("the RH panel's request keeps the amber dash, unlabelled in the plot; no plan marker draws", async () => {
+test("the RH panel's request keeps the amber dash, unlabelled in the plot", async () => {
   const history = load<SettingHistory>(historyFixture);
   const percent = (value: number | null) => (value === null ? null : value * 50);
   const rh: SettingHistory = {
     ...history, param: "fog_rh_ceiling_pct", unit: "%", min: 50, max: 95,
     desired: history.desired.map((row) => ({ ...row, param: "fog_rh_ceiling_pct", value: percent(row.value) })),
-    plan: history.plan.map((waypoint) => ({ ...waypoint, value: percent(waypoint.value) })),
     readback: history.readback.map((point) => ({ ...point, value: percent(point.value) })),
   };
   const { plot } = await mount({ metrics: [metric("climate.rh_avg")], settings: [{ history: rh }] });
@@ -354,7 +353,7 @@ test("a settings-only chart: the plot holds only steps; the legend, the data tab
 });
 
 test("a settings-only chart with no step shows the message and no key", async () => {
-  const history = { ...load<SettingHistory>(historyFixture), desired: [], plan: [], readback: [] };
+  const history = { ...load<SettingHistory>(historyFixture), desired: [], readback: [] };
   const { container } = render(<TimeSeries series={null} metrics={[]} unit="kPa" settings={[{ history }]} now={NOW} xRange={RANGE} />);
   await settle();
   expect(container.querySelector(".chart-message")!.textContent).toBe("No data in this window");

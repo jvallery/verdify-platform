@@ -47,10 +47,6 @@ export type Series = Lenient<Schemas["Series"]>;
 export type SeriesColumns = Lenient<Schemas["SeriesColumns"]>;
 export type StateLanes = Lenient<Schemas["StateLanes"]>;
 export type BandTimeline = Lenient<Schemas["BandTimeline"]>;
-export type Plan = Lenient<Schemas["Plan"]>;
-export type PlanLane = Lenient<Schemas["PlanLane"]>;
-export type PlanWaypoint = Lenient<Schemas["PlanWaypoint"]>;
-export type PlannerTrigger = Lenient<Schemas["PlannerTrigger"]>;
 export type Settings = Lenient<Json<"API-09", 200>>;
 export type Setting = Lenient<Schemas["Setting"]>;
 export type SettingHistory = Lenient<Schemas["SettingHistory"]>;
@@ -84,8 +80,6 @@ export type WaterUse = Lenient<Schemas["WaterUse"]>;
 export type LightingDays = Lenient<Schemas["LightingDays"]>;
 export type LightingCircuit = Lenient<Schemas["LightingDays"]["circuits"][number]>;
 export type LightingDay = Lenient<Schemas["LightingDays"]["circuits"][number]["days"][number]>;
-export type PlannerHistory = Lenient<Schemas["PlannerHistory"]>;
-export type PlannerDay = PlannerHistory["days"][number];
 export type IrrigationStatus = Lenient<Schemas["IrrigationStatus"]>;
 export type IrrigationLine = Lenient<Schemas["IrrigationLine"]>;
 export type LineState = Lenient<Schemas["LineState"]>;
@@ -201,8 +195,10 @@ const leak = z.object({
 });
 const occupancy = z.object({ occupied: flag.nullable(), seen_at: text.nullable(), hold_enabled: maybe(flag) });
 const stateReason = z.object({ code, detail: maybe(text), applied_value: maybe(num), since: maybe(text) });
+/** A readback state. Release C retired held: an API before it (088414f4) still sends it for a clamp, read as not_confirmed. */
+const readbackState = code.transform((value) => (value === "held" ? "not_confirmed" : value));
 const desiredSetting = z.object({
-  id: int, param: text, value: num.nullable(), snapped_from: maybe(num), manual: flag, manual_before: maybe(flag), state: code,
+  id: int, param: text, value: num.nullable(), snapped_from: maybe(num), manual: flag, manual_before: maybe(flag), state: readbackState,
   state_reason: maybe(stateReason), confirmed_at: maybe(text), actor, reason: maybe(text), created_at: text,
 });
 const problem = z.object({
@@ -244,8 +240,6 @@ const now = z.object({
   indoor: z.object({ temp_f: reading, rh_pct: reading, vpd_kpa: reading }),
   outdoor: z.object({ temp_f: reading, rh_pct: reading, source: maybe(code) }),
   band: z.object({ temp_f: bandPosition, vpd_kpa: bandPosition, rh_pct: bandPosition.nullable(), observed_at: maybe(text) }),
-  mode: z.object({ code: text, stage: maybe(text), reason: maybe(text), since: maybe(text) }),
-  iris: z.object({ plan_id: text.nullable(), trigger: maybe(text), valid_until: maybe(text), required_trigger: code }),
   alerts: z.object({ open: int, critical: int, warning: int, info: int }),
   running: z.array(z.object({ equipment: text, line_id: maybe(text), cause: maybe(cause), since: text.nullable() })),
   overrides: z.array(z.object({ kind: code, since: text, ends_at: text.nullable(), held_reason: maybe(text) })),
@@ -334,21 +328,6 @@ const bandProfilePreview = z.object({
   forecast: z.object({ temp: nullableNumbers, vpd: nullableNumbers, issued_at: maybe(text) }).catch({ temp: [], vpd: [], issued_at: null }),
 });
 
-const planRecord = z.object({
-  plan_id: text, trigger: text, written_at: text, valid_from: maybe(text), valid_until: maybe(text), status: maybe(text), hypothesis: maybe(text),
-  experiment: maybe(text), expected_outcome: maybe(text), conditions_summary: maybe(text), outcome_score: maybe(num), lesson: maybe(text),
-  detail: record.optional(),
-});
-const plannerTrigger = z.object({
-  trigger: text, required: flag, expected_at: text, due_at: text, outcome: code, resolved_at: maybe(text), failure_class: maybe(text),
-});
-const planWaypoint = z.object({ at: text, value: num.nullable(), source: code, effective: flag });
-const planLane = z.object({
-  param: text, label: text, unit: maybe(text), device: reading, waypoints: z.array(planWaypoint), desired: desiredSetting.nullable(), applied_from: code,
-});
-const plan = z.object({
-  plan: planRecord.nullable(), no_plan_since: maybe(text), lanes: z.array(planLane), manual_count: int, health: z.array(plannerTrigger),
-});
 /** A setting's operator text (#1332); a server older than it sends none. */
 const settingHelp = z.object({
   summary: text, effect: text, raise: maybe(text), lower: maybe(text), caution: maybe(text), guardrail: flag.optional(), reference_url: maybe(text),
@@ -358,15 +337,14 @@ const setting = z.object({
   options: z.array(z.object({ value: num, label: text })).optional(), writable: flag, read_only_reason: maybe(text),
   read_only_kind: maybe(code), source_params: z.array(text).optional(), help: settingHelp.nullable().optional(), readback_via: code,
   readback: reading.nullable(), desired: desiredSetting.nullable(),
-  plan: z.object({ value: num.nullable(), plan_id: text, source: code, written_at: text, next: planWaypoint.nullable() }).nullable(),
-  applied_from: code, state: code,
+  applied_from: code, state: readbackState,
   // What reads the setting on this build (dashboard v2); a server before it sends none.
   effect: code.optional(),
 });
 const settings = z.object({ items: z.array(setting), server_time: text });
 const settingHistory = z.object({
   param: text, unit: maybe(text), min: maybe(num), max: maybe(num), from: text, to: text, desired: z.array(desiredSetting),
-  plan: z.array(planWaypoint), readback: z.array(timedValue),
+  readback: z.array(timedValue),
 });
 
 const reasonState = z.object({ code: text.nullable(), since: text.nullable(), observed_at: text.nullable() });
@@ -377,7 +355,7 @@ const equipment = z.object({
     // Grow lights only: the timer's end (#1377) and the controller's reason (#1335); a strict parse would drop them.
     manual_until: maybe(text), auto_reason: maybe(text),
   })),
-  mode_reason: reasonState.optional(), fog_block_reason: reasonState.optional(), moisture_block_reason: reasonState.optional(),
+  fog_block_reason: reasonState.optional(), moisture_block_reason: reasonState.optional(),
 });
 const alert = z.object({
   id: int, alert_type: text, category: text, severity: code, message: text, zone: maybe(text), metric_value: maybe(num), threshold_value: maybe(num),
@@ -386,7 +364,7 @@ const alert = z.object({
 });
 const alertPage = z.object({ ...page, items: z.array(alert) });
 const activityEntry = z.object({
-  id: int, ts: text, actor, action: text, target: text, detail: record.optional(), reason: maybe(text), state: maybe(code), confirmed_at: maybe(text),
+  id: int, ts: text, actor, action: text, target: text, detail: record.optional(), reason: maybe(text), state: maybe(readbackState), confirmed_at: maybe(text),
   experiment_id: maybe(text), request_id: maybe(text),
 });
 const activityPage = z.object({ ...page, items: z.array(activityEntry) });
@@ -405,25 +383,6 @@ const lightingDays = z.object({
       date: text, partial: z.boolean(), on_s: int, starts: int, start_hour: int.nullable(), cutoff_hour: int.nullable(), lux_on: num.nullable(), lux_off: num.nullable(),
       target_min: int.nullable(), window_min: int.nullable(), qualified_min: int.nullable(),
     })),
-  })),
-});
-// The Planner section (#1361). Null is "not recorded", never 0.
-const counts = z.record(z.string(), int);
-const plannerDayCost = z.object({
-  calls: int, models: z.array(text), input_tokens: maybe(int), output_tokens: maybe(int), energy_wh: maybe(num), latency_ms_median: maybe(int),
-  dispatched: maybe(int), proposed_only: maybe(int),
-});
-const planCost = z.object({
-  model_id: maybe(text), input_tokens: maybe(int), output_tokens: maybe(int), energy_wh: maybe(num), latency_ms: maybe(int), status: maybe(code),
-});
-const plannerHistory = z.object({
-  from: text, to: text, cost_recorded_from: maybe(text), cortex_attempts: flag,
-  days: z.array(z.object({
-    date: text, plans_written: int, triggers: counts, params_dispatched: int, changes_dispatched: int, changes_confirmed: int, required_due: int,
-    required_written: int, required_failed: int, required_late: int, cost: plannerDayCost.nullable(),
-  })),
-  plans: z.array(z.object({
-    plan_id: text, trigger: text, written_at: text, hypothesis: maybe(text), outcome_score: maybe(num), params_dispatched: int, cost: planCost.nullable(),
   })),
 });
 const lineState = z.object({
@@ -690,7 +649,6 @@ export const parseMetrics: Parser<Metrics> = parser(metrics);
 export const parseSeries: Parser<Series> = parser(series);
 export const parseStateLanes: Parser<StateLanes> = parser(stateLanes);
 export const parseBandTimeline: Parser<BandTimeline> = parser(bandTimeline);
-export const parsePlan: Parser<Plan> = parser(plan);
 export const parseSettings: Parser<Settings> = parser(settings);
 export const parseDesiredSetting: Parser<DesiredSetting> = parser(desiredSetting);
 export const parseSettingHistory: Parser<SettingHistory> = parser(settingHistory);
@@ -706,7 +664,6 @@ export const parseSoilTargets: Parser<SoilTargets> = parser(soilTargets);
 export const parseSoilTarget: Parser<SoilTarget> = parser(soilTarget);
 export const parseWaterUse: Parser<WaterUse> = parser(waterUse);
 export const parseLightingDays: Parser<LightingDays> = parser(lightingDays);
-export const parsePlannerHistory: Parser<PlannerHistory> = parser(plannerHistory);
 export const parseIrrigationStatus: Parser<IrrigationStatus> = parser(irrigationStatus);
 export const parseScheduleAgenda: Parser<ScheduleAgenda> = parser(scheduleAgenda);
 export const parseSchedule: Parser<Schedule> = parser(schedule);
@@ -747,7 +704,6 @@ export const OPERATIONS = {
   "API-04": op("GET", "/v1/series", parseSeries),
   "API-05": op("GET", "/v1/states", parseStateLanes),
   "API-06": op("GET", "/v1/band", parseBandTimeline),
-  "API-07": op("GET", "/v1/plan", parsePlan),
   "API-09": op("GET", "/v1/settings", parseSettings),
   "API-10": op("PUT", "/v1/settings/{param}", parseDesiredSetting),
   "API-11": op("DELETE", "/v1/settings/{param}", parseDesiredSetting),
@@ -763,7 +719,6 @@ export const OPERATIONS = {
   "API-22": op("GET", "/v1/lighting", parseLightingDays),
   "API-23": op("GET", "/v1/band/profile", parseBandProfilePreview),
   "API-24": op("PUT", "/v1/band/profile", parseBandWrite),
-  "API-25": op("GET", "/v1/planner/history", parsePlannerHistory),
   "API-30": op("GET", "/v1/law", parseLawView),
   "API-31": op("GET", "/v1/law/history", parseLawHistory),
   "API-32": op("GET", "/v1/record/days", parseDailyRecord),

@@ -151,7 +151,7 @@ export type StepSegment = {
   state?: ReadbackState;
 };
 
-const REQUESTED_WORDS: Partial<Record<ReadbackState, string>> = { requested: "REQUESTED", not_confirmed: "NOT CONFIRMED", held: "HELD" };
+const REQUESTED_WORDS: Partial<Record<ReadbackState, string>> = { requested: "REQUESTED", not_confirmed: "NOT CONFIRMED" };
 export const RELEASED = "Released";
 const STATE_WORDS: Partial<Record<ReadbackState, string>> = { ...REQUESTED_WORDS, confirmed: "CONFIRMED" };
 
@@ -172,7 +172,7 @@ const byTime = <T,>(items: readonly T[], at: (item: T) => string) => items
 
 /**
  * The steps of one setting (API-12). Device: each readback change point held until the next point, the last until now.
- * Requested: each desired row still requested, not confirmed or held, from its request until it was confirmed, the
+ * Requested: each desired row still requested or not confirmed, from its request until it was confirmed, the
  * next desired row or now, whichever comes first; never drawn as the device line. With `allRequests` every desired row
  * draws until the next desired row or now, labelled with who asked, and a release ends the step before it with
  * "Released"; its device line is one step for readings that print alike (the ingestor's 0.83 and the snapshot's

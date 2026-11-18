@@ -18,7 +18,6 @@ export const BADGES = {
   requested: { status: "warn", text: "Requested" },
   confirmed: { status: "ok", text: "Confirmed" },
   not_confirmed: { status: "serious", text: "Not confirmed" },
-  held: { status: "info", text: "Held" },
   no_readback: { status: "neutral", text: "No readback" },
   manual: { status: "info", text: "Set by hand" },
   ai: { status: "neutral", text: "AI" },
@@ -62,15 +61,15 @@ function RawBadge({ code }: { code: string }) {
   return <span className={badgeClass("neutral")} data-badge="raw" data-status="neutral"><span className="badge-dot" aria-hidden="true" />{code}</span>;
 }
 
-const READBACK_BADGES: Readonly<Record<string, BadgeKind>> = { requested: "requested", confirmed: "confirmed", not_confirmed: "not_confirmed", held: "held", no_readback: "no_readback" };
+const READBACK_BADGES: Readonly<Record<string, BadgeKind>> = { requested: "requested", confirmed: "confirmed", not_confirmed: "not_confirmed", no_readback: "no_readback" };
 /**
- * A setting's or program item's `ReadbackState` (architecture §5.5). `released` has no badge; HELD and released follow
- * the state, because they say what applies; otherwise NO READBACK also shows when the API says the setting has none
+ * A setting's or program item's `ReadbackState` (architecture §5.5). `released` has no badge, because it says what
+ * applies; otherwise NO READBACK also shows when the API says the setting has none
  * (`readback_via: none`). A state this build does not know shows raw.
  */
 export function ReadbackBadge({ state, readbackVia }: { state: string; readbackVia?: ReadbackVia | (string & {}) | null }) {
   if (state === "released") return null;
-  if (state !== "held" && (readbackVia === "none" || state === "no_readback")) return <Badge kind="no_readback" />;
+  if (readbackVia === "none" || state === "no_readback") return <Badge kind="no_readback" />;
   const kind = Object.hasOwn(READBACK_BADGES, state) ? READBACK_BADGES[state] : undefined;
   return kind ? <Badge kind={kind} /> : <RawBadge code={state} />;
 }

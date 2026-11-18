@@ -9,7 +9,7 @@ reads it as the base ``GET /v1/settings`` body, and its named fixtures patch it.
 It holds one ``Setting`` per ``REGISTRY`` row: its label, unit and step from ``TunableDef`` (VD-29) with no overlay, its
 bounds from ``planner_effective_bounds`` and its group from ``tunable_control_class``; the read-only rows of
 architecture §5.3 step 1 with their reasons; the "Band in force" rows as API-09 serves them (VD-55); and the
-scenario values the screens draw (readbacks, desired and plan rows). Every time is relative to ``server_time``,
+scenario values the screens draw (readbacks and desired rows). Every time is relative to ``server_time``,
 10:42 America/Denver on 2026-11-02 (the screens' clock); the fixture API moves them to each request's own time.
 
 The writability rule below is test data only. In production the operator API's settings service (VD-67) decides it;
@@ -183,17 +183,6 @@ def reading(value: float | None, observed: datetime | None, reason: str | None =
     return {"value": value, "observed_at": None if observed is None else iso(observed), "reason": reason}
 
 
-IRIS_PLAN_ID = "iris-20261102-0702"
-
-
-def iris_plan(value: float, next_at: str | None = None, next_value: float | None = None) -> dict[str, Any]:
-    """Iris's plan written at 07:02 (API-07's plan in world.mjs), with its next waypoint when it has one."""
-    upcoming = (
-        None if next_at is None else {"at": iso(at(next_at)), "value": next_value, "source": "iris", "effective": True}
-    )
-    return {"value": value, "plan_id": IRIS_PLAN_ID, "source": "iris", "written_at": iso(at("07:02")), "next": upcoming}
-
-
 def desired(
     row_id: int,
     param: str,
@@ -223,22 +212,13 @@ def desired(
     }
 
 
-# The screens' values (SCR-01, SCR-03, SCR-05): Iris's 07:02 plan, an agent's value and a forecast rule's (on rows the
-# third flash kept, RULINGS AE7a), the L01
-# bridge's duration and the site caps in program rev 42. Every other row reads its registry default, confirmed.
+# The screens' values (SCR-01, SCR-03, SCR-05): the controller's readbacks, an agent's value (on rows the third flash
+# kept, RULINGS AE7a), the L01 bridge's duration and the site caps in program rev 42. Every other row reads its
+# registry default, confirmed. Release C retired the plan block and applied_from plan.
 SCENARIO: dict[str, dict[str, Any]] = {
-    # Release 4 (#1633): the 43 reserved policy-wire slots left the registry; the plan rows moved to live settings.
-    "outdoor_staleness_max_s": {
-        "readback": reading(660.0, ago(120)),
-        "plan": iris_plan(660.0, "13:00", 720.0),
-        "applied_from": "plan",
-    },
-    "mister_engage_delay_s": {"readback": reading(60.0, ago(180)), "plan": iris_plan(60.0), "applied_from": "plan"},
-    "mister_min_off_s": {
-        "readback": reading(45.0, ago(60)),
-        "plan": iris_plan(45.0, "16:30", 55.0),
-        "applied_from": "plan",
-    },
+    "outdoor_staleness_max_s": {"readback": reading(660.0, ago(120))},
+    "mister_engage_delay_s": {"readback": reading(60.0, ago(180))},
+    "mister_min_off_s": {"readback": reading(45.0, ago(60))},
     "mister_water_budget_gal": {
         "readback": reading(250.0, at("06:48")),
         "desired": desired(
@@ -254,17 +234,7 @@ SCENARIO: dict[str, dict[str, Any]] = {
         ),
         "applied_from": "desired",
     },
-    "sw_gl_main_solar_phasing": {
-        "readback": reading(0.0, at("06:31")),
-        "plan": {
-            "value": 0.0,
-            "plan_id": "preemptive-high-wind",
-            "source": "preemptive",
-            "written_at": iso(at("06:30")),
-            "next": None,
-        },
-        "applied_from": "plan",
-    },
+    "sw_gl_main_solar_phasing": {"readback": reading(0.0, at("06:31"))},
     "temp_low": {"readback": reading(40.0, ago(240))},
     "outdoor_temp_f": {"readback": reading(41.2, ago(120))},
     "outdoor_dewpoint_f": {"readback": reading(28.4, ago(120))},
@@ -333,8 +303,10 @@ def registry_row(name: str, spec: TunableDef) -> dict[str, Any]:
         "readback_via": via,
         "readback": readback,
         "desired": None,
-        "plan": None,
-        "applied_from": "band" if spec.push_owner in ("band", "schedule") else "default",
+        # A legacy wide limit is never sent, so the controller's own value is in force (verdify_services.settings).
+        "applied_from": "band"
+        if spec.push_owner in ("band", "schedule") and name not in LEGACY_WIDE_LIMITS
+        else "default",
         "state": "no_readback" if via == "none" else "confirmed",
     }
     row |= SCENARIO.get(name, {})
@@ -371,7 +343,6 @@ def band_rows() -> Iterator[dict[str, Any]]:
                 "readback_via": "none",
                 "readback": reading(HOUSE_TEMP[role] if series == "temp" else vpd[role], ago(BAND_AGE_S)),
                 "desired": None,
-                "plan": None,
                 "applied_from": "band",
                 "state": "no_readback",
             }

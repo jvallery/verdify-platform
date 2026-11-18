@@ -502,7 +502,9 @@ def test_the_session_cache_stays_bounded(monkeypatch):
 
 def test_every_v1_route_runs_the_bearer_session_and_role_checks_first(app):
     v1 = [route for route in served_routes(app) if route.path.startswith("/v1/")]
-    assert {route.path for route in v1} >= {"/v1/me", "/v1/now", "/v1/plan", "/v1/equipment", "/v1/probe"}
+    paths = {route.path for route in v1}
+    assert paths >= {"/v1/me", "/v1/now", "/v1/equipment", "/v1/probe"}
+    assert not paths & {"/v1/plan", "/v1/planner/history"}  # retired in release C
     for route in v1:
         calls = [dependency.call for dependency in route.dependant.dependencies[:3]]
         assert calls == [operator_api.bearer, operator_api.session, operator_api.role], route.path

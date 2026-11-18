@@ -97,7 +97,7 @@ export function thresholdSteps(data: LightingDays | null, x: XRange): SettingSte
     if (!readback.length) return [];
     return [{
       label: `${circuit.label} ${edge === "on" ? "ON" : "OFF"} threshold`,
-      history: { param: `lighting.${circuit.light}_lux_${edge}`, unit: "lx", min: null, max: null, from: isoOf(x.from), to: isoOf(x.to), desired: [], plan: [], readback },
+      history: { param: `lighting.${circuit.light}_lux_${edge}`, unit: "lx", min: null, max: null, from: isoOf(x.from), to: isoOf(x.to), desired: [], readback },
     }];
   }));
 }

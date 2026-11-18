@@ -448,3 +448,64 @@ and a native qualification recorded from production.
 
 `scripts/dashboard-smoke.sh --sweep` moves from API-07 and API-25 to API-30, API-32 and API-34 in release B, so the
 live sweep never reads a retired route.
+
+### 7.1 What shipped (2026-11-17)
+
+Every row of the table above. In detail:
+
+- **Routes.** API-07 and API-25 are gone from the operator API and from the committed contract, with the schemas `Plan`,
+  `PlanLane`, `PlanRecord`, `PlannerTrigger`, `PlanWaypoint`, `PlannerHistory`, `PlannerDayCost` and `PlanCost`, and the
+  tags `plan` and `planner`. `verdify_services/planner.py` and its DB test are deleted.
+- **Fields.** `Now` loses `mode` and `iris`; `Equipment` loses `mode_reason`; `Setting` and `SettingHistory` lose `plan`;
+  `applied_from` is `manual`, `desired`, `band` or `default`. `ReadbackState` loses `held` and `StateReason` loses
+  `experiment`: a clamp reads `not_confirmed` with reason `clamped` at once, and an armed experiment no longer holds a
+  setting or leaves it out of `Now.writer.differing`. `ProblemCode` loses `study_state`.
+- **Metrics.** API-03 no longer lists the `targets` group (`climate.house_temp_target_f`, `climate.house_temp_delta_f`,
+  `climate.house_vpd_target`, `climate.house_vpd_delta`, and `climate.vpd_target_*` and `climate.vpd_delta_*` for
+  center, south, west and east), `daily.iris_required_written`, `daily.iris_required_missed` or
+  `climate.hydro_battery_pct`. The columns stay in the database.
+- **Zones.** API-06 takes `zone=house` only; any other zone is 400 `invalid_request`. API-19 takes the house band's 24
+  anchors only; a zone VPD target or width is 422 `unknown_target`. API-09 still lists the Band in force rows of every
+  zone.
+- **Kept outside the operator API.** The MCP `settings` tool's history still carries its `plan` values through
+  `reads.setting_history_with_plan()`; the operator API does not serve it. MCP's settings catalog rows no longer carry
+  the `plan` key, which was always null. The greenhouse snapshot job read the climate mode and the next planner runs
+  until part 2 (D, below) gave it the law's facts.
+- **Web.** It rolls first. Its parsers drop the retired fields and read an old `held` as `not_confirmed`, so the same
+  build works against the API at 088414f4 and after release C (`app/lib/release-c.test.ts` parses one payload of each
+  shape). The badges, words and reason lines lose `held`, `experiment` and `study_state`. The graph link checker still
+  drops a retired metric key with its notice, for the old API's registry. /plan, /planner and /planner/history still
+  redirect to Review.
+- **Smoke.** `scripts/dashboard-smoke.sh --sweep` reads API-06 with `zone=house` (was `zone=south`), API-19 with
+  `band_vpd_target_sm` (was `zone_vpd_target_center_sm`) and checks API-13's two reasons (was three, with
+  `mode_reason`). The `--role operator` legs (with and without `--revert`) no longer accept the `held` state or the
+  `experiment` reason (no `HELD` line; a write must answer `requested`), and after a release they wait only for the
+  device to leave the check's value (no `applied_from: plan` case). The `--agent-write` leg's description no longer
+  mentions `held`; it still prints whatever state `set_setting` answers. Each leg passes against 088414f4 too; that
+  API answers `held` only under an armed experiment, and the retired experiment platform arms none.
+- **Restart.** `verdify-operator-api` and `verdify-mcp`. No migration and no database change.
+
+### 7.2 Part 2: follow-ups from the live site (2026-11-17)
+
+Same release, same restart (`verdify-operator-api` and `verdify-mcp`; the snapshot CronJob takes the api image with
+the full sync). No migration.
+
+- **A. Legacy wide limits (API-09, API-12, MCP `settings`).** `temp_low`, `temp_high`, `vpd_low` and `vpd_high` are
+  evaluated as never requested: `confirmed` with a readback, else `no_readback`, never `not_confirmed` against the
+  dispatcher's last push, which stopped once the band anchors confirmed. `applied_from` reads `default` for them: `band`
+  means the host sends the band's value, and it sends these no more. `Now.writer.differing` never counted them.
+- **B. Delivery (API-37).** `oldest_unconfirmed_s` leaves out `cancelled` pushes, as it leaves out superseded, failed,
+  expired and observed ones. The operator API's `/metrics` reads the same statement.
+- **C. The law (API-30).** While `lead_fan` is null and exactly one fan is on, that fan is the lead for the rules'
+  `relays` and `hold` (Cooling and Drying list it, Second fan the other), when it started while the other fan was off
+  or no later than the other's last run. The second fan finishing its minimum on time after the lead stopped does not
+  lead. Both on, both off or that tail: both fans are listed, as before. `lead_fan` itself stays what the controller
+  reported.
+- **D. The greenhouse snapshot (`Now.snapshot`, MCP `get_greenhouse_snapshot`).** The job's fact sheet drops
+  `climate_mode` and `planner` and gains `climate_law` (what the law asks for, with each rule's thresholds from the band
+  in use, the equipment finishing its shortest time on, the drying decision and why, the band edges in use, the drying
+  cost and its limit) and `daily_review` (status and whether a band proposal waits). Its write trigger keys on the law's
+  requests. Prompt version `brief-v2`. `reads.climate_mode()` and `reads.planner_runs()` are deleted.
+- **E. The band (API-23).** `overshoot` holds the four edge series only; no overshoot finding names a `*_target_*` row.
+  `band_order` still names the target row it crossed (an error; `edge_field()` maps it to the edge for an edge draft).
+  The web hides a warning on a target row and, with no draft change, folds the overshoot warnings into one note line.

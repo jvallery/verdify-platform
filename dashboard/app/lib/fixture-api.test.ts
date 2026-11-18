@@ -71,7 +71,7 @@ test("GET /__requests lists every request since the last /__control with its key
   at(api, "POST", "/__control", { fixture: "in-band" });
   expect(get(api, "/__requests")).toEqual({ requests: [] });
   // The write is gone with the reset: the setting reads as the base again.
-  expect(setting(api, "outdoor_staleness_max_s")).toMatchObject({ desired: null, applied_from: "plan" });
+  expect(setting(api, "outdoor_staleness_max_s")).toMatchObject({ desired: null, applied_from: "default" });
 });
 
 test("a viewer's every write is 403; with writes off every write but Stop is 503", () => {
@@ -252,9 +252,11 @@ test("the base, in-band, is the screens' SCR-01 greenhouse", () => {
   expect(set["API-IRR-01"].lines.filter((row: Body) => row.reserved)).toEqual([expect.objectContaining({ line_id: "L05", enabled: false }), expect.objectContaining({ line_id: "L06", enabled: false })]);
   const caps = set["API-09"].items.filter((row: Body) => row.group === "site_water_caps");
   expect(caps.map((row: Body) => [row.param, (row.readback as Body).value, row.state])).toEqual([["mister_daily_volume_max_gal", 360, "confirmed"], ["sched_mist_rh_max_pct", 90, "confirmed"], ["climate_yield_min", 15, "confirmed"]]);
-  const health = set["API-07"].health as Body[];
-  expect(health.every((row) => typeof row.expected_at === "string" && typeof row.due_at === "string")).toBe(true);
-  expect(health.filter((row) => row.outcome === "expected" && Date.parse(row.expected_at as string) > NOW).length).toBeGreaterThan(0);
+  // Release C: the plan-era reads are gone from the fixture API, as from the operator API.
+  expect(set["API-07"]).toBeUndefined();
+  expect(set["API-25"]).toBeUndefined();
+  expect(set["API-02"]).not.toHaveProperty("mode");
+  expect(set["API-02"]).not.toHaveProperty("iris");
   expect(set["API-19"]).toMatchObject({ param: "band_vpd_low_sm", step_s: 600, unit: "kPa" });
   expect(set["API-19"].t).toHaveLength(144);
   expect(set["API-20"]).toMatchObject({ light: "main", state: "on", result: "confirmed" });
@@ -268,13 +270,11 @@ test("API-12 lists the desired rows from the one in force at from, a write joins
   const week = history(7);
   expect(week.desired.map((row: Body) => [row.id, row.value, row.manual, (row.actor as Body).name])).toEqual([[201, 660, false, "iris"], [202, 630, true, "jason"]]);
   expect(week.readback.map((point: Body) => point.value)).toEqual([600, 660, 630]);
-  expect(week.plan).toEqual([expect.objectContaining({ source: "iris", value: 720, effective: false })]);
+  expect(week).not.toHaveProperty("plan"); // release C
   // The two hours since 08:30 hold no row: the one in force at from comes first.
   const short = history(2 / 24);
   expect(short.desired.map((row: Body) => row.id)).toEqual([202]);
   expect(short.readback.map((point: Body) => point.value)).toEqual([630]);
-  // to is exclusive, so the 13:00 waypoint is out of a window ending now.
-  expect(history(7, 0).plan).toEqual([]);
   expect(api.respond({ method: "PUT", url: "/v1/settings/outdoor_staleness_max_s", headers: { "Idempotency-Key": KEY }, body: { value: 660, manual: true } }).status).toBe(200);
   const after = history(7);
   expect(after.desired.map((row: Body) => [row.value, row.state])).toEqual([[660, "confirmed"], [630, "confirmed"], [660, "requested"]]);
@@ -297,7 +297,8 @@ test("#1140's fixtures: the reasons, the lights' answers and readbacks, and 90 d
   const set = (name: string | string[]) => fixture(name, { now: NOW });
   // Not reporting: no code or since on any reason, and the newest row's time stays.
   const quiet = set("controller-not-reporting")["API-13"];
-  for (const name of ["mode_reason", "fog_block_reason", "moisture_block_reason"]) expect(quiet[name], name).toMatchObject({ code: null, since: null, observed_at: expect.any(String) });
+  expect(quiet).not.toHaveProperty("mode_reason"); // release C
+  for (const name of ["fog_block_reason", "moisture_block_reason"]) expect(quiet[name], name).toMatchObject({ code: null, since: null, observed_at: expect.any(String) });
   expect(set("lights-intent-unknown")["API-13"].items.filter((item: Body) => item.group === "light").map((item: Body) => [item.intent, item.state])).toEqual([[null, "off"], [null, "off"]]);
 
   const lights = handler("lights-confirmed");
@@ -405,7 +406,7 @@ test("each named fixture serves what the table says", () => {
   // The Band in force rows read as API-09 serves them: derived, read-only, no readback path.
   expect(set("in-band")["API-09"].items.find((row: Body) => row.param === "band_house_temp_low")).toMatchObject({
     label: "House temp low", group: "band_in_force", control_class: "crop_band", writable: false, readback_via: "none", readback: { value: 62 }, desired: null,
-    plan: null, applied_from: "band", state: "no_readback",
+    applied_from: "band", state: "no_readback",
   });
   const series = set("series-400d")["API-04"];
   expect(series.bucket_s).toBe(86_400);
@@ -451,7 +452,6 @@ test("fixture() reads requested-to-confirmed and flow-after-stop after their wri
   expect(row(confirmed)).toMatchObject({ state: "confirmed", applied_from: "manual", readback: { value: 630 }, desired: { value: 630, state: "confirmed", state_reason: null } });
   const refused = fixture("requested-to-confirmed", { now: NOW, confirm: false });
   expect(row(refused)).toMatchObject({ state: "not_confirmed", desired: { state: "not_confirmed", state_reason: { code: "no_match", since: refused["API-10"].created_at } } });
-  expect(refused["API-07"].lanes.find((lane: Body) => lane.param === "outdoor_staleness_max_s")).toMatchObject({ applied_from: "manual", desired: { state: "not_confirmed" } });
   expect(row({ "API-09": get(handler("requested-to-confirmed", { confirm: false }), "/v1/settings") })).toMatchObject({ state: "confirmed", desired: null });
   const stopped = fixture("flow-after-stop", { now: NOW });
   expect(stopped["API-IRR-07"]).toMatchObject({ kind: "stop", line_id: null, status: "pending" });
@@ -684,15 +684,14 @@ test("caretaker-visit, J9's morning: nothing open or running, the wall watered a
   expect(get(api, "/v1/irrigation").occupancy).toEqual({ occupied: true, seen_at: minutesAgo(1), hold_enabled: true });
 });
 
-test("API-06 serves each zone's band with the house temperature band, and refuses north, which has none", () => {
+test("API-06 serves the house band alone; a zone, which release C retired, is refused", () => {
   const api = handler();
   const band = (zone: string) => get(api, `/v1/band?zone=${zone}&from=${minutesAgo(15)}&to=${minutesAgo(0)}`).band as Record<string, number[]>;
-  expect(band("south").vpd_low.at(-1)).toBe(0.45);
-  expect(band("east").vpd_high.at(-1)).toBe(0.9);
-  expect(band("center").vpd_low.at(-1)).toBe(0.5);
   expect(band("house").vpd_low.at(-1)).toBe(0.45);
-  for (const zone of ["south", "east", "center", "house"]) expect([band(zone).temp_low.at(-1), band(zone).temp_high.at(-1)]).toEqual([62, 70]);
-  expect(api.respond({ url: `/v1/band?zone=north&from=${minutesAgo(15)}&to=${minutesAgo(0)}` }).body).toMatchObject({ status: 400, code: "invalid_request", field: "zone" });
+  expect([band("house").temp_low.at(-1), band("house").temp_high.at(-1)]).toEqual([62, 70]);
+  for (const zone of ["south", "east", "center", "west", "north"]) {
+    expect(api.respond({ url: `/v1/band?zone=${zone}&from=${minutesAgo(15)}&to=${minutesAgo(0)}` }).body, zone).toMatchObject({ status: 400, code: "invalid_request", field: "zone" });
+  }
 });
 
 test("south-probe-out: south's series read null for the last 20 minutes and L07 reads peer; its peers keep reading", () => {

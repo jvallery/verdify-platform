@@ -37,8 +37,8 @@ from verdify_services import alerts as alerts_service
 from verdify_services.activity import ActivityEntry, ActivityPage, WriteResult
 from verdify_services.actor import ActorRef
 from verdify_services.problems import problem
-from verdify_services.reads import SettingRows
-from verdify_services.settings import DesiredSetting, Setting, SettingGroup, SettingHistory
+from verdify_services.reads import PlanSettingHistory, SettingRows
+from verdify_services.settings import DesiredSetting, Setting, SettingGroup
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STUB_MODULES = (*_MCP_STUB_MODULES, "mcp.types")
@@ -455,19 +455,19 @@ def test_settings_returns_the_rest_json_of_every_row(server, catalog, opened):
 def test_settings_with_a_whole_window_is_api_12_with_from_and_to(server, opened, monkeypatch):
     calls = []
 
-    async def setting_history(conn, param, from_, to):
+    async def setting_history_with_plan(conn, param, from_, to):
         calls.append((param, from_, to))
-        return SettingHistory(
+        return PlanSettingHistory(
             param=param, from_=from_, to=to, desired=[desired()], readback=[], plan=[], unit="kPa", min=0.5, max=2.5
         )
 
-    monkeypatch.setattr(server.reads_service, "setting_history", setting_history)
+    monkeypatch.setattr(server.reads_service, "setting_history_with_plan", setting_history_with_plan)
     since, until = "2026-11-01T00:00:00-07:00", "2026-11-02T00:00:00Z"
     result = asyncio.run(server.settings(param=PARAM, since=since, until=until, group="crop_band", manual_only=True))
     assert calls == [(PARAM, datetime.fromisoformat(since), datetime(2026, 11, 2, tzinfo=UTC))]
     answer = body(result)
     assert answer["from"] == "2026-11-01T00:00:00-07:00" and answer["to"] == "2026-11-02T00:00:00Z"
-    assert "from_" not in answer and answer["desired"][0]["param"] == PARAM
+    assert "from_" not in answer and answer["desired"][0]["param"] == PARAM and answer["plan"] == []
 
 
 @pytest.mark.parametrize(
@@ -503,7 +503,7 @@ def test_a_history_refusal_from_the_service_is_problem_json(server, opened, monk
     async def setting_history(conn, param, from_, to):
         raise server.ServiceError(problem("not_found", f"{param} is not a setting", field="param"))
 
-    monkeypatch.setattr(server.reads_service, "setting_history", setting_history)
+    monkeypatch.setattr(server.reads_service, "setting_history_with_plan", setting_history)
     result = asyncio.run(server.settings(param="nope", since="2026-11-01T00:00:00Z", until="2026-11-02T00:00:00Z"))
     assert result.isError is True and body(result)["code"] == "not_found"
 

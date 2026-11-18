@@ -222,11 +222,10 @@ def test_api_06_adds_the_achievable_band_for_the_house_only_and_matches_its_sche
     assert args[0] == service.fit_end(date(2026, 11, 4), NOW) - timedelta(days=14)
     assert args[1] == service.fit_end(date(2026, 11, 5), NOW)
     assert args[2] == list(ve.MOISTURE_EQUIPMENT)
-    # Not asked for, a zone, or a window past 35 days: none, and no envelope read.
-    for kwargs in ({}, {"zone": "south"}):
-        plain = Conn()
-        assert asyncio.run(s.band(plain, from_, to, now=NOW, **kwargs)).achievable is None
-        assert not any(sql == service.ENVELOPE_RANGE_SQL for sql, _ in plain.fetches)
+    # Not asked for, or a window past 35 days: none, and no envelope read. Release C serves the house band only.
+    plain = Conn()
+    assert asyncio.run(s.band(plain, from_, to, now=NOW)).achievable is None
+    assert not any(sql == service.ENVELOPE_RANGE_SQL for sql, _ in plain.fetches)
     long = Conn()
     assert asyncio.run(s.band(long, NOW - timedelta(days=40), NOW, achievable=True, now=NOW)).achievable is None
 

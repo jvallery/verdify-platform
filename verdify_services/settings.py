@@ -11,7 +11,6 @@ functions, so a person and an agent get the same answer for the same input.
   insert trigger is the only wake; nothing here writes ``setpoint_changes``.
 - ``status(conn, param)``: whose value applies and the readback state (§5.5). Display only: it raises no alert. The
   ``irrigation_site`` rows read back through the program the controller confirms (irrigation §4.1 and §8.3, #1155).
-  ``statuses(conn, params)`` is the same for several settings in one batched read (API-07's lanes).
 - ``history(conn, param, from_, to)``: the desired rows and the readback change points over a window.
 - ``desired_states(conn, ids)``: named ``desired_state`` rows with their readback state, by ``history``'s rule
   (API-17's ``setting.write`` and ``setting.release`` rows).
@@ -39,7 +38,6 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 from verdify_schemas.activity import ActivityLogRow
 from verdify_schemas.band_profile import HOUSE_PARAMS
 from verdify_schemas.band_rows import BandRows, band_rows, rows_in_force
-from verdify_schemas.policy_vector import live_wire_fields
 from verdify_schemas.setting_help import SettingHelp, setting_help, setting_label, source_params
 from verdify_schemas.setting_values import (
     binary32_ulp,
@@ -51,6 +49,7 @@ from verdify_schemas.setting_values import (
 )
 from verdify_schemas.tunable_registry import (
     AGENT_SETTABLE_PARAMS,
+    LEGACY_WIDE_LIMIT_PARAMS,
     OWNER_ONLY_PARAMS,
     REGISTRY,
     SWITCH_READBACK_EQUIPMENT,
@@ -71,18 +70,16 @@ if TYPE_CHECKING:  # reads imports this module; _shared() imports reads when it 
 GREENHOUSE_ID = "vallery"
 # A stored write reads requested this long before it reads not_confirmed (§5.5).
 REQUESTED_FOR = timedelta(minutes=5)
-# setpoint_snapshot holds every cfg_* sensor and native Number/Switch state on change, after each write, desired row
-# or plan waypoint, and at least hourly (#1662), so a readback older than this is no readback now. equipment_state records changes only, so its window is the readback retention.
+# setpoint_snapshot holds every cfg_* sensor and native Number/Switch state on change, after each write or desired
+# row, and at least hourly (#1662), so a readback older than this is no readback now. equipment_state records changes only, so its window is the readback retention.
 READBACK_WINDOW = timedelta(hours=24)
 EQUIPMENT_WINDOW = timedelta(days=90)
-# A band or default setting with no desired row and no plan is judged against the dispatcher's newest push.
+# A band or default setting with no desired row is judged against the dispatcher's newest push.
 PUSH_WINDOW = timedelta(days=90)
 # setpoint_changes rows the controller itself reported (source esp32, delivery_status observed) are not pushes.
 DEVICE_OBSERVED_SOURCE = "esp32"
 DEFERRED_STATUS = "deferred_heap_pressure"
 FAILED_STATUS = "failed"
-# The 48 policy fields: an armed experiment serves them to the controller, so their settings read held.
-POLICY_FIELDS = frozenset(spec.name for spec in live_wire_fields())  # the five live slots (release 4)
 NO_ANCHOR_ROW = "no crop_band_anchors row holds it"
 NO_READBACK_REASON = "no readback in the last 24 h"
 NO_PROGRAM_READBACK = "applies with the irrigation firmware"
@@ -90,7 +87,6 @@ NO_CONFIRMED_PROGRAM = "no confirmed program on the controller"
 
 ReasonCode = Literal[
     "clamped",
-    "experiment",
     "deferred",
     "push_failed",
     "writer_down",
@@ -99,7 +95,7 @@ ReasonCode = Literal[
     "no_match",
 ]
 ReadbackVia = Literal["cfg", "entity", "program", "none"]
-AppliedFrom = Literal["manual", "desired", "plan", "band", "default"]
+AppliedFrom = Literal["manual", "desired", "band", "default"]
 ControlClass = Literal[
     "planner_policy",
     "scheduled_policy",
@@ -189,7 +185,7 @@ class _Model(BaseModel):
 
 
 class StateReason(_Model):
-    """Why a value is held or not confirmed (OpenAPI ``StateReason``). ``since`` is the HH:MM the UI shows."""
+    """Why a value is not confirmed (OpenAPI ``StateReason``). ``since`` is the HH:MM the UI shows."""
 
     code: ReasonCode
     detail: str | None = None
@@ -235,31 +231,12 @@ class SettingOption(_Model):
     label: str
 
 
-class PlanWaypoint(_Model):
-    """A plan value (OpenAPI ``PlanWaypoint``): ``reads.plan_waypoints`` and ``reads.plan_history`` build them."""
-
-    at: AwareDatetime
-    value: float | None
-    source: Literal["iris", "preemptive"]
-    effective: bool
-
-
-class SettingPlan(_Model):
-    """The plan value in force (OpenAPI ``Setting.plan``): ``reads.settings_rows`` adds it to the catalog rows."""
-
-    value: float | None
-    plan_id: str
-    source: Literal["iris", "preemptive"]
-    written_at: AwareDatetime
-    next: PlanWaypoint | None = None
-
-
 class Setting(_Model):
     """One registry row as the Settings screen shows it (OpenAPI ``Setting``).
 
     ``label`` and ``unit`` are ``TunableDef.label`` and ``TunableDef.unit``, unchanged (``setting_label`` names the
-    rows whose registry label is the raw name). ``plan`` stays None here: ``reads.settings_rows`` (API-09) adds the
-    plan block and the Band in force rows. ``help`` is the operator text (``verdify_schemas.setting_help``, #1332);
+    rows whose registry label is the raw name). ``reads.settings_rows`` (API-09) adds the Band in force rows.
+    ``help`` is the operator text (``verdify_schemas.setting_help``, #1332);
     ``read_only_kind`` names why a row is read-only and ``source_params`` the writable settings a derived row is
     computed from (#1333). ``effect`` is what reads the setting on this build (``setting_effect``).
     """
@@ -282,7 +259,6 @@ class Setting(_Model):
     readback_via: ReadbackVia
     readback: Reading | None
     desired: DesiredSetting | None
-    plan: SettingPlan | None = None
     applied_from: AppliedFrom
     state: ReadbackState
     effect: SettingEffect
@@ -297,10 +273,9 @@ class Setting(_Model):
 
 
 class SettingHistory(_Model):
-    """Desired rows, plan values and readback change points over a window (OpenAPI ``SettingHistory``).
+    """Desired rows and readback change points over a window (OpenAPI ``SettingHistory``).
 
-    ``from`` is a Python keyword: the field is ``from_`` and serializes as ``from``. ``plan`` stays empty here:
-    ``reads.setting_history`` (API-12) adds the plan values (``reads.plan_history``).
+    ``from`` is a Python keyword: the field is ``from_`` and serializes as ``from``.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True, serialize_by_alias=True)
@@ -312,7 +287,6 @@ class SettingHistory(_Model):
     from_: AwareDatetime = Field(alias="from")
     to: AwareDatetime
     desired: list[DesiredSetting]
-    plan: list[PlanWaypoint] = Field(default_factory=list)
     readback: list[TimedValue]
 
 
@@ -367,7 +341,6 @@ class _Facts:
     """What one setting's state is computed from (architecture §7 Settings)."""
 
     desired: Mapping[str, Any] | None = None  # the v_desired_state_current row
-    plan: Mapping[str, Any] | None = None  # a plan row; never read since climate refactor 4.2, so always None
     readback: _Readback | None = None  # the newest readback (setpoint_snapshot, or the equipment mirror)
     last_push: Mapping[str, Any] | None = None  # the newest dispatcher push, for band and default rows
     push: _Push | None = None  # the newest push at or after the request
@@ -378,7 +351,6 @@ class _Facts:
 @dataclass(frozen=True)
 class _Shared:
     reporting: Reporting
-    experiment_armed: bool
     program: ControllerProgram | None = None  # read when an irrigation_site setting is in question
 
     @property
@@ -388,9 +360,9 @@ class _Shared:
 
 @dataclass(frozen=True)
 class _Request:
-    """The value a state is judged for: a desired row's, the plan's, or the newest push's."""
+    """The value a state is judged for: a desired row's or the newest push's."""
 
-    kind: Literal["desired", "plan", "push"]
+    kind: Literal["desired", "push"]
     value: float
     since: datetime
     matches: Callable[[str, float | None, float | None], bool]
@@ -414,7 +386,7 @@ def _finite(value: object) -> float | None:
 
 
 def _equivalent(param: str, observed: float | None, value: float | None) -> bool:
-    """Plan values keep the dispatcher's comparator (1 % dead-band, then the duration tolerance)."""
+    """Pushes keep the dispatcher's comparator (1 % dead-band, then the duration tolerance)."""
     if observed is None or value is None:
         return False
     return readback_values_equivalent(param, observed, value)
@@ -447,63 +419,57 @@ def _writable_desired(param: str, desired: Mapping[str, Any] | None) -> Mapping[
     return desired
 
 
-def applied_from(spec: TunableDef, desired: Mapping[str, Any] | None, plan: Mapping[str, Any] | None) -> AppliedFrom:
-    """Whose value the dispatcher applies (§5.2): manual or desired by ``resolve_effective()``; with no desired
-    row (or a released one), band for a band or schedule setting, else default. ``plan`` is always None since
-    climate refactor 4.2 (no plan row is read), so ``plan`` is never the answer."""
+def applied_from(spec: TunableDef, desired: Mapping[str, Any] | None) -> AppliedFrom:
+    """Whose value the dispatcher applies (§5.2): manual or desired by ``resolve_effective()`` (with no plan, as the
+    dispatcher resolves since climate refactor 4.2); with no desired row (or a released one), band for a band or
+    schedule setting, else default.
+
+    A legacy wide limit reads default: band means the host sends the band's value, and the host sends these four no
+    more (``_unsent``), so the value in force is the controller's own."""
     desired = _writable_desired(spec.name, desired)
-    resolved = resolve_effective(desired, plan)
-    if resolved is not None:
-        if resolved.applied_from == "desired" and desired is not None and desired["manual"]:
-            return "manual"
-        return resolved.applied_from
-    if plan is not None:
-        return "plan"
+    if resolve_effective(desired, None) is not None:
+        return "manual" if desired is not None and desired["manual"] else "desired"
+    if _unsent(spec.name):
+        return "default"
     if spec.push_owner in ("band", "schedule"):
         return "band"
     return "default"
 
 
-def _plan_took_force(plan: Mapping[str, Any]) -> datetime:
-    """A plan value takes force at its waypoint time, or when it was written if that is later."""
-    return max(plan["ts"], plan["created_at"])
+def _unsent(param: str) -> bool:
+    """A setting the host no longer sends: the legacy wide limits. ``setpoint_dispatcher`` pushes them only while
+    the band anchors are not yet confirmed by their readbacks (``ingestor/tasks/dispatcher.py``, ``if band_row and
+    not anchors_live``); once the on-chip curve runs from confirmed anchors it stops, so their last push can never be
+    confirmed. They read as never requested: confirmed with a readback, else no_readback. They are read-only, so no
+    desired row of theirs is writable either."""
+    return param in LEGACY_WIDE_LIMIT_PARAMS
 
 
 def _request_of(spec: TunableDef, facts: _Facts) -> tuple[str, _Request | None]:
     """What the state is judged for, and how: (kind, request).
 
-    kind is ``released`` or ``overridden`` (no request: those states need no readback), ``desired``, ``plan``,
-    ``push`` or ``none`` (nothing was ever requested).
+    kind is ``released`` (no request: that state needs no readback), ``desired``, ``push`` or ``none`` (nothing was
+    ever requested).
     """
     desired = _writable_desired(spec.name, facts.desired)
     if desired is not None:
         if desired["value"] is None:
             return "released", None
-        resolved = resolve_effective(desired, facts.plan)
-        if resolved is not None and resolved.applied_from == "plan":
-            return "overridden", None
         value = _finite(desired["value"])
         if value is None:
             return "none", None
         return "desired", _Request("desired", value, desired["created_at"], readback_matches)
-    if facts.plan is not None and (value := _finite(facts.plan["value"])) is not None:
-        return "plan", _Request("plan", value, _plan_took_force(facts.plan), _equivalent)
+    if _unsent(spec.name):
+        return "none", None
     if facts.last_push is not None and (value := _finite(facts.last_push["value"])) is not None:
         return "push", _Request("push", value, facts.last_push["ts"], _equivalent)
     return "none", None
 
 
-def _reason(
-    clamp: _Clamp | None,
-    experiment: bool,
-    push: _Push | None,
-    reporting: Reporting,
-) -> StateReason:
+def _reason(clamp: _Clamp | None, push: _Push | None, reporting: Reporting) -> StateReason:
     """§5.5: the first reason that holds, with its ``since``."""
     if clamp is not None:
         return StateReason(code="clamped", detail=clamp.reason, applied_value=clamp.applied, since=clamp.at)
-    if experiment:
-        return StateReason(code="experiment")
     if push is not None and push.status == DEFERRED_STATUS:
         return StateReason(code="deferred", since=push.at)
     if push is not None and push.status == FAILED_STATUS:
@@ -534,23 +500,24 @@ def _evaluate_site(param: str, request: _Request | None, facts: _Facts, shared: 
         if facts.readback is not None and request.matches(param, facts.readback.value, request.value):
             return _Evaluation("confirmed", confirmed_at=max(confirmed["confirmed_at"], request.since))
     state: ReadbackState = "requested" if shared.at - request.since < REQUESTED_FOR else "not_confirmed"
-    return _Evaluation(state, _reason(None, False, facts.push, shared.reporting))
+    return _Evaluation(state, _reason(None, facts.push, shared.reporting))
 
 
 def evaluate(spec: TunableDef, facts: _Facts, shared: _Shared) -> _Evaluation:
-    """§5.5 readback state: the first that holds of released, overridden, held, confirmed, no_readback,
-    requested and not_confirmed, with ``state_reason`` for requested, not_confirmed and held. A setting nobody
-    ever requested reads confirmed when it has a readback, else no_readback (never not_confirmed).
+    """§5.5 readback state: the first that holds of released, confirmed, no_readback, requested and
+    not_confirmed, with ``state_reason`` for requested and not_confirmed. A setting nobody ever requested reads
+    confirmed when it has a readback, else no_readback (never not_confirmed); so does a setting the host no longer
+    sends (``_unsent``), whatever its last push.
 
-    Only readbacks at or after the request count. A desired value confirms by ``readback_matches()``; a plan
-    value or a band or default push by ``readback_values_equivalent()``. A clamp holds the value only while the
-    newest readback does not confirm it, so a guardrail that let go does not hold the setting forever.
+    Only readbacks at or after the request count. A desired value confirms by ``readback_matches()``; a band or
+    default push by ``readback_values_equivalent()``. A clamp (the dispatcher's ``setpoint_clamps`` row) reads
+    not_confirmed at once, with reason ``clamped``, only while the newest readback does not confirm the value, so a
+    guardrail that let go does not hold the setting forever. (Before release C a clamp, or an armed experiment, read
+    ``held``.)
     """
     kind, request = _request_of(spec, facts)
     if kind == "released":
         return _Evaluation("released")
-    if kind == "overridden":
-        return _Evaluation("overridden")
     if spec.control_class == "irrigation_site":
         return _evaluate_site(spec.name, request, facts, shared)
     route = readback_via(spec)
@@ -560,19 +527,14 @@ def evaluate(spec: TunableDef, facts: _Facts, shared: _Shared) -> _Evaluation:
         return _Evaluation("confirmed" if route != "none" and facts.readback is not None else "no_readback")
     newest = facts.readback if facts.readback is not None and facts.readback.at >= request.since else None
     matches = newest is not None and request.matches(spec.name, newest.value, request.value)
-    experiment = shared.experiment_armed and spec.name in POLICY_FIELDS
-    clamp = facts.clamp if not matches else None
-    if experiment or clamp is not None:
-        state: ReadbackState = "held"
-    elif matches:
+    if matches:
         return _Evaluation("confirmed", confirmed_at=facts.first_match_at if kind == "desired" else None)
-    elif route == "none":
+    clamp = facts.clamp
+    if clamp is None and route == "none":
         return _Evaluation("no_readback")
-    elif shared.at - request.since < REQUESTED_FOR:
-        state = "requested"
-    else:
-        state = "not_confirmed"
-    return _Evaluation(state, _reason(clamp, experiment, facts.push, shared.reporting))
+    late = clamp is not None or shared.at - request.since >= REQUESTED_FOR
+    state: ReadbackState = "not_confirmed" if late else "requested"
+    return _Evaluation(state, _reason(clamp, facts.push, shared.reporting))
 
 
 # ── Formatting refusals ─────────────────────────────────────────────────────
@@ -701,9 +663,8 @@ async def _shared(conn: asyncpg.Connection, *, site: bool = False) -> _Shared:
     from verdify_services import reads  # here, not at the top: reads imports this module
 
     reporting = await reads.reporting(conn)
-    armed = await conn.fetchval(activity.ARMED_EXPERIMENT_SQL)
     program = await controller_program(conn) if site else None
-    return _Shared(reporting=reporting, experiment_armed=armed is not None, program=program)
+    return _Shared(reporting=reporting, program=program)
 
 
 async def _readbacks(conn: asyncpg.Connection, names: Sequence[str]) -> dict[str, _Readback]:
@@ -792,13 +753,10 @@ async def _gather(
     if desired_rows is None:
         desired_rows = {row["param"]: row for row in await conn.fetch(_DESIRED_SQL, GREENHOUSE_ID, names)}
     readbacks = await _readbacks(conn, names)
-    # Climate refactor 4.2: no plan reaches the controller, so no plan row is read (the dispatcher resolves with
-    # none); _Facts.plan stays None.
+    # Climate refactor 4.2: no plan reaches the controller, so no plan row is read (the dispatcher resolves with none).
     facts = {name: _Facts(desired=desired_rows.get(name), readback=readbacks.get(name)) for name in names}
-    # A band or default setting with no desired row and no plan is judged against the newest push.
-    unrequested = [
-        name for name in names if _writable_desired(name, facts[name].desired) is None and facts[name].plan is None
-    ]
+    # A band or default setting with no desired row is judged against the newest push (not a legacy wide limit).
+    unrequested = [name for name in names if _writable_desired(name, facts[name].desired) is None and not _unsent(name)]
     if unrequested:
         for row in await conn.fetch(_LAST_PUSH_SQL, GREENHOUSE_ID, unrequested, PUSH_WINDOW, DEVICE_OBSERVED_SOURCE):
             facts[row["param"]].last_push = row
@@ -883,7 +841,7 @@ def _setting_status(spec: TunableDef, facts: _Facts, shared: _Shared) -> Setting
     desired = _writable_desired(spec.name, facts.desired)
     return SettingStatus(
         param=spec.name,
-        applied_from=applied_from(spec, facts.desired, facts.plan),
+        applied_from=applied_from(spec, facts.desired),
         state=evaluation.state,
         state_reason=evaluation.reason,
         confirmed_at=evaluation.confirmed_at,
@@ -993,17 +951,6 @@ async def status(conn: asyncpg.Connection, param: str) -> SettingStatus:
     return _setting_status(spec, facts[spec.name], shared)
 
 
-async def statuses(conn: asyncpg.Connection, params: Sequence[str]) -> dict[str, SettingStatus]:
-    """``status()`` of several settings in one batched read, by param (API-07's lanes, so Plan and Settings show the
-    same state and reason). Names outside ``REGISTRY`` are left out. Display only, as ``status()``."""
-    specs = [REGISTRY[name] for name in dict.fromkeys(params) if isinstance(name, str) and name in REGISTRY]
-    if not specs:
-        return {}
-    async with _snapshot(conn):
-        facts, shared = await _gather(conn, specs)
-    return {spec.name: _setting_status(spec, facts[spec.name], shared) for spec in specs}
-
-
 def _row_evaluation(
     row: Mapping[str, Any],
     spec: TunableDef,
@@ -1070,8 +1017,7 @@ async def history(conn: asyncpg.Connection, param: str, from_: datetime, to: dat
 
     The newest row reads its full ``status``; an older row reads released, or confirmed (with
     ``confirmed_at``) when a readback before the next row confirmed it, else not_confirmed. ``readback``
-    starts with the newest readback before ``from_`` (readbacks are kept 90 days). ``plan`` stays empty:
-    ``reads.setting_history`` adds the plan values.
+    starts with the newest readback before ``from_`` (readbacks are kept 90 days).
     """
     spec = _spec_or_not_found(param)
     start, end = _aware("from", from_), _aware("to", to)
@@ -1181,13 +1127,11 @@ class _Checked:
 
 
 def _current(spec: TunableDef, facts: _Facts) -> float | None:
-    """The value in force (``resolve_effective()`` over the desired and plan rows, else the plan), else the
-    device readback."""
-    resolved = resolve_effective(_writable_desired(spec.name, facts.desired), facts.plan)
+    """The value in force (``resolve_effective()`` over the desired row, with no plan since climate refactor 4.2),
+    else the device readback."""
+    resolved = resolve_effective(_writable_desired(spec.name, facts.desired), None)
     if resolved is not None:
         return resolved.value
-    if facts.plan is not None and (plan_value := _finite(facts.plan["value"])) is not None:
-        return plan_value
     return facts.readback.value if facts.readback is not None else None
 
 
@@ -1300,9 +1244,9 @@ def check_range(param: str, value: float) -> float:
 def _snap(spec: TunableDef, number: float, facts: _Facts) -> float:
     """§5.3 step 4: the registry step, half to even; a value equal (within its binary32 ULP) to the value in
     force or the device value is stored as is. No plan row is in force since climate refactor 4.2."""
-    in_force = resolve_effective(_writable_desired(spec.name, facts.desired), facts.plan)
+    in_force = resolve_effective(_writable_desired(spec.name, facts.desired), None)
     candidates = [
-        in_force.value if in_force is not None else (_finite(facts.plan["value"]) if facts.plan is not None else None),
+        in_force.value if in_force is not None else None,
         facts.readback.value if facts.readback is not None else None,
     ]
     tolerance = binary32_ulp(number)
@@ -1569,7 +1513,7 @@ async def release(
     extra_detail: Mapping[str, Any] | None = None,
     expected_id: int | None = None,
 ) -> WriteResult[DesiredSetting]:
-    """API-11 and MCP ``set_setting(release=True)``: back to plan, band or default. ``expected_id`` as for
+    """API-11 and MCP ``set_setting(release=True)``: back to the band or the default. ``expected_id`` as for
     ``write``.
 
     Runs §5.3 steps 1 and 3 (so Iris cannot release a value a person holds manual), then appends

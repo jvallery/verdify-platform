@@ -78,7 +78,7 @@ test("one API-02 request serves the shell and Now; API-02, API-IRR-01 and API-14
   await advance(15_000);
   expect(sentAt("API-02")).toEqual([0, 15_000]);
   expect(sentAt("API-14")).toEqual([0, 15_000]);
-  expect(requests(api, "API-07")).toEqual([]);
+  expect(requests(api).filter((row) => /\/v1\/plan(ner)?(\/|\?|$)/.test(row.path))).toEqual([]);
   expect(requests(api, "API-05")).toEqual([]);
   // The one house band (API-06 zone=house for the charts); never a zone's own band.
   expect(requests(api, "API-06").every((row) => new URL(row.path, "http://dashboard.invalid").searchParams.get("zone") === "house")).toBe(true);

@@ -278,6 +278,41 @@ export function bandAnswer(preview: Pick<BandProfilePreview, "current">): string
 }
 
 export type Finding = BandProfilePreview["findings"][number];
+
+/** A stored row of the older form: a middle line (`band_<axis>_target_<time>`), which the law does not read. */
+const OLDER_FORM_ROW = /^band_(?:temp|vpd)_target_(?:sr|sm|ss|mid)$/;
+/** An overshoot finding's edge: `band_temp_low_sr` → temp, temp_low. */
+const EDGE_ROW = /^band_(temp|vpd)_(low|high)_(?:sr|sm|ss|mid)$/;
+
+/**
+ * The findings the Band page lists, and the quiet overshoot line (screens 2.2 block 2). A warning about a stored row of
+ * the older form is not shown: the law does not read the middle line (an API before release C part 2 sends one). An
+ * error shows while a draft is previewed, whatever row it names, because it is why Save is refused; the stored band's
+ * own errors block nothing and are not shown. With no draft change, the overshoot warnings fold into one
+ * line in the note tone, how far the curve runs outside its anchors at most and why (decisions.md 2026-11-06, #1334
+ * accepts it); while a draft changes the band they stay one warning per edge. dewpoint_unreached stays a warning.
+ */
+export function bandFindings(preview: Pick<BandProfilePreview, "findings" | "overshoot" | "changed">, edited: boolean): {
+  readonly findings: Finding[]; readonly overshootNote: string | null;
+} {
+  const changes = edited && preview.changed.length > 0;
+  const kept = preview.findings.filter((item) => item.severity === "error" ? edited : !OLDER_FORM_ROW.test(item.field));
+  if (changes) return { findings: kept, overshootNote: null };
+  const most: Record<Axis, number> = { temp: 0, vpd: 0 };
+  for (const item of kept) {
+    const edge = item.code === "overshoot" ? EDGE_ROW.exec(item.field) : null;
+    const amount = edge ? preview.overshoot[`${edge[1]}_${edge[2]}`] : undefined;
+    if (edge && amount !== undefined && Number.isFinite(amount)) most[edge[1] as Axis] = Math.max(most[edge[1] as Axis], amount);
+  }
+  const parts = (["temp", "vpd"] as const).filter((axis) => most[axis] > 0).map((axis) => formatValue(most[axis], AXIS_UNIT[axis]));
+  return {
+    findings: kept.filter((item) => item.code !== "overshoot"),
+    overshootNote: parts.length
+      ? `The curve runs up to ${parts.join(" and ")} outside its anchors, because sunrise and sunset are set apart from the midpoint of noon and midnight. This is accepted.`
+      : null,
+  };
+}
+
 /** The draft's findings in words: what each is about, then why, in the API's words with each series named. */
 export function FindingsList({ findings }: { findings: readonly Finding[] }) {
   if (!findings.length) return null;
@@ -317,6 +352,7 @@ export function BandPreviewPanel({ preview, edited, now, state, message, onRetry
   const views = useMemo(() => (preview && preview.t.length ? previewViews(preview, now, edited) : null), [preview, now, edited]);
   const marks = views?.temp.marks ?? [];
   const heat = preview ? nightHeatText(preview, edited) : null;
+  const shown = preview ? bandFindings(preview, edited) : null;
   return <Panel title="The band" thing="the band" state={state} reserve="lg" onRetry={onRetry} foot={heat}>
     {preview && <p className="band-answer">{bandAnswer(preview)}</p>}
     {message && <p role="status" className="band-message">{message}</p>}
@@ -327,6 +363,7 @@ export function BandPreviewPanel({ preview, edited, now, state, message, onRetry
         csv={{ filename: csvFilename("band", dayRange(preview.day, preview.t)), build: () => previewCsv(views), version: views, label: "CSV of these charts" }} />
     </ChartGroup>}
     {marks.length > 0 && <p className="meta band-sun">{marks.map((mark) => mark.text).join(" · ")}. After the Now line the measured line is yesterday's.</p>}
-    {preview && <FindingsList findings={edited ? preview.findings : preview.findings.filter((finding) => finding.severity !== "error")} />}
+    {shown && <FindingsList findings={shown.findings} />}
+    {shown?.overshootNote && <p className="meta band-overshoot">{shown.overshootNote}</p>}
   </Panel>;
 }

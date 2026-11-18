@@ -176,12 +176,8 @@ def test_band_in_force_rows_as_api_09_serves_them(payload):
         assert row["state"] == "no_readback"
         assert row["writable"] is False
         assert row["read_only_reason"] == "derived by the dispatcher from the crop band anchors"
-        assert (row["control_class"], row["applied_from"], row["desired"], row["plan"]) == (
-            "crop_band",
-            "band",
-            None,
-            None,
-        )
+        assert (row["control_class"], row["applied_from"], row["desired"]) == ("crop_band", "band", None)
+        assert "plan" not in row  # release C
         assert row["readback"]["value"] is not None
         assert row["readback"]["observed_at"]
         assert row["unit"] == ("°F" if "_temp_" in row["param"] else "kPa")
@@ -205,27 +201,16 @@ def test_every_row_carries_the_effect_the_settings_service_serves(payload):
 
 def test_scenario_rows_the_screens_and_named_fixtures_rely_on(rows):
     staleness = rows["outdoor_staleness_max_s"]
-    assert staleness["readback"]["value"] == 660.0
-    assert staleness["applied_from"] == "plan"
-    assert staleness["plan"]["source"] == "iris"
-    assert staleness["plan"]["next"] == {
-        "at": "2026-11-02T20:00:00.000Z",
-        "value": 720.0,
-        "source": "iris",
-        "effective": True,
-    }
+    assert (staleness["readback"]["value"], staleness["applied_from"]) == (660.0, "default")
     off = rows["mister_min_off_s"]
-    assert (off["readback"]["value"], off["applied_from"], off["plan"]["next"]["value"]) == (45.0, "plan", 55.0)
-    assert off["plan"]["next"]["at"] == "2026-11-02T23:30:00.000Z"
-    # iris-unsnapped puts Iris's 48.75 on this plan.
-    assert rows["mister_engage_delay_s"]["plan"]["source"] == "iris"
+    assert (off["readback"]["value"], off["applied_from"]) == (45.0, "default")
+    # Release C: no row carries a plan block, and none applies from a plan.
+    assert all("plan" not in row and row["applied_from"] != "plan" for row in rows.values())
     agent = rows["mister_water_budget_gal"]
     assert agent["applied_from"] == "desired"
     assert agent["desired"]["actor"] == {"source": "agent:steward", "name": "steward"}
     assert agent["desired"]["manual"] is False
-    forecast = rows["sw_gl_main_solar_phasing"]
-    assert (forecast["applied_from"], forecast["plan"]["source"]) == ("plan", "preemptive")
-    assert forecast["plan"]["plan_id"].startswith("preemptive-")
+    assert rows["sw_gl_main_solar_phasing"]["readback"]["value"] == 0.0
     assert rows["temp_low"]["readback"]["value"] == 40.0
 
 
@@ -271,7 +256,7 @@ def test_the_cli_writes_strict_json_with_every_time_relative_to_server_time(tmp_
     assert body["server_time"] == "2026-11-02T17:42:00.000Z"
     assert len(body["items"]) == len(REGISTRY) + 30
     required = {"param", "label", "control_class", "group", "kind", "writable", "readback_via", "readback", "desired"}
-    required |= {"plan", "applied_from", "state"}
+    required |= {"applied_from", "state"}
     server = datetime.fromisoformat(body["server_time"])
 
     def times(value):

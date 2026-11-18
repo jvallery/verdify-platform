@@ -11,7 +11,7 @@ const badgeIn = (container: HTMLElement) => container.querySelector("[data-badge
 test("every badge of design system v2 §4 carries its word, its status class and a dot", () => {
   const expected: Record<string, [string, string]> = {
     requested: ["Requested", "badge badge-warn"], confirmed: ["Confirmed", "badge badge-ok"],
-    not_confirmed: ["Not confirmed", "badge badge-serious"], held: ["Held", "badge badge-info"], no_readback: ["No readback", "badge badge-neutral"],
+    not_confirmed: ["Not confirmed", "badge badge-serious"], no_readback: ["No readback", "badge badge-neutral"],
     manual: ["Set by hand", "badge badge-info"], ai: ["AI", "badge badge-neutral"],
     superseded: ["Superseded", "badge badge-neutral"], stale: ["Stale", "badge badge-warn"], clean: ["Clean", "badge badge-neutral badge-clean"],
     fert: ["Fert", "badge badge-neutral badge-fert"], running: ["Running", "badge badge-ok"], idle: ["Idle", "badge badge-neutral"],
@@ -40,15 +40,13 @@ test("a small badge, and a status badge around any words", () => {
 });
 
 test("ReadbackState renders its badge; NO READBACK also when readback_via is none; released has none; an unknown state shows raw", () => {
-  for (const [state, kind] of [["requested", "requested"], ["confirmed", "confirmed"], ["not_confirmed", "not_confirmed"], ["held", "held"], ["no_readback", "no_readback"]]) {
+  for (const [state, kind] of [["requested", "requested"], ["confirmed", "confirmed"], ["not_confirmed", "not_confirmed"], ["no_readback", "no_readback"]]) {
     expect(badgeIn(renderUi(<ReadbackBadge state={state} />).container)?.getAttribute("data-badge"), state).toBe(kind);
     cleanup();
   }
   expect(badgeIn(renderUi(<ReadbackBadge state="requested" readbackVia="none" />).container)?.getAttribute("data-badge")).toBe("no_readback");
   cleanup();
-  // With no readback, HELD still says what applies; released still has no badge.
-  expect(badgeIn(renderUi(<ReadbackBadge state="held" readbackVia="none" />).container)?.getAttribute("data-badge")).toBe("held");
-  cleanup();
+  // Released still has no badge.
   expect(renderUi(<ReadbackBadge state="released" readbackVia="none" />).container.textContent).toBe("");
   cleanup();
   expect(renderUi(<ReadbackBadge state="released" />).container.textContent).toBe("");

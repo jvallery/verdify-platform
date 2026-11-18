@@ -48,12 +48,10 @@ test("an enum value newer than the client reads unknown, or its safe value, and 
   const now = clone(base["API-02"]);
   now.band.temp_f.verdict = "way_above";
   now.running = [{ equipment: "drip_wall", line_id: "L01", cause: "rain_dance", since: null }];
-  now.iris.required_trigger = "skipped";
   now.overrides = [{ kind: "dehumidify", since: now.server_time, ends_at: null }];
   const parsed = parseNow(now)!;
   expect(parsed.band.temp_f.verdict).toBe("unavailable");
   expect(parsed.running[0].cause).toBe("unknown");
-  expect(parsed.iris.required_trigger).toBe("skipped");
   expect(parsed.overrides[0]).toMatchObject({ kind: "dehumidify", held_reason: null });
   const irrigation = clone(base["API-IRR-01"]);
   irrigation.lines[0].state.code = "draining";

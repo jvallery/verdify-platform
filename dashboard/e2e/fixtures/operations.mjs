@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { URLSearchParams } from "node:url";
 import {
-  DAY, JASON, LINES, MISTERS, REVISION, SCORECARD_REASON_COLUMNS, addDays, flowWithValvesClosed, iso, itemOf, laneOf, lineInfo, lineOf, local, localInstant,
+  DAY, JASON, LINES, MISTERS, REVISION, SCORECARD_REASON_COLUMNS, addDays, flowWithValvesClosed, iso, itemOf, lineInfo, lineOf, local, localInstant,
   manifold, minutesZone, nextId, runLine, settingOf, stopLines,
 } from "./world.mjs";
 import { CROP_READS, CROP_WRITES, CropRefusal, cropWrite } from "./crops.mjs";
@@ -20,13 +20,12 @@ const HOUR = 3_600_000;
 /** method, path and id for each operation, in the order of the OpenAPI file. */
 export const ROUTES = [
   ["API-01", "GET", "/v1/me"], ["API-02", "GET", "/v1/now"], ["API-03", "GET", "/v1/metrics"], ["API-04", "GET", "/v1/series"],
-  ["API-05", "GET", "/v1/states"], ["API-06", "GET", "/v1/band"], ["API-07", "GET", "/v1/plan"], ["API-09", "GET", "/v1/settings"],
+  ["API-05", "GET", "/v1/states"], ["API-06", "GET", "/v1/band"], ["API-09", "GET", "/v1/settings"],
   ["API-10", "PUT", "/v1/settings/{param}"], ["API-11", "DELETE", "/v1/settings/{param}"], ["API-12", "GET", "/v1/settings/{param}/history"],
   ["API-13", "GET", "/v1/equipment"], ["API-14", "GET", "/v1/alerts"], ["API-15", "POST", "/v1/alerts/{id}/ack"],
   ["API-16", "POST", "/v1/alerts/{id}/resolve"], ["API-17", "GET", "/v1/activity"], ["API-19", "GET", "/v1/band/preview"],
   ["API-23", "GET", "/v1/band/profile"], ["API-24", "PUT", "/v1/band/profile"],
   ["API-SOIL-01", "GET", "/v1/soil-targets"], ["API-SOIL-02", "PUT", "/v1/soil-targets/{zone}"], ["API-20", "POST", "/v1/equipment/lights/{light}/{state}"], ["API-21", "GET", "/v1/water/daily"], ["API-22", "GET", "/v1/lighting"],
-  ["API-25", "GET", "/v1/planner/history"],
   ["API-30", "GET", "/v1/law"], ["API-31", "GET", "/v1/law/history"], ["API-32", "GET", "/v1/record/days"], ["API-33", "GET", "/v1/record/relay-check"],
   ["API-34", "GET", "/v1/reviews"], ["API-35", "GET", "/v1/system/controller"], ["API-36", "GET", "/v1/system/data"], ["API-37", "GET", "/v1/system/delivery"],
   ["API-IRR-01", "GET", "/v1/irrigation"],
@@ -144,7 +143,7 @@ function nowBody(world) {
   // Dashboard v2: the law while it is fresh, today's review and the outdoor source (law.mjs).
   const { law, review, outdoorSource } = nowAdditions(world);
   return {
-    server_time: iso(world.now), indoor: world.indoor, outdoor: { ...world.outdoor, source: outdoorSource }, band: world.band, mode: world.mode, iris: world.iris,
+    server_time: iso(world.now), indoor: world.indoor, outdoor: { ...world.outdoor, source: outdoorSource }, band: world.band,
     alerts: { open: open.length, critical: count("critical"), warning: count("warning"), info: count("info") }, running, overrides: world.overrides,
     leak: world.leak, freshness: world.freshness, writer: world.writer, controller: world.controller, snapshot: world.snapshot ?? null, hydroponics: world.hydroponics ?? null,
     law, review,
@@ -156,8 +155,7 @@ const WAVES = {
   "climate.temp_avg": [66, 3], "climate.rh_avg": [70, -8], "climate.vpd_avg": [0.62, 0.12], "climate.temp_south": [66.6, 3.2],
   "climate.temp_north": [65.2, 2.8], "climate.temp_east": [66.3, 3.1], "climate.temp_west": [65.8, 3], "climate.rh_north": [72, -8], "climate.rh_east": [69, -8],
   "climate.rh_south": [68, -8], "climate.rh_west": [71, -8], "climate.vpd_north": [0.58, 0.11], "climate.vpd_east": [0.66, 0.12], "climate.vpd_south": [0.68, 0.13],
-  "climate.vpd_west": [0.6, 0.12], "climate.house_vpd_target": [0.62, 0.05], "climate.vpd_target_center": [0.65, 0.05], "climate.vpd_target_south": [0.6, 0.05],
-  "climate.vpd_target_west": [0.6, 0.05], "climate.vpd_target_east": [0.7, 0.05], "forecast.temp_f": [47, 11], "forecast.rh_pct": [52, -14], "forecast.vpd_kpa": [0.5, 0.25],
+  "climate.vpd_west": [0.6, 0.12], "forecast.temp_f": [47, 11], "forecast.rh_pct": [52, -14], "forecast.vpd_kpa": [0.5, 0.25],
   "climate.soil_moisture_south_1": [38, -2], "climate.flow_gpm": [0, 0], "climate.outdoor_temp_f": [45, 10], "climate.outdoor_rh_pct": [55, -15],
   "climate.outdoor_lux": [30000, 30000], "climate.solar_irradiance_w_m2": [300, 300], "forecast.solar_w_m2": [300, 300],
   "diagnostics.heap_free_kb": [38, 1.5],
@@ -170,7 +168,7 @@ const WAVES = {
   "diagnostics.nvs_write_worst_ms": [3.9, 1.2], "diagnostics.wifi_disconnects": [2, 0], "diagnostics.api_clients": [2, 0], "diagnostics.restart_count": [2, 0],
   "diagnostics.active_probes": [4, 0], "diagnostics.sntp_sync_age_s": [690, 300], "energy.ch0_power_w": [900, 600], "energy.ch1_power_w": [120, 40],
   "daily.temp_in_band_pct": [92, 4], "daily.vpd_in_band_pct": [88, 6], "daily.time_in_band_day_pct": [90, 3],
-  "daily.time_in_band_night_pct": [81, 5], "daily.water_gal": [24, 0], "daily.iris_required_written": [3, 0], "daily.iris_required_missed": [0, 0],
+  "daily.time_in_band_night_pct": [81, 5], "daily.water_gal": [24, 0],
   "daily.alerts_critical": [0, 0], "daily.alerts_warning": [1, 0], "daily.alerts_info": [2, 0],
 };
 const round = (value, places = 2) => Number(value.toFixed(places));
@@ -322,7 +320,8 @@ function statesBody(world, { query }) {
   };
 }
 
-const ZONES = ["house", "center", "south", "west", "east"];
+/** API-06's zones: release C retired the zone bands (zones are probes), so the house alone. */
+const ZONES = ["house"];
 /** API-06: the band in force (null beyond its 90 days) and the crop band, flat at today's values. */
 function bandBody(world, { query }) {
   const { from, to } = window(query);
@@ -338,16 +337,6 @@ function bandBody(world, { query }) {
   return { from: iso(from), to: iso(to), step_s: step, t, band: columns(true), crop: columns(false) };
 }
 
-function planBody(world, { query }) {
-  const hours = integer(query, "hours", 24, 24, 72);
-  if (hours !== 24 && hours !== 72) throw invalid("hours must be 24 or 72", "hours");
-  const manual = world.settings.filter((row) => row.desired?.manual && row.desired.value !== null).length;
-  return {
-    ...world.plan, manual_count: manual,
-    lanes: world.plan.lanes.map((lane) => ({ ...lane, waypoints: lane.waypoints.filter((point) => Date.parse(point.at) <= world.now + hours * HOUR) })),
-  };
-}
-
 /** The rows of `log` (oldest first) from the one in force at `from` up to `to`, as API-12 bounds its lists. */
 function inWindow(log, from, to, at) {
   const before = log.filter((item) => Date.parse(at(item)) < from).slice(-1);
@@ -359,13 +348,11 @@ function historyBody(world, { params, query }) {
   const row = settingOf(world, params.param);
   if (!row) throw refuse(404, "not_found", "Not found", `No setting ${params.param}`);
   const { from, to } = window(query);
-  const plan = laneOf(world, row.param)?.waypoints ?? (row.plan?.next ? [row.plan.next] : []);
   const log = desiredRows(world, row);
   const readback = world.readbackLog[row.param];
   return {
     param: row.param, unit: row.unit, min: row.min, max: row.max, from: iso(from), to: iso(to),
     desired: inWindow(log, from, to, (item) => item.created_at).map((item) => (item !== log.at(-1) && item.state === "requested" ? { ...item, state: "not_confirmed" } : item)),
-    plan: plan.filter((point) => Date.parse(point.at) >= from && Date.parse(point.at) < to),
     readback: readback ? inWindow(readback, from, to, (point) => point.at) : row.readback ? [{ at: iso(from), value: row.readback.value }] : [],
   };
 }
@@ -409,7 +396,8 @@ function previewBody(world, { query }) {
   const value = raw === null ? NaN : Number(raw);
   if (!Number.isFinite(value)) throw invalid("value must be a number", "value");
   const row = settingOf(world, param);
-  if (!row || row.control_class !== "crop_band" || !row.writable) throw refuse(422, "unknown_target", "Not a crop-band anchor", `${param} is not a crop-band anchor or width`, { field: "param" });
+  // Release C retired the zone VPD targets and widths: the house band's anchors alone.
+  if (!row || !HOUSE_BAND.includes(param) || !row.writable) throw refuse(422, "unknown_target", "Not a house band anchor", `${param} is not a house band anchor`, { field: "param" });
   if (value < row.min || value > row.max) throw refuse(422, "out_of_range", "Out of range", `Must be ${row.min}-${row.max} ${row.unit}`, { field: "value", min: row.min, max: row.max, current: row.readback?.value ?? null });
   const date = day(query, "day", today(world));
   const start = localInstant(date);
@@ -647,7 +635,8 @@ function profileBody(world, { query }) {
     vpd: { current: vpd, draft: vpdDraft, expected_low: night(vpdDraft.target, -0.2), expected_high: night(vpdDraft.target, 0.05) },
     guardrails: { temp_min_f: 40, temp_max_f: 100, margin_f: 5, vpd_min_kpa: 0.3, vpd_max_kpa: 3, night_vpd_floor_kpa: NIGHT_FLOOR_KPA, min_width_f: MIN_WIDTH_F, min_width_kpa: MIN_WIDTH_KPA, dry_on_above_vpd_low_kpa: DRY_ON_KPA },
     law_lines: { ...LAW_LINES },
-    overshoot: Object.fromEntries(BAND_SERIES.map((series) => [series, isSimple(draft) ? 0 : series.startsWith("temp") ? 1.54 : 0.015])),
+    // The edges only: the stored middle lines, which the law does not read, have no overshoot (release C part 2).
+    overshoot: Object.fromEntries(BAND_SERIES.filter((series) => !series.endsWith("_target")).map((series) => [series, isSimple(draft) ? 0 : series.startsWith("temp") ? 1.54 : 0.015])),
     night_heat_kwh: { current: heat(temp), draft: heat(tempDraft) },
     envelope: { hours: 140, days: 14, rmse_f: 4.5, dewpoint_p10_f: 44 },
     findings: bandFindings(draft).map((finding) => edgeFinding(finding, fields)),
@@ -798,58 +787,6 @@ function lightingBody(world, { query }) {
       };
     }),
   };
-}
-
-// ---------------------------------------------------------------------------------------------------- planner reads (#1361)
-const REQUIRED = ["MIDNIGHT", "SUNRISE", "SUNSET"];
-/**
- * API-25 as production reads today: 3 required plans a day plus forecast replans, one SUNSET missed eight days back and
- * one late SUNRISE twelve days back, dispatched changes only on the last five days, and cost recorded only for the
- * last `world.plannerCostDays` days (0: "not recorded", as before #1350).
- */
-function plannerHistoryBody(world, { query }) {
-  const days = integer(query, "days", 30, 30, 90);
-  if (days !== 30 && days !== 90) throw invalid("days must be 30 or 90", "days");
-  const last = today(world);
-  const from = addDays(last, -(days - 1));
-  const costDays = world.plannerCostDays ?? 0;
-  const firstCost = costDays > 0 ? addDays(last, -(costDays - 1)) : null;
-  const rows = Array.from({ length: days }, (_, index) => {
-    const date = addDays(from, index);
-    const ago = days - 1 - index;
-    const replans = ago % 3;
-    const missed = ago === 8 ? 1 : 0;
-    const late = ago === 12 ? 1 : 0;
-    const written = 3 - missed;
-    const dispatched = ago < 5 ? 150 + 10 * ago : 0;
-    const costed = firstCost !== null && date >= firstCost;
-    return {
-      date, plans_written: written + replans,
-      triggers: { ...Object.fromEntries(REQUIRED.filter((name) => !(missed && name === "SUNSET")).map((name) => [name, 1])), ...(replans ? { FORECAST_DEVIATION: replans } : {}) },
-      params_dispatched: dispatched ? 21 : 0, changes_dispatched: dispatched, changes_confirmed: dispatched ? dispatched - (ago === 1 ? 12 : 0) : 0,
-      required_due: 3, required_written: written, required_failed: missed, required_late: late,
-      cost: costed ? {
-        calls: written + replans, models: ["qwen3.6-35b-a3b"], input_tokens: 61_000 * (written + replans), output_tokens: 2_400 * (written + replans),
-        energy_wh: 4.2 * (written + replans), latency_ms_median: 48_000, dispatched: 0, proposed_only: written + replans,
-      } : null,
-    };
-  });
-  const plans = [];
-  for (let ago = 0; ago < Math.min(days, 6); ago += 1) {
-    const date = addDays(last, -ago);
-    for (const [trigger, hhmm] of [["SUNSET", "16:55"], ["SUNRISE", "06:30"], ["MIDNIGHT", "00:05"]]) {
-      const at = localInstant(date, hhmm);
-      if (at > world.now) continue;
-      const costed = firstCost !== null && date >= firstCost;
-      plans.push({
-        plan_id: `iris-${date.replaceAll("-", "")}-${hhmm.replace(":", "")}`, trigger, written_at: iso(at),
-        hypothesis: `${trigger === "SUNSET" ? "Cold night ahead" : trigger === "SUNRISE" ? "Bright cold day" : "Overnight hold"}: keep VPD above the night floor.`,
-        outcome_score: ago === 0 ? null : 7, params_dispatched: ago < 5 ? 7 : 0,
-        cost: costed ? { model_id: "qwen3.6-35b-a3b", input_tokens: 61_000, output_tokens: 2_400, energy_wh: 4.2, latency_ms: 48_000, status: "ok" } : null,
-      });
-    }
-  }
-  return { from, to: last, cost_recorded_from: firstCost ? iso(localInstant(firstCost, "00:05")) : null, cortex_attempts: costDays > 0, days: rows, plans };
 }
 
 // ---------------------------------------------------------------------------------------------------- irrigation reads
@@ -1011,7 +948,6 @@ const READS = {
   "API-04": seriesBody,
   "API-05": statesBody,
   "API-06": bandBody,
-  "API-07": planBody,
   "API-09": (world) => ({ items: world.settings, server_time: iso(world.now) }),
   "API-12": historyBody,
   "API-13": (world) => ({ items: world.equipment, ...world.reasons }),
@@ -1022,7 +958,6 @@ const READS = {
   "API-SOIL-01": (world) => ({ targets: world.soilTargets }),
   "API-21": waterBody,
   "API-22": lightingBody,
-  "API-25": plannerHistoryBody,
   ...LAW_READS,
   "API-IRR-01": irrigationBody,
   "API-IRR-02": agendaBody,
@@ -1053,7 +988,7 @@ function stateReason(world, row, created) {
   if (world.freshness.climate.stale) return { code: "controller_not_reporting", detail: null, applied_value: null, since: world.freshness.climate.observed_at };
   return null;
 }
-/** Stores a desired row on its setting and lane; under requested-to-confirmed it settles on the third API-09 read. */
+/** Stores a desired row on its setting; under requested-to-confirmed it settles on the third API-09 read. */
 function applyDesired(world, history, serial, desired, request_id) {
   const row = settingOf(world, desired.param);
   const before = row.readback?.value ?? null;
@@ -1065,7 +1000,7 @@ function applyDesired(world, history, serial, desired, request_id) {
       : { ...desired, state: "not_confirmed", state_reason: { code: "no_match", detail: null, applied_value: null, since: desired.created_at } };
   }
   const released = stored.value === null;
-  const appliedFrom = released ? (row.plan ? "plan" : row.control_class === "crop_band" ? "band" : "default") : stored.manual ? "manual" : "desired";
+  const appliedFrom = released ? (row.control_class === "crop_band" ? "band" : "default") : stored.manual ? "manual" : "desired";
   log.push(stored);
   // API-10 updates the crop_band_anchors rows in its own transaction; API-11 leaves them as they are.
   if (!released && row.control_class === "crop_band") world.bandStored[row.param] = stored.value;
@@ -1074,9 +1009,6 @@ function applyDesired(world, history, serial, desired, request_id) {
     row.readback = { value: stored.value, observed_at: stored.confirmed_at, reason: null };
     (world.readbackLog[row.param] ??= before === null ? [] : [{ at: iso(world.now - 200 * DAY), value: before }]).push({ at: stored.confirmed_at, value: stored.value });
   }
-  if (row.plan?.next) row.plan = { ...row.plan, next: { ...row.plan.next, effective: released } };
-  const lane = laneOf(world, row.param);
-  if (lane) Object.assign(lane, { desired: stored, applied_from: appliedFrom, waypoints: lane.waypoints.map((point) => ({ ...point, effective: released })) });
   const detail = { before, value: stored.value, ...(stored.snapped_from === null ? {} : { requested: stored.snapped_from }), manual: { before: desired.manual_before, after: stored.manual } };
   activity(world, { ts: desired.created_at, actor: desired.actor, action: released ? "setting.release" : "setting.write", target: row.param, detail, reason: desired.reason, state: stored.state, confirmed_at: stored.confirmed_at, request_id });
 }
@@ -1534,7 +1466,6 @@ export const EXAMPLES = {
   },
   "API-05": (world) => get("/v1/states", { from: iso(world.now - DAY), to: iso(world.now) }),
   "API-06": (world) => get("/v1/band", { from: iso(world.now - DAY), to: iso(world.now) }),
-  "API-07": () => get("/v1/plan"),
   "API-09": () => get("/v1/settings"),
   "API-10": () => send("PUT", "/v1/settings/outdoor_staleness_max_s", { value: 640, manual: true, reason: "Vandas drying" }),
   "API-11": () => send("DELETE", "/v1/settings/outdoor_staleness_max_s?reason=Back%20to%20the%20plan"),
@@ -1552,7 +1483,6 @@ export const EXAMPLES = {
   "API-20": () => send("POST", "/v1/equipment/lights/main/on", { reason: "Inspecting the Vandas" }),
   "API-21": (world) => get("/v1/water/daily", { days: String(world.waterUseDays) }),
   "API-22": (world) => get("/v1/lighting", { from: iso(world.now - 3 * DAY), to: iso(world.now) }),
-  "API-25": () => get("/v1/planner/history", { days: "30" }),
   "API-30": () => get("/v1/law"),
   "API-31": (world) => get("/v1/law/history", { from: iso(world.now - DAY), to: iso(world.now) }),
   "API-32": () => get("/v1/record/days"),
