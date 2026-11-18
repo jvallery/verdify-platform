@@ -267,6 +267,10 @@ ReviewPage
                            count_7: int, count_30: int }
                          the means are over the 7 and the 30 written reviews before the newest one, or as many
                          as there are; count_7 and count_30 say how many each covers (reviews, not days)
+  days                   [{ day: date, reviews: int, input_tokens: int | null, output_tokens: int | null,
+                           total_tokens: int }]
+                         the reviewer's daily cost (#1661): every finished review, daily and manual, summed on the
+                         America/Denver day its run finished, last 30 days, oldest first; no price per token is stored
   proposal_waiting       { review_id: int, review_date: date } | null
 
 Review

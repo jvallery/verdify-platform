@@ -14,7 +14,9 @@ review state: API-34's ``today`` and ``proposal_waiting`` and Now's ``review`` b
   newest written review and nothing has answered it.
 - Each proposed row carries its label and unit from the registry and its current value as the band editor resolves
   it (``band_profile.anchors_from_rows``); a row the band editor does not hold has no current value.
-- Token use: the newest finished review against the mean of the 7 and the 30 finished reviews before it.
+- Token use: the newest finished review against the mean of the 7 and the 30 finished reviews before it, and the
+  tokens per local day: every finished review, daily and manual, summed on the America/Denver day its run finished,
+  over the last 30 days (#1661). The reviewer's cost is recorded in tokens; no price per token is stored.
 
 Each read is ``async``, takes an asyncpg connection and runs in one read-only snapshot. Nothing here writes.
 """
@@ -52,6 +54,7 @@ BAND_WRITE = band_profile.ACTION  # API-24's one activity_log action
 LIMIT_DEFAULT = 30
 LIMIT_MAX = 60
 TOKEN_MEANS = (7, 30)
+TOKEN_DAYS = 30
 _BIGINT_MAX = 2**63 - 1
 
 TodayStatus = ReviewDayStatus  # Now.review.status reads the same words
@@ -120,6 +123,16 @@ class ReviewTokens(_Model):
     count_30: int
 
 
+class TokenDay(_Model):
+    """The finished reviews of one America/Denver day (the day each run finished) and their tokens."""
+
+    day: date
+    reviews: int
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int
+
+
 class ProposalWaiting(_Model):
     review_id: int
     review_date: date
@@ -132,6 +145,7 @@ class ReviewPage(_Model):
     next_cursor: str | None
     today: ReviewToday
     tokens: ReviewTokens
+    days: list[TokenDay]
     proposal_waiting: ProposalWaiting | None
 
 
@@ -204,6 +218,21 @@ SELECT total_tokens
  WHERE total_tokens IS NOT NULL
  ORDER BY id DESC
  LIMIT $1
+"""
+
+# The tokens of every finished review per local day of its run, oldest first, over the last TOKEN_DAYS days ($1).
+_TOKEN_DAYS_SQL = """
+SELECT (run_finished_at AT TIME ZONE 'America/Denver')::date AS day,
+       count(*)::int AS reviews,
+       sum(input_tokens)::bigint AS input_tokens,
+       sum(output_tokens)::bigint AS output_tokens,
+       sum(total_tokens)::bigint AS total_tokens
+  FROM v_dashboard_review
+ WHERE total_tokens IS NOT NULL
+   AND run_finished_at >= (((now() AT TIME ZONE 'America/Denver')::date - ($1::int - 1))::timestamp
+                           AT TIME ZONE 'America/Denver')
+ GROUP BY 1
+ ORDER BY 1
 """
 
 
@@ -414,6 +443,7 @@ async def page(conn: asyncpg.Connection, limit: int = LIMIT_DEFAULT, cursor: str
             raise ServiceError(problem("unavailable", "The daily review is not readable on this database yet"))
         rows = await conn.fetch(_PAGE_SQL, GREENHOUSE_ID, BAND_WRITE, before, limit + 1)
         totals = [row["total_tokens"] for row in await conn.fetch(_TOKENS_SQL, max(TOKEN_MEANS) + 1)]
+        token_days = [TokenDay(**dict(row)) for row in await conn.fetch(_TOKEN_DAYS_SQL, TOKEN_DAYS)]
         current = await _current_anchors(conn) if any(row["band_proposal"] is not None for row in rows) else {}
     items = [review_of(row, current) for row in rows[:limit]]
     more = len(rows) > limit
@@ -422,5 +452,6 @@ async def page(conn: asyncpg.Connection, limit: int = LIMIT_DEFAULT, cursor: str
         next_cursor=_encode_cursor(items[-1].id) if more else None,
         today=ReviewToday(review_date=day.review_date, status=day.status, missed=day.missed),
         tokens=token_use(totals),
+        days=token_days,
         proposal_waiting=day.proposal_waiting,
     )

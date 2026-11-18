@@ -721,8 +721,29 @@ function reviewsBody(world, { query }) {
     items: rows.slice(start, start + limit).map((row) => reviewBody(world, row)),
     today: reviewToday(world),
     tokens: tokenUse(rows.map((row) => row.total_tokens).filter((value) => value !== null)),
+    days: tokenDays(world, rows),
     proposal_waiting: waitingProposal(world),
   };
+}
+/**
+ * verdify_services/reviews.py _TOKEN_DAYS_SQL (#1661): every finished review's tokens on the America/Denver day its run
+ * finished, over the last 30 days, oldest first.
+ */
+function tokenDays(world, rows) {
+  const since = addDays(local(world.now).date, -29);
+  const byDay = new Map();
+  for (const row of rows) {
+    if (row.total_tokens === null || row.run_finished_at === null) continue;
+    const day = local(Date.parse(row.run_finished_at)).date;
+    if (day < since) continue;
+    const sum = byDay.get(day) ?? { day, reviews: 0, input_tokens: null, output_tokens: null, total_tokens: 0 };
+    sum.reviews += 1;
+    if (row.input_tokens !== null) sum.input_tokens = (sum.input_tokens ?? 0) + row.input_tokens;
+    if (row.output_tokens !== null) sum.output_tokens = (sum.output_tokens ?? 0) + row.output_tokens;
+    sum.total_tokens += row.total_tokens;
+    byDay.set(day, sum);
+  }
+  return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
 }
 /**
  * verdify_services/reviews.py token_use(): the finished reviews' totals, newest first; the newest against the mean of

@@ -323,3 +323,23 @@ export function tokenDays(items: readonly Review[], todayDate: string): DailyBar
   }
   return days;
 }
+
+/**
+ * Total tokens per local day of the reviews' runs (API-34 `days`, #1661): every finished review, daily and manual, on
+ * the day its run finished. Oldest first, every day from the first listed to today (the day after today's review date):
+ * a day with no finished review is a gap (null), never a zero, and today is partial while today's review runs. Null
+ * when the API serves no days (an older API); the page then falls back to `tokenDays`.
+ */
+export function runTokenDays(page: ReviewPage): DailyBarDay[] | null {
+  if (!page.days) return null;
+  if (!page.days.length) return [];
+  const today = dateShift(page.today.review_date, 1);
+  const totals = new Map(page.days.map((day) => [day.day, day.total_tokens]));
+  const running = page.today.status === "requested" || page.today.status === "delivered";
+  const days: DailyBarDay[] = [];
+  for (let date = page.days[0].day; date <= today; date = dateShift(date, 1)) {
+    const value = totals.get(date) ?? null;
+    days.push(running && date === today ? { date, value, partial: true, note: "still running" } : { date, value });
+  }
+  return days;
+}

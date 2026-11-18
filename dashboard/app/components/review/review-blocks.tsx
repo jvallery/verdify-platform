@@ -23,7 +23,7 @@ import {
   NO_PROPOSAL, NO_REVIEWS, NO_REVIEWS_DETAIL, ON_DEMAND, OWNER_ONLY, PROPOSAL_APPLIES, PROPOSAL_IN_TEXT, REVIEWER_LIMITS, REVIEWER_LIMITS_TITLE,
 } from "./copy";
 import {
-  HEALTH_DAYS, askedBy, bandEditorHref, changeRows, health, latestWritten, priceParts, proposalBadge, reviewDay, speaksOfProposal, todayLine, tokenDays,
+  HEALTH_DAYS, askedBy, bandEditorHref, changeRows, health, latestWritten, priceParts, proposalBadge, reviewDay, runTokenDays, speaksOfProposal, todayLine, tokenDays,
   tokenWords, type TokenWords,
 } from "./review-model";
 import { ReviewProse } from "./review-prose";
@@ -206,7 +206,8 @@ export function ReviewerHealth({ read, reviews }: { read: ReviewsRead; reviews: 
   const figures = page ? health(page, reviews) : null;
   const state = readState(read, reviews.length === 0);
   const tile = tileState(state);
-  const days = page ? tokenDays(reviews, page.today.review_date) : [];
+  const runDays = page ? runTokenDays(page) : null;
+  const days = page ? (runDays ?? tokenDays(reviews, page.today.review_date)) : [];
   const tokens = page ? tokenWords(page.tokens) : null;
   const empty = "No review yet";
   return <section className="rv-health" aria-labelledby={headingId}>
@@ -226,7 +227,9 @@ export function ReviewerHealth({ read, reviews }: { read: ReviewsRead; reviews: 
     <PanelErrorBoundary thing="tokens per review day" onRetry={read.retry}>
       <Panel title="Tokens per review day" headingLevel={3} thing="tokens per review day" state={readState(read, days.length === 0)} reserve="sm" observedAt={read.readAt} onRetry={read.retry}
         empty={<EmptyState message="No review has used tokens yet." />}
-        foot={`Total tokens of each day's reviews over the last ${HEALTH_DAYS} days. A day with no written review is a gap.`}>
+        foot={runDays
+          ? `Total tokens of the reviews, daily and manual, that finished each day over the last ${HEALTH_DAYS} days. A day with no finished review is a gap.`
+          : `Total tokens of each day's reviews over the last ${HEALTH_DAYS} days. A day with no written review is a gap.`}>
         {days.length > 0 && <DailyBars title="Tokens per review day" unit="tokens" days={days} token="--c-temp"
           format={(value) => formatNumber(Math.round(value), 0)} size="sm" captionHidden />}
       </Panel>

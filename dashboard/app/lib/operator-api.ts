@@ -129,9 +129,13 @@ export type RecordMeans = Lenient<Schemas["RecordMeans"]>;
 export type RecordPeriod = Lenient<Schemas["RecordPeriod"]>;
 export type RelayCheck = Lenient<Schemas["RelayCheck"]>;
 type ReviewTokens = Schemas["ReviewPage"]["tokens"];
-/** API-34. An older API serves no token counts: `count_7` and `count_30` read as null (not known) there. */
-export type ReviewPage = Lenient<Omit<Schemas["ReviewPage"], "tokens"> & {
+/**
+ * API-34. An older API serves no token counts: `count_7` and `count_30` read as null (not known) there. It serves no
+ * tokens per day either: `days` reads as null, and the page sums the loaded reviews by review date instead.
+ */
+export type ReviewPage = Lenient<Omit<Schemas["ReviewPage"], "tokens" | "days"> & {
   tokens: Omit<ReviewTokens, "count_7" | "count_30"> & { count_7: ReviewTokens["count_7"] | null; count_30: ReviewTokens["count_30"] | null };
+  days: Schemas["ReviewPage"]["days"] | null;
 }>;
 export type Review = Lenient<Schemas["Review"]>;
 export type ReviewProposal = Lenient<Schemas["ReviewProposal"]>;
@@ -587,6 +591,8 @@ const reviewPage = z.object({
   tokens: z.object({ last: maybe(int), mean_7: maybe(num), mean_30: maybe(num), rise_pct: maybe(num),
     // An older API serves no counts: read as not known, so the tokens tile shows the figure alone.
     count_7: maybe(int), count_30: maybe(int) }),
+  // Tokens per local day of the runs (#1661); an older API serves none: null.
+  days: maybe(z.array(z.object({ day: text, reviews: int, input_tokens: maybe(int), output_tokens: maybe(int), total_tokens: int }))),
   proposal_waiting: maybe(z.object({ review_id: int, review_date: text })),
 });
 // System (API-35 to API-37).

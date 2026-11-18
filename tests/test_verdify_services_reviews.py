@@ -288,6 +288,12 @@ class Conn:
         return rows[0] if rows else None
 
 
+TOKEN_DAY_ROWS = [
+    {"day": date(2026, 11, 16), "reviews": 1, "input_tokens": 179694, "output_tokens": 6098, "total_tokens": 185792},
+    {"day": date(2026, 11, 17), "reviews": 2, "input_tokens": 480534, "output_tokens": 18356, "total_tokens": 498890},
+]
+
+
 def answers(*, at=AT, ready=True, day_rows=None, missed_open=False, newest=ROW_2, answered=False, page=None):
     newest_facts = {
         "missed_open": missed_open,
@@ -306,6 +312,7 @@ def answers(*, at=AT, ready=True, day_rows=None, missed_open=False, newest=ROW_2
             item for item in rows if before is None or item["id"] < before
         ][:limit],
         reviews._TOKENS_SQL: [{"total_tokens": item["total_tokens"]} for item in rows if item["total_tokens"]],
+        reviews._TOKEN_DAYS_SQL: TOKEN_DAY_ROWS,
         series.ANCHOR_ROWS_SQL: ANCHOR_ROWS,
     }
 
@@ -401,3 +408,13 @@ def test_the_reads_never_write_and_read_the_projection_only():
         if name.endswith("_SQL"):
             assert not re.search(r"\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|DROP)\b", sql), name
             assert "planner_review" not in sql, name
+
+
+def test_the_page_carries_the_tokens_of_each_local_day_over_thirty_days():
+    # #1661: the reviewer's daily cost, every finished review (daily and manual) on the day its run finished.
+    conn = Conn(answers())
+    result = asyncio.run(reviews.page(conn))
+    assert [day.model_dump() for day in result.days] == TOKEN_DAY_ROWS
+    (args,) = [args for sql, args in conn.sent if sql == reviews._TOKEN_DAYS_SQL]
+    assert args == (reviews.TOKEN_DAYS,) == (30,)
+    assert "run_finished_at" in reviews._TOKEN_DAYS_SQL and "America/Denver" in reviews._TOKEN_DAYS_SQL
