@@ -250,10 +250,10 @@ def test_the_sheet_rounds_uses_local_times_and_keeps_out_what_it_must():
     assert job.trigger_of(job.Gathered(now=now_model())) == {"law": None, "running": ["fan1"]}
 
 
-BAND = {"temp_low_f": 70.4, "temp_high_f": 84.5, "vpd_low_kpa": 0.84, "vpd_high_kpa": 1.37}
+BAND = {"temp_low_f": 68.0, "temp_high_f": 82.0, "vpd_low_kpa": 0.8, "vpd_high_kpa": 1.3}
 
 
-def law_state(requests=(), drying="not_wanted", reason=None, cost=0.498):
+def law_state(requests=(), drying="not_wanted", reason=None, cost=0.452):
     return {
         "observed_at": AT - timedelta(seconds=20),
         "latches": [],
@@ -272,10 +272,10 @@ def running(*names):
 
 
 def test_the_law_facts_say_what_it_asks_for_why_and_what_finishes_its_shortest_time_on():
-    """Live 2026-11-17: the law asked for electric heat while Fan 1 and the vent finished their time on."""
+    """The live shape: the law asks for electric heat while Fan 1 and the vent finish their time on."""
     now = now_model(law=law_state(["heat1"]), running=running("fan1", "vent", "heat1", "grow_light_main"))
     facts = job.build_sheet(job.Gathered(now=now), AT)["climate_law"]
-    edges = (70.4, 84.5, 0.84, 1.37)
+    edges = (68.0, 82.0, 0.8, 1.3)
     heat1 = law.RULES[0]
     assert facts["asks_for"] == [
         {
@@ -291,14 +291,14 @@ def test_the_law_facts_say_what_it_asks_for_why_and_what_finishes_its_shortest_t
     assert facts["drying"] == {
         "decision": "not wanted",
         "why": "the air is dry enough",
-        "cost_kwh_per_kg": 0.5,
+        "cost_kwh_per_kg": 0.45,
         "cost_limit_kwh_per_kg": 0.7,
     }
     assert facts["band_edges_in_use"] == {
-        "temperature_low_f": 70.4,
-        "temperature_high_f": 84.5,
-        "vpd_low_kpa": 0.84,
-        "vpd_high_kpa": 1.37,
+        "temperature_low_f": 68.0,
+        "temperature_high_f": 82.0,
+        "vpd_low_kpa": 0.8,
+        "vpd_high_kpa": 1.3,
     }
     # The labels API-13 gives, when the equipment read answers.
     equipment = reads.Equipment.model_validate(

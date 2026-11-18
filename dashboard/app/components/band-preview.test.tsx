@@ -104,36 +104,36 @@ test("findings list errors first, each naming its edge in words with the API's r
   ]);
 });
 
-// API-23 for the stored band as it read live on 2026-11-17: three overshoot warnings, one of them on the stored middle line.
-const LIVE_FINDINGS: Pick<BandProfilePreview, "findings" | "overshoot" | "changed"> = {
+// API-23 for a stored band in the live shape: three overshoot warnings, one of them on the stored middle line.
+const STORED_FINDINGS: Pick<BandProfilePreview, "findings" | "overshoot" | "changed"> = {
   changed: [],
-  overshoot: { temp_low: 1.1, temp_target: 1.5, temp_high: 1.9, vpd_low: 0.01, vpd_target: 0.01, vpd_high: 0.02 },
+  overshoot: { temp_low: 1.2, temp_target: 1.6, temp_high: 2.1, vpd_low: 0.02, vpd_target: 0.02, vpd_high: 0.03 },
   findings: [
-    { code: "overshoot", severity: "warning", field: "band_temp_low_sr", detail: "temp_low leaves its anchor range by 1.1 °F" },
-    { code: "overshoot", severity: "warning", field: "band_temp_target_sr", detail: "temp_target leaves its anchor range by 1.5 °F" },
-    { code: "overshoot", severity: "warning", field: "band_temp_high_sr", detail: "temp_high leaves its anchor range by 1.9 °F" },
-    { code: "dewpoint_unreached", severity: "warning", field: "vpd_below_night", detail: "A 0.74 kPa night floor needs a dewpoint" },
+    { code: "overshoot", severity: "warning", field: "band_temp_low_sr", detail: "temp_low leaves its anchor range by 1.2 °F" },
+    { code: "overshoot", severity: "warning", field: "band_temp_target_sr", detail: "temp_target leaves its anchor range by 1.6 °F" },
+    { code: "overshoot", severity: "warning", field: "band_temp_high_sr", detail: "temp_high leaves its anchor range by 2.1 °F" },
+    { code: "dewpoint_unreached", severity: "warning", field: "vpd_below_night", detail: "A 0.70 kPa night floor needs a dewpoint below the outdoor one" },
   ],
 };
 
 test("with no draft change the overshoot is one quiet line, and nothing names the stored middle line", () => {
   for (const edited of [false, true]) {
-    const shown = bandFindings(LIVE_FINDINGS, edited);
+    const shown = bandFindings(STORED_FINDINGS, edited);
     expect(shown.findings.map((item) => item.code)).toEqual(["dewpoint_unreached"]);
     expect(shown.overshootNote?.replaceAll("\u00a0", " ")).toBe(
-      "The curve runs up to 1.9 °F outside its anchors, because sunrise and sunset are set apart from the midpoint of noon and midnight. This is accepted.",
+      "The curve runs up to 2.1 °F outside its anchors, because sunrise and sunset are set apart from the midpoint of noon and midnight. This is accepted.",
     );
   }
   // Both axes past the warning line: the most of each.
-  const both = bandFindings({ ...LIVE_FINDINGS, findings: [...LIVE_FINDINGS.findings,
-    { code: "overshoot", severity: "warning", field: "band_vpd_high_sr", detail: "vpd_high leaves its anchor range by 0.02 kPa" }] }, false);
-  expect(both.overshootNote?.replaceAll("\u00a0", " ")).toMatch(/^The curve runs up to 1\.9 °F and 0\.02 kPa outside its anchors/);
-  expect(bandFindings({ ...LIVE_FINDINGS, findings: [] }, false)).toEqual({ findings: [], overshootNote: null });
+  const both = bandFindings({ ...STORED_FINDINGS, findings: [...STORED_FINDINGS.findings,
+    { code: "overshoot", severity: "warning", field: "band_vpd_high_sr", detail: "vpd_high leaves its anchor range by 0.03 kPa" }] }, false);
+  expect(both.overshootNote?.replaceAll("\u00a0", " ")).toMatch(/^The curve runs up to 2\.1 °F and 0\.03 kPa outside its anchors/);
+  expect(bandFindings({ ...STORED_FINDINGS, findings: [] }, false)).toEqual({ findings: [], overshootNote: null });
 });
 
 test("while a draft changes the band the overshoot stays one warning per edge; an error shows only with a draft", () => {
   const order = { code: "band_order", severity: "error" as const, field: "band_temp_target_sm", detail: "temp_target falls below temp_low during the day" };
-  const draft = { ...LIVE_FINDINGS, changed: ["band_temp_low_sm"], findings: [...LIVE_FINDINGS.findings, order] };
+  const draft = { ...STORED_FINDINGS, changed: ["band_temp_low_sm"], findings: [...STORED_FINDINGS.findings, order] };
   const shown = bandFindings(draft, true);
   expect(shown.overshootNote).toBeNull();
   expect(shown.findings.map((item) => `${item.code} ${item.field}`)).toEqual([

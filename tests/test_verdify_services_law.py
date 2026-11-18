@@ -265,6 +265,23 @@ def test_the_rules_lead():
     assert law.rules_lead(None, {"fan1": on}) is None
 
 
+def test_the_rules_lead_from_the_order_the_fans_ran():
+    """relay_step() keeps the lead until both fans are off. The lead stopped first and the second fan finishes its
+    own minimum on time: the running fan is not the lead, so the lead stays unknown (no hold) even while one fan is
+    asked for again; the second fan stopped first: the running fan is the lead."""
+    tail = tracks(fan1=track((7200, False), (400, True), (60, False)), fan2=track((7200, False), (340, True)))
+    assert law.rules_lead(None, {fan: law.relay_now(tail[fan]) for fan in ("fan1", "fan2")}) is None
+    view = law.law_view(view_row(), tail, None, False)
+    assert [relay.equipment for relay in rule(view, "second_fan").relays] == ["fan1", "fan2"]
+    assert rule(view, "second_fan").hold is None
+    assert rule(view, "cooling").hold is None
+    kept = tracks(fan1=track((7200, False), (400, True)), fan2=track((7200, False), (340, True), (30, False)))
+    assert law.rules_lead(None, {fan: law.relay_now(kept[fan]) for fan in ("fan1", "fan2")}) == "fan1"
+    # Both on since before the window: the second fan stopped, the running fan is the lead.
+    long = tracks(fan1=track((90000, True)), fan2=track((90000, True), (30, False)))
+    assert law.rules_lead(None, {fan: law.relay_now(long[fan]) for fan in ("fan1", "fan2")}) == "fan1"
+
+
 def test_a_run_refused_on_cost():
     view = law.law_view(view_row(law_value=REFUSED_COST), tracks(), None, False)
     drying = view.drying

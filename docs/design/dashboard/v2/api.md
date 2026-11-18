@@ -497,8 +497,10 @@ the full sync). No migration.
 - **B. Delivery (API-37).** `oldest_unconfirmed_s` leaves out `cancelled` pushes, as it leaves out superseded, failed,
   expired and observed ones. The operator API's `/metrics` reads the same statement.
 - **C. The law (API-30).** While `lead_fan` is null and exactly one fan is on, that fan is the lead for the rules'
-  `relays` and `hold` (Cooling and Drying list it, Second fan the other). Both on or both off: both fans are listed,
-  as before. `lead_fan` itself stays what the controller reported.
+  `relays` and `hold` (Cooling and Drying list it, Second fan the other), when it started while the other fan was off
+  or no later than the other's last run. The second fan finishing its minimum on time after the lead stopped does not
+  lead. Both on, both off or that tail: both fans are listed, as before. `lead_fan` itself stays what the controller
+  reported.
 - **D. The greenhouse snapshot (`Now.snapshot`, MCP `get_greenhouse_snapshot`).** The job's fact sheet drops
   `climate_mode` and `planner` and gains `climate_law` (what the law asks for, with each rule's thresholds from the band
   in use, the equipment finishing its shortest time on, the drying decision and why, the band edges in use, the drying

@@ -537,18 +537,30 @@ def lead_fan(value: str | None) -> str | None:
 
 
 def rules_lead(reported: str | None, relays: Mapping[str, RelayNow]) -> str | None:
-    """The lead fan the rules' relays and holds use: the one the controller reports, else, while exactly one fan is
-    on, that fan; with both fans on or both off it stays unknown. climate_law.h relay_step() starts the lead first
-    (want_f1/want_f2: one fan asked for is the lead, two are both) and picks a new lead only while both fans are off,
-    so a single running fan is the lead, but for one tail: when the request drops from two fans to none, the second
-    fan can finish its own minimum on time after the lead stopped, and its hold then shows under the lead's rules.
-    ``LawView.lead_fan`` keeps only what the controller reported (#1815: the firmware has not published it since
-    June)."""
+    """The lead fan the rules' relays and holds use: the one the controller reports, else the one running fan when
+    the relays show it is the lead; otherwise (both on, both off, or an order the window cannot tell) it stays
+    unknown and both fans are listed with no hold. ``LawView.lead_fan`` keeps only what the controller reported
+    (#1815: the firmware has not published it since June).
+
+    climate_law.h relay_step() picks a lead only while both fans are off and starts it first (want_f1/want_f2: one
+    fan asked for is the lead, two are both; the second fan never runs without the lead asked for). So the one
+    running fan is the lead when it started while the other was off (an episode it opened), or started no later than
+    the other fan's last run (the other was the second fan and stopped first). It is not the lead when it started
+    after the other's last run began and the other stopped since: that is the second fan finishing its own minimum
+    on time while the lead, stopped first, waits out its minimum off, even if one fan is asked for again. A start
+    before the window counts as earliest: the window is far longer than a fan's minimum on time."""
     if reported in ("fan1", "fan2"):
         return reported
-    on = [fan for fan in ("fan1", "fan2") if (now := relays.get(fan)) is not None and now.on is True]
-    off = [fan for fan in ("fan1", "fan2") if (now := relays.get(fan)) is not None and now.on is False]
-    return on[0] if len(on) == 1 and len(off) == 1 else None
+    on = [(fan, now) for fan in ("fan1", "fan2") if (now := relays.get(fan)) is not None and now.on is True]
+    off = [now for fan in ("fan1", "fan2") if (now := relays.get(fan)) is not None and now.on is False]
+    if len(on) != 1 or len(off) != 1:
+        return None
+    (fan, lone), other = on[0], off[0]
+    earliest = datetime.min.replace(tzinfo=UTC)
+    lone_start = lone.since or earliest
+    opened_alone = (other.since or earliest) <= lone_start
+    started_first = other.since is not None and (other.before or earliest) >= lone_start
+    return fan if opened_alone or started_first else None
 
 
 def band_differs(band: tuple[float, ...] | None, host: HostBandEdges | None) -> bool | None:
@@ -611,17 +623,21 @@ def drying_checks(record: ClimateLawState | None, temp_f: float | None, *, fresh
 
 @dataclass(frozen=True)
 class RelayNow:
-    """A relay's newest state and the start of its newest run (None when the window shows no switch)."""
+    """A relay's newest state and the start of its newest run (None when the window shows no switch), and the start
+    of the run before it (None when that run is the window's first, so it may be older, or there is none)."""
 
     on: bool | None
     since: datetime | None
+    before: datetime | None = None
 
 
 def relay_now(track: reads.Track | None) -> RelayNow:
     if track is None or not track.spans:
         return RelayNow(on=None, since=None)
-    state = track.spans[-1].state
-    return RelayNow(on=None if state is None else bool(state), since=reads.run_since(track.spans))
+    spans = track.spans
+    state = spans[-1].state
+    before = spans[-2].start if len(spans) > 2 else None
+    return RelayNow(on=None if state is None else bool(state), since=reads.run_since(spans), before=before)
 
 
 def manual_held(bursts: Mapping[str, RelayNow]) -> frozenset[str]:
