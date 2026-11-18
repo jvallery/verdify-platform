@@ -14,7 +14,8 @@ for (const viewport of [DESKTOP, PHONE]) {
     await useScreensClock(page, request, "in-band");
     await load(page, "/system/controller");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Controller");
-    await expect(page.locator(".page-status")).toContainText("Healthy");
+    await expect(page.locator(".page-status")).toContainText("Up ");
+    await expect(panel(page, "Verdict")).toContainText("The controller is healthy");
     await expect(panel(page, "Verdict")).toContainText("inside its limits");
     await expect(panel(page, "Hardware budget").locator("[data-budget]")).toHaveCount(6);
     await expect(panel(page, "Identity and uptime")).toContainText("Firmware");
@@ -30,7 +31,8 @@ for (const viewport of [DESKTOP, PHONE]) {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Data");
     await expect(page.locator(".page-status")).toContainText("Data flowing");
     await expect(panel(page, "Flow")).toContainText("Ingestor heartbeat");
-    await expect(panel(page, "Probes")).toContainText("North temperature");
+    await expect(page.getByRole("region", { name: "Answer" })).toContainText("in the last 24 h");
+    await expect(panel(page, "Probes")).toContainText("probes answering");
     await expect(panel(page, "Continuity")).toContainText("Outages");
     await expect(panel(page, "Delivery")).toContainText("Oldest unconfirmed");
     await expectNoHorizontalScroll(page);
@@ -41,7 +43,17 @@ test("memory low: the verdict names the line crossed", async ({ page, request })
   await useScreensClock(page, request, "controller-heap-low");
   await load(page, "/system/controller");
   await expect(panel(page, "Verdict")).toContainText("under the warning line of 25");
-  await expect(page.locator('[data-budget="memory"]')).toContainText("Below the warning line");
+  await expect(page.locator('[data-budget="memory"]')).toContainText("Below warning");
+});
+
+test("probes silent for days are named apart and muted; the one that stopped today warns", async ({ page, request }) => {
+  await useScreensClock(page, request, "data-probes-silent");
+  await load(page, "/system/data");
+  await expect(page.locator(".page-status")).toContainText("1 probe stopped answering today");
+  await expect(page.locator(".page-status")).toContainText("4 probes known to be silent");
+  await expect(panel(page, "Probes").locator(".sys-silent-line.is-known")).toHaveCount(2);
+  await expect(panel(page, "Probes").locator(".sys-silent-line.is-recent")).toHaveCount(1);
+  await expect(panel(page, "Probes").locator(".sys-silent-line.is-recent")).toContainText("West wall relative humidity");
 });
 
 test("an operator restarts the controller from the disclosure: one {kind: restart}", async ({ page, request }) => {

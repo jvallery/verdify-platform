@@ -48,7 +48,7 @@ export function AnswerDetail({ answer }: { answer: NowAnswer }) {
       {answer.conditions.map((condition, index) => <Fragment key={condition.metric}>
         {index > 0 && " · "}
         <span className="now-condition-item" data-condition={condition.metric}>{condition.text}</span>{" "}
-        <Link className="now-condition-link" to={condition.link.to}>{condition.link.label}<span className="screen-reader">: {CONDITION_NAMES[condition.metric]}</span>{" ›"}</Link>
+        <Link className="now-condition-link" to={condition.link.to} aria-label={`${condition.link.label}: ${CONDITION_NAMES[condition.metric]}`}>{condition.link.label}<span className="screen-reader">: {CONDITION_NAMES[condition.metric]}</span>{" ›"}</Link>
       </Fragment>)}
     </p>;
   }

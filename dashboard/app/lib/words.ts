@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import type { components } from "../generated/operator-api";
-import type { AlertSeverity, AlertStatus, BandVerdict, BurstKind, LineFault, LineStateCode, ProblemCode, RunOutcomeCode, StateReasonCode, VpdSource } from "./vocab";
+import type { AlertSeverity, AlertStatus, BandVerdict, BurstKind, FlowTable, LineFault, LineStateCode, ProbeSensor, ProblemCode, RunOutcomeCode, SendingCode, StateReasonCode, VpdSource } from "./vocab";
 
 type Schemas = components["schemas"];
 /** An enum of the contract without its null. */
@@ -151,11 +151,12 @@ const OCCURRENCE_REASON = {
 } as const;
 
 /**
- * A `degraded_only` fallback window on the schedule views (redesign §6.2): one ahead is a "fallback" that runs only if VPD
- * sensing fails; one that passed without running was "not needed", never a hatched "skipped".
+ * A `degraded_only` window on the schedule views (redesign §6.2): one ahead is a "backup" that runs only if VPD sensing
+ * fails; one that passed without running was "not needed", never a hatched "skipped". "Backup" everywhere (the week
+ * cells, the legend, Backup misting): "fallback" is a retired word (words.md, Running alone).
  */
 const FALLBACK_WINDOW = {
-  conditional: "fallback",
+  conditional: "backup",
   not_needed: "not needed",
 } as const;
 
@@ -721,14 +722,17 @@ const DELIVERY_STATUS = {
   expired: "gave up waiting",
   observed: "seen on the controller",
 } as const;
-/** `Delivery.by_status[].source`: who pushed or reported a value (setpoint_changes.source; missing reads none). */
+/**
+ * `Delivery.by_status[].source`: who pushed or reported a value (setpoint_changes.source; missing reads none). The
+ * controller's own reports (`esp32`) are not pushes (`isControllerReport` in vocab.ts).
+ */
 const DELIVERY_SOURCE = {
   band: "the house band",
   // The settings writer the daily review replaced; old rows still carry its sources.
-  plan: "the former settings writer",
-  iris_planner: "the former settings writer",
+  plan: "the planner (retired)",
+  iris_planner: "the planner (retired)",
   manual: "an operator",
-  esp32: "the controller",
+  esp32: "the controller's own report",
   dispatcher: "the host",
   system: "the host",
   ingestor: "the host",
@@ -748,6 +752,63 @@ const DATA_GAP_STATUS = {
   unrecoverable: "lost",
   ignored: "set aside",
 } as const;
+
+/**
+ * `DataContinuity.probes[].sensor`: the probes API-36 ages (`PROBES` of verdify_services/system_health.py, as
+ * `PROBE_SENSORS` in vocab.ts lists them), named as Now names its probes ("North wall") and the metric registry its
+ * readings ("relative humidity", "South 1 soil moisture"). Names: they start with a capital.
+ */
+const PROBE = {
+  "climate.temp_north": "North wall temperature",
+  "climate.temp_south": "South wall temperature",
+  "climate.temp_east": "East wall temperature",
+  "climate.temp_west": "West wall temperature",
+  "climate.temp_case": "Controller case temperature",
+  "climate.temp_intake": "Intake temperature",
+  "climate.rh_north": "North wall relative humidity",
+  "climate.rh_south": "South wall relative humidity",
+  "climate.rh_east": "East wall relative humidity",
+  "climate.rh_west": "West wall relative humidity",
+  "climate.rh_case": "Controller case relative humidity",
+  "climate.intake_rh": "Intake relative humidity",
+  "climate.outdoor_temp_f": "Outdoor temperature",
+  "climate.outdoor_rh_pct": "Outdoor relative humidity",
+  "climate.co2_ppm": "CO₂",
+  "climate.lux": "Indoor light",
+  "climate.soil_moisture_south_1": "South 1 soil moisture",
+  "climate.soil_moisture_south_2": "South 2 soil moisture",
+  "climate.soil_moisture_west": "West soil moisture",
+  "climate.soil_temp_south_1": "South 1 soil temperature",
+  "climate.soil_temp_south_2": "South 2 soil temperature",
+  "climate.soil_temp_west": "West soil temperature",
+  "climate.soil_ec_south_1": "South 1 soil EC",
+} as const satisfies Record<ProbeSensor, string>;
+/**
+ * The stored tables System → Data names (API-36 `tables[].table` and the rejected rows' tables): the six of its flow
+ * (`FLOW_TABLES` of system_health.py) and the others a rejected row can name. Names: they start with a capital.
+ */
+const FLOW_TABLE = {
+  climate: "Climate readings",
+  equipment_state: "Relay changes",
+  system_state: "Controller state",
+  diagnostics: "Controller health",
+  setpoint_snapshot: "Setting readbacks",
+  setpoint_changes: "Setting changes",
+  energy: "Power meter",
+  irr_state: "Water line state",
+  water_meter_events: "Water meter",
+  data_gaps: "Outages",
+} as const satisfies Record<FlowTable, string> & Record<string, string>;
+/**
+ * API-37 `dispatcher_stage`: how the host is sending settings to the controller this pass (ingestor
+ * `_dispatcher_stage_value`, and `held:readbacks`). `paced <sent>/<pending>` carries numbers: `sendingWords` words it.
+ */
+const SENDING = {
+  ordinary: "sending as usual",
+  "held:heap": "held: the controller is short of memory",
+  "held:lease": "held: this host does not hold the writer's lease",
+  "held:readbacks": "held: waiting for the controller to report every setting",
+} as const satisfies Record<Exclude<SendingCode, "paced">, string>;
 
 export const WORDS: { readonly [family: string]: { readonly [code: string]: string } } = {
   state_reason: STATE_REASON,
@@ -801,6 +862,9 @@ export const WORDS: { readonly [family: string]: { readonly [code: string]: stri
   delivery_source: DELIVERY_SOURCE,
   data_gap_reason: DATA_GAP_REASON,
   data_gap_status: DATA_GAP_STATUS,
+  probe: PROBE,
+  flow_table: FLOW_TABLE,
+  sending: SENDING,
 };
 export type WordFamily = "state_reason" | "alert_severity" | "alert_status" | "alert_category" | "problem_code" | "line_state" | "fog_block_reason"
   | "moisture_block_reason" | "light_result" | "light_reason" | "light_target" | "alert_type" | "alert_about" | "equipment" | "run_by_hand" | "band_verdict"
@@ -808,7 +872,7 @@ export type WordFamily = "state_reason" | "alert_severity" | "alert_status" | "a
   | "law_rule" | "law_signal" | "law_direction" | "law_hold" | "law_relay" | "relay_state" | "law_lane" | "law_lane_group" | "drying_state" | "drying_verdict"
   | "drying_refusal" | "drying_check" | "limit_source" | "outdoor_source" | "band_source" | "gap_log" | "review_status" | "review_kind"
   | "review_failure" | "proposal_state" | "relay_comparison" | "setting_effect" | "delivery_status" | "delivery_source" | "data_gap_reason"
-  | "data_gap_status";
+  | "data_gap_status" | "probe" | "flow_table" | "sending";
 
 /** True when the table has words for `code` in `family`. */
 export function hasWords(family: string, code: string): boolean {
@@ -819,6 +883,30 @@ export function hasWords(family: string, code: string): boolean {
 /** The plain words for `code` in `family`, or the code itself when the table has none. */
 export function words(family: WordFamily | (string & {}), code: string): string {
   return hasWords(family, code) ? WORDS[family][code] : code;
+}
+
+/**
+ * A code this build has no words for, standing alone (A8): "Unknown (brownout)", shown in the muted tone
+ * (`.word-unknown`). Never the raw code as the name of a thing.
+ */
+export function unknownWords(code: string): string {
+  return `Unknown (${code})`;
+}
+
+/** The words for `code` in `family`, or "Unknown (<code>)" when the table has none: for a value standing alone. */
+export function wordsOrUnknown(family: WordFamily | (string & {}), code: string): string {
+  return hasWords(family, code) ? WORDS[family][code] : unknownWords(code);
+}
+
+/**
+ * API-37 `dispatcher_stage` in words: "sending as usual", "pacing: 3 of 12 sent this pass", "held: …"; null when it is
+ * not reported, and "Unknown (<code>)" for a code this build does not know. A fragment: `sentenceStart` it alone.
+ */
+export function sendingWords(stage: string | null | undefined): string | null {
+  if (stage === null || stage === undefined || stage === "") return null;
+  const paced = /^paced (\d+)\/(\d+)$/.exec(stage);
+  if (paced) return `pacing: ${paced[1]} of ${paced[2]} sent this pass`;
+  return wordsOrUnknown("sending", stage);
 }
 
 /** An alert type's one sentence, or null for a type this build does not know (its title then reads raw). */

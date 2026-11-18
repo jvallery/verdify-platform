@@ -293,30 +293,6 @@ test("API-12 lists the desired rows from the one in force at from, a write joins
   expect([reach(7), reach(90)]).toEqual([[202], [201, 202]]);
 });
 
-test("API-19: current is the band as stored, which API-10 moves and API-11 leaves; a zone reads its target ∓ its widths; outside the bounds it refuses", () => {
-  const api = createFixtureHandler({ fixture: "band-preview-center", clock: () => NOW });
-  expect(fixture("band-preview-center", { now: NOW })["API-19"]).toMatchObject({ param: "zone_vpd_target_center_sm", unit: "kPa", step_s: 600 });
-  const preview = (value: number, param = "zone_vpd_target_center_sm") => api.respond({ url: `/v1/band/preview?param=${param}&value=${value}` });
-  const noon = 72;
-  const first = preview(1.25).body;
-  expect(first.current.target[noon]).toBe(1.1);
-  expect(first.draft.target[noon]).toBe(1.25);
-  expect(first.current.low[noon]).toBe(0.9);
-  expect(first.current.high[noon]).toBe(1.45);
-  const refused = preview(3.5);
-  expect(refused.status).toBe(422);
-  expect(refused.body).toMatchObject({ code: "out_of_range", field: "value", min: 0.1, max: 3 });
-  // A width moves its own edge from the zone's target.
-  const width = preview(0.3, "zone_vpd_width_below_center").body;
-  expect(width.draft.target[noon]).toBe(1.1);
-  expect(width.draft.low[noon]).toBe(0.8);
-  expect(width.draft.high[noon]).toBe(1.45);
-  expect(api.respond({ method: "PUT", url: "/v1/settings/zone_vpd_target_center_sm", headers: { "Idempotency-Key": KEY }, body: { value: 1.25, manual: true } }).status).toBe(200);
-  expect(preview(1.25).body.current.target[noon]).toBe(1.25);
-  expect(api.respond({ method: "DELETE", url: "/v1/settings/zone_vpd_target_center_sm", headers: { "Idempotency-Key": OTHER_KEY } }).status).toBe(200);
-  expect(preview(1.25).body.current.target[noon]).toBe(1.25);
-});
-
 test("#1140's fixtures: the reasons, the lights' answers and readbacks, and 90 days of water", () => {
   const set = (name: string | string[]) => fixture(name, { now: NOW });
   // Not reporting: no code or since on any reason, and the newest row's time stays.
@@ -388,7 +364,7 @@ test("each named fixture serves what the table says", () => {
   expect(fault).toMatchObject({ fault: "mister_fault", fault_until: "2026-11-03T07:00:00.000Z" });
   expect(set("mister-fault")["API-14"].items).toEqual([expect.objectContaining({ alert_type: "irrigation_line_faulted", status: "open" })]);
   const lights = set("grow-lights-differ")["API-13"].items.find((item: Body) => item.equipment === "grow_light_grow");
-  expect(lights).toMatchObject({ state: "off", intent: "on" });
+  expect(lights).toMatchObject({ state: "off", intent: "on", auto_reason: "plant_lux_low" });
   // The base's Lutron rows are one Home Assistant poll old: known. Down, they are 11 min old: unknown, the intent kept.
   expect(set("in-band")["API-13"].items.filter((item: Body) => item.group === "light").map((item: Body) => [item.state, item.observed_at])).toEqual([["off", minutesAgo(3)], ["off", minutesAgo(3)]]);
   expect(set("ha-down")["API-13"].items.filter((item: Body) => item.group === "light")).toEqual([
@@ -763,7 +739,7 @@ test("l01-paused names who paused L01 and why, and its next planned run", () => 
 
 test("each screen package registers its own fixtures once, after the base ones, and can never shadow a name", () => {
   // The four package files of redesign §10.1, in package order, then Crops (#1330) and Activity (dashboard v2).
-  expect(Object.keys(PACKAGE_FIXTURES)).toEqual(["now-activity.mjs", "graphs.mjs", "water.mjs", "control.mjs", "crops.mjs", "activity.mjs"]);
+  expect(Object.keys(PACKAGE_FIXTURES)).toEqual(["now-activity.mjs", "graphs.mjs", "water.mjs", "control.mjs", "crops.mjs", "activity.mjs", "band.mjs"]);
   for (const fixtures of Object.values(PACKAGE_FIXTURES)) for (const name of Object.keys(fixtures)) expect(FIXTURE_NAMES).toContain(name);
   expect(FIXTURE_NAMES[0]).toBe("in-band");
   expect(() => registerFixtures("graphs.mjs", { "in-band": () => {} })).toThrow("Fixture in-band from graphs.mjs is already registered");

@@ -6,7 +6,7 @@ import { bandRange, type BandExtent } from "../lib/band-range";
 import { formatValue } from "../lib/format";
 import { usePhone } from "../lib/narrow";
 import { SeriesPlot, STACK_AXIS_PX } from "./chart-stack";
-import { DataTable, TimeCell, type DataTableBlock } from "./data-table";
+import { ChartFoot, TimeCell, type DataTableBlock } from "./data-table";
 import { bandExtent, lastAtOrBefore } from "./marks";
 import { buildTimeSeriesModel, type SeriesLayers, type TimeSeriesModel } from "./time-series";
 import { cursorX } from "./tooltip";
@@ -150,6 +150,6 @@ export function ChartGrid({ label, columns, rows, now, xRange, syncKey, height =
         </div>;
       })}
     </div>)}
-    {tables.length > 0 && <DataTable tables={tables} />}
+    <ChartFoot tables={tables} />
   </section>;
 }

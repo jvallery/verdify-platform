@@ -18,7 +18,7 @@ import { Agenda } from "./agenda";
 import { DayTimeline, blockRooms, blockWords } from "./day-timeline";
 import { agendaDays, dayModel, entriesOf, mondayOf, weekCells, type DayBlock } from "./model";
 import { timeScale } from "../../lib/time-scale";
-import { WeekStrip } from "./week-strip";
+import { WeekStrip, cellSummary } from "./week-strip";
 
 const NOW = Date.parse("2026-11-02T17:42:00Z");
 const TODAY = "2026-11-02";
@@ -89,6 +89,12 @@ test("a block's words take the room beside it: all of them, else its time and ou
   // The now rule is a neighbour: at 10:00, block a's words stop there.
   expect(blockRooms(blocks, scale, hour(10)).get("a")?.after).toBeCloseTo(3 * 100 / 24, 6);
   expect(blockRooms(blocks, scale, hour(10)).get("b")?.before).toBeCloseTo(2 * 100 / 24, 6);
+  // A valve episode's tick is a neighbour too, so a block's words never run across it (design review).
+  const valve = [{ start: hour(9), end: hour(9.5) }];
+  expect(blockRooms(blocks, scale, null, valve).get("a")?.after).toBeCloseTo(2 * 100 / 24, 6);
+  expect(blockRooms(blocks, scale, null, valve).get("b")?.before).toBeCloseTo(2.5 * 100 / 24, 6);
+  // A week cell's words are short so they fit: "no runs" for an empty day.
+  expect([cellSummary("nothing scheduled"), cellSummary("2 runs")]).toEqual(["no runs", "2 runs"]);
   // Drawn: L01's 12-minute run is too short for its words, which sit beside it whole, "07:35 ok", not its time alone.
   renderUi(<DayTimeline model={day} now={NOW} head={<h2>Monday</h2>} label="Runs on Monday by line" />);
   expect(text(document.querySelector('.sch-row[data-line="L01"] .sch-block-label'))).toBe("07:35 ok");

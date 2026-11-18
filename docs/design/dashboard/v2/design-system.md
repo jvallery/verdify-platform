@@ -120,9 +120,11 @@ example `validate_palette.js "#c97400,#b61f02,#12947f,#4b55b5,#7f8f16,#1695c4,#a
 
 ### 2.4 Contrast pairs the test computes
 
-In both themes: `--text`, `--text-2` and `--text-3` on `--bg`, `--surface` and `--surface-2` (4.5:1);
-`--accent` on the same three (4.5:1); `--on-accent` on `--accent`, `--accent-hover` and `--critical` (4.5:1);
-`--accent-text` on `--accent-soft`; each status text on its soft background (4.5:1); each status solid on
+In both themes: `--text`, `--text-2` and `--text-3` on `--bg`, `--surface` and `--surface-2` (4.5:1).
+`--text-3` is for those three only, never on `--surface-3` (4.45:1 in the light theme): text on the segmented
+control's track (a segment's count) is `--text-2`, and the current segment's count takes the segment's own colour.
+`--accent` on `--bg`, `--surface` and `--surface-2` (4.5:1); `--on-accent` on `--accent`, `--accent-hover` and
+`--critical` (4.5:1); `--accent-text` on `--accent-soft`; each status text on its soft background (4.5:1); each status solid on
 `--surface` (3:1); `--control-border` on `--surface` and `--bg` (3:1); `--rail-text` and `--rail-muted` on
 `--rail`, `--rail-active-text` on `--rail-active` (4.5:1); `--hero-text`, `--hero-text-2`, `--hero-accent` and
 `--hero-warn` on `--hero` (4.5:1); every chart colour of 2.3 except the wash and the grid on `--surface` and `--bg` (3:1).
@@ -161,6 +163,21 @@ Line length for prose is at most 70 characters.
 - **Empty, loading, stale, failed.** Every card has all four: a skeleton of its final height while it loads, a
   plain sentence when there is nothing to show, its last values muted with the word STALE and the time when the
   data is old, and a sentence with Retry when its read failed. A failed card never takes the page down.
+- **One observation time a page.** The page header's status line says how fresh the page is. A fresh panel shows
+  no "Updated" line (`Panel` `age="auto"`, the default); it shows its own age only when its live read (a relay, a
+  probe, the controller) is not the header's (`age="always"`). Panels of daily or historical data never do. A stale,
+  not reporting or failed panel says so in its own state line either way.
+- **Card head.** The title, then at most one pill; the head's end (an as-of time, actions, the "X ›" link, the ⋯
+  menu) stays on the title's line at the right. A pill that does not fit beside the title wraps under it; it never
+  pushes the link to a line of its own. On a phone a head's own controls (a range switch) take the line under the
+  title.
+- **Links.** Every "X ›" link ends in a thin space and the chevron, from one component (`layout/chevron.tsx`
+  `Chevron`), in a panel head, a section head and inline alike.
+- **Words standing alone.** The words families are lower-case fragments for the middle of a sentence; in a cell, a
+  tile, a pill or a key-value value they start with a capital through `sentenceStart()` (`lib/format.ts`). A code
+  with no words reads "Unknown (<code>)" in `--text-3` (`unknownWords`, `.word-unknown`); a setting is named by its
+  catalog label, or "Retired setting" with its key under it in small mono (`settingName`, `.key-mono`). No raw key
+  or code is ever the name of a thing.
 
 ## 4. Components
 
@@ -178,12 +195,32 @@ Existing components are restyled in place; their names and props stay unless a r
 | Checklist | new `components/data/checklist.tsx` | Rows of a met, unmet or unknown mark, a statement and a detail; used for the drying decision and for running alone |
 | Badge, chips | `components/badge.tsx`, `chips.tsx` | The six statuses of 2.2, each with an icon or a dot; sizes md and sm |
 | Button | `components/button.tsx` | Primary (accent fill), secondary (outline), quiet (text), danger (critical fill); md is 44 px, sm is 36 px inside a 44 px target |
-| Segmented control | `charts/range-chips.tsx` and new `components/segmented.tsx` | One selected segment on `--surface` over a `--surface-3` track |
-| Table | `components/table.tsx` | Sticky head, numbers right-aligned, row hover; on a phone a table either scrolls inside its card with its first column fixed or becomes a list, by a prop |
+| Segmented control | `charts/range-chips.tsx` and new `components/segmented.tsx` | One selected segment on `--surface` over a `--surface-3` track; a segment's `count` sits a gap after its words ("All 135"), never glued to them |
+| Table | `components/table.tsx` | Sticky head, numbers right-aligned, row hover; on a phone a table either scrolls inside its card with its first column fixed or becomes a list, by a prop. The table rules below |
 | Banner | `components/banner.tsx` | Status soft background, status icon, one sentence, one action |
 | Dialog, drawer, sheet | `run-dialog.tsx`, `control/setting-drawer.tsx`, `check-sheet.tsx` | A drawer from the right above 860 px and a sheet from the bottom below; `--shadow-3`, `--scrim` |
 | Empty state, skeleton | new `components/empty-state.tsx`, `components/skeleton.tsx` | Section 3 |
 | Info tip, term, popover, menu, toast | existing | Restyled |
+
+### 4.1 Tables
+
+- Cells keep their words whole: a wide table scrolls inside its region rather than crushing a column; a number never
+  wraps; a cell of free text opts in to wrapping with `cell-text` and is kept to two lines.
+- Units live in the header, after a comma ("Electricity, kWh"); a cell is a bare number in tabular figures. A header
+  is short: at most two words a line.
+- A header's words are the uppercase micro-label; its unit keeps its case in a `.unit` span
+  (`.unit{text-transform:none;letter-spacing:0}` in primitives.css), so "kWh" never reads "KWH". `Table` and the
+  charts' data tables wrap a string header's unit for you (`headWithUnit`: after its last comma, or in brackets); a
+  header built as JSX wraps its own.
+- A row is one line high at 1440 px. A table whose rows are not has too many or too wide columns: shorten, merge, or
+  move the detail to the row's drawer or disclosure.
+- Related columns share a group header (`headerGroup` on each column): consecutive columns with the same group get
+  one cell in a first header row; a column without a group spans both rows. The phone list ignores groups.
+- A long table shows its first rows and a "Show all N <noun>" button under it (`maxRows`, `rowNoun`); a table of days
+  shows 14, newest first. The button reveals the rest in place; a text filter always searches every row.
+- On a phone a table of more than five columns scrolls with its first column fixed; one of five or fewer may be a
+  list (`phone="list"`). In the list the row header is the card's title, with no label, and a column marked
+  `titleAside` (a state pill) sits on the title's line at the right.
 
 ## 5. Charts
 
@@ -195,9 +232,15 @@ Existing components are restyled in place; their names and props stay unless a r
   1 px `--text` rule labelled Now. Bars have a 4 px radius at the data end and a 2 px gap; stacked segments are
   separated by 2 px of the surface.
 - A chart with two or more series has a legend; a chart with one names it in its title. Text is never drawn in a
-  series colour.
+  series colour. The legend (and the key of marks that are not series) is one line above the plot.
 - Every chart has a pointer and keyboard readout (a crosshair with a tooltip on a line, a tooltip per mark on
   bars and lanes), a table of the same data behind a disclosure, and a CSV of that table.
+- Under the plot, one quiet line (`charts/data-table.tsx` `ChartFoot`): the "Data table · N rows" disclosure at the
+  left, the chart's tools (Reset zoom) and "CSV" at the right, in muted link style with no outline box and a 44 px
+  target through padding. An opened table unfolds under the line.
+- Small multiples share one legend: a `ChartGroup` (`charts/legend.tsx`) draws the charts' keys once, one line above
+  its first row, and each chart inside keeps only its title, its plot and its quiet line. A chart outside a group
+  drops its own legend with `legend={false}`.
 - A chart reserves its height before its data arrives.
 - A daily chart draws today, a day still in progress, lighter and labels it "so far"; a day with no record is a
   gap, never a zero. A mean line covers complete days only.

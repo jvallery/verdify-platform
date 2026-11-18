@@ -9,6 +9,7 @@ import { editableHere, groupLabel, settingEffect, settingLabel } from "../../lib
 import { useShellNow, useShellStatus } from "../../lib/shell";
 import { MANUAL_DEFAULT, errorFor, formError, useSettingWrite } from "../../lib/writes";
 import { Button } from "../button";
+import { Chevron } from "../layout/chevron";
 import { EditDrawer, NumberField, Reason, Select, Switch } from "../forms";
 import { SettingHistoryPanel } from "../setting-history";
 import { ElsewhereLinks, SettingStatus, activityHref, valueInForce } from "../setting-row";
@@ -158,7 +159,7 @@ export function SettingDrawer({ setting, onClose }: { setting: Setting; onClose:
     actions={releasable ? <Button write onClick={release} disabled={write.sending || reverting}>Release</Button> : undefined}
     below={host ? undefined : <>
       <SettingHistoryPanel setting={setting} onReverted={onClose} busy={write.sending} onSending={setReverting} />
-      <p className="ctl-drawer-links"><Link to={activityHref(setting.param)}>Activity for this setting<span aria-hidden="true"> ›</span></Link></p>
+      <p className="ctl-drawer-links"><Link to={activityHref(setting.param)}>Activity for this setting<Chevron /></Link></p>
     </>}>
     {field}
     {!readOnly && releasable && <p className="state-note ctl-release-note">Release drops the value an operator set; the host then sends the setting's own value again.</p>}

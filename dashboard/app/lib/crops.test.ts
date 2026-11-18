@@ -4,7 +4,7 @@
 import { expect, test } from "vitest";
 import { fixture } from "../../e2e/fixtures/index.mjs";
 import {
-  workspacePlantingCount, growingLocations, allCells, cellKey, cellRange, compressLabels, hydroTally, legend, mapCards, onlyCell, rackGroups, selectedPlantings, selectionPositions, shelfKey, zoneKey,
+  cropsAnswer, placeNames, placeText, recorderText, workspacePlantingCount, growingLocations, allCells, cellKey, cellRange, compressLabels, hydroTally, legend, mapCards, onlyCell, rackGroups, selectedPlantings, selectionPositions, shelfKey, zoneKey,
 } from "./crops";
 import { parseLocations, type CropShelf, type Locations } from "./operator-api";
 
@@ -76,4 +76,17 @@ test("hydro planting totals count records once rather than counting each occupie
   const locations = layout("crops-planted");
   expect(workspacePlantingCount(growingLocations(locations, true))).toBe(3);
   expect(workspacePlantingCount(growingLocations(locations, false))).toBe(locations.active_plantings - 3);
+});
+
+test("the Map's answer first (design review A4); history's places by name and the seed's records as Imported (C4)", () => {
+  const locations = layout();
+  const soil = growingLocations(locations, false);
+  expect(cropsAnswer(soil)).toMatch(/^\d+ plantings? (is|are) growing: .+\.$/);
+  expect(cropsAnswer({ zones: [] })).toBeNull();
+  const names = placeNames(locations);
+  const shelf = locations.zones.flatMap((zone) => zone.shelves ?? []).find((item) => item.slug.includes("_"))!;
+  expect(placeText(`${shelf.slug}, EAST-HYDRO-1..10`, names)).toBe(`${shelf.label_short ?? shelf.name}, EAST-HYDRO-1..10`);
+  expect(recorderText({ source: "system", name: "migration 293" })).toBe("Imported");
+  expect(recorderText({ source: "operator", name: "jason" })).toBe("Jason");
+  expect(recorderText(null)).toBe("—");
 });

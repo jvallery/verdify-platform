@@ -19,9 +19,14 @@ test("the page loads with its answer, the settings in use by group, and the unus
   await expect(page.locator(".page-status")).toHaveText(new RegExp(`^${items.length} settings · \\d+ read by the controller · 0 not confirmed$`));
   await expect(page.getByRole("link", { name: /^All\s\d+$/ })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("link", { name: /^Read\sby\sthe\scontroller\s\d+$/ })).toBeVisible();
-  await expect(page.locator("#settings-in-use tbody[data-group]").first()).toHaveAttribute("data-group", "crop_band");
+  // The answer's sentence, not its card: the card also holds the search box.
+  await expect(page.locator(".ctl-answer .sys-answer-text")).toHaveText(new RegExp(`^${controller} settings are read by the controller; .+\\.$`));
+  const band = page.locator('#settings-in-use section.ctl-group[data-group="crop_band"]');
+  await expect(band.locator("details")).not.toHaveAttribute("open", "");
+  await expect(band.getByRole("link", { name: "Edit on Band" })).toHaveAttribute("href", "/band");
+  await expect(page.locator("#settings-in-use section.ctl-group[data-group]").first()).toHaveAttribute("data-group", "crop_band");
+  await page.locator('#settings-in-use section.ctl-group:has(tr.setting-row[data-param="outdoor_staleness_max_s"]) summary').click();
   await expect(row(page, "outdoor_staleness_max_s").locator(".setting-state")).toHaveText("Confirmed");
-  await expect(row(page, "band_temp_low_sr").getByRole("link", { name: "Change on Band" })).toHaveAttribute("href", "/band");
   await expect(page.locator("#settings-unused details")).not.toHaveAttribute("open", "");
   await page.getByRole("link", { name: /^Read by the controller/ }).click();
   await expect(page).toHaveURL(/show=controller/);
@@ -60,7 +65,9 @@ test("a viewer sees every row with Details and no write control, the drawer read
 test("no horizontal scroll at 390 px, with the rows stacked and the drawer open", async ({ page, request }) => {
   await page.setViewportSize(PHONE);
   await useScreensClock(page, request, "in-band");
-  await load(page, "/settings");
+  // Groups start closed (design review B5); the filter that lists the row opens every group it narrows to, as a reader
+  // would, so the rows are stacked on the page.
+  await load(page, "/settings?show=controller");
   await expect(row(page, "outdoor_staleness_max_s")).toBeVisible();
   await expectNoHorizontalScroll(page);
   await page.getByRole("link", { name: "Edit Outdoor Staleness Max" }).click();

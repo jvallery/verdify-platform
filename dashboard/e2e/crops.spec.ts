@@ -39,11 +39,8 @@ for (const viewport of [DESKTOP, PHONE]) {
     await load(page, "/crops/history");
     await expect(page.getByRole("table", { name: "Plantings" })).toBeVisible();
     await expect(page.getByRole("rowheader", { name: "Canna Lilies" })).toBeVisible();
-    await expect(page.locator(".page-status")).toHaveText("Planting records across soil and hydroponic locations");
-    if (viewport.width === PHONE.width) {
-      const region = page.getByRole("region", { name: "Plantings", exact: true });
-      expect(await region.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
-    }
+    // Places by name and the seed's records as Imported, never a key (design review C4); a phone reads a list.
+    await expect(page.getByRole("table", { name: "Plantings" })).not.toContainText(/migration\s\d|_shelf_|center_hang/);
     await expectNoHorizontalScroll(page);
     await axe(page);
   });

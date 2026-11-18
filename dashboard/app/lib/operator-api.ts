@@ -134,7 +134,11 @@ export type RecordDrying = Lenient<Schemas["RecordDrying"]>;
 export type RecordMeans = Lenient<Schemas["RecordMeans"]>;
 export type RecordPeriod = Lenient<Schemas["RecordPeriod"]>;
 export type RelayCheck = Lenient<Schemas["RelayCheck"]>;
-export type ReviewPage = Lenient<Schemas["ReviewPage"]>;
+type ReviewTokens = Schemas["ReviewPage"]["tokens"];
+/** API-34. An older API serves no token counts: `count_7` and `count_30` read as null (not known) there. */
+export type ReviewPage = Lenient<Omit<Schemas["ReviewPage"], "tokens"> & {
+  tokens: Omit<ReviewTokens, "count_7" | "count_30"> & { count_7: ReviewTokens["count_7"] | null; count_30: ReviewTokens["count_30"] | null };
+}>;
 export type Review = Lenient<Schemas["Review"]>;
 export type ReviewProposal = Lenient<Schemas["ReviewProposal"]>;
 export type ControllerHealth = Lenient<Schemas["ControllerHealth"]>;
@@ -621,7 +625,9 @@ const review = z.object({
 const reviewPage = z.object({
   ...page, items: z.array(review),
   today: z.object({ review_date: text, status: code, missed: flag, expected_after: text, late_after: text }),
-  tokens: z.object({ last: maybe(int), mean_7: maybe(num), mean_30: maybe(num), rise_pct: maybe(num), count_7: int, count_30: int }),
+  tokens: z.object({ last: maybe(int), mean_7: maybe(num), mean_30: maybe(num), rise_pct: maybe(num),
+    // An older API serves no counts: read as not known, so the tokens tile shows the figure alone.
+    count_7: maybe(int), count_30: maybe(int) }),
   proposal_waiting: maybe(z.object({ review_id: int, review_date: text })),
 });
 // System (API-35 to API-37).
@@ -650,7 +656,8 @@ const dataContinuity = z.object({
   })),
   by_day: z.array(z.object({ date: text, outage_s: int, replayed_min: int })),
   tables: z.array(z.object({ table: text, last_row_age_s: maybe(num), rows_5m: maybe(int) })),
-  probes: z.array(z.object({ sensor: text, age_s: maybe(num), last_seen_at: text.nullable() })),
+  // `last_seen_at` is missing from an older API: read as not known.
+  probes: z.array(z.object({ sensor: text, age_s: maybe(num), last_seen_at: maybe(text) })),
   ingestor: z.object({
     heartbeat_age_s: maybe(num), reconnects: maybe(int), payloads_rejected: maybe(int), replay_failures: maybe(int),
     rows_rejected: maybe(z.record(z.string(), int)), observed_at: maybe(text),

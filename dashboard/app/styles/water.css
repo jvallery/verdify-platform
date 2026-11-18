@@ -3,11 +3,8 @@
 /* Water (screens section 3, redesign §5.2–§5.4 and §6): the status line, Today's zone cards, line rows, today strips, Site today and Misting; Schedules' week strip, day timeline, week matrix, agenda, rules list, popovers and editor; History's period bar, KPIs, the daily record's water and run ledger; Soil's probe zones. New classes use the prefixes wat- and sch-; the hooks the specs keep (line-card, mister-zone, week-table, week-days, line-subrow, line-fault, schedule-preview) keep their names. Loaded by root.tsx in the fixed order of design-system v2 §6. Colours are tokens only; this file never redefines :focus-visible or the input borders that base.css sets. */
 
 /* ---------------------------------------------------------------------------------------------------- the header */
-/* Stop all water (redesign §2.5): the last header action from 861 px; at 860 px and below the sticky tabs row's "■ Stop all". Both render and the stylesheet shows one (§9.6); History's actions hold Stop alone, so on a phone they go. */
+/* Stop all water (redesign §2.5, design review C1): from 861 px the top bar's is the only one; at 860 px and below the page's own "■ Stop all" in the sticky tabs row (§9.6). */
 @media(min-width:861px){.water-page .page-tabs-end .stop-all-water{display:none}}
-@media(max-width:860px){
-  .water-page .page-actions .stop-all-water,.water-page .page-actions:has(>.stop-all-water:only-child){display:none}
-}
 
 /* ---------------------------------------------------------------------------------------------------- the status line */
 .wat-program-fault{color:var(--critical);font-weight:600}
@@ -21,8 +18,16 @@
 .wat-aside{display:grid;gap:var(--space-4);min-width:0;align-content:start}
 @media(min-width:1200px){
   .wat-today{grid-template-columns:minmax(0,1fr) var(--aside);gap:var(--space-5)}
-  .wat-today>.wat-zones{grid-column:1;grid-row:1}
-  .wat-today>.wat-aside{grid-column:2;grid-row:1;position:sticky;top:calc(var(--shell-header-h,var(--topbar-h)) + var(--space-4))}
+  .wat-today>.wat-answer{grid-column:1 / -1;grid-row:1}
+  .wat-today>.wat-zones{grid-column:1;grid-row:2}
+  .wat-today>.wat-aside{grid-column:2;grid-row:2;position:sticky;top:calc(var(--shell-header-h,var(--topbar-h)) + var(--space-4))}
+}
+/* Phones: the answer sits above Site today, so the legend follows the zones and the first zone needs no rule above it,
+   and a running line's state still ends above the bottom bar (390 x 844, l01-running: 781 against the bar's 787). */
+@media(max-width:600px){
+  .wat-today{gap:var(--space-3)}
+  .wat-zones>.wat-legend{order:1}
+  .wat-zones>.wat-group:first-of-type{border-top:0;padding-top:0}
 }
 
 /* Site today: two meters, then one fact a line. */
@@ -31,12 +36,14 @@
 .wat-site-list>li:first-child{padding-top:0;border-top:0}
 .wat-site-list>li:last-child{padding-bottom:0}
 .wat-site-meter{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:var(--space-1)}
-.wat-site-term{display:inline-flex;align-items:center;font-size:var(--fs-sm);font-weight:600;color:var(--text)}
+/* A limit's title line (design review C2): its name, the info tip and "hard daily limit" wrap inside the left cell; Change stays on the first line at the right. */
+.wat-site-term{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 var(--space-3);font-size:var(--fs-sm);font-weight:600;color:var(--text)}
+.wat-site-name{min-width:0}
+.wat-site-name .info-tip,.wat-site-name>button{vertical-align:middle}
 .wat-site-term a{display:inline-flex;align-items:center;min-height:24px;color:inherit;text-underline-offset:.25em}
-.wat-site-primary{margin-left:var(--space-2);font-weight:400}
-/* Change beside a limit: a text link with a 44 px target, pushed to the row's end. */
-.wat-site-term{flex-wrap:wrap;gap:0 var(--space-2)}
-.wat-site-change{display:inline-flex;align-items:center;min-height:var(--tap);margin-left:auto;font-weight:600;color:var(--accent);text-underline-offset:.25em}
+.wat-site-primary{font-weight:400;white-space:nowrap}
+/* Change beside a limit: a text link with a 44 px target at the title line's end. */
+.wat-site-change{display:inline-flex;align-items:center;min-height:var(--tap);font-weight:600;color:var(--accent);text-underline-offset:.25em}
 .wat-site-change:hover{color:var(--accent-hover)}
 .wat-site-note{margin:0}
 
@@ -60,16 +67,26 @@
 .wat-zone[data-kind=fog]{--wat-kind:var(--eq-fog)}
 .wat-zone.is-off{--wat-kind:var(--border-strong)}
 .wat-zone.is-off .wat-zone-name{color:var(--text-2)}
-/* A disabled line is one quiet row: state, its faded strip, no meta. */
+/* A line that is off is one quiet row (design review C2): its name and "Off: enable it to run it" on one line, ⋯ at the right of the same row, no strip. */
 .wat-line.is-off .object-row-title,.wat-line.is-off .object-row-state{color:var(--text-2)}
+.wat-line.is-off .object-row-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-3)}
+.wat-line.is-off .object-row-state{margin:0}
 .wat-line.is-off .wat-track{opacity:.55}
 .wat-line.is-off .wat-track{--sch-row:14px}
+/* The zone's relays are its rows, indented under its head (design review C2). */
+.wat-zone-lines{padding-left:var(--space-4)}
+/* A line with nothing today: one muted line in place of its strip, with its next run. */
+.wat-day-none{flex-basis:100%;margin:var(--space-1) 0 0;font-size:var(--fs-sm)}
+/* A zone whose lines are all reserved: one quiet row, its ⋯ at the right. */
+.wat-zone-reserved{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);min-height:var(--tap)}
+.wat-zone.is-reserved .wat-zone-kind{margin-left:0}
 .wat-legend{margin:0}
 .mister-help{flex-basis:100%;margin:0;font-size:var(--fs-xs);color:var(--text-2)}
 /* The head is a fixed grid, so the zones' meters stacked down the page are one width with their right edges in line: the name, then the meter (12rem) and its minutes (7rem, right-aligned in tabular figures), and under them, the same second line on every zone, the VPD reserve and when it last watered. */
 .wat-zone-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--space-2) var(--space-5);padding-bottom:var(--space-3);border-bottom:1px solid var(--border)}
 .wat-zone-name{margin:0;font-size:var(--fs-md)}
 .wat-zone-kind{margin-left:var(--space-2);font-size:var(--fs-sm);font-weight:400;color:var(--text-2);white-space:nowrap}
+.wat-zone.is-reserved .wat-zone-name{font-weight:400}
 .wat-zone-today{display:grid;justify-items:end;gap:var(--space-1);min-width:0}
 .wat-zone-today .sch-minutes-meter{display:grid;grid-template-columns:12rem 7rem;align-items:center;gap:var(--space-3)}
 .wat-zone-today .meter-words{text-align:right}
@@ -78,7 +95,7 @@
 .wat-zone-minutes{font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
 .wat-zone-last{white-space:nowrap}
 .wat-zone-running{font-weight:600;color:var(--text)}
-.wat-unwired{margin:0;padding:var(--space-2) 0;border-top:1px solid var(--border)}
+.wat-unwired{margin:0;padding:var(--space-2) 0;border-top:1px solid var(--border);font-size:var(--fs-sm)}
 .wat-line .mister-zone{display:flex;flex-basis:100%;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-5);margin-top:var(--space-1);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);background:var(--surface-2)}
 .mister-switches{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-4)}
 .mister-flag{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
@@ -425,6 +442,12 @@ button.sch-agenda-row:hover{border-color:var(--accent-hover);color:var(--text)}
   /* Site today on a phone (redesign §5.2's 360 px sketch): the daily mist & fog limit, the flow and occupancy, so Wall and L01 stay above the fold; the soft budget and fallback misting only once they are the news. */
   .wat-site-quiet{display:none}
   .wat-line .object-row-actions .state-note,.wat-line .object-row-actions .field-error{text-align:left}
+  /* A row's Run… or Mist now… takes the actions row beside its ⋯, never pushing ⋯ to a line of its own. */
+  .wat-line .object-row-actions>.btn-wide{flex:1 1 0;width:auto;min-width:0}
+  /* An off row keeps its ⋯ on its own line at the right, as on a wide screen. */
+  .wat-line.is-off{flex-wrap:nowrap}
+  .wat-line.is-off .object-row-actions{flex-basis:auto}
+  .wat-zone-lines{padding-left:var(--space-3)}
 }
 @media(max-width:600px){
   /* A meter's term sits over its bar; its words drop under the bar only when they do not fit beside it. */
@@ -443,8 +466,9 @@ button.sch-agenda-row:hover{border-color:var(--accent-hover);color:var(--text)}
 .wat-group{border-top:2px solid var(--border-strong);padding-top:var(--space-4)}
 .water-line-section{border-left:0;border-bottom:1px solid var(--border);border-radius:0;box-shadow:none;padding:var(--space-4) 0;background:transparent}
 .water-line-section .wat-zone-head{border-bottom:0;padding-bottom:var(--space-2)}
-.schedule-summary{border-block:1px solid var(--border);padding-block:var(--space-4);margin-bottom:var(--space-5)}
+.schedule-summary{border-block:1px solid var(--border);padding-block:var(--space-4)}
 .schedule-summary h2,.schedule-summary p{margin:0 0 var(--space-2)}
+.schedule-summary>p:last-child{margin-bottom:0}
 .schedule-summary dl{display:flex;flex-wrap:wrap;gap:var(--space-5);margin:var(--space-4) 0}
 .schedule-summary dt,.schedule-rule-facts dt{font-size:var(--fs-xs);color:var(--text-2)}
 .schedule-summary dd,.schedule-rule-facts dd{margin:0}
@@ -458,12 +482,16 @@ button.sch-agenda-row:hover{border-color:var(--accent-hover);color:var(--text)}
 .wat-record-day dd{margin:0;font-size:var(--fs-lg);font-weight:600;font-variant-numeric:tabular-nums}
 
 /* ---------------------------------------------------------------------------------------------------- Soil */
-/* One panel per probe zone, two columns above 860 px (`.l-cols-2`): the readings now, the 7-day chart, the range. */
-.wat-soil{min-width:0}
-.wat-soil-now{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:var(--space-3);margin:0 0 var(--space-4)}
+/* The answer, then one panel per probe zone under one chart key: as many columns as fit at 20rem (three at 1440 px), equal heights; the readings now, the 7-day chart, the range. */
+.wat-soil{display:grid;gap:var(--space-4);min-width:0}
+.wat-soil-group{display:grid;gap:var(--space-2);min-width:0}
+.wat-soil-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:var(--space-4);align-items:stretch;min-width:0}
+.wat-soil-grid>*{min-width:0;height:100%}
+.wat-soil-age{display:block}
+.wat-soil-now{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3);margin:0 0 var(--space-4)}
 .wat-soil-stat dt{font-size:var(--fs-xs);color:var(--text-3)}
 .wat-soil-stat dd{margin:0}
-.wat-soil-value{font-size:var(--fs-xl);font-weight:600;font-variant-numeric:tabular-nums}
+.wat-soil-value{font-size:var(--fs-lg);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .wat-soil-now[data-probe=never] .wat-soil-value{font-size:var(--fs-md);color:var(--text-2)}
 .wat-soil-range{margin-top:var(--space-4)}
 .wat-soil-range-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}

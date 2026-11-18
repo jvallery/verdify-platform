@@ -179,7 +179,8 @@ export function LightButtons({ control, item, compact = false, minutes = MANUAL_
   const answering = (state: LightState) => command.phase === "waiting" && pressed === state && !command.error;
   const shown = lightButtons(item, control.setting?.readback?.value, command.sending || (command.phase === "waiting" && !command.error));
   const turn = (state: LightState) => <Button key={state} write wide={!compact} busy={command.sending && pressed === state} disabled={busy || answering(state)} onClick={() => control.turn(state, minutes)}>
-    {state === "on" ? "Turn on" : "Turn off"} <span className="burst-length">{minutes} min</span> <span className="screen-reader">{item.label}</span>
+    {/* One run of text: the button's flex gap would stand between the words and the length as a second space. */}
+    <span>{state === "on" ? "Turn on" : "Turn off"} <span className="burst-length">{minutes} min</span></span> <span className="screen-reader">{item.label}</span>
   </Button>;
   return <>
     <div className="actions light-actions">

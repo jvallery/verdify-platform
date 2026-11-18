@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { chartLinks } from "../charts/uplot-chart";
 import { AskedAndRanPanel } from "../components/climate/asked-ran";
-import { BandInForcePanel, DryingDecisionPanel, RulesPanel, RunningAlonePanel, TimingPanel, lawStatusParts } from "../components/climate/law-blocks";
+import { BandInForcePanel, DryingDecisionPanel, LawAnswerPanel, RulesPanel, RunningAlonePanel, TimingPanel, lawStatusParts } from "../components/climate/law-blocks";
 import { Ago } from "../components/freshness";
 import { Page } from "../components/layout/page";
 import { PageHeader } from "../components/layout/page-header";
@@ -28,6 +28,7 @@ export default function ClimateLaw() {
     <PageHeader view="climate-law" status={view ? <LawStatus view={view} /> : read.failed ? "The climate law could not be read." : null}
       statusShort={view ? <LawStatus view={view} short /> : undefined} />
     <div className="l-grid climate-grid climate-grid-law">
+      <div className="span-8 climate-main"><PanelErrorBoundary thing="what the controller is doing" onRetry={read.retry}><LawAnswerPanel read={read} /></PanelErrorBoundary></div>
       <div className="span-8 climate-main"><PanelErrorBoundary thing="the rules" onRetry={read.retry}><RulesPanel read={read} /></PanelErrorBoundary></div>
       <div className="span-4 climate-side l-stack">
         <PanelErrorBoundary thing="the drying decision" onRetry={read.retry}><DryingDecisionPanel read={read} /></PanelErrorBoundary>

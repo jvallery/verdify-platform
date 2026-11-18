@@ -102,7 +102,7 @@ test("creating L01 Mon, Wed, Fri at sunrise + 60 for 12 min previews against the
   expect(summary).toContain("controller readback confirms it");
   // The draft draws dashed on the timeline of the next day it runs (today), and the drawer reads its totals; nothing sent yet.
   expect(shownDay()).toBe("Monday, Nov 2 · today");
-  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Mon 07:35, 12 min, draft, not saved, planned", draft: true, hatched: false, capped: false, conflict: false }]);
+  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Mon 07:35, 12 min, draft, not saved, scheduled", draft: true, hatched: false, capped: false, conflict: false }]);
   expect(previewLine("L01")).toBe("Wall drip Mon 12 · Wed 12 · Fri 12 minWall drip cap 60 min a day");
   expect(checks()).toEqual([]);
   expect(writes(api)).toEqual([]);
@@ -209,7 +209,7 @@ test("a degraded_only draft follows VPD control: on L04 \"only if VPD sensing is
   expect(blocks("L04").find((block) => block.draft)?.name).toMatch(/Skipped until Schedule is on$/);
   fireEvent.click(inDrawer().getByLabelText("Only if VPD sensing is degraded"));
   // A fallback window, not a planned run: it runs only if VPD sensing fails (#1308 visual QA 6).
-  expect(blocks("L04").find((block) => block.draft)).toMatchObject({ name: "Center mister, Tue 06:50, 4 × 45 s, draft, not saved, fallback, only if VPD sensing is degraded", hatched: false });
+  expect(blocks("L04").find((block) => block.draft)).toMatchObject({ name: "Center mister, Tue 06:50, 4 × 45 s, draft, not saved, backup, only if VPD sensing is degraded", hatched: false });
   expect(day().querySelector('.sch-row[data-line="L04"] .sch-draft')?.className).toContain("sch-eq-heat1");
   expect(preview()).toContain("only if VPD sensing is degraded");
   expect(previewLine("L04")).toBe("Center mister no minutes scheduledCenter: 0 of 60 min for schedules; 60 kept for VPD");
@@ -247,9 +247,9 @@ test("an L02 feed shows FERT and the partner's note, sends prewet_s and flush_s,
   expect(text(drawer()!.querySelector(".schedule-fert"))).toBe("Prewets on Wall drip, feeds through the fertilizer valve from the tank, then flushes on Wall drip");
   expect(previewLine("L01")).toBe("Wall drip Sun 6 minWall drip cap 60 min a day");
   expect(shownDay()).toBe("Sunday, Nov 8");
-  expect(blocks("L02")).toEqual([{ name: "Wall drip (fertilized), Sun 07:35, 5 min, draft, not saved, planned", draft: true, hatched: false, capped: false, conflict: false }]);
+  expect(blocks("L02")).toEqual([{ name: "Wall drip (fertilized), Sun 07:35, 5 min, draft, not saved, scheduled", draft: true, hatched: false, capped: false, conflict: false }]);
   expect([...day().querySelectorAll('.sch-row[data-line="L01"] .sch-part')].map((node) => node.getAttribute("title")?.replaceAll("\u00a0", " "))).toEqual([
-    "prewet 2 min before Wall drip (fertilized)'s 07:35 feed, planned", "flush 4 min after Wall drip (fertilized)'s 07:35 feed, planned",
+    "prewet 2 min before Wall drip (fertilized)'s 07:35 feed, scheduled", "flush 4 min after Wall drip (fertilized)'s 07:35 feed, scheduled",
   ]);
   await save();
   expect(writes(api)[0].body).toEqual({
@@ -520,7 +520,7 @@ test("Edit from a block's popover opens the stored schedule over it; Save sends 
   change("Reason (optional)", "Rain this week");
   // Wednesday's saved block gives way to the draft; Monday's has run and stays.
   expect(shownDay()).toBe("Wednesday, Nov 4");
-  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Wed 07:35, 10 min, draft, not saved, planned", draft: true, hatched: false, capped: false, conflict: false }]);
+  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Wed 07:35, 10 min, draft, not saved, scheduled", draft: true, hatched: false, capped: false, conflict: false }]);
   expect(previewLine("L01")).toBe("Wall drip Wed 10 · Fri 10 · Sun 6 minWall drip cap 60 min a day");
   await save();
   expect(writes(api).map((row) => row.operationId)).toEqual(["API-IRR-04"]);

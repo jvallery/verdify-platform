@@ -58,18 +58,18 @@ test("a degraded_only fallback window is conditional, never a planned run: ahead
     spanStatus(occurrence({ status: "skipped", reason: "line paused by jason" }), fallback), spanStatus(occurrence({ status: "done", outcome: "ok" }), fallback),
     spanStatus(occurrence({ status: "done", outcome: "unknown" }), fallback), spanStatus(occurrence({ status: "planned", reason: note })),
   ]).toEqual(["conditional", "conditional", "skipped", "done", "unknown", "planned"]);
-  expect([STATUS_WORDS.conditional, fallbackCount(1), fallbackCount(3)]).toEqual(["fallback", "1 fallback window", "3 fallback windows"]);
+  expect([STATUS_WORDS.conditional, fallbackCount(1), fallbackCount(3)]).toEqual(["backup", "1 backup window", "3 backup windows"]);
   // The seeded sensor-fault backup windows today at 10:42: 09:47 passed without running, 11:47 and 13:47 ahead.
   const { agenda, status } = set("in-band");
   const info = lineInfo(status.lines);
   const today = entriesOf(agenda, null, NOW).filter((entry) => localDate(entry.occurrence.planned_start) === TODAY);
   const blocks = today.flatMap((entry) => blocksOf(entry, info, NOW));
   expect(blocks.map((block) => [block.status, block.token, plain(block.label)])).toEqual([
-    ["conditional", "eq-heat1", "09:47 not needed"], ["conditional", "eq-heat1", "11:47 fallback · only if VPD sensing is degraded"],
-    ["conditional", "eq-heat1", "13:47 fallback · only if VPD sensing is degraded"],
+    ["conditional", "eq-heat1", "09:47 not needed"], ["conditional", "eq-heat1", "11:47 backup · only if VPD sensing is degraded"],
+    ["conditional", "eq-heat1", "13:47 backup · only if VPD sensing is degraded"],
   ]);
-  expect(plain(blocks[0].name)).toBe("Center mister · sensor-fault backup, Mon 09:47, 4 × 45 s, fallback, not needed");
-  expect(plain(blocks[1].name)).toBe("Center mister · sensor-fault backup, Mon 11:47, 4 × 45 s, fallback, only if VPD sensing is degraded");
+  expect(plain(blocks[0].name)).toBe("Center mister · sensor-fault backup, Mon 09:47, 4 × 45 s, backup, not needed");
+  expect(plain(blocks[1].name)).toBe("Center mister · sensor-fault backup, Mon 11:47, 4 × 45 s, backup, only if VPD sensing is degraded");
   // None counts as planned minutes, so the day's row plans nothing.
   const model = dayModel({ day: TODAY, today: TODAY, now: NOW, agenda, lines: status.lines, lanes: null, entries: entriesOf(agenda, null, NOW) });
   expect(model.groups[1].rows[0].planned).toBe(0);
@@ -77,7 +77,7 @@ test("a degraded_only fallback window is conditional, never a planned run: ahead
   const first = "2026-10-26", last = "2026-11-08";
   const week = weekCells(mondayOf(TODAY), { agenda, lines: status.lines, today: TODAY, first, last });
   expect(week.map((cell) => [cell.summary, cell.fallback])).toEqual([["nothing scheduled", 2], ...Array(6).fill(["nothing scheduled", 3])]);
-  expect(plain(weekCellName(week[0]))).toBe("Monday, Nov 2 (today): nothing scheduled · 2 fallback windows");
+  expect(plain(weekCellName(week[0]))).toBe("Monday, Nov 2 (today): nothing scheduled · 2 backup windows");
   const lastWeek = weekCells("2026-10-26", { agenda, lines: status.lines, today: TODAY, first, last });
   expect(lastWeek.map((cell) => [cell.summary, cell.skipped, cell.fallback, cell.level])).toEqual(Array(7).fill(["no runs", 0, 0, 0]));
   // The agenda: the past window "not needed", the ones ahead with the note; none is NEXT.
@@ -95,7 +95,7 @@ test("a block is as long as its schedule, named in words; a feed draws on its li
   const wall = entries.find((entry) => entry.occurrence.slot_id === 11 && localDate(entry.occurrence.planned_start) === "2026-11-04")!;
   const [run] = blocksOf(wall, info, NOW);
   expect([run.lineId, run.part, run.end - run.start, run.status, run.token, plain(run.label)]).toEqual(["L01", "run", 720, "planned", "eq-water", "07:35 · 12 min"]);
-  expect(plain(run.name)).toBe("Wall drip · Wall MWF, Wed 07:35, 12 min, planned");
+  expect(plain(run.name)).toBe("Wall drip · Wall MWF, Wed 07:35, 12 min, scheduled");
   const feed = entries.find((entry) => entry.occurrence.slot_id === 12 && localDate(entry.occurrence.planned_start) === "2026-11-08")!;
   const parts = blocksOf(feed, info, NOW);
   expect(parts.map((block) => [block.lineId, block.part, block.token, block.end - block.start])).toEqual([["L02", "run", "eq-fert", 300], ["L01", "prewet", "cause-prep", 120], ["L01", "flush", "cause-prep", 240]]);

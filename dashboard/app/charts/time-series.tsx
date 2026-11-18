@@ -4,10 +4,10 @@ import type uPlot from "uplot";
 import { bandRange } from "../lib/band-range";
 import { formatNumber, formatValue, unitDecimals } from "../lib/format";
 import { csvFilename, windowCsv, type CsvBlock } from "./csv";
-import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "./data-table";
+import { ChartFoot, TimeCell, type DataTableBlock } from "./data-table";
 import { FORECAST_DASH, OUTDOOR_DASH, OUTDOOR_WIDTH, REFERENCE_DASH, paintAchievableEdges, paintBandEdges, paintBandFill, paintBounds, paintForecast, paintFuture, paintLabels, paintNow, paintRetention, paintSteps, type ChartColors } from "./draw";
 import { ENVELOPE_MIN_BUCKET_S, compareExtent, envelopeBars, envelopeExtent, excursions, paintCompare, paintEnvelope, paintExcursions, type CompareLine, type EnvelopeBar, type Excursion } from "./layers";
-import { ChartKey, Legend, type KeyItem } from "./legend";
+import { ChartKey, Legend, useChartGroupKey, type KeyItem, type LegendItem } from "./legend";
 import {
   ACHIEVABLE, achievableRuns, bandAt, bandExtent, bandKindFor, bandNotes, bandRuns, extentUnion, forecastAt, forecastExtent, forecastLines, groupSteps, marksExtent, settingBounds, settingSteps, stepFinder, stepsAt,
   type BandRun, type Bound, type ForecastInput, type ForecastLine, type StepKind, type StepSegment,
@@ -545,6 +545,13 @@ export type TimeSeriesProps = TimeSeriesInput & {
   message?: string;
   /** Words under the eyebrow, each with the series it is about, so a hidden series takes its note with it. */
   notes?: readonly ChartNote[];
+  /**
+   * Its own legend and key, one line above the plot (default true). False, or a `ChartGroup` around it, leaves them to
+   * the group (A3), where the series read as a key without toggles.
+   */
+  legend?: boolean;
+  /** The statistics under the plot ("low 62.7 °F at 00:45 · mean …"; default true). False where Graphs is the way to them. */
+  summary?: boolean;
 };
 /** A statement a caller adds over the plot. */
 export type ChartNote = { text: string; key?: string };
@@ -598,24 +605,30 @@ export function TimeSeries(props: TimeSeriesProps) {
     if (syncKey) resetZoom(syncKey, xRange);
     else plotRef.current?.setScale("x", { min: xRange.from, max: xRange.to });
   };
+  const legendItems: LegendItem[] = [
+    ...model.traces.map((trace) => ({ key: trace.key, label: trace.label, token: trace.token, shown: !hidden.has(trace.key), ...(trace.dash ? { kind: trace.width < 2 && isForecastDash(trace.dash) ? "dotted" as const : "dashed" as const } : {}) })),
+    ...model.forecast.map((line) => ({ key: line.key, label: line.label, token: "--c-outdoor", shown: !hidden.has(line.key), kind: "dotted" as const })),
+  ];
+  const steps = stepsOnly && drawable ? stepKey(model) : [];
+  // In a group the series read as a key, without toggles: one legend serves every chart of the group.
+  const grouped = useChartGroupKey(legendItems.length < 2 && !steps.length ? [] : [
+    ...legendItems.map((item): KeyItem => ({ key: item.key, label: item.label, token: item.token, kind: item.kind ?? "line" })), ...steps,
+  ]);
+  const ownLegend = !grouped && (props.legend ?? true);
   return <figure className={linked ? "chart chart-linked" : "chart"}>
     <figcaption className="eyebrow">{props.title ?? chartTitle(model)}</figcaption>
     {notes.length > 0 && <ul className="chart-notes">{notes.map((note) => <li key={note} className={note.includes("STALE") ? "chart-note-stale" : undefined}>{note}</li>)}</ul>}
+    {ownLegend && <Legend items={legendItems} onToggle={toggle} />}
+    {ownLegend && steps.length > 0 && <ChartKey items={steps} />}
     {drawable
       ? <UPlotChart options={(env) => timeSeriesOptions(env, modelRef, hiddenRef)} data={data} xRange={xRange} structure={structure} className={plotClass} label={chartLabel(model)} syncKey={syncKey} marks={plotted} onZoom={onZoom} onPlot={(plot) => { plotRef.current = plot; }} />
       : <div className={`${plotClass} chart-message`}><p>{props.message ?? "No data in this window"}</p></div>}
-    <Legend items={[
-      ...model.traces.map((trace) => ({ key: trace.key, label: trace.label, token: trace.token, shown: !hidden.has(trace.key), ...(trace.dash ? { kind: trace.width < 2 && isForecastDash(trace.dash) ? "dotted" as const : "dashed" as const } : {}) })),
-      ...model.forecast.map((line) => ({ key: line.key, label: line.label, token: "--c-outdoor", shown: !hidden.has(line.key), kind: "dotted" as const })),
-    ]} onToggle={toggle} />
-    {stepsOnly && drawable && <ChartKey items={stepKey(model)} />}
-    {traces.length > 0 && <ul className="plot-summary">{traces.map((trace) => <li key={trace.key}>{summaryText(trace.label, model.unit, trace.summary, when)}</li>)}</ul>}
-    {((props.csv ?? true) && csvRows) || ((props.zoomControl ?? true) && zoomed)
-      ? <div className="chart-tools">
-        {(props.zoomControl ?? true) && zoomed && <button type="button" onClick={reset}>Reset zoom</button>}
-        {(props.csv ?? true) && csvRows && <CsvLink filename={csvFilename(props.title ?? chartTitle(model), xRange)} build={() => windowCsv(stepsOnly ? [stepsCsvBlock(model)] : [csvBlock(model, hidden), ...forecastCsvBlocks(model.forecast, model.unit, hidden)])} version={plotted} />}
-      </div>
-      : null}
-    {drawable && <DataTable tables={dataTables(model, hidden)} />}
+    {(props.summary ?? true) && traces.length > 0 && <ul className="plot-summary">{traces.map((trace) => <li key={trace.key}>{summaryText(trace.label, model.unit, trace.summary, when)}</li>)}</ul>}
+    <ChartFoot tables={drawable ? dataTables(model, hidden) : null}
+      csv={(props.csv ?? true) && csvRows ? {
+        filename: csvFilename(props.title ?? chartTitle(model), xRange), version: plotted, label: "CSV of this window",
+        build: () => windowCsv(stepsOnly ? [stepsCsvBlock(model)] : [csvBlock(model, hidden), ...forecastCsvBlocks(model.forecast, model.unit, hidden)]),
+      } : null}
+      tools={(props.zoomControl ?? true) && zoomed ? <button type="button" className="chart-tool" onClick={reset}>Reset zoom</button> : null} />
   </figure>;
 }

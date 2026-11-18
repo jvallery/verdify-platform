@@ -395,13 +395,12 @@ function activityBody(world, { query }) {
   return paged(rows, query);
 }
 
-const ZONE_TARGET = /^zone_vpd_target_(center|south|west|east)_(?:sr|sm|ss|mid)$/;
-const ZONE_WIDTH = /^zone_vpd_width_(below|above)_(center|south|west|east)$/;
 /** A crop-band value as stored: the last API-10 write, else the device's. */
 const bandValue = (world, param) => world.bandStored[param] ?? settingOf(world, param)?.readback?.value ?? null;
 /**
- * API-19: one day's curve at 10-min steps, current (as stored) and with the draft value, peaking at the anchor at noon. A
- * house param moves that axis's curve by a fixed width; a zone param gives the zone's target and the target ∓ its widths.
+ * API-19: one day's curve at 10-min steps, current (as stored) and with the draft value, peaking at the anchor at noon; the
+ * param moves that axis's curve by a fixed width. The web no longer reads it (the Band editor reads API-23); the answer
+ * stays for the contract test.
  */
 function previewBody(world, { query }) {
   const param = query.get("param");
@@ -420,22 +419,11 @@ function previewBody(world, { query }) {
   const t = [];
   for (let at = start; at < end; at += 600_000) t.push(at / 1000);
   const stored = bandValue(world, param) ?? value;
-  const curve = (anchor, below = width, above = width) => {
+  const curve = (anchor) => {
     const target = t.map((at) => round(anchor + (swing * (Math.cos((2 * Math.PI * (at * 1000 - noon)) / DAY) - 1)) / 2, 3));
-    return { low: target.map((v) => round(v - below, 3)), target, high: target.map((v) => round(v + above, 3)) };
+    return { low: target.map((v) => round(v - width, 3)), target, high: target.map((v) => round(v + width, 3)) };
   };
-  const zoneTarget = ZONE_TARGET.exec(param);
-  const zoneWidth = ZONE_WIDTH.exec(param);
-  const zone = zoneTarget?.[1] ?? zoneWidth?.[2];
-  if (!zone) return { param, unit: row.unit, day: date, step_s: 600, t, current: curve(stored), draft: curve(value) };
-  const widthOf = (side) => bandValue(world, `zone_vpd_width_${side}_${zone}`) ?? width;
-  const [below, above] = [widthOf("below"), widthOf("above")];
-  const anchor = zoneTarget ? null : bandValue(world, `zone_vpd_target_${zone}_sm`) ?? 1;
-  return {
-    param, unit: row.unit, day: date, step_s: 600, t,
-    current: curve(anchor ?? stored, below, above),
-    draft: curve(anchor ?? value, zoneWidth?.[1] === "below" ? value : below, zoneWidth?.[1] === "above" ? value : above),
-  };
+  return { param, unit: row.unit, day: date, step_s: 600, t, current: curve(stored), draft: curve(value) };
 }
 
 // ---------------------------------------------------------------------------------------------------- the band editor

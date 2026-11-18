@@ -4,9 +4,9 @@ import type uPlot from "uplot";
 import { formatValue } from "../lib/format";
 import { csvFilename, csvText } from "./csv";
 import { fixedPlotClass } from "./daily";
-import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "./data-table";
+import { ChartFoot, TimeCell, type DataTableBlock } from "./data-table";
 import { paintThresholds, type Threshold } from "./draw";
-import { ChartKey, type KeyItem } from "./legend";
+import { ChartKey, useChartGroupKey, type KeyItem } from "./legend";
 import { fullTime, timeAxis } from "./time-axis";
 import { isolatedPoints, valueAxis } from "./time-series";
 import { cursorX, tooltipPlugin } from "./tooltip";
@@ -33,6 +33,8 @@ export type ThresholdSeriesProps = {
   size?: "sm" | "md";
   syncKey?: string;
   captionHidden?: boolean;
+  /** Its own key above the plot (default true); false, or a `ChartGroup` around it, leaves the key to the group (A3). */
+  legend?: boolean;
 };
 
 export type ThresholdModel = {
@@ -121,17 +123,17 @@ export function ThresholdSeries(props: ThresholdSeriesProps) {
   formatRef.current = format;
   const data = useMemo<uPlot.AlignedData>(() => [model.t, model.values], [model]);
   const drawable = model.t.length > 0;
+  const legend = drawable ? thresholdKey(model) : [];
+  const grouped = useChartGroupKey(legend);
   return <figure className="chart chart-threshold">
     <figcaption className={captionHidden ? "screen-reader" : "eyebrow"}>{title}</figcaption>
+    {drawable && !grouped && (props.legend ?? true) && <ChartKey items={legend} />}
     {drawable
       ? <UPlotChart options={(env) => thresholdOptions(env, modelRef, token, formatRef)} data={data} xRange={range} structure={`threshold|${unit}|${token}|${size}|${syncKey ?? ""}`}
         className={fixedPlotClass(size)} syncKey={syncKey} marks={model} zoom={false}
         label={`${title} over time in ${unit}, America/Denver, with ${model.thresholds.map((threshold) => threshold.label).join(" and ") || "no limits"} marked. Gaps are left empty, never zero. The data table follows.`} />
       : <div className={`${fixedPlotClass(size)} chart-message`}><p>No readings in this window</p></div>}
-    {drawable && <ChartKey items={thresholdKey(model)} />}
-    {drawable && <div className="chart-tools">
-      <CsvLink filename={csvFilename(title, range)} build={() => csvText({ t: model.t, columns: [{ header: `${title} (${unit})`, values: model.values }] })} version={model} />
-    </div>}
-    {drawable && <DataTable tables={[thresholdTable(model, format)]} />}
+    {drawable && <ChartFoot tables={[thresholdTable(model, format)]}
+      csv={{ filename: csvFilename(title, range), build: () => csvText({ t: model.t, columns: [{ header: `${title} (${unit})`, values: model.values }] }), version: model, label: "CSV of this window" }} />}
   </figure>;
 }

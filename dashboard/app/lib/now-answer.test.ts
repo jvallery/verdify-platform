@@ -215,6 +215,15 @@ test("row 7 counts the open alerts and a waiting band proposal", () => {
   expect(ask({ ...only, alerts: { ...only.alerts, open: 1 } })).toMatchObject({ text: "2 things need someone", link: { to: "#needs-you" } });
 });
 
+test("row 7 counts what Needs you lists once its alerts read answers, so the headline and the panel agree (B11)", () => {
+  const three = { ...served("in-band"), alerts: { open: 3, critical: 0, warning: 3, info: 0 } };
+  // API-02 says three open, the list Needs you shows holds none: the headline follows the list.
+  expect(nowAnswer({ now: three, failed: false, needs: 0 }).text).toBe(ALL_OK);
+  expect(nowAnswer({ now: served("in-band"), failed: false, needs: 2 })).toMatchObject({ row: 7, text: "2 things need someone" });
+  // Before the list answers, API-02's count stands.
+  expect(nowAnswer({ now: three, failed: false, needs: null }).text).toBe("3 things need someone");
+});
+
 test("rows 2 to 4 at their edges: no time without one, the heartbeat limit, and flow that has stopped", () => {
   expect(band((now) => ({ ...now, freshness: { ...now.freshness, ingestor: { observed_at: null, age_s: null, cadence_s: 60, stale: true } } })).text).toBe("Ingestor not running");
   expect(band((now) => ({ ...now, freshness: { ...now.freshness, ingestor: source(180, 180) } })).row).toBe(9);

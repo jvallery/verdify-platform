@@ -5,7 +5,7 @@
  * the probe answers, is silent or has not reported, and where the moisture sits against the zone's range. A probe that has
  * not reported is said so and never drawn or counted as zero.
  */
-import { formatValue } from "../../lib/format";
+import { formatNumber, formatValue } from "../../lib/format";
 import type { MetricDef, Series, SoilTarget } from "../../lib/operator-api";
 
 /** A probe that has not answered for this long is silent (the soil_sensor_offline rule's own horizon, screens section 3.4). */
@@ -53,6 +53,17 @@ export function newestReading(series: Series | null | undefined, key: string | u
   return null;
 }
 
+/** A reading in its unit; conductivity in whole µS/cm, never a decimal (design review C3). */
+export function soilValue(value: number, unit: string): string {
+  return unit === "µS/cm" || unit === "uS/cm" ? `${formatNumber(value, 0)}\u00a0µS/cm` : formatValue(value, unit);
+}
+
+/**
+ * Whether a reading shows its own age (design review C3): only when it is older than the zone's moisture reading, which
+ * the card's one line ("The probe last answered …") already times, by more than one five-minute bucket.
+ */
+export const readingOlder = (at: number, cardAt: number | null): boolean => cardAt !== null && cardAt - at > 5 * 60;
+
 export type ProbeState = "reporting" | "silent" | "never" | "unknown";
 /**
  * Whether the probe answers: "reporting" with a reading inside 2 hours; "silent" with an older one inside the 7 days;
@@ -97,6 +108,38 @@ export function soilSummary(zones: readonly { readonly state: ProbeState; readon
   const parts = [`${zones.length} probe ${zones.length === 1 ? "zone" : "zones"}`, `${reporting} reporting`];
   if (outside) parts.push(`${outside} outside ${outside === 1 ? "its" : "their"} range`);
   return parts.join(" · ");
+}
+
+const andNames = (names: readonly string[]): string => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+const verb = (names: readonly string[], one: string, many: string) => `${andNames(names)} ${names.length === 1 ? one : many}`;
+
+/**
+ * Soil's answer, its first block (design review A4): where each zone's moisture sits against its range, in one or two
+ * sentences: "South 1, South 2 and West are below their moisture range.", "Every zone is in its range.", with a probe
+ * that has gone silent or never reported said apart. Null until a zone has reported its state.
+ */
+export function soilAnswer(zones: readonly { readonly zone: string; readonly state: ProbeState; readonly relation: RangeRelation }[]): string | null {
+  const known = zones.filter((zone) => zone.state !== "unknown");
+  if (!known.length) return null;
+  const named = (test: (zone: (typeof zones)[number]) => boolean) => known.filter(test).map((zone) => zoneLabel(zone.zone));
+  const reporting = (zone: (typeof zones)[number]) => zone.state === "reporting";
+  const wilt = named((zone) => reporting(zone) && zone.relation.status === "critical");
+  const below = named((zone) => reporting(zone) && zone.relation.status === "warn" && zone.relation.text.includes("below"));
+  const above = named((zone) => reporting(zone) && zone.relation.status === "warn" && zone.relation.text.includes("above"));
+  const inRange = named((zone) => reporting(zone) && zone.relation.status === "ok");
+  const silent = named((zone) => zone.state === "silent");
+  const never = named((zone) => zone.state === "never");
+  const parts: string[] = [];
+  if (inRange.length && inRange.length === known.length) parts.push(known.length === 1 ? `${inRange[0]} is in its moisture range.` : "Every zone is in its moisture range.");
+  else {
+    if (wilt.length) parts.push(`${verb(wilt, "is", "are")} below wilt.`);
+    if (below.length) parts.push(`${verb(below, "is", "are")} below ${below.length === 1 ? "its" : "their"} moisture range.`);
+    if (above.length) parts.push(`${verb(above, "is", "are")} above ${above.length === 1 ? "its" : "their"} moisture range.`);
+    if (inRange.length) parts.push(`${verb(inRange, "is", "are")} in range.`);
+  }
+  if (silent.length) parts.push(`${verb(silent, "has", "have")} not answered for over 2 hours.`);
+  if (never.length) parts.push(`${verb(never, "has", "have")} not reported in 7 days.`);
+  return parts.join(" ");
 }
 
 /** The moisture column for the chart: the bucket starts and their averages; null stays null, never zero. */

@@ -44,7 +44,7 @@ export function ControllerDoing({ now, answer }: DoingProps) {
   const said = now && !unknown ? lawSentence({ law: now.law, running: now.running, temp, vpd, byHand: byHand.map((run) => run.kind) }) : null;
   const chips = now && !unknown ? runningChips(now.running, clock) : [];
   return <Panel id={DOING_ID} title="What the controller is doing" thing="what the controller is doing" state={state} reserve="sm"
-    link={{ to: "/climate", label: <>Why<span className="screen-reader">: the climate law</span></> }}>
+    link={{ to: "/climate", label: <>Why<span className="screen-reader">: the climate law</span></>, name: "Why: the climate law" }}>
     {unknown || !said
       ? <p className="state-note" data-doing="unknown">{DOING_UNKNOWN}</p>
       : <>

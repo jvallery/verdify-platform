@@ -914,8 +914,13 @@ export const FIXTURES = {
     newest.summary = `${newest.summary.replace(" No band edit proposed.", "")} Proposal: raise only the low edge at sunrise and solar midnight by 2 °F.`;
     newest.proposal = {
       changes: [change("band_temp_low_sr", 62.5, 64.5), change("band_temp_low_mid", 60.7, 62.7)],
-      price: "Low edge only, sunrise and midnight 2 F higher: Therms/day +0.31 / +0.31; kWh/day +0.9 / +0.4; Gallons/day +10 / +4; "
-        + "Starts/day +3.7 / +0.1; Run hours/day +0.7 / -0.6; Both in own band (points) +2.1 / +4.5; Nights dried (of 100) +8 / +13",
+      // Stored as verdify_schemas BandProposal stores it: the quoted price-list rows, one a line.
+      price: [
+        "Low edge only, sunrise and midnight 2 F higher: Therms/day +0.31 / +0.31; kWh/day +0.9 / +0.4; Gallons/day +10 / +4; "
+          + "Starts/day +3.7 / +0.1; Run hours/day +0.7 / -0.6; Both in own band (points) +2.1 / +4.5; Nights dried (of 100) +8 / +13",
+        "Low edge only, sunrise and midnight 1 F higher: Therms/day +0.15 / +0.16; kWh/day +0.4 / +0.2; Gallons/day +5 / +2; "
+          + "Starts/day +1.8 / +0.1; Run hours/day +0.3 / -0.3; Both in own band (points) +1.0 / +2.2; Nights dried (of 100) +4 / +6",
+      ].join("\n"),
       reason: "VPD ran below the band on most nights while temperature held; a warmer low edge at night dries the house with less venting.",
     };
     // An older proposal, since superseded by newer reviews.
@@ -947,14 +952,17 @@ export const FIXTURES = {
     law.meter = { seconds: null, water_g: null, heat_wh: null, refused_seconds: null, observed_at: null };
     for (const row of world.record) Object.assign(row.drying, { water_g: null, heat_wh: null, lower_bound: null, wanted_s: null, refused_s: null });
   },
-  // Four soil probes have gone quiet: three were last seen three days ago, and one has no reading in 30 days.
+  // Four soil probes have gone quiet: three were last seen three days ago, and one has no reading in 30 days. They
+  // are known silent. One wall probe stopped about 3 h ago, within the day: that one warns ("Stopped today").
   "data-probes-silent": (world) => {
     lawOf(world);
     const lastSeen = iso(world.now - 3 * DAY);
     world.system.probes = [
       ...world.system.probes,
-      ...[["climate.soil_moisture_south_1", lastSeen], ["climate.soil_moisture_south_2", lastSeen], ["climate.soil_moisture_west", lastSeen], ["climate.soil_ec_south_1", null]]
-        .map(([sensor, seen]) => ({ sensor, age_s: 7200, last_seen_at: seen })),
+      ...[["climate.soil_moisture_south_1", lastSeen], ["climate.soil_moisture_south_2", lastSeen], ["climate.soil_moisture_west", lastSeen]]
+        .map(([sensor, seen]) => ({ sensor, age_s: (3 * DAY) / SECOND, last_seen_at: seen })),
+      { sensor: "climate.soil_ec_south_1", age_s: null, last_seen_at: null },
+      { sensor: "climate.rh_west", age_s: (3 * HOUR) / SECOND, last_seen_at: iso(world.now - 3 * HOUR) },
     ];
   },
   // The gap log is off because the controller's storage is full: nothing is kept while the host is away.
@@ -963,8 +971,11 @@ export const FIXTURES = {
     world.controller = { ...world.controller, gap_log: "nvs_full" };
     Object.assign(world.system.health, { nvs_used_entries: 13_420, nvs_free_entries: 314, nvs_write_worst_ms: 212.5 });
   },
-  // Pushes are failing: the grow-light settings are not taken (the live band/failed rows), one push waits 31 min, and
-  // the dispatcher is pacing.
+  // Pushes are failing (the live band/failed rows), one push waits 31 min, and the dispatcher is pacing. Each setting
+  // stands one way against the catalogue (screens section 10.3): the two lux thresholds are failing (their newest value
+  // is not confirmed), the two minimum on-times are in force (the controller holds the wanted value although their
+  // pushes failed), the outdoor staleness limit recovered (a push was confirmed after its last failure), and
+  // fog_escalation_kpa is retired (the catalogue no longer has it).
   "delivery-failing": (world) => {
     lawOf(world);
     const { delivery } = world.system;
@@ -976,8 +987,17 @@ export const FIXTURES = {
     });
     delivery.failing = [
       failing("gl_main_lux_threshold", 36, 4, null), failing("gl_grow_lux_threshold", 36, 4, null), failing("gl_main_min_on_s", 35, 5, 30),
-      failing("gl_grow_min_on_s", 34, 5, 30), failing("outdoor_staleness_max_s", 6, 31, 2),
+      failing("gl_grow_min_on_s", 34, 5, 30), failing("outdoor_staleness_max_s", 6, 31, 0.25), failing("fog_escalation_kpa", 12, 50, null),
     ];
+    const sent = iso(world.now - 4 * MINUTE);
+    ["gl_main_lux_threshold", "gl_grow_lux_threshold"].forEach((param, index) => {
+      const desired = {
+        id: 9101 + index, param, value: 30_000, snapped_from: null, manual: true, manual_before: false, state: "not_confirmed",
+        state_reason: { code: "no_match", detail: null, applied_value: null, since: sent }, confirmed_at: null,
+        actor: { source: "dashboard", name: "jason" }, reason: null, created_at: sent,
+      };
+      Object.assign(settingOf(world, param), { state: "not_confirmed", desired, applied_from: "manual" });
+    });
     world.system.dispatcherStage = "paced 12/40";
   },
 };

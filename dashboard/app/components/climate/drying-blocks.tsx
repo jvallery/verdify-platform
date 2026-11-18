@@ -4,12 +4,11 @@
  * meter since the controller's last restart, and how drying works.
  */
 import { formatValue } from "../../lib/format";
-import type { LawView } from "../../lib/operator-api";
+import type { LawDrying, LawView } from "../../lib/operator-api";
 import type { PanelRead } from "../../lib/queries";
 import { useApiDown } from "../../lib/session";
 import { words } from "../../lib/words";
 import { StatusBadge } from "../badge";
-import { Card } from "../card";
 import { cls } from "../common";
 import { finite } from "../data/viz";
 import { Details } from "../details";
@@ -27,16 +26,10 @@ export function priceScale(cost: number | null | undefined, limit: number | null
 }
 const pct = (value: number, max: number) => `${Math.round(Math.min(100, Math.max(0, (value / max) * 100)) * 100) / 100}%`;
 
-/** "Price 0.82 kWh/kg against the limit 0.70 kWh/kg": what the bar draws, in words. */
-export function priceWords(cost: number | null | undefined, limit: number | null | undefined): string {
-  const against = finite(limit) ? `the limit ${formatValue(limit, UNIT)}` : "a limit that is not reported";
-  return finite(cost) ? `Price ${formatValue(cost, UNIT)} against ${against}` : `No price: no outdoor reading; ${against}`;
-}
-
 /**
  * The price against the limit on one bar (screens §2.3 block 1): the price the controller computes now as a fill from 0,
  * the limit as a labelled mark. With no price the track is hatched and says "no outdoor reading". Over the limit the
- * fill is `--warn`; under it the accent. The same numbers sit beside it in words.
+ * fill is `--warn`; under it the accent. The same numbers sit above it in words (`dryingAnswer`).
  */
 export function PriceBar({ cost, limit }: { cost: number | null | undefined; limit: number | null | undefined }) {
   const apiDown = useApiDown();
@@ -53,17 +46,49 @@ export function PriceBar({ cost, limit }: { cost: number | null | undefined; lim
   </svg>;
 }
 
-/** Block 1, Now: the verdict, then the price against the limit, then today's drying so far. */
+/** "under the limit of 0.70 kWh/kg", "at the limit", "over the limit of 0.70 kWh/kg": a price against the limit. */
+function againstLimit(cost: number, limit: number | null | undefined): string {
+  if (!finite(limit)) return "and the limit is not reported";
+  const rounded = (value: number) => Math.round(value * 100);
+  if (rounded(cost) === rounded(limit)) return `at the limit of ${formatValue(limit, UNIT)}`;
+  return `${cost < limit ? "under" : "over"} the limit of ${formatValue(limit, UNIT)}`;
+}
+
+/**
+ * The page's answer in one or two sentences (screens rules, A4): whether drying runs, and if not why, with the price the
+ * controller computes now against the limit the owner set. "Drying is running at 0.46 kWh/kg, under the limit of 0.70
+ * kWh/kg." · "Drying is wanted but refused: it would cost 0.82 kWh/kg and the limit is 0.70 kWh/kg." · "Drying is not
+ * wanted: the air is not humid enough. Drying now would cost 0.63 kWh/kg, under the limit of 0.70 kWh/kg."
+ */
+export function dryingAnswer(drying: Pick<LawDrying, "state" | "refused_reason" | "cost_kwh_per_kg" | "limit_kwh_per_kg">): string {
+  const { cost_kwh_per_kg: cost, limit_kwh_per_kg: limit, refused_reason: reason } = drying;
+  const noPrice = "There is no price now: no outdoor reading.";
+  switch (drying.state) {
+    case "running":
+      return finite(cost) ? `Drying is running at ${formatValue(cost, UNIT)}, ${againstLimit(cost, limit)}.` : "Drying is running.";
+    case "refused": {
+      if (reason === "cost" && finite(cost)) return `Drying is wanted but refused: it would cost ${formatValue(cost, UNIT)} and the limit is ${formatValue(limit, UNIT)}.`;
+      const why = reason && reason !== "none" ? words("drying_refusal", reason) : "the controller gave no reason";
+      const price = finite(cost) ? ` Its price now, ${formatValue(cost, UNIT)}, is ${againstLimit(cost, limit)}.` : reason === "no_outdoor" ? "" : ` ${noPrice}`;
+      return `Drying is wanted but refused: ${why}.${price}`;
+    }
+    case "not_wanted":
+      return `Drying is not wanted: the air is not humid enough.${finite(cost) ? ` Drying now would cost ${formatValue(cost, UNIT)}, ${againstLimit(cost, limit)}.` : ` ${noPrice}`}`;
+    default:
+      return "The controller has not reported its drying decision.";
+  }
+}
+
+/** Block 1, Now: the answer in words, the price against the limit on one bar, then today's drying so far. */
 export function DryingNowPanel({ read }: { read: PanelRead<LawView> }) {
   const view = read.data;
   const drying = view?.drying;
-  const verdict = drying ? dryingVerdict(drying) : null;
   const today = drying?.today;
-  return <Panel title="Drying now" thing="the drying decision" state={lawPanelState(read)} observedAt={view?.observed_at} onRetry={read.retry}
+  return <Panel title="Drying now" thing="the drying decision" state={lawPanelState(read)} onRetry={read.retry}
+    pill={drying ? <StatusBadge status={verdictTone(drying.state)} size="sm">{dryingVerdict({ state: drying.state, refused_reason: null })}</StatusBadge> : undefined}
     empty={<EmptyState message="The controller has not reported its climate law yet." />} link={{ to: "/climate", label: "The decision" }}>
-    {drying && verdict && <>
-      <p className="drying-verdict"><StatusBadge status={verdictTone(drying.state)}>{verdict}</StatusBadge></p>
-      <p className="drying-price">{priceWords(drying.cost_kwh_per_kg, drying.limit_kwh_per_kg)}.</p>
+    {drying && <>
+      <p className="drying-answer" data-drying={drying.state}>{dryingAnswer(drying)}</p>
       <PriceBar cost={drying.cost_kwh_per_kg} limit={drying.limit_kwh_per_kg} />
       {today && <p className="meta">Today so far: {runTime(today.seconds)} of drying in {today.runs ?? "—"} {today.runs === 1 ? "run" : "runs"}, {kilograms(today.water_g)} of water
         removed for {kilowattHours(today.heat_wh)} of heat{today.lower_bound ? " (at least: a restart lost part of the count)" : ""}.</p>}
@@ -95,8 +120,7 @@ export function MeterPanel({ read }: { read: PanelRead<LawView> }) {
 export function HowDryingWorks({ view }: { view: LawView | null }) {
   const drying = view?.drying;
   const at = (value: number | null | undefined, unit: string, fallback: string) => (finite(value) ? formatValue(value, unit) : fallback);
-  return <Card className="drying-how">
-    <Details summary="How drying works">
+  return <Details className="card drying-how" summary="How drying works">
       <p>Drying opens the vent and runs the lead fan to carry moist air out and let drier outdoor air in. The controller decides every second, in this order:</p>
       <ol className="drying-steps">
         <li><strong>{capital(words("drying_check", "humid"))}.</strong> Drying is wanted when VPD falls below {at(drying?.wanted_below_kpa, "kPa", "a line just above the band's low VPD edge")} and
@@ -113,6 +137,5 @@ export function HowDryingWorks({ view }: { view: LawView | null }) {
       </ol>
       <p>Without a humidity or a temperature reading the controller cannot judge the air, and drying is refused too. Every refused
         second is counted, by reason, in the daily record.</p>
-    </Details>
-  </Card>;
+  </Details>;
 }

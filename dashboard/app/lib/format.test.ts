@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { expect, test } from "vitest";
-import { TIME_UNAVAILABLE, ageSeconds, dayHeader, dayMonth, daySpan, duration, formatNumber, formatValue, localDate, localDayStart, localTime, localWallClock, monthDayClock, plotTime, repeatedLocalTime, shortDateTime, shortTime, sinceClock, unitDecimals, wallClockInstant } from "./format";
+import { TIME_UNAVAILABLE, ageSeconds, dayHeader, dayMonth, daySpan, duration, formatNumber, formatValue, localDate, localDayStart, localTime, localWallClock, monthDayClock, plotTime, repeatedLocalTime, sentenceStart, shortDateTime, shortTime, sinceClock, unitDecimals, wallClockInstant } from "./format";
 
 const NBSP = " ";
 const MINUS = "−";
@@ -160,4 +160,15 @@ test("the date styles: a short day, a span of days, and the log's day header wit
   expect(dayHeader("2026-10-30", "2026")).toBe("Fri 30 Oct");
   expect(dayHeader("2025-12-31", "2026")).toBe("Wed 31 Dec 2025");
   expect(dayHeader("not a day")).toBe("not a day");
+});
+
+test("sentenceStart: a fragment standing alone starts with a capital; the rest, an acronym or a number, stays as it is", () => {
+  expect(sentenceStart("the house band")).toBe("The house band");
+  expect(sentenceStart("seen on the controller")).toBe("Seen on the controller");
+  expect(sentenceStart("an operator: VPD 1.2 kPa")).toBe("An operator: VPD 1.2 kPa");
+  expect(sentenceStart("VPD")).toBe("VPD");
+  expect(sentenceStart("Already")).toBe("Already");
+  expect(sentenceStart("2 not confirmed")).toBe("2 not confirmed");
+  expect(sentenceStart("élan")).toBe("Élan");
+  expect(sentenceStart("")).toBe("");
 });

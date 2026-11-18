@@ -5,11 +5,13 @@
  * people's names, each log entry in one line, the log's facets, day headers and its CSV. `routes/activity.tsx` and
  * `routes/activity-log.tsx` render them.
  */
-import { dateShift, dayHeader, formatNumber, formatValue, localDate, localDayStart, localWallClock, shortDateTime, shortTime } from "./format";
+import { bandAnchorUnit, bandAnchorWords } from "./band-words";
+import { dateShift, dayHeader, formatNumber, formatValue, localDate, localDayStart, localWallClock, sentenceStart, shortDateTime, shortTime } from "./format";
 import { graphWindowUrl } from "./graph-link";
 import { lineById, lineDisplayName } from "./lines";
 import type { ActivityEntry, Actor, Alert, Me, Setting } from "./operator-api";
 import { viewOf, type ViewId } from "./sections";
+import { RETIRED_SETTING, settingLabel } from "./settings-context";
 import { settingValueText, steppedNumber, withUnit } from "./setting-values";
 import { ACTOR_SOURCE_PATTERN, isAiSource } from "./vocab";
 import { HISTORICAL_ALERT_TYPES, words } from "./words";
@@ -259,14 +261,27 @@ export function listedChanges(detail: Detail | undefined): ListedChange[] {
   });
 }
 /**
- * One change in words, with the setting's label and unit from API-09: "Temp Low Sunrise 60 → 62 °F" (with its before),
- * "VPD Mister Engage 1.70 kPa from 13:00" (an old row with a time), the date added when that time is on another day
- * than `day`. A param API-09 does not list reads raw.
+ * A setting as a row names it (A8): a band edge in words ("Temperature low edge at sunrise", `bandAnchorWords`), else
+ * its catalog label (`settingLabel`); a key the catalog no longer has reads "Retired setting (key)", and while the
+ * catalog is not loaded "—". Never the raw key, nor the catalog's label of a band key ("Band Temp Low SR").
+ */
+export function settingWords(param: string, catalog: Catalog): string {
+  const setting = catalog.get(param);
+  if (setting) return settingLabel({ param, label: setting.label });
+  const anchor = bandAnchorWords(param);
+  if (anchor) return sentenceStart(anchor);
+  return catalog.size ? `${RETIRED_SETTING} (${param})` : "—";
+}
+
+/**
+ * One change in words, with the setting's name (`settingWords`) and its unit: "Temperature low edge at sunrise 60 → 58
+ * °F" (with its before), "VPD Mister Engage 1.70 kPa from 13:00" (an old row with a time), the date added when that
+ * time is on another day than `day`. A band edge the catalog does not list still takes its unit from its key.
  */
 export function listedChangeText(change: ListedChange, catalog: Catalog, day?: string): string {
   const setting = catalog.get(change.param);
   const when = change.ts && isTime(change.ts) ? ` from ${day !== undefined && localDate(change.ts) !== day ? shortDateTime(change.ts) : shortTime(change.ts)}` : "";
-  return `${setting?.label ?? change.param} ${changeText(change.before, change.value, setting)}${when}`;
+  return `${settingWords(change.param, catalog)} ${changeText(change.before, change.value, setting, setting ? undefined : bandAnchorUnit(change.param))}${when}`;
 }
 
 /**
@@ -277,7 +292,7 @@ export function listedChangeText(change: ListedChange, catalog: Catalog, day?: s
 function targetLabel(entry: ActivityEntry, catalog: Catalog): string {
   const { action, target } = entry;
   const detail: Detail = entry.detail ?? {};
-  if (action.startsWith("setting.")) return catalog.get(target)?.label ?? target;
+  if (action.startsWith("setting.")) return settingWords(target, catalog);
   if (action === "plan.write" || action === "band.write") return "";
   if (action.startsWith("alert.")) return typeof detail.alert_type === "string" ? `“${words("alert_type", detail.alert_type)}”` : `alert ${target}`;
   if (action.startsWith("irrigation.") && target === "all") return "every line";
@@ -419,16 +434,20 @@ export function entriesByDay(entries: readonly ActivityEntry[]): { readonly date
   return days;
 }
 
+/** A host writer's key in words (A8): "forecast-engine" reads "Forecast engine". */
+export const hostWriterWords = (name: string): string => sentenceStart(name.replace(/[-_]+/g, " ").trim()) || name;
+
 /**
  * Who wrote, in text (R4, words.md section 1: name who decided, never "the system"): `dashboard` "Jason · dashboard"
  * (the signed-in person by name); `iris` "Iris · reviewer" with AI; `agent:<name>` "<name> · agent" with AI; `system`
- * "<name> · host" ("forecast-engine · host"), never AI. A source this build does not know shows raw, without AI.
+ * "<name> · host" with the writer's name in words ("Forecast engine · host", never its key), never AI. A source this
+ * build does not know shows raw, without AI.
  */
 export function actorWords(actor: Actor, me: SignedIn): { readonly text: string; readonly ai: boolean } {
   const { source, name } = actor;
   if (source === "iris") return { text: "Iris · reviewer", ai: true };
   if (source === "dashboard") return { text: `${personName(name, me)} · dashboard`, ai: false };
-  if (source === "system") return { text: `${name} · host`, ai: false };
+  if (source === "system") return { text: `${hostWriterWords(name)} · host`, ai: false };
   if (source.startsWith("agent:") && ACTOR_SOURCE_PATTERN.test(source)) return { text: `${source.slice("agent:".length)} · agent`, ai: isAiSource(source) };
   return { text: `${name} · ${source}`, ai: false };
 }
@@ -470,7 +489,7 @@ export function entryLine(entry: ActivityEntry, catalog: Catalog): EntryLine {
   const cause = causeOf(entry);
   const lead = cause && cause !== entry.actor.name ? cause : null;
   if (entry.action.startsWith("setting.")) {
-    const label = catalog.get(entry.target)?.label ?? entry.target;
+    const label = settingWords(entry.target, catalog);
     const [change, ...rest] = facts;
     return { text: join([lead, change ? `${label} ${change}` : label, ...rest]), changes: [] };
   }

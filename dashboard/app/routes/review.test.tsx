@@ -48,8 +48,9 @@ test("a written review: today's state, the latest summary, no proposal, earlier 
   expect(document.querySelector(".page-status")?.textContent).toBe("Today's review: written");
   expect(text(panel("Today").querySelector("[data-review=today]"))).toBe("The review of 1 Nov was written at 07:03.");
   expect(within(panel("Today")).getByText("Written")).toBeTruthy();
+  expect(text(panel("Today").querySelector("[data-review=no-proposal]"))).toBe("No band proposal is waiting for the owner.");
   const latest = panel("Latest review · 1 Nov");
-  expect(text(latest.querySelector(".rv-facts"))).toBe("Daily review · written by Iris at Nov 2, 07:03 · 355,128 tokens");
+  expect(text(latest.querySelector(".rv-facts"))).toBe("Daily review · written by Iris on 2 Nov at 07:03 · 355,128 tokens");
   expect(latest.querySelector(".rv-prose p")?.textContent).toMatch(/^Compliance on 2026-11-01: temperature held its band/);
   expect(text(panel("Proposal"))).toContain("This review proposed no band change.");
   const rows = panel("Earlier reviews").querySelectorAll(".rv-earlier-row");
@@ -58,7 +59,10 @@ test("a written review: today's state, the latest summary, no proposal, earlier 
   const tokens = document.querySelector("[data-tile=tokens]")!;
   expect(text(tokens.querySelector(".metric-value"))).toBe("355,128 tokens");
   expect(tokens.className).toContain("tone-warn");
-  expect(text(tokens.querySelector(".metric-meta"))).toMatch(/^More than 20% above the 7-day mean of [\d,]+ tokens\.$/);
+  // The means count reviews, not days (B3): the fixture's mean averages the 7 reviews before the newest.
+  expect(text(tokens.querySelector(".delta")).trim()).toMatch(/^\d+% above the mean of the 7 reviews before it$/);
+  expect(text(tokens.querySelector(".metric-meta"))).toMatch(/^The 7 reviews before it used [\d,]+ tokens on average\. A rise over 20% is flagged\.$/);
+  expect(text(document.body)).not.toMatch(/7-day mean/);
   expect(text(document.querySelector("[data-tile=attempts] .metric-value"))).toBe("1 attempt");
   expect(text(document.querySelector("[data-tile=failures] .metric-value"))).toBe("0 failures");
   expect(text(document.querySelector("[data-tile=failures] .metric-meta"))).toBe("Of 9 reviews since 3 Oct.");
@@ -73,11 +77,12 @@ test("a written review: today's state, the latest summary, no proposal, earlier 
 test("a waiting proposal: changes, reason, price and state; an operator opens it in the band editor, a viewer cannot", async () => {
   await open({ fixture: ["in-band", "review-proposal-waiting"] });
   expect(document.querySelector(".page-status")?.textContent).toBe("Today's review: written · a proposal is waiting for the owner");
-  expect(text(panel("Today"))).toContain("The review of 1 Nov proposes a band change.");
+  expect(text(panel("Today"))).toContain("The review of 1 Nov proposes a band change; it waits for the owner below.");
   const proposal = panel("Proposal");
   expect(within(proposal).getAllByText("Waiting").length).toBeGreaterThan(0);
   const changes = proposal.querySelectorAll(".rv-change");
   expect(changes).toHaveLength(2);
+  expect(text(changes[0].querySelector(".rv-change-label"))).toBe("Temperature low edge at sunrise");
   expect(text(changes[0].querySelector(".rv-change-values"))).toBe("62.5 °F →  to 64.5 °F");
   expect(text(changes[0].querySelector(".rv-change-diff"))).toBe("+2.0 °F");
   expect(text(proposal)).toContain("VPD ran below the band on most nights while temperature held");

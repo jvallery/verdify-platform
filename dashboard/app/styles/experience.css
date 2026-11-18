@@ -1,16 +1,14 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Experience */
-/* Cross-screen refinements that are not the frame (shell.css) or a primitive (primitives.css): the hydroponics workspace, the crop selection return, the schedule draft, the band form and the phone's pinned Stop. Colours are tokens only. */
+/* Cross-screen refinements that are not the frame (shell.css) or a primitive (primitives.css): the hydroponics workspace, the crop selection return, the schedule draft and the phone's pinned Stop. Colours are tokens only. */
 
-.workspace-heading{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin:2rem 0 1rem}
-.workspace-heading h2{font-size:1.4rem}
 .hydro-workspace .crop-toolbar{margin-top:1rem}
 .schedule-draft-summary{padding:1rem;margin:.75rem 0;background:var(--surface-2);border-left:3px solid var(--accent);border-radius:.5rem}
 .schedule-draft-summary p+p{margin-top:.5rem}
 .crop-history-view .table-wrap{max-width:100%;overflow:auto}
-.crop-history-view table{min-width:52rem}
+/* A floor for the wide table only: on a phone the history is a list. */
+@media(min-width:861px){.crop-history-view table{min-width:52rem}}
 .crop-history-view thead th{overflow-wrap:normal;word-break:normal}
-.page-stack{display:grid;gap:1.5rem;min-width:0}
 #sch-rules-title{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem)}
 .hydro-workspace h2[id]{scroll-margin-top:calc(var(--shell-header-h,5rem) + 1rem)}
 
@@ -23,13 +21,6 @@
 .hydro-workspace .crop-grid-label{font-size:var(--fs-sm);font-weight:700}
 @media(max-width:860px){.crop-selection-return{bottom:calc(var(--bar-h) + env(safe-area-inset-bottom) + .75rem);right:1rem}}
 
-.hydro-readings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin:1.5rem 0}
-.hydro-readings>div{padding:1.1rem;background:var(--surface);border:1px solid var(--border);border-radius:.85rem;min-width:0}
-.hydro-readings dt{font-size:var(--fs-sm);color:var(--text-2);text-transform:capitalize}
-.hydro-readings dd{margin:.4rem 0;font-size:1.65rem;font-weight:650;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
-.hydro-readings .meta{display:block;margin-top:.4rem;font-size:var(--fs-xs);font-weight:400;letter-spacing:normal}
-@media(max-width:1099px){.hydro-readings{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:600px){.hydro-readings{grid-template-columns:repeat(2,minmax(0,1fr))}.hydro-readings>div{padding:.85rem}}
 
 /* Keep the measured state and quick controls prominent even when the snapshot paragraph is long. */
 @media(min-width:641px){.now-snapshot:not([data-open]) .now-snapshot-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}}
@@ -60,11 +51,4 @@
  main:has(.gr-toolbar)>.page-tabs{margin-bottom:.25rem;padding-bottom:.25rem}
  .gr-toolbar{margin-bottom:.25rem}
  main:has(.gr-toolbar)>.chart-stack{margin-top:.5rem}
-}
-
-/* Put the related band inputs beside one another while keeping one atomic save. */
-@media(min-width:1100px){
- .ctl-band-form{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:2rem;align-items:start}
- .ctl-band-form>fieldset{min-width:0}
- .ctl-band-form>:not(fieldset){grid-column:1/-1}
 }

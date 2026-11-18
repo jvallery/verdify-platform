@@ -5,7 +5,8 @@
  * rows are tested without a browser. Positions are percentages of the track, so the SVG scales with its box.
  *
  * The two protection limits (40 °F and 100 °F) sit far from the band, so the axis is broken: the band, the reading
- * and every other rule share one linear stretch, and a limit outside it stands in an end zone past a break mark.
+ * and every other rule share one linear stretch, and a limit outside it stands in an end zone past a break mark. A
+ * reading past such a limit stands in that end zone with it, marked as past the scale.
  */
 import { formatNumber, unitDecimals } from "../../lib/format";
 import type { RuleStateKind } from "./law";
@@ -64,6 +65,8 @@ export const INNER = { from: 9, to: 91 } as const;
 /** Where a limit in an end zone stands, and where the break mark is drawn. */
 export const END_AT = { low: 2, high: 98 } as const;
 export const BREAK_AT = { low: 5.5, high: 94.5 } as const;
+/** How far past its limit's tick a reading in an end zone stands, in percent of the track. */
+export const PAST_LIMIT = 1;
 /** The most label rows above the track. */
 export const MAX_ROWS = 3;
 /** The narrowest track the horizontal ladder is drawn at (its container query, climate.css), for the label rows. */
@@ -90,20 +93,68 @@ function extent(at: number, text: string, width: number): [number, number] {
   return anchor === "start" ? [x, x + w] : anchor === "end" ? [x - w, x] : [x - w / 2, x + w / 2];
 }
 
+/** Two labels overlapping on one row cost this many line crossings: a crossed label is still read, an overlapped one is not. */
+const OVERLAP_WEIGHT = 3;
+/** Above this many labels the rows are chosen greedily rather than by trying every arrangement. */
+const EXHAUSTIVE_UP_TO = 8;
+
 /**
- * Label rows, nearest the track first: each label, from left to right, takes the lowest row where it overlaps no other
- * on a track of the narrowest width it is drawn at; past the last row it takes the row whose last label ends earliest.
+ * Label rows, nearest the track first, on a track of the narrowest width the ladder is drawn at. Two things must not
+ * happen: two labels on one row overlapping, and a tick's line (which runs from its label down to the track) crossing
+ * a label on a lower row, as "Gas furnace" once struck through "Cold limit 40.0". Every arrangement of up to
+ * `EXHAUSTIVE_UP_TO` labels in `maxRows` rows is tried, and the one with the fewest clashes wins, then the one closest
+ * to the track. Past that, each label takes the lowest row where it overlaps no other.
  */
 export function labelRows(items: readonly { at: number; text: string }[], width = NOMINAL_WIDTH_PX, maxRows = MAX_ROWS): number[] {
-  const ends: number[] = [];
-  const order = items.map((item, index) => ({ ...item, index })).sort((a, b) => a.at - b.at);
+  const spans = items.map((item) => extent(item.at, item.text, width));
+  const xs = items.map((item) => (item.at / 100) * width);
+  if (items.length > EXHAUSTIVE_UP_TO) return greedyRows(spans, maxRows, items.map((item) => item.at));
+  const clashes = (rows: readonly number[]) => {
+    let count = 0;
+    for (let a = 0; a < items.length; a++) {
+      for (let b = 0; b < items.length; b++) {
+        if (a === b) continue;
+        const [left, right] = spans[a];
+        // Overlap on one row (each pair once): unreadable, so it weighs more than a line crossing a label.
+        if (a < b && rows[a] === rows[b] && left < spans[b][1] + GAP_PX && spans[b][0] < right + GAP_PX) count += OVERLAP_WEIGHT;
+        // b's line, from its higher label down to the track, passes through a's label.
+        if (rows[b] > rows[a] && xs[b] > left - 2 && xs[b] < right + 2) count++;
+      }
+    }
+    return count;
+  };
+  let best: number[] = new Array<number>(items.length).fill(0);
+  let bestScore = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
   const rows = new Array<number>(items.length).fill(0);
-  for (const item of order) {
-    const [left, right] = extent(item.at, item.text, width);
+  const visit = (index: number) => {
+    if (index === items.length) {
+      const score = [clashes(rows), Math.max(0, ...rows), rows.reduce((sum, row) => sum + row, 0)];
+      if (score[0] < bestScore[0] || (score[0] === bestScore[0] && (score[1] < bestScore[1] || (score[1] === bestScore[1] && score[2] < bestScore[2])))) {
+        bestScore = score;
+        best = [...rows];
+      }
+      return;
+    }
+    for (let row = 0; row < maxRows; row++) {
+      rows[index] = row;
+      visit(index + 1);
+    }
+  };
+  visit(0);
+  return best;
+}
+
+/** Each label, from left to right, takes the lowest row where it overlaps no other; past the last row, the row whose last label ends earliest. */
+function greedyRows(spans: readonly [number, number][], maxRows: number, at: readonly number[]): number[] {
+  const ends: number[] = [];
+  const order = at.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
+  const rows = new Array<number>(spans.length).fill(0);
+  for (const { index } of order) {
+    const [left, right] = spans[index];
     let row = ends.findIndex((end) => left >= end + GAP_PX);
     if (row < 0) row = ends.length < maxRows ? ends.length : ends.indexOf(Math.min(...ends));
     ends[row] = Math.max(ends[row] ?? Number.NEGATIVE_INFINITY, right);
-    rows[item.index] = row;
+    rows[index] = row;
   }
   return rows;
 }
@@ -114,15 +165,23 @@ export function labelRows(items: readonly { at: number; text: string }[], width 
  */
 export function buildLadder({ unit, band, reading, rules }: LadderInput): LadderModel | null {
   const shownBand = band && finite(band.low) && finite(band.high) && band.high >= band.low ? band : null;
-  const inner = [
+  const base = [
     ...(shownBand ? [shownBand.low, shownBand.high] : []),
-    ...(finite(reading) ? [reading] : []),
     ...rules.filter((rule) => !rule.limit).flatMap((rule) => [rule.on, ...(finite(rule.off) ? [rule.off] : [])]),
   ].filter(finite);
+  const stretch = (values: readonly number[]) => {
+    const min = Math.min(...values), max = Math.max(...values);
+    const pad = Math.max((max - min) * 0.06, MIN_PAD[unit] ?? 0);
+    return { low: min - pad, high: max + pad };
+  };
+  // A reading past a protection limit that stands in its end zone stands in that end zone too, past the limit's tick:
+  // stretching the axis to it would crush every other rule into a corner (the hot limit at 101 °F).
+  const without = base.length ? stretch(base) : null;
+  const pastLimit = finite(reading) && without ? rules.find((rule) => rule.limit && finite(rule.on)
+    && (rule.direction === "above" ? reading >= rule.on && rule.on > without.high : reading <= rule.on && rule.on < without.low)) : undefined;
+  const inner = pastLimit || !finite(reading) ? base : [...base, reading];
   if (!inner.length) return null;
-  const min = Math.min(...inner), max = Math.max(...inner);
-  const pad = Math.max((max - min) * 0.06, MIN_PAD[unit] ?? 0);
-  const scale = { low: min - pad, high: max + pad };
+  const scale = stretch(inner);
   const position = (value: number) => INNER.from + ((value - scale.low) / (scale.high - scale.low)) * (INNER.to - INNER.from);
   const placed = rules.filter((rule) => finite(rule.on)).map((rule) => {
     const beyond = !!rule.limit && (rule.on < scale.low || rule.on > scale.high);
@@ -132,7 +191,10 @@ export function buildLadder({ unit, band, reading, rules }: LadderInput): Ladder
   const rows = labelRows(placed);
   const withRows: PlacedRule[] = placed.map((rule, index) => ({ ...rule, row: rows[index] }));
   let shownReading: LadderModel["reading"] = null;
-  if (finite(reading)) {
+  if (finite(reading) && pastLimit) {
+    const high = pastLimit.direction === "above";
+    shownReading = { at: high ? END_AT.high + PAST_LIMIT : END_AT.low - PAST_LIMIT, clamped: high ? "high" : "low" };
+  } else if (finite(reading)) {
     const clamped = reading < scale.low ? "low" : reading > scale.high ? "high" : null;
     shownReading = { at: clamped === "low" ? INNER.from : clamped === "high" ? INNER.to : position(reading), clamped };
   }

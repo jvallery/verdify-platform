@@ -77,7 +77,8 @@ export function CropsWorkspace({ hydro = false }: { hydro?: boolean }) {
   const context: CropsOutlet = { hydro, locations, selected, setSelected, openPlanting, openCell };
   const line = locations.isError || locations.consecutiveFailures > 0 ? "Planting records could not be refreshed" : status(locations.data, hydro);
   return <Page className="crops-page">
-    <PageHeader view={view} status={view === "crops-history" ? "Planting records across soil and hydroponic locations" : line} />
+    {/* History covers both workspaces, so the Map's count of this one is not its line. */}
+    <PageHeader view={view} status={view === "crops-history" ? undefined : line} />
     <Outlet context={context} />
     {Number.isInteger(plantingId) && plantingId > 0 && <PlantingDrawer key={plantingId} id={plantingId} mode={mode} setMode={setMode} onClose={closeDrawer} selected={forPlanting} />}
     {cell && !params.get("planting") && <CellDrawer key={cell} label={cell} locations={locations.data ?? null} onClose={closeDrawer} />}

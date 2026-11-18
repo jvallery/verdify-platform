@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-import { Link } from "react-router";
 import type { DailyRecord, Equipment, LawView, RecordDay } from "../../lib/operator-api";
 import type { PanelRead } from "../../lib/queries";
 import { words } from "../../lib/words";
@@ -57,8 +56,7 @@ function ClimateRelayRow({ equipment, item, law, block, record }: { equipment: s
     <p className="sys-relay-facts">{item ? <SinceWords item={item} /> : "not in the equipment report"} · {todayWords(equipment, record)}</p>
     <p className="sys-relay-why" data-why={why.status}>
       {!sayItTwice(why) && <><StatusBadge size="sm" status={WHY_STATUS_TONE[why.status]}>{WHY_STATUS_WORDS[why.status]}</StatusBadge>{" "}</>}
-      <span>{why.text}</span>{why.hold && <> <span className="sys-relay-hold">{why.hold}</span></>}{" "}
-      <Link className="sys-relay-link" to="/climate" aria-label={`Climate law: the rules behind ${name}`}>Climate law<span className="screen-reader">: the rules behind {name}</span><span aria-hidden="true"> ›</span></Link>
+      <span>{why.text}</span>{why.hold && <> <span className="sys-relay-hold">{why.hold}</span></>}
     </p>
   </li>;
 }

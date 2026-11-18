@@ -42,6 +42,8 @@ a.picker-item:hover{background:var(--surface-2)}
 .gr-custom{margin:0}
 .gr-custom>summary{list-style:none;cursor:pointer}
 .gr-custom>summary::-webkit-details-marker{display:none}
+/* Custom… is a button, not a disclosure: no turning chevron (the stray glyph above it, B9). */
+.gr-custom>summary::before{content:none}
 .gr-custom[open]>summary{border-color:var(--accent);color:var(--accent-text)}
 .gr-custom[open]{flex-basis:100%;order:9}
 .gr-custom-body{padding-top:var(--space-2)}
@@ -65,7 +67,14 @@ a.picker-item:hover{background:var(--surface-2)}
 .gr-on{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);margin:var(--space-3) 0 0}
 .gr-on-sheet{display:grid;gap:var(--space-2);margin:0 0 var(--space-2)}
 .gr-menu-phone{display:none}
-.gr-notes{margin:var(--space-3) 0 0}
+/* What the page draws from, one muted caption line (B9): outdoor source, forecast, band in force, band ahead, each
+   joined by " · " in one type; a STALE note keeps the type and says STALE in its words. */
+.chart-notes.gr-notes{display:block;margin:var(--space-3) 0 0;font-size:var(--fs-xs);line-height:1.5;color:var(--text-3)}
+.chart-notes.gr-notes>li{display:inline}
+.chart-notes.gr-notes>li+li::before{content:"·";margin:0 .6em}
+.chart-notes.gr-notes .chart-note-stale{font:inherit;letter-spacing:normal;color:inherit}
+/* The story line is the page's status: one line at full width (B9). */
+main:has(.gr-toolbar)>.page-header .page-status{max-width:none}
 /* The gaps in the record (R-15), folded under the notes: each with its length and, when known, the outage's reason. */
 .gr-gaps{margin:var(--space-2) 0 0;font-size:var(--fs-sm)}
 .gr-gaps>summary{width:fit-content;cursor:pointer}

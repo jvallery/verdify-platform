@@ -10,13 +10,14 @@ import { words } from "../lib/words";
 import { StatusBadge, type BadgeStatus } from "./badge";
 import { LocalTime, cls } from "./common";
 import { BoundsBar } from "./control/bounds-bar";
-import { STATE_WORDS, SettingSummary, readOnlyWords } from "./control/setting-help";
+import { STATE_WORDS } from "./control/setting-help";
 import { AgeLabel, useNow } from "./freshness";
+import { Chevron } from "./layout/chevron";
 
 /**
- * Settings' rows and the drawer's facts (dashboard v2 screens §10.4). Each row is the setting's name, its value with its
- * unit, what the controller reads back with its age, and its state in words.md's words: Confirmed, Not confirmed since
- * HH:MM, Not reported; a Band in force row is worked out by the host. Everything comes from API-09 as served: the row
+ * Settings' rows and the drawer's facts (dashboard v2 screens §10.4, review B5). Each row is the setting's name, its
+ * value with its unit, and the controller's side in words.md's words: Confirmed, Not confirmed since HH:MM with what it
+ * reads, Not reported; a Band in force row is worked out by the host. Everything comes from API-09 as served: the row
  * never compares a readback with a value or decides writability.
  */
 
@@ -74,10 +75,15 @@ const PENDING: readonly string[] = ["requested", "not_confirmed", "held"];
  * The API's readback state in the page's words. requested, not_confirmed and held read "Not confirmed since" the time the
  * value was sent (the newest desired row's, else the reason's); no_readback reads Not reported; a row whose newest write
  * is a release has nothing to confirm, so it reads Reported while the controller reports a value. A Band in force row is
- * worked out by the host.
+ * worked out by the host. A legacy wide limit (`read_only_kind` "legacy_wide_limit") has nothing to confirm: the host
+ * stopped sending it when the band-edge law went live, so its last push can never be confirmed and it reads Reported or
+ * Not reported by its readback alone (the API's state for these rows is corrected at the source in its next release).
  */
-export function settingState(setting: Pick<Setting, "group" | "state" | "desired" | "readback">): SettingStateView {
+export function settingState(setting: Pick<Setting, "group" | "state" | "desired" | "readback" | "read_only_kind">): SettingStateView {
   if (setting.group === "band_in_force") return { kind: "derived", status: "neutral", since: null, reason: null };
+  if (setting.read_only_kind === "legacy_wide_limit") {
+    return { kind: finite(setting.readback?.value) ? "reported" : "not_reported", status: "neutral", since: null, reason: null };
+  }
   if (setting.state === "confirmed") return { kind: "confirmed", status: "ok", since: null, reason: null };
   if (PENDING.includes(setting.state)) {
     const since = setting.desired?.created_at ?? setting.desired?.state_reason?.since ?? null;
@@ -139,8 +145,8 @@ export function ElsewhereLinks({ setting }: { setting: Pick<Setting, "param" | "
   const lights = isLightSetting(setting.param);
   if (!owner && !lights) return null;
   return <>
-    {owner && <Link className="setting-elsewhere" to={owner.to}>Change on {owner.page}<span aria-hidden="true"> ›</span></Link>}
-    {lights && <Link className="setting-elsewhere" to="/lights">Lights<span aria-hidden="true"> ›</span></Link>}
+    {owner && <Link className="setting-elsewhere" to={owner.to}>Change on {owner.page}<Chevron /></Link>}
+    {lights && <Link className="setting-elsewhere" to="/lights">Lights<Chevron /></Link>}
   </>;
 }
 
@@ -177,37 +183,52 @@ export type SettingRowProps = {
 };
 
 /**
- * One setting: a table row at 1440 px, a stacked card at 860 px and below whose Edit (or Details) link covers it. An
- * operator on a row the drawer may change gets Edit; everyone else Details, which opens the same drawer read-only. The
- * band's points and the drying cost limit link to the page that owns them; a lighting setting also links to Lights.
- * Memoized: a poll re-renders only the rows whose data changed.
+ * The row's Controller cell (B5): one quiet "Confirmed" mark when the controller reads the value in force; what it reads
+ * and since when the value was sent while it is not confirmed (with the reason once known); "Not reported" muted; the
+ * readback muted with its stale age while readbacks are stale, never Confirmed; "Worked out by the host" for a Band in
+ * force row. A released value the controller reports reads "Reported": the Value cell already shows it.
+ */
+export function RowState({ setting, state, readbackStale = false }: { setting: Setting; state: SettingStateView; readbackStale?: boolean }) {
+  if (state.kind === "derived") return <span className="setting-mark is-muted">{STATE_WORDS.derived.label}</span>;
+  if (readbackStale && setting.readback_via !== "none" && finite(setting.readback?.value)) {
+    return <span className="setting-readback"><ReadbackText setting={setting} readbackStale /></span>;
+  }
+  if (state.kind === "confirmed") return <span className="setting-mark is-ok" title={STATE_WORDS.confirmed.definition}>{STATE_WORDS.confirmed.label}</span>;
+  if (state.kind === "not_confirmed") {
+    const read = setting.readback?.value;
+    return <>
+      <SettingStateBadge state={state} />
+      {finite(read) && <span className="setting-readback" data-readback="reported"> reads {settingDisplay(read, setting)}</span>}
+      <ReasonText state={state} />
+    </>;
+  }
+  return <span className="setting-mark is-muted" title={STATE_WORDS[state.kind].definition}>{STATE_WORDS[state.kind].label}</span>;
+}
+
+/**
+ * One setting, one line at 1440 px (B5): its name with the key under it in small mono, the value in force, the
+ * controller's side (`RowState`) and one action. An operator on a row the drawer may change gets Edit; everyone else
+ * Details, which opens the same drawer read-only. What it does, the page that owns it and its history are the drawer's.
+ * At 860 px and below the row is a small card whose action covers it. Memoized: a poll re-renders only the rows whose
+ * data changed.
  */
 export const SettingRow = memo(function SettingRow({ setting, readbackStale = false, editTo }: SettingRowProps) {
   const operator = useRole() === "operator";
   const state = settingState(setting);
   const label = settingLabel(setting);
   const editable = editableHere(setting);
-  const note = readOnlyWords(setting);
   return <tr className={cls("setting-row", !editable && "setting-read-only")} data-param={setting.param} data-state={state.kind}>
     <th scope="row" className="setting-name">
       <span className="setting-label">{label}</span> <span className="setting-param mono">{breakableKey(setting.param)}</span>
-      <SettingSummary setting={setting} />
-      {note && <span className="setting-note" title={note.definition}>{note.label}</span>}
     </th>
     <td className="setting-value">
       <span className="setting-cell-label">Value </span><span className="setting-value-text">{valueText(valueInForce(setting), setting)}</span>
     </td>
-    <td className="setting-readback">
-      <span className="setting-cell-label">Controller reads </span><ReadbackText setting={setting} readbackStale={readbackStale} />
-    </td>
-    <td className="setting-state">
-      <SettingStateBadge state={state} /><ReasonText state={state} />
-    </td>
+    <td className="setting-state"><RowState setting={setting} state={state} readbackStale={readbackStale} /></td>
     <td className="setting-actions">
       {operator && editable
         ? <Link className="setting-edit ctl-row-link" to={editTo} preventScrollReset aria-label={`Edit ${label}`} data-write-control="true">Edit</Link>
         : <Link className="ctl-details ctl-row-link" to={editTo} preventScrollReset aria-label={`Details of ${label}`}>Details</Link>}
-      <ElsewhereLinks setting={setting} />
     </td>
   </tr>;
 });

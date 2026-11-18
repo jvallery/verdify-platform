@@ -14,7 +14,7 @@ import { nowAnswer } from "../../lib/now-answer";
 import { panelRead, useApiRead, useNowRead } from "../../lib/queries";
 import { UUID, advance, renderWithApi, startFixtureApi, stopFixtureApi, writes } from "../../lib/test-fixture-api";
 import { text } from "../test-render";
-import { NOT_CONFIRMED_HREF, NeedsYou, RESOLVED_HREF, emptyLine, faultText, resolvedCount, reviewRow, topAlerts } from "./needs-someone";
+import { NOT_CONFIRMED_HREF, NeedsYou, RESOLVED_HREF, emptyLine, faultText, needsTally, openAlertsOf, resolvedCount, reviewRow, topAlerts } from "./needs-someone";
 
 afterEach(() => { cleanup(); stopFixtureApi(); });
 
@@ -144,7 +144,7 @@ test("Acknowledge is disabled while changes are switched off, and a viewer sees 
 
 test.each([
   ["in-band", "Nothing needs you. Nothing resolved in 24 h.", null],
-  ["alert-resolved", "Nothing needs you.", "1 resolved in 24 h ›"],
+  ["alert-resolved", "Nothing needs you.", "1 resolved in 24 h ›"],
   ["ingestor-not-running", "In-app alerts may be missing: ingestor not running since 10:38", null],
   ["controller-not-reporting", "In-app alerts may be missing: no data since 10:36", null],
 ])("%s with nothing open reads \"%s\", linking %s", async (name, expected, link) => {
@@ -165,9 +165,9 @@ test("the resolved count: closed rows on a whole page, unknown on a cut one; the
   expect(resolvedCount({ ...page, next_cursor: "c2" })).toBeNull();
   expect(resolvedCount(null)).toBeNull();
   const words = (line: ReturnType<typeof emptyLine>) => [line.message, line.widen ? text(renderWithApi(<>{line.widen.label}</>).container) : null];
-  expect(words(emptyLine("No open alerts", 3))).toEqual(["Nothing needs you.", "3 resolved in 24 h ›"]);
+  expect(words(emptyLine("No open alerts", 3))).toEqual(["Nothing needs you.", "3 resolved in 24 h ›"]);
   cleanup();
-  expect(words(emptyLine("No open alerts", null))).toEqual(["Nothing needs you.", "Resolved in the last 24 h ›"]);
+  expect(words(emptyLine("No open alerts", null))).toEqual(["Nothing needs you.", "Resolved in the last 24 h ›"]);
   cleanup();
   expect(emptyLine("No open alerts", 0)).toEqual({ message: "Nothing needs you. Nothing resolved in 24 h." });
   expect(emptyLine("In-app alerts may be missing: no data since 10:36", 3)).toEqual({ message: "In-app alerts may be missing: no data since 10:36" });
@@ -250,4 +250,29 @@ test("the review row: late or failed only", () => {
   expect(reviewRow(null)).toBeNull();
   expect(reviewRow({ ...review, missed: true, status: "due" })?.title).toBe("Daily review late for Nov 2");
   expect(reviewRow({ ...review, status: "failed" })?.tone).toBe("fault");
+});
+
+test("needsTally counts what the panel lists, so the hero's headline agrees with it (B11)", () => {
+  const alert = (id: number, alertType: string, status = "open", details: Record<string, unknown> | null = null): Alert => ({
+    id, alert_type: alertType, category: "system", severity: "warning", message: "", zone: null, metric_value: null, threshold_value: null, status,
+    first_seen_at: "2026-11-02T10:00:00Z", last_seen_at: null, count: 1, acknowledged_at: null, acknowledged_by: null, notes: null, resolved_at: null,
+    resolved_by: null, resolution: null, runbook: null, details,
+  } as Alert);
+  const items = [alert(1, "relay_stuck"), alert(2, "relay_stuck"), alert(3, "relay_stuck"), alert(4, "relay_stuck"), alert(5, "relay_stuck", "acknowledged"), alert(6, "relay_stuck", "resolved")];
+  const page = { items, next_cursor: null } as never;
+  // Every open, unacknowledged alert counts, past the three the panel shows; acknowledged and resolved ones do not.
+  expect(openAlertsOf(items)).toHaveLength(4);
+  expect(needsTally({ alerts: page, review: null, lines: [] })).toBe(4);
+  // One acknowledged here drops out at once, as it does from the list.
+  expect(needsTally({ alerts: page, review: null, lines: [], dismissed: new Map([[1, items[0]]]) })).toBe(3);
+  // A late review is one row, its own alert folded into it; a waiting proposal is one more.
+  const late = { review_date: "2026-11-01", status: "missed", missed: true, proposal_waiting: true } as never;
+  const missed = { items: [alert(7, "daily_review_missed")], next_cursor: null } as never;
+  expect(needsTally({ alerts: missed, review: late, lines: [] })).toBe(2);
+  // A mister fault no open alert names is a row; a latch its alert names is that alert's row.
+  const latched = { items: [alert(8, "irrigation_line_faulted", "open", { line_id: "L05" })], next_cursor: null } as never;
+  const lines = [{ line_id: "L05", fault: "mister_fault" }, { line_id: "L06", fault: "backing_off" }, { line_id: "L01", fault: null }] as never;
+  expect(needsTally({ alerts: latched, review: null, lines })).toBe(2);
+  // Before the read answers the hero counts API-02's alerts instead.
+  expect(needsTally({ alerts: null, review: null, lines: [] })).toBeNull();
 });

@@ -27,3 +27,14 @@ test("button segments toggle with aria-pressed and report only a new choice; the
   fireEvent.click(night);
   expect(onChange).toHaveBeenCalledWith("night");
 });
+
+test("a count follows its label a gap apart, in the count style, never glued to it (\"All 135\")", () => {
+  const { container } = renderUi(<Segmented label="Show" value="all" segments={[
+    { value: "all", label: "All", count: 135, to: "?show=all" }, { value: "none", label: "Not used", count: 0, to: "?show=none" }, { value: "host", label: "Host", count: null, to: "?show=host" },
+  ]} />);
+  expect(screen.getByRole("link", { name: "All 135" }).querySelector(".segmented-count")?.textContent).toBe("135");
+  expect(screen.getByRole("link", { name: "Not used 0" })).toBeTruthy();
+  // Unknown: the label alone.
+  expect(screen.getByRole("link", { name: "Host" }).querySelector(".segmented-count")).toBeNull();
+  expect(container.querySelector(".segmented a")?.textContent).toBe("All 135");
+});

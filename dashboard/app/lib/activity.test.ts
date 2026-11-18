@@ -6,7 +6,7 @@ import { expect, test } from "vitest";
 import {
   LOG_CSV_HEADERS, WHAT_FACETS, WHO_FACETS, activityHref, actorWords, alertIdOf, alertPage, alertWindow, alertsStatus, catalogOf, causeOf, csvCell, dayHeading,
   entriesByDay, entryFacts, entryLine, entryTitle, facetsWith, groupAlerts, isDay, listedChanges, logCsv, logCsvName, logQuery, logRedirect, manualText, personName,
-  readView, shownActor,
+  readView, settingWords, shownActor,
 } from "./activity";
 import { HISTORICAL_ALERT_TYPES, WORDS } from "./words";
 import type { ActivityEntry, Alert, Setting } from "./operator-api";
@@ -100,7 +100,7 @@ test("a setting write reads before → after with its unit, the requested value 
   expect(entryTitle(release, CATALOG)).toBe("Released VPD Mister Engage");
   expect(entryFacts(release, CATALOG)).toEqual(["back to its default", "no longer set by hand"]);
   // A setting API-09 does not list reads raw, numbers without a unit.
-  expect([entryTitle(entry({ target: "new_param" }), CATALOG), ...entryFacts(entry({ target: "new_param", detail: { before: 2, value: 3 } }), CATALOG)]).toEqual(["Set new_param", "2 → 3"]);
+  expect([entryTitle(entry({ target: "new_param" }), CATALOG), ...entryFacts(entry({ target: "new_param", detail: { before: 2, value: 3 } }), CATALOG)]).toEqual(["Set Retired setting (new_param)", "2 → 3"]);
 });
 
 test("set by hand reads only when the write left the item set by hand or took that mark off", () => {
@@ -109,9 +109,10 @@ test("set by hand reads only when the write left the item set by hand or took th
 });
 
 test("a band save reads its edges; an old settings row reads from either writer's shape, a rule by its name or id, and no study", () => {
-  const band = entry({ action: "band.write", target: "house band", detail: { changes: [{ param: "temp_low_sunrise", desired_id: 9, before: 60, value: 62 }] } });
+  const band = entry({ action: "band.write", target: "house band", detail: { changes: [{ param: "band_temp_low_sr", desired_id: 9, before: 60, value: 62 }] } });
   expect(entryTitle(band, CATALOG)).toBe("Changed the band");
-  expect(plain(entryFacts(band, CATALOG))).toEqual(["temp_low_sunrise 60 → 62"]);
+  // A band edge reads in words with its unit, even where the catalog does not list it (C6).
+  expect(plain(entryFacts(band, CATALOG))).toEqual(["Temperature low edge at sunrise 60 → 62 °F"]);
   expect(listedChanges({ changes: [{ ts: "2026-11-02T20:00:00Z", param: "a", value: 1 }, { at: "2026-11-02T21:00:00Z", param: "b", value: 2 }, { param: "c", before: 3, value: 4 }, { value: 5 }, "x"] }))
     .toEqual([{ param: "a", value: 1, ts: "2026-11-02T20:00:00Z" }, { param: "b", value: 2, ts: "2026-11-02T21:00:00Z" }, { param: "c", value: 4, before: 3, ts: null }]);
   const iris = entry({ action: "plan.write", target: "iris-20261102-0702", actor: { source: "iris", name: "iris" }, detail: { changes: [{ ts: "2026-11-03T20:00:00Z", param: "mister_engage_kpa", value: 1.7 }] } });
@@ -182,7 +183,8 @@ test("who wrote, in text (R4): a person by name with dashboard, the reviewer and
   expect(actorWords({ source: "dashboard", name: "jason" }, me)).toEqual({ text: "Jason · dashboard", ai: false });
   expect(actorWords({ source: "iris", name: "iris" }, me)).toEqual({ text: "Iris · reviewer", ai: true });
   expect(actorWords({ source: "agent:steward", name: "steward" }, me)).toEqual({ text: "steward · agent", ai: true });
-  expect(actorWords({ source: "system", name: "forecast-engine" }, me)).toEqual({ text: "forecast-engine · host", ai: false });
+  expect(actorWords({ source: "system", name: "forecast-engine" }, me)).toEqual({ text: "Forecast engine · host", ai: false });
+  expect(actorWords({ source: "system", name: "scheduler" }, me)).toEqual({ text: "Scheduler · host", ai: false });
   expect(actorWords({ source: "agent:Bad Name", name: "x" }, me)).toEqual({ text: "x · agent:Bad Name", ai: false });
   expect(actorWords({ source: "mqtt", name: "U123" }, me)).toEqual({ text: "U123 · mqtt", ai: false });
 });
@@ -191,9 +193,10 @@ test("one line an entry: a setting's change with its facts, a band save collapse
   const line = (row: Partial<ActivityEntry>) => { const { text, changes } = entryLine(entry(row), CATALOG); return { text: text.replaceAll(NBSP, " "), changes: changes.length }; };
   expect(line({ detail: { before: 1.6, value: 1.55, requested: 1.53, manual: { before: false, after: true } } })).toEqual({ text: "VPD Mister Engage 1.60 → 1.55 kPa · requested 1.53 · set by hand", changes: 0 });
   const band = { action: "band.write", target: "house band" } as const;
-  const edges = [{ param: "temp_low_sunrise", desired_id: 9, before: 60, value: 62 }, { param: "vpd_high_noon", desired_id: 10, before: 1.4, value: 1.3 }];
+  const edges = [{ param: "band_temp_low_sr", desired_id: 9, before: 60, value: 62 }, { param: "band_vpd_high_sm", desired_id: 10, before: 1.4, value: 1.3 }];
   expect(line({ ...band, detail: { changes: edges } })).toEqual({ text: "Changed the band · 2 changes", changes: 2 });
-  expect(line({ ...band, detail: { changes: edges.slice(0, 1) } })).toEqual({ text: "Changed the band · temp_low_sunrise 60 → 62", changes: 0 });
+  expect(line({ ...band, detail: { changes: edges.slice(0, 1) } })).toEqual({ text: "Changed the band · Temperature low edge at sunrise 60 → 62 °F", changes: 0 });
+  expect(line({ ...band, detail: { changes: edges.slice(1) } })).toEqual({ text: "Changed the band · VPD high edge at solar noon 1.4 → 1.3 kPa", changes: 0 });
   const plan = { action: "plan.write", target: "iris-20261102-0702", actor: { source: "iris", name: "iris" } } as const;
   const changes = [{ ts: "2026-11-02T20:00:00Z", param: "mister_engage_kpa", value: 1.7 }, { ts: "2026-11-02T23:30:00Z", param: "x", value: 55 }];
   expect(line({ ...plan, detail: { trigger: "SUNRISE", changes } })).toEqual({ text: "Settings written before the climate law · 2 changes", changes: 2 });
@@ -219,7 +222,7 @@ test("CSV of these entries: one row each with the header, quoted where it must b
   const lines = csv.slice(1).split("\r\n");
   expect(lines[0]).toBe(LOG_CSV_HEADERS.join(","));
   expect(lines[1].replaceAll(NBSP, " ")).toBe('2026-11-02 07:41,Jason · dashboard,dashboard,setting.write,mister_engage_kpa,VPD Mister Engage 1.60 → 1.55 kPa,"Vandas, drying",confirmed,2026-11-02 07:42,');
-  expect(lines[2].replaceAll(NBSP, " ")).toBe('2026-11-02 07:02,Iris · reviewer,iris,plan.write,iris-1,"Settings written before the climate law · 2 changes\nVPD Mister Engage 1.70 kPa\nx 2",,,,');
+  expect(lines[2].replaceAll(NBSP, " ")).toBe('2026-11-02 07:02,Iris · reviewer,iris,plan.write,iris-1,"Settings written before the climate law · 2 changes\nVPD Mister Engage 1.70 kPa\nRetired setting (x) 2",,,,');
   expect(logCsvName(rows)).toBe("verdify-activity-2026-11-02.csv");
 });
 
@@ -227,4 +230,13 @@ test("the Alerts status line states the one count once: open, acknowledged and r
   expect(alertsStatus({ open: 2, acknowledged: 1, resolved: 3, coverage: "No open alerts" })).toBe("2 open · 1 acknowledged · 3 resolved in 24 h");
   expect(alertsStatus({ open: 0, acknowledged: 0, resolved: 3, coverage: "No open alerts" })).toBe("No open alerts · 3 resolved in 24 h");
   expect(alertsStatus({ open: 0, acknowledged: 0, resolved: 0, coverage: "In-app alerts may be missing: no data since 10:36" })).toBe("In-app alerts may be missing: no data since 10:36");
+});
+
+test("a setting is named in words (A8): its catalog label, a band edge in words, a retired key as such, never the raw key", () => {
+  expect(settingWords("mister_engage_kpa", CATALOG)).toBe("VPD Mister Engage");
+  expect(settingWords("band_vpd_low_mid", CATALOG)).toBe("VPD low edge at solar midnight");
+  expect(settingWords("gone_setting", CATALOG)).toBe("Retired setting (gone_setting)");
+  // Before the catalog loads nothing is named, rather than every setting called retired.
+  expect(settingWords("mister_engage_kpa", new Map())).toBe("—");
+  expect(entryTitle(entry({ target: "gone_setting" }), CATALOG)).toBe("Set Retired setting (gone_setting)");
 });

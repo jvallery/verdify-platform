@@ -2,6 +2,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { Setting } from "../../lib/operator-api";
+import { Chevron } from "../layout/chevron";
 import { anchorWords, ownerPage, settingEffect, settingLabel, type SettingEffect } from "../../lib/settings-context";
 
 /**
@@ -178,12 +179,6 @@ function ownHelp(row: HelpShape): HelpText | null {
 export const raiseWord = (kind: string): string => (kind === "switch" ? "Turning it on" : "Raising it");
 export const lowerWord = (kind: string): string => (kind === "switch" ? "Turning it off" : "Lowering it");
 
-/** The one-line summary a row shows under its name; nothing when there is no text. */
-export function SettingSummary({ setting }: { setting: HelpShape }) {
-  const summary = settingHelp(setting)?.summary;
-  return summary ? <span className="setting-summary">{summary}</span> : null;
-}
-
 // ---------------------------------------------------------------------------------------------------- read-only
 /** A short name and one line, as a row and the drawer show them. */
 export type StateWords = { readonly label: string; readonly definition: string };
@@ -273,7 +268,7 @@ export function SettingHelpPanel({ setting, editTo, labelOf }: {
         ? <Link to={editTo(param)} preventScrollReset>{labelOf?.(param) ?? param}</Link>
         : <span>{labelOf?.(param) ?? param}</span>}</span>)}
     </p>}
-    {help?.reference_url && <p className="ctl-help-ref"><a href={help.reference_url} target="_blank" rel="noreferrer">Full reference entry<span aria-hidden="true"> ›</span></a></p>}
+    {help?.reference_url && <p className="ctl-help-ref"><a href={help.reference_url} target="_blank" rel="noreferrer">Full reference entry<Chevron /></a></p>}
   </section>;
 }
 

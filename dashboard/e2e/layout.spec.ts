@@ -266,15 +266,20 @@ for (const viewport of [SMALL_PHONE, DESKTOP]) {
 }
 
 for (const viewport of [PHONE, DESKTOP]) {
-  test(`${viewport.width} px: the fault banner is a row of the sticky top bar and stays in view after scrolling 2,000 px; warn banners sit in flow`, async ({ page, request }) => {
+  test(`${viewport.width} px: the fault banner is a row of the sticky top bar and stays in view after scrolling 2,000 px or to the page's end; warn banners sit in flow`, async ({ page, request }) => {
     await useFixture(request, ["controller-not-reporting", "writes-off"]);
     await page.setViewportSize(viewport);
     await load(page, "/settings");
     const fault = page.locator("header.topbar .topbar-fault [data-banner=fault]");
     await expect(fault).toHaveText(/^Controller not reporting since/);
     await expect(page.locator("main [data-banner=warn]")).toHaveText(["Changes are switched off; reading still works"]);
-    await page.evaluate(() => window.scrollTo(0, 2000));
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(2000);
+    // Settings is short with its groups closed (design review B5): scroll 2,000 px or to the end, whichever is nearer, and
+    // make sure the page is long enough that the bar really has to stick.
+    const max = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    expect(max).toBeGreaterThanOrEqual(400);
+    const to = Math.min(2000, max);
+    await page.evaluate((y) => window.scrollTo(0, y), to);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(to);
     await expect(fault).toBeInViewport();
     const box = await fault.boundingBox();
     expect(box!.y + box!.height).toBeLessThanOrEqual(200);

@@ -31,14 +31,16 @@ export function windowStatus(record: DailyRecord, days: WindowDays): { long: str
 
 /**
  * One Record view's frame: the page header (its status line names the window once the record answers; it renders no
- * time on the server, so the server's text is the same at any clock), the window control shared by the four views, and
- * the view's blocks.
+ * time on the server, so the server's text is the same at any clock), the view's answer in words (A4: the first block,
+ * a sentence from the served means; its line is reserved while the record loads), the window control shared by the four
+ * views, and the view's blocks.
  */
-export function RecordPage({ view, window, children }: { view: ViewId; window: RecordWindow; children?: ReactNode }) {
+export function RecordPage({ view, window, answer, children }: { view: ViewId; window: RecordWindow; answer?: ReactNode; children?: ReactNode }) {
   const record = window.read.data;
   const status = record ? windowStatus(record, window.days) : null;
   return <Page className="record">
     <PageHeader view={view} status={status?.long ?? null} statusShort={status?.short ?? null} keepQuery={RECORD_QUERY} />
+    {answer !== undefined && <p className="rc-answer" data-answer={answer ? "ready" : "waiting"}>{answer}</p>}
     <WindowControl days={window.days} />
     {children}
   </Page>;

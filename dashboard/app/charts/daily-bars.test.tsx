@@ -4,6 +4,7 @@
 // (never 0), the 7- and 30-day means, a threshold, the key, the tooltip, the keyboard readout, the table and the CSV.
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { ChartGroup } from "./legend";
 import { DailyBars, buildDailyBars, completeSpan, dailyBarsCsv, dailyBarsKey, dailyBarsTooltip, dailyDays } from "./daily-bars";
 import { amountWords, dayAt, fitMax } from "./daily";
 import { BAR_GAP, SO_FAR_ALPHA } from "./draw";
@@ -147,5 +148,42 @@ test("no days: the message, no plot, no key and no CSV", async () => {
   await settle();
   expect(created).toHaveLength(0);
   expect(screen.getByText("No days to show")).toBeTruthy();
-  expect(container.querySelector(".chart-key, .chart-tools")).toBeNull();
+  expect(container.querySelector(".chart-key, .chart-foot")).toBeNull();
+});
+
+test("the chrome (A3): the key is one line above the plot, and under it one quiet line of the table and CSV", async () => {
+  const { container } = render(<DailyBars title="Electricity" unit="kWh" token="--eq-heat1" days={WEEK} mean7={9.3} />);
+  await settle();
+  const figure = container.querySelector("figure")!;
+  expect([...figure.children].map((child) => child.className)).toEqual(["eyebrow", "chart-key", "daily-focus", "screen-reader", "chart-foot"]);
+  const foot = figure.querySelector(".chart-foot")!;
+  expect(foot.querySelector("summary")?.textContent).toBe("Data table · 6 rows");
+  const csv = screen.getByRole("link", { name: "CSV of this chart" });
+  expect([csv.textContent, csv.className, foot.contains(csv)]).toEqual(["CSV", "chart-csv", true]);
+  cleanup();
+  // legend={false}: no key of its own; the table and CSV stay.
+  const bare = render(<DailyBars title="Electricity" unit="kWh" token="--eq-heat1" days={WEEK} legend={false} />).container;
+  await settle();
+  expect(bare.querySelector(".chart-key")).toBeNull();
+  expect(bare.querySelector(".chart-foot .chart-table")).not.toBeNull();
+});
+
+test("small multiples in a ChartGroup: one key above the first row, each chart its title, plot and quiet line", async () => {
+  render(<ChartGroup label="Climate relays">
+    <DailyBars title="Starts per day" unit="starts" token="--eq-heat1" days={WEEK} mean7={9} mean30={10} size="sm" />
+    <DailyBars title="Starts per day" unit="starts" token="--eq-fan1" days={WEEK} mean7={8} mean30={9} size="sm" />
+    <DailyBars title="Run hours per day" unit="h" token="--eq-fan1" days={WEEK} mean7={8} mean30={9} size="sm" />
+  </ChartGroup>);
+  await settle();
+  const group = screen.getByRole("group", { name: "Climate relays" });
+  const keys = group.querySelectorAll(".chart-key");
+  expect(keys).toHaveLength(1);
+  expect(keys[0].className).toBe("chart-key chart-group-key");
+  expect(group.firstElementChild).toBe(keys[0]);
+  expect([...keys[0].querySelectorAll("li")].map((item) => item.textContent)).toEqual(["lighter: so far", "no record", "7-day mean, complete days", "30-day mean"]);
+  // The relays' own colours differ, so "so far" reads in the neutral text colour; the means keep theirs.
+  expect([...keys[0].querySelectorAll(".chart-key-swatch")].map((swatch) => swatch.getAttribute("data-token"))).toEqual(["text-2", "text-3", "text", "text-3"]);
+  expect(group.querySelectorAll("figure")).toHaveLength(3);
+  expect(group.querySelectorAll(".chart-foot")).toHaveLength(3);
+  expect(group.querySelectorAll("figure .chart-key")).toHaveLength(0);
 });

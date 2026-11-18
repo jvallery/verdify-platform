@@ -37,9 +37,11 @@ const windowOf = (path: string) => {
 test("Law: the header's status, the rules, the side blocks, the lanes and the timing all answer", async () => {
   const api = await open("law", { fixture: "law-drying-refused-cost" });
   expect(text(document.querySelector(".page-header, header"))).toMatch(/Reporting/);
-  for (const name of ["Rules at the band's edges", "Drying decision", "Band in force", "Running alone", "Asked and ran"]) {
+  for (const name of ["What the controller is doing", "Rules at the band's edges", "Drying decision", "Band in force", "Running alone", "Asked and ran"]) {
     expect(panel(name).getAttribute("data-state"), name).toBe("ready");
   }
+  // The answer comes first in the main column.
+  expect(document.querySelector(".climate-main section")?.querySelector("h2, h3")?.textContent).toBe("What the controller is doing");
   expect(text(document.body)).toContain("Timing and constants");
   expect(requests(api, "API-31").length).toBeGreaterThan(0);
   expect(requests(api, "API-05").length).toBeGreaterThan(0);
@@ -71,7 +73,7 @@ test("Drying: now, the limit, the price against the limit, by day, the meter and
   for (const name of ["Drying now", "Drying cost limit", "Price against limit", "By day", "Meter since the last restart"]) {
     expect(panel(name).getAttribute("data-state"), name).toBe("ready");
   }
-  expect(text(panel("Drying now"))).toContain("Refused: costs more than the limit");
+  expect(text(panel("Drying now"))).toContain("Drying is wanted but refused: it would cost 0.82");
   expect(text(document.body)).toContain("How drying works");
   expect(requests(api, "API-32").length).toBeGreaterThan(0);
   fireEvent.click(within(panel("Price against limit")).getByRole("button", { name: "31 d" }));

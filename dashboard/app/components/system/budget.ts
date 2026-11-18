@@ -29,6 +29,8 @@ export type BudgetItem = {
   readonly crossed: string | null;
   /** A second line under the value: the companion reading. */
   readonly meta: string | null;
+  /** What the value is, when the short label leaves it out: "Lowest in the last minute". */
+  readonly note: string | null;
 };
 
 type Limits = ControllerHealth["limits"];
@@ -51,7 +53,7 @@ function limitWords(worse: "lower" | "higher", warning: number | null, critical:
 
 type Spec = {
   key: BudgetKey; label: string; value: number | null; unit: string; text?: string; worse: "lower" | "higher";
-  warning: number | null; critical: number | null; meaning: { warn: string; critical?: string }; meta?: string | null; what: (text: string, line: string) => string;
+  warning: number | null; critical: number | null; meaning: { warn: string; critical?: string }; meta?: string | null; note?: string; what: (text: string, line: string) => string;
 };
 function item(spec: Spec): BudgetItem {
   const level = levelOf(spec.value, spec.worse, spec.warning, spec.critical);
@@ -63,7 +65,7 @@ function item(spec: Spec): BudgetItem {
     : null;
   return {
     key: spec.key, label: spec.label, value: finite(spec.value) ? spec.value : null, unit: spec.unit, text, worse: spec.worse, warning: spec.warning,
-    critical: spec.critical, level, limits: limitWords(spec.worse, spec.warning, spec.critical, spec.unit), crossed, meta: spec.meta ?? null,
+    critical: spec.critical, level, limits: limitWords(spec.worse, spec.warning, spec.critical, spec.unit), crossed, meta: spec.meta ?? null, note: spec.note ?? null,
   };
 }
 
@@ -80,41 +82,41 @@ export function budgetItems(health: ControllerHealth): BudgetItem[] {
   const block = health.heap.largest_block_minute_low_kb ?? health.heap.largest_block_kb;
   const share = freeShare(health.nvs.used_entries, health.nvs.free_entries);
   const entries = finite(health.nvs.used_entries) && finite(health.nvs.free_entries)
-    ? `${formatNumber(health.nvs.free_entries, 0)} free of ${formatNumber(health.nvs.used_entries + health.nvs.free_entries, 0)}`
-    : "—";
+    ? `${formatNumber(health.nvs.free_entries, 0)} of ${formatNumber(health.nvs.used_entries + health.nvs.free_entries, 0)} entries free`
+    : null;
   return [
     item({
-      key: "memory", label: "Free memory, minute low", value: memory, unit: "kB", worse: "lower", warning: limits.heap_warning_kb, critical: limits.heap_critical_kb,
+      key: "memory", label: "Free memory", note: "Lowest in the last minute", value: memory, unit: "kB", worse: "lower", warning: limits.heap_warning_kb, critical: limits.heap_critical_kb,
       what: (text, line) => `Free memory fell to ${text} in the last minute, under the ${line}`,
       meaning: { warn: "memory is running short", critical: "the controller is close to running out of memory and may restart" },
       meta: `Now ${formatValue(health.heap.free_kb, "kB")} · lowest since restart ${formatValue(health.heap.min_free_kb, "kB")}`,
     }),
     item({
-      key: "block", label: "Largest free block", value: block, unit: "kB", worse: "lower", warning: limits.largest_block_kb, critical: null,
+      key: "block", label: "Largest free block", note: "Lowest in the last minute", value: block, unit: "kB", worse: "lower", warning: limits.largest_block_kb, critical: null,
       what: (text, line) => `The largest free block is ${text}, under the ${line}`,
       meaning: { warn: "memory is broken into pieces too small for a large message" },
       meta: `Now ${formatValue(health.heap.largest_block_kb, "kB")}`,
     }),
     item({
-      key: "loop", label: "Loop time, worst", value: health.loop.worst_ms, unit: "ms", worse: "higher", warning: limits.loop_worst_ms, critical: null,
+      key: "loop", label: "Loop time", note: "The slowest loop", value: health.loop.worst_ms, unit: "ms", worse: "higher", warning: limits.loop_worst_ms, critical: null,
       what: (text, line) => `The slowest control loop took ${text}, over the ${line}`,
       meaning: { warn: "the law reacts late while the loop is this slow" },
     }),
     item({
-      key: "write", label: "Storage write time, worst", value: health.nvs.write_worst_ms, unit: "ms", worse: "higher", warning: limits.nvs_write_ms, critical: null,
+      key: "write", label: "Storage write", note: "The slowest write", value: health.nvs.write_worst_ms, unit: "ms", worse: "higher", warning: limits.nvs_write_ms, critical: null,
       what: (text, line) => `A storage write took ${text}, over the ${line}`,
       meaning: { warn: "the gap log stops keeping a record while storage is this slow" },
     }),
     item({
-      key: "stack", label: "Stack free, lowest", value: health.loop.stack_free_min_b, unit: "B", worse: "lower", warning: limits.stack_free_b, critical: null,
+      key: "stack", label: "Free stack", note: "The lowest the control loop reached", value: health.loop.stack_free_min_b, unit: "B", worse: "lower", warning: limits.stack_free_b, critical: null,
       what: (text, line) => `The control loop's free stack fell to ${text}, under the ${line}`,
       meaning: { warn: "the control loop is close to running out of stack" },
     }),
     item({
-      key: "entries", label: "Storage entries", value: share, unit: "%", text: entries, worse: "lower", warning: limits.nvs_arm_free_pct, critical: limits.nvs_stop_free_pct,
+      key: "entries", label: "Storage entries", value: share, unit: "%", text: share === null ? "—" : `${formatNumber(share, 1)}% free`, worse: "lower", warning: limits.nvs_arm_free_pct, critical: limits.nvs_stop_free_pct,
       what: (_text, line) => `Only ${formatNumber(share, 1)}% of the storage entries are free, under the ${line}`,
       meaning: { warn: "the gap log does not arm with this little storage free", critical: "the gap log stops: storage is nearly full" },
-      meta: share === null ? null : `${formatNumber(share, 1)}% free`,
+      meta: entries,
     }),
   ];
 }

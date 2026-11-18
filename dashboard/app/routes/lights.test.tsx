@@ -35,7 +35,9 @@ const panel = (name: string) => screen.getByRole("region", { name });
 test("each circuit: the switch's state, what the controller wants and why, and today's window and time on", async () => {
   const api = await open();
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Lights");
-  expect(text(document.querySelector(".page-status"))).toBe("Both lights are as the controller wants: main off, grow off");
+  // The answer first (design review A4), so the head carries no second status line.
+  expect(text(document.querySelector("[data-answer]"))).toBe("Both lights are off, as the controller wants: enough daylight.");
+  expect(text(document.querySelector(".page-status"))).toBe("");
   const main = panel("Main light");
   expect(text(main.querySelector(".lights-answer"))).toMatch(/^The switch reports it off since \d\d:\d\d\.$/);
   expect(text(main.querySelector(".lights-intent"))).toBe("The controller wants it off: enough daylight.");
@@ -46,10 +48,10 @@ test("each circuit: the switch's state, what the controller wants and why, and t
   expect(week.map((query) => [query.get("from"), query.get("to")])).toEqual([["2026-10-27T06:00:00.000Z", "2026-11-03T07:00:00.000Z"]]);
 });
 
-test("a mismatch is called out on the circuit and in the status line", async () => {
+test("a mismatch is called out on the circuit and in the answer", async () => {
   await open({ fixture: "grow-lights-differ" });
   expect(text(panel("Grow light").querySelector(".lights-mismatch"))).toBe("The switch reports off, but the controller wants it on.");
-  expect(text(document.querySelector(".page-status"))).toBe("Grow light off, the controller wants it on");
+  expect(text(document.querySelector("[data-answer]"))).toMatch(/The grow light is off, but the controller wants it on/);
   const checks = panel("How they are switched");
   expect(text(checks.querySelector("[data-light=grow]"))).toContain("Not confirmed");
   expect(text(checks.querySelector("[data-light=main]"))).toContain("Confirmed");

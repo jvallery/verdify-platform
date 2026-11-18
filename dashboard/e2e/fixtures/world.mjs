@@ -716,12 +716,6 @@ export const FIXTURES = {
     settingOf(world, "outdoor_staleness_max_s").readback = readback;
     laneOf(world, "outdoor_staleness_max_s").device = readback;
   },
-  // #1139: a center VPD anchor no dashboard write has touched: the API-19 example previews it, its device value has held
-  // at 1.10 since 10/31 (in binary32, as setpoint_snapshot reports it), and a draft outside 0.10–3.00 is refused.
-  "band-preview-center": (world) => {
-    world.preview = { param: "zone_vpd_target_center_sm", value: "1.25" };
-    world.readbackLog.zone_vpd_target_center_sm = [{ at: iso(clock(world.now)("06:00", -2)), value: 1.100000023841858 }];
-  },
   "schedules-paused": (world) => {
     const at = clock(world.now);
     const make = storedSchedule(world);
@@ -759,7 +753,8 @@ export const FIXTURES = {
     lineOf(world, "L02").check = null;
   },
   "grow-lights-differ": (world) => {
-    Object.assign(itemOf(world, "grow_light_grow"), { intent: "on" });
+    // The controller wants it on for a reason that says so; the switch still reports off.
+    Object.assign(itemOf(world, "grow_light_grow"), { intent: "on", auto_reason: "plant_lux_low" });
   },
   // Home Assistant down: the Lutron rows are 11 min old (past 600 s), so both read unknown with no since, runtime or
   // cycles; the controller's intent keeps its value.

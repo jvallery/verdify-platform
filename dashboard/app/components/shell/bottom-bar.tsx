@@ -74,6 +74,7 @@ export function BottomBar() {
       })}
       {/* Safari does not focus a button it clicks, so More takes focus first: the sheet returns focus there when it closes. */}
       <button type="button" className="bar-item bar-more" aria-haspopup="dialog" aria-expanded={open} aria-current={inMore ? "true" : undefined}
+        aria-label={inMore ? `More, you are in ${current?.label}` : undefined}
         data-section="more" onClick={(event) => { event.currentTarget.focus(); setOpen(true); }}>
         <MarkIcon name="more" className="bar-icon" />
         <span className="bar-label">More</span>

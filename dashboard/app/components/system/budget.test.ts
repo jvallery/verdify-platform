@@ -23,9 +23,10 @@ test("the six budget items in order, each value against its limits, all inside o
     ["loop", "11.4 ms", "ok", "warning over 250.0 ms"],
     ["write", "3.9 ms", "ok", "warning over 200.0 ms"],
     ["stack", "1,848 B", "ok", "warning under 1,024 B"],
-    ["entries", "12,023 free of 13,734", "ok", "warning under 25% free, critical under 15% free"],
+    ["entries", "87.5% free", "ok", "warning under 25% free, critical under 15% free"],
   ]);
   expect(plain(items[0].meta)).toBe("Now 38 kB · lowest since restart 35 kB");
+  expect([items[0].label, items[0].note, plain(items[5].meta)]).toEqual(["Free memory", "Lowest in the last minute", "12,023 of 13,734 entries free"]);
   expect(verdict(health())).toEqual({ level: "ok", title: "Healthy", text: "Every part of the hardware budget is inside its limits.", more: 0 });
 });
 

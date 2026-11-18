@@ -112,6 +112,8 @@
 .site-footer-inner{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-5);width:100%;max-width:var(--content);margin-inline:auto;padding:var(--space-4) var(--gutter)}
 .site-footer a{display:inline-flex;align-items:center;min-height:var(--tap)}
 .site-footer p{flex-basis:100%;margin:0}
+/* On a phone the links wrap as one run, each with its 44 px tap height, rather than one row per link. */
+@media(max-width:600px){.site-footer-inner{column-gap:var(--space-4)}.site-footer p{flex-basis:auto}}
 
 /* ---------------------------------------------------------------- dialogs: Search and the More sheet */
 .search-dialog,.more-sheet{padding:0;border:0;background:var(--surface);color:var(--text);box-shadow:var(--shadow-3)}

@@ -12,6 +12,7 @@ import { useEquipmentRead, useSettingsRead } from "../../lib/queries";
 import { OperatorOnly } from "../../lib/session";
 import { Button } from "../button";
 import { LIGHTS, LightButtons, automationWords, lightsDiffer, manualUntil, manualUntilWords, useLightControl, type LightControl } from "../equipment/light-controls";
+import { Chevron } from "../layout/chevron";
 import { Term } from "../term";
 
 /** Each light on Now, its glossary entry and its name. */
@@ -54,7 +55,7 @@ function Lights() {
         ? <div className="skeleton skeleton-sm" aria-hidden="true" />
         : LIGHTS.map((light, index) => <NowLight key={light.light} light={light.light} control={controls[index]} item={items.find((item) => item.equipment === light.equipment)} />)}
     <p className="meta now-lights-more">
-      <Term id="light_timer">Turn on and off last 15 min</Term> · <Link to="/lights">Lights<span aria-hidden="true">{" ›"}</span></Link>
+      <Term id="light_timer">Turn on and off last 15 min</Term> · <Link to="/lights">Lights<Chevron /></Link>
     </p>
   </div>;
 }

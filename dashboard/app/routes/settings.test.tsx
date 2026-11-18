@@ -15,7 +15,7 @@ import { text } from "../components/test-render";
 import { GLOSSARY } from "../lib/glossary";
 import { SETTING_GROUPS } from "../lib/settings-context";
 import { NOW, UUID, advance, startFixtureApi, stopFixtureApi, writes, type FixtureOptions } from "../lib/test-fixture-api";
-import Settings, { UNUSED_SUMMARY, filterOf, links, settingsStatus } from "./settings";
+import Settings, { UNUSED_SUMMARY, filterOf, links, settingsAnswer, settingsStatus } from "./settings";
 
 vi.mock("uplot", async () => ({ default: (await import("../charts/fixtures/uplot-mock")).MockPlot }));
 
@@ -77,7 +77,7 @@ async function settle() {
 const here = () => screen.getByTestId("here").textContent;
 const panel = (id: string) => document.getElementById(id)!;
 const shownIn = (id: string) => [...panel(id).querySelectorAll("tr.setting-row")].map((row) => row.getAttribute("data-param"));
-const groupsIn = (id: string) => [...panel(id).querySelectorAll("tbody[data-group]")].map((body) => body.getAttribute("data-group"));
+const groupsIn = (id: string) => [...panel(id).querySelectorAll("[data-group]")].map((body) => body.getAttribute("data-group"));
 const rowOf = (param: string) => document.querySelector(`tr.setting-row[data-param="${param}"]`)!;
 const dialog = () => document.querySelector("dialog")!;
 const drawerOpen = () => document.querySelector("dialog")?.hasAttribute("open") ?? false;
@@ -97,7 +97,12 @@ test("the answer, then the settings in use by group, and those nothing reads fol
   const inUse = [...controller, ...host];
   expect(shownIn("settings-in-use")).toEqual(order.flatMap((group) => inUse.filter((row) => row.group === group).map((row) => row.param)));
   expect(groupsIn("settings-in-use")).toEqual(["crop_band", "controller_safety", "scheduled_policy", "site_water_caps", "band_in_force", "read_only"]);
-  expect(text(panel("settings-in-use").querySelector('tbody[data-group="crop_band"] .ctl-group-head'))).toBe(`The band · ${inUse.filter((row) => row.group === "crop_band").length}`);
+  // Each group is a disclosure; the band's stays closed and links to Band; its head says the count and the state.
+  const band = panel("settings-in-use").querySelector('section.ctl-group[data-group="crop_band"]')!;
+  expect(text(band.querySelector(".ctl-group-head"))).toMatch(new RegExp(`^The band ${inUse.filter((row) => row.group === "crop_band").length} `));
+  expect(band.querySelector("details")!.open).toBe(false);
+  expect(within(band as HTMLElement).getByRole("link", { name: "Edit on Band" }).getAttribute("href")).toBe("/band");
+  expect(text(document.querySelector(".ctl-answer"))).toMatch(new RegExp(`^${controller.length} settings are read by the controller; `));
   // Nothing reads them: folded, and listed in full when unfolded.
   const unused = panel("settings-unused");
   expect(text(unused.querySelector("h2"))).toContain(`Stored and not used · ${none.length}`);
@@ -162,7 +167,7 @@ test("Edit opens the drawer: value, readback, state, bounds and what it does; Sa
   expect(drawerOpen()).toBe(false);
   await settle();
   expect(text(rowOf("outdoor_staleness_max_s").querySelector(".setting-state"))).toMatch(/^Not confirmed since 10:42/);
-  expect(text(document.querySelector(".banner"))).toContain("1 setting is not confirmed by the controller: Outdoor Staleness Max");
+  expect(text(document.querySelector(".ctl-answer"))).toContain("1 value is not confirmed: Outdoor Staleness Max");
   await advance(5_000);
   await advance(5_000);
   await settle();
@@ -194,14 +199,19 @@ test("a band point and the drying cost limit open read-only with a link to their
   expect(text(dialog().querySelector(".ctl-no-effect"))).toBe("Nothing on this controller reads this setting: changing it changes nothing.");
   expect(screen.getByLabelText("New value")).toBeTruthy();
   cleanup(); stopFixtureApi();
-  await open("/settings?q=gl_main_lux_threshold");
-  expect(within(rowOf("gl_main_lux_threshold") as HTMLElement).getByRole("link", { name: "Lights" }).getAttribute("href")).toBe("/lights");
+  // The page that owns a setting is linked from its drawer, not its row (B5).
+  await open("/settings?edit=gl_main_lux_threshold");
+  expect(within(rowOf("gl_main_lux_threshold") as HTMLElement).queryByRole("link", { name: "Lights" })).toBeNull();
+  expect(within(dialog()).getByRole("link", { name: "Lights" }).getAttribute("href")).toBe("/lights");
 });
 
 test("a viewer sees every row with Details and no write control; ?edit= opens the drawer read-only", async () => {
   await open("/settings?edit=outdoor_staleness_max_s", { session: "viewer-session" });
   expect(document.querySelector("main [data-write-control]")).toBeNull();
-  expect(screen.queryAllByRole("link", { name: /^Edit / })).toEqual([]);
+  expect(screen.queryAllByRole("link", { name: /^Edit\b/ })).toEqual([]);
+  // The band's group links to Band with the viewer's word: a viewer reads the band there, an operator edits it.
+  const band = panel("settings-in-use").querySelector('section.ctl-group[data-group="crop_band"]')!;
+  expect(within(band as HTMLElement).getByRole("link", { name: "See on Band" }).getAttribute("href")).toBe("/band");
   expect(screen.getAllByRole("link", { name: /^Details of / }).length).toBeGreaterThan(0);
   expect(drawerOpen()).toBe(true);
   expect(screen.queryByLabelText("New value")).toBeNull();
@@ -220,6 +230,15 @@ test("each block's four states: loading, failed with Retry, empty, and stale rea
   await open("/settings?q=outdoor_staleness_max_s", { fixture: "controller-not-reporting" });
   expect(rowOf("outdoor_staleness_max_s").querySelector('[data-readback="stale"]')).not.toBeNull();
   expect(panel("settings-in-use").getAttribute("data-state")).toBe("stale");
+});
+
+test("a legacy wide limit's old push is not a value waiting: the answer reads all confirmed with nothing listed", () => {
+  // Live 2026-11-17: temp_low, temp_high, vpd_low and vpd_high carry a push from before the band-edge law, never confirmable.
+  const rows = served().map((row) => (row.read_only_kind === "legacy_wide_limit" ? { ...row, state: "not_confirmed", desired: null } : row)) as never[];
+  expect((rows as Row[]).filter((row) => row.state === "not_confirmed")).toHaveLength(4);
+  const controller = (rows as Row[]).filter((row) => row.effect === "controller").length;
+  expect(settingsAnswer(rows)).toEqual({ text: `${controller} settings are read by the controller; all are confirmed.`, pending: [] });
+  expect(settingsStatus(rows, true)).toBe(`${rows.length} settings · 0 not confirmed`);
 });
 
 test("the status line, the route's chart styles and the glossary at #glossary", async () => {

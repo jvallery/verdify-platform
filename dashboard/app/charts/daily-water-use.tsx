@@ -9,7 +9,7 @@ import { lineToken } from "./palette";
 
 export { lineToken };
 import { dayCsvFilename, tableCsv } from "./csv";
-import { CsvLink, DataTable, type DataTableBlock } from "./data-table";
+import { ChartFoot, type DataTableBlock } from "./data-table";
 import type { ChartColors, PaintTarget } from "./draw";
 import { paintHatch } from "./lanes-draw";
 import { ChartKey, type KeyItem } from "./legend";
@@ -299,13 +299,10 @@ export function DailyWaterUse({ data, split, lineNames, captionHidden = false }:
     <figcaption className={captionHidden ? "screen-reader" : "eyebrow"}>Gallons per day by {split} · last {model.days.length} days</figcaption>
     {model.days.length > 0
       ? <>
-        <UPlotChart options={(env) => waterOptions(env, modelRef)} data={columns} xRange={model.xRange} structure={structure} className="plot-water-use" label={label} marks={model} zoom={false} />
         <ChartKey items={waterKey(model)} />
+        <UPlotChart options={(env) => waterOptions(env, modelRef)} data={columns} xRange={model.xRange} structure={structure} className="plot-water-use" label={label} marks={model} zoom={false} />
         <p className="plot-summary water-summary">{waterSummary(model)}</p>
-        <div className="chart-tools">
-          <CsvLink filename={dayCsvFilename(`water-use-by-${split}`, model.days[0].date, model.days[model.days.length - 1].date)} build={() => waterUseCsv(model)} version={model} label="CSV of this chart" />
-        </div>
-        <DataTable tables={[waterTable(model)]} />
+        <ChartFoot tables={[waterTable(model)]} csv={{ filename: dayCsvFilename(`water-use-by-${split}`, model.days[0].date, model.days[model.days.length - 1].date), build: () => waterUseCsv(model), version: model }} />
       </>
       : <div className="plot plot-small chart-message"><p>No water data in this window</p></div>}
   </figure>;

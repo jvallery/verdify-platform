@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { DailyBars } from "../../charts/daily-bars";
-import { formatValue } from "../../lib/format";
+import { ChartGroup } from "../../charts/legend";
+import { formatNumber, sentenceStart } from "../../lib/format";
+import { usePhone } from "../../lib/narrow";
 import { dayHref } from "../../lib/graph-url";
 import type { DailyRecord, RecordDay, RecordMeans, RelayCheck } from "../../lib/operator-api";
 import type { PanelRead } from "../../lib/queries";
-import { words } from "../../lib/words";
+import { wordsOrUnknown } from "../../lib/words";
 import { StatusBadge } from "../badge";
 import { EmptyState, Panel, PanelErrorBoundary } from "../panel";
 import { Table, type TableColumn } from "../table";
@@ -16,7 +19,7 @@ import {
 } from "./record-model";
 
 export const EQUIPMENT_SYNC = "verdify:record-equipment";
-const count = (value: number) => formatValue(value, "count");
+const count = (value: number) => formatNumber(value, 0);
 const hours = (value: number) => runTime(value * 3600);
 
 /** One relay's means: starts and run hours a day over the last 7 and 30 complete days. Heat 1 and 2's hours are served. */
@@ -51,12 +54,26 @@ function RelayCard({ record, shown, row, onPick }: { record: DailyRecord; shown:
 
 const MEANS_COLUMNS: readonly TableColumn<RelayMeans>[] = [
   { key: "relay", header: "Relay", rowHeader: true, cell: (row) => relayName(row.equipment) },
-  { key: "starts7", header: "Starts a day, 7-day mean", numeric: true, cell: (row) => formatValue(row.starts7, "count") },
-  { key: "starts30", header: "Starts a day, 30-day mean", numeric: true, cell: (row) => formatValue(row.starts30, "count") },
-  { key: "run7", header: "Run time a day, 7-day mean", numeric: true, cell: (row) => runTime(row.run7 === null ? null : row.run7 * 3600) },
-  { key: "run30", header: "Run time a day, 30-day mean", numeric: true, cell: (row) => runTime(row.run30 === null ? null : row.run30 * 3600) },
-  { key: "repaired", header: "Repaired runs in the days shown", numeric: true, cell: (row) => formatValue(row.repaired, "count") },
+  { key: "starts7", header: "7-day", headerGroup: "Starts a day", numeric: true, cell: (row) => formatNumber(row.starts7, 0) },
+  { key: "starts30", header: "30-day", headerGroup: "Starts a day", numeric: true, cell: (row) => formatNumber(row.starts30, 0) },
+  { key: "run7", header: "7-day", headerGroup: "Run time a day, h", numeric: true, cell: (row) => formatNumber(row.run7, 1) },
+  { key: "run30", header: "30-day", headerGroup: "Run time a day, h", numeric: true, cell: (row) => formatNumber(row.run30, 1) },
+  { key: "repaired", header: "Repaired runs", numeric: true, cell: (row) => formatNumber(row.repaired, 0) },
 ];
+
+/** The counter check's result cell: the badge, and where the counters differ, the relays behind a disclosure (A1). */
+export function CheckResultCell({ day }: { day: CheckDay }) {
+  const result = checkResult(day);
+  if (result.status === "none") return <>No stored record to compare</>;
+  if (result.status === "agree") return <StatusBadge status="ok" size="sm">Counters agree</StatusBadge>;
+  return <div className="rc-check-result">
+    <StatusBadge status="warn" size="sm">Counters differ</StatusBadge>
+    <details className="rc-diffs-details">
+      <summary>{result.lines.length === 1 ? "1 relay" : `${result.lines.length} relays`}</summary>
+      <ul className="rc-diffs">{result.lines.map((line) => <li key={line}>{line}</li>)}</ul>
+    </details>
+  </div>;
+}
 
 /** The counter check's columns: the day, how far it could be compared, the controller's restarts and the result. */
 export function checkColumns(record: DailyRecord | null): readonly TableColumn<CheckDay>[] {
@@ -65,15 +82,30 @@ export function checkColumns(record: DailyRecord | null): readonly TableColumn<C
       const recorded = record?.days.find((row) => row.date === day.date);
       return recorded && record ? <DayCell day={recorded} record={record} /> : day.date;
     } },
-    { key: "compared", header: "Compared", cell: (day) => words("relay_comparison", day.comparison) },
-    { key: "boots", header: "Controller restarts", numeric: true, cell: (day) => formatValue(day.boots, "count") },
-    { key: "result", header: "Result", cell: (day) => {
-      const result = checkResult(day);
-      if (result.status === "none") return "No stored record to compare";
-      if (result.status === "agree") return <StatusBadge status="ok" size="sm">Counters agree</StatusBadge>;
-      return <><StatusBadge status="warn" size="sm">Counters differ</StatusBadge><ul className="rc-diffs">{result.lines.map((line) => <li key={line}>{line}</li>)}</ul></>;
-    } },
+    { key: "compared", header: "Compared", cell: (day) => sentenceStart(wordsOrUnknown("relay_comparison", day.comparison)) },
+    { key: "boots", header: "Restarts", numeric: true, cell: (day) => formatNumber(day.boots, 0) },
+    { key: "result", header: "Result", className: "rc-result-cell", cell: (day) => <CheckResultCell day={day} /> },
   ];
+}
+
+/** On a phone the relays a group shows before "Show N more relays" (B2). */
+export const PHONE_RELAYS = 3;
+
+/**
+ * One group of relays as small multiples under one key (A3): at full width every relay; on a phone the first three,
+ * then "Show N more relays".
+ */
+function RelayGroup({ label, rows, record, shown, onPick }: { label: string; rows: readonly RelayMeans[]; record: DailyRecord; shown: readonly RecordDay[]; onPick: (date: string) => void }) {
+  const phone = usePhone();
+  const [all, setAll] = useState(false);
+  const cut = phone && !all && rows.length > PHONE_RELAYS;
+  const drawn = cut ? rows.slice(0, PHONE_RELAYS) : rows;
+  return <>
+    <ChartGroup label={label} className="rc-multiples">
+      {drawn.map((row) => <RelayCard key={row.equipment} record={record} shown={shown} row={row} onPick={onPick} />)}
+    </ChartGroup>
+    {cut && <button type="button" className="table-more" onClick={() => setAll(true)}>Show {rows.length - PHONE_RELAYS} more {rows.length - PHONE_RELAYS === 1 ? "relay" : "relays"}</button>}
+  </>;
 }
 
 /**
@@ -93,19 +125,19 @@ export function EquipmentView({ read, check, days }: { read: PanelRead<DailyReco
   const climate = group(CLIMATE_RELAYS), wet = group(WET_RELAYS);
   const checkState = recordState(check, check.data !== null && check.data.days.length === 0);
   return <div className="l-stack">
-    <Panel title="Climate relays" thing="the climate relays" reserve="lg" {...common} foot="Solid line: the 7-day mean. Dashed line: the 30-day mean. A bar opens Graphs on its day.">
-      {record && <PanelErrorBoundary thing="the climate relay charts" onRetry={read.retry}><div className="rc-multiples">
-        {climate.map((row) => <RelayCard key={row.equipment} record={record} shown={shown} row={row} onPick={pick} />)}
-      </div></PanelErrorBoundary>}
+    <Panel title="Climate relays" thing="the climate relays" reserve="lg" {...common} foot="A bar opens Graphs on its day.">
+      {record && <PanelErrorBoundary thing="the climate relay charts" onRetry={read.retry}>
+        <RelayGroup label="Climate relays" rows={climate} record={record} shown={shown} onPick={pick} />
+      </PanelErrorBoundary>}
     </Panel>
     <Panel title="Misters and drip lines" thing="the misters and drip lines" reserve="lg" {...common}>
-      {record && <PanelErrorBoundary thing="the mister and drip charts" onRetry={read.retry}><div className="rc-multiples">
-        {wet.map((row) => <RelayCard key={row.equipment} record={record} shown={shown} row={row} onPick={pick} />)}
-      </div></PanelErrorBoundary>}
+      {record && <PanelErrorBoundary thing="the mister and drip charts" onRetry={read.retry}>
+        <RelayGroup label="Misters and drip lines" rows={wet} record={record} shown={shown} onPick={pick} />
+      </PanelErrorBoundary>}
     </Panel>
     <Panel title="Means per relay" thing="the means per relay" {...common} foot="Means cover complete days only. Heat 1 and heat 2 run time are the daily record's own means.">
       {record && <Table label="Means per relay, scrollable" caption="Starts and run time a day per relay, 7- and 30-day means" captionHidden
-        columns={MEANS_COLUMNS} rows={[...climate, ...wet]} rowKey={(row) => row.equipment}
+        columns={MEANS_COLUMNS} rows={[...climate, ...wet]} rowKey={(row) => row.equipment} phone="scroll"
         group={(row) => ((CLIMATE_RELAYS as readonly string[]).includes(row.equipment) ? "climate" : "wet")} groupOrder={["climate", "wet"]}
         groupLabel={(name) => (name === "climate" ? "Climate relays" : "Misters and drip lines")} />}
     </Panel>

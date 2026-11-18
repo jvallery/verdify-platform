@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Now (dashboard v2 screens §1) at the screens' clock: on a 390 × 844 phone the first screen holds the answer, the two
 // band gauges, the controller's sentence and, for an operator, Stop all water pinned above the bottom bar; the main
-// control (Stop all water, and a run by hand) sends one request each; a viewer sees no write control; and the page never
+// control (Stop all water, and a run by hand) sends one request each; above 860 px the top bar's Stop all water is the
+// page's only one; the hero's headline counts what Needs you lists; a viewer sees no write control; and the page never
 // scrolls sideways at 390, 820 or 1440 px. No plan is read.
 import type { Page } from "@playwright/test";
 import { DESKTOP, PHONE, expect, expectAboveTheFold, expectNoHorizontalScroll, fixtureRequests, fixtureWrites, load, test, untilPolled, useScreensClock, writeControls } from "./support";
@@ -39,11 +40,41 @@ for (const size of [PHONE, TABLET, DESKTOP]) {
 }
 
 test("Stop all water: one API-IRR-07 request with no dialog", async ({ page, request }) => {
+  await page.setViewportSize(PHONE);
   await useScreensClock(page, request, "l01-running");
   await load(page, "/");
   await stopAll(page).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   await expect.poll(async () => (await fixtureWrites(request)).map((row) => row.operationId)).toEqual(["API-IRR-07"]);
+});
+
+test("above 860 px the top bar's Stop all water is the only one: none in the page (C1)", async ({ page, request }) => {
+  await page.setViewportSize(DESKTOP);
+  await useScreensClock(page, request, "in-band");
+  await load(page, "/");
+  await expect(page.locator("#today")).toBeVisible();
+  await expect(stopAll(page)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Stop all water" })).toHaveCount(1);
+});
+
+test("on a phone the blocks read hero, doing, Needs you, Run by hand, Today, Water, Probes, review, reservoir (B11)", async ({ page, request }) => {
+  await page.setViewportSize(PHONE);
+  await useScreensClock(page, request, "in-band");
+  await load(page, "/");
+  const order = ["#doing", "#needs-you", "#run-by-hand", "#today", ".now-water", "#probes", "#daily-review", "#reservoir"];
+  await expect(page.locator("#reservoir")).toBeVisible();
+  const tops = await Promise.all(order.map(async (selector) => (await page.locator(selector).first().boundingBox())?.y ?? Number.NaN));
+  expect(tops).toEqual([...tops].sort((a, b) => a - b));
+});
+
+test("the headline counts what Needs you lists, from the same alerts read (B11)", async ({ page, request }) => {
+  await page.setViewportSize(DESKTOP);
+  await useScreensClock(page, request, "alerts-merged");
+  await load(page, "/");
+  const rows = page.locator("#needs-you .alert-row");
+  await expect(rows.first()).toBeVisible();
+  const count = await rows.count();
+  await expect(answer(page)).toHaveText(count === 1 ? "1 thing needs someone" : `${count} things need someone`);
 });
 
 test("Run the fans from Run by hand: one API-IRR-12, then its time left and its Stop", async ({ page, request }) => {

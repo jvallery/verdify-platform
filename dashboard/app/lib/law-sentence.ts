@@ -17,6 +17,8 @@
  *   unexplained: on by hand (a relay of an active run by hand); came on after the law's last record (written once a
  *   minute); otherwise still on because a relay finishes its shortest time on before it stops (a drying or cooling
  *   run that just ended).
+ * - Then the lights and the water lines that are on, which the law does not drive ("The main light is on.", "Watering:
+ *   Wall drip."), so every chip under the sentence is accounted for. A mister the law runs for VPD is its own sentence.
  *
  * A rule the law asks for whose relay is not running yet reads "asked for, not on yet": the relay waits out its minimum
  * off time or an interlock holds it. A missing reading drops the distance, never guesses it.
@@ -174,6 +176,28 @@ export function leftoverSentences(law: LawState, running: Now["running"], byHand
   ].filter((line): line is string => line !== null);
 }
 
+/** The lights by the words a sentence uses; the lighting engine switches them, never the climate law. */
+const LIGHTS: Readonly<Record<string, string>> = { grow_light_main: "the main light", grow_light_grow: "the grow light" };
+
+/**
+ * The lights and water lines that are on, which the law does not drive, one sentence each: "The main light and the grow
+ * light are on." and "Watering: Wall drip." A mister the law runs (its `mist` request) is the moisture sentence's, and
+ * the fertilizer valve opens with a fertilized line, so neither is named here.
+ */
+export function othersSentences(law: Pick<LawState, "requests">, running: Now["running"]): string[] {
+  const climate = new Set(CLIMATE_RELAYS.map(([code]) => code));
+  const misting = (law.requests as readonly string[]).includes("mist");
+  const lights = [...new Set(running.filter((item) => Object.hasOwn(LIGHTS, item.equipment)).map((item) => LIGHTS[item.equipment]))];
+  const water = [...new Set(running
+    .filter(({ equipment }) => !climate.has(equipment) && !Object.hasOwn(LIGHTS, equipment) && !equipment.endsWith("_intent") && equipment !== "fert_master_valve"
+      && !(misting && equipment.startsWith("mister_")))
+    .map((item) => words("equipment", item.equipment)))];
+  return [
+    lights.length ? `${capital(listed(lights))} ${lights.length > 1 ? "are" : "is"} on.` : null,
+    water.length ? `Watering: ${listed(water)}.` : null,
+  ].filter((line): line is string => line !== null);
+}
+
 /** The sentences for this moment; see the file's head. */
 export function lawSentence({ law, running, temp, vpd, byHand = [] }: LawSentenceInput): LawSentence {
   if (!law) return { sentences: [NOT_REPORTING], kind: "not_reporting" };
@@ -181,7 +205,7 @@ export function lawSentence({ law, running, temp, vpd, byHand = [] }: LawSentenc
   if (law.requests.includes("cold")) return { sentences: [COLD_LIMIT], kind: "limit" };
   const on = new Set(running.map((item) => item.equipment));
   const isOn = (equipment: string) => on.has(equipment);
-  const leftover = leftoverSentences(law, running, byHand);
+  const leftover = [...leftoverSentences(law, running, byHand), ...othersSentences(law, running)];
   const sentences = [temperatureSentence(law, isOn, temp), moistureSentence(law, isOn, vpd)].filter((line): line is string => line !== null);
   if (sentences.length) return { sentences: [...sentences, ...leftover], kind: "acting" };
   const holding = running.length ? `${HOLDING.slice(0, -1)}: the law asks for nothing.` : `${HOLDING} ${NOTHING_RUNNING}`;

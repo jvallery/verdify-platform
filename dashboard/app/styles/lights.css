@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: MIT */
 /* Section: Lights (dashboard v2). Lights → Lights: the two circuits, By hand, how they are switched, the settings and the last seven days. Classes use the prefix lights-; colours are tokens only. */
 
+/* ---------------------------------------------------------------- The answer (design review A4): one sentence across the page */
+.lights-lead{grid-column:1 / -1}
+
 /* ---------------------------------------------------------------- A circuit */
 .lights-circuit{display:grid;gap:var(--space-2);min-width:0}
 .lights-circuit p{margin:0}

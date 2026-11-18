@@ -185,6 +185,45 @@ export function circuitSettings(light: LightId, items: readonly Setting[] | null
 /** Whether API-09 serves any of the lighting settings. */
 export const hasLightSettings = (items: readonly Pick<Setting, "param">[] | null | undefined): boolean => (items ?? []).some((item) => /^(sw_)?gl_(main|grow)_/.test(item.param));
 
+// ---------------------------------------------------------------------------------------------------- the answer
+/** The controller's reason after "The controller wants it off", as a sentence's tail: ": enough daylight", " (reason)", or "". */
+function reasonTail(item: Pick<LightItem, "intent" | "auto_reason">): string {
+  const want = `The controller wants it ${stateWord(item.intent)}`;
+  const said = intentWords(item);
+  const rest = said.startsWith(want) ? said.slice(want.length) : "";
+  if (rest.startsWith(": ")) return rest;
+  return rest.startsWith(". ") ? ` (${rest.slice(2).replace(/\.$/, "")})` : "";
+}
+
+/**
+ * Lights' answer, its first block (design review A4): each light on or off as the switch reports it, against what the
+ * controller wants and why. "Both lights are off, as the controller wants: enough daylight." when they agree for the
+ * same reason; otherwise a sentence a light: "The main light is on by hand until 10:15; then the controller takes it
+ * off.", "The grow light is on, but the controller wants it off: enough daylight."
+ */
+export function lightsAnswer(items: readonly (LightItem | undefined)[], now: number): string {
+  const facts = CIRCUITS.map((circuit, index) => {
+    const item = items[index];
+    const name = `The ${circuit.name.toLowerCase()}`;
+    if (!item || switchStale(item, now) || !known(item.state)) return { text: `${name} has not reported whether it is on.`, agree: null };
+    const until = manualUntil(item);
+    if (until !== null) {
+      const back = known(item.intent) && item.intent !== item.state ? `; then the controller takes it ${item.intent}` : "";
+      return { text: `${name} is ${item.state} by hand until ${shortTime(until)}${back}.`, agree: null };
+    }
+    if (!known(item.intent)) return { text: `${name} is ${item.state}; the controller has not said what it wants.`, agree: null };
+    const tail = reasonTail(item);
+    if (item.intent === item.state) return { text: `${name} is ${item.state}, as the controller wants${tail}.`, agree: `${item.state}${tail}` };
+    return { text: `${name} is ${item.state}, but the controller wants it ${item.intent}${tail}.`, agree: null };
+  });
+  const [main, grow] = facts;
+  if (main.agree !== null && main.agree === grow.agree) {
+    const state = stateWord(items[0]?.state);
+    return `Both lights are ${state}, as the controller wants${main.agree.slice(state.length)}.`;
+  }
+  return facts.map((fact) => fact.text).join(" ");
+}
+
 // ---------------------------------------------------------------------------------------------------- the page's status line
 /** The page's one sentence: which lights disagree with the controller, which run by hand, or that both agree. */
 export function lightsStatus(items: readonly (LightItem | undefined)[], now: number): string {

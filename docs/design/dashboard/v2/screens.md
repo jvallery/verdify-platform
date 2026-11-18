@@ -9,7 +9,14 @@ Rules for every screen:
 
 - The order on a phone is the reading order below. Above 860 px, blocks marked (side) sit in a right column of
   4 of 12; the rest fills 8, or all 12 when there is no side block.
-- Every block shows when its data was observed, and all four states of design-system section 3.
+- The answer comes first, in words: the page's first block states the answer to its question as a sentence built
+  from the data, with the numbers that matter, before any table, ladder or chart.
+- One observation time a page: the header's status line says how fresh the page is. A block shows its own time only
+  when its live read (a relay, a probe, the controller) is not the header's, or when it is stale, failed or not
+  reporting; blocks of daily or historical data never do. Every block has all four states of design-system
+  section 3.
+- Pages stay short: at most about four screens at 1440 px and six on a phone unless the reader asked for more (Show
+  all, a longer range, an opened group). Long lists start collapsed or limited.
 - A viewer sees every read and no write control. A control that only the owner may use says so.
 - A link that leaves the page for evidence opens Graphs on the same time window.
 
@@ -275,8 +282,16 @@ The daily run-time chart moves to Record → Equipment; the controller card move
 | 1 | Flow | Each stored table with the age of its newest row and rows in the last five minutes; the ingestor's heartbeat | API-36 (`tables`, `ingestor`) |
 | 2 | Probes | Each sensor with the age of its last answer; not seen in two hours is said so | API-36 (`probes`) |
 | 3 | Continuity | Per day over 1, 7 or 30 days: seconds without data and minutes the gap log restored, as daily bars; the list of outages (start, end, length, reason, whether replayed); the replayed quarters | API-36 (`by_day`, `outages`, `replayed`, `gap_log`) |
-| 4 | Delivery | Pushed values by outcome over 24 h or 7 d; the oldest value still unconfirmed; time to confirm (median, 95th); the settings whose pushes failed, with a link to each; the last readback pass | API-37 |
+| 4 | Delivery | Pushed values by outcome over 24 h or 7 d; the oldest value still unconfirmed; time to confirm (median, 95th); the settings whose pushes failed, with a link to each and how each stands (Failing, In force, Recovered, Retired); the last readback pass | API-37, API-09 |
 | 5 | Ingestor counters (disclosure) | Reconnects, rejected payloads and rows by table, replay failures | API-36 |
+
+A setting is not taken now only when no push was confirmed after its last failure and the catalogue (API-09) does not
+show the controller holding the wanted value: the delivery ledger knows only pushes, the catalogue knows what the
+controller holds. A setting the catalogue reads confirmed is listed as In force (with its readback time) and one the
+catalogue no longer has as Retired; both are listed but not counted in the status line, the answer or the panel's tone.
+While API-09 has not answered, delivery counts nothing; when it fails, the ledger alone decides. A push is
+still waiting only while its status is not an outcome (confirmed, not taken, cancelled, replaced): API-37's age of the
+oldest unconfirmed push also counts a cancelled one, so with no push waiting the page reads "Nothing is waiting".
 
 ### 10.4 Settings `/settings`
 
@@ -284,7 +299,8 @@ The daily run-time chart moves to Record → Equipment; the controller card move
 
 The catalogue grouped by what a setting is for, each row with its value, the controller's readback and its
 state. Three filters by effect: read by the controller; used by the host; stored and not used (collapsed, and
-read-only in wording: changing one changes nothing on this controller). The band's edges appear read-only with
-a link to Band; the drying cost limit links to Drying; the soil targets link to Soil. The setting drawer keeps
+read-only in wording: changing one changes nothing on this controller). The band's edges appear read-only, in a
+group that stays closed, with a link to Band whose words follow the role: "Edit on Band" for an operator, "See on
+Band" for a viewer, who cannot change the band (screens §1.3: a viewer sees no write control); the drying cost limit links to Drying; the soil targets link to Soil. The setting drawer keeps
 value, bounds, history and release. Retired: the plan column, "Let Iris change this", held-by-experiment states.
 Reads API-09, API-12; writes API-10, API-11.

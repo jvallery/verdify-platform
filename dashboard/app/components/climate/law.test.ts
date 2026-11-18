@@ -7,7 +7,7 @@ import { words } from "../../lib/words";
 import { parseLawView, type LawRule, type LawView } from "../../lib/operator-api";
 import {
   aloneChecks, bandSourceSentence, capital, constantsWords, dryingChecks, dryingVerdict, edgesText, hostSentence, kilograms, kilowattHours, minSec,
-  repairedSentence, ruleSentence, ruleState, rulesOf, runTime, verdictTone,
+  lawStateOf, onRelays, relayGroups, repairedSentence, ruleState, ruleThresholds, rulesOf, runTime, verdictTone,
 } from "./law";
 
 const NOW = "2026-11-02T17:42:00Z";
@@ -34,15 +34,49 @@ test("minSec counts a wait down in minutes and seconds; runTime reads minutes, t
   expect(kilograms(null)).toBe("—");
 });
 
-test("a rule reads as one sentence from its thresholds; a limit reads only where it turns on", () => {
+test("a rule's thresholds for the table: the on value with its direction, the off value bare; a limit turns off where it turns on", () => {
   const view = law();
-  expect(plain(ruleSentence(rule(view, "heat1")))).toBe("turns on below 64.7 °F, off at 65.7 °F");
-  expect(plain(ruleSentence(rule(view, "cooling")))).toBe("turns on above 70.0 °F, off at 68.0 °F");
-  expect(plain(ruleSentence(rule(view, "drying")))).toBe("turns on below 0.50 kPa, off at 0.65 kPa");
-  expect(plain(ruleSentence(rule(view, "hot_limit")))).toBe("turns on above 100.0 °F");
-  expect(ruleSentence({ signal: "temp", direction: "below", on_at: null, off_at: null })).toBe("Thresholds not reported");
+  expect(ruleThresholds(rule(view, "heat1"))).toEqual({ on: "below 64.7", off: "65.7" });
+  expect(ruleThresholds(rule(view, "cooling"))).toEqual({ on: "above 70.0", off: "68.0" });
+  expect(ruleThresholds(rule(view, "drying"))).toEqual({ on: "below 0.50", off: "0.65" });
+  expect(ruleThresholds(rule(view, "hot_limit"))).toEqual({ on: "above 100.0", off: "100.0" });
+  expect(ruleThresholds({ signal: "temp", direction: "below", on_at: null, off_at: null })).toEqual({ on: "—", off: "—" });
   expect(rulesOf(view.rules, "vpd").map((item) => item.id)).toEqual(["fog", "mist", "drying"]);
   expect(rulesOf(view.rules, "temp").map((item) => item.id)).toEqual(["heat1", "heat2", "cooling", "second_fan", "hot_limit", "cold_limit"]);
+});
+
+test("a rule's relays read as one group a state, so the row stays one line", () => {
+  expect(relayGroups([{ equipment: "vent", state: "off" }, { equipment: "fan1", state: "off" }, { equipment: "fan2", state: "off" }]))
+    .toEqual([{ state: "off", names: "Vent, Fan 1, Fan 2" }]);
+  expect(relayGroups([{ equipment: "heat1", state: "on" }, { equipment: "heat2", state: "off" }]))
+    .toEqual([{ state: "on", names: "Heat 1 (electric)" }, { state: "off", names: "Heat 2 (gas)" }]);
+  expect(relayGroups([])).toEqual([]);
+});
+
+test("the answer reads API-30 as Now's law record: requests by rule and relay, the drying decision, the band; null while not reporting", () => {
+  const refused = law("law-drying-refused-cost");
+  const state = lawStateOf(refused);
+  expect(state?.drying).toBe("refused");
+  expect(state?.drying_refused_reason).toBe("cost");
+  expect(state?.drying_cost_kwh_per_kg).toBe(0.82);
+  expect(state?.band?.temp_low_f).toBe(refused.band.temp_low_f);
+  const asked = refused.rules.filter((item) => item.requested).map((item) => item.id);
+  for (const id of asked) expect(state?.requests).toContain(id === "second_fan" ? "fan2" : id === "hot_limit" ? "hot" : id === "cold_limit" ? "cold" : id);
+  const hot = lawStateOf(law("law-hot-limit"));
+  expect(hot?.requests).toContain("hot");
+  expect(hot?.requests).toEqual(expect.arrayContaining(["vent", "fan1", "fan2"]));
+  expect(lawStateOf({ ...refused, reporting: false })).toBeNull();
+  expect(lawStateOf({ ...refused, observed_at: null })).toBeNull();
+});
+
+test("the relays that are on, each once, with the earliest time it is known on", () => {
+  const view = law("law-hot-limit");
+  const on = onRelays(view);
+  expect(on.map((relay) => relay.equipment).sort()).toEqual(["fan1", "fan2", "vent"]);
+  expect(new Set(on.map((relay) => relay.equipment)).size).toBe(on.length);
+  const relays = (since: string | null) => [{ equipment: "vent", state: "on" as const, since }];
+  const twice = onRelays({ rules: [{ ...rule(view, "cooling"), relays: relays("2026-11-02T17:30:00Z") }, { ...rule(view, "hot_limit"), relays: relays("2026-11-02T17:20:00Z") }] });
+  expect(twice).toEqual([{ equipment: "vent", line_id: null, cause: null, since: "2026-11-02T17:20:00Z" }]);
 });
 
 test("a rule's state: off, wanted, asked for, on since, waiting and held on, and unknown without a record", () => {
@@ -83,6 +117,15 @@ test("the drying decision is a checklist in the law's order with its evidence, t
   expect(blind[3].detail).toBe("No outdoor reading.");
   expect(plain(String(blind[5].detail))).toBe("No price without an outdoor reading; the limit is 0.70 kWh/kg.");
   expect(dryingChecks({ ...refused, drying: { ...refused.drying, checks: [{ id: "humid", ok: null }] } })[0].mark).toBe("unknown");
+});
+
+test("outdoor air is drier: both dew points at one decimal from the API's unrounded values, an em dash for one not served", () => {
+  const refused = law("law-drying-refused-cost");
+  const detail = (outdoor: number | null, indoor: number | null) => plain(String(dryingChecks({
+    ...refused, inputs: { ...refused.inputs, dew_point_f: indoor, outdoor: { ...refused.inputs.outdoor, source: "station", dew_point_f: outdoor } },
+  }).find((item) => item.key === "outdoor_drier")?.detail));
+  expect(detail(27.6349, 55.2468)).toBe("Dew point outdoors 27.6 °F, indoors 55.2 °F.");
+  expect(detail(null, 61.0247)).toBe("Dew point outdoors —, indoors 61.0 °F.");
 });
 
 test("the band in force: the four edges, where they came from, repaired or not, and the host's difference", () => {

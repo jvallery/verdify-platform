@@ -37,20 +37,29 @@ export function useWidthOf<T extends HTMLElement>(): [(element: T | null) => voi
 export type BlockRoom = { readonly after: number; readonly before: number };
 /**
  * The room beside each block on its row, in percent of the track (redesign §6.2): from its end to the next block's
- * start or the row's end, and from its start back to the end of the one before or the row's start. The now rule is a
- * neighbour too, so words never run across it.
+ * start or the row's end, and from its start back to the end of the one before or the row's start. The now rule and
+ * every other mark on the row (`marks`, epoch s: the valve's ticks) are neighbours too, so words never run across a
+ * marker (design review C2).
  */
-export function blockRooms(blocks: readonly DayBlock[], scale: TimeScale, now: number | null = null): ReadonlyMap<string, BlockRoom> {
+export function blockRooms(blocks: readonly DayBlock[], scale: TimeScale, now: number | null = null, marks: readonly { readonly start: number; readonly end: number }[] = []): ReadonlyMap<string, BlockRoom> {
   const placed = blocks.flatMap((block) => {
     const place = scale.span(block.start, block.end);
     return place ? [{ key: block.key, start: place.start, end: place.start + place.width }] : [];
   }).sort((a, b) => a.start - b.start);
   const nowAt = now !== null && now >= scale.from && now <= scale.to ? scale.pos(now) : null;
+  const others = marks.flatMap((mark) => {
+    const place = scale.span(mark.start, Math.max(mark.start, mark.end));
+    return place ? [{ start: place.start, end: place.start + place.width }] : [];
+  });
   return new Map(placed.map((item, index) => {
     let after = (index + 1 < placed.length ? placed[index + 1].start : 100) - item.end;
     let before = item.start - (index > 0 ? placed[index - 1].end : 0);
     if (nowAt !== null && nowAt > item.end) after = Math.min(after, nowAt - item.end);
     if (nowAt !== null && nowAt < item.start) before = Math.min(before, item.start - nowAt);
+    for (const mark of others) {
+      if (mark.start >= item.end) after = Math.min(after, mark.start - item.end);
+      if (mark.end <= item.start) before = Math.min(before, item.start - mark.end);
+    }
     return [item.key, { after: Math.max(0, after), before: Math.max(0, before) }];
   }));
 }
@@ -189,7 +198,7 @@ export function MinutesMeter({ label, done, planned = 0, cap, kind }: { label: s
 
 /** A row's cap: minutes done and still planned against `daily_cap_min`, or its minutes alone with no cap. */
 export function CapMeter({ row, when }: { row: Pick<DayRow, "name" | "kind" | "done" | "planned" | "cap">; when: DayModel["when"] }) {
-  const label = `${row.name} minutes ${when === "today" ? "today" : when === "past" ? "that day" : "planned"}`;
+  const label = `${row.name} minutes ${when === "today" ? "today" : when === "past" ? "that day" : "scheduled"}`;
   if (row.cap === null) {
     const minutes = when === "future" ? row.planned : row.done;
     return <span className="sch-cap sch-cap-none">{minutes === null ? "—" : formatValue(minutes, "min")}{when === "future" && minutes ? " scheduled" : ""}<span className="screen-reader">, no daily cap</span></span>;
@@ -241,8 +250,8 @@ export function DayTimeline({ model, now, head, label, selected, onBlock, newTo,
   return <section className={cls("sch-day", apiDown && "is-neutral")}>
     <div className="sch-day-head">{head}</div>
     <div className="sch-day-body" role="group" aria-label={label} tabIndex={0} onKeyDown={rovingKeys()}>
-      <div className="sch-axis-row"><span className="sch-axis-gap" /><DayAxis scale={scale} /><span className="sch-axis-end meta">{END_HEAD[model.when]}</span></div>
       <ScheduleLegend className="sch-legend-timeline" />
+      <div className="sch-axis-row"><span className="sch-axis-gap" /><DayAxis scale={scale} /><span className="sch-axis-end meta">{END_HEAD[model.when]}</span></div>
       {model.groups.map((group, groupIndex) => <div key={group.key} className="sch-group">
         <p className="eyebrow sch-group-label" id={`${headingId}-${group.key}`}>{group.label}</p>
         <ul className="sch-rows" aria-labelledby={`${headingId}-${group.key}`}>
@@ -259,7 +268,7 @@ export function DayTimeline({ model, now, head, label, selected, onBlock, newTo,
               })()}
               <Ticks episodes={row.episodes} scale={scale} token={row.kind === "mister" ? "mister" : "water"} unknownUntil={row.valveKnown ? null : nowS} />
               {(() => {
-                const rooms = blockRooms(row.blocks, scale, nowS);
+                const rooms = blockRooms(row.blocks, scale, nowS, row.valveKnown ? row.episodes : []);
                 return row.blocks.map((block) => <Block key={block.key} block={block} scale={scale} onSelect={onBlock} selected={selected === block.blockKey && block.blockKey !== ""} now={nowS}
                   room={rooms.get(block.key)} trackPx={trackPx ?? TRACK_PX} />);
               })()}

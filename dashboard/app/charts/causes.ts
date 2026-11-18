@@ -23,7 +23,7 @@ export const CAUSE_WORDS = {
   feed: "feed",
   prewet: "prewet",
   flush: "flush",
-  fallback: "fallback",
+  fallback: "backup",
   unknown: "cause unknown",
 } as const satisfies Record<Cause, string>;
 

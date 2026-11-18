@@ -81,11 +81,12 @@ test("an expanded alert: Resolve with a note sends one API-16, and the alert mov
   expect(sent.map((item) => [item.path, item.body])).toEqual([["/v1/alerts/102/resolve", { resolution: "Probe reseated" }]]);
 });
 
-test("nothing open: the status line says No open alerts with what was resolved, and no Needs action is drawn", async ({ page, request }) => {
+test("nothing open: the status line says No open alerts with what was resolved, and Needs action answers first in one line (A4)", async ({ page, request }) => {
   await useScreensClock(page, request, "alert-resolved");
   await load(page, "/activity");
   await expect(status(page)).toHaveText("No open alerts · 1 resolved in 24 h");
-  await expect(needsAction(page)).toHaveCount(0);
+  await expect(needsAction(page)).toContainText("Nothing needs action.");
+  await expect(needsAction(page).locator(".alert-row")).toHaveCount(0);
   await group(page, /^Resolved/).locator("summary").click();
   await expect(alertRow(page, 104)).toContainText("Resolved by Jason · 08:42 · “Probe reseated”");
 });
@@ -138,7 +139,7 @@ test("activity-mixed: one line an entry, who wrote in text, AI for the reviewer 
   await expect(writtenBy(agent)).toHaveText("steward · agent AI");
   const forecast = logRow(page, "Forecast rule “hot afternoon”");
   await expect(forecast.locator(".act-entry-text")).toHaveText("Forecast rule “hot afternoon” · Mister Min Off 45 → 60 s");
-  await expect(writtenBy(forecast)).toHaveText("forecast-engine · host");
+  await expect(writtenBy(forecast)).toHaveText("Forecast engine · host");
   await expect(forecast.locator(".event-by [data-badge=ai]")).toHaveCount(0);
 });
 
@@ -299,7 +300,11 @@ test("activity-v2: the band save collapses to its edges, the reviewer's watering
   await load(page, "/activity/log");
   const band = logRow(page, "Changed the band · 4 changes");
   await band.locator("summary").click();
-  await expect(band.locator(".plan-changes li")).toHaveCount(4);
+  // Each edge in words with its unit at its setting's step (C6), never its key or the catalog's capitals.
+  await expect(band.locator(".plan-changes li")).toHaveText([
+    "Temperature low edge at sunrise 60.0 → 58.0 °F", "Temperature low edge at sunset 62.0 → 60.0 °F", "VPD high edge at solar noon 1.40 → 1.30 kPa",
+    "VPD low edge at solar midnight 0.50 → 0.60 kPa",
+  ]);
   await expect(band.locator(".event-reason")).toHaveText("“Cooler nights for winter”");
   const review = logRow(page, "Daily review · Ran Wall drip · 8 min");
   await expect(writtenBy(review)).toHaveText("Iris · reviewer AI");

@@ -5,7 +5,7 @@ import { useClockValue, useNow } from "../components/freshness";
 import { LIGHTS, useLightControl } from "../components/equipment/light-controls";
 import { Page } from "../components/layout/page";
 import { PageHeader } from "../components/layout/page-header";
-import { CIRCUITS, circuitOf, lightsStatus, localToday, weekWindow, type HandMinutes } from "../components/lights/model";
+import { CIRCUITS, circuitOf, lightsAnswer, localToday, weekWindow, type HandMinutes } from "../components/lights/model";
 import { ByHandPanel, CircuitPanel, SettingsPanel, SwitchingPanel, WeekPanel } from "../components/lights/panels";
 import { PanelErrorBoundary } from "../components/panel";
 import type { Setting } from "../lib/operator-api";
@@ -20,7 +20,7 @@ const settingOf = (items: readonly Setting[] | undefined, param: string) => item
 
 /**
  * Lights → Lights (`/lights`, screens section 4.1, parity L-01 to L-09): are the lights doing what the owner wants?
- * Each circuit as its switch reports it against what the controller wants and why, then By hand (operators), how the
+ * The answer in one sentence, then each circuit as its switch reports it against what the controller wants and why, then By hand (operators), how the
  * lights are switched and whether each switch confirmed, the twelve settings of each circuit and the last seven days.
  * No greenhouse data renders in SSR: every block waits for its read.
  */
@@ -39,11 +39,15 @@ export default function Lights() {
   const [minutes, setMinutes] = useState<HandMinutes>(15);
   const items = CIRCUITS.map((circuit) => equipment.data?.items.find((item) => item.equipment === circuit.equipment));
   const circuits = CIRCUITS.map((circuit) => circuitOf(week.data, circuit.light));
-  const status = equipment.data ? lightsStatus(items, now) : equipment.failed ? "The lights could not be read" : null;
+  // The answer below says how each light stands, so the head has a line only when the lights cannot be read (no
+  // reserved empty line otherwise).
+  const status = equipment.failed && !equipment.data ? "The lights could not be read" : undefined;
 
   return <Page className="lights-page">
     <PageHeader view="lights-overview" status={status} />
     <div className="l-grid">
+      {/* The answer first (design review A4): each light against what the controller wants and why. */}
+      {equipment.data && <p className="page-answer lights-lead" data-answer="">{lightsAnswer(items, now)}</p>}
       <div className="l-cols-2">
         {CIRCUITS.map((circuit, index) => <PanelErrorBoundary key={circuit.light} thing={`the ${circuit.name.toLowerCase()}`} onRetry={equipment.retry}>
           <CircuitPanel circuit={circuit} item={items[index]} equipment={equipment} today={circuits[index]} now={now} />

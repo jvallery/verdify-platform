@@ -202,9 +202,12 @@ test("a wet line's runs fill in the line's own colour (#1354) and are named by c
   expect(centerOn).toEqual(["VPD", "VPD", "VPD", "schedule", ""]);
   // Each row is named, so its colour needs no key; the key names on, the intent strip and the hatch.
   expect([...container.querySelectorAll(".chart-key li")].map((item) => item.textContent)).toEqual(["on", "controller intent differs", "unknown"]);
-  // The key sits right under the rows it names, above the CSV and the table, which is named by its subject.
+  // The key is one line above the rows it names; under them the one quiet line holds the table, named by its subject, and CSV (A3).
   const figure = container.querySelector(".chart-lanes")!;
-  expect([...figure.children].map((child) => child.className).filter((name) => /chart-key|chart-tools|chart-table/.test(name))).toEqual(["chart-key", "chart-tools", "chart-table"]);
+  expect([...figure.children].map((child) => child.className).filter((name) => /chart-key|chart-foot|^lanes /.test(name))).toEqual(["chart-key", "lanes lanes-equipment", "chart-foot"]);
+  expect([...figure.querySelector(".chart-foot")!.children].map((child) => child.className)).toEqual(["chart-table", "chart-foot-tools"]);
+  const csv = figure.querySelector(".chart-csv")!;
+  expect([csv.textContent, csv.getAttribute("aria-label")]).toEqual(["CSV", "CSV of these lanes"]);
   expect(figure.querySelector(".chart-table summary")?.textContent).toMatch(/^Lanes table · \d+ rows$/);
 });
 

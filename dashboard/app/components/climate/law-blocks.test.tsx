@@ -8,7 +8,7 @@ import { fixture } from "../../../e2e/fixtures/index.mjs";
 import { parseLawView, type LawView } from "../../lib/operator-api";
 import type { PanelRead } from "../../lib/queries";
 import { renderUi, text } from "../test-render";
-import { BandInForcePanel, DryingDecisionPanel, RulesPanel, RunningAlonePanel, TimingPanel, lawPanelState, lawStatusParts } from "./law-blocks";
+import { BandInForcePanel, DryingDecisionPanel, LawAnswerPanel, RulesPanel, RunningAlonePanel, TimingPanel, lawPanelState, lawStatusParts } from "./law-blocks";
 import { RuleLadder } from "./rule-ladder";
 
 const NOW = "2026-11-02T17:42:00Z";
@@ -52,7 +52,13 @@ test("the rules: each signal's ladder lists every rule, the band's edges and the
   expect(temp.at(-1)).toMatch(/^Hot limit/);
   expect(temp).toContain("Now");
   expect(temp.filter((item) => item.endsWith("edge of the band")).length).toBe(2);
-  expect(text(rules)).toContain("Turns on below 64.7 °F, off at 65.7 °F");
+  // The units sit in the headers; a row is the direction and bare numbers, its relays one group a state.
+  const heat = within(rules).getByRole("row", { name: /^Electric heat/ });
+  expect(within(rules).getAllByRole("columnheader").map((cell) => text(cell))).toEqual(expect.arrayContaining(["On, °F", "Off, °F", "On, kPa", "Off, kPa"]));
+  expect(text(heat)).toContain("below 64.7");
+  expect(text(heat)).toContain("65.7");
+  expect(text(heat)).not.toContain("°F");
+  expect(text(within(rules).getByRole("row", { name: /^Cooling/ }))).toContain("Vent, Fan 1");
   expect(text(rules)).toContain("On since 10:38");
   expect(text(rules)).toContain("Wanted");
   // The SVG ticks are named for a screen reader, as the list is.
@@ -68,7 +74,10 @@ test("the drying decision: the checklist with the failed check, the verdict and 
   at();
   renderUi(<DryingDecisionPanel read={read(law("law-drying-refused-cost"))} />);
   const panel = section("Drying decision");
-  expect(text(panel)).toContain("Refused: costs more than the limit");
+  // The head's pill is the verdict in one word; the line under the checks gives its reason, once.
+  expect(text(panel.querySelector(".card-title-row"))).toContain("Refused");
+  expect(text(panel.querySelector(".card-title-row"))).not.toContain("costs more");
+  expect(text(panel.querySelector(".law-verdict"))).toBe("Verdict Refused: costs more than the limit");
   expect(text(panel)).toContain("Price 0.82 kWh/kg, limit 0.70 kWh/kg.");
   expect(within(panel).getByRole("link", { name: /Drying/ }).getAttribute("href")).toBe("/climate/drying");
 });
@@ -89,4 +98,23 @@ test("no record yet is the empty state; a failed first read is the error state w
   expect(section("Drying decision").getAttribute("data-state")).toBe("empty");
   expect(section("Band in force").getAttribute("data-state")).toBe("error");
   expect(within(section("Band in force")).getByRole("button", { name: /Retry/ })).toBeTruthy();
+});
+
+test("the answer comes first: Now's sentence of what the controller does and why, the relays on with how long, and not known while silent", () => {
+  at();
+  renderUi(<LawAnswerPanel read={read(law("law-drying-refused-cost"))} />);
+  const answer = section("What the controller is doing");
+  expect(text(answer.querySelector(".law-answer-text"))).toMatch(/drying is refused: it would cost 0\.82 kWh\/kg and the limit is 0\.70/);
+  cleanup();
+  renderUi(<LawAnswerPanel read={read(law("law-hot-limit"))} />);
+  const hot = section("What the controller is doing");
+  expect(text(hot.querySelector(".law-answer-text"))).toBe("The hot limit is on: everything cools, with the vent open and both fans running.");
+  expect(within(hot).getByRole("list", { name: "On now" }).querySelectorAll("li").length).toBe(3);
+  cleanup();
+  renderUi(<LawAnswerPanel read={read({ ...law(), reporting: false })} />);
+  expect(section("What the controller is doing").getAttribute("data-state")).toBe("stale");
+  expect(text(document.querySelector(".law-answer-text"))).toMatch(/^The law has not reported/);
+  cleanup();
+  renderUi(<LawAnswerPanel read={read({ ...law(), observed_at: null })} />);
+  expect(text(document.querySelector(".law-answer-text"))).toMatch(/^The controller has not reported its climate law yet/);
 });

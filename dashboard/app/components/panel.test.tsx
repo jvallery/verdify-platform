@@ -24,13 +24,17 @@ test("ready shows its content under its heading; loading is a skeleton at the re
   expect(text(container)).toBe("Runs todayLoading runs");
 });
 
-test("a ready panel given its data's time shows its age", () => {
-  const { container } = renderUi(panel({ observedAt: denver("06:15", 40) }));
+test("one observation time a page: a ready panel shows no age line unless asked, and then its age", () => {
+  expect(renderUi(panel({ observedAt: denver("06:15", 40) })).container.querySelector(".panel-state")).toBeNull();
+  cleanup();
+  expect(renderUi(panel({ observedAt: denver("06:15", 40), age: "auto" })).container.querySelector(".panel-state")).toBeNull();
+  cleanup();
+  const { container } = renderUi(panel({ observedAt: denver("06:15", 40), age: "always" }));
   expect(stateLine(container)).toBe("Updated 20 s ago");
   expect(container.querySelector(".panel-state .dot")?.getAttribute("data-fresh")).toBe("ok");
   cleanup();
   // Without a time it shows no line at all.
-  expect(renderUi(panel({})).container.querySelector(".panel-state")).toBeNull();
+  expect(renderUi(panel({ age: "always" })).container.querySelector(".panel-state")).toBeNull();
 });
 
 test("empty says what would appear and links to a wider range", () => {
@@ -42,7 +46,7 @@ test("empty says what would appear and links to a wider range", () => {
   expect(text(container)).toContain("No runs.");
 });
 
-test("stale: the content muted, STALE and \"Last data 14 min ago (06:02)\"", () => {
+test("stale: the content muted, STALE and \"Last data 14 min ago (06:02)\", whatever `age` says", () => {
   const { container } = renderUi(panel({ state: "stale", observedAt: denver("06:02") }));
   expect(stateLine(container)).toBe("Stale Last data 14 min ago (06:02)");
   expect(container.querySelector(".panel-state .dot")?.getAttribute("data-fresh")).toBe("stale");
@@ -78,8 +82,10 @@ test("busy keeps the old render with \"Busy, retrying in N s\"", () => {
   expect(stateLine(container)).toBe("Busy, retrying in 5 s");
   expect(text(container)).toContain("12 min");
   cleanup();
-  // The old render keeps aging while the panel waits.
-  expect(stateLine(renderUi(panel({ state: "busy", retryInS: 5, observedAt: denver("06:14") })).container)).toBe("Busy, retrying in 5 s Updated 2 min ago");
+  // The old render keeps aging while the panel waits, where the panel shows its age.
+  expect(stateLine(renderUi(panel({ state: "busy", retryInS: 5, observedAt: denver("06:14"), age: "always" })).container)).toBe("Busy, retrying in 5 s Updated 2 min ago");
+  cleanup();
+  expect(stateLine(renderUi(panel({ state: "busy", retryInS: 5, observedAt: denver("06:14") })).container)).toBe("Busy, retrying in 5 s");
 });
 
 test("a panel that fails to render says so alone, and Retry renders it again", () => {

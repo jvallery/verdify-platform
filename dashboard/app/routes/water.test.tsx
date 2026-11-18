@@ -62,9 +62,8 @@ const row = (id: string) => document.querySelector<HTMLElement>(`article[data-li
 const zone = (name: string) => document.querySelector<HTMLElement>(`.wat-zone[data-zone="${name}"]`)!;
 const where = () => screen.getByTestId("where").textContent;
 /**
- * Stop all water as Water renders it (redesign §2.5, §9.6): the header's, the last action, and the sticky tabs row's
- * compact copy, which the stylesheet shows at 860 px and below instead; both share one `useStop`. jsdom has no
- * stylesheet, so both are in the tree here.
+ * Stop all water as Water renders it (redesign §2.5, §9.6, design review C1): the top bar's above 860 px (outside
+ * <main>), and the sticky tabs row's compact copy, which the stylesheet shows at 860 px and below. The header holds none.
  */
 // The page's Stops: the top bar holds one more for an operator (README section 3.2), outside <main>.
 const stopAlls = () => within(screen.getByRole("main")).queryAllByRole("button", { name: "Stop all water" });
@@ -98,16 +97,23 @@ test("Today: zone cards in their fixed order, each line a row in its zone (L01�
   expect(tab("Today").getAttribute("aria-current")).toBe("page");
   expect([...document.querySelectorAll(".wat-zone")].map((node) => node.getAttribute("data-zone"))).toEqual(["wall", "center", "center_mister", "south", "west", "fog"]);
   // #1336: one card per physical line, the center mister apart from the center drips, its fertilized side not wired.
-  expect([...document.querySelectorAll("article[data-line]")].map((node) => node.getAttribute("data-line"))).toEqual(["L01", "L02", "L05", "L06", "L04", "L07", "L08", "L09", "L10", "L11"]);
-  expect([...document.querySelectorAll(".wat-zone-name")].map((node) => text(node).split(" ").slice(0, 2).join(" "))).toEqual(["Wall drip", "Center drip", "Center mister", "South mister", "West mister", "Fog humidification"]);
-  expect(text(zone("center_mister").querySelector(".wat-unwired"))).toBe("Fertilized · not wired");
-  // #1349: the cards under Drips, Misters and Climate headings; each card's name an h3 and each row's an h4.
+  expect([...document.querySelectorAll("article[data-line]")].map((node) => node.getAttribute("data-line"))).toEqual(["L01", "L02", "L04", "L07", "L08", "L09", "L10", "L11"]);
+  expect([...document.querySelectorAll(".wat-zone-name")].map((node) => text(node))).toEqual(["Wall dripwalls and shelves", "Center drip: reserved, not installed", "Center mister", "South mister", "West mister", "Foghumidification"]);
+  expect(text(zone("center_mister").querySelector(".wat-unwired"))).toBe("Fertilized line: not wired");
+  // Center drip is reserved, not installed: one quiet row with no line cards, and its lines' enable in its menu (C2).
+  expect(text(zone("center").querySelector(".wat-zone-reserved h3"))).toBe("Center drip: reserved, not installed");
+  expect(zone("center").classList.contains("is-reserved")).toBe(true);
+  // #1349: the cards under Drips, Misters and Climate headings; each card's name an h3 and each row's an h4, which shows
+  // "Clean line" or "Fertilized line" under its zone and keeps the line's full name for a screen reader (design review C2).
   expect([...document.querySelectorAll(".wat-group")].map((node) => [text(node.querySelector(".wat-group-title")), [...node.querySelectorAll(".wat-zone")].map((card) => card.getAttribute("data-kind"))])).toEqual([
     ["Drips", ["drip", "drip"]], ["Misters", ["mister", "mister", "mister"]], ["Climate", ["fog"]],
   ]);
   expect([...document.querySelectorAll("article[data-line] h4")].map((node) => text(node))).toEqual([
-    "Wall drip", "Wall drip (fertilized)", "Center drip", "Center drip (fertilized)", "Center mister", "South mister", "South mister (fertilized)", "West mister", "West mister (fertilized)", "Fog",
+    "Clean lineWall drip", "Fertilized lineWall drip (fertilized)", "Clean lineCenter mister", "Clean lineSouth mister", "Fertilized lineSouth mister (fertilized)",
+    "Clean lineWest mister", "Fertilized lineWest mister (fertilized)", "Fog lineFog",
   ]);
+  expect(row("L01").querySelector("h4 [aria-hidden]")?.textContent).toBe("Clean line");
+  expect(row("L01").querySelector("h4 .screen-reader")?.textContent).toBe("Wall drip");
   // Each row is named by its h3, carries its state, and the old hook class stays for the visit specs.
   expect(screen.getByRole("article", { name: "Wall drip" }).getAttribute("data-state")).toBe("idle");
   expect(row("L01").classList.contains("line-card")).toBe(true);
@@ -119,7 +125,7 @@ test("Today: zone cards in their fixed order, each line a row in its zone (L01�
   expect(text(zone("fog").querySelector(".wat-zone-today"))).toMatch(/^6 min today/);
   // Site today, in words with its hooks.
   expect([...document.querySelectorAll(".wat-site-list [data-limit]")].map((node) => [node.getAttribute("data-limit"), text(node)])).toEqual([
-    ["saf4", "Daily mist and fog limithard daily limitChange the daily mist and fog limit in Settings21 / 360 galNothing is exempt from this limit."],
+    ["saf4", "Daily mist and fog limit hard daily limitChange the daily mist and fog limit in Settings21 / 360 galNothing is exempt from this limit."],
     ["budget", "Soft daily budget for mist and fogChange the soft daily budget for mist and fog in Settings21 / 300 galThe owner sets this budget."], ["flow", "Water with no Verdify valve open: none"],
     ["occupancy", "Occupancy: nobody detected, misting allowed (last person 05:10)"], ["fallback", "Backup misting (sensor fault): off"],
   ]);
@@ -148,10 +154,10 @@ test("Today's strips: each line's runs today with the now rule and its next run;
   expect(strip("L04").querySelectorAll(".sch-tick")).toHaveLength(1);
   expect(strip("L04").querySelectorAll(".sch-now")).toHaveLength(1);
   expect(text(row("L04").querySelector(".wat-next"))).toBe("next Tue 06:50 · 8 × 60 s");
-  // The hour ticks ride on the first row of each zone only; a line that is off keeps its strip, faded, with its day and night (#1347).
+  // The hour ticks ride on the first row of each zone that has a strip; a reserved zone has no rows, so no strip (C2).
   expect(zone("wall").querySelectorAll(".wat-day-axis")).toHaveLength(1);
-  expect(row("L05").classList.contains("is-off")).toBe(true);
-  expect(row("L05").querySelector(".wat-day")).not.toBeNull();
+  expect(row("L05")).toBeNull();
+  expect(zone("center").querySelector(".wat-day")).toBeNull();
   // The legend is on show above the cards, no click needed.
   expect([...document.querySelectorAll(".wat-legend li")].map((node) => text(node))).toEqual(["day", "night", "now", "clean", "fertilized", "ran (solid)", "scheduled (dashed)", "skipped", "backup window", "valve open"]);
   // Fog: its valve's time, no next run (it is not scheduled).
@@ -252,7 +258,7 @@ test("with API-IRR-01 failing the page says \"Water status unavailable\", never 
   expect(main.querySelectorAll("article[data-line]")).toHaveLength(0);
   expect(text(main.querySelector(".panel-error"))).toBe("Water status unavailable.Retry");
   expect(text(main)).not.toMatch(/\bIdle\b/i);
-  expect(stopAlls()).toHaveLength(2);
+  expect(stopAlls()).toHaveLength(1);
   for (const button of stopAlls()) expect(button.hasAttribute("disabled")).toBe(false);
 });
 
@@ -351,19 +357,20 @@ test("fallback windows are conditional, never planned runs: dotted on the strips
   const strip = row("L04").querySelector<HTMLElement>(".wat-track")!;
   expect(strip.querySelectorAll(".sch-block.sch-conditional")).toHaveLength(3);
   expect(strip.querySelectorAll(".sch-planned, .sch-skipped")).toHaveLength(0);
-  expect(strip.getAttribute("aria-label")?.replaceAll("\u00a0", " ")).toContain("sensor-fault backup, Mon 09:47, 4 × 45 s, fallback, not needed; sensor-fault backup, Mon 11:47, 4 × 45 s, fallback, only if VPD sensing is degraded");
-  expect(text(row("L04").querySelector(".wat-next"))).toBe("nothing scheduled · 2 fallback windows");
+  expect(strip.getAttribute("aria-label")?.replaceAll("\u00a0", " ")).toContain("sensor-fault backup, Mon 09:47, 4 × 45 s, backup, not needed; sensor-fault backup, Mon 11:47, 4 × 45 s, backup, only if VPD sensing is degraded");
+  expect(text(row("L04").querySelector(".wat-next"))).toBe("nothing scheduled · 2 backup windows");
   cleanup(); stopFixtureApi();
   open("/water/schedules", { fixture: "in-band" });
   await load();
-  expect(status()).toBe("Program rev 42 on controller · confirmed 2 min ago · no run scheduled this week, 20 fallback windows");
-  expect(text(document.querySelector(".page-status-short"))).toBe("Rev 42 confirmed · no run scheduled this week, 20 fallback windows");
+  expect(status()).toBe("Program rev 42 on controller · confirmed 2 min ago · no run scheduled this week, 20 backup windows");
+  expect(text(document.querySelector(".page-status-short"))).toBe("Rev 42 confirmed · no run scheduled this week, 20 backup windows");
   const today = document.querySelector<HTMLElement>('.week-days a[aria-current="date"]')!;
-  expect([text(today.querySelector(".sch-day-summary")), text(today.querySelector(".sch-day-fallback"))]).toEqual(["nothing scheduled", "2 fallback windows"]);
-  expect(today.getAttribute("aria-label")).toBe("Monday, Nov 2 (today): nothing scheduled · 2 fallback windows");
+  // The cell's words are short so they fit (design review); its name keeps the long form.
+  expect([text(today.querySelector(".sch-day-summary")), text(today.querySelector(".sch-day-fallback"))]).toEqual(["no runs", "2 backup"]);
+  expect(today.getAttribute("aria-label")).toBe("Monday, Nov 2 (today): nothing scheduled · 2 backup windows");
   const blocks = [...timelineRow("L04").querySelectorAll(".sch-block")];
   expect(blocks.map((block) => block.className.includes("sch-conditional"))).toEqual([true, true, true]);
-  expect(blocks[0].getAttribute("aria-label")?.replaceAll("\u00a0", " ")).toBe("Center mister · sensor-fault backup, Mon 09:47, 4 × 45 s, fallback, not needed");
+  expect(blocks[0].getAttribute("aria-label")?.replaceAll("\u00a0", " ")).toBe("Center mister · sensor-fault backup, Mon 09:47, 4 × 45 s, backup, not needed");
   // The popover of the window that passed: not needed, never skipped.
   fireEvent.click(blocks[0]);
   await load();
@@ -413,7 +420,7 @@ test("a block opens its popover in the URL: the run, its rule, its next starts, 
   const pop = within(document.querySelector<HTMLElement>("dialog.popover")!);
   expect(text(document.querySelector("dialog.popover h2"))).toBe("Wall drip · Wall MWF");
   expect([...document.querySelectorAll("dialog.popover dd")].map((node) => text(node))).toEqual([
-    "Wed 4 Nov · 07:35 (sunrise + 1 h) · 12 min", "Planned", "Mon Wed Fri · sunrise + 1 h", "Wed 07:35 · Fri 07:35",
+    "Wed 4 Nov · 07:35 (sunrise + 1 h) · 12 min", "Scheduled", "Mon Wed Fri · sunrise + 1 h", "Wed 07:35 · Fri 07:35",
   ]);
   // Edit opens the editor over the popover, so closing it comes back here.
   expect(pop.getByRole("link", { name: "Edit schedule" }).getAttribute("href")).toBe("/water/schedules?day=2026-11-04&block=11-1793802900&schedule=11");
@@ -612,16 +619,18 @@ test("the run ledger: whole gallons (0 gal for no water, — with no meter data)
   expect(rows).toHaveLength(served.items.length);
   const cells = (index: number) => [...rows[index].children].map((cell) => text(cell));
   const zero = served.items.findIndex((run) => run.run_id === "run-l01-zero");
-  expect(cells(zero).slice(1)).toEqual(["Wall drip · Wall", "Clean", "schedule", "Wall MWF", "controller", "12 min", "0 gal", "ok", "Graphs around this run ›"]);
+  // Bare numbers under unit headers ("Open, min", "Used, gal"), words capitalised in their cells (design review C5).
+  expect([...table.querySelectorAll("thead th")].map((cell) => text(cell))).toEqual(["Start–end", "Line", "Water", "Cause", "Schedule", "By", "Open, min", "Used, gal", "Outcome", "Graphs"]);
+  expect(cells(zero).slice(1)).toEqual(["Wall drip · Wall", "Clean", "Schedule", "Wall MWF", "Controller", "12", "0", "Ok", "Graphs around this run\u2009›"]);
   const unknown = served.items.findIndex((run) => run.run_id === "run-l04-unknown");
-  expect(cells(unknown).slice(5, 9)).toEqual(["controller", "0 min", "— no meter data", "no outcome received · no outcome reached the platform"]);
+  expect(cells(unknown).slice(5, 9)).toEqual(["Controller", "0.0", "— no meter data", "No outcome received · no outcome reached the platform"]);
   const byJason = served.items.findIndex((run) => run.run_id === "run-l01-3");
   expect(rows[byJason].querySelector("a")!.getAttribute("href")).toBe(runGraphUrl(served.items[byJason]));
   expect(text(table)).not.toMatch(/gal\/min|flow/i);
   // The same runs stack on phones; CSV of what is loaded.
   expect(document.querySelectorAll(".wat-runs-list > li")).toHaveLength(served.items.length);
   // jsdom has no Blob URLs, so the link has no target here; its file name is set.
-  expect(screen.getByText("CSV of these runs").getAttribute("download")).toBe("verdify-runs-2026-10-27-2026-11-02.csv");
+  expect(document.querySelector("[download^=\"verdify-runs\"]")?.getAttribute("download")).toBe("verdify-runs-2026-10-27-2026-11-02.csv");
 });
 
 test("ledger filters apply on change and live in the URL; Load older passes the cursor, then steps back 31 days inside the period", async () => {
@@ -654,14 +663,15 @@ test("ledger filters apply on change and live in the URL; Load older passes the 
 const LINE_IDS = ["L01", "L02", "L04", "L05", "L06", "L07", "L08", "L09", "L10", "L11"];
 /** A row's buttons outside its ⋯ menu: the primary action and its Stop. */
 const buttons = (id: string) => [...row(id).querySelectorAll(":scope > .object-row-actions > button")].map((node) => text(node));
-const everyRow = () => Object.fromEntries(LINE_IDS.map((id) => [id, buttons(id)]));
+// A reserved zone draws no line rows (design review C2), so only the rows on the page.
+const everyRow = () => Object.fromEntries(LINE_IDS.filter((id) => row(id)).map((id) => [id, buttons(id)]));
 
-test("each row's actions with the irrigation firmware (#1343): Run… or Mist now… on every wet line but a reserved one that is off, no Stop on an idle row (D-UX-06, 2026-11-06), and Fog once… on L11", async () => {
+test("each row's actions with the irrigation firmware (#1343): Run… or Mist now… on every wet line that is on (an off line reads only its state, design review C2), no Stop on an idle row (D-UX-06, 2026-11-06), and Fog once… on L11", async () => {
   open("/water", { fixture: "run-dialogs" });
   await load();
   expect(everyRow()).toEqual({
-    L01: ["Run… Wall drip"], L02: ["Run… Wall drip (fertilized)"], L04: ["Mist now… Center mister"], L05: [], L06: [], L07: ["Mist now… South mister"],
-    L08: ["Run… South mister (fertilized)"], L09: ["Mist now… West mister"], L10: ["Run… West mister (fertilized)"], L11: ["Fog once… Fog"],
+    L01: ["Run… Wall drip"], L02: ["Run… Wall drip (fertilized)"], L04: ["Mist now… Center mister"], L07: ["Mist now… South mister"],
+    L08: ["Run… South mister (fertilized)"], L09: ["Mist now… West mister"], L10: [], L11: ["Fog once… Fog"],
   });
   expect(document.querySelectorAll("article[data-line] .btn-stop")).toHaveLength(0);
   expect(screen.getByRole("button", { name: "Run… Wall drip" }).className).toContain("btn-wide");
@@ -751,15 +761,14 @@ test("with changes switched off Run… and Clear fault are disabled and Stop sta
 test.each(VIEWS)("an operator's Stop all water on %s sends one API-IRR-07 with no dialog, then the Stop result with Disable for L01", async (path) => {
   const api = open(path, { fixture: "l01-running" });
   await load();
-  // The header's, last of its actions (from 861 px), and the sticky tabs row's (860 px and below), the only two.
-  expect(stopAlls()).toEqual([headerStop(), tabsStop()]);
-  expect(headerStop()!.closest(".page-actions")!.lastElementChild).toBe(headerStop());
-  const button = headerStop()!;
+  // The sticky tabs row's (860 px and below) is the only one in <main>; the header holds none (design review C1).
+  expect(stopAlls()).toEqual([tabsStop()]);
+  expect(headerStop()).toBeNull();
+  const button = tabsStop()!;
   fireEvent.click(button);
-  // They share one Stop: both read Sending…, and a tap on either is no second request.
-  expect([text(button), text(tabsStop())]).toEqual(["Sending…", "Sending…"]);
+  // It reads Sending…, and a second tap is no second request.
+  expect(text(button)).toBe("Sending…");
   fireEvent.click(button);
-  fireEvent.click(tabsStop()!);
   await advance(0);
   expect(writes(api)).toEqual([expect.objectContaining({ method: "POST", operationId: "API-IRR-07", body: {} })]);
   expect(writes(api)[0].idempotency_key).toMatch(UUID);
@@ -775,7 +784,7 @@ test.each([
 ])("Stop all water stays enabled and sends one API-IRR-07 under %s", async (name, result) => {
   const api = open("/water", { fixture: name });
   await load();
-  expect(stopAlls()).toHaveLength(2);
+  expect(stopAlls()).toHaveLength(1);
   for (const button of stopAlls()) expect(button.hasAttribute("disabled")).toBe(false);
   fireEvent.click(tabsStop()!);
   await advance(5000);
@@ -798,25 +807,24 @@ test("a viewer sees no Stop or header action on any Water view; at phone width S
   expect(button.className).toBe("btn btn-stop stop-all-water stop-all-water-compact");
   expect(text(button)).toBe("Stop all water");
   expect(button.querySelector(".glyph-stop[aria-hidden=true]")).not.toBeNull();
-  expect(headerStop()!.className).toBe("btn btn-stop stop-all-water");
+  expect(headerStop()).toBeNull();
   const css = readFileSync(join(process.cwd(), "app/styles/primitives.css"), "utf8");
   const phone = css.slice(css.indexOf("@media(max-width:860px){"));
   expect(phone).toMatch(/\.page-tabs-sticky\{position:sticky;/);
   expect(phone).toContain(".stop-all-water-compact .stop-all-water-word{display:none}");
-  // Water's stylesheet shows one of the two: the header's from 861 px, the tabs row's at 860 px and below.
+  // Water's stylesheet hides the tabs row's from 861 px, where the top bar's Stop is on screen.
   const water = readFileSync(join(process.cwd(), "app/styles/water.css"), "utf8");
   expect(water).toContain("@media(min-width:861px){.water-page .page-tabs-end .stop-all-water{display:none}}");
-  expect(water).toContain(".water-page .page-actions .stop-all-water,.water-page .page-actions:has(>.stop-all-water:only-child){display:none}");
 });
 
-test("the header's actions: Pause lines… on Today, + New schedule on Schedules (keeping the day), then Stop all water last on every view", async () => {
-  for (const [path, names] of [["/water", ["Pause lines…", "Stop all water"]], ["/water/schedules?day=2026-11-04", ["+ New schedule", "Stop all water"]], ["/water/history", ["Stop all water"]]] as const) {
+test("the header's actions: Pause lines… on Today, + New schedule on Schedules (keeping the day), and no Stop (design review C1)", async () => {
+  for (const [path, names] of [["/water", ["Pause lines…"]], ["/water/schedules?day=2026-11-04", ["+ New schedule"]], ["/water/history", []]] as const) {
     open(path);
     await load();
     expect([...(document.querySelector(".page-actions")?.querySelectorAll("a, button") ?? [])].map((node) => text(node)), path).toEqual(names);
     cleanup(); stopFixtureApi();
   }
-  // + New schedule is an outline: Stop all water is the one filled button in the header.
+  // + New schedule is an outline link.
   open("/water/schedules");
   await load();
   expect(screen.getByRole("link", { name: "+ New schedule" }).className).toBe("button-link");

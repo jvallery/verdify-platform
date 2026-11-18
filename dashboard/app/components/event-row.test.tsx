@@ -51,12 +51,12 @@ test("the reviewer's and an agent's entries carry AI beside the name; a person's
 });
 
 test("a band save of several edges reads as one entry, \"Changed the band · 3 changes\", that expands to them", () => {
-  const changes = [{ param: "temp_low_sunrise", desired_id: 1, before: 60, value: 62 }, { param: "mister_engage_kpa", desired_id: 2, before: 1.6, value: 1.5 }, { param: "x", desired_id: 3, before: null, value: 90 }];
+  const changes = [{ param: "band_temp_low_sr", desired_id: 1, before: 60, value: 62 }, { param: "mister_engage_kpa", desired_id: 2, before: 1.6, value: 1.5 }, { param: "x", desired_id: 3, before: null, value: 90 }];
   const { container } = row({ action: "band.write", target: "house band", detail: { changes }, reason: null, state: null });
   const summary = container.querySelector(".act-plan > summary")!;
   expect(text(summary)).toBe("Changed the band · 3 changes");
   fireEvent.click(summary);
-  expect([...container.querySelectorAll(".plan-changes li")].map(text)).toEqual(["temp_low_sunrise 60 → 62", "VPD Mister Engage 1.60 → 1.50 kPa", "x — → 90"]);
+  expect([...container.querySelectorAll(".plan-changes li")].map(text)).toEqual(["Temperature low edge at sunrise 60 → 62 °F", "VPD Mister Engage 1.60 → 1.50 kPa", "Retired setting (x) — → 90"]);
   expect(container.querySelector(".act-entry-outcome")?.textContent).toBe("");
 });
 

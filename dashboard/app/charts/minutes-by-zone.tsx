@@ -5,7 +5,7 @@ import { dayTitle, formatValue, localDayStart } from "../lib/format";
 import { LINES, MINUTES_ZONES, ZONE_WORDS, lineById, lineDisplayName, minutesZone, type MinutesZone } from "../lib/lines";
 import { causeRank, causeToken, causeWords } from "./causes";
 import { dayCsvFilename, tableCsv } from "./csv";
-import { CsvLink, DataTable, type DataTableBlock } from "./data-table";
+import { ChartFoot, type DataTableBlock } from "./data-table";
 import type { ChartColors, PaintTarget } from "./draw";
 import { paintHatch } from "./lanes-draw";
 import { ChartKey, type KeyItem } from "./legend";
@@ -398,6 +398,7 @@ export function MinutesByZone(props: MinutesByZoneProps) {
   const refusal = group === "line" ? "Minutes by line needs the report by line" : "Minutes by zone needs the report by line or by zone";
   return <figure className="chart chart-minutes">
     <figcaption className={props.captionHidden ? "screen-reader" : "eyebrow"}>{title}</figcaption>
+    {drawable && <ChartKey items={minutesKey(model)} />}
     {drawable
       ? <ul className="minutes-rows">
         {model.zones.map((zone, position) => <li key={zone.key} className={zone.fog ? "minutes-row minutes-row-apart" : "minutes-row"} data-row={zone.key} data-zone={zone.zone ?? undefined}>
@@ -409,10 +410,7 @@ export function MinutesByZone(props: MinutesByZoneProps) {
         </li>)}
       </ul>
       : <div className="plot plot-small chart-message"><p>{props.message ?? (fits ? "No watering data in this window" : refusal)}</p></div>}
-    {drawable && <ChartKey items={minutesKey(model)} />}
-    {drawable && (props.csv ?? true) && <div className="chart-tools">
-      <CsvLink filename={dayCsvFilename(`${measure === "gal" ? "gallons" : "minutes"}-by-${group}`, model.days[0].day, model.days[model.days.length - 1].day)} build={() => minutesCsv(model)} version={model} label="CSV of this chart" />
-    </div>}
-    {drawable && <DataTable tables={minutesTables(model, props.lineNames)} />}
+    {drawable && <ChartFoot tables={minutesTables(model, props.lineNames)}
+      csv={(props.csv ?? true) ? { filename: dayCsvFilename(`${measure === "gal" ? "gallons" : "minutes"}-by-${group}`, model.days[0].day, model.days[model.days.length - 1].day), build: () => minutesCsv(model), version: model } : null} />}
   </figure>;
 }

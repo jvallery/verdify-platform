@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { chartLinks } from "../charts/uplot-chart";
 import { BandView } from "../components/record/band-view";
+import { answerText, bandAnswer } from "../components/record/record-model";
 import { RecordPage } from "../components/record/record-page";
 import { useRecordWindow } from "../components/record/use-record";
 import { viewMeta } from "../lib/sections";
@@ -11,7 +12,8 @@ export const links = () => chartLinks();
 
 export default function RecordCompliance() {
   const window = useRecordWindow();
-  return <RecordPage view="record-compliance" window={window}>
+  const record = window.read.data;
+  return <RecordPage view="record-compliance" window={window} answer={answerText(record, bandAnswer(record?.means.d7 ?? null))}>
     <BandView read={window.read} days={window.days} />
   </RecordPage>;
 }

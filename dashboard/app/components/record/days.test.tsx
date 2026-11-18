@@ -24,7 +24,7 @@ test("the means row: eight stats, each the served 7-day mean, its change against
   ]);
   expect(text(tile("in-band")?.querySelector(".metric-value"))).toBe("62.4%");
   expect(text(tile("in-band")?.querySelector(".metric-delta"))).toBe(" up 2.4 pts vs 30-day mean");
-  expect(text(tile("in-band")?.querySelector(".metric-meta"))).toBe("30-day mean 60.0% · 7 complete days");
+  expect(text(tile("in-band")?.querySelector(".metric-meta"))).toBe("30-day mean 60.0%");
   expect(text(tile("nights")?.querySelector(".metric-value"))).toBe("2 of 7");
   expect(text(tile("nights")?.querySelector(".metric-delta"))).toBe("5 of 30 over the last 30 days");
   expect(text(tile("heater")?.querySelector(".metric-value"))).toBe("17.4 h");
@@ -60,18 +60,20 @@ test("the days table: newest first, today marked so far, partial electricity, em
   record.days[record.days.length - 2] = { ...record.days[record.days.length - 2], energy: { kwh: null, kwh_partial: 11.92, coverage_pct: 54 }, band: null, alerts: null };
   renderUi(<DaysTable read={readOf(record)} days={7} />);
   const table = screen.getByRole("table", { name: "The daily record, last 7 days, newest first" });
-  const rows = within(table).getAllByRole("row").slice(1);
+  // Two header rows: the group heads ("In band, %", "Run time, h") over their columns; units live in the heads.
+  const rows = within(table).getAllByRole("row").slice(2);
   expect(rows).toHaveLength(7);
   expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
-    "Day", "In band, both", "In band, temperature", "In band, VPD", "Night dried", "Climate starts", "Heat 1 run time", "Heat 2 run time", "Electricity",
-    "Gas, estimated", "Crop water", "Drying", "Alerts",
+    "Day", "In band, %", "Night", "Starts", "Run time, h", "Electricity,kWh", "Gas,therms (est.)", "Water,gal", "Drying,min", "Alerts",
+    "Both", "Temp", "VPD", "Heat 1", "Heat 2",
   ]);
   const cells = (row: HTMLElement) => within(row).getAllByRole("cell").map((cell) => text(cell));
   expect(text(within(rows[0]).getByRole("rowheader"))).toBe("Tue 17 Novso far");
   expect(within(rows[0]).getByRole("link").getAttribute("href")).toBe("/graphs?from=2026-11-17&to=2026-11-17");
   expect(cells(rows[0])[7]).toBe("partial");
-  expect(cells(rows[1])).toEqual(["—", "—", "—", "—", "41", "30 min", "60 min", "partial", "2.50 therms", "36 gal", "60 min", "—"]);
-  expect(cells(rows[2])).toEqual(["62.0%", "95.0%", "62.0%", "No", "42", "30 min", "60 min", "25.2 kWh", "2.50 therms", "36 gal", "60 min", "1 warning"]);
+  expect(cells(rows[1])).toEqual(["—", "—", "—", "—", "41", "0.5", "1.0", "partial", "2.50", "36", "60", "—"]);
+  expect(cells(rows[2])).toEqual(["62.0", "95.0", "62.0", "–Not dried", "42", "0.5", "1.0", "25.2", "2.50", "36", "60", "1"]);
+  expect(cells(rows[3])[3]).toBe("Dried");
   expect(within(rows[1]).queryByText("so far")).toBeNull();
 });
 
@@ -98,8 +100,20 @@ test("drying by day: run time, runs, water, heat, the price paid, wanted, refuse
   renderUi(<DryingTable read={readOf(record)} days={7} />);
   const rows = within(screen.getByRole("table", { name: "Drying per day, last 7 days, newest first" })).getAllByRole("row").slice(1);
   const cells = (row: HTMLElement) => within(row).getAllByRole("cell").map((cell) => text(cell));
-  expect(cells(rows[1])).toEqual(["60 min", "10", "1.70 kg", "0.9 kWh", "0.51 kWh/kg", "2.0 h", "the house is too cold to vent 88 min; costs more than the limit 8 min", "2"]);
-  expect(cells(rows[2])).toEqual(["60 min", "10", "at least 1.70 kg", "at least 0.9 kWh", "—", "2.0 h", "—", "2"]);
+  expect(cells(rows[1])).toEqual(["60", "10", "1.70", "0.9", "0.51", "120", "96", "2"]);
+  expect(cells(rows[2])).toEqual(["60", "10", "≥ 1.70", "≥ 0.9", "—", "120", "—", "2"]);
+  expect(screen.getAllByRole("listitem").map((item) => text(item))).toEqual([
+    "Tue 17 Nov: the house is too cold to vent 88 min; costs more than the limit 8 min.",
+    "Mon 16 Nov: the house is too cold to vent 88 min; costs more than the limit 8 min.",
+  ]);
+  expect(screen.getByText(/≥ marks a lower bound/)).toBeTruthy();
+  cleanup();
+  // Only the days drying ran or was wanted are listed; the rest are one sentence.
+  const quiet = dailyRecord(3);
+  quiet.days[0] = { ...quiet.days[0], drying: { ...quiet.days[0].drying!, seconds: 0, runs: 0, wanted_s: 0, refused_s: null } };
+  renderUi(<DryingTable read={readOf(quiet)} days={7} />);
+  expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(3);
+  expect(screen.getByText("No drying was wanted on the other day.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Drying" }).getAttribute("href")).toBe("/climate/drying");
 });
 

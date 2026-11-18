@@ -44,8 +44,8 @@ export const FIXTURES = {
         id: 41, ts: iso(at("09:10")), actor: JASON, action: "band.write", target: "house band", reason: "Cooler nights for winter",
         detail: {
           changes: [
-            { param: "temp_low_sunrise", desired_id: 901, before: 60, value: 58 }, { param: "temp_low_sunset", desired_id: 902, before: 62, value: 60 },
-            { param: "vpd_high_noon", desired_id: 903, before: 1.4, value: 1.3 }, { param: "vpd_low_midnight", desired_id: 904, before: 0.5, value: 0.6 },
+            { param: "band_temp_low_sr", desired_id: 901, before: 60, value: 58 }, { param: "band_temp_low_ss", desired_id: 902, before: 62, value: 60 },
+            { param: "band_vpd_high_sm", desired_id: 903, before: 1.4, value: 1.3 }, { param: "band_vpd_low_mid", desired_id: 904, before: 0.5, value: 0.6 },
           ],
         },
         state: "confirmed", confirmed_at: iso(at("09:11")),

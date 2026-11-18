@@ -9,7 +9,7 @@
  *
  * @type {Readonly<Record<string, (world: any) => void>>}
  */
-import { FIXTURES as BASE, JASON, clock, iso, lineOf } from "./world.mjs";
+import { FIXTURES as BASE, DAY, JASON, clock, iso, lineOf } from "./world.mjs";
 
 const EVERY_DAY = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -18,6 +18,11 @@ export const FIXTURES = {
   // it has not reported and draws nothing.
   "soil-west-unserved": (world) => {
     world.metrics = world.metrics.filter((metric) => !String(metric.key).endsWith("_west") || !String(metric.key).startsWith("climate.soil_"));
+  },
+  // Soil (design review B10): the south 1 probe silent for three days, as the production probes have been since Nov 14.
+  // Its panel shows a dash and "no reading since …" for each measure, never its last number as if it were current.
+  "soil-silent": (world) => {
+    world.outages.push({ keys: ["climate.soil_moisture_south_1", "climate.soil_temp_south_1", "climate.soil_ec_south_1"], from: world.now - 3 * DAY, to: Number.POSITIVE_INFINITY });
   },
   /**
    * Schedules' day (redesign §6.2, §6.6) with something on every kind of row: schedules-paused's week, L01 paused until

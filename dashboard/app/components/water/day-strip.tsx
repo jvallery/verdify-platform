@@ -47,7 +47,7 @@ export function DayStrip({ name, from, to, night, blocks, episodes, valveKnown =
   const scale = timeScale(from, to);
   // A block's words take the room to its neighbour on this strip, measured once it is drawn.
   const [trackRef, trackPx] = useWidthOf<HTMLDivElement>();
-  const rooms = blockRooms(blocks, scale, now / 1000);
+  const rooms = blockRooms(blocks, scale, now / 1000, valveKnown ? episodes : []);
   // Fallback windows ahead run only if VPD sensing fails: never "next", counted apart.
   const fallbacks = blocks.filter((block) => block.part === "run" && block.status === "conditional" && block.start > now / 1000).length;
   return <div className={cls("wat-day", apiDown && "is-neutral")}>

@@ -2,6 +2,7 @@
 import { Link } from "react-router";
 import type { ScheduleAgenda } from "../../lib/operator-api";
 import { localDate, shortTime } from "../../lib/format";
+import { Chevron } from "../layout/chevron";
 import type { LineInfo } from "./model";
 
 /** A saved rule is not a run. Count enabled rules separately from occurrences and never call a backup window
@@ -29,7 +30,7 @@ export function ScheduleOverview({ agenda, day, now, info }: { agenda: ScheduleA
   return <section className="schedule-summary" aria-label="Watering schedule at a glance">
     <div><h2>Watering program</h2><p className="meta">Recurring rules define when watering may start. Safety checks still decide whether a run proceeds.</p></div>
     <dl><div><dt>Routine rules</dt><dd>{summary.routine} enabled</dd></div><div><dt>Sensor-fault backup</dt><dd>{summary.backup} windows</dd></div><div><dt>Switched off</dt><dd>{summary.disabled} rules</dd></div></dl>
-    <p><strong>Next routine start: </strong>{summary.next ? <>{shortTime(summary.next.planned_start)} · {info.nameOf(summary.next.line_id)}</> : "None remaining on the selected day"}. <a href="#sch-rules-title">Review saved rules ↓</a></p>
-    <Link to="/water">Live water status →</Link>
+    <p><strong>Next routine start: </strong>{summary.next ? <>{shortTime(summary.next.planned_start)} · {info.nameOf(summary.next.line_id)}</> : "None remaining on the selected day"}. <a href="#sch-rules-title">Review saved rules<Chevron /></a></p>
+    <p><Link to="/water">Live water status<Chevron /></Link></p>
   </section>;
 }
