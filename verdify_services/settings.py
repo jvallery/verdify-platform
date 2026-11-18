@@ -49,6 +49,7 @@ from verdify_schemas.setting_values import (
 )
 from verdify_schemas.tunable_registry import (
     AGENT_SETTABLE_PARAMS,
+    LEGACY_WIDE_LIMIT_PARAMS,
     OWNER_ONLY_PARAMS,
     REGISTRY,
     SWITCH_READBACK_EQUIPMENT,
@@ -421,13 +422,27 @@ def _writable_desired(param: str, desired: Mapping[str, Any] | None) -> Mapping[
 def applied_from(spec: TunableDef, desired: Mapping[str, Any] | None) -> AppliedFrom:
     """Whose value the dispatcher applies (§5.2): manual or desired by ``resolve_effective()`` (with no plan, as the
     dispatcher resolves since climate refactor 4.2); with no desired row (or a released one), band for a band or
-    schedule setting, else default."""
+    schedule setting, else default.
+
+    A legacy wide limit reads default: band means the host sends the band's value, and the host sends these four no
+    more (``_unsent``), so the value in force is the controller's own."""
     desired = _writable_desired(spec.name, desired)
     if resolve_effective(desired, None) is not None:
         return "manual" if desired is not None and desired["manual"] else "desired"
+    if _unsent(spec.name):
+        return "default"
     if spec.push_owner in ("band", "schedule"):
         return "band"
     return "default"
+
+
+def _unsent(param: str) -> bool:
+    """A setting the host no longer sends: the legacy wide limits. ``setpoint_dispatcher`` pushes them only while
+    the band anchors are not yet confirmed by their readbacks (``ingestor/tasks/dispatcher.py``, ``if band_row and
+    not anchors_live``); once the on-chip curve runs from confirmed anchors it stops, so their last push can never be
+    confirmed. They read as never requested: confirmed with a readback, else no_readback. They are read-only, so no
+    desired row of theirs is writable either."""
+    return param in LEGACY_WIDE_LIMIT_PARAMS
 
 
 def _request_of(spec: TunableDef, facts: _Facts) -> tuple[str, _Request | None]:
@@ -444,6 +459,8 @@ def _request_of(spec: TunableDef, facts: _Facts) -> tuple[str, _Request | None]:
         if value is None:
             return "none", None
         return "desired", _Request("desired", value, desired["created_at"], readback_matches)
+    if _unsent(spec.name):
+        return "none", None
     if facts.last_push is not None and (value := _finite(facts.last_push["value"])) is not None:
         return "push", _Request("push", value, facts.last_push["ts"], _equivalent)
     return "none", None
@@ -489,7 +506,8 @@ def _evaluate_site(param: str, request: _Request | None, facts: _Facts, shared: 
 def evaluate(spec: TunableDef, facts: _Facts, shared: _Shared) -> _Evaluation:
     """§5.5 readback state: the first that holds of released, confirmed, no_readback, requested and
     not_confirmed, with ``state_reason`` for requested and not_confirmed. A setting nobody ever requested reads
-    confirmed when it has a readback, else no_readback (never not_confirmed).
+    confirmed when it has a readback, else no_readback (never not_confirmed); so does a setting the host no longer
+    sends (``_unsent``), whatever its last push.
 
     Only readbacks at or after the request count. A desired value confirms by ``readback_matches()``; a band or
     default push by ``readback_values_equivalent()``. A clamp (the dispatcher's ``setpoint_clamps`` row) reads
@@ -737,8 +755,8 @@ async def _gather(
     readbacks = await _readbacks(conn, names)
     # Climate refactor 4.2: no plan reaches the controller, so no plan row is read (the dispatcher resolves with none).
     facts = {name: _Facts(desired=desired_rows.get(name), readback=readbacks.get(name)) for name in names}
-    # A band or default setting with no desired row is judged against the newest push.
-    unrequested = [name for name in names if _writable_desired(name, facts[name].desired) is None]
+    # A band or default setting with no desired row is judged against the newest push (not a legacy wide limit).
+    unrequested = [name for name in names if _writable_desired(name, facts[name].desired) is None and not _unsent(name)]
     if unrequested:
         for row in await conn.fetch(_LAST_PUSH_SQL, GREENHOUSE_ID, unrequested, PUSH_WINDOW, DEVICE_OBSERVED_SOURCE):
             facts[row["param"]].last_push = row

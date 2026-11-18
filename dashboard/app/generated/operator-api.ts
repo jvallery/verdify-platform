@@ -3598,7 +3598,7 @@ export interface components {
         /** @description One tunable_registry row, or a read-only Band in force row, as the Settings screen shows it */
         readonly Setting: {
             /**
-             * @description What the dispatcher applies now (release C retired plan, which no setting has read since climate refactor 4.2)
+             * @description What the dispatcher applies now (release C retired plan, which no setting has read since climate refactor 4.2); a legacy wide limit reads default, because the host no longer sends it and the controller's own value is in force
              * @enum {string}
              */
             readonly applied_from: "manual" | "desired" | "band" | "default";

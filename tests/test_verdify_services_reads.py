@@ -281,8 +281,11 @@ def test_applied_from_is_the_settings_rule_with_no_plan():
     assert settings.applied_from(spec, desired_row(manual=True)) == "manual"
     assert settings.applied_from(spec, desired_row()) == "desired"
     assert settings.applied_from(spec, desired_row(value=None)) == "default"
+    assert REGISTRY["band_temp_low_sr"].push_owner == "band"
+    assert settings.applied_from(REGISTRY["band_temp_low_sr"], None) == "band"
+    # A legacy wide limit is pushed by the band no more: the controller's own value is in force.
     assert REGISTRY["temp_low"].push_owner == "band"
-    assert settings.applied_from(REGISTRY["temp_low"], None) == "band"
+    assert settings.applied_from(REGISTRY["temp_low"], None) == "default"
     assert REGISTRY["gl_main_lux_threshold"].push_owner == "schedule"
     assert settings.applied_from(REGISTRY["gl_main_lux_threshold"], None) == "band"
     assert settings.applied_from(spec, None) == "default"

@@ -303,7 +303,10 @@ def registry_row(name: str, spec: TunableDef) -> dict[str, Any]:
         "readback_via": via,
         "readback": readback,
         "desired": None,
-        "applied_from": "band" if spec.push_owner in ("band", "schedule") else "default",
+        # A legacy wide limit is never sent, so the controller's own value is in force (verdify_services.settings).
+        "applied_from": "band"
+        if spec.push_owner in ("band", "schedule") and name not in LEGACY_WIDE_LIMITS
+        else "default",
         "state": "no_readback" if via == "none" else "confirmed",
     }
     row |= SCENARIO.get(name, {})

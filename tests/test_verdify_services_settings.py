@@ -1038,6 +1038,25 @@ def test_without_a_desired_row_or_plan_a_band_value_is_judged_against_the_newest
     assert status(db, "band_temp_low_sr").state == "not_confirmed"
 
 
+@pytest.mark.parametrize("param", sorted(LEGACY_WIDE_LIMIT_PARAMS))
+def test_a_legacy_wide_limit_the_host_no_longer_sends_is_never_requested(param):
+    """The dispatcher stopped pushing the four once the band anchors were confirmed, so their last push can never
+    confirm: they read confirmed with a readback, else no_readback, never not_confirmed, and the value in force is
+    the controller's own (default), not the band's."""
+    db = FakeDB()
+    db.changes.append(
+        {"parameter": param, "ts": ago(days=3), "value": 61.0, "source": "band", "delivery_status": "sent"}
+    )  # fmt: skip
+    result = status(db, param)
+    assert (result.state, result.state_reason, result.applied_from) == ("no_readback", None, "default")
+    db.snapshots.append((param, ago(minutes=1), 45.0))  # the controller's own value, never the last push
+    result = status(db, param)
+    assert (result.state, result.state_reason, result.applied_from) == ("confirmed", None, "default")
+    assert result.desired is None
+    row = catalog(db)[param]
+    assert (row.state, row.applied_from, row.read_only_kind) == ("confirmed", "default", "legacy_wide_limit")
+
+
 def test_status_of_an_unknown_setting_is_not_found():
     with pytest.raises(ServiceError) as excinfo:
         status(FakeDB(), "no_such_setting")

@@ -2085,7 +2085,7 @@ components:
           description: 'cfg_* sensor, a native number, switch or equipment_state mirror, the irrigation program hash (irrigation_site), or none'
         readback: {anyOf: [{$ref: '#/components/schemas/Reading'}, {type: 'null'}], description: 'Newest readback; for irrigation_site rows the value in the applied program'}
         desired: {anyOf: [{$ref: '#/components/schemas/DesiredSetting'}, {type: 'null'}]}
-        applied_from: {type: string, enum: [manual, desired, band, default], description: 'What the dispatcher applies now (release C retired plan, which no setting has read since climate refactor 4.2)'}
+        applied_from: {type: string, enum: [manual, desired, band, default], description: 'What the dispatcher applies now (release C retired plan, which no setting has read since climate refactor 4.2); a legacy wide limit reads default, because the host no longer sends it and the controller''s own value is in force'}
         state: {$ref: '#/components/schemas/ReadbackState', description: 'Of the newest write, else of the applied value against the readback'}
         effect:
           type: string
