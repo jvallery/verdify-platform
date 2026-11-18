@@ -35,7 +35,7 @@ for (const size of [PHONE, TABLET, DESKTOP]) {
     await load(page, "/");
     for (const selector of [".now-hero", "#doing", "#needs-you", "#today", "#run-by-hand", ".now-water", "#daily-review", "#probes"]) await expect(page.locator(selector).first()).toBeVisible();
     await expectNoHorizontalScroll(page);
-    expect(await fixtureRequests(request, "API-07")).toEqual([]);
+    expect((await fixtureRequests(request)).filter((row) => /\/v1\/plan(ner)?(\/|\?|$)/.test(row.path))).toEqual([]);
   });
 }
 

@@ -11,7 +11,6 @@ functions, so a person and an agent get the same answer for the same input.
   insert trigger is the only wake; nothing here writes ``setpoint_changes``.
 - ``status(conn, param)``: whose value applies and the readback state (§5.5). Display only: it raises no alert. The
   ``irrigation_site`` rows read back through the program the controller confirms (irrigation §4.1 and §8.3, #1155).
-  ``statuses(conn, params)`` is the same for several settings in one batched read (API-07's lanes).
 - ``history(conn, param, from_, to)``: the desired rows and the readback change points over a window.
 - ``desired_states(conn, ids)``: named ``desired_state`` rows with their readback state, by ``history``'s rule
   (API-17's ``setting.write`` and ``setting.release`` rows).
@@ -932,17 +931,6 @@ async def status(conn: asyncpg.Connection, param: str) -> SettingStatus:
     async with _snapshot(conn):
         facts, shared = await _gather(conn, [spec])
     return _setting_status(spec, facts[spec.name], shared)
-
-
-async def statuses(conn: asyncpg.Connection, params: Sequence[str]) -> dict[str, SettingStatus]:
-    """``status()`` of several settings in one batched read, by param (API-07's lanes, so Plan and Settings show the
-    same state and reason). Names outside ``REGISTRY`` are left out. Display only, as ``status()``."""
-    specs = [REGISTRY[name] for name in dict.fromkeys(params) if isinstance(name, str) and name in REGISTRY]
-    if not specs:
-        return {}
-    async with _snapshot(conn):
-        facts, shared = await _gather(conn, specs)
-    return {spec.name: _setting_status(spec, facts[spec.name], shared) for spec in specs}
 
 
 def _row_evaluation(

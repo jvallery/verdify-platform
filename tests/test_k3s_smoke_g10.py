@@ -411,8 +411,7 @@ class FakeDashboard:
                 "max": 300.0,
                 "readback": {"value": self.base_value},
                 "desired": options.get("desired"),
-                "plan": None,
-                "applied_from": "plan",
+                "applied_from": "default",
                 "state": "confirmed",
             },
             "sw_gl_main_auto_mode": {
@@ -425,7 +424,6 @@ class FakeDashboard:
                 "max": None,
                 "readback": {"value": options.get("auto_mode", 1)},
                 "desired": options.get("auto_desired"),
-                "plan": None,
                 "applied_from": "band",
                 "state": "confirmed",
             },
@@ -439,7 +437,6 @@ class FakeDashboard:
                 "max": 2.0,
                 "readback": {"value": 1.0},
                 "desired": None,
-                "plan": None,
                 "applied_from": "band",
                 "state": "confirmed",
             },
@@ -478,9 +475,6 @@ class FakeDashboard:
                 if not self.options.get("device_stays"):
                     row["readback"]["value"] = self.base_value
                 row["state"] = "released"
-            elif self.options.get("held"):
-                row["state"] = "held"
-                desired["state_reason"] = {"code": "experiment", "detail": "exp-7\narmed"}
             elif self.options.get("never_confirms"):
                 row["state"] = "not_confirmed"
                 desired["state_reason"] = {"code": "no_match"}
@@ -589,9 +583,6 @@ class FakeDashboard:
                 row["state"] = "requested"
                 if param == "sw_gl_main_auto_mode" and stored == 1 and body.get("reason") == "Back to automatic":
                     self.hold = None
-                if self.options.get("held"):
-                    # settings.write answers the state now: an armed experiment holds a policy field at once.
-                    row["desired"].update(state="held", state_reason={"code": "experiment", "detail": None})
                 self.history = [*self.history, row["desired"]]
                 self._log("setting.write", param, key, actor)
                 return 200, row["desired"]
@@ -982,20 +973,6 @@ def test_operator_leg_releases_a_write_that_never_confirms(tmp_path):
     )
     assert world.calls_writing()[-1]["method"] == "DELETE"
     assert "PASS  API-11 releases mister_engage_delay_s (200)" in result.stdout
-
-
-@needs_node
-@pytest.mark.parametrize("arguments", [["--role", "operator"], ["--role", "operator", "--revert"]])
-def test_setting_legs_print_held_from_the_writes_own_answer_and_still_release(tmp_path, arguments):
-    world = FakeDashboard(held=True)
-    result, _, _ = run_leg(tmp_path, world, *arguments)
-    assert result.returncode == 1
-    assert "PASS  API-10 writes mister_engage_delay_s one grid step, manual, and answers held (200)" in result.stdout
-    assert "HELD  API-09 holds mister_engage_delay_s for an armed experiment (exp-7 armed)" in result.stdout
-    assert "NOT GREEN" in result.stdout
-    # One write on either leg: a held value is not stepped further.
-    operator_writes = [call["method"] for call in world.calls_writing() if call["role"] == "operator"]
-    assert operator_writes == ["PUT", "DELETE"]
 
 
 @needs_node
@@ -1438,20 +1415,6 @@ def test_agent_program_releases_its_own_row():
     own = {"id": 1, "value": 1.0, "manual": False, "actor": {"source": "agent:orbit", "name": "orbit"}}
     result = run_agent_program(fake_mcp(calls, row=AGENT_ROW, row_after_write={**AGENT_ROW, "desired": own}))
     assert result.returncode == 0, result.stdout + result.stderr
-    assert len(agent_released(calls)) == 1
-
-
-def test_agent_program_prints_a_held_write_and_still_releases():
-    calls = []
-
-    def held(arguments):
-        if arguments.get("release"):
-            return {"id": 2, "state": "released"}, False
-        return {"id": 1, "state": "held", "state_reason": {"code": "experiment"}}, False
-
-    result = run_agent_program(fake_mcp(calls, row=AGENT_ROW, set_setting=held))
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "PASS set_setting answers state held" in result.stdout
     assert len(agent_released(calls)) == 1
 
 

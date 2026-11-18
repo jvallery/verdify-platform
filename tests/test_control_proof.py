@@ -135,10 +135,10 @@ def test_the_brief_carries_the_law_state_only_while_it_is_fresh():
     sys.path.insert(0, str(ROOT / "api"))
     import greenhouse_brief_job as job
     from test_greenhouse_brief import AT as BRIEF_AT
-    from test_greenhouse_brief import now_model
+    from test_greenhouse_brief import MODE, now_model
 
     law = reads.law_state(json.dumps(RECORD), BRIEF_AT, BRIEF_AT)
-    sheet = job.build_sheet(job.Gathered(now=now_model(law=law.model_dump())), BRIEF_AT)
+    sheet = job.build_sheet(job.Gathered(now=now_model(law=law.model_dump()), mode=MODE), BRIEF_AT)
     assert sheet["climate_law"] == {
         "drying": "refused",
         "drying_refused_because": "cost",
@@ -147,7 +147,7 @@ def test_the_brief_carries_the_law_state_only_while_it_is_fresh():
         "band_repaired_by_controller": False,
         "heaters_requested_by_law": ["heat1"],
     }
-    assert "climate_law" not in job.build_sheet(job.Gathered(now=now_model()), BRIEF_AT)
+    assert "climate_law" not in job.build_sheet(job.Gathered(now=now_model(), mode=MODE), BRIEF_AT)
 
 
 SAMPLES = ROOT / "tests/fixtures/climate_law_samples"

@@ -836,7 +836,7 @@ export interface paths {
         };
         /**
          * Now hero
-         * @description Indoor and outdoor climate with ages, the band in force (the dispatcher's DERIVED band rows) with a verdict per metric, mode, Iris status, equipment running, bursts from the controller's readback, the leak flag, the open-alert count, source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot. The climate law's state carries the band the controller is using; review is the daily review's state today (as API-34's today); outdoor.source says where the outdoor reading comes from; controller carries the three health facts the shell's banner reads. Polled every 15 s; the shell banners read `freshness`, `writer`, `leak` and `alerts`. Water and occupancy come from API-IRR-01.
+         * @description Indoor and outdoor climate with ages, the band in force (the dispatcher's DERIVED band rows) with a verdict per metric, equipment running, bursts from the controller's readback, the leak flag, the open-alert count, source freshness with the ingestor heartbeat, the device writer and the greenhouse snapshot. The climate law's state carries the band the controller is using; review is the daily review's state today (as API-34's today); outdoor.source says where the outdoor reading comes from; controller carries the three health facts the shell's banner reads. Polled every 15 s; the shell banners read `freshness`, `writer`, `leak` and `alerts`. Water and occupancy come from API-IRR-01.
          */
         readonly get: operations["API-02"];
         readonly put?: never;

@@ -479,5 +479,9 @@ Every row of the table above. In detail:
   redirect to Review.
 - **Smoke.** `scripts/dashboard-smoke.sh --sweep` reads API-06 with `zone=house` (was `zone=south`), API-19 with
   `band_vpd_target_sm` (was `zone_vpd_target_center_sm`) and checks API-13's two reasons (was three, with
-  `mode_reason`). Each leg passes against 088414f4 too.
+  `mode_reason`). The `--role operator` legs (with and without `--revert`) no longer accept the `held` state or the
+  `experiment` reason (no `HELD` line; a write must answer `requested`), and after a release they wait only for the
+  device to leave the check's value (no `applied_from: plan` case). The `--agent-write` leg's description no longer
+  mentions `held`; it still prints whatever state `set_setting` answers. Each leg passes against 088414f4 too; that
+  API answers `held` only under an armed experiment, and the retired experiment platform arms none.
 - **Restart.** `verdify-operator-api` and `verdify-mcp`. No migration and no database change.

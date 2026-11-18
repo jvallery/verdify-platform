@@ -640,6 +640,8 @@ _HA_ONLY_TEMPEST = (
 # TEL-F6 (RULINGS AF11): no value in 90 days and no probe planned, so the catalog does not offer an always-empty
 # series. The soil_* columns stay offered: new soil probes are on order (AB3).
 _NO_SOURCE = "No source in 90 days and no probe planned (TEL-F6, RULINGS AF11)"
+# Release C (docs/design/dashboard/v2/api.md §7): the plan-era targets group retired; the law has one band (API-06).
+_NO_TARGETS = "Release C: the on-chip targets group retired; the law has one band, read through API-06"
 EXCLUDED_COLUMNS: dict[str, str] = {
     "lux": _NO_DLI,
     "dli_today": _NO_DLI,
@@ -669,6 +671,19 @@ EXCLUDED_COLUMNS: dict[str, str] = {
     "ec_runoff_wall": _NO_SOURCE,
     "ph_runoff_center": _NO_SOURCE,
     "ec_runoff_center": _NO_SOURCE,
+    "house_temp_target_f": _NO_TARGETS,
+    "house_temp_delta_f": _NO_TARGETS,
+    "house_vpd_target": _NO_TARGETS,
+    "house_vpd_delta": _NO_TARGETS,
+    "vpd_target_center": _NO_TARGETS,
+    "vpd_target_south": _NO_TARGETS,
+    "vpd_target_west": _NO_TARGETS,
+    "vpd_target_east": _NO_TARGETS,
+    "vpd_delta_center": _NO_TARGETS,
+    "vpd_delta_south": _NO_TARGETS,
+    "vpd_delta_west": _NO_TARGETS,
+    "vpd_delta_east": _NO_TARGETS,
+    "hydro_battery_pct": "Release C: not served; the hydroponic meter runs on mains power",
 }
 
 

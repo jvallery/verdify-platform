@@ -1339,24 +1339,6 @@ def test_history_refuses_a_backwards_or_naive_window():
 # ── Batched reads for API-17 (VD-55) ────────────────────────────────────────
 
 
-def test_statuses_is_status_for_each_setting_in_one_batch_and_leaves_unknown_names_out():
-    db = FakeDB()
-    db.add_desired(KPA, 0.15, manual=True, at=ago(minutes=10))
-    db.snapshots.append((KPA, ago(minutes=1), 0.15))
-    db.add_plan(DELAY, 48.75, created_at=ago(hours=1))
-    db.snapshots.append((DELAY, ago(minutes=1), 48.75))
-    db.add_desired(PRESSURE, 845.0, at=ago(minutes=10))
-    db.clamps.append({"parameter": PRESSURE, "ts": ago(minutes=9), "applied": 840.0, "reason": "guard_x"})
-    db.snapshots.append((PRESSURE, ago(minutes=1), 840.0))
-    expected = {param: status(db, param) for param in (KPA, DELAY, PRESSURE)}
-    db.sql.clear()
-    batched = run(settings.statuses(db, [KPA, DELAY, "no_such_setting", PRESSURE, KPA]))
-    assert batched == expected
-    assert [result.state for result in batched.values()] == ["confirmed", "confirmed", "not_confirmed"]
-    assert db.sql.count(reads._REPORTING_SQL) == 1  # one gather for all three
-    assert run(settings.statuses(db, ["no_such_setting"])) == {}
-
-
 def test_desired_states_give_each_named_row_the_state_history_gives_it():
     db = FakeDB()
     old = db.add_desired(PRESSURE, 840.0, at=ago(hours=8))

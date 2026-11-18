@@ -60,8 +60,8 @@
 #   - A one-shot Job in verdify-prod, label verdify.ai/mcp-agent "true", the live verdify-mcp digest, no ServiceAccount
 #     token, restricted, backoffLimit 0, activeDeadlineSeconds 120, with that key as an env var. It retries its first
 #     connect for up to 30 s, reads the setting through MCP settings, refuses unless the newest desired row is absent or
-#     released, then calls set_setting and set_setting(release=true), and prints only the returned state and codes (held under an armed experiment, which is not a failure here:
-#     this leg waits for no readback). A SIGTERM still runs the release. A Job that ended Complete with no write in its
+#     released, then calls set_setting and set_setting(release=true), and prints only the returned state and codes (this leg
+#     waits for no readback). A SIGTERM still runs the release. A Job that ended Complete with no write in its
 #     log is a FAIL, because nothing then shows what it did.
 #   - Since climate refactor 4.2 an agent may write only the three operator switches. The leg writes only
 #     sw_gl_grow_out_of_service (default) or sw_gl_main_out_of_service, and only from 0 to 1: that light is out of
@@ -76,10 +76,9 @@
 # its newest desired row is absent or released; a crop-band or irrigation-site setting is refused too, because a
 # release does not undo the first and the second cannot confirm before the engine firmware.
 #   - --role operator: a viewer's same PUT answers 403 forbidden and adds no row. API-10 writes the device value plus
-#     one step (minus at the max), manual, and answers requested, or held under an armed experiment; API-09, polled
-#     every 5 s, reads confirmed (FAIL after 5 minutes; held by an armed experiment prints HELD with its detail, so
-#     repeat it after disarm or with another --param). API-11 releases it, the row reads released and the device leaves
-#     the check's value within 5 minutes, for its plan, band or default value. API-17 lists setting.write, then
+#     one step (minus at the max), manual, and answers requested; API-09, polled every 5 s, reads confirmed (FAIL after
+#     5 minutes). API-11 releases it, the row reads released and the device leaves the check's value within 5 minutes,
+#     for its band or default value. API-17 lists setting.write, then
 #     setting.release, source dashboard, actor dashboard-smoke.
 #   - --revert: API-10 writes one step, then the device value, each manual and each read to confirmed; then, as the
 #     drawer does, the desired row before the newest in API-12, back through API-10: requested, then confirmed. API-11
@@ -107,7 +106,7 @@
 # Its release runs on every path; the in-pod program runs on to its own deadlines if this host's exec dies. Only a pod
 # that dies mid-leg leaves a row to release by hand: docs/runbooks/dashboard.md, "Live checks".
 #
-# Exit code 0 = every check passed; 1 = at least one FAIL or HELD; 2 = bad usage or a missing tool.
+# Exit code 0 = every check passed; 1 = at least one FAIL; 2 = bad usage or a missing tool.
 
 set -uo pipefail
 
@@ -222,8 +221,6 @@ done
 PASS=0; FAIL=0
 pass() { echo "  PASS  $1"; PASS=$((PASS+1)); }
 fail() { echo "  FAIL  $1"; FAIL=$((FAIL+1)); }
-# Not a pass: the check is repeated after disarm or with another --param.
-held() { echo "  HELD  $1"; FAIL=$((FAIL+1)); }
 
 # What a stopped run must not leave behind. The Job's own ttlSecondsAfterFinished covers a kill -9 here.
 AGENT_JOB=""
@@ -239,7 +236,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 # The checks inside the web pod. "$@" is the leg and its arguments, nothing for the baseline. stderr stays here
-# because a crash's stack trace is not a check name; run_web_pod_checks passes on only the PASS, FAIL and HELD lines.
+# because a crash's stack trace is not a check name; run_web_pod_checks passes on only the PASS and FAIL lines.
 web_pod_checks() {
   exec kubectl -n verdify-dashboard exec -i deploy/verdify-dashboard-web -c web -- \
     node --input-type=module - "${EXPECTED_WEB_SHA}" "$@" 2>/dev/null <<'JS'
@@ -491,21 +488,19 @@ function oneStep(row) {
   return row.max == null || up <= row.max ? up : onGrid(row.readback.value - row.step);
 }
 
-// API-10, with the same key if an answer is lost: the row, or null after a FAIL line. An armed experiment serves the
-// policy fields, so the write's own answer already reads held, and untilConfirmed then prints HELD.
+// API-10, with the same key if an answer is lost: the row, or null after a FAIL line.
 async function writeSetting(bff, param, value, reason, what, manual = true) {
   const key = randomUUID();
   let answer = { status: null };
   for (let attempt = 0; attempt < RELEASE_TRIES && answer.status === null; attempt++) {
     answer = await bff(`/api/v1/settings/${param}`, { method: "PUT", origin: ORIGIN, key, body: { value, manual, reason } });
   }
-  const held = answer.json?.state === "held" && answer.json?.state_reason?.code === "experiment";
-  const ok = answer.status === 200 && (answer.json?.state === "requested" || held) && Number.isInteger(answer.json?.id);
-  check(`API-10 writes ${param} ${what} and answers ${held ? "held" : "requested"}`, answer, ok);
+  const ok = answer.status === 200 && answer.json?.state === "requested" && Number.isInteger(answer.json?.id);
+  check(`API-10 writes ${param} ${what} and answers requested`, answer, ok);
   return ok ? { id: answer.json.id, value: answer.json.value, key } : null;
 }
 
-// API-09 every 5 s until this write reads confirmed: true, or false after its FAIL or HELD line.
+// API-09 every 5 s until this write reads confirmed: true, or false after its FAIL line.
 async function untilConfirmed(bff, param, written) {
   const begun = Date.now();
   let last = "no answer";
@@ -520,11 +515,6 @@ async function untilConfirmed(bff, param, written) {
       if (row.state === "confirmed") {
         said(true, `API-09 reads ${param} confirmed`, `after ${secondsSince(begun)} s`);
         return true;
-      }
-      if (row.state === "held" && reason?.code === "experiment") {
-        const detail = reason.detail ? String(reason.detail).replace(/[^\x20-\x7e]/g, " ").slice(0, 200) : "no detail";
-        console.log(`HELD API-09 holds ${param} for an armed experiment (${detail}): repeat after disarm or with another --param`);
-        return false;
       }
       last = reason?.code ? `${row.state}, ${reason.code}` : row.state;
     }
@@ -581,8 +571,7 @@ async function readsReleased(bff, param, released) {
   check(`API-09 reads ${param} released`, answer, row?.state === "released" && row.desired?.id === released.id && row.desired.value === null);
 }
 
-// The next pass returns the setting to its plan, band or default value, so the device leaves the check's value; the one
-// case that stays is a plan now in force at that value.
+// The next pass returns the setting to its band or default value, so the device leaves the check's value.
 async function untilBack(bff, param, written, step) {
   const near = (a, b) => Number.isFinite(a) && Math.abs(a - b) < step / 2;
   const begun = Date.now();
@@ -591,8 +580,7 @@ async function untilBack(bff, param, written, step) {
     const { row } = await settingRow(bff, param);
     if (row) {
       const device = row.readback?.value;
-      const planHolds = row.applied_from === "plan" && near(row.plan?.value, written);
-      if ((Number.isFinite(device) && !near(device, written)) || planHolds) {
+      if (Number.isFinite(device) && !near(device, written)) {
         said(true, `the device leaves the check's ${param} once it is released`, `applied from ${row.applied_from}, after ${secondsSince(begun)} s`);
         return;
       }
@@ -1213,7 +1201,6 @@ run_web_pod_checks() {
     case "${line}" in
       "PASS "*) pass "${line#PASS }" ;;
       "FAIL "*) fail "${line#FAIL }" ;;
-      "HELD "*) held "${line#HELD }" ;;
       END) finished=1 ;;
     esac
   done < <(bounded "${WEB_POD_DEADLINE_S}" web_pod_checks "$@")
@@ -1430,7 +1417,7 @@ echo ""
 echo "── summary ─────────────────────────────────"
 echo "  passed=${PASS} failed=${FAIL}"
 if [ "${FAIL}" -gt 0 ]; then
-  echo "  RESULT: NOT GREEN — review the FAIL and HELD lines above."
+  echo "  RESULT: NOT GREEN — review the FAIL lines above."
   exit 1
 fi
 echo "  RESULT: GREEN"

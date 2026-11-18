@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Coming up on Now's Today (dashboard v2 screens §1) against the fixture API in process at 10:42: the next 12 h in time
 // order (the scheduled water runs, the lights' windows and the sun) as `[data-coming]` rows, then "Later"; it reads no
-// plan (no API-07), each read fails alone and says so, and before the irrigation firmware the runs say when they come.
+// plan (no /v1/plan read), each read fails alone and says so, and before the irrigation firmware the runs say when they come.
 import { cleanup, fireEvent, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { panelRead, useApiRead } from "../lib/queries";
@@ -35,7 +35,7 @@ test("in band: the next 12 h in time order, runs, lights and the sun, and the li
   expect([...times].sort()).toEqual(times);
   expect([...coming("run"), ...coming("light"), ...coming("sun")].length).toBe(times.length);
   expect(coming("later").join(" ")).toMatch(/^Later /);
-  expect(requests(api, "API-07")).toEqual([]);
+  expect(requests(api).filter((row) => /\/v1\/plan(ner)?(\/|\?|$)/.test(row.path))).toEqual([]);
   expect(text(card())).not.toMatch(/\b(plan|planned|planner|Iris|waypoint|forecast)\b/i);
 });
 
