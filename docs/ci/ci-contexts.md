@@ -20,9 +20,9 @@ seconds).
 | `ci / dashboard` | required | 0.2 / 0.4 | |
 | `ci / campaign` | required | aggregate | since 2026-11-16 (CI audit) aggregates the `campaign-qualification-<i>of4` shards, whose selection already holds every `tests/test_dashboard_db_*.py` file the old four `campaign-<i>of4` shards ran a second time |
 | `ci / lint` | required | 0.2 / 0.2 | |
-| `ci / platform-static` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 0.3 / 0.4 | 12 of 12 main runs green since 2026-11-09 |
-| `ci / platform-tests` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 2.2 / 2.5 | 12 of 12 main runs green since 2026-11-09 |
-| `ci / firmware-logic` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | 0.6 / 0.9 | 12 of 12 main runs green since 2026-11-09 |
+| `ci / platform-static` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | aggregate | since #1716 C2 aggregates the validate parts (its ruff passes are a subset of validate-rest's); before, 0.3 / 0.4 on its own pod |
+| `ci / platform-tests` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | aggregate | since #1716 C2 aggregates the validate parts, which run every file it ran (`tests/test_gha_firmware_secretless_compile.py` moved into the pure-logic list); before, 2.2 / 2.5 |
+| `ci / firmware-logic` | required since 2026-11-13T22:46Z (#1535 Q1 default a) | aggregate | since #1716 C2 aggregates the validate parts; `containment-firmware` runs its suites (`make test-gap-log` for both record formats and the device side, the override replay over the corpus, besides the logic, running-alone, climate-law and invariant targets it already ran); before, 0.6 / 0.9 |
 | `ci / firmware-secretless-compile` | required since 2026-11-15T15:2xZ (#1535 step 4 part 2; gates: 10 consecutive green main runs on the `verdify-esphome-ci` job image, 931dc223..18ed4f00, each shard log with 0 platform/tool downloads and `platformio_core: baked`) | aggregate | two target shards: `firmware-secretless-compile-greenhouse` 7.7 / 9.1 (also runs the generated-cpp negative) and `firmware-secretless-compile-greenhouse-recovery` 6.9 / 9.3; unsharded baked p50 was 20.6 (2026-11-12) |
 | `ci / campaign-qualification` | required since 2026-11-15T15:2xZ (#1535 step 4 part 2; gate: aggregate green on the 10 latest main runs) | aggregate | four shards `campaign-qualification-<i>of4` of the tool's default selection: 1of4 6.9 / 11.4, 2of4 6.6 / 15.3, 3of4 7.2 / 8.8, 4of4 5.0 / 7.2; unsharded p50 was about 39.6 (2026-11-12) |
 | `ci / buildcheck` | required since 2026-11-15T15:2xZ (#1535 step 4 part 2, carried from #1534; gate: green on the 10 latest main runs and the 10 latest non-cancelled PR runs, 4 of which built images) | aggregate | on push it reports the skipped impact as a pass; `VERDIFY_BUILDCHECK` is `true` since 2026-11-10 |
@@ -54,16 +54,22 @@ still reports; a check that the class does not need passes as "not impacted":
 |---|---|---|
 | `pins` | every changed path is `deploy/k8s/overlays/prod/kustomization.yaml`, `deploy/k8s/overlays/prod/release-pins.yaml` or `deploy/k8s/dashboard/kustomization.yaml`, and only `sha256:` digest values or comment lines differ | the validate `pins` part (`ci/gha/pins-check.sh`: both renders, zero `kind: Secret` in the prod render, the pin-shape and release-pin tests), secret-scan, lint, buildcheck |
 | `docs` | every changed path is Markdown whose file name no file under `tests/`, `verdify_schemas/tests/`, `scripts/`, `ci/`, `.github/` or the `Makefile` mentions | secret-scan, lint, buildcheck (the ingestor image copies `docs/`), dashboard when its own flag selects it |
-| full | anything else, and every classifier fallback | everything, as before |
+| `verified` | push to `main` only (#1716 C1): the commit is a merged pull request's merge commit, a successful `pull_request` run of `ci` for that pull request's head logged `VERDIFY_TESTED_TREE` equal to this commit's tree (`ci/gha/verified_on_pr.py`; any API error or mismatch is full) | secret-scan, lint, the aggregates (each passes as "not impacted") |
+| full | anything else, every classifier fallback, and the nightly `schedule` run (09:17 UTC, no base) | everything, as before |
 
 Independently, `firmware-check` (the firmware tree, `ci/esphome-ci.Dockerfile`,
 `ci/gha/**` or `.github/workflows/**` changed) selects the two
-`firmware-secretless-compile` shards and `firmware-logic`. The firmware native tests,
+`firmware-secretless-compile` shards. The firmware native tests,
 replay invariants and the rule 6, rule 7 and replay-diff gates stay in the validate
 `containment-firmware` part of every full run. Skipped shard matrices are never
 required contexts: their aggregates fail unless `path-impact` succeeded and either
 every shard succeeded or the class skipped the matrix (`ci/gha/require-success.sh`,
 `tests/test_gha_ci_light_paths.py`).
+
+Placement (#1716, estate-ci#229 C3): `ci / trusted-precheck`, `ci / path-impact`,
+`buildcheck-impact` and every aggregate run on `verdify-platform-ci-gate` (runner
+container only, warm, slot-free), so a docs-only or pin-only run no longer queues
+behind validate or campaign shards on `verdify-platform-ci` or `-ci-tools`.
 
 ## STD-CI-03 exceptions
 

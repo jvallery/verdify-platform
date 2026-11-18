@@ -230,6 +230,9 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_dashboard_settings_fixture.py
     tests/test_ci_validate_dockerfile.py
     tests/test_gha_ci_light_paths.py
+    tests/test_gha_firmware_secretless_compile.py
+    tests/test_gha_verified_on_pr.py
+    tests/test_ingestor_image_scripts.py
     tests/test_backup_role_settings_allowlist.py
     tests/test_db_backup_retry_classifier.py
     tests/test_action_log_policy_identity.py
@@ -512,12 +515,16 @@ if in_part containment-firmware; then
   # Tranche 2 (#586): the policy engine and its journal are on the control path
   # of every consumer read, and the recovery image must provably not resume or
   # actuate an experiment. Both suites are small native binaries (< 5 s).
-  # VD-43: the registry firmware-logic check does not run on this repository's
-  # PRs, so the peer-probe zone VPD fallback, the climate logic tests and the
-  # replay-corpus invariants run here and gate every firmware PR. Later suites
+  # The peer-probe zone VPD fallback, the climate logic, the gap log and the
+  # replay-corpus checks run here and gate every full run; "ci / firmware-logic"
+  # is an aggregate of these parts since the CI audit (C2, #1716). Later suites
   # append their make targets to this list.
   if command -v g++ >/dev/null; then
-    make test-policy-engine test-policy-recovery test-zone-vpd test-greenhouse-logic test-running-alone firmware-invariants test-irrigation-program test-climate-law climate-law-replay
+    make test-policy-engine test-policy-recovery test-zone-vpd test-greenhouse-logic test-running-alone test-gap-log firmware-invariants test-irrigation-program test-climate-law climate-law-replay
+    # The override evaluator over the recorded corpus (formerly the registry firmware-logic step).
+    gzip -cd firmware/test/data/replay_overrides.csv.gz > "${TMPDIR:-/tmp}/verdify-replay-overrides-ci.csv"
+    (cd firmware && g++ -std=c++17 -O2 -I lib -o test/replay_overrides test/replay_overrides.cpp)
+    ./firmware/test/replay_overrides "${TMPDIR:-/tmp}/verdify-replay-overrides-ci.csv" | tail -30
   else
     echo "SKIP: g++ not available on this host (required in the CI image)"
   fi

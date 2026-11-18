@@ -84,9 +84,12 @@ COPY firmware/lib/greenhouse_solar.h /app/firmware/lib/greenhouse_solar.h
 COPY firmware/greenhouse/controls.yaml /app/firmware/greenhouse/controls.yaml
 COPY verdify_schemas/ /app/verdify_schemas/
 
-# scripts/ for the Jobs that run on this image (the forecast-action engine that
-# first needed it retired with the plan cycle, climate refactor 4.2).
-COPY scripts/ /app/scripts/
+# Only the scripts this image runs (CI audit C5, #1716): the daily site_content
+# refresh loads populate-site-content.py (ingestor/tasks/_common.py) and the
+# verdify-knowledge-embed CronJob runs embed-corpora.py. Each imports only ingestor/
+# and verdify_schemas/. tests/test_ingestor_image_scripts.py keeps this list equal
+# to the /app/scripts paths the code and the manifests name.
+COPY scripts/populate-site-content.py scripts/embed-corpora.py /app/scripts/
 # scripts/embed-corpora.py (the verdify-knowledge-embed Job) reads models.embedding (#1351).
 COPY config/ai.yaml /app/config/ai.yaml
 

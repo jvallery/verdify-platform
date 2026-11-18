@@ -29,8 +29,8 @@ case "${GITHUB_EVENT_NAME:-}" in
     [ "${GITHUB_BASE_REF:-}" = main ] || fail "base ref ${GITHUB_BASE_REF:-unset}"
     safe_ref "${GITHUB_HEAD_REF:-}" || fail "head ref"
     ;;
-  push)
-    [ "${GITHUB_REF:-}" = refs/heads/main ] || fail "push ref ${GITHUB_REF:-unset}"
+  push|schedule)
+    [ "${GITHUB_REF:-}" = refs/heads/main ] || fail "${GITHUB_EVENT_NAME} ref ${GITHUB_REF:-unset}"
     ;;
   workflow_dispatch)
     # estate-ci pin-bump dispatches ci.yml on its pin branch.

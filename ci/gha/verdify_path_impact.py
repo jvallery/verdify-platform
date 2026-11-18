@@ -96,9 +96,9 @@ CHECKS = {
         "firmware/lib/greenhouse_types.h",
         *DASHBOARD_FIXTURE_INPUTS,
     ),
-    # The ESPHome secretless compile and the registry firmware-logic step: the
-    # firmware tree, the compile program and its job image, and the CI plumbing
-    # that runs them.
+    # The ESPHome secretless compile: the firmware tree, the compile program and
+    # its job image, and the CI plumbing that runs it. (The firmware logic suites
+    # run in every full validate run since #1716 C2.)
     "firmware-check": (
         "firmware/**",
         "ci/esphome-ci.Dockerfile",

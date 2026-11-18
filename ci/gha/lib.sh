@@ -34,7 +34,8 @@ ci_fetch_history() {
 #   push to main: the previous main head (first parent); for build.yml
 #                 (VERDIFY_BASE_LAST_BUILT=true) the last main commit whose push
 #                 build succeeded (#1534), falling back to the first parent;
-#   dispatch (pin branches): the merge base with origin/main.
+#   dispatch (pin branches): the merge base with origin/main;
+#   schedule (the nightly full run, #1716 C1): no base, so everything is impacted.
 # Prints nothing when no usable base exists; the classifier then falls back to
 # "everything impacted", as the native pipeline does.
 ci_base() {
@@ -48,6 +49,7 @@ ci_base() {
     return 0
   fi
   case "${GITHUB_EVENT_NAME:-}" in
+    schedule) base="" ;;
     push)
       base=""
       if [ "${VERDIFY_BASE_LAST_BUILT:-}" = true ]; then
