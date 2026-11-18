@@ -892,6 +892,19 @@ def test_api34_pages_the_reviews_with_their_proposal_state_and_token_use(built):
         "count_7": 2,
         "count_30": 2,
     }
+    # Tokens per local day of the run (#1661): each finished review on the America/Denver day it finished.
+    expected: dict[date, list[int]] = {}
+    for hours, (tin, tout, total) in (
+        (48, (290000, 20000, 310000)),
+        (24, (300000, 20000, 320000)),
+        (1, (340590, 14538, 355128)),
+    ):
+        day = expected.setdefault(w.ago(hours=hours).astimezone(DENVER).date(), [0, 0, 0, 0])
+        for i, value in enumerate((1, tin, tout, total)):
+            day[i] += value
+    assert [(d.day, d.reviews, d.input_tokens, d.output_tokens, d.total_tokens) for d in first.days] == [
+        (day, *values) for day, values in sorted(expected.items())
+    ]
 
 
 # ── API-35 to API-37: the controller, data continuity and delivery ──────────

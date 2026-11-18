@@ -3303,6 +3303,19 @@ export interface components {
             readonly written_at: string | null;
         };
         readonly ReviewPage: components["schemas"]["Page"] & {
+            /** @description The reviewer's tokens per local day (#1661): every finished review, daily and manual, summed on the America/Denver day its run finished, over the last 30 days, oldest first; a day with no finished review is absent. The cost is recorded in tokens; no price per token is stored */
+            readonly days: readonly {
+                /**
+                 * Format: date
+                 * @description The local day the runs finished
+                 */
+                readonly day: string;
+                readonly input_tokens: number | null;
+                readonly output_tokens: number | null;
+                /** @description Finished reviews that day */
+                readonly reviews: number;
+                readonly total_tokens: number;
+            }[];
             /** @description Newest first */
             readonly items: readonly components["schemas"]["Review"][];
             /** @description The written review whose band proposal waits for the owner; null when none does */

@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import type { Review, ReviewPage } from "../../lib/operator-api";
 import {
   askedBy, bandEditorHref, changeRows, collapses, health, headerStatus, latestWritten, mergeReviews, priceParts, proposalBadge, proseBlocks, reviewDay,
-  speaksOfProposal, todayLine, tokenDays, tokenWords,
+  runTokenDays, speaksOfProposal, todayLine, tokenDays, tokenWords,
 } from "./review-model";
 
 const NBSP = String.fromCharCode(0xa0);
@@ -21,7 +21,7 @@ function review(id: number, date: string, overrides: Partial<Review> = {}): Revi
 }
 const TODAY = { review_date: "2026-11-01", status: "written", missed: false, expected_after: "07:00", late_after: "10:00" } as const;
 function page(items: Review[], overrides: Partial<ReviewPage> = {}): ReviewPage {
-  return { items, next_cursor: null, today: TODAY, tokens: { last: 355_128, mean_7: 200_000, mean_30: 190_000, rise_pct: 101.5, count_7: 5, count_30: 12 }, proposal_waiting: null, ...overrides };
+  return { items, next_cursor: null, today: TODAY, tokens: { last: 355_128, mean_7: 200_000, mean_30: 190_000, rise_pct: 101.5, count_7: 5, count_30: 12 }, days: null, proposal_waiting: null, ...overrides };
 }
 
 test("a review date reads as day and month", () => {
@@ -194,4 +194,22 @@ test("tokens per review day: oldest first, a day with no written review is a gap
     { date: "2026-11-01", value: null, partial: true, note: "still running" },
   ]);
   expect(tokenDays([], "2026-11-01")).toEqual([]);
+});
+
+test("tokens per run day (#1661): the API's days to today, a missing day is a gap, today partial while it runs, none from an older API", () => {
+  const days = [
+    { day: "2026-10-30", reviews: 1, input_tokens: 170_000, output_tokens: 6_000, total_tokens: 176_000 },
+    { day: "2026-11-01", reviews: 2, input_tokens: 300_000, output_tokens: 9_000, total_tokens: 309_000 },
+  ];
+  expect(runTokenDays(page([], { days }))).toEqual([
+    { date: "2026-10-30", value: 176_000 },
+    { date: "2026-10-31", value: null },
+    { date: "2026-11-01", value: 309_000 },
+    { date: "2026-11-02", value: null },
+  ]);
+  expect(runTokenDays(page([], { days, today: { ...TODAY, status: "delivered" } }))?.at(-1)).toEqual(
+    { date: "2026-11-02", value: null, partial: true, note: "still running" },
+  );
+  expect(runTokenDays(page([], { days: [] }))).toEqual([]);
+  expect(runTokenDays(page([]))).toBeNull();
 });
