@@ -143,6 +143,7 @@ def review_page() -> reviews.ReviewPage:
         next_cursor="WzJd",
         today=reviews.ReviewToday(review_date=date(2026, 11, 16), status="written", missed=False),
         tokens=reviews.token_use([355128, 185792]),
+        days=[],
         proposal_waiting=None,
     )
 
