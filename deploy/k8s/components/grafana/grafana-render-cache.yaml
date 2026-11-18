@@ -104,7 +104,10 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: grafana-render-cache
 spec:
-  minAvailable: 1
+  # STD-HA-06 (jvallery/estate-platform#115): 2 replicas, one disrupted at a time, and an
+  # unhealthy pod never blocks a drain.
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/component: grafana-render-cache

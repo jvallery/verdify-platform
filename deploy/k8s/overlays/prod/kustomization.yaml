@@ -81,7 +81,7 @@ resources:
   - traefik
   # HA Sprint ha-1 / LANE B (#230): PodDisruptionBudgets giving every 2-replica
   # stateless surface (www/lab/api/mcp) + tier-2 verdify-traefik a disruption
-  # floor (minAvailable:1), and grafana a drain-safe maxUnavailable:1 (RWO PVC
+  # floor (maxUnavailable:1 with AlwaysAllow on 2 replicas), and grafana a drain-safe maxUnavailable:1 (RWO PVC
   # singleton). The incident had ZERO PDBs in verdify-prod. See pdb.yaml.
   - pdb.yaml
   # HA Sprint ha-1 / Lane A — resource governance (#226/#227/#229).
