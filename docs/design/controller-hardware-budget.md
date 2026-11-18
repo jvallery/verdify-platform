@@ -1,4 +1,4 @@
-# Package 2.4: controller hardware budget (design note, 2026-11-16; measured values added 2026-11-17)
+# Package 2.4: controller hardware budget (design note, 2026-11-16; measured values added 2026-11-17; partition table and NVS confirmed 2026-11-18)
 
 The budget note for #1719. The CI gates that keep a build inside it are in `ci/gha/firmware_secretless_compile.py`:
 `FIRMWARE_STATIC_DRAM` and `FIRMWARE_IMAGE_SIZE` (at most 85 % of the 1,835,008 B OTA slot).
@@ -43,7 +43,7 @@ Sources:
 | Heap | ESP-IDF builds the heap from the DRAM left after static data, plus further DRAM regions after start-up reservations. It is split into several non-contiguous regions; WiFi, lwIP and the API allocate from it at run time. `heap_free` counts 8-bit capable memory. | [D] ESP-IDF heap model |
 | Why the largest block matters | An allocation needs one contiguous block. The API's batch buffer (measured up to 8 KB), the overflow buffer and an OTA need a block, not a total. The repository's pre-OTA floor is free >= 32 KB and largest >= 16 KB (`lib/heap_diagnostics.h` lines 12-13). | [F] code and logs |
 | Flash, partitions | 4 MB. Offsets printed: bootloader 0x1000, partition table 0x8000, ota data 0x9000, app at 0x10000. The app partition is 1,835,008 B = 0x1C0000 ("Flash: used 1109003 bytes from 1835008"). | [F] log |
-| NVS | ESPHome's generated table for an ESP-IDF 4 MB build: otadata 0x9000/0x2000, phy 0xB000, app0 0x10000/0x1C0000, app1 0x1D0000/0x1C0000, nvs 0x390000/0x6D000 (436 KB). The log confirms only the otadata offset and the slot size. | [D]; confirm from `partitions.csv` in the build directory (one line added to the compile job, section 5a) |
+| NVS | Confirmed on the device: otadata 0x9000/0x2000, phy_init 0xB000/0x1000, app0 0x10000/0x1C0000, app1 0x1D0000/0x1C0000, nvs 0x390000/0x6D000 (446,464 B = 436 KB, 109 pages). `nvs_get_stats`: 13,734 entries in total, 2,179 used (16 %), 11,555 free, 5 namespaces. Flash chip id 0x5E4016, 4,194,304 B. This is ESPHome's generated ESP-IDF 4 MB table, not a 20 KB Arduino table. | [F] the controller's `flash_profile` log lines (`esp32_logs`, every 15 min) on the fifth flash 2026.11.18.0103.edd30c2d, first read 2026-11-18T01:38:15Z |
 | OTA slot vs image | image 1,109,259 B of 1,835,008 B (60.4%), 725,749 B headroom; two slots; `enable_ota_rollback: true` | [F] log and config dump |
 | Task stacks | loop task 8,192 B (`loop_task_stack_size: 8192`). The API, the UDP listener, Modbus (UART), the interval lambdas and the 1 s control lambda all run in the loop task. lwIP tcpip task 3,072 B, WiFi task about 3.5 KB, event loop 2,304 B. | loop task [F] config dump; the rest [D] |
 | Watchdogs | task watchdog 5 s and interrupt watchdog 300 ms. Our guards: the heap guard restarts when free < 20 KB for 3 min (`greenhouse.yaml` around line 680); the heap pressure flag sets below 15 KB; the bus watchdog restarts when no probe answered for 3,600 s. | IDF values [D]; ours [F] |
@@ -156,9 +156,9 @@ Margins we accept:
 | policy journal: assume 100 commits a day (upper bound) x 43 | 4,300 |
 | **total** | **about 6,000 entries = about 192 KB a day** |
 
-- NVS partition [D] 436 KB = 109 pages; wear levelling rotates writes across all pages. So each page is erased about every 436 / 192 = **2.3 days**.
+- NVS partition [F] 436 KB = 109 pages; wear levelling rotates writes across all pages. So each page is erased about every 436 / 192 = **2.3 days**.
 - SPI NOR rated **100,000** erase cycles [E, typical datasheet for this flash class]. Life is 100,000 x 2.3 days, about **630 years**.
-- If the NVS were only 20 KB (5 pages): about 29 years. Either way, beyond concern.
+- The 20 KB case (5 pages, about 29 years) is ruled out: the device has the 436 KB partition (section 2, confirmed 2026-11-18). Beyond concern.
 - If one writer ever dominates it is the policy journal (43 entries per commit). Bound its commits, not the settings.
 
 **OTA.** Each flash rewrites one slot: about 1.1 MB, about 272 sector erases, spread over that slot's sectors. At one flash a day, 100,000 cycles last about 270 years per sector. No concern.
@@ -169,7 +169,7 @@ Margins we accept:
 - After the ESPHome compile, parse the memory table.
 - Fail when the image > 85% of the app slot or DRAM > 120,000 B.
 - Print both to the job summary and as a JSON artifact (`firmware-size.json`: image, slot, dram, bss, data, iram, entities, commit) that a metric can scrape (U5).
-- Also print the build's `partitions.csv` once, to settle the NVS size [D].
+- The NVS size is settled on the device (section 2, confirmed 2026-11-18); printing `partitions.csv` in CI is no longer needed.
 
 **b. Controller readings, third flash only (U3b).**
 - Each new sensor entity costs about 150-200 B static [E] plus bytes in the reconnect burst. Fold them into one diagnostic text or JSON entity of about 120 B where possible: one entity, about 300 B in all [E].
@@ -226,10 +226,10 @@ The answer, in numbers; the design is the gap log design v2 (#1712).
 | today + the buffer as an hour blob rewritten every 5 min | 166 KB | 44 | 2.5 days | about 680 years [E] |
 | today + the buffer as one 14 KB `restore_value` global (the design not to build) | 4.3-20 MB | 1,130-5,100 | 2.3 h to 30 min | **about 5-26 years** [E] |
 
-- **On a 20 KB nvs** (possible if the controller was first serial-flashed by an Arduino-framework build): the
-  buffer does not fit, and today's writers alone come to about 11 years [E].
-- **Which one the device has is unconfirmed.** The law flash's `flash_profile` line settles it (gap-log v2,
-  section 8).
+- **On a 20 KB nvs** (an Arduino-framework first flash) the buffer would not fit, and today's writers alone would
+  come to about 11 years [E]. Ruled out.
+- **Confirmed 2026-11-18: the device has the 436 KB nvs** (nvs@0x390000+0x6d000, 13,734 entries, 2,179 used) [F,
+  the controller's `flash_profile` log lines (`esp32_logs`, every 15 min) on the fifth flash 2026.11.18.0103.edd30c2d, first read 2026-11-18T01:38:15Z], so the 436 KB rows above apply.
 - **What a write costs the loop:** a quarter-hour program of a few milliseconds every 15 min, and a sector erase
   about every 76 min, 45 ms typical and 400 ms worst [DS]. The worst case can cost one Modbus poll; it never
   touches a relay decision.
