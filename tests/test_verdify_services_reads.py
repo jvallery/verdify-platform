@@ -168,23 +168,6 @@ def test_band_verdict_is_unavailable_without_a_band_or_fresh_data(read, low, hig
 
 
 @pytest.mark.parametrize(
-    ("label", "mister_state", "expected"),
-    [
-        # The firmware's SEALED_MIST label carries the stage; mister_state (the pulse machine) never reads FOG.
-        ("SEALED_MIST_FOG", "WATCH", ("SEALED_MIST", "FOG")),
-        ("SEALED_MIST_S2", None, ("SEALED_MIST", "S2")),
-        ("SEALED_MIST", "S1", ("SEALED_MIST", "S1")),  # a bare label takes mister_state
-        ("SEALED_MIST", "0.0", ("SEALED_MIST", None)),
-        ("IDLE", "S1", ("IDLE", None)),
-        ("SAFETY_COOL", None, ("SAFETY_COOL", None)),
-        (None, "S1", ("UNKNOWN", None)),
-    ],
-)
-def test_mode_splits_the_sealed_mist_label_into_code_and_stage(label, mister_state, expected):
-    assert reads.mode_code_and_stage(label, mister_state) == expected
-
-
-@pytest.mark.parametrize(
     ("reason", "fog_on", "held"),
     [
         ("occupancy", False, "occupancy"),
@@ -197,32 +180,6 @@ def test_mode_splits_the_sealed_mist_label_into_code_and_stage(label, mister_sta
 )
 def test_a_humidify_burst_is_held_only_by_a_named_fog_block(reason, fog_on, held):
     assert reads.humidify_held_reason(reason, fog_on) == held
-
-
-def test_climate_mode_reads_the_mode_track_and_its_reason_in_one_snapshot():
-    """The greenhouse snapshot job's mode: what Now.mode served before release C."""
-    rows = {
-        reads._SYSTEM_TRACKS_SQL: [
-            {"key": "greenhouse_state", "ts": den(2, 9), "state": "IDLE", "newest_at": den(2, 13)},
-            {"key": "greenhouse_state", "ts": den(2, 11), "state": "SEALED_MIST_FOG", "newest_at": den(2, 13)},
-        ],
-        reads._NEWEST_STATES_SQL: [
-            {"entity": "mister_state", "value": "WATCH", "ts": den(2, 13)},
-            {"entity": "mode_reason", "value": "vpd_high", "ts": den(2, 13)},
-        ],
-    }
-    conn = ReadsConn(rows)  # every statement asserts it runs inside the read's snapshot
-    mode = asyncio.run(reads.climate_mode(conn))
-    assert mode == reads.Mode(code="SEALED_MIST", stage="FOG", reason="vpd_high", since=den(2, 11))
-    assert dict(conn.sent)[reads._NEWEST_STATES_SQL][0] == ["mister_state", "mode_reason"]
-
-
-def test_planner_runs_are_the_ledger_rows_ahead_soonest_first():
-    conn = ReadsConn({reads._PLANNER_RUNS_SQL: [{"event_type": "SUNSET", "expected_at": den(2, 17)}]})
-    conn.depth = 1  # the job reads it outside a snapshot of its own
-    assert asyncio.run(reads.planner_runs(conn, 3)) == [reads.PlannerRun(trigger="SUNSET", expected_at=den(2, 17))]
-    assert conn.sent == [(reads._PLANNER_RUNS_SQL, (3,))]
-    assert "expected_at > now()" in reads._PLANNER_RUNS_SQL and "ORDER BY expected_at" in reads._PLANNER_RUNS_SQL
 
 
 def test_now_reads_no_plan_no_mode_and_no_experiment():

@@ -483,9 +483,6 @@ def test_equipment_reads_the_newest_state_and_collapses_repeats(dsn):
             reads.Override(kind="fans", since=t0 - 3 * MIN, ends_at=None, held_reason=None),
             reads.Override(kind="humidify", since=t0 - 2 * MIN, ends_at=None, held_reason="occupancy"),
         ]
-        # Release C moved the mode off Now: only the greenhouse snapshot job reads it.
-        mode = await as_reader(conn, reads.climate_mode)
-        assert mode == reads.Mode(code="SEALED_MIST", stage="FOG", reason="seal_enter", since=t0 - 40 * MIN)
 
     scenario(dsn, body)
 
@@ -702,29 +699,6 @@ def test_writer_differing_counts_from_the_first_row_after_the_last_match_with_ke
 
     scenario(dsn, restarted)
     scenario(dsn, lost)
-
-
-# ── the greenhouse snapshot job's planner runs (release C retired API-07) ───
-
-
-def test_planner_runs_are_the_ledger_rows_ahead_soonest_first(dsn):
-    async def body(conn, t0):
-        await reporting_now(conn, t0)
-        ledger = [
-            (1, "SUNSET", t0 - 20 * H, "missed"),
-            (2, "SUNSET", t0 + 5 * H, "expected"),
-            (3, "MIDNIGHT", t0 + 9 * H, "expected"),
-            (4, "SUNRISE", t0 + 1 * H, "expected"),
-        ]
-        await conn.executemany(
-            "INSERT INTO planner_trigger_ledger (id, event_type, expected_at, due_at, status, sla_seconds) "
-            "VALUES ($1, $2, $3::timestamptz, $3::timestamptz + interval '1800 seconds', $4, 1800)",
-            ledger,
-        )
-        runs = await as_reader(conn, reads.planner_runs, 2)
-        assert [(run.trigger, run.expected_at) for run in runs] == [("SUNRISE", t0 + 1 * H), ("SUNSET", t0 + 5 * H)]
-
-    scenario(dsn, body)
 
 
 # ── API-02: the leak and the one open-alert count ───────────────────────────

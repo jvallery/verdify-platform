@@ -22,10 +22,10 @@ use it too); ``collapse()``, which merges repeated state rows into runs;
 ``alerts.open_count``, the one count API-14 and every other surface show (Round 2b C).
 
 Release C (dashboard v2 API spec section 7) stopped serving the plan-era reads: API-07, ``Now.mode``, ``Now.iris``,
-``Equipment.mode_reason`` and the plan values of API-09 and API-12. Two consumers outside the operator API still read
-part of them, so the minimal piece each needs stays here, unserved: the greenhouse snapshot job
-(``api/greenhouse_brief_job.py``) reads ``climate_mode()`` and ``planner_runs()``, and the MCP ``settings`` tool reads
-``setting_history_with_plan()``, API-12's history with the past plan values (``plan_history()``).
+``Equipment.mode_reason`` and the plan values of API-09 and API-12. One consumer outside the operator API still reads
+part of them, so the minimal piece it needs stays here, unserved: the MCP ``settings`` tool reads
+``setting_history_with_plan()``, API-12's history with the past plan values (``plan_history()``). The greenhouse
+snapshot job read the climate mode and the next planner runs until release C part 2 gave it the law's facts.
 
 Unknown is never off, null is never 0, and gaps stay gaps. Nothing here writes,
 and the leak is an alert only (Q-05).
@@ -125,17 +125,10 @@ LEAK_FLAG = "leak_detected"
 
 _EQUIPMENT_KEYS = tuple(name for name, _ in EQUIPMENT_LIST) + tuple(GROW_LIGHT_INTENTS.values())
 _NOW_EQUIPMENT_KEYS = _EQUIPMENT_KEYS + tuple(BURSTS) + (LEAK_FLAG,)
-MODE_ENTITY = "greenhouse_state"
 OUTDOOR_SOURCE_ENTITY = "outdoor_source"
 _NOW_NEWEST_ENTITIES = ("fog_block_reason", LAW_STATE_ENTITY, OUTDOOR_SOURCE_ENTITY)
-# The greenhouse snapshot job's climate mode (climate_mode()): the mister stage and the mode's reason.
-_MODE_NEWEST_ENTITIES = ("mister_state", "mode_reason")
 # API-13's reasons (entity_map's controller text entities): what holds fog (L11) off and what holds the misters off.
 REASON_ENTITIES = ("fog_block_reason", "moisture_block_reason")
-# In SEALED_MIST the firmware publishes greenhouse_state as SEALED_MIST_<stage>
-# (controls.yaml, MIST_NAMES in greenhouse_types.h), so the label carries the stage.
-SEALED_MIST = "SEALED_MIST"
-MIST_STAGES = ("WATCH", "FOG", "S1", "S2")
 # fog_block_reason values that hold nothing: none, and served (the fog relay is on).
 _FOG_NOT_HELD = frozenset({"", "none", "served"})
 
@@ -588,24 +581,6 @@ def band_position(
     return BandPosition(low=low, high=high, verdict=verdict)
 
 
-def mode_code_and_stage(label: str | None, mister_state: str | None) -> tuple[str, str | None]:
-    """Now's mode code and stage from the newest ``greenhouse_state`` label.
-
-    The firmware publishes SEALED_MIST as ``SEALED_MIST_<stage>`` (WATCH, FOG,
-    S1 or S2), so the code is SEALED_MIST and the label gives the stage.
-    ``mister_state`` is the mister pulse machine and never reads FOG, so it
-    gives the stage only for a bare SEALED_MIST label. No row reads UNKNOWN.
-    """
-    if label is None:
-        return "UNKNOWN", None
-    prefix = f"{SEALED_MIST}_"
-    if label.startswith(prefix) and label.removeprefix(prefix) in MIST_STAGES:
-        return SEALED_MIST, label.removeprefix(prefix)
-    if label == SEALED_MIST:
-        return SEALED_MIST, mister_state if mister_state in MIST_STAGES else None
-    return label, None
-
-
 def humidify_held_reason(fog_block_reason: str | None, fog_on: bool) -> str | None:
     """Why the controller holds a humidify burst: fog (L11) is off and ``fog_block_reason`` names a block."""
     if fog_on or fog_block_reason is None or fog_block_reason in _FOG_NOT_HELD:
@@ -979,16 +954,6 @@ _WATER_RUNS_SQL = """
 SELECT local_day, line_id, cause, gal
   FROM fn_irrigation_minutes_daily($2::date, $3::date)
  WHERE greenhouse_id = $1
-"""
-
-# The greenhouse snapshot job's next planner runs (planner_runs()): the planner_trigger_ledger rows expected after now,
-# the rows ahead that API-07's health listed before release C retired it.
-_PLANNER_RUNS_SQL = """
-SELECT event_type, expected_at
-  FROM planner_trigger_ledger
- WHERE expected_at > now()
- ORDER BY expected_at, id
- LIMIT $1
 """
 
 # The open leak rows and the stuck-delivery flag, from alert_log under v_open_alerts'
@@ -1600,46 +1565,6 @@ async def now(conn: asyncpg.Connection) -> Now:
             brief.event_key(band.temp_f.verdict, band.vpd_kpa.verdict, alert_counts.open, alert_counts.critical),
         ),
     )
-
-
-# ── The greenhouse snapshot job's reads (not served) ─────────────────────────
-
-
-class Mode(_Model):
-    """The controller's climate mode, which ``Now.mode`` served before release C. Only the greenhouse snapshot job
-    (``api/greenhouse_brief_job.py``) reads it, for its fact sheet and its write trigger."""
-
-    code: str
-    stage: str | None
-    reason: str | None
-    since: datetime | None
-
-
-class PlannerRun(_Model):
-    """A planner trigger expected after now, as API-07's ``health`` listed it before release C; only the greenhouse
-    snapshot job reads it."""
-
-    trigger: str
-    expected_at: datetime
-
-
-async def climate_mode(conn: asyncpg.Connection) -> Mode:
-    """The newest ``greenhouse_state`` label as a code and a mister stage (``mode_code_and_stage()``), the newest
-    ``mode_reason`` and since when the mode has held, in one read-only snapshot."""
-    async with _snapshot(conn):
-        track = (await _tracks(conn, _SYSTEM_TRACKS_SQL, (MODE_ENTITY,)))[MODE_ENTITY]
-        texts = {
-            row["entity"]: row["value"]
-            for row in await conn.fetch(_NEWEST_STATES_SQL, list(_MODE_NEWEST_ENTITIES), NEWEST_ROW_WINDOW)
-        }
-    code, stage = mode_code_and_stage(_newest_text(track), texts.get("mister_state"))
-    return Mode(code=code, stage=stage, reason=texts.get("mode_reason"), since=run_since(track.spans))
-
-
-async def planner_runs(conn: asyncpg.Connection, limit: int) -> list[PlannerRun]:
-    """The next ``limit`` planner triggers expected after now (``planner_trigger_ledger``), soonest first."""
-    rows = await conn.fetch(_PLANNER_RUNS_SQL, limit)
-    return [PlannerRun(trigger=row["event_type"], expected_at=row["expected_at"]) for row in rows]
 
 
 # ── API-13 ──────────────────────────────────────────────────────────────────

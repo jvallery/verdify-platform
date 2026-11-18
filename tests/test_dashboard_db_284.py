@@ -522,18 +522,16 @@ def test_the_login_still_attests(before):
 
 
 def test_the_operator_api_reads_run_as_the_login(before):
-    """/v1/now and /v1/equipment (and the ledger the snapshot job reads): what answered 503 until these grants."""
+    """/v1/now and /v1/equipment: what answered 503 until these grants."""
 
     async def check():
         conn = await connect(LOGIN)
         try:
-            return await reads.now(conn), await reads.planner_runs(conn, 3), await reads.equipment(conn)
+            return await reads.now(conn), await reads.equipment(conn)
         finally:
             await conn.close()
 
-    now, runs, equipment = run(check())
+    now, equipment = run(check())
     assert now.indoor.temp_f.value == 75 and now.writer.last_at is not None and now.freshness.ingestor.age_s is not None
     assert now.alerts.critical >= 1 and now.leak.active is True and now.leak.alert_id is not None
-    # Release C retired /v1/plan; the login still reads the trigger ledger for the greenhouse snapshot job.
-    assert isinstance(runs, list)
     assert any(item.equipment == "fan1" and item.state == "off" for item in equipment.items)

@@ -12,7 +12,7 @@ Freshness (the issue's fallback rules), measured from ``as_of``, the newer of th
 - a band verdict or the open-alert count changed since it was written: ``outdated``, never shown. The job marks the
   row (``outdated_at``) on its next run; API-02 also compares the row's ``event`` with the live one.
 
-The text is read-only. Nothing here or in the job feeds the planner, Iris or the controller.
+The text is read-only. Nothing here or in the job feeds the daily reviewer or the controller.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 MODEL = "llm.primary.longctx"
 BASE_URL = "https://cortex.vallery.net/v1"
-PROMPT_VERSION = "brief-v1"
+PROMPT_VERSION = "brief-v2"  # v2: the climate law and the daily review replace the mode and the plan facts
 CADENCE = timedelta(minutes=15)
 # The job runs every 5 minutes and a run can start a few seconds earlier than the one 15 minutes before it; without
 # this slack that run finds 14 min 57 s, waits, and the next write lands 20 minutes after the last (#1346).
