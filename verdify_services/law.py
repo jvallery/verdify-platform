@@ -536,6 +536,21 @@ def lead_fan(value: str | None) -> str | None:
     return LEAD_FANS.get(value or "")
 
 
+def rules_lead(reported: str | None, relays: Mapping[str, RelayNow]) -> str | None:
+    """The lead fan the rules' relays and holds use: the one the controller reports, else, while exactly one fan is
+    on, that fan; with both fans on or both off it stays unknown. climate_law.h relay_step() starts the lead first
+    (want_f1/want_f2: one fan asked for is the lead, two are both) and picks a new lead only while both fans are off,
+    so a single running fan is the lead, but for one tail: when the request drops from two fans to none, the second
+    fan can finish its own minimum on time after the lead stopped, and its hold then shows under the lead's rules.
+    ``LawView.lead_fan`` keeps only what the controller reported (#1815: the firmware has not published it since
+    June)."""
+    if reported in ("fan1", "fan2"):
+        return reported
+    on = [fan for fan in ("fan1", "fan2") if (now := relays.get(fan)) is not None and now.on is True]
+    off = [fan for fan in ("fan1", "fan2") if (now := relays.get(fan)) is not None and now.on is False]
+    return on[0] if len(on) == 1 and len(off) == 1 else None
+
+
 def band_differs(band: tuple[float, ...] | None, host: HostBandEdges | None) -> bool | None:
     """The band_device_db_divergence test on one record: any edge off by more than 1.0 F or 0.10 kPa."""
     if band is None or host is None:
@@ -857,7 +872,7 @@ def law_view(
         record,
         fresh=fresh,
         relays=relays,
-        lead=lead,
+        lead=rules_lead(lead, relays),
         at=at,
         booted_at=booted_at,
         held=held,
