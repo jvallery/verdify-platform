@@ -1,0 +1,476 @@
+{
+  "$schema": "https://github.com/jvallery/estate-ci/blob/main/deploy/foundation/schemas/version-register.schema.json",
+  "schema_version": 1,
+  "owner": "jvallery/verdify-platform",
+  "components": [
+    {
+      "component": "verdify-api",
+      "kind": "service",
+      "notes": "First-party image built by build.yml; runs verdify-api, verdify-operator-api and the greenhouse-brief CronJob. Runtime support follows python-3.13.",
+      "installed": {
+        "digest": "sha256:66d7fe5880366c799eae23efb0c004e8dc9ae2631ed04bc23edcea570472baf8",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-api",
+        "source": "deploy/k8s/overlays/prod/release-pins.yaml (release pin; built from api/Dockerfile)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/jvallery/verdify-platform",
+        "latest": "main",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/jvallery/verdify-platform"
+      }
+    },
+    {
+      "component": "verdify-mcp",
+      "kind": "service",
+      "notes": "First-party image built by build.yml. Runtime support follows python-3.13.",
+      "installed": {
+        "digest": "sha256:848b4e2c872c617c9a5f9a05902b70536fcda54fb34d451d4d4c1f40e3c5dd52",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-mcp",
+        "source": "deploy/k8s/overlays/prod/release-pins.yaml (release pin; built from mcp/Dockerfile)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/jvallery/verdify-platform",
+        "latest": "main",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/jvallery/verdify-platform"
+      }
+    },
+    {
+      "component": "verdify-ingestor",
+      "kind": "service",
+      "notes": "First-party image; runs verdify-ingestor and the vision and knowledge-embed CronJobs. The build candidate in kustomization.yaml (sha256:13919b64b1448d9476a3670ca2808149d9fd62bfc4debc6116e5352c8114db3e) awaits promotion; release-pins.yaml wins in the prod render.",
+      "installed": {
+        "digest": "sha256:ee77f8ef4351771187d70dc1fa2ba4418e1315a249178390db9a62df1a59ddce",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-ingestor",
+        "source": "deploy/k8s/overlays/prod/release-pins.yaml (release pin; built from ingestor/Dockerfile)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/jvallery/verdify-platform",
+        "latest": "main",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/jvallery/verdify-platform"
+      }
+    },
+    {
+      "component": "verdify-migrate",
+      "kind": "service",
+      "notes": "First-party PreSync migration image on postgres:16-alpine (sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685).",
+      "installed": {
+        "digest": "sha256:645fac0d167b09cfb94950da3bfe009a355f9af0bb8d32f8aae30b1b682de763",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-migrate",
+        "source": "deploy/k8s/overlays/prod/release-pins.yaml (release pin; built from db/Dockerfile.migrate)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/jvallery/verdify-platform",
+        "latest": "main",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/jvallery/verdify-platform"
+      }
+    },
+    {
+      "component": "verdify-setpoint-server",
+      "kind": "service",
+      "notes": "First-party image, hand-pinned. Runtime support follows python-3.13.",
+      "installed": {
+        "digest": "sha256:66e0b8ab0a01350e309a4faa873adb1e1f5acb1064e0d2e8e82c8f4b1c02458c",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-setpoint-server",
+        "source": "deploy/k8s/overlays/prod/kustomization.yaml images (built from scripts/Dockerfile.setpoint-server)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/jvallery/verdify-platform",
+        "latest": "main",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/jvallery/verdify-platform"
+      }
+    },
+    {
+      "component": "verdify-lab-publisher-k3s",
+      "kind": "service",
+      "notes": "First-party image for the lab content CronJob. Runtime support follows nodejs-22.",
+      "installed": {
+        "digest": "sha256:68b24a5f603c49f631f4a813730465b522b11ed16306eed93f0d19e96f950a45",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-lab-publisher-k3s",
+        "source": "deploy/k8s/overlays/prod/kustomization.yaml images (built from scripts/Dockerfile.lab-publisher)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/jvallery/verdify-platform",
+        "latest": "main",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/jvallery/verdify-platform"
+      }
+    },
+    {
+      "component": "verdify-dashboard-web",
+      "kind": "service",
+      "notes": "First-party dashboard web tier (Application verdify-dashboard). Runtime support follows nodejs-24.",
+      "installed": {
+        "digest": "sha256:a27bc3cc53b550421a1938a7636a86a8d638b65b487f74ad2ff29b65d54e8597",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-dashboard-web",
+        "source": "deploy/k8s/dashboard/kustomization.yaml images (built from dashboard/Dockerfile)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/jvallery/verdify-platform",
+        "latest": "main",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/jvallery/verdify-platform"
+      }
+    },
+    {
+      "component": "verdify-timescaledb",
+      "kind": "runtime",
+      "notes": "First-party build on timescale/timescaledb:2.29.2-pg16 (sha256:343e54b05d0b039b5867cf054a6422d595f598af93b94507d61f9addd4815fef). Support date is PostgreSQL 16's end of life. The restore-drill and restore-rehearsal components still pin an older build (sha256:e5f7512763357fe0e9d39fd96d220a0a3ea40cad3f26a2426c85849a8d54485e).",
+      "installed": {
+        "version": "timescaledb 2.29.2-pg16",
+        "digest": "sha256:383df0accfad163cfd8a21691e054da8c5389c866d49f28f9f3b4b454e8d0b76",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-timescaledb",
+        "source": "deploy/k8s/base/db-statefulset.yaml (verdify-db; also backup, band-curve-refresh, setpoint and migration hook containers); built from db/Dockerfile.timescaledb",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/timescale/timescaledb/releases",
+        "latest": "2.32.0",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "until": "2028-11-09",
+        "source": "https://www.postgresql.org/support/versioning/"
+      }
+    },
+    {
+      "component": "verdify-grafana-image-renderer",
+      "kind": "service",
+      "notes": "First-party rebuild of grafana/grafana-image-renderer v5.12.10.",
+      "installed": {
+        "version": "v5.12.10",
+        "digest": "sha256:c297463ecad53cc67a6058791cab010bde83d45b9fc9069ea34156fedd69b2d9",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-grafana-image-renderer",
+        "source": "deploy/k8s/components/grafana/grafana.yaml (verdify-grafana pod); built from grafana/Dockerfile.image-renderer",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/grafana/grafana-image-renderer/releases",
+        "latest": "v5.12.11",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/grafana/grafana-image-renderer/releases"
+      }
+    },
+    {
+      "component": "verdify-hermes-agent",
+      "kind": "service",
+      "notes": "Upstream base is nousresearch/hermes-agent@sha256:a7111ab1cc43b5a1bc76090a505d6462aa1af4b43f603f0113bf5eb121aec72e, which upstream never tagged, so the installed release number cannot be read from the repo. Moving to a newer release changes planner behaviour (Dockerfile comment).",
+      "installed": {
+        "version": "untagged upstream digest a7111ab1cc43 plus Debian trixie security updates",
+        "digest": "sha256:1fa1f16e8e3463452b390ad6d16b41bc673c41921eb0c37bdb4e8d0ffd5f40a8",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-hermes-agent",
+        "source": "deploy/k8s/components/hermes-iris/hermes-iris.yaml (hand-edited digest); built from hermes/Dockerfile.hermes-agent",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/NousResearch/hermes-agent/releases",
+        "latest": "v0.23.2",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/NousResearch/hermes-agent/releases"
+      }
+    },
+    {
+      "component": "verdify-esphome-ci",
+      "kind": "tool",
+      "notes": "CI job image built here for the firmware compile; the digest pin lives in estate-ci runners.yaml.",
+      "installed": {
+        "version": "ESPHome 2026.6.5 plus PlatformIO toolchain",
+        "digest": "sha256:288643bd5b25a534ba22205062c5c87b2acec6c8913806e6768f09111d54cc70",
+        "image": "registry.vallery.net/verdifyconsultancy/verdify-esphome-ci",
+        "source": "jvallery/estate-ci runners.yaml (verdify-platform ci-esphome job_image); built from ci/esphome-ci.Dockerfile",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/esphome/esphome/releases",
+        "latest": "2026.10.2",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/esphome/esphome/releases"
+      }
+    },
+    {
+      "component": "grafana",
+      "kind": "service",
+      "notes": "Product Grafana pins its own version (D-325).",
+      "installed": {
+        "version": "12.4.14",
+        "digest": "sha256:ae509d9ae8c1021ca32ec370a9ca975d40165eda9fccd1e1102d317ff8787cd7",
+        "image": "registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana",
+        "source": "deploy/k8s/components/grafana/grafana.yaml (Deployment verdify-grafana)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/grafana/grafana/releases",
+        "latest": "12.4.15 on 12.4; 13.3.1 newest",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "until": "2027-05-24",
+        "source": "https://endoflife.date/grafana"
+      }
+    },
+    {
+      "component": "nginx-unprivileged",
+      "kind": "runtime",
+      "notes": "Floating stable tag, pinned by digest.",
+      "installed": {
+        "version": "stable-alpine-slim",
+        "digest": "sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6",
+        "image": "registry.vallery.net/jvallery/mirror-docker-io-nginxinc-nginx-unprivileged",
+        "source": "deploy/k8s/components/grafana/grafana-render-cache.yaml, components/lab-site/lab-site.yaml, components/lab-site/lab-cache-origin.yaml, overlays/prod/verdify-outbound.yaml",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://endoflife.date/nginx",
+        "latest": "1.31.8 mainline; 1.30.6 stable",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://endoflife.date/nginx"
+      }
+    },
+    {
+      "component": "traefik",
+      "kind": "service",
+      "notes": "Traefik 3.7 is the current supported line (no end date published).",
+      "installed": {
+        "version": "v3.7.17",
+        "digest": "sha256:68ae5fe5b64ca166704b746a9e8afcd385e36b3f569a5691401bf652d57b3748",
+        "image": "registry.vallery.net/jvallery/mirror-docker-io-library-traefik",
+        "source": "deploy/k8s/overlays/prod/traefik/verdify-traefik-deployment.yaml",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/traefik/traefik/releases",
+        "latest": "v3.7.19",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://doc.traefik.io/traefik/deprecation/releases/"
+      }
+    },
+    {
+      "component": "eclipse-mosquitto",
+      "kind": "service",
+      "notes": "The mirror tag is the floating major '2', so the exact 2.x patch level is not recorded in the repo; the digest is.",
+      "installed": {
+        "version": "2 (floating major tag)",
+        "digest": "sha256:22075095e8790eec5592ff3c213b1974cd51aa458275af2f8b0595af4c385df2",
+        "image": "registry.vallery.net/jvallery/mirror-docker-io-library-eclipse-mosquitto",
+        "source": "deploy/k8s/components/mqtt-broker/mqtt-broker.yaml (Deployment verdify-mqtt)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/eclipse/mosquitto/tags",
+        "latest": "v2.1.4",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://mosquitto.org/download/"
+      }
+    },
+    {
+      "component": "postgres-exporter",
+      "kind": "service",
+      "installed": {
+        "version": "v0.19.1",
+        "digest": "sha256:e96064f876226d94bb6ce48a4c4b3dd76edba91168ec1ab024e5c4b959310b0f",
+        "image": "registry.vallery.net/jvallery/mirror-quay-io-prometheuscommunity-postgres-exporter",
+        "source": "deploy/k8s/base/db-exporter.yaml (Deployment verdify-db-exporter)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/prometheus-community/postgres_exporter/releases",
+        "latest": "v0.21.0",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/prometheus-community/postgres_exporter/releases"
+      }
+    },
+    {
+      "component": "descheduler",
+      "kind": "service",
+      "installed": {
+        "version": "v0.36.0",
+        "digest": "sha256:7ca92c0a7b4f1c51d306409da6b832005fcadb224e384795646376726734c6e5",
+        "image": "registry.vallery.net/jvallery/mirror-registry-k8s-io-descheduler-descheduler",
+        "source": "deploy/k8s/descheduler/cronjob.yaml (CronJob descheduler, Application verdify-descheduler)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/kubernetes-sigs/descheduler/releases",
+        "latest": "v0.37.0",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/kubernetes-sigs/descheduler#compatibility-matrix"
+      }
+    },
+    {
+      "component": "python-alpine (descheduler helper)",
+      "kind": "runtime",
+      "installed": {
+        "version": "3.13.5-alpine3.22",
+        "digest": "sha256:37b14db89f587f9eaa890e4a442a3fe55db452b69cca1403cc730bd0fbdc8aaf",
+        "image": "registry.vallery.net/jvallery/mirror-docker-io-library-python",
+        "source": "deploy/k8s/descheduler/cronjob.yaml (helper container)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://www.python.org/downloads/",
+        "latest": "3.13.18 on 3.13; 3.15.2 newest",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "until": "2029-10-31",
+        "source": "https://devguide.python.org/versions/"
+      }
+    },
+    {
+      "component": "esphome",
+      "kind": "tool",
+      "installed": {
+        "version": "2026.6.5",
+        "digest": "sha256:ffe23402d169fc9b8ff29fc3c9fc13b3c47e8a53726fce4569e2280bd534c84c",
+        "image": "registry.vallery.net/jvallery/mirror-ghcr-io-esphome-esphome",
+        "source": "deploy/k8s/components/firmware-builder/firmware-builder.yaml (suspended firmware builder and flasher CronJobs)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/esphome/esphome/releases",
+        "latest": "2026.10.2",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/esphome/esphome/releases"
+      }
+    },
+    {
+      "component": "cosign",
+      "kind": "tool",
+      "notes": "The mirror tag carries no release number, so the cosign version is not recorded in the repo.",
+      "installed": {
+        "version": "unknown (mirror tag 'pinned', digest only)",
+        "digest": "sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d",
+        "image": "registry.vallery.net/jvallery/mirror-ghcr-io-sigstore-cosign-cosign",
+        "source": "deploy/k8s/components/firmware-builder/firmware-builder.yaml (signing container)",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://github.com/sigstore/cosign/releases",
+        "latest": "v3.1.4",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "policy": "rolling",
+        "source": "https://github.com/sigstore/cosign/releases"
+      }
+    },
+    {
+      "component": "python-3.13",
+      "kind": "runtime",
+      "installed": {
+        "version": "3.13-slim (floating minor tag)",
+        "digest": "sha256:b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2",
+        "image": "python",
+        "source": "api/Dockerfile, mcp/Dockerfile, ingestor/Dockerfile, scripts/Dockerfile.setpoint-server (FROM python:3.13-slim); pyproject.toml requires-python >=3.12",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://www.python.org/downloads/",
+        "latest": "3.13.18 on 3.13; 3.15.2 newest",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "until": "2029-10-31",
+        "source": "https://devguide.python.org/versions/"
+      }
+    },
+    {
+      "component": "nodejs-24",
+      "kind": "runtime",
+      "installed": {
+        "version": "24.22.1-bookworm-slim",
+        "digest": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "image": "docker.io/library/node",
+        "source": "dashboard/Dockerfile (FROM node:24.22.1-bookworm-slim); dashboard/package.json engines 24.22.1",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://nodejs.org/en/about/previous-releases",
+        "latest": "24.22.3 on 24; 26.13.1 newest",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "until": "2028-04-30",
+        "source": "https://github.com/nodejs/release#release-schedule"
+      }
+    },
+    {
+      "component": "nodejs-22",
+      "kind": "runtime",
+      "installed": {
+        "version": "22-bookworm-slim (floating major tag)",
+        "digest": "sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d",
+        "image": "node",
+        "source": "scripts/Dockerfile.lab-publisher (FROM node:22-bookworm-slim); site/package.json engines >=22",
+        "read_at": "2026-11-18"
+      },
+      "upstream": {
+        "project": "https://nodejs.org/en/about/previous-releases",
+        "latest": "22.23.5 on 22; 26.13.1 newest",
+        "checked": "2026-11-18"
+      },
+      "support": {
+        "until": "2027-04-30",
+        "source": "https://github.com/nodejs/release#release-schedule"
+      }
+    }
+  ]
+}
