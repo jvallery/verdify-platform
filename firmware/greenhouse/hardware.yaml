@@ -223,7 +223,8 @@ text_sensor:
     id: ts_lead_fan
     name: "Lead Fan"
     entity_category: diagnostic
-    update_interval: 30s
+    # Published by the law pass in controls.yaml (#1815), on its first pass and on change.
+    update_interval: never
 
   # Firmware-v2 evidence surface (text): which zone the priority arbiter
   # granted wetting to, and whether the band is the on-chip solar curve.

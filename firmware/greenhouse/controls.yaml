@@ -759,12 +759,18 @@ interval:
           const RelayOutputs ov_out = pass_out.out;
           const ManualForce manual_force = pass_out.force;
           // T6 S3/F4/E-m1: one lead-fan chooser, the relay layer's; the published lead
-          // is the fan that runs first.
-          if (law_relays.lead_fan1 != id(fan_lead_is_fan1)) {
+          // is the fan that runs first. #1815: ts_lead_fan is published here, on the
+          // first pass and on each change (the API resends it on reconnect).
+          static bool lead_fan_published = false;
+          if (law_relays.lead_fan1 != id(fan_lead_is_fan1) || !lead_fan_published) {
+            if (law_relays.lead_fan1 != id(fan_lead_is_fan1)) {
+              ESP_LOGI("lead", "Lead fan -> %s (fan1=%lus fan2=%lus)", law_relays.lead_fan1 ? "Fan 1" : "Fan 2",
+                       static_cast<unsigned long>(relay_counters.fan_run_s[0]),
+                       static_cast<unsigned long>(relay_counters.fan_run_s[1]));
+            }
             id(fan_lead_is_fan1) = law_relays.lead_fan1;
-            ESP_LOGI("lead", "Lead fan -> %s (fan1=%lus fan2=%lus)", law_relays.lead_fan1 ? "Fan 1" : "Fan 2",
-                     static_cast<unsigned long>(relay_counters.fan_run_s[0]),
-                     static_cast<unsigned long>(relay_counters.fan_run_s[1]));
+            id(ts_lead_fan).publish_state(law_relays.lead_fan1 ? "Fan 1" : "Fan 2");
+            lead_fan_published = true;
           }
           // RULINGS T4 (C2), AD1: the engine's climate fog demand: the law's fog or a
           // run-once under the law's rails but the drips, or a fogger press under its own
