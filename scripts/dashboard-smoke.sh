@@ -2,9 +2,9 @@
 # dashboard-smoke.sh — the live checks of dashboard.verdify.ai (#1143, #1181, #1144, #1186; architecture §10).
 #
 # It runs from any kubectl host with no sign-in, so a fleet verifier can rerun it. It prints only
-# check names, HTTP statuses, readback states and PASS or FAIL, never a cookie, token or body, and it exits non-zero
-# on any FAIL. It works inside the web pod through the BFF with the pod's own OPERATOR_API_TOKEN, which stays in the
-# pod, and with no flag it runs only the baseline. Every leg below runs only when it is named.
+# check names, HTTP statuses, read times, readback states and PASS or FAIL, never a cookie, token or body, and it
+# exits non-zero on any FAIL. It works inside the web pod through the BFF with the pod's own OPERATOR_API_TOKEN, which
+# stays in the pod, and with no flag it runs only the baseline. Every leg below runs only when it is named.
 #
 # USAGE
 #   scripts/dashboard-smoke.sh [--expected-web-sha <40 hex>]
@@ -40,12 +40,16 @@
 # that viewer row until it expires (12 h); nobody ever saw its token. It changes no setting, line or device.
 #
 # --sweep (#1181 step 4, #1186 step 1): reads only, as the viewer, so it runs at any time.
-#   - GET each served read through the BFF and expect 200: API-01 to API-06 (API-06 also with zone=house), API-09,
+#   - GET each served read through the BFF and expect 200: API-01 to API-06 (API-06 also with zone=house and with
+#     achievable=true), API-09,
 #     API-12, API-13 (with its fog and moisture reasons present), API-14, API-17, API-19 (band_vpd_target_sm at the
-#     midpoint of its API-09 min and max; release C retired the zone bands, the plan and the planner history), API-21, the dashboard v2 reads API-30 (the law), API-31 (its last day),
+#     midpoint of its API-09 min and max; release C retired the zone bands, the plan and the planner history), API-21
+#     (days=90 and the page's days=30), the dashboard v2 reads API-30 (the law), API-31 (its last day),
 #     API-32 (the record's default window), API-33 (days=7), API-34 (reviews), API-35 (the controller), API-36 (days=1)
 #     and API-37 (hours=24), then API-IRR-01, API-IRR-02, API-IRR-10 and API-IRR-11. A failure prints the id and the
-#     status, so a read the dashboard login was never granted fails here as a 500, not on a screen.
+#     status, so a read the dashboard login was never granted fails here as a 500, not on a screen. Each read also
+#     prints its time through the BFF, marked when over the latency budget in docs/design/dashboard/v2/api.md (500 ms,
+#     300 ms for API-02); one sample is not a p95, so that mark is never a FAIL (#1814).
 #   - API-IRR-10 reads 2025-08-05 to 2025-09-03, the first 30 days of wet-relay rows (irrigation §6.2), and each of
 #     those days must carry minutes, not no_data. The minutes begin there, so an earlier window reads no_data for good.
 #   - Parity: inside a verdify-mcp pod, with the Iris token already in its environment, MCP irrigation_status; at the
@@ -279,8 +283,9 @@ const windowStart = new Date(Date.now() - 60000).toISOString();
 process.stdout.on("error", () => {});
 
 // One line per check. Nothing from an answer but its status code and readback state is ever printed.
-function check(name, answer, ok) {
-  console.log(`${ok ? "PASS" : "FAIL"} ${name} (${answer.status ?? "no answer"})`);
+function check(name, answer, ok, ms) {
+  const time = ms === undefined ? "" : ` in ${ms} ms${ms > budgetMs(name) ? `, over the ${budgetMs(name)} ms budget` : ""}`;
+  console.log(`${ok ? "PASS" : "FAIL"} ${name} (${answer.status ?? "no answer"})${time}`);
 }
 function said(ok, name, detail) {
   console.log(`${ok ? "PASS" : "FAIL"} ${name} (${detail})`);
@@ -361,6 +366,12 @@ async function baseline(bff) {
 
 // ── The read sweep (#1181 step 4, #1186 step 1) ────────────────────────────
 
+// The read latency budget (docs/design/dashboard/v2/api.md, #1814): p95 500 ms per read, 300 ms for API-02, which
+// every page polls. One sample is not a p95, so a read over its budget is printed, never a FAIL.
+const READ_BUDGET_MS = 500;
+const NOW_BUDGET_MS = 300;
+const budgetMs = (name) => (name === "API-02" ? NOW_BUDGET_MS : READ_BUDGET_MS);
+
 function carriesMinutes(json) {
   const days = json?.periods;
   if (json?.group_by !== "zone" || !Array.isArray(days) || days.length !== MINUTES_DAYS || !Array.isArray(json.rows)) return false;
@@ -380,12 +391,14 @@ async function sweep(bff) {
     ["API-05", `/api/v1/states?${lastDay}`],
     ["API-06", `/api/v1/band?${lastDay}`],
     ["API-06 zone=house", `/api/v1/band?zone=house&${lastDay}`],
+    ["API-06 achievable=true", `/api/v1/band?achievable=true&${lastDay}`],
     ["API-09", "/api/v1/settings"],
     ["API-12", `/api/v1/settings/mister_engage_delay_s/history?${lastDay}`],
     ["API-13 with its two reasons", "/api/v1/equipment", (json) => REASONS.every((reason) => json?.[reason] !== undefined && json[reason] !== null)],
     ["API-14", "/api/v1/alerts"],
     ["API-17", "/api/v1/activity?limit=50"],
     ["API-21", "/api/v1/water/daily?days=90"],
+    ["API-21 days=30", "/api/v1/water/daily?days=30"],
     ["API-30", "/api/v1/law"],
     ["API-31", `/api/v1/law/history?${lastDay}`],
     ["API-32", "/api/v1/record/days"],
@@ -401,8 +414,9 @@ async function sweep(bff) {
   ];
   let settings = null;
   for (const [id, path, more] of rows) {
+    const started = Date.now();
     const answer = await bff(path);
-    check(id, answer, answer.status === 200 && (!more || more(answer.json)));
+    check(id, answer, answer.status === 200 && (!more || more(answer.json)), Date.now() - started);
     if (id === "API-09") settings = answer.json;
   }
   const band = settings?.items?.find((item) => item.param === BAND_PARAM);
@@ -410,8 +424,9 @@ async function sweep(bff) {
     said(false, "API-19", `no min and max for ${BAND_PARAM} in API-09`);
     return;
   }
+  const started = Date.now();
   const preview = await bff(`/api/v1/band/preview?param=${BAND_PARAM}&value=${(band.min + band.max) / 2}`);
-  check("API-19", preview, preview.status === 200);
+  check("API-19", preview, preview.status === 200, Date.now() - started);
 }
 
 // ── MCP parity: one hash per field, so no value leaves the pod ─────────────
