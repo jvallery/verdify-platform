@@ -1490,7 +1490,7 @@ export interface components {
                 readonly current: number | null;
                 readonly draft: number | null;
             };
-            /** @description By series, how far the draft curve leaves its anchor range */
+            /** @description By edge series (temp_low, temp_high, vpd_low, vpd_high), how far the draft curve leaves its anchor range. The stored middle lines (temp_target, vpd_target), which the law does not read, have no key and no finding since release C part 2 */
             readonly overshoot: {
                 readonly [key: string]: number;
             };

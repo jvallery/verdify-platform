@@ -134,6 +134,7 @@
 .band-findings{display:grid;gap:var(--space-2);margin:var(--space-3) 0 0;padding:var(--space-3) 0 0;border-top:1px solid var(--border);list-style:none;font-size:var(--fs-sm)}
 .band-findings>li{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--space-1) var(--space-2);max-width:70ch}
 .band-findings>li>span:last-child{flex:1 1 20rem;min-width:0}
+.band-overshoot{margin:var(--space-3) 0 0;max-width:70ch}
 
 /* Block 3: the editor. Each axis is a section under a rule; its rows are a time of day with its low and high edge. */
 .band-form{display:grid;gap:var(--space-4)}

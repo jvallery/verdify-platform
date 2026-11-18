@@ -77,6 +77,11 @@ edges only, so the editor edits edges. The target rows are not shown and not edi
 | 5 | History | The band's changes: when, who, which edges, the reason | API-17 (`band.write`) |
 | 6 | How the band works (disclosure) | Short prose and one diagram: the edges, the rules that act on each, the one price, and what the controller does without a host | none |
 
+No finding names a target row, and with no draft change the curve's overshoot past its anchors is one quiet note line
+(how far at most, and that sunrise and sunset set apart from the noon-midnight midpoint cause it, accepted under #1334)
+instead of a warning per edge. While a draft changes the band each edge's overshoot is its own warning, and a dewpoint
+the house has not reached is always a warning.
+
 Retired from this page: target fields, widths, "Let Iris change this", the night bias, the zone bands.
 
 ### 2.3 Drying `/climate/drying`

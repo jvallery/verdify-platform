@@ -1953,7 +1953,7 @@ components:
             min_width_kpa: {type: number, description: The control law's minimum VPD band width at every point of the day}
             dry_on_above_vpd_low_kpa: {type: number, description: The control law dries the house below vpd_low plus this}
         law_lines: {$ref: '#/components/schemas/BandLawLines'}
-        overshoot: {type: object, additionalProperties: {type: number}, description: 'By series, how far the draft curve leaves its anchor range'}
+        overshoot: {type: object, additionalProperties: {type: number}, description: 'By edge series (temp_low, temp_high, vpd_low, vpd_high), how far the draft curve leaves its anchor range. The stored middle lines (temp_target, vpd_target), which the law does not read, have no key and no finding since release C part 2'}
         night_heat_kwh:
           type: object
           required: [current, draft]

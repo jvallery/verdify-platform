@@ -120,7 +120,12 @@ def test_the_live_band_reads_back_as_its_profile_and_shows_its_overshoot():
     assert profile.vpd_below_night == pytest.approx(0.092) and profile.vpd_above_night == pytest.approx(0.338)
     assert not is_simple(LIVE)
     assert overshoot(LIVE)["temp_low"] == pytest.approx(1.54, abs=0.01)
-    assert [(f.code, f.severity) for f in findings(LIVE)] == [("overshoot", "warning")] * 3
+    # The edges only: the stored middle line, which the law does not read, has no overshoot key or finding.
+    assert set(overshoot(LIVE)) == {"temp_low", "temp_high", "vpd_low", "vpd_high"}
+    assert [(f.code, f.severity, f.field) for f in findings(LIVE)] == [
+        ("overshoot", "warning", "band_temp_low_sr"),
+        ("overshoot", "warning", "band_temp_high_sr"),
+    ]
     # Recompiling the live profile removes the overshoot and keeps the 0.74 kPa night floor (0.738 stored).
     assert findings(compile_profile(profile)) == []
 

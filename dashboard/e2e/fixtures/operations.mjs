@@ -635,7 +635,8 @@ function profileBody(world, { query }) {
     vpd: { current: vpd, draft: vpdDraft, expected_low: night(vpdDraft.target, -0.2), expected_high: night(vpdDraft.target, 0.05) },
     guardrails: { temp_min_f: 40, temp_max_f: 100, margin_f: 5, vpd_min_kpa: 0.3, vpd_max_kpa: 3, night_vpd_floor_kpa: NIGHT_FLOOR_KPA, min_width_f: MIN_WIDTH_F, min_width_kpa: MIN_WIDTH_KPA, dry_on_above_vpd_low_kpa: DRY_ON_KPA },
     law_lines: { ...LAW_LINES },
-    overshoot: Object.fromEntries(BAND_SERIES.map((series) => [series, isSimple(draft) ? 0 : series.startsWith("temp") ? 1.54 : 0.015])),
+    // The edges only: the stored middle lines, which the law does not read, have no overshoot (release C part 2).
+    overshoot: Object.fromEntries(BAND_SERIES.filter((series) => !series.endsWith("_target")).map((series) => [series, isSimple(draft) ? 0 : series.startsWith("temp") ? 1.54 : 0.015])),
     night_heat_kwh: { current: heat(temp), draft: heat(tempDraft) },
     envelope: { hours: 140, days: 14, rmse_f: 4.5, dewpoint_p10_f: 44 },
     findings: bandFindings(draft).map((finding) => edgeFinding(finding, fields)),

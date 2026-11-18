@@ -209,9 +209,12 @@ def is_night(phase: float) -> bool:
 
 
 def overshoot(anchors: Mapping[str, float]) -> dict[str, float]:
-    """{series: how far its curve leaves its own anchor range}, 0 for a profile-compiled band."""
+    """{edge series: how far its curve leaves its own anchor range}, 0 for a profile-compiled band. Only the four
+    edges: the law reads no stored middle line (``*_target``), so its overshoot is neither a key nor a finding."""
     out: dict[str, float] = {}
     for series in HOUSE_SERIES:
+        if series.endswith("_target"):
+            continue
         points = series_points(anchors, series)
         low, high = curve_extremes(points)
         out[series] = round(max(0.0, min(points) - low, high - max(points)), 4)

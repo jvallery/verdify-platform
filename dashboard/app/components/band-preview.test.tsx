@@ -10,7 +10,7 @@ import { FakeResizeObserver, MockPlot, media, setTokens } from "../charts/fixtur
 import { parseBandProfilePreview, type BandProfilePreview } from "../lib/operator-api";
 import { NOW } from "../lib/test-fixture-api";
 import {
-  BandPreviewPanel, FindingsList, bandAnswer, lawLines, nightHeatText, previewCsv, previewKey, previewViews, ribbon, solarMarks, tooltipText,
+  BandPreviewPanel, FindingsList, bandAnswer, bandFindings, lawLines, nightHeatText, previewCsv, previewKey, previewViews, ribbon, solarMarks, tooltipText,
 } from "./band-preview";
 import { renderUi, text } from "./test-render";
 
@@ -104,6 +104,45 @@ test("findings list errors first, each naming its edge in words with the API's r
   ]);
 });
 
+// API-23 for the stored band as it read live on 2026-11-17: three overshoot warnings, one of them on the stored middle line.
+const LIVE_FINDINGS: Pick<BandProfilePreview, "findings" | "overshoot" | "changed"> = {
+  changed: [],
+  overshoot: { temp_low: 1.1, temp_target: 1.5, temp_high: 1.9, vpd_low: 0.01, vpd_target: 0.01, vpd_high: 0.02 },
+  findings: [
+    { code: "overshoot", severity: "warning", field: "band_temp_low_sr", detail: "temp_low leaves its anchor range by 1.1 °F" },
+    { code: "overshoot", severity: "warning", field: "band_temp_target_sr", detail: "temp_target leaves its anchor range by 1.5 °F" },
+    { code: "overshoot", severity: "warning", field: "band_temp_high_sr", detail: "temp_high leaves its anchor range by 1.9 °F" },
+    { code: "dewpoint_unreached", severity: "warning", field: "vpd_below_night", detail: "A 0.74 kPa night floor needs a dewpoint" },
+  ],
+};
+
+test("with no draft change the overshoot is one quiet line, and nothing names the stored middle line", () => {
+  for (const edited of [false, true]) {
+    const shown = bandFindings(LIVE_FINDINGS, edited);
+    expect(shown.findings.map((item) => item.code)).toEqual(["dewpoint_unreached"]);
+    expect(shown.overshootNote?.replaceAll("\u00a0", " ")).toBe(
+      "The curve runs up to 1.9 °F outside its anchors, because sunrise and sunset are set apart from the midpoint of noon and midnight. This is accepted.",
+    );
+  }
+  // Both axes past the warning line: the most of each.
+  const both = bandFindings({ ...LIVE_FINDINGS, findings: [...LIVE_FINDINGS.findings,
+    { code: "overshoot", severity: "warning", field: "band_vpd_high_sr", detail: "vpd_high leaves its anchor range by 0.02 kPa" }] }, false);
+  expect(both.overshootNote?.replaceAll("\u00a0", " ")).toMatch(/^The curve runs up to 1\.9 °F and 0\.02 kPa outside its anchors/);
+  expect(bandFindings({ ...LIVE_FINDINGS, findings: [] }, false)).toEqual({ findings: [], overshootNote: null });
+});
+
+test("while a draft changes the band the overshoot stays one warning per edge; an error shows only with a draft", () => {
+  const order = { code: "band_order", severity: "error" as const, field: "band_temp_target_sm", detail: "temp_target falls below temp_low during the day" };
+  const draft = { ...LIVE_FINDINGS, changed: ["band_temp_low_sm"], findings: [...LIVE_FINDINGS.findings, order] };
+  const shown = bandFindings(draft, true);
+  expect(shown.overshootNote).toBeNull();
+  expect(shown.findings.map((item) => `${item.code} ${item.field}`)).toEqual([
+    "overshoot band_temp_low_sr", "overshoot band_temp_high_sr", "dewpoint_unreached vpd_below_night", "band_order band_temp_target_sm",
+  ]);
+  // The stored band's own errors block nothing.
+  expect(bandFindings(draft, false).findings.some((item) => item.severity === "error")).toBe(false);
+});
+
 test("the panel: the answer, two charts under one key and one quiet line, the sun's times and the stored band's warning", () => {
   const stored = preview();
   renderUi(<BandPreviewPanel preview={stored} edited={false} now={NOW / 1000} state="ready" />);
@@ -115,8 +154,9 @@ test("the panel: the answer, two charts under one key and one quiet line, the su
   expect(panel.querySelectorAll(".chart-foot")).toHaveLength(1);
   expect([...panel.querySelectorAll(".chart-csv")].map((link) => link.getAttribute("aria-label"))).toEqual(["CSV of these charts"]);
   expect(text(panel)).toContain("Sunrise 07:00 · Solar noon 12:30 · Sunset 18:00.");
-  // The stored band's own errors would block nothing, so only its warnings show before a draft.
-  expect(text(panel)).toContain("Warning Temperature low edge at sunrise");
+  // The stored band's own errors would block nothing, and its overshoot is one quiet line, not a Warning.
+  expect(text(panel)).not.toContain("Warning Temperature low edge at sunrise");
+  expect(text(panel.querySelector(".band-overshoot.meta"))).toMatch(/^The curve runs up to 1\.5\s°F outside its anchors, because sunrise and sunset are set apart/);
   expect(text(panel)).toMatch(/Heat for tonight, estimated: [\d.]+ kWh with the band as stored\./);
 });
 
