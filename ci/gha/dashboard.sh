@@ -8,6 +8,12 @@
 # Classification runs in the runner container (python3); the checks run in the
 # set's job-image sidecar through estate-ci sidecar-run.sh.
 . "$(dirname "$0")/lib.sh"
+# VERDIFY_LIGHT (ci.yml, the path-impact job's light class): "verified" means a
+# pull_request run already passed this exact tree (#1716 C1).
+if [ "${VERDIFY_LIGHT:-}" = verified ]; then
+  echo "path impact: tree already verified on its pull request; dashboard checks not required"
+  exit 0
+fi
 ci_fetch_history
 impact="$(mktemp -d)"
 ci_classify "$impact" >/dev/null
