@@ -94,7 +94,9 @@ def test_render_cache_runtime_is_pinned_unprivileged_and_credential_free():
     assert pod["topologySpreadConstraints"][0]["whenUnsatisfiable"] == "DoNotSchedule"
     assert pod["topologySpreadConstraints"][0]["nodeTaintsPolicy"] == "Honor"
     assert pod["automountServiceAccountToken"] is False
-    assert disruption_budget["spec"]["minAvailable"] == 1
+    assert disruption_budget["spec"]["maxUnavailable"] == 1
+    assert disruption_budget["spec"]["unhealthyPodEvictionPolicy"] == "AlwaysAllow"
+    assert "minAvailable" not in disruption_budget["spec"]
     assert container["image"].startswith(
         "registry.vallery.net/jvallery/mirror-docker-io-nginxinc-nginx-unprivileged:stable-alpine-slim-5d8bb9437d74@sha256:"
     )

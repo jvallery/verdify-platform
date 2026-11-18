@@ -7,8 +7,10 @@
 # replica, then BLOCKS until its replacement is Ready on another node before the
 # second can go — the surface never hits zero during cluster maintenance.
 #
-#   - lab / api / mcp / planner / verdify-traefik: minAvailable: 1
-#     (2-replica surfaces; planner added in ha-5 / #230).
+#   - lab / api / mcp / planner / verdify-traefik: maxUnavailable: 1 with
+#     unhealthyPodEvictionPolicy AlwaysAllow (2-replica surfaces; planner added in
+#     ha-5 / #230). Same floor of one Ready replica as minAvailable: 1, and a
+#     crash-looping pod never blocks a drain (STD-HA-06, jvallery/estate-platform#115).
 #   - grafana: maxUnavailable: 1 (RWO iSCSI PVC singleton, stays replicas:1).
 #     minAvailable:1 on a 1-replica object would block EVERY node drain forever;
 #     maxUnavailable:1 lets the drain proceed (its HA is fast PVC-reattach
@@ -25,7 +27,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: lab-site
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/component: lab-site
@@ -38,7 +41,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: api
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/component: api
@@ -51,7 +55,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: mcp
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/component: mcp
@@ -64,7 +69,8 @@ metadata:
     app.kubernetes.io/part-of: verdify
     app.kubernetes.io/component: edge-traefik
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/name: verdify-traefik
