@@ -467,11 +467,10 @@ Every row of the table above. In detail:
 - **Zones.** API-06 takes `zone=house` only; any other zone is 400 `invalid_request`. API-19 takes the house band's 24
   anchors only; a zone VPD target or width is 422 `unknown_target`. API-09 still lists the Band in force rows of every
   zone.
-- **Kept outside the operator API.** The greenhouse snapshot job (`api/greenhouse_brief_job.py`) reads the climate mode
-  and the next planner runs through `reads.climate_mode()` and `reads.planner_runs()`, and writes the same snapshot facts
-  as before (`plan_in_force` is false, as it has been since climate refactor 4.2). The MCP `settings` tool's history
-  still carries its `plan` values through `reads.setting_history_with_plan()`. Neither is served by the operator API.
-  MCP's settings catalog rows no longer carry the `plan` key, which was always null.
+- **Kept outside the operator API.** The MCP `settings` tool's history still carries its `plan` values through
+  `reads.setting_history_with_plan()`; the operator API does not serve it. MCP's settings catalog rows no longer carry
+  the `plan` key, which was always null. The greenhouse snapshot job read the climate mode and the next planner runs
+  until part 2 (D, below) gave it the law's facts.
 - **Web.** It rolls first. Its parsers drop the retired fields and read an old `held` as `not_confirmed`, so the same
   build works against the API at 088414f4 and after release C (`app/lib/release-c.test.ts` parses one payload of each
   shape). The badges, words and reason lines lose `held`, `experiment` and `study_state`. The graph link checker still
@@ -485,3 +484,26 @@ Every row of the table above. In detail:
   mentions `held`; it still prints whatever state `set_setting` answers. Each leg passes against 088414f4 too; that
   API answers `held` only under an armed experiment, and the retired experiment platform arms none.
 - **Restart.** `verdify-operator-api` and `verdify-mcp`. No migration and no database change.
+
+### 7.2 Part 2: follow-ups from the live site (2026-11-17)
+
+Same release, same restart (`verdify-operator-api` and `verdify-mcp`; the snapshot CronJob takes the api image with
+the full sync). No migration.
+
+- **A. Legacy wide limits (API-09, API-12, MCP `settings`).** `temp_low`, `temp_high`, `vpd_low` and `vpd_high` are
+  evaluated as never requested: `confirmed` with a readback, else `no_readback`, never `not_confirmed` against the
+  dispatcher's last push, which stopped once the band anchors confirmed. `applied_from` reads `default` for them: `band`
+  means the host sends the band's value, and it sends these no more. `Now.writer.differing` never counted them.
+- **B. Delivery (API-37).** `oldest_unconfirmed_s` leaves out `cancelled` pushes, as it leaves out superseded, failed,
+  expired and observed ones. The operator API's `/metrics` reads the same statement.
+- **C. The law (API-30).** While `lead_fan` is null and exactly one fan is on, that fan is the lead for the rules'
+  `relays` and `hold` (Cooling and Drying list it, Second fan the other). Both on or both off: both fans are listed,
+  as before. `lead_fan` itself stays what the controller reported.
+- **D. The greenhouse snapshot (`Now.snapshot`, MCP `get_greenhouse_snapshot`).** The job's fact sheet drops
+  `climate_mode` and `planner` and gains `climate_law` (what the law asks for, with each rule's thresholds from the band
+  in use, the equipment finishing its shortest time on, the drying decision and why, the band edges in use, the drying
+  cost and its limit) and `daily_review` (status and whether a band proposal waits). Its write trigger keys on the law's
+  requests. Prompt version `brief-v2`. `reads.climate_mode()` and `reads.planner_runs()` are deleted.
+- **E. The band (API-23).** `overshoot` holds the four edge series only; no overshoot finding names a `*_target_*` row.
+  `band_order` still names the target row it crossed (an error; `edge_field()` maps it to the edge for an edge draft).
+  The web hides a warning on a target row and, with no draft change, folds the overshoot warnings into one note line.
