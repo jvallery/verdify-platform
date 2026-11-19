@@ -47,6 +47,8 @@ import subprocess
 import sys
 import tempfile
 from array import array
+from collections import defaultdict
+from itertools import groupby, pairwise
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -76,6 +78,9 @@ SCENARIOS = {
     "law_no_clock": {"clock.valid": 0},
     "law_clock_fast_117": {"clock.err_min": 117},
 }
+# Full-year scaled-runtime outliers with opposite signed gaps (#1725).
+FAN_TRACE_CASES = {("law", "B", "winter"), ("law_e0", "A", "summer")}
+
 # The generated constants as the reference simulator's settings.
 REFERENCE_CONSTANTS = {
     "edge.h1_on": K.HEAT1_ON_ABOVE_LOW_F,
@@ -221,6 +226,7 @@ def run(
     trace: Path | None = None,
     *,
     precise_fan_runtime: bool = False,
+    fan_events: Path | None = None,
 ) -> str:
     start, end, score_from = span
     args = [
@@ -241,6 +247,8 @@ def run(
         args.append("precise_fan_runtime=1")
     if trace is not None:
         args.append(f"trace={trace}")
+    if fan_events is not None:
+        args.append(f"fan_events={fan_events}")
     return subprocess.run(args, capture_output=True, text=True, check=True).stdout
 
 
@@ -270,6 +278,105 @@ def fan_runtime_report(summary: str, name: str, set_name: str, season: str) -> s
         f"fan1={fan1_hours:.3f} h, fan2={fan2_hours:.3f} h, absolute difference={absolute_hours:.3f} h, "
         f"difference / mean={imbalance}"
     )
+
+
+def fan_trace_report(trace: Path, name: str, set_name: str, season: str) -> tuple[str, tuple[int, int]]:
+    # The full runs use the simulator default of 5 s per tick. Its trace prints each fan's
+    # minute duty to two decimals, enough to distinguish all 13 possible tick counts.
+    ticks_per_minute = 12
+    duty_ticks = {f"{ticks / ticks_per_minute:.2f}": ticks for ticks in range(ticks_per_minute + 1)}
+    scored_minutes = both_positive_minutes = ambiguous_overlap_minutes = 0
+    fan1_ticks = fan2_ticks = overlap_min_ticks = overlap_max_ticks = one_positive_gap_ticks = 0
+    with trace.open(newline="") as source:
+        for row in csv.DictReader(source):
+            if row["scored"] == "0":
+                continue
+            if row["scored"] != "1":
+                raise ValueError("unknown scored-minute value")
+            fan1, fan2 = (duty_ticks[row[fan]] for fan in ("fan1", "fan2"))
+            scored_minutes += 1
+            fan1_ticks += fan1
+            fan2_ticks += fan2
+            if not (fan1 and fan2):
+                one_positive_gap_ticks += fan1 - fan2
+                continue
+            both_positive_minutes += 1
+            overlap_min = max(0, fan1 + fan2 - ticks_per_minute)
+            overlap_max = min(fan1, fan2)
+            overlap_min_ticks += overlap_min
+            overlap_max_ticks += overlap_max
+            ambiguous_overlap_minutes += overlap_min != overlap_max
+    if not scored_minutes:
+        raise ValueError("no scored minutes")
+
+    def hours(ticks: int) -> str:
+        return f"{ticks / (ticks_per_minute * 60):.3f}"
+
+    gap_ticks = fan1_ticks - fan2_ticks
+    report = (
+        f"fan trace {name} set={set_name} parameters={season}: scored_minutes={scored_minutes}, "
+        f"both_positive_minutes={both_positive_minutes}, ambiguous_overlap_minutes={ambiguous_overlap_minutes}, "
+        f"fan1_total_h={hours(fan1_ticks)}, fan2_total_h={hours(fan2_ticks)}, "
+        f"overlap_h=[{hours(overlap_min_ticks)},{hours(overlap_max_ticks)}], "
+        f"fan1_only_h=[{hours(fan1_ticks - overlap_max_ticks)},{hours(fan1_ticks - overlap_min_ticks)}], "
+        f"fan2_only_h=[{hours(fan2_ticks - overlap_max_ticks)},{hours(fan2_ticks - overlap_min_ticks)}], "
+        f"fan1_minus_fan2_h={hours(gap_ticks)}, one_fan_positive_minute_gap_h={hours(one_positive_gap_ticks)}, "
+        f"both_fans_positive_minute_gap_h={hours(gap_ticks - one_positive_gap_ticks)}; "
+        "minute totals alone do not identify episode order, escalation, or handoffs"
+    )
+    return report, (fan1_ticks * 5, fan2_ticks * 5)
+
+
+def fan_event_report(events: Path, expected_fan_seconds: tuple[int, int], scenario: str) -> list[str]:
+    def segments(source):
+        rows = ((int(row["epoch_s"]), int(row["state"]), int(row["scored"])) for row in csv.DictReader(source))
+        end = None
+        for start, end in pairwise(rows):
+            elapsed = end[0] - start[0]
+            if start[1] not in (0, 1, 2, 3) or start[2] not in (0, 1) or elapsed <= 0 or elapsed % 5:
+                raise ValueError("invalid fan event segment")
+            yield start[1], bool(start[2]), elapsed, end[1] == -1
+        if end is None or end[1:] != (-1, 0):
+            raise ValueError("missing fan event end marker")
+
+    counts = defaultdict(int)
+    totals = defaultdict(lambda: [0, 0, 0])
+    with events.open(newline="") as source:
+        for active, episode in groupby(segments(source), key=lambda segment: segment[0] != 0):
+            if not active:
+                continue
+            scored_seconds = [0, 0, 0]
+            first = seen = 0
+            paired = incomplete = unscored = False
+            for state, scored, elapsed, terminal in episode:
+                first = first or state
+                seen |= state
+                paired |= state == 3
+                incomplete |= terminal
+                unscored |= not scored
+                if scored:
+                    scored_seconds[state - 1] += elapsed
+            if not sum(scored_seconds):
+                continue
+            if paired:
+                kind = "paired-start" if first == 3 else "later-overlap"
+            else:
+                kind = "both-without-overlap" if seen == 3 else "solo"
+            key = (kind, "partial" if incomplete or unscored else "fully-scored")
+            counts[key] += 1
+            for index, seconds in enumerate(scored_seconds):
+                totals[key][index] += seconds
+
+    exclusive1 = sum(row[0] for row in totals.values())
+    exclusive2 = sum(row[1] for row in totals.values())
+    shared = sum(row[2] for row in totals.values())
+    if (exclusive1 + shared, exclusive2 + shared) != expected_fan_seconds:
+        raise ValueError("fan-event totals do not reconcile to scored minute duties")
+    return [
+        f"fan episodes {scenario} type={kind} window={window}: count={counts[kind, window]}, "
+        f"fan1_only_s={fan1}, fan2_only_s={fan2}, both_on_s={both}, fan1_minus_fan2_s={fan1 - fan2}"
+        for (kind, window), (fan1, fan2, both) in sorted(totals.items())
+    ]
 
 
 def season_rows(text: str, season: str) -> list[dict]:
@@ -313,7 +420,21 @@ def main() -> int:
                     ref_kv = {**REFERENCE_CONSTANTS, **kv}
                     ta, tb = work / "trace_ref.csv", work / "trace_port.csv"
                     a = run(ref, forcing, name, params, canopy, span, ref_kv, ta, precise_fan_runtime=args.full)
-                    b = run(port, forcing, name, params, canopy, span, ref_kv, tb, precise_fan_runtime=args.full)
+                    events = (
+                        work / "fan_events.csv" if args.full and (name, set_name, season) in FAN_TRACE_CASES else None
+                    )
+                    b = run(
+                        port,
+                        forcing,
+                        name,
+                        params,
+                        canopy,
+                        span,
+                        ref_kv,
+                        tb,
+                        precise_fan_runtime=args.full,
+                        fan_events=events,
+                    )
                     compared += 1
                     problems = summary_problems(a)
                     trace_a, trace_b = ta.read_bytes(), tb.read_bytes()
@@ -333,6 +454,15 @@ def main() -> int:
                             print(f"  {p}")
                     if args.full and not problems:
                         print(fan_runtime_report(b, name, set_name, season))
+                        if events is not None:
+                            scenario = f"{name} set={set_name} parameters={season}"
+                            try:
+                                report, fan_seconds = fan_trace_report(tb, name, set_name, season)
+                                print(report)
+                                for row in fan_event_report(events, fan_seconds, scenario):
+                                    print(row)
+                            except (KeyError, OSError, ValueError) as exc:
+                                print(f"fan diagnostics {scenario}: unavailable ({exc})")
                     if a != b:
                         failures += 1
                         print(f"FAIL port != reference: {name} {set_name} {season}")

@@ -538,10 +538,24 @@ int main(int argc, char** argv) {
     std::fprintf(trace, "epoch_s,temp_f,vpd,rh,w,mode,heat1,heat2,fan1,fan2,fog,vent,mister,tlo,thi,vlo,vhi,out_temp_f,night,scored\n");
   }
   const bool replay = (ctrl == "replay");
+  FILE* fan_events = nullptr;
+  if (CFG.count("fan_events")) {
+    if (replay || dt != 5.0) {
+      std::fprintf(stderr, "fan_events requires simulated relays and a 5-second step\n");
+      return 2;
+    }
+    fan_events = std::fopen(CFG["fan_events"].c_str(), "w");
+    if (!fan_events) { std::fprintf(stderr, "cannot open fan_events output\n"); return 2; }
+    std::fputs("epoch_s,state,scored\n", fan_events);
+  }
+  int last_fan_sample = -1;
+  double fan_events_end = t_start;
 
   for (int64_t i = 0; i < F.n; ++i) {
     const double ep = F.c[Forcing::EPOCH][i];
     if (ep < t_start || ep >= t_end) continue;
+    const bool scored = ep >= score_from && F.c[Forcing::WX_OK][i] > 0.5
+                        && (!replay || (F.c[Forcing::IN_OK][i] > 0.5 && F.c[Forcing::O_OK][i] > 0.5));
     const double To = F.c[Forcing::TO][i], wo = F.c[Forcing::WO][i], P = F.c[Forcing::P][i];
     if (!inited) {
       double T0 = F.c[Forcing::IN_OK][i] > 0.5 ? F.c[Forcing::TMEAS][i] : 18.0;
@@ -725,14 +739,21 @@ int main(int argc, char** argv) {
           m_q1 += pp[phys::P_QH1] * (R[R_H1].on ? 1.0 : 0.0) * dt; m_q2 += pp[phys::P_QH2] * (R[R_H2].on ? 1.0 : 0.0) * dt;
         }
         phys::phys_step(s, u, pp, dt);
+        if (fan_events) {
+          const int state = (R[R_F1].on ? 1 : 0) | (R[R_F2].on ? 2 : 0);
+          const int sample = state | (scored ? 4 : 0);
+          if (sample != last_fan_sample) {
+            std::fprintf(fan_events, "%.0f,%d,%d\n", now, state, scored ? 1 : 0);
+            last_fan_sample = sample;
+          }
+          fan_events_end = now + dt;
+        }
         for (int r = 0; r < R_N; ++r) { duty[r] += R[r].on ? 1.0 / ticks : 0.0; if (R[r].on) R[r].on_s += dt; }
         mode_ticks[(int)q.mode] += 1.0 / ticks;
         water_today += (R[R_FOG].on ? 0.58 : 0.0) * dt / 60.0 + (R[R_MC].on ? 1.12 : 0.0) * dt / 60.0;   // metered flow while fog/mister relays are on
       }
     }
     // ---- score this minute
-    const bool scored = ep >= score_from && F.c[Forcing::WX_OK][i] > 0.5
-                        && (!replay || (F.c[Forcing::IN_OK][i] > 0.5 && F.c[Forcing::O_OK][i] > 0.5));
     if (trace)
       std::fprintf(trace, "%.0f,%.2f,%.4f,%.1f,%.3f,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%.4f,%.1f,%d,%d\n", ep,
                    z.temp_f, z.vpd, z.rh, replay ? F.c[Forcing::WMEAS][i] : s.ws, replay ? -1 : (int)(std::max_element(mode_ticks, mode_ticks + 8) - mode_ticks),
@@ -785,6 +806,10 @@ int main(int argc, char** argv) {
     }
   }
   if (trace) std::fclose(trace);
+  if (fan_events) {
+    std::fprintf(fan_events, "%.0f,-1,0\n", fan_events_end);  // End marker, not a relay transition.
+    if (std::fclose(fan_events) != 0) { std::fprintf(stderr, "cannot write fan_events output\n"); return 2; }
+  }
   FILE* out = stdout;
   if (CFG.count("out")) out = std::fopen(CFG["out"].c_str(), cfgb("append", false) ? "a" : "w");
   if (!cfgb("append", false) || cfgb("header", false)) std::fputs(HEADER, out);
