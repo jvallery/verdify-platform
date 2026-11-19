@@ -538,6 +538,15 @@ int main(int argc, char** argv) {
   bool lead1 = true; int zone = 0;                 // edge relay layer: which fan leads; which mister zone pulses next
   std::optional<FanWearExperiment> fan_wear;
   if (fan_wear_window_s > 0 && is_edge && lead_by_runtime) fan_wear.emplace(fan_wear_window_s);
+  std::optional<FanWearExperiment> fan_start_shadow;
+  std::map<std::string, unsigned> fan_start_counts;
+  if (CFG.count("fan_start_shadow")) {
+    if (!is_edge || !lead_by_runtime || fan_wear || dt != 5.0) {
+      std::fprintf(stderr, "fan_start_shadow requires strict edge control and a 5-second step\n");
+      return 2;
+    }
+    fan_start_shadow.emplace(3600);
+  }
   bool led_once = false, last_led1 = true;         // AB8: which fan actually led the last fan episode
 
   std::map<std::string, Acc> acc;
@@ -660,9 +669,10 @@ int main(int argc, char** argv) {
           // AB8: the lead alternates by episode (fewer run seconds only for the first one); m7: a fan in its minimum
           // off time hands its turn to the other, and the order continues from the fan that actually led
           const bool fans_off = !R[R_F1].on && !R[R_F2].on;
+          bool turn1 = false, m1 = false, m2 = false;
           if (fans_off) {
-            const bool turn1 = led_once ? !last_led1 : R[R_F1].on_s <= R[R_F2].on_s;
-            const bool m1 = R[R_F1].can_on(now), m2 = R[R_F2].can_on(now);
+            turn1 = led_once ? !last_led1 : R[R_F1].on_s <= R[R_F2].on_s;
+            m1 = R[R_F1].can_on(now); m2 = R[R_F2].can_on(now);
             lead1 = !lead_by_runtime || (m1 != m2 ? m1 : turn1);
             // Opt-in reference experiment: both-off, one-fan demand only; keep the ordinary paired start.
             if (fan_wear && e.fans == 1) lead1 = fan_wear->choose(now, turn1, m1, m2);
@@ -675,7 +685,18 @@ int main(int argc, char** argv) {
           R[R_H2].set(now, e.heat2 && !air_on, false, hot);                           // the furnace waits for the vent to close
           R[R_F1].set(now, want_f1 && R[R_VENT].on, false, false);
           R[R_F2].set(now, want_f2 && R[R_VENT].on, false, false);
-          if (fans_off && (R[R_F1].on || R[R_F2].on)) { last_led1 = R[R_F1].on && R[R_F2].on ? lead1 : R[R_F1].on; led_once = true; }
+          if (fans_off && (R[R_F1].on || R[R_F2].on)) {
+            last_led1 = R[R_F1].on && R[R_F2].on ? lead1 : R[R_F1].on;
+            led_once = true;
+            if (fan_start_shadow) {
+              char key[128];
+              const int ready = (m1 ? 1 : 0) | (m2 ? 2 : 0);
+              const int first = (R[R_F1].on ? 1 : 0) | (R[R_F2].on ? 2 : 0);
+              std::snprintf(key, sizeof key, "%d,%d,%d,%s,%d,%d,%d", e.fans, turn1 ? 1 : 2, ready,
+                            fan_start_shadow->credit_status(now), first, last_led1 ? 1 : 2, scored ? 1 : 0);
+              ++fan_start_counts[key];
+            }
+          }
           R[R_VENT].set(now, want_vent || want_f1 || want_f2 || R[R_F1].on || R[R_F2].on, false, false);
           R[R_FOG].set(now, e.fog, false, false);
           static const int ZR[3] = {R_MC, R_MS, R_MW};                                // mister zones pulse in turn, one at a time
@@ -751,6 +772,7 @@ int main(int argc, char** argv) {
         }
         phys::phys_step(s, u, pp, dt);
         if (fan_wear) fan_wear->observe(now, dt, R[R_F1].on, R[R_F2].on);
+        if (fan_start_shadow) fan_start_shadow->observe(now, dt, R[R_F1].on, R[R_F2].on);
         if (fan_events) {
           const int state = (R[R_F1].on ? 1 : 0) | (R[R_F2].on ? 2 : 0);
           const int sample = state | (scored ? 4 : 0);
@@ -818,6 +840,13 @@ int main(int argc, char** argv) {
     }
   }
   if (trace) std::fclose(trace);
+  if (fan_start_shadow) {
+    FILE* shadow = std::fopen(CFG["fan_start_shadow"].c_str(), "w");
+    if (!shadow) { std::fprintf(stderr, "cannot open fan_start_shadow output\n"); return 2; }
+    std::fputs("request_fans,due_fan,ready_mask,credit,first_on_mask,actual_lead,scored,count\n", shadow);
+    for (const auto& row : fan_start_counts) std::fprintf(shadow, "%s,%u\n", row.first.c_str(), row.second);
+    if (std::fclose(shadow) != 0) { std::fprintf(stderr, "cannot write fan_start_shadow output\n"); return 2; }
+  }
   if (fan_events) {
     std::fprintf(fan_events, "%.0f,-1,0\n", fan_events_end);  // End marker, not a relay transition.
     if (std::fclose(fan_events) != 0) { std::fprintf(stderr, "cannot write fan_events output\n"); return 2; }

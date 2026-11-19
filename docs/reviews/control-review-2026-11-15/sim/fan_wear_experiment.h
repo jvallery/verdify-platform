@@ -14,10 +14,18 @@ class FanWearExperiment {
     return balance_ == 0 ? turn1 : balance_ < 0;
   }
 
+  const char* credit_status(double now) {
+    expire(now);
+    if (history_.empty()) return observed_exclusive_ ? "expired" : "never-observed";
+    if (balance_ == 0) return "tied";
+    return balance_ < 0 ? "favors-fan1" : "favors-fan2";
+  }
+
   void observe(double now, double dt, bool fan1, bool fan2) {
     if (window_s_ == 0) return;
     expire(now);
     if (fan1 == fan2) return;
+    observed_exclusive_ = true;
     const int sign = fan1 ? 1 : -1;
     if (!history_.empty() && history_.back().end == now && history_.back().sign == sign) {
       history_.back().end = now + dt;
@@ -50,5 +58,6 @@ class FanWearExperiment {
 
   double window_s_;
   double balance_ = 0;
+  bool observed_exclusive_ = false;
   std::deque<Interval> history_;
 };

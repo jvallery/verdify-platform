@@ -233,6 +233,7 @@ def run(
     *,
     precise_fan_runtime: bool = False,
     fan_events: Path | None = None,
+    fan_start_shadow: Path | None = None,
 ) -> str:
     start, end, score_from = span
     args = [
@@ -255,6 +256,8 @@ def run(
         args.append(f"trace={trace}")
     if fan_events is not None:
         args.append(f"fan_events={fan_events}")
+    if fan_start_shadow is not None:
+        args.append(f"fan_start_shadow={fan_start_shadow}")
     return subprocess.run(args, capture_output=True, text=True, check=True).stdout
 
 
@@ -457,6 +460,41 @@ def wear_qualification_case(
     }
 
 
+def read_fan_start_shadow(path: Path) -> dict:
+    rows = []
+    seen = set()
+    with path.open(newline="") as source:
+        for row in csv.DictReader(source):
+            credit = row.pop("credit")
+            entry = {column: int(value) for column, value in row.items()}
+            key = (credit, *(value for column, value in entry.items() if column != "count"))
+            if (
+                credit not in {"expired", "never-observed", "tied", "favors-fan1", "favors-fan2"}
+                or entry["request_fans"] not in (1, 2)
+                or entry["due_fan"] not in (1, 2)
+                or entry["actual_lead"] not in (1, 2)
+                or entry["ready_mask"] not in (1, 2, 3)
+                or entry["first_on_mask"] not in (1, 2, 3)
+                or entry["first_on_mask"] & entry["ready_mask"] != entry["first_on_mask"]
+                or not entry["first_on_mask"] & entry["actual_lead"]
+                or entry["scored"] not in (0, 1)
+                or entry["count"] <= 0
+                or key in seen
+            ):
+                raise ValueError("invalid or duplicate shadow onset row")
+            seen.add(key)
+            rows.append({**entry, "credit": credit})
+    if not rows:
+        raise ValueError("no shadow onset rows")
+    return {
+        "mode": "fan-start-shadow",
+        "scenario": "law_e0/A/summer",
+        "window_s": WEAR_WINDOW_S,
+        "scored_onsets": sum(row["count"] for row in rows if row["scored"]),
+        "onsets": rows,
+    }
+
+
 def season_rows(text: str, season: str) -> list[dict]:
     rows = list(csv.DictReader(io.StringIO(text)))
     keep = []
@@ -475,10 +513,12 @@ def main() -> int:
     mode.add_argument("--full", action="store_true", help="the weather year and the published-figures check (CI)")
     mode.add_argument("--quick", action="store_true", help="two weeks of each season: a smoke check of the harness")
     ap.add_argument("--receipt", type=Path, help="with --full: write a receipt here when the full run passes")
-    ap.add_argument("--wear-receipt", type=Path, help="with --full: run the two #1725 research comparisons")
+    research = ap.add_mutually_exclusive_group()
+    research.add_argument("--wear-receipt", type=Path, help="with --full: run the two #1725 research comparisons")
+    research.add_argument("--wear-shadow-receipt", type=Path, help="with --full: observe strict law_e0/A/summer")
     args = ap.parse_args()
-    if args.wear_receipt and not args.full:
-        ap.error("--wear-receipt requires --full")
+    if (args.wear_receipt or args.wear_shadow_receipt) and not args.full:
+        ap.error("wear research requires --full")
     print(f"climate law closed-loop simulation: mode {'quick' if args.quick else 'full'}")
     winter_span = summer_span = (YEAR_START, YEAR_END, SCORE_FROM)
     if args.quick:
@@ -486,6 +526,7 @@ def main() -> int:
         summer_span = (1781049600, 1781049600 + 15 * 86400, 1781049600 + 86400)  # 2026-06-10
     failures = 0
     wear_cases = []
+    shadow_receipt = None
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         forcing = work / "forcing.bin"
@@ -505,6 +546,11 @@ def main() -> int:
                         work / "fan_events.csv" if args.full and (name, set_name, season) in FAN_TRACE_CASES else None
                     )
                     strict_events = work / "fan_events_strict.csv" if events is not None and args.wear_receipt else None
+                    shadow = (
+                        work / "fan_start_shadow.csv"
+                        if args.wear_shadow_receipt and (name, set_name, season) == ("law_e0", "A", "summer")
+                        else None
+                    )
                     a = run(
                         ref,
                         forcing,
@@ -516,6 +562,7 @@ def main() -> int:
                         ta,
                         precise_fan_runtime=args.full,
                         fan_events=strict_events,
+                        fan_start_shadow=shadow,
                     )
                     b = run(
                         port,
@@ -557,6 +604,8 @@ def main() -> int:
                                     print(row)
                             except (KeyError, OSError, ValueError) as exc:
                                 print(f"fan diagnostics {scenario}: unavailable ({exc})")
+                    if shadow is not None and not problems and a == b:
+                        shadow_receipt = read_fan_start_shadow(shadow)
                     if strict_events is not None and not problems and a == b:
                         alt_trace, alt_events = work / "trace_rolling.csv", work / "fan_events_rolling.csv"
                         scenario = f"{name}/{set_name}/{season}"
@@ -625,6 +674,11 @@ def main() -> int:
     print("climate law closed-loop simulation:", "FAIL" if failures else "PASS")
     if args.full and args.receipt and not failures:
         args.receipt.write_text(f"mode=full runs={compared} months_checked={checked}\n")
+    if args.wear_shadow_receipt and not failures:
+        if shadow_receipt is None:
+            print("fan wear shadow: no qualified strict scenario")
+            return 1
+        args.wear_shadow_receipt.write_text(json.dumps(shadow_receipt) + "\n")
     if args.wear_receipt:
         if len(wear_cases) != len(FAN_TRACE_CASES):
             print(f"fan wear qualification: incomplete ({len(wear_cases)}/{len(FAN_TRACE_CASES)} cases)")

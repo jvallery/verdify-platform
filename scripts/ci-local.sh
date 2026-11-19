@@ -538,7 +538,7 @@ if in_part containment-firmware; then
   # runs the two-week smoke of the same comparison. The mode is never inferred from the environment (G10).
   if command -v g++ >/dev/null; then
     if [ "${CLIMATE_LAW_SIM:-quick}" = full ]; then
-      $PY firmware/test/climate_law_sim.py --full ${CLIMATE_LAW_SIM_RECEIPT:+--receipt "$CLIMATE_LAW_SIM_RECEIPT"} ${CLIMATE_LAW_WEAR_RECEIPT:+--wear-receipt "$CLIMATE_LAW_WEAR_RECEIPT"}
+      $PY firmware/test/climate_law_sim.py --full ${CLIMATE_LAW_SIM_RECEIPT:+--receipt "$CLIMATE_LAW_SIM_RECEIPT"} ${CLIMATE_LAW_WEAR_RECEIPT:+--wear-receipt "$CLIMATE_LAW_WEAR_RECEIPT"} ${CLIMATE_LAW_WEAR_SHADOW_RECEIPT:+--wear-shadow-receipt "$CLIMATE_LAW_WEAR_SHADOW_RECEIPT"}
     else
       $PY firmware/test/climate_law_sim.py --quick
     fi
