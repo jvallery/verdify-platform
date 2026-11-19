@@ -31,10 +31,10 @@
 #include "greenhouse_solar.h"
 #include "greenhouse_logic.h"
 #include "band_edge_controller.h"
+#include "fan_wear_experiment.h"
 
 namespace phys {
 #include "physics.h"
-#include "fan_wear_experiment.h"
 }
 
 // ───────────────────────────── config ─────────────────────────────
