@@ -502,6 +502,56 @@ def test_health_readings_absent_give_no_sample():
         assert f"\n{family}" not in text and not text.startswith(family)
 
 
+def test_controller_field_receipts_keep_their_own_time_across_a_boot():
+    old_epoch = 1_795_000_000.0
+    boot_epoch = old_epoch + 120
+    old_health = {
+        **dict.fromkeys(HEALTH_COLUMNS),
+        "heap_min_free_minute_kb": 67,
+        "heap_min_free_minute_kb_observed_epoch": old_epoch,
+        "heap_largest_block_minute_low_kb_observed_epoch": old_epoch,
+        "restart_count": 4,
+        "restart_count_observed_epoch": old_epoch,
+    }
+    new_controller = {
+        **DIAG,
+        "age_s": 1,
+        "firmware_version": "2026.11.18.0103.edd30c2d",
+        "firmware_version_observed_epoch": boot_epoch,
+        "uptime_s": 2,
+        "uptime_s_observed_epoch": boot_epoch + 2,
+    }
+    family = "verdify_controller_field_observed_timestamp_seconds"
+
+    def receipts(samples):
+        return {dict(labels)["field"]: value for name, labels, value in samples if name == family}
+
+    assert receipts(pm.controller_samples(new_controller)) == {
+        "firmware_version": boot_epoch,
+        "uptime_s": boot_epoch + 2,
+    }
+    assert receipts(pm.health_samples(old_health)) == {
+        "heap_min_free_minute_kb": old_epoch,
+        "restart_count": old_epoch,
+    }
+    assert receipts(
+        pm.health_samples({**old_health, "restart_count": 5, "restart_count_observed_epoch": boot_epoch})
+    ) == {
+        "heap_min_free_minute_kb": old_epoch,
+        "restart_count": boot_epoch,
+    }
+    assert receipts(pm.health_samples({**old_health, "heap_min_free_minute_kb": float("nan")})) == {
+        "restart_count": old_epoch,
+    }
+    for sql, fields in (
+        (pm.CONTROLLER_SQL, ("firmware_version", "uptime_s")),
+        (pm.HEALTH_SQL, ("heap_min_free_minute_kb", "heap_largest_block_minute_low_kb", "restart_count")),
+    ):
+        for field in fields:
+            assert f"array_agg({field} ORDER BY ts DESC)" in sql
+            assert f"date_part('epoch', max(ts) FILTER (WHERE {field} IS NOT NULL))" in sql
+
+
 def test_health_readings_scale_and_label():
     row = {
         "heap_min_free_minute_kb": 18.5,

@@ -60,6 +60,7 @@ FLOW_TABLES = ("climate", "equipment_state", "system_state", "diagnostics", "set
 
 # Each column the newest non-NULL value of the last 15 minutes (release 3 review ALERTS-5): readings are stored on
 # change, so the newest diagnostics row alone often lacks them. Index range scan of diagnostics_ts_idx.
+# With the same non-NULL filter, max(ts) is the chosen value's receipt time, including when rows share that time.
 CONTROLLER_SQL = """
 SELECT extract(epoch FROM now() - max(ts))::float8 AS age_s,
        (array_agg(heap_bytes ORDER BY ts DESC) FILTER (WHERE heap_bytes IS NOT NULL))[1] AS heap_bytes,
@@ -67,8 +68,10 @@ SELECT extract(epoch FROM now() - max(ts))::float8 AS age_s,
        (array_agg(heap_largest_free_block_kb ORDER BY ts DESC) FILTER (WHERE heap_largest_free_block_kb IS NOT NULL))[1] AS heap_largest_free_block_kb,
        (array_agg(wifi_rssi ORDER BY ts DESC) FILTER (WHERE wifi_rssi IS NOT NULL))[1] AS wifi_rssi,
        (array_agg(uptime_s ORDER BY ts DESC) FILTER (WHERE uptime_s IS NOT NULL))[1] AS uptime_s,
+       date_part('epoch', max(ts) FILTER (WHERE uptime_s IS NOT NULL))::float8 AS uptime_s_observed_epoch,
        (array_agg(reset_reason ORDER BY ts DESC) FILTER (WHERE reset_reason IS NOT NULL))[1] AS reset_reason,
        (array_agg(firmware_version ORDER BY ts DESC) FILTER (WHERE firmware_version IS NOT NULL))[1] AS firmware_version,
+       date_part('epoch', max(ts) FILTER (WHERE firmware_version IS NOT NULL))::float8 AS firmware_version_observed_epoch,
        (array_agg(sntp_valid ORDER BY ts DESC) FILTER (WHERE sntp_valid IS NOT NULL))[1] AS sntp_valid,
        (array_agg(sntp_miss_count ORDER BY ts DESC) FILTER (WHERE sntp_miss_count IS NOT NULL))[1] AS sntp_miss_count,
        (array_agg(last_sntp_sync_age_s ORDER BY ts DESC) FILTER (WHERE last_sntp_sync_age_s IS NOT NULL))[1] AS last_sntp_sync_age_s,
@@ -84,10 +87,13 @@ SELECT extract(epoch FROM now() - max(ts))::float8 AS age_s,
 HEALTH_SQL = """
 SELECT (array_agg(heap_min_free_minute_kb ORDER BY ts DESC)
             FILTER (WHERE heap_min_free_minute_kb IS NOT NULL))[1] AS heap_min_free_minute_kb,
+       date_part('epoch', max(ts) FILTER (WHERE heap_min_free_minute_kb IS NOT NULL))::float8 AS heap_min_free_minute_kb_observed_epoch,
        (array_agg(heap_largest_block_minute_low_kb ORDER BY ts DESC)
             FILTER (WHERE heap_largest_block_minute_low_kb IS NOT NULL))[1] AS heap_largest_block_minute_low_kb,
+       date_part('epoch', max(ts) FILTER (WHERE heap_largest_block_minute_low_kb IS NOT NULL))::float8 AS heap_largest_block_minute_low_kb_observed_epoch,
        (array_agg(loop_worst_ms ORDER BY ts DESC) FILTER (WHERE loop_worst_ms IS NOT NULL))[1] AS loop_worst_ms,
        (array_agg(restart_count ORDER BY ts DESC) FILTER (WHERE restart_count IS NOT NULL))[1] AS restart_count,
+       date_part('epoch', max(ts) FILTER (WHERE restart_count IS NOT NULL))::float8 AS restart_count_observed_epoch,
        (array_agg(nvs_used_entries ORDER BY ts DESC)
             FILTER (WHERE nvs_used_entries IS NOT NULL))[1] AS nvs_used_entries,
        (array_agg(nvs_free_entries ORDER BY ts DESC)
