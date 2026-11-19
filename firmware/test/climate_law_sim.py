@@ -40,7 +40,9 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import json
 import lzma
+import math
 import os
 import struct
 import subprocess
@@ -80,6 +82,9 @@ SCENARIOS = {
 }
 # Full-year scaled-runtime outliers with opposite signed gaps (#1725).
 FAN_TRACE_CASES = {("law", "B", "winter"), ("law_e0", "A", "summer")}
+WEAR_WINDOW_S = 3600  # Qualification-only comparison horizon, not a release setting.
+WEAR_REVIEW_PCT = 5.0
+
 
 # The generated constants as the reference simulator's settings.
 REFERENCE_CONSTANTS = {
@@ -380,6 +385,78 @@ def fan_event_report(events: Path, expected_fan_seconds: tuple[int, int], scenar
     ]
 
 
+def wear_qualification_case(
+    scenario: str,
+    baseline: str,
+    alternative: str,
+    baseline_paths: tuple[Path, Path],
+    alternative_paths: tuple[Path, Path],
+) -> dict:
+    def collect(summary: str, paths: tuple[Path, Path]) -> dict:
+        trace, events = paths
+        _, seconds = fan_trace_report(trace, scenario, "-", "-")
+        total = sum(seconds)
+        if not total:
+            raise ValueError("both fans idle in the scored window")
+        rows = {row["period"]: row for row in csv.DictReader(io.StringIO(summary))}
+        annual = rows.pop("ALL")
+        metrics = (
+            "fan1_starts_day",
+            "fan2_starts_day",
+            "starts_day",
+            "both_in_pct",
+            "temp_min_f",
+            "temp_max_f",
+            "kwh_day",
+            "dry_kwh_day",
+            "therms_day",
+            "gal_day",
+        )
+        annual_metrics = {key: float(annual[key]) for key in metrics}
+        monthly = {month: (float(row["starts_day"]), float(row["both_in_pct"])) for month, row in rows.items()}
+        if not monthly or not all(
+            math.isfinite(value) for value in (*annual_metrics.values(), *(n for row in monthly.values() for n in row))
+        ):
+            raise ValueError("missing or non-finite qualification metrics")
+        return {
+            **annual_metrics,
+            "fan_seconds": seconds,
+            "fan1_minus_fan2_seconds": seconds[0] - seconds[1],
+            "wear_gap_pct": 200 * abs(seconds[0] - seconds[1]) / total,
+            "episode_rows": fan_event_report(events, seconds, scenario),
+            "monthly": monthly,
+        }
+
+    strict = collect(baseline, baseline_paths)
+    rolling = collect(alternative, alternative_paths)
+    strict_months = strict.pop("monthly")
+    rolling_months = rolling.pop("monthly")
+    if strict_months.keys() != rolling_months.keys():
+        raise ValueError("qualification month coverage differs")
+    max_starts_delta_pct = 100 * max(
+        abs(rolling_months[m][0] - starts) / max(starts, 1e-9) for m, (starts, _) in strict_months.items()
+    )
+    max_in_band_delta_points = max(abs(rolling_months[m][1] - both) for m, (_, both) in strict_months.items())
+    protection_problems = summary_problems(alternative)
+    checks = {
+        "wear_at_or_below_review_pct": rolling["wear_gap_pct"] <= WEAR_REVIEW_PCT,
+        "wear_improved": rolling["wear_gap_pct"] < strict["wear_gap_pct"],
+        "starts_within_5_percent_of_strict": max_starts_delta_pct <= 5 + 1e-9,
+        "both_in_band_within_0_5_points_of_strict": max_in_band_delta_points <= 0.5 + 1e-9,
+        "protection_limits_not_reached": not protection_problems,
+    }
+    return {
+        "scenario": scenario,
+        "strict": strict,
+        "rolling": rolling,
+        "months_compared": len(strict_months),
+        "max_monthly_starts_delta_pct": max_starts_delta_pct,
+        "max_monthly_both_in_band_delta_points": max_in_band_delta_points,
+        "protection_problems": protection_problems,
+        "checks": checks,
+    }
+
+
 def season_rows(text: str, season: str) -> list[dict]:
     rows = list(csv.DictReader(io.StringIO(text)))
     keep = []
@@ -398,13 +475,17 @@ def main() -> int:
     mode.add_argument("--full", action="store_true", help="the weather year and the published-figures check (CI)")
     mode.add_argument("--quick", action="store_true", help="two weeks of each season: a smoke check of the harness")
     ap.add_argument("--receipt", type=Path, help="with --full: write a receipt here when the full run passes")
+    ap.add_argument("--wear-receipt", type=Path, help="with --full: run the two #1725 research comparisons")
     args = ap.parse_args()
+    if args.wear_receipt and not args.full:
+        ap.error("--wear-receipt requires --full")
     print(f"climate law closed-loop simulation: mode {'quick' if args.quick else 'full'}")
     winter_span = summer_span = (YEAR_START, YEAR_END, SCORE_FROM)
     if args.quick:
         winter_span = (YEAR_START, YEAR_START + 15 * 86400, SCORE_FROM)
         summer_span = (1781049600, 1781049600 + 15 * 86400, 1781049600 + 86400)  # 2026-06-10
     failures = 0
+    wear_cases = []
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         forcing = work / "forcing.bin"
@@ -420,9 +501,21 @@ def main() -> int:
                     span = winter_span if season == "winter" else summer_span
                     ref_kv = {**REFERENCE_CONSTANTS, **kv}
                     ta, tb = work / "trace_ref.csv", work / "trace_port.csv"
-                    a = run(ref, forcing, name, params, canopy, span, ref_kv, ta, precise_fan_runtime=args.full)
                     events = (
                         work / "fan_events.csv" if args.full and (name, set_name, season) in FAN_TRACE_CASES else None
+                    )
+                    strict_events = work / "fan_events_strict.csv" if events is not None and args.wear_receipt else None
+                    a = run(
+                        ref,
+                        forcing,
+                        name,
+                        params,
+                        canopy,
+                        span,
+                        ref_kv,
+                        ta,
+                        precise_fan_runtime=args.full,
+                        fan_events=strict_events,
                     )
                     b = run(
                         port,
@@ -464,6 +557,33 @@ def main() -> int:
                                     print(row)
                             except (KeyError, OSError, ValueError) as exc:
                                 print(f"fan diagnostics {scenario}: unavailable ({exc})")
+                    if strict_events is not None and not problems and a == b:
+                        alt_trace, alt_events = work / "trace_rolling.csv", work / "fan_events_rolling.csv"
+                        scenario = f"{name}/{set_name}/{season}"
+                        try:
+                            alt = run(
+                                ref,
+                                forcing,
+                                name,
+                                params,
+                                canopy,
+                                span,
+                                {**ref_kv, "edge.fan_wear_window_s": WEAR_WINDOW_S},
+                                alt_trace,
+                                precise_fan_runtime=True,
+                                fan_events=alt_events,
+                            )
+                            wear_cases.append(
+                                wear_qualification_case(
+                                    scenario,
+                                    a,
+                                    alt,
+                                    (ta, strict_events),
+                                    (alt_trace, alt_events),
+                                )
+                            )
+                        except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+                            print(f"fan wear qualification {scenario}: unavailable ({exc})")
                     if a != b:
                         failures += 1
                         print(f"FAIL port != reference: {name} {set_name} {season}")
@@ -505,6 +625,25 @@ def main() -> int:
     print("climate law closed-loop simulation:", "FAIL" if failures else "PASS")
     if args.full and args.receipt and not failures:
         args.receipt.write_text(f"mode=full runs={compared} months_checked={checked}\n")
+    if args.wear_receipt:
+        if len(wear_cases) != len(FAN_TRACE_CASES):
+            print(f"fan wear qualification: incomplete ({len(wear_cases)}/{len(FAN_TRACE_CASES)} cases)")
+            return 1
+        qualified = all(all(case["checks"].values()) for case in wear_cases)
+        args.wear_receipt.write_text(
+            json.dumps(
+                {
+                    "mode": "fan-wear-research",
+                    "status": "within-comparison-bounds" if qualified else "outside-comparison-bounds",
+                    "baseline_ci_pass": not failures,
+                    "window_s": WEAR_WINDOW_S,
+                    "wear_review_pct": WEAR_REVIEW_PCT,
+                    "cases": wear_cases,
+                },
+                allow_nan=False,
+            )
+            + "\n"
+        )
     return 1 if failures else 0
 
 
