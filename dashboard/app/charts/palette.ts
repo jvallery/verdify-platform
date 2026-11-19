@@ -19,5 +19,5 @@ export function lineKindToken(kind: string): string | null {
 /** A line's own token by its kind (#1127); a line the register does not know takes the "cause unknown" colour. */
 export function lineToken(id: string): string {
   const line = lineById(id);
-  return (line && lineKindToken(line.kind)) ?? "--c-bound";
+  return (line && lineKindToken(line.kind)) ?? "--text-3";
 }

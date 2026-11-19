@@ -17,3 +17,11 @@ test("one line in the fault or warn tint, linking to the page that explains it",
   cleanup();
   expect(renderUi(<Banner tone="warn">Changes are switched off; reading still works</Banner>).container.querySelector("p")?.className).toBe("notice notice-warn banner");
 });
+
+test("each banner leads with its status icon, hidden from assistive technology", () => {
+  for (const tone of ["fault", "critical", "serious", "warn", "info", "ok"] as const) {
+    const icon = renderUi(<Banner tone={tone}>Words</Banner>).container.querySelector("svg.banner-icon");
+    expect(icon?.getAttribute("aria-hidden"), tone).toBe("true");
+    cleanup();
+  }
+});

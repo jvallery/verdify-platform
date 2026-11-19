@@ -6,7 +6,7 @@ import { localTime } from "../lib/format";
 import { runGraphUrl } from "../lib/graph-link";
 import { lineDisplayName } from "../lib/lines";
 import type { IrrigationLine, IrrigationStatus } from "../lib/operator-api";
-import { OperatorOnly, useApiDown } from "../lib/session";
+import { OperatorOnly, useApiDown, useRole } from "../lib/session";
 import { agoWords, faultWords, lastWaterParts, lineSyncWords, pauseWords, pausedNow, timeLeftWords, useWaterDrawer } from "../lib/water";
 import { words } from "../lib/words";
 import { ChemistryBadge, EquipmentStateBadge, ReadbackBadge, lineChemistry } from "./badge";
@@ -19,12 +19,16 @@ import { LineEnable } from "./line-enable";
 import { OptionsButton } from "./line-options";
 import { Menu } from "./menu";
 import { ResumeLine } from "./pause-lines";
-import { RUN_ARRIVES_TEXT, RunControl, runOffer } from "./run-dialog";
+import { RunControl, runOffer } from "./run-dialog";
 import { useFreshConfirmed } from "./schedule/rules-list";
 import { StopButton } from "./stop-button";
 
 /** L03's sub-row under L02 (Round 2 #7). */
 export const MASTER_TEXT = "opens the injector line from the tank with each feed";
+/** A line that is off, as its one quiet row says it (design review C2): to an operator, how to run it. */
+export const LINE_OFF_STATE = "Off: enable it to run it";
+/** A reserved line (no valve installed), as its quiet row says it. */
+export const LINE_RESERVED_STATE = "Reserved, not installed";
 
 const validTime = (value: string | null | undefined): value is string => typeof value === "string" && Number.isFinite(Date.parse(value));
 
@@ -37,7 +41,7 @@ export function TimeLeft({ until }: { until: string }) {
   return <span className="time-left"><time dateTime={until} title={localTime(until)}>{timeLeftWords(Date.parse(until) - now)}</time> left</span>;
 }
 
-/** The relay as the API reports it before the engine: running is ON, unknown stays unknown, every other state OFF. */
+/** The relay as the API reports it with no engine: running is ON, unknown stays unknown, every other state OFF. */
 export const relayState = (code: string): "on" | "off" | "unknown" => (code === "running" ? "on" : code === "unknown" ? "unknown" : "off");
 
 /** The running dot in its cause's colour (redesign §4.4: a dot beside the word, no tint); neutral while the API is down. */
@@ -49,7 +53,7 @@ function RunningDot({ cause }: { cause: string | null | undefined }) {
  * A line's state in one sentence (`irr_state`, the API's call, redesign §5.2): "Running · VPD · since 06:58" or with the
  * time left; "Paused until Sat 09:00 · VPD misting continues"; "Faulted: no misting until midnight (watchdog)"; "Idle ·
  * last 07:31, 12 min · ok"; "Off · no check recorded"; "Reserved · disabled"; "Unknown · 3 min ago" only when the API
- * says unknown. Before the irrigation firmware, the relay ("Relay ON since 07:31").
+ * says unknown. With no irrigation engine reported, the relay alone ("Relay ON since 07:31").
  */
 export function LineStateText({ line, engine, today, scheduleLabels }: { line: IrrigationLine; engine: boolean; today: string; scheduleLabels?: ReadonlyMap<number, string> }) {
   const { state } = line;
@@ -103,6 +107,11 @@ export type LineCardProps = {
   strip?: ReactNode;
   /** A mister's own VPD control and Schedule (#1344), above its strip. */
   controls?: ReactNode;
+  /**
+   * The row's visible name inside its zone card (design review C2): "Clean line", "Fertilized line"; a screen reader
+   * still hears the line's own name ("Wall drip (fertilized)"), so every row stays named apart. Left out, the line's name.
+   */
+  shortName?: string;
   /** Only the first row of a zone card carries the hour ticks. */
   className?: string;
 };
@@ -117,8 +126,9 @@ export type LineCardProps = {
  * (L11) is a climate device: no sync pill and no Options, but it runs once ("Fog once…", #1343 follow-up), with its own
  * Stop, and the enable switch it needs first (the controller runs no disabled line); no pause. Viewers get the same row with the menu's links alone.
  */
-export function LineCard({ line, master = null, engine, program, today, scheduleLabels, strip, controls, className }: LineCardProps) {
+export function LineCard({ line, master = null, engine, program, today, scheduleLabels, strip, controls, shortName, className }: LineCardProps) {
   const apiDown = useApiDown();
+  const operator = useRole() === "operator";
   const now = useNow();
   const fog = line.kind === "fog";
   const title = lineDisplayName(line);
@@ -127,7 +137,7 @@ export function LineCard({ line, master = null, engine, program, today, schedule
   const latched = engine && line.fault === "mister_fault";
   const paused = useClockValue((at) => pausedNow(line, at));
   const fresh = useFreshConfirmed(line.sync, null, now);
-  // Before the engine every line waits for the firmware: the status line says so once, not a pill on every row.
+  // With no engine reported the status line says so once, not a pill on every row.
   const pill = fog || !engine ? null : line.sync === "requested" || line.sync === "not_confirmed" ? <ReadbackBadge state={line.sync} /> : fresh ? <ReadbackBadge state="confirmed" /> : null;
   const syncWords = fog || !engine ? null : line.sync !== "confirmed" ? lineSyncWords(line.sync, { engine, program }) : null;
   const last = lastWaterParts(line, today);
@@ -149,8 +159,6 @@ export function LineCard({ line, master = null, engine, program, today, schedule
       <div className="wat-menu-switch" data-menu-keep=""><LineEnable line={line} /></div>
       <OptionsButton line={line} />
       <PauseThisLine line={line} />
-      {offer === "arrives" && <p className="state-note" data-arrives="run">{RUN_ARRIVES_TEXT}</p>}
-      {!engine && line.kind === "mister" && <ClearFaultButton line={line} engine={engine} />}
     </OperatorOnly>}
     {fog && engine && <OperatorOnly><div className="wat-menu-switch" data-menu-keep=""><LineEnable line={line} /></div></OperatorOnly>}
     <Link to={`/activity/log?target=${encodeURIComponent(id)}`}>Activity for {title}<span aria-hidden="true"> ›</span></Link>
@@ -160,18 +168,24 @@ export function LineCard({ line, master = null, engine, program, today, schedule
       ? <>Checked by {line.check.checked_by} <LocalTime at={line.check.checked_at} date />{line.check.note && <>: {line.check.note}</>}</>
       : "No check recorded"}</p>}
   </Menu>;
-  // A disabled line is one quiet row (#1349): its state, its faded strip, nothing else to read.
-  const off = !fog && !running && (code === "disabled" || line.enabled === false);
+  // A line that is off is one quiet row (#1349, design review C2): its name, "Off: enable it to run it" (or "Reserved, not
+  // installed"), and ⋯ on the same row; no Run…, no strip, no controls. A write's readback stays: its pill, and its words
+  // while it is not confirmed, so enabling or disabling from ⋯ still shows REQUESTED, then CONFIRMED.
+  const off = !fog && !running && code !== "unknown" && (code === "disabled" || line.enabled === false);
+  const offState = line.reserved ? LINE_RESERVED_STATE : operator && engine ? LINE_OFF_STATE : "Off";
+  const heading = shortName && shortName !== title ? <><span aria-hidden="true">{shortName}</span><span className="screen-reader">{title}</span></> : title;
+  const tag = fog ? <span className="tag">Climate only</span> : shortName ? undefined : <ChemistryBadge chemistry={lineChemistry(line.kind)} />;
+  const stateNode = off && engine ? offState : pauseIsState ? pausedWords : <LineStateText line={line} engine={engine} today={today} scheduleLabels={scheduleLabels} />;
   return <ObjectRow headingLevel={4} className={cls("line-card", "wat-line", off && "is-off", className)} data={{ "data-line": id, "data-state": code }} id={`line-${id}`}
-    title={title} tag={fog ? <span className="tag">Climate only</span> : <ChemistryBadge chemistry={lineChemistry(line.kind)} />} pill={pill}
-    state={<span className={cls("line-state", apiDown && "is-neutral")}>{pauseIsState ? pausedWords : <LineStateText line={line} engine={engine} today={today} scheduleLabels={scheduleLabels} />}</span>}
-    meta={meta.length ? meta.join(" · ") : undefined}
-    primary={primary}
+    title={heading} tag={tag} pill={pill}
+    state={<span className={cls("line-state", apiDown && "is-neutral")}>{stateNode}</span>}
+    meta={off ? syncWords ?? undefined : meta.length ? meta.join(" · ") : undefined}
+    primary={off && engine ? null : primary}
     stop={(fog && !engine) || !stoppable ? undefined : <StopButton lineId={id} />}
     menu={menu} tone={tone} token={token}>
-    {controls}
-    {strip}
-    {master && <div className="line-subrow" data-line={master.line_id}>
+    {!(off && engine) && controls}
+    {!(off && engine) && strip}
+    {master && !(off && engine) && <div className="line-subrow" data-line={master.line_id}>
       <p><span className="glyph glyph-branch" aria-hidden="true" /><strong>{lineDisplayName(master)}</strong>: {MASTER_TEXT} · <LineStateText line={master} engine={engine} today={today} /></p>
     </div>}
   </ObjectRow>;

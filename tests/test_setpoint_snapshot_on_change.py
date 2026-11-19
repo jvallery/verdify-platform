@@ -289,14 +289,10 @@ def test_alert_windows_hold_sparse_readbacks():
     source = (ROOT / "ingestor/tasks/alerts.py").read_text()
     # Release 4 removed the safety-rail check (the rails left with the third flash).
     assert "# 8. Safety value sanity check" not in source
-    # Zero variance needs a week of keyframes (>= 24 rows, the oldest over 6 days), not 100 dense rows.
-    assert "HAVING min(ts) < now() - interval '6 days' AND count(*) >= 24" in source
+    # Release 5 removed the zero-variance check: it read band scalars nothing serves (#1734 C-7).
+    assert '"tunable_zero_variance"' not in source and "stddev(value)" not in source
     assert "count(*) > 100" not in source
-    zero = source.split("SELECT parameter, count(*) AS n, stddev(value) AS sd", 1)[1].split("alerts.append", 1)[0]
-    # K1: the legacy band scalars are left out while the controller runs its own band; still a warning.
-    assert "AND NOT (parameter = ANY($2::text[])" in zero and "list(LEGACY_BAND_SCALARS)" in zero
-    assert "list(ONCHIP_BAND_SOURCES)" in zero and "band_role IS NULL" in zero
-    # fn_heat_staging_inversion's 10-minute readback window is often empty now: its message tolerates no temp_low.
+    # fn_heat_staging_inversion's temp_low is the served band's low edge (317); its message still tolerates a NULL.
     assert 'if staging_row["temp_low"] is not None' in source
 
 
@@ -333,25 +329,62 @@ def test_lighting_audit_sees_a_readback_whose_keyframe_is_fifty_minutes_old(monk
     assert audit.live_cfg_readback_params() == set(audit.CFG_READBACK_PARAMS[1:])
 
 
-def test_irrigation_stack_check_takes_freshness_from_the_pass_and_rows_from_two_hours():
-    stack = _load_script("validate-irrigation-stack")
-    n = str(len(stack.IRRIGATION_SCHEDULE_PARAMS))
-    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "42").status == "pass"
-    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "900").status == "fail"  # no pass for 15 min
-    assert stack._schedule_cfg_readbacks_verdict(n, n, "a", "b", "-", "-").status == "fail"
-    short = str(len(stack.IRRIGATION_SCHEDULE_PARAMS) - 1)
-    assert stack._schedule_cfg_readbacks_verdict(n, short, "a", "b", "-", "42").status == "fail"
-
-
-def test_irrigation_stack_check_reads_the_pass_marker_and_a_two_hour_window(monkeypatch):
+def test_irrigation_stack_schedule_passes_on_null_counts_and_reads_no_retired_readbacks(monkeypatch):
+    # #1734 C-6, release 5 review R5-ROLL-1: after 317 the schedule view's readback counts are NULL and the irrig_*
+    # readbacks are gone; the schedule check passes on the topology and the cfg readback check no longer runs.
     stack = _load_script("validate-irrigation-stack")
     seen = []
 
     def psql(sql, *, direct_db=False):
         seen.append(sql)
-        n = str(len(stack.IRRIGATION_SCHEDULE_PARAMS))
-        return [[n, n, "a", "b", "-", "30"]]
+        return [
+            ["center", "center", "true", "06:00:00", "4", "0", "0", "engine", "center"],
+            ["wall_shared", "wall_shared", "true", "07:00:00", "6", "2", "1", "engine", "south,west"],
+        ]
 
     monkeypatch.setattr(stack, "_psql", psql)
-    assert stack._check_schedule_cfg_readbacks(True).status == "pass"
-    assert "entity = 'setpoint_snapshot_pass'" in seen[0] and "l.ts >= now() - interval '2 hours'" in seen[0]
+    check = stack._check_schedule_current(True)
+    assert check.status == "pass" and "wall_serves=south,west" in check.detail
+    assert "readback_count" not in seen[0] and "readback_drift" not in seen[0]
+    assert not hasattr(stack, "_check_schedule_cfg_readbacks")
+    source = (Path(__file__).resolve().parents[1] / "scripts" / "validate-irrigation-stack.py").read_text()
+    assert "stale_readback_count" not in source and "readback_drift_count" not in source
+
+
+# #1666: while the controller is silent the cache is memory, not a readback.
+REAL_DEVICE_VALUE_SINCE = ingestor.device_value_since
+
+
+def test_a_pass_needs_a_controller_value_since_the_last_one():
+    assert not REAL_DEVICE_VALUE_SINCE(None, None)
+    assert REAL_DEVICE_VALUE_SINCE(T0, None)
+    assert not REAL_DEVICE_VALUE_SINCE(T0, T0)
+    assert REAL_DEVICE_VALUE_SINCE(T0 + timedelta(seconds=1), T0)
+
+
+@pytest.mark.asyncio
+async def test_a_silent_controller_gets_no_readback_row_confirmation_or_pass_marker(context, monkeypatch):  # noqa: F811
+    values, connection, pool = context
+    monkeypatch.setattr(ingestor, "device_value_since", REAL_DEVICE_VALUE_SINCE)
+    monkeypatch.setattr(ingestor.state, "device_value_at", T0 - timedelta(seconds=5))
+    await publish(pool, T0)
+    assert stored_names(connection) == set(values)
+    passes = len(connection.passes)
+    connection.rows.clear()
+    connection.confirmations.clear()
+    # The controller goes silent: a write lands (it would have earned a confirming row) and a keyframe falls due,
+    # but no value arrives, so the next passes store nothing, confirm nothing and mark no pass.
+    values["mister_water_budget_gal"] = 150.0
+    for minute in range(1, 17):
+        await publish(pool, T0 + timedelta(minutes=minute))
+    assert connection.rows == [] and connection.confirmations == [] and len(connection.passes) == passes
+    assert not shared.setpoint_snapshot_is_current(int(shared.transport_generation))
+    # The controller speaks again: the next pass runs.
+    monkeypatch.setattr(ingestor.state, "device_value_at", T0 + timedelta(minutes=17))
+    await publish(pool, T0 + timedelta(minutes=17, seconds=5))
+    assert ("mister_water_budget_gal" in stored_names(connection)) and len(connection.passes) == passes + 1
+
+
+def test_the_state_callback_records_the_controller_value_time():
+    source = inspect.getsource(ingestor.on_state_change)
+    assert source.index("state.device_value_at = datetime.now(UTC)") < source.index("key = entity_state.key")

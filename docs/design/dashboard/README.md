@@ -101,8 +101,8 @@ Viewers see every screen read-only; every write shows REQUESTED → CONFIRMED (o
 | Id | Screen | Route | Answers | Build | Main operations | Issues |
 |---|---|---|---|---|---|---|
 | SCR-01 | Now | `/` | Is the greenhouse OK, what is running, is water fine? | MVP | API-02, API-IRR-01, API-14 | VD-09, VD-16, VD-18 |
-| SCR-02 | Graphs | `/graphs`, `/graphs/scorecard` | What happened and what is planned, over any range? How is each day going? | MVP | API-03 to API-07, API-12, API-IRR-10 | VD-10, VD-18 |
-| SCR-03 | Plan | `/plan` | What will Iris tell the controller, and is Iris healthy? | MVP | API-07 | VD-11 |
+| SCR-02 | Graphs | `/graphs`, `/graphs/scorecard` | What happened and what is planned, over any range? How is each day going? | MVP | API-03 to API-06, API-12, API-IRR-10 | VD-10, VD-18 |
+| SCR-03 | Plan | `/plan` | What will Iris tell the controller, and is Iris healthy? Now a redirect to Review: release C retired API-07 | MVP | none | VD-11 |
 | SCR-04 | Water | `/water`, `/water/schedules`, `/water/history` | What waters, when, why not, and how many minutes per zone? | MVP | API-IRR-01 to API-IRR-08, API-IRR-10, API-IRR-11, API-IRR-13 | VD-15, VD-16, VD-17, VD-69, VD-20 |
 | SCR-05 | Settings | `/settings` | What is every setting and what does the device report? Change it | MVP | API-09 to API-12 | VD-12, VD-19 |
 | SCR-06 | Activity and alerts | `/activity` | What needs someone, and who changed what? | MVP | API-14 to API-17 | VD-13 |
@@ -150,7 +150,7 @@ API, program record and golden vectors, `desired_state`, `verdify_services` conv
 | Personas, needs, journeys | 4 (owner-operator, caretaker, AI agents, platform maintainer), 35, 9 |
 | User stories | 93 in 11 areas: 75 MVP, 9 Next, 9 Later |
 | Screens | 9: 8 MVP, Plants Later |
-| API operations | 31 on `/v1` (19 core: API-01 to API-07, API-09 to API-17 and API-19 to API-21; 12 irrigation: API-IRR-01 to API-IRR-08 and API-IRR-10 to API-IRR-13), plus 7 BFF, session and health routes: 38 operationIds; API-08, API-18, API-IRR-09 and OPS-03 are reserved |
+| API operations | 31 on `/v1` (19 core: API-01 to API-07, API-09 to API-17 and API-19 to API-21; 12 irrigation: API-IRR-01 to API-IRR-08 and API-IRR-10 to API-IRR-13), plus 7 BFF, session and health routes: 38 operationIds; API-08, API-18, API-IRR-09 and OPS-03 are reserved. Release C retired API-07 and the later API-25 ([v2 API spec](v2/api.md) section 7) |
 | MCP tools for every agent | 8 irrigation tools (3 read, 5 write), plus `set_setting`, `settings` and `activity`; Iris's `set_plan` and `set_tunable` keep writing plans |
 | Migrations and images | 7 additive migrations (M1 `desired_state` and `activity_log`, M2 dashboard login and sessions, M2b the dashboard login's reads and writes, M3 irrigation tables, M4 minutes by zone, M5 lighting release, M6 daily scorecard), and later the light meter's; 1 new image, `verdify-dashboard-web` |
 | Irrigation | 11 lines (L01–L11): 9 schedulable (L05 and L06 reserved, no bring-up now), L03 opens with feeds, L11 fog stays climate only; 4 wet zones; at most 24 schedules on the controller |

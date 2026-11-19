@@ -16,12 +16,13 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 import time
 import unicodedata
 import urllib.request
 import zlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -36,6 +37,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import asyncpg
 import gap_replay
+import process_liveness
 import shared
 from aioesphomeapi import APIClient, APIConnectionError, LogLevel
 from aioesphomeapi.model import (
@@ -184,6 +186,10 @@ DIAG_FLUSH_INTERVAL = 60  # seconds between diagnostics row writes
 # observation landing between two windows was never written (a lost per-minute low is a lost minute).
 DIAG_OBSERVATION_MAX_AGE_S = 180
 DIAG_PENDING_PER_COLUMN = 4
+# One row per publish batch (#1734 C-10): observations are taken oldest first, and a row closes at the first one more
+# than this after the row's first, or of a column the row already holds. A row no longer pairs the i-th pending value
+# of every column, which put an older value of one column beside a newer value of another.
+DIAG_BATCH_SPAN_S = 5.0
 LOG_FLUSH_INTERVAL = 10  # seconds between log batch writes
 COUNTER_SAMPLE_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_COUNTER_SAMPLE_BUFFER_MAX_ROWS", "50000")))
 EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS = max(1, int(os.environ.get("EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS", "50000")))
@@ -362,10 +368,14 @@ class State:
         )
         self.equipment: dict[str, bool] = {}
         # RULINGS AF6: relay edges across a controller boot. The relays held ON when this connection began, each
-        # relay's first state on it, and the last uptime seen on any connection.
+        # relay's first state on it, the relays whose first state the receipt path stored, the boot this connection
+        # follows (once its uptime showed it), and the last uptime seen on any connection.
         self.relay_generation = 0
         self.relays_on_before_connection: set[str] = set()
         self.relays_first_seen: dict[str, tuple[bool, datetime]] = {}
+        self.relays_first_recorded: set[str] = set()
+        self.relay_boot_at: datetime | None = None
+        self.relays_boot_on: set[str] = set()  # relays given an ON edge by the boot repair, until their next OFF
         self.relay_last_uptime_s: float | None = None
         self.system: dict[str, str] = {}
         self.setpoints: dict[str, float] = {}
@@ -404,6 +414,9 @@ class State:
         self.counter_generation_ready = False
         self.equipment_source_last_receipt_at: datetime | None = None
         self.equipment_source_last_device_observed_at: datetime | None = None
+        # Host time of the newest ESPHome state callback of any entity (#1666): a readback pass stores rows only
+        # when the controller sent something since the previous pass.
+        self.device_value_at: datetime | None = None
         self.equipment_source_last_device_generation = 0
         self.pending_equipment_receipts: list[PendingEquipmentStateReceipt] = []
         # A monotonic generation makes source gaps sticky across async DB I/O.
@@ -1127,6 +1140,11 @@ async def write_climate(pool: asyncpg.Pool, ts: datetime) -> None:
 
     This prevents phantom data (zombie ingestor stale values from hours ago)
     while preserving legitimate current values from sensors that publish on-change.
+
+    No row is written when no fresh value arrived since the last flush (#1775):
+    a row of copies after the controller falls silent would hide the silence
+    from every freshness reader and block the gap replay, which never changes
+    an existing row, from storing the controller's own records for those minutes.
     """
     STALENESS_TIMEOUT = 600  # 10 minutes — sensors not seen in 10 min are excluded
 
@@ -1140,9 +1158,9 @@ async def write_climate(pool: asyncpg.Pool, ts: datetime) -> None:
     # Step 2: Overlay fresh values (always take precedence)
     merged.update(state.climate)
 
-    # Step 5: Validate + write merged row
+    # Step 5: Validate + write merged row. A flush with no fresh value writes nothing (#1775).
     cols = list(merged.keys())
-    if not cols:
+    if not cols or not state.climate:
         if _climate_event_spool_enabled():
             try:
                 await _drain_climate_event_spool(pool)
@@ -2060,8 +2078,8 @@ def _climate_fog_assist_status(
 # feature-off path; the POLICY rendering adds the device-confirmed vector
 # identity join (latest policy_exposures interval covering the tick, falling
 # back to the latest policy_device_snapshots echo at or before it) into the
-# migration-208 nullable columns. The legacy plan_context heuristic keeps
-# populating plan_id/trigger_id/planner_instance for continuity either way.
+# migration-208 nullable columns. plan_id, trigger_id and planner_instance are NULL: no plan applies since
+# climate refactor 4.2, and the plan_context read of setpoint_plan is gone (#1734 C-7).
 _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
             WITH latest_climate AS (
                 SELECT c.*
@@ -2086,16 +2104,6 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                     bs.temp_target AS temp_target_f,
                     bs.vpd_target  AS vpd_target_kpa
                 FROM fn_band_setpoints(COALESCE((SELECT ts FROM latest_climate), $2)) AS bs
-            ),
-            plan_context AS (
-                SELECT sp.plan_id, sp.trigger_id, sp.planner_instance
-                  FROM setpoint_plan sp
-                 WHERE COALESCE(sp.greenhouse_id, $1) = $1
-                   AND sp.is_active = true
-                   AND sp.parameter <> 'plan_metadata'
-                   AND sp.ts <= COALESCE((SELECT ts FROM latest_climate), $2)
-                 ORDER BY sp.ts DESC, sp.created_at DESC
-                 LIMIT 1
             ){policy_identity_ctes}
             INSERT INTO v_runtime_climate_action_log_write (
                 ts,
@@ -2164,9 +2172,9 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                 $13::jsonb,
                 $14::jsonb,
                 $15,
-                pc.plan_id,
-                pc.trigger_id,
-                pc.planner_instance,
+                NULL,
+                NULL,
+                NULL,
                 jsonb_strip_nulls(
                     $16::jsonb || jsonb_build_object(
                         'latest_climate_ts', lc.ts,
@@ -2187,8 +2195,7 @@ _CLIMATE_ACTION_LOG_INSERT_TEMPLATE = """
                 $17,
                 $18::jsonb{policy_identity_vals}
             FROM band
-            LEFT JOIN latest_climate lc ON true
-            LEFT JOIN plan_context pc ON true{policy_identity_join}
+            LEFT JOIN latest_climate lc ON true{policy_identity_join}
             """
 
 _CLIMATE_ACTION_LOG_INSERT_LEGACY = _CLIMATE_ACTION_LOG_INSERT_TEMPLATE.format(
@@ -2424,6 +2431,23 @@ async def write_setpoint_changes(pool: asyncpg.Pool, ts: datetime) -> None:
     log.debug(f"setpoint_changes: {len(validated)} changes written")
 
 
+def _diagnostic_batches(
+    queues: Mapping[str, Sequence[tuple[datetime, int, Any]]],
+) -> list[dict[str, tuple[datetime, int, Any]]]:
+    """The pending observations of every column as rows, one per publish batch, oldest first (DIAG_BATCH_SPAN_S)."""
+    batches: list[dict[str, tuple[datetime, int, Any]]] = []
+    first: datetime | None = None
+    for col, entry in sorted(
+        ((col, entry) for col, queue in queues.items() for entry in queue), key=lambda item: (item[1][0], item[0])
+    ):
+        moment = entry[0]
+        if not batches or col in batches[-1] or (moment - first).total_seconds() > DIAG_BATCH_SPAN_S:
+            batches.append({})
+            first = moment
+        batches[-1][col] = entry
+    return batches
+
+
 async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
     """Write a diagnostics row."""
     d = state.diagnostics
@@ -2433,7 +2457,8 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
             return
         # Retained caches are not current-generation native observations. Each value of this connection is
         # written once: only when it is newer than the one last written for its column (DIAG-WINDOW). Values
-        # that arrived between two ticks become one row each, oldest first, so a tick never drops one.
+        # that arrived between two ticks are grouped by publish batch (DIAG_BATCH_SPAN_S), oldest first, so a tick
+        # never drops one and a row is stamped with the newest moment of its own batch.
         accepted = state.diagnostic_accepted_observations
 
         def unwritten(col: str, moment: datetime, gen: int) -> bool:
@@ -2453,8 +2478,7 @@ async def write_diagnostics(pool: asyncpg.Pool, ts: datetime) -> None:
         if not queues:
             return
         rows = []
-        for i in range(max(len(queue) for queue in queues.values())):
-            fresh = {col: queue[i] for col, queue in queues.items() if i < len(queue)}
+        for fresh in _diagnostic_batches(queues):
             row_ts = max(moment for moment, _, _ in fresh.values())
             # A state the controller publishes only when it changes is carried from its last receipt in this
             # connection into every row, so the newest row always holds it; a new connection starts without it.
@@ -2786,10 +2810,11 @@ async def write_esp32_logs(pool: asyncpg.Pool) -> None:
     log.debug(f"esp32_logs: {len(validated)} messages written")
 
 
+_LOG_TAG_PREFIX = re.compile(r"\[[A-Z]\]\[([A-Za-z0-9_.]+)(?::\d+)?\]:")
+
+
 def on_log_message(msg) -> None:
     """Callback for ESP32 log messages via aioesphomeapi."""
-    import re
-
     level = LOG_LEVEL_MAP.get(msg.level, "UNKNOWN")
     tag = msg.tag if hasattr(msg, "tag") else None
     raw = msg.message if hasattr(msg, "message") else str(msg)
@@ -2799,6 +2824,10 @@ def on_log_message(msg) -> None:
     if isinstance(tag, bytes):
         tag = tag.decode("utf-8", errors="replace")
     message = re.sub(r"\x1b\[[0-9;]*m", "", raw)  # Strip ANSI colors
+    if not tag:
+        # This ESPHome version sends no tag; it is in the text, as "[W][heap_profile:1864]: ...".
+        prefix = _LOG_TAG_PREFIX.match(message)
+        tag = prefix.group(1) if prefix else None
     if msg.level <= ESP32_LOG_LEVEL:
         if _observation_spool_enabled():
             _accept_observations([("esp32_log", {"level": level, "tag": tag, "message": message})], datetime.now(UTC))
@@ -3279,35 +3308,51 @@ def _note_relay_generation(generation: int) -> None:
         if value is True and equipment not in _ORDINARY_EQUIPMENT_STREAMS
     }
     state.relays_first_seen = {}
+    state.relays_first_recorded = set()
+    state.relay_boot_at = None
+    state.relays_boot_on = set()
+
+
+def _queue_relay_boot_edges(edges: list[tuple[datetime, str, bool]]) -> list[tuple[datetime, str, bool]]:
+    room = EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS - len(state.pending_ordinary_equipment)
+    if len(edges) > room:
+        log.error("relay boot edges dropped at bounded buffer: %d of %d", len(edges) - max(room, 0), len(edges))
+        edges = edges[: max(room, 0)]
+    state.pending_ordinary_equipment.extend(edges)
+    return edges
 
 
 def _relay_edges_across_boot(uptime_s: float, observed_at: datetime, generation: int) -> None:
     """RULINGS AF6 (TEL-F4, RLY-F4): when the controller's uptime resets, every relay the host held ON dropped at
-    the boot. Write an OFF edge at the boot time (report time minus uptime) for each, an ON edge at its first report
-    for a relay that came back ON (the cache swallowed it as no change), and clear the cache of relays not yet
-    reported, so the first state after the boot is stored as an edge. The rows go through the ordinary view, as the
-    reconnect snapshot's do: they predate this connection's receipts."""
+    the boot. Write an OFF edge at the boot time (report time minus uptime) for each, and one ON edge at
+    max(first report, boot) for every relay first reported ON after the boot whose first state the receipt path did
+    not store: the cache swallowed it as no change, or the callback came before this connection's firmware lineage
+    (a relay OFF before the boot and switched on by the law right after it, 2026-11-17). Clear the cache of relays
+    not yet reported; one reported after this (the uptime callback can come first) gets its ON edge from
+    _record_equipment_callback. The rows go through the ordinary view: they predate this connection's receipts."""
     _note_relay_generation(generation)
     previous = state.relay_last_uptime_s
     state.relay_last_uptime_s = uptime_s
     if previous is None or uptime_s + 1.0 >= previous:
         return
     boot_at = observed_at - timedelta(seconds=uptime_s)
+    state.relay_boot_at = boot_at
     held = state.relays_on_before_connection  # a boot always ends the API session, so a new connection came first
     edges = [(boot_at, equipment, False) for equipment in sorted(held)]
-    for equipment in sorted(held):
-        first = state.relays_first_seen.get(equipment)
-        if first is not None and first[0] is True:
-            edges.append((max(first[1], boot_at), equipment, True))
+    for equipment, (value, first_at) in sorted(state.relays_first_seen.items()):
+        if (
+            value is True
+            and state.equipment.get(equipment) is True  # an unstored OFF since would leave a stale ON (review TEL-2)
+            and equipment not in state.relays_first_recorded
+            and equipment not in _ORDINARY_EQUIPMENT_STREAMS
+        ):
+            edges.append((max(first_at, boot_at), equipment, True))
+            state.relays_boot_on.add(equipment)
     for equipment in [e for e in state.equipment if e not in state.relays_first_seen]:
         if equipment not in _ORDINARY_EQUIPMENT_STREAMS:
             del state.equipment[equipment]
     state.relays_on_before_connection = set()
-    room = EQUIPMENT_STATE_EVENT_BUFFER_MAX_ROWS - len(state.pending_ordinary_equipment)
-    if len(edges) > room:
-        log.error("relay boot edges dropped at bounded buffer: %d of %d", len(edges) - max(room, 0), len(edges))
-        edges = edges[: max(room, 0)]
-    state.pending_ordinary_equipment.extend(edges)
+    edges = _queue_relay_boot_edges(edges)
     log.info("controller boot at %s: %d relay edge(s) written for %s", boot_at.isoformat(), len(edges), sorted(held))
 
 
@@ -3319,7 +3364,8 @@ def _record_equipment_callback(
     source_clock_valid: bool,
 ) -> None:
     _note_relay_generation(source_generation)
-    if type(value) is bool and equipment not in state.relays_first_seen:
+    first = type(value) is bool and equipment not in state.relays_first_seen
+    if first:
         state.relays_first_seen[equipment] = (value, observed_at)
     # VD-64: the irrigation bridge reads the wet relays' live states (and when each last read OFF) from here,
     # before any dedupe, so a new transport generation re-labels an unchanged state.
@@ -3333,24 +3379,36 @@ def _record_equipment_callback(
         return
     old = state.equipment.get(equipment)
     state.equipment[equipment] = value
-    if old == value or source_generation < 1:
-        return
-    if not source_clock_valid:
-        return
-    firmware_revision = state.diagnostics.get("firmware_version")
-    if not _valid_source_firmware(firmware_revision) or state.counter_source_firmware_generation != source_generation:
-        _mark_equipment_source_gap("equipment_event_lineage_unavailable")
-        return
-    _append_pending_equipment_event(
-        PendingEquipmentStateEvent(
-            observed_at,
-            equipment,
-            value,
-            COUNTER_SOURCE_RUNTIME_INSTANCE_ID,
-            source_generation,
-            firmware_revision,
-        )
-    )
+    recorded = False
+    if old != value and source_generation >= 1 and source_clock_valid:
+        firmware_revision = state.diagnostics.get("firmware_version")
+        if (
+            not _valid_source_firmware(firmware_revision)
+            or state.counter_source_firmware_generation != source_generation
+        ):
+            _mark_equipment_source_gap("equipment_event_lineage_unavailable")
+        else:
+            recorded = _append_pending_equipment_event(
+                PendingEquipmentStateEvent(
+                    observed_at,
+                    equipment,
+                    value,
+                    COUNTER_SOURCE_RUNTIME_INSTANCE_ID,
+                    source_generation,
+                    firmware_revision,
+                )
+            )
+    if first and recorded:
+        state.relays_first_recorded.add(equipment)
+    elif first and value is True and state.relay_boot_at is not None:
+        # The boot is already known (its uptime came first): the first ON state after it is an edge.
+        _queue_relay_boot_edges([(max(observed_at, state.relay_boot_at), equipment, True)])
+        state.relays_boot_on.add(equipment)
+    elif value is False and equipment in state.relays_boot_on:
+        # The OFF that ends a repaired ON edge: stored here when the receipt path could not (review TEL-2).
+        state.relays_boot_on.discard(equipment)
+        if not recorded and old is True:
+            _queue_relay_boot_edges([(observed_at, equipment, False)])
 
 
 def _payload_rejected(obj_id: str, why: str) -> None:
@@ -3364,6 +3422,7 @@ def _payload_rejected(obj_id: str, why: str) -> None:
 
 def on_state_change(entity_state, *, native_generation: int | None = None) -> None:
     """Called by aioesphomeapi on any entity state change."""
+    state.device_value_at = datetime.now(UTC)
     source_observed_at = _equipment_source_now()
     source_generation = shared.transport_generation
     source_clock_valid = bool(
@@ -3679,6 +3738,10 @@ def _report_spool_health() -> None:
 # admission asked for a complete batch (dormant: no production caller), or its hourly keyframe is due.
 # Keyframes are staggered by a hash of the name so every pass stores a few. Each pass stores one system_state row
 # (READBACK_PASS_ENTITY): readers take freshness from it, not from the newest readback.
+# #1666: a pass runs only when the controller sent a value since the previous committed pass. While it is silent,
+# the cache is memory, not a readback: no row, no confirmation and no pass marker come from it (2026-11-17: 27 rows
+# stored from memory 11:11-11:27Z while the controller was cut off). A connected controller sends climate every
+# minute, so a connected pass always qualifies; after a reconnect the new generation stores every parameter.
 READBACK_KEYFRAME_S = 3600
 LIGHT_STATE_KEYFRAME_S = 600
 LIGHT_STATE_KEYFRAME_ENTITIES = frozenset({"gl_main_state", "gl_grow_state"})
@@ -3713,9 +3776,16 @@ class ReadbackStore:
     """What the publisher last stored per parameter: (value, batch time, transport generation of that row)."""
 
     stored: dict[str, tuple[float, datetime, int]] = field(default_factory=dict)
+    # state.device_value_at as the last committed pass saw it (#1666).
+    device_value_seen: datetime | None = None
 
 
 _readback_store = ReadbackStore()
+
+
+def device_value_since(device_at: datetime | None, seen: datetime | None) -> bool:
+    """True when the controller sent a value after the one the last committed readback pass saw (#1666)."""
+    return device_at is not None and (seen is None or device_at > seen)
 
 
 def readback_unchanged(param: str, stored: float, value: float) -> bool:
@@ -3859,6 +3929,11 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
     if not shared.owns_setpoint_snapshot_publication():
         raise RuntimeError("setpoint snapshot publication belongs to flush_loop")
     started = asyncio.get_event_loop().time()
+    device_at = state.device_value_at
+    if not device_value_since(device_at, _readback_store.device_value_seen):
+        shared.fail_setpoint_snapshot_publication()
+        log.info("setpoint_snapshot publication=skipped reason=%s: no controller value since the last pass", reason)
+        return
     generation = int(shared.transport_generation)
     frozen = dict(state.cfg_readback)
     snapshot_rows: list[tuple[datetime, str, float]] = []
@@ -3938,6 +4013,7 @@ async def _publish_setpoint_snapshot(pool: asyncpg.Pool, ts: datetime, *, reason
         raise
     for _ts, param, val in stored_rows:
         _readback_store.stored[param] = (val, ts, generation)
+    _readback_store.device_value_seen = device_at
     # Both statements have committed. A confirmation failure cannot broadcast
     # rolled-back snapshots or acknowledge a batch that never became durable.
     for snap_ts, param, val in snapshot_rows:
@@ -4547,6 +4623,8 @@ async def task_loop(pool: asyncpg.Pool) -> None:
         "irrigation_sync": 150,
         # The hydro reader retries for up to 240 s inside its 300 s cadence (tasks/hydro.py).
         "hydro_probe_sync": 270,
+        # Four 30 s fetches and 1800 s of retry waits inside the 3600 s cadence (tasks/forecast.py).
+        "forecast_sync": 2100,
     }
     TASKS = [
         # (name, interval_seconds, coroutine_factory)
@@ -4590,6 +4668,8 @@ async def task_loop(pool: asyncpg.Pool) -> None:
     try:
         while True:
             await asyncio.sleep(1)
+            # #1748: process-health liveness, not data freshness.
+            process_liveness.beat(process_liveness.TASK_SUPERVISOR)
             now = asyncio.get_running_loop().time()
             # Ordinary dispatch reads no approval file (VD-62).
             forced = {"setpoint_dispatch"} if shared.setpoint_dispatch_requested.is_set() else set()
@@ -4624,7 +4704,7 @@ async def write_fanout_row(pool: asyncpg.Pool, table: str, greenhouse_id: str, r
     carries no ESP32 client.
     """
     cols = [c for c in row if c != "greenhouse_id"]
-    if not cols:
+    if not cols or not state.climate:
         return
     values = [_coerce_fanout_value(c, row[c]) for c in cols]
     # All five fan-out tables carry greenhouse_id (migration 075). Stamp it.
@@ -5094,6 +5174,8 @@ async def main() -> None:
         log.info("Signal handlers unavailable; lease will expire on hard stop")
 
     main_tasks = asyncio.gather(
+        # #1748: the liveness probe (ingestor-liveness.py) reads this beat and the task supervisor's.
+        process_liveness.event_loop_heartbeat(),
         esp32_loop(pool),
         flush_loop(pool, equipment_source_pool),
         task_loop(pool),

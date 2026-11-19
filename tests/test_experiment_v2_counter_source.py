@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import sys
@@ -15,8 +14,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "db/migrations/216-equipment-counter-source-ledger.sql"
-SOURCE_MAP = ROOT / "research/planner-efficacy/baseline/experiment-v2-equipment-source-map.json"
-PROTOCOL = ROOT / "research/planner-efficacy/protocols/planner-switchback-v2.template.yaml"
 INGESTOR_MANIFEST = ROOT / "deploy/k8s/base/ingestor-deployment.yaml"
 SECRETS_DOC = ROOT / "deploy/k8s/SECRETS.md"
 INGESTOR_PATH = str(ROOT / "ingestor")
@@ -256,43 +253,6 @@ def test_source_unit_map_preserves_mister_hours_and_normal_relay_minutes():
     assert (mister.stream, mister.native_unit, mister.native_value) == ("mister_south", "hours", 0.25)
     assert relay.counter_reset_epoch_id == mister.counter_reset_epoch_id
     assert relay.source_observed_at.tzinfo is UTC
-
-
-def test_locked_source_map_hash_and_live_entity_parity():
-    source_map = json.loads(SOURCE_MAP.read_text())
-    canonical = json.dumps(source_map, sort_keys=True, separators=(",", ":")).encode()
-    assert hashlib.sha256(canonical).hexdigest() == ("5c790584da6a99eed70421514fda4bf2a79aabbccd91ae1f4fe6e0c4fc3d3048")
-    assert source_map["revision"] == "combined-normal-fertilized-misters-v1"
-    assert source_map["timezone"] == "America/Denver"
-    assert source_map["counter_publish_interval_seconds"] == 30
-    assert set(source_map["streams"]) == {stream for stream, _unit in ingestor._COUNTER_SOURCE_BY_DAILY_COLUMN.values()}
-
-    for logical, row in source_map["streams"].items():
-        collector_column = row["collector_column"]
-        assert ingestor.DAILY_ACCUM_MAP[row["counter_object_id"]] == collector_column
-        assert ingestor._COUNTER_SOURCE_BY_DAILY_COLUMN[collector_column] == (
-            logical,
-            row["native_unit"],
-        )
-        mapped = tuple(
-            ingestor.EQUIPMENT_BINARY_MAP.get(object_id) or ingestor.EQUIPMENT_SWITCH_MAP[object_id]
-            for object_id in row["state_object_ids"]
-        )
-        expected = (logical, f"{logical}_fert") if logical in {"mister_south", "mister_west"} else (logical,)
-        assert mapped == expected
-        if row["native_unit"] == "minutes":
-            assert row["to_minutes"] == "identity"
-            assert row["state_reduce"] == "identity"
-        else:
-            assert row["to_minutes"] == "multiply_60"
-            assert row["state_reduce"] in {
-                "identity",
-                "boolean_or_require_no_overlap",
-            }
-    protocol = PROTOCOL.read_text()
-    assert 'counter_source_map: "TO-LOCK' not in protocol
-    assert source_map["revision"] in protocol
-    assert hashlib.sha256(canonical).hexdigest() in protocol
 
 
 def test_source_refuses_missing_lineage_nonfinite_and_unknown_counter():

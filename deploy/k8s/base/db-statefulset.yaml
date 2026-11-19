@@ -5,10 +5,12 @@
 # The hypertable + compression extensions must survive any dump/restore; the
 # image is pinned (NOT the mutable `latest-pg16` the compose stack uses) so a
 # pod reschedule cannot silently bump the minor version and force an
-# `ALTER EXTENSION timescaledb UPDATE`. Pinned to 2.25.2-pg16 to match the live
-# VM (~2.25.2) so the in-cluster engine never trails the source-of-record on a
-# dump/restore. (This is the upstream timescaledb image, not an app image, so it
-# is NOT rewritten by the kustomization `images:` transformer.)
+# `ALTER EXTENSION timescaledb UPDATE`. Pinned by digest to the derived
+# verdify-timescaledb build on timescale/timescaledb:2.29.2-pg16 (PostgreSQL
+# 16.15, #1544). The image also ships timescaledb-2.25.2.so, so the live
+# extension keeps loading at 2.25.2 after the restart; stepping it to 2.29.2 is
+# the separate, attended `ALTER EXTENSION timescaledb UPDATE` step. (This is
+# not rewritten by the kustomization `images:` transformer.)
 #
 # DATA MIGRATION (handoff §3.6) is copy-NOT-move: pg_dump -Fc from the VM → fresh
 # StatefulSet → idempotent restore Job → verify row counts AND hypertable +
@@ -49,7 +51,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgres
-          image: registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:e5f7512763357fe0e9d39fd96d220a0a3ea40cad3f26a2426c85849a8d54485e
+          image: registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:383df0accfad163cfd8a21691e054da8c5389c866d49f28f9f3b4b454e8d0b76
           args:
             - postgres
             - -c
@@ -91,16 +93,29 @@ spec:
           volumeMounts:
             - name: db-data
               mountPath: /var/lib/postgresql/data
+          # verdify-platform#1547 (STD-HA-06/10): crash recovery of the sole
+          # production writer must not be killed by liveness. The startupProbe
+          # holds liveness off for up to 30 min (10 s x 180) while WAL replays;
+          # a 1 s timeout killed a healthy Postgres 5 times in 3 h elsewhere
+          # (memoryos), so every pg_isready probe gets 5 s.
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "verdify", "-d", "verdify"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 180
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "verdify", "-d", "verdify"]
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "verdify", "-d", "verdify"]
             initialDelaySeconds: 30
             periodSeconds: 30
+            timeoutSeconds: 5
   volumeClaimTemplates:
     - apiVersion: v1
       kind: PersistentVolumeClaim

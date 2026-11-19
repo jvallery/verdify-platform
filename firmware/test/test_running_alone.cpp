@@ -96,10 +96,12 @@ struct Controller {
     RelayOutputs physical{false, false, false, false, false, false};
 
     Tick tick(uint32_t now_ms, const IndoorReading& indoor, const OutdoorReading& outdoor, const Setpoints& sp,
-              float corridor_low, bool humid_latched = false, bool engine_fog_run = false, bool fans_latched = false) {
+              float corridor_low, bool humid_latched = false, bool engine_fog_run = false, bool fans_latched = false,
+              bool walls_complete = true) {
         Tick t{};
         t.indoor = indoor;
-        t.boot_wait = indoor_gate(grace, indoor.source != IndoorSource::kNone, now_ms) == IndoorGate::kBootWait;
+        t.boot_wait = indoor_gate(grace, indoor.source != IndoorSource::kNone, walls_complete, now_ms) ==
+                      IndoorGate::kBootWait;
         SensorInputs in{};
         in.temp_f = indoor.temp_f;
         in.vpd_kpa = indoor.vpd_kpa;
@@ -542,18 +544,24 @@ TEST(cold_vent_guard_assumes_cold_with_no_outdoor_reading) {
 
 // ── 5. The boot: grace for the first reading; the furnace waits ──────────
 
-TEST(boot_grace_waits_for_the_first_indoor_temperature_at_most_60_s) {
-    // RULINGS G3. Probes answer after 20 s: no relay switched and no sensor fault before.
+TEST(boot_grace_waits_for_whole_walls_at_most_60_s) {
+    // RULINGS G3, F5. The walls are whole at 20 s: no relay switched and no sensor fault before. Every tick
+    // before the walls are whole passes walls_complete = false explicitly (the default true is for ticks past
+    // the grace).
     Controller c;
     c.physical = {false, false, false, false, false, false};
-    Tick t = c.tick(1000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f);
+    Tick t = c.tick(1000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f, false, false, false, false);
     ASSERT_TRUE(t.boot_wait);
     ASSERT_EQ(t.mode, IDLE);
     ASSERT_EQ(std::string(c.st.last_mode_reason), std::string("init"));
     ASSERT_TRUE(relays_eq(t.out, {false, false, false, false, false, false}));
-    t = c.tick(19000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f);
+    t = c.tick(19000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f, false, false, false, false);
     ASSERT_TRUE(t.boot_wait && t.mode == IDLE);
-    t = c.tick(20000u, wall(60.0f, 70.0f), outdoor_at(10.0f), band(), 60.7f);
+    // A valid temperature from part of the walls does not end the grace.
+    t = c.tick(19500u, wall(60.0f, 70.0f), outdoor_at(10.0f), band(), 60.7f, false, false, false, false);
+    ASSERT_TRUE(t.boot_wait && t.mode == IDLE);
+    ASSERT_TRUE(relays_eq(t.out, {false, false, false, false, false, false}));
+    t = c.tick(20000u, wall(60.0f, 70.0f), outdoor_at(10.0f), band(), 60.7f, false, false, false, true);
     ASSERT_FALSE(t.boot_wait);
     ASSERT_TRUE(t.out.heat1);
     // Once a temperature has been valid, losing it is the state of decision 7 at once.
@@ -561,13 +569,53 @@ TEST(boot_grace_waits_for_the_first_indoor_temperature_at_most_60_s) {
     ASSERT_EQ(t.mode, SENSOR_FAULT);
     // No probe at all: decision 7 at 60 s, not before.
     Controller d;
-    ASSERT_TRUE(d.tick(59999u, no_indoor(), outdoor_at(10.0f), band(), 60.7f).boot_wait);
-    t = d.tick(60000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f);
+    ASSERT_TRUE(d.tick(59999u, no_indoor(), outdoor_at(10.0f), band(), 60.7f, false, false, false, false).boot_wait);
+    t = d.tick(60000u, no_indoor(), outdoor_at(10.0f), band(), 60.7f, false, false, false, false);
     ASSERT_FALSE(t.boot_wait);
     ASSERT_EQ(t.mode, SENSOR_FAULT);
     ASSERT_TRUE(t.out.heat1);
     // The grace never comes back (a millis() wrap included).
-    ASSERT_TRUE(indoor_gate(d.grace, false, 10u) == IndoorGate::kNoIndoor);
+    ASSERT_TRUE(indoor_gate(d.grace, false, false, 10u) == IndoorGate::kNoIndoor);
+    PASS();
+}
+
+TEST(boot_grace_waits_for_all_four_wall_probes_at_most_60_s) {
+    // F5: a valid temperature from part of the walls does not end the grace.
+    BootGrace g{};
+    ASSERT_TRUE(indoor_gate(g, true, false, 3000u) == IndoorGate::kBootWait);
+    ASSERT_TRUE(indoor_gate(g, true, false, 19000u) == IndoorGate::kBootWait);
+    ASSERT_TRUE(indoor_gate(g, true, true, 20000u) == IndoorGate::kRun);
+    // After the grace a probe dropping out changes nothing here (the averages of what is fresh).
+    ASSERT_TRUE(indoor_gate(g, true, false, 21000u) == IndoorGate::kRun);
+    ASSERT_TRUE(indoor_gate(g, false, false, 22000u) == IndoorGate::kNoIndoor);
+    // A probe that never reports: the grace ends at 60 s and the law runs on the others.
+    BootGrace h{};
+    ASSERT_TRUE(indoor_gate(h, true, false, 59999u) == IndoorGate::kBootWait);
+    ASSERT_TRUE(indoor_gate(h, true, false, 60000u) == IndoorGate::kRun);
+    // The case probe alone (walls silent) also waits out the grace.
+    BootGrace k{};
+    ASSERT_TRUE(indoor_gate(k, true, false, 5000u) == IndoorGate::kBootWait);
+    PASS();
+}
+
+TEST(manual_fan_run_capped_at_15_min_without_a_valid_temperature) {
+    // Owner decision V-2. A 60 min Fans press with the probes dead ends 15 min from now.
+    const uint32_t now = 100000u, max = running_alone_k::MANUAL_FANS_NO_TEMP_MAX_MS;
+    const uint32_t press = manual_override_deadline_ms(now, 60);
+    ASSERT_EQ(manual_fans_deadline_capped(press, now, false), now + max);
+    // Applied every pass, the cap holds the run's end: it does not move later.
+    uint32_t until = press;
+    for (uint32_t t = now; t < now + max; t += 1000u) until = manual_fans_deadline_capped(until, t, false);
+    ASSERT_EQ(until, now + max);
+    ASSERT_FALSE(manual_latch_active(manual_fans_deadline_capped(until, now + max, false), now + max));
+    // A run already shorter than the cap, no run, and any run with a valid temperature: unchanged.
+    ASSERT_EQ(manual_fans_deadline_capped(now + 600000u, now, false), now + 600000u);
+    ASSERT_EQ(manual_fans_deadline_capped(0u, now, false), 0u);
+    ASSERT_EQ(manual_fans_deadline_capped(press, now, true), press);
+    // millis() wrap: a deadline that wraps to exactly 0 is stored as 1 (0 means no run).
+    ASSERT_EQ(manual_fans_deadline_capped(5u * max, uint32_t(0u - max), false), 1u);
+    // The probes die mid-run: 15 min from that pass.
+    ASSERT_EQ(manual_fans_deadline_capped(press, now + 600000u, false), now + 600000u + max);
     PASS();
 }
 

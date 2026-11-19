@@ -147,11 +147,12 @@ def test_the_counters_row_carries_the_process_counters_and_the_pin(monkeypatch):
     monkeypatch.setattr(shared, "payload_rejections", 2)
     monkeypatch.setattr(shared, "rows_rejected", {"climate": 4, "diagnostics": 1})
     monkeypatch.setattr(liveness, "_expected_firmware_version", lambda: "2026.11.7.0133.9517acb6")
+    monkeypatch.setattr(liveness.gap_replay.host, "failures", 5)
     pool = _Pool()
     asyncio.run(liveness.ingestor_heartbeat(pool))
     (_, (_, entity, value)) = pool.conn.executes[1]
     assert entity == "ingestor_counters"
-    assert value == ('{"v":1,"rc":3,"pr":2,"rj":{"climate":4,"diagnostics":1},"fw":"2026.11.7.0133.9517acb6"}')
+    assert value == ('{"v":1,"rc":3,"pr":2,"rj":{"climate":4,"diagnostics":1},"fw":"2026.11.7.0133.9517acb6","gr":5}')
 
 
 def test_an_odd_pin_is_left_out_not_a_lost_row(monkeypatch):

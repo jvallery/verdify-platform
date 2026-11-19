@@ -34,6 +34,7 @@ import yaml
 
 from verdify_schemas import policy_vector as pv
 from verdify_schemas.tunable_registry import (
+    LIVE_WIRE_FIELDS,
     PLANNER_PUSHABLE_REG,
     POLICY_WIRE_FIELD_COUNT,
     REGISTRY,
@@ -126,7 +127,8 @@ def test_wire_metadata_is_complete_unique_and_representable() -> None:
     assert wire_metadata_errors() == []
     assert WIRE_SCHEMA_VERSION == 2
     assert POLICY_WIRE_FIELD_COUNT == 48
-    assert len(PLANNER_PUSHABLE_REG) == 5  # release 4: the live slots; the other 43 are reserved
+    assert len(LIVE_WIRE_FIELDS) == 5  # release 4: the live slots; the other 43 are reserved
+    assert PLANNER_PUSHABLE_REG == frozenset()  # AR42: operator settings, never planner-pushable
 
 
 def test_wire_assignment_is_frozen() -> None:
@@ -449,12 +451,11 @@ def test_firmware_absent_exemption_is_retired_and_stays_retired(firmware_entitie
     wire_id permanently reserved, and firmware still has no such entity — if
     one ever appears the field needs a NEW wire id, never a resurrected 6."""
     assert FIRMWARE_ABSENT_WIRE_FIELDS == frozenset()
-    defn = REGISTRY["direct_wet_stress_latest_hour"]
-    assert defn.wire_id is None and defn.tier == 2 and not defn.planner_pushable
-    assert defn.control_class == "retired"
+    # #1734 C-8: the retired row left the registry; its wire id stays reserved.
+    assert "direct_wet_stress_latest_hour" not in REGISTRY
     assert 6 in RETIRED_WIRE_IDS
-    assert defn.esp_object_id not in firmware_entities
-    with pytest.raises(ValueError, match="not part of the policy wire schema"):
+    assert "direct_wet_stress_latest_hour" not in firmware_entities
+    with pytest.raises(ValueError, match="not registered"):
         wire_value_bounds("direct_wet_stress_latest_hour")
 
 

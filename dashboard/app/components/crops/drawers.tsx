@@ -38,13 +38,15 @@ function TextField({ label, value, onChange, hint, error, list, maxLength = 200,
     {error && <FieldError id={ids.errorId}>{error}</FieldError>}
   </div>;
 }
-function DateField({ label, value, onChange, max, error }: { label: ReactNode; value: string; onChange: (day: string) => void; max: string; error?: string | null }) {
+function DateField({ label, value, onChange, max, min, hint = "America/Denver; today means now", error }: {
+  label: ReactNode; value: string; onChange: (day: string) => void; max?: string; min?: string; hint?: ReactNode; error?: string | null;
+}) {
   const ids = useFieldIds();
   return <div className={error ? "field field-invalid" : "field"}>
     <label htmlFor={ids.id}>{label}</label>
-    <input id={ids.id} type="date" value={value} max={max} aria-invalid={error ? true : undefined} aria-describedby={describedBy(ids.hintId, error ? ids.errorId : null)}
+    <input id={ids.id} type="date" value={value} max={max} min={min} aria-invalid={error ? true : undefined} aria-describedby={describedBy(ids.hintId, error ? ids.errorId : null)}
       onChange={(event) => onChange(event.target.value)} />
-    <FieldHint id={ids.hintId}>America/Denver; today means now</FieldHint>
+    <FieldHint id={ids.hintId}>{hint}</FieldHint>
     {error && <FieldError id={ids.errorId}>{error}</FieldError>}
   </div>;
 }
@@ -249,12 +251,11 @@ export function PlantingDrawer({ id, mode, setMode, onClose, selected }: {
         {harvest.ts ? shortDateTime(harvest.ts) : "Undated"}: {[harvest.unit_count !== null && harvest.unit_count !== undefined ? `${harvest.unit_count} plants` : null, harvest.weight_kg !== null && harvest.weight_kg !== undefined ? `${harvest.weight_kg} kg` : null, harvest.notes].filter(Boolean).join(" · ") || "recorded"}
       </li>)}</ul>
     </>}
-    {events.length > 0 && <>
-      <h3 className="crop-drawer-h">Events</h3>
-      <ul className="crop-history">{events.map((event) => <li key={event.id}>
-        {event.ts ? shortDateTime(event.ts) : "Undated"}: {eventText(event.event_type)}{event.notes ? ` · ${event.notes}` : ""}{event.operator ? <span className="meta"> · {event.operator}</span> : null}
-      </li>)}</ul>
-    </>}
+    <h3 className="crop-drawer-h">History</h3>
+    {events.length > 0 ? <ul className="crop-history" aria-label="Planting history">{events.map((event) => <li key={event.id} data-event={event.event_type}>
+      {event.ts ? shortDateTime(event.ts) : "Undated"}: {eventText(event.event_type)}{event.notes ? ` · ${event.notes}` : ""}{event.operator ? <span className="meta"> · {event.operator}</span> : null}
+    </li>)}</ul> : <p className="meta">Nothing recorded yet.</p>}
+    {operator && <NoteForm planting={planting} />}
   </ReadDrawer>;
 }
 
@@ -364,12 +365,14 @@ function EditForm({ planting, onClose, onDone }: FormProps) {
   const [count, setCount] = useState(planting.count === null || planting.count === undefined ? "" : String(planting.count));
   const [stage, setStage] = useState(planting.stage && stages.includes(planting.stage) ? stages.indexOf(planting.stage) : -1);
   const [notes, setNotes] = useState(planting.notes ?? "");
+  const [harvest, setHarvest] = useState("");
   const [typed, setTyped] = useState<string | null>(null);
   const save = async () => {
     const plants = wholeNumber(count);
     setTyped(plants !== null && Number.isNaN(plants) ? "A whole number, or leave blank if not counted" : null);
     if (plants !== null && Number.isNaN(plants)) return;
     const body: Record<string, unknown> = {};
+    if (harvest) body.expected_harvest = harvest;
     if (variety.trim() !== (planting.variety ?? "")) body.variety = variety.trim() || null;
     if (plants !== (planting.count ?? null)) body.count = plants;
     if (stage >= 0 && stages[stage] !== planting.stage) body.stage = stages[stage];
@@ -381,12 +384,46 @@ function EditForm({ planting, onClose, onDone }: FormProps) {
     onDone();
   };
   return <EditDrawer open onClose={onClose} title="Edit planting" heading={planting.crop} onSave={() => void save()} saving={write.sending}
-    error={formError(write.error, ["variety", "count", "stage", "notes"])}>
+    error={formError(write.error, ["variety", "count", "stage", "notes", "expected_harvest"])}>
     <TextField label="Variety" value={variety} onChange={setVariety} error={errorFor(write.error, "variety")} />
     <NumberField label="Plants" value={count} onChange={setCount} min={0} step={1} hint="Leave blank if not counted" error={typed ?? errorFor(write.error, "count")} />
     <Select label="Stage" value={stage < 0 ? null : stage} options={stages.map((item, index) => ({ value: index, label: stageText(item) }))} onChange={setStage} />
+    <DateField label="Expected harvest (optional)" value={harvest} onChange={setHarvest} min={planting.planted_date} hint="The day you expect to harvest; blank keeps what is recorded"
+      error={errorFor(write.error, "expected_harvest")} />
     <Reason label="Notes" value={notes} onChange={setNotes} maxLength={2000} error={errorFor(write.error, "notes")} />
   </EditDrawer>;
+}
+
+/** The longest note API-CROP-12 takes. */
+export const NOTE_MAX = 2000;
+/**
+ * Add a note (API-CROP-12, parity C-12): one line of text on the planting's history, active or ended, for operators.
+ * Saving writes one note event, which the history above lists once the planting reads again.
+ */
+export function NoteForm({ planting }: { planting: Pick<PlantingDetail, "id" | "crop" | "variety"> }) {
+  const ids = useFieldIds();
+  const toast = useToast();
+  const write = useCropWrite("API-CROP-12");
+  const [note, setNote] = useState("");
+  const [typed, setTyped] = useState<string | null>(null);
+  const save = async () => {
+    const text = note.trim();
+    setTyped(text ? null : "Write the note first");
+    if (!text) return;
+    const outcome = await write.send({ planting_id: planting.id }, { note: text });
+    if (!outcome.ok) return;
+    toast.show({ message: `Note added to ${cropName(planting)}` });
+    setNote("");
+  };
+  const error = typed ?? errorFor(write.error, "note") ?? formError(write.error, ["note"]);
+  return <div className={error ? "field field-invalid crop-note" : "field crop-note"}>
+    <label htmlFor={ids.id}>Add a note</label>
+    <textarea id={ids.id} rows={3} maxLength={NOTE_MAX} value={note} aria-invalid={error ? true : undefined} aria-describedby={describedBy(ids.hintId, error ? ids.errorId : null)}
+      onChange={(event) => setNote(event.target.value)} />
+    <FieldHint id={ids.hintId}>It goes on this planting's history with your name and the time.</FieldHint>
+    {error && <FieldError id={ids.errorId}>{error}</FieldError>}
+    <div className="crop-note-actions"><Button write busy={write.sending} onClick={() => void save()}>Save note</Button></div>
+  </div>;
 }
 
 // ---------------------------------------------------------------------------------------------------- a cell

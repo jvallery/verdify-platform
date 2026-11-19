@@ -7,15 +7,21 @@ import { AppShell, PageCard } from "./components/app-shell";
 import { PlainHeader } from "./components/site-header";
 import { ApiError } from "./lib/operator-api";
 import { SIGN_IN_REFUSALS, displayableRequestId, pageContext, signInRefusal } from "./lib/page-context";
-import styles from "./styles.css?url";
+import { themeColors, themeFromCookie, type Theme } from "./lib/theme";
+import baseStyles from "./styles/base.css?url";
+import climateStyles from "./styles/climate.css?url";
 import controlStyles from "./styles/control.css?url";
 import cropsStyles from "./styles/crops.css?url";
+import experienceStyles from "./styles/experience.css?url";
 import graphsStyles from "./styles/graphs.css?url";
+import lightsStyles from "./styles/lights.css?url";
 import nowActivityStyles from "./styles/now-activity.css?url";
 import primitivesStyles from "./styles/primitives.css?url";
+import recordStyles from "./styles/record.css?url";
+import reviewStyles from "./styles/review.css?url";
 import shellStyles from "./styles/shell.css?url";
+import systemStyles from "./styles/system.css?url";
 import tokensStyles from "./styles/tokens.css?url";
-import experienceStyles from "./styles/experience.css?url";
 import waterStyles from "./styles/water.css?url";
 
 // viewport-fit=cover lets env(safe-area-inset-*) clear the phone bar from the home indicator.
@@ -24,11 +30,13 @@ const VIEWPORT = "width=device-width, initial-scale=1, viewport-fit=cover";
 export const BUSY_RETRY_MS = 5000;
 
 /**
- * Every stylesheet, in the fixed order of redesign §10.1: weather's copy with the §2.2 block last, the layout tokens,
- * WP0's primitives and shell, then one section per screen package. Each section loads after styles.css, so none may
- * redefine what the §2.2 block overrides by order (`styles/sections.test.ts`). Chart routes add `chartLinks()` after these.
+ * Every stylesheet, in the fixed order of design-system section 6 (`styles/sections.test.ts`): the tokens, the base,
+ * the primitives and the frame, then one section per screen package. Chart routes add `chartLinks()` after these.
  */
-export const STYLESHEETS = [styles, tokensStyles, primitivesStyles, shellStyles, nowActivityStyles, graphsStyles, waterStyles, controlStyles, cropsStyles, experienceStyles] as const;
+export const STYLESHEETS = [
+  tokensStyles, baseStyles, primitivesStyles, shellStyles, nowActivityStyles, graphsStyles, waterStyles, controlStyles, cropsStyles, experienceStyles,
+  climateStyles, recordStyles, reviewStyles, systemStyles, lightsStyles,
+] as const;
 export const links = () => [...STYLESHEETS.map((href) => ({ rel: "stylesheet", href })), { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }];
 export const headers: HeadersFunction = ({ errorHeaders }) => {
   const headers = new Headers();
@@ -39,8 +47,9 @@ export const headers: HeadersFunction = ({ errorHeaders }) => {
 
 /**
  * Server-side only, and nothing about the greenhouse: the CSP nonce, the BFF's build commit for the footer, the request
- * id and a sign-in refusal from #1141's `/auth/*` handlers, which the page answers with its status and card at the
- * same URL (SCR-09). The banners, the count, the role and the API's build load in the browser.
+ * id, the theme the `theme` cookie chose (so `<html>` carries it on the first paint) and a sign-in refusal from #1141's
+ * `/auth/*` handlers, which the page answers with its status and card at the same URL (SCR-09). The banners, the count,
+ * the role and the API's build load in the browser.
  */
 export function loader({ request, context }: LoaderFunctionArgs) {
   const page = context.get(pageContext);
@@ -49,6 +58,7 @@ export function loader({ request, context }: LoaderFunctionArgs) {
     nonce: request.headers.get("x-dashboard-csp-nonce") || "",
     sourceRevision: page.sourceRevision,
     requestId: displayableRequestId(page.requestId),
+    theme: themeFromCookie(request.headers.get("cookie")),
     authError,
   };
   return authError ? data(body, { status: SIGN_IN_REFUSALS[authError.reason].status }) : body;
@@ -56,9 +66,16 @@ export function loader({ request, context }: LoaderFunctionArgs) {
 /** Nothing the root loads changes during a visit, so a navigation never asks the server for it again. */
 export const shouldRevalidate = () => false;
 
-/** The page document. An error page names its own title and has no nonce: it renders without the route meta or scripts. */
-function Document({ nonce, title, children }: { nonce?: string; title?: string; children: ReactNode }) {
-  return <html lang="en"><head><meta charSet="utf-8" /><meta name="viewport" content={VIEWPORT} />{title ? <title>{title}</title> : <Meta />}<Links /></head><body>
+/**
+ * The page document. An error page names its own title and has no nonce: it renders without the route meta or scripts.
+ * A chosen theme is `data-theme` on `<html>` from the server's render, and the `theme-color` metas name its colour; a
+ * later change through the theme switch sets both in place (lib/theme.ts), which React leaves alone because these props
+ * never change during a visit.
+ */
+function Document({ nonce, title, theme = "system", children }: { nonce?: string; title?: string; theme?: Theme; children: ReactNode }) {
+  return <html lang="en" data-theme={theme === "system" ? undefined : theme}><head><meta charSet="utf-8" /><meta name="viewport" content={VIEWPORT} />
+    {themeColors(theme).map((color) => <meta key={color.media} name="theme-color" media={color.media} content={color.content} />)}
+    {title ? <title>{title}</title> : <Meta />}<Links /></head><body>
     {children}
     {nonce !== undefined && <><ScrollRestoration nonce={nonce} /><Scripts nonce={nonce} /></>}
   </body></html>;
@@ -67,7 +84,7 @@ function Document({ nonce, title, children }: { nonce?: string; title?: string; 
 export default function Root() {
   const loaded = useLoaderData<typeof loader>();
   const nonce = useRef(loaded.nonce).current;
-  return <Document nonce={nonce}><AppShell build={loaded.sourceRevision} authError={loaded.authError} /></Document>;
+  return <Document nonce={nonce} theme={loaded.theme}><AppShell build={loaded.sourceRevision} authError={loaded.authError} theme={loaded.theme} /></Document>;
 }
 
 /** The request id an error page shows: the Problem's, else the page request's (`X-Request-Id`, from the BFF). */
@@ -95,9 +112,9 @@ export function ErrorBoundary() {
   }, [busy, state, revalidate]);
   const requestId = busy || notFound ? null : errorRequestId(error, root?.requestId);
   const title = busy ? "Busy, retrying in 5 s" : notFound ? "Page not found" : "Something went wrong";
-  return <Document title={`${busy ? "Busy" : title} · Verdify dashboard`}>
+  return <Document title={`${busy ? "Busy" : title} · Verdify dashboard`} theme={root?.theme}>
     <PlainHeader />
-    <main id="main-content" className="shell page-card-main error-page" tabIndex={-1}>
+    <main id="main-content" className="page-card-main error-page" tabIndex={-1}>
       <PageCard title={title}>
         {busy && <p>Too many pages are loading at once.</p>}
         {notFound && <p><a className="button-link" href="/">Return to Now</a></p>}

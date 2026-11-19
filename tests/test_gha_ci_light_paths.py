@@ -70,7 +70,6 @@ def repo(tmp_path: Path):
         "tests/test_reader.py": 'PATH = "docs/notes/read-by-a-test.md"\n',
         "docs/planner/playbook.md": "# Playbook\n",
         "docs/design/dashboard/openapi/notes.md": "# API\n",
-        "research/planner-efficacy/notes.md": "# Protocol\n",
         "research/notes.md": "# Research\n",
         "planning/notes.md": "# Plan\n",
         "README.md": "# Repo\n",
@@ -167,7 +166,6 @@ def test_documentation_roots_and_top_level_markdown_are_the_docs_class(repo, pat
         "firmware/DESIGN.md",  # firmware Markdown a drift test scans
         "docs/planner/playbook.md",  # the Iris playbook and site-content playbook root
         "docs/design/dashboard/openapi/notes.md",
-        "research/planner-efficacy/notes.md",
         "dashboard/NOTES.md",
         "deploy/k8s/NOTES.md",
         "site/docs/page.md",
@@ -374,6 +372,37 @@ def test_campaign_aggregates_the_qualification_shards_instead_of_running_them_ag
     assert jobs["campaign"]["with"]["run"] == jobs["campaign-qualification"]["with"]["run"]
 
 
+@pytest.mark.parametrize("job_id", ["platform-static", "platform-tests", "firmware-logic"])
+def test_duplicate_contexts_aggregate_the_validate_parts(job_id):
+    """CI audit C2 (#1716): the three contexts keep their names and run no work of their own."""
+    jobs = _workflow_jobs()
+    assert jobs[job_id]["needs"] == jobs["validate"]["needs"]
+    assert jobs[job_id]["with"]["run"] == jobs["validate"]["with"]["run"]
+    assert jobs[job_id]["with"]["runner"] == "verdify-platform-ci-gate"
+    assert job_id not in (GHA / "registry-step.sh").read_text().split('case "$step" in', 1)[1]
+
+
+def test_the_validate_parts_carry_the_work_of_the_retired_registry_steps():
+    text = (ROOT / "scripts" / "ci-local.sh").read_text()
+    for target in ("test-greenhouse-logic", "test-running-alone", "test-gap-log", "test-climate-law"):
+        assert target in text, target
+    assert "replay_overrides" in text
+    assert "tests/test_gha_firmware_secretless_compile.py" in text
+
+
+def test_the_nightly_run_is_always_full():
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    assert workflow[True]["schedule"], "ci.yml keeps one scheduled full run"
+    result = subprocess.run(
+        ["bash", "-c", f". {GHA / 'lib.sh'}; ci_base"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "GITHUB_EVENT_NAME": "schedule", "HOME": "/nonexistent"},
+    )
+    assert result.returncode == 0 and result.stdout == "", result.stdout + result.stderr
+
+
 @pytest.mark.parametrize(
     ("args", "code"),
     [
@@ -392,7 +421,7 @@ def test_require_success_passes_only_success_or_not_impacted(args, code):
 @pytest.mark.parametrize(("value", "code"), [("false", 0), ("maybe", 2)])
 def test_registry_step_not_impacted_passes_before_any_work(tmp_path, value, code):
     result = subprocess.run(
-        ["bash", str(GHA / "registry-step.sh"), "firmware-logic"],
+        ["bash", str(GHA / "registry-step.sh"), "firmware-secretless-compile"],
         capture_output=True,
         text=True,
         env={"PATH": "/usr/bin:/bin", "VERDIFY_IMPACTED": value, "HOME": str(tmp_path)},

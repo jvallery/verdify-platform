@@ -31,12 +31,18 @@ constexpr float INDOOR_TEMP_MAX_F = 140.0f;
 // An averaged wall humidity above 100 % and up to this is a sensor at saturation and
 // reads as 100 % (RULINGS G2). Above it, or below 0 %, there is no humidity reading.
 constexpr float WALL_RH_SATURATION_MAX_PCT = 110.0f;
-// After a boot the controller waits this long for the first valid indoor temperature
-// before it enters the state of decision 7 (RULINGS G3).
+// After a boot the controller waits at most this long for all four wall probes to be in
+// the wall readings (F5) before the law runs on what it has, or with no temperature
+// enters the state of decision 7 (RULINGS G3).
 constexpr uint32_t BOOT_GRACE_MS = 60000;
 // The no-indoor-temperature rule leaves the vent branch only below the corridor's low
 // edge less this (RULINGS G5).
 constexpr float NO_INDOOR_VENT_HYSTERESIS_F = 1.0f;
+// Owner decision V-2: while there is no valid indoor temperature a manual Fans run (and a
+// vent-bypass run, which shares its deadline) ends at most this long from now. The heaters
+// are held during a manual fan run, so a long run with dead probes would leave the house
+// unheated.
+constexpr uint32_t MANUAL_FANS_NO_TEMP_MAX_MS = 15u * 60000u;
 // Relay counters and fan run seconds: first copy to flash this long after a boot, then
 // at most once per interval (review-1703 minor 7; RULINGS G8).
 constexpr uint32_t COUNTER_FIRST_SAVE_MS = 600000;
@@ -281,11 +287,14 @@ inline RelayOutputs no_indoor_relays(NoIndoorBranch b, bool lead_is_fan1) noexce
 }
 
 // ── 5. The boot and the relays at boot ────────────────────────────────────
-// Boot grace (RULINGS G3): after a boot the controller waits for the first valid
-// indoor temperature, at most BOOT_GRACE_MS. While it waits no climate relay is
-// switched, the mode is not a sensor fault (so the irrigation engine sees none) and no
-// alert is raised. Once a temperature has been valid, or the grace has run out, a
-// missing temperature is the state of decision 7 at once.
+// Boot grace (RULINGS G3, F5): after a boot the controller waits until every wall
+// probe has reported into the wall averages once, at most BOOT_GRACE_MS. While it waits
+// no climate relay is switched, the mode is not a sensor fault (so the irrigation engine
+// sees none) and no alert is raised. The first probes on the bus are not the house: on
+// 2026-11-17 the law dried on north and west (0.82 kPa) while the four-wall average was
+// 0.96 to 0.98 kPa. When the grace runs out with a probe still silent, the law runs on
+// the probes it has (the averages of whatever is fresh, as after the grace); with no
+// temperature at all it is the state of decision 7. After the grace nothing changes.
 
 enum class IndoorGate : uint8_t { kRun, kBootWait, kNoIndoor };
 
@@ -293,11 +302,24 @@ struct BootGrace {
     bool over;
 };
 
-inline IndoorGate indoor_gate(BootGrace& grace, bool temp_valid, uint32_t now_ms,
+// `walls_complete`: every wall reading the law uses (the three averages and the dew
+// point) was last computed over all four wall probes (controls.yaml: wall_avgs_full 15).
+inline IndoorGate indoor_gate(BootGrace& grace, bool temp_valid, bool walls_complete, uint32_t now_ms,
                               uint32_t grace_ms = running_alone_k::BOOT_GRACE_MS) noexcept {
-    if (temp_valid || now_ms >= grace_ms) grace.over = true;
-    if (temp_valid) return IndoorGate::kRun;
-    return grace.over ? IndoorGate::kNoIndoor : IndoorGate::kBootWait;
+    if ((temp_valid && walls_complete) || now_ms >= grace_ms) grace.over = true;
+    if (!grace.over) return IndoorGate::kBootWait;
+    return temp_valid ? IndoorGate::kRun : IndoorGate::kNoIndoor;
+}
+
+// V-2: the manual fan deadline with no valid indoor temperature: at most
+// MANUAL_FANS_NO_TEMP_MAX_MS ahead of now (a later deadline is brought in; 0 = no run stays
+// 0; a deadline that wraps to exactly 0 is stored as 1). With a valid temperature it is
+// returned unchanged.
+inline uint32_t manual_fans_deadline_capped(uint32_t until_ms, uint32_t now_ms, bool temp_valid) noexcept {
+    if (temp_valid || until_ms == 0u) return until_ms;
+    if (int32_t(until_ms - now_ms) <= int32_t(running_alone_k::MANUAL_FANS_NO_TEMP_MAX_MS)) return until_ms;
+    const uint32_t capped = now_ms + running_alone_k::MANUAL_FANS_NO_TEMP_MAX_MS;
+    return capped == 0u ? 1u : capped;
 }
 
 // A relay that has not switched since this boot (stamp 0) is available at once: the

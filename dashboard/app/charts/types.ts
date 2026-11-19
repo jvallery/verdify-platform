@@ -9,7 +9,7 @@ import type { components } from "../generated/operator-api";
 import type { BandTimeline, Lenient, MinutesReport, Series, SettingHistory, StateLanes } from "../lib/operator-api";
 
 export type {
-  Actor, BandTimeline, DesiredSetting, MetricDef, MinutesReport, Plan, PlanLane, PlannerTrigger, PlanWaypoint, ReadbackState, Reading, Series, SeriesColumns,
+  Actor, BandTimeline, DesiredSetting, MetricDef, MinutesReport, ReadbackState, Reading, Series, SeriesColumns,
   SettingHistory, StateLanes, StateReason,
 } from "../lib/operator-api";
 

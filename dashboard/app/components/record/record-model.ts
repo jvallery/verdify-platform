@@ -1,0 +1,299 @@
+// SPDX-License-Identifier: MIT
+/**
+ * Record's shaping (screens section 6): the window kept in the URL, the days a view shows, and the few figures the page
+ * derives itself. Every mean and share the daily record serves (API-32 `means`, the `band` shares) is shown as served;
+ * the page derives only what the API does not serve, each in one pure function here: the price paid for drying, the
+ * irrigation water (crop water less wetting), the heater hours (electric plus gas), the per-relay means of starts and run
+ * time, and the counter check's words.
+ */
+import type { PanelState } from "../panel";
+import { dateShift, formatNumber, formatValue, sentenceStart } from "../../lib/format";
+import type { PanelRead } from "../../lib/queries";
+import type { DailyRecord, RecordDay, RecordDrying, RecordMeans, RelayCheck } from "../../lib/operator-api";
+import { words } from "../../lib/words";
+
+// ---------------------------------------------------------------------------------------------------- the window
+/** The windows every Record view offers (screens section 6), in days; 30 is the default. */
+export const WINDOWS = [7, 30, 90, 365] as const;
+export type WindowDays = (typeof WINDOWS)[number];
+export const DEFAULT_WINDOW: WindowDays = 30;
+/**
+ * The days one read covers at the least: the 30 complete days a 30-day mean needs, plus today. Every window reads at
+ * least this much, so the per-relay means and the 30-day sparklines have their days whatever the window.
+ */
+export const READ_DAYS = 31;
+
+/** `?days=` as a window; a value that is not one of the four reads as the default. */
+export function parseWindow(value: string | null | undefined): WindowDays {
+  const days = Number(value);
+  return (WINDOWS as readonly number[]).includes(days) && String(days) === value ? (days as WindowDays) : DEFAULT_WINDOW;
+}
+
+/** A Record view's path with the window, keeping any other parameter; the default window writes no `days`. */
+export function windowHref(path: string, days: WindowDays, search = ""): string {
+  const params = new URLSearchParams(search);
+  if (days === DEFAULT_WINDOW) params.delete("days"); else params.set("days", String(days));
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+/** API-32's parameters for a window ending `today`: at least `READ_DAYS` local days, `today` included. */
+export function readParams(days: WindowDays, today: string): { from: string; to: string } {
+  return { from: dateShift(today, -(Math.max(days, READ_DAYS) - 1)), to: today };
+}
+
+/** The last `days` days of the record, oldest first. */
+export const windowDays = (record: DailyRecord, days: WindowDays): readonly RecordDay[] => record.days.slice(-days);
+
+/** Today, still in progress: the record's last day, not complete. */
+export const isSoFar = (day: RecordDay, record: DailyRecord): boolean => day.date === record.to && !day.complete;
+
+/** True when the record holds anything for the day; a day with nothing is a gap. */
+export function hasRecord(day: RecordDay): boolean {
+  return day.complete || day.band !== null || day.relays !== null || day.climate_starts !== null || day.energy.kwh_partial !== null
+    || day.gas.therms_est !== null || day.water.total_gal !== null || day.drying !== null;
+}
+
+/**
+ * A Record block's state (design-system section 3) from its read: a skeleton until the first answer; the error with
+ * Retry when nothing has answered; the last data muted as STALE when the newest read failed; empty when no day of the
+ * window holds a record.
+ */
+export function recordState(read: Pick<PanelRead<unknown>, "data" | "failed" | "pending">, empty: boolean): PanelState {
+  if (read.data === null) return read.pending ? "loading" : "error";
+  if (read.failed) return "stale";
+  return empty ? "empty" : "ready";
+}
+
+// ---------------------------------------------------------------------------------------------------- figures
+/** Seconds as hours, or null. */
+export const hoursOf = (seconds: number | null | undefined): number | null =>
+  seconds === null || seconds === undefined || !Number.isFinite(seconds) ? null : seconds / 3600;
+
+/** Run time in words (words.md section 5): minutes up to 90, hours above; "—" when unknown. */
+export function runTime(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
+  return seconds <= 90 * 60 ? formatValue(seconds / 60, "min") : formatValue(seconds / 3600, "h");
+}
+
+/**
+ * A day's alerts as a table cell (A1): the count of all alerts, led by the critical ones when there are any ("3 critical
+ * · 25"); "0" with none; "—" when the record has none.
+ */
+export function alertsText(alerts: RecordDay["alerts"]): string {
+  if (!alerts) return "—";
+  const total = alerts.critical + alerts.warning + alerts.info;
+  return alerts.critical > 0 ? `${formatNumber(alerts.critical)} critical · ${formatNumber(total)}` : formatNumber(total);
+}
+
+/** Seconds as bare hours at 1 dp for a cell whose header carries the unit ("Run time, h"); "—" when unknown. */
+export const hoursCell = (seconds: number | null | undefined): string => formatNumber(hoursOf(seconds), 1);
+/** Seconds as bare whole minutes for a cell whose header carries the unit ("Drying, min"); "—" when unknown. */
+export const minutesCell = (seconds: number | null | undefined): string => {
+  const hours = hoursOf(seconds);
+  return hours === null ? "—" : formatNumber(Math.round(hours * 60), 0);
+};
+
+/** The day's electricity as a bare kWh cell: the metered 24-hour figure, "partial" under 70 % coverage, or "—". */
+export function kwhCell(day: RecordDay): string {
+  if (day.energy.kwh !== null) return formatNumber(day.energy.kwh, 1);
+  return day.energy.kwh_partial !== null ? "partial" : "—";
+}
+
+/** True when drying ran or was wanted that day: the days the drying table lists. */
+export const dryingDay = (day: RecordDay): boolean =>
+  day.drying !== null && ((day.drying.seconds ?? 0) > 0 || (day.drying.runs ?? 0) > 0 || (day.drying.wanted_s ?? 0) > 0);
+
+/**
+ * The sentence under the drying table for the days it leaves out: "No drying was wanted on the other 26 days." when
+ * every one of them recorded that drying was not wanted; "Drying did not run on the other 16 days." when some of them
+ * are from before the controller recorded what it wanted; null when no day is left out.
+ */
+export function dryingRestText(rest: readonly RecordDay[]): string | null {
+  if (rest.length === 0) return null;
+  const count = rest.length === 1 ? "the other day" : `the other ${formatNumber(rest.length)} days`;
+  return rest.every((day) => day.drying?.wanted_s === 0) ? `No drying was wanted on ${count}.` : `Drying did not run on ${count}.`;
+}
+
+// ---------------------------------------------------------------------------------------------------- the answers
+/** A view's answer once the record has answered: its sentence, or that no complete day is recorded yet; null before. */
+export function answerText(record: Pick<DailyRecord, "means"> | null, sentence: string | null): string | null {
+  if (!record) return null;
+  return sentence ?? "No complete day is recorded yet, so there is no 7-day mean to report.";
+}
+
+const pct = (value: number) => formatValue(value, "%");
+/** "13.2 points above", "2.0 points below", "the same as": a share's change against a mean, in words. */
+export function pointsWords(d7: number, d30: number): string {
+  const change = Math.round((d7 - d30) * 10) / 10;
+  if (change === 0) return "the same as";
+  const size = Math.abs(change);
+  return `${formatNumber(size, 1)} ${size === 1 ? "point" : "points"} ${change > 0 ? "above" : "below"}`;
+}
+/** "34 more than", "0.6 kWh less than", "the same as": an amount's change against a mean, in its unit. */
+export function amountWords(d7: number, d30: number, unit: string, more = "more", less = "less"): string {
+  const shown = formatValue(Math.abs(d7 - d30), unit);
+  if (shown.replace(/[^1-9]/g, "") === "") return "the same as";
+  return `${shown} ${d7 > d30 ? more : less} than`;
+}
+/** "1 of 7 nights dried" from a mean's served count. */
+const nightsWords = (means: RecordMeans): string | null =>
+  means.nights_dried === null ? null : `${formatNumber(means.nights_dried)} of ${formatNumber(means.days)} ${means.days === 1 ? "night" : "nights"} dried`;
+
+/**
+ * Days' answer (A4), from the served means: "The last 7 days held the band 61.4% of the time, 13.2 points above the
+ * 30-day mean; 1 of 7 nights dried." Null before the record has a 7-day mean.
+ */
+export function daysAnswer(d7: RecordMeans | null, d30: RecordMeans | null): string | null {
+  if (!d7 || d7.both_pct === null) return null;
+  const span = d7.days === 7 ? "The last 7 days" : `The last ${formatNumber(d7.days)} complete ${d7.days === 1 ? "day" : "days"}`;
+  const against = d30?.both_pct !== null && d30?.both_pct !== undefined ? `, ${pointsWords(d7.both_pct, d30.both_pct)} the 30-day mean` : "";
+  const nights = nightsWords(d7);
+  return `${span} held the band ${pct(d7.both_pct)} of the time${against}${nights ? `; ${nights}` : ""}.`;
+}
+
+/** In band's answer (A4): "Over the last 7 days the house was in band 61.4% of the time: temperature 96.3%, VPD 62.8%." */
+export function bandAnswer(d7: RecordMeans | null): string | null {
+  if (!d7 || d7.both_pct === null) return null;
+  const parts = [d7.temp_pct === null ? null : `temperature ${pct(d7.temp_pct)}`, d7.vpd_pct === null ? null : `VPD ${pct(d7.vpd_pct)}`].filter(Boolean);
+  const nights = nightsWords(d7);
+  return `Over the last ${formatNumber(d7.days)} complete ${d7.days === 1 ? "day" : "days"} the house was in band ${pct(d7.both_pct)} of the time${parts.length ? `: ${parts.join(", ")}` : ""}.${nights ? ` ${sentenceStart(nights)}.` : ""}`;
+}
+
+/**
+ * Equipment's answer (A4): "Over the last 7 days the climate relays started 89 times a day, 34 more than the 30-day
+ * mean; electric heat ran 19.9 h a day and gas heat 3.4 h." Null before the record has a 7-day mean of starts.
+ */
+export function equipmentAnswer(d7: RecordMeans | null, d30: RecordMeans | null): string | null {
+  if (!d7 || d7.climate_starts === null) return null;
+  const starts = formatValue(d7.climate_starts, "count");
+  const against = d30?.climate_starts !== null && d30?.climate_starts !== undefined ? `, ${amountWords(d7.climate_starts, d30.climate_starts, "count")} the 30-day mean` : "";
+  const heat = d7.heat1_run_h !== null && d7.heat2_run_h !== null
+    ? `; electric heat ran ${formatValue(d7.heat1_run_h, "h")} a day and gas heat ${formatValue(d7.heat2_run_h, "h")}` : "";
+  return `Over the last ${formatNumber(d7.days)} complete ${d7.days === 1 ? "day" : "days"} the climate relays started ${starts} ${d7.climate_starts === 1 ? "time" : "times"} a day${against}${heat}.`;
+}
+
+/**
+ * Utilities' answer (A4): "Over the last 7 complete days the house used 28.3 kWh of electricity a day (0.6 kWh less
+ * than the 30-day mean), an estimated 2.55 therms of gas and 36 gal of crop water." Each figure only when it is known.
+ */
+export function utilitiesAnswer(d7: RecordMeans | null, d30: RecordMeans | null): string | null {
+  if (!d7) return null;
+  const parts: string[] = [];
+  if (d7.kwh !== null) {
+    const against = d30?.kwh !== null && d30?.kwh !== undefined ? ` (${amountWords(d7.kwh, d30.kwh, "kWh")} the 30-day mean)` : "";
+    parts.push(`${formatValue(d7.kwh, "kWh")} of electricity a day${against}`);
+  }
+  if (d7.therms_est !== null) parts.push(`an estimated ${formatValue(d7.therms_est, "therms")} of gas`);
+  if (d7.crop_gal !== null) parts.push(`${formatValue(d7.crop_gal, "gal")} of crop water`);
+  if (!parts.length) return null;
+  const listed = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return `Over the last ${formatNumber(d7.days)} complete ${d7.days === 1 ? "day" : "days"} the house used ${listed}.`;
+}
+
+/** Irrigation water: the crop water less the wetting (misting and fog), never below 0; null when either is unknown. */
+export function irrigationGal(water: RecordDay["water"]): number | null {
+  if (water.crop_gal === null || water.wetting_gal === null) return null;
+  return Math.max(0, water.crop_gal - water.wetting_gal);
+}
+
+/**
+ * The price paid for drying, in kWh/kg: the heat spent over the water removed (Wh per g is kWh per kg). Unknown when
+ * either is unknown, when no water was removed, or when a restart lost meter counts that day (both are then lower
+ * bounds, so their ratio bounds nothing).
+ */
+export function pricePaid(drying: RecordDrying | null): number | null {
+  if (!drying || drying.lower_bound === true || drying.heat_wh === null || drying.water_g === null || drying.water_g <= 0) return null;
+  return drying.heat_wh / drying.water_g;
+}
+
+/** Heater hours a day: the served electric and gas means added; null unless both are known. */
+export function heaterHours(means: RecordMeans | null): number | null {
+  if (!means || means.heat1_run_h === null || means.heat2_run_h === null) return null;
+  return means.heat1_run_h + means.heat2_run_h;
+}
+
+/** The 7-day mean less the 30-day mean; null when either is unknown. */
+export function change(d7: number | null | undefined, d30: number | null | undefined): number | null {
+  return d7 === null || d7 === undefined || d30 === null || d30 === undefined ? null : d7 - d30;
+}
+
+/**
+ * The counter check's sentence for the answer: "The controller's own counters differed from the record on 2 of the
+ * last 4 days compared." or "… agreed with the record on all 4 days compared."; null when no day could be compared.
+ */
+export function checkAnswer(check: RelayCheck | null): string | null {
+  if (!check) return null;
+  const compared = check.days.filter((day) => day.comparison !== "no_record");
+  if (!compared.length) return null;
+  const differ = compared.filter((day) => checkResult(day).status === "differ").length;
+  const days = `${formatNumber(compared.length)} ${compared.length === 1 ? "day" : "days"} compared`;
+  return differ === 0 ? `The controller's own counters agreed with the record on ${compared.length === 1 ? "the" : "all"} ${days}.`
+    : `The controller's own counters differed from the record on ${formatNumber(differ)} of the last ${days}.`;
+}
+
+/** A sparkline's values for the last `count` days, oldest first, with today's marked partial. */
+export function sparkSeries(record: DailyRecord, pick: (day: RecordDay) => number | null | undefined, count = 30) {
+  const days = record.days.slice(-count);
+  return { values: days.map((day) => pick(day) ?? null), partial: days.map((day) => !day.complete) };
+}
+
+/** Drying refused by reason, the longest first: "the house is too cold to vent 1.5 h; …"; null when none. */
+export function refusedText(refused: RecordDrying["refused_s"]): string | null {
+  if (!refused) return null;
+  const parts = Object.entries(refused).filter(([, seconds]) => Number.isFinite(seconds) && seconds > 0).sort((a, b) => b[1] - a[1]);
+  return parts.length ? parts.map(([reason, seconds]) => `${words("drying_refusal", reason)} ${runTime(seconds)}`).join("; ") : null;
+}
+
+// ---------------------------------------------------------------------------------------------------- relays
+/** The six climate relays, then the misters and the drip lines (API-32 `relays`), in the order the views draw them. */
+export const CLIMATE_RELAYS = ["heat1", "heat2", "fan1", "fan2", "vent", "fog"] as const;
+export const WET_RELAYS = ["mister_center", "mister_south", "mister_west", "drip_wall", "drip_center"] as const;
+/** Each relay's colour token (design-system section 2.3). */
+export const RELAY_TOKENS: Readonly<Record<string, string>> = {
+  heat1: "--eq-heat1", heat2: "--eq-heat2", fan1: "--eq-fan1", fan2: "--eq-fan2", vent: "--eq-vent", fog: "--eq-fog",
+  mister_center: "--eq-mister", mister_south: "--eq-mister", mister_west: "--eq-mister", drip_wall: "--eq-water", drip_center: "--eq-water",
+};
+export const relayName = (equipment: string): string => words("equipment", equipment);
+
+/**
+ * One relay's mean per day over the last `count` complete days that carry a relay record: starts, or run time in
+ * hours. The API serves no per-relay mean but heat 1's and heat 2's run hours, which the views take as served.
+ */
+export function relayMean(days: readonly RecordDay[], equipment: string, field: "starts" | "run_h", count: 7 | 30): number | null {
+  const values = days.filter((day) => day.complete && day.relays !== null).slice(-count)
+    .map((day) => day.relays?.[equipment]).filter((relay) => relay !== undefined)
+    .map((relay) => (field === "starts" ? relay.starts : relay.run_s / 3600));
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+/** A relay's repaired runs over the days shown; null when no day carries a relay record. */
+export function repairedRuns(days: readonly RecordDay[], equipment: string): number | null {
+  const counted = days.filter((day) => day.relays !== null);
+  return counted.length ? counted.reduce((sum, day) => sum + (day.relays?.[equipment]?.repaired_runs ?? 0), 0) : null;
+}
+
+// ---------------------------------------------------------------------------------------------------- counter check
+export type CheckDay = RelayCheck["days"][number];
+export type CheckResult = { readonly status: "agree" | "differ" | "none"; readonly lines: readonly string[] };
+
+/**
+ * One day of the counter check (API-33) in words: agree when every compared difference is 0, otherwise one line per
+ * relay that differs ("Fan 1: the controller counted 3 fewer starts and 5 min less run time than the record"); none
+ * when the day has no stored record to compare.
+ */
+export function checkResult(day: CheckDay): CheckResult {
+  if (day.comparison === "no_record") return { status: "none", lines: [] };
+  const lines = day.relays.flatMap((relay) => {
+    const parts: string[] = [];
+    const starts = relay.starts_difference;
+    if (starts !== null && starts !== 0) parts.push(`${Math.abs(starts)} ${starts > 0 ? "more" : "fewer"} ${Math.abs(starts) === 1 ? "start" : "starts"}`);
+    const run = relay.run_s_difference;
+    if (run !== null && Math.round(Math.abs(run) / 60) > 0) parts.push(`${runTime(Math.abs(run))} ${run > 0 ? "more" : "less"} run time`);
+    return parts.length ? [`${relayName(relay.equipment)}: the controller counted ${parts.join(" and ")} than the record`] : [];
+  });
+  return { status: lines.length ? "differ" : "agree", lines };
+}
+
+/** API-33's `days` for a window: 7 for the 7-day window, else the most it serves, 30. */
+export const checkDays = (days: WindowDays): 7 | 30 => (days === 7 ? 7 : 30);

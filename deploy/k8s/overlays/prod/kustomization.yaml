@@ -64,8 +64,8 @@ resources:
   # Plant-observation pipeline (#436): GitOps-owned CronJob + generated
   # verdify-vision-src ConfigMap. Pulls the production ingestor digest from the
   # zot origin with zot-origin-cluster-pull ONLY (ADR-0021 — the transitional
-  # GHCR pull credential is gone). The model credential Secret
-  # (verdify-vision-key) remains a runtime prerequisite.
+  # GHCR pull credential is gone). Its model credential is the Cortex Secret
+  # verdify-vision-cortex; verdify-vision-key was retired (#1543, agents#7013).
   - ../../vision
   # HA-3 (#239): ingestor PDB maxUnavailable:1 (singleton-may-be-disrupted intent;
   # correctness is the Lease fence, not the PDB). Additive — does NOT restart the
@@ -81,7 +81,7 @@ resources:
   - traefik
   # HA Sprint ha-1 / LANE B (#230): PodDisruptionBudgets giving every 2-replica
   # stateless surface (www/lab/api/mcp) + tier-2 verdify-traefik a disruption
-  # floor (minAvailable:1), and grafana a drain-safe maxUnavailable:1 (RWO PVC
+  # floor (maxUnavailable:1 with AlwaysAllow on 2 replicas), and grafana a drain-safe maxUnavailable:1 (RWO PVC
   # singleton). The incident had ZERO PDBs in verdify-prod. See pdb.yaml.
   - pdb.yaml
   # HA Sprint ha-1 / Lane A — resource governance (#226/#227/#229).
@@ -103,8 +103,9 @@ resources:
 configMapGenerator:
   # Package 6: the operator API's verdify_release_pin_info reads this copy of release-pins.yaml. The name is fixed
   # (ROLLOUT-6, #1633 release 4): a content-hashed name left the previous ConfigMap as an orphan after every
-  # promotion under prune-off. The volume mounts the directory, so the kubelet refreshes the file in place, and a
-  # promotion rolls the operator API to the new verdify-api digest anyway.
+  # promotion under prune-off. So the pod no longer rolls when the pins change: the volume mounts the directory, the
+  # kubelet swaps the file in place within its sync period, and product_metrics reads it again when it changes
+  # (#1734 C-5).
   - name: verdify-release-pins
     files:
       - release-pins.yaml=release-pins.yaml
@@ -173,6 +174,9 @@ components:
   # verdify-db-dumps binds a static NFS PV owned by storage-infra
   # (dumps-pvc.yaml is storageClassName:""). No StorageClass is rendered here.
   - ../../components/db-backup
+  # #1549: weekly isolated restore drill of the newest committed backup pair
+  # (read-only dumps mount, emptyDir PostgreSQL, deny-all, no credential).
+  - ../../components/db-restore-drill
   # #498 verdify-grafana — OUR OWN Grafana on graphs.verdify.ai. Independent,
   # in-cluster, reading the prod TimescaleDB (verdify-db:5432). PROD-ONLY (graphs
   # is a prod host); never staging. Stateless (emptyDir; provisioned datasource +
@@ -319,16 +323,16 @@ patches:
 images:
   - name: ghcr.io/verdifyconsultancy/verdify-api
     newName: registry.vallery.net/verdifyconsultancy/verdify-api
-    digest: sha256:e61c8cc934f6f44edd862b0c24198a0fafe65a488d635133364ef6fdf31371c9
+    digest: sha256:d8b9e95bb4efd6867194bb3c3db113f25fe8176834a4d834a3f6ca79432a48ae
   - name: ghcr.io/verdifyconsultancy/verdify-mcp
     newName: registry.vallery.net/verdifyconsultancy/verdify-mcp
-    digest: sha256:167383dd209366f163700befc20c22a24f06bbe34690cdf36c78ef9e1f2a9218
+    digest: sha256:c7f485d6c449df7704e9747ad8bbc9581c12fcdab6f33cc048b2e67ec2e233dc
   - name: ghcr.io/verdifyconsultancy/verdify-ingestor
     newName: registry.vallery.net/verdifyconsultancy/verdify-ingestor
-    digest: sha256:f9f131e2c237c5d753a9c1a50ab1a885f0ea8a1128e78d59c998f1b74ac7a93c
+    digest: sha256:7ab815c453b784814a621f7271c0a04013040ec0657d2cf7c40aa735cdbd9d2a
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
-    digest: sha256:1ac82e4130c165c822bb231472eb112a0e15fe50afd5cf6350445d04a51cc877
+    digest: sha256:645fac0d167b09cfb94950da3bfe009a355f9af0bb8d32f8aae30b1b682de763
   # Hand-pinned grow-light writer: source 5ebe309308d5 (W7 release 8: #1494 relay_physical, #1495 per-setting
   # write lock), GHA build run 42415895024. Rollback: 0f40c6514b21 (source 130a954e0ce7, build run 42294583580). The #399 HA call allowlist confines
   # this prod-only writer to the declared main/grow light switches.

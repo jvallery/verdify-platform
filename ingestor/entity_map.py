@@ -439,9 +439,8 @@ DAILY_ACCUM_MAP: dict[str, str] = {
     "mister_south_wall_runtime__today_": "runtime_mister_south_h",
     "mister_west_wall_runtime__today_": "runtime_mister_west_h",
     "mister_center_runtime__today_": "runtime_mister_center_h",
-    # Drip runtimes
-    "wall_drips_runtime__today_": "runtime_drip_wall_h",
-    "center_drips_runtime__today_": "runtime_drip_center_h",
+    # The drip runtimes have no firmware sensor since Sprint 18; tasks/daily.py writes runtime_drip_wall_h and
+    # runtime_drip_center_h from the equipment_state runtimes (TEL-03 deleted the two dead routes).
     # Firmware sprint-2 fairness watchdog counter (resets at midnight)
     "mister_fairness_overrides__today_": "mister_fairness_overrides_today",
 }

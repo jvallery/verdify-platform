@@ -6,6 +6,15 @@ the controller runs at 10-min steps of the day's ``fn_solar_phase``, so the prev
 the guardrails, the checks of ``verdify_schemas.band_profile.findings``, an expected night VPD ribbon and the night
 heat estimate.
 
+The edge form: the law reads only the low and high edges, so a draft may also give them directly, as the low and high
+at solar noon (``*_day``) and at solar midnight (``*_night``) of either axis. Each low or high series given at least
+one edge compiles with sunrise and sunset at the midpoint of noon and midnight, an edge left out keeping the band's own
+value, all on the push step; a series given no edge keeps its four anchors. People no longer edit that axis's target:
+a stored target whose curve stays between the new edges' curves all day stays as it is, and one whose curve would
+leave them moves to the midpoint of the edges at all four anchors in the same draft, so the stored rows never
+contradict the band. One axis may not be given in both forms. Both states carry their eight edges and whether each axis is simple in edges, and
+the preview carries the law's switching offsets (``law_lines``) from the generated law constants.
+
 API-24 stores the anchors a Save changes through the settings writer, one ``desired_state`` row and its
 ``crop_band_anchors`` rows per anchor, under one ``activity_log`` row (``band.write``) in one transaction. The
 ``desired_state`` insert trigger wakes the dispatcher, whose anchor sync (``ingestor/tasks/band_anchors.py``) pushes
@@ -33,6 +42,7 @@ from typing import Any, Literal
 import asyncpg
 from pydantic import BaseModel, ConfigDict, Field
 
+from verdify_schemas import climate_law_constants as K
 from verdify_schemas.activity import ActivityLogRow
 from verdify_schemas.band_profile import (
     BAND_MIN_WIDTH_F,
@@ -45,14 +55,20 @@ from verdify_schemas.band_profile import (
     HOUSE_PARAMS,
     NIGHT_VPD_FLOOR_MIN_KPA,
     SAFETY_MARGIN_F,
+    Axis,
     BandProfile,
+    Finding,
     axis_of,
     compile_profile,
+    curve_extremes,
+    curve_min_at,
     decompose,
     findings,
     harmonic,
+    is_night,
     is_simple,
     overshoot,
+    param,
     series_points,
     snap,
     unchanged,
@@ -81,6 +97,16 @@ TARGET = "house band"
 
 _TEMP_FIELDS = ("temp_day", "temp_night", "temp_width_day", "temp_width_night")
 _VPD_FIELDS = ("vpd_day", "vpd_night", "vpd_below_day", "vpd_above_day", "vpd_below_night", "vpd_above_night")
+_TEMP_EDGES = ("temp_low_day", "temp_high_day", "temp_low_night", "temp_high_night")
+_VPD_EDGES = ("vpd_low_day", "vpd_high_day", "vpd_low_night", "vpd_high_night")
+EDGE_FIELDS = _TEMP_EDGES + _VPD_EDGES
+# Each axis with its profile fields and its edge fields.
+_AXES: tuple[tuple[Axis, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("temp", _TEMP_FIELDS, _TEMP_EDGES),
+    ("vpd", _VPD_FIELDS, _VPD_EDGES),
+)
+# Day is the solar noon anchor, night the solar midnight anchor.
+_EDGE_ANCHOR = {"day": "sm", "night": "mid"}
 
 ENVELOPE_SQL = vpd_envelope.ENVELOPE_RANGE_SQL
 FORECAST_SQL = series.forecast_rows_sql(["temp_f", "dew_point_f", "vpd_kpa"])
@@ -94,8 +120,9 @@ class _Model(BaseModel):
 
 
 class BandProfilePatch(_Model):
-    """Simple profile fields to change; a field left out keeps the band's own value. Any temperature field
-    recompiles the temperature series with midpoint shoulders, any VPD field the VPD series."""
+    """Simple profile fields or edges to change; a field left out keeps the band's own value. Any temperature field
+    recompiles the temperature series with midpoint shoulders, any VPD field the VPD series. An axis is given either
+    as a target with its width or as edges, never both."""
 
     temp_day: float | None = Field(default=None, allow_inf_nan=False)
     temp_night: float | None = Field(default=None, allow_inf_nan=False)
@@ -107,12 +134,59 @@ class BandProfilePatch(_Model):
     vpd_above_day: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     vpd_below_night: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     vpd_above_night: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    temp_low_day: float | None = Field(
+        default=None, allow_inf_nan=False, description="Edge form: the low edge at solar noon, °F"
+    )
+    temp_high_day: float | None = Field(
+        default=None, allow_inf_nan=False, description="Edge form: the high edge at solar noon, °F"
+    )
+    temp_low_night: float | None = Field(
+        default=None, allow_inf_nan=False, description="Edge form: the low edge at solar midnight, °F"
+    )
+    temp_high_night: float | None = Field(
+        default=None, allow_inf_nan=False, description="Edge form: the high edge at solar midnight, °F"
+    )
+    vpd_low_day: float | None = Field(
+        default=None, allow_inf_nan=False, description="Edge form: the VPD low edge at solar noon, kPa"
+    )
+    vpd_high_day: float | None = Field(
+        default=None, allow_inf_nan=False, description="Edge form: the VPD high edge at solar noon, kPa"
+    )
+    vpd_low_night: float | None = Field(
+        default=None, allow_inf_nan=False, description="Edge form: the VPD low edge at solar midnight, kPa"
+    )
+    vpd_high_night: float | None = Field(
+        default=None, allow_inf_nan=False, description="Edge form: the VPD high edge at solar midnight, kPa"
+    )
+
+
+class BandProfileEdges(_Model):
+    """The band's low and high edges at solar noon (day) and solar midnight (night), as the anchors hold them."""
+
+    temp_low_day: float = Field(description="temp_low at solar noon, °F")
+    temp_high_day: float = Field(description="temp_high at solar noon, °F")
+    temp_low_night: float = Field(description="temp_low at solar midnight, °F")
+    temp_high_night: float = Field(description="temp_high at solar midnight, °F")
+    vpd_low_day: float = Field(description="vpd_low at solar noon, kPa")
+    vpd_high_day: float = Field(description="vpd_high at solar noon, kPa")
+    vpd_low_night: float = Field(description="vpd_low at solar midnight, kPa")
+    vpd_high_night: float = Field(description="vpd_high at solar midnight, kPa")
+
+
+class BandEdgesSimple(_Model):
+    """Per axis, true when the sunrise and sunset anchors of its low and high series are the midpoint of their noon
+    and midnight values on the push step, so the eight edges describe the band in full."""
+
+    temp: bool
+    vpd: bool
 
 
 class ProfileState(_Model):
     profile: BandProfile
     anchors: dict[str, float]
     simple: bool = Field(description="True when sunrise and sunset are the midpoint of noon and midnight")
+    edges: BandProfileEdges
+    edges_simple: BandEdgesSimple
 
 
 class SunTimes(_Model):
@@ -144,6 +218,33 @@ class Guardrails(_Model):
     min_width_f: float = BAND_MIN_WIDTH_F
     min_width_kpa: float = BAND_MIN_WIDTH_KPA
     dry_on_above_vpd_low_kpa: float = DRY_ON_ABOVE_VPD_LOW_KPA
+
+
+class BandLawLines(_Model):
+    """Where the law's rules switch on, as offsets from the band's edges, for the preview to draw (the generated
+    law constants)."""
+
+    heat1_on_above_low_f: float = Field(
+        default=K.HEAT1_ON_ABOVE_LOW_F, description="The electric heater comes on below temp_low plus this, °F"
+    )
+    heat2_on_above_low_f: float = Field(
+        default=K.HEAT2_ON_ABOVE_LOW_F, description="The furnace comes on below temp_low plus this, °F"
+    )
+    cool_on_above_high_f: float = Field(
+        default=K.COOL_ON_ABOVE_HIGH_F, description="Cooling comes on above temp_high plus this, °F"
+    )
+    fan2_on_above_high_f: float = Field(
+        default=K.FAN2_ON_ABOVE_HIGH_F, description="The second fan comes on above temp_high plus this, °F"
+    )
+    dry_on_above_vpd_low_kpa: float = Field(
+        default=K.DRY_ON_ABOVE_VPD_LOW_KPA, description="Drying is wanted below vpd_low plus this, kPa"
+    )
+    fog_on_above_vpd_high_kpa: float = Field(
+        default=K.FOG_ON_ABOVE_VPD_HIGH_KPA, description="The fogger comes on above vpd_high plus this, kPa"
+    )
+    mist_on_above_vpd_high_kpa: float = Field(
+        default=K.MIST_ON_ABOVE_VPD_HIGH_KPA, description="The misters join above vpd_high plus this, kPa"
+    )
 
 
 class NightHeat(_Model):
@@ -194,6 +295,7 @@ class BandProfilePreview(_Model):
     temp: AxisPreview
     vpd: VpdPreview
     guardrails: Guardrails
+    law_lines: BandLawLines
     overshoot: dict[str, float]
     night_heat_kwh: NightHeat
     envelope: EnvelopeFit | None
@@ -235,18 +337,84 @@ def parse_anchor_overrides(items: Iterable[str]) -> dict[str, float]:
     return out
 
 
+def edge_axes(patch: BandProfilePatch | None) -> tuple[Axis, ...]:
+    """The axes the patch gives in edge form."""
+    fields = patch.model_dump(exclude_none=True) if patch is not None else {}
+    return tuple(axis for axis, _, edge_names in _AXES if any(name in fields for name in edge_names))
+
+
+def _edge_param(field: str) -> str:
+    """``temp_low_day`` -> ``band_temp_low_sm``."""
+    series_name, _, time = field.rpartition("_")
+    return param(series_name, _EDGE_ANCHOR[time])
+
+
+def _dips_below(lower: Sequence[float], upper: Sequence[float]) -> bool:
+    """Does the curve of ``upper`` fall below the curve of ``lower`` anywhere in the day? The harmonic is linear in
+    its anchors, so this is the gap curve's minimum, with the tolerance of ``findings``' order check."""
+    gap = tuple(high - low for high, low in zip(upper, lower, strict=True))
+    return curve_extremes(gap)[0] < -1e-9  # type: ignore[arg-type]
+
+
+def compile_edges(anchors: Mapping[str, float], edges: Mapping[str, float]) -> dict[str, float]:
+    """The anchors of every axis given in ``edges``. Each of its low and high series given at least one edge takes the
+    given noon and midnight values (the band's own where an edge is left out) with sunrise and sunset at their
+    midpoint, all snapped; a series given no edge keeps its anchors. Its target series stays when its curve lies
+    between the new low and high curves all day, and otherwise moves, at all four anchors, to the snapped midpoint of
+    the low and high: that series' curve is the midpoint of theirs, so it lies between them wherever they are ordered.
+    """
+    out: dict[str, float] = {}
+    for axis, _, edge_names in _AXES:
+        if not any(name in edges for name in edge_names):
+            continue
+        for side in ("low", "high"):
+            series_name = f"{axis}_{side}"
+            if not any(f"{series_name}_{time}" in edges for time in _EDGE_ANCHOR):
+                continue
+            noon = snap(edges.get(f"{series_name}_day", anchors[param(series_name, "sm")]), axis)
+            midnight = snap(edges.get(f"{series_name}_night", anchors[param(series_name, "mid")]), axis)
+            shoulder = snap((noon + midnight) / 2.0, axis)
+            for anchor, value in zip(ANCHOR_KEYS, (shoulder, noon, shoulder, midnight), strict=True):
+                out[param(series_name, anchor)] = value
+        compiled = {**anchors, **out}
+        low, high = series_points(compiled, f"{axis}_low"), series_points(compiled, f"{axis}_high")
+        target = series_points(compiled, f"{axis}_target")
+        if _dips_below(low, target) or _dips_below(target, high):
+            for anchor, lo, hi in zip(ANCHOR_KEYS, low, high, strict=True):
+                out[param(f"{axis}_target", anchor)] = snap((lo + hi) / 2.0, axis)
+    return out
+
+
+def _one_form_per_axis(fields: Mapping[str, float]) -> None:
+    for axis, profile_names, edge_names in _AXES:
+        edge = next((name for name in edge_names if name in fields), None)
+        profile = next((name for name in profile_names if name in fields), None)
+        if edge is not None and profile is not None:
+            raise ServiceError(
+                problem(
+                    "invalid_request",
+                    f"Give the {axis} band either as edges or as a target and width, not both ({edge} and {profile})",
+                    field=edge,
+                )
+            )
+
+
 def draft_anchors(
     current: Mapping[str, float], patch: BandProfilePatch | None, overrides: Mapping[str, float] | None
 ) -> dict[str, float]:
-    """The anchors a Save would store: the band's own, the patched axes recompiled, then the raw overrides."""
+    """The anchors a Save would store: the band's own, the patched axes recompiled (from the profile or from the
+    edges), then the raw overrides."""
     draft = dict(current)
     fields = patch.model_dump(exclude_none=True) if patch is not None else {}
-    if fields:
-        profile = BandProfile.model_validate({**decompose(current).model_dump(), **fields})
+    _one_form_per_axis(fields)
+    profile_fields = {name: value for name, value in fields.items() if name not in EDGE_FIELDS}
+    if profile_fields:
+        profile = BandProfile.model_validate({**decompose(current).model_dump(), **profile_fields})
         compiled = compile_profile(profile)
         for axis_fields, axis in ((_TEMP_FIELDS, "temp"), (_VPD_FIELDS, "vpd")):
-            if any(name in fields for name in axis_fields):
+            if any(name in profile_fields for name in axis_fields):
                 draft.update({name: value for name, value in compiled.items() if axis_of(name) == axis})
+    draft.update(compile_edges(draft, {name: value for name, value in fields.items() if name in EDGE_FIELDS}))
     for name, value in (overrides or {}).items():
         if name not in HOUSE_PARAMS:
             raise ServiceError(problem("unknown_target", f"{name!r} is not a house band anchor", field="anchor"))
@@ -261,8 +429,90 @@ def changed_params(current: Mapping[str, float], draft: Mapping[str, float]) -> 
     return [name for name in HOUSE_PARAMS if not unchanged(current[name], draft[name], axis_of(name))]
 
 
+def edges_of(anchors: Mapping[str, float]) -> BandProfileEdges:
+    """The eight edges as the anchors hold them: each axis's low and high at solar noon and solar midnight."""
+    return BandProfileEdges(**{name: float(anchors[_edge_param(name)]) for name in EDGE_FIELDS})
+
+
+def edges_simple(anchors: Mapping[str, float]) -> BandEdgesSimple:
+    """Per axis: are the sunrise and sunset anchors of its low and high series the snapped midpoint of their noon and
+    midnight values (within half a push step, as ``is_simple`` compares)?"""
+
+    def simple(axis: Axis) -> bool:
+        for side in ("low", "high"):
+            sr, sm, ss, mid = series_points(anchors, f"{axis}_{side}")
+            shoulder = snap((snap(sm, axis) + snap(mid, axis)) / 2.0, axis)
+            if not (unchanged(sr, shoulder, axis) and unchanged(ss, shoulder, axis)):
+                return False
+        return True
+
+    return BandEdgesSimple(temp=simple("temp"), vpd=simple("vpd"))
+
+
 def state_of(anchors: Mapping[str, float]) -> ProfileState:
-    return ProfileState(profile=decompose(anchors), anchors=dict(anchors), simple=is_simple(anchors))
+    return ProfileState(
+        profile=decompose(anchors),
+        anchors=dict(anchors),
+        simple=is_simple(anchors),
+        edges=edges_of(anchors),
+        edges_simple=edges_simple(anchors),
+    )
+
+
+def edge_field(finding: Finding | ProfileFinding, anchors: Mapping[str, float], given: Iterable[str] = ()) -> str:
+    """The edge field a band check's finding is about, for an axis the draft gives as edges. The checks name the
+    profile fields; this names the edge the operator moves instead: the floor or ceiling that leaves a guardrail,
+    the night low edge for the night floor, where the band is too narrow the edge given at that time of day (the high
+    edge when both or neither are given), and where it is out of order the edge the target crossed (``findings``
+    names the upper series: the target when it fell below the low edge, the high series when the target rose above
+    it) at the time of day the crossing is deepest. Other findings keep their field."""
+    code, field = finding.code, finding.field
+    axis = axis_of(field)
+
+    def at(series_name: str, anchor: str) -> float:
+        return float(anchors[param(series_name, anchor)])
+
+    def given_side(time: str) -> str:
+        names = set(given)
+        side = "low" if f"{axis}_low_{time}" in names and f"{axis}_high_{time}" not in names else "high"
+        return f"{axis}_{side}_{time}"
+
+    if code == "guardrail":
+        floor = field in ("temp_width_night", "vpd_below_day")
+        series_name = f"{axis}_{'low' if floor else 'high'}"
+        noon, midnight = at(series_name, "sm"), at(series_name, "mid")
+        night = midnight <= noon if floor else midnight >= noon
+        return f"{series_name}_{'night' if night else 'day'}"
+    if code == "band_width":
+        return given_side("night" if field.endswith("_night") else "day")
+    if code == "band_order":
+        side, lower, upper = (
+            ("low", "low", "target") if field == param(f"{axis}_target", "sm") else ("high", "target", "high")
+        )
+        upper_points, lower_points = (
+            series_points(anchors, f"{axis}_{upper}"),
+            series_points(anchors, f"{axis}_{lower}"),
+        )
+        gap = tuple(high - low for high, low in zip(upper_points, lower_points, strict=True))
+        _, deepest = curve_min_at(gap)  # type: ignore[arg-type]
+        return f"{axis}_{side}_{'night' if is_night(deepest) else 'day'}"
+    if field == "vpd_below_night":
+        return "vpd_low_night"
+    return field
+
+
+def _named_for_edges(
+    items: Iterable[ProfileFinding], anchors: Mapping[str, float], patch: BandProfilePatch | None
+) -> list[ProfileFinding]:
+    """``items`` with each finding on an axis the patch gives as edges renamed to its edge field."""
+    axes = edge_axes(patch)
+    if not axes:
+        return list(items)
+    given = patch.model_dump(exclude_none=True) if patch is not None else {}
+    return [
+        item.model_copy(update={"field": edge_field(item, anchors, given)}) if axis_of(item.field) in axes else item
+        for item in items
+    ]
 
 
 def axis_curve(anchors: Mapping[str, float], axis: str, phases: Sequence[float]) -> BandCurve:
@@ -554,6 +804,7 @@ async def preview(
             expected_high=expected_high,
         ),
         guardrails=Guardrails(),
+        law_lines=BandLawLines(),
         overshoot=overshoot(draft),
         night_heat_kwh=NightHeat(
             current=night_heat(t, phases, temp_current.target, forecast),
@@ -562,7 +813,7 @@ async def preview(
         envelope=None
         if fit is None
         else EnvelopeFit(hours=fit.hours, days=ENVELOPE_DAYS, rmse_f=fit.rmse_f, dewpoint_p10_f=fit.dewpoint_p10_f),
-        findings=all_findings(draft, fit, vpd_draft.low, expected_high),
+        findings=_named_for_edges(all_findings(draft, fit, vpd_draft.low, expected_high), draft, patch),
         measured=measured_overlay(t, measured_rows, measured_start, measured_end),
         forecast=forecast_overlay(t, forecast_rows),
     )
@@ -582,8 +833,10 @@ async def write(
 ) -> WriteResult[BandWrite]:
     """API-24: every anchor the draft changes, in one ``recorded_write`` transaction with one ``band.write`` row.
 
-    Refusals: Iris (``read_only``: the band is operator-owned), an ``error`` finding (``out_of_range`` with its field),
-    a draft that changes nothing (``invalid_request``), and each anchor's own settings checks.
+    Refusals: Iris (``read_only``: the band is operator-owned), one axis given both as edges and as a target and
+    width (``invalid_request``), an ``error`` finding (``out_of_range`` with its field, the edge field for an axis
+    given as edges), a draft that changes nothing (``invalid_request``), and each anchor's own settings checks. A
+    target anchor the edges move is one more changed anchor: it is stored, checked and audited with the others.
     """
     if actor.source == "iris":
         raise ServiceError(problem("read_only", "The band is operator-owned; Iris may not write it", field="anchor"))
@@ -599,9 +852,9 @@ async def write(
         await tx.execute(HOUSE_BAND_LOCK_SQL)
         current = await _current_anchors(tx)
         draft = draft_anchors(current, patch, overrides)
-        for finding in findings(draft):
-            if finding.severity == "error":
-                raise ServiceError(problem("out_of_range", finding.detail, field=finding.field))
+        errors = [ProfileFinding(**vars(item)) for item in findings(draft) if item.severity == "error"]
+        for finding in _named_for_edges(errors, draft, patch):
+            raise ServiceError(problem("out_of_range", finding.detail, field=finding.field))
         names = changed_params(current, draft)
         if not names:
             raise ServiceError(problem("invalid_request", "The draft changes no anchor", field="anchor"))
@@ -623,6 +876,8 @@ async def write(
             "manual": {"after": flag},
             "profile": decompose(draft).model_dump(),
             "simple": is_simple(draft),
+            "edges": edges_of(draft).model_dump(),
+            "edges_simple": edges_simple(draft).model_dump(),
         }
         return BandWrite(changed=stored), detail
 

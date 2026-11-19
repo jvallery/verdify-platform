@@ -226,26 +226,13 @@ def test_daily_summary_live_uses_scoring_eligible_meter_conservation_only():
     assert "water_gal = max(" not in block
 
 
-# ── S24.9.5 — zero-variance rule param list ────────────────────────
+# ── S24.9.5 — the zero-variance rule is gone ─────────────────────────────────
 
 
-def test_zero_variance_rule_reads_only_the_band_edges():
-    """The per-zone VPD targets are retired with the third flash (contracts/phase4-firmware-deletions-host.md
-    section 3); the zero-variance rule scans the four band edges only."""
+def test_the_zero_variance_rule_is_deleted():
+    """It read the setpoint_snapshot band scalars, which nothing serves since the climate law (#1734 C-7)."""
     alerts_source = (REPO_ROOT / "ingestor" / "tasks" / "alerts.py").read_text()
-    block = alerts_source[alerts_source.index("# 14. Tunable zero-variance") : alerts_source.index("# 15. Setpoint")]
-    assert 'zero_var_params = ["temp_low", "temp_high", "vpd_low", "vpd_high"]' in block
-    assert "vpd_target_" not in block and "active_crop_zones" not in block
-
-
-def test_zero_variance_rule_also_covers_band_params():
-    """temp_low / temp_high / vpd_low / vpd_high should track crop + dispatcher
-    state. If they go flat for 7 days, something upstream is broken."""
-
-    src = _tasks_src()
-    # Look for these all appearing in the same zone_var_params tuple
-    for param in ("temp_low", "temp_high", "vpd_low", "vpd_high"):
-        assert f'"{param}"' in src
+    assert "zero_var_params" not in alerts_source and '"tunable_zero_variance"' not in alerts_source
 
 
 def test_setpoint_confirmation_monitor_resolves_acknowledged_alerts():
@@ -293,7 +280,7 @@ def test_dispatcher_band_owned_contract_is_explicit():
 
     src = _tasks_src()
     assert "fn_band_setpoints(now())" in src
-    assert "fn_house_vpd_control_band(now())" in src
+    assert "fn_house_vpd_control_band" not in src  # #1734 CTL-26: fn_band_setpoints is the one band source
     assert "fn_lighting_policy(now())" in src
     assert "fn_lighting_minutes_policy(now())" in src
     assert "LIGHTING_CIRCUIT_DEFAULT_PARAMS" in src
@@ -324,12 +311,19 @@ def test_api_setpoint_fallback_uses_computed_band_not_planner_band_rows():
     assert (
         "SELECT temp_low, temp_high, vpd_low, vpd_high, temp_target, vpd_target FROM fn_band_setpoints(now())" in body
     )
-    assert "SELECT house_vpd_low, house_vpd_high FROM fn_house_vpd_control_band(now())" in body
+    assert "fn_house_vpd_control_band" not in body  # #1734 CTL-26: all four edges from fn_band_setpoints
+
+    # MCP outcome_kpi: its band fallback reads fn_band_setpoints too (#1734 CTL-26, release 5 review R5-TEST-2).
+    mcp_src = Path("mcp/server.py").read_text()
+    kpi = mcp_src[mcp_src.index("async def outcome_kpi(") :]
+    kpi = kpi[: kpi.index("\n@mcp.")] if "\n@mcp." in kpi else kpi[: kpi.index("\nasync def ", 1)]
+    assert "fn_house_vpd_control_band" not in kpi
+    assert "band.vpd_low" in kpi and "band.vpd_high" in kpi
     assert "SELECT target_dli, sunrise_hour, cutoff_hour, target_light_hours FROM fn_lighting_policy(now(), $1)" in body
     assert "fn_lighting_minutes_policy(now(), $1)" in body
     assert "SELECT * FROM" not in body
     assert "planner_band" not in body
-    assert "params[param] = _round_half_up(band_val, precision)" in body
+    assert 'params[param] = _round_half_up(float(band_row[param]), 1 if param.startswith("temp") else 2)' in body
     # Climate refactor 4.2 (review M3): no plan is overlaid; lighting and direct-wet values always apply.
     assert "v_active_plan" not in body and "plan_params" not in body
     assert "params.update(lighting_values)" in body
@@ -3178,7 +3172,6 @@ def test_irrigation_completion_audit_maps_objective_and_physical_blocker():
         Check("schema snapshot irrigation contract"),
         Check("equipment-derived fertigation runs"),
         Check("fertigation run reconstruction coherence"),
-        Check("irrigation cfg readbacks"),
         Check("irrigation setpoint confirmations"),
         Check("daily runtime/water accounting"),
         Check("irrigation dashboard/site artifacts"),
@@ -4119,8 +4112,6 @@ def test_irrigation_stack_validator_audits_full_objective_surface():
         "Retired compatibility",
         "IRRIGATION_SCHEDULE_PARAMS",
         "setpoint_snapshot",
-        "within_2h",
-        "setpoint_snapshot_pass",
         "irrigation setpoint confirmations",
         "active_unconfirmed",
         "should_be_confirmed",

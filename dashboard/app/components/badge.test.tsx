@@ -2,42 +2,51 @@
 // SPDX-License-Identifier: MIT
 import { cleanup } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { BADGES, Badge, ChemistryBadge, EquipmentStateBadge, ReadbackBadge, lineChemistry, type BadgeKind } from "./badge";
-import { denver, renderUi, text } from "./test-render";
+import { BADGES, BADGE_STATUSES, Badge, ChemistryBadge, EquipmentStateBadge, ReadbackBadge, StatusBadge, badgeClass, lineChemistry, type BadgeKind } from "./badge";
+import { renderUi, text } from "./test-render";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 const badgeIn = (container: HTMLElement) => container.querySelector("[data-badge]");
 
-test("every badge of design system §4.1 carries its word and its class", () => {
+test("every badge of design system v2 §4 carries its word, its status class and a dot", () => {
   const expected: Record<string, [string, string]> = {
-    requested: ["Requested", "status status-pending"], confirmed: ["Confirmed", "status status-complete"],
-    not_confirmed: ["Not confirmed", "status status-failed"], held: ["Held", "tag badge-held"], no_readback: ["No readback", "tag"],
-    manual: ["Manual", "tag badge-manual"], ai: ["AI", "tag badge-ai"], planned: ["Planned", "tag badge-planned"],
-    superseded: ["Superseded", "tag badge-superseded"], stale: ["Stale", "status status-stale"], clean: ["Clean", "tag tag-clean"],
-    fert: ["Fert", "tag tag-fert"], running: ["Running", "tag tag-ok"], idle: ["Idle", "tag"], disabled: ["Disabled", "tag tag-muted"],
-    on: ["On", "tag tag-ok"], off: ["Off", "tag"], unknown: ["Not reported", "tag"],
+    requested: ["Requested", "badge badge-warn"], confirmed: ["Confirmed", "badge badge-ok"],
+    not_confirmed: ["Not confirmed", "badge badge-serious"], no_readback: ["No readback", "badge badge-neutral"],
+    manual: ["Set by hand", "badge badge-info"], ai: ["AI", "badge badge-neutral"],
+    superseded: ["Superseded", "badge badge-neutral"], stale: ["Stale", "badge badge-warn"], clean: ["Clean", "badge badge-neutral badge-clean"],
+    fert: ["Fert", "badge badge-neutral badge-fert"], running: ["Running", "badge badge-ok"], idle: ["Idle", "badge badge-neutral"],
+    disabled: ["Disabled", "badge badge-neutral"], on: ["On", "badge badge-ok"], off: ["Off", "badge badge-neutral"], unknown: ["Not reported", "badge badge-neutral"],
   };
   expect(Object.keys(BADGES).sort()).toEqual(Object.keys(expected).sort());
   for (const [kind, [word, className]] of Object.entries(expected)) {
     const badge = badgeIn(renderUi(<Badge kind={kind as BadgeKind} />).container)!;
     expect(badge.textContent, kind).toBe(word);
     expect(badge.className, kind).toBe(className);
+    expect(badge.getAttribute("data-status"), kind).toBe(className.split(" ")[1].slice("badge-".length));
+    expect(badge.querySelector(".badge-dot")?.getAttribute("aria-hidden"), kind).toBe("true");
     cleanup();
   }
 });
 
+test("a small badge, and a status badge around any words", () => {
+  expect(badgeIn(renderUi(<Badge kind="stale" size="sm" />).container)?.className).toBe("badge badge-warn badge-sm");
+  cleanup();
+  const { container } = renderUi(<StatusBadge status="critical">Writer down</StatusBadge>);
+  const badge = container.querySelector(".badge")!;
+  expect(badge.className).toBe("badge badge-critical");
+  expect(text(badge)).toBe("Writer down");
+  expect(badgeClass("info", "sm", "extra")).toBe("badge badge-info badge-sm extra");
+  expect(BADGE_STATUSES).toEqual(["ok", "warn", "serious", "critical", "info", "neutral"]);
+});
+
 test("ReadbackState renders its badge; NO READBACK also when readback_via is none; released has none; an unknown state shows raw", () => {
-  for (const [state, kind] of [["requested", "requested"], ["confirmed", "confirmed"], ["not_confirmed", "not_confirmed"], ["held", "held"], ["no_readback", "no_readback"]]) {
+  for (const [state, kind] of [["requested", "requested"], ["confirmed", "confirmed"], ["not_confirmed", "not_confirmed"], ["no_readback", "no_readback"]]) {
     expect(badgeIn(renderUi(<ReadbackBadge state={state} />).container)?.getAttribute("data-badge"), state).toBe(kind);
     cleanup();
   }
   expect(badgeIn(renderUi(<ReadbackBadge state="requested" readbackVia="none" />).container)?.getAttribute("data-badge")).toBe("no_readback");
   cleanup();
-  // With no readback, HELD and Iris's override still say who or what applies; released still has no badge.
-  expect(badgeIn(renderUi(<ReadbackBadge state="held" readbackVia="none" />).container)?.getAttribute("data-badge")).toBe("held");
-  cleanup();
-  expect(text(renderUi(<ReadbackBadge state="overridden" readbackVia="none" overriddenAt={denver("14:05")} />).container)).toBe("AI Iris changed this at 14:05");
-  cleanup();
+  // Released still has no badge.
   expect(renderUi(<ReadbackBadge state="released" readbackVia="none" />).container.textContent).toBe("");
   cleanup();
   expect(renderUi(<ReadbackBadge state="released" />).container.textContent).toBe("");
@@ -45,17 +54,9 @@ test("ReadbackState renders its badge; NO READBACK also when readback_via is non
   expect(text(renderUi(<ReadbackBadge state="pending_review" />).container)).toBe("pending_review");
 });
 
-test("overridden is AI with \"Iris changed this at HH:MM\"", () => {
-  const { container } = renderUi(<ReadbackBadge state="overridden" overriddenAt={denver("14:05")} />);
-  expect(badgeIn(container)?.getAttribute("data-badge")).toBe("ai");
-  expect(text(container)).toBe("AI Iris changed this at 14:05");
-  cleanup();
-  expect(text(renderUi(<ReadbackBadge state="overridden" />).container)).toBe("AI Iris changed this");
-});
-
 test("CLEAN and FERT", () => {
   expect(["drip", "mister", "fog", "fert_drip", "fert_mister", "master", "pump"].map(lineChemistry)).toEqual(["clean", "clean", "clean", "fert", "fert", "fert", null]);
-  expect(badgeIn(renderUi(<ChemistryBadge chemistry="fert" />).container)?.className).toBe("tag tag-fert");
+  expect(badgeIn(renderUi(<ChemistryBadge chemistry="fert" />).container)?.className).toBe("badge badge-neutral badge-fert");
   cleanup();
   expect(renderUi(<ChemistryBadge chemistry={null} />).container.textContent).toBe("");
 });
@@ -73,9 +74,11 @@ test("equipment reads the state the API sends: unknown only when it says unknown
 test("while the dashboard API is down the green family turns neutral, keeping its word", () => {
   for (const kind of ["confirmed", "running", "on"] as const) {
     const badge = badgeIn(renderUi(<Badge kind={kind} />, { apiDown: true }).container)!;
-    expect(badge.className, kind).toMatch(/^(tag|status)$/);
+    expect(badge.className, kind).toBe("badge badge-neutral");
     expect(badge.textContent).toBe(BADGES[kind].text);
     cleanup();
   }
-  expect(badgeIn(renderUi(<Badge kind="not_confirmed" />, { apiDown: true }).container)?.className).toBe("status status-failed");
+  expect(badgeIn(renderUi(<Badge kind="not_confirmed" />, { apiDown: true }).container)?.className).toBe("badge badge-serious");
+  cleanup();
+  expect(renderUi(<StatusBadge status="ok">Fine</StatusBadge>, { apiDown: true }).container.querySelector(".badge")?.className).toBe("badge badge-neutral");
 });

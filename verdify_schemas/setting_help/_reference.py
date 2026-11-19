@@ -62,33 +62,6 @@ ENTRIES: dict[str, HelpEntry] = {
         ),
         refs=("firmware/lib/irrigation_program.h::whatever sw_arbiter_zone_enabled says",),
     ),
-    "fog_time_window_start": HelpEntry(
-        label="Fog Window Start",
-        summary="Start hour of the old daily window in which fog was allowed.",
-        effect=(
-            "The controller has no such setting any more; fog is not limited to a clock window. "
-            "Fog RH Ceiling and Fog Min Temp now decide when fog may run."
-        ),
-        refs=(f"{_REG}::start hour of the old fog eligibility window",),
-    ),
-    "fog_time_window_end": HelpEntry(
-        label="Fog Window End",
-        summary="End hour of the old daily window in which fog was allowed.",
-        effect=(
-            "The controller has no such setting any more; fog is not limited to a clock window. "
-            "Fog RH Ceiling and Fog Min Temp now decide when fog may run."
-        ),
-        refs=(f"{_REG}::end hour of the old fog eligibility window",),
-    ),
-    "direct_wet_stress_latest_hour": HelpEntry(
-        label="Direct Wet Stress Latest Hour",
-        summary="Latest hour of the day at which the dry-stress override could allow direct wetting.",
-        effect=(
-            "The controller never had this setting, so it could not change what the greenhouse does. "
-            "The row is kept for the history of past plans."
-        ),
-        refs=(f"{_REG}::ZERO firmware presence",),
-    ),
     "feed_start_hour": HelpEntry(
         label="Feed Start Hour",
         summary="Start hour of the old fertigation window.",
@@ -100,24 +73,6 @@ ENTRIES: dict[str, HelpEntry] = {
         summary="End hour of the old fertigation window.",
         effect="The controller ignores it and it stays at zero. Watering and feeding now run from the irrigation program.",
         refs=(f'{_REG}::"feed_end_hour"',),
-    ),
-    "dawn_rehydrate_start_minute": HelpEntry(
-        label="Dawn Rehydrate Start Minute",
-        summary="Start minute of the old scheduled dawn watering.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "midday_drench_hour": HelpEntry(
-        label="Midday Drench Hour",
-        summary="Hour of the old scheduled midday drench.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
-    ),
-    "midday_drench_start_minute": HelpEntry(
-        label="Midday Drench Start Minute",
-        summary="Start minute of the old scheduled midday drench.",
-        effect=_IRRIGATION_RETIRED,
-        refs=_IRRIGATION_REFS,
     ),
     # ── Readback context ─────────────────────────────────────────────────────
     "sw_onchip_band_enabled": HelpEntry(
@@ -157,41 +112,5 @@ ENTRIES: dict[str, HelpEntry] = {
             "outdoor dew point is lower than inside by at least Vent Prefer DP Delta."
         ),
         refs=(f"{_LOGIC}::const bool outdoor_drier_dp", f"{_CONTROLS}::.outdoor_dewpoint_f = outdoor_dp,"),
-    ),
-    "sw_overnight_micropulse_enabled": HelpEntry(
-        label="Overnight Micropulse Enabled",
-        summary="Old master switch for short overnight mister pulses.",
-        effect=_MICROPULSE_RETIRED,
-        refs=_MICROPULSE_REFS,
-    ),
-    "sw_night_humidity_source_present": HelpEntry(
-        label="Night Humidity Source Present",
-        summary="Old flag that would switch off overnight micro-pulses once a night humidifier was installed.",
-        effect=_MICROPULSE_RETIRED,
-        refs=_MICROPULSE_REFS,
-    ),
-    "micropulse_vpd_ceiling": HelpEntry(
-        label="Micropulse VPD Ceiling",
-        summary="Old overnight VPD above which a micro-pulse could fire.",
-        effect=_MICROPULSE_RETIRED,
-        refs=_MICROPULSE_REFS,
-    ),
-    "micropulse_max_on_s": HelpEntry(
-        label="Micropulse Max ON",
-        summary="Old cap on the length of one overnight micro-pulse.",
-        effect=_MICROPULSE_RETIRED,
-        refs=_MICROPULSE_REFS,
-    ),
-    "micropulse_min_gap_s": HelpEntry(
-        label="Micropulse Min Gap",
-        summary="Old minimum gap between overnight micro-pulses.",
-        effect=_MICROPULSE_RETIRED,
-        refs=_MICROPULSE_REFS,
-    ),
-    "micropulse_min_dew_margin_f": HelpEntry(
-        label="Micropulse Min Dew Margin",
-        summary="Old minimum gap between air temperature and dew point for an overnight micro-pulse.",
-        effect=_MICROPULSE_RETIRED,
-        refs=_MICROPULSE_REFS,
     ),
 }

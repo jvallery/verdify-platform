@@ -650,16 +650,16 @@ Roles: V = viewer, O = operator. Screens follow [screens](screens.md).
 | Id | Method | Path | Purpose | Roles | Screens | MCP parity |
 |---|---|---|---|---|---|---|
 | API-01 | GET | `/v1/me` | Username, role, `writes_enabled`, `source_revision` | V, O | all | none |
-| API-02 | GET | `/v1/now` | Hero: indoor and outdoor climate, band position, mode, Iris status, equipment and bursts running, leak, open alert counts (§7), freshness with the ingestor heartbeat, and the writer | V, O | Now, shell | `climate`, `equipment_state` |
+| API-02 | GET | `/v1/now` | Hero: indoor and outdoor climate, band position, the law's state and today's review (release C retired the mode and Iris status), equipment and bursts running, leak, open alert counts (§7), freshness with the ingestor heartbeat, and the writer | V, O | Now, shell | `climate`, `equipment_state` |
 | API-03 | GET | `/v1/metrics` | Metric registry | V, O | Graphs | none |
 | API-04 | GET | `/v1/series` | Downsampled series (§7) | V, O | Graphs, Now, Water | `history` |
 | API-05 | GET | `/v1/states` | Equipment on/off intervals, up to 31 days | V, O | Graphs, Equipment | `equipment_state` |
-| API-06 | GET | `/v1/band` | Band in force (DERIVED) and the reconstructed crop band | V, O | Graphs, Now, Plan | none |
-| API-07 | GET | `/v1/plan` | Plan in force, lanes per setting (24 h default, or 72 h) with their source and `applied_from`, manual settings, planner health | V, O | Plan | `plan_status` |
-| API-09 | GET | `/v1/settings` | Every registry row: class, unit, min, max, step, writable (and why not), desired row, plan value, `applied_from`, readback (source and age), state; plus the read-only "Band in force" group | V, O | Settings, Plan | `settings` |
+| API-06 | GET | `/v1/band` | The house band in force (DERIVED) and the reconstructed crop band; release C retired the zone bands | V, O | Graphs, Now | none |
+| API-07 | GET | `/v1/plan` | Retired in release C ([v2 API spec](v2/api.md) section 7); the held settings are API-09 | none | none | none |
+| API-09 | GET | `/v1/settings` | Every registry row: class, unit, min, max, step, writable (and why not), desired row, `applied_from`, readback (source and age), state (release C retired the plan value); plus the read-only "Band in force" group | V, O | Settings | `settings` |
 | API-10 | PUT | `/v1/settings/{param}` | Write `{value, manual, reason}`: validate, snap, append `desired_state` | O | Settings, Plan, Water | `set_setting` |
 | API-11 | DELETE | `/v1/settings/{param}` | Release to auto: appends a `value = NULL` row; optional `?reason=` | O | Settings, Plan | `set_setting(release=true)` |
-| API-12 | GET | `/v1/settings/{param}/history` | Desired rows, plan values and readbacks over a window | V, O | Settings, Graphs | `settings(param, since, until)` |
+| API-12 | GET | `/v1/settings/{param}/history` | Desired rows and readbacks over a window (release C retired the plan values; MCP's `settings` history still adds them) | V, O | Settings, Graphs | `settings(param, since, until)` |
 | API-13 | GET | `/v1/equipment` | Equipment now, runtime and cycles today, grow-light Lutron state and intent | V, O | Equipment, Now | `equipment_state` |
 | API-14 | GET | `/v1/alerts` | Open alerts (default) or recently resolved ones, repeats merged, each with its runbook | V, O | Activity, Now | `alerts(action=list)` |
 | API-15 | POST | `/v1/alerts/{id}/ack` | Acknowledge, with an optional note | O | Activity, Now | `alerts(action=acknowledge)` |

@@ -479,9 +479,9 @@ class TestDriftGuard:
 
     def test_planner_pushable_is_only_planner_policy(self) -> None:
         planner_policy = {n for n, d in REGISTRY.items() if d.control_class == "planner_policy"}
-        assert PLANNER_PUSHABLE_REG == planner_policy
-        assert all(REGISTRY[name].control_class == "planner_policy" for name in PLANNER_PUSHABLE_REG)
-        assert set(TIER1_REG) <= set(PLANNER_PUSHABLE_REG)
+        # AR42: no row is planner-pushable, so the planner_policy class is empty.
+        assert PLANNER_PUSHABLE_REG == planner_policy == set()
+        assert set(TIER1_REG) == {n for n in LIVE_WIRE_FIELDS if REGISTRY[n].tier == 1}
         # Per-circuit lighting knobs were reclassified OUT of the planner-writable
         # surface: the band/schedule layer owns the lighting state machine (the
         # planner pushed 0 of these over 30d live). They stay visible/readback
@@ -511,13 +511,13 @@ class TestDriftGuard:
             == "Retired: the engine ranks zones whenever more than one is a VPD member."
         )
         assert REGISTRY["sw_arbiter_zone_enabled"].cfg_readback_object_id == "cfg_arbiter_zone_enabled"
-        # Release 4 (#1633): the planner-pushable rows are exactly the five live policy-wire slots.
-        assert PLANNER_PUSHABLE_REG == LIVE_WIRE_FIELDS
+        # Release 4 (#1633) kept five live policy-wire slots; AR42 makes them operator settings (the reviewer
+        # advises only), so they are controller_safety rows, writable from the dashboard, not planner_policy.
         for param in LIVE_WIRE_FIELDS:
             assert REGISTRY[param].cfg_readback_object_id
-        assert "direct_wet_stress_latest_hour" not in TIER1_REG
-        assert "direct_wet_stress_latest_hour" not in PLANNER_PUSHABLE_REG
-        assert REGISTRY["direct_wet_stress_latest_hour"].control_class == "retired"
+            assert REGISTRY[param].push_owner == "operator" and not REGISTRY[param].planner_pushable
+            assert REGISTRY[param].control_class == "controller_safety"
+        assert "direct_wet_stress_latest_hour" not in REGISTRY  # #1734 C-8
         for param in IRRIGATION_SITE_PARAMS:
             assert REGISTRY[param].control_class == "irrigation_site"
             assert param not in PLANNER_PUSHABLE_REG
@@ -599,8 +599,7 @@ class TestActivityDirectWetGuards:
         planner lever. They were reclassified out of the writable surface (the
         band/schedule layer pushes them every cycle; the planner pushed 0 over
         30d live), but stay readback-visible for traceability. The genuinely
-        tactical `direct_wet_stress_*` override knobs and the
-        `sw_direct_wet_gate_enabled` master gate switch remain planner-writable.
+        `sw_direct_wet_gate_enabled` master gate switch is an operator setting (AR42).
         """
         from verdify_schemas.tunable_registry import NO_EFFECT_RETIRED_REG, SCHEDULED_POLICY_REG
 
@@ -624,12 +623,11 @@ class TestActivityDirectWetGuards:
             "sw_direct_wet_stress_override_enabled",
         ):
             assert name not in REGISTRY
-        # Retired (wire schema v2, #588): zero firmware presence; the row stays
-        # for history + the PR3 dispatch gate but is no longer planner-writable.
-        assert not REGISTRY["direct_wet_stress_latest_hour"].planner_pushable
-        assert REGISTRY["direct_wet_stress_latest_hour"].control_class == "retired"
+        # Retired (wire schema v2, #588), zero firmware presence: the row left the registry (#1734 C-8).
+        assert "direct_wet_stress_latest_hour" not in REGISTRY
         assert REGISTRY["sw_direct_wet_gate_enabled"].kind == "switch"
-        assert REGISTRY["sw_direct_wet_gate_enabled"].planner_pushable
+        assert not REGISTRY["sw_direct_wet_gate_enabled"].planner_pushable
+        assert REGISTRY["sw_direct_wet_gate_enabled"].push_owner == "operator"
         assert REGISTRY["sw_direct_wet_gate_enabled"].cfg_readback_object_id
 
     def test_mister_state_machine_routes_climate_by_vpd_membership(self, controls_yaml: str) -> None:
@@ -1083,10 +1081,8 @@ class TestStepLabelUnitDriftGuard:
 
     def test_guards_skip_rows_without_an_entity(self, tunables_yaml: str) -> None:
         """A row with no entity may set its own step, label and unit (#1152's irrigation_site rows)."""
-        own = REGISTRY["fog_time_window_start"].model_copy(
-            update={"step": 1.0, "label": "Fog Window Start", "unit": "h"}
-        )
-        patched = {**REGISTRY, "fog_time_window_start": own}
+        own = REGISTRY["feed_start_hour"].model_copy(update={"step": 1.0, "label": "Feed Start", "unit": "h"})
+        patched = {**REGISTRY, "feed_start_hour": own}
         assert not _step_mismatches(patched, tunables_yaml)
         assert not _label_mismatches(patched, tunables_yaml)
 
@@ -1205,7 +1201,7 @@ class TestStepLabelUnitDriftGuard:
         unlabeled = sorted(name for name, spec in REGISTRY.items() if not spec.label)
         assert not unlabeled, f"registry rows without a label: {unlabeled}"
         # Rows with no firmware entity carry their registry name and no unit or step.
-        for name in ("fog_time_window_start", "fog_time_window_end", "fallback_window_s", "feed_start_hour"):
+        for name in ("feed_end_hour", "fallback_window_s", "feed_start_hour"):
             spec = REGISTRY[name]
             assert (spec.label, spec.unit, spec.step) == (name, None, None)
 
@@ -1326,16 +1322,13 @@ class TestRegisteredFirmwareTunables:
         }
         assert not stopgap_keys & set(entity_map.CFG_READBACK_MAP)
 
-    def test_fog_time_windows_are_retired_without_routes(self) -> None:
+    def test_fog_time_windows_left_the_registry(self) -> None:
+        # #1734 C-8: no firmware entity or readback, so the rows were deleted.
         entity_map = _entity_map()
         for name in ("fog_time_window_start", "fog_time_window_end"):
-            spec = REGISTRY[name]
-            assert name in RETIRED_TUNABLES_REG and spec.control_class == "retired"
-            assert spec.esp_object_id is None and spec.cfg_readback_object_id is None
+            assert name not in REGISTRY and name not in RETIRED_TUNABLES_REG
             assert name not in entity_map.SETPOINT_MAP.values()
             assert name not in entity_map.CFG_READBACK_MAP.values()
-            # History rows still validate.
-            SetpointSnapshot(ts=datetime(2026, 6, 10, tzinfo=UTC), parameter=name, value=spec.default)
 
 
 def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None:
@@ -1351,8 +1344,9 @@ def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None
 
     # 29 until #369 deleted the eight direct-wet zone offsets with their firmware entities, 21 until #1477
     # deleted the activity mirror and the shared and per-circuit DLI lighting values with theirs, 7 since release 4
-    # deleted the three wet-taper and night-stress rows with the third flash.
-    assert len(NO_EFFECT_RETIRED_REG) == 7
+    # deleted the three wet-taper and night-stress rows with the third flash, 1 since release 5 deleted the six
+    # overnight micro-pulse rows that no controller has (#1734 C-8).
+    assert len(NO_EFFECT_RETIRED_REG) == 1
     for name in NO_EFFECT_RETIRED_REG:
         spec = REGISTRY[name]
         assert spec.control_class == "retired", name
@@ -1385,3 +1379,20 @@ def test_no_effect_rows_are_retired_in_the_catalog_but_still_delivered() -> None
     # Release 4 (#1633, shape B): inert slots left the registry but keep their reserved policy-wire slot.
     for name in ("mist_thermal_relief_s", "sw_direct_wet_stress_override_enabled"):
         assert name not in REGISTRY and RESERVED_WIRE_SLOTS[name].wire_id is not None
+
+
+def test_no_setting_is_owned_by_the_planner_or_planner_pushable() -> None:
+    """Drift guard, climate refactor (#1692, AR42): the daily reviewer advises only and writes no setting.
+
+    No registry row and no reserved wire slot may name the planner as its owner or be planner-pushable, and the
+    model default must not make a new row planner-pushable by omission.
+    """
+    from verdify_schemas.tunable_registry import PLANNER_PUSHABLE_REG, REGISTRY, RESERVED_WIRE_SLOTS, TunableDef
+
+    rows = {**REGISTRY, **RESERVED_WIRE_SLOTS}
+    planner_owned = sorted(name for name, spec in rows.items() if spec.push_owner == "planner")
+    pushable = sorted(name for name, spec in rows.items() if spec.planner_pushable)
+    assert planner_owned == [], f"planner-owned rows: {planner_owned}"
+    assert pushable == [], f"planner-pushable rows: {pushable}"
+    assert PLANNER_PUSHABLE_REG == frozenset()
+    assert TunableDef.model_fields["planner_pushable"].default is False

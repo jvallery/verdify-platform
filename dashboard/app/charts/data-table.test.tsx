@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { CsvLink, DataTable, TimeCell } from "./data-table";
+import { ChartFoot, CsvLink, DataTable, TimeCell } from "./data-table";
 
 const { createObjectURL, revokeObjectURL } = URL;
 let made: string[] = [];
@@ -45,4 +45,23 @@ test("CSV of this window is a Blob URL behind <a download>, replaced when the da
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
   unmount();
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:2");
+});
+
+test("the chart's quiet line: the table's disclosure, then the tools and a link-style CSV named in full for a screen reader", () => {
+  const tables = [{ caption: "Starts · America/Denver", headers: ["Day", "Starts"], rows: () => [], count: 30 }];
+  const { container } = render(<ChartFoot tables={tables} csv={{ filename: "verdify-starts.csv", build: () => "day\r\n", version: 1 }} tools={<button type="button" className="chart-tool">Reset zoom</button>} />);
+  const foot = container.querySelector(".chart-foot")!;
+  expect([...foot.children].map((child) => child.className)).toEqual(["chart-table", "chart-foot-tools"]);
+  expect(foot.querySelector("summary")?.textContent).toBe("Data table · 30 rows");
+  const csv = screen.getByRole("link", { name: "CSV of this chart" });
+  expect([csv.textContent, csv.className, csv.getAttribute("download")]).toEqual(["CSV", "chart-csv", "verdify-starts.csv"]);
+  expect([...foot.querySelectorAll(".chart-foot-tools > *")].map((child) => child.textContent)).toEqual(["Reset zoom", "CSV"]);
+  cleanup();
+  // A table alone, a CSV alone, or nothing at all.
+  expect(render(<ChartFoot tables={tables} />).container.querySelector(".chart-foot-tools")).toBeNull();
+  cleanup();
+  render(<ChartFoot csv={{ filename: "x.csv", build: () => "", version: 1, label: "CSV of this window" }} />);
+  expect(screen.getByRole("link", { name: "CSV of this window" }).textContent).toBe("CSV");
+  cleanup();
+  expect(render(<ChartFoot tables={[]} csv={null} />).container.innerHTML).toBe("");
 });

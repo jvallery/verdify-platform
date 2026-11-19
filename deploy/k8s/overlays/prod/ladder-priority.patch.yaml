@@ -161,3 +161,14 @@ spec:
       template:
         spec:
           priorityClassName: estate-batch
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-db-restore-drill
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          priorityClassName: estate-batch

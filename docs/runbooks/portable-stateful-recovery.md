@@ -84,6 +84,8 @@ lab cohort has no general-worker selector and can use untainted eligible
 workers with its RWO/affinity constraints. Read current node labels, taints,
 requests, working sets and volume replicas before every operation.
 
+`verdify-db` is a single-writer database by D-333 (STD-HA-10 singleton record in `OWNERSHIP.md`;
+unplanned host-loss RTO and achieved RPO unmeasured until the #1545 isolated drill).
 The #218 DB planned relocation measured 43.9 seconds between successful reads.
 That measurement is not an unplanned-host-loss RTO or a lab-origin recovery
 measurement. Unplanned loss of an active RWO host remains operator-bound:

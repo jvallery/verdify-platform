@@ -44,7 +44,7 @@ export type EditDrawerProps = {
    * for a viewer, with Done and no Save or actions.
    */
   readOnly?: boolean;
-  /** The fields: `NumberField`, `Switch`, `Select`, `TimeField`, `ManualToggle`, `Reason`. */
+  /** The fields: `NumberField`, `Switch`, `Select`, `TimeField`, `Reason`. */
   children?: ReactNode;
   /** One more class on the dialog: the schedule editor keeps the week readable beside it. */
   className?: string;

@@ -175,7 +175,7 @@ The ingestor (`/srv/verdify/ingestor/ingestor.py`, 945 lines) is the core data e
 | shelly_sync | 300s | Shelly EM50 energy meter → energy table | HA REST API |
 | tempest_sync | 300s | Tempest weather station → climate outdoor columns | HA REST API |
 | ha_sensor_sync | 300s | Hydro sensors, grow lights, switches, occupancy | HA REST API |
-| alert_monitor | 300s | 11 alert rules → alert_log + Slack | Slack API |
+| alert_monitor | 300s | 11 alert rules → alert_log (pages via Alertmanager → Home Assistant push) | — |
 | setpoint_dispatcher | 300s | Band-driven setpoints → ESP32 | DB functions |
 | forecast_sync | 3600s | Open-Meteo 16-day forecast → weather_forecast | Open-Meteo API |
 | forecast_actions | 900s | Auto-respond to forecast deviations | — |
@@ -194,7 +194,7 @@ The ingestor (`/srv/verdify/ingestor/ingestor.py`, 945 lines) is the core data e
 | 15 0 * * * | generate-hydro-map.py | 60-position hydroponic layout HTML |
 | (event-driven) | iris_planner.py | Iris planner via Hermes `/v1/runs`, audited in `plan_delivery_log` |
 | 0 12,16,20,0 * * * | frigate-snapshot.py | Camera snapshots + Gemini vision analysis |
-| 0 13 * * * | checklist-to-slack.sh | Daily checklist → #greenhouse Slack |
+| — | checklist-to-slack.sh (retired) | Slack decommissioned 2026-11-17; no daily Slack checklist |
 
 ## API Endpoints (api.verdify.ai)
 
@@ -298,7 +298,7 @@ The `/setpoints` endpoint is kept aligned with the live dispatcher. It computes 
 |------|----------|---------|
 | gemini_api_key.txt | /mnt/agents/shared/credentials/ | Google AI Studio API key (planner, vision, embeddings) |
 | ha_token.txt | /mnt/agents/shared/credentials/ | Home Assistant long-lived access token |
-| iris_slack_bot_token.txt | /etc/verdify/slack/ | Iris Slack app bot token for #greenhouse |
+| iris_slack_bot_token.txt (retired) | none | Iris Slack sender retired (#1352); no consumer, nothing mounted |
 | .env | /srv/verdify/ | POSTGRES_PASSWORD, GRAFANA_ADMIN_PASSWORD |
 | .env | /srv/verdify/ingestor/ | ESP32_API_KEY, DB credentials |
 | .env | /srv/verdify/api/ | DB credentials |
@@ -312,7 +312,7 @@ The `/setpoints` endpoint is kept aligned with the live dispatcher. It computes 
 | ESP32 | 192.168.10.111 | 6053 | Noise PSK | Ingestor |
 | Home Assistant | 192.168.30.107 | 8123 | Bearer token | Ingestor tasks, setpoint-server |
 | Sentinel MQTT | 192.168.30.107 | 1883 | user/pass | Ingestor mqtt_loop |
-| Slack API | api.slack.com | 443 | Bot token | Alert monitor, checklist |
+| Slack API (retired) | none | — | — | Slack decommissioned 2026-11-17; no egress |
 | Open-Meteo | api.open-meteo.com | 443 | None (public) | Forecast sync |
 | Google AI Studio | generativelanguage.googleapis.com | 443 | API key | Planner, vision, embeddings |
 | Frigate NVR | 192.168.30.142 | 5000 | None | Snapshot capture |
@@ -408,3 +408,7 @@ To rebuild this VM from scratch:
 11. **DNS** — Point `*.verdify.ai` through nexus Traefik, `mqtt.verdify.ai` via local DNS to VM IP
 
 All configuration lives on NAS (`/mnt/agents/iris/`) or in git. The VM itself is disposable — only Docker volumes (DB data, Grafana state) need backup, and DB is backed up nightly to NFS.
+
+## Slack (decommissioned)
+
+Slack is decommissioned estate-wide (Jason, 2026-11-17). Verdify sends nothing to Slack: alerts are `alert_log` rows on the dashboard, and pages go through Alertmanager to Home Assistant push (#1352; guarded by `tests/test_alert_delivery_local.py`). The Slack columns on `alert_log` and the tables from `db/migrations/143-slack-ops.sql` are historical and unused; they are kept, not dropped.

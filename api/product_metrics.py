@@ -30,6 +30,7 @@ execution, shared buffers hit, none read from disk):
   probes      300 s   PROBES_SQL               14.5 ms     0.8 ms    1,125
   flow        300 s   FLOW_SQL                 29.0 ms     2.2 ms    2,445
                       GAPS_SQL                  5.2 ms     0.4 ms      541
+                      UNREPLAYED_SQL           25.7 ms     9.2 ms       ~30  (production, 2026-11-17)
   compliance  300 s   COMPLIANCE_SQL            4.3 ms     0.1 ms      509
   utilities   300 s   METER_SQL                 9.0 ms     0.2 ms      848  (on energy; the view is a projection)
                       DAILY_RECORD_SQL          primary-key lookup of one row; daily_record arrives with 310, so
@@ -55,6 +56,23 @@ from typing import Any
 
 from verdify_schemas.alerts import ALERT_TYPES
 from verdify_services import alerts
+
+# The statements the dashboard's system reads (API-35 to API-37) run too: one definition each, in
+# verdify_services.system_health, so the dashboard and these metrics can never disagree.
+from verdify_services.system_health import (
+    CONTROLLER_SQL,
+    DELIVERY_SQL,
+    FLOW_SQL,
+    FLOW_TABLES,
+    FRESHNESS_SQL,
+    GAPS_SQL,
+    HEALTH_SQL,
+    OLDEST_UNCONFIRMED_SQL,
+    PROBE_WINDOW_S,
+    PROBES,
+    PROBES_SQL,
+    UNREPLAYED_SQL,
+)
 
 log = logging.getLogger("verdify.product_metrics")
 
@@ -141,35 +159,7 @@ RELAYS = (
     "mister_center",
     "water_flowing",
 )
-# Probe-backed climate columns (sensor_registry source_table climate). Derived columns (averages, targets, deltas)
-# are not probes and are left out.
-PROBES = (
-    "temp_north",
-    "temp_south",
-    "temp_east",
-    "temp_west",
-    "temp_case",
-    "temp_intake",
-    "rh_north",
-    "rh_south",
-    "rh_east",
-    "rh_west",
-    "rh_case",
-    "intake_rh",
-    "outdoor_temp_f",
-    "outdoor_rh_pct",
-    "co2_ppm",
-    "lux",
-    "soil_moisture_south_1",
-    "soil_moisture_south_2",
-    "soil_moisture_west",
-    "soil_temp_south_1",
-    "soil_temp_south_2",
-    "soil_temp_west",
-    "soil_ec_south_1",
-)
-PROBE_WINDOW_S = 7200  # an age of 7200 means "not seen in the 2 h window"
-FLOW_TABLES = ("climate", "equipment_state", "system_state", "diagnostics", "setpoint_snapshot", "setpoint_changes")
+# PROBES (the probe-backed climate columns), PROBE_WINDOW_S and FLOW_TABLES are verdify_services.system_health's.
 DELIVERY_STATUSES = frozenset({"pending", "confirmed", "observed", "superseded", "failed", "expired"})
 SETPOINT_SOURCES = frozenset({"band", "plan", "manual", "esp32"})
 GAP_STATUSES = frozenset({"none", "pending", "partial", "replayed", "not_applicable"})
@@ -197,7 +187,6 @@ RELEASE_IMAGES = frozenset(
         "verdify-mcp",
         "verdify-ingestor",
         "verdify-migrate",
-        "verdify-experiment-v2-orchestrator",
     }
 )
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -309,11 +298,24 @@ FAMILIES: dict[str, Family] = {
     # data flow
     "verdify_table_last_row_age_seconds": Family("gauge", "Seconds since the newest row of a table (1 d window)."),
     "verdify_table_rows_5m": Family("gauge", "Rows written to a table in the last 5 minutes."),
-    "verdify_data_gaps_7d": Family("gauge", "data_gaps rows started in the last 7 days, by backfill status."),
-    "verdify_data_gap_seconds_7d": Family("gauge", "Seconds of data_gaps started in the last 7 days."),
+    "verdify_data_gaps_7d": Family(
+        "gauge",
+        "Unreplayed data_gaps pieces (v_data_gaps_unreplayed) started in the last 7 days, by backfill status.",
+    ),
+    "verdify_data_gap_seconds_7d": Family(
+        "gauge", "Seconds of unreplayed data_gaps pieces (v_data_gaps_unreplayed) started in the last 7 days."
+    ),
+    "verdify_data_gaps_unreplayed": Family(
+        "gauge",
+        "Gaps with an unreplayed piece of at least 120 s (v_data_gaps_unreplayed) that ended 30 min to 24 h ago "
+        "while the gap log was armed: the gap log should have replayed them.",
+    ),
     "verdify_ingestor_reconnects_total": Family("counter", "ESP32 reconnects since the ingestor process started."),
     "verdify_ingestor_rows_rejected_total": Family("counter", "Device rows dropped by schema validation, by table."),
     "verdify_ingestor_payloads_rejected_total": Family("counter", "Versioned controller payloads rejected."),
+    "verdify_ingestor_gap_replay_failures_total": Family(
+        "counter", "Gap replay pass writes that failed; the pass stays queued and is retried."
+    ),
     "verdify_ingestor_counters_age_seconds": Family("gauge", "Seconds since the ingestor's newest counters row."),
     # delivery of settings
     "verdify_setpoint_rows_24h": Family(
@@ -403,54 +405,7 @@ class Accumulator:
 
 # ── statements ──────────────────────────────────────────────────────────────
 
-# Each column the newest non-NULL value of the last 15 minutes (release 3 review ALERTS-5): readings are stored on
-# change, so the newest diagnostics row alone often lacks them. Index range scan of diagnostics_ts_idx.
-CONTROLLER_SQL = """
-SELECT extract(epoch FROM now() - max(ts))::float8 AS age_s,
-       (array_agg(heap_bytes ORDER BY ts DESC) FILTER (WHERE heap_bytes IS NOT NULL))[1] AS heap_bytes,
-       (array_agg(heap_min_free_kb ORDER BY ts DESC) FILTER (WHERE heap_min_free_kb IS NOT NULL))[1] AS heap_min_free_kb,
-       (array_agg(heap_largest_free_block_kb ORDER BY ts DESC) FILTER (WHERE heap_largest_free_block_kb IS NOT NULL))[1] AS heap_largest_free_block_kb,
-       (array_agg(wifi_rssi ORDER BY ts DESC) FILTER (WHERE wifi_rssi IS NOT NULL))[1] AS wifi_rssi,
-       (array_agg(uptime_s ORDER BY ts DESC) FILTER (WHERE uptime_s IS NOT NULL))[1] AS uptime_s,
-       (array_agg(reset_reason ORDER BY ts DESC) FILTER (WHERE reset_reason IS NOT NULL))[1] AS reset_reason,
-       (array_agg(firmware_version ORDER BY ts DESC) FILTER (WHERE firmware_version IS NOT NULL))[1] AS firmware_version,
-       (array_agg(sntp_valid ORDER BY ts DESC) FILTER (WHERE sntp_valid IS NOT NULL))[1] AS sntp_valid,
-       (array_agg(sntp_miss_count ORDER BY ts DESC) FILTER (WHERE sntp_miss_count IS NOT NULL))[1] AS sntp_miss_count,
-       (array_agg(last_sntp_sync_age_s ORDER BY ts DESC) FILTER (WHERE last_sntp_sync_age_s IS NOT NULL))[1] AS last_sntp_sync_age_s,
-       (array_agg(active_probe_count ORDER BY ts DESC) FILTER (WHERE active_probe_count IS NOT NULL))[1] AS active_probe_count,
-       (array_agg(band_source ORDER BY ts DESC) FILTER (WHERE band_source IS NOT NULL))[1] AS band_source
-  FROM diagnostics
- WHERE ts > now() - interval '15 minutes'
-"""
-
-# The nine budget readings (migration 314) and the three third-flash counters (migration 315), each the newest non-NULL value of the last 15 minutes: a diagnostics row
-# carries only the columns observed fresh in its flush, so the newest row alone can miss a published reading. One
-# index range scan of diagnostics_ts_idx over about 15 to 60 rows.
-HEALTH_SQL = """
-SELECT (array_agg(heap_min_free_minute_kb ORDER BY ts DESC)
-            FILTER (WHERE heap_min_free_minute_kb IS NOT NULL))[1] AS heap_min_free_minute_kb,
-       (array_agg(heap_largest_block_minute_low_kb ORDER BY ts DESC)
-            FILTER (WHERE heap_largest_block_minute_low_kb IS NOT NULL))[1] AS heap_largest_block_minute_low_kb,
-       (array_agg(loop_worst_ms ORDER BY ts DESC) FILTER (WHERE loop_worst_ms IS NOT NULL))[1] AS loop_worst_ms,
-       (array_agg(restart_count ORDER BY ts DESC) FILTER (WHERE restart_count IS NOT NULL))[1] AS restart_count,
-       (array_agg(nvs_used_entries ORDER BY ts DESC)
-            FILTER (WHERE nvs_used_entries IS NOT NULL))[1] AS nvs_used_entries,
-       (array_agg(nvs_free_entries ORDER BY ts DESC)
-            FILTER (WHERE nvs_free_entries IS NOT NULL))[1] AS nvs_free_entries,
-       (array_agg(nvs_write_worst_ms ORDER BY ts DESC)
-            FILTER (WHERE nvs_write_worst_ms IS NOT NULL))[1] AS nvs_write_worst_ms,
-       (array_agg(gap_log_state ORDER BY ts DESC) FILTER (WHERE gap_log_state IS NOT NULL))[1] AS gap_log_state,
-       (array_agg(sensor_degraded_active ORDER BY ts DESC)
-            FILTER (WHERE sensor_degraded_active IS NOT NULL))[1] AS sensor_degraded_active,
-       (array_agg(loop_stack_high_water_b ORDER BY ts DESC)
-            FILTER (WHERE loop_stack_high_water_b IS NOT NULL))[1] AS loop_stack_high_water_b,
-       (array_agg(wifi_disconnect_count ORDER BY ts DESC)
-            FILTER (WHERE wifi_disconnect_count IS NOT NULL))[1] AS wifi_disconnect_count,
-       (array_agg(api_client_count ORDER BY ts DESC)
-            FILTER (WHERE api_client_count IS NOT NULL))[1] AS api_client_count
-  FROM diagnostics
- WHERE ts > now() - interval '15 minutes'
-"""
+# CONTROLLER_SQL and HEALTH_SQL are verdify_services.system_health's (the dashboard's API-35 runs them too).
 
 # Irrigation valves and light circuits: newest equipment_state row each within 30 days (irrigation changes rarely).
 DEVICES_SQL = """
@@ -523,50 +478,8 @@ SELECT extract(epoch FROM now() - ts)::float8 AS age_s, temp_avg, vpd_avg, rh_av
  LIMIT 1
 """
 
-# One pass over the last 2 h of climate rows (~120-240 rows).
-PROBES_SQL = (
-    "SELECT "
-    + ", ".join(
-        f"extract(epoch FROM now() - max(ts) FILTER (WHERE {column} IS NOT NULL))::float8 AS {column}"
-        for column in PROBES
-    )
-    + f" FROM climate WHERE ts > now() - interval '{PROBE_WINDOW_S} seconds'"
-)
-
-FRESHNESS_SQL = "SELECT " + ", ".join(
-    f"(SELECT extract(epoch FROM now() - max(ts))::float8 FROM {table} WHERE ts > now() - interval '1 day') AS {table}"
-    for table in FLOW_TABLES
-)
-
-FLOW_SQL = "SELECT " + ", ".join(
-    f"(SELECT count(*) FROM {table} WHERE ts > now() - interval '5 minutes') AS {table}" for table in FLOW_TABLES
-)
-
-# Outage only: 314's view cuts the minutes the gap log replayed out of each gap (a fully replayed gap has no row,
-# a partly replayed one keeps its unreplayed pieces), so n counts gaps with an unreplayed piece and seconds the
-# unreplayed seconds (#1633, release review READERS-3).
-GAPS_SQL = """
-SELECT coalesce(backfill_status, 'none') AS status, count(DISTINCT id) AS n,
-       coalesce(sum(duration_s), 0)::float8 AS seconds
-  FROM v_data_gaps_unreplayed
- WHERE start_ts > now() - interval '7 days'
- GROUP BY 1
-"""
-
-DELIVERY_SQL = """
-SELECT coalesce(delivery_status, 'pending') AS status, coalesce(source, 'none') AS source, count(*) AS n
-  FROM setpoint_changes
- WHERE ts > now() - interval '24 hours'
- GROUP BY 1, 2
-"""
-
-# idx_setpoint_changes_unconfirmed (ts DESC) WHERE confirmed_at IS NULL
-OLDEST_UNCONFIRMED_SQL = """
-SELECT coalesce(extract(epoch FROM now() - min(ts)), 0)::float8
-  FROM setpoint_changes
- WHERE ts > now() - interval '24 hours' AND confirmed_at IS NULL
-   AND coalesce(delivery_status, 'pending') NOT IN ('superseded', 'failed', 'expired', 'observed')
-"""
+# PROBES_SQL, FRESHNESS_SQL, FLOW_SQL, GAPS_SQL, UNREPLAYED_SQL, DELIVERY_SQL and OLDEST_UNCONFIRMED_SQL are
+# verdify_services.system_health's (the dashboard's API-36 and API-37 run them too).
 
 
 # daily_band_compliance PK (date): two rows. The local day is America/Denver, as the store writes it.
@@ -789,6 +702,8 @@ def _ingestor_samples(counters: Mapping[str, Any], age_s: float) -> list[Sample]
         out.append(sample("verdify_ingestor_reconnects_total", reconnects))
     if (payloads := _num(counters.get("pr"))) is not None:
         out.append(sample("verdify_ingestor_payloads_rejected_total", payloads))
+    if (replay_failures := _num(counters.get("gr"))) is not None:
+        out.append(sample("verdify_ingestor_gap_replay_failures_total", replay_failures))
     rejected: dict[str, float] = {}
     for table, count in (counters.get("rj") or {}).items():
         if (number := _num(count)) is not None:
@@ -841,8 +756,12 @@ def freshness_samples(row: Mapping[str, Any] | None) -> list[Sample]:
     return out
 
 
-def flow_samples(row: Mapping[str, Any] | None, gaps: Sequence[Mapping[str, Any]]) -> list[Sample]:
+def flow_samples(
+    row: Mapping[str, Any] | None, gaps: Sequence[Mapping[str, Any]], unreplayed: Any = None
+) -> list[Sample]:
     out: list[Sample] = []
+    if (count := _num(unreplayed)) is not None:
+        out.append(sample("verdify_data_gaps_unreplayed", count))
     for table in FLOW_TABLES:
         if row is not None and (count := _num(row[table])) is not None:
             out.append(sample("verdify_table_rows_5m", count, table=table))
@@ -991,7 +910,7 @@ async def _collect_probes(conn: Any, metrics: ProductMetrics) -> list[Sample]:
 
 async def _collect_flow(conn: Any, metrics: ProductMetrics) -> list[Sample]:
     row = await conn.fetchrow(FLOW_SQL)
-    return flow_samples(row, await conn.fetch(GAPS_SQL))
+    return flow_samples(row, await conn.fetch(GAPS_SQL), await conn.fetchval(UNREPLAYED_SQL))
 
 
 async def _collect_compliance(conn: Any, metrics: ProductMetrics) -> list[Sample]:
@@ -1052,11 +971,26 @@ class ProductMetrics:
     started_at: float = 0.0
     release_pins: list[Sample] = field(default_factory=list)
     on_failure: Callable[[str, str], None] | None = None
+    # The file's identity when release_pins was read (#1734 C-5): the ConfigMap keeps its name across promotions and
+    # the kubelet swaps the mounted file in place, so render() reads it again whenever it changes.
+    _release_pins_stamp: tuple[int, int, int] | None = None
 
     def __post_init__(self) -> None:
         self.started_at = self.clock()
         self.snapshots = {group.name: Snapshot() for group in self.groups}
-        self.release_pins = read_release_pins(self.release_pins_path)
+        self.current_release_pins()
+
+    def current_release_pins(self) -> list[Sample]:
+        """The release pins, read again when the mounted file's inode, size or mtime changed since the last read."""
+        try:
+            stat = self.release_pins_path.stat()
+            stamp: tuple[int, int, int] | None = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        except OSError:
+            stamp = None
+        if stamp is None or stamp != self._release_pins_stamp:
+            self.release_pins = read_release_pins(self.release_pins_path)
+            self._release_pins_stamp = stamp
+        return self.release_pins
 
     def due(self, now: float) -> list[Group]:
         return [
@@ -1110,7 +1044,7 @@ class ProductMetrics:
     def render(self) -> str:
         """Everything except the alert lines, which operator_api.render_alert_metrics keeps in their #1352 form."""
         now = self.clock()
-        out: list[Sample] = list(self.release_pins)
+        out: list[Sample] = list(self.current_release_pins())
         for group in self.groups:
             snapshot = self.snapshots[group.name]
             since = snapshot.succeeded_at if snapshot.succeeded_at is not None else self.started_at

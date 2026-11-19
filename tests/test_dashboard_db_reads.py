@@ -21,12 +21,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import uuid
 from datetime import timedelta
 from pathlib import Path
 
+import irrigation_db_support as support
 import pytest
 
+from verdify_schemas.policy_vector import LIVE_WIRE_FIELDS
 from verdify_schemas.tunable_registry import BAND_OWNED_REG, REGISTRY
 from verdify_services import reads
 
@@ -133,6 +134,8 @@ def extract(text: str, start: str, end: str) -> str:
 def ddl() -> list[str]:
     schema = (ROOT / "db/schema.sql").read_text()
     statements = [extract(schema, start, end) for start, end in SCHEMA_DDL]
+    # Now (API-02) reads the controller-health columns 314 and 315 added after the dump.
+    statements.append(support.diagnostics_health_columns_sql(SCHEMA))
     statements.append(EXPERIMENT_STAND_INS)
     statements.extend(extract((ROOT / path).read_text(), start, end) for path, start, end in MIGRATION_DDL)
     return statements
@@ -304,7 +307,7 @@ def candidate_params(count):
     names = [
         name
         for name, spec in sorted(REGISTRY.items())
-        if spec.control_class == "planner_policy"
+        if name in LIVE_WIRE_FIELDS  # the five live settings: operator-owned since release 8, none planner-pushable
         and spec.esp_object_id
         and spec.push_owner != "dispatcher_default"
         and name not in BAND_OWNED_REG
@@ -480,7 +483,6 @@ def test_equipment_reads_the_newest_state_and_collapses_repeats(dsn):
             reads.Override(kind="fans", since=t0 - 3 * MIN, ends_at=None, held_reason=None),
             reads.Override(kind="humidify", since=t0 - 2 * MIN, ends_at=None, held_reason="occupancy"),
         ]
-        assert now.mode == reads.Mode(code="SEALED_MIST", stage="FOG", reason="seal_enter", since=t0 - 40 * MIN)
 
     scenario(dsn, body)
 
@@ -551,6 +553,67 @@ def test_a_stale_heartbeat_or_climate_reads_unknown_with_ages(dsn):
 
     scenario(dsn, stale_heartbeat)
     scenario(dsn, stale_climate)
+
+
+async def diagnostics_row(conn, ts, **columns):
+    names = ["ts", *columns]
+    marks = ", ".join(f"${index}" for index in range(1, len(names) + 1))
+    await conn.execute(f"INSERT INTO diagnostics ({', '.join(names)}) VALUES ({marks})", ts, *columns.values())
+
+
+FULL_DIAGNOSTICS = {
+    "firmware_version": "2026.11.16.2203.9517acb6",
+    "uptime_s": 35163.0,
+    "reset_reason": "Software",
+    "heap_bytes": 41.0,
+    "heap_largest_free_block_kb": 20.0,
+    "wifi_rssi": -61.0,
+}
+
+
+def test_now_controller_serves_the_newest_non_null_values_up_to_the_newest_diagnostics_row(dsn):
+    # The law firmware publishes a diagnostics row about every 15 s and carries these six values on one a minute.
+    async def sparse_after_full(conn, t0):
+        await reporting_now(conn, t0)
+        await diagnostics_row(conn, t0 - 40 * S, **FULL_DIAGNOSTICS)
+        await diagnostics_row(conn, t0 - 25 * S, active_probe_count=4)
+        await diagnostics_row(conn, t0 - 10 * S, active_probe_count=4)
+        controller = (await as_reader(conn, reads.now)).controller
+        assert (
+            controller.firmware_version,
+            controller.uptime_s,
+            controller.reset_reason,
+            controller.heap_free_kb,
+            controller.heap_largest_block_kb,
+            controller.rssi_dbm,
+        ) == ("2026.11.16.2203.9517acb6", 35163, "Software", 41.0, 20.0, -61.0)
+        assert controller.observed_at == t0 - 10 * S  # the newest row, not the full one
+
+    async def full_row_too_old(conn, t0):
+        await reporting_now(conn, t0)
+        await diagnostics_row(conn, t0 - 20 * MIN, **FULL_DIAGNOSTICS)  # more than 15 min before the newest row
+        await diagnostics_row(conn, t0 - 4 * MIN, active_probe_count=4)
+        await diagnostics_row(conn, t0 - 10 * S, active_probe_count=4)
+        controller = (await as_reader(conn, reads.now)).controller
+        assert (
+            controller.firmware_version,
+            controller.uptime_s,
+            controller.reset_reason,
+            controller.heap_free_kb,
+            controller.heap_largest_block_kb,
+            controller.rssi_dbm,
+        ) == (None, None, None, None, None, None)
+        assert controller.observed_at == t0 - 10 * S
+
+    async def no_row_in_a_day(conn, t0):
+        await reporting_now(conn, t0)
+        await diagnostics_row(conn, t0 - 25 * H, **FULL_DIAGNOSTICS)
+        controller = (await as_reader(conn, reads.now)).controller
+        assert controller.firmware_version is None and controller.observed_at is None
+
+    scenario(dsn, sparse_after_full)
+    scenario(dsn, full_row_too_old)
+    scenario(dsn, no_row_in_a_day)
 
 
 # ── API-02: the writer ──────────────────────────────────────────────────────
@@ -636,143 +699,6 @@ def test_writer_differing_counts_from_the_first_row_after_the_last_match_with_ke
 
     scenario(dsn, restarted)
     scenario(dsn, lost)
-
-
-# ── API-07: the plan, lanes and planner health ──────────────────────────────
-
-
-def test_a_manual_row_for_a_deleted_setting_gets_no_plan_lane(dsn):
-    # Release 4 review BM-1: production holds manual rows for settings release 4 deleted (sw_economiser_enabled
-    # among them). Plan would list a lane nobody can open or release (the drawer's read answers 404).
-    assert "sw_economiser_enabled" not in REGISTRY
-
-    async def body(conn, t0):
-        await reporting_now(conn, t0)
-        await conn.execute(
-            "INSERT INTO desired_state (param, value, manual, source, actor, reason, created_at) VALUES "
-            "('sw_economiser_enabled', 1, true, 'dashboard', 'jason', NULL, $1), "
-            "('mister_min_off_s', 60, true, 'dashboard', 'jason', NULL, $1)",
-            t0 - 2 * H,
-        )
-        result = await as_reader(conn, reads.plan, hours=24)
-        assert [lane.param for lane in result.lanes] == ["mister_min_off_s"]
-        assert result.manual_count == 1
-        # The row stays as history.
-        assert await conn.fetchval("SELECT count(*) FROM desired_state WHERE param = 'sw_economiser_enabled'") == 1
-
-    scenario(dsn, body)
-
-
-def test_plan_lanes_waypoints_and_planner_health(dsn):
-    trigger_id = uuid.uuid4()
-
-    async def body(conn, t0):
-        await reporting_now(conn, t0)
-        written, expires = t0 - 6 * H, t0 + 40 * H  # "written 07:02"; one waypoint lies past 24 h
-        intents = [{"segment": "afternoon", "mister_engage_kpa": 1.70}]
-        await plan_in_force(
-            conn,
-            "iris-20261101-0702",
-            written,
-            expires,
-            trigger_id=trigger_id,
-            hypothesis="Hot, dry afternoon",
-            structured={"stress_windows": ["13:00-17:30"]},
-            intents=intents,
-        )
-        rows = [(written, "mister_engage_kpa", 1.60), (t0 + 4 * H, "mister_engage_kpa", 1.70)]  # the "13:00" waypoint
-        rows += [(t0 + 30 * H, "mister_engage_kpa", 1.65), (written, "mister_all_kpa", 1.50)]
-        rows += [(t0 + 4 * H, "mister_all_kpa", 1.80), (written, "mister_min_off_s", 30.0)]
-        rows += [(t0 + 4 * H, "mister_min_off_s", 45.0)]
-        await waypoints(conn, "iris-20261101-0702", written, expires, rows)
-        await plan_in_force(conn, "iris-20261031-1800", t0 - 20 * H, t0 + 1 * D, status="superseded")
-        await waypoints(conn, "iris-20261031-1800", t0 - 20 * H, t0 + 1 * D, [(t0 + 2 * H, "mister_all_kpa", 9.9)])
-        await waypoints(
-            conn, "iris-oneshot-vd54", t0 - 1 * H, t0 + 5 * H, [(t0 - 1 * H, "vpd_hysteresis", 0.2)]
-        )  # an active one-shot
-        await waypoints(
-            conn,
-            "preemptive-vd54",
-            t0 - 30 * MIN,
-            t0 + 6 * H,
-            [(t0 + 2 * H, "sw_gl_main_solar_phasing", 0.0)],
-            source="preemptive",
-        )
-        await conn.execute(
-            "INSERT INTO desired_state (param, value, manual, source, actor, reason, created_at) VALUES "
-            "('mister_engage_kpa', 1.55, false, 'dashboard', 'jason', 'drier', $1), "
-            "('mister_min_off_s', 60, true, 'dashboard', 'jason', NULL, $2)",
-            t0 - 5 * H,  # "08:00": newer than the 07:02 plan, not manual
-            t0 - 3 * D,
-        )
-        for ts in (t0 - 4 * H, t0 - 60 * S):
-            await snapshot(conn, ts, "mister_engage_kpa", 1.5499999523162842)  # binary32 1.55
-        await snapshot(conn, t0 - 60 * S, "mister_min_off_s", 60.0)
-        await snapshot(conn, t0 - 60 * S, "mister_all_kpa", 1.50)
-        ledger = [
-            (1, "SUNSET", t0 - 20 * H, "missed", "timeout", "sla_expired", None),
-            (2, "SUNRISE", t0 - 6 * H - 2 * MIN, "plan_written", "set_plan", None, trigger_id),
-            (3, "SUNSET", t0 + 5 * H, "expected", None, None, None),
-            (4, "SOLAR_MAX", t0 - 2 * H, "acked", "acknowledge_trigger", None, None),
-            (5, "MIDNIGHT", t0 - 40 * H, "plan_written", "set_plan", None, None),  # outside the 36 h
-        ]
-        await conn.executemany(
-            "INSERT INTO planner_trigger_ledger (id, event_type, expected_at, due_at, status, sla_seconds, "
-            "terminal_action, terminal_at, resolved_at, failure_class, trigger_id) "
-            "VALUES ($1, $2, $3::timestamptz, $3::timestamptz + interval '1800 seconds', $4, 1800, $5::text, "
-            "CASE WHEN $5::text IS NULL THEN NULL ELSE $3::timestamptz + interval '10 minutes' END, "
-            "CASE WHEN $5::text IS NULL THEN NULL ELSE $3::timestamptz + interval '10 minutes' END, $6, $7)",
-            ledger,
-        )
-
-        # Since climate refactor 4.2 no plan is in force: the plan rows stay, but API-07 shows none of them, and a
-        # lane only for what a person holds manual.
-        result = await as_reader(conn, reads.plan, hours=24)
-        assert (result.plan, result.no_plan_since) == (None, written)
-        lanes = {lane.param: lane for lane in result.lanes}
-        assert set(lanes) == {"mister_min_off_s"}
-        manual = lanes["mister_min_off_s"]
-        assert (manual.applied_from, manual.waypoints, manual.desired.manual) == ("manual", [], True)
-        assert result.manual_count == 1
-
-        assert [row.trigger for row in result.health] == ["SUNSET", "SUNRISE", "SOLAR_MAX", "SUNSET"]
-        missed = result.health[0]
-        assert (missed.outcome, missed.required, missed.failure_class) == ("missed", True, "sla_expired")
-        assert all(row.due_at == row.expected_at + timedelta(seconds=1800) for row in result.health)
-        assert result.health[2].required is False and result.health[3].outcome == "expected"
-
-        longer = await as_reader(conn, reads.plan, hours=72)
-        assert [lane.waypoints for lane in longer.lanes] == [[]]
-
-        # The Iris tile reads the daily review (5.1): ok with no open daily_review_missed alert, missed with one.
-        iris = (await as_reader(conn, reads.now)).iris
-        assert iris == reads.Iris(plan_id=None, trigger=None, valid_until=None, required_trigger="ok")
-        await alert(conn, t0 - 10 * MIN, "daily_review_missed", "warning")
-        assert (await as_reader(conn, reads.now)).iris.required_trigger == "missed"
-
-    async def no_plan(conn, t0):
-        await reporting_now(conn, t0)
-        await plan_in_force(conn, "iris-expired", t0 - 20 * H, t0 - 1 * H, status="expired")
-        await plan_in_force(conn, "iris-superseded", t0 - 30 * H, t0 + 1 * H, status="superseded")
-        await conn.execute(
-            "INSERT INTO planner_trigger_ledger (id, event_type, expected_at, due_at, status, sla_seconds, "
-            "terminal_action, terminal_at, resolved_at, failure_class) "
-            "VALUES (1, 'SUNSET', $1::timestamptz, $1::timestamptz + interval '1800 seconds', 'missed', 1800, "
-            "'timeout', $2, $2, 'sla_expired')",
-            t0 - 3 * H,
-            t0 - 2 * H,
-        )
-        result = await as_reader(conn, reads.plan)
-        assert (result.plan, result.no_plan_since, result.lanes) == (None, t0 - 20 * H, [])  # the newest written
-        iris = (await as_reader(conn, reads.now)).iris
-        assert (iris.plan_id, iris.trigger, iris.required_trigger) == (
-            None,
-            None,
-            "ok",
-        )  # a missed SUNSET no longer counts
-
-    scenario(dsn, body)
-    scenario(dsn, no_plan)
 
 
 # ── API-02: the leak and the one open-alert count ───────────────────────────

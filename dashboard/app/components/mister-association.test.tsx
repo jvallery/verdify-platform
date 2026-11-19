@@ -60,8 +60,8 @@ test("a change waiting for the controller shows the line's sync pill on each fla
   expect(engineless.flags).toEqual(["On", "Off"]);
   expect(engineless.lines).not.toContain("Applies with the irrigation firmware");
   cleanup();
-  // No source reported yet: "—", and before the engine, why.
-  expect(zone({ ...lineOf(before, "L09"), vpd_source: null }, before).lines).toContain("VPD source — · arrives with the irrigation firmware");
+  // No source reported yet: said so, with no promise of when.
+  expect(zone({ ...lineOf(before, "L09"), vpd_source: null }, before).lines).toContain("VPD source not reported");
 });
 
 // ---------------------------------------------------------------------------------------------------- the switches (#1182)

@@ -17,10 +17,18 @@
 #               validate "pins" part (both renders, zero Secret, pin shape) runs
 #   light=docs  every change is Markdown no test, script or CI file names: no
 #               validate part, campaign-qualification or platform check runs
+#   light=verified  (push to main only, #1716 C1) the commit's exact tree already
+#               passed a pull_request run (ci/gha/verified_on_pr.py): no validate
+#               part, campaign shard, firmware compile or dashboard check runs again
 #   full=true   anything else: every check, as before
-#   firmware-check  the ESPHome compile and firmware-logic run only when the
-#               firmware tree or the CI plumbing changes
-# secret-scan, lint, dashboard (its own impact flag) and buildcheck run as before.
+#   firmware-check  the ESPHome compile runs only when the firmware tree or the
+#               CI plumbing changes
+# A nightly scheduled run is always full (no base). secret-scan, lint, dashboard
+# (its own impact flag) and buildcheck run as before.
+#
+# "ci / platform-static", "ci / platform-tests" and "ci / firmware-logic" keep
+# their names but aggregate the validate parts (#1716 C2): their work (ruff, the
+# platform tests, the firmware logic and replay suites) runs inside the parts.
 #
 # Scale sets (estate-ci runners.yaml, repository jvallery/verdify-platform):
 #   verdify-platform-ci            job image python:3.13-bookworm (native validate image)
@@ -29,6 +37,9 @@
 #                                  same plus the PlatformIO toolchain (ci/esphome-ci.Dockerfile)
 #   verdify-platform-ci-dashboard  job image weather-ci (node, pnpm, Playwright)
 #   verdify-platform-buildcheck    Kaniko, no push credential (PR image build-check)
+#   verdify-platform-ci-gate       runner container only (estate-ci#229 C3): trusted-precheck,
+#                                  path-impact, buildcheck-impact and every aggregate, so a
+#                                  docs-only or pin-only run never queues behind work shards
 #
 # Portability (Forgejo/Gitea Actions): each job is checkout plus one `run:` of a
 # ci/gha/ script and /opt/estate-ci helpers; vendor checks.yml if the forge
@@ -40,6 +51,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:   # estate-ci pin-bump dispatches this on its pin branch
+  schedule:
+    - cron: "17 9 * * *"   # one full run of main per night (#1716 C1)
 
 permissions:
   contents: read
@@ -59,6 +72,7 @@ jobs:
     with:
       name: trusted-precheck
       run: ci/gha/trusted-precheck.sh
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   secret-scan:
@@ -75,8 +89,12 @@ jobs:
   # precheck itself, so it starts beside trusted-precheck instead of after it.
   path-impact:
     name: ci / path-impact
-    runs-on: verdify-platform-ci
+    runs-on: verdify-platform-ci-gate
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read         # the pull request's ci run and its path-impact log (ci/gha/verified_on_pr.py)
+      pull-requests: read   # the merged pull request of a main commit
     outputs:
       light: ${{ steps.impact.outputs.light }}
       full: ${{ steps.impact.outputs.full }}
@@ -88,13 +106,18 @@ jobs:
           persist-credentials: false
       - id: impact
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERDIFY_VERIFY_ON_PR: "true"
         run: ci/gha/trusted-precheck.sh && ci/gha/path-impact.sh
 
   # Native `validate`: scripts/ci-local.sh with the diff gates, run as four
   # parallel parts (VALIDATE_PART, #1459); each part stays serial inside so the
   # wall-clock assertions keep their own CPU. The required context
   # "ci / validate" is the aggregate, which fails unless every part succeeded.
-  # Path impact lists the parts: the four, only "pins" (pin-only), or none (docs-only).
+  # Path impact lists the parts: the four, only "pins" (pin-only), or none (docs-only
+  # or verified). "ci / platform-static", "ci / platform-tests" and "ci / firmware-logic"
+  # aggregate the same parts (#1716 C2).
   validate-part:
     name: ci
     needs: [trusted-precheck, path-impact]
@@ -118,32 +141,33 @@ jobs:
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: validate
-      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} validate-parts=${{ needs.path-impact.outputs.light == 'docs' && 'not-impacted' || needs.validate-part.result }}
-      runner: verdify-platform-ci-tools
+      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} validate-parts=${{ needs.path-impact.outputs.validate-parts == '[]' && 'not-impacted' || needs.validate-part.result }}
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
-  # The five validation steps from the retired native repo-validate profile (ci/gha/registry-step.sh).
+  # The validation steps from the retired native repo-validate profile (ci/gha/registry-step.sh);
+  # platform-static and platform-tests aggregate the validate parts (#1716 C2).
   platform-static:
     name: ci
-    needs: [trusted-precheck, path-impact]
+    needs: [trusted-precheck, path-impact, validate-part]
+    if: ${{ !cancelled() }}
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: platform-static
-      run: VERDIFY_IMPACTED=${{ needs.path-impact.outputs.full }} ci/gha/registry-step.sh platform-static
-      runner: verdify-platform-ci-tools
-      in-job-image: true
-      timeout-minutes: 20
+      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} validate-parts=${{ needs.path-impact.outputs.validate-parts == '[]' && 'not-impacted' || needs.validate-part.result }}
+      runner: verdify-platform-ci-gate
+      timeout-minutes: 5
 
   platform-tests:
     name: ci
-    needs: [trusted-precheck, path-impact]
+    needs: [trusted-precheck, path-impact, validate-part]
+    if: ${{ !cancelled() }}
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: platform-tests
-      run: VERDIFY_IMPACTED=${{ needs.path-impact.outputs.full }} ci/gha/registry-step.sh platform-tests
-      runner: verdify-platform-ci-tools
-      in-job-image: true
-      timeout-minutes: 30
+      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} validate-parts=${{ needs.path-impact.outputs.validate-parts == '[]' && 'not-impacted' || needs.validate-part.result }}
+      runner: verdify-platform-ci-gate
+      timeout-minutes: 5
 
   # campaign-qualification runs the tool's default selection (38 files, among them
   # every tests/test_dashboard_db_*.py, about 40 min serially) as four parallel
@@ -175,19 +199,20 @@ jobs:
     with:
       name: campaign-qualification
       run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} campaign-qualification-shards=${{ needs.path-impact.outputs.full == 'false' && 'not-impacted' || needs.campaign-qualification-shard.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
+  # firmware-logic aggregates the validate parts too: containment-firmware runs its suites (#1716 C2).
   firmware-logic:
     name: ci
-    needs: [trusted-precheck, path-impact]
+    needs: [trusted-precheck, path-impact, validate-part]
+    if: ${{ !cancelled() }}
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: firmware-logic
-      run: VERDIFY_IMPACTED=${{ needs.path-impact.outputs.firmware-check }} ci/gha/registry-step.sh firmware-logic
-      runner: verdify-platform-ci-tools
-      in-job-image: true
-      timeout-minutes: 20
+      run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} validate-parts=${{ needs.path-impact.outputs.validate-parts == '[]' && 'not-impacted' || needs.validate-part.result }}
+      runner: verdify-platform-ci-gate
+      timeout-minutes: 5
 
   # The two firmware targets compile as two parallel shards on the baked
   # verdify-esphome-ci image (FIRMWARE_TARGET, #1535, STD-CI-03); the greenhouse
@@ -218,7 +243,7 @@ jobs:
     with:
       name: firmware-secretless-compile
       run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} firmware-secretless-compile-targets=${{ needs.path-impact.outputs.firmware-check == 'false' && 'not-impacted' || needs.firmware-secretless-compile-target.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   # Native `dashboard`: classification in the runner container, checks in the
@@ -229,7 +254,7 @@ jobs:
     uses: jvallery/estate-ci/.github/workflows/checks.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
     with:
       name: dashboard
-      run: ci/gha/dashboard.sh
+      run: VERDIFY_LIGHT=${{ needs.path-impact.outputs.light }} ci/gha/dashboard.sh
       runner: verdify-platform-ci-dashboard
       timeout-minutes: 50
 
@@ -244,7 +269,7 @@ jobs:
     with:
       name: campaign
       run: bash ci/gha/require-success.sh path-impact=${{ needs.path-impact.result }} campaign-qualification-shards=${{ needs.path-impact.outputs.full == 'false' && 'not-impacted' || needs.campaign-qualification-shard.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   # PR image build-check (#1534, STD-CI-12): every image whose Dockerfile inputs
@@ -255,7 +280,7 @@ jobs:
   # result and passes as "not enabled" before that.
   buildcheck-impact:
     if: ${{ github.event_name == 'pull_request' && vars.VERDIFY_BUILDCHECK == 'true' }}
-    runs-on: verdify-platform-ci
+    runs-on: verdify-platform-ci-gate
     timeout-minutes: 10
     outputs:
       images: ${{ steps.impact.outputs.images }}
@@ -289,7 +314,7 @@ jobs:
     with:
       name: buildcheck
       run: bash ci/gha/buildcheck-result.sh impact=${{ needs.buildcheck-impact.result }} images=${{ needs.buildcheck-image.result }}
-      runner: verdify-platform-ci-tools
+      runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
   # Estate rules R1-R3 on this repository's workflows: context "ci / lint".

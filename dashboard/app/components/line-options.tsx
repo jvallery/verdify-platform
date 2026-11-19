@@ -7,7 +7,7 @@ import { outOfRange, parseWhole } from "../lib/setting-values";
 import { headroomWords, useWaterDrawer, wetLines, zoneWord } from "../lib/water";
 import { MANUAL_DEFAULT, errorFor, formError, useProgramWrite, type FieldUnits } from "../lib/writes";
 import { Button } from "./button";
-import { EditDrawer, ManualToggle, NumberField, Reason } from "./forms";
+import { EditDrawer, NumberField, Reason } from "./forms";
 import { useToast } from "./toast";
 
 /** `daily_cap_min` and `vpd_reserve_min` as the contract bounds them (`LineUpdate`); a reserve above the cap is the API's refusal. */
@@ -21,7 +21,7 @@ function OptionsForm({ line, onClose }: { line: IrrigationLine; onClose: () => v
   const mister = line.kind === "mister";
   const [cap, setCap] = useState(String(line.daily_cap_min));
   const [reserve, setReserve] = useState(String(line.vpd_reserve_min ?? 0));
-  const [manual, setManual] = useState(MANUAL_DEFAULT);
+  const manual = MANUAL_DEFAULT;
   const [reason, setReason] = useState("");
   const [typed, setTyped] = useState<{ cap: string | null; reserve: string | null }>({ cap: null, reserve: null });
   const write = useProgramWrite("API-IRR-08", { unitsOf });
@@ -50,7 +50,6 @@ function OptionsForm({ line, onClose }: { line: IrrigationLine; onClose: () => v
     {mister && <NumberField label="VPD reserve" value={reserve} onChange={setReserve} {...MINUTES} max={capValue !== null && capValue >= 0 && capValue <= MINUTES.max ? capValue : MINUTES.max}
       error={typed.reserve ?? errorFor(write.error, "vpd_reserve_min")}
       hint={aboveCap ? <span className="field-flag">Above the {capValue} min cap: this will be refused</span> : "Kept for VPD: schedules stop this many minutes short of the cap"} />}
-    <ManualToggle checked={manual} onChange={setManual} />
     <Reason value={reason} onChange={setReason} error={errorFor(write.error, "reason")} />
   </EditDrawer>;
 }
@@ -63,9 +62,9 @@ export function OptionsButton({ line }: { line: Pick<IrrigationLine, "line_id"> 
 
 /**
  * Line options (`?options=<line_id>`, the one edit drawer): the daily cap 0–480 with today's minutes and headroom beside
- * it; the VPD reserve on L04, L07 and L09, whose hint flags one above the cap, which the API refuses; Manual (ticked)
- * and Reason. Save sends `{daily_cap_min, manual, reason}` and the reserve on those three; a 422 shows beside its field.
- * The site caps are not here: Site today's SAF-4 links to their Settings drawer. A viewer gets no drawer.
+ * it; the VPD reserve on L04, L07 and L09, whose hint flags one above the cap, which the API refuses; and Reason. Save
+ * sends `{daily_cap_min, manual: true, reason}` and the reserve on those three; a 422 shows beside its field.
+ * The site caps are not here: Site today's Change links to their Settings drawer. A viewer gets no drawer.
  */
 export function LineOptions({ lines }: { lines: readonly IrrigationLine[] }) {
   const operator = useRole() === "operator";

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
-// One log entry in one line (redesign §5.9): the time, who wrote it (AI for Iris and the agents only), what changed, the
-// reason in quotes and the outcome pill; an Iris plan of several changes collapses to "N changes" and expands to them.
+// One log entry in one line (screens.md section 9): the time, who wrote it (AI for the reviewer and the agents only),
+// what changed, the reason in quotes and the outcome pill; a band save of several edges collapses to "N changes" and
+// expands to them.
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
@@ -30,7 +31,7 @@ test("one line: the mono time, the writer in R4's words, the change, the reason 
   expect([time.textContent, time.getAttribute("dateTime")]).toEqual(["07:41", denver("07:41")]);
   expect(time.getAttribute("title")).toContain("GMT-07:00");
   expect(text(item.querySelector(".event-by"))).toBe("Jason · dashboard");
-  expect(text(item.querySelector(".act-entry-text"))).toBe("VPD Mister Engage 1.60 → 1.55 kPa · manual");
+  expect(text(item.querySelector(".act-entry-text"))).toBe("VPD Mister Engage 1.60 → 1.55 kPa · set by hand");
   expect(text(item.querySelector(".event-reason"))).toBe("“Vandas drying”");
   expect(text(item.querySelector(".act-entry-outcome"))).toBe("Confirmed 07:42");
   // No heading per entry: a line of a list, not a section.
@@ -38,7 +39,7 @@ test("one line: the mono time, the writer in R4's words, the change, the reason 
   expect(item.querySelector("[data-badge=ai]")).toBeNull();
 });
 
-test("Iris and agent entries carry AI beside the name; a person's and the forecast engine's never do", () => {
+test("the reviewer's and an agent's entries carry AI beside the name; a person's and the host's never do", () => {
   for (const [actor, ai] of [
     [{ source: "iris", name: "iris" }, true], [{ source: "agent:steward", name: "steward" }, true],
     [{ source: "system", name: "forecast-engine" }, false], [{ source: "dashboard", name: "jason" }, false],
@@ -49,14 +50,21 @@ test("Iris and agent entries carry AI beside the name; a person's and the foreca
   }
 });
 
-test("an Iris plan of several changes reads as one entry, \"SUNRISE plan · 3 changes\", that expands to them", () => {
-  const changes = [{ ts: denver("13:00"), param: "mister_engage_kpa", value: 1.7 }, { ts: denver("16:30"), param: "mister_pulse_gap_s", value: 55 }, { ts: denver("19:00"), param: "x", value: 90 }];
-  const { container } = row({ actor: { source: "iris", name: "iris" }, action: "plan.write", target: "iris-1", detail: { trigger: "SUNRISE", changes }, reason: null, state: null });
+test("a band save of several edges reads as one entry, \"Changed the band · 3 changes\", that expands to them", () => {
+  const changes = [{ param: "band_temp_low_sr", desired_id: 1, before: 60, value: 62 }, { param: "mister_engage_kpa", desired_id: 2, before: 1.6, value: 1.5 }, { param: "x", desired_id: 3, before: null, value: 90 }];
+  const { container } = row({ action: "band.write", target: "house band", detail: { changes }, reason: null, state: null });
   const summary = container.querySelector(".act-plan > summary")!;
-  expect(text(summary)).toBe("SUNRISE plan · 3 changes");
+  expect(text(summary)).toBe("Changed the band · 3 changes");
   fireEvent.click(summary);
-  expect([...container.querySelectorAll(".plan-changes li")].map(text)).toEqual(["VPD Mister Engage 1.70 kPa from 13:00", "mister_pulse_gap_s 55 from 16:30", "x 90 from 19:00"]);
+  expect([...container.querySelectorAll(".plan-changes li")].map(text)).toEqual(["Temperature low edge at sunrise 60 → 62 °F", "VPD Mister Engage 1.60 → 1.50 kPa", "Retired setting (x) — → 90"]);
   expect(container.querySelector(".act-entry-outcome")?.textContent).toBe("");
+});
+
+test("a settings row from before the climate law reads as such, never as a plan", () => {
+  const changes = [{ ts: denver("13:00"), param: "mister_engage_kpa", value: 1.7 }, { ts: denver("16:30"), param: "x", value: 55 }];
+  const { container } = row({ actor: { source: "iris", name: "iris" }, action: "plan.write", target: "iris-1", detail: { trigger: "SUNRISE", changes }, reason: null, state: null });
+  expect(text(container.querySelector(".act-plan > summary"))).toBe("Settings written before the climate law · 2 changes");
+  expect(text(container.querySelector(".event-by"))).toBe("Iris · reviewer AI");
 });
 
 test("the time is HH:MM on any day, its day the header's (the full time in its title); nothing is served with a style attribute", () => {

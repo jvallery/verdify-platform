@@ -66,9 +66,12 @@ from operator_routes import (  # noqa: E402
     crops,
     irrigation_reads,
     irrigation_writes,
+    law,
     light_resync,
     light_timer,
     reads,
+    record,
+    system,
     writes,
 )
 
@@ -130,7 +133,9 @@ def _optional_route_module(name: str) -> ModuleType | None:
 # that merges it is absent and nothing is included for it; once it lands it is included here like the others.
 series = _optional_route_module("series")
 ROUTE_MODULES: tuple[ModuleType, ...] = tuple(
-    module for module in (reads, series, writes, irrigation_reads, irrigation_writes, crops) if module is not None
+    module
+    for module in (reads, series, writes, irrigation_reads, irrigation_writes, crops, law, record, system)
+    if module is not None
 )
 
 

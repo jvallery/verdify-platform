@@ -1,9 +1,10 @@
 """CronJob verdify-greenhouse-brief (#1346): write the greenhouse snapshot with the local Cortex model.
 
-Every 5 minutes, as the dashboard login (the reads API-02, API-07, API-13, API-14 and API-IRR-01 serve, so the facts
-are what Now shows), this builds a fact sheet and decides:
+Every 5 minutes, as the dashboard login (the reads API-02, API-13, API-14 and API-IRR-01 serve, so the facts are what
+Now shows: the climate law's state record and the daily review are API-02's ``law`` and ``review`` blocks), this
+builds a fact sheet and decides:
 - the band verdicts or the open alerts changed since the newest ``ok`` snapshot: mark that row outdated and write a
-  new one now; a mode change or a run starting or stopping also writes one now;
+  new one now; a change in what the law asks for or a run starting or stopping also writes one now;
 - the sheet is unchanged (same sha256, its time aside): confirm the newest row (``checked_at``) and call nothing;
 - otherwise write one once the newest is 15 minutes old.
 
@@ -12,7 +13,7 @@ file), with no tools, temperature 0, a fixed seed, thinking off and at most 300 
 read; a reasoning block is dropped. The answer is refused (status ``rejected``) when it is not 2-5 plain sentences,
 names a number or a time the facts do not hold (within rounding) or advises a settings change. A missing key or a
 transport failure is status ``error``. Every attempt is one ``greenhouse_brief`` row; rows older than 30 days are
-deleted. The text is never an input to the planner or the controller.
+deleted. The text is never an input to the daily reviewer or the controller.
 
 Exit 0 after a recorded attempt, a confirmation or a wait; 1 when the database cannot be read; 2 when the key file
 is missing (fails closed, with an error row).
@@ -37,7 +38,7 @@ import asyncpg
 import httpx
 
 from verdify_schemas.greenhouse_brief import GreenhouseBriefRow
-from verdify_services import alerts, brief, reads
+from verdify_services import alerts, brief, law, reads
 from verdify_services.irrigation import reads as irrigation_reads
 from verdify_services.series import forecast_rows_sql
 
@@ -58,7 +59,10 @@ ERROR_BODY_CHARS = 200
 SYSTEM_PROMPT = (
     "You write the greenhouse snapshot shown at the top of the Verdify dashboard. "
     "Write one paragraph of 3 to 5 plain English sentences: first the current conditions against the band, "
-    "then what the climate system is doing and why, then what comes next. "
+    "then what the climate law asks for and why, then what comes next. "
+    "Equipment listed under finishing_shortest_time_on is on although the law no longer asks for it: say it is "
+    "finishing its shortest time on. Mention the daily review only when it is missed or failed, or a band proposal "
+    "waits for the owner. Never describe the climate as a mode or a stage. "
     "Use only the facts given. Write every number exactly as the facts give it, with its unit, and write times "
     "exactly as given (24-hour HH:MM). Do not invent numbers, times or causes. "
     "Describe the greenhouse air and equipment only: do not name or describe plants or crops. "
@@ -99,7 +103,6 @@ def _round(value: float | None, places: int) -> float | int | None:
 class Gathered:
     now: reads.Now
     equipment: reads.Equipment | None = None
-    plan: reads.Plan | None = None
     irrigation: irrigation_reads.IrrigationStatus | None = None
     alert_page: alerts.AlertPage | None = None
     forecast: Sequence[Mapping[str, Any]] | None = None
@@ -122,6 +125,141 @@ def _forecast(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
         "outdoor_high_at": _local(high[1]),
         "max_wind_gust_mph": _round(max(gusts), 0) if gusts else None,
         "max_chance_of_precipitation_pct": _round(max(rain), 0) if rain else None,
+    }
+
+
+# What the law asks for, by the request bit of each rule (reads.LAW_REQUESTS; the rule names of the dashboard's words).
+LAW_ASKS: Mapping[str, str] = {
+    "heat1": "electric heat",
+    "heat2": "the gas furnace",
+    "cooling": "cooling",
+    "fan2": "the second fan",
+    "fog": "fog",
+    "mist": "misting",
+    "drying": "drying",
+    "hot": "the hot limit: everything cools",
+    "cold": "the cold limit: everything heats",
+}
+# LawState.drying and its refusal reasons in words (the dashboard's DRYING_STATE and DRYING_REFUSAL).
+DRYING_WORDS: Mapping[str, str] = {"running": "drying", "refused": "drying refused", "not_wanted": "not wanted"}
+DRYING_WHY: Mapping[str, str] = {
+    "no_outdoor": "no outdoor reading",
+    "cooling": "the house is being cooled",
+    "furnace": "the gas furnace is running",
+    "not_drier": "outdoor air is not drier",
+    "too_cold": "the house is too cold to vent",
+    "cost": "costs more than the limit",
+    "humidity_invalid": "humidity cannot be read",
+    "no_temperature": "temperature cannot be read",
+}
+DRY_ENOUGH = "the air is dry enough"
+# The relays the law switches, and the manual runs that hold some of them (then they are not the law's to finish).
+_LAW_RELAYS = ("heat1", "heat2", "vent", "fan1", "fan2", "fog")
+_OVERRIDE_HOLDS: Mapping[str, tuple[str, ...]] = {
+    kind: law.MANUAL_RUN_RELAYS[flag] for flag, kind in reads.BURSTS.items()
+}
+# Now.review.status in words; missed comes from Now.review.missed.
+REVIEW_WORDS: Mapping[str, str] = {
+    "written": "written",
+    "delivered": "being written",
+    "requested": "being written",
+    "failed": "failed",
+    "due": "due",
+    "not_due": "not due yet",
+}
+
+
+def _rule_words(rule: law.RuleDef, band: tuple[float, float, float, float]) -> dict[str, Any]:
+    """One rule the law asks for, with the reading it watches and its thresholds from the band in use."""
+    unit, places = ("°F", 1) if rule.signal == "temp" else ("kPa", 2)
+    return {
+        "asks_for": LAW_ASKS[rule.request],
+        "watches": "temperature" if rule.signal == "temp" else "VPD",
+        f"turns_on_{rule.direction}": _round(rule.on_at(band), places),
+        "turns_off_at": _round(rule.off_at(band), places),
+        "unit": unit,
+    }
+
+
+def finishing(now: reads.Now, labels: Mapping[str, str]) -> list[str]:
+    """The law's relays that are on although the law no longer asks for them: each finishes its shortest time on
+    (climate_law.h relay_step()). One fan asked for and both on: one of them finishes, and which is the lead is not
+    always reported (#1815). A relay a manual run holds, and a fogger line the irrigation engine runs, are not the
+    law's."""
+    if now.law is None:
+        return []
+    asked = set(now.law.requests)
+    held = {relay for item in now.overrides for relay in _OVERRIDE_HOLDS.get(item.kind, ())}
+    on = {item.equipment for item in now.running if item.equipment in _LAW_RELAYS and item.cause is None} - held
+    out = [name for name in ("heat1", "heat2", "vent", "fog") if name in on and name not in asked]
+    fans_asked = 2 if "fan2" in asked else 1 if "fan1" in asked else 0
+    fans_on = [name for name in ("fan1", "fan2") if name in on]
+    if len(fans_on) > fans_asked:
+        out += fans_on if fans_asked == 0 else ["one of the two fans"]
+    return [labels.get(name, name) for name in out]
+
+
+def law_facts(now: reads.Now, labels: Mapping[str, str]) -> dict[str, Any] | None:
+    """What the law asks for now and why, from its state record (API-02's ``law``; API-30 reads the same record):
+    each rule it asks for with its thresholds, the equipment finishing its shortest time on, the drying decision and
+    why, and the band edges in use. No mode word and no stage."""
+    state = now.law
+    if state is None:
+        return None
+    band = state.band
+    edges = None if band is None else (band.temp_low_f, band.temp_high_f, band.vpd_low_kpa, band.vpd_high_kpa)
+    asks = [rule for rule in law.RULES if rule.request in state.requests]
+    reason = state.drying_refused_reason
+    if state.drying == "running":
+        why = None
+    elif reason is not None:
+        why = DRYING_WHY.get(reason, reason)
+    else:
+        why = DRY_ENOUGH if state.drying == "not_wanted" else None
+    return {
+        "asks_for": [
+            _rule_words(rule, edges) if edges is not None else {"asks_for": LAW_ASKS[rule.request]} for rule in asks
+        ],
+        "asks_for_nothing": not asks,
+        "finishing_shortest_time_on": finishing(now, labels),
+        "drying": {
+            "decision": DRYING_WORDS[state.drying],
+            "why": why,
+            "cost_kwh_per_kg": _round(state.drying_cost_kwh_per_kg, 2),
+            "cost_limit_kwh_per_kg": _round(state.drying_cost_limit_kwh_per_kg, 2),
+        },
+        "band_edges_in_use": None
+        if band is None
+        else {
+            "temperature_low_f": _round(band.temp_low_f, 1),
+            "temperature_high_f": _round(band.temp_high_f, 1),
+            "vpd_low_kpa": _round(band.vpd_low_kpa, 2),
+            "vpd_high_kpa": _round(band.vpd_high_kpa, 2),
+        },
+        "band_repaired_by_controller": state.band_repaired,
+    }
+
+
+def review_facts(now: reads.Now, at: datetime) -> dict[str, Any] | None:
+    """Today's daily review (API-02's ``review``): its status and whether a band proposal waits for the owner."""
+    review = now.review
+    if review is None:
+        return None
+    today = at.astimezone(DENVER).date()
+    if review.review_date == today - timedelta(days=1):
+        day = "yesterday"
+    elif review.review_date == today:
+        day = "today"
+    else:
+        day = review.review_date.isoformat()
+    status = (
+        "missed" if review.missed and review.status != "written" else REVIEW_WORDS.get(review.status, review.status)
+    )
+    return {
+        "day_reviewed": day,
+        "status": status,
+        "written_at": _local(review.written_at) if review.status == "written" else None,
+        "band_proposal_waits_for_owner": review.proposal_waiting,
     }
 
 
@@ -152,12 +290,6 @@ def build_sheet(data: Gathered, at: datetime) -> dict[str, Any]:
             "temperature_f": _round(now.outdoor.temp_f.value, 1),
             "relative_humidity_pct": _round(now.outdoor.rh_pct.value, 0),
         },
-        "climate_mode": {
-            "mode": now.mode.code,
-            "stage": now.mode.stage,
-            "reason": now.mode.reason,
-            "since": _local(now.mode.since),
-        },
         "running_now": [
             {"equipment": labels.get(item.equipment, item.equipment), "cause": item.cause, "since": _local(item.since)}
             for item in now.running
@@ -167,16 +299,12 @@ def build_sheet(data: Gathered, at: datetime) -> dict[str, Any]:
         "leak_active": now.leak.active,
         "settings_not_yet_confirmed_by_controller": now.writer.differing,
     }
-    if now.law is not None:
-        # The climate law build (#1633 package 4.1): what the law is doing about drying, from its state record.
-        sheet["climate_law"] = {
-            "drying": now.law.drying,
-            "drying_refused_because": now.law.drying_refused_reason,
-            "drying_cost_kwh_per_kg": _round(now.law.drying_cost_kwh_per_kg, 2),
-            "drying_cost_limit_kwh_per_kg": _round(now.law.drying_cost_limit_kwh_per_kg, 2),
-            "band_repaired_by_controller": now.law.band_repaired,
-            "heaters_requested_by_law": [name for name in ("heat1", "heat2") if name in now.law.requests],
-        }
+    climate_law = law_facts(now, labels)
+    if climate_law is not None:
+        sheet["climate_law"] = climate_law
+    daily_review = review_facts(now, at)
+    if daily_review is not None:
+        sheet["daily_review"] = daily_review
     if data.alert_page is not None:
         sheet["alerts"] = [
             {"severity": item.severity, "message": item.message[:160]} for item in data.alert_page.items[:MAX_ALERTS]
@@ -185,19 +313,6 @@ def build_sheet(data: Gathered, at: datetime) -> dict[str, Any]:
         sheet["lights"] = [
             {"light": item.label, "state": item.state} for item in data.equipment.items if item.group == "light"
         ]
-    if data.plan is not None:
-        record = data.plan.plan
-        upcoming = sorted(
-            (trigger for trigger in data.plan.health if trigger.expected_at > at), key=lambda t: t.expected_at
-        )
-        sheet["planner"] = {
-            "plan_in_force": record is not None,
-            "plan_trigger": record.trigger if record else None,
-            "plan_valid_until": _local(record.valid_until) if record else None,
-            "next_planner_runs": [
-                {"trigger": trigger.trigger, "at": _local(trigger.expected_at)} for trigger in upcoming[:MAX_NEXT]
-            ],
-        }
     if data.irrigation is not None:
         status = data.irrigation
         names = {line.line_id: line.name for line in status.lines}
@@ -223,9 +338,11 @@ def event_of(now: reads.Now) -> dict[str, Any]:
     return brief.event_key(now.band.temp_f.verdict, now.band.vpd_kpa.verdict, now.alerts.open, now.alerts.critical)
 
 
-def trigger_of(now: reads.Now) -> dict[str, Any]:
-    """Changes that write a new snapshot at once (they do not make the old one outdated)."""
-    return {"mode": now.mode.code, "running": sorted(item.equipment for item in now.running)}
+def trigger_of(data: Gathered) -> dict[str, Any]:
+    """Changes that write a new snapshot at once (they do not make the old one outdated): what the law asks for (its
+    request bits; None while its record is not fresh) and what runs."""
+    requests = None if data.now.law is None else sorted(data.now.law.requests)
+    return {"law": requests, "running": sorted(item.equipment for item in data.now.running)}
 
 
 def decide(newest: brief.Newest | None, event: Mapping, trigger: Mapping, sha: str, at: datetime) -> str:
@@ -359,7 +476,6 @@ async def gather(conn: asyncpg.Connection) -> tuple[datetime, Gathered]:
     return at, Gathered(
         now=now,
         equipment=await _optional("equipment", reads.equipment(conn)),
-        plan=await _optional("plan", reads.plan(conn, hours=FORECAST_HOURS)),
         irrigation=await _optional("irrigation", irrigation_reads.status(conn, None)),
         alert_page=await _optional("alerts", alerts.list(conn, "open", limit=MAX_ALERTS)),
         forecast=None if forecast is None else [dict(row) for row in forecast],
@@ -393,7 +509,7 @@ async def run_once(
     if len(brief.canonical(sheet)) > MAX_SHEET_CHARS:
         sheet.pop("alerts", None)
     sha = brief.facts_sha256(sheet)
-    event, trigger = event_of(data.now), trigger_of(data.now)
+    event, trigger = event_of(data.now), trigger_of(data)
     newest = await brief.newest(conn)
     await conn.execute(RETENTION_SQL, at - brief.RETENTION)
     if newest is not None and newest.event is not None and newest.event != event:

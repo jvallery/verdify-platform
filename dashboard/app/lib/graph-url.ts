@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 /**
- * Graphs' views, all of them in the URL (redesign §2.1, §5.5–§5.7), so a copied link reproduces the view. Zoom and
- * series toggles stay out of it. Reading a URL never fails: a value from an old or hand-edited link that a page cannot
- * use is dropped with a notice in words, never an error page.
+ * Graphs' views, all of them in the URL (screens.md section 7), so a copied link reproduces the view. Zoom and series
+ * toggles stay out of it. Reading a URL never fails: a value from an old or hand-edited link that a page cannot use is
+ * dropped with a notice in words, never an error page.
  *
- * Climate (`/graphs`):
+ * Explore (`/graphs`):
  * - `range=today|24h|72h|7d|30d|90d` (default 72h), or a longer last-N window that Zoom out writes (`48h`, `14d`), at
  *   most 400 days: the past window plus as much ahead, at most 72 h (decisions 2026-11-05, replacing D-UX-13), so the
  *   default is 72 h back and 72 h of forecast ahead. Today runs from local midnight to the next, so it ends there.
@@ -12,16 +12,18 @@
  *   the custom-range form, the day links and the previous and next steps of a day window write, and which run from local
  *   midnight of From to local midnight after To, so a 25-hour day stays 25 hours; or ISO 8601 times with `Z` or an
  *   offset, exactly [from, to), as `graphWindowUrl()`, the story line and the steps of a window write them.
- * - `preset=climate|water-soil|light|controller`: the picked metrics of an API-03 group (Climate picks none).
+ * - `preset=climate|law|drying|outdoor|water|light|controller|hydroponics` (default climate): a fixed list of panels
+ *   (`PRESETS`). An old id (`water-soil`) redirects to its v2 name (`legacyPresetHref`).
  * - `set=<param>`, repeated: settings drawn as steps. No `set` draws none (decisions 2026-11-05); `set=` alone is none.
- * - `m=<key>`, repeated: picked metrics (API-03 keys, `daily.*` included, D-UX-04), at most 5 beside the climate traces.
+ * - `m=<key>`, repeated: added metrics (API-03 keys, `daily.*` included, D-UX-04), at most 8 metrics per window. A key
+ *   the law retired (the targets, the plan counts, the reservoir battery, any daily light integral) drops with a notice.
  * - `outdoor=0` hides the outdoor and forecast overlay; `events=people,iris,…` shows only those event sources on the
  *   rail (`events=` alone none, no `events` all); `env=0` hides the min–max envelope; `cmp=day|week` draws yesterday or
  *   last week dashed.
  *
- * Zones (`/graphs/zones`): the window as Climate reads it, `zone=` to focus one zone, and `metric=temp|vpd|rh`, repeated,
- * for the rows of the grid (temperature and VPD by default). Statistics (`/graphs/statistics`): `days=30|90|365` or
- * `from` and `to` local days, and `typical=14|30`.
+ * Zones (`/graphs/zones`): the window as Explore reads it, `zone=` to focus one zone, and `metric=temp|vpd|rh`, repeated,
+ * for the rows of the grid (temperature and VPD by default). Light history (`/lights/history`, once Graphs → Lighting):
+ * the window as Explore reads it.
  */
 import { EVENT_SOURCES, type EventSource } from "../charts/events";
 import { futurePad } from "../charts/range-toolbar";
@@ -43,48 +45,112 @@ const HOUR_S = 3600;
 const DAY_S = 86_400;
 export const MAX_DAYS = 400;
 export const MAX_WINDOW_S = MAX_DAYS * DAY_S;
-/** API-05 serves equipment lanes, and API-IRR-11 runs, for windows of 31 days or less. */
+/** API-05 serves equipment lanes, API-31 the law's record and API-IRR-11 runs, for windows of 31 days or less. */
 export const LANES_MAX_S = 31 * DAY_S;
-/** The climate traces every Climate view draws, one per panel. */
+/** The climate traces, one per panel: temperature, VPD and RH, in that order. */
 export const CLIMATE_KEYS = ["climate.temp_avg", "climate.vpd_avg", "climate.rh_avg"] as const;
+export type ClimateTrace = "temp" | "vpd" | "rh";
+const CLIMATE_KEY: Readonly<Record<ClimateTrace, (typeof CLIMATE_KEYS)[number]>> = { temp: "climate.temp_avg", vpd: "climate.vpd_avg", rh: "climate.rh_avg" };
 /**
- * The settings drawn when the URL has no `set`: none (decisions 2026-11-05, #1354). Mister engage and the fog RH ceiling
- * are opt-in through + Setting, so the default panels show the climate, the band and the forecast only.
+ * The settings drawn when the URL has no `set`: none (decisions 2026-11-05, #1354). A setting is opt-in through
+ * + Setting, so the default panels show the climate, the band and the forecast only.
  */
 export const DEFAULT_SETTINGS: readonly string[] = [];
-/** At most 8 metrics per window, the three climate traces included, so no panel's API-04 request passes 8. */
+/** At most 8 metrics per window, the climate traces included, so no panel's API-04 request passes 8. */
 export const MAX_METRICS = 8;
-export const MAX_PICKED = MAX_METRICS - CLIMATE_KEYS.length;
 export const CAP_TEXT = "8 metrics is the most per window";
 export const OVER_TEXT = "Up to 400 days";
 export const LANES_TEXT = "Equipment lanes cover at most 31 days. Narrow the range to see them";
+export const LAW_TEXT = "The law's record covers at most 31 days at a time. Narrow the range to see it";
 /** API-03's group for the daily keys (`v_daily_scorecard`): one point per day, in panels of their own (D-UX-04). */
 export const DAILY_GROUP = "daily";
-/** The forecast keys draw through the outdoor layer, dashed past now, never as a picked trace (#1138). */
+/** The forecast keys draw through the outdoor layer, dashed past now, never as an added trace (#1138). */
 export const isForecastKey = (key: string): boolean => key.startsWith("forecast.");
 /** The three climate units' panel names; any other panel is named by its metrics. */
 export const PANEL_NAMES: Readonly<Record<string, string>> = { "°F": "Temperature", kPa: "VPD", "%": "RH" };
 export const panelName = (unit: string): string => PANEL_NAMES[unit] ?? unit;
-/** The climate panels' anchors (`/graphs#vpd`, redesign §2.6). */
+/** The climate panels' anchors (`/graphs#vpd`). */
 const PANEL_IDS: Readonly<Record<string, string>> = { "°F": "temperature", kPa: "vpd", "%": "rh" };
+/** The registry groups of the air the band governs: a panel holding one is a climate panel. */
+const CLIMATE_GROUPS: readonly string[] = ["house climate", "zones"];
+/** The anchors of the climate panels, which the band and the outdoor overlay draw on. */
+export const CLIMATE_PANEL_IDS: readonly string[] = Object.values(PANEL_IDS);
 
 /**
- * Presets (redesign §5.5): each picks the metrics API-03 lists in one group, at most 5, in the registry's order. Climate
- * picks none: temperature, VPD and RH are always drawn.
+ * Why API-03 still lists a key that no longer means anything here (words.md section 3, design-system section 5), in
+ * words; null for a key that draws. The law holds a band, so the controller's targets are gone; the daily review replaced
+ * the plan counts; the reservoir meter runs on mains power; the house has no light sensor that can support a daily light
+ * integral. The picker leaves these out, and a link that names one drops it with this notice.
+ */
+export function retiredReason(metric: Pick<MetricDef, "key" | "group">): string | null {
+  if (metric.group === "targets") return "the controller follows the band alone";
+  if (metric.key.startsWith("daily.iris_")) return "the daily review replaced it";
+  if (metric.key === "climate.hydro_battery_pct") return "not reported: the meter runs on mains power";
+  if (/(^|[._])dli([._]|$)|light_integral/.test(metric.key)) return "the house has no light sensor that can support a daily light integral";
+  return null;
+}
+
+/** What a preset draws beside its API-04 panels: the law's requests, the drying charts, the controller's budget. */
+export type PresetExtra = "law" | "drying" | "controller";
+/** API-05's lane groups a preset's equipment lanes show; null shows every group. */
+export type LaneGroup = "climate" | "water" | "light" | "flag";
+export type PresetDef = {
+  readonly id: string;
+  readonly label: string;
+  /** The climate traces, one panel each, against the band. */
+  readonly climate: readonly ClimateTrace[];
+  /** The other metrics it draws from API-03, in the registry's order. */
+  readonly pick: (metric: MetricDef) => boolean;
+  /** The equipment lanes under the stack: every group (null), some groups, or none (false). */
+  readonly lanes: readonly LaneGroup[] | null | false;
+  /** The lanes' disclosure's name. */
+  readonly lanesName?: string;
+  readonly extra: PresetExtra | null;
+};
+const none = () => false;
+const outdoorKey = (metric: MetricDef) => !isForecastKey(metric.key) && (metric.group === "outdoor" || metric.key.startsWith("climate.outdoor_"));
+const hydroKey = (metric: MetricDef) => metric.key.startsWith("climate.hydro_");
+
+/**
+ * The presets of screens.md section 7.1, each a fixed list of panels. Outdoor, water and soil, light and hydroponics take
+ * their keys from API-03, so a key the registry adds joins its preset; the controller preset draws the hardware budget
+ * against API-35's limits (`CONTROLLER_PANELS`), the law and drying presets read API-31.
  */
 export const PRESETS = [
-  { id: "climate", label: "Climate", group: null },
-  { id: "water-soil", label: "Water and soil", group: "water and soil" },
-  { id: "light", label: "Light", group: "light" },
-  { id: "controller", label: "Controller", group: "controller" },
-] as const;
+  { id: "climate", label: "Climate", climate: ["temp", "vpd", "rh"], pick: none, lanes: null, extra: null },
+  { id: "law", label: "Law and equipment", climate: ["temp", "vpd"], pick: none, lanes: ["climate"], lanesName: "What the law asked for and what ran", extra: "law" },
+  { id: "drying", label: "Drying", climate: ["vpd"], pick: none, lanes: false, extra: "drying" },
+  { id: "outdoor", label: "Outdoor", climate: [], pick: outdoorKey, lanes: false, extra: null },
+  { id: "water", label: "Water and soil", climate: [], pick: (metric) => metric.group === "water and soil" && !hydroKey(metric), lanes: ["water", "flag"], extra: null },
+  { id: "light", label: "Light", climate: [], pick: (metric) => metric.group === "light", lanes: ["light"], lanesName: "The two circuits", extra: null },
+  { id: "controller", label: "Controller", climate: [], pick: none, lanes: false, extra: "controller" },
+  { id: "hydroponics", label: "Hydroponics", climate: [], pick: hydroKey, lanes: false, extra: null },
+] as const satisfies readonly PresetDef[];
 export type PresetId = (typeof PRESETS)[number]["id"];
+export const DEFAULT_PRESET: PresetId = "climate";
 const isPreset = (value: string): value is PresetId => PRESETS.some((preset) => preset.id === value);
-/** The keys a preset picks from API-03. */
+/** Old preset ids and their v2 names: a link that names one redirects (`legacyPresetHref`). */
+export const LEGACY_PRESETS: Readonly<Record<string, PresetId>> = { "water-soil": "water" };
+export const presetOf = (id: PresetId | null): PresetDef => PRESETS.find((preset) => preset.id === (id ?? DEFAULT_PRESET))!;
+/** The keys a preset draws from API-03 beyond its climate traces, at most what the window has room for. */
 export function presetKeys(preset: PresetId | null, catalog: readonly MetricDef[]): string[] {
-  const group = PRESETS.find((item) => item.id === preset)?.group;
-  if (!group) return [];
-  return catalog.filter((metric) => metric.group === group && !isForecastKey(metric.key)).map((metric) => metric.key).slice(0, MAX_PICKED);
+  const def = presetOf(preset);
+  return catalog.filter((metric) => def.pick(metric) && retiredReason(metric) === null).map((metric) => metric.key).slice(0, MAX_METRICS - def.climate.length);
+}
+/** The climate keys a preset draws, in panel order. */
+export const presetClimateKeys = (preset: PresetId | null): string[] => presetOf(preset).climate.map((trace) => CLIMATE_KEY[trace]);
+/**
+ * The same page under the preset's v2 name when the URL at `url` names an old id; null otherwise. The route's loaders
+ * answer it with a redirect that replaces the history entry.
+ */
+export function legacyPresetHref(url: string): string | null {
+  const parsed = new URL(url);
+  const preset = parsed.searchParams.get("preset");
+  if (preset === null || !Object.hasOwn(LEGACY_PRESETS, preset)) return null;
+  parsed.searchParams.set("preset", LEGACY_PRESETS[preset]);
+  // The rest of the query as it was written: only the preset's value changes.
+  const search = parsed.search.replace(/%2C/gi, ",").replace(/%3A/gi, ":");
+  return `${parsed.pathname}${search}`;
 }
 
 /** Compare (redesign §7.1): the primary series of each panel a day or a week earlier. */
@@ -100,11 +166,11 @@ export type WindowSpec =
   | { readonly kind: "exact"; readonly from: string; readonly to: string; readonly start: number; readonly end: number };
 export type GraphView = {
   readonly window: WindowSpec;
-  /** The preset whose metrics are picked; null is Climate's, none. */
+  /** The preset whose panels draw; null is Climate, the default. */
   readonly preset: PresetId | null;
   /** Settings drawn as steps: null is the defaults, [] none. */
   readonly settings: readonly string[] | null;
-  /** Picked metrics beside the preset's, in the order they were added. */
+  /** Added metrics beside the preset's, in the order they were added. */
   readonly metrics: readonly string[];
   /** The outdoor and forecast overlay is on. */
   readonly outdoor: boolean;
@@ -221,7 +287,9 @@ export function parseGraphUrl(search: URLSearchParams | string): ParsedView {
   const params = typeof search === "string" ? new URLSearchParams(search) : search;
   const notices: string[] = [];
   const window = windowOf(params, notices);
-  const preset = params.get("preset");
+  const asked = params.get("preset");
+  // An old id reads as its v2 name; the route has already redirected a page load to it.
+  const preset = asked !== null && Object.hasOwn(LEGACY_PRESETS, asked) ? LEGACY_PRESETS[asked] : asked;
   if (preset !== null && !isPreset(preset)) notices.push(`Removed unknown preset ${quoted(preset)}`);
   const compare = params.get("cmp");
   if (compare !== null && compare !== "day" && compare !== "week") notices.push(`Removed unknown comparison ${quoted(compare)}`);
@@ -271,7 +339,7 @@ export const withEnvelope = (view: GraphView, envelope: boolean): GraphView => (
 export const withCompare = (view: GraphView, compare: CompareId | null): GraphView => ({ ...view, compare });
 /** The setting edit drawer on Settings (SCR-05); Graphs itself writes nothing. */
 export const settingEditHref = (param: string): string => `/settings?edit=${encode(param)}`;
-/** One local day in Climate: what a Statistics day cell and table row open. */
+/** One local day in Explore: what a day cell or a table row elsewhere opens. */
 export const dayHref = (day: string): string => `/graphs?from=${day}&to=${day}`;
 /** "2026-11-02T15:38:00Z": an exact window's end as the steps and the story line write it, to the second. */
 export const utcText = (epochSeconds: number): string => new Date(Math.round(epochSeconds) * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -283,9 +351,9 @@ export type ResolvedView = {
   readonly view: GraphView;
   /** API-03 has answered, so the panels and their requests are known. */
   readonly ready: boolean;
-  /** The climate traces API-03 lists, in panel order. */
+  /** The preset's climate traces API-03 lists, in panel order. */
   readonly climate: readonly MetricDef[];
-  /** Picked metrics API-03 lists, the preset's first, then the URL's, at most 5. */
+  /** The other metrics API-03 lists, the preset's first, then the URL's, up to 8 metrics in the window. */
   readonly picked: readonly MetricDef[];
   /** The units of the panels a setting can draw on: temperature, VPD and RH first; never a daily panel's. */
   readonly units: readonly string[];
@@ -297,6 +365,7 @@ export type ResolvedView = {
 /** Why a setting cannot be drawn as steps on these panels, in words; null when it can. */
 export function settingProblem(row: Setting, units: readonly string[]): string | null {
   if (row.group === "band_in_force") return "the band ribbon draws it";
+  if (row.effect === "none") return "nothing reads it on this controller";
   if (row.kind !== "numeric") return "only numeric settings draw as steps";
   const unit = unitLabel(row.unit);
   return units.includes(unit) ? null : `no chart in ${unit || "its unit"}`;
@@ -312,27 +381,34 @@ function panelUnits(metrics: readonly MetricDef[]): string[] {
 
 /**
  * The view against API-03 (`metrics`) and API-09 (`settings`), each null until it answers. Until API-03 answers no
- * panel is known and the URL's metrics stay as they are; until API-09 answers no setting draws. A climate key in `m` is
- * always drawn anyway and drops silently; a forecast key belongs to the outdoor layer.
+ * panel is known and the URL's metrics stay as they are; until API-09 answers no setting draws. A climate key the preset
+ * draws is drawn anyway and drops silently from `m`; a forecast key belongs to the outdoor layer; a retired key drops
+ * with its reason. A preset with no API-04 panel of its own (Controller) and nothing listed says nothing: its charts read
+ * API-35's budget.
  */
 export function resolveView(view: GraphView, metrics: readonly MetricDef[] | null, settings: readonly Setting[] | null): ResolvedView {
   const notices: string[] = [];
   const byKey = new Map((metrics ?? []).map((metric) => [metric.key, metric]));
-  const climate = metrics ? CLIMATE_KEYS.flatMap((key) => byKey.get(key) ?? []) : [];
+  const preset = presetOf(view.preset);
+  const climateKeys = presetClimateKeys(view.preset);
+  const climate = metrics ? climateKeys.flatMap((key) => byKey.get(key) ?? []) : [];
+  const room = MAX_METRICS - climate.length;
   const picked: MetricDef[] = [];
   const fromPreset = metrics ? presetKeys(view.preset, metrics) : [];
   if (metrics) {
-    if (view.preset && !fromPreset.length) notices.push(`${PRESETS.find((preset) => preset.id === view.preset)!.label} has no metric yet`);
+    if (preset.pick !== none && !fromPreset.length) notices.push(`${preset.label} has no metric yet`);
     const valid: MetricDef[] = [];
     for (const key of unique([...fromPreset, ...view.metrics])) {
-      if ((CLIMATE_KEYS as readonly string[]).includes(key)) continue;
+      if (climateKeys.includes(key)) continue;
       const metric = byKey.get(key);
+      const retired = metric ? retiredReason(metric) : null;
       if (!metric) notices.push(`Removed unknown metric ${quoted(key)}`);
       else if (isForecastKey(key)) notices.push(`Removed ${quoted(key)}: the outdoor layer draws the forecast`);
+      else if (retired) notices.push(`Removed ${quoted(key)}: ${retired}`);
       else valid.push(metric);
     }
-    picked.push(...valid.slice(0, MAX_PICKED));
-    if (valid.length > MAX_PICKED) notices.push(`${CAP_TEXT}: removed ${valid.slice(MAX_PICKED).map((metric) => metric.key).join(", ")}`);
+    picked.push(...valid.slice(0, room));
+    if (valid.length > room) notices.push(`${CAP_TEXT}: removed ${valid.slice(room).map((metric) => metric.key).join(", ")}`);
   }
   const units = panelUnits([...climate, ...picked.filter((metric) => !isDaily(metric))]);
   const drawn: Setting[] = [];
@@ -373,7 +449,8 @@ export function panelPlans(metrics: readonly MetricDef[]): PanelPlan[] {
   const daily = metrics.filter(isDaily).map((metric) => (DAILY_UNITS[metric.unit] ? { ...metric, unit: DAILY_UNITS[metric.unit] } : metric));
   const plain = metrics.filter((metric) => !isDaily(metric));
   const plan = (unit: string, members: readonly MetricDef[], isDailyPanel: boolean): PanelPlan => {
-    const climatePanel = !isDailyPanel && Object.hasOwn(PANEL_IDS, unit);
+    // A climate panel holds the house's or a zone's own air: soil moisture in % or a water temperature in °F is not one.
+    const climatePanel = !isDailyPanel && Object.hasOwn(PANEL_IDS, unit) && members.some((metric) => CLIMATE_GROUPS.includes(metric.group));
     return {
       id: climatePanel ? PANEL_IDS[unit] : members[0].key, name: climatePanel ? PANEL_NAMES[unit] : members.map((metric) => metric.label).join(" · "),
       unit, metrics: members, daily: isDailyPanel,
@@ -535,66 +612,16 @@ export function zonesHref(zone: Zone | null, window: WindowSpec, metrics: readon
   return `/graphs/zones?${[...(zone ? [`zone=${zone}`] : []), ...windowQuery(window), ...(custom ? rows.map((metric) => `metric=${metric}`) : [])].join("&")}`;
 }
 
-// ---------------------------------------------------------------------------------------------------- /graphs/lighting
-/** `/graphs/lighting`'s view (#1357): the window as Climate reads it; what it cannot use is dropped with a notice. */
+// ---------------------------------------------------------------------------------------------------- /lights/history
+/** Light history's view (#1357, `/lights/history`): the window as Explore reads it; what it cannot use is dropped with a notice. */
 export type LightingView = { readonly window: WindowSpec; readonly notices: readonly string[] };
 export function parseLightingUrl(search: string): LightingView {
   const notices: string[] = [];
   const window = windowOf(new URLSearchParams(search), notices);
   return { window, notices };
 }
-/** The Lighting URL: the window, none for the 72 h default. */
+/** The Light history URL: the window, none for the 72 h default. */
 export function lightingHref(window: WindowSpec): string {
   const query = window.kind === "range" && window.range === DEFAULT_RANGE ? [] : windowQuery(window);
-  return query.length ? `/graphs/lighting?${query.join("&")}` : "/graphs/lighting";
-}
-
-// ---------------------------------------------------------------------------------------------------- /graphs/statistics
-export const STATS_DAYS = [30, 90, 365] as const;
-export type StatsDays = (typeof STATS_DAYS)[number];
-export const TYPICAL_DAYS = [14, 30] as const;
-export type TypicalDays = (typeof TYPICAL_DAYS)[number];
-export type StatsSpan = { readonly kind: "days"; readonly days: StatsDays } | { readonly kind: "custom"; readonly from: string; readonly to: string };
-export type StatsView = { readonly span: StatsSpan; readonly typical: TypicalDays; readonly notices: readonly string[] };
-const DEFAULT_STATS: StatsSpan = { kind: "days", days: 30 };
-
-/** Statistics' view: the last 30, 90 or 365 days or a custom run of local days (From and To win), and the typical day's 14 or 30 days. */
-export function parseStatsUrl(search: string): StatsView {
-  const params = new URLSearchParams(search);
-  const notices: string[] = [];
-  let span: StatsSpan = DEFAULT_STATS;
-  const days = params.get("days");
-  if (days !== null) {
-    const count = Number(days);
-    if ((STATS_DAYS as readonly number[]).includes(count) && String(count) === days) span = { kind: "days", days: count as StatsDays };
-    else notices.push(`Removed unknown period ${quoted(days)}`);
-  }
-  const from = params.get("from"), to = params.get("to");
-  if (from !== null || to !== null) {
-    const problem = daysProblem(from ?? "", to ?? "");
-    if (problem === null) span = { kind: "custom", from: from!, to: to! };
-    else notices.push(`Removed the days ${quoted(from ?? "") || "(none)"} to ${quoted(to ?? "") || "(none)"}: ${problem.toLowerCase()}`);
-  }
-  const typical = params.get("typical");
-  let typicalDays: TypicalDays = 30;
-  if (typical !== null) {
-    if (typical === "14" || typical === "30") typicalDays = Number(typical) as TypicalDays;
-    else notices.push(`Removed unknown typical-day length ${quoted(typical)}`);
-  }
-  return { span, typical: typicalDays, notices };
-}
-/** The Statistics URL: the period (nothing for the default 30 days) and the typical day's length when it is 14. */
-export function statsHref(span: StatsSpan, typical: TypicalDays): string {
-  const parts = span.kind === "custom" ? [`from=${span.from}`, `to=${span.to}`] : span.days === 30 ? [] : [`days=${span.days}`];
-  if (typical !== 30) parts.push(`typical=${typical}`);
-  return `/graphs/statistics${parts.length ? `?${parts.join("&")}` : ""}`;
-}
-/** The scorecard's old path (D-UX-04): `/graphs/scorecard?…` → `/graphs/statistics?…`, the query kept. */
-export function statisticsHref(url: string): string {
-  return `/graphs/statistics${new URL(url).search}`;
-}
-/** The local days a span covers, From and To included, at `today`. */
-export function statsDays(span: StatsSpan, today: string): { readonly from: string; readonly to: string; readonly count: number } {
-  if (span.kind === "custom") return { from: span.from, to: span.to, count: dayCount(span.from, span.to) };
-  return { from: dateShift(today, -(span.days - 1)), to: today, count: span.days };
+  return query.length ? `/lights/history?${query.join("&")}` : "/lights/history";
 }

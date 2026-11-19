@@ -4,6 +4,14 @@
  * here: `test` guards each page for the whole test, so no spec can forget. Each test selects its fixture first (one
  * fixture API holds one state, so each shard of the suite has its own and runs one worker). No test passes by loosening
  * the app: a CSP violation, a page error or a request off localhost fails it.
+ *
+ * Two things a real browser does that the unit tests' DOM does not, both found by the suite's first CI run:
+ * - The pages put a no-break space between a number and its unit ("0.70 kWh/kg", "24 h"). Playwright normalises
+ *   white space for a string but tests a regular expression against the raw text, so a pattern that can meet a number
+ *   writes `\s` for its spaces (`/^Price\s0\.82\skWh\/kg/`); a literal space there never matches.
+ * - A browser works out an accessible name with a space around a `.screen-reader` span, so a control whose hidden
+ *   suffix starts with punctuation ("Run the fans" + ", 15 min") is named "Run the fans , 15 min" unless it carries
+ *   the whole name as `aria-label`. Name such a control in the component, not by loosening the spec.
  */
 import { setTimeout as sleep } from "node:timers/promises";
 import AxeBuilder from "@axe-core/playwright";
@@ -166,10 +174,8 @@ export async function expectNoHorizontalScroll(page: Page) {
 
 /** The phone's fixed bottom bar. */
 export const bottomBar = (page: Page) => page.getByRole("navigation", { name: "Sections, phone" });
-/** The desktop nav in the header (above 860 px). */
+/** The rail's section nav (above 860 px); the sections and their order come from app/lib/sections.ts. */
 export const sectionsNav = (page: Page) => page.getByRole("navigation", { name: "Sections", exact: true });
-/** The sections in their one order, at every width (redesign §2.1, D-UX-01 as changed on 2026-11-05: Crops, #1330; Planner, #1361). */
-export const SECTION_LINKS = [/^Now/, /^Water/, /^Hydroponics/, /^Crops/, /^Graphs/, /^Activity/, /^Control/, /^Planner/];
 
 /**
  * The account button at the header's right edge (redesign §2.2): a disclosure whose summary holds the role pill (and,
@@ -201,8 +207,13 @@ export const CAN_STILL_START = "VPD misting, fog and the next scheduled run can 
 export const CAN_STILL_START_NO_ENGINE = "VPD misting and fog can still start on their own.";
 
 // ---------------------------------------------------------------------------------------------------- roles
-/** Screens §1.3's write controls by accessible name: "Run…" covers each Run, "Stop" Stop all water and a line's Stop, and SCR-04's New schedule reads "+ New schedule". Activity's "Clear filters" link is a view control, so "Clear" alone is not on the list. */
-export const WRITE_CONTROLS = /^\+?\s*(?:Edit|Save|Release|Run|Mist now|Stop|Pause|Resume|New schedule|Clear fault|Stop manual runs|Acknowledge|Resolve|Fans|Fogger|Humidify|Vent bypass|Restart|Turn on|Turn off|Back to automatic)\b/;
+/**
+ * Screens §1.3's write controls by accessible name: "Run…" covers each Run and Run the fans, "Stop" Stop all water and a
+ * line's Stop, Humidify and Circulate are the other two runs by hand (dashboard v2), and SCR-04's New schedule reads
+ * "+ New schedule". Activity's "Clear filters" link is a view control, so "Clear" alone is not on the list, and so is
+ * the log's "Run by hand" filter (words.md's name for the three runs), so "Run" is not followed by " by hand".
+ */
+export const WRITE_CONTROLS = /^\+?\s*(?:Edit|Save|Release|Run(?! by hand\b)|Mist now|Stop|Pause|Resume|New schedule|Clear fault|Stop manual runs|Acknowledge|Resolve|Humidify|Circulate|Restart|Turn on|Turn off|Back to automatic)\b/;
 
 /** Each write control on the page by role and name, plus any switch. `includeHidden` also finds one rendered but hidden. */
 export function writeControls(page: Page, { includeHidden = false }: { includeHidden?: boolean } = {}): Locator {

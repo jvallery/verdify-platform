@@ -166,6 +166,8 @@ async def _fill(conn: asyncpg.Connection) -> Fixture:
     await conn.execute(band_compliance_sql())
     await conn.execute(climate_columns_sql())
     await conn.execute(support.gap_ledger_sql(grants=False))  # 314: GAPS_SQL reads v_data_gaps_unreplayed
+    await conn.execute(support.diagnostics_health_columns_sql())  # 314 and 315: the controller-health keys
+    await conn.execute(support.energy_view_sql(grants=False))  # 248 and 312: the energy.* keys
     # 31 days at 60 s with a 30-minute outage; solar_altitude_deg set so the solar trigger stays idle.
     await conn.execute(
         """INSERT INTO public.climate (ts, greenhouse_id, temp_avg, temp_north, rh_avg, vpd_avg, co2_ppm,
@@ -482,11 +484,6 @@ def test_the_scorecard_returns_every_day_with_its_reasons_inside_the_timeout(db)
     assert cell("daily.temp_below_band_pct", db.today - timedelta(days=3)) == (67.0, 1, None)
     assert cell("daily.vpd_in_band_day_pct", db.today - timedelta(days=3)) == (100.0, 1, None)
     assert cell("daily.vpd_in_band_night_pct", db.today - timedelta(days=3)) == (26.0, 1, None)
-    assert cell("daily.iris_required_written", db.missed_day)[0] == 1.0
-    assert cell("daily.iris_required_missed", db.missed_day)[0] == 2.0
-    assert cell("daily.iris_required_written", db.today - timedelta(days=4))[0] == 3.0
-    assert cell("daily.iris_required_missed", db.today - timedelta(days=4))[0] == 0.0
-    assert cell("daily.iris_required_written", db.ledger_from - timedelta(days=1)) == (None, 0, None)
     assert cell("daily.alerts_critical", db.today - timedelta(days=12))[0] == 1.0
     assert cell("daily.alerts_warning", db.today - timedelta(days=4))[0] == 2.0
     assert cell("daily.alerts_info", db.today - timedelta(days=4))[0] == 0.0
@@ -497,7 +494,8 @@ def test_registry_columns_exist_in_the_database(db):
     async def work(conn):
         rows = await conn.fetch(
             "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' "
-            "AND table_name IN ('climate', 'diagnostics', 'daily_summary', 'v_daily_scorecard', 'v_dli_daily')"
+            "AND table_name IN ('climate', 'diagnostics', 'v_dashboard_energy', 'daily_summary', 'v_daily_scorecard', "
+            "'v_dli_daily')"
         )
         return {(row["table_name"], row["column_name"]) for row in rows}
 

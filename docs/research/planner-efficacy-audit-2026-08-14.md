@@ -7,8 +7,9 @@
 - **Method:** read-only production telemetry, source/architecture audit,
   deterministic controller replay, weather matching, and held-out closed-loop
   system identification
-- **Core PID analysis:** [`research/planner-efficacy/`](../../research/planner-efficacy/README.md)
-- **Executed result manifest:** [`results-2026-08-14.json`](../../research/planner-efficacy/results-2026-08-14.json)
+- **Core PID analysis:** `research/planner-efficacy/`, archived at the Git tag `research-package-archive-20261117`
+  (removed from `main`)
+- **Executed result manifest:** [`results-2026-08-14.json`](results-2026-08-14.json)
 - **Current-firmware second pass:**
   [planner efficacy, current-firmware epoch](planner-efficacy-current-firmware-2026-08-14.md)
 

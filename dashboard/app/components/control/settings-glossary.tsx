@@ -2,15 +2,17 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { Setting } from "../../lib/operator-api";
+import { settingLabel } from "../../lib/settings-context";
 import { PanelError } from "../panel";
 import { groupLabel } from "../setting-row";
-import { lowerWord, raiseWord, readOnlyWords } from "./setting-help";
+import { lowerWord, raiseWord, readOnlyWords, settingHelp } from "./setting-help";
 import { groupRows } from "./settings-catalog";
 
 /**
  * The glossary (`/settings?view=glossary`, #1332): every setting the filter and search keep, by group, with its full
  * text: what it is, what it changes, raising and lowering it, the caution, why it is read-only and what it is computed
- * from. The words are API-09's `help`, the same MCP and the lab reference page serve. It prints as it reads.
+ * from. The name and words are those the Settings rows and drawer show (`settingLabel`, `settingHelp`): API-09's `help`, or
+ * its rewrite where the served text describes the retired model. It prints as it reads.
  */
 export function SettingsGlossary({ rows, failed, onRetry, editTo, labelOf, empty }: {
   rows: readonly Setting[] | null;
@@ -35,11 +37,11 @@ export function SettingsGlossary({ rows, failed, onRetry, editTo, labelOf, empty
 }
 
 function GlossaryEntry({ setting, editTo, labelOf }: { setting: Setting; editTo: (param: string) => string; labelOf: (param: string) => string }) {
-  const help = setting.help;
+  const help = settingHelp(setting);
   const readOnly = readOnlyWords(setting);
   const sources = setting.source_params ?? [];
   return <article className="ctl-glossary-entry" data-param={setting.param}>
-    <h3><Link to={editTo(setting.param)} preventScrollReset>{setting.label}</Link> <span className="setting-param mono">{setting.param}</span></h3>
+    <h3><Link to={editTo(setting.param)} preventScrollReset>{settingLabel(setting)}</Link> <span className="setting-param mono">{setting.param}</span></h3>
     {help ? <p className="ctl-glossary-summary">{help.summary}</p> : <p className="state-note">No description served</p>}
     <dl className="ctl-help-list">
       {help && <div><dt>What it changes</dt><dd>{help.effect}</dd></div>}

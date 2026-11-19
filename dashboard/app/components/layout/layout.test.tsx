@@ -54,12 +54,14 @@ test("Panel and Card heads: one pill after the title, actions, All … › and �
   const panel = screen.getByRole("region", { name: "Needs someone" });
   expect(panel.className).toBe("card panel tone-warn");
   expect(text(panel.querySelector(".card-title-row"))).toBe("Needs someoneStale");
-  expect(within(panel.querySelector(".card-head-end") as HTMLElement).getAllByRole("link").map((link) => [text(link), link.getAttribute("href")])).toEqual([["All alerts ›", "/activity"]]);
+  expect(within(panel.querySelector(".card-head-end") as HTMLElement).getAllByRole("link").map((link) => [text(link), link.getAttribute("href")])).toEqual([["All alerts\u2009›", "/activity"]]);
+  // The chevron (A9): a thin space and ›, hidden from a screen reader.
+  expect(panel.querySelector(".card-link-all .chev")?.getAttribute("aria-hidden")).toBe("true");
   expect(text(panel.querySelector(".card-foot"))).toBe("Updated 20 s ago");
   cleanup();
   renderUi(<Card title="Site today" pill={<Badge kind="manual" />} link={{ to: "/water", label: "Water" }} foot="SAF-4 resets at midnight" tone="fault"><p>body</p></Card>);
   expect(document.querySelector(".card")?.className).toBe("card tone-fault");
-  expect(text(document.querySelector(".card-title-row"))).toBe("Site todayManual");
+  expect(text(document.querySelector(".card-title-row"))).toBe("Site todaySet by hand");
   expect(screen.getByRole("link", { name: /^Water/ }).getAttribute("href")).toBe("/water");
   expect(text(document.querySelector(".card-foot"))).toBe("SAF-4 resets at midnight");
   // An interactive card is one link holding no other control.
@@ -94,6 +96,7 @@ test("SectionHeader: the only section heading, an h2 with its meta, chips and on
   expect([heading.textContent, heading.id]).toEqual(["Watering minutes", "minutes"]);
   expect(text(document.querySelector(".section-header .meta"))).toBe("last 7 days");
   expect(screen.getByRole("link", { name: /^All runs/ }).className).toBe("section-link");
+  expect(document.querySelector(".section-link .chev")?.textContent).toBe("\u2009›");
   const region = screen.getByRole("region", { name: "Week matrix" });
   expect([region.className, region.getAttribute("tabindex")]).toEqual(["l-scroll-x", "0"]);
   expect(document.querySelector(".page > .page-section")).not.toBeNull();

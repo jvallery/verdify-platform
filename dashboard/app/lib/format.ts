@@ -103,10 +103,20 @@ export function dayHeader(value: string, year?: string): string {
   const words = DAY_HEAD.format(date).replace(",", "");
   return year === undefined || value.slice(0, 4) === year ? words : `${words} ${value.slice(0, 4)}`;
 }
-/** "October 2026" for YYYY-MM. */
-export function monthTitle(month: string): string {
-  const date = new Date(`${month}-15T12:00:00Z`);
-  return Number.isNaN(date.getTime()) ? month : new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" }).format(date);
+/** A calendar date (YYYY-MM-DD) in words.md section 5's short form, "16 Nov": the day header without its weekday. */
+export function dayMonth(value: string): string {
+  const head = dayHeader(value);
+  return head === value ? value : head.split(" ").slice(1).join(" ");
+}
+/**
+ * A words fragment made for the middle of a sentence ("the house band", "seen on the controller") standing alone in a
+ * cell, a tile or a pill (A8): its first letter upper-cased, the rest untouched ("VPD" stays "VPD"); empty stays empty.
+ */
+export function sentenceStart(text: string): string {
+  const first = text.codePointAt(0);
+  if (first === undefined) return text;
+  const letter = String.fromCodePoint(first);
+  return letter.toLocaleUpperCase("en-US") + text.slice(letter.length);
 }
 /** Elapsed seconds as "12 s", "4 min", "2 h", "3 d". */
 export function duration(seconds: number): string {
@@ -170,6 +180,18 @@ const UNITS: Record<string, { label: string; digits: number }> = {
   dBm: { label: "dBm", digits: 0 },
   "°": { label: "°", digits: 0 }, deg: { label: "°", digits: 0 },
   kB: { label: "kB", digits: 0 },
+  // The daily record, drying and the controller's health (dashboard v2).
+  kWh: { label: "kWh", digits: 1 },
+  "kWh/kg": { label: "kWh/kg", digits: 2 },
+  therms: { label: "therms", digits: 2 },
+  kg: { label: "kg", digits: 2 },
+  g: { label: "g", digits: 0 },
+  W: { label: "W", digits: 0 },
+  ms: { label: "ms", digits: 1 },
+  B: { label: "B", digits: 0 },
+  h: { label: "h", digits: 1 },
+  // A count (starts, restarts, rows): a whole number with no unit label.
+  count: { label: "", digits: 0 },
 };
 const NUMBERS = [0, 1, 2].map((digits) => new Intl.NumberFormat("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits, signDisplay: "negative" }));
 function fixed(value: number, digits: number): string {
@@ -191,7 +213,8 @@ function minutes(value: number): string {
 }
 /**
  * A value in its fixed unit: °F and % 1 dp, kPa 2 dp, gal 0 dp, minutes whole ("h min" from 120), gal/min, lux, W/m²,
- * ppm, dBm, angles and kB 0 dp, any other unit 1 dp. A no-break space precedes every unit but %, negatives use a true
+ * ppm, dBm, angles and kB 0 dp; kWh, ms and h 1 dp; kWh/kg, therms and kg 2 dp; g, W, B and counts 0 dp (a count
+ * prints no label); any other unit 1 dp. A no-break space precedes every unit but %, negatives use a true
  * minus, and a missing value is "—", never 0.
  */
 export function formatValue(value: number | null | undefined, unit: string | null | undefined): string {

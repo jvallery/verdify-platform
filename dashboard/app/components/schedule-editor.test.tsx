@@ -9,6 +9,7 @@ import { createRoutesStub, useLocation } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import { UUID, advance, requests, startFixtureApi, stopFixtureApi, writes, type FixtureOptions } from "../lib/test-fixture-api";
 import { PHYSICAL_LINES, SCHEDULE_LINES, physicalOf } from "../lib/water";
+import { words } from "../lib/words";
 import type { WriteError } from "../lib/writes";
 import Activity from "../routes/activity";
 import ActivityLog from "../routes/activity-log";
@@ -97,11 +98,11 @@ test("creating L01 Mon, Wed, Fri at sunrise + 60 for 12 min previews against the
   expect(summary).toContain("ROUTINE WATERING");
   expect(summary).toContain("Wall drip");
   expect(summary).toContain("12 min");
-  expect(summary).toContain("Iris will leave this rule unchanged.");
+  expect(summary).not.toMatch(/Iris|manual/i);
   expect(summary).toContain("controller readback confirms it");
   // The draft draws dashed on the timeline of the next day it runs (today), and the drawer reads its totals; nothing sent yet.
   expect(shownDay()).toBe("Monday, Nov 2 · today");
-  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Mon 07:35, 12 min, draft, not saved, planned", draft: true, hatched: false, capped: false, conflict: false }]);
+  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Mon 07:35, 12 min, draft, not saved, scheduled", draft: true, hatched: false, capped: false, conflict: false }]);
   expect(previewLine("L01")).toBe("Wall drip Mon 12 · Wed 12 · Fri 12 minWall drip cap 60 min a day");
   expect(checks()).toEqual([]);
   expect(writes(api)).toEqual([]);
@@ -118,8 +119,8 @@ test("creating L01 Mon, Wed, Fri at sunrise + 60 for 12 min previews against the
   // The drawer closes; the rule and the status line read REQUESTED, and the rules list counts it.
   expect(drawer()).toBeNull();
   expect(where()).toBe("/water/schedules");
-  // The one pill is REQUESTED (redesign §4.4's priority), so MANUAL moves into the meta line meanwhile.
-  expect([pill(4), ruleMeta(4)]).toEqual(["Requested", "manual · changed by jason 0 s ago · rev 43 sending"]);
+  // The one pill is REQUESTED (redesign §4.4's priority).
+  expect([pill(4), ruleMeta(4)]).toEqual(["Requested", "changed by jason 0 s ago · rev 43 sending"]);
   expect(banner()).toBe("Program rev 42 on controller · rev 43 sending Requested");
   expect(count()).toBe("4 of 24 schedules");
   // API-IRR-02 and API-IRR-01 read every 5 s; the third read since the write carries the new hash: CONFIRMED, for 10 minutes.
@@ -127,9 +128,9 @@ test("creating L01 Mon, Wed, Fri at sunrise + 60 for 12 min previews against the
   expect(pill(4)).toBe("Requested");
   await advance(5_000);
   await advance(5);
-  // CONFIRMED is news for 10 minutes (D-UX-07), but MANUAL outranks it: the meta says confirmed meanwhile.
-  expect(pill(4)).toBe("Manual");
-  expect(ruleMeta(4)).toMatch(/ · confirmed$/);
+  // CONFIRMED is news for 10 minutes (D-UX-07).
+  expect(pill(4)).toBe("Confirmed");
+  expect(ruleMeta(4)).not.toMatch(/manual|Iris/i);
   await advance(5_000);
   expect(banner()).toMatch(/^Program rev 43 on controller · confirmed \d+ s ago$/);
   // Activity's Log lists the create under the operator's name.
@@ -191,7 +192,7 @@ test("a mist schedule on L07 with Schedule off saves, and its blocks read \"Skip
   expect(shownDay()).toBe("Tuesday, Nov 3");
   expect(blocks("L07")).toEqual([{ name: "South mister, Tue 14:00, 4 × 45 s, draft, not saved, Skipped until Schedule is on", draft: true, hatched: true, capped: false, conflict: false }]);
   expect(preview()).toContain("Skipped until Schedule is on");
-  expect(previewLine("L07")).toBe("South mister no minutes plannedSouth: 0 of 30 min for schedules; 15 kept for VPD");
+  expect(previewLine("L07")).toBe("South mister no minutes scheduledSouth: 0 of 30 min for schedules; 15 kept for VPD");
   await save();
   expect(writes(api)[0].body).toMatchObject({ line_id: "L07", days: ["tue"], start: { kind: "clock", clock: "14:00" }, on_s: 45, count: 4, gap_s: 60, degraded_only: false });
   expect(drawer()).toBeNull();
@@ -208,29 +209,25 @@ test("a degraded_only draft follows VPD control: on L04 \"only if VPD sensing is
   expect(blocks("L04").find((block) => block.draft)?.name).toMatch(/Skipped until Schedule is on$/);
   fireEvent.click(inDrawer().getByLabelText("Only if VPD sensing is degraded"));
   // A fallback window, not a planned run: it runs only if VPD sensing fails (#1308 visual QA 6).
-  expect(blocks("L04").find((block) => block.draft)).toMatchObject({ name: "Center mister, Tue 06:50, 4 × 45 s, draft, not saved, fallback, only if VPD sensing is degraded", hatched: false });
+  expect(blocks("L04").find((block) => block.draft)).toMatchObject({ name: "Center mister, Tue 06:50, 4 × 45 s, draft, not saved, backup, only if VPD sensing is degraded", hatched: false });
   expect(day().querySelector('.sch-row[data-line="L04"] .sch-draft')?.className).toContain("sch-eq-heat1");
   expect(preview()).toContain("only if VPD sensing is degraded");
-  expect(previewLine("L04")).toBe("Center mister no minutes plannedCenter: 0 of 60 min for schedules; 60 kept for VPD");
+  expect(previewLine("L04")).toBe("Center mister no minutes scheduledCenter: 0 of 60 min for schedules; 60 kept for VPD");
   setLine("L07");
   expect(blocks("L07")).toEqual([{ name: "South mister, Tue 06:50, 4 × 45 s, draft, not saved, Skipped: VPD control is off", draft: true, hatched: true, capped: false, conflict: false }]);
   expect(preview()).toContain("Skipped: VPD control is off");
 });
 
-test("Let Iris change this starts off (manual), ticking it saves manual: false, and it starts off again on an edit of a schedule Iris may adjust", async () => {
+test("the editor offers no switch about who may change a rule: a create and an edit both save manual: true", async () => {
   const api = open(NEW);
   await fillWallMwf();
-  const manual = () => inDrawer().getByLabelText("Let Iris change this") as HTMLInputElement;
-  expect(manual().checked).toBe(false);
-  fireEvent.click(manual());
+  expect(inDrawer().queryByLabelText(/Iris/)).toBeNull();
   await save();
-  expect(writes(api)[0].body).toMatchObject({ manual: false });
-  // The rule says Iris may adjust it.
-  expect(ruleMeta(4)).toMatch(/^Iris may adjust · /);
+  expect(writes(api)[0].body).toMatchObject({ manual: true });
+  expect(ruleMeta(4)).not.toMatch(/Iris|manual/i);
   cleanup(); stopFixtureApi();
   const again = open("/water/schedules?schedule=13", { fixture: "schedules-paused" });
   await advance(0);
-  expect(manual().checked).toBe(false);
   await save();
   expect(writes(again)[0].body).toMatchObject({ manual: true });
   expect(writes(again)[0].operationId).toBe("API-IRR-04");
@@ -250,9 +247,9 @@ test("an L02 feed shows FERT and the partner's note, sends prewet_s and flush_s,
   expect(text(drawer()!.querySelector(".schedule-fert"))).toBe("Prewets on Wall drip, feeds through the fertilizer valve from the tank, then flushes on Wall drip");
   expect(previewLine("L01")).toBe("Wall drip Sun 6 minWall drip cap 60 min a day");
   expect(shownDay()).toBe("Sunday, Nov 8");
-  expect(blocks("L02")).toEqual([{ name: "Wall drip (fertilized), Sun 07:35, 5 min, draft, not saved, planned", draft: true, hatched: false, capped: false, conflict: false }]);
+  expect(blocks("L02")).toEqual([{ name: "Wall drip (fertilized), Sun 07:35, 5 min, draft, not saved, scheduled", draft: true, hatched: false, capped: false, conflict: false }]);
   expect([...day().querySelectorAll('.sch-row[data-line="L01"] .sch-part')].map((node) => node.getAttribute("title")?.replaceAll("\u00a0", " "))).toEqual([
-    "prewet 2 min before Wall drip (fertilized)'s 07:35 feed, planned", "flush 4 min after Wall drip (fertilized)'s 07:35 feed, planned",
+    "prewet 2 min before Wall drip (fertilized)'s 07:35 feed, scheduled", "flush 4 min after Wall drip (fertilized)'s 07:35 feed, scheduled",
   ]);
   await save();
   expect(writes(api)[0].body).toEqual({
@@ -344,16 +341,16 @@ test("a check on record is not sent again when the schedule after it was refused
   expect(drawer()).toBeNull();
 });
 
-test("before the engine the schedule stays REQUESTED with \"Applies with the irrigation firmware\" and never reads not confirmed", async () => {
+test("with no engine reported the schedule stays REQUESTED with the state reason and never reads not confirmed", async () => {
   const api = open(NEW, { fixture: "before-engine" });
   await fillWallMwf();
   // The draft reads as a blocked occurrence does, and still counts against the cap.
-  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Mon 07:35, 12 min, draft, not saved, will not run, arrives with the irrigation firmware", draft: true, hatched: true, capped: false, conflict: false }]);
+  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Mon 07:35, 12 min, draft, not saved, will not run, the controller reports no irrigation engine", draft: true, hatched: true, capped: false, conflict: false }]);
   expect(previewLine("L01")).toBe("Wall drip Mon 12 · Wed 12 · Fri 12 minWall drip cap 60 min a day");
   fireEvent.click(inDrawer().getByLabelText("Checked: line flushed and emitters checked"));
   await save();
   expect(writes(api).map((row) => row.operationId)).toEqual(["API-IRR-08", "API-IRR-03"]);
-  expect([pill(4), ruleMeta(4)]).toEqual(["Requested", "manual · changed by jason 0 s ago · Applies with the irrigation firmware"]);
+  expect([pill(4), ruleMeta(4)]).toEqual(["Requested", `changed by jason 0 s ago · ${words("state_reason", "no_engine")}`]);
   const before = requests(api, "API-IRR-02").length;
   await advance(6 * 60_000);
   // The slow cadence, since it cannot settle before the firmware ships.
@@ -523,7 +520,7 @@ test("Edit from a block's popover opens the stored schedule over it; Save sends 
   change("Reason (optional)", "Rain this week");
   // Wednesday's saved block gives way to the draft; Monday's has run and stays.
   expect(shownDay()).toBe("Wednesday, Nov 4");
-  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Wed 07:35, 10 min, draft, not saved, planned", draft: true, hatched: false, capped: false, conflict: false }]);
+  expect(blocks("L01")).toEqual([{ name: "Wall drip · Wall MWF, Wed 07:35, 10 min, draft, not saved, scheduled", draft: true, hatched: false, capped: false, conflict: false }]);
   expect(previewLine("L01")).toBe("Wall drip Wed 10 · Fri 10 · Sun 6 minWall drip cap 60 min a day");
   await save();
   expect(writes(api).map((row) => row.operationId)).toEqual(["API-IRR-04"]);

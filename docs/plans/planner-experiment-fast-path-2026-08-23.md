@@ -1,5 +1,7 @@
 # Planner experiment fast path — multidisciplinary execution plan
 
+> The study package `research/planner-efficacy/` was removed from `main` after its campaign closed (#1657). Its files, including every path this page names, are kept at the Git tag `research-package-archive-20261117`.
+
 - **Decision:** implement the confirmed-component fast path in ADR-0010.
 - **Program owner:** GitHub epic #581.
 - **Launch owner:** GitHub issue #642.

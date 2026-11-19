@@ -78,7 +78,7 @@ test("the transform: a no_data day stays null, 0 stays 0, and the no-valve serie
 test("the transform by cause: the feed above the clean water, a cause it does not know raw, in the cause table's colours", () => {
   const model = buildWaterUse({ days: [day("2026-11-02", { by_cause: { feed: 5, schedule: 9, vpd: 4, hail: 1 } })] }, "cause");
   expect(model.segments.map((segment) => [segment.key, segment.token, segment.label])).toEqual([
-    ["vpd", "--cause-vpd", "VPD"], ["schedule", "--cause-schedule", "Schedule"], ["hail", "--c-bound", "Hail"], ["feed", "--eq-fert", "Feed"],
+    ["vpd", "--cause-vpd", "VPD"], ["schedule", "--cause-schedule", "Schedule"], ["hail", "--text-3", "Hail"], ["feed", "--eq-fert", "Feed"],
   ]);
   expect(model.stacks.map((column) => column[0])).toEqual([4, 13, 14, 19]);
 });
@@ -93,7 +93,7 @@ test("a partial day with no split yet keeps its null, a part it lacks is 0, and 
 
 test("each line takes its own token by kind: drips, fertilizer lines, the master, misters and fog", () => {
   expect(["L01", "L05", "L02", "L06", "L08", "L10", "L03", "L04", "L07", "L09", "L11", "L12"].map(lineToken)).toEqual([
-    "--eq-water", "--eq-water", "--eq-fert", "--eq-fert", "--eq-fert", "--eq-fert", "--eq-master", "--eq-mister", "--eq-mister", "--eq-mister", "--eq-fog", "--c-bound",
+    "--eq-water", "--eq-water", "--eq-fert", "--eq-fert", "--eq-fert", "--eq-fert", "--eq-master", "--eq-mister", "--eq-mister", "--eq-mister", "--eq-fog", "--text-3",
   ]);
 });
 
@@ -104,8 +104,8 @@ test("the chart: the stack left of each day and the no-valve bar right of it, ne
   const bars = series.slice(1).map((item) => (item.paths as unknown as { bars: { align: number; size: number[] } }).bars);
   expect(bars.map((item) => item.align)).toEqual([-1, -1, -1, -1, 1]);
   // Red is for stop and fault (redesign principle 7, §4.4): no series is drawn in it.
-  expect(series[5].fill).toBe(TOKENS["--muted"]);
-  expect(series.slice(1).map((item) => item.fill)).not.toContain(TOKENS["--fault"]);
+  expect(series[5].fill).toBe(TOKENS["--text-3"]);
+  expect(series.slice(1).map((item) => item.fill)).not.toContain(TOKENS["--critical"]);
   expect(series[1].fill).toBe(TOKENS["--eq-water"]);
   expect(series[4].fill).toBe(TOKENS["--eq-fert"]);
   // Each part runs from the one below it; the no-valve series (index 5) is in no band.
@@ -121,14 +121,14 @@ test("a no-data day is a faint hatched gap across both bars, under the grid; tod
   const { plot } = await mount();
   const ctx = plot.ctx;
   expect(ctx.depth).toBe(0);
-  // The hatch is drawClear's, so the grid and the bars paint over it, in --line, never --muted.
-  expect(ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"])).toEqual([]);
-  const hatch = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--line"] && same(stroke.dash, []));
+  // The hatch is drawClear's, so the grid and the bars paint over it, in --border, never --text-3.
+  expect(ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"])).toEqual([]);
+  const hatch = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--border"] && same(stroke.dash, []));
   expect(hatch).toHaveLength(1);
   expect(new Set(hatch[0].path.map(([, y]) => y))).toEqual(new Set([0, 300]));
   // Each bar is 18 px at most here (40% of a 200 px day), so the hatch starts one height left of the 18 px stack.
   expect(Math.min(...hatch[0].path.map(([px]) => px))).toBeCloseTo(centre(plot, 1) - 18 - 300, 6);
-  const edges = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--ink"] && same(stroke.dash, [3, 2]));
+  const edges = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text"] && same(stroke.dash, [3, 2]));
   expect(edges.map((stroke) => [Math.round(stroke.path[0][0]), Math.round(stroke.path[1][0]), stroke.path[0][1]])).toEqual([
     [Math.round(centre(plot, 4) - 18), Math.round(centre(plot, 4)), plot.valToPos(5, "y")],
     [Math.round(centre(plot, 4)), Math.round(centre(plot, 4) + 18), plot.valToPos(3, "y")],
@@ -150,11 +150,11 @@ test("the tooltip says the day's meter total, each part, the no-valve water, par
   expect(at(4)).toEqual(["Nov 2", `${gal(8)} on the meter`, "partial", `Center mister · ${gal(3)}`, `Fog · ${gal(2)}`, `No Verdify valve open · ${gal(3)}`]);
 });
 
-test("the key names the no-valve bar in neutral --muted, hatched no data and the dashed partial day, and lines of one kind share an entry", () => {
+test("the key names the no-valve bar in neutral --text-3, hatched no data and the dashed partial day, and lines of one kind share an entry", () => {
   const items = waterKey(buildWaterUse({ days: [...WEEK.days, day("2026-11-03", { by_line: { L07: 1 } })] }, "line", NAMES));
   expect(items.map((item) => [item.token, item.kind, item.label])).toEqual([
     ["--eq-water", "fill", "Wall drip"], ["--eq-mister", "fill", "Center mister, South mister"], ["--eq-fog", "fill", "Fog"], ["--eq-fert", "fill", "Wall drip (fertilized)"],
-    ["--muted", "fill", "No Verdify valve open: hose, sink, hydro or a leak"], ["--muted", "hatch", "no data"], ["--ink", "dashed", "partial day"],
+    ["--text-3", "fill", "No Verdify valve open: hose, sink, hydro or a leak"], ["--text-3", "hatch", "no data"], ["--text", "dashed", "partial day"],
   ]);
 });
 

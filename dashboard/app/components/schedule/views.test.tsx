@@ -18,7 +18,7 @@ import { Agenda } from "./agenda";
 import { DayTimeline, blockRooms, blockWords } from "./day-timeline";
 import { agendaDays, dayModel, entriesOf, mondayOf, weekCells, type DayBlock } from "./model";
 import { timeScale } from "../../lib/time-scale";
-import { WeekStrip } from "./week-strip";
+import { WeekStrip, cellSummary } from "./week-strip";
 
 const NOW = Date.parse("2026-11-02T17:42:00Z");
 const TODAY = "2026-11-02";
@@ -89,6 +89,12 @@ test("a block's words take the room beside it: all of them, else its time and ou
   // The now rule is a neighbour: at 10:00, block a's words stop there.
   expect(blockRooms(blocks, scale, hour(10)).get("a")?.after).toBeCloseTo(3 * 100 / 24, 6);
   expect(blockRooms(blocks, scale, hour(10)).get("b")?.before).toBeCloseTo(2 * 100 / 24, 6);
+  // A valve episode's tick is a neighbour too, so a block's words never run across it (design review).
+  const valve = [{ start: hour(9), end: hour(9.5) }];
+  expect(blockRooms(blocks, scale, null, valve).get("a")?.after).toBeCloseTo(2 * 100 / 24, 6);
+  expect(blockRooms(blocks, scale, null, valve).get("b")?.before).toBeCloseTo(2.5 * 100 / 24, 6);
+  // A week cell's words are short so they fit: "no runs" for an empty day.
+  expect([cellSummary("nothing scheduled"), cellSummary("2 runs")]).toEqual(["no runs", "2 runs"]);
   // Drawn: L01's 12-minute run is too short for its words, which sit beside it whole, "07:35 ok", not its time alone.
   renderUi(<DayTimeline model={day} now={NOW} head={<h2>Monday</h2>} label="Runs on Monday by line" />);
   expect(text(document.querySelector('.sch-row[data-line="L01"] .sch-block-label'))).toBe("07:35 ok");
@@ -99,7 +105,7 @@ test("a block's words take the room beside it: all of them, else its time and ou
   expect(text(document.querySelector(".sch-axis-end"))).toBe("that day / cap");
   cleanup();
   renderUi(<DayTimeline model={model("2026-11-04")} now={NOW} head={<h2>Wednesday</h2>} label="Runs" />);
-  expect(text(document.querySelector(".sch-axis-end"))).toBe("planned / cap");
+  expect(text(document.querySelector(".sch-axis-end"))).toBe("scheduled / cap");
 });
 
 test("a strip without API-05's answer says its valve time is unknown and hatches it up to now; with the answer and nothing in it, none", () => {
@@ -150,7 +156,7 @@ test("the week strip: seven days with their summaries and levels, the selected o
   // The step past what is served keeps its frame at the same height, quieter, so the strip stays balanced (#1308 visual QA 36).
   expect(document.querySelector("span.sch-week-step.sch-week-next.is-off")?.getAttribute("aria-hidden")).toBe("true");
   const css = readFileSync(join(process.cwd(), "app/styles/water.css"), "utf8");
-  expect(css).toContain("span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:var(--radius-sm);");
+  expect(css).toContain("span.sch-week-step.is-off{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--radius-sm);");
 });
 
 test("the agenda: a row is a button that opens its popover, NEXT on the next planned run, and the pauses above the days", () => {
@@ -159,7 +165,7 @@ test("the agenda: a row is a button that opens its popover, NEXT on the next pla
   expect(text(document.querySelector(".sch-agenda-pauses"))).toBe("Wall drip: paused until 14:00 by jason");
   const rows = screen.getAllByRole("button");
   expect(rows.map((row) => row.getAttribute("aria-label")?.replaceAll(" ", " "))).toEqual([
-    "06:50 Center mister · 8 × 60 s, Dawn drench · ok, done", "07:35 Wall drip · 12 min, Wall MWF · ok, done", "06:50 Center mister · 8 × 60 s, Dawn drench · Iris may adjust, next",
+    "06:50 Center mister · 8 × 60 s, Dawn drench · ok, done", "07:35 Wall drip · 12 min, Wall MWF · ok, done", "06:50 Center mister · 8 × 60 s, Dawn drench, next",
   ]);
   fireEvent.click(rows[2]);
   expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ next: true, lineId: "L04" }), rows[2]);

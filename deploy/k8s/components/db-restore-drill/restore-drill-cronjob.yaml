@@ -1,0 +1,123 @@
+# Weekly isolated restore drill (#1549). Runs Mondays 02:47 UTC, 30 minutes
+# after the nightly verdify-db-backup (02:17 UTC, about 2 minutes), so the
+# drill restores that night's pair. Drill age reaches Prometheus through
+# kube-state-metrics CronJob status (channel ksm), like VerdifyDBBackupStale;
+# monitoring-stack alerts VerdifyDBRestoreDrillStale after 8 days.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: verdify-db-restore-drill
+  labels:
+    app.kubernetes.io/part-of: verdify
+    app.kubernetes.io/component: db-restore-drill
+spec:
+  schedule: "47 2 * * 1"
+  timeZone: Etc/UTC
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 7200
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: verdify
+        app.kubernetes.io/component: db-restore-drill
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 3600
+      # Keep a week so the receipt is readable until the next run.
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: verdify
+            app.kubernetes.io/component: db-restore-drill
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          imagePullSecrets:
+            - name: zot-origin-cluster-pull  # zot origin (ADR-0021)
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: restore-and-audit
+              # Same pinned TimescaleDB image as verdify-db and verdify-db-backup.
+              image: registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:e5f7512763357fe0e9d39fd96d220a0a3ea40cad3f26a2426c85849a8d54485e
+              command: ["/bin/bash", "/scripts/run-scheduled-restore-drill.sh"]
+              env:
+                - name: BACKUP_DIR
+                  value: /backups
+                - name: RESTORE_SCRIPT
+                  value: /scripts/restore-backup-pair.sh
+                # Targets (docs/runbooks/db-backup-pair-restore.md): RPO 24 h and
+                # RTO 24 h (storage-infra#996 app-database tier, D-193). The drill
+                # fails when the restored pair is older than 26 h at start (24 h
+                # plus dump-schedule jitter) or restore-and-audit exceeds 1 h.
+                - name: DRILL_MAX_RPO_SECONDS
+                  value: "93600"
+                - name: DRILL_MAX_RTO_SECONDS
+                  value: "3600"
+                - name: PGDATA
+                  value: /restore/pgdata
+                - name: PGHOST
+                  value: /run/postgresql
+                - name: PGPORT
+                  value: "55432"
+                - name: PGDATABASE
+                  value: verdify_rehearsal
+                - name: VERIFY_SCRIPT
+                  value: /scripts/verify-backup-pair.sh
+                - name: AUDIT_SQL
+                  value: /scripts/logical-restore-audit.sql
+                - name: OWNERSHIP_SQL
+                  value: /scripts/check-timescale-ownership.sql
+                - name: OWNER_REPAIR_TEST_SQL
+                  value: /scripts/test-timescale-parent-owner.sql
+                - name: RESTORED_OWNER_TEST_SQL
+                  value: /scripts/test-restored-timescale-parent-owner.sql
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+              volumeMounts:
+                - name: dumps
+                  mountPath: /backups
+                  readOnly: true
+                - name: restore-data
+                  mountPath: /restore
+                - name: postgres-run
+                  mountPath: /run/postgresql
+                - name: tmp
+                  mountPath: /tmp
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: dumps
+              persistentVolumeClaim:
+                claimName: verdify-db-dumps
+                readOnly: true
+            - name: restore-data
+              emptyDir: {}
+            - name: postgres-run
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}
+            - name: scripts
+              configMap:
+                name: verdify-db-restore-drill-scripts
+                defaultMode: 0555

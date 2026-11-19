@@ -37,10 +37,9 @@ from verdify_schemas.tunable_registry import WIRE_SCHEMA_VERSION  # noqa: E402
 
 FIXTURE_PATH = REPO_ROOT / "verdify_schemas" / "tests" / "fixtures" / "policy_vector_goldens.json"
 
-# Policy revision ids bound into every golden content hash. The Lane G
-# baseline builder (research/planner-efficacy/baseline/baseline.py
-# POLICY_REVISION_IDS) pins the identical mapping; a cross-check test in
-# research/planner-efficacy/tests/test_baseline.py enforces it.
+# Policy revision ids bound into every golden content hash. The retired Lane G
+# baseline builder (research/planner-efficacy/baseline/baseline.py, archived at
+# tag research-package-archive-20261117) pinned the identical mapping.
 REVISION_IDS = {
     "registry_rev": "wire-v2-retire-wire-id-6",
     "schema_rev": "efa85343",

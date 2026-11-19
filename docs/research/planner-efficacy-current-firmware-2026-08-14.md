@@ -1,5 +1,7 @@
 # Planner efficacy, second pass: current-firmware epoch
 
+> The study package `research/planner-efficacy/` was removed from `main` after its campaign closed (#1657). Its files, including every path this page names, are kept at the Git tag `research-package-archive-20261117`.
+
 - **Firmware:** `2026.7.10.1500.09ee886`
 - **Firmware source:** `09ee886f1a6fbd6452064460e1a57e5dc1399a70`
 - **First device readback:** 2026-07-10 21:03:12.991915 UTC
@@ -10,12 +12,12 @@
   analysis of an unplanned stale-policy interval, followed by prospective
   switchback screening and full-stack experiment design
 - **First pass:** [planner efficacy audit](planner-efficacy-audit-2026-08-14.md)
-- **Reproduction package:**
-  [`research/planner-efficacy/`](../../research/planner-efficacy/README.md)
+- **Reproduction package:** `research/planner-efficacy/`, archived at the Git tag
+  `research-package-archive-20261117` (removed from `main`)
 - **Core result:**
-  [`results-current-firmware-core-2026-08-14.json`](../../research/planner-efficacy/results-current-firmware-core-2026-08-14.json)
+  [`results-current-firmware-core-2026-08-14.json`](results-current-firmware-core-2026-08-14.json)
 - **Mechanism/interruption result:**
-  [`results-current-firmware-supplement-2026-08-14.json`](../../research/planner-efficacy/results-current-firmware-supplement-2026-08-14.json)
+  [`results-current-firmware-supplement-2026-08-14.json`](results-current-firmware-supplement-2026-08-14.json)
 
 ## Executive answer
 
@@ -839,7 +841,7 @@ a boundary—is inconclusive, not equivalence or safety proof.
 
 ### 8.5 What 30 days can detect
 
-The checked-in [supplement result](../../research/planner-efficacy/results-current-firmware-supplement-2026-08-14.json)
+The checked-in [supplement result](results-current-firmware-supplement-2026-08-14.json)
 now calculates a screening bound from the 34 exact-firmware days. It applies
 the proposed 02:00–24:00 window, evaluates both nonoverlapping pair origins
 (17 pairs from epoch day 1 and 16 after a one-day shift), and uses the

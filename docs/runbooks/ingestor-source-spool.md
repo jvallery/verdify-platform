@@ -182,8 +182,8 @@ with the firmware/native build lane before starting a new build or changing pins
    The exact file passed actual production predecessor/postflight in a rolled-back
    transaction; that test did not adopt the schema or add runner ledger265.
 2. Build the exact integrated source through the existing native CI. Do not reuse
-   the observer-only 2c image for this change. Promote the matching five release
-   pins together (api, mcp, ingestor, migrate, experiment-v2 orchestrator) with
+   the observer-only 2c image for this change. Promote the matching four release
+   pins together (api, mcp, ingestor, migrate) with
    `scripts/promote-release-pins.py`. The existing ledgered PreSync runner must
    apply265 before the new ingestor starts. No selective sync, digest refresh,
    changed migration bytes, or manually inserted ledger stamp.

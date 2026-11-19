@@ -11,7 +11,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { AlertRow } from "../components/alert-row";
 import { ReadbackBadge } from "../components/badge";
 import { Button } from "../components/button";
-import { EditDrawer, ManualToggle, MANUAL_DEFAULT, NumberField, Reason } from "../components/forms";
+import { EditDrawer, NumberField, Reason } from "../components/forms";
 import { StateReasonLine } from "../components/state-reason-line";
 import { text } from "../components/test-render";
 import type { StateReason, Alert as VocabAlert } from "./vocab";
@@ -23,7 +23,7 @@ import { NOW, UUID, advance, renderWithApi, requests, sentAt, startFixtureApi, s
 import { usePolledQuery } from "./use-current";
 import { words } from "./words";
 import {
-  COMMAND_WINDOW_MS, NOT_STARTED, defaultReadback, errorFor, formError, newestNow, problemMessage, programBody, programSyncText, readback, runningLines, settingToast, stopResult,
+  COMMAND_WINDOW_MS, MANUAL_DEFAULT, NOT_STARTED, defaultReadback, errorFor, formError, newestNow, problemMessage, programBody, programSyncText, readback, runningLines, settingToast, stopResult,
   useCommand, useProgramWrite, useRecordWrite, useSettingWrite, useStop,
 } from "./writes";
 
@@ -61,7 +61,7 @@ function SettingDrawer({ setting, open, onClose }: { setting: Setting; open: boo
   return <EditDrawer open={open} onClose={onClose} title="Edit setting" heading={setting.label} graph={{ param: setting.param, unit: setting.unit }} onSave={save}
     saving={write.sending} error={formError(write.error, ["value", "reason"])} actions={<Button write onClick={() => void write.release({ reason })}>Release to auto</Button>}>
     <NumberField label="New value" value={value} onChange={setValue} min={setting.min} max={setting.max} step={setting.step} unit={setting.unit} error={typed ?? errorFor(write.error, "value")} />
-    <ManualToggle checked={manual} onChange={setManual} />
+    <label><input type="checkbox" checked={manual} onChange={(event) => setManual(event.target.checked)} /> Manual</label>
     <Reason value={reason} onChange={setReason} error={errorFor(write.error, "reason")} />
   </EditDrawer>;
 }
@@ -87,7 +87,7 @@ test("Save always sends manual, ticked by default and false when unticked; a dou
   expect(sentWrites[0].idempotency_key).toMatch(UUID);
   expect(dialogOpen()).toBe(false);
   await openAndType("690");
-  fireEvent.click(screen.getByRole("checkbox", { name: "Let Iris change this" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Manual" }));
   fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Vandas drying" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await advance(0);
@@ -207,22 +207,22 @@ test("a site cap before the irrigation firmware saves, reads REQUESTED with the 
   expect(requests(api, "API-10")[0]).toMatchObject({ path: "/api/v1/settings/sched_mist_rh_max_pct", body: { value: 88, manual: true } });
   expect(toasts("status")).toEqual(["Requested 88% for Scheduled-mist RH ceiling"]);
   expect(badge()).toBe("requested");
-  expect(text(screen.getByTestId("row").querySelector(".state-reason"))).toBe("Applies with the irrigation firmware");
+  expect(text(screen.getByTestId("row").querySelector(".state-reason"))).toBe("Waits for the controller's irrigation engine");
   const reads = sentAt("API-09").length;
   await advance(20_000);
   expect(sentAt("API-09")).toHaveLength(reads);
 });
 
 test("Release to auto sends API-11 with the reason and no body, and toasts the release", async () => {
-  const api = startFixtureApi({ fixture: "superseded-lane" });
+  const api = startFixtureApi({ fixture: "setting-history" });
   renderWithApi(<SettingRow param="outdoor_staleness_max_s" />);
   await advance(0);
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-  fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Back to the plan" } });
+  fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Back to its own value" } });
   fireEvent.click(screen.getByRole("button", { name: "Release to auto" }));
   await advance(0);
-  expect(writes(api)).toEqual([expect.objectContaining({ method: "DELETE", operationId: "API-11", path: "/api/v1/settings/outdoor_staleness_max_s?reason=Back+to+the+plan", body: null })]);
-  expect(toasts("status")).toEqual(["Released Outdoor Staleness Max: plan, band or default applies"]);
+  expect(writes(api)).toEqual([expect.objectContaining({ method: "DELETE", operationId: "API-11", path: "/api/v1/settings/outdoor_staleness_max_s?reason=Back+to+its+own+value", body: null })]);
+  expect(toasts("status")).toEqual(["Released Outdoor Staleness Max: the host sends its own value again"]);
   expect(settingToast({ value: 1, snapped_from: null }, { label: "GL Main Auto Mode", kind: "switch" })).toBe("Requested ON for GL Main Auto Mode");
   expect(settingToast({ value: 60, snapped_from: 48.75 }, { label: "Mister Engage Delay", kind: "numeric", unit: "s", step: 30 })).toBe("Requested 60\u00a0s for Mister Engage Delay (snapped from 48.75)");
 });
@@ -276,13 +276,13 @@ test("P: a schedule and an inline switch send manual true, a pause none; the ite
   expect(sentAt("API-IRR-02")).toHaveLength(schedules + 1);
 });
 
-test("P before the irrigation firmware: the item stays REQUESTED with \"Applies with the irrigation firmware\" and polls slowly", async () => {
+test("P before the irrigation firmware: the item stays REQUESTED with \"Waits for the controller's irrigation engine\" and polls slowly", async () => {
   startFixtureApi({ fixture: "before-engine" });
   renderWithApi(<Program />);
   await advance(0);
   fireEvent.click(screen.getByRole("button", { name: "VPD control" }));
   await advance(0);
-  expect(screen.getByTestId("sync").textContent).toBe("requested · Applies with the irrigation firmware");
+  expect(screen.getByTestId("sync").textContent).toBe("requested · Waits for the controller's irrigation engine");
   const reads = sentAt("API-IRR-01").length;
   await advance(10_000);
   expect(sentAt("API-IRR-01")).toHaveLength(reads);

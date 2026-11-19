@@ -3,40 +3,140 @@ title = "verdify-platform secret scanning (verdify-platform#1542, STD-EXP-13)"
 [extend]
 useDefault = true
 
-# Content-addressed identifiers, not credentials: image/manifest digests and
-# receipt hashes (sha256), git commit SHAs and UUIDs. Reviewed value-blind
-# 2026-11-16: every generic-api-key hit of these shapes was one of them.
+# Exact known-safe values only (estate-ci#126, COORD-W2 decision C,
+# 2026-11-17): one anchored value per line, never a shape, a path or a file
+# class. Each value was reviewed value-blind by its key context on 2026-11-17
+# (generic-api-key hits only). A new hit is a new review, not a wider pattern.
 [[allowlists]]
-description = "digests, commit SHAs and UUIDs"
+description = "exact reviewed values"
 regexTarget = "secret"
 regexes = [
-  '''^(sha256:)?[0-9a-f]{64}$''',
-  '''^[0-9a-f]{40}$''',
-  '''^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$''',
+  # sha256 content digests: migration, receipt, file and attestation hashes, test HMAC outputs
+  '''^0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76$''',
+  '''^021da321ca9bfa77f5f5724a3e3d8f2e7463b4a1435e47f8b3aa81e4fb8f22ac$''',
+  '''^030df35ca3b0bc8b94de5f394f96c2292674b2df58aea2d46990c53ad3bd1ad7$''',
+  '''^03d2a7ce5efd2eecee965672175585bad43194b5fea85d99739efe70e01a81a8$''',
+  '''^04f9cad09a10fd0a2564d48be25ab60f438c8a1f7576115c18bab10a2b242b97$''',
+  '''^0f166e52d683519ed94cd72d1b074c3e0aed85aa404299220fe85d4bf8235b38$''',
+  '''^29c45da79cf5d6a8c3db0eb1c91f4997ed6c04fc0bc83687d4e200a542fbde9d$''',
+  '''^2b17e85a1c45f7fc3e7c11e0513663f44e73a7666963e5f4c5428e4a275e4c52$''',
+  '''^370db5e67ad5c4145e6f1f7d93558a1502cb9680064f4cf28bbdae511d289003$''',
+  '''^37d2b576d6f571557ff9632676f723cc84e19a484756b73ad8b3301623931490$''',
+  '''^419f75b8c6a3a7848280fb8ec96b0be66ac74fb2c812b81bea357f1983f64f7f$''',
+  '''^42091d8bc52adfff17ef589ca7d71ac3a97fe37af4460b551a938f313635bb8c$''',
+  '''^43e5f3718d37a0aa153f49ece2f96e96de60ef839363fc9c9c97b6d1525cfdd3$''',
+  '''^444063bd61ccb69f02888ede5f2c2338d7882b954af7141e267cdb53b4ed9c7e$''',
+  '''^4526204db6bf83e9e4b62760eb956350c721c92a0825452aac016a5e703e59ed$''',
+  '''^46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76$''',
+  '''^4a39a38fcb5cebc8aa5385b8569db3969fece16210e5c505188624c1b84f6820$''',
+  '''^5091627a4dfd40c679ed4e2c0729cde507f705ab9c45c1e2eb82b42d29634bba$''',
+  '''^5606a373320d42c0a1f7114b0180f5954fe76ef065a67dee4b5f9a45230a5771$''',
+  '''^585d549f0c6c1d6c35bd5c0de8d05811ff005efe549b59a07f5e0227f04758f0$''',
+  '''^5bb375800baf2e61d29da1e1327b49c090da4a3e53656b1fbf5cf839bfff5e43$''',
+  '''^5c16bfe0f51ec1c3afe233d0e54abb716193f2fcf4756ea6d41fd34779bd7966$''',
+  '''^61f15a063514927c701e95f30f9ad256d7a4a05207841c7f57658a6cb37f4259$''',
+  '''^6209193d116cb9a7721e5b167543fe3c3d1f27f2df4baaf4b33713e41c1932c5$''',
+  '''^676d1903bb3a5bfc8ba244b7bc7619aa0cbd01318e6226bc4a6429c55635df70$''',
+  '''^67bb961f69e72f8d59f8d38dce96201682b1fb8fb40d423071c987b075cf994e$''',
+  '''^6b43af2ab8da8871469a379b1c322ade82481a92a7d32300381ea5e60fd2dd8c$''',
+  '''^6c543d037b3b0d1cea5de30cbec282ff587391d9f39fbebfdff8159d31930476$''',
+  '''^6c5b083ae0b491eea76d01c71b1f3fbb55d73e8dadcb26559dd6e237261f1948$''',
+  '''^6cd8ab0cbf243ed409e633e35b42a2215c7e68dea8b940baef1798ecefde1914$''',
+  '''^7022e3a448569e051a81a19ff621bade902fab0b393c2e45756f7bb9449702dc$''',
+  '''^7078d974e890869c6eeb13a3423a6eb86f1352d0ec99df9666cf57d2837d2395$''',
+  '''^751699a763970db4179a7f001f697620e649efb09302b911d25650743850badc$''',
+  '''^7a0f15cc5a42b012dabeba5b348805d16a709c1338bfa3a092295d0888c479bd$''',
+  '''^7c8b0d3f8dcfa8552068ca8373e0f394aafb3c27aab1fda72c7eebd3083c904a$''',
+  '''^7ce5781c14d7f06de16b7e0d10b43eb24a4e22540d1a69b24345807f8ed3344f$''',
+  '''^805b5ca8c0ce4ff6aac33b61493f935f94d56cd2b88566ff39d00c1725f0f0af$''',
+  '''^81f7be6e141f043660ca87b7a1a81918caab4105d8968782880e3d02664e7cd6$''',
+  '''^86b13f5ceb77eb4e4353d7e39cc248171d69d406e652bdbbaf6f1254693be06e$''',
+  '''^8b895d1a4dcf403098fcfa8dc9645ed330e7b43ae8b08128456692cd0a89105a$''',
+  '''^9904555fb62c32503b99cd3cd447c4412afd0451782d7216cf7a21557339357e$''',
+  '''^9b5e6841cebc95cff6020f1a899e65c1f504d927844f66f7045ecfb1eef23451$''',
+  '''^9d594b8e620e8ab4958471d5e2b1daa57973a66a3205017cd67104a6a4079a7d$''',
+  '''^a52e94f2b6fdecf792cfa819a33f6cd4a950d1076fec1895e9870a63b362cf62$''',
+  '''^a6f3ca95be6bdebc3a4c5c3bdf552af299b90a43cb22c19ad32e13923d6fb196$''',
+  '''^a752a89a07b5b90ecbe6ccaf44358492aa8da6c562d608c8880d24d77088af7e$''',
+  '''^aa226e5fb29a9aa0548c597ef718236d0d83737cb23c322920977a9655958dc7$''',
+  '''^ab0fe695f0c6e4012bc778c546eecd92e777a277a15f20a7948485f00d2b7d4c$''',
+  '''^abe5012d9c2c9a4d02049b7ab585ff883e3e855d8065fadb18f59ade662307e0$''',
+  '''^ad619765f93959500d7ed438f90000ceaf614b2f744553d4a4e269a7b15103d3$''',
+  '''^aef9e39647d84c313d76795f15b382eb5ebccb5828eecac83e73cbb97002e10e$''',
+  '''^af3647c841270c17097fd00c5d27d8dd6b46413a15838f08fd5b6cbbcda343d7$''',
+  '''^b4b8499b426ef1c7abb2c6c996dee098d9aec968ddc3292d210cca70c2e77b76$''',
+  '''^bae9b6416cd3e64310a1129d5518d8d987bd9191dc9c23f8fb7824f5c1e141a5$''',
+  '''^bcd26cc82a5009c02276eff38dde24dd92e72890b696552492adc24a64aad7e9$''',
+  '''^ca2601529d7b6efab6d5fa9c9280f4b5528387e729905583e2c16e5a40aaae0b$''',
+  '''^d0692231e9f63d237836c3a784f092a2abeeacef45fa04856768d0336cce8b94$''',
+  '''^d259673dee68b8eefc6e4b164f82412c78587ea5043715e410ea199db4a553c2$''',
+  '''^d31f1e0c8debc1dfb613d60bd31214161b7764609078415e871a0dd0858c1434$''',
+  '''^d440d47068e314d6372e7e1295837bf0803b42959ae2e526257411ab7c041390$''',
+  '''^d54493244e31b57046a090938c224cb09bfbf653d88dadf11535ced29132c2af$''',
+  '''^dc923e04b1e18e43661ce02e1af98d959cb9414c51587c872478fc0b8d524517$''',
+  '''^e46edc0830022a67995caf59825649963e27557256b4e0e23e6fb423eee2f373$''',
+  '''^e8d092c25b0f993a13b25536ddac27ba59f4ce04ae081c17ee83d0f54786fb2b$''',
+  '''^e96095765446c3a49265fba465e07e9ad09c7f91f841a7c7e81d257d86070ae0$''',
+  '''^edd984ee15691c2ff42a69a499217c84102279e69ac4fba0e83cd035ae4aa319$''',
+  '''^efe581f47eacaa5edd12914cacc112b5f02f99c0f3df89f6b65fe950bce266f8$''',
+  '''^f0a0d02a96692609b37d8429085163f4ce2668431a1840f7b1635856d846a547$''',
+  '''^f10f6422eb4b7346936909af09823cacce90e2705a089c7378ad67fbf1dfbbdd$''',
+  '''^f4fa14a4bb8a9430922a717194b328e8104b8a7c34be2f25f9c556372e43667e$''',
+  '''^fcedb02292df921dcc0f106e41ee53338065a16c6b8ed8e58780c544bd03551b$''',
+  '''^fd89ea67a98cd3d101888c91643013d9492339945e6b8055c45985ac6276e206$''',
+  '''^fe79f986d58ba6deec513312441b5ba5d579168d3e7e28d5721bb5771150af81$''',
+  # git commit SHAs (expected/reviewed source revisions)
+  '''^183af7a93fe236ab97f4556173a07195515b732a$''',
+  '''^325558d4d8f730b0c42afff0de87e08eda3b5aa1$''',
+  '''^617ab6dbd886ccc66905674f07265e22c155afff$''',
+  '''^641e6e4c1812a8716ac993ff4071821daa550eb9$''',
+  '''^c8fc15e6a81d29b16e23d6db078893160704b4ea$''',
+  '''^cb21fd3d3295aa8d7183f70b0d5ac82405410b1a$''',
+  # UUIDs: test fixture keys, pod UIDs, idempotency keys
+  '''^0b7c4a62\-3f0e\-4d55\-9a8e\-2f1b7c3d4e5f$''',
+  '''^5f0c6a52\-8e1d\-4c3b\-9a7f\-2d4e6b8c0a1e$''',
+  '''^9b2d4f6a\-1c3e\-4a5b\-8d7f\-0e2c4a6b8d1f$''',
+  '''^c99d1949\-1d7d\-4836\-b098\-d048f6b17241$''',
+  # Grafana public-dashboard share tokens: public by design, embedded in the public site links (grafana-public-shares.json, grafana_catalog.json)
+  '''^0ac206ab010948c89299f103fc387536$''',
+  '''^19b3f2fc092445418e157a3280b2c84a$''',
+  '''^3d0ec49e80af4fa8a555a5bb8b982a3e$''',
+  '''^56d071d0d7db458c877d5a6622a4fba5$''',
+  '''^60e5f9c5fe1f4b06be4f6a9cf024eaf3$''',
+  '''^77804c30eed549588b092debc6d6e99d$''',
+  '''^7888b18824aa4c1791659f869d0635d7$''',
+  '''^801ea06dc3db4c87912eb6188c8fd81b$''',
+  '''^86978428a9d143c9a059a0c3be79efc8$''',
+  '''^8cc19728fa6c4d4fb3791338deb02f99$''',
+  '''^aad7fb117d994727a45dfa48f63b13f2$''',
+  '''^ae2a6cf5f4f843fab15688d88dfc7656$''',
+  '''^c1bd95016b7946c1a1406339cdca318a$''',
+  '''^cedf03be02cb43f5af59e440397ec991$''',
+  '''^cf0f238f07984e6cbd5c6d50a9e70163$''',
+  '''^d095b74762a242eaabc947444f31a4a1$''',
+  '''^de06dccf051e4f539da863f8293a9a18$''',
+  '''^ff248334e7f24010a0089a1ab76b4573$''',
+  # lowercase identifiers: metric keys, Secret/route names, AGENTS.md contract prose
+  '''^climate\.soil_moisture_south_1$''',
+  '''^climate\.solar_irradiance_w_m2$''',
+  '''^fixture\-api\-v2$''',
+  '''^forecast\.solar_w_m2$''',
+  '''^ownership/admission$''',
+  '''^sequences952/77/42/catalog$''',
+  '''^soil\.south_1\.soil_moisture_south_1$''',
+  '''^south_soil_probe_1$''',
+  '''^verdify\-cnpg\-rehearsal\-s3\-region$''',
+  '''^verdify\-t2\-api\-tunnel$''',
+  '''^verdify\-t2\-lab$''',
+  '''^w_1\.equipment$''',
+  # Native function-seal digests (sha256 hex) for migrations 317-319 in
+  # scripts/c0-migration-delivery.py, scripts/bootstrap-six-runtime-roles.py and
+  # tests/fixtures/31[789]-*-native-qualification.json (keys api, ingestor, mcp,
+  # verdify_api_runtime_login). Content hashes, not credentials; the pre-#1765
+  # digest shape covered them. Reviewed value-blind 2026-11-17 (VERDIFY-COORD 13:00:19Z).
+  '''^956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d$''',
+  '''^b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd$''',
+  # Migration 321's native seals (api, ingestor; AR39), same files and shape as above.
+  '''^6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c$''',
+  '''^b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42$''',
 ]
-
-# Grafana public-dashboard share tokens. These are public by design: they are
-# embedded in the public site's dashboard links and grant read access to that
-# one shared dashboard only.
-[[allowlists]]
-description = "Grafana public dashboard share tokens"
-condition = "AND"
-regexTarget = "secret"
-regexes = ['''^[0-9a-f]{32}$''']
-paths = [
-  '''^site/quartz/plugins/transformers/grafana-public-shares\.json$''',
-  '''^verdify_public/grafana_catalog\.json$''',
-]
-
-[[allowlists]]
-description = "vendored and cache directories"
-paths = ['''(^|/)(node_modules|\.venv|\.git|\.mypy_cache|\.pytest_cache|\.ruff_cache)/''']
-
-# generic-api-key only: lowercase dotted, snake, kebab or path identifiers
-# (metric keys, Secret and route names, SQL column refs) assigned to *_KEY or
-# *_SECRET names. A provider token keeps its own rule, which this does not touch.
-[[allowlists]]
-description = "lowercase identifiers matched by generic-api-key"
-targetRules = ["generic-api-key"]
-regexTarget = "secret"
-regexes = ['''^[a-z][a-z0-9]*([._/-][a-z0-9]+)+$''']

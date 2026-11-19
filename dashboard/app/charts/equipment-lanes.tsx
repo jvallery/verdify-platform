@@ -5,9 +5,9 @@ import { LINES, lineByEquipment, lineById, type Line } from "../lib/lines";
 import type { ActivityEntry } from "../lib/operator-api";
 import { causeWords } from "./causes";
 import { csvFilename, tableCsv } from "./csv";
-import { CsvLink, DataTable, TimeCell, type DataTableBlock } from "./data-table";
+import { ChartFoot, TimeCell, type DataTableBlock } from "./data-table";
 import { labelColor, paintNow, type ChartColors, type PaintTarget } from "./draw";
-import { LANE_HEAD, LANE_PITCH, RowLabels, clipColumns, intervalText, paintHatch, rowBand, spanDuration, spanPixels, type RowLayout } from "./lanes-draw";
+import { GROUP_HEAD, LANE_HEAD, LANE_PITCH, RowLabels, clipColumns, intervalText, paintHatch, rowBand, spanDuration, spanPixels, type RowLayout } from "./lanes-draw";
 import { ChartKey, type KeyItem } from "./legend";
 import { lastAtOrBefore } from "./marks";
 import { lineKindToken } from "./palette";
@@ -88,7 +88,7 @@ export const EQUIPMENT_ORDER: readonly string[] = [
 const ROW_TOKENS: Readonly<Record<string, string>> = {
   fan1: "--eq-fan1", fan2: "--eq-fan2", vent: "--eq-vent", heat1: "--eq-heat1", heat2: "--eq-heat2",
   grow_light_main: "--eq-light-main", grow_light_grow: "--eq-light-grow",
-  occupancy: "--muted", leak_detected: "--fault", water_flowing: "--eq-water",
+  occupancy: "--text-3", leak_detected: "--critical", water_flowing: "--eq-water",
 };
 /** The controller's grow-light intent (Q-09): never a row; it marks where the readback disagrees. */
 export const isIntentKey = (equipment: string) => equipment.endsWith("_intent");
@@ -234,7 +234,7 @@ function row(lane: StateLane, spans: LaneSpan[], members: readonly string[], lin
   });
   return {
     equipment: lane.equipment, members, label: lane.label || lane.equipment, group: lane.group, system: systemOf(lane.group, line), lineId: line?.id ?? lane.line_id ?? null,
-    token: ROW_TOKENS[lane.equipment] ?? (line ? lineKindToken(line.kind) ?? "--muted" : "--muted"),
+    token: ROW_TOKENS[lane.equipment] ?? (line ? lineKindToken(line.kind) ?? "--text-3" : "--text-3"),
     wet: line !== undefined, light: false, spans, mismatch, idle: spans.length > 0 && spans.every((span) => span.state === "off"),
     current: spans.length ? spans[spans.length - 1].state : null, runtime, starts,
   };
@@ -306,8 +306,8 @@ export function laneEntries(model: LanesModel, open: ReadonlySet<LaneSystem>): L
   });
 }
 
-/** A group header's height in CSS px (charts.css mirrors it): its fold is a 24 px touch target (WCAG 2.5.8). */
-export const GROUP_HEAD = 24;
+/** A group header's height: lanes-draw.ts holds it for every kind of lanes. */
+export { GROUP_HEAD };
 
 /** What the canvas paints: one entry per shown line (null for a group header), each line's top, the row pitch and now. */
 export type LanesView = {
@@ -379,7 +379,7 @@ export function paintLanes(plot: PaintTarget, view: LanesView, colors: ChartColo
       for (const { span, pixels } of drawn) {
         if (!pixels || span.state === "off") continue;
         const width = Math.max(pixels.right - pixels.left, px);
-        if (span.state === "unknown") paintHatch(ctx, pixels.left, band.top, width, band.height, colors["--muted"], px);
+        if (span.state === "unknown") paintHatch(ctx, pixels.left, band.top, width, band.height, colors["--text-3"], px);
         else {
           ctx.fillStyle = colors[span.fert ? "--eq-fert" : row.token];
           ctx.fillRect(pixels.left, band.top, width, band.height);
@@ -389,7 +389,7 @@ export function paintLanes(plot: PaintTarget, view: LanesView, colors: ChartColo
       for (const part of row.mismatch) {
         const pixels = spanPixels(plot, part.start, part.end);
         if (!pixels) continue;
-        ctx.fillStyle = colors["--amber"];
+        ctx.fillStyle = colors["--warn"];
         ctx.fillRect(pixels.left, band.top + band.height - 3 * px, Math.max(pixels.right - pixels.left, px), 3 * px);
       }
       // A manual switch: a green strip along the band's head, on or off.
@@ -397,14 +397,14 @@ export function paintLanes(plot: PaintTarget, view: LanesView, colors: ChartColo
       for (const span of manual) {
         const pixels = spanPixels(plot, span.start, span.end);
         if (!pixels) continue;
-        ctx.fillStyle = colors["--forest"];
+        ctx.fillStyle = colors["--accent"];
         ctx.fillRect(pixels.left, band.top, Math.max(pixels.right - pixels.left, px), 3 * px);
       }
       for (const lit of view.lit ?? []) {
         if (!row.members.includes(lit.equipment)) continue;
         const pixels = spanPixels(plot, lit.from, Math.max(lit.to, lit.from + 1));
         if (!pixels) continue;
-        ctx.strokeStyle = colors["--ink"];
+        ctx.strokeStyle = colors["--text"];
         ctx.lineWidth = 2 * px;
         ctx.setLineDash([]);
         ctx.strokeRect(pixels.left - px, band.top - px, Math.max(pixels.right - pixels.left, px) + 2 * px, band.height + 2 * px);
@@ -418,13 +418,13 @@ export function paintLanes(plot: PaintTarget, view: LanesView, colors: ChartColo
         const limit = (next ? next.pixels.left : right) - 3 * px;
         if (span.state === "unknown") {
           const start = pixels.right + 4 * px;
-          if (!labels.place(index, band, `unknown ${spanText(span.start, span.end)}`, start, limit, colors["--muted"])) labels.place(index, band, "unknown", start, limit, colors["--muted"]);
+          if (!labels.place(index, band, `unknown ${spanText(span.start, span.end)}`, start, limit, colors["--text-3"])) labels.place(index, band, "unknown", start, limit, colors["--text-3"]);
           continue;
         }
         if (!row.wet || !span.cause) continue;
         // One label per run: skip while the next span continues the run.
         if (next && next.span.state === "on" && next.span.cause === span.cause && next.pixels.left - pixels.right < gap) continue;
-        labels.place(index, band, causeWords(span.cause), pixels.right + 4 * px, limit, labelColor(colors[row.token] ?? "", colors["--ink"]));
+        labels.place(index, band, causeWords(span.cause), pixels.right + 4 * px, limit, labelColor(colors[row.token] ?? "", colors["--text"]));
       }
       // "manual" once after each manual stretch, on or off, up to the next painted span.
       manual.forEach((span, position) => {
@@ -432,7 +432,7 @@ export function paintLanes(plot: PaintTarget, view: LanesView, colors: ChartColo
         const pixels = spanPixels(plot, span.start, span.end);
         if (!pixels) return;
         const next = painted.find((item) => item.pixels.left >= pixels.right);
-        labels.place(index, band, "manual", pixels.right + 4 * px, (next ? next.pixels.left : right) - 3 * px, colors["--ink"]);
+        labels.place(index, band, "manual", pixels.right + 4 * px, (next ? next.pixels.left : right) - 3 * px, colors["--text"]);
       });
     });
     if (view.now !== null) paintNow(plot, view.now, colors, px);
@@ -446,7 +446,7 @@ export function paintLanes(plot: PaintTarget, view: LanesView, colors: ChartColo
  */
 export function lanesOptions(env: ChartEnv, viewRef: MutableRefObject<LanesView>, stacked = false): ChartOptions {
   const { colors, px } = env;
-  const tokens = { muted: colors["--muted"], grid: colors["--c-grid"] };
+  const tokens = { muted: colors["--text-3"], grid: colors["--c-grid"] };
   return {
     padding: stacked ? [0, 0, 0, 0] : [0, null, 0, null],
     series: [{}],
@@ -510,11 +510,11 @@ export function lanesKey(model: LanesModel): KeyItem[] {
     }
   }
   return [
-    ...(on ? [{ key: "on", label: "on", token: "--ink", kind: "fill" } as const] : []),
+    ...(on ? [{ key: "on", label: "on", token: "--text", kind: "fill" } as const] : []),
     ...(fert ? [{ key: "fert", label: "fertilized", token: "--eq-fert", kind: "fill" } as const] : []),
-    ...(manual ? [{ key: "manual", label: "manual switch (otherwise automatic)", token: "--forest", kind: "line" } as const] : []),
-    ...(mismatch ? [{ key: "intent", label: "controller intent differs", token: "--amber", kind: "line" } as const] : []),
-    ...(unknown ? [{ key: "unknown-span", label: "unknown", token: "--muted", kind: "hatch" } as const] : []),
+    ...(manual ? [{ key: "manual", label: "manual switch (otherwise automatic)", token: "--accent", kind: "line" } as const] : []),
+    ...(mismatch ? [{ key: "intent", label: "controller intent differs", token: "--warn", kind: "line" } as const] : []),
+    ...(unknown ? [{ key: "unknown-span", label: "unknown", token: "--text-3", kind: "hatch" } as const] : []),
   ];
 }
 
@@ -613,6 +613,8 @@ export function EquipmentLanes(props: EquipmentLanesProps) {
       <span className="eyebrow">EQUIPMENT · WHAT RAN</span>
       <span className="lanes-columns" aria-hidden="true"><span className="lanes-wide">state · </span>on time<span className="lanes-wide"> · starts</span></span>
     </figcaption>}
+    {/* The key is one line above the rows it names (A3). */}
+    {drawable && <ChartKey items={lanesKey(model)} />}
     {drawable
       ? <div className={stacked ? "lanes lanes-equipment lanes-stacked" : "lanes lanes-equipment"} onMouseLeave={() => link?.onLane(null, null)}>
         <ul className="lanes-rows" aria-label="Equipment by system, state at the window's end, on time and starts">
@@ -626,12 +628,7 @@ export function EquipmentLanes(props: EquipmentLanesProps) {
           syncKey={syncKey} marks={marks} onZoom={zoom.onZoom} onPlot={zoom.onPlot} />
       </div>
       : <div className="plot plot-small chart-message"><p>{props.message ?? "No equipment data in this window"}</p></div>}
-    {/* The key sits right under the rows it names, above the CSV and the table. */}
-    {drawable && <ChartKey items={lanesKey(model)} />}
-    {drawable && <div className="chart-tools">
-      {(props.zoomControl ?? true) && zoom.zoomed && <button type="button" onClick={zoom.reset}>Reset zoom</button>}
-      <CsvLink filename={csvFilename("equipment-lanes", xRange)} build={() => lanesCsv(model)} version={model} label="CSV of these lanes" />
-    </div>}
-    {drawable && <DataTable name="Lanes table" tables={[lanesTable(model)]} />}
+    {drawable && <ChartFoot name="Lanes table" tables={[lanesTable(model)]} csv={{ filename: csvFilename("equipment-lanes", xRange), build: () => lanesCsv(model), version: model, label: "CSV of these lanes" }}
+      tools={(props.zoomControl ?? true) && zoom.zoomed ? <button type="button" className="chart-tool" onClick={zoom.reset}>Reset zoom</button> : null} />}
   </figure>;
 }

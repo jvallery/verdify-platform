@@ -109,6 +109,8 @@ class Conn:
         if sql == operator_api.ATTEST_SQL:
             return True
         await self._maybe(sql)
+        if sql == pm.UNREPLAYED_SQL:
+            return 2  # 2026-11-17: gaps 424 and 425, with an empty gap_replay_quarters ledger
         assert sql == pm.OLDEST_UNCONFIRMED_SQL
         return 125.0
 
@@ -239,6 +241,7 @@ def test_every_group_serves_and_reports_its_age():
     assert got['verdify_setpoint_rows_24h{source="other",status="other"}'] == 2
     assert got["verdify_setpoint_oldest_unconfirmed_seconds"] == 125
     assert got['verdify_data_gaps_7d{status="replayed"}'] == 2
+    assert got["verdify_data_gaps_unreplayed"] == 2
     assert got['verdify_table_rows_5m{table="climate"}'] == 5
     assert got['verdify_ingestor_rows_rejected_total{table="climate"}'] == 3
     assert got["verdify_ingestor_reconnects_total"] == 2
@@ -433,6 +436,13 @@ def test_every_statement_is_time_bounded():
         assert sources and len(bounds) >= len(sources), sql
 
 
+def test_the_unreplayed_gaps_statement_reads_the_one_definition_and_its_windows():
+    sql = pm.UNREPLAYED_SQL
+    assert "FROM v_data_gaps_unreplayed u" in sql and "data_gaps g" not in sql
+    assert "u.duration_s >= 120" in sql and "= 'armed'" in sql
+    assert "u.end_ts > now() - interval '24 hours'" in sql and "u.end_ts <= now() - interval '30 minutes'" in sql
+
+
 def test_the_daily_and_meter_statements_are_key_bounded():
     # The daily tables are keyed by date (one or two rows); the meter reads 312's projection, never energy.
     assert "WHERE date BETWEEN" in pm.COMPLIANCE_SQL and "FROM daily_band_compliance" in pm.COMPLIANCE_SQL
@@ -451,6 +461,25 @@ def test_release_pins_come_from_the_mounted_file(tmp_path):
     assert {"verdify-api", "verdify-mcp", "verdify-ingestor", "verdify-migrate"} <= images
     assert all(re.search(r'digest="sha256:[0-9a-f]{64}"', name) for name in got)
     assert pm.read_release_pins(tmp_path / "missing.yaml") == []
+
+
+def test_release_pins_are_read_again_when_the_mounted_file_changes(tmp_path):
+    # #1734 C-5: the fixed-name ConfigMap no longer rolls the pod, so a promotion must show without a restart.
+    def doc(image, digest):
+        return f"apiVersion: builtin\nkind: ImageTagTransformer\nmetadata:\n  name: pin\nimageTag:\n  name: registry.example/{image}\n  digest: sha256:{digest * 64}\n"
+
+    pins = tmp_path / "release-pins.yaml"
+    pins.write_text(doc("verdify-api", "a"))
+    metrics = pm.ProductMetrics(groups=(), release_pins_path=pins)
+    first = [name for name in lines(metrics.render()) if name.startswith("verdify_release_pin_info")]
+    assert len(first) == 1 and f"sha256:{'a' * 64}" in first[0] and 'image="verdify-api"' in first[0]
+    swapped = tmp_path / "new.yaml"  # the kubelet's swap: a new file under the same name
+    swapped.write_text(doc("verdify-api", "b"))
+    swapped.replace(pins)
+    second = [name for name in lines(metrics.render()) if name.startswith("verdify_release_pin_info")]
+    assert len(second) == 1 and f"sha256:{'b' * 64}" in second[0]
+    pins.unlink()
+    assert not [name for name in lines(metrics.render()) if name.startswith("verdify_release_pin_info")]
 
 
 def test_health_readings_absent_give_no_sample():

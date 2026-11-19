@@ -16,10 +16,12 @@ import { MetricTile, type TileState } from "../components/data/metric-tile";
 import { Sparkline } from "../components/data/sparkline";
 import { lineLabel } from "../components/forms";
 import { useClockValue, useHydrated } from "../components/freshness";
+import { Chevron } from "../components/layout/chevron";
 import { SectionHeader } from "../components/layout/section-header";
-import { PanelError } from "../components/panel";
+import { PanelError, PanelErrorBoundary } from "../components/panel";
 import { Table, type TableColumn } from "../components/table";
-import { dateShift, daySpan, localDayStart } from "../lib/format";
+import { RecordWater } from "../components/water/record-water";
+import { dateShift, daySpan, formatNumber, localDayStart, sentenceStart } from "../lib/format";
 import { runGraphUrl } from "../lib/graph-link";
 import { LINES } from "../lib/lines";
 import { CAUSES, OUTCOMES, PURPOSES, apiGet, purposeOf, type IrrigationLine, type Purpose, type Run, type RunPage } from "../lib/operator-api";
@@ -112,7 +114,7 @@ function Kpis({ days, purpose, current, previous, runs, runsBefore, counted, ret
       <MetricTile label="Missed, short or cap" data={{ "data-kpi": "shortfall" }} state={runsState} onRetry={retry.runs} tone={shortfall ? "warn" : undefined}
         value={counted && runs.tally ? shortfallWords(runs.tally) : null} reason={counted ? "No data" : notCounted}
         delta={counted && runs.tally ? <Delta value={difference(shortfall, shortfallBefore)} vs={vs} /> : undefined}
-        meta={counted && runs.tally ? shortfallNote(runs.tally.newest) ?? "Every counted run ended as planned" : undefined} />
+        meta={counted && runs.tally ? shortfallNote(runs.tally.newest) ?? "Every counted run ended as scheduled" : undefined} />
     </div>
   </section>;
 }
@@ -174,24 +176,29 @@ function WaterUseSection({ days, names, search }: { days: number; names: Readonl
   </section>;
 }
 
-/** One run per row, its cells as the ledger reads them; whole gallons only, never a rate or a flow flag (Q-10). */
-function runColumns(names: Readonly<Record<string, string>>, today: string): TableColumn<Run>[] {
+/**
+ * One run per row, its cells as the ledger reads them (design review A1: units in the headers, bare numbers in the
+ * cells, a value standing alone starting with a capital); whole gallons only, never a rate or a flow flag (Q-10). The
+ * pulses column shows only when a loaded run pulsed (misting).
+ */
+function runColumns(names: Readonly<Record<string, string>>, today: string, pulsed = false): TableColumn<Run>[] {
   return [
     { key: "when", header: "Start–end", rowHeader: true, cell: (run) => runSpanWords(run, today) },
     { key: "line", header: "Line", cell: (run) => <>{lineWords(run.line_id, names)} <span className="muted">· {zoneWord(run.zone)}</span></> },
     { key: "water", header: "Water", cell: (run) => <ChemistryBadge chemistry={run.chemistry === "fert" ? "fert" : "clean"} /> },
-    { key: "cause", header: "Cause", cell: (run) => causeWords(run.cause) },
+    { key: "cause", header: "Cause", cell: (run) => sentenceStart(causeWords(run.cause)) },
     { key: "schedule", header: "Schedule", cell: (run) => run.schedule_label || "—" },
-    { key: "actor", header: "Actor", cell: (run) => run.actor?.name ?? "controller" },
-    { key: "minutes", header: "Minutes", className: "num", cell: (run) => runAmountWords(run) },
+    { key: "actor", header: "By", cell: (run) => sentenceStart(run.actor?.name ?? "controller") },
+    ...(pulsed ? [{ key: "pulses", header: "Pulses", className: "num", cell: (run: Run) => (typeof run.pulses === "number" && run.pulses > 0 ? formatNumber(run.pulses, 0) : "—") }] : []),
+    { key: "minutes", header: "Open, min", className: "num", cell: (run) => formatNumber(run.open_s / 60, run.open_s < 600 ? 1 : 0) },
     {
-      key: "gal", header: "Gallons", className: "num", cell: (run) => {
+      key: "gal", header: "Used, gal", className: "num", cell: (run) => {
         const gallons = runGallons(run.gal);
-        return gallons.reason ? <>{gallons.text} <span className="muted">{gallons.reason}</span></> : gallons.text;
+        return gallons.reason ? <span title={gallons.reason}>—<span className="screen-reader"> {gallons.reason}</span></span> : formatNumber(run.gal, 0);
       },
     },
-    { key: "outcome", header: "Outcome", cell: (run) => <span className={run.outcome === "missed" ? "fault" : undefined}>{words("run_outcome", run.outcome)}{run.reason && <span className="muted"> · {run.reason}</span>}</span> },
-    { key: "graphs", header: "Graphs", cell: (run) => <Link to={runGraphUrl(run)}>Graphs <span className="screen-reader">around this run</span><span aria-hidden="true"> ›</span></Link> },
+    { key: "outcome", header: "Outcome", cell: (run) => <span className={run.outcome === "missed" ? "fault" : undefined}>{sentenceStart(words("run_outcome", run.outcome))}{run.reason && <span className="muted"> · {run.reason}</span>}</span> },
+    { key: "graphs", header: "Graphs", cell: (run) => <Link to={runGraphUrl(run)}>Graphs<span className="screen-reader"> around this run</span><Chevron /></Link> },
   ];
 }
 
@@ -286,22 +293,22 @@ function RunsSection({ names, today, days, purpose, search, setSearch }: {
     {first.data
       ? <>
         <div className="wat-runs-table">
-          <Table label={purpose === "climate" ? "Mist & fog runs" : "Irrigation runs"} caption={`${PURPOSE_WORDS[purpose]} runs, newest first · America/Denver`} captionHidden columns={runColumns(names, today)} rows={runs} rowKey={(run) => run.run_id}
+          <Table label={purpose === "climate" ? "Mist & fog runs" : "Irrigation runs"} caption={`${PURPOSE_WORDS[purpose]} runs, newest first · America/Denver`} captionHidden columns={runColumns(names, today, runs.some((run) => typeof run.pulses === "number" && run.pulses > 0))} rows={runs} rowKey={(run) => run.run_id} maxRows={14} rowNoun="runs"
             empty={<p className="meta">No runs in this window.{!explicit && days < 30 && <> <Link to={waterUrl(PATH, search, { range: "30d" })}>Show 30 days</Link></>}</p>} />
         </div>
         <ul className="wat-runs-list" aria-label={`${PURPOSE_WORDS[purpose]} runs, newest first`}>
           {runs.map((run) => <li key={run.run_id} className="wat-run" data-outcome={run.outcome}>
             <p className="wat-run-head"><strong>{runSpanWords(run, today)}</strong> · {lineWords(run.line_id, names)}</p>
-            <p className="meta">{[causeWords(run.cause), run.schedule_label, runAmountWords(run), runGallons(run.gal).text].filter(Boolean).join(" · ")}</p>
-            <p className="wat-run-foot"><span className={run.outcome === "missed" ? "fault" : undefined}>{words("run_outcome", run.outcome)}{run.reason ? ` · ${run.reason}` : ""}</span>
-              <Link to={runGraphUrl(run)}>Graphs <span className="screen-reader">around this run</span><span aria-hidden="true"> ›</span></Link></p>
+            <p className="meta">{[sentenceStart(causeWords(run.cause)), run.schedule_label, runAmountWords(run), runGallons(run.gal).text].filter(Boolean).join(" · ")}</p>
+            <p className="wat-run-foot"><span className={run.outcome === "missed" ? "fault" : undefined}>{sentenceStart(words("run_outcome", run.outcome))}{run.reason ? ` · ${run.reason}` : ""}</span>
+              <Link to={runGraphUrl(run)}>Graphs<span className="screen-reader"> around this run</span><Chevron /></Link></p>
           </li>)}
         </ul>
         {failedOlder && <PanelError thing="older runs" onRetry={() => void failedOlder.refetch()} />}
         <div className="actions wat-runs-actions">
           {(next || loadingOlder) && <Button disabled={loadingOlder} onClick={() => { if (next) setOlder({ key: pageKey, pages: [...pages, next] }); }}>Load older</Button>}
           {/* Rebuilt only when the loaded runs change, not on every render. */}
-          {runs.length > 0 && <CsvLink filename={dayCsvFilename("runs", range.from, range.to)} build={() => runsCsv(runs, names, today)} version={runs.map((run) => `${run.run_id}:${run.outcome}`).join(",")} label="CSV of these runs" />}
+          {runs.length > 0 && <CsvLink filename={dayCsvFilename("runs", range.from, range.to)} build={() => runsCsv(runs, names, today)} version={runs.map((run) => `${run.run_id}:${run.outcome}`).join(",")} label="CSV of these runs" text="CSV" />}
         </div>
       </>
       : !first.isError && <div className="skeleton skeleton-md" aria-hidden="true" />}
@@ -312,7 +319,8 @@ function RunsSection({ names, today, days, purpose, search, setSearch }: {
  * SCR-04 History (`/water/history`, redesign §5.4): which history (`purpose`, #1348: irrigation by default, or the climate
  * mist and fog, so fog and VPD pulses never bury the watering), one period for the page (`range=7d|30d|90d|365d`), Group by
  * (zone, line, cause) and Measure (minutes, gallons), all in the URL; then the KPIs against the previous equal period, minutes or
- * gallons by group, daily water use and the run ledger. The period's summary is the page's status line.
+ * gallons by group, daily water use, the day's water from the daily record (API-32: wetting, crop and house, the record
+ * named as the source) and the run ledger. The period's summary is the page's status line.
  */
 export default function WaterHistory() {
   const { irrigation, setSummary } = useWaterOutlet();
@@ -364,6 +372,7 @@ export default function WaterHistory() {
       retry={{ minutes: () => void current.refetch(), runs: () => void runs.refetch() }} />
     <MinutesSection read={current} days={days} lines={lines} names={names} today={today} group={group} measure={measure} purpose={purpose} />
     <WaterUseSection days={days} names={names} search={search} />
+    <PanelErrorBoundary thing="the daily record's water"><RecordWater from={windows.current.from} to={windows.current.to} /></PanelErrorBoundary>
     <RunsSection names={names} today={today} days={days} purpose={purpose} search={search} setSearch={setSearch} />
   </div>;
 }

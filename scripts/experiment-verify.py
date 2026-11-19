@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """experiment-verify.py — operator verification harness for the controlled experiment rollout.
 
-One subcommand per §8.10 rollout checkpoint (docs/runbooks/experiment-rollout.md);
+One subcommand per §8.10 rollout checkpoint (the experiment-rollout runbook, retired in #1633 release 5);
 each is READ-ONLY against the database (default_transaction_read_only=on via the
 scripts/experiment-aa-gates.py runner, same VERDIFY_DB_BACKEND=docker|dsn|kube
 contract as scripts/lib/psql-verdify.sh) plus read-only kubectl where noted.

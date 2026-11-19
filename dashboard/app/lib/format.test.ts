@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { expect, test } from "vitest";
-import { TIME_UNAVAILABLE, ageSeconds, dayHeader, daySpan, duration, formatNumber, formatValue, localDate, localDayStart, localTime, localWallClock, monthDayClock, plotTime, repeatedLocalTime, shortDateTime, shortTime, sinceClock, unitDecimals, wallClockInstant } from "./format";
+import { TIME_UNAVAILABLE, ageSeconds, dayHeader, dayMonth, daySpan, duration, formatNumber, formatValue, localDate, localDayStart, localTime, localWallClock, monthDayClock, plotTime, repeatedLocalTime, sentenceStart, shortDateTime, shortTime, sinceClock, unitDecimals, wallClockInstant } from "./format";
 
 const NBSP = " ";
 const MINUS = "−";
@@ -95,6 +95,23 @@ test("unitDecimals matches the decimals formatValue prints", () => {
   expect(["°F", "%", "kPa", "gal", "gal/min", "min", "kB", "ppm", "°", "s", null].map(unitDecimals)).toEqual([1, 1, 2, 0, 0, 0, 0, 0, 0, 1, 1]);
 });
 
+test("the daily record's, drying's and the controller's units print at their fixed decimals", () => {
+  expect(formatValue(25.09, "kWh")).toBe(`25.1${NBSP}kWh`);
+  expect(formatValue(0.82, "kWh/kg")).toBe(`0.82${NBSP}kWh/kg`);
+  expect(formatValue(0.7, "kWh/kg")).toBe(`0.70${NBSP}kWh/kg`);
+  expect(formatValue(2.863, "therms")).toBe(`2.86${NBSP}therms`);
+  expect(formatValue(1.703, "kg")).toBe(`1.70${NBSP}kg`);
+  expect(formatValue(247.4, "g")).toBe(`247${NBSP}g`);
+  expect(formatValue(1520.6, "W")).toBe(`1,521${NBSP}W`);
+  expect(formatValue(11.4, "ms")).toBe(`11.4${NBSP}ms`);
+  expect(formatValue(1848, "B")).toBe(`1,848${NBSP}B`);
+  expect(formatValue(17.46, "h")).toBe(`17.5${NBSP}h`);
+  expect(formatValue(36, "count")).toBe("36");
+  expect(formatValue(2.6, "count")).toBe("3");
+  expect(formatValue(null, "count")).toBe("—");
+  expect(["kWh", "kWh/kg", "therms", "kg", "g", "W", "ms", "B", "h", "count"].map(unitDecimals)).toEqual([1, 2, 2, 2, 0, 0, 1, 0, 1, 0]);
+});
+
 test("run time reads in whole minutes, and as hours and minutes from 120", () => {
   expect(formatValue(10, "min")).toBe(`10${NBSP}min`);
   expect(formatValue(45.6, "min")).toBe(`46${NBSP}min`);
@@ -139,7 +156,19 @@ test("the date styles: a short day, a span of days, and the log's day header wit
   expect(daySpan("2026-10-27", "2026-11-02")).toBe("Oct 27 – Nov 2");
   expect(daySpan("2026-11-02", "2026-11-02")).toBe("Nov 2");
   expect(dayHeader("2026-11-03")).toBe("Tue 3 Nov");
+  expect([dayMonth("2026-11-16"), dayMonth("2026-10-24"), dayMonth("not a date")]).toEqual(["16 Nov", "24 Oct", "not a date"]);
   expect(dayHeader("2026-10-30", "2026")).toBe("Fri 30 Oct");
   expect(dayHeader("2025-12-31", "2026")).toBe("Wed 31 Dec 2025");
   expect(dayHeader("not a day")).toBe("not a day");
+});
+
+test("sentenceStart: a fragment standing alone starts with a capital; the rest, an acronym or a number, stays as it is", () => {
+  expect(sentenceStart("the house band")).toBe("The house band");
+  expect(sentenceStart("seen on the controller")).toBe("Seen on the controller");
+  expect(sentenceStart("an operator: VPD 1.2 kPa")).toBe("An operator: VPD 1.2 kPa");
+  expect(sentenceStart("VPD")).toBe("VPD");
+  expect(sentenceStart("Already")).toBe("Already");
+  expect(sentenceStart("2 not confirmed")).toBe("2 not confirmed");
+  expect(sentenceStart("élan")).toBe("Élan");
+  expect(sentenceStart("")).toBe("");
 });

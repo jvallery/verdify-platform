@@ -12,7 +12,7 @@ shelf holds many plantings in planters); a cell holds one planting at a time, wh
 - Reads: ``locations``, ``plantings``, ``planting``, ``position_history``, ``catalog`` and ``resolve`` (the preview:
   the places a text means and what holds them, writing nothing).
 - Writes, each one ``activity.recorded_write`` transaction: ``plant``, ``move``, ``harvest``, ``end``, ``update``
-  and ``annotate``. A requested cell that holds another planting is refused with ``position_occupied`` and the cells,
+  and ``annotate`` (MCP ``annotate_planting`` and API-CROP-12). A requested cell that holds another planting is refused with ``position_occupied`` and the cells,
   unless ``replace``: the occupant's open range on that cell then ends at the new planting's start, and an occupant
   left with no place ends as ``removed``.
 
@@ -28,7 +28,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -1553,14 +1553,25 @@ async def annotate(
     body: PlantingNote | Mapping[str, Any],
     *,
     request_id: UUID | str | None = None,
+    op: str = "MCP-annotate_planting",
+    answer: Literal["event", "planting"] = "event",
 ) -> activity.WriteResult:
-    """MCP ``annotate_planting``: a ``note`` event on the planting's history (ended plantings too). Returns
-    ``WriteResult[PlantingEvent]``."""
+    """MCP ``annotate_planting`` and API-CROP-12: a ``note`` event on the planting's history (ended plantings too).
+    Returns ``WriteResult[PlantingEvent]``, or ``WriteResult[Planting]`` with ``answer="planting"`` (API-CROP-12
+    passes ``op="API-CROP-12"``). Either way the activity row is the same ``planting.note`` naming the event."""
     key = _planting_id(planting_id)
     body = _parsed(PlantingNote, body)
     request = body.model_dump(mode="json", exclude_none=True)
 
-    async def perform(conn: asyncpg.Connection) -> tuple[PlantingEvent, dict[str, Any]]:
+    async def answered(conn: asyncpg.Connection, event_id: int) -> PlantingEvent | Planting:
+        if answer == "event":
+            return await _load_event(conn, event_id)
+        stored = await _read_planting(conn, key)
+        if stored is None:
+            raise RuntimeError(f"planting {key} noted by event {event_id} is gone")
+        return stored
+
+    async def perform(conn: asyncpg.Connection) -> tuple[PlantingEvent | Planting, dict[str, Any]]:
         exists = await conn.fetchval(
             "SELECT true FROM public.crops WHERE id = $1 AND greenhouse_id = $2", key, GREENHOUSE_ID
         )
@@ -1568,15 +1579,15 @@ async def annotate(
             raise ServiceError(problem("unknown_target", f"No planting {key}", field="planting_id"))
         now = await conn.fetchval("SELECT now()")
         event_id = await _event(conn, actor, key, "note", now, notes=body.note, request_id=_request_key(request_id))
-        return await _load_event(conn, event_id), {"ref": {"table": "crop_events", "id": event_id}, "planting_id": key}
+        return await answered(conn, event_id), {"ref": {"table": "crop_events", "id": event_id}, "planting_id": key}
 
-    async def load(conn: asyncpg.Connection, row: ActivityLogRow) -> PlantingEvent:
-        return await _load_event(conn, int(row.detail["ref"]["id"]))
+    async def load(conn: asyncpg.Connection, row: ActivityLogRow) -> PlantingEvent | Planting:
+        return await answered(conn, int(row.detail["ref"]["id"]))
 
     return await activity.recorded_write(
         conn,
         actor,
-        op="MCP-annotate_planting",
+        op=op,
         action="planting.note",
         target=str(key),
         request=request,

@@ -411,12 +411,13 @@ One chart vocabulary (#1354, decisions 2026-11-05). A colour names what ran; wor
 | `run_now` | run now | `--forest` |
 | `feed` | feed | `--eq-fert` |
 | `prewet`, `flush` | prewet, flush | `--cause-prep` |
-| `fallback` | fallback | `--eq-heat1` |
+| `fallback` | backup | `--eq-heat1` |
 | `unknown` | cause unknown | `--c-bound` |
 
 `--cause-vpd` #c2410c (5.18:1), `--cause-schedule` #8a5a00 (5.93:1) and `--cause-prep` #65731f (5.22:1) are new and
 share no hue with a water line. Run now is a person's action, in `--forest` as a person's write is on the event rail;
-feed is fertilizer, in the fertilized lines' colour; fallback keeps the orange of the schedules' fallback-only runs.
+feed is fertilizer, in the fertilized lines' colour; the sensor-fault backup (code `fallback`) keeps the orange of the schedules' backup windows; dashboard v2 words.md
+retires "fallback".
 A cause the table does not know reads raw, in `--c-bound`.
 
 ### 5.2 Primitives

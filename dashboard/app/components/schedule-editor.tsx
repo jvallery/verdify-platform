@@ -10,7 +10,7 @@ import { MANUAL_DEFAULT, useProgramWrite, type WriteError } from "../lib/writes"
 import { Badge } from "./badge";
 import { Button } from "./button";
 import {
-  EditDrawer, FieldError, ManualToggle, NumberField, RUN_DEFAULTS, Reason, Select, Switch, TimeField, WEEKDAYS, WeekdayChips, startDraft, startFromDraft, type StartDraft, type Weekday,
+  EditDrawer, FieldError, NumberField, RUN_DEFAULTS, Reason, Select, Switch, TimeField, WEEKDAYS, WeekdayChips, startDraft, startFromDraft, type StartDraft, type Weekday,
 } from "./forms";
 import { useToast } from "./toast";
 
@@ -358,20 +358,19 @@ export function ScheduleEditor({ slotId, schedule, agenda, status, today, now, o
       {fieldError("checked") && <FieldError id={`${checkId}-error`}>{fieldError("checked")}</FieldError>}
     </>}
     <Switch label="Enabled" checked={form.enabled} onChange={(enabled) => update({ enabled })} />
-    <ManualToggle checked={form.manual} onChange={(manual) => update({ manual })} />
     <Reason value={form.reason} onChange={(reason) => update({ reason })} error={fieldError("reason")} />
     <section className="schedule-preview">
       <h3 className="sch-preview-title">Before you save</h3>
-      {draft && <div className="schedule-draft-summary" aria-label="Your schedule in words">
+      {draft && <div className="schedule-draft-summary" role="group" aria-label="Your schedule in words">
         <p className="eyebrow">{draft.enabled ? draft.degraded_only ? "CONDITIONAL BACKUP" : "ROUTINE WATERING" : "SAVED BUT DISABLED"}</p>
         <p><strong>{lineDisplayName(draft.line_id)}</strong> · {daysWords(draft.days)} at {startWords(draft.start, agenda.solar.find((day) => day.date === today))}</p>
         <p>{amountWords(draft, kind, partner)}</p>
-        <p className="meta">{draft.manual ? "Iris will leave this rule unchanged." : "Iris may adjust this rule."}{draft.degraded_only ? " It runs only if VPD sensing is degraded." : ""} Saving requests a program update; controller readback confirms it.</p>
+        <p className="meta">{draft.degraded_only ? "It runs only if VPD sensing is degraded. " : ""}Saving requests a program update; controller readback confirms it.</p>
       </div>}
       {!preview && <p className="field-hint">Enter a valid start and a whole number in each field to preview it.</p>}
       {refusals.length > 0 && <ul className="sch-checks sch-checks-refusal">{refusals.map((check) => <li key={check.code} data-check={check.code}>{check.text}</li>)}</ul>}
       {preview?.totals.map((row) => <div key={row.line_id} className="schedule-preview-line" data-line={row.line_id}>
-        <p><strong>{lineDisplayName(row.line_id)}</strong> {row.totals ?? "no minutes planned"}</p>
+        <p><strong>{lineDisplayName(row.line_id)}</strong> {row.totals ?? "no minutes scheduled"}</p>
         {row.cap && <p className="field-hint">{row.cap}</p>}
         {row.past && <p className="schedule-past-cap">{PAST_CAP_TEXT} ({row.past})</p>}
       </div>)}

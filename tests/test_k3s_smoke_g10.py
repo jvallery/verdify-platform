@@ -411,8 +411,7 @@ class FakeDashboard:
                 "max": 300.0,
                 "readback": {"value": self.base_value},
                 "desired": options.get("desired"),
-                "plan": None,
-                "applied_from": "plan",
+                "applied_from": "default",
                 "state": "confirmed",
             },
             "sw_gl_main_auto_mode": {
@@ -425,12 +424,11 @@ class FakeDashboard:
                 "max": None,
                 "readback": {"value": options.get("auto_mode", 1)},
                 "desired": options.get("auto_desired"),
-                "plan": None,
                 "applied_from": "band",
                 "state": "confirmed",
             },
-            "zone_vpd_target_center_sm": {
-                "param": "zone_vpd_target_center_sm",
+            "band_vpd_target_sm": {
+                "param": "band_vpd_target_sm",
                 "kind": "numeric",
                 "control_class": "crop_band",
                 "writable": True,
@@ -439,12 +437,14 @@ class FakeDashboard:
                 "max": 2.0,
                 "readback": {"value": 1.0},
                 "desired": None,
-                "plan": None,
                 "applied_from": "band",
                 "state": "confirmed",
             },
         }
         self.light = {"state": options.get("light", "on"), "intent": options.get("intent", "on")}
+        # #1808: a confirmed API-20 switch queues the controller's hold, and the intent follows it (auto_reason
+        # manual_hold_<state>) until a write of the automatic switch with the reason "Back to automatic" releases it.
+        self.hold = None
         self.pending_light = None
         self.history = []
 
@@ -475,9 +475,6 @@ class FakeDashboard:
                 if not self.options.get("device_stays"):
                     row["readback"]["value"] = self.base_value
                 row["state"] = "released"
-            elif self.options.get("held"):
-                row["state"] = "held"
-                desired["state_reason"] = {"code": "experiment", "detail": "exp-7\narmed"}
             elif self.options.get("never_confirms"):
                 row["state"] = "not_confirmed"
                 desired["state_reason"] = {"code": "no_match"}
@@ -499,9 +496,12 @@ class FakeDashboard:
             if self.pending_light["reads"] <= 0:
                 self.light["state"] = self.pending_light["state"]
                 self.pending_light = None
-        board = {"items": [{"equipment": "grow_light_main", **self.light}]}
+        item = {"equipment": "grow_light_main", **self.light, "auto_reason": "plant_hysteresis_hold"}
+        if self.hold is not None:
+            item.update(intent=self.hold, auto_reason=f"manual_hold_{self.hold}")
+        board = {"items": [item]}
         if not self.options.get("no_reasons"):
-            board.update(mode_reason={"code": "x"}, fog_block_reason={"code": "y"}, moisture_block_reason={"code": "z"})
+            board.update(fog_block_reason={"code": "y"}, moisture_block_reason={"code": "z"})
         return board
 
     def _minutes(self):
@@ -581,9 +581,8 @@ class FakeDashboard:
                 stored = round(round(body["value"] / step) * step, 6)
                 row["desired"] = self._row(param, stored, body["manual"], actor, body.get("reason"))
                 row["state"] = "requested"
-                if self.options.get("held"):
-                    # settings.write answers the state now: an armed experiment holds a policy field at once.
-                    row["desired"].update(state="held", state_reason={"code": "experiment", "detail": None})
+                if param == "sw_gl_main_auto_mode" and stored == 1 and body.get("reason") == "Back to automatic":
+                    self.hold = None
                 self.history = [*self.history, row["desired"]]
                 self._log("setting.write", param, key, actor)
                 return 200, row["desired"]
@@ -606,6 +605,8 @@ class FakeDashboard:
                 self.pending_light = {"state": state, "reads": 2}
                 return 503, {"code": "unavailable", "result": "not_confirmed"}
             self.light["state"] = state
+            if not self.options.get("no_hold") and (body or {}).get("reason") != "Back to automatic":
+                self.hold = state
             return 200, {"light": "main", "state": state, "result": "confirmed", "activity_id": 1}
         return 404, {"code": "not_found"}
 
@@ -771,15 +772,21 @@ SWEEP_IDS = [
     "API-04",
     "API-05",
     "API-06",
-    "API-06 zone=south",
-    "API-07",
+    "API-06 zone=house",
     "API-09",
     "API-12",
-    "API-13 with its three reasons",
+    "API-13 with its two reasons",
     "API-14",
     "API-17",
     "API-21",
-    "API-25",
+    "API-30",
+    "API-31",
+    "API-32",
+    "API-33",
+    "API-34",
+    "API-35",
+    "API-36",
+    "API-37",
     "API-IRR-01",
     "API-IRR-02",
     "API-IRR-10 with minutes on all 30 days, not no_data",
@@ -805,8 +812,15 @@ def test_sweep_gets_every_read_as_the_viewer_and_writes_nothing(tmp_path):
     assert "/api/v1/irrigation/minutes?from=2025-08-05&to=2025-09-03&group_by=zone" in targets
     assert "/api/v1/water/daily?days=90" in targets
     assert "/api/v1/activity?limit=50" in targets
-    assert f"/api/v1/band/preview?param=zone_vpd_target_center_sm&value={(0.4 + 2.0) / 2}" in targets
-    assert any(target.startswith("/api/v1/band?zone=south&from=") for target in targets)
+    assert "/api/v1/record/days" in targets
+    assert "/api/v1/record/relay-check?days=7" in targets
+    assert "/api/v1/system/data?days=1" in targets
+    assert "/api/v1/system/delivery?hours=24" in targets
+    assert any(target.startswith("/api/v1/law/history?from=") for target in targets)
+    assert not any(target.startswith(("/api/v1/plan", "/api/v1/planner/")) for target in targets)
+    assert f"/api/v1/band/preview?param=band_vpd_target_sm&value={(0.4 + 2.0) / 2}" in targets
+    assert any(target.startswith("/api/v1/band?zone=house&from=") for target in targets)
+    assert not any("zone=south" in target or "zone_vpd_" in target for target in targets)  # release C
     assert any(target.startswith("/api/v1/series?metric=climate.temp_avg&from=") for target in targets)
     assert any(target.startswith("/api/v1/settings/mister_engage_delay_s/history?from=") for target in targets)
     assert any(target.startswith("/api/v1/irrigation/runs?from=") for target in targets)
@@ -819,7 +833,7 @@ def test_sweep_gets_every_read_as_the_viewer_and_writes_nothing(tmp_path):
     ("options", "expected"),
     [
         ({"statuses": {"/api/v1/states": 500}}, "FAIL  API-05 (500)"),
-        ({"no_reasons": True}, "FAIL  API-13 with its three reasons (200)"),
+        ({"no_reasons": True}, "FAIL  API-13 with its two reasons (200)"),
         ({"no_minutes": True}, "FAIL  API-IRR-10 with minutes on all 30 days, not no_data (200)"),
     ],
 )
@@ -962,20 +976,6 @@ def test_operator_leg_releases_a_write_that_never_confirms(tmp_path):
 
 
 @needs_node
-@pytest.mark.parametrize("arguments", [["--role", "operator"], ["--role", "operator", "--revert"]])
-def test_setting_legs_print_held_from_the_writes_own_answer_and_still_release(tmp_path, arguments):
-    world = FakeDashboard(held=True)
-    result, _, _ = run_leg(tmp_path, world, *arguments)
-    assert result.returncode == 1
-    assert "PASS  API-10 writes mister_engage_delay_s one grid step, manual, and answers held (200)" in result.stdout
-    assert "HELD  API-09 holds mister_engage_delay_s for an armed experiment (exp-7 armed)" in result.stdout
-    assert "NOT GREEN" in result.stdout
-    # One write on either leg: a held value is not stepped further.
-    operator_writes = [call["method"] for call in world.calls_writing() if call["role"] == "operator"]
-    assert operator_writes == ["PUT", "DELETE"]
-
-
-@needs_node
 def test_operator_leg_never_releases_another_writers_row(tmp_path):
     world = FakeDashboard(person_writes_at=1)
     result, _, _ = run_leg(tmp_path, world, "--role", "operator")
@@ -1052,7 +1052,9 @@ def test_lights_leg_sends_one_each_way_and_ends_at_the_intent(tmp_path):
         ("DELETE", "/api/v1/settings/sw_gl_main_auto_mode"),
     ]
     assert writes[0]["body"] == {"reason": "R4 live check"}
-    assert writes[1]["body"] == {"value": 1, "manual": True, "reason": "R4 live check"}
+    assert writes[1]["body"] == {"value": 1, "manual": False, "reason": "Back to automatic"}
+    assert writes[2]["body"] == {"reason": "Back to automatic"}  # untimed: no new hold (#1808)
+    assert world.hold is None
     assert {call["origin"] for call in writes} == {"https://dashboard.verdify.ai"}
     assert len({call["key"] for call in writes}) == 4
     assert world.light == {"state": "on", "intent": "on"}
@@ -1060,10 +1062,11 @@ def test_lights_leg_sends_one_each_way_and_ends_at_the_intent(tmp_path):
         "PASS  API-20 main off answers confirmed (200)",
         "PASS  API-13 reads Lutron off on the main light",
         "PASS  API-09 reads sw_gl_main_auto_mode confirmed",
+        "PASS  API-13 reads the main light's controller hold released",
         "PASS  API-20 main on answers confirmed (200)",
         "PASS  API-13 reads Lutron on on the main light",
         "PASS  API-11 releases sw_gl_main_auto_mode (200)",
-        "PASS  API-13 reads the main light at the controller's intent (200)",
+        "PASS  API-13 reads the main light at the controller's intent, off its hold (200)",
         "PASS  API-17 lists light.off by dashboard-smoke (200)",
         "PASS  API-17 lists light.on by dashboard-smoke (200)",
         "PASS  API-17 lists the sw_gl_main_auto_mode write and release by dashboard-smoke (200)",
@@ -1412,20 +1415,6 @@ def test_agent_program_releases_its_own_row():
     own = {"id": 1, "value": 1.0, "manual": False, "actor": {"source": "agent:orbit", "name": "orbit"}}
     result = run_agent_program(fake_mcp(calls, row=AGENT_ROW, row_after_write={**AGENT_ROW, "desired": own}))
     assert result.returncode == 0, result.stdout + result.stderr
-    assert len(agent_released(calls)) == 1
-
-
-def test_agent_program_prints_a_held_write_and_still_releases():
-    calls = []
-
-    def held(arguments):
-        if arguments.get("release"):
-            return {"id": 2, "state": "released"}, False
-        return {"id": 1, "state": "held", "state_reason": {"code": "experiment"}}, False
-
-    result = run_agent_program(fake_mcp(calls, row=AGENT_ROW, set_setting=held))
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "PASS set_setting answers state held" in result.stdout
     assert len(agent_released(calls)) == 1
 
 

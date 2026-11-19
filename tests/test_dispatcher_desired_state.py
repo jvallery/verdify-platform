@@ -37,7 +37,7 @@ from verdify_schemas.policy_vector import wire_fields  # noqa: E402
 from verdify_schemas.setting_values import readback_matches, snap_setting  # noqa: E402
 from verdify_schemas.tunable_registry import (  # noqa: E402
     DRY_COST_LIMIT_PARAM,
-    PLANNER_PUSHABLE_REG,
+    LIVE_WIRE_FIELDS,
     REGISTRY,
     desired_write_rule,
     planner_effective_bounds,
@@ -107,7 +107,8 @@ KNOBS = _knobs()
 # (the dispatcher's MAX_RECONNECT_COMMANDS is 12): LOADED = BATCH + 1 rows pace into two passes.
 BATCH = 2
 LOADED = BATCH + 1
-PLANNED = [knob for knob in KNOBS if knob.param in PLANNER_PUSHABLE_REG]
+# The live policy-wire knobs (operator settings since AR42; the reviewer writes none, so a plan row here is history).
+PLANNED = [knob for knob in KNOBS if knob.param in LIVE_WIRE_FIELDS]
 # A policy-vector wire field: the fields experiment_policy_hold could own.
 HELD = next(knob for knob in PLANNED if knob.param in {defn.name for defn in wire_fields()})
 

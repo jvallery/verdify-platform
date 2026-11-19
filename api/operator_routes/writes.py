@@ -76,7 +76,8 @@ class SettingWrite(BaseModel):
 
 
 class BandSave(BaseModel):
-    """API-24's body: the simple profile fields to change and Advanced raw anchors, one manual flag and one reason."""
+    """API-24's body: the simple profile fields or the edges to change (one form per axis) and Advanced raw anchors,
+    one manual flag and one reason."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -228,9 +229,12 @@ async def switch_light(
     automatic resync or the timer never switches the light at the same time; the press waits at most
     ``light_resync.LOCK_WAIT_S`` for it and then goes ahead."""
     actor = request.state.actor
-    written = await lights.stored(conn, actor, light, state, body.reason, key, minutes=body.minutes)
+    # The Equipment page's Back to automatic resync sends its one switch with this reason: it puts the light at the
+    # controller's intent, so it is untimed, like the server's own resync, and queues no controller hold (#1808).
+    minutes = None if body.reason == light_resync.BACK_TO_AUTOMATIC else body.minutes
+    written = await lights.stored(conn, actor, light, state, body.reason, key, minutes=minutes)
     if written is None:
         async with light_resync.commanding(request.app, conn, light):
             result = await setpoint_server.switch(request.app.state.settings.setpoint_server_url, light, state)
-            written = await lights.record(conn, actor, light, state, result, body.reason, key, minutes=body.minutes)
+            written = await lights.record(conn, actor, light, state, result, body.reason, key, minutes=minutes)
     return _light_answer(request, written)

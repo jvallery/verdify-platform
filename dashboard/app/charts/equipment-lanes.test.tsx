@@ -84,7 +84,7 @@ test("unknown spans are hatched where API-05 returns them and never drawn as off
   const ctx = plot.ctx;
   expect(ctx.depth).toBe(0);
   // Vent is off, then unknown 09:10–09:40, then off: the unknown span is muted diagonals inside its band.
-  const hatch = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"] && inBand(stroke, TOP.vent));
+  const hatch = ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && inBand(stroke, TOP.vent));
   expect(hatch).toHaveLength(1);
   const xs = hatch[0].path.map(([px]) => px);
   expect(Math.min(...xs)).toBeLessThan(x("09:10"));
@@ -93,9 +93,9 @@ test("unknown spans are hatched where API-05 returns them and never drawn as off
   // Off paints nothing on the row: no fill and no outline in Vent's band.
   expect(ctx.rects.filter((rect) => rect.y >= band(TOP.vent).top && rect.y < band(TOP.vent).bottom)).toEqual([]);
   expect(ctx.outlines.filter((rect) => rect.y >= band(TOP.vent).top && rect.y < band(TOP.vent).bottom)).toEqual([]);
-  expect(ctx.texts.find((text) => text.text === "unknown" && text.y === TOP.vent + 3 + 7)).toMatchObject({ color: TOKENS["--muted"] });
+  expect(ctx.texts.find((text) => text.text === "unknown" && text.y === TOP.vent + 3 + 7)).toMatchObject({ color: TOKENS["--text-3"] });
   // The same outage hatches every row the API marks unknown, the Lutron row included; nothing else, and never a header.
-  const hatched = Object.keys(TOP).filter((key) => ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--muted"] && inBand(stroke, TOP[key])));
+  const hatched = Object.keys(TOP).filter((key) => ctx.strokes.some((stroke) => stroke.stroke === TOKENS["--text-3"] && inBand(stroke, TOP[key])));
   expect(hatched).toEqual(["fan1", "vent", "heat1", "heat2", "mister_center", "grow_light_main"]);
   // In words: the tooltip and the data table say unknown.
   plot.hover(at("09:20"), null, TOP.vent + 10);
@@ -133,7 +133,7 @@ test("the Lutron rows are solid bars in their colour; where the controller's int
   expect(filled("--eq-light-grow").map((rect) => [rect.y, Math.round(rect.x), Math.round(rect.x + rect.width)])).toEqual([[band(TOP.grow_light_grow).top, Math.round(x("06:30")), Math.round(x("08:00"))]]);
   expect(ctx.outlines).toEqual([]);
   // The intent says on all window: it differs on main 07:00–09:10 (off, then unknown is no mismatch), on grow 06:00–06:30 and 08:00–10:00.
-  const amber = filled("--amber").map((rect) => [rect.y, Math.round(rect.x), Math.round(rect.x + rect.width), rect.height]);
+  const amber = filled("--warn").map((rect) => [rect.y, Math.round(rect.x), Math.round(rect.x + rect.width), rect.height]);
   const foot = (key: string) => band(TOP[key]).bottom - 3;
   expect(amber).toEqual([
     [foot("grow_light_main"), Math.round(x("07:00")), Math.round(x("09:10")), 3],
@@ -202,9 +202,12 @@ test("a wet line's runs fill in the line's own colour (#1354) and are named by c
   expect(centerOn).toEqual(["VPD", "VPD", "VPD", "schedule", ""]);
   // Each row is named, so its colour needs no key; the key names on, the intent strip and the hatch.
   expect([...container.querySelectorAll(".chart-key li")].map((item) => item.textContent)).toEqual(["on", "controller intent differs", "unknown"]);
-  // The key sits right under the rows it names, above the CSV and the table, which is named by its subject.
+  // The key is one line above the rows it names; under them the one quiet line holds the table, named by its subject, and CSV (A3).
   const figure = container.querySelector(".chart-lanes")!;
-  expect([...figure.children].map((child) => child.className).filter((name) => /chart-key|chart-tools|chart-table/.test(name))).toEqual(["chart-key", "chart-tools", "chart-table"]);
+  expect([...figure.children].map((child) => child.className).filter((name) => /chart-key|chart-foot|^lanes /.test(name))).toEqual(["chart-key", "lanes lanes-equipment", "chart-foot"]);
+  expect([...figure.querySelector(".chart-foot")!.children].map((child) => child.className)).toEqual(["chart-table", "chart-foot-tools"]);
+  const csv = figure.querySelector(".chart-csv")!;
+  expect([csv.textContent, csv.getAttribute("aria-label")]).toEqual(["CSV", "CSV of these lanes"]);
   expect(figure.querySelector(".chart-table summary")?.textContent).toMatch(/^Lanes table · \d+ rows$/);
 });
 
@@ -225,7 +228,7 @@ test("each row ends with its state, on time and starts; at 860 px and below the 
   vi.stubGlobal("matchMedia", media({ narrow: true, fine: false }));
   const { plot } = await mount();
   // Vent's top at 24 px rows: the Climate header (24), Fan 1 (24).
-  expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"] && inBand(stroke, 48, 24))).toHaveLength(1);
+  expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && inBand(stroke, 48, 24))).toHaveLength(1);
   expect(plot.ctx.rects.find((rect) => rect.color === TOKENS["--eq-water"])!.height).toBe(18);
 });
 
@@ -247,7 +250,7 @@ test("inside a chart stack: the panels' plot area with the time axis under the l
   // Rows are 36 px: a 16 px line for the name, then the band; a header is 24 px. Vent's unknown span is hatched in its band.
   const stackedBand = (top: number) => ({ top: top + 16 + 3, bottom: top + 36 - 3 });
   const inStackedBand = (stroke: Stroke, top: number) => stroke.path.every(([, y]) => y >= stackedBand(top).top && y <= stackedBand(top).bottom);
-  expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"] && inStackedBand(stroke, 24 + 36))).toHaveLength(1);
+  expect(plot.ctx.strokes.filter((stroke) => stroke.stroke === TOKENS["--text-3"] && inStackedBand(stroke, 24 + 36))).toHaveLength(1);
   const fold = screen.getByRole("button", { name: "Climate: 1 idle" });
   expect(fold.closest(".lanes-group")?.getAttribute("data-system")).toBe("climate");
   fireEvent.click(fold);
@@ -335,7 +338,7 @@ test("a light reads manual from a person's or an agent's switch until its timer,
 
   const { container, plot } = await mount({ lightWrites: SWITCHES });
   // A green strip along the main light's head from 06:50 to 07:05, on then off, and "manual" after it.
-  const strips = plot.ctx.rects.filter((rect) => rect.color === TOKENS["--forest"] && rect.y === band(TOP.grow_light_main).top);
+  const strips = plot.ctx.rects.filter((rect) => rect.color === TOKENS["--accent"] && rect.y === band(TOP.grow_light_main).top);
   expect(strips.map((rect) => [rect.x, rect.x + rect.width, rect.height])).toEqual([[x("06:50"), x("07:00"), 3], [x("07:00"), x("07:05"), 3]]);
   const label = plot.ctx.texts.find((text) => text.text === "manual" && text.x > x("07:05"))!;
   expect(label.x).toBeCloseTo(x("07:05") + 4);

@@ -6,8 +6,13 @@ import { useApiDown } from "../lib/session";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { LocalTime, cls } from "./common";
+import { EmptyState } from "./empty-state";
 import { AgeLabel, FreshnessDot } from "./freshness";
+import { Chevron } from "./layout/chevron";
+import { Skeleton } from "./skeleton";
 import { reasonParts } from "./state-reason-line";
+
+export { EmptyState } from "./empty-state";
 
 /**
  * What a panel shows (screens §1.5). `loading` is the first fetch only: while a refetch runs, pass the state of the
@@ -17,7 +22,7 @@ import { reasonParts } from "./state-reason-line";
 export type PanelState = "ready" | "loading" | "empty" | "stale" | "ingestor_down" | "controller_not_reporting" | "error" | "busy";
 const DEVICE_STALE: readonly PanelState[] = ["stale", "ingestor_down", "controller_not_reporting"];
 
-/** "Couldn't load runs." with Retry, in the failing panel only. */
+/** "Couldn't load runs." with Retry, in the failing panel only: a critical soft box, one sentence and one action. */
 export function PanelError({ thing, text, onRetry }: { thing: string; text?: ReactNode; onRetry?: () => void }) {
   return <div className="panel-error"><p className="fault">{text ?? `Couldn't load ${thing}.`}</p>{onRetry && <Button onClick={onRetry}>Retry</Button>}</div>;
 }
@@ -32,21 +37,24 @@ export class PanelErrorBoundary extends Component<{ thing: string; text?: ReactN
   }
 }
 
-/** "No runs today." plus what would appear here and a link that widens the range. */
-export function EmptyState({ message, detail, widen }: { message: ReactNode; detail?: ReactNode; widen?: { to: string; label: ReactNode } }) {
-  return <div className="panel-empty"><p>{message}</p>{detail && <p className="muted">{detail}</p>}{widen && <p><Link to={widen.to}>{widen.label}</Link></p>}</div>;
-}
-
 function ReasonSince({ code, since }: { code: "writer_down" | "controller_not_reporting"; since: string | null | undefined }) {
   return <span>{reasonParts({ code, since }).map((part, index) => (typeof part === "string" ? part : <LocalTime key={index} at={part.time} />))}</span>;
 }
 
 /** The "All … ›" link at a card head's right (redesign §3.5, §4.1). */
-export type HeadLink = { readonly to: string; readonly label: ReactNode };
-/** The head's right side: the actions, then the "All … ›" link, then the ⋯ menu. */
-export function HeadEnd({ actions, link, menu }: { actions?: ReactNode; link?: HeadLink; menu?: ReactNode }) {
-  if (!actions && !link && !menu) return null;
-  return <div className="card-head-end">{actions}{link && <Link className="card-link-all" to={link.to}>{link.label}<span aria-hidden="true"> ›</span></Link>}{menu}</div>;
+export type HeadLink = {
+  readonly to: string;
+  readonly label: ReactNode;
+  /**
+   * The link's whole name as `aria-label`, where its label carries a hidden suffix that starts with punctuation ("Why" +
+   * ": the climate law"): a browser names it with a space before the hidden span ("Why : the climate law").
+   */
+  readonly name?: string;
+};
+/** The head's right side: the as-of time, the actions, then the "All … ›" link, then the ⋯ menu. */
+export function HeadEnd({ asOf, actions, link, menu }: { asOf?: ReactNode; actions?: ReactNode; link?: HeadLink; menu?: ReactNode }) {
+  if (!asOf && !actions && !link && !menu) return null;
+  return <div className="card-head-end">{asOf && <span className="card-asof">{asOf}</span>}{actions}{link && <Link className="card-link-all" to={link.to} aria-label={link.name}>{link.label}<Chevron /></Link>}{menu}</div>;
 }
 
 export type PanelProps = {
@@ -62,7 +70,7 @@ export type PanelProps = {
   link?: HeadLink;
   /** The ⋯ `Menu`, last in the head. */
   menu?: ReactNode;
-  /** Abnormal: a 3 px `--amber` or `--fault` rule on the left; the background stays white. Dropped while the API is down. */
+  /** Abnormal: a 3 px `--warn` or `--critical` rule at the left edge; the surface stays calm. Dropped while the API is down. */
   tone?: "warn" | "fault";
   /** The foot: a `.meta` line (source, age, resolution) or a "Details ›" link, shown with the data. */
   foot?: ReactNode;
@@ -72,10 +80,17 @@ export type PanelProps = {
   /** The skeleton's reserved height while loading. */
   reserve?: "sm" | "md" | "lg";
   /**
-   * When the panel's newest data was observed. Given, a ready or busy panel shows "Updated N s ago", and a stale one
-   * "Last data N min ago (HH:MM)".
+   * When the panel's newest data was observed: a stale panel shows "Last data N min ago (HH:MM)", and a ready or busy
+   * one "Updated N s ago" when `age` is "always".
    */
   observedAt?: string | null;
+  /**
+   * One observation time a page (A2): the page header states how fresh the page is, so a ready or busy panel shows no
+   * "Updated" line ("auto", the default). "always" shows it, for a panel whose live read (a relay, a probe, the
+   * controller) is not the header's. Panels of daily or historical data never pass it. Stale, not reporting and failed
+   * panels say so either way.
+   */
+  age?: "auto" | "always";
   /** ingestor_down: the newest heartbeat; controller_not_reporting: the newest climate row. */
   since?: string | null;
   /** busy: the `Retry-After` seconds. */
@@ -91,24 +106,24 @@ export type PanelProps = {
 
 /**
  * A card that loads one thing and says honestly how it is: a skeleton at its reserved height while loading; its age
- * when ready; the empty words; STALE with "Last data N min ago (HH:MM)" and no verdict; the ingestor or controller
+ * when ready only where asked (`age`); the empty words; STALE with "Last data N min ago (HH:MM)" and no verdict; the ingestor or controller
  * line with device values STALE; its own error and Retry; "Busy, retrying in N s" over the old render. A render
  * failure inside stays here. Its head (redesign §4.1) holds the eyebrow, the title with at most one pill, then the
  * actions, an "All … ›" link and the ⋯ menu; an abnormal panel has a 3 px rule on its left, and its foot a meta line.
  */
-export function Panel({ title, eyebrow, headingLevel = 2, id, actions, pill, link, menu, tone, foot, thing, state, reserve = "md", observedAt, since, retryInS, onRetry, errorText, empty, children }: PanelProps) {
+export function Panel({ title, eyebrow, headingLevel = 2, id, actions, pill, link, menu, tone, foot, thing, state, reserve = "md", observedAt, age: showAge = "auto", since, retryInS, onRetry, errorText, empty, children }: PanelProps) {
   const headingId = useId();
   const apiDown = useApiDown();
   const Heading = headingLevel === 2 ? "h2" : "h3";
   const stale = DEVICE_STALE.includes(state);
   // The words are separate elements in a flex row; the spaces keep them apart for a screen reader too.
-  const age = observedAt === undefined ? null : <><FreshnessDot stale={false} /><AgeLabel observedAt={observedAt} stale={false} /></>;
+  const age = observedAt === undefined || showAge !== "always" ? null : <><FreshnessDot stale={false} /><AgeLabel observedAt={observedAt} stale={false} /></>;
   const line = state === "stale" ? <><FreshnessDot stale /><Badge kind="stale" /> <AgeLabel observedAt={observedAt} stale /></>
     : state === "ingestor_down" || state === "controller_not_reporting" ? <><FreshnessDot stale notReporting /><Badge kind="stale" /> <ReasonSince code={state === "ingestor_down" ? "writer_down" : "controller_not_reporting"} since={since} /></>
     : state === "busy" ? <><span>Busy, retrying {retryInS !== null && retryInS !== undefined && Number.isFinite(retryInS) ? <>in {duration(Math.max(0, retryInS))}</> : "shortly"}</span>{age && <> {age}</>}</>
     : state === "ready" ? age
     : null;
-  const body = state === "loading" ? <><div className={`skeleton skeleton-${reserve}`} aria-hidden="true" /><p className="screen-reader">Loading {thing}</p></>
+  const body = state === "loading" ? <Skeleton size={reserve} label={thing} />
     : state === "error" ? <PanelError thing={thing} text={errorText} onRetry={onRetry} />
     : state === "empty" ? empty ?? <EmptyState message={`No ${thing}.`} />
     : <PanelErrorBoundary thing={thing} text={errorText} onRetry={onRetry}>{stale ? <div className="panel-muted">{children}</div> : children}</PanelErrorBoundary>;

@@ -45,7 +45,7 @@ _INSERT = (
 _SOURCE = re.compile(ACTOR_SOURCE_PATTERN)
 
 # The OpenAPI ReadbackState (architecture §5.5).
-ReadbackState = Literal["requested", "confirmed", "not_confirmed", "held", "no_readback", "overridden", "released"]
+ReadbackState = Literal["requested", "confirmed", "not_confirmed", "no_readback", "overridden", "released"]
 
 
 class ActivityEntry(BaseModel):

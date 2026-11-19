@@ -115,9 +115,35 @@ _FORECAST_COLUMNS = (
 )
 
 
+# A failed hourly fetch (an Open-Meteo 504, a timeout, a bad body) is tried again about 5, 15 and 30 minutes after
+# the first attempt, each with the same 30 s timeout, then waits for the next hourly run. The whole sequence ends
+# well inside the 3600 s cadence and its task timeout in ingestor.task_loop; the stale-forecast alert keeps its
+# threshold.
+FORECAST_RETRY_DELAYS_S = (300.0, 600.0, 900.0)
+
+
+async def _fetch_forecast_with_retry(fetch=None, sleep=None) -> list[dict] | None:
+    fetch = fetch or _fetch_forecast
+    sleep = sleep or asyncio.sleep
+    loop = asyncio.get_running_loop()
+    attempts = len(FORECAST_RETRY_DELAYS_S) + 1
+    for attempt in range(1, attempts + 1):
+        rows = await loop.run_in_executor(None, fetch)
+        if rows:
+            if attempt > 1:
+                log.info("Forecast fetch attempt %d/%d succeeded", attempt, attempts)
+            return rows
+        if attempt == attempts:
+            log.warning("Forecast fetch attempt %d/%d failed; waiting for the next hourly run", attempt, attempts)
+            return None
+        delay = FORECAST_RETRY_DELAYS_S[attempt - 1]
+        log.warning("Forecast fetch attempt %d/%d failed; retrying in %.0f s", attempt, attempts, delay)
+        await sleep(delay)
+    return None
+
+
 async def forecast_sync(pool: asyncpg.Pool) -> None:
-    loop = asyncio.get_event_loop()
-    rows = await loop.run_in_executor(None, _fetch_forecast)
+    rows = await _fetch_forecast_with_retry()
     if not rows:
         return
     now = datetime.now(UTC)

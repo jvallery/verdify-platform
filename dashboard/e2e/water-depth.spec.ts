@@ -2,8 +2,7 @@
 // Water depth (#1140, redesign §5.4) at 1440 and 390 px: daily water use with the no-valve water apart and missing days as
 // gaps, the window it serves for the page's period, its cause chips, a failed API-21 read in its own panel, and a failed
 // status read that leaves the Run dialog open.
-// What the bars paint on their canvas is daily-water-use.test.tsx; here are the key, the table and the summary. Split
-// from equipment-water-depth.spec.ts (redesign §10.2, WP0.1); the Equipment half is equipment-depth.spec.ts.
+// What the bars paint on their canvas is daily-water-use.test.tsx; here are the key, the table and the summary.
 import { DESKTOP, PHONE, axe, expect, expectNoHorizontalScroll, fixtureRequests, load, test, untilPolled, useScreensClock } from "./support";
 
 const VIEWPORTS = [DESKTOP, PHONE];
@@ -18,14 +17,14 @@ for (const viewport of VIEWPORTS) {
     await expect(panel.locator(".plot-water-use canvas").first()).toBeVisible();
     // The page's 7 days are shorter than the 30 the chart serves, and its head says so.
     await expect(panel.locator(".section-header .meta")).toHaveText("gallons · last 30 days, the shortest this chart serves");
-    // The key says what the canvas draws: the no-valve bar in neutral --muted (hose and sink use is no fault), hatched no-data days and the partial day's dashed edge.
+    // The key says what the canvas draws: the no-valve bar in neutral --text-3 (hose and sink use is no fault), hatched no-data days and the partial day's dashed edge.
     const key = panel.locator(".chart-key li");
     const noValve = key.filter({ hasText: "No Verdify valve open: hose, sink, hydro or a leak" }).locator(".chart-key-swatch");
-    await expect(noValve).toHaveAttribute("data-token", "muted");
+    await expect(noValve).toHaveAttribute("data-token", "text-3");
     await expect(noValve).toHaveAttribute("data-kind", "fill");
     await expect(key.filter({ hasText: /^no data$/ }).locator(".chart-key-swatch")).toHaveAttribute("data-kind", "hatch");
     await expect(key.filter({ hasText: /^partial day$/ }).locator(".chart-key-swatch")).toHaveAttribute("data-kind", "dashed");
-    await expect(panel.locator(".water-summary")).toContainText(/^Last 30 days: \d+\s+gal · \d+\s+gal with no Verdify valve open · 1 day with no data$/);
+    await expect(panel.locator(".water-summary")).toContainText(/^Last\s30\sdays:\s\d+\s+gal\s·\s\d+\s+gal\swith\sno\sVerdify\svalve\sopen\s·\s1\sday\swith\sno\sdata$/);
     await expect(panel.locator("details.chart-table summary")).toHaveText("Data table · 30 rows");
     await panel.locator("details.chart-table summary").click();
     const rows = panel.locator("details.chart-table tbody tr");

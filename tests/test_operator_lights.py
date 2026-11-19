@@ -292,6 +292,17 @@ def test_200_is_a_confirmed_light_command_with_its_activity_row(client, operator
     assert not call["headers"] & {"authorization", "cookie", "x-dashboard-session"}  # it takes no token
 
 
+def test_a_back_to_automatic_switch_is_untimed_and_holds_nothing(client, operator, fake, log):
+    """#1808: the page's resync switch (reason Back to automatic) puts the light at the controller's intent. Timed, it
+    queued a 15 min controller hold at that state, so the light stopped following the controller."""
+    log.engine = "true"
+    answer = client.post(MAIN_ON, headers=keyed(operator), json={"reason": light_resync.BACK_TO_AUTOMATIC})
+    assert answer.status_code == 200, answer.text
+    (row,) = log.activity
+    assert row["detail"] == {"light": "main", "state": "on", "result": "confirmed"}
+    assert log.commands == []
+
+
 @pytest.mark.parametrize(
     ("status", "result", "words"),
     [
@@ -679,7 +690,6 @@ def board(intent: str | None, state: str, light: str = "main") -> reads.Equipmen
     reason = reads.ReasonState(code=None, since=None, observed_at=None)
     return reads.Equipment(
         items=[item(f"grow_light_{light}", intent, state), item(f"grow_light_{other}", "on", "on")],
-        mode_reason=reason,
         fog_block_reason=reason,
         moisture_block_reason=reason,
     )
@@ -842,6 +852,19 @@ def test_the_reason_is_the_dashboards_back_to_automatic():
     }
     assert len(found) == 1, found
     assert f'BACK_TO_AUTOMATIC = "{light_resync.BACK_TO_AUTOMATIC}";' in next(iter(found.values()))
+
+
+def test_the_smoke_lights_leg_goes_back_to_automatic_with_the_releasing_reason():
+    """#1808: the smoke's lights leg must return to automatic with the reason that releases the controller's hold (and
+    as the page does, not manual), then wait for the hold to clear; another reason left the light held for 15 min."""
+    smoke = (ROOT / "scripts/dashboard-smoke.sh").read_text()
+    assert f'const BACK_TO_AUTOMATIC = "{light_resync.BACK_TO_AUTOMATIC}";' in smoke
+    leg = smoke[smoke.index("async function lights(bff)") : smoke.index("// ── --agent-write")]
+    assert "writeSetting(bff, MAIN_AUTO, 1, BACK_TO_AUTOMATIC," in leg and ", false);" in leg
+    assert "R4_REASON" not in leg.split("written = await writeSetting", 1)[1].split("\n", 1)[0]
+    assert "await untilHoldReleased(bff)" in leg
+    assert "switchMain(bff, now.intent, sent, BACK_TO_AUTOMATIC)" in leg
+    assert "!onHold(finalItem)" in leg
 
 
 def test_the_decision_entities_are_the_ones_the_ingestor_writes():
@@ -1039,8 +1062,8 @@ def test_a_decision_inside_its_two_minutes_lets_it_send(quick, monkeypatch, fake
 
 @pytest.mark.parametrize(
     "answer",
-    [status("requested"), status("held"), status("not_confirmed"), HANG],
-    ids=["requested", "held", "not_confirmed", "a read that never answers"],
+    [status("requested"), status("not_confirmed"), HANG],
+    ids=["requested", "not_confirmed", "a read that never answers"],
 )
 def test_not_confirmed_in_the_window_sends_none_and_records_nothing(quick, monkeypatch, fake, db, caplog, answer):
     world = Greenhouse(monkeypatch, states=[answer], boards=[board("off", "on")])

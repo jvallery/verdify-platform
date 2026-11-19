@@ -3,7 +3,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { lineDisplayName } from "../lib/lines";
 import type { IrrigationLine, IrrigationStatus } from "../lib/operator-api";
 import { useRole } from "../lib/session";
-import { lineSyncWords, useWaterDrawer, vpdSourceWords } from "../lib/water";
+import { ZONE_ORDER_TEXT, lineSyncWords, useWaterDrawer, vpdSourceWords } from "../lib/water";
 import { useProgramWrite } from "../lib/writes";
 import { Badge, ReadbackBadge } from "./badge";
 import { FieldError, Switch, describedBy, useFieldIds } from "./forms";
@@ -14,28 +14,21 @@ import { CONFIRMED_FRESH_MS } from "./schedule/rules-list";
 /** Both flags off (irrigation §4.4). */
 export const WILL_NOT_MIST_TEXT = "This mister will not mist automatically";
 
-/** The mister rank the arbiter uses by default (`zone_priority_*`, firmware globals.yaml): center 1, south 2, west 3. */
-const RANKED = ["L04", "L07", "L09"];
 const whole = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? String(Math.round(value)) : null);
 
 /**
- * What VPD control does to the controller (#1344; irrigation §4.4, from the firmware's `irr_vpd_zone_allowed`,
- * `mister_blocked` and `arbitrate_wet_zone`), in plain words with this mister's daily cap and the site's daily mist & fog
- * limit from API-IRR-01. Paragraphs, for the info tip.
+ * What VPD control does on the controller (#1344; screens section 3.1), in plain words with this mister's daily cap and
+ * the site's daily mist and fog limit from API-IRR-01: the law asks for misting above the mist line, and the controller
+ * picks a zone in its fixed order against the one house band. What holds misting now is the Misting block's. Paragraphs,
+ * for the info tip.
  */
 export function vpdControlHelp(line: Pick<IrrigationLine, "line_id" | "daily_cap_min" | "vpd_reserve_min">, saf4Max: number | null | undefined): string[] {
   const cap = line.daily_cap_min > 0 ? `its ${line.daily_cap_min} min daily cap` : "its daily minutes";
-  const limit = whole(saf4Max) ? `the ${whole(saf4Max)} gal daily mist & fog limit` : "the daily mist & fog limit";
-  const order = line.line_id === RANKED[0]
-    ? "Only one mister runs at a time. Center goes first, unless South or West also has VPD control on and its own zone is drier than its target."
-    : "Only one mister runs at a time. Center goes first, unless this mister's own zone is drier than its target, or Center is capped or faulted.";
-  const probe = line.line_id === RANKED[0] ? null
-    : "It reads this zone's own humidity probe; while that probe is offline, the other probes, then the house average.";
+  const limit = whole(saf4Max) ? `the ${whole(saf4Max)} gal daily mist and fog limit` : "the daily mist and fog limit";
   return [
-    "When the greenhouse needs humidity and the climate safety checks pass, the controller may send short mist pulses to this mister.",
-    order,
-    `Pulses count toward ${cap} and ${limit}. Misting waits while someone is inside, a vent is open or a drip runs.`,
-    ...(probe ? [probe] : []),
+    "When the house's VPD rises above the mist line, the climate law asks for misting, and the controller may send short mist pulses to this mister.",
+    ZONE_ORDER_TEXT,
+    `Pulses count toward ${cap} and ${limit}. The Misting block on this page says what holds misting now.`,
     "The line has to be on: a mister that is off never mists, whatever this switch says.",
   ];
 }
@@ -132,7 +125,7 @@ export function MisterControls({ line, status }: MisterControlsProps) {
         <dt>{label}{flag === "vpd_member" && help}</dt><dd>{flag === "vpd_member" && off ? (line.vpd_member ? "set, but the line is off" : "off") : <Flag on={line[flag]} />}{flagShowsBadge(line, flag, pressed, now, status.engine) && <> <ReadbackBadge state={line.sync} /></>}</dd>
       </Fragment>)}</dl>}
     {off && operator && <p className="mister-help">Turn {name} on (⋯ → Enabled) to use VPD control.</p>}
-    <p className="mister-source meta">{source ?? <>VPD source —{!status.engine && <span> · arrives with the irrigation firmware</span>}</>}</p>
+    <p className="mister-source meta">{source ?? "VPD source not reported"}</p>
     {syncWords && <p className="meta mister-sync">{syncWords}</p>}
     {line.vpd_member === false && line.schedule_member === false && <p className="mister-off">{WILL_NOT_MIST_TEXT}</p>}
   </div>;

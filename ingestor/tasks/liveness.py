@@ -19,6 +19,7 @@ logged and never costs the heartbeat row, which goes first.
 
 import re
 
+import gap_replay
 import shared
 
 from verdify_schemas.telemetry import INGESTOR_COUNTERS_ENTITY, IngestorCounters, SystemStateRow
@@ -49,6 +50,7 @@ def counters_value() -> str:
         pr=shared.payload_rejections,
         rj=dict(shared.rows_rejected),
         fw=pin if _PIN.fullmatch(pin) else "",
+        gr=gap_replay.host.failures,
     ).compact()
 
 

@@ -28,10 +28,6 @@ from verdify_schemas.band_rows import (
     ANCHOR_KEYS,
     BAND_PARAM_ROWS,
     HOUSE_CROP,
-    WIDTH_COLUMNS,
-    ZONE_CROP,
-    ZONE_SERIES,
-    ZONES,
 )
 from verdify_schemas.tunable_registry import REGISTRY
 from verdify_schemas.vpd_envelope import AchievableColumns
@@ -59,7 +55,9 @@ CONTROLLER_REPORTING = timedelta(seconds=300)
 # The Lutron readback is polled every 300 s; older than two polls means Home Assistant is down.
 LUTRON_FRESH = timedelta(seconds=600)
 # Raw retention (decisions Round 2b D); daily keys are kept at least as long as the widest window.
-RETENTION_DAYS = {"climate": 365, "diagnostics": 180, "setpoint_snapshot": 90}
+RETENTION_DAYS = {"climate": 365, "diagnostics": 180, "setpoint_snapshot": 90, "v_dashboard_energy": 365}
+# The relations a raw key reads, in query order. v_dashboard_energy is migration 312's projection of energy (365 d).
+RAW_TABLES = ("climate", "diagnostics", "v_dashboard_energy")
 DAILY_RETENTION_DAYS = 400
 # TimescaleDB aligns time_bucket(interval, timestamptz) to this Monday; API-06 steps that do
 # not divide a day must use the same origin to line up with time_bucket_gapfill.
@@ -71,7 +69,8 @@ PREVIEW_MAX_DAYS_AWAY = MAX_WINDOW.days
 
 Provenance = Literal["MEASURED", "DERIVED", "PLANNED", "MANUAL", "AI"]
 Source = Literal["raw", "daily_summary", "scorecard", "forecast"]
-BandZone = Literal["house", "center", "south", "west", "east"]
+# API-06 reads the house band only: zones are probes, and the law has one band (release C retired the zone bands).
+BandZone = Literal["house"]
 IrrigationCause = Literal["vpd", "schedule", "run_now", "feed", "prewet", "flush", "fallback", "unknown"]
 LaneGroup = Literal["climate", "water", "light", "flag"]
 LaneState = Literal["on", "off", "unknown"]
@@ -199,8 +198,11 @@ class BandPreview(BaseModel):
 # ─────────────────────────────────────────────────────────────── the metric registry (API-03)
 @dataclass(frozen=True, slots=True)
 class RawBinding:
-    table: Literal["climate", "diagnostics"]
+    """A stored column. ``magnitude`` serves its absolute value (a channel whose clamp reads reversed)."""
+
+    table: Literal["climate", "diagnostics", "v_dashboard_energy"]
     column: str
+    magnitude: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,14 +292,25 @@ def _climate(
     )
 
 
-def _hydro(column: str, label: str, unit: str) -> MetricBinding:
-    return _climate(
-        column,
-        label,
-        "water and soil",
-        unit,
+def _hydro(
+    column: str, label: str, unit: str, note: str = "Hydroponic probe; written into the newest climate row every 300 s"
+) -> MetricBinding:
+    return _climate(column, label, "water and soil", unit, cadence_s=300, note=note)
+
+
+def _power(column: str, label: str, note: str, *, magnitude: bool = False) -> MetricBinding:
+    """A power-meter channel from v_dashboard_energy (migration 312), one row about every 300 s."""
+    return MetricBinding(
+        key=f"energy.{column}",
+        label=label,
+        group=_POWER,
+        unit="W",
+        provenance="MEASURED",
+        raw=RawBinding("v_dashboard_energy", column, magnitude=magnitude),
+        daily=None,
         cadence_s=300,
-        note="Hydroponic probe; written into the newest climate row every 300 s",
+        retention_days=RETENTION_DAYS["v_dashboard_energy"],
+        note=note,
     )
 
 
@@ -365,11 +378,10 @@ _ZONES = "zones"
 _WATER = "water and soil"
 _LIGHT = "light"
 _OUTDOOR = "outdoor"
-_TARGETS = "targets"
 _CONTROLLER = "controller"
+_POWER = "power"
 _TEMPEST = "Tempest weather station, received by the controller over UDP"
 _ON_CHIP = "The controller's on-chip value"
-_FROM_TARGET = "Measured value minus the controller's on-chip target; negative is below it"
 
 _REGISTRY: tuple[MetricBinding, ...] = (
     # house climate
@@ -384,7 +396,15 @@ _REGISTRY: tuple[MetricBinding, ...] = (
         zone="house",
         daily=_summary("vpd_avg", "vpd_min", "vpd_max"),
     ),
-    _climate("co2_ppm", "CO₂", _HOUSE, "ppm", zone="house", daily=_summary("co2_avg")),
+    _climate(
+        "co2_ppm",
+        "CO₂",
+        _HOUSE,
+        "ppm",
+        zone="house",
+        daily=_summary("co2_avg"),
+        note="Unreliable: the CO₂ sensor's readings have not been checked and are not trusted",
+    ),
     _climate(
         "temp_control",
         "Control temperature",
@@ -441,7 +461,6 @@ _REGISTRY: tuple[MetricBinding, ...] = (
     _hydro("hydro_ph", "Hydroponic pH", "pH"),
     _hydro("hydro_ec_us_cm", "Hydroponic EC", "µS/cm"),
     _hydro("hydro_water_temp_f", "Hydroponic water temperature", "°F"),
-    _hydro("hydro_battery_pct", "Hydroponic probe battery", "%"),
     # light
     _climate(
         "ppfd_umol_m2_s",
@@ -517,62 +536,6 @@ _REGISTRY: tuple[MetricBinding, ...] = (
     _forecast("vpd_kpa", "Forecast VPD", "kPa"),
     # Graphs → Lighting draws it ahead of now beside the measured irradiance (#1357).
     _forecast("solar_w_m2", "Forecast solar radiation", "W/m²"),
-    # targets: the controller's on-chip targets, a cross-check for API-06, and how far the
-    # measured value sits from each (the firmware publishes Tin - target and VPD - target)
-    _climate(
-        "house_temp_target_f",
-        "House temperature target",
-        _TARGETS,
-        "°F",
-        provenance="DERIVED",
-        zone="house",
-        note=_ON_CHIP,
-    ),
-    _climate(
-        "house_temp_delta_f",
-        "House temperature minus target",
-        _TARGETS,
-        "°F",
-        provenance="DERIVED",
-        zone="house",
-        note=_FROM_TARGET,
-    ),
-    _climate(
-        "house_vpd_target", "House VPD target", _TARGETS, "kPa", provenance="DERIVED", zone="house", note=_ON_CHIP
-    ),
-    _climate(
-        "house_vpd_delta",
-        "House VPD minus target",
-        _TARGETS,
-        "kPa",
-        provenance="DERIVED",
-        zone="house",
-        note=_FROM_TARGET,
-    ),
-    *(
-        _climate(
-            f"vpd_target_{zone}",
-            f"{zone.capitalize()} VPD target",
-            _TARGETS,
-            "kPa",
-            provenance="DERIVED",
-            zone=zone,
-            note=_ON_CHIP,
-        )
-        for zone in ("center", "south", "west", "east")
-    ),
-    *(
-        _climate(
-            f"vpd_delta_{zone}",
-            f"{zone.capitalize()} VPD minus target",
-            _TARGETS,
-            "kPa",
-            provenance="DERIVED",
-            zone=zone,
-            note=_FROM_TARGET,
-        )
-        for zone in ("center", "south", "west", "east")
-    ),
     # controller
     _climate("temp_case", "Case temperature", _CONTROLLER, "°F", note="Inside the controller enclosure"),
     _climate("rh_case", "Case relative humidity", _CONTROLLER, "%", note="Inside the controller enclosure"),
@@ -580,6 +543,44 @@ _REGISTRY: tuple[MetricBinding, ...] = (
     _diagnostic("heap_largest_block_kb", "heap_largest_free_block_kb", "Largest free heap block", "kB"),
     _diagnostic("rssi_dbm", "wifi_rssi", "Wi-Fi signal", "dBm"),
     _diagnostic("uptime_s", "uptime_s", "Uptime", "s"),
+    # the controller's hardware budget (diagnostics, migrations 314 and 315; API-35 serves the newest values)
+    _diagnostic("heap_min_free_kb", "heap_min_free_kb", "Lowest free heap since restart", "kB"),
+    _diagnostic("heap_minute_low_kb", "heap_min_free_minute_kb", "Lowest free heap in the minute", "kB"),
+    _diagnostic(
+        "heap_largest_block_minute_low_kb",
+        "heap_largest_block_minute_low_kb",
+        "Smallest largest free block in the minute",
+        "kB",
+    ),
+    _diagnostic("loop_worst_ms", "loop_worst_ms", "Slowest control loop in the minute", "ms"),
+    _diagnostic(
+        "loop_stack_free_min_b",
+        "loop_stack_high_water_b",
+        "Least free loop stack",
+        "B",
+        note="The least free stack of the control loop's task since restart",
+    ),
+    _diagnostic("nvs_used_entries", "nvs_used_entries", "Settings storage entries used", "entries"),
+    _diagnostic("nvs_free_entries", "nvs_free_entries", "Settings storage entries free", "entries"),
+    _diagnostic("nvs_write_worst_ms", "nvs_write_worst_ms", "Slowest settings storage write in the minute", "ms"),
+    _diagnostic(
+        "wifi_disconnects", "wifi_disconnect_count", "Wi-Fi disconnects", "count", note="Counted since restart"
+    ),
+    _diagnostic("api_clients", "api_client_count", "API connections", "count"),
+    _diagnostic(
+        "restart_count", "restart_count", "Restarts", "count", note="Counted and kept by the controller across restarts"
+    ),
+    _diagnostic("active_probes", "active_probe_count", "Active probes", "count"),
+    _diagnostic("sntp_sync_age_s", "last_sntp_sync_age_s", "Time since the clock synced", "s"),
+    # power (v_dashboard_energy, migration 312: the Shelly two-channel meter)
+    _power("ch0_power_w", "Power, channel 0", "Shelly meter channel 0"),
+    _power(
+        "ch1_power_w",
+        "Power, channel 1",
+        "Shelly meter channel 1. The electric heater's draw is stored negative because its clamp is reversed "
+        "(#1369); this key serves the magnitude, a lower bound while the heater and another load run together",
+        magnitude=True,
+    ),
     # daily: the scorecard (v_daily_scorecard, one row per America/Denver day)
     _scorecard(
         "temp_in_band_pct",
@@ -624,13 +625,6 @@ _REGISTRY: tuple[MetricBinding, ...] = (
         note="Minutes above the served band with the vent and both fans on: a count beside the grade, not a score",
     ),
     _scorecard("water_gal", "Water used", "gal", reason="water_reason", provenance="MEASURED"),
-    _scorecard("iris_required_written", "Iris required plans written", "count", note="MIDNIGHT, SUNRISE and SUNSET"),
-    _scorecard(
-        "iris_required_missed",
-        "Iris required plans missed",
-        "count",
-        note="A required trigger that ended without a plan, an answer without one included",
-    ),
     _scorecard("alerts_critical", "Critical alerts raised", "count"),
     _scorecard("alerts_warning", "Warning alerts raised", "count"),
     _scorecard("alerts_info", "Info alerts raised", "count"),
@@ -646,6 +640,8 @@ _HA_ONLY_TEMPEST = (
 # TEL-F6 (RULINGS AF11): no value in 90 days and no probe planned, so the catalog does not offer an always-empty
 # series. The soil_* columns stay offered: new soil probes are on order (AB3).
 _NO_SOURCE = "No source in 90 days and no probe planned (TEL-F6, RULINGS AF11)"
+# Release C (docs/design/dashboard/v2/api.md §7): the plan-era targets group retired; the law has one band (API-06).
+_NO_TARGETS = "Release C: the on-chip targets group retired; the law has one band, read through API-06"
 EXCLUDED_COLUMNS: dict[str, str] = {
     "lux": _NO_DLI,
     "dli_today": _NO_DLI,
@@ -675,6 +671,19 @@ EXCLUDED_COLUMNS: dict[str, str] = {
     "ec_runoff_wall": _NO_SOURCE,
     "ph_runoff_center": _NO_SOURCE,
     "ec_runoff_center": _NO_SOURCE,
+    "house_temp_target_f": _NO_TARGETS,
+    "house_temp_delta_f": _NO_TARGETS,
+    "house_vpd_target": _NO_TARGETS,
+    "house_vpd_delta": _NO_TARGETS,
+    "vpd_target_center": _NO_TARGETS,
+    "vpd_target_south": _NO_TARGETS,
+    "vpd_target_west": _NO_TARGETS,
+    "vpd_target_east": _NO_TARGETS,
+    "vpd_delta_center": _NO_TARGETS,
+    "vpd_delta_south": _NO_TARGETS,
+    "vpd_delta_west": _NO_TARGETS,
+    "vpd_delta_east": _NO_TARGETS,
+    "hydro_battery_pct": "Release C: not served; the hydroponic meter runs on mains power",
 }
 
 
@@ -729,14 +738,20 @@ def _validate_window(from_: datetime, to: datetime, max_window: timedelta) -> tu
 
 
 @asynccontextmanager
-async def _read_transaction(conn: asyncpg.Connection) -> AsyncIterator[None]:
+async def _read_transaction(
+    conn: asyncpg.Connection, isolation: Literal["repeatable_read"] | None = None
+) -> AsyncIterator[None]:
     """One read-only transaction with the dashboard login's 10 s statement timeout.
 
     Custom plans keep the window parameters constant at plan time, for chunk exclusion and
-    for time_bucket_gapfill's start and finish.
+    for time_bucket_gapfill's start and finish. ``isolation="repeatable_read"`` gives a read of
+    several statements one snapshot, so facts from different statements describe the same moment.
     """
+    options: dict[str, Any] = {"readonly": True}
+    if isolation is not None:
+        options["isolation"] = isolation
     try:
-        async with conn.transaction(readonly=True):
+        async with conn.transaction(**options):
             await conn.execute(
                 f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'; SET LOCAL plan_cache_mode = force_custom_plan"
             )
@@ -859,11 +874,11 @@ def plan_series(keys: Sequence[str], from_: datetime, to: datetime, points: int,
     return SeriesPlan(from_, to, bucket_s, daily_mode, tuple(bucket_starts(from_, to, bucket_s)), tuple(reads))
 
 
-def raw_series_sql(table: str, columns: Sequence[str], *, day_buckets: bool) -> str:
+def raw_series_sql(table: str, columns: Sequence[str], *, day_buckets: bool, magnitude: Sequence[bool] = ()) -> str:
     """One gap-filled aggregate per table: avg, min, max and count per column, bounded by ts.
 
     $1 and $2 bound the window ([$1, $2)); $3 is the bucket width except for day buckets,
-    which are America/Denver days.
+    which are America/Denver days. A column whose ``magnitude`` flag is set is aggregated as its absolute value.
     """
     if day_buckets:
         bucket = "time_bucket_gapfill('1 day'::interval, ts, 'America/Denver', $1::timestamptz, $2::timestamptz)"
@@ -872,6 +887,8 @@ def raw_series_sql(table: str, columns: Sequence[str], *, day_buckets: bool) -> 
     aggregates = []
     for index, column in enumerate(columns):
         quoted = _ident(column)
+        if index < len(magnitude) and magnitude[index]:
+            quoted = f"abs({quoted})"
         aggregates.append(
             f"avg({quoted})::double precision AS a{index}, min({quoted})::double precision AS n{index}, "
             f"max({quoted})::double precision AS x{index}, count({quoted}) AS c{index}"
@@ -1038,7 +1055,7 @@ async def series(
     columns: dict[str, SeriesColumns] = {}
     stamps: list[datetime] = []
     async with _read_transaction(conn):
-        for table in ("climate", "diagnostics"):
+        for table in RAW_TABLES:
             reads = [read for read in plan.reads if read.source == "raw" and read.binding.raw.table == table]
             if not reads:
                 continue
@@ -1047,7 +1064,10 @@ async def series(
             rows: list[Any] = []
             if low < to:
                 sql = raw_series_sql(
-                    table, [read.binding.raw.column for read in reads], day_buckets=plan.bucket_s == DAY_S
+                    table,
+                    [read.binding.raw.column for read in reads],
+                    day_buckets=plan.bucket_s == DAY_S,
+                    magnitude=[read.binding.raw.magnitude for read in reads],
                 )
                 arguments = [low, to] if plan.bucket_s == DAY_S else [low, to, timedelta(seconds=plan.bucket_s)]
                 rows = await conn.fetch(sql, *arguments)
@@ -1326,7 +1346,6 @@ async def states(
 
 # ─────────────────────────────────────────────────────────────── API-06 band
 BAND_ZONES: tuple[str, ...] = get_args(BandZone)
-assert BAND_ZONES == ("house", *ZONES), BAND_ZONES  # north has no zone band
 
 
 # emit_band_audit names each row band_<zone>_<role>. Filtering on that parameter lets
@@ -1371,20 +1390,6 @@ CROP_ACHIEVABLE_SQL = (
     "public.fn_solar_phase(step.ts) AS phase "
     "FROM unnest($1::timestamptz[]) AS step(ts) CROSS JOIN LATERAL public.fn_band_setpoints(step.ts) AS crop"
 )
-# A zone's crop band: the house temperature band (one air mass), and its VPD target ∓ the zone crop's widths ($2, $3),
-# the dispatcher's formula (band_anchors.zone_band_values). Never fn_band_timeline, on which the dashboard login holds
-# no EXECUTE, nor fn_zone_band, which reads the grading profiles in crop_target_profiles and not the band.
-ZONE_CROP_SQL: dict[str, str] = {
-    zone: (
-        "SELECT step.ts, crop.temp_low, crop.temp_high, "
-        f"target.vpd_target_{zone} - $2::double precision AS vpd_low, "
-        f"target.vpd_target_{zone} + $3::double precision AS vpd_high "
-        "FROM unnest($1::timestamptz[]) AS step(ts) "
-        "CROSS JOIN LATERAL public.fn_band_setpoints(step.ts) AS crop "
-        "CROSS JOIN LATERAL public.fn_zone_vpd_targets(step.ts) AS target"
-    )
-    for zone in ZONES
-}
 # The rows fn_crop_band_value reads for one crop: growth stage default, the current season or all.
 ANCHOR_ROWS_SQL = (
     "SELECT series, anchor, season, value, width_below, width_above, public.fn_current_season() AS current_season "
@@ -1443,18 +1448,6 @@ def band_columns(
     return BandColumns(**out)
 
 
-def zone_widths(rows: Iterable[Any]) -> tuple[float | None, float | None]:
-    """A zone's (width_below, width_above) from its crop's ``vpd_target`` rows, null when no row holds one (pure).
-
-    Widths ride every anchor row of the crop and a write sets them all; the current season's rows win over ``all``'s,
-    as the dispatcher overlays them.
-    """
-    ordered = sorted(rows, key=lambda row: row["season"] != row["current_season"])
-    below = next((row["width_below"] for row in ordered if row["width_below"] is not None), None)
-    above = next((row["width_above"] for row in ordered if row["width_above"] is not None), None)
-    return _number(below), _number(above)
-
-
 def crop_columns(axis: Sequence[datetime], rows: Iterable[Any]) -> BandColumns:
     index = {_epoch(start): position for position, start in enumerate(axis)}
     out: dict[str, list[float | None]] = {role: [None] * len(axis) for role in BAND_ROLES}
@@ -1476,9 +1469,10 @@ async def band(
     achievable: bool = False,
     now: datetime | None = None,
 ) -> BandTimeline:
-    """API-06 for the house or one zone: the band in force (DERIVED, that zone's rows, kept 90 days) and the crop
-    band reconstructed from today's anchors, one point per step. With ``achievable``, the house's achievable VPD band
-    and both nightly grades (``vpd_envelope``; null for a zone or a window over 35 days)."""
+    """API-06 for the house: the band in force (DERIVED, the house rows, kept 90 days) and the crop band
+    reconstructed from today's anchors, one point per step. With ``achievable``, the house's achievable VPD band and
+    both nightly grades (``vpd_envelope``; null for a window over 35 days). Release C retired the zone bands: zones
+    are probes, and the law has one band."""
     if zone not in BAND_ZONES:
         raise ServiceError(problem("invalid_request", f"zone is one of {', '.join(BAND_ZONES)}", field="zone"))
     now = _now(now)
@@ -1496,12 +1490,8 @@ async def band(
                 row["band_role"]: (row["value"], row["ts"])
                 for row in await conn.fetch(BAND_SEED_SQL[zone], low - BAND_CARRY, low)
             }
-        envelope = achievable and zone == "house"
-        if zone == "house":
-            crop_rows = await conn.fetch(CROP_ACHIEVABLE_SQL if envelope else CROP_SQL, list(axis))
-        else:
-            below, above = zone_widths(await conn.fetch(ANCHOR_ROWS_SQL, GREENHOUSE_ID, ZONE_CROP[zone], [ZONE_SERIES]))
-            crop_rows = await conn.fetch(ZONE_CROP_SQL[zone], list(axis), below, above)
+        envelope = achievable
+        crop_rows = await conn.fetch(CROP_ACHIEVABLE_SQL if envelope else CROP_SQL, list(axis))
         in_force = band_columns(axis, band_rows, seeds, retained_from)
         achievable_columns = None
         if envelope:
@@ -1561,21 +1551,6 @@ def house_curve(anchors: dict[tuple[str, str], float], names: Sequence[str], pha
     return BandCurve(low=low, target=target, high=high)
 
 
-def zone_curve(
-    anchors: dict[tuple[str, str], float],
-    below: float | None,
-    above: float | None,
-    phases: Sequence[float],
-) -> BandCurve:
-    """A zone's VPD target and the target ∓ its widths, as ``band_anchors.zone_band_values`` computes them."""
-    target = _series_curve(anchors, ZONE_SERIES, phases)
-    return BandCurve(
-        low=[None if value is None or below is None else value - below for value in target],
-        target=target,
-        high=[None if value is None or above is None else value + above for value in target],
-    )
-
-
 def _preview_day(day: date | None, now: datetime) -> date:
     today = now.astimezone(DENVER).date()
     if day is None:
@@ -1599,18 +1574,16 @@ async def band_preview(
 
     Read-only: Save stays API-10. It overlays the draft on the ``crop_band_anchors`` rows ``fn_crop_band_value`` reads
     and applies that function's harmonic at 10-min steps of the day's ``fn_solar_phase``, so ``current`` equals the
-    function at every step. ``param`` outside the 48 crop-band anchors and widths is 422 ``unknown_target``, and
-    ``value`` outside ``planner_effective_bounds`` 422 ``out_of_range``.
+    function at every step. ``param`` outside the house band's anchors is 422 ``unknown_target`` (release C retired
+    the zone VPD targets and widths: zones are probes, and the law has one band), and ``value`` outside
+    ``planner_effective_bounds`` 422 ``out_of_range``.
     """
     rows = BAND_PARAM_ROWS.get(param)
-    if rows is None:
-        raise ServiceError(problem("unknown_target", f"{param!r} is not a crop-band anchor or width", field="param"))
+    if rows is None or rows.zone is not None or rows.anchor is None:
+        raise ServiceError(problem("unknown_target", f"{param!r} is not a house band anchor", field="param"))
     value = settings.check_range(param, value)
     day = _preview_day(day, _now(now))
-    if rows.zone is None:
-        crop, names = HOUSE_CROP, _HOUSE_AXES[rows.series.split("_")[0]]
-    else:
-        crop, names = ZONE_CROP[rows.zone], (ZONE_SERIES,)
+    crop, names = HOUSE_CROP, _HOUSE_AXES[rows.series.split("_")[0]]
     start = denver_midnight(day)
     last = denver_midnight(day + timedelta(days=1)) - timedelta(seconds=PREVIEW_STEP_S)
     async with _read_transaction(conn):
@@ -1618,26 +1591,13 @@ async def band_preview(
         phase_rows = await conn.fetch(PREVIEW_PHASES_SQL, start, last)
     phases = [row["phase"] for row in phase_rows]
     current = resolve_anchors(anchor_rows)
-    draft = dict(current)
-    if rows.anchor is not None:
-        draft[(rows.series, rows.anchor)] = value
-    if rows.zone is None:
-        current_curve, draft_curve = house_curve(current, names, phases), house_curve(draft, names, phases)
-    else:
-        below, above = zone_widths(anchor_rows)
-        current_curve = zone_curve(current, below, above, phases)
-        draft_curve = zone_curve(
-            draft,
-            value if rows.column == WIDTH_COLUMNS["below"] else below,
-            value if rows.column == WIDTH_COLUMNS["above"] else above,
-            phases,
-        )
+    draft = {**current, (rows.series, rows.anchor): value}
     return BandPreview(
         param=param,
         unit=REGISTRY[param].unit,
         day=day,
         step_s=PREVIEW_STEP_S,
         t=[_epoch(row["ts"]) for row in phase_rows],
-        current=current_curve,
-        draft=draft_curve,
+        current=house_curve(current, names, phases),
+        draft=house_curve(draft, names, phases),
     )

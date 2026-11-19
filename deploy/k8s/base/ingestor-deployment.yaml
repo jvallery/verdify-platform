@@ -81,7 +81,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: wait-for-db
-          image: registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:e5f7512763357fe0e9d39fd96d220a0a3ea40cad3f26a2426c85849a8d54485e
+          image: registry.vallery.net/verdifyconsultancy/verdify-timescaledb@sha256:383df0accfad163cfd8a21691e054da8c5389c866d49f28f9f3b4b454e8d0b76
           command:
             - sh
             - -c

@@ -1,5 +1,7 @@
 # Winter feasibility target-source audit — 2026-09-27
 
+> The study package `research/planner-efficacy/` was removed from `main` after its campaign closed (#1657). Its files, including every path this page names, are kept at the Git tag `research-package-archive-20261117`.
+
 Scope: the separate, passive 2026-11-02–2026-12-31 observational packet in
 `research/planner-efficacy/protocols/seasonal-decision-2026-09-27.md`.
 This audit is read-only. It neither registers that packet nor qualifies the

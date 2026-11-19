@@ -17,22 +17,22 @@ import { useStop } from "../lib/writes";
 
 export const meta = () => viewMeta("water-today");
 
-const WATER_VIEWS: readonly ViewId[] = ["water-today", "water-schedules", "water-history"];
-/** The Water view at `path` (Today, Schedules or History). */
+const WATER_VIEWS: readonly ViewId[] = ["water-today", "water-schedules", "water-history", "water-soil"];
+/** The Water view at `path` (Today, Schedules, History or Soil). */
 function waterView(path: string): ViewId {
   const id = viewFor(path)?.id;
   return id && WATER_VIEWS.includes(id) ? id : "water-today";
 }
-const STATUS_VIEW = { "water-today": "today", "water-schedules": "schedules", "water-history": "history" } as const;
+const STATUS_VIEW = { "water-today": "today", "water-schedules": "schedules", "water-history": "history", "water-soil": "soil" } as const;
 
 /**
- * SCR-04 Water's layout (redesign §5.2–§5.4, §10.5): the page header with its status line (the program state, then what
- * runs on Today, the next run on Schedules, or History's period summary from its view), its actions (Pause lines… on
- * Today, + New schedule on Schedules, an outline so the emergency action is the one filled button) with Stop all water
- * last on all three views (redesign §2.5), and the Today, Schedules and History tabs. At 860 px and below Stop moves to
- * the tabs row, which sticks under the header, and reads "■ Stop all": both render and the stylesheet shows one (§9.6),
- * sharing one `useStop`, so a tap is one request whichever shows. Stop all water is shown whatever the status says;
- * before the engine the bridge stops every wet line. It polls API-IRR-01 once for all three views (every 15 s, 5 s while
+ * Water's layout (screens section 3, redesign §5.2–§5.4, §10.5): the page header with its status line (the program state,
+ * then what runs on Today, the next run on Schedules, or History's period summary and Soil's probe summary from their
+ * views), its actions (Pause lines… on
+ * Today, + New schedule on Schedules, an outline), and the Today, Schedules, History and Soil tabs. Above 860 px the top
+ * bar's Stop all water is the only one (design review C1); at 860 px and below the page's own sits in the tabs row, which
+ * sticks under the header, and reads "■ Stop all" (§9.6), sharing one `useStop`. Stop all water is shown whatever the status says and is
+ * never gated by the writes flag. It polls API-IRR-01 once for all four views (every 15 s, 5 s while
  * an item settles with the engine on), under the key Now's water card and `useStop` share, and hands it to them. The
  * check sheet, line options, the pause drawer and the Run dialog open here from the URL, so a failed read that replaces
  * a view with its error leaves an open drawer or dialog and what was typed in it. No greenhouse data renders in SSR.
@@ -54,7 +54,7 @@ export default function Water() {
   return <div className="water-page">
     <PageHeader view={view} status={<WaterStatus irrigation={irrigation} view={STATUS_VIEW[view as keyof typeof STATUS_VIEW]} today={today} summary={summary} />}
       statusShort={<WaterStatus irrigation={irrigation} view={STATUS_VIEW[view as keyof typeof STATUS_VIEW]} today={today} summary={summary} short />}
-      actions={operator ? <>{viewAction}<StopAllWater control={stopAll} /></> : null} tabsEnd={<StopAllWater compact control={stopAll} />} stickyTabs />
+      actions={operator && viewAction ? viewAction : null} tabsEnd={<StopAllWater compact control={stopAll} />} stickyTabs />
     <WaterRuns status={irrigation.data}><Outlet context={context} /></WaterRuns>
     {irrigation.data && <CheckSheet lines={irrigation.data.lines} />}
     {irrigation.data && <LineOptions lines={irrigation.data.lines} />}

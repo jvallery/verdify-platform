@@ -25,6 +25,12 @@ test("a 44 px .btn with a verb and its object; primary and stop variants", () =>
   expect(screen.getByRole("button", { name: "Stop all water" }).className).toBe("btn btn-stop btn-wide");
 });
 
+test("the quiet and danger variants, and the 36 px small size", () => {
+  renderUi(<><Button variant="quiet">Cancel</Button><Button variant="danger" size="sm">Remove</Button></>);
+  expect(screen.getByRole("button", { name: "Cancel" }).className).toBe("btn btn-quiet");
+  expect(screen.getByRole("button", { name: "Remove" }).className).toBe("btn btn-danger btn-sm");
+});
+
 test("busy reads \"Sending…\" and is disabled, so a second tap sends nothing", () => {
   const onClick = vi.fn();
   renderUi(<Button write busy onClick={onClick}>Run wall drip</Button>, OPERATOR);

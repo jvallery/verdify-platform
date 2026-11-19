@@ -43,7 +43,9 @@ AGENT = Actor.agent("steward")
 # Agents may write only an operator switch (climate refactor 4.2); the manual and range rules are shown on one.
 SWITCH = "sw_occupancy_inhibit"
 KPA = "mister_hysteresis_kpa"  # controller_safety, step 0.01, bounds 0.05-0.5 kPa, cfg readback (release 4, #1633)
-POLICY = "outdoor_staleness_max_s"  # planner_policy, one of the five live policy-wire fields, step 30 s
+POLICY = (
+    "outdoor_staleness_max_s"  # controller_safety (operator, AR42), one of the five live policy-wire fields, step 30 s
+)
 DELAY = "mister_engage_delay_s"  # planner_policy, step 30 s
 PRESSURE = "site_pressure_hpa"  # controller_safety, not a policy field, step 1 hPa
 ECON = "sw_occupancy_inhibit"  # a switch read back through its equipment_state mirror (the third flash kept it)
@@ -654,14 +656,14 @@ def test_a_newer_plan_never_overrides_a_desired_row_since_climate_refactor_4_2()
     assert (result.state, result.applied_from, result.desired.state) == ("not_confirmed", "desired", "not_confirmed")
 
 
-def test_a_clamp_after_the_request_holds_it_with_the_applied_value_since_the_clamp_row():
+def test_a_clamp_after_the_request_reads_not_confirmed_at_once_with_the_applied_value_since_the_clamp_row():
     db = FakeDB()
-    db.add_desired(PRESSURE, 845.0, at=ago(minutes=10))
-    clamp_at = ago(minutes=9)
+    db.add_desired(PRESSURE, 845.0, at=ago(minutes=2))  # younger than the 5 min requested window
+    clamp_at = ago(minutes=1)
     db.clamps.append({"parameter": PRESSURE, "ts": clamp_at, "applied": 840.0, "reason": "guard_x"})
-    db.snapshots.append((PRESSURE, ago(minutes=1), 840.0))
+    db.snapshots.append((PRESSURE, ago(seconds=30), 840.0))
     result = status(db, PRESSURE)
-    assert result.state == "held"
+    assert result.state == "not_confirmed"  # release C retired held
     assert result.state_reason.model_dump() == {
         "code": "clamped",
         "detail": "guard_x",
@@ -682,21 +684,15 @@ def test_a_clamp_before_the_request_does_not_count_and_one_the_device_moved_past
     assert (result.state, result.state_reason) == ("confirmed", None)
 
 
-def test_an_armed_experiment_holds_the_five_live_policy_fields_only():
+def test_an_armed_experiment_holds_nothing_since_release_c():
     db = FakeDB()
     db.armed = uuid.uuid4()
     db.add_desired(POLICY, 660.0, at=ago(minutes=10))
     db.snapshots.append((POLICY, ago(minutes=1), 660.0))
-    result = status(db, POLICY)
-    assert (result.state, result.state_reason.code, result.state_reason.since) == ("held", "experiment", None)
     assert POLICY in {spec.name for spec in live_wire_fields()}
-    # Release 4 (#1633): a setting outside the live slots is not held, a kPa one or the site pressure.
-    db.add_desired(KPA, 0.15, at=ago(minutes=10))
-    db.snapshots.append((KPA, ago(minutes=1), 0.15))
-    assert status(db, KPA).state == "confirmed"
-    db.add_desired(PRESSURE, 845.0, at=ago(minutes=10))
-    db.snapshots.append((PRESSURE, ago(minutes=1), 845.0))
-    assert status(db, PRESSURE).state == "confirmed"
+    result = status(db, POLICY)
+    assert (result.state, result.state_reason) == ("confirmed", None)
+    assert activity.ARMED_EXPERIMENT_SQL not in db.sql  # a read no longer asks whether one is armed
 
 
 def test_confirmed_by_a_matching_readback_at_or_after_the_request_with_its_first_match():
@@ -743,9 +739,15 @@ def test_a_switch_confirms_from_its_equipment_mirror():
     assert (result.state, result.confirmed_at, result.readback_via) == ("confirmed", ago(minutes=9), "entity")
 
 
-def test_no_readback_only_for_a_setting_with_no_readback_route():
+def _without_readback(monkeypatch, name="feed_start_hour"):
+    # #1734 C-8 deleted the last rows with no readback route; one row stands in with its cfg readback removed.
+    monkeypatch.setitem(REGISTRY, name, REGISTRY[name].model_copy(update={"cfg_readback_object_id": None}))
+    return name
+
+
+def test_no_readback_only_for_a_setting_with_no_readback_route(monkeypatch):
     db = FakeDB()
-    result = status(db, "fog_time_window_start")
+    result = status(db, _without_readback(monkeypatch))
     assert (result.state, result.readback_via, result.readback) == ("no_readback", "none", None)
 
 
@@ -1036,6 +1038,25 @@ def test_without_a_desired_row_or_plan_a_band_value_is_judged_against_the_newest
     assert status(db, "band_temp_low_sr").state == "not_confirmed"
 
 
+@pytest.mark.parametrize("param", sorted(LEGACY_WIDE_LIMIT_PARAMS))
+def test_a_legacy_wide_limit_the_host_no_longer_sends_is_never_requested(param):
+    """The dispatcher stopped pushing the four once the band anchors were confirmed, so their last push can never
+    confirm: they read confirmed with a readback, else no_readback, never not_confirmed, and the value in force is
+    the controller's own (default), not the band's."""
+    db = FakeDB()
+    db.changes.append(
+        {"parameter": param, "ts": ago(days=3), "value": 61.0, "source": "band", "delivery_status": "sent"}
+    )  # fmt: skip
+    result = status(db, param)
+    assert (result.state, result.state_reason, result.applied_from) == ("no_readback", None, "default")
+    db.snapshots.append((param, ago(minutes=1), 45.0))  # the controller's own value, never the last push
+    result = status(db, param)
+    assert (result.state, result.state_reason, result.applied_from) == ("confirmed", None, "default")
+    assert result.desired is None
+    row = catalog(db)[param]
+    assert (row.state, row.applied_from, row.read_only_kind) == ("confirmed", "default", "legacy_wide_limit")
+
+
 def test_status_of_an_unknown_setting_is_not_found():
     with pytest.raises(ServiceError) as excinfo:
         status(FakeDB(), "no_such_setting")
@@ -1244,7 +1265,11 @@ def test_catalog_groups_and_read_only_reasons():
     db = FakeDB()
     orchid_rows(db)
     rows = catalog(db)
-    assert (rows[POLICY].group, rows[POLICY].writable, rows[POLICY].read_only_reason) == ("planner_policy", True, None)
+    assert (rows[POLICY].group, rows[POLICY].writable, rows[POLICY].read_only_reason) == (
+        "controller_safety",
+        True,
+        None,
+    )
     assert rows["sched_mist_rh_max_pct"].group == "site_water_caps"
     assert rows["zone_vpd_target_center_sm"].group == "crop_band"
     assert rows["zone_vpd_target_east_sm"].group == "read_only"  # no pepper rows in this fixture
@@ -1257,12 +1282,13 @@ def test_catalog_groups_and_read_only_reasons():
         assert (row.min, row.max) == settings.bounds(row.param)
 
 
-def test_catalog_readback_via_and_rows_match_the_openapi_setting():
+def test_catalog_readback_via_and_rows_match_the_openapi_setting(monkeypatch):
+    none = _without_readback(monkeypatch)
     db = FakeDB()
     db.snapshots.append((KPA, ago(minutes=1), 0.16))
     db.add_desired(KPA, 0.15, manual=True, at=ago(minutes=2))
     rows = catalog(db)
-    assert {rows[name].readback_via for name in (KPA, ECON, "sched_mist_rh_max_pct", "fog_time_window_start")} == {
+    assert {rows[name].readback_via for name in (KPA, ECON, "sched_mist_rh_max_pct", none)} == {
         "cfg",
         "entity",
         "program",
@@ -1281,7 +1307,6 @@ def test_the_models_carry_the_openapi_fields():
         (settings.StateReason, "StateReason"),
         (settings.Reading, "Reading"),
         (settings.TimedValue, "TimedValue"),
-        (settings.PlanWaypoint, "PlanWaypoint"),
     ):
         assert {field.alias or key for key, field in model.model_fields.items()} == set(schemas[name]["properties"])
     history = {field.alias or key for key, field in settings.SettingHistory.model_fields.items()}
@@ -1318,7 +1343,8 @@ def test_history_returns_the_rows_from_the_one_in_force_and_the_readback_steps()
         (ago(hours=5, minutes=-1), 845.0),
         (ago(hours=3), 840.0),
     ]
-    assert (result.unit, result.min, result.max, result.plan) == ("hPa", 700.0, 1100.0, [])
+    assert (result.unit, result.min, result.max) == ("hPa", 700.0, 1100.0)
+    assert "plan" not in result.model_dump()  # release C
     assert openapi_errors("SettingHistory", body) == []
 
 
@@ -1329,25 +1355,7 @@ def test_history_refuses_a_backwards_or_naive_window():
         assert refusal(excinfo).code == "invalid_request"
 
 
-# ── Batched reads for API-07 and API-17 (VD-55) ─────────────────────────────
-
-
-def test_statuses_is_status_for_each_setting_in_one_batch_and_leaves_unknown_names_out():
-    db = FakeDB()
-    db.add_desired(KPA, 0.15, manual=True, at=ago(minutes=10))
-    db.snapshots.append((KPA, ago(minutes=1), 0.15))
-    db.add_plan(DELAY, 48.75, created_at=ago(hours=1))
-    db.snapshots.append((DELAY, ago(minutes=1), 48.75))
-    db.add_desired(PRESSURE, 845.0, at=ago(minutes=10))
-    db.clamps.append({"parameter": PRESSURE, "ts": ago(minutes=9), "applied": 840.0, "reason": "guard_x"})
-    db.snapshots.append((PRESSURE, ago(minutes=1), 840.0))
-    expected = {param: status(db, param) for param in (KPA, DELAY, PRESSURE)}
-    db.sql.clear()
-    batched = run(settings.statuses(db, [KPA, DELAY, "no_such_setting", PRESSURE, KPA]))
-    assert batched == expected
-    assert [result.state for result in batched.values()] == ["confirmed", "confirmed", "held"]
-    assert db.sql.count(reads._REPORTING_SQL) == 1  # one gather for all three
-    assert run(settings.statuses(db, ["no_such_setting"])) == {}
+# ── Batched reads for API-17 (VD-55) ────────────────────────────────────────
 
 
 def test_desired_states_give_each_named_row_the_state_history_gives_it():
@@ -1403,3 +1411,77 @@ def test_the_operator_and_a_system_actor_still_write_a_climate_setting():
     db = FakeDB()
     assert write(db, PERSON, POLICY, 660.0, False).value.value == 660.0
     assert write(db, Actor.system("light_timer"), POLICY, 690.0, False).value.value == 690.0
+
+
+# ── Setting.effect: what reads a setting on this build (dashboard v2, api.md section 4) ─────────────────────
+
+FIRMWARE = ROOT / "firmware"
+# The control sources: everything the controller compiles except the entity setters (tunables.yaml) and the cfg_*
+# readbacks (sensors.yaml), which echo a value without acting on it.
+CONTROL_SOURCES = (
+    FIRMWARE / "greenhouse.yaml",
+    *sorted(
+        path
+        for path in (FIRMWARE / "greenhouse").glob("*.yaml")
+        if path.name not in ("tunables.yaml", "sensors.yaml", "globals.yaml")
+    ),
+    *sorted((FIRMWARE / "lib").glob("*.h")),
+)
+
+
+def test_every_setting_with_no_control_reader_is_a_live_registry_row():
+    assert len(settings.NO_CONTROL_READER) == 6 + 16 + 8 + 3 + 8
+    for name in settings.NO_CONTROL_READER:
+        assert name in REGISTRY, name
+        assert REGISTRY[name].control_class != "retired", name
+
+
+def test_effect_comes_from_the_registry_and_the_reviewed_list():
+    assert settings.setting_effect("mister_on_s") == "none"  # retired
+    assert settings.setting_effect("zone_priority_east") == "none"  # retired
+    assert settings.setting_effect("mister_engage_delay_s") == "none"
+    assert settings.setting_effect("band_vpd_target_mid") == "none"
+    assert settings.setting_effect("band_vpd_low_mid") == "controller"  # the law reads the edges
+    assert settings.setting_effect("dry_cost_limit_kwh_per_kg") == "controller"
+    assert settings.setting_effect("gl_main_lux_threshold") == "controller"  # the on-chip lighting engine
+    assert settings.setting_effect("climate_yield_min") == "controller"  # the irrigation program
+    assert settings.setting_effect("band_house_temp_low") == "host"  # a Band in force row
+    row = reads.band_in_force_row("house", "temp_low", 70.0, NOW)
+    assert row.effect == "host" and row.model_dump(mode="json")["effect"] == "host"
+
+
+@pytest.mark.parametrize(
+    "global_id",
+    [
+        "mister_engage_delay_s",
+        "mister_min_off_s",
+        "direct_wet_gate_enabled",
+        "mister_hysteresis_kpa",
+        "direct_wet_min_temp_f",
+    ],
+)
+def test_no_control_source_reads_a_global_on_the_list(global_id):
+    """The setter and the cfg_* readback are the only readers today; a control path that reads one makes the list
+    wrong, so this fails until the setting leaves NO_CONTROL_READER."""
+    for path in CONTROL_SOURCES:
+        text = path.read_text()
+        assert f"id({global_id})" not in text, (path.name, global_id)
+        assert f"kPF_{global_id}" not in text or path.name.startswith("policy_"), (path.name, global_id)
+
+
+def test_the_zone_curves_and_house_targets_reach_only_published_telemetry():
+    controls = (FIRMWARE / "greenhouse" / "controls.yaml").read_text()
+    block = controls.split("if (climate_band_diag_due) {", 1)[1].split(
+        "last_climate_band_diag_ms = climate_diag_now_ms;", 1
+    )[0]
+    outside = controls.replace(block, "")
+    for name in settings.NO_CONTROL_READER:
+        if name.startswith(("zone_vpd_", "zone_priority_")):
+            assert f"id({name})" in block and f"id({name})" not in outside, name
+    # site pressure feeds the enthalpy difference, which reaches a SensorInputs field nothing in firmware/lib reads.
+    assert "enthalpy_delta" not in "".join(
+        path.read_text() for path in sorted((FIRMWARE / "lib").glob("*.h")) if path.name != "greenhouse_types.h"
+    )
+    # The law takes the band edges only; the targets go to setpts, which after the law is telemetry.
+    law_inputs = controls.split("climate_law::Inputs law_in{};", 1)[1].split("climate_law::step_checked", 1)[0]
+    assert "target" not in law_inputs

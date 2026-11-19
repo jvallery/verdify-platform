@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import { Chevron } from "./layout/chevron";
 import { duration, localDate, shortTime } from "../lib/format";
 import { lineById, lineDisplayName, nameLineCodes } from "../lib/lines";
 import { OperatorOnly } from "../lib/session";
@@ -106,7 +107,7 @@ export function AlertRow({ alert, title, acknowledge, openTo, details, action, m
   const today = localDate(new Date(now).toISOString());
   const place = alertPlaceWords(alert);
   const acknowledged = alert.status === "acknowledged";
-  const link = details ?? (openTo ? <Link className="alert-open" to={openTo}>Details <span className="screen-reader">of {heading} </span><span aria-hidden="true">›</span></Link> : null);
+  const link = details ?? (openTo ? <Link className="alert-open" to={openTo} aria-label={`Details of ${heading}`}>Details<Chevron /></Link> : null);
   const facts = <>{place && <>{place} · </>}{alertWhen(alert, now)}</>;
   return <ObjectRow as="li" id={id} title={heading} className={cls("alert-row", `alert-${known}`)} tone={known === "critical" ? "fault" : known === "warning" ? "warn" : undefined}
     tag={<span className="alert-severity">{words("alert_severity", severity)}</span>} data={{ "data-severity": severity }}

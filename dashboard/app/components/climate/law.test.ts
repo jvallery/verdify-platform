@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: MIT
+// Climate → Law's shaping (screens §2.1): each rule's sentence and state, the drying decision with its evidence, the band
+// in force and running alone, against the fixture API's law (the production record moved onto the screens' clock).
+import { expect, test } from "vitest";
+import { fixture } from "../../../e2e/fixtures/index.mjs";
+import { words } from "../../lib/words";
+import { parseLawView, type LawRule, type LawView } from "../../lib/operator-api";
+import {
+  aloneChecks, bandSourceSentence, capital, constantsWords, dryingChecks, dryingVerdict, edgesText, hostSentence, kilograms, kilowattHours, minSec,
+  lawStateOf, onRelays, relayGroups, repairedSentence, ruleState, ruleThresholds, rulesOf, runTime, verdictTone,
+} from "./law";
+
+const NOW = "2026-11-02T17:42:00Z";
+const plain = (text: string) => text.replaceAll(String.fromCharCode(0xa0), " ");
+function law(names: string | string[] = "in-band"): LawView {
+  const view = parseLawView(fixture(names, { now: NOW })["API-30"]);
+  if (!view) throw new Error("API-30 did not parse");
+  return view;
+}
+const rule = (view: LawView, id: string) => view.rules.find((item) => item.id === id) as LawRule;
+
+test("minSec counts a wait down in minutes and seconds; runTime reads minutes, then hours past 90 minutes", () => {
+  expect(plain(minSec(40))).toBe("40 s");
+  expect(plain(minSec(130))).toBe("2 min 10 s");
+  expect(plain(minSec(300))).toBe("5 min");
+  expect(plain(minSec(3900))).toBe("1 h 5 min");
+  expect(plain(minSec(-3))).toBe("0 s");
+  expect(plain(runTime(129.8))).toBe("2 min");
+  expect(plain(runTime(4320))).toBe("72 min");
+  expect(plain(runTime(7500))).toBe("2 h 5 min");
+  expect(runTime(null)).toBe("—");
+  expect(plain(kilograms(1240))).toBe("1.24 kg");
+  expect(plain(kilowattHours(402))).toBe("0.4 kWh");
+  expect(kilograms(null)).toBe("—");
+});
+
+test("a rule's thresholds for the table: the on value with its direction, the off value bare; a limit turns off where it turns on", () => {
+  const view = law();
+  expect(ruleThresholds(rule(view, "heat1"))).toEqual({ on: "below 64.7", off: "65.7" });
+  expect(ruleThresholds(rule(view, "cooling"))).toEqual({ on: "above 70.0", off: "68.0" });
+  expect(ruleThresholds(rule(view, "drying"))).toEqual({ on: "below 0.50", off: "0.65" });
+  expect(ruleThresholds(rule(view, "hot_limit"))).toEqual({ on: "above 100.0", off: "100.0" });
+  expect(ruleThresholds({ signal: "temp", direction: "below", on_at: null, off_at: null })).toEqual({ on: "—", off: "—" });
+  expect(rulesOf(view.rules, "vpd").map((item) => item.id)).toEqual(["fog", "mist", "drying"]);
+  expect(rulesOf(view.rules, "temp").map((item) => item.id)).toEqual(["heat1", "heat2", "cooling", "second_fan", "hot_limit", "cold_limit"]);
+});
+
+test("a rule's relays read as one group a state, so the row stays one line", () => {
+  expect(relayGroups([{ equipment: "vent", state: "off" }, { equipment: "fan1", state: "off" }, { equipment: "fan2", state: "off" }]))
+    .toEqual([{ state: "off", names: "Vent, Fan 1, Fan 2" }]);
+  expect(relayGroups([{ equipment: "heat1", state: "on" }, { equipment: "heat2", state: "off" }]))
+    .toEqual([{ state: "on", names: "Heat 1 (electric)" }, { state: "off", names: "Heat 2 (gas)" }]);
+  expect(relayGroups([])).toEqual([]);
+});
+
+test("the answer reads API-30 as Now's law record: requests by rule and relay, the drying decision, the band; null while not reporting", () => {
+  const refused = law("law-drying-refused-cost");
+  const state = lawStateOf(refused);
+  expect(state?.drying).toBe("refused");
+  expect(state?.drying_refused_reason).toBe("cost");
+  expect(state?.drying_cost_kwh_per_kg).toBe(0.82);
+  expect(state?.band?.temp_low_f).toBe(refused.band.temp_low_f);
+  const asked = refused.rules.filter((item) => item.requested).map((item) => item.id);
+  for (const id of asked) expect(state?.requests).toContain(id === "second_fan" ? "fan2" : id === "hot_limit" ? "hot" : id === "cold_limit" ? "cold" : id);
+  const hot = lawStateOf(law("law-hot-limit"));
+  expect(hot?.requests).toContain("hot");
+  expect(hot?.requests).toEqual(expect.arrayContaining(["vent", "fan1", "fan2"]));
+  expect(lawStateOf({ ...refused, reporting: false })).toBeNull();
+  expect(lawStateOf({ ...refused, observed_at: null })).toBeNull();
+});
+
+test("the relays that are on, each once, with the earliest time it is known on", () => {
+  const view = law("law-hot-limit");
+  const on = onRelays(view);
+  expect(on.map((relay) => relay.equipment).sort()).toEqual(["fan1", "fan2", "vent"]);
+  expect(new Set(on.map((relay) => relay.equipment)).size).toBe(on.length);
+  const relays = (since: string | null) => [{ equipment: "vent", state: "on" as const, since }];
+  const twice = onRelays({ rules: [{ ...rule(view, "cooling"), relays: relays("2026-11-02T17:30:00Z") }, { ...rule(view, "hot_limit"), relays: relays("2026-11-02T17:20:00Z") }] });
+  expect(twice).toEqual([{ equipment: "vent", line_id: null, cause: null, since: "2026-11-02T17:20:00Z" }]);
+});
+
+test("a rule's state: off, wanted, asked for, on since, waiting and held on, and unknown without a record", () => {
+  const relays = (state: "on" | "off" | "unknown", since: string | null = null) => [{ equipment: "heat1", state, since }];
+  expect(ruleState({ latched: false, requested: false, relays: relays("off"), hold: null })).toMatchObject({ kind: "off", text: "Off" });
+  expect(ruleState({ latched: true, requested: false, relays: relays("off"), hold: null })).toMatchObject({ kind: "wanted", text: "Wanted" });
+  expect(ruleState({ latched: true, requested: true, relays: relays("off"), hold: null })).toMatchObject({ kind: "asked", text: "Asked for" });
+  expect(ruleState({ latched: true, requested: true, relays: relays("on", "2026-11-02T16:12:00Z"), hold: null })).toMatchObject({ kind: "on", text: "On since 09:12" });
+  expect(plain(ruleState({ latched: true, requested: true, relays: relays("off"), hold: { kind: "min_off", remaining_s: 130 } }).text)).toBe("Waiting 2 min 10 s (minimum off time)");
+  expect(plain(ruleState({ latched: false, requested: false, relays: relays("on"), hold: { kind: "min_on", remaining_s: 60 } }).text)).toBe("Held on 1 min (minimum on time)");
+  expect(ruleState({ latched: null, requested: null, relays: relays("unknown"), hold: null })).toMatchObject({ kind: "unknown", text: "Not reported" });
+  // The earliest relay that is on gives the time.
+  const two = [{ equipment: "vent", state: "on" as const, since: "2026-11-02T17:00:00Z" }, { equipment: "fan1", state: "on" as const, since: "2026-11-02T16:59:00Z" }];
+  expect(ruleState({ latched: true, requested: true, relays: two, hold: null }).text).toBe("On since 09:59");
+  // The refused-for-cost record: electric heat on, drying wanted and not asked for.
+  const refused = law("law-drying-refused-cost");
+  expect(ruleState(rule(refused, "heat1")).text).toBe("On since 10:38");
+  expect(ruleState(rule(refused, "drying")).kind).toBe("wanted");
+});
+
+test("the drying decision is a checklist in the law's order with its evidence, then the verdict", () => {
+  const refused = law("law-drying-refused-cost");
+  const items = dryingChecks(refused);
+  expect(items.map((item) => item.key)).toEqual(["humid", "not_cooling", "furnace_off", "outdoor_drier", "warm_enough", "worth_it"]);
+  expect(items.map((item) => item.mark)).toEqual(["met", "met", "met", "met", "met", "unmet"]);
+  expect(items[0].statement).toBe("The house is humid enough to dry");
+  expect(plain(String(items[5].detail))).toBe("Price 0.82 kWh/kg, limit 0.70 kWh/kg.");
+  expect(plain(String(items[0].detail))).toBe("VPD 0.47 kPa; drying is wanted below 0.50 kPa and stops above 0.65 kPa.");
+  expect(plain(String(items[4].detail))).toBe("64.2 °F; venting needs at least 62.7 °F.");
+  expect(dryingVerdict(refused.drying)).toBe("Refused: costs more than the limit");
+  expect(verdictTone(refused.drying.state)).toBe("warn");
+  expect(dryingVerdict(law("law-drying-running").drying)).toBe("Running");
+  expect(dryingVerdict(law().drying)).toBe("Not wanted");
+  expect(dryingVerdict({ state: "unknown", refused_reason: null })).toBe("Not reported");
+  // No outdoor reading: no price, and the check says so.
+  const none = { ...refused, inputs: { ...refused.inputs, outdoor: { ...refused.inputs.outdoor, source: "none" } }, drying: { ...refused.drying, cost_kwh_per_kg: null } };
+  const blind = dryingChecks(none);
+  expect(blind[3].detail).toBe("No outdoor reading.");
+  expect(plain(String(blind[5].detail))).toBe("No price without an outdoor reading; the limit is 0.70 kWh/kg.");
+  expect(dryingChecks({ ...refused, drying: { ...refused.drying, checks: [{ id: "humid", ok: null }] } })[0].mark).toBe("unknown");
+});
+
+test("outdoor air is drier: both dew points at one decimal from the API's unrounded values, an em dash for one not served", () => {
+  const refused = law("law-drying-refused-cost");
+  const detail = (outdoor: number | null, indoor: number | null) => plain(String(dryingChecks({
+    ...refused, inputs: { ...refused.inputs, dew_point_f: indoor, outdoor: { ...refused.inputs.outdoor, source: "station", dew_point_f: outdoor } },
+  }).find((item) => item.key === "outdoor_drier")?.detail));
+  expect(detail(27.6349, 55.2468)).toBe("Dew point outdoors 27.6 °F, indoors 55.2 °F.");
+  expect(detail(null, 61.0247)).toBe("Dew point outdoors —, indoors 61.0 °F.");
+});
+
+test("the band in force: the four edges, where they came from, repaired or not, and the host's difference", () => {
+  const view = law();
+  expect(plain(edgesText(view.band.temp_low_f, view.band.temp_high_f, "°F"))).toBe("61.2–70.0 °F");
+  expect(plain(edgesText(view.band.vpd_low_kpa, view.band.vpd_high_kpa, "kPa"))).toBe("0.45–0.80 kPa");
+  expect(edgesText(null, 70, "°F")).toBe("—");
+  expect(bandSourceSentence(view.band)).toBe(`From ${words("band_source", "onchip_curve")}.`);
+  expect(bandSourceSentence({ source: null })).toBe("Where the band comes from is not reported.");
+  expect(repairedSentence(view.band)).toBe("The controller's band check left the band as received.");
+  expect(hostSentence(view.band)).toBe("The host's band for this minute is the same.");
+  const repaired = law("law-band-repaired");
+  expect(repairedSentence(repaired.band)).toBe("The controller's band check repaired the band it received.");
+  expect(hostSentence(repaired.band)).toBe("The host's band for this minute differs:");
+  expect(hostSentence({ host: null, differs: null })).toBe("The host's band for this minute is not known.");
+});
+
+test("running alone: each failed row says what the controller does instead; unknown is never a failure", () => {
+  const view = law();
+  const fine = aloneChecks(view.alone);
+  expect(fine.map((item) => [item.key, item.mark])).toEqual([["clock", "met"], ["probes", "met"], ["host", "met"], ["gap_log", "met"]]);
+  expect(plain(String(fine[0].detail))).toBe("Last synced 11 min ago.");
+  expect(fine[1].detail).toBe("4 probes answering.");
+  const alone = aloneChecks({ clock: { valid: false, sync_age_s: null }, probes: { active: 0, degraded: true }, host: { connected: false, heartbeat_age_s: 400 }, gap_log: "nvs_full" });
+  expect(alone.map((item) => item.mark)).toEqual(["unmet", "unmet", "unmet", "unmet"]);
+  expect(alone[0].detail).toMatch(/widest safe band/);
+  expect(alone[1].detail).toMatch(/acts on the outdoor air/);
+  expect(alone[2].detail).toMatch(/keeps holding the band on its own/);
+  expect(alone[3].detail).toBe("Off: storage is full: a disconnect now would lose what happens until the host returns.");
+  const unknown = aloneChecks({ clock: { valid: null, sync_age_s: null }, probes: { active: null, degraded: null }, host: { connected: null, heartbeat_age_s: null }, gap_log: null });
+  expect(unknown.map((item) => item.mark)).toEqual(["unknown", "unknown", "unknown", "unknown"]);
+});
+
+test("the constants against the release, in words; capital opens a line", () => {
+  expect(constantsWords({ matches: true })).toBe("its constants match this release");
+  expect(constantsWords({ matches: false })).toBe("its constants differ from this release");
+  expect(constantsWords({ matches: null })).toBe("its constants are not reported");
+  expect(capital("electric heat")).toBe("Electric heat");
+  expect(capital("")).toBe("");
+});

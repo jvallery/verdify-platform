@@ -146,8 +146,10 @@ Required: exit 0, `Verified provisional rollback candidate (not accepted
 last-good)`, and one new `deploy_override` row in `alert_log`. Since #390 the
 preflight also denies a release while the device's irrigation program differs
 from the newest confirmed push, while a dwell-governed relay has cycled faster in
-the last hour than its live min-on plus min-off allows, or while the controller
-reports its Tempest outdoor inputs stale. The reason
+the last hour than its live min-on plus min-off allows, while the law's
+`climate_law_state` record is older than 120 s or reports `no_temperature` or
+`humidity_invalid`, or while no outdoor source (`station` or `intake`) has been
+reported in the last 10 minutes. The reason
 variable only records why this rollback release is used; there is no bake or
 weekly gate for it to clear. Do not set
 `ALLOW_FIRMWARE_DEPLOY_GUARD_OVERRIDE` or `FIRMWARE_DEPLOY_OVERRIDE_REASON`, which
@@ -164,15 +166,15 @@ count during the hold. Re-read this every 30 s and submit on the first clean rea
 
 ```sql
 WITH r AS (SELECT recorded_at, gap_requested FROM equipment_state_source_receipts ORDER BY source_observed_through DESC LIMIT 1),
-a AS (SELECT ts, relay_truth rt, source_system_state->>'greenhouse_state' AS mode FROM climate_action_log ORDER BY ts DESC LIMIT 1),
+a AS (SELECT ts, relay_truth rt FROM climate_action_log ORDER BY ts DESC LIMIT 1),
 c AS (SELECT vpd_avg, flow_gpm, temp_avg, water_total_gal FROM climate ORDER BY ts DESC LIMIT 1),
-b AS (SELECT value FROM setpoint_snapshot WHERE parameter = 'band_house_vpd_high' AND ts > now() - interval '60 minutes' ORDER BY ts DESC LIMIT 1),
+b AS (SELECT vpd_high AS value FROM fn_band_setpoints(now())),
 d AS (SELECT ts, uptime_s FROM diagnostics WHERE uptime_s IS NOT NULL AND ts <> date_trunc('minute', ts) ORDER BY ts DESC LIMIT 1),
 st AS (SELECT value FROM system_state WHERE entity = 'dispatcher_stage' AND ts > now() - interval '30 days' ORDER BY ts DESC LIMIT 1),
 w AS (SELECT count(*) n, coalesce(string_agg(equipment, ',') FILTER (WHERE state), 'none') wet_on FROM (SELECT DISTINCT ON (equipment) equipment, state FROM equipment_state WHERE equipment IN ('fog','drip_wall','drip_wall_fert','drip_center','drip_center_fert','fert_master_valve','mister_center','mister_south','mister_south_fert','mister_west','mister_west_fert') ORDER BY equipment, ts DESC) s)
-SELECT round(extract(epoch FROM now() - r.recorded_at)) AS receipt_s, r.gap_requested AS gap, round(extract(epoch FROM now() - a.ts)) AS action_s, round(extract(epoch FROM now() - d.ts)) AS diag_s, d.uptime_s AS u0, w.n AS rows_seen, w.wet_on, c.flow_gpm AS flow, c.water_total_gal AS water_gal, round(c.temp_avg::numeric, 2) AS temp, round(c.vpd_avg::numeric, 3) AS vpd, round(b.value::numeric, 3) AS vpd_gate, a.mode, st.value AS stage, a.rt->>'heat2' AS heat2, a.rt->>'fan1' AS fan1, a.rt->>'fan2' AS fan2, a.rt->>'vent' AS vent,
+SELECT round(extract(epoch FROM now() - r.recorded_at)) AS receipt_s, r.gap_requested AS gap, round(extract(epoch FROM now() - a.ts)) AS action_s, round(extract(epoch FROM now() - d.ts)) AS diag_s, d.uptime_s AS u0, w.n AS rows_seen, w.wet_on, c.flow_gpm AS flow, c.water_total_gal AS water_gal, round(c.temp_avg::numeric, 2) AS temp, round(c.vpd_avg::numeric, 3) AS vpd, round(b.value::numeric, 3) AS vpd_high, st.value AS stage, a.rt->>'heat2' AS heat2, a.rt->>'fan1' AS fan1, a.rt->>'fan2' AS fan2, a.rt->>'vent' AS vent,
 (now() - r.recorded_at < interval '60 seconds' AND NOT r.gap_requested AND now() - a.ts < interval '120 seconds' AND now() - d.ts < interval '90 seconds' AND w.n = 11 AND w.wet_on = 'none' AND a.rt->>'fog' = 'false' AND a.rt->>'mister_center' = 'false' AND a.rt->>'mister_south' = 'false' AND a.rt->>'mister_west' = 'false' AND c.flow_gpm = 0 AND b.value - c.vpd_avg >= 0.20) AS hard_pass,
-(a.mode = 'IDLE' AND st.value = 'ordinary' AND a.rt->>'heat2' = 'false' AND a.rt->>'fan1' = 'false' AND a.rt->>'fan2' = 'false' AND a.rt->>'vent' = 'false') AS soft_pass
+(st.value = 'ordinary' AND a.rt->>'heat2' = 'false' AND a.rt->>'fan1' = 'false' AND a.rt->>'fan2' = 'false' AND a.rt->>'vent' = 'false') AS soft_pass
 FROM r, a, c, b, d, st, w;
 ```
 
@@ -183,7 +185,7 @@ FROM r, a, c, b, d, st, w;
 | `hard_pass` false from a relay, flow or the margin | Wait, pulses run 46-84 s. Still failing after 10 minutes is an anomaly: do not flash |
 | `hard_pass` false from a stale `receipt_s`, `action_s` or `diag_s` | Telemetry fault. Do not flash until it clears |
 
-The 0.20 kPa margin to the VPD gate is a judgement call, so that a mist pulse is
+The 0.20 kPa margin below the band's VPD high edge is a judgement call, so that a mist pulse is
 unlikely to start as the upload begins. Do not gate on `water_flowing`, which lags
 flow by up to about 2 minutes. Record `u0` as U0, and the full row in the receipt.
 
@@ -229,8 +231,9 @@ use `diagnostics.ts - uptime_s`, because rows lag by 33-37 s on OTA boots.
 | B+2 min | `system_state` `irr_engine` and `irr_program_id` | `irr_engine` true, newer than the flash. `src=rom`, then `src=nvs` with the expected program hash, normally within a minute of connect |
 | B+2 min | Newest `irrigation_push` row | `confirmed_at` set, `reject_code` null |
 | B+2 min | `bash scripts/k3s-smoke.sh device-monitor` | EXACTLY ONE. UNKNOWN naming a Job pod: re-run after 60-90 s. ZERO: re-sample 60 s later. More than one is a real failure that a firmware rollback does not fix |
+| B+2 min | `system_state` `climate_law_state` and `climate_law_constants` | Rows newer than B; the constants hash equals the release's, and no `law_constants_mismatch` row opens |
 | B+3 min | Ingestor log | `seeded=` and `writer_dispatch reason=transport_reconnect`. For 5 minutes, no `ValidationError` or `row failed schema validation` |
-| B+5 min | `climate_action_log` `relay_truth` | heat1 true by about B+181 s (`min_heat_off_s`) if the house is under band low + 3.5 F. Do not use `v_equipment_now`: the reboot's OFF edge is dropped, so it keeps showing heat ON |
+| B+5 min | `climate_action_log` `relay_truth` | heat1 true within about a minute of B if the house is under band low + 3.5 F (the law's `heat1_on_above_low_f`); the furnace waits one minimum off time (300 s) after a boot. Do not use `v_equipment_now`: the reboot's OFF edge is dropped, so it keeps showing heat ON |
 | B+5 to 10 min | `system_state` `dispatcher_stage` rows after B | `paced ...`, then `ordinary`. `held:readbacks` past 5 minutes: read `missing_params` in the ingestor log. An older `ordinary` row proves nothing |
 | Uptime 360 s or more | `bash scripts/sensor-health-sweep.sh --since '10 minutes' --expected-fw "$V"`, with `--no-water` under a no-water rule | Zero FAIL. This is the decisive sweep: before 360 s a value from before the boot can still read fresh |
 | B+10 min | Newest `setpoint_snapshot` against the desired values | Pushed values confirmed, none mismatched |
@@ -247,7 +250,7 @@ minimum wait.
 
 ### 8. Close-out and the pin
 
-There is no hold before the pin and no wait before the next release (Jason,
+There is no hold before the pin and no wait before the next release (the owner,
 2026-11-05): a newer build can be flashed as soon as it is ready, through these
 same steps. When the checks above pass, re-run the sweep with a `--since` that
 covers the time since B, and pin the accepted version:
@@ -322,9 +325,7 @@ Argo manages it.
 
 `Authentication invalid` on a rotation flash means the key does not match the
 running image: stop, re-read which version the controller reports, and pick the
-key from the table. The unrendered
-`deploy/k8s/overlays/prod/firmware-ota-secret.sops.yaml` copy here is not what
-Argo delivers; it is stale after any rotation.
+key from the table.
 
 ### Rollback
 
@@ -334,7 +335,7 @@ and erases its fallback slot, so a speculative one gives up any automatic revert
 | Trigger | Threshold |
 |---|---|
 | Crash | `reset_reason` Task WDT, Guru/Panic, Interrupt WDT or Other WDT |
-| Resets | Two or more further resets in 30 minutes, or a Software reset in the first 60 minutes without about 300 s of silence before it. One after that silence fits `reboot_timeout`: re-baseline B. One Power-on, Brown-out or External reset is site power or a person: confirm the relays read OFF, re-baseline B, and roll back only if it repeats |
+| Resets | Two or more further resets in 30 minutes, or a Software reset in the first 60 minutes. The controller never reboots for a lost network or API client (`reboot_timeout: 0s`), so a silence before a Software reset does not explain it. One Power-on, Brown-out or External reset is site power or a person: confirm the relays read OFF, re-baseline B, and roll back only if it repeats |
 | Heap | `heap_bytes` under 30 KB on 3 consecutive rows, or largest block under 16 KB on 5, after uptime 300 s. Under 15 KB on any row in the first 60 minutes |
 | Loop | Two consecutive `heap_profile` lines with `floor=FAIL`, `loop_15m_overruns` above 0 or `loop_15m_max` above 250 ms |
 | Probes | `active_probe_count` below its pre-flash value for 10 minutes. `temp_avg` or `rh_avg` NULL for 5 minutes after B+10 |
@@ -379,8 +380,8 @@ final "OTA transport failed" is generic and the lines before it give the cause.
 Space attempts at least 120 s after the previous Job is terminal, because each
 authenticated attempt blocks the control loop. A failed attempt never writes the
 running slot. Cap at 30 minutes, which spans a safe-mode window, then stop and tell
-Jason. A Wi-Fi mismatch cannot be reached this way: the 2026-10-01 recovery needed a
-temporary WLAN change under `NETWORK-WRITE`. Roll back at most once, and keep the
+the owner. A Wi-Fi mismatch cannot be reached this way: the 2026-10-01 recovery needed a
+temporary WLAN change under the network write lock. Roll back at most once, and keep the
 failed release's evidence and its PVC directory. Rolling back to pre-engine firmware
 makes the ingestor write `irr_engine` false on the reconnect and fall back to the L01
 bridge, so L01 runs and every wet line stops through it, while other runs, clear-fault

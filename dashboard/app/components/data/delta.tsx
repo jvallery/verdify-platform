@@ -9,6 +9,11 @@ export type DeltaProps = {
   unit?: string;
   /** What it is against: "previous 30 d", "yesterday". */
   vs: string;
+  /**
+   * Better or worse, where the measure has a better direction and the caller knows it (Record's before and after the
+   * law): colours the change in --ok-text or --warn-text. Neutral (the default) stays in ink.
+   */
+  tone?: "better" | "worse" | "neutral";
 };
 
 const NBSP = "\u00a0";
@@ -28,14 +33,14 @@ export function deltaAmount(value: number, unit: string | undefined): string {
  * green or red, because up is not always better (water, alerts). "No change" when it is zero; "—" with "no comparison"
  * when either period is unknown. The arrows are drawn (`.glyph-up`, `.glyph-down`): IBM Plex has no ▲ or ▼.
  */
-export function Delta({ value, unit, vs }: DeltaProps) {
+export function Delta({ value, unit, vs, tone = "neutral" }: DeltaProps) {
   const against = keepUnits(vs);
   if (!finite(value)) return <span className="delta delta-unknown">— <span className="delta-vs">no comparison with {against}</span></span>;
   const amount = deltaAmount(value, unit);
   const zero = amount.replace(/[^1-9]/g, "") === "";
   if (zero) return <span className="delta" data-direction="none">No change <span className="delta-vs">vs {against}</span></span>;
   const up = value > 0;
-  return <span className="delta" data-direction={up ? "up" : "down"}>
+  return <span className="delta" data-direction={up ? "up" : "down"} data-tone={tone === "neutral" ? undefined : tone}>
     <span className={up ? "glyph glyph-up" : "glyph glyph-down"} aria-hidden="true" /> <span className="screen-reader">{up ? "up " : "down "}</span>{amount} <span className="delta-vs">vs {against}</span>
   </span>;
 }

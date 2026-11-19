@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { actorWords, entryLine, planChangeText, type Catalog, type SignedIn } from "../lib/activity";
+import { actorWords, entryLine, listedChangeText, type Catalog, type SignedIn } from "../lib/activity";
 import { localDate } from "../lib/format";
 import type { ActivityEntry } from "../lib/operator-api";
 import { Badge, ReadbackBadge } from "./badge";
@@ -15,11 +15,11 @@ export type EventRowProps = {
 };
 
 /**
- * One log entry in one line (redesign §5.9): the time (mono, America/Denver, HH:MM: the entry sits under its day's
- * header, on the log and in Recent activity alike), who wrote it (AI for Iris and the agents only), what changed ("VPD
- * Mister Engage 1.60 → 1.55 kPa · manual"), the writer's reason in quotes, and the readback outcome as a pill with its
- * time. An Iris plan of several changes reads "SUNRISE plan · 9 changes" and expands to them. An automatic entry leads
- * with its cause ("Forecast rule “hot afternoon” · …").
+ * One log entry in one line (screens.md section 9): the time (mono, America/Denver, HH:MM: the entry sits under its
+ * day's header, on the log and in Recent activity alike), who wrote it (AI for the reviewer and the agents only), what
+ * changed ("VPD Mister Engage 1.60 → 1.55 kPa · set by hand"), the writer's reason in quotes, and the readback outcome
+ * as a pill with its time. A band save of several edges reads "Changed the band · 4 changes" and expands to them. An
+ * automatic entry leads with its cause ("Daily review · …", "Schedule “Wall MWF” · …").
  */
 export function EventRow({ entry, catalog, me, id }: EventRowProps) {
   const line = entryLine(entry, catalog);
@@ -31,7 +31,7 @@ export function EventRow({ entry, catalog, me, id }: EventRowProps) {
     <span className="act-entry-what">
       {line.changes.length > 1
         ? <details className="act-plan"><summary>{line.text}</summary>
-          <ul className="plan-changes">{line.changes.map((change, index) => <li key={index}>{planChangeText(change, catalog, day)}</li>)}</ul>
+          <ul className="plan-changes">{line.changes.map((change, index) => <li key={index}>{listedChangeText(change, catalog, day)}</li>)}</ul>
         </details>
         : <span className="act-entry-text">{line.text}</span>}
       {entry.reason && <span className="event-reason">“{entry.reason}”</span>}

@@ -1,3 +1,4 @@
+import time
 from importlib import util
 from pathlib import Path
 
@@ -93,7 +94,7 @@ class _Pool:
 
 @pytest.fixture
 def ledger(monkeypatch):
-    monkeypatch.setattr(main, "_trust_ledger", {"rows": None, "at": None, "task": None})
+    monkeypatch.setattr(main, "_trust_ledger", {"rows": None, "at": None, "ok_at": None, "task": None})
     return main._trust_ledger
 
 
@@ -116,7 +117,7 @@ async def test_the_trust_ledger_is_read_in_the_background_with_its_own_timeout(m
 
 @pytest.mark.asyncio
 async def test_a_failed_trust_ledger_refresh_keeps_the_previous_rows_until_the_next_ttl(monkeypatch, ledger):
-    ledger.update(rows=[{"check_name": "climate_freshness", "status": "ok"}], at=0.0)
+    ledger.update(rows=[{"check_name": "climate_freshness", "status": "ok"}], at=0.0, ok_at=time.monotonic() - 400)
     pool = _Pool(_Connection(cancel_fetch=True))
     monkeypatch.setattr(main, "pool", pool)
 
@@ -124,6 +125,30 @@ async def test_a_failed_trust_ledger_refresh_keeps_the_previous_rows_until_the_n
     await ledger["task"]
     assert main.trust_ledger_rows() == [{"check_name": "climate_freshness", "status": "ok"}]
     assert pool.acquired == 1  # the failure stamps the time, so the next try waits for the TTL
+
+
+@pytest.mark.asyncio
+async def test_rows_from_a_refresh_older_than_15_minutes_are_not_served(monkeypatch, ledger):
+    # #1734 C-10: while refreshes fail, the routes read no rows rather than an old "ok".
+    ledger.update(rows=[{"check_name": "climate_freshness", "status": "ok"}], at=0.0, ok_at=time.monotonic() - 901)
+    pool = _Pool(_Connection(cancel_fetch=True))
+    monkeypatch.setattr(main, "pool", pool)
+
+    assert main.trust_ledger_rows() == []
+    await ledger["task"]
+    assert main.trust_ledger_rows() == [] and ledger["rows"] == [{"check_name": "climate_freshness", "status": "ok"}]
+
+
+@pytest.mark.asyncio
+async def test_a_stale_trust_ledger_never_reads_ok(monkeypatch, ledger):
+    # Review TEL-1: the evidence snapshot rates the ledger rows directly; rows older than 15 minutes are not served,
+    # and no rows is "warn", never "ok".
+    ledger.update(rows=[{"check_name": "climate_freshness", "status": "fail"}], at=0.0, ok_at=time.monotonic() - 901)
+    monkeypatch.setattr(main, "pool", _Pool(_Connection(cancel_fetch=True)))
+    rows = main.trust_ledger_rows()
+    await ledger["task"]
+    assert rows == [] and main._overall_data_health(rows) == "warn"
+    assert main._overall_data_health([{"status": "ok"}]) == "ok"
 
 
 def test_the_public_routes_never_query_the_trust_ledger_inline():

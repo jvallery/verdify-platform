@@ -4,11 +4,17 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Outlet, useLocation } from "react-router";
 import { SIGN_IN_REFUSALS, type AuthError } from "../lib/page-context";
 import { SessionProvider } from "../lib/session";
+import type { Theme } from "../lib/theme";
 import { ShellContext, createQueryClient, revisionLabel, signInHref, useShell, useShellPolls, useShellStatus } from "../lib/shell";
 import { PollingPaused } from "../lib/use-current";
 import { Banner } from "./banner";
 import { ServerClockProvider } from "./freshness";
-import { BottomNav, PlainHeader, SignOutForm, SiteHeader } from "./site-header";
+import { BottomBar } from "./shell/bottom-bar";
+import { Rail } from "./shell/rail";
+import { SearchProvider } from "./shell/search";
+import { ThemeProvider } from "./shell/theme-switch";
+import { TopBar } from "./shell/top-bar";
+import { PlainHeader, SignOutForm } from "./site-header";
 import { ToastProvider } from "./toast";
 
 /**
@@ -27,8 +33,8 @@ export function ShellProvider({ build, children }: { build: string; children?: R
 }
 
 /**
- * The warn banners, one line each, in flow at the top of `<main>` above the page header, only while true (redesign
- * §2.5). The one fault banner is not here: it is a row inside the sticky header (`SiteHeader`), so it never scrolls away.
+ * The warn banners, one line each, in flow at the top of `<main>` above the page header, only while true. The one
+ * fault banner is not here: it is a row inside the sticky top bar (`TopBar`), so it never scrolls away.
  */
 export function ShellNotices() {
   const { warns } = useShellStatus();
@@ -44,11 +50,11 @@ export function BuildLine({ build, api }: { build: string; api: string | null })
 }
 
 /**
- * Weather's `.site-footer`: the build line, the time zone every time on the site is in (stated once here, on the chart
- * axes and in every `<time title>`, D-UX-08), the two sibling sites and the IBM Plex licences.
+ * The footer: the build line, the time zone every time on the site is in (stated once here, on the chart axes and in
+ * every `<time title>`), the two sibling sites and the IBM Plex licences.
  */
 export function SiteFooter({ build, api }: { build: string; api: string | null }) {
-  return <footer className="site-footer"><div className="shell">
+  return <footer className="site-footer"><div className="site-footer-inner">
     <BuildLine build={build} api={api} />
     <span className="footer-zone">Times are America/Denver</span>
     <a href="https://graphs.verdify.ai/">graphs.verdify.ai<span aria-hidden="true"> ↗</span></a>
@@ -97,7 +103,7 @@ export function SignInRefusalPage({ build, refusal }: { build: string; refusal: 
   const card = SIGN_IN_REFUSALS[refusal.reason];
   return <>
     <PlainHeader />
-    <main id="main-content" className="shell page-card-main" tabIndex={-1}>
+    <main id="main-content" className="page-card-main" tabIndex={-1}>
       <PageCard title={card.title}>
         <p>{card.text}</p>
         <div className="actions">{card.action === "sign_in" ? <SignInLink /> : <SignOutForm />}</div>
@@ -109,23 +115,28 @@ export function SignInRefusalPage({ build, refusal }: { build: string; refusal: 
 }
 
 /**
- * The page around every screen: the header with its nav, account menu and fault row, the warn notices, the screen,
- * the footer, the phone bar and the toasts.
+ * The frame around every screen (README section 3.2, design-system section 3): above 860 px the fixed rail and a
+ * content column with the sticky top bar, the warn notices, the screen and the footer; at 860 px and below the top bar,
+ * the screen and the bottom bar with its More sheet. Search and the theme serve the whole page.
  * It owns the page's query client; a `SessionEnded` from any query or mutation raises the session-ended card. A sign-in
  * refusal (`authError`) renders SCR-09's card in place of the screen, with no polls (there is no session to poll with).
+ * `theme` is what the root loader read from the cookie.
  */
-export function AppShell({ build, authError }: { build: string; authError: AuthError | null }) {
+export function AppShell({ build, authError, theme = "system" }: { build: string; authError: AuthError | null; theme?: Theme }) {
   const [ended, setEnded] = useState(false);
   const [client] = useState(() => createQueryClient(() => setEnded(true)));
   if (authError) return <SignInRefusalPage build={build} refusal={authError} />;
-  return <QueryClientProvider client={client}><PollingPaused.Provider value={ended}><ShellProvider build={build}><ToastProvider>
+  return <QueryClientProvider client={client}><PollingPaused.Provider value={ended}><ShellProvider build={build}><ThemeProvider initial={theme}><ToastProvider><SearchProvider>
     <div className="app-page" inert={ended}>
       <a href="#main-content" className="skip-link">Skip to content</a>
-      <SiteHeader />
-      <main id="main-content" className="shell" tabIndex={-1}><ShellNotices /><Outlet /></main>
-      <ShellFooter />
-      <BottomNav />
+      <Rail />
+      <div className="frame">
+        <TopBar />
+        <main id="main-content" className="frame-main" tabIndex={-1}><ShellNotices /><Outlet /></main>
+        <ShellFooter />
+      </div>
+      <BottomBar />
     </div>
     {ended && <SessionEndedCard />}
-  </ToastProvider></ShellProvider></PollingPaused.Provider></QueryClientProvider>;
+  </SearchProvider></ToastProvider></ThemeProvider></ShellProvider></PollingPaused.Provider></QueryClientProvider>;
 }

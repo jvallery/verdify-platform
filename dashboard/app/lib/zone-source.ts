@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 /**
- * Where each zone's numbers come from (US-GRF-06, D-IRP-13, irrigation §4.4). Pure: Now's zone tiles and `/graphs/zones`
- * read it, and the tests check it without a page.
+ * Where each zone's numbers come from (US-GRF-06, D-IRP-13, irrigation §4.4). Pure: `/graphs/zones` and Now's probes
+ * read it, and the tests check it without a page. There is one band, the house band: no zone has a band of its own.
  *
  * Tag:
  * - Center has no probe: always HOUSE.
@@ -14,14 +14,11 @@
  * zone itself excluded), or the house average. A missing value is null with its reason, never 0.
  */
 import { clockTime, epochOf, localDay } from "../charts/time-axis";
-import { formatValue } from "./format";
-import type { BandTimeline, IrrigationLine, MetricDef, Series } from "./operator-api";
-import { words } from "./words";
+import type { IrrigationLine, MetricDef, Series } from "./operator-api";
 
 /**
- * Every zone, in the one order every zone list reads (redesign §5.1 and §5.6, screens SCR-01): Now's tiles and Graphs →
- * Zones' columns and chips, north, center, south, east, west, so a zone keeps its place from page to page. Reads batch
- * in their own order (`ZONE_READS`).
+ * Every zone, in the one order every zone list reads: Now's probes and Graphs → Zones' columns and chips, north, center,
+ * south, east, west, so a zone keeps its place from page to page.
  */
 export const ZONES = ["north", "center", "south", "east", "west"] as const;
 export type Zone = (typeof ZONES)[number];
@@ -40,15 +37,8 @@ const SOURCE_TAGS: Readonly<Record<string, ZoneTag>> = { own: "MEASURED", peer: 
 
 /** The zone's own column: center has no probe, so it reads the house average. */
 export const zoneKey = (zone: Zone, metric: ZoneMetric): string => (zone === "center" ? HOUSE_KEYS[metric] : `climate.${metric}_${zone}`);
-/** The controller's target, the band's cross-check. North has no `vpd_target_north` column: the house target stands in. */
-export const targetKey = (zone: Zone): string => (zone === "north" ? "climate.house_vpd_target" : `climate.vpd_target_${zone}`);
-/** API-06's zone: north has no zone band (`ZONES` in ingestor/tasks/band_anchors.py), so it reads the house band. */
-export const bandZone = (zone: Zone) => (zone === "north" ? "house" as const : zone);
 /** What the tag needs from API-04: every probe's VPD key, one read. */
 export const PROBE_VPD_KEYS: readonly string[] = ZONES.filter((zone) => zone !== "center").map((zone) => zoneKey(zone, "vpd"));
-const zoneKeys = (zone: Zone): string[] => [zoneKey(zone, "temp"), zoneKey(zone, "rh"), zoneKey(zone, "vpd"), targetKey(zone)];
-/** Now's three API-04 reads, each within API-04's 8 keys, with a zone's keys always in one read. */
-export const ZONE_READS: readonly (readonly string[])[] = [[...zoneKeys("north"), ...zoneKeys("east")], [...zoneKeys("south"), ...zoneKeys("west")], zoneKeys("center")];
 
 export type ZoneData = {
   /** API-04 answers; a key is read from the first answer that holds it. */
@@ -105,7 +95,8 @@ export type ZoneValue = { readonly value: number | null; readonly stale: boolean
 const NO_READING = "No reading in the last 15 min";
 export const NO_FRESH_PEER = "No fresh peer probe";
 
-function keyValue(key: string, data: ZoneData): ZoneValue {
+/** A key's newest value: null with its reason when missing; `stale` with its last data when too old (Now's probes). */
+export function keyValue(key: string, data: ZoneData): ZoneValue {
   const sample = newestSample(data.series, key);
   if (!sample) return { value: null, stale: false, reason: NO_READING };
   if (isFresh(sample, key, data.metrics)) return { value: sample.value, stale: false, reason: null };
@@ -136,30 +127,4 @@ export function zoneSourceWords(zone: Zone, tag: ZoneTag, data: ZoneData): ZoneS
   const fresh = peersOf(zone).filter((peer) => freshSample(zoneKey(peer, "vpd"), data));
   const names = (fresh.length ? fresh : peersOf(zone)).map((peer) => ZONE_WORDS[peer]);
   return { text: `probe offline · ${names.join(" + ")} average`, news: true };
-}
-
-/** "target 0.60 kPa" (north: "house target"), with STALE on an old one; "—" with why when there is none. */
-export function targetWords(zone: Zone, data: ZoneData): string {
-  const name = zone === "north" ? "house target" : "target";
-  const { value, stale, reason } = keyValue(targetKey(zone), data);
-  return value === null ? `${name} — (${reason})` : `${name} ${formatValue(value, "kPa")}${stale ? " · STALE" : ""}`;
-}
-
-/** The newest non-null band point of API-06 for each axis, the band in force. */
-export type BandPoint = { readonly low: number; readonly high: number };
-export function newestBand(timeline: BandTimeline | null | undefined, axis: "temp" | "vpd"): BandPoint | null {
-  if (!timeline) return null;
-  const lows = timeline.band[`${axis}_low`], highs = timeline.band[`${axis}_high`];
-  for (let index = timeline.t.length - 1; index >= 0; index--) {
-    const low = lows[index], high = highs[index];
-    if (typeof low === "number" && typeof high === "number") return { low, high };
-  }
-  return null;
-}
-
-/** "in band", "above band", "below band"; "band unavailable" without a band. */
-export function bandVerdict(value: number | null, band: BandPoint | null): string | null {
-  if (value === null) return null;
-  if (!band) return words("band_verdict", "unavailable");
-  return words("band_verdict", value > band.high ? "above" : value < band.low ? "below" : "in");
 }

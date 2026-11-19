@@ -271,34 +271,3 @@ def test_grid_adoption_preserves_stale_grid_refusal() -> None:
     assert not physical_execution_qualified(stale, stale, DIRECT_LAUNCH_EXPERIMENT_ID)
     assert not physical_execution_qualified(GRID_REVISION, stale, DIRECT_LAUNCH_EXPERIMENT_ID)
     assert not physical_execution_qualified(stale, GRID_REVISION, DIRECT_LAUNCH_EXPERIMENT_ID)
-
-
-def test_metadata_adoption_receipt_covers_exact_source48_without_replay_credit() -> None:
-    from pathlib import Path
-
-    receipt = json.loads(
-        (
-            Path(__file__).resolve().parents[1]
-            / "research/planner-efficacy/qualification/periodic-readback-grid-adoption-v1.json"
-        ).read_text()
-    )
-    assert receipt["scope"] == "SOURCE_METADATA_ADOPTION_ONLY_NOT_C1_STATE_REPLAY_HIL_OR_PHYSICAL_PILOT"
-    assert receipt["new_grid_revision"] == GRID_REVISION
-    assert [row["field_name"] for row in receipt["fields"]] == list(CANONICAL_FIELD_ORDER)
-    changed = []
-    for row in receipt["fields"]:
-        definition = REGISTRY[row["field_name"]]
-        grid = ENTITY_GRIDS[row["field_name"]]
-        assert row["setter"] == definition.esp_object_id
-        assert row["wire_id"] == definition.wire_id
-        assert row["entity_type"] == grid.entity_type
-        for attr in ("minimum", "maximum", "step"):
-            value = getattr(grid, attr)
-            assert row[attr] == (str(value) if value is not None else None)
-        assert row["current_readback"]["object_id"] == definition.cfg_readback_object_id
-        if row["prior_readback"] != row["current_readback"]:
-            changed.append(row["field_name"])
-            assert row["prior_readback"] == {"object_id": definition.esp_object_id, "entity_type": "switch"}
-            assert row["current_readback"]["entity_type"] == "sensor"
-    assert changed == receipt["changed_readback_fields"]
-    assert set(changed) == {"sw_direct_wet_gate_enabled", "sw_fog_closes_vent", "sw_mister_closes_vent"}

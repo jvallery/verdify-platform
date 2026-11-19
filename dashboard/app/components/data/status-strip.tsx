@@ -30,7 +30,7 @@ export type StripCell = {
   readonly level: StripLevel | null;
   /** Its name in words: "Oct 28: temperature in band 82%". */
   readonly label: string;
-  /** Today, or an outage day: a dashed `--muted` outline. */
+  /** Today, or an outage day: a dashed `--text-3` outline. */
   readonly partial?: boolean;
   /** Opens the day: a link (Statistics opens Climate for that day) or a button (Schedules picks the day). */
   readonly href?: string;
@@ -69,8 +69,8 @@ export function StripLegend() {
 }
 
 /**
- * StatusStrip (redesign §4.6, §5.7): day cells at least 8 px wide with 2 px gaps, `data-level` 0–3 on `--tint-ok`,
- * `--tint-warn`, `--amber` and `--fault` (quiet when good, loud when bad); no data is a `--line` hatch and a partial day a
+ * StatusStrip (redesign §4.6, §5.7): day cells at least 8 px wide with 2 px gaps, `data-level` 0–3 on `--ok-soft`,
+ * `--warn-soft`, `--warn` and `--critical` (quiet when good, loud when bad); no data is a `--border` hatch and a partial day a
  * dashed outline. Each cell is a link or a button named in words; the row is one tab stop, and arrow keys move along
  * its cells (they are too small to be targets of their own, WCAG 2.5.8). A long row scrolls inside its own labelled
  * region, which opens at the newest day; the page never scrolls sideways. While the API is down every cell is neutral. Class

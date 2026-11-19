@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: MIT
 import { useId, type ChangeEvent, type FormEvent } from "react";
 import { useNavigate } from "react-router";
+import { useSearch } from "../shell/search";
 
 /**
- * "Find a setting" in the Plan and Equipment headers (redesign §5.11, §5.12): a search that lands on Settings filtered
- * by name or key (`/settings?q=`), the same field as Settings' own search, which submits on Enter or with Find, an
- * outline button (control.css). It is a plain GET form, so it works before the page hydrates too; once it has, the
- * router navigates without reloading the page.
+ * "Find a setting" in a page header: the shell's Search (components/shell/search.tsx) opened with the words typed here,
+ * where a setting is found by its label or its name and opening one goes to its drawer on Settings. It is a plain GET
+ * form, so before the page hydrates it lands on Settings filtered by the words (`/settings?q=`); outside the shell (a
+ * page rendered alone) it does the same through the router.
  */
 export function FindSetting() {
   const id = useId();
   const navigate = useNavigate();
+  const search = useSearch();
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const words = String(new FormData(event.currentTarget).get("q") ?? "").trim();
-    navigate(words ? `/settings?${new URLSearchParams({ q: words })}` : "/settings");
+    if (search) search.open(words);
+    else navigate(words ? `/settings?${new URLSearchParams({ q: words })}` : "/settings");
   };
   return <form className="ctl-find" method="get" action="/settings" role="search" aria-label="Find a setting" onSubmit={submit}>
     <label className="screen-reader" htmlFor={id}>Find a setting</label>

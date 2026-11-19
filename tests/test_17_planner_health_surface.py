@@ -331,7 +331,8 @@ def test_public_planner_health_endpoint_queries_i_p1_1_sources():
         "session_key",
     ):
         assert expected in endpoint
-    assert "registry_value_error" in api_source
+    # #1734 C-7: no plan applies, so the endpoint no longer reads setpoint_plan to judge active plan values.
+    assert "setpoint_plan" not in endpoint.split("\n@app.", 1)[0]
     assert "planner_gateway" in api_source
     assert "planner_model_label" in api_source
     assert f'"{ACTIVE_PLANNER_MODEL_LABEL}"' in api_source

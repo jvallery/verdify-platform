@@ -1,8 +1,7 @@
 # Attended convergence of verdify-prod-dark (one-time drift sync)
 
-Prepared 2026-08-15 for #605 / #317; supports experiment rollout step 1
-(epic #581, `docs/runbooks/experiment-rollout.md`). **This is a prepared
-procedure for an ATTENDED operator run — nothing here is executed
+Prepared 2026-08-15 for #605 / #317. **This is a prepared
+procedure for an ATTENDED operator run: nothing here is executed
 automatically.**
 
 ## Why this exists
@@ -12,8 +11,8 @@ Argo-synced 2026-06-23; live state since then was maintained by server-side
 kubectl applies, leaving ~78 resources OutOfSync at main. Two broker
 plan/apply attempts on 2026-08-15 reproduced **#317**: the submitted full-sync
 operation is rewritten to a stale 2-resource selective scope
-({CronJob verdify-db-backup, NetworkPolicy allow-db-from-backup}) — the
-PreSync migrate hook runs (proven no-op; migrations 207–213 already ledgered),
+({CronJob verdify-db-backup, NetworkPolicy allow-db-from-backup}): the
+PreSync migrate hook runs (proven no-op; migrations 207-213 already ledgered),
 the two stale-scope resources sync, everything else stays OutOfSync.
 
 The unblock is **not** a bigger timeout; it is correcting the stale
@@ -27,13 +26,14 @@ selective-scope behavior (#317) and running ONE attended convergence.
 2. Target revision = current `main` HEAD (record the exact 40-char SHA).
 3. Fresh DB backup exists (< 24 h; `verdify-db-backup` CronJob output).
 4. Ingestor is Ready with a stable restart count; note the count.
-5. `scripts/experiment-verify.py ledger` passes (migrations current; no drift).
+5. The migration ledger is current: `scripts/verdify-db.sh prod -c "SELECT max(seq) FROM schema_migrations WHERE source = 'db/migrations';"`
+   equals the newest migration in `db/migrations/` that the live release carries.
 
 ## The operation
 
 For a prior full operation, submit a plain full sync (NO `--prune`, `resources`
 **absent or empty**). If the prior completed operation was selective, use the
-atomic status-clear full-sync patch in `docs/runbooks/laptop-operator.md` §2;
+atomic status-clear full-sync patch in `docs/runbooks/laptop-operator.md` section 2;
 Argo CD's merge-patch bug otherwise retains its stale resource selector
 ([upstream #28701](https://github.com/argoproj/argo-cd/issues/28701)).
 Immediately verify the recorded operation:
@@ -46,7 +46,7 @@ Fallback only for a change proven independent of migrations and hooks:
 the #317 explicit-resource-vector workaround. Generate the vector from source with
 `scripts/gen-sync-resource-vector.sh` (renders the overlay; no cluster
 access), review it, and submit the operation with that explicit `resources:`
-list per `docs/runbooks/laptop-operator.md` §2. Never include `--prune`.
+list per `docs/runbooks/laptop-operator.md` section 2. Never include `--prune`.
 
 ## Success criteria (ALL required)
 
@@ -64,17 +64,5 @@ list per `docs/runbooks/laptop-operator.md` §2. Never include `--prune`.
 - **Delayed stability proof**: +30 min re-probe of all of the above, plus one
   natural-cadence pass of the periodic jobs (backup/watchdogs/backfill).
 
-## Immediately after convergence
-
-Resume the experiment rollout at the **first unproven runbook step** — do
-NOT re-run proven steps (migrations 207–213 stay applied; the PreSync Job
-verifying a current ledger is the expected no-op). Concretely:
-
-1. `scripts/experiment-verify.py config` — must now PASS (config-revision
-   annotations live, flags off, MCP auth_mode reported once the new images
-   land; before new images the auth_mode field is absent — that sub-check
-   documents itself).
-2. Record evidence (exact revision, operation phase/result summary, verify
-   output) on #605 and the epic #581.
-3. Continue per `docs/runbooks/experiment-rollout.md` step 2 (shadow) once
-   images exist (#599 / agents#3517, #606).
+Record the evidence (exact revision, operation phase and result summary, the smoke output) on the
+release's issue.

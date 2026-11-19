@@ -1069,10 +1069,6 @@ class TestSetpointConfirmation:
         assert "float Tf = id(ha_outdoor_temp).state;" in cfg_dewpoint
         assert "float RH = id(ha_outdoor_rh).state;" in cfg_dewpoint
 
-    def test_dwell_gate_direct_push_uses_number_slug(self):
-        entity_map = _repo_entity_map()
-        assert entity_map.PARAM_TO_ENTITY["dwell_gate_ms"] == "dwell_gate__ms_"
-
     def test_mister_selection_uses_zone_temp_stress(self):
         controls_source = (REPO_ROOT / "firmware" / "greenhouse" / "controls.yaml").read_text()
         assert "zone_temp_stress" in controls_source

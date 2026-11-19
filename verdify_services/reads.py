@@ -1,6 +1,6 @@
-"""The operator reads: Now, plan and equipment (VD-54), settings, history and activity (VD-55), and water (VD-57).
+"""The operator reads: Now and equipment (VD-54), settings, history and activity (VD-55), and water (VD-57).
 
-API-02, API-07 and API-13 (VD-54); API-09, API-12 and API-17 (VD-55), whose
+API-02 and API-13 (VD-54); API-09, API-12 and API-17 (VD-55), whose
 composition over ``verdify_services.settings`` and ``.activity`` lives here:
 ``settings_rows()``, ``setting_history()`` and ``activity_page()``, which the
 MCP ``settings`` and ``activity`` tools call too (#1171). API-14 is
@@ -18,11 +18,14 @@ dashboard login has a 10 s ``statement_timeout``.
 
 Helpers other reads share: ``reporting()``, the one §7 test (#1155 and #1180
 use it too); ``collapse()``, which merges repeated state rows into runs;
-``equipment_tracks()`` and ``leak_block()``, which API-IRR-01 (#1155) reuses; and
-``plan_history()``, the past plan values with their ``effective`` flag (no plan
-applies since climate refactor 4.2, so no read treats one as in force). API-02's alert count is ``alerts.open_count``, the one
-count API-14 and every other surface show (Round 2b C), and API-07's lanes
-take their state from ``settings.statuses``, so Plan and Settings agree.
+``equipment_tracks()`` and ``leak_block()``, which API-IRR-01 (#1155) reuses. API-02's alert count is
+``alerts.open_count``, the one count API-14 and every other surface show (Round 2b C).
+
+Release C (dashboard v2 API spec section 7) stopped serving the plan-era reads: API-07, ``Now.mode``, ``Now.iris``,
+``Equipment.mode_reason`` and the plan values of API-09 and API-12. One consumer outside the operator API still reads
+part of them, so the minimal piece it needs stays here, unserved: the MCP ``settings`` tool reads
+``setting_history_with_plan()``, API-12's history with the past plan values (``plan_history()``). The greenhouse
+snapshot job read the climate mode and the next planner runs until release C part 2 gave it the law's facts.
 
 Unknown is never off, null is never 0, and gaps stay gaps. Nothing here writes,
 and the leak is an alert only (Q-05).
@@ -36,7 +39,7 @@ from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 from zoneinfo import ZoneInfo
 
 import asyncpg
@@ -47,8 +50,7 @@ from verdify_schemas.band_rows import HOUSE_SERIES, ZONES
 from verdify_schemas.climate_law_constants import DRY_COST_NONE_KWH_PER_KG
 from verdify_schemas.control_proof import LAW_STATE_ENTITY, law_fresh
 from verdify_schemas.irrigation import purpose_of
-from verdify_schemas.policy_vector import live_wire_fields
-from verdify_schemas.setting_help import band_in_force_help, band_in_force_sources, setting_label
+from verdify_schemas.setting_help import band_in_force_help, band_in_force_sources
 from verdify_schemas.setting_values import readback_matches, readback_tolerance, resolve_effective
 from verdify_schemas.telemetry import ClimateLawState
 from verdify_schemas.tunable_registry import desired_write_rule
@@ -83,6 +85,10 @@ STATE_WINDOW = timedelta(days=31)  # runs older than this have since null
 # bound: a state that has not changed or been re-snapshotted in 31 days is still
 # known, with since null.
 NEWEST_ROW_WINDOW = timedelta(days=90)
+# The controller republishes its outdoor source on change and every 300 s (greenhouse/controls.yaml); twice that with
+# no row and the source is unknown. Now and API-30/31 (verdify_services.law) share this one rule.
+OUTDOOR_SOURCE_REPUBLISH_S = 300
+OUTDOOR_SOURCE_FRESH = timedelta(seconds=2 * OUTDOOR_SOURCE_REPUBLISH_S)
 DIFFERING_AFTER = timedelta(minutes=10)
 OVERRIDE_COMMAND_LEAD = timedelta(minutes=2)
 # run_causes() looks this far back for what is on now; a run already on keeps its true start.
@@ -90,7 +96,6 @@ RUNNING_CAUSE_LOOKBACK = timedelta(minutes=1)
 LEAK_STOPPED_BELOW_GPM = 0.1
 LEAK_STOPPED_READINGS = 2
 
-REQUIRED_TRIGGERS = ("MIDNIGHT", "SUNRISE", "SUNSET")
 HOUSE_BAND_ROLES = ("temp_low", "temp_high", "vpd_low", "vpd_high")
 
 EquipmentGroup = Literal["climate", "water", "light"]
@@ -120,22 +125,16 @@ LEAK_FLAG = "leak_detected"
 
 _EQUIPMENT_KEYS = tuple(name for name, _ in EQUIPMENT_LIST) + tuple(GROW_LIGHT_INTENTS.values())
 _NOW_EQUIPMENT_KEYS = _EQUIPMENT_KEYS + tuple(BURSTS) + (LEAK_FLAG,)
-MODE_ENTITY = "greenhouse_state"
-_NOW_NEWEST_ENTITIES = ("mister_state", "mode_reason", "fog_block_reason", LAW_STATE_ENTITY)
-# API-13's reasons (entity_map's controller text entities): which branch chose the mode, what holds fog (L11) off and
-# what holds the misters off.
-REASON_ENTITIES = ("mode_reason", "fog_block_reason", "moisture_block_reason")
-# In SEALED_MIST the firmware publishes greenhouse_state as SEALED_MIST_<stage>
-# (controls.yaml, MIST_NAMES in greenhouse_types.h), so the label carries the stage.
-SEALED_MIST = "SEALED_MIST"
-MIST_STAGES = ("WATCH", "FOG", "S1", "S2")
+OUTDOOR_SOURCE_ENTITY = "outdoor_source"
+_NOW_NEWEST_ENTITIES = ("fog_block_reason", LAW_STATE_ENTITY, OUTDOOR_SOURCE_ENTITY)
+# API-13's reasons (entity_map's controller text entities): what holds fog (L11) off and what holds the misters off.
+REASON_ENTITIES = ("fog_block_reason", "moisture_block_reason")
 # fog_block_reason values that hold nothing: none, and served (the fog relay is on).
 _FOG_NOT_HELD = frozenset({"", "none", "served"})
 
 # writer.differing judges the values the dispatcher delivers: the writable
 # classes it pushes from desired rows (no plan reaches it since climate refactor 4.2).
 _DISPATCHED_CLASSES = frozenset({"planner_policy", "scheduled_policy", "controller_safety"})
-_POLICY_WIRE_FIELDS = frozenset(spec.name for spec in live_wire_fields())  # the five live slots (release 4)
 _IRRIGATION_COMMAND_COLUMNS = ("kind", "args", "status", "sent_at")
 
 # API-09's Band in force rows: the dispatcher's band_<zone>_<role> setpoint_snapshot
@@ -145,7 +144,7 @@ BAND_ROLES = HOUSE_SERIES
 BAND_IN_FORCE_WINDOW = timedelta(hours=1)
 BAND_IN_FORCE_REASON = "derived by the dispatcher from the crop band anchors"
 NO_BAND_ROW = "No band row in the last hour"
-PLAN_SOURCES = ("iris", "preemptive")
+PLAN_SOURCES = ("iris", "preemptive")  # the MCP settings history's plan values (plan_history())
 SETTING_WRITE_ACTIONS = frozenset({"setting.write", "setting.release"})
 
 
@@ -158,7 +157,6 @@ class _Model(BaseModel):
 
 # One model per OpenAPI schema: the services that own these define them.
 AlertCounts = alerts.AlertCounts
-PlanWaypoint = settings.PlanWaypoint
 StateReason = settings.StateReason
 DesiredSetting = settings.DesiredSetting
 ReadbackState = activity.ReadbackState
@@ -207,9 +205,15 @@ class Hydroponics(_Model):
     stale_after_s: int = 600
 
 
+OutdoorSource = Literal["station", "intake", "none"]
+
+
 class Outdoor(_Model):
     temp_f: Reading
     rh_pct: Reading
+    # The controller's outdoor source (system_state outdoor_source): the weather station, the intake probe, or none;
+    # null while the controller is not reporting or before any row.
+    source: OutdoorSource | None = None
 
 
 class Band(_Model):
@@ -217,23 +221,6 @@ class Band(_Model):
     vpd_kpa: BandPosition
     rh_pct: BandPosition | None
     observed_at: datetime | None
-
-
-class Mode(_Model):
-    code: str
-    stage: str | None
-    reason: str | None
-    since: datetime | None
-
-
-RequiredTrigger = Literal["ok", "late", "missed", "failed"]
-
-
-class Iris(_Model):
-    plan_id: str | None
-    trigger: str | None
-    valid_until: datetime | None
-    required_trigger: RequiredTrigger
 
 
 IrrigationCause = Literal["vpd", "schedule", "run_now", "feed", "prewet", "flush", "fallback", "unknown"]
@@ -286,6 +273,34 @@ class Controller(_Model):
     heap_largest_block_kb: float | None
     rssi_dbm: float | None
     observed_at: datetime | None
+    # The three hardware-budget facts the shell's banner needs, each the newest non-null diagnostics value of the last
+    # 15 minutes (the HEALTH_SQL rule of api/product_metrics.py): the lowest free heap in the controller's last
+    # one-minute window, its persisted restart count, and its gap log state as LawAlone.gap_log words it (armed, or
+    # why not).
+    heap_minute_low_kb: float | None = None
+    restart_count: int | None = None
+    gap_log: str | None = None
+
+
+ReviewDayStatus = Literal["written", "delivered", "requested", "failed", "due", "not_due"]
+
+
+class NowReview(_Model):
+    """The daily review on Now: ``verdify_services.reviews.today()``, the same state as API-34's ``today``, with the
+    newest written review's time and whether a band proposal waits for the owner."""
+
+    review_date: date
+    status: ReviewDayStatus
+    missed: bool
+    written_at: datetime | None
+    proposal_waiting: bool
+
+
+class BandEdges(_Model):
+    temp_low_f: float
+    temp_high_f: float
+    vpd_low_kpa: float
+    vpd_high_kpa: float
 
 
 # The law's state record (phase 3 firmware; verdify_schemas.telemetry.ClimateLawState): the names of its latch and
@@ -314,6 +329,8 @@ class LawState(_Model):
     drying_cost_kwh_per_kg: float | None
     drying_cost_limit_kwh_per_kg: float
     band_repaired: bool
+    # The band the controller is using (the record's b): temperature edges in F, VPD edges in kPa.
+    band: BandEdges | None = None
 
 
 def law_state(value: str | None, observed_at: datetime | None, at: datetime) -> LawState | None:
@@ -341,6 +358,9 @@ def law_state(value: str | None, observed_at: datetime | None, at: datetime) -> 
         drying_cost_kwh_per_kg=cost,
         drying_cost_limit_kwh_per_kg=record.lim,
         band_repaired=bool(record.br),
+        band=BandEdges(
+            temp_low_f=record.b[0], temp_high_f=record.b[1], vpd_low_kpa=record.b[2], vpd_high_kpa=record.b[3]
+        ),
     )
 
 
@@ -349,8 +369,6 @@ class Now(_Model):
     indoor: Indoor
     outdoor: Outdoor
     band: Band
-    mode: Mode
-    iris: Iris
     alerts: AlertCounts
     running: list[Running]
     overrides: list[Override]
@@ -364,64 +382,8 @@ class Now(_Model):
     hydroponics: Hydroponics | None = None
     # The climate law's state record while it is fresh; None before the law build (climate refactor package 4.1).
     law: LawState | None = None
-
-
-TriggerOutcome = Literal[
-    "expected",
-    "delivered",
-    "acked",
-    "plan_written",
-    "action_completed",
-    "neutral_fallback",
-    "wrong_action",
-    "delivery_failed",
-    "timed_out",
-    "missed",
-]
-
-
-class PlanRecord(_Model):
-    plan_id: str
-    trigger: str
-    written_at: datetime
-    valid_from: datetime | None
-    valid_until: datetime | None
-    status: str | None
-    hypothesis: str | None
-    experiment: str | None
-    expected_outcome: str | None
-    conditions_summary: str | None
-    outcome_score: float | None
-    lesson: str | None
-    detail: dict[str, Any]
-
-
-class PlannerTrigger(_Model):
-    trigger: str
-    required: bool
-    expected_at: datetime
-    due_at: datetime
-    outcome: TriggerOutcome
-    resolved_at: datetime | None
-    failure_class: str | None
-
-
-class PlanLane(_Model):
-    param: str
-    label: str
-    unit: str | None
-    device: Reading
-    waypoints: list[PlanWaypoint]
-    desired: DesiredSetting | None
-    applied_from: AppliedFrom
-
-
-class Plan(_Model):
-    plan: PlanRecord | None
-    no_plan_since: datetime | None
-    lanes: list[PlanLane]
-    manual_count: int
-    health: list[PlannerTrigger]
+    # The daily review (verdify_services.reviews.today()); None before migration 320 lets the dashboard read it.
+    review: NowReview | None = None
 
 
 class EquipmentItem(_Model):
@@ -450,7 +412,6 @@ class ReasonState(_Model):
 
 class Equipment(_Model):
     items: list[EquipmentItem]
-    mode_reason: ReasonState
     fog_block_reason: ReasonState
     moisture_block_reason: ReasonState
 
@@ -478,8 +439,6 @@ def _int_from_query(value: object) -> object:
     return int(value) if isinstance(value, str) and value.isdigit() else value
 
 
-# API-07's ``hours``: 24 (default) or 72, as the query string carries it.
-PlanHours = Annotated[Literal[24, 72], BeforeValidator(_int_from_query)]
 # API-21's ``days``: 30 (default) or 90.
 WaterDays = Annotated[Literal[30, 90], BeforeValidator(_int_from_query)]
 
@@ -622,24 +581,6 @@ def band_position(
     return BandPosition(low=low, high=high, verdict=verdict)
 
 
-def mode_code_and_stage(label: str | None, mister_state: str | None) -> tuple[str, str | None]:
-    """Now's mode code and stage from the newest ``greenhouse_state`` label.
-
-    The firmware publishes SEALED_MIST as ``SEALED_MIST_<stage>`` (WATCH, FOG,
-    S1 or S2), so the code is SEALED_MIST and the label gives the stage.
-    ``mister_state`` is the mister pulse machine and never reads FOG, so it
-    gives the stage only for a bare SEALED_MIST label. No row reads UNKNOWN.
-    """
-    if label is None:
-        return "UNKNOWN", None
-    prefix = f"{SEALED_MIST}_"
-    if label.startswith(prefix) and label.removeprefix(prefix) in MIST_STAGES:
-        return SEALED_MIST, label.removeprefix(prefix)
-    if label == SEALED_MIST:
-        return SEALED_MIST, mister_state if mister_state in MIST_STAGES else None
-    return label, None
-
-
 def humidify_held_reason(fog_block_reason: str | None, fog_on: bool) -> str | None:
     """Why the controller holds a humidify burst: fog (L11) is off and ``fog_block_reason`` names a block."""
     if fog_on or fog_block_reason is None or fog_block_reason in _FOG_NOT_HELD:
@@ -647,13 +588,30 @@ def humidify_held_reason(fog_block_reason: str | None, fog_on: bool) -> str | No
     return fog_block_reason
 
 
-def review_state(missed_status: str | None) -> RequiredTrigger:
-    """Now's Iris tile since climate refactor 5.1: the daily review, read from its open ``daily_review_missed``
-    alert (``details.status``). No open alert reads ``ok``; a review that failed reads ``failed``; one that was not
-    requested, delivered or written by 10:00 reads ``missed``. ``late`` no longer occurs."""
-    if missed_status is None:
-        return "ok"
-    return "failed" if missed_status == "failed" else "missed"
+def now_review(day: Any | None) -> NowReview | None:
+    """Now's review block from ``reviews.today()`` (a ``reviews.ReviewDay``); None when that is None."""
+    if day is None:
+        return None
+    return NowReview(
+        review_date=day.review_date,
+        status=day.status,
+        missed=day.missed,
+        written_at=day.written_at,
+        proposal_waiting=day.proposal_waiting is not None,
+    )
+
+
+_OUTDOOR_SOURCES = frozenset(get_args(OutdoorSource))
+
+
+def outdoor_source(value: str | None, observed_at: datetime | None, rep: Reporting) -> OutdoorSource | None:
+    """The controller's newest ``outdoor_source`` while it reports and the row is at most ``OUTDOOR_SOURCE_FRESH``
+    old (the rule API-30 uses); null otherwise or for a value it never sends."""
+    if not rep.controller_reporting or value not in _OUTDOOR_SOURCES:
+        return None
+    if observed_at is None or rep.at - observed_at > OUTDOOR_SOURCE_FRESH:
+        return None
+    return value  # type: ignore[return-value]
 
 
 def waypoint_effective(param: str, desired: Any | None, plan_row: Any, *, superseded: bool = False) -> bool:
@@ -734,7 +692,6 @@ def band_in_force_row(zone: str, role: str, value: object, observed_at: datetime
         readback_via="none",
         readback=readback,
         desired=None,
-        plan=None,
         applied_from="band",
         state="no_readback",
     )
@@ -754,21 +711,14 @@ def _dispatched(param: str) -> bool:
     return spec is not None and spec.control_class in _DISPATCHED_CLASSES
 
 
-def values_in_force(
-    desired: Mapping[str, Mapping[str, Any]],
-    *,
-    experiment_armed: bool,
-) -> list[InForce]:
+def values_in_force(desired: Mapping[str, Mapping[str, Any]]) -> list[InForce]:
     """The values writer.differing judges: the desired row each setting resolves to (``resolve_effective()`` with
     no plan, as the dispatcher resolves since climate refactor 4.2), from its write.
 
-    A release (value NULL) is left out: the dispatcher sends the default it returns to. The 48 policy fields are
-    left out while an experiment is armed: the firmware serves the armed vector on purpose.
+    A release (value NULL) is left out: the dispatcher sends the default it returns to.
     """
     out: list[InForce] = []
     for param in sorted(desired):
-        if experiment_armed and param in _POLICY_WIRE_FIELDS:
-            continue
         desired_row = desired[param]
         resolved = resolve_effective(desired_row, None)
         if resolved is None or not _dispatched(param):
@@ -834,8 +784,7 @@ SELECT now() AS at,
                   WHERE entity = 'setpoint_snapshot_pass' AND ts > now() - interval '1 day')) AS readback_at,
        (SELECT ts FROM setpoint_changes ORDER BY ts DESC LIMIT 1) AS writer_at,
        (SELECT round(sum(delta_gal))::int FROM water_meter_events
-         WHERE ts > now() - interval '10 minutes' AND event_type = 'delta' AND quality_flag = 'ok') AS gal_10min,
-       EXISTS (SELECT 1 FROM fn_mcp_armed_assignment_context()) AS experiment_armed
+         WHERE ts > now() - interval '10 minutes' AND event_type = 'delta' AND quality_flag = 'ok') AS gal_10min
 """
 
 _CLIMATE_SQL = """
@@ -871,12 +820,34 @@ SELECT 'water_temp_f', ts, hydro_water_temp_f FROM
    AND hydro_water_temp_f IS NOT NULL ORDER BY ts DESC LIMIT 1) t
 """
 
+# Now's controller facts: ts is the newest diagnostics row of the last day, and each value is its newest non-null
+# value within the 15 minutes up to that row. The law firmware publishes a row about every 15 s but carries these
+# values on about one row a minute, so the newest row alone usually lacks them. No row in the last day: no row.
 _DIAGNOSTICS_SQL = """
-SELECT ts, firmware_version, uptime_s, reset_reason, heap_bytes, heap_largest_free_block_kb, wifi_rssi
+SELECT newest.ts,
+       (array_agg(d.firmware_version ORDER BY d.ts DESC)
+            FILTER (WHERE d.firmware_version IS NOT NULL))[1] AS firmware_version,
+       (array_agg(d.uptime_s ORDER BY d.ts DESC) FILTER (WHERE d.uptime_s IS NOT NULL))[1] AS uptime_s,
+       (array_agg(d.reset_reason ORDER BY d.ts DESC) FILTER (WHERE d.reset_reason IS NOT NULL))[1] AS reset_reason,
+       (array_agg(d.heap_bytes ORDER BY d.ts DESC) FILTER (WHERE d.heap_bytes IS NOT NULL))[1] AS heap_bytes,
+       (array_agg(d.heap_largest_free_block_kb ORDER BY d.ts DESC)
+            FILTER (WHERE d.heap_largest_free_block_kb IS NOT NULL))[1] AS heap_largest_free_block_kb,
+       (array_agg(d.wifi_rssi ORDER BY d.ts DESC) FILTER (WHERE d.wifi_rssi IS NOT NULL))[1] AS wifi_rssi
+  FROM (SELECT max(ts) AS ts FROM diagnostics WHERE ts > now() - interval '1 day') AS newest
+  JOIN diagnostics AS d ON d.ts > newest.ts - interval '15 minutes' AND d.ts <= newest.ts
+ WHERE d.ts > now() - interval '1 day 15 minutes'
+ GROUP BY newest.ts
+"""
+
+# Now's three hardware-budget facts: each the newest non-null value of the last 15 minutes, the expressions of
+# api/product_metrics.py HEALTH_SQL (diagnostics rows are sparse, so the newest row alone often lacks them).
+_CONTROLLER_HEALTH_SQL = """
+SELECT (array_agg(heap_min_free_minute_kb ORDER BY ts DESC)
+            FILTER (WHERE heap_min_free_minute_kb IS NOT NULL))[1] AS heap_min_free_minute_kb,
+       (array_agg(restart_count ORDER BY ts DESC) FILTER (WHERE restart_count IS NOT NULL))[1] AS restart_count,
+       (array_agg(gap_log_state ORDER BY ts DESC) FILTER (WHERE gap_log_state IS NOT NULL))[1] AS gap_log_state
   FROM diagnostics
- WHERE ts > now() - interval '1 day'
- ORDER BY ts DESC
- LIMIT 1
+ WHERE ts > now() - interval '15 minutes'
 """
 
 # The dispatcher's band rows for the house (band_anchors.emit_band_audit): one
@@ -985,18 +956,6 @@ SELECT local_day, line_id, cause, gal
  WHERE greenhouse_id = $1
 """
 
-# No plan applies since climate refactor 4.2: API-07 names when the newest one was written.
-_NO_PLAN_SINCE_SQL = """
-SELECT max(created_at) FROM plan_journal
-"""
-
-_HEALTH_SQL = """
-SELECT event_type, expected_at, due_at, status, resolved_at, failure_class
-  FROM planner_trigger_ledger
- WHERE expected_at >= now() - interval '36 hours'
- ORDER BY expected_at, id
-"""
-
 # The open leak rows and the stuck-delivery flag, from alert_log under v_open_alerts'
 # own predicate: the rows alerts.open_count (the one count, Round 2b C) merges. The
 # leak's one sensor keeps the oldest open row's id, its merged row's id in API-14.
@@ -1006,10 +965,7 @@ SELECT (SELECT id FROM alert_log WHERE ({alerts.OPEN_PREDICATE}) AND alert_type 
        (SELECT max(ts) FROM alert_log
          WHERE ({alerts.OPEN_PREDICATE}) AND alert_type = 'leak_detected') AS leak_open_since,
        EXISTS (SELECT 1 FROM alert_log
-                WHERE ({alerts.OPEN_PREDICATE}) AND alert_type = 'setpoint_delivery_stuck') AS stuck,
-       (SELECT coalesce(details->>'status', 'none') FROM alert_log
-         WHERE ({alerts.OPEN_PREDICATE}) AND alert_type = 'daily_review_missed'
-         ORDER BY ts DESC, id DESC LIMIT 1) AS review_missed
+                WHERE ({alerts.OPEN_PREDICATE}) AND alert_type = 'setpoint_delivery_stuck') AS stuck
 """
 
 # The trailing quiet run of the site meter since the open leak row (as the
@@ -1056,15 +1012,7 @@ SELECT c.param, newest.value AS newest_value, newest.ts AS newest_at,
   ) AS f
 """
 
-_DEVICE_READBACKS_SQL = """
-SELECT p.param, s.value, s.ts
-  FROM unnest($1::text[]) AS p(param)
-  LEFT JOIN LATERAL (SELECT value, ts FROM setpoint_snapshot
-                      WHERE parameter = p.param AND band_role IS NULL AND ts > now() - interval '24 hours'
-                      ORDER BY ts DESC LIMIT 1) AS s ON true
-"""
-
-# API-12's plan values: every row of the setting in the window, past and superseded
+# The MCP settings history's plan values: every row of the setting in the window, past and superseded
 # plans included (set_plan deactivates the older ones), one per ts (the newest write).
 _PLAN_HISTORY_SQL = """
 SELECT DISTINCT ON (sp.ts) sp.ts, sp.value, sp.source, sp.plan_id, sp.created_at
@@ -1192,14 +1140,14 @@ async def plan_history(
     to: datetime,
     desired: Sequence[DesiredSetting],
 ) -> list[PlanWaypoint]:
-    """API-12's plan values: ``plan_waypoints()`` extended to every ``setpoint_plan`` row of ``param`` with
-    ``from_ <= ts < to``, past and superseded plans and future waypoints included, one per ``ts`` (the newest
-    ``created_at``), oldest first.
+    """The MCP settings history's plan values (``setting_history_with_plan()``): every ``setpoint_plan`` row of
+    ``param`` with ``from_ <= ts < to``, past and superseded plans and future waypoints included, one per ``ts`` (the
+    newest ``created_at``), oldest first.
 
     ``desired`` is the setting's desired rows from the one in force at ``from_`` (``settings.history`` gives
     them). ``effective`` is ``waypoint_effective()`` against the desired row in force at the waypoint, and false
-    for a full Iris plan's row once a newer full plan was written at or before it (``superseded_at()``), so the
-    Graphs steps mark SUPERSEDED. Only ``iris`` and ``preemptive`` (forecast rule) rows are plan values.
+    for a full Iris plan's row once a newer full plan was written at or before it (``superseded_at()``). Only
+    ``iris`` and ``preemptive`` (forecast rule) rows are plan values.
     """
     rows = await conn.fetch(_PLAN_HISTORY_SQL, param, from_, to, list(PLAN_SOURCES))
     if not rows:
@@ -1483,6 +1431,8 @@ async def _running_causes(
 
 async def now(conn: asyncpg.Connection) -> Now:
     """API-02 ``GET /v1/now``: is everything OK, in one bounded read."""
+    from verdify_services import law, reviews  # here, not at the top: both import this module
+
     async with _snapshot(conn):
         clock = await conn.fetchrow(_CLOCK_SQL, HEARTBEAT_ENTITY)
         at: datetime = clock["at"]
@@ -1490,10 +1440,11 @@ async def now(conn: asyncpg.Connection) -> Now:
         climate = await conn.fetchrow(_CLIMATE_SQL)
         hydro_rows = {row["channel"]: row for row in await conn.fetch(_HYDRO_SQL)}
         diagnostics = await conn.fetchrow(_DIAGNOSTICS_SQL)
+        health = await conn.fetchrow(_CONTROLLER_HEALTH_SQL)
+        review_day = await reviews.today(conn)
         band_rows = await conn.fetch(
             _BAND_SQL, list(HOUSE_BAND_ROLES), [f"band_house_{role}" for role in HOUSE_BAND_ROLES]
         )
-        mode_track = (await _tracks(conn, _SYSTEM_TRACKS_SQL, (MODE_ENTITY,)))[MODE_ENTITY]
         newest_texts = {
             row["entity"]: row
             for row in await conn.fetch(_NEWEST_STATES_SQL, list(_NOW_NEWEST_ENTITIES), NEWEST_ROW_WINDOW)
@@ -1505,7 +1456,7 @@ async def now(conn: asyncpg.Connection) -> Now:
         flow_gpm = _finite(climate["flow_gpm"])
         leak = await leak_block(conn, tracks[LEAK_FLAG], alert_facts, flow_gpm, clock["gal_10min"], rep)
         overrides = await _overrides(conn, tracks, texts.get("fog_block_reason"), rep)
-        values = values_in_force(await _desired_rows(conn), experiment_armed=clock["experiment_armed"])
+        values = values_in_force(await _desired_rows(conn))
         due = [item for item in values if at - item.since > DIFFERING_AFTER]
         facts = await _readback_facts(conn, [(item.param, item.since, item.value) for item in due])
         causes = await _running_causes(conn, tracks, rep)
@@ -1523,6 +1474,9 @@ async def now(conn: asyncpg.Connection) -> Now:
             climate["outdoor_temp_f"], climate["outdoor_temp_at"], "No outdoor temperature in the last hour"
         ),
         rh_pct=_reading(climate["outdoor_rh_pct"], climate["outdoor_rh_at"], "No outdoor RH in the last hour"),
+        source=outdoor_source(
+            texts.get(OUTDOOR_SOURCE_ENTITY), (newest_texts.get(OUTDOOR_SOURCE_ENTITY) or {}).get("ts"), rep
+        ),
     )
 
     bands = {row["role"]: row for row in band_rows}
@@ -1541,17 +1495,6 @@ async def now(conn: asyncpg.Connection) -> Now:
         ),
         rh_pct=None,
         observed_at=min(band_times) if band_times else None,
-    )
-
-    code, stage = mode_code_and_stage(_newest_text(mode_track), texts.get("mister_state"))
-    mode = Mode(code=code, stage=stage, reason=texts.get("mode_reason"), since=run_since(mode_track.spans))
-
-    # No plan applies since climate refactor 4.2; the tile reads the daily review (5.1).
-    iris = Iris(
-        plan_id=None,
-        trigger=None,
-        valid_until=None,
-        required_trigger=review_state(alert_facts["review_missed"] if alert_facts else None),
     )
 
     items = _equipment_items(tracks, rep)
@@ -1578,12 +1521,16 @@ async def now(conn: asyncpg.Connection) -> Now:
         heap_largest_block_kb=_finite(diagnostics["heap_largest_free_block_kb"]) if diagnostics else None,
         rssi_dbm=_finite(diagnostics["wifi_rssi"]) if diagnostics else None,
         observed_at=diagnostics["ts"] if diagnostics else None,
+        heap_minute_low_kb=_finite(health["heap_min_free_minute_kb"]) if health else None,
+        restart_count=int(count) if health and (count := _finite(health["restart_count"])) is not None else None,
+        gap_log=law.gap_log_word(health["gap_log_state"]) if health else None,
     )
 
     law_row = newest_texts.get(LAW_STATE_ENTITY)
     return Now(
         server_time=at,
         law=law_state(law_row["value"], law_row["ts"], at) if law_row is not None else None,
+        review=now_review(review_day),
         hydroponics=Hydroponics(
             **{
                 key: _reading(
@@ -1596,8 +1543,6 @@ async def now(conn: asyncpg.Connection) -> Now:
         indoor=indoor,
         outdoor=outdoor,
         band=band,
-        mode=mode,
-        iris=iris,
         alerts=alert_counts,
         running=running,
         overrides=overrides,
@@ -1622,75 +1567,6 @@ async def now(conn: asyncpg.Connection) -> Now:
     )
 
 
-# ── API-07 ──────────────────────────────────────────────────────────────────
-
-
-async def plan(conn: asyncpg.Connection, hours: int = 24) -> Plan:
-    """API-07 ``GET /v1/plan``: since climate refactor 4.2 no plan is in force, so ``plan`` is null,
-    ``no_plan_since`` is when the newest plan was written, and there is one lane (with no waypoints) per setting a
-    person holds manual, and the planner trigger health of the last 36 h.
-
-    Each lane's ``applied_from`` and ``desired`` (with its state and reason) are ``settings.statuses``, so Plan
-    and Settings show the same state. A manual row for a parameter outside ``REGISTRY`` (a setting release 4
-    deleted) gets no lane: no one could open or release it, and the row stays in ``desired_state`` as history.
-    """
-    if hours not in (24, 72):
-        raise ValueError("hours must be 24 or 72")
-    async with _snapshot(conn):
-        # No plan applies since climate refactor 4.2: no plan in force, no waypoints, a lane per manual setting.
-        no_plan_since = await conn.fetchval(_NO_PLAN_SINCE_SQL)
-        desired = await _desired_rows(conn)
-        manual = {
-            param
-            for param, row in desired.items()
-            if row["manual"] and row["value"] is not None and registry_get(param) is not None
-        }
-        params = sorted(manual)
-        device = {row["param"]: row for row in await conn.fetch(_DEVICE_READBACKS_SQL, params)}
-        statuses = await settings.statuses(conn, params)
-        health_rows = await conn.fetch(_HEALTH_SQL)
-
-    lanes: list[PlanLane] = []
-    for param in params:
-        spec = registry_get(param)
-        status = statuses.get(param)
-        source = status.applied_from if status is not None else "default"
-        readback = device.get(param)
-        lanes.append(
-            PlanLane(
-                param=param,
-                label=setting_label(param),
-                unit=spec.unit if spec is not None else None,
-                device=_reading(
-                    readback["value"] if readback is not None else None,
-                    readback["ts"] if readback is not None else None,
-                    "No readback in the last 24 h",
-                ),
-                waypoints=[],
-                desired=status.desired if status is not None else None,
-                applied_from=source,
-            )
-        )
-    return Plan(
-        plan=None,
-        no_plan_since=no_plan_since,
-        lanes=lanes,
-        manual_count=sum(1 for lane in lanes if lane.applied_from == "manual"),
-        health=[
-            PlannerTrigger(
-                trigger=row["event_type"],
-                required=row["event_type"] in REQUIRED_TRIGGERS,
-                expected_at=row["expected_at"],
-                due_at=row["due_at"],
-                outcome=row["status"],
-                resolved_at=row["resolved_at"],
-                failure_class=row["failure_class"],
-            )
-            for row in health_rows
-        ],
-    )
-
-
 # ── API-13 ──────────────────────────────────────────────────────────────────
 
 
@@ -1704,7 +1580,6 @@ async def equipment(conn: asyncpg.Connection) -> Equipment:
         light_reasons = await _light_reasons(conn)
     return Equipment(
         items=_equipment_items(tracks, rep, timers, light_reasons),
-        mode_reason=reason_state(reasons.get("mode_reason"), rep),
         fog_block_reason=reason_state(reasons.get("fog_block_reason"), rep),
         moisture_block_reason=reason_state(reasons.get("moisture_block_reason"), rep),
     )
@@ -1743,9 +1618,8 @@ async def settings_rows(conn: asyncpg.Connection) -> SettingRows:
     """API-09 ``GET /v1/settings`` and the MCP ``settings`` tool: every setting, then the Band in force rows.
 
     The registry rows are ``settings.catalog`` (``REGISTRY`` order, each with ``TunableDef``'s label and unit,
-    its readback, desired row, ``applied_from`` and state; ``plan`` stays null: no plan applies since climate
-    refactor 4.2). Then one read-only row per zone (house, center, south, west, east) and band role from the dispatcher's newest
-    band row in the last hour (``band_in_force_row()``). One snapshot; ``server_time`` is its ``now()``.
+    its readback, desired row, ``applied_from`` and state). Then one read-only row per zone (house, center, south,
+    west, east) and band role from the dispatcher's newest band row in the last hour (``band_in_force_row()``). One snapshot; ``server_time`` is its ``now()``.
     """
     async with _snapshot(conn):
         at: datetime = await conn.fetchval("SELECT now()")
@@ -1771,18 +1645,42 @@ async def settings_rows(conn: asyncpg.Connection) -> SettingRows:
 
 
 async def setting_history(conn: asyncpg.Connection, param: str, from_: datetime, to: datetime) -> SettingHistory:
-    """API-12 ``GET /v1/settings/{param}/history`` and the MCP ``settings(param, since, until)`` tool.
+    """API-12 ``GET /v1/settings/{param}/history``: ``settings.history`` in one read-only snapshot.
 
     ``settings.history`` gives ``unit``, ``min`` and ``max`` (the registry's, as API-09), ``desired`` (oldest
     first, from the row in force at ``from_``) and ``readback`` (the change points; ``setpoint_snapshot`` keeps 90
     days), and refuses an unknown setting (404 ``not_found``) or a window that is not two times with an offset,
-    ``from_`` first (400 ``invalid_request``). ``plan`` is ``plan_history()`` over the same window, so the Graphs
-    device, requested and planned steps come from this one read. Every list is bounded by the window.
+    ``from_`` first (400 ``invalid_request``). Every list is bounded by the window.
     """
+    async with _snapshot(conn):
+        return await settings.history(conn, param, from_, to)
+
+
+class PlanWaypoint(_Model):
+    """A past plan value of a setting (``setpoint_plan``), with whether it applied at its time."""
+
+    at: AwareDatetime
+    value: float | None
+    source: Literal["iris", "preemptive"]
+    effective: bool
+
+
+class PlanSettingHistory(SettingHistory):
+    """The MCP ``settings(param, since, until)`` answer: API-12's history and the setting's past plan values, which
+    API-12 served until release C retired them from the operator API."""
+
+    plan: list[PlanWaypoint]
+
+
+async def setting_history_with_plan(
+    conn: asyncpg.Connection, param: str, from_: datetime, to: datetime
+) -> PlanSettingHistory:
+    """The MCP ``settings`` history: ``setting_history()`` and ``plan_history()`` over the same window, in one
+    snapshot, as API-12 answered before release C."""
     async with _snapshot(conn):
         history = await settings.history(conn, param, from_, to)
         plan_values = await plan_history(conn, param, history.from_, history.to, history.desired)
-    return history.model_copy(update={"plan": plan_values})
+    return PlanSettingHistory.model_validate({**history.model_dump(), "plan": plan_values})
 
 
 # ── API-17 ──────────────────────────────────────────────────────────────────

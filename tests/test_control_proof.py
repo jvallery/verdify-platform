@@ -138,15 +138,15 @@ def test_the_brief_carries_the_law_state_only_while_it_is_fresh():
     from test_greenhouse_brief import now_model
 
     law = reads.law_state(json.dumps(RECORD), BRIEF_AT, BRIEF_AT)
-    sheet = job.build_sheet(job.Gathered(now=now_model(law=law.model_dump())), BRIEF_AT)
-    assert sheet["climate_law"] == {
-        "drying": "refused",
-        "drying_refused_because": "cost",
-        "drying_cost_kwh_per_kg": 0.91,
-        "drying_cost_limit_kwh_per_kg": 0.7,
-        "band_repaired_by_controller": False,
-        "heaters_requested_by_law": ["heat1"],
+    facts = job.build_sheet(job.Gathered(now=now_model(law=law.model_dump())), BRIEF_AT)["climate_law"]
+    assert facts["drying"] == {
+        "decision": "drying refused",
+        "why": "costs more than the limit",
+        "cost_kwh_per_kg": 0.91,
+        "cost_limit_kwh_per_kg": 0.7,
     }
+    assert "electric heat" in [item["asks_for"] for item in facts["asks_for"]]
+    assert facts["band_repaired_by_controller"] is False
     assert "climate_law" not in job.build_sheet(job.Gathered(now=now_model()), BRIEF_AT)
 
 

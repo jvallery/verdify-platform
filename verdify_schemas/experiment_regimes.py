@@ -20,7 +20,8 @@ Also fixed here: the six-edge directed content-changing template graph and
 the canonical 24-cell (edge x regime) index used by
 ``qualification_transition_slots.cell_index`` (0..23). The ordering below is
 part of the locked qualification specification
-(research/planner-efficacy/qualification/qualification-spec-v1.template.yaml)
+(research/planner-efficacy/qualification/qualification-spec-v1.template.yaml, archived at
+tag research-package-archive-20261117)
 and must never be reordered once a specification instance is hashed.
 
 Psychrometrics: saturation vapor pressure uses the same Tetens constants as

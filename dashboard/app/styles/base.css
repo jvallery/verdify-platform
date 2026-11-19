@@ -1,0 +1,124 @@
+/* SPDX-License-Identifier: MIT */
+/* Section: Base */
+/* Design system v2 §1, §2.5 and §3: the two self-hosted font faces, the reset, the body on --bg, type, links, the focus ring, forms, buttons, tables, disclosures and the shared utilities. Every colour is a token of tokens.css. The frame (rail, top bar, bottom bar, footer) is shell.css's; components are primitives.css's. */
+@font-face{font-family:"IBM Plex Sans";src:url("/fonts/ibm-plex-sans-latin-wght-normal.woff2") format("woff2");font-weight:100 700;font-style:normal;font-display:swap}
+@font-face{font-family:"IBM Plex Mono";src:url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
+
+/* Reset */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;color:var(--text);background:var(--bg);font:400 100%/1.5 var(--font)}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-size:var(--fs-md);line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+img,video,svg,canvas{max-width:100%}
+img,video{height:auto}
+video{display:block;width:100%;background:var(--surface-3);border-radius:var(--radius)}
+hr{height:0;margin:var(--space-4) 0;border:0;border-top:1px solid var(--border)}
+::selection{background:var(--accent-soft);color:var(--accent-text)}
+
+/* Type (§2.5): body --fs-md at 1.5; page title --fs-xl (--fs-2xl above 860 px), card title --fs-lg, both 600; every number in tabular figures. */
+h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:-.01em;line-height:1.25;color:var(--text)}
+h1{font-size:var(--fs-xl);letter-spacing:-.02em}
+h2{font-size:var(--fs-lg)}
+h3{font-size:var(--fs-md)}
+h4{font-size:var(--fs-sm)}
+@media(min-width:861px){h1{font-size:var(--fs-2xl)}}
+p{margin:var(--space-2) 0}
+p,li,dd,dt,h1,h2,h3,h4,figcaption,td,th{overflow-wrap:anywhere}
+small{font-size:var(--fs-sm)}
+strong,b{font-weight:600}
+code,kbd,samp,pre{font-family:var(--mono);font-size:.92em}
+time,data,output,td,th,dd{font-variant-numeric:tabular-nums}
+
+/* Links */
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:.2em;overflow-wrap:anywhere}
+a:hover{color:var(--accent-hover)}
+
+/* The focus ring (§2.1): 3 px --focus, 2 px off the element; on the dark hero the hero accent. */
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+:focus:not(:focus-visible){outline:none}
+
+/* Forms (§1): inputs at 16 px so a phone never zooms, outlined in --control-border (3:1), 44 px tall. */
+button,input,select,textarea{font:inherit;color:var(--text);max-width:100%}
+button,input,select{min-height:var(--tap)}
+input,select,textarea{font-size:1rem;border:1px solid var(--control-border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);padding:var(--space-2) var(--space-3)}
+input::placeholder,textarea::placeholder{color:var(--text-3);opacity:1}
+input:hover,select:hover,textarea:hover{border-color:var(--text-3)}
+input:disabled,select:disabled,textarea:disabled{background:var(--surface-2);color:var(--text-3);cursor:not-allowed}
+textarea{width:100%;min-height:var(--tap);resize:vertical}
+input[type=checkbox],input[type=radio]{min-height:0;width:1.25rem;height:1.25rem;margin:0;padding:0;accent-color:var(--accent)}
+input[type=range]{accent-color:var(--accent);border:0;padding:0;background:transparent}
+input[aria-invalid=true],select[aria-invalid=true],textarea[aria-invalid=true]{border-color:var(--critical)}
+fieldset{margin:0;padding:var(--space-3) var(--space-4);min-width:0;border:1px solid var(--border);border-radius:var(--radius)}
+legend{padding:0 var(--space-1);font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
+label{color:var(--text)}
+
+/* A field: its label over the control, then the unit, a hint, an error or the saved line. */
+.field{display:grid;gap:var(--space-1);margin:0 0 var(--space-4);min-width:0}
+.field>label,.field-label{font-size:var(--fs-sm);font-weight:600;color:var(--text)}
+.field-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
+.field-row input,.field-row select{min-width:0}
+.number-field input{flex:1 1 6rem;max-width:12rem;font-variant-numeric:tabular-nums}
+.field-unit{font:400 var(--fs-sm)/1.3 var(--mono);color:var(--text-2)}
+.field-step{min-width:var(--tap);padding:var(--space-2);font-size:var(--fs-lg);line-height:1}
+.field-hint,.field-error,.field-saved{margin:0;font-size:var(--fs-sm)}
+.field-hint{color:var(--text-2)}
+.field-error{font-weight:600;color:var(--critical-text)}
+.field-saved{color:var(--ok-text)}
+.field-check{display:flex;align-items:center;gap:var(--space-2);min-height:var(--tap);margin:0 0 var(--space-3);font-size:var(--fs-md);color:var(--text)}
+.field-offset{width:5.5rem}
+.field-resolved{font-size:var(--fs-sm);color:var(--text-2)}
+.weekday-field .chips{margin:0}
+
+/* Filter rows: labelled controls in a wrapping row; a check filter is a pill whose box is the hit area. */
+.filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-3);margin:var(--space-3) 0}
+.filters label{display:flex;flex-direction:column;gap:var(--space-1);font-size:var(--fs-xs);font-weight:600;color:var(--text-2)}
+.filters label select,.filters label input{font-size:1rem;font-weight:400;color:var(--text)}
+.filters label.check{flex-direction:row;align-items:center;gap:var(--space-2);min-height:var(--tap);padding:0 var(--space-3);border:1px solid var(--control-border);border-radius:var(--radius-pill);background:var(--surface);font-size:var(--fs-sm);font-weight:500;color:var(--text)}
+.filters label.check:has(input:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text)}
+.check input{width:1.25rem;height:1.25rem}
+@media(max-width:600px){.filters>label:not(.check),.filters>button{width:100%}.filters label input,.filters label select{width:100%}}
+
+/* The bare button: a secondary button. The .btn family (primitives.css) states the variants. */
+button{cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);padding:var(--space-2) var(--space-4);border:1px solid var(--control-border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:var(--fs-sm);font-weight:600;line-height:1.2;transition:background-color .15s,border-color .15s,color .15s}
+button:hover{background:var(--surface-2);border-color:var(--text-3)}
+button[type=submit]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button[type=submit]:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+button:disabled,button[aria-disabled=true]{opacity:.5;cursor:not-allowed}
+
+/* Tables (§4): heads in mono caps on --surface-2, rows on hairlines, row hover. */
+table{width:100%;border-collapse:collapse;font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+caption{padding:var(--space-3) var(--space-3) var(--space-2);text-align:left;font-size:var(--fs-sm);font-weight:600;color:var(--text)}
+td,th{padding:var(--space-2) var(--space-3);text-align:left;vertical-align:top;border-bottom:1px solid var(--border)}
+thead th{font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);background:var(--surface-2);vertical-align:bottom}
+tbody th{font-weight:500}
+tbody tr:hover{background:var(--surface-2)}
+tbody tr:last-child>td,tbody tr:last-child>th{border-bottom:0}
+td.num,th.num{text-align:right}
+
+/* Disclosures: the summary is a 44 px target with a chevron that turns. */
+details{margin:var(--space-3) 0}
+summary{display:flex;align-items:center;gap:var(--space-2);min-height:var(--tap);cursor:pointer;list-style:none;font-size:var(--fs-sm);font-weight:600;color:var(--accent)}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"";flex:none;width:.45rem;height:.45rem;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s}
+details[open]>summary::before{transform:rotate(45deg)}
+summary:hover{color:var(--accent-hover)}
+
+/* Type helpers */
+.eyebrow{display:block;margin:0 0 var(--space-1);font:400 var(--fs-xs)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
+.small{font-size:var(--fs-sm);color:var(--text-2)}
+.muted{color:var(--text-2)}
+.mono{font-family:var(--mono)}
+.fault{color:var(--critical-text)}
+.prose{max-width:70ch}
+.prose h2{margin:var(--space-6) 0 var(--space-2)}
+.prose p{line-height:1.65;color:var(--text)}
+.value-muted{color:var(--text-3)}
+.tabular{font-variant-numeric:tabular-nums}
+
+/* Utilities */
+.screen-reader{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.skip-link{position:absolute;left:var(--space-4);top:-10rem;z-index:var(--z-toast);padding:var(--space-3) var(--space-4);border-radius:var(--radius-sm);background:var(--accent);color:var(--on-accent);font-weight:600;text-decoration:none}
+.skip-link:focus{top:var(--space-2);color:var(--on-accent)}
+.error-page{padding-block:var(--space-8)}
+
+/* §1: motion is short and stops here. */
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

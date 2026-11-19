@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { Fragment } from "react";
 import { Link } from "react-router";
+import { Chevron } from "../layout/chevron";
 import { STORY_EXCURSIONS, excursionRange, excursionWords, shareWords, type Story, type ClimateDimension } from "../../lib/graph-story";
 import { exactWindow, graphHref, withWindow, type GraphView } from "../../lib/graph-url";
 
@@ -37,8 +38,9 @@ export function StoryLine({ lead, story, view, withDates, short = false, dimensi
     const range = worst ? excursionRange(worst) : null;
     return <span className="gr-story">
       {span} · {grades ? grades.replace("Temperature", "Temp") : `in band ${shareWords(story.inBand)}`}{coverage && " · partial coverage"} · {worst && range
-        ? <Link to={graphHref(withWindow(view, exactWindow(range.from, range.to)))}>
-          {count} {count === 1 ? "excursion" : "excursions"}<span className="screen-reader">, the worst {excursionWords(worst, withDates)}</span><span aria-hidden="true"> ›</span>
+        ? <Link to={graphHref(withWindow(view, exactWindow(range.from, range.to)))}
+          aria-label={`${count} ${count === 1 ? "excursion" : "excursions"}, the worst ${excursionWords(worst, withDates)}`}>
+          {count} {count === 1 ? "excursion" : "excursions"}<span className="screen-reader">, the worst {excursionWords(worst, withDates)}</span><Chevron />
         </Link>
         : "no excursions"}
     </span>;
@@ -47,7 +49,7 @@ export function StoryLine({ lead, story, view, withDates, short = false, dimensi
   const named = story.excursions.slice(0, STORY_EXCURSIONS);
   const rest = count - named.length;
   return <span className="gr-story">
-    {lead}: {grades ?? `in band ${shareWords(story.inBand)} of points`}{grades && " · based on graded points"}{coverage && ` (${coverage})`} · {count === 0 ? "no excursions" : <>
+    {lead}: {grades ?? `in band ${shareWords(story.inBand)} of points`}{coverage && ` (${coverage})`} · {count === 0 ? "no excursions" : <>
       {count} {count === 1 ? "excursion" : "excursions"}: {named.map((excursion, index) => {
         const range = excursionRange(excursion);
         return <Fragment key={`${excursion.metric}-${excursion.start}`}>

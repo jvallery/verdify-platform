@@ -1,0 +1,56 @@
+/* SPDX-License-Identifier: MIT */
+/* Section: Review (dashboard v2) */
+/* The page: the main column (Today, Latest review, Proposal, Earlier reviews) and, above 860 px, Reviewer health at the side; the disclosure spans both. */
+.rv-side{align-content:start}
+
+/* Today: the state sentence, the window, and a proposal waiting. */
+.rv-today{display:grid;gap:var(--space-2)}
+.rv-today p{margin:0}
+.rv-today-line{font-size:var(--fs-md)}
+.rv-today-waiting{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font-size:var(--fs-sm);color:var(--text-2)}
+
+/* A review's facts and its summary as prose, at most 70 characters a line; a long one shows about 12 lines until Read all. */
+.rv-facts{margin:0 0 var(--space-3);overflow-wrap:anywhere}
+.rv-prose{max-width:70ch;overflow-wrap:anywhere}
+.rv-prose>*{margin:0 0 var(--space-3)}
+.rv-prose>:last-child{margin-bottom:0}
+.rv-prose ul,.rv-prose ol{padding-left:var(--space-5)}
+.rv-prose-collapsed{max-height:calc(12 * 1.5em);overflow:hidden;-webkit-mask-image:linear-gradient(to bottom,var(--text) 70%,transparent);mask-image:linear-gradient(to bottom,var(--text) 70%,transparent)}
+.rv-prose-wrap>.btn{margin-top:var(--space-2)}
+
+/* The proposal: each change as label, current → proposed and the difference; the reason, the price and the band editor link. */
+.rv-proposal{display:grid;gap:var(--space-3);min-width:0}
+.rv-proposal p{margin:0}
+.rv-proposal-state{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font-size:var(--fs-sm);color:var(--text-2)}
+.rv-changes{display:grid;gap:var(--space-2);margin:0;padding:0;list-style:none}
+.rv-change{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-1);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);background:var(--surface-2)}
+.rv-change-label{font-weight:600;overflow-wrap:anywhere}
+.rv-change-values{font-variant-numeric:tabular-nums}
+.rv-change-diff{font-variant-numeric:tabular-nums}
+.rv-proposal-part h3{margin:0 0 var(--space-1);font-family:var(--mono);font-size:var(--fs-xs);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.rv-proposal-part{max-width:70ch;overflow-wrap:anywhere}
+.rv-price{margin:var(--space-1) 0 0;padding-left:var(--space-5);font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+.rv-proposal-open{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3)}
+.rv-proposal-text{margin:0;max-width:70ch}
+@media(min-width:600px){.rv-change{grid-template-columns:minmax(0,1fr) auto auto;align-items:baseline;gap:var(--space-4)}}
+
+/* Earlier reviews: one row a review, opening in place. */
+.rv-earlier{margin:0;padding:0;list-style:none}
+.rv-earlier-row+.rv-earlier-row{border-top:1px solid var(--border)}
+.rv-earlier-details{margin:0}
+.rv-earlier-summary{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-3);min-width:0;color:var(--text)}
+.rv-earlier-date{font-weight:600;font-variant-numeric:tabular-nums}
+.rv-earlier-kind{font-weight:400}
+.rv-earlier-body{display:grid;gap:var(--space-3);padding:0 0 var(--space-4) var(--space-5);min-width:0}
+.rv-earlier-body>p{margin:0}
+.rv-more{margin-top:var(--space-3)}
+
+/* Reviewer health: three tiles, then tokens per review day. */
+.rv-health{display:grid;gap:var(--space-3);min-width:0}
+.rv-health .section-header{margin:0}
+.rv-health-tiles{display:grid;gap:var(--space-3);grid-template-columns:minmax(0,1fr)}
+@media(min-width:600px) and (max-width:860px){.rv-health-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* What the reviewer can and cannot do. */
+.rv-limits{margin:0}
+.rv-limits-list{margin:var(--space-2) 0;padding-left:var(--space-5);max-width:70ch}

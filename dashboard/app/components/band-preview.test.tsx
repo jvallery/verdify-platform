@@ -1,225 +1,174 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: MIT
-// The crop-band curve preview (#1139) against #1122's fixture API in process, with uPlot mocked: the debounce, the curve
-// straight from API-19, the 422 and any other failure. The clock is 10:42 America/Denver on 2026-11-02 (MST).
-import { act, cleanup, screen, within } from "@testing-library/react";
+// The Band page's preview (screens 2.2 block 2) from API-23 answers the fixture API gives, with uPlot mocked: the answer in
+// words, the two charts under one key and one quiet line, the draft drawn only where it differs, the law's lines inside
+// the draft band, the findings in words, the night heat estimate, and the loading, failed and message states.
+import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { fixture } from "../../e2e/fixtures/index.mjs";
-import { FakeResizeObserver, MockPlot, TOKENS, created, media, setTokens } from "../charts/fixtures/uplot-mock";
-import type { BandPreview, Setting } from "../lib/operator-api";
-import { NOW, OPERATOR, advance, renderWithApi, requests, startFixtureApi, stopFixtureApi, writes, type FixtureApi, type FixtureOptions } from "../lib/test-fixture-api";
-import { BandPreviewPanel, PREVIEW_DEBOUNCE_MS, PREVIEW_UNAVAILABLE, PREVIEW_WORD, hasBandCurve } from "./band-preview";
-import { text } from "./test-render";
+import { createFixtureHandler } from "../../e2e/fixture-api.mjs";
+import { FakeResizeObserver, MockPlot, media, setTokens } from "../charts/fixtures/uplot-mock";
+import { parseBandProfilePreview, type BandProfilePreview } from "../lib/operator-api";
+import { NOW } from "../lib/test-fixture-api";
+import {
+  BandPreviewPanel, FindingsList, bandAnswer, bandFindings, lawLines, nightHeatText, previewCsv, previewKey, previewViews, ribbon, solarMarks, tooltipText,
+} from "./band-preview";
+import { renderUi, text } from "./test-render";
 
 vi.mock("uplot", async () => ({ default: (await import("../charts/fixtures/uplot-mock")).MockPlot }));
 
-const CENTER = "zone_vpd_target_center_sm";
-const rows = (names: string = "in-band") => fixture(names, { now: NOW })["API-09"].items as Setting[];
-const settingOf = (param: string) => rows().find((row) => row.param === param)!;
-async function settle() {
-  for (let pass = 0; pass < 6; pass++) {
-    await advance(10);
-    await act(async () => { await vi.dynamicImportSettled(); });
-  }
+/** API-23 as the fixture API answers `query` (the band as stored with no query). */
+function preview(query = ""): BandProfilePreview {
+  const api = createFixtureHandler({ clock: () => NOW });
+  const out = api.respond({ method: "GET", url: `/api/v1/band/profile${query ? `?${query}` : ""}` });
+  expect(out.status).toBe(200);
+  return parseBandProfilePreview(out.body) as BandProfilePreview;
 }
-async function mount(param: string, draft: number | null, options: FixtureOptions = {}) {
-  const api = startFixtureApi({ fixture: "band-preview-center", ...options });
+const DRAFT = "temp_low_day=71.8&temp_high_day=85.8&temp_low_night=62.7&temp_high_night=70.7";
+
+beforeEach(() => {
+  MockPlot.reset();
+  FakeResizeObserver.instances = [];
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.stubGlobal("matchMedia", media({ fine: true }));
   setTokens();
-  const setting = settingOf(param);
-  const view = renderWithApi(<BandPreviewPanel setting={setting} draft={draft} />, OPERATOR);
-  await settle();
-  const redraft = async (next: number | null, wait = PREVIEW_DEBOUNCE_MS) => {
-    view.rerender(<BandPreviewPanel setting={setting} draft={next} />);
-    await advance(wait);
-    await settle();
-  };
-  return { api, view, redraft };
-}
-const asked = (api: FixtureApi) => requests(api, "API-19").map((row) => {
-  const query = new URL(row.path, "http://dashboard.invalid").searchParams;
-  return { param: query.get("param"), value: query.get("value"), day: query.get("day") };
 });
-const plot = () => created.filter((item) => !item.destroyed).at(-1)!;
-const labels = () => { plot().draw(); return plot().ctx.texts.map((item) => item.text); };
-const message = () => document.querySelector(".band-preview .chart-message");
-const words = (element: Element | null) => text(element).replaceAll(" ", " ");
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); document.documentElement.removeAttribute("style"); });
 
-const { createObjectURL, revokeObjectURL } = URL;
-beforeEach(() => {
-  MockPlot.reset(); FakeResizeObserver.instances = [];
-  // jsdom has no Blob URLs.
-  URL.createObjectURL = vi.fn(() => "blob:csv");
-  URL.revokeObjectURL = vi.fn();
-});
-afterEach(() => {
-  cleanup(); stopFixtureApi(); document.documentElement.removeAttribute("style");
-  URL.createObjectURL = createObjectURL; URL.revokeObjectURL = revokeObjectURL;
+test("the answer states the band as stored by day and at night, and says when sunrise and sunset are set apart", () => {
+  expect(bandAnswer(preview())).toBe("The house is held at 71.8–85.8 °F and 0.86–1.39 kPa by day (solar noon), and at 60.7–70.7 °F and 0.74–1.27 kPa at night (solar midnight). Sunrise and sunset are set apart from the halfway point.".replaceAll(" °F", " °F").replaceAll(" kPa", " kPa"));
+  const simple = preview();
+  expect(bandAnswer({ current: { ...simple.current, edges_simple: { temp: true, vpd: true } } })).not.toMatch(/set apart/);
 });
 
-test("a curve shows for every anchor and width, and for no other crop_band or registry row", () => {
-  const curved = rows().filter(hasBandCurve).map((row) => row.param);
-  expect(curved).toHaveLength(48);
-  const anchors = ["sr", "sm", "ss", "mid"];
-  const house = ["temp_low", "temp_target", "temp_high", "vpd_low", "vpd_target", "vpd_high"].flatMap((series) => anchors.map((anchor) => `band_${series}_${anchor}`));
-  const zones = ["center", "south", "west", "east"];
-  const zone = zones.flatMap((name) => [...anchors.map((anchor) => `zone_vpd_target_${name}_${anchor}`), `zone_vpd_width_below_${name}`, `zone_vpd_width_above_${name}`]);
-  expect(new Set(curved)).toEqual(new Set([...house, ...zone]));
-  for (const param of ["zone_priority_center", "manual_override_timeout_min", "temp_low", "band_house_temp_low", "mister_hysteresis_kpa"]) {
-    expect(hasBandCurve(settingOf(param)), param).toBe(false);
-  }
+test("the views draw the draft only when it differs, and the law's lines inside the band the draft makes", () => {
+  const stored = previewViews(preview(), NOW / 1000, false);
+  expect(stored.temp.draft).toBeNull();
+  expect(stored.temp.runs.length).toBeGreaterThan(0);
+  expect(stored.temp.outdoor).not.toBeNull();
+  expect(stored.vpd.expected).not.toBeNull();
+  expect(stored.temp.lines.map((line) => line.label)).toEqual(["Furnace starts", "Electric heat starts", "Cooling starts"]);
+  expect(stored.vpd.lines.map((line) => line.label)).toEqual(["Drying wanted", "Fog starts"]);
+
+  const draft = preview(DRAFT);
+  const views = previewViews(draft, NOW / 1000, true);
+  expect(views.temp.draft).not.toBeNull();
+  // The VPD axis is not in the draft, so it draws no draft line.
+  expect(views.vpd.draft).toBeNull();
+  // The furnace line sits its offset above the draft's low edge, not the stored one.
+  const index = draft.t.length - 1;
+  const offsets = draft.law_lines!;
+  expect(views.temp.lines[0].values[index]).toBeCloseTo((draft.temp.draft.low[index] ?? 0) + offsets.heat2_on_above_low_f, 3);
 });
 
-test("the value on opening reads at once; each change reads 300 ms after the last one, with no day", async () => {
-  const { api, view } = await mount(CENTER, 1.1);
-  expect(asked(api)).toEqual([{ param: CENTER, value: "1.1", day: null }]);
-  const setting = settingOf(CENTER);
-  view.rerender(<BandPreviewPanel setting={setting} draft={1.2} />);
-  await advance(PREVIEW_DEBOUNCE_MS - 50);
-  view.rerender(<BandPreviewPanel setting={setting} draft={1.3} />);
-  await advance(PREVIEW_DEBOUNCE_MS - 50);
-  expect(asked(api)).toHaveLength(1);
-  await advance(50);
-  await settle();
-  expect(asked(api).map((row) => row.value)).toEqual(["1.1", "1.3"]);
-  expect(requests(api).filter((row) => row.operationId === "API-19")[1].path).toBe(`/api/v1/band/preview?param=${CENTER}&value=1.3`);
-  // A change that comes back before the wait is over reads nothing new.
-  view.rerender(<BandPreviewPanel setting={setting} draft={1.4} />);
-  await advance(100);
-  view.rerender(<BandPreviewPanel setting={setting} draft={1.3} />);
-  await advance(1_000);
-  expect(asked(api)).toHaveLength(2);
-  expect(writes(api)).toEqual([]);
+test("lawLines needs the law's offsets (an API before them draws none), and ribbon leaves a gap open", () => {
+  expect(lawLines("temp", { low: [60], high: [70] }, null)).toEqual([]);
+  expect(ribbon([1, 2, 3, 4], [60, null, 61, 62], [70, 71, 72, 73]).map((run) => run.t)).toEqual([[1], [3, 4]]);
 });
 
-test("it draws API-19's columns as served, over the local day: the ribbon, the solid target and the dashed draft labelled PREVIEW", async () => {
-  const { api, redraft } = await mount(CENTER, 1.1);
-  await redraft(1.25);
-  const answer = api.respond({ url: `/v1/band/preview?param=${CENTER}&value=1.25` }).body as BandPreview;
-  const chart = plot();
-  // The browser computes no curve: x and each line are the server's.
-  expect(chart.data[0]).toEqual(answer.t);
-  expect(chart.data[1]).toEqual(answer.current.target);
-  expect(chart.data[2]).toEqual(answer.draft.target);
-  expect(chart.data[3]).toEqual(answer.draft.low);
-  expect(chart.data[4]).toEqual(answer.draft.high);
-  // 00:00 to 24:00 on the local day.
-  expect(chart.opts.scales!.x).toMatchObject({ min: Date.parse("2026-11-02T07:00:00Z") / 1000 });
-  expect(chart.scaleCalls.at(-1)).toMatchObject({ min: Date.parse("2026-11-02T07:00:00Z") / 1000, max: Date.parse("2026-11-03T07:00:00Z") / 1000 });
-  expect(chart.opts.series.map((series) => [series.label, series.stroke, series.dash, series.spanGaps])).toEqual([
-    [undefined, undefined, undefined, undefined],
-    ["Target", TOKENS["--c-vpd"], undefined, false],
-    [`${PREVIEW_WORD} target`, TOKENS["--c-requested"], [8, 4], false],
-    [`${PREVIEW_WORD} low`, TOKENS["--c-requested"], [8, 4], false],
-    [`${PREVIEW_WORD} high`, TOKENS["--c-requested"], [8, 4], false],
+test("the key, the sun's marks and the readout name what each chart draws, in words", () => {
+  const views = previewViews(preview(DRAFT), NOW / 1000, true);
+  expect(previewKey(views.temp).map((item) => item.label)).toEqual(["Band as stored", "Draft band", "Measured, last 24 h", "Outdoor forecast", "Where a rule starts"]);
+  expect(previewKey(views.vpd).map((item) => item.label)).toEqual(["Band as stored", "Measured, last 24 h", "Expected night VPD", "Where a rule starts"]);
+  expect(solarMarks(preview().sun).map((mark) => mark.word)).toEqual(["Sunrise", "Noon", "Sunset"]);
+  const readout = tooltipText(views.temp, 0)!.join(" | ").replaceAll(" ", " ");
+  expect(readout).toMatch(/Band 6\d\.\d–7\d\.\d °F \| Draft /);
+  expect(readout).toMatch(/Furnace starts \d+\.\d °F/);
+  expect(tooltipText(views.temp, -1)).toBeNull();
+});
+
+test("one CSV holds both charts, each column named by its axis", () => {
+  const views = previewViews(preview(DRAFT), NOW / 1000, true);
+  const head = previewCsv(views).split("\n")[0];
+  expect(head).toContain("Temperature band low, °F");
+  expect(head).toContain("Temperature draft low, °F");
+  expect(head).toContain("VPD band high, kPa");
+  expect(head).not.toContain("VPD draft");
+});
+
+test("the night heat estimate names the draft only while one is previewed", () => {
+  const draft = preview(DRAFT);
+  expect(nightHeatText(draft, false)).toMatch(/^Heat for tonight, estimated: [\d.]+\u00a0kWh with the band as stored\.$/);
+  expect(nightHeatText(draft, true)).toMatch(/with the draft\.$/);
+  expect(nightHeatText({ night_heat_kwh: { current: null, draft: null } }, true)).toBeNull();
+});
+
+test("findings list errors first, each naming its edge in words with the API's reason", () => {
+  renderUi(<FindingsList findings={[
+    { code: "overshoot", severity: "warning", field: "band_temp_low_sr", detail: "temp_low leaves its anchor range by 1.5 °F" },
+    { code: "band_width", severity: "error", field: "temp_low_night", detail: "The band narrows to 5.0 °F" },
+  ]} />);
+  const items = within(screen.getByRole("list", { name: "What the band check found" })).getAllByRole("listitem").map((item) => text(item));
+  expect(items).toEqual([
+    "Blocks Save Temperature low edge at night: The band narrows to 5.0 °F",
+    "Warning Temperature low edge at sunrise: The temperature low edge leaves its anchor range by 1.5 °F",
   ]);
-  const drawn = labels();
-  expect(drawn).toContain(PREVIEW_WORD);
-  expect(drawn).toContain("Now");
-  for (const mark of ["Sunrise", "Noon", "Sunset"]) expect(drawn).toContain(mark);
-  const painted = chart.ctx;
-  expect(painted.fills.some((fill) => fill.color === TOKENS["--c-band-wash"])).toBe(true);
-  expect(painted.strokes.filter((stroke) => stroke.stroke === TOKENS["--c-band-edge"] && stroke.width === 1)).toHaveLength(2);
-  expect(painted.strokes.some((stroke) => stroke.stroke === TOKENS["--ink"] && stroke.width === 1.5)).toBe(true);
-  expect(painted.strokes.filter((stroke) => stroke.stroke === TOKENS["--muted"] && JSON.stringify(stroke.dash) === "[4,3]")).toHaveLength(3);
-  expect(painted.depth).toBe(0);
-  expect(painted.texts.find((item) => item.text === PREVIEW_WORD)).toMatchObject({ color: TOKENS["--warn-text"] });
-  // The same words beside the chart: what it shows, the solar times and a table.
-  expect([...document.querySelectorAll(".band-preview .chart-key li")].map(text)).toEqual(["Band as stored", "Target as stored", PREVIEW_WORD]);
-  expect([...document.querySelectorAll(".band-preview .chart-notes li")].map(text)).toEqual(["Sunrise 06:35", "Solar noon 11:47", "Sunset 16:58"]);
-  expect(text(document.querySelector(".band-preview figcaption"))).toBe("Center zone VPD · kPa");
-  expect(text(document.querySelector(".band-preview details summary"))).toBe("Data table · 144 rows");
-  expect(screen.getByRole("link", { name: "CSV of this window" })).toBeTruthy();
-  expect(screen.getByRole("img").getAttribute("aria-label")).toContain("and dashed, the preview of this value");
-  // A tooltip names both at the cursor.
-  chart.fire("ready");
-  chart.hover(answer.t[72], 72);
-  const tooltip = [...chart.over.querySelectorAll(".chart-tooltip > div")].map((line) => words(line));
-  expect(tooltip).toHaveLength(3);
-  expect(tooltip[1]).toMatch(/^Band \d\.\d\d kPa–\d\.\d\d kPa · target \d\.\d\d kPa$/);
-  expect(tooltip[2]).toMatch(/^PREVIEW \d\.\d\d kPa–\d\.\d\d kPa · target 1\.25 kPa$/);
 });
 
-test("a draft that changes nothing draws the band alone, with no PREVIEW", async () => {
-  await mount(CENTER, 1.1);
-  expect(labels()).not.toContain(PREVIEW_WORD);
-  expect((plot().data[2] as (number | null)[]).every((value) => value === null)).toBe(true);
-  expect([...document.querySelectorAll(".band-preview .chart-key li")].map(text)).toEqual(["Band as stored", "Target as stored"]);
-  // A house temperature anchor reads in its own colour and unit.
-  cleanup();
-  stopFixtureApi();
-  MockPlot.reset();
-  await mount("band_temp_low_sm", settingOf("band_temp_low_sm").readback!.value);
-  expect(text(document.querySelector(".band-preview figcaption"))).toBe("House temperature · °F");
-  expect(plot().opts.series[1].stroke).toBe(TOKENS["--c-temp"]);
+// API-23 for a stored band in the live shape: three overshoot warnings, one of them on the stored middle line.
+const STORED_FINDINGS: Pick<BandProfilePreview, "findings" | "overshoot" | "changed"> = {
+  changed: [],
+  overshoot: { temp_low: 1.2, temp_target: 1.6, temp_high: 2.1, vpd_low: 0.02, vpd_target: 0.02, vpd_high: 0.03 },
+  findings: [
+    { code: "overshoot", severity: "warning", field: "band_temp_low_sr", detail: "temp_low leaves its anchor range by 1.2 °F" },
+    { code: "overshoot", severity: "warning", field: "band_temp_target_sr", detail: "temp_target leaves its anchor range by 1.6 °F" },
+    { code: "overshoot", severity: "warning", field: "band_temp_high_sr", detail: "temp_high leaves its anchor range by 2.1 °F" },
+    { code: "dewpoint_unreached", severity: "warning", field: "vpd_below_night", detail: "A 0.70 kPa night floor needs a dewpoint below the outdoor one" },
+  ],
+};
+
+test("with no draft change the overshoot is one quiet line, and nothing names the stored middle line", () => {
+  for (const edited of [false, true]) {
+    const shown = bandFindings(STORED_FINDINGS, edited);
+    expect(shown.findings.map((item) => item.code)).toEqual(["dewpoint_unreached"]);
+    expect(shown.overshootNote?.replaceAll("\u00a0", " ")).toBe(
+      "The curve runs up to 2.1 °F outside its anchors, because sunrise and sunset are set apart from the midpoint of noon and midnight. This is accepted.",
+    );
+  }
+  // Both axes past the warning line: the most of each.
+  const both = bandFindings({ ...STORED_FINDINGS, findings: [...STORED_FINDINGS.findings,
+    { code: "overshoot", severity: "warning", field: "band_vpd_high_sr", detail: "vpd_high leaves its anchor range by 0.03 kPa" }] }, false);
+  expect(both.overshootNote?.replaceAll("\u00a0", " ")).toMatch(/^The curve runs up to 2\.1 °F and 0\.03 kPa outside its anchors/);
+  expect(bandFindings({ ...STORED_FINDINGS, findings: [] }, false)).toEqual({ findings: [], overshootNote: null });
 });
 
-test("a width moves only its own edge, from the server's answer", async () => {
-  const { redraft } = await mount("zone_vpd_width_below_center", 0.2);
-  await redraft(0.3);
-  const chart = plot();
-  const [target, draftTarget, draftLow, draftHigh] = [chart.data[1], chart.data[2], chart.data[3], chart.data[4]] as (number | null)[][];
-  expect(draftTarget).toEqual(target);
-  expect((draftLow[72] as number) - (draftTarget[72] as number)).toBeCloseTo(-0.3, 5);
-  expect(draftHigh[72]).toBeGreaterThan(draftTarget[72] as number);
-  // PREVIEW sits on the edge that moved.
-  chart.draw();
-  const label = chart.ctx.texts.find((item) => item.text === PREVIEW_WORD)!;
-  const onLine = (column: (number | null)[]) => column.some((value) => Math.abs(chart.valToPos(value as number, "y") - (label.y + 16)) < 1);
-  expect([onLine(draftLow), onLine(draftTarget)]).toEqual([true, false]);
-  expect(text(document.querySelector(".band-preview figcaption"))).toBe("Center zone VPD · kPa");
+test("while a draft changes the band the overshoot stays one warning per edge; an error shows only with a draft", () => {
+  const order = { code: "band_order", severity: "error" as const, field: "band_temp_target_sm", detail: "temp_target falls below temp_low during the day" };
+  const draft = { ...STORED_FINDINGS, changed: ["band_temp_low_sm"], findings: [...STORED_FINDINGS.findings, order] };
+  const shown = bandFindings(draft, true);
+  expect(shown.overshootNote).toBeNull();
+  expect(shown.findings.map((item) => `${item.code} ${item.field}`)).toEqual([
+    "overshoot band_temp_low_sr", "overshoot band_temp_high_sr", "dewpoint_unreached vpd_below_night", "band_order band_temp_target_sm",
+  ]);
+  // The stored band's own errors block nothing.
+  expect(bandFindings(draft, false).findings.some((item) => item.severity === "error")).toBe(false);
 });
 
-test("a draft outside the bounds reads Must be … in the panel, from the Problem; a good one brings the curve back", async () => {
-  const { api, redraft } = await mount(CENTER, 1.1);
-  await redraft(3.5);
-  expect(asked(api).at(-1)).toMatchObject({ value: "3.5" });
-  expect(words(message())).toBe("Must be 0.10–3.00 kPa");
-  expect(within(document.querySelector<HTMLElement>(".band-preview")!).getByRole("status")).toBe(message()!.querySelector("p"));
-  expect(screen.queryByRole("img")).toBeNull();
-  await redraft(1.25);
-  expect(message()).toBeNull();
-  expect(labels()).toContain(PREVIEW_WORD);
-  expect(writes(api)).toEqual([]);
+test("the panel: the answer, two charts under one key and one quiet line, the sun's times and the stored band's warning", () => {
+  const stored = preview();
+  renderUi(<BandPreviewPanel preview={stored} edited={false} now={NOW / 1000} state="ready" />);
+  const panel = screen.getByRole("heading", { name: "The band" }).closest("section") as HTMLElement;
+  expect(panel.getAttribute("data-state")).toBe("ready");
+  expect(text(panel)).toContain("The house is held at 71.8–85.8 °F");
+  expect(panel.querySelectorAll("figure.band-chart")).toHaveLength(2);
+  // One quiet line for both charts: one data table disclosure, one CSV.
+  expect(panel.querySelectorAll(".chart-foot")).toHaveLength(1);
+  expect([...panel.querySelectorAll(".chart-csv")].map((link) => link.getAttribute("aria-label"))).toEqual(["CSV of these charts"]);
+  expect(text(panel)).toContain("Sunrise 07:00 · Solar noon 12:30 · Sunset 18:00.");
+  // The stored band's own errors would block nothing, and its overshoot is one quiet line, not a Warning.
+  expect(text(panel)).not.toContain("Warning Temperature low edge at sunrise");
+  expect(text(panel.querySelector(".band-overshoot.meta"))).toMatch(/^The curve runs up to 1\.5\s°F outside its anchors, because sunrise and sunset are set apart/);
+  expect(text(panel)).toMatch(/Heat for tonight, estimated: [\d.]+ kWh with the band as stored\./);
 });
 
-test("any other failure reads Preview unavailable; unknown_target reads its words", async () => {
-  await mount(CENTER, 1.1, { fail: { "API-19": 503 } });
-  expect(text(message())).toBe(PREVIEW_UNAVAILABLE);
-  cleanup();
-  stopFixtureApi();
-  await mount(CENTER, 1.1, {});
-  const fixtureFetch = globalThis.fetch;
-  vi.stubGlobal("fetch", async (input: string, init: RequestInit = {}) => {
-    if (!input.includes("/band/preview")) return fixtureFetch(input, init);
-    const problem = { type: "about:blank", title: "Not a crop-band anchor", status: 422, code: "unknown_target", retryable: false, field: "param" };
-    return { status: 422, ok: false, type: "basic", headers: new Headers(), json: async () => problem, text: async () => "" } as unknown as Response;
-  });
-  cleanup();
-  renderWithApi(<BandPreviewPanel setting={settingOf(CENTER)} draft={1.2} />, OPERATOR);
-  await settle();
-  expect(text(message())).toBe("Nothing by that name");
-});
-
-test("the marks are left off if the solar read fails, or names another day; the curve still draws", async () => {
-  await mount(CENTER, 1.1, { fail: { "API-IRR-02": 503 } });
-  const drawn = labels();
-  for (const mark of ["Sunrise", "Noon", "Sunset"]) expect(drawn).not.toContain(mark);
-  expect(drawn).toContain("Now");
-  expect(document.querySelector(".band-preview .chart-notes")).toBeNull();
-  expect(plot().data[1]).toHaveLength(144);
-});
-
-test("a value that is not a number reads nothing and draws no draft; before any answer it says what to do", async () => {
-  const { api, redraft } = await mount(CENTER, 1.1);
-  await redraft(1.25);
-  await redraft(null);
-  expect(asked(api)).toHaveLength(2);
-  expect(labels()).not.toContain(PREVIEW_WORD);
-  cleanup();
-  stopFixtureApi();
-  const empty = await mount(CENTER, null);
-  expect(asked(empty.api)).toEqual([]);
-  expect(text(message())).toBe("Enter a number to preview its curve");
+test("the panel's other states: loading reserves its place, a failure offers Retry, a message shows above the charts", () => {
+  const onRetry = vi.fn();
+  const { rerender } = renderUi(<BandPreviewPanel preview={null} edited={false} now={null} state="loading" />);
+  const panel = () => screen.getByRole("heading", { name: "The band" }).closest("section") as HTMLElement;
+  expect(panel().getAttribute("data-state")).toBe("loading");
+  rerender(<BandPreviewPanel preview={null} edited={false} now={null} state="error" onRetry={onRetry} />);
+  expect(panel().getAttribute("data-state")).toBe("error");
+  within(panel()).getByRole("button", { name: /Retry/ }).click();
+  expect(onRetry).toHaveBeenCalled();
+  rerender(<BandPreviewPanel preview={preview()} edited={true} now={null} state="ready" message="Preview unavailable" />);
+  expect(within(panel()).getByRole("status").textContent).toBe("Preview unavailable");
 });

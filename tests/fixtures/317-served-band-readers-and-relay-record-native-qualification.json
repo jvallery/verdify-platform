@@ -1,0 +1,56 @@
+{
+  "migration": "317-served-band-readers-and-relay-record.sql",
+  "final_migration_qualification_pending": false,
+  "projection": "317 puts the band readers on the served band (fn_band_timeline with the climate law's lines and all 56 columns, fn_climate_action_effectiveness, fn_climate_action_daily_scorecard, v_greenhouse_state, v_heating_staging, fn_heat_staging_inversion), drops the unread v_setpoint_forward, sets v_irrigation_schedule_current's two readback counts to NULL, appends boots and record_computed_at to v_relay_counter_reconciliation_daily with the record_early rule, and defines daily_relay_record's run_s and event_run_s. fn_heat_staging_inversion (ordinary digest), the ingestor duty's schedule and counter views and MCP's scorecard function change, so the seals are measured again; until the probe measures them the literals are 316's.",
+  "projected_successor": {
+    "api": "956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d",
+    "ingestor": "d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  },
+  "measured_at": "2026-11-17T07:07:26Z",
+  "before": {
+    "api": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "ingestor": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+    "mcp": "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
+  },
+  "qualified_successor": {
+    "api": "956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d",
+    "ingestor": "d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  },
+  "after_rollback": {
+    "api": "46285cc61b12abcb6e08a3898941a837f0c9c8701761408d8af901e30a291d76",
+    "ingestor": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
+    "mcp": "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
+  },
+  "exact_final_migration_sha256": "83aed4a2c57f9a70225b70ecaa44bdc89ca9f8fe5e4bfac9b41da70c1880eed4",
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "9427991c4b84241153d024cbcb989f41e412ecbbdbf0bdc6c8c7dc51cf68a587",
+  "qualification_source_sha256": "71853f105b49510302890ada5dde8dfb3085d8f6abf4551e8a7ac6d4caaa2fdc",
+  "native_fixture": {
+    "checks": [
+      "setpoint_forward_dropped",
+      "functions_read_the_served_band",
+      "views_read_the_served_band",
+      "timeline_keeps_56_columns",
+      "counter_check_exact",
+      "run_columns_defined",
+      "grants_and_dependants_kept",
+      "timeline_rows_on_the_law",
+      "greenhouse_state_rows_on_the_band",
+      "schedule_readback_counts_null",
+      "house_vpd_band_shape",
+      "daily_record_refused_drying",
+      "daily_record_drying_meter",
+      "house_vpd_band_rows_served",
+      "yesterday_refused_drying_stored",
+      "ingestor_reads_its_objects",
+      "mcp_runs_the_scorecard",
+      "grafana_reads_the_review_facade",
+      "dashboard_reads_counter_check"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "b727fa70a36810a9d4133ca1645206c6c759c5cb5ed6c86e9b51f7a63b13040c"
+}

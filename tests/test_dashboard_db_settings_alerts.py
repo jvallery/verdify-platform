@@ -266,7 +266,7 @@ def test_status_reasons_and_their_since(dsn):
             "VALUES (now(), 'site_pressure_hpa', 845, 840, 'campaign_guard') RETURNING ts",
         )
         status = await settings.status(mcp, "site_pressure_hpa")
-        assert (status.state, status.desired.id) == ("held", clamped.id)
+        assert (status.state, status.desired.id) == ("not_confirmed", clamped.id)  # release C retired held
         assert status.state_reason.model_dump() == {
             "code": "clamped",
             "detail": "campaign_guard",

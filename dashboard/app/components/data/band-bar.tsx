@@ -43,7 +43,24 @@ export type BandBarProps = {
   /** `aria-hidden` when the same numbers sit beside it as text (they usually do); else an image named by them. */
   decorative?: boolean;
   state?: VizState;
+  /** Threshold ticks on the track (design system v2 §4), each with an optional label; a warn or critical tick takes that status colour. */
+  ticks?: readonly BandTick[];
+  /** Label the band's two edges with their values under the track. */
+  edgeLabels?: boolean;
+  /** Say the reading's relation to the band in words under the gauge: "in band", "0.4 °F below". */
+  showRelation?: boolean;
 };
+
+/** A threshold tick: where it sits, its label and its level (neutral by default). */
+export type BandTick = { readonly value: number; readonly label?: string; readonly level?: "neutral" | "warn" | "critical" };
+
+/** "in band", "0.4 °F below" or "0.4 °F above": how far the reading sits outside the band, in words; null without both. */
+export function bandRelationWords(value: number | null | undefined, band: Range | null | undefined, unit: string): string | null {
+  const position = bandPosition(value, band);
+  if (!position || !band || !finite(value)) return null;
+  if (position === "in") return "in band";
+  return `${formatValue(position === "below" ? band.low - value : value - band.high, unit)} ${position}`;
+}
 
 /** "62.0–70.0 °F": a low and a high that share their unit, written once. */
 export function rangeWords(low: number, high: number, unit: string): string {
@@ -68,7 +85,7 @@ const pct = (value: number) => `${Math.round(value * 100) / 100}%`;
  * its two edges) and the value as a dot; nothing else is drawn. Positions are SVG percentages, so it scales with its box and
  * needs no style. Unknown draws no dot over a hatched track; stale is muted; while the API is down it is neutral.
  */
-export function BandBar({ label, unit, value, band = null, today = null, hero = false, decorative = true, state = "ready" }: BandBarProps) {
+export function BandBar({ label, unit, value, band = null, today = null, hero = false, decorative = true, state = "ready", ticks = [], edgeLabels = false, showRelation = false }: BandBarProps) {
   const apiDown = useApiDown();
   const hatch = usePatternId("bb-hatch");
   if (state === "loading") return <VizSkeleton className={cls("bb", hero && "bb-hero")} label={label} />;
@@ -79,9 +96,15 @@ export function BandBar({ label, unit, value, band = null, today = null, hero = 
   const clamped = scale && shown !== null ? (shown < scale.low ? "low" : shown > scale.high ? "high" : null) : null;
   const unknownTrack = !scale || shown === null;
   // The band box, centred on the track: 12 px on the hero, 10 px on white, taller than the 2 px track so it reads as a box.
-  const top = 3, box = hero ? 12 : 10;
-  return <svg className={cls("bb", hero && "bb-hero", state === "stale" && "is-stale", apiDown && "is-neutral", unknownTrack && "is-unknown")}
-    width="100%" height={hero ? 18 : 16} {...vizRole(words, decorative)} focusable="false">
+  const top = 3, box = hero ? 12 : 10, base = hero ? 18 : 16;
+  const shownTicks = scale ? ticks.filter((tick) => finite(tick.value)) : [];
+  // Labels (the edges' values and the ticks') sit on one row under the track, 14 px tall.
+  const labelled = !!scale && ((edgeLabels && !!band) || shownTicks.some((tick) => tick.label));
+  const height = base + (labelled ? 14 : 0), labelY = height - 2;
+  const level = (tick: BandTick) => (tick.level === "warn" || tick.level === "critical" ? `bb-tick-${tick.level}` : null);
+  const relation = showRelation && known ? bandRelationWords(shown, band, unit) : null;
+  const gauge = <svg className={cls("bb", hero && "bb-hero", state === "stale" && "is-stale", apiDown && "is-neutral", unknownTrack && "is-unknown")}
+    width="100%" height={height} {...vizRole(words, decorative)} focusable="false">
     {unknownTrack && <HatchPattern id={hatch} />}
     <rect className="bb-track" x="0" y={hero ? 8 : 7} width="100%" height="2" />
     {unknownTrack && <rect className="bb-unknown" x="0" y={hero ? 5 : 4} width="100%" height="8" fill={`url(#${hatch})`} />}
@@ -90,9 +113,17 @@ export function BandBar({ label, unit, value, band = null, today = null, hero = 
       <line className="bb-edge" x1={pct(at(scale, band.low))} x2={pct(at(scale, band.low))} y1={top} y2={top + box} />
       <line className="bb-edge" x1={pct(at(scale, band.high))} x2={pct(at(scale, band.high))} y1={top} y2={top + box} />
     </>}
+    {scale && shownTicks.map((tick, index) => <line key={`t${index}`} className={cls("bb-tick", level(tick))} x1={pct(at(scale, tick.value))} x2={pct(at(scale, tick.value))} y1={1} y2={top + box + 2} />)}
+    {labelled && scale && band && edgeLabels && <>
+      <text className="bb-edge-label" x={pct(at(scale, band.low))} y={labelY} textAnchor="middle">{formatValue(band.low, unit)}</text>
+      <text className="bb-edge-label" x={pct(at(scale, band.high))} y={labelY} textAnchor="middle">{formatValue(band.high, unit)}</text>
+    </>}
+    {labelled && scale && shownTicks.map((tick, index) => tick.label && <text key={`l${index}`} className={cls("bb-tick-label", level(tick))} x={pct(at(scale, tick.value))} y={labelY} textAnchor="middle">{tick.label}</text>)}
     {scale && shown !== null && <circle className="bb-dot" cx={pct(at(scale, shown))} cy={hero ? 9 : 8} r={hero ? 6 : 5} />}
     {clamped && <svg x={clamped === "low" ? "0" : "100%"} y="0" width="1" height="1" overflow="visible">
       <path className="bb-clamp" d={clamped === "low" ? "M-1 8 L5 4 L5 12 Z" : "M1 8 L-5 4 L-5 12 Z"} />
     </svg>}
   </svg>;
+  if (!showRelation) return gauge;
+  return <>{gauge}{relation && <span className="bb-relation" data-position={bandPosition(shown, band)}>{relation}</span>}</>;
 }

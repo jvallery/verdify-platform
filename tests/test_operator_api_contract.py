@@ -234,7 +234,6 @@ def test_it_serves_its_own_operations_and_every_included_route_module():
         ("GET", "/readyz", "OPS-02"),
         ("GET", "/metrics", "OPS-04"),
         ("GET", "/v1/now", "API-02"),
-        ("GET", "/v1/plan", "API-07"),
         ("GET", "/v1/equipment", "API-13"),
         ("PUT", "/v1/settings/{param}", "API-10"),
         ("DELETE", "/v1/settings/{param}", "API-11"),
@@ -259,7 +258,15 @@ def test_it_serves_its_own_operations_and_every_included_route_module():
         ("PUT", "/v1/band/profile", "API-24"),
         ("POST", "/v1/equipment/lights/{light}/{state}", "API-20"),
         ("GET", "/v1/water/daily", "API-21"),
-        ("GET", "/v1/planner/history", "API-25"),
+        ("GET", "/v1/law", "API-30"),
+        ("GET", "/v1/law/history", "API-31"),
+        ("GET", "/v1/record/days", "API-32"),
+        ("GET", "/v1/record/relay-check", "API-33"),
+        ("GET", "/v1/reviews", "API-34"),
+        ("GET", "/v1/system/controller", "API-35"),
+        ("GET", "/v1/system/data", "API-36"),
+        ("GET", "/v1/system/delivery", "API-37"),
+        ("POST", "/v1/crops/plantings/{planting_id}/notes", "API-CROP-12"),
     }
     # Committed operations not served yet are allowed: the other reads follow.
     committed = {
@@ -269,6 +276,9 @@ def test_it_serves_its_own_operations_and_every_included_route_module():
         if isinstance(operation, dict) and "operationId" in operation
     }
     assert served <= committed
+    # Release C (dashboard v2 API spec section 7): the plan-era reads are neither served nor committed.
+    retired = {("GET", "/v1/plan", "API-07"), ("GET", "/v1/planner/history", "API-25")}
+    assert not retired & (served | committed)
 
 
 def test_every_served_route_is_an_api_route_and_no_bff_path_is_served():

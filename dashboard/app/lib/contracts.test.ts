@@ -12,7 +12,7 @@ import { createFixtureHandler } from "../../e2e/fixture-api.mjs";
 import { AFTER, EXAMPLES, FIXTURE_NAMES, buildWorld, fixture } from "../../e2e/fixtures/index.mjs";
 import type { components, operations } from "../generated/operator-api";
 import {
-  OPERATIONS, type Parser, parseHealth, parseIrrigationStatus, parseNow, parsePlan, parseProblem, parseReadiness, parseRunPage, parseSeries,
+  OPERATIONS, type Parser, parseHealth, parseIrrigationStatus, parseNow, parseProblem, parseReadiness, parseRunPage, parseSeries,
   parseSessionToken, parseSettings,
 } from "./operator-api";
 
@@ -154,7 +154,7 @@ test("the schema check catches what the lenient parsers let through", () => {
     "$.running[0].line_id: L1 does not match ^L(0[1-9]|1[01])$", "$.running[0].since: yesterday is not a date-time", "$.leak: missing alert_id",
     "$.writer.stuck: string, not boolean",
   ]);
-  expect(contractFaults("API-09", 200, settings)).toEqual(['$.items[0].state: "queued" is not one of ["requested","confirmed","not_confirmed","held","no_readback","overridden","released"]']);
+  expect(contractFaults("API-09", 200, settings)).toEqual(['$.items[0].state: "queued" is not one of ["requested","confirmed","not_confirmed","no_readback","overridden","released"]']);
   expect(contractFaults("API-IRR-05", 204, { slot_id: 1 })).toEqual(["a body where the file has none"]);
   expect(contractFaults("OPS-01", 503, null)).toEqual(["status 503 is not documented"]);
 });
@@ -238,7 +238,6 @@ test("the file and the client carry the fields the screens read and API-19 to AP
   expectTypeOf<S["Leak"]>().toHaveProperty("stopped_at");
   expectTypeOf<"no_engine" | "controller_not_reporting">().toExtend<S["StateReason"]["code"]>();
   expectTypeOf<S["StateReason"]>().toHaveProperty("since");
-  expectTypeOf<S["PlannerTrigger"]>().toHaveProperty("expected_at");
   expectTypeOf<"unknown">().toExtend<S["RunOutcome"]>();
   expectTypeOf<S["IrrigationLine"]>().toHaveProperty("reserved");
   expectTypeOf<"band_in_force">().toExtend<S["Setting"]["group"]>();
@@ -256,7 +255,6 @@ test("the file and the client carry the fields the screens read and API-19 to AP
   expect(now.band.observed_at).toBe("2026-11-02T17:38:00.000Z");
   expect(parseNow(set("flow-valves-closed")["API-02"])!.leak).toMatchObject({ active: true, alert_id: 201, stopped_at: null });
   expect(parseNow(set("flow-stopped")["API-02"])!.leak).toMatchObject({ active: false, alert_id: 201, stopped_at: "2026-11-02T17:40:00.000Z" });
-  expect(parsePlan(set("in-band")["API-07"])!.health.every((row) => row.expected_at && row.due_at)).toBe(true);
   expect(parseRunPage(set("runs-zero-and-unknown")["API-IRR-11"])!.items.map((run) => [run.gal, run.outcome])).toEqual(expect.arrayContaining([[0, "ok"], [null, "unknown"]]));
   expect(parseIrrigationStatus(set("in-band")["API-IRR-01"])!.lines.filter((line) => line.reserved).map((line) => line.line_id)).toEqual(["L05", "L06"]);
   // Band in force: the house and each of the four zones, six roles each (VD-55), as the rendered settings fixture serves them.

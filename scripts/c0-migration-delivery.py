@@ -507,6 +507,53 @@ SUCCESSOR_316_DIGESTS = {
     "verdify_ingestor_runtime_login": "74023040d4e1cec522dc7cc0b51348c0898e7006da193b4a3b96613eac49ad4f",
 }
 SUCCESSOR_316_MCP_DIGEST = "d78c9a7e114bdece47f0a9f6768e3c3d869a1598dcfce38b1a668ef631551929"
+# Exact317 (#1633, host release 5; #1734): the band readers read the served band (fn_band_timeline, the climate action
+# scorecard and effectiveness, v_greenhouse_state, v_heating_staging, fn_heat_staging_inversion), v_setpoint_forward
+# goes, the retired irrigation readback counts read NULL, the relay counter check gains boots and the early-record
+# rule, and daily_relay_record's run columns are defined. The seals are measured by the native probe; until then the
+# literals are 316's (fail closed). It follows 316.
+SUCCESSOR_317 = "317-served-band-readers-and-relay-record.sql"
+SUCCESSOR_317_SHA256 = "83aed4a2c57f9a70225b70ecaa44bdc89ca9f8fe5e4bfac9b41da70c1880eed4"
+SUCCESSOR_317_DIGESTS = {
+    "verdify_api_runtime_login": "956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d",
+    "verdify_ingestor_runtime_login": "d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d",
+}
+SUCCESSOR_317_MCP_DIGEST = "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+# Exact318 (#1633, host release 5; #1734, review C-9): the 27 planner lessons that teach the retired plan cycle are set
+# inactive. Data only, so its seals are 317's. It follows 317.
+SUCCESSOR_318 = "318-retire-plan-cycle-lessons.sql"
+SUCCESSOR_318_SHA256 = "58910b66c5f9bcc2b771d7b3ae43e084e122e990095bd083f60647860f9368b3"
+SUCCESSOR_318_DIGESTS = SUCCESSOR_317_DIGESTS
+SUCCESSOR_318_MCP_DIGEST = SUCCESSOR_317_MCP_DIGEST
+# Exact319 (#1770, host release 6; #1633, #1734): v_band_device_divergence's mode reads the newest diagnostics row that
+# carries a band_source. The view is in a runtime's readable set, so the seals are measured by the native probe.
+# It follows 318.
+SUCCESSOR_319 = "319-band-divergence-mode-ignores-partial-rows.sql"
+SUCCESSOR_319_SHA256 = "6ea156b44640b7ceb3255126584a57676e1fd7139f35358a3f17e8412d3e9f77"
+SUCCESSOR_319_DIGESTS = {
+    "verdify_api_runtime_login": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
+    "verdify_ingestor_runtime_login": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+}
+SUCCESSOR_319_MCP_DIGEST = "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+# Exact320 (dashboard read model): the operator API reads planner_review, daily_relay_record and gap_replay_quarters
+# through v_dashboard_review, v_dashboard_relay_day and v_dashboard_gap_replay, column projections owned by verdify
+# with SELECT to the dashboard duty alone. The tables' own ACLs are unchanged and no relation gains an api, ingestor,
+# MCP or PUBLIC entry, so no runtime seal moves. It follows 319.
+SUCCESSOR_320 = "320-dashboard-projections.sql"
+SUCCESSOR_320_SHA256 = "71deafa19652c44c110e8f7370db4cb5bbfa359853301dd69a680bb26cbcbfc1"
+SUCCESSOR_320_DIGESTS = SUCCESSOR_319_DIGESTS
+SUCCESSOR_320_MCP_DIGEST = SUCCESSOR_319_MCP_DIGEST
+# Exact321 (iso-2 F2 and F4, #1668 items 2 and 3; #1633, #1734): the ingestor runtime may mark replayed gaps and read
+# v_data_gaps_unreplayed and daily_band_compliance; a water counter reset keeps the gallons used since boot, a flap
+# delta is held out of the totals and an all-wetting overlap is scoped climate_wetting. The grants widen the ingestor
+# boundary, so the seals are measured by the native probe. It follows 320.
+SUCCESSOR_321 = "321-ingestor-gap-and-compliance-reads-water-reset-delta.sql"
+SUCCESSOR_321_SHA256 = "614190ef3f32c728d8ca667e854d0559c36573ab204c9ef03851d57395787a5c"
+SUCCESSOR_321_DIGESTS = {
+    "verdify_api_runtime_login": "6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c",
+    "verdify_ingestor_runtime_login": "b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42",
+}
+SUCCESSOR_321_MCP_DIGEST = "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
@@ -582,6 +629,11 @@ def reviewed_post_254(later, files=None):
         SUCCESSOR_314,
         SUCCESSOR_315,
         SUCCESSOR_316,
+        SUCCESSOR_317,
+        SUCCESSOR_318,
+        SUCCESSOR_319,
+        SUCCESSOR_320,
+        SUCCESSOR_321,
     )
     require(successors == list(reviewed[: len(successors)]), "unreviewed post-254 receipt successor")
     if successors:
@@ -646,6 +698,11 @@ def reviewed_post_254(later, files=None):
                 SUCCESSOR_314_SHA256,
                 SUCCESSOR_315_SHA256,
                 SUCCESSOR_316_SHA256,
+                SUCCESSOR_317_SHA256,
+                SUCCESSOR_318_SHA256,
+                SUCCESSOR_319_SHA256,
+                SUCCESSOR_320_SHA256,
+                SUCCESSOR_321_SHA256,
             ),
             strict=True,
         ):
@@ -949,6 +1006,11 @@ COMMIT;"""
         (SUCCESSOR_314, SUCCESSOR_314_DIGESTS),
         (SUCCESSOR_315, SUCCESSOR_315_DIGESTS),
         (SUCCESSOR_316, SUCCESSOR_316_DIGESTS),
+        (SUCCESSOR_317, SUCCESSOR_317_DIGESTS),
+        (SUCCESSOR_318, SUCCESSOR_318_DIGESTS),
+        (SUCCESSOR_319, SUCCESSOR_319_DIGESTS),
+        (SUCCESSOR_320, SUCCESSOR_320_DIGESTS),
+        (SUCCESSOR_321, SUCCESSOR_321_DIGESTS),
     ):
         if name in later:
             expected["api"] = expected["api_receipt"] = digests["verdify_api_runtime_login"]
@@ -1082,6 +1144,16 @@ COMMIT;"""
             expected_mcp = SUCCESSOR_315_MCP_DIGEST
         if SUCCESSOR_316 in later:
             expected_mcp = SUCCESSOR_316_MCP_DIGEST
+        if SUCCESSOR_317 in later:
+            expected_mcp = SUCCESSOR_317_MCP_DIGEST
+        if SUCCESSOR_318 in later:
+            expected_mcp = SUCCESSOR_318_MCP_DIGEST
+        if SUCCESSOR_319 in later:
+            expected_mcp = SUCCESSOR_319_MCP_DIGEST
+        if SUCCESSOR_320 in later:
+            expected_mcp = SUCCESSOR_320_MCP_DIGEST
+        if SUCCESSOR_321 in later:
+            expected_mcp = SUCCESSOR_321_MCP_DIGEST
         if hotfix_predecessor_263:
             require(
                 mcp_state.get("mcp")

@@ -91,7 +91,7 @@ function Strip({ shelf, grids, tones, now, selection, rack }: { shelf: CropShelf
     <div className="crop-strip-head">
       <h3>{shelfTitle(shelf)}</h3>
       {water.length > 0 && <p className="meta crop-strip-water">{[...new Set(water)].join(" · ")}</p>}
-      {!rack && <button type="button" className="chip crop-place-toggle" aria-pressed={whole} onClick={() => selection.onPlace(shelfKey(shelf.slug))}>
+      {!rack && <button type="button" className="chip crop-place-toggle" aria-pressed={whole} aria-label={`Whole shelf: ${shelfTitle(shelf)}`} onClick={() => selection.onPlace(shelfKey(shelf.slug))}>
         Whole shelf<span className="screen-reader">: {shelfTitle(shelf)}</span>
       </button>}
     </div>

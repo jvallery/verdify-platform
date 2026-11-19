@@ -120,7 +120,7 @@ test("alerts-merged: the status line states the count once; Needs action in API 
   expect(requests(api, "API-14").map((row) => row.path)).toEqual(["/api/v1/alerts?status=recent&limit=200"]);
 });
 
-test("with nothing open the status line says so honestly and Needs action is not drawn; the resolved group holds the last 24 h", async () => {
+test("with nothing open the status line says so honestly and Needs action answers in one line (A4); the resolved group holds the last 24 h", async () => {
   const cases = [
     ["in-band", "No open alerts"],
     ["ingestor-not-running", "In-app alerts may be missing: ingestor not running since 10:38"],
@@ -129,7 +129,9 @@ test("with nothing open the status line says so honestly and Needs action is not
   for (const [fixture, words] of cases) {
     await open("/activity", { fixture });
     expect(status(), fixture).toBe(words);
-    expect(screen.queryByRole("region", { name: "Needs action" })).toBeNull();
+    const needs = screen.getByRole("region", { name: "Needs action" });
+    expect(text(needs.querySelector(".panel-empty")), fixture).toContain(words === "No open alerts" ? "Nothing needs action." : words);
+    expect(needs.querySelector(".alert-row")).toBeNull();
     stopped();
   }
   await open("/activity", { fixture: "alert-resolved" });
@@ -148,7 +150,7 @@ test("with nothing open the status line says so honestly and Needs action is not
   await open("/activity?resolved=24h", { fixture: "in-band" });
   expect(group(/^Resolved/)).toBeUndefined();
   const none = document.querySelector("[data-alerts=resolved-none]")!;
-  expect(plain(text(none))).toBe("Nothing resolved in the last 24 h · Open the log ›");
+  expect(plain(text(none))).toBe("Nothing resolved in the last 24 h · Open the log ›");
   expect(within(none as HTMLElement).getByRole("link", { name: "Open the log" }).getAttribute("href")).toBe("/activity/log");
   stopped();
   // Not without the link, and never from a read that failed.
@@ -239,7 +241,7 @@ test("a refused Acknowledge says why beside its row and moves nothing; with chan
   for (const name of ["Acknowledge", "Resolve"]) expect(within(item).getByRole("button", { name }).hasAttribute("disabled"), name).toBe(true);
 });
 
-test("the flow alert reads its plain title, expands in place with its runbook and Open in Graphs ±2 h, and offers the spigot, never a Stop", async () => {
+test("the flow alert reads its plain title, expands in place with what it means, its page, its runbook and its window in Graphs, and offers the spigot, never a Stop", async () => {
   await open("/activity?alert=201", { fixture: "flow-valves-closed" });
   const item = alertRow(201);
   expect(text(item.querySelector("h3"))).toBe("Water flowing with every Verdify valve closed");
@@ -249,9 +251,12 @@ test("the flow alert reads its plain title, expands in place with its runbook an
   expect(item.querySelector(".alert-message")).toBeNull();
   expect(within(item).queryByRole("button", { name: /Stop/ })).toBeNull();
   expect(text(item.querySelector(".runbook"))).toBe("1. Check the hose, sink and hydro. 2. Walk the wall line and the manifold for a break. 3. If no one is using water, close the spigot.");
-  // First seen 10:38 (17:38Z): the window 15:38Z to 19:38Z.
-  expect(within(item).getByRole("link", { name: /^Open in Graphs/ }).getAttribute("href")).toBe("/graphs?from=2026-11-02T15:38:00Z&to=2026-11-02T19:38:00Z");
-  expect(text(item.querySelector(".alert-detail .kv"))).toContain("TypeWater flowing with every Verdify valve closedCategorywaterSeverityCritical");
+  // First seen 10:38 (17:38Z), last seen 17:41:20Z and still open: the window 2 h either side, 15:38Z to 19:41:20Z.
+  expect(within(item).getByRole("link", { name: /^Open in Graphs/ }).getAttribute("href")).toBe("/graphs?from=2026-11-02T15:38:00Z&to=2026-11-02T19:41:20Z");
+  expect(text(item.querySelector(".alert-detail .kv"))).toContain("TypeWater flowing with every Verdify valve closedCategoryWaterSeverityCritical");
+  // What it means in one sentence, and the v2 page that explains it (A-02).
+  expect(plain(text(item.querySelector(".alert-about")))).toBe("The water meter counted flow while every valve the controller drives was closed; it stays open until a person resolves it. Explained on Water today ›");
+  expect(within(item).getByRole("link", { name: /^Explained on Water today/ }).getAttribute("href")).toBe("/water");
   expect(text(item)).not.toContain("leak_detected");
   stopped();
   // Once the meter has read under 0.1 gal/min twice: Flow stopped at HH:MM, never an all clear.
@@ -373,7 +378,7 @@ test("Recent activity: the five newest log entries, one line each, and Open the 
   const api = await open("/activity", { fixture: "activity-mixed" });
   const recent = screen.getByRole("region", { name: "Recent activity" });
   expect(recent.querySelectorAll("li.event")).toHaveLength(5);
-  expect(plain(text(recent.querySelector("li.event .act-entry-text")))).toBe("Outdoor Staleness Max 660 → 630 s · requested 640 · manual");
+  expect(plain(text(recent.querySelector("li.event .act-entry-text")))).toBe("Outdoor Staleness Max 660 → 630 s · requested 640 · set by hand");
   expect(within(recent).getByRole("link", { name: /^Open the log/ }).getAttribute("href")).toBe("/activity/log");
   expect(requests(api, "API-17").map((row) => row.path)).toEqual(["/api/v1/activity?limit=5"]);
   stopped();
@@ -398,24 +403,24 @@ test("a viewer reads every alert and the log, expanded too, with no Acknowledge,
 });
 
 // ---------------------------------------------------------------------------------------------------- the log
-test("activity-mixed: one line an entry, who wrote in R4's words, AI for Iris and the agent only, an Iris plan collapsed to its changes, causes first", async () => {
+test("activity-mixed: one line an entry, who wrote in R4's words, AI for the reviewer and the agent only, an old settings row collapsed to its changes, causes first", async () => {
   await open("/activity/log", { fixture: "activity-mixed" });
   expect(status()).toBe(LOG_STATUS);
   expect(logLines()).toEqual([
-    "Outdoor Staleness Max 660 → 630 s · requested 640 · manual", "Plan · 3 changes", "Changed line Wall drip · Daily cap 60 → 45 min · manual cleared · during experiment 7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "Outdoor Staleness Max 660 → 630 s · requested 640 · set by hand", "Settings written before the climate law · 3 changes", "Changed line Wall drip · Daily cap 60 → 45 min · no longer set by hand",
     "Acknowledged “Relay stuck”", "Forecast rule “hot afternoon” · Mister Min Off 45 → 60 s", "Ran Wall drip · 12 min",
   ]);
   const ai = (node: Element) => node.querySelector(".event-by [data-badge=ai]") !== null;
   const dashboard = logRow("Outdoor Staleness Max");
   expect([writtenBy(dashboard), ai(dashboard), text(dashboard.querySelector(".event-reason")), text(dashboard.querySelector(".act-entry-outcome"))]).toEqual(["Jason · dashboard", false, "“Vandas drying”", "Confirmed 07:42"]);
-  const iris = logRow("Plan · 3 changes");
-  expect([writtenBy(iris), ai(iris)]).toEqual(["iris AI", true]);
+  const iris = logRow("Settings written before the climate law · 3 changes");
+  expect([writtenBy(iris), ai(iris)]).toEqual(["Iris · reviewer AI", true]);
   fireEvent.click(iris.querySelector("summary")!);
   expect([...iris.querySelectorAll(".plan-changes li")].map((node) => plain(text(node)))).toEqual(["Outdoor Staleness Max 720 s from 13:00", "Mister Min Off 55 s from 16:30", "Mister Engage Delay 90 s from 19:00"]);
   const agent = logRow("Changed line Wall drip");
   expect([writtenBy(agent), ai(agent)]).toEqual(["steward · agent AI", true]);
   const forecast = logRow("Forecast rule");
-  expect([writtenBy(forecast), ai(forecast)]).toEqual(["forecast-engine · system", false]);
+  expect([writtenBy(forecast), ai(forecast)]).toEqual(["Forecast engine · host", false]);
   expect(forecast.querySelector("details")).toBeNull();
 });
 
@@ -427,17 +432,17 @@ test("day headers: Today, Yesterday and the weekday and date, each over its own 
   expect(screen.getByRole("region", { name: "Yesterday" })).toBeTruthy();
 });
 
-test("the facets apply on change and live in the URL: Who and What on API-17's source and action, the Target on Enter or leaving it, the dates", async () => {
+test("the facets apply on change and live in the URL: Who and What on API-17's source and action, the Item on Enter or leaving it, the dates", async () => {
   let api = await open("/activity?target=L01", { fixture: "activity-mixed" }, true);
   expect(text(screen.getByTestId("where"))).toBe("/activity/log?target=L01");
   expect(requests(api, "API-17").map((row) => row.path)).toEqual(["/api/v1/activity?target=L01"]);
-  expect(logLines()).toEqual(["Changed line Wall drip · Daily cap 60 → 45 min · manual cleared · during experiment 7c9e6679-7425-40de-944b-e07fc1f90ae7", "Ran Wall drip · 12 min"]);
+  expect(logLines()).toEqual(["Changed line Wall drip · Daily cap 60 → 45 min · no longer set by hand", "Ran Wall drip · 12 min"]);
   const form = () => screen.getByRole("search", { name: "Activity log filters" });
   const control = (name: string) => form().querySelector(`[name=${name}]`) as HTMLInputElement | HTMLSelectElement;
   expect(control("target").value).toBe("Wall drip");
   // Who as chips (a link each, the current aria-current=true) and as a select for phones, on the same parameter.
   const who = within(form()).getByRole("list", { name: "Who" });
-  expect(within(who).getAllByRole("link").map((link) => [text(link), link.getAttribute("aria-current")])).toEqual([["All", "true"], ["People", null], ["Iris", null], ["Agents", null], ["System", null]]);
+  expect(within(who).getAllByRole("link").map((link) => [text(link), link.getAttribute("aria-current")])).toEqual([["All", "true"], ["People", null], ["Reviewer", null], ["Agents", null], ["Host", null]]);
   expect([...control("source").querySelectorAll("option")].map((option) => option.value)).toEqual(["", "dashboard", "iris", "agent", "system"]);
   fireEvent.click(within(who).getByRole("link", { name: "Agents" }));
   await advance(0);

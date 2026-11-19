@@ -1,5 +1,7 @@
 # Controlled planner experiment — accuracy review and implementation program
 
+> The study package `research/planner-efficacy/` was removed from `main` after its campaign closed (#1657). Its files, including every path this page names, are kept at the Git tag `research-package-archive-20261117`.
+
 > **Superseded for current execution (2026-08-23).** The factual accuracy review
 > remains useful, but ADR-0010 removes the unfinished generalized policy-vector
 > platform from the first trial's critical path. Production remains feature-off

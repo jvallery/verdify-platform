@@ -4,7 +4,7 @@ import { LABEL_FONT, type PaintTarget } from "./draw";
 import { fullTime, localDay } from "./time-axis";
 
 /**
- * Canvas painting shared by the lanes (EquipmentLanes, PlanLanes): the row layout, the hatch for unknown spans and
+ * Canvas painting shared by the lanes (EquipmentLanes, StateLanesChart): the row layout, the hatch for unknown spans and
  * label fitting. Rows are HTML (their labels and the right-hand stats are text); the canvas sits over the plot column
  * and paints each row's band at a fixed pitch from the plot's top, so canvas rows and HTML rows line up exactly. Every
  * colour is a token value read by UPlotChart, and painting restores the context it changed, because uPlot caches its
@@ -23,6 +23,8 @@ export type Band = { top: number; height: number; middle: number };
 export const LANE_PITCH = { wide: 20, narrow: 24 } as const;
 /** Inside a chart stack each equipment row adds a 16 px line over its track for its name (charts.css mirrors it). */
 export const LANE_HEAD = 16;
+/** A group header's height in CSS px (charts.css mirrors it): its fold is a 24 px touch target (WCAG 2.5.8). */
+export const GROUP_HEAD = 24;
 
 /** Row `index`'s band: the row from the plot's top, under its head line, inset by `inset` CSS px above and below. */
 export function rowBand(plot: Pick<PaintTarget, "bbox">, layout: RowLayout, index: number, px: number, inset = 3): Band {
@@ -55,31 +57,8 @@ export function spanPixels(plot: PaintTarget, start: number, end: number): { lef
   return right > left ? { left, right } : null;
 }
 
-/**
- * The hatch for a span the API calls unknown: 1px diagonals every 6 px in `color`, clipped to the box. It is drawn,
- * never inferred, and nothing else marks the span, so unknown never reads as off.
- */
-export function paintHatch(ctx: CanvasRenderingContext2D, left: number, top: number, width: number, height: number, color: string, px: number) {
-  if (width <= 0 || height <= 0) return;
-  ctx.save();
-  try {
-    ctx.beginPath();
-    ctx.rect(left, top, width, height);
-    ctx.clip();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = px;
-    ctx.setLineDash([]);
-    const step = 6 * px;
-    ctx.beginPath();
-    for (let x = left - height; x < left + width; x += step) {
-      ctx.moveTo(x, top + height);
-      ctx.lineTo(x + height, top);
-    }
-    ctx.stroke();
-  } finally {
-    ctx.restore();
-  }
-}
+/** The hatch moved to draw.ts with the other shared painters; lanes keep importing it from here. */
+export { paintHatch } from "./draw";
 
 const NBSP = "\u00a0";
 

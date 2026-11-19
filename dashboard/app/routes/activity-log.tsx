@@ -6,8 +6,9 @@ import { Button } from "../components/button";
 import { Chips, type ChipLink } from "../components/chips";
 import { EventRow } from "../components/event-row";
 import { useClockValue } from "../components/freshness";
+import { Page } from "../components/layout/page";
 import { PageHeader } from "../components/layout/page-header";
-import { EmptyState, PanelError } from "../components/panel";
+import { EmptyState, PanelError, PanelErrorBoundary } from "../components/panel";
 import {
   DATE_FILTERS, LOG_FILTERS, WHAT_FACETS, WHO_FACETS, catalogOf, dayHeading, entriesByDay, facetsWith, isDay, logCsv, logCsvName, logHref, logQuery, personName,
   readView, type ActivityView, type Catalog, type Facet, type SignedIn,
@@ -25,15 +26,16 @@ export const meta = () => viewMeta("activity-log");
 /** The log and the settings catalog every 60 s (screens §7). */
 const LOG_POLL_MS = 60_000;
 const CATALOG_POLL_MS = 60_000;
-export const LOG_STATUS = "Every write by people, Iris, agents and the system";
+export const LOG_STATUS = "Every write by people, the reviewer, agents and the host";
 
 /**
- * Activity → Log (`/activity/log`, redesign §5.9, D-UX-03): every write by a person, Iris, an agent or the system,
- * newest first, from API-17, one line an entry under sticky day headers. Who and What facets, a Target and From and To
- * dates narrow it, each applied on change and kept in the URL (`source`, `action`, `target`, `from`, `to`; an old
- * `actor` filter shows as a chip that clears it); an old `/activity?target=L01` link redirects here with its query. An
- * Iris plan collapses to one entry that expands to its changes, and "CSV of these entries" saves the loaded entries. The
- * log writes nothing. No greenhouse data renders in SSR: it loads in the browser.
+ * Activity → Log (`/activity/log`, screens.md section 9, A-04): every write by a person, the reviewer, an agent or the
+ * host, newest first, from API-17, one line an entry under sticky day headers. Who (people, the reviewer, agents, the
+ * host) and What (the band, settings, water, runs by hand, lights, crops, alerts) facets, an Item and From and To dates
+ * narrow it, each applied on change and kept in the URL (`source`, `action`, `target`, `from`, `to`; an old `actor`
+ * filter shows as a chip that clears it); an old `/activity?target=L01` link redirects here with its query. A band save
+ * of several edges collapses to one entry that expands to its changes, and "CSV of these entries" saves the loaded
+ * entries. The log writes nothing. No greenhouse data renders in SSR: it loads in the browser.
  */
 export default function ActivityLog() {
   const [params] = useSearchParams();
@@ -43,14 +45,14 @@ export default function ActivityLog() {
   const settings = useApiRead("API-09", {}, { intervalMs: CATALOG_POLL_MS });
   const catalog = useMemo(() => catalogOf(settings.data?.items), [settings.data]);
   const entries = query.data?.items ?? [];
-  return <>
+  return <Page className="act-log-page">
     <PageHeader view="activity-log" status={LOG_STATUS} />
-    <div className="page act-log-page">
-      <LogFilters view={view} params={params} me={me} />
+    <LogFilters view={view} params={params} me={me} />
+    <PanelErrorBoundary thing="the activity log" onRetry={() => void query.refetch()}>
       <LogList view={view} params={params} entries={entries} catalog={catalog} me={me} failed={query.isError && !query.data} pending={query.isPending}
         retry={() => void query.refetch()} more={query.data?.next_cursor ? { loading: loadingOlder, load: loadOlder } : null} />
-    </div>
-  </>;
+    </PanelErrorBoundary>
+  </Page>;
 }
 
 // ---------------------------------------------------------------------------------------------------- the log
@@ -108,7 +110,7 @@ function LogList({ view, params, entries, catalog, me, failed, pending, retry, m
   else if (!entries.length) {
     body = filtered
       ? <EmptyState message="No activity matches these filters" widen={{ to: clearHref, label: "Clear filters" }} />
-      : <EmptyState message="No activity yet." detail="Every change by a person, Iris, an agent or the system shows here." />;
+      : <EmptyState message="No activity yet." detail="Every change by a person, the reviewer, an agent or the host shows here." />;
   } else {
     body = <>
       {entriesByDay(entries).map((day) => <section key={day.date} className="act-day" aria-labelledby={`${headId}-${day.date}`}>
@@ -157,7 +159,7 @@ function useUrlField(value: string): [string, (next: string) => void] {
 const meantDay = (value: string) => isDay(value) && Number(value.slice(0, 4)) >= 2000;
 
 /**
- * Who and What as chips from 861 px and as selects at 860 px and below (both render; the stylesheet shows one), a Target
+ * Who and What as chips from 861 px and as selects at 860 px and below (both render; the stylesheet shows one), an Item
  * applied when it is left or Enter is pressed, and From and To dates applied as soon as a whole day is picked or typed
  * (a year from 2000), else when the field is left or Enter is pressed. Every filter lands in the URL and on to API-17,
  * and the fields keep focus while it does. "Clear filters" keeps the rest of the view.
@@ -215,11 +217,11 @@ function LogFilters({ view, params, me }: { view: ActivityView; params: URLSearc
         <option value="">All</option>
         {what.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select></label>
-      <label className="act-target">Target<input name="target" type="search" value={targetField} onChange={(event) => setTargetField(event.currentTarget.value)} autoComplete="off" placeholder="Wall drip or mister_engage_kpa"
+      <label className="act-target">Item<input name="target" type="search" value={targetField} onChange={(event) => setTargetField(event.currentTarget.value)} autoComplete="off" placeholder="A line, a setting or a light"
         onBlur={(event) => applyTarget(event.currentTarget.value)} onKeyDown={onTargetKey} /></label>
       <label className="act-date">From<input name="from" type="date" max={view.dates.to} {...onDate("from", fromField, setFromField)} /></label>
       <label className="act-date">To<input name="to" type="date" min={view.dates.from} {...onDate("to", toField, setToField)} /></label>
-      {actor && <Link className="act-clear-chip" to={logHref(params, { actor: null })} preventScrollReset>Only {personName(actor, me)}<span aria-hidden="true"> ×</span><span className="screen-reader">, show everyone</span></Link>}
+      {actor && <Link className="act-clear-chip" to={logHref(params, { actor: null })} preventScrollReset aria-label={`Only ${personName(actor, me)}, show everyone`}>Only {personName(actor, me)}<span aria-hidden="true"> ×</span><span className="screen-reader">, show everyone</span></Link>}
       {filtered && <Link className="act-clear" to={clearHref} preventScrollReset>Clear filters</Link>}
     </div>
   </form>;

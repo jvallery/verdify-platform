@@ -1,0 +1,65 @@
+/* SPDX-License-Identifier: MIT */
+/* Section: Record (dashboard v2) */
+/* The view's answer in words (A4), the first block under the tabs; its line is kept while the record loads. */
+.rc-answer{max-width:70ch;min-height:1.5em;margin:0;font-size:var(--fs-lg);line-height:1.45;color:var(--text)}
+/* The window control under the tabs; the date cell (the day as a link, today's "so far" badge) never wraps. */
+.rc-toolbar{display:flex;justify-content:flex-start}
+.rc-date{display:inline-flex;align-items:center;gap:var(--space-2);white-space:nowrap}
+/* Night dried: a check mark or an en dash, centred under its head. */
+.rc-center{text-align:center}
+.rc-night{display:inline-flex;align-items:center;justify-content:center;min-width:1rem}
+.rc-night[data-dried=yes]{color:var(--ok)}
+.rc-night[data-dried=no]{color:var(--text-3)}
+.rc-check{display:block}
+/* Small multiples: one block per relay, as many columns as fit at 18 rem; the group's one key spans the row above. */
+.rc-multiples{display:grid;gap:var(--space-5) var(--space-4);grid-template-columns:repeat(auto-fill,minmax(min(100%,18rem),1fr))}
+.rc-multiples>.chart-group-key{grid-column:1/-1;margin:0}
+.rc-relay{display:grid;gap:var(--space-2);min-width:0;padding-top:var(--space-3);border-top:1px solid var(--border)}
+.rc-relay>.chart{margin:0}
+.rc-relay-name{display:flex;align-items:center;gap:var(--space-2);margin:0;font-size:var(--fs-md);font-weight:600}
+.rc-swatch{flex:none;width:.75rem;height:.75rem;border-radius:var(--radius-pill);background:var(--text-3)}
+.rc-swatch[data-token=eq-heat1]{background:var(--eq-heat1)}.rc-swatch[data-token=eq-heat2]{background:var(--eq-heat2)}
+.rc-swatch[data-token=eq-fan1]{background:var(--eq-fan1)}.rc-swatch[data-token=eq-fan2]{background:var(--eq-fan2)}
+.rc-swatch[data-token=eq-vent]{background:var(--eq-vent)}.rc-swatch[data-token=eq-fog]{background:var(--eq-fog)}
+.rc-swatch[data-token=eq-mister]{background:var(--eq-mister)}.rc-swatch[data-token=eq-water]{background:var(--eq-water)}
+/* The counter check's result: the badge, then the differing relays behind a disclosure on the same line. */
+.rc-check-result{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-3)}
+.rc-diffs-details{margin:0}
+.rc-diffs-details>summary{min-height:2rem;font-weight:500}
+.rc-diffs-details[open]{flex-basis:100%}
+.rc-diffs{margin:var(--space-1) 0 0;padding-left:1.25rem;font-size:var(--fs-sm);color:var(--text-2);white-space:normal}
+/* Drying by day: why drying was refused, under the table. */
+.rc-refusals{margin-top:var(--space-4)}
+.rc-subhead{margin:0 0 var(--space-1);font-size:var(--fs-sm);font-weight:600;color:var(--text)}
+.rc-refusal-list{display:grid;gap:var(--space-1);max-width:70ch;margin:0;padding-left:1.25rem;font-size:var(--fs-sm);color:var(--text-2)}
+/* The notes: a closed disclosure at the foot of the page, its prose at most 70 characters wide. */
+.rc-notes-card{margin:0;padding:var(--space-2) var(--space-4)}
+.rc-notes-card>summary{font-size:var(--fs-md)}
+.rc-notes{display:grid;gap:var(--space-2);max-width:70ch;margin:0 0 var(--space-3);padding-left:1.25rem;color:var(--text-2)}
+
+/* Before and after the law */
+/* The two periods side by side in the table's head; on a phone they stack above it as a list and each measure is one line. */
+.rc-periods{display:grid;gap:var(--space-3)}
+.rc-periods-sentence{max-width:70ch;margin:0;color:var(--text-2)}
+.rc-period-heads{display:none;margin:0;padding:0;list-style:none}
+.rc-period-title{display:block;font-weight:600;color:var(--text)}
+.rc-period-line{display:block;font-size:var(--fs-xs);font-weight:400;color:var(--text-3);white-space:nowrap}
+.rc-period-table{width:100%;max-width:56rem;border-collapse:collapse;font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+.rc-period-table th,.rc-period-table td{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);text-align:left;vertical-align:baseline;white-space:nowrap}
+.rc-period-table thead th{padding-top:0;border-bottom-color:var(--border-strong);background:transparent;font-family:var(--font);font-size:var(--fs-sm);font-weight:600;color:var(--text);text-transform:none;letter-spacing:0}
+.rc-period-table .num{text-align:right}
+.rc-period-table tbody th{font-weight:500;color:var(--text)}
+.rc-period-table tbody tr:last-child>*{border-bottom:0}
+.rc-p-change .delta-vs{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.rc-period-limits{display:grid;gap:var(--space-1);max-width:70ch;margin:0;padding-left:1.25rem;font-size:var(--fs-sm);color:var(--text-2)}
+@media (max-width:860px){
+  .rc-answer{font-size:var(--fs-md)}
+  .rc-period-heads{display:grid;gap:var(--space-2)}
+  .rc-period-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+  .rc-period-table tbody tr{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:baseline;gap:0 var(--space-2);padding:var(--space-2) 0;border-bottom:1px solid var(--border)}
+  .rc-period-table tbody tr:last-child{border-bottom:0}
+  .rc-period-table tbody th{grid-column:1/-1;padding:0;border:0}
+  .rc-period-table tbody td{padding:0;border:0}
+  .rc-period-table .rc-p-since::before{content:"→ ";color:var(--text-3)}
+  .rc-period-table .rc-p-change{text-align:right}
+}

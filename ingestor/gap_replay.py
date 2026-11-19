@@ -16,6 +16,10 @@ line per publish (``verdify_schemas.gap_replay``). This module:
   marks replayed minutes even where a live row already stood.
 
 Live rows are never changed. Rows that already exist count as written by someone else, not by the replay.
+
+After a pass that ledgered a quarter, each recent gap the gap log has fully replayed (overlapped by a ledgered
+quarter, no piece left in ``v_data_gaps_unreplayed``) is marked ``backfill_status = 'replayed'`` (migration 321).
+That mark is bookkeeping: a failure is logged and never holds the pass back, since its quarters are already ledgered.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from verdify_schemas.experiment_regimes import saturation_vapor_pressure_kpa
 from verdify_schemas.gap_replay import (
@@ -49,6 +53,7 @@ OFFSET_MEMORY_S = 24 * 3600
 EQUIPMENT_MATCH_S = 5
 MAX_PENDING_PASSES = 4
 MAX_PASS_QUARTERS = 96 * 2  # two days of quarters: more than the ring holds
+FAILURE_LOG_INTERVAL_S = 60.0
 
 
 @dataclass
@@ -101,6 +106,11 @@ class GapReplayHost:
         self._pass: ReplayPass | None = None
         self._boot_offsets: dict[int, tuple[int, float]] = {}
         self.pending: deque[ReplayPass] = deque()
+        # Failed pass writes since the process started (ingestor_counters "gr", verdify_ingestor_gap_replay_failures_total),
+        # the failures of the current run, and when the last one was logged.
+        self.failures = 0
+        self._failure_run = 0
+        self._failure_logged_at = 0.0
 
     # ── assembly ─────────────────────────────────────────────────────────────
     def _learn_offset(self, boot: int, off: int) -> None:
@@ -191,12 +201,34 @@ class GapReplayHost:
 
     # ── writes ───────────────────────────────────────────────────────────────
     async def write_pending(self, pool) -> list[QuarterResult]:
-        """Write every queued pass, oldest first; a failure keeps that pass queued for the next flush."""
+        """Write every queued pass, oldest first. A failure keeps that pass (and the ones behind it) queued for the
+        next flush, counts in ``failures``, and is logged at ERROR on the first failure of a run and then at most once
+        a minute. The queue holds at most MAX_PENDING_PASSES; receive() drops the oldest at ERROR when it is full."""
         results: list[QuarterResult] = []
         while self.pending:
             replay = self.pending[0]
-            results.extend(await write_pass(pool, replay))
+            try:
+                results.extend(await write_pass(pool, replay))
+            except Exception as error:  # noqa: BLE001 - the pass stays queued; the next flush retries it
+                self.failures += 1
+                self._failure_run += 1
+                now = self._clock()
+                if self._failure_run == 1 or now - self._failure_logged_at >= FAILURE_LOG_INTERVAL_S:
+                    self._failure_logged_at = now
+                    log.error(
+                        "gap replay pass of boot %s failed (%d time(s) in a row, %d pass(es) queued of at most %d); "
+                        "kept for the next flush: %s",
+                        replay.begin.boot,
+                        self._failure_run,
+                        len(self.pending),
+                        MAX_PENDING_PASSES,
+                        error,
+                    )
+                return results
             self.pending.popleft()
+            if self._failure_run:
+                log.info("gap replay pass of boot %s written after %d failure(s)", replay.begin.boot, self._failure_run)
+                self._failure_run = 0
         return results
 
 
@@ -281,15 +313,46 @@ async def write_quarter(conn, quarter: Quarter, offsets: dict[int, int]) -> Quar
     return QuarterResult(header.boot, header.qseq, False, ledgered, climate_rows, transition_rows, unplaced)
 
 
+# Gaps the replay has fully covered (migration 321): overlapped by a ledgered quarter (the view's own overlap bound)
+# and with no piece left in v_data_gaps_unreplayed. Gaps that ended in the last REPLAYED_GAP_LOOKBACK only.
+MARK_REPLAYED_GAPS_SQL = """
+UPDATE data_gaps g
+   SET backfill_status = 'replayed'
+ WHERE g.end_ts > now() - $1::interval
+   AND g.end_ts > g.start_ts
+   AND g.backfill_status IS DISTINCT FROM 'replayed'
+   AND EXISTS (SELECT 1 FROM gap_replay_quarters q
+                WHERE q.first_ts < g.end_ts AND q.last_ts + interval '5 minutes' > g.start_ts)
+   AND NOT EXISTS (SELECT 1 FROM v_data_gaps_unreplayed u WHERE u.id = g.id)
+"""
+REPLAYED_GAP_LOOKBACK = timedelta(days=2)
+
+
+async def mark_replayed_gaps(conn) -> int:
+    """Mark the recent gaps the gap log fully replayed; return how many. Never raises: the mark is bookkeeping."""
+    try:
+        status = await conn.execute(MARK_REPLAYED_GAPS_SQL, REPLAYED_GAP_LOOKBACK)
+    except Exception as error:  # noqa: BLE001 - the quarters are ledgered; a missing grant must not requeue the pass
+        log.warning("gap replay: could not mark replayed gaps: %s", error)
+        return 0
+    try:
+        return int(str(status).rsplit(" ", 1)[-1])
+    except ValueError:
+        return 0
+
+
 async def write_pass(pool, replay: ReplayPass) -> list[QuarterResult]:
     results: list[QuarterResult] = []
+    marked = 0
     async with pool.acquire() as conn:
         for qseq in sorted(replay.quarters):
             results.append(await write_quarter(conn, replay.quarters[qseq], replay.offsets))
+        if any(r.ledgered for r in results):
+            marked = await mark_replayed_gaps(conn)
     written = [r for r in results if not r.skipped]
     log.info(
         "gap replay pass of boot %s: %d quarters (%d already in the ledger), %d climate and %d equipment rows written, "
-        "%d records unplaced, %d quarters left open, %d lines dropped",
+        "%d records unplaced, %d quarters left open, %d lines dropped, %d gaps marked replayed",
         replay.begin.boot,
         len(results),
         len(results) - len(written),
@@ -298,6 +361,7 @@ async def write_pass(pool, replay: ReplayPass) -> list[QuarterResult]:
         sum(r.unplaced for r in written),
         sum(1 for r in written if not r.ledgered),
         replay.dropped_lines,
+        marked,
     )
     return results
 

@@ -5,7 +5,7 @@ import { dayTitle, formatValue, localDayStart } from "../lib/format";
 import { LINES, MINUTES_ZONES, ZONE_WORDS, lineById, lineDisplayName, minutesZone, type MinutesZone } from "../lib/lines";
 import { causeRank, causeToken, causeWords } from "./causes";
 import { dayCsvFilename, tableCsv } from "./csv";
-import { CsvLink, DataTable, type DataTableBlock } from "./data-table";
+import { ChartFoot, type DataTableBlock } from "./data-table";
 import type { ChartColors, PaintTarget } from "./draw";
 import { paintHatch } from "./lanes-draw";
 import { ChartKey, type KeyItem } from "./legend";
@@ -213,7 +213,7 @@ export function minutesTooltip(zone: ZoneBars, plot: Pick<uPlot, "cursor">, name
   lines.push(formatValue(day.total, zone.unit));
   if (day.coverage === "partial") lines.push("partial");
   lines.push(...day.parts.map((part) => partWords(part, names)));
-  if (position === zone.today && zone.planned !== null) lines.push(`still planned today ${formatValue(zone.planned, "min")}`);
+  if (position === zone.today && zone.planned !== null) lines.push(`still scheduled today ${formatValue(zone.planned, "min")}`);
   if (zone.cap !== null) lines.push(`cap ${zone.cap} min`);
   return lines;
 }
@@ -243,11 +243,11 @@ export function paintMinutes(plot: PaintTarget, zone: ZoneBars, colors: ChartCol
     zone.days.forEach((day, position) => {
       const left = plot.valToPos(day.at, "x", true) - width / 2;
       if (day.total === null) {
-        paintHatch(ctx, left, bbox.top, width, bbox.height, colors["--muted"], px);
+        paintHatch(ctx, left, bbox.top, width, bbox.height, colors["--text-3"], px);
         return;
       }
       if (day.coverage === "partial") {
-        ctx.strokeStyle = colors["--ink"];
+        ctx.strokeStyle = colors["--text"];
         ctx.lineWidth = 1.5 * px;
         ctx.setLineDash([3 * px, 2 * px]);
         ctx.beginPath();
@@ -256,7 +256,7 @@ export function paintMinutes(plot: PaintTarget, zone: ZoneBars, colors: ChartCol
         ctx.stroke();
       }
       if (position === zone.today && zone.planned !== null) {
-        ctx.strokeStyle = colors["--muted"];
+        ctx.strokeStyle = colors["--text-3"];
         ctx.lineWidth = px;
         ctx.setLineDash([3 * px, 2 * px]);
         const top = y(day.total + zone.planned), bottom = y(day.total);
@@ -264,7 +264,7 @@ export function paintMinutes(plot: PaintTarget, zone: ZoneBars, colors: ChartCol
       }
     });
     if (zone.cap !== null) {
-      ctx.strokeStyle = colors["--c-bound"];
+      ctx.strokeStyle = colors["--text-3"];
       ctx.lineWidth = px;
       ctx.setLineDash([px, 3 * px]);
       ctx.beginPath();
@@ -280,7 +280,7 @@ export function paintMinutes(plot: PaintTarget, zone: ZoneBars, colors: ChartCol
 /** Day labels ("Oct 28") under the last row only; ticks a day or more apart, up to a quarter apart for 400 days. */
 export function dayAxis(colors: ChartColors, show: boolean): uPlot.Axis {
   return {
-    show, stroke: colors["--muted"], font: AXIS_FONT, size: 28, space: 52, grid: { show: false },
+    show, stroke: colors["--text-3"], font: AXIS_FONT, size: 28, space: 52, grid: { show: false },
     ticks: { stroke: colors["--c-grid"], width: 1, size: 4 },
     incrs: [DAY, 2 * DAY, 7 * DAY, 14 * DAY, 28 * DAY, 56 * DAY, 91 * DAY],
     values: (plot, splits) => fitEdges(plot, splits, splits.map((split) => axisLabel(split, false, DAY))),
@@ -292,7 +292,7 @@ export const OWN_SCALE_FONT = '11px "IBM Plex Mono", ui-monospace, monospace';
 /** Whole minutes or gallons up the left, one width on every row, so the rows' bars line up; fog's own scale in mono. */
 export function wholeAxis(colors: ChartColors, own = false): uPlot.Axis {
   return {
-    stroke: colors["--muted"], font: own ? OWN_SCALE_FONT : AXIS_FONT, size: 44, space: 24,
+    stroke: colors["--text-3"], font: own ? OWN_SCALE_FONT : AXIS_FONT, size: 44, space: 24,
     grid: { stroke: colors["--c-grid"], width: 1 }, ticks: { stroke: colors["--c-grid"], width: 1, size: 4 },
     incrs: tickIncrements(0), values: (_plot, splits) => splits.map((split) => String(Math.round(split))),
   };
@@ -328,7 +328,7 @@ export function minutesTables(model: MinutesModel, names?: Readonly<Record<strin
     rows: () => zone.days.map((day, position) => [
       <time key="day" dateTime={day.day}>{dayTitle(day.day, "short")}</time>,
       day.total === null ? "—" : formatValue(day.total, zone.unit),
-      [...day.parts.map((part) => partWords(part, names)), ...(position === zone.today && zone.planned !== null ? [`still planned today ${formatValue(zone.planned, "min")}`] : [])].join("; "),
+      [...day.parts.map((part) => partWords(part, names)), ...(position === zone.today && zone.planned !== null ? [`still scheduled today ${formatValue(zone.planned, "min")}`] : [])].join("; "),
       coverageWords(day.coverage),
     ]),
   }));
@@ -350,11 +350,11 @@ export function minutesKey(model: MinutesModel): KeyItem[] {
   const causes = new Map<string, KeyItem>();
   for (const zone of model.zones) for (const segment of zone.segments) if (!causes.has(segment.cause)) causes.set(segment.cause, { key: segment.cause, label: causeWords(segment.cause), token: segment.token, kind: "fill" });
   const items = [...causes.values()].sort((a, b) => causeRank(a.key) - causeRank(b.key));
-  if (model.days.some((day) => day.coverage === "no_data")) items.push({ key: "no-data", label: "no data", token: "--muted", kind: "hatch" });
-  if (model.days.some((day) => day.coverage === "partial")) items.push({ key: "partial", label: "partial day", token: "--ink", kind: "dashed" });
+  if (model.days.some((day) => day.coverage === "no_data")) items.push({ key: "no-data", label: "no data", token: "--text-3", kind: "hatch" });
+  if (model.days.some((day) => day.coverage === "partial")) items.push({ key: "partial", label: "partial day", token: "--text", kind: "dashed" });
   // The outline sits on today's bar, so a no-data today (hatched) draws none.
-  if (model.zones.some((zone) => zone.planned !== null && zone.today >= 0 && zone.days[zone.today].total !== null)) items.push({ key: "planned", label: "still planned today", token: "--muted", kind: "dashed" });
-  if (model.zones.some((zone) => zone.cap !== null)) items.push({ key: "cap", label: "daily cap", token: "--c-bound", kind: "dotted" });
+  if (model.zones.some((zone) => zone.planned !== null && zone.today >= 0 && zone.days[zone.today].total !== null)) items.push({ key: "planned", label: "still scheduled today", token: "--text-3", kind: "dashed" });
+  if (model.zones.some((zone) => zone.cap !== null)) items.push({ key: "cap", label: "daily cap", token: "--text-3", kind: "dotted" });
   return items;
 }
 
@@ -398,6 +398,7 @@ export function MinutesByZone(props: MinutesByZoneProps) {
   const refusal = group === "line" ? "Minutes by line needs the report by line" : "Minutes by zone needs the report by line or by zone";
   return <figure className="chart chart-minutes">
     <figcaption className={props.captionHidden ? "screen-reader" : "eyebrow"}>{title}</figcaption>
+    {drawable && <ChartKey items={minutesKey(model)} />}
     {drawable
       ? <ul className="minutes-rows">
         {model.zones.map((zone, position) => <li key={zone.key} className={zone.fog ? "minutes-row minutes-row-apart" : "minutes-row"} data-row={zone.key} data-zone={zone.zone ?? undefined}>
@@ -409,10 +410,7 @@ export function MinutesByZone(props: MinutesByZoneProps) {
         </li>)}
       </ul>
       : <div className="plot plot-small chart-message"><p>{props.message ?? (fits ? "No watering data in this window" : refusal)}</p></div>}
-    {drawable && <ChartKey items={minutesKey(model)} />}
-    {drawable && (props.csv ?? true) && <div className="chart-tools">
-      <CsvLink filename={dayCsvFilename(`${measure === "gal" ? "gallons" : "minutes"}-by-${group}`, model.days[0].day, model.days[model.days.length - 1].day)} build={() => minutesCsv(model)} version={model} label="CSV of this chart" />
-    </div>}
-    {drawable && <DataTable tables={minutesTables(model, props.lineNames)} />}
+    {drawable && <ChartFoot tables={minutesTables(model, props.lineNames)}
+      csv={(props.csv ?? true) ? { filename: dayCsvFilename(`${measure === "gal" ? "gallons" : "minutes"}-by-${group}`, model.days[0].day, model.days[model.days.length - 1].day), build: () => minutesCsv(model), version: model } : null} />}
   </figure>;
 }

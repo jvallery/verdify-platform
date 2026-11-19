@@ -295,6 +295,13 @@ def test_counter_mismatch_inside_the_tolerance_is_quiet():
     assert cov.counter_mismatch_alerts(rows) == []
 
 
+def test_a_boot_adds_no_start_allowance():
+    # The stored edges carry the ON edge after a boot (#1734), so 3 starts over 10 is outside the tolerance.
+    assert [a["sensor_id"] for a in cov.counter_mismatch_alerts([recon("heat1", 13, 10)])] == [
+        "equipment.heat1.counters.2026-11-17"
+    ]
+
+
 def test_counter_mismatch_warns_once_per_relay_and_day():
     rows = [recon("heat2", 5, 1), recon("fan2", 30, 30, 12000, 9000.0), recon("fog", 3, 3)]
     alerts = cov.counter_mismatch_alerts(rows)

@@ -47,7 +47,8 @@ const settle = async () => { await poll(); await poll(); };
 test("enabling an unchecked line shows the Checked box once and sends checked with the note; the card reads REQUESTED, then CONFIRMED on the fixture hash", async () => {
   const api = open("/water", { fixture: "lines-unchecked" });
   await load();
-  expect(text(card("L02").querySelector(".line-state"))).toBe("Off · no check recorded");
+  // An off line is one quiet row (design review C2): its state says how to run it, and its enable is in ⋯.
+  expect(text(card("L02").querySelector(".line-state"))).toBe("Off: enable it to run it");
   const enable = () => within(card("L02")).getByRole("switch", { name: "Enabled Wall drip (fertilized)" });
   expect(enable().getAttribute("aria-checked")).toBe("false");
   expect(text(card("L02"))).toContain(DISABLE_HINT);
@@ -158,12 +159,11 @@ test("a failed status read says so behind an open drawer and leaves what was typ
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-test("product J4: L07 disabled and unchecked is enabled with its check, then VPD control and Schedule go on at once; Schedule pressed first asks for that", async () => {
+test("product J4: L07 disabled and unchecked is enabled with its check, then VPD control and Schedule go on at once", async () => {
   const api = open("/water", { fixture: "lines-unchecked" });
   await load();
-  await press(within(zone("L07")).getByRole("switch", { name: "Schedule South mister" }));
-  expect(text(screen.getByRole("dialog").querySelector("h2"))).toBe("Turn on Schedule for South mister");
-  await press(dialog().getByRole("button", { name: "Cancel" }));
+  // Off, the row holds no switches (design review C2): enabling it from ⋯ comes first.
+  expect(document.querySelector('.mister-zone[data-line="L07"]')).toBeNull();
   expect(writes(api)).toEqual([]);
   await press(within(card("L07")).getByRole("switch", { name: "Enabled South mister" }));
   fireEvent.click(dialog().getByRole("checkbox", { name: "Checked: nozzles, coverage and spray area checked" }));
@@ -225,18 +225,25 @@ test("the pause drawer opens from the URL on any Water view, and a row's \"Pause
   expect(dialog().getByLabelText<HTMLSelectElement>("Line").selectedOptions[0].textContent).toBe("Center mister");
 });
 
-test("enabling L05 asks for the Checked box once, and its row no longer reads Reserved once enabled", async () => {
+test("enabling L05 from its reserved zone's ⋯ asks for the Checked box once, and its row comes back, no longer reserved", async () => {
   const api = open("/water", { fixture: "reserved-lines" });
   await load();
-  expect(text(card("L05").querySelector(".line-state"))).toBe("Reserved · disabled");
-  await press(within(card("L05")).getByRole("switch", { name: "Enabled Center drip" }));
+  // A zone whose lines are all reserved is one row with no line cards; its ⋯ holds each line's enable (design review C2).
+  const center = () => document.querySelector<HTMLElement>('.wat-zone[data-zone="center"]')!;
+  expect(document.querySelector('.line-card[data-line="L05"]')).toBeNull();
+  expect(text(center().querySelector(".wat-zone-reserved h3"))).toBe("Center drip: reserved, not installed");
+  await press(within(center()).getByRole("switch", { name: "Enabled Center drip" }));
   fireEvent.click(dialog().getByRole("checkbox", { name: "Checked: line flushed and emitters checked" }));
   await press(dialog().getByRole("button", { name: "Enable" }));
   expect(lastWrite(api)).toMatchObject({ path: "/api/v1/irrigation/lines/L05", body: { enabled: true, checked: true, manual: true } });
+  // Once the controller reports L05 on, the zone is no longer reserved and its rows are back.
+  await settle();
   expect(text(card("L05").querySelector(".line-state"))).not.toContain("Reserved");
-  expect(text(card("L06").querySelector(".line-state"))).toBe("Reserved · disabled");
-  await press(within(card("L05")).getByRole("switch", { name: "Enabled Center drip" }));
-  await press(within(card("L05")).getByRole("switch", { name: "Enabled Center drip" }));
+  expect(text(card("L06").querySelector(".line-state"))).toBe("Reserved, not installed");
+  // Off again, the zone is reserved again and the switch is back in the zone's ⋯; on again, no second check is asked.
+  const l05 = () => within(document.querySelector<HTMLElement>('.line-card[data-line="L05"]') ?? center()).getByRole("switch", { name: "Enabled Center drip" });
+  await press(l05());
+  await press(l05());
   expect(lastWrite(api)?.body).toEqual({ enabled: true, manual: true });
   expect(screen.queryByRole("dialog")).toBeNull();
 });
@@ -266,9 +273,9 @@ test("with changes switched off every line control is disabled beside the banner
   for (const control of screen.getAllByRole("switch")) expect(control.hasAttribute("disabled")).toBe(true);
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Pause lines…" }).disabled).toBe(true);
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Options… of Center mister" }).disabled).toBe(true);
-  // Both copies (the header's from 861 px, the tabs row's at 860 px and below) stay live.
+  // Every copy (the shell's, the header's from 861 px, the tabs row's at 860 px and below) stays live.
   const stops = screen.getAllByRole<HTMLButtonElement>("button", { name: "Stop all water" });
-  expect(stops).toHaveLength(2);
+  expect(stops.length).toBeGreaterThanOrEqual(2);
   for (const stop of stops) expect(stop.disabled).toBe(false);
 });
 
@@ -280,8 +287,8 @@ test("L04 options with cap 130 and reserve 60 send {daily_cap_min: 130, vpd_rese
   fireEvent.change(dialog().getByLabelText("VPD reserve"), { target: { value: "60" } });
   await press(dialog().getByRole("button", { name: "Save" }));
   expect(writes(api).map((row) => [row.path, row.body])).toEqual([["/api/v1/irrigation/lines/L04", { daily_cap_min: 130, vpd_reserve_min: 60, manual: true }]]);
-  // Before the engine every change waits for the firmware: the status line says so once, and the zone's cap follows.
-  expect(text(document.querySelector("[data-program]"))).toBe("No irrigation engine on the controller yet: relay states only; the wall drip runs, and every line stops, through the bridge");
+  // With no engine reported the status line says so once, and the zone's cap follows.
+  expect(text(document.querySelector("[data-program]"))).toBe("The controller reports no irrigation engine: relay states only, and no line runs from here until it does");
   expect(text(document.querySelector('[data-limit="L04"]'))).toMatch(/^14 \/ 130 min/);
   await advance(6 * 60_000);
   expect(sync("L04")).toBe("");
@@ -301,16 +308,23 @@ test("with the engine, the same options read REQUESTED, then CONFIRMED by the ha
   expect(text(document.querySelector('[data-limit="L04"]'))).toMatch(/^14 \/ 130 min.*60 min kept for VPD/);
 });
 
-test("Site today's daily mist & fog limit (SAF-4) links to its Settings drawer and explains itself in a tip (#1349)", async () => {
+test("Site today's limits: Change opens each one's Settings drawer, the hard limit says nothing is exempt, and a viewer gets no Change (#1349, W-27)", async () => {
   open("/water");
   await load();
-  const link = within(document.querySelector<HTMLElement>('[data-limit="saf4"]')!).getByRole("link");
-  expect(link.getAttribute("href")).toBe("/settings?edit=mister_daily_volume_max_gal");
-  expect(link.textContent).toBe("Daily mist & fog limit, in Settings");
-  await press(screen.getByRole("button", { name: "About Daily mist & fog limit" }));
-  expect(text(screen.getByRole("dialog"))).toContain("The controller stops misting when it reaches this limit; survival fog is exempt.");
-  // No bare firmware term or upper-case budget label anywhere on the page.
-  expect(text(document.querySelector(".wat-site"))).not.toMatch(/SAF-4|SOFT BUDGET|Soft budget/);
+  const saf4 = within(document.querySelector<HTMLElement>('[data-limit="saf4"]')!).getByRole("link");
+  expect(saf4.getAttribute("href")).toBe("/settings?edit=mister_daily_volume_max_gal");
+  expect(saf4.textContent).toBe("Change the daily mist and fog limit in Settings");
+  const budget = within(document.querySelector<HTMLElement>('[data-limit="budget"]')!).getByRole("link");
+  expect(budget.getAttribute("href")).toBe("/settings?edit=mister_water_budget_gal");
+  expect(text(document.querySelector('[data-limit="saf4"]'))).toContain("Nothing is exempt from this limit.");
+  await press(screen.getByRole("button", { name: "About Daily mist and fog limit" }));
+  expect(text(screen.getByRole("dialog"))).toContain("nothing is exempt from this limit");
+  // No bare firmware term, no exemption and no upper-case budget label anywhere on the page.
+  expect(text(document.querySelector(".wat-site-list"))).not.toMatch(/SAF-4|SOFT BUDGET|survival|exempt\b(?! from this limit)/);
+  cleanup(); stopFixtureApi();
+  open("/water", { fixture: "viewer-session" });
+  await load();
+  expect(document.querySelectorAll(".wat-site-change")).toHaveLength(0);
 });
 
 test("a planned block's popover offers \"Pause <line> until after this run\": one minute past its planned end; it then reads skipped, and a past block's offers no pause, only Edit", async () => {

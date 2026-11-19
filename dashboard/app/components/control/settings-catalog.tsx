@@ -1,95 +1,102 @@
 // SPDX-License-Identifier: MIT
-import type { ReactNode } from "react";
+import { Link } from "react-router";
 import type { Setting } from "../../lib/operator-api";
-import { PanelError } from "../panel";
-import { SETTING_GROUPS, SettingRow, groupLabel } from "../setting-row";
-import { readOnlyWords } from "./setting-help";
-import { groupAnchor } from "./settings-rail";
-import { useSiteCapRevision } from "./setting-drawer";
+import { groupLabel, groupRows } from "../../lib/settings-context";
+import { useRole } from "../../lib/session";
+import { cls } from "../common";
+import { Chevron } from "../layout/chevron";
+import { SettingRow, settingState } from "../setting-row";
 
 /**
- * The catalog (redesign §5.10): one `<table>` with one `tbody` per group, in the fixed group order, each under a sticky
- * group head with its count. Rows are `SettingRow`s. It loads, fails and empties in place, at the height it will have,
- * so the rail and the header never move.
+ * The catalogue (dashboard v2 screens §10.4, review B5). In use, each group is a disclosure, closed by default, whose head
+ * names the group with its count and a state summary ("16 confirmed", or "2 not confirmed" in the warning tone); a group
+ * holding a value the controller has not confirmed opens by default, and so does every group a search or a filter
+ * narrows to. The band's group carries "Edit on Band ›" ("See on Band ›" for a viewer, who cannot edit the band) and stays closed: its rows are the Band page's job. The settings
+ * nothing reads are one table with a head per group (`CatalogTable` with `heads`). Rows are `SettingRow`s; the card
+ * around them (its loading, empty, stale and failed states) is the route's `Panel`.
  */
 
-/** The rows by group, in the fixed order; a group this build does not know follows, in the order first seen. */
-export function groupRows(rows: readonly Setting[]): [string, Setting[]][] {
-  const groups = new Map<string, Setting[]>(SETTING_GROUPS.map(([group]) => [group, []]));
-  for (const row of rows) {
-    const list = groups.get(row.group);
-    if (list) list.push(row); else groups.set(row.group, [row]);
-  }
-  return [...groups].filter(([, list]) => list.length > 0);
-}
+export { groupRows } from "../../lib/settings-context";
+
+/** A group head's state summary and its tone: what the reader must know without opening it. */
+export type GroupSummary = { readonly text: string; readonly tone: "ok" | "warn" | "muted"; readonly pending: number };
 
 /**
- * The note a group head carries: the Band in force rows say once, here, what each would otherwise repeat ("Computed
- * (band in force): calculated from the crop band; edit the anchors under Crop band", #1333).
+ * "16 confirmed"; "2 not confirmed" (warn) whenever one is; "Worked out by the host" for a group of derived rows; a mix
+ * reads its parts ("12 confirmed · 4 not reported"). While readbacks are stale nothing reads confirmed: "Readbacks stale".
  */
-function groupNote(group: string, rows: readonly Setting[]): string | null {
-  if (group !== "band_in_force") return null;
-  const words = new Set(rows.map((row) => {
-    const read = readOnlyWords(row);
-    return read ? `${read.label}: ${read.definition.charAt(0).toLowerCase()}${read.definition.slice(1)}` : null;
-  }).filter(Boolean));
-  return words.size === 1 ? [...words][0] ?? null : null;
+export function groupSummary(rows: readonly Setting[], readbackStale = false): GroupSummary {
+  const counts = { confirmed: 0, not_confirmed: 0, not_reported: 0, reported: 0, derived: 0 };
+  for (const row of rows) counts[settingState(row).kind] += 1;
+  if (counts.not_confirmed > 0) return { text: `${counts.not_confirmed} not confirmed`, tone: "warn", pending: counts.not_confirmed };
+  if (counts.derived === rows.length) return { text: "Worked out by the host", tone: "muted", pending: 0 };
+  if (readbackStale) return { text: "Readbacks stale", tone: "muted", pending: 0 };
+  const parts = [
+    counts.confirmed > 0 ? `${counts.confirmed} confirmed` : null,
+    counts.reported > 0 ? `${counts.reported} reported` : null,
+    counts.not_reported > 0 ? `${counts.not_reported} not reported` : null,
+    counts.derived > 0 ? `${counts.derived} worked out by the host` : null,
+  ].filter(Boolean);
+  return { text: parts.join(" · "), tone: counts.confirmed === rows.length ? "ok" : "muted", pending: 0 };
 }
 
-type GroupProps = { rows: readonly Setting[]; readbackStale: boolean; editTo: (param: string) => string; today: string | null; programRevision?: number | null };
+/** The page that owns every row of a group, for its head's link: the band's points are changed on Band. The label follows the role, as the Band page's own editor does: a viewer only sees them there. */
+const GROUP_OWNER: Readonly<Record<string, { readonly to: string; readonly operator: string; readonly viewer: string }>> = { crop_band: { to: "/band", operator: "Edit on Band", viewer: "See on Band" } };
 
-function SettingGroup({ group, rows, readbackStale, editTo, today, programRevision = null }: GroupProps & { group: string }) {
-  const note = groupNote(group, rows);
-  return <tbody data-group={group}>
-    <tr className="table-group ctl-group-head">
-      <th scope="rowgroup" colSpan={3} id={groupAnchor(group)} tabIndex={-1}>
-        <span className="ctl-group-name">{groupLabel(group)} <span className="table-group-count">· {rows.length}</span></span>
-        {note && <> <span className="ctl-group-note">{note}</span></>}
-      </th>
-    </tr>
-    {rows.map((row) => <SettingRow key={row.param} setting={row} readbackStale={readbackStale} programRevision={programRevision} editTo={editTo(row.param)} today={today}
-      hideReadOnlyReason={note !== null} />)}
-  </tbody>;
+/** Whether a group starts open: a value not confirmed in it, or the reader narrowed the list (search, or one group). The band's group never does. */
+export function groupOpen(group: string, summary: GroupSummary, narrowed: boolean): boolean {
+  if (group === "crop_band" && !narrowed) return false;
+  return summary.pending > 0 || narrowed;
 }
 
-/**
- * Site water caps: their device value is the one in the program on the controller, so while this group is on screen it
- * reads API-IRR-01 every 60 s for the applied revision; while that read fails, the value shows without it.
- */
-function SiteCapsGroup(props: GroupProps) {
-  return <SettingGroup {...props} group="site_water_caps" programRevision={useSiteCapRevision()} />;
+type TableProps = { rows: readonly Setting[]; caption: string; readbackStale: boolean; editTo: (param: string) => string; heads?: boolean };
+
+/** One table of rows: Setting, Value, Controller and the action; with `heads`, a head row per group. */
+export function CatalogTable({ rows, caption, readbackStale, editTo, heads = false }: TableProps) {
+  const groups = heads ? groupRows(rows) : [["", [...rows]] as [string, Setting[]]];
+  return <table className="ctl-catalog-table">
+    <caption className="screen-reader">{caption}</caption>
+    <thead><tr>
+      <th scope="col" className="ctl-col-name">Setting</th><th scope="col" className="ctl-col-value">Value</th><th scope="col" className="ctl-col-state">Controller</th>
+      <th scope="col" className="ctl-col-action"><span className="screen-reader">Open</span></th>
+    </tr></thead>
+    {groups.map(([group, list]) => <tbody key={group || "rows"} data-group={heads ? group : undefined}>
+      {heads && <tr className="table-group ctl-group-row"><th scope="rowgroup" colSpan={4}>{groupLabel(group)} <span className="table-group-count">{list.length}</span></th></tr>}
+      {list.map((row) => <SettingRow key={row.param} setting={row} readbackStale={readbackStale} editTo={editTo(row.param)} />)}
+    </tbody>)}
+  </table>;
 }
 
 export type CatalogProps = {
-  /** The rows to list, already filtered and searched; null before API-09 first answers. */
-  rows: readonly Setting[] | null;
-  failed: boolean;
-  onRetry: () => void;
+  /** The rows to list, already filtered and searched. */
+  rows: readonly Setting[];
+  /** What the tables are, for their hidden captions. */
+  caption: string;
   readbackStale: boolean;
   editTo: (param: string) => string;
-  today: string | null;
-  /** What shows when nothing matches: one line and one widening action. */
-  empty: ReactNode;
+  /** A search or a filter narrowed the list: every group with a row opens. */
+  narrowed?: boolean;
 };
 
-export function SettingsCatalog({ rows, failed, onRetry, readbackStale, editTo, today, empty }: CatalogProps) {
-  let body: ReactNode;
-  if (rows === null) {
-    body = failed
-      ? <div className="ctl-catalog-state"><PanelError thing="settings" onRetry={onRetry} /></div>
-      : <div className="ctl-catalog-state"><div className="skeleton skeleton-lg" aria-hidden="true" /><p className="screen-reader">Loading settings</p></div>;
-  } else if (rows.length === 0) {
-    body = <div className="ctl-catalog-state ctl-catalog-empty">{empty}</div>;
-  } else {
-    body = <table className="ctl-catalog-table">
-      <caption className="screen-reader">Every setting in fixed groups: the value the controller reports, its state, who changed it and what Iris plans next</caption>
-      <thead><tr>
-        <th scope="col">Setting</th><th scope="col">Device value and state</th><th scope="col"><span className="screen-reader">Actions</span></th>
-      </tr></thead>
-      {groupRows(rows).map(([group, list]) => group === "site_water_caps"
-        ? <SiteCapsGroup key={group} rows={list} readbackStale={readbackStale} editTo={editTo} today={today} />
-        : <SettingGroup key={group} group={group} rows={list} readbackStale={readbackStale} editTo={editTo} today={today} />)}
-    </table>;
-  }
-  return <section className="ctl-catalog" aria-label="Settings catalog" aria-busy={rows === null && !failed ? true : undefined}>{body}</section>;
+/** The settings in use as group disclosures, in the fixed group order. */
+export function SettingsCatalog({ rows, caption, readbackStale, editTo, narrowed = false }: CatalogProps) {
+  const groups = groupRows(rows);
+  const role = useRole();
+  const open = narrowed || groups.length === 1;
+  return <div className="ctl-groups">
+    {groups.map(([group, list]) => {
+      const summary = groupSummary(list, readbackStale);
+      const owner = GROUP_OWNER[group];
+      return <section key={group} className={cls("ctl-group", owner && "has-link")} data-group={group} aria-label={groupLabel(group)}>
+        <details open={groupOpen(group, summary, open)}>
+          <summary className="ctl-group-head">
+            <span className="ctl-group-name">{groupLabel(group)}</span> <span className="ctl-group-count">{list.length}</span>{" "}
+            <span className={cls("ctl-group-state", `is-${summary.tone}`)}>{summary.text}</span>
+          </summary>
+          <CatalogTable rows={list} caption={`${groupLabel(group)}: ${caption}`} readbackStale={readbackStale} editTo={editTo} />
+        </details>
+        {owner && <Link className="ctl-group-link" to={owner.to}>{owner[role]}<Chevron /></Link>}
+      </section>;
+    })}
+  </div>;
 }

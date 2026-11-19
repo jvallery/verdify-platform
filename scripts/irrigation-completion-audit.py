@@ -286,7 +286,7 @@ def evaluate_objectives(checks: list[Any], feedback_report: dict[str, Any]) -> l
         _result_from_checks(
             3,
             "Fix irrigation cfg readback ingestion before trusting confirmation alerts.",
-            ("irrigation cfg readbacks", "irrigation setpoint confirmations"),
+            ("irrigation setpoint confirmations",),
             checks_by_name,
         ),
         _result_from_checks(

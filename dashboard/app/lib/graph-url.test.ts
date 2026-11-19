@@ -7,7 +7,7 @@ import { expect, test } from "vitest";
 import { fixture } from "../../e2e/fixtures/index.mjs";
 import {
   CAP_TEXT, DEFAULT_VIEW, LANES_MAX_S, MAX_WINDOW_S, dayHref, daysProblem, dayCount, graphHref, graphSearch, graphWindow, instantOf, isDay, lanesAllowed, panelPlans,
-  parseGraphUrl, parseStatsUrl, parseZonesUrl, presetKeys, rangeSeconds, rangeText, resolveView, settingEditHref, settingProblem, statsDays, statsHref, stepSpec,
+  PRESETS, legacyPresetHref, parseGraphUrl, parseZonesUrl, presetClimateKeys, presetKeys, retiredReason, rangeSeconds, rangeText, resolveView, settingEditHref, settingProblem, stepSpec,
   withCompare, withEnvelope, withEvents, withMetrics, withOutdoor, withPreset, withSettings, withWindow, within400, zoomOutSpec, zonesHref, type GraphView,
 } from "./graph-url";
 import type { MetricDef, Setting } from "./operator-api";
@@ -74,21 +74,59 @@ test("the layers round-trip: events as a comma list (none, some, or every source
   expect(graphSearch(withCompare(view(""), "day"))).toBe("range=72h&cmp=day");
 });
 
-test("a preset picks its group's metrics from API-03, at most 5, and replaces the picked metrics; Climate picks none", () => {
-  const water = view("preset=water-soil&m=climate.flow_gpm");
-  expect(water.preset).toBe("water-soil");
-  expect(presetKeys("water-soil", METRICS)).toEqual(["climate.soil_moisture_south_1", "climate.flow_gpm"]);
+test("the eight presets in order; a preset picks its keys from API-03, never a retired one, and replaces the added metrics", () => {
+  expect(PRESETS.map((preset) => preset.label)).toEqual(["Climate", "Law and equipment", "Drying", "Outdoor", "Water and soil", "Light", "Controller", "Hydroponics"]);
+  const water = view("preset=water&m=climate.flow_gpm");
+  expect(water.preset).toBe("water");
+  expect(presetKeys("water", METRICS)).toEqual([
+    "climate.soil_moisture_south_1", "climate.soil_temp_south_1", "climate.soil_ec_south_1", "climate.soil_moisture_south_2", "climate.soil_temp_south_2",
+    "climate.soil_moisture_west", "climate.soil_temp_west", "climate.flow_gpm",
+  ]);
   expect(presetKeys("climate", METRICS)).toEqual([]);
+  expect(presetClimateKeys("climate")).toEqual(["climate.temp_avg", "climate.vpd_avg", "climate.rh_avg"]);
+  expect(presetClimateKeys("law")).toEqual(["climate.temp_avg", "climate.vpd_avg"]);
+  expect(presetClimateKeys("drying")).toEqual(["climate.vpd_avg"]);
+  expect(presetClimateKeys("outdoor")).toEqual([]);
   const resolved = resolveView(water, METRICS, SETTINGS);
-  expect(resolved.picked.map((metric) => metric.key)).toEqual(["climate.soil_moisture_south_1", "climate.flow_gpm"]);
+  expect(resolved.climate).toEqual([]);
+  expect(resolved.picked.map((metric) => metric.key)).toEqual(presetKeys("water", METRICS));
   // The preset's own keys stay the preset's: the URL keeps only what it adds.
-  expect(graphSearch(resolved.view)).toBe("range=72h&preset=water-soil");
+  expect(graphSearch(resolved.view)).toBe("range=72h&preset=water");
   expect(graphSearch(withPreset(view("m=climate.flow_gpm"), "controller"))).toBe("range=72h&preset=controller");
   expect(graphSearch(withPreset(water, "climate"))).toBe("range=72h");
   expect(view("preset=climate").preset).toBeNull();
   expect(presetKeys("light", METRICS)).toEqual(["climate.outdoor_lux", "climate.solar_irradiance_w_m2"]);
-  // A group API-03 lists nothing in says so.
+  expect(presetKeys("outdoor", METRICS).every((key) => !key.startsWith("forecast."))).toBe(true);
+  expect(presetKeys("outdoor", METRICS)).toEqual(expect.arrayContaining(["climate.outdoor_temp_f", "climate.outdoor_rh_pct"]));
+  // A preset with keys of its own and none listed says so; a preset of charts of its own never does.
   expect(resolveView(view("preset=light"), METRICS.filter((metric) => metric.group !== "light"), SETTINGS).notices).toEqual(["Light has no metric yet"]);
+  expect(resolveView(view("preset=controller"), METRICS, SETTINGS).notices).toEqual([]);
+});
+
+test("an old preset id redirects to its v2 name, the rest of the query untouched; a v2 or unknown id does not", () => {
+  expect(legacyPresetHref("https://dashboard.test/graphs?range=7d&preset=water-soil&events=people,runs")).toBe("/graphs?range=7d&preset=water&events=people,runs");
+  expect(view("preset=water-soil").preset).toBe("water");
+  expect(legacyPresetHref("https://dashboard.test/graphs?preset=water")).toBeNull();
+  expect(legacyPresetHref("https://dashboard.test/graphs?preset=garden")).toBeNull();
+  expect(legacyPresetHref("https://dashboard.test/graphs")).toBeNull();
+});
+
+test("the law's retired keys are never drawn: a target, a plan count, the reservoir battery, a daily light integral", () => {
+  const metric = (key: string, group = "house climate") => ({ ...METRICS[0], key, group });
+  expect(retiredReason(metric("climate.house_vpd_target", "targets"))).toBe("the controller follows the band alone");
+  expect(retiredReason(metric("daily.iris_required_written", "daily"))).toBe("the daily review replaced it");
+  expect(retiredReason(metric("climate.hydro_battery_pct"))).toMatch(/^not reported/);
+  expect(retiredReason(metric("daily.dli_mol", "daily"))).toMatch(/daily light integral/);
+  expect(retiredReason(metric("climate.temp_avg"))).toBeNull();
+  // The API before release C still lists the key: it drops with its reason. Release C's registry has no such key.
+  const before = [...METRICS, metric("climate.house_vpd_target", "targets")];
+  const resolved = resolveView(view("m=climate.house_vpd_target"), before, SETTINGS);
+  expect(resolved.picked).toEqual([]);
+  expect(resolved.notices).toEqual(["Removed climate.house_vpd_target: the controller follows the band alone"]);
+  expect(METRICS.some((item) => item.group === "targets" || item.key.startsWith("daily.iris_"))).toBe(false);
+  expect(resolveView(view("m=climate.house_vpd_target"), METRICS, SETTINGS).picked).toEqual([]);
+  // A setting nothing on this controller reads is never drawn as steps.
+  expect(settingProblem({ ...SETTINGS.find((row) => row.param === "mister_hysteresis_kpa")!, effect: "none" }, ["kPa"])).toBe("nothing reads it on this controller");
 });
 
 test("/graphs/zones: no zone is the grid; zone, the window and the rows live in the URL; unknown values drop with a notice", () => {
@@ -104,18 +142,7 @@ test("/graphs/zones: no zone is the grid; zone, the window and the rows live in 
   expect(parseZonesUrl("zone=east&from=2026-10-31&to=2026-11-01").window).toEqual({ kind: "days", from: "2026-10-31", to: "2026-11-01" });
 });
 
-test("/graphs/statistics: 30, 90 or 365 days, or From and To; the typical day's 14 or 30 days; the default is the last 30 days", () => {
-  expect(parseStatsUrl("")).toEqual({ span: { kind: "days", days: 30 }, typical: 30, notices: [] });
-  expect(parseStatsUrl("days=365&typical=14")).toEqual({ span: { kind: "days", days: 365 }, typical: 14, notices: [] });
-  expect(parseStatsUrl("from=2026-10-01&to=2026-10-14&days=90").span).toEqual({ kind: "custom", from: "2026-10-01", to: "2026-10-14" });
-  expect(parseStatsUrl("days=7&typical=60&from=2026-10-14&to=2026-10-01").notices).toEqual([
-    "Removed unknown period 7", "Removed the days 2026-10-14 to 2026-10-01: to is before from", "Removed unknown typical-day length 60",
-  ]);
-  expect(statsHref({ kind: "days", days: 30 }, 30)).toBe("/graphs/statistics");
-  expect(statsHref({ kind: "days", days: 90 }, 14)).toBe("/graphs/statistics?days=90&typical=14");
-  expect(statsHref({ kind: "custom", from: "2026-10-01", to: "2026-10-14" }, 30)).toBe("/graphs/statistics?from=2026-10-01&to=2026-10-14");
-  expect(statsDays({ kind: "days", days: 30 }, "2026-11-02")).toEqual({ from: "2026-10-04", to: "2026-11-02", count: 30 });
-  expect(statsDays({ kind: "custom", from: "2026-10-31", to: "2026-11-01" }, "2026-11-02")).toEqual({ from: "2026-10-31", to: "2026-11-01", count: 2 });
+test("a day of the record opens Explore on that local day", () => {
   expect(dayHref("2026-10-28")).toBe("/graphs?from=2026-10-28&to=2026-10-28");
 });
 
@@ -283,16 +310,16 @@ test("resolveView: unknown keys drop with a notice, climate keys silently, daily
 test("resolveView: no setting draws by default (#1354); a named one must be numeric, not a band row, and in an open panel's unit", () => {
   expect(resolveView(view(""), METRICS, SETTINGS).settings).toEqual([]);
   expect(resolveView(view("set="), METRICS, SETTINGS).settings).toEqual([]);
-  const named = resolveView(view("set=mister_hysteresis_kpa&set=nope&set=band_house_vpd_low&set=sw_gl_main_auto_mode&set=mister_min_off_s"), METRICS, SETTINGS);
-  expect(named.settings.map((row) => row.param)).toEqual(["mister_hysteresis_kpa"]);
+  const named = resolveView(view("set=band_vpd_low_sm&set=nope&set=band_house_vpd_low&set=sw_gl_main_auto_mode&set=mister_min_off_s"), METRICS, SETTINGS);
+  expect(named.settings.map((row) => row.param)).toEqual(["band_vpd_low_sm"]);
   expect(named.notices).toEqual([
     "Removed unknown setting nope", "Removed setting band_house_vpd_low: the band ribbon draws it",
-    "Removed setting sw_gl_main_auto_mode: only numeric settings draw as steps", "Removed setting mister_min_off_s: no chart in s",
+    "Removed setting sw_gl_main_auto_mode: only numeric settings draw as steps", "Removed setting mister_min_off_s: nothing reads it on this controller",
   ]);
-  expect(graphSearch(named.view)).toBe("range=72h&set=mister_hysteresis_kpa");
+  expect(graphSearch(named.view)).toBe("range=72h&set=band_vpd_low_sm");
   // No `set` stays no `set` in links.
   expect(resolveView(view(""), METRICS, SETTINGS).view.settings).toBeNull();
-  const row = SETTINGS.find((item) => item.param === "mister_hysteresis_kpa")!;
+  const row = SETTINGS.find((item) => item.param === "band_vpd_low_sm")!;
   expect(settingProblem(row, ["°F", "%"])).toBe("no chart in kPa");
-  expect(graphSearch(withWindow(named.view, { kind: "days", from: "2026-10-31", to: "2026-11-01" }))).toBe("from=2026-10-31&to=2026-11-01&set=mister_hysteresis_kpa");
+  expect(graphSearch(withWindow(named.view, { kind: "days", from: "2026-10-31", to: "2026-11-01" }))).toBe("from=2026-10-31&to=2026-11-01&set=band_vpd_low_sm");
 });

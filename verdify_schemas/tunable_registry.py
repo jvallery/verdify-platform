@@ -81,10 +81,11 @@ class TunableDef(BaseModel):
             readback-only firmware inputs.
         cfg_readback_object_id: `cfg_*` sensor slug, if firmware publishes one.
             None ⇒ fire-and-forget; must document rationale in `notes`.
-        push_owner: who is the source of truth.
-        planner_pushable: true only for canonical planner-policy knobs. Effective
-            MCP write access is the intersection of this flag and `control_class`.
-        tier: 1 ⇒ canonical planner-policy surface in `_PLANNER_CORE`; 2 ⇒
+        push_owner: who is the source of truth. Never "planner": since the climate
+            refactor the daily reviewer advises only and writes no setting (#1692).
+        planner_pushable: always False (drift guard in tests/test_tunable_registry.py);
+            kept as a field for the frozen wire layout.
+        tier: 1 ⇒ a live wire slot or the component treatment set; 2 ⇒
             visible contract/context only.
         enum_values: for `kind == "enum"`, int value ↔ symbolic name.
         notes: anything human.
@@ -129,7 +130,7 @@ class TunableDef(BaseModel):
     esp_object_id: str | None
     cfg_readback_object_id: str | None = None
     push_owner: Literal["planner", "band", "schedule", "safety", "operator", "dispatcher_default", "firmware_internal"]
-    planner_pushable: bool = True
+    planner_pushable: bool = False
     tier: Literal[1, 2] = 1
     enum_values: dict[str, int] | None = None
     notes: str = ""
@@ -161,10 +162,9 @@ class TunableDef(BaseModel):
 # REGISTRY — complete coverage for every SETPOINT_MAP entry. Entries are
 # grouped by functional area.
 #
-# Tier assignment rule: tier=1 is the planner's canonical policy surface (must
-# match MCP TIER1 and PLAN_REQUIRED_PARAMS). Everything else (crop bands,
-# operator toggles, safety rails, irrigation schedule knobs, readback-only
-# inputs, and retired aliases) is tier=2 context and MCP rejects planner writes.
+# Tier assignment rule: tier=1 marks a live wire slot or the component treatment set; everything
+# else is tier=2 context. No row is planner-owned or planner-pushable: the daily reviewer
+# advises only, and an agent's set_setting reaches only the operator switches (#1692).
 # ─────────────────────────────────────────────────────────────────────────────
 
 # The drying cost limit's names (see its row), as the phase 3 build publishes them: the number "Dry Cost Limit kWh per
@@ -245,7 +245,7 @@ REGISTRY: dict[str, TunableDef] = {
     # accidentally exposing them via set_tunable.
     # ─────────────────────────────────────────────────────────────────────
     # ─────────────────────────────────────────────────────────────────────
-    # Mister engage thresholds + delays (push_owner="planner", tier=1).
+    # Mister engage thresholds + delays (operator settings, tier=1).
     # ─────────────────────────────────────────────────────────────────────
     "mister_engage_delay_s": TunableDef(
         name="mister_engage_delay_s",
@@ -257,15 +257,15 @@ REGISTRY: dict[str, TunableDef] = {
         fw_clamp_hi=300,
         esp_object_id="mister_engage_delay__s_",
         cfg_readback_object_id="cfg___mister_engage_delay__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 30) -> scale 1; [30,300] -> u16
         wire_id=28,
         wire_kind="u16",
         wire_scale=1,
         wire_unit="s",
-        notes="Delay before first physical mister pulse during a sealed or vent-assist moisture cycle. "
+        notes="Operator setting; the reviewer advises only. Delay before first physical mister pulse during a sealed or vent-assist moisture cycle. "
         "Tightened to 30-300s so plans cannot postpone humidity response through an entire stress window.",
     ),
     "mister_on_s": TunableDef(
@@ -278,10 +278,10 @@ REGISTRY: dict[str, TunableDef] = {
         fw_clamp_hi=600,
         esp_object_id="mister_on__s_",
         cfg_readback_object_id=None,
-        push_owner="planner",
+        push_owner="operator",
         planner_pushable=False,
         tier=2,
-        notes="Deprecated legacy duty-cycle ON duration. Current pulse controller does not consume it.",
+        notes="Operator setting; the reviewer advises only. Deprecated legacy duty-cycle ON duration. Current pulse controller does not consume it.",
     ),
     "mister_off_s": TunableDef(
         name="mister_off_s",
@@ -293,10 +293,10 @@ REGISTRY: dict[str, TunableDef] = {
         fw_clamp_hi=900,
         esp_object_id="mister_off__s_",
         cfg_readback_object_id=None,
-        push_owner="planner",
+        push_owner="operator",
         planner_pushable=False,
         tier=2,
-        notes="Deprecated legacy duty-cycle OFF duration. Current pulse controller does not consume it.",
+        notes="Operator setting; the reviewer advises only. Deprecated legacy duty-cycle OFF duration. Current pulse controller does not consume it.",
     ),
     "mister_all_on_s": TunableDef(
         name="mister_all_on_s",
@@ -308,10 +308,10 @@ REGISTRY: dict[str, TunableDef] = {
         fw_clamp_hi=600,
         esp_object_id="mister_all_on__s_",
         cfg_readback_object_id=None,
-        push_owner="planner",
+        push_owner="operator",
         planner_pushable=False,
         tier=2,
-        notes="Deprecated legacy all-zone duty-cycle ON duration. Current pulse controller does not consume it.",
+        notes="Operator setting; the reviewer advises only. Deprecated legacy all-zone duty-cycle ON duration. Current pulse controller does not consume it.",
     ),
     "mister_all_off_s": TunableDef(
         name="mister_all_off_s",
@@ -323,10 +323,10 @@ REGISTRY: dict[str, TunableDef] = {
         fw_clamp_hi=600,
         esp_object_id="mister_all_off__s_",
         cfg_readback_object_id=None,
-        push_owner="planner",
+        push_owner="operator",
         planner_pushable=False,
         tier=2,
-        notes="Deprecated legacy all-zone duty-cycle OFF duration. Current pulse controller does not consume it.",
+        notes="Operator setting; the reviewer advises only. Deprecated legacy all-zone duty-cycle OFF duration. Current pulse controller does not consume it.",
     ),
     "mister_water_budget_gal": TunableDef(
         name="mister_water_budget_gal",
@@ -338,15 +338,15 @@ REGISTRY: dict[str, TunableDef] = {
         fw_clamp_hi=300,
         esp_object_id="mister_water_budget__gal_",
         cfg_readback_object_id="cfg___mister_water_budget__gal_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: 0.1-gal quantum (finer than the 10-gal ESPHome step, per audit 8.9 guidance) -> scale 10; [100,300] -> raw [1000,3000] (u16)
         wire_id=34,
         wire_kind="u16",
         wire_scale=10,
         wire_unit="gal",
-        notes="Daily mister water cap. In MCP TIER1. Practical operating range tightened to 100-300 gal/day.",
+        notes="Operator setting; the reviewer advises only. Daily mister water cap, 100-300 gal/day.",
     ),
     # ─────────────────────────────────────────────────────────────────────
     # Mister pulse-rotation model (tier=1). Phase-1c added cfg_* readbacks.
@@ -361,15 +361,15 @@ REGISTRY: dict[str, TunableDef] = {
         fw_clamp_hi=120,
         esp_object_id="mister_min_off__s_",
         cfg_readback_object_id="cfg___mister_min_off__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=2,
         # wire: integer seconds (ESPHome step 5) -> scale 1; [30,120] fits u8
         wire_id=30,
         wire_kind="u8",
         wire_scale=1,
         wire_unit="s",
-        notes="Mister re-fire dwell floor: a zone may not re-energize within "
+        notes="Operator setting; the reviewer advises only. Mister re-fire dwell floor: a zone may not re-energize within "
         "this of its own last off. Default 45s == the designed pulse gap, so it "
         "only fences sub-gap chatter (never extends a pulse / over-waters). "
         "Raise to cut mister cycling/wear when re-fires are faster than needed.",
@@ -446,34 +446,6 @@ REGISTRY: dict[str, TunableDef] = {
     # fog_window_end__hr_ entities or their cfg_* readbacks, so both rows carry
     # no route. They stay so the setpoint_changes history still validates;
     # scripts/export-replay-overrides.sh reads only that history.
-    "fog_time_window_start": TunableDef(
-        name="fog_time_window_start",
-        kind="numeric",
-        min=5,
-        max=12,
-        default=6,
-        esp_object_id=None,
-        cfg_readback_object_id=None,
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: start hour of the old fog eligibility window. The firmware has no such entity; "
-        "the row stays for setpoint_changes history.",
-    ),
-    "fog_time_window_end": TunableDef(
-        name="fog_time_window_end",
-        kind="numeric",
-        min=14,
-        max=20,
-        default=18,
-        esp_object_id=None,
-        cfg_readback_object_id=None,
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: end hour of the old fog eligibility window. The firmware has no such entity; "
-        "the row stays for setpoint_changes history.",
-    ),
     # BC-11 (ADR0003 §6.7): the fog_stress_* clock-window tunables are RETIRED dead
     # registry rows — replaced by the solar-phase curve-only fog gate (no firmware
     # entity, no ESPHome surface, no live read; only retirement comments + old build
@@ -507,28 +479,6 @@ REGISTRY: dict[str, TunableDef] = {
         planner_pushable=False,
         tier=2,
         notes="Minimum house temperature for automated direct wetting across misters, fert paths, and drips.",
-    ),
-    "direct_wet_stress_latest_hour": TunableDef(
-        name="direct_wet_stress_latest_hour",
-        kind="numeric",
-        min=17,
-        max=24,
-        default=22,
-        esp_object_id="direct_wet_stress_latest_hour",
-        cfg_readback_object_id="cfg_direct_wet_stress_latest_hour",
-        push_owner="planner",
-        planner_pushable=False,
-        tier=2,
-        notes=(
-            "RETIRED (wire schema v2, #588 decision on #582's reserved row): latest local hour "
-            "for direct-wet dry-stress override; 24 means through 23:59. ZERO firmware presence "
-            "— no ESPHome entity, global, or read site ever existed (audit §6.4), so the value "
-            "could never alter an effective component, and its zero device readbacks blocked "
-            "Frozen-FSM baseline qualification (§8.2). Former wire_id 6 is permanently reserved "
-            "in RETIRED_WIRE_IDS. The row stays for setpoint_plan/setpoint_changes history and "
-            "the PR3 moisture-stress dispatch gate (ingestor/tasks/_common.py), which keeps its "
-            "pre-retirement behavior."
-        ),
     ),
     # ─────────────────────────────────────────────────────────────────────
     # Grow lights.
@@ -939,15 +889,15 @@ REGISTRY: dict[str, TunableDef] = {
         fw_clamp_hi=1800,
         esp_object_id="outdoor_staleness_max__s_",
         cfg_readback_object_id="cfg___outdoor_staleness_max__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 30) -> scale 1; [120,1800] -> u16
         wire_id=36,
         wire_kind="u16",
         wire_scale=1,
         wire_unit="s",
-        notes="Gate disables when outdoor data older than this. Sprint-15.1 "
+        notes="Operator setting; the reviewer advises only. Gate disables when outdoor data older than this. Sprint-15.1 "
         "raised default 300→600 and floor 60→120 so dispatcher cadence "
         "jitter doesn't intermittently disqualify the gate.",
     ),
@@ -958,14 +908,14 @@ REGISTRY: dict[str, TunableDef] = {
         default=1,
         esp_object_id="direct_wet_gate_enabled",
         cfg_readback_object_id="cfg_direct_wet_gate_enabled",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=2,
         # wire: boolean -> one wire byte, 0x00/0x01
         wire_id=38,
         wire_kind="bool",
         wire_scale=1,
-        notes="Enables global biological activity and per-zone direct-wet gates for clean/fert misters and irrigation paths.",
+        notes="Operator setting; the reviewer advises only. Enables global biological activity and per-zone direct-wet gates for clean/fert misters and irrigation paths.",
     ),
     # ─────────────────────────────────────────────────────────────────────
     # Legacy compatibility/readback knobs.
@@ -1065,144 +1015,6 @@ REGISTRY: dict[str, TunableDef] = {
         notes="Retired fixed-clock feed-window compatibility readback; fixed zero.",
     ),
     # ─────────────────────────────────────────────────────────────────────
-    # Retired deliberate dawn/midday center-watering compatibility readbacks.
-    # Center mist follows only the base climate/VPD cadence; post-assembly
-    # normalization below fixes these fields off/zero and classifies them retired.
-    # ─────────────────────────────────────────────────────────────────────
-    "dawn_rehydrate_start_minute": TunableDef(
-        name="dawn_rehydrate_start_minute",
-        kind="numeric",
-        min=0.0,
-        max=59.0,
-        default=0.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_dawn_rehydrate_start_minute",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-3 dawn window minute-of-hour (anchor hour = gl_sunrise_hour).",
-    ),
-    "midday_drench_hour": TunableDef(
-        name="midday_drench_hour",
-        kind="numeric",
-        min=0.0,
-        max=23.0,
-        default=14.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_midday_drench_hour",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-4 local hour the midday window opens (~solar peak).",
-    ),
-    "midday_drench_start_minute": TunableDef(
-        name="midday_drench_start_minute",
-        kind="numeric",
-        min=0.0,
-        max=59.0,
-        default=0.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_midday_drench_start_minute",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="IRR-4 midday window minute-of-hour.",
-    ),
-    # ─────────────────────────────────────────────────────────────────────
-    # CYC-4 (NB7) — overnight ≤5s fog micro-pulse. Firmware-internal globals
-    # with cfg_* readbacks only; the ≤5s pulse is a hard safety constraint
-    # (validate_setpoints clamps micropulse_max_on_s ≤ 10). Routed here so the
-    # micro-pulse knobs are not fire-and-forget.
-    # ─────────────────────────────────────────────────────────────────────
-    "sw_overnight_micropulse_enabled": TunableDef(
-        name="sw_overnight_micropulse_enabled",
-        kind="switch",
-        default=1.0,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_overnight_micropulse_enabled",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 overnight micro-pulse master enable (ships ON; gate is dark+dew+RH+temp gated).",
-    ),
-    "sw_night_humidity_source_present": TunableDef(
-        name="sw_night_humidity_source_present",
-        kind="switch",
-        default=0.0,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_night_humidity_source_present",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 auto-disable flag: flip true once NB5/OPN-2 night humidity HW lands → CYC-4 micro-pulse self-disables.",
-    ),
-    "micropulse_vpd_ceiling": TunableDef(
-        name="micropulse_vpd_ceiling",
-        kind="numeric",
-        min=0.8,
-        max=3.0,
-        default=1.25,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_micropulse_vpd_ceiling",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 overnight VPD (kPa) above which a micro-pulse may fire.",
-    ),
-    "micropulse_max_on_s": TunableDef(
-        name="micropulse_max_on_s",
-        kind="numeric",
-        min=1.0,
-        max=10.0,
-        default=5.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_micropulse_max_on__s_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 HARD cap on a single overnight pulse (s); validate_setpoints clamps ≤10.",
-    ),
-    "micropulse_min_gap_s": TunableDef(
-        name="micropulse_min_gap_s",
-        kind="numeric",
-        min=60.0,
-        max=3600.0,
-        default=600.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_micropulse_min_gap__s_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 lockout between micro-pulses (s) — pulses can never chain into a run.",
-    ),
-    "micropulse_min_dew_margin_f": TunableDef(
-        name="micropulse_min_dew_margin_f",
-        kind="numeric",
-        min=3.0,
-        max=15.0,
-        default=6.0,
-        fw_clamp_lo=None,
-        fw_clamp_hi=None,
-        esp_object_id=None,
-        cfg_readback_object_id="cfg_micropulse_min_dew_margin__f_",
-        push_owner="firmware_internal",
-        planner_pushable=False,
-        tier=2,
-        notes="Retired: the CYC-4 overnight micro-pulse path was deleted from the firmware, so nothing reads it. Was: CYC-4 min temp-dewpoint spread (°F) to micro-pulse — no crown condensation.",
-    ),
-    # ─────────────────────────────────────────────────────────────────────
     # Irrigation site values (VD-37, #1152; irrigation §4.1, architecture §5.3).
     # Settings stored in desired_state (written through API-10 and MCP
     # set_setting once those ship) and delivered to the controller only inside
@@ -1281,8 +1093,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=3.0,
         esp_object_id="cool_stage_2_over_high__f",
         cfg_readback_object_id="cfg___cool_s2_over_high___f_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.1 F -> scale 10; [0,3] F -> raw [0,30]
         wire_id=5,
@@ -1301,8 +1113,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=3.0,
         esp_object_id="cool_exit_hysteresis__f",
         cfg_readback_object_id="cfg___cool_exit_hyst___f_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.1 F -> scale 10; [0.3,3] F -> raw [3,30]
         wire_id=3,
@@ -1321,8 +1133,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=3.0,
         esp_object_id="cool_stage_2_exit_hyst__f",
         cfg_readback_object_id="cfg___cool_s2_exit_hyst___f_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.1 F -> scale 10; [0.3,3] F -> raw [3,30]
         wire_id=4,
@@ -1345,8 +1157,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=0.6,
         esp_object_id="vent_exchange_fraction",
         cfg_readback_object_id="cfg___vent_exchange_fraction",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.05 -> scale 20; [0.1,0.6] -> raw [2,12]
         wire_id=45,
@@ -1369,8 +1181,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=1.0,
         esp_object_id="band_track_fraction",
         cfg_readback_object_id="cfg___band_track_fraction",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.05 -> scale 20; wire envelope is the fw clamp [0,1] (planner pins 0, ADR-0004) -> raw [0,20]
         wire_id=1,
@@ -1396,8 +1208,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=15.0,
         esp_object_id="cold_vent_guard_delta__f",
         cfg_readback_object_id="cfg___cold_vent_guard_delta___f_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.5 F -> scale 2; [0,15] F -> raw [0,30]
         wire_id=2,
@@ -1419,8 +1231,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=None,
         esp_object_id="cool_all_fans_at_high",
         cfg_readback_object_id="cfg___cool_all_fans_at_high",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: boolean -> one wire byte, 0x00/0x01
         wire_id=37,
@@ -1439,7 +1251,7 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         esp_object_id="temp_hysteresis__f",
         cfg_readback_object_id="cfg___temp_hyst___f_",
         push_owner="band",
-        planner_pushable=True,
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.1 F -> scale 10; [0.5,3] F -> raw [5,30]
         wire_id=44,
@@ -1458,8 +1270,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=3.0,
         esp_object_id="heat_hysteresis__f",
         cfg_readback_object_id="cfg___heat_hyst___f_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.1 F -> scale 10; [0,3] F -> raw [0,30]
         wire_id=13,
@@ -1479,7 +1291,7 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         esp_object_id="vpd_hysteresis_kpa",
         cfg_readback_object_id="cfg___vpd_hyst__kpa_",
         push_owner="band",
-        planner_pushable=True,
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.05 kPa -> scale 20; [0.05,0.5] kPa -> raw [1,10]
         wire_id=48,
@@ -1498,8 +1310,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=2.5,
         esp_object_id="vpd_mister_engage_kpa",
         cfg_readback_object_id="cfg_mister_engage__kpa_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.05 kPa -> scale 20; [0.5,2.5] kPa -> raw [10,50]
         wire_id=29,
@@ -1523,8 +1335,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=2.5,
         esp_object_id="vpd_mister_all_kpa",
         cfg_readback_object_id="cfg_mister_all__kpa_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.05 kPa -> scale 20; [1,2.5] kPa -> raw [20,50]
         wire_id=26,
@@ -1547,8 +1359,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=600,
         esp_object_id="mister_all_delay__s_",
         cfg_readback_object_id="cfg___mister_all_delay__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 30) -> scale 1; [60,600] -> u16
         wire_id=25,
@@ -1568,8 +1380,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=90,
         esp_object_id="mister_pulse_on__s_",
         cfg_readback_object_id="cfg___mister_pulse_on__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 5) -> scale 1; [30,90] fits u8
         wire_id=32,
@@ -1588,8 +1400,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=60,
         esp_object_id="mister_pulse_gap__s_",
         cfg_readback_object_id="cfg___mister_pulse_gap__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 5) -> scale 1; [10,60] fits u8
         wire_id=31,
@@ -1608,8 +1420,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=3.0,
         esp_object_id="mister_vpd_weight",
         cfg_readback_object_id="cfg___mister_vpd_weight",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.5 -> scale 2; [0.5,3] -> raw [1,6]
         wire_id=33,
@@ -1634,8 +1446,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=0.25,
         esp_object_id="night_vpd_bias_kpa",
         cfg_readback_object_id="cfg_night_vpd_bias_kpa",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.01 kPa -> scale 100; [0,0.25] kPa -> raw [0,25]
         wire_id=35,
@@ -1654,8 +1466,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=1.0,
         esp_object_id="mister_center_penalty",
         cfg_readback_object_id="cfg___mister_center_penalty",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=2,
         # wire: ESPHome step 0.1 -> scale 10; [0,1] -> raw [0,10]
         wire_id=27,
@@ -1674,8 +1486,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=300,
         esp_object_id="min_fog_on__s_",
         cfg_readback_object_id="cfg___min_fog_on__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 15) -> scale 1; [15,300] -> u16
         wire_id=17,
@@ -1694,8 +1506,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=300,
         esp_object_id="min_fog_off__s_",
         cfg_readback_object_id="cfg___min_fog_off__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 15) -> scale 1; [15,300] -> u16
         wire_id=16,
@@ -1715,7 +1527,7 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         esp_object_id="min_heat_on__s_",
         cfg_readback_object_id="cfg___min_heat_on__s_",
         push_owner="operator",
-        planner_pushable=True,
+        planner_pushable=False,
         tier=2,
         # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
         wire_id=19,
@@ -1735,7 +1547,7 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         esp_object_id="min_fan_on__s_",
         cfg_readback_object_id="cfg___min_fan_on__s_",
         push_owner="operator",
-        planner_pushable=True,
+        planner_pushable=False,
         tier=2,
         # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
         wire_id=15,
@@ -1755,7 +1567,7 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         esp_object_id="min_fan_off__s_",
         cfg_readback_object_id="cfg___min_fan_off__s_",
         push_owner="operator",
-        planner_pushable=True,
+        planner_pushable=False,
         tier=2,
         # wire: integer seconds (ESPHome step 10) -> scale 1; [30,300] -> u16
         wire_id=14,
@@ -1775,7 +1587,7 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         esp_object_id="min_vent_on__s_",
         cfg_readback_object_id="cfg___min_vent_on__s_",
         push_owner="operator",
-        planner_pushable=True,
+        planner_pushable=False,
         tier=2,
         # wire: integer seconds (ESPHome step 10) -> scale 1; [10,300] -> u16
         wire_id=21,
@@ -1795,7 +1607,7 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         esp_object_id="min_vent_off__s_",
         cfg_readback_object_id="cfg___min_vent_off__s_",
         push_owner="operator",
-        planner_pushable=True,
+        planner_pushable=False,
         tier=2,
         # wire: integer seconds (ESPHome step 10) -> scale 1; [10,300] -> u16
         wire_id=20,
@@ -1814,8 +1626,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=120,
         esp_object_id="vpd_watch_dwell__s_",
         cfg_readback_object_id="cfg___vpd_watch_dwell__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 15) -> scale 1; [15,120] fits u8
         wire_id=49,
@@ -1834,8 +1646,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=900,
         esp_object_id="mist_max_closed_vent__s_",
         cfg_readback_object_id="cfg___mist_max_closed_vent__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 60) -> scale 1; [120,900] -> u16
         wire_id=23,
@@ -1854,8 +1666,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=300,
         esp_object_id="mist_thermal_relief__s_",
         cfg_readback_object_id="cfg___mist_thermal_relief__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 30) -> scale 1; [30,300] -> u16
         wire_id=24,
@@ -1874,8 +1686,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=None,
         esp_object_id="direct_wet_stress_override_enabled",
         cfg_readback_object_id="cfg_direct_wet_stress_override_enabled",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: boolean -> one wire byte, 0x00/0x01
         wire_id=39,
@@ -1896,8 +1708,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=0.5,
         esp_object_id="direct_wet_stress_vpd_margin_kpa",
         cfg_readback_object_id="cfg_direct_wet_stress_vpd_margin_kpa",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.05 kPa -> scale 20; [0,0.5] kPa -> raw [0,10]
         wire_id=8,
@@ -1916,8 +1728,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=15,
         esp_object_id="direct_wet_stress_min_dew_margin_f",
         cfg_readback_object_id="cfg_direct_wet_stress_min_dew_margin_f",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.5 F -> scale 2; [3,15] F -> raw [6,30]
         wire_id=7,
@@ -1936,8 +1748,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=0.0,
         esp_object_id="enthalpy_open__kj_kg_",
         cfg_readback_object_id="cfg___enthalpy_open__kj_kg___",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.5 kJ/kg -> scale 2; signed [-5,0] -> raw [-10,0] (i16)
         wire_id=11,
@@ -1956,8 +1768,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=20.0,
         esp_object_id="enthalpy_close__kj_kg_",
         cfg_readback_object_id="cfg___enthalpy_close__kj_kg___",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.5 kJ/kg -> scale 2; signed [-5,20] -> raw [-10,40] (i16)
         wire_id=10,
@@ -1972,8 +1784,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         default=1,
         esp_object_id="summer_vent_enabled",
         cfg_readback_object_id="cfg_summer_vent_enabled",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: boolean -> one wire byte, 0x00/0x01
         wire_id=43,
@@ -1992,8 +1804,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=15.0,
         esp_object_id="vent_prefer_temp_delta__f_",
         cfg_readback_object_id="cfg___vent_prefer_temp_delta__f_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.5 F -> scale 2; [2,15] F -> raw [4,30]
         wire_id=47,
@@ -2012,8 +1824,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=15.0,
         esp_object_id="vent_prefer_dp_delta__f_",
         cfg_readback_object_id="cfg___vent_prefer_dp_delta__f_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.5 F -> scale 2; [2,15] F -> raw [4,30]
         wire_id=46,
@@ -2028,8 +1840,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         default=1,
         esp_object_id="fog_closes_vent",
         cfg_readback_object_id="cfg_fog_closes_vent",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: boolean -> one wire byte, 0x00/0x01
         wire_id=41,
@@ -2044,8 +1856,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         default=0,  # globals.yaml initial_value 'false'
         esp_object_id="mister_closes_vent",
         cfg_readback_object_id="cfg_mister_closes_vent",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: boolean -> one wire byte, 0x00/0x01
         wire_id=42,
@@ -2065,7 +1877,7 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         esp_object_id="min_heat_off__s_",
         cfg_readback_object_id="cfg___min_heat_off__s_",
         push_owner="operator",
-        planner_pushable=True,
+        planner_pushable=False,
         tier=2,
         # wire: integer seconds (ESPHome step 10) -> scale 1; [60,600] -> u16
         wire_id=18,
@@ -2080,8 +1892,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         default=0,
         esp_object_id="dwell_gate_enabled",
         cfg_readback_object_id="cfg_dwell_gate_enabled",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: boolean -> one wire byte, 0x00/0x01
         wire_id=40,
@@ -2101,8 +1913,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=1800000,
         esp_object_id="dwell_gate__ms_",
         cfg_readback_object_id="cfg_dwell_gate_ms",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer milliseconds (ESPHome step 30000) -> scale 1; [60000,1800000] needs u32
         wire_id=9,
@@ -2122,8 +1934,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=3600,
         esp_object_id="mist_backoff__s_",
         cfg_readback_object_id="cfg___mist_backoff__s_",
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: integer seconds (ESPHome step 60) -> scale 1; [60,3600] -> u16
         wire_id=22,
@@ -2143,8 +1955,8 @@ RESERVED_WIRE_SLOTS: dict[str, TunableDef] = {
         fw_clamp_hi=0.5,
         esp_object_id="fog_escalation__kpa_",
         cfg_readback_object_id="cfg___fog_escalation__kpa_",  # Phase 1c added readback
-        push_owner="planner",
-        planner_pushable=True,
+        push_owner="operator",
+        planner_pushable=False,
         tier=1,
         # wire: ESPHome step 0.1 kPa -> scale 10; [0.1,0.5] kPa -> raw [1,5]
         wire_id=12,
@@ -2358,18 +2170,16 @@ assert not set(_FW2_STAGED_DEFS) & set(REGISTRY), "firmware-v2 staged names coll
 
 REGISTRY.update(_FW2_STAGED_DEFS)
 
-# The fixed-clock feed window and the deliberate dawn/midday center-watering
-# controls are retired compatibility readbacks. (The legacy irrig_wall_* and
-# irrig_center_* schedule rows left with their cfg_* readbacks in VD-47.)
+# The fixed-clock feed window is a retired compatibility readback (the dawn and
+# midday center-watering rows left the registry in #1734 C-8; the legacy
+# irrig_wall_* and irrig_center_* schedule rows left with their cfg_* readbacks
+# in VD-47).
 # Normalize them here after the staged firmware-v2 rows are assembled so every
 # derived consumer sees the same fail-closed, non-writable contract.
 _INERT_IRRIGATION_COMPAT_TUNABLES: frozenset[str] = frozenset(
     {
         "feed_start_hour",
         "feed_end_hour",
-        "dawn_rehydrate_start_minute",
-        "midday_drench_hour",
-        "midday_drench_start_minute",
     }
 )
 
@@ -2566,12 +2376,6 @@ NO_EFFECT_RETIRED_REG: frozenset[str] = frozenset(
         # The east zone has no mister; the arbiters pass it as never allowed.
         "zone_priority_east",
         # The CYC-4 overnight micro-pulse path was deleted from the firmware.
-        "sw_overnight_micropulse_enabled",
-        "sw_night_humidity_source_present",
-        "micropulse_vpd_ceiling",
-        "micropulse_max_on_s",
-        "micropulse_min_gap_s",
-        "micropulse_min_dew_margin_f",
     }
 )
 assert NO_EFFECT_RETIRED_REG <= set(REGISTRY), sorted(NO_EFFECT_RETIRED_REG - set(REGISTRY))
@@ -2580,10 +2384,7 @@ RETIRED_TUNABLES_REG: frozenset[str] = frozenset(
     {
         # #588 decision (wire schema v2): zero firmware presence — see the
         # registry row notes and RETIRED_WIRE_IDS ({6}).
-        "direct_wet_stress_latest_hour",
         # VD-63: no firmware entity or readback; the rows carry no route.
-        "fog_time_window_end",
-        "fog_time_window_start",
         "mister_all_off_s",
         "mister_all_on_s",
         "mister_off_s",
@@ -2711,8 +2512,8 @@ def _active_tunables() -> frozenset[str]:
 
 
 def _tier1() -> frozenset[str]:
-    """Canonical planner-policy surface. Replaces mcp/server.py TIER1."""
-    return frozenset(n for n, d in REGISTRY.items() if d.planner_pushable and d.tier == 1)
+    """The tier-1 live wire settings (operator-owned since the climate refactor; the reviewer writes none)."""
+    return frozenset(n for n, d in REGISTRY.items() if d.tier == 1 and d.wire_id is not None)
 
 
 def _planner_pushable() -> frozenset[str]:
@@ -3079,10 +2880,10 @@ def wire_value_bounds(name: str) -> tuple[float, float]:
 
 
 def wire_metadata_errors() -> list[str]:
-    """Validate the planner-pushable wire schema; return a list of problems.
+    """Validate the policy wire schema; return a list of problems.
 
     Asserted at import so a registry edit that breaks the wire contract fails
-    immediately: every planner-pushable field must carry complete, unique wire
+    immediately: every live wire slot is an operator setting; every slot must carry complete, unique wire
     metadata; nothing outside that set may carry any; ids must be permanent
     (never from RETIRED_WIRE_IDS); and every wire bound must be exactly
     representable within the declared kind/scale.
@@ -3092,10 +2893,9 @@ def wire_metadata_errors() -> list[str]:
     wired = sorted(WIRE_SLOT_DEFS)
     live = sorted(n for n, d in REGISTRY.items() if d.wire_id is not None)
 
-    if set(live) != set(PLANNER_PUSHABLE_REG):
-        extra = sorted(set(live) - set(PLANNER_PUSHABLE_REG))
-        missing = sorted(set(PLANNER_PUSHABLE_REG) - set(live))
-        errors.append(f"live wire surface != planner-pushable surface: extra={extra} missing={missing}")
+    not_operator = sorted(n for n in live if REGISTRY[n].push_owner != "operator" or REGISTRY[n].planner_pushable)
+    if not_operator:
+        errors.append(f"live wire slots must be operator settings, never planner-pushable: {not_operator}")
     if len(wired) != POLICY_WIRE_FIELD_COUNT:
         errors.append(
             f"wire slot count {len(wired)} != frozen POLICY_WIRE_FIELD_COUNT "

@@ -133,6 +133,20 @@ def test_exclusions_are_exactly_the_written_reasons():
         "ec_runoff_wall",
         "ph_runoff_center",
         "ec_runoff_center",
+        # Release C (docs/design/dashboard/v2/api.md §7): the targets group and the hydro battery are no longer served.
+        "house_temp_target_f",
+        "house_temp_delta_f",
+        "house_vpd_target",
+        "house_vpd_delta",
+        "vpd_target_center",
+        "vpd_target_south",
+        "vpd_target_west",
+        "vpd_target_east",
+        "vpd_delta_center",
+        "vpd_delta_south",
+        "vpd_delta_west",
+        "vpd_delta_east",
+        "hydro_battery_pct",
     }
     assert "migration 027" in series.EXCLUDED_COLUMNS["outdoor_ppfd"]
     # TEL-F6: always-empty series leave the catalog; the soil probes stay offered (AB3).
@@ -141,3 +155,5 @@ def test_exclusions_are_exactly_the_written_reasons():
     assert "Historical column" in series.EXCLUDED_COLUMNS["hydro_tds_ppt"]
     assert "#1184" in series.EXCLUDED_COLUMNS["ppfd"]
     assert "_TEMPEST_MAP" in series.EXCLUDED_COLUMNS["feels_like_f"]
+    assert "Release C" in series.EXCLUDED_COLUMNS["vpd_target_south"]
+    assert "Release C" in series.EXCLUDED_COLUMNS["hydro_battery_pct"]

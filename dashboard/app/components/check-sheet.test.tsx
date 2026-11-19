@@ -83,7 +83,7 @@ test("enable: the line's check, a note up to 500, Manual ticked and Reason; Enab
   expect(writes(api)).toEqual([]);
   const box = sheet().getByRole<HTMLInputElement>("checkbox", { name: "Checked: tank, injector and line checked, no leaks" });
   expect(box.checked).toBe(false);
-  expect(sheet().getByRole<HTMLInputElement>("checkbox", { name: "Let Iris change this" }).checked).toBe(false);
+  expect(sheet().queryByRole("checkbox", { name: /Iris/ })).toBeNull();
   expect(sheet().getByLabelText<HTMLInputElement>("Note (optional)").maxLength).toBe(500);
   fireEvent.click(box);
   expect(save.disabled).toBe(false);
@@ -100,13 +100,12 @@ test("enable: the line's check, a note up to 500, Manual ticked and Reason; Enab
   expect(screen.getByRole("status").textContent).toContain("Requested: Wall drip (fertilized) enabled, check recorded");
 });
 
-test("no note or reason sends neither; unticking Manual sends manual false", async () => {
+test("no note or reason sends neither", async () => {
   const api = open("/water?check=L02");
   fireEvent.click(sheet().getByRole("checkbox", { name: /^Checked:/ }));
-  fireEvent.click(sheet().getByRole("checkbox", { name: "Let Iris change this" }));
   fireEvent.click(sheet().getByRole("button", { name: "Enable" }));
   await advance(0);
-  expect(writes(api).map((row) => row.body)).toEqual([{ enabled: true, checked: true, manual: false }]);
+  expect(writes(api).map((row) => row.body)).toEqual([{ enabled: true, checked: true, manual: true }]);
 });
 
 test("Schedule on: the sheet asks for the same check and sends schedule_member, not enabled", async () => {

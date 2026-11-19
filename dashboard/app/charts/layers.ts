@@ -7,7 +7,7 @@ import type { Series, SeriesColumns } from "./types";
  * The layers a chart stack draws only when asked (redesign §7.1): excursion shading wherever the measured line leaves
  * its band, the min–max envelope of each bucket at 30 min and coarser, and a compare line from an earlier period,
  * shifted onto this window. The geometry is pure, so the tests read it without a canvas; the painters draw it in the
- * draw hooks with token colours (`--tint-warn`, `--ink-muted`, `--c-bound`), clipped to the plot.
+ * draw hooks with token colours (`--warn-soft`, `--border-strong`, `--text-3`), clipped to the plot.
  */
 
 const valued = (value: number | null | undefined): value is number => value !== null && value !== undefined && Number.isFinite(value);
@@ -152,11 +152,11 @@ function clipped(plot: PaintTarget, paint: () => void) {
 const x = (plot: PaintTarget, value: number) => plot.valToPos(value, "x", true);
 const y = (plot: PaintTarget, value: number) => plot.valToPos(value, "y", true);
 
-/** drawClear, after the band wash: each excursion's area in `--tint-warn`, under the line, which keeps its colour. */
+/** drawClear, after the band wash: each excursion's area in `--warn-soft`, under the line, which keeps its colour. */
 export function paintExcursions(plot: PaintTarget, list: readonly Excursion[], colors: ChartColors) {
   clipped(plot, () => {
     const { ctx } = plot;
-    ctx.fillStyle = colors["--tint-warn"];
+    ctx.fillStyle = colors["--warn-soft"];
     for (const stretch of list) {
       if (stretch.line.length < 2) continue;
       ctx.beginPath();
@@ -168,11 +168,11 @@ export function paintExcursions(plot: PaintTarget, list: readonly Excursion[], c
   });
 }
 
-/** drawAxes, after the band edges: each bucket's min–max as a 2 px `--ink-muted` bar, under the mean line. */
+/** drawAxes, after the band edges: each bucket's min–max as a 2 px `--border-strong` bar, under the mean line. */
 export function paintEnvelope(plot: PaintTarget, bars: readonly EnvelopeBar[], colors: ChartColors, px: number) {
   clipped(plot, () => {
     const { ctx } = plot;
-    ctx.strokeStyle = colors["--ink-muted"];
+    ctx.strokeStyle = colors["--border-strong"];
     ctx.lineWidth = 2 * px;
     ctx.setLineDash([]);
     for (const bar of bars) {
@@ -185,11 +185,11 @@ export function paintEnvelope(plot: PaintTarget, bars: readonly EnvelopeBar[], c
   });
 }
 
-/** draw, first: the earlier period as a 1.25 px dashed `--c-bound` line; a gap breaks it. */
+/** draw, first: the earlier period as a 1.25 px dashed `--text-3` line; a gap breaks it. */
 export function paintCompare(plot: PaintTarget, line: CompareLine, colors: ChartColors, px: number) {
   clipped(plot, () => {
     const { ctx } = plot;
-    ctx.strokeStyle = colors["--c-bound"];
+    ctx.strokeStyle = colors["--text-3"];
     ctx.lineWidth = 1.25 * px;
     ctx.setLineDash([5 * px, 4 * px]);
     let drawing = false;

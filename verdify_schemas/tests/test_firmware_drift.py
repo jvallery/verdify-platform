@@ -248,47 +248,27 @@ KNOWN_PRE_EXISTING_DRIFT: dict[str, set[str]] = {
         "vent_running",
         "vpd_emergency",
     },
-    "DAILY_ACCUM_MAP": {
-        # Drip runtime sensors removed from firmware in Sprint 18 redesign;
-        # ingestor map still references the old names. Cleanup pending.
-        "center_drips_runtime__today_",
-        "wall_drips_runtime__today_",
-    },
     "SETPOINT_MAP": {
         # firmware-v2 (firmware/v2-solar-bands) removed the legacy fog-stress-
-        # window and direct-wet-stress-latest-hour NUMBER entities — the OTA no
-        # longer emits them. The registry keeps the rows because the planner
-        # still pushes them as dry-stress / fog-stress policy params
-        # (ingestor/tasks/_common.py AI_MOISTURE_STRESS_POLICY_PARAMS), so the
-        # routes stay in the registry-derived SETPOINT_MAP. They are dead
-        # firmware routes (the ingestor simply never receives these object_ids):
-        # accepted drift until the policy is retired from the registry/planner.
-        "direct_wet_stress_latest_hour",
+        # window NUMBER entities; the registry still has these rows, so the
+        # registry-derived SETPOINT_MAP keeps the routes. Dead firmware routes:
+        # accepted drift until the rows are retired. (#1734 C-8 retired
+        # direct_wet_stress_latest_hour with its route.)
         "fog_stress_min_dew_margin_f",
         "fog_stress_window_extend_enabled",
         "fog_stress_window_latest_hour",
     },
     "CFG_READBACK_MAP": {
-        # firmware-v2 (firmware/v2-solar-bands) removed the matching cfg_*
-        # readback sensors for the dropped micropulse / dawn-rehydrate-start /
-        # midday-drench / overnight-micropulse / night-humidity-source
-        # entities. Registry rows persist (planner policy / schedule params),
-        # so the registry-derived CFG_READBACK_MAP keeps the routes. Dead
-        # firmware readbacks — accepted drift until the underlying registry
-        # rows are retired. (VD-63 retired the fog-window rows without routes.)
-        "cfg_dawn_rehydrate_start_minute",
-        "cfg_direct_wet_stress_latest_hour",
+        # firmware-v2 (firmware/v2-solar-bands) removed the fog-stress cfg_*
+        # readback sensors; the registry rows persist, so the registry-derived
+        # CFG_READBACK_MAP keeps the routes. Dead firmware readbacks: accepted
+        # drift until the rows are retired. (VD-63 retired the fog-window rows
+        # without routes; #1734 C-8 retired the micropulse, dawn-rehydrate,
+        # midday-drench, overnight-micropulse, night-humidity-source and
+        # direct-wet-stress rows with theirs.)
         "cfg_fog_stress_min_dew_margin_f",
         "cfg_fog_stress_window_extend_enabled",
         "cfg_fog_stress_window_latest_hour",
-        "cfg_micropulse_max_on__s_",
-        "cfg_micropulse_min_dew_margin__f_",
-        "cfg_micropulse_min_gap__s_",
-        "cfg_micropulse_vpd_ceiling",
-        "cfg_midday_drench_hour",
-        "cfg_midday_drench_start_minute",
-        "cfg_night_humidity_source_present",
-        "cfg_overnight_micropulse_enabled",
     },
 }
 

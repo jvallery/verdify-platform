@@ -1266,6 +1266,152 @@ def sealed_sql_316():
     )
 
 
+SERVED_BAND_READERS_MIGRATION = (
+    317,
+    "317-served-band-readers-and-relay-record.sql",
+    "83aed4a2c57f9a70225b70ecaa44bdc89ca9f8fe5e4bfac9b41da70c1880eed4",
+)
+# Host release 5 (#1633, #1734): the band readers read the served band, v_setpoint_forward goes, the retired irrigation
+# readback counts read NULL, and the relay counter check gains boots and the early-record rule. fn_heat_staging_inversion
+# (ordinary digest), the ingestor duty's schedule and counter views and MCP's scorecard function change, so the seals
+# are measured by the native probe (record: tests/fixtures/317-served-band-readers-and-relay-record-native-qualification.json).
+# Until then, the literals are 316's (fail closed).
+SUCCESSOR_317 = {
+    **SUCCESSOR_316,
+    "api": "956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d",
+    "ingestor": "d388eb9b34e866b8f33e25040cf0e0ae7a829f97cff7e13ae158a6b0613bca5d",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718",
+}
+
+
+def sealed_sql_317():
+    # Keep every 316 predicate and bind the exact 317 runner stamp with its successor seals.
+    predecessor = sealed_sql_316()
+    current = seal_profile_sql(316, SUCCESSOR_316)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(317, SUCCESSOR_317), 1)
+        + " AND "
+        + ledger_row_sql(*SERVED_BAND_READERS_MIGRATION)
+        + ")"
+    )
+
+
+RETIRE_PLAN_CYCLE_LESSONS_MIGRATION = (
+    318,
+    "318-retire-plan-cycle-lessons.sql",
+    "58910b66c5f9bcc2b771d7b3ae43e084e122e990095bd083f60647860f9368b3",
+)
+# Host release 5 (#1633, #1734, review C-9): the 27 planner lessons that teach the retired plan cycle are set inactive.
+# Data only: no catalog object changes, so the seals are 317's (they move together if 317's are re-measured).
+SUCCESSOR_318 = {
+    **SUCCESSOR_317,
+}
+
+
+def sealed_sql_318():
+    # Keep every 317 predicate and bind the exact 318 runner stamp with its successor seals.
+    predecessor = sealed_sql_317()
+    current = seal_profile_sql(317, SUCCESSOR_317)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(318, SUCCESSOR_318), 1)
+        + " AND "
+        + ledger_row_sql(*RETIRE_PLAN_CYCLE_LESSONS_MIGRATION)
+        + ")"
+    )
+
+
+BAND_DIVERGENCE_MODE_MIGRATION = (
+    319,
+    "319-band-divergence-mode-ignores-partial-rows.sql",
+    "6ea156b44640b7ceb3255126584a57676e1fd7139f35358a3f17e8412d3e9f77",
+)
+# Host release 6 (#1770; #1633, #1734): v_band_device_divergence's mode reads the newest diagnostics row that carries a
+# band_source. The view is in a runtime's readable set, so the seals are measured by the native probe (record:
+# tests/fixtures/319-band-divergence-mode-ignores-partial-rows-native-qualification.json).
+SUCCESSOR_319 = {
+    **SUCCESSOR_318,
+    "api": "b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd",
+    "ingestor": "12d74c04e3f189f324dba042cfe0948bd794be63f64b84dc12e0dcdc8a51828c",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718",
+}
+
+
+def sealed_sql_319():
+    # Keep every 318 predicate and bind the exact 319 runner stamp with its successor seals.
+    predecessor = sealed_sql_318()
+    current = seal_profile_sql(318, SUCCESSOR_318)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(319, SUCCESSOR_319), 1)
+        + " AND "
+        + ledger_row_sql(*BAND_DIVERGENCE_MODE_MIGRATION)
+        + ")"
+    )
+
+
+DASHBOARD_PROJECTIONS_MIGRATION = (
+    320,
+    "320-dashboard-projections.sql",
+    "71deafa19652c44c110e8f7370db4cb5bbfa359853301dd69a680bb26cbcbfc1",
+)
+# The dashboard read model: SELECT for the dashboard duty on v_dashboard_review, v_dashboard_relay_day and
+# v_dashboard_gap_replay, column projections of planner_review, daily_relay_record and gap_replay_quarters owned by
+# verdify. The tables' own ACLs are unchanged and no relation gains an api, ingestor, MCP or PUBLIC entry, so every seal
+# keeps 319's value (tests/fixtures/320-dashboard-projections-native-qualification.json).
+SUCCESSOR_320 = {
+    **SUCCESSOR_319,
+}
+
+
+def sealed_sql_320():
+    # Keep every 319 predicate and bind the exact 320 runner stamp with the unchanged seals.
+    predecessor = sealed_sql_319()
+    current = seal_profile_sql(319, SUCCESSOR_319)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(320, SUCCESSOR_320), 1)
+        + " AND "
+        + ledger_row_sql(*DASHBOARD_PROJECTIONS_MIGRATION)
+        + ")"
+    )
+
+
+INGESTOR_GAP_READS_WATER_RESET_MIGRATION = (
+    321,
+    "321-ingestor-gap-and-compliance-reads-water-reset-delta.sql",
+    "614190ef3f32c728d8ca667e854d0559c36573ab204c9ef03851d57395787a5c",
+)
+# iso-2 F2 and F4, #1668 items 2 and 3 (#1633, #1734): the ingestor runtime gains UPDATE (backfill_status) on data_gaps
+# and SELECT on v_data_gaps_unreplayed and daily_band_compliance, so the seals are measured by the native probe (record:
+# tests/fixtures/321-ingestor-gap-and-compliance-reads-water-reset-delta-native-qualification.json).
+SUCCESSOR_321 = {
+    **SUCCESSOR_320,
+    "api": "6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c",
+    "ingestor": "b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718",
+}
+
+
+def sealed_sql_321():
+    # Keep every 320 predicate and bind the exact 321 runner stamp with its successor seals.
+    predecessor = sealed_sql_320()
+    current = seal_profile_sql(320, SUCCESSOR_320)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(321, SUCCESSOR_321), 1)
+        + " AND "
+        + ledger_row_sql(*INGESTOR_GAP_READS_WATER_RESET_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1342,6 +1488,16 @@ def sealed_sql():
         + sealed_sql_315()
         + " OR "
         + sealed_sql_316()
+        + " OR "
+        + sealed_sql_317()
+        + " OR "
+        + sealed_sql_318()
+        + " OR "
+        + sealed_sql_319()
+        + " OR "
+        + sealed_sql_320()
+        + " OR "
+        + sealed_sql_321()
         + ")"
     )
 

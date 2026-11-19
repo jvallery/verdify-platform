@@ -26,11 +26,9 @@ export function reasonParts(reason: StateReason | null | undefined, unit?: strin
   switch (reason.code) {
     case "clamped": {
       const value = reason.applied_value;
-      const head = value === null || value === undefined || !Number.isFinite(value) ? base : `${base} to ${applied(value, unit)}`;
+      const head = value === null || value === undefined || !Number.isFinite(value) ? base : `Changed to ${applied(value, unit)} to fit its limits`;
       return [detail ? `${head}: ${detail}` : head];
     }
-    case "experiment":
-      return [detail ? `Held by experiment ${detail}: applies when it ends` : `${base}: applies when it ends`];
     case "deferred":
     case "no_match":
       return since ? ["Sent ", { time: since }, `; ${lowerFirst(base)}`] : [base];
@@ -46,9 +44,9 @@ export function reasonParts(reason: StateReason | null | undefined, unit?: strin
   }
 }
 
-/** True when the line shows: under HELD and NOT CONFIRMED always, under REQUESTED once 60 s old or at once for `no_engine`. */
+/** True when the line shows: under NOT CONFIRMED always, under REQUESTED once 60 s old or at once for `no_engine`. */
 export function reasonShows(state: string, reason: StateReason | null | undefined, requestedAt: string | null | undefined, now: number): boolean {
-  if (state === "held" || state === "not_confirmed") return true;
+  if (state === "not_confirmed") return true;
   if (state !== "requested") return false;
   if (reason?.code === "no_engine") return true;
   const at = requestedAt ? Date.parse(requestedAt) : Number.NaN;
@@ -66,10 +64,10 @@ function AfterOneMinute({ reason, unit, requestedAt }: { reason: StateReason | n
 }
 
 /**
- * The reason line under a REQUESTED, NOT CONFIRMED or HELD value (design system §4.2), from the API's `state_reason`.
+ * The reason line under a REQUESTED or NOT CONFIRMED value (design system §4.2), from the API's `state_reason`.
  * `requestedAt` (the write's `created_at`) only decides when a REQUESTED line appears; it is never shown.
  */
 export function StateReasonLine({ state, reason, requestedAt, unit }: { state: string; reason?: StateReason | null; requestedAt?: string | null; unit?: string | null }) {
-  if (state === "held" || state === "not_confirmed" || (state === "requested" && reason?.code === "no_engine")) return <Reason reason={reason} unit={unit} />;
+  if (state === "not_confirmed" || (state === "requested" && reason?.code === "no_engine")) return <Reason reason={reason} unit={unit} />;
   return state === "requested" ? <AfterOneMinute reason={reason} unit={unit} requestedAt={requestedAt} /> : null;
 }
