@@ -1,0 +1,11 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Estate version detector (estate-ci#261). Policy: jvallery/estate-ci renovate/global.json.",
+  "enabledManagers": [
+    "npm"
+  ],
+  "includePaths": [
+    "site/package.json",
+    "site/package-lock.json"
+  ]
+}
