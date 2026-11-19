@@ -23,6 +23,7 @@
 #include <cstring>
 #include <ctime>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,7 @@
 
 namespace phys {
 #include "physics.h"
+#include "fan_wear_experiment.h"
 }
 
 // ───────────────────────────── config ─────────────────────────────
@@ -471,6 +473,11 @@ int main(int argc, char** argv) {
   }
   if (!cfgb("edge.dry", true)) { E.k.d_on = -9.0; E.k.d_off = -8.9; E.k.d2_on = 99.0; }   // never dry with outdoor air (the reference for its cost)
   const int mist_zones = (int)cfgd("edge.mist_zones", 3);       // misters opted in for VPD control: 0, 1 (centre) or 3
+  const double fan_wear_window_s = cfgd("edge.fan_wear_window_s", 0);
+  if (!std::isfinite(fan_wear_window_s) || fan_wear_window_s < 0 || std::floor(fan_wear_window_s) != fan_wear_window_s) {
+    std::fprintf(stderr, "edge.fan_wear_window_s requires finite nonnegative whole seconds\n");
+    return 2;
+  }
   const bool lead_by_runtime = cfgb("edge.lead_by_runtime", true);   // true: the relay layer picks the lead (AB8 alternation); false: fan 1 always leads
   // ---- forecast pre-staging, perfect foresight (an upper bound): future outdoor extremes read from the forcing itself
   const double pre_heat_delta = cfgd("pre.heat_delta_f", NAN);  // pre-heat when min(low-edge anchors) - forecast min outdoor > this
@@ -529,6 +536,8 @@ int main(int argc, char** argv) {
   double water_today = 0; int last_day = -1;
   const bool is_fw = (ctrl == "fw"), is_edge = (ctrl == "edge");
   bool lead1 = true; int zone = 0;                 // edge relay layer: which fan leads; which mister zone pulses next
+  std::optional<FanWearExperiment> fan_wear;
+  if (fan_wear_window_s > 0 && is_edge && lead_by_runtime) fan_wear.emplace(fan_wear_window_s);
   bool led_once = false, last_led1 = true;         // AB8: which fan actually led the last fan episode
 
   std::map<std::string, Acc> acc;
@@ -655,6 +664,8 @@ int main(int argc, char** argv) {
             const bool turn1 = led_once ? !last_led1 : R[R_F1].on_s <= R[R_F2].on_s;
             const bool m1 = R[R_F1].can_on(now), m2 = R[R_F2].can_on(now);
             lead1 = !lead_by_runtime || (m1 != m2 ? m1 : turn1);
+            // Opt-in reference experiment: both-off, one-fan demand only; keep the ordinary paired start.
+            if (fan_wear && e.fans == 1) lead1 = fan_wear->choose(now, turn1, m1, m2);
           }
           bool want_f1 = lead1 ? e.fans >= 1 : e.fans >= 2, want_f2 = lead1 ? e.fans >= 2 : e.fans >= 1;
           bool want_vent = e.vent;
@@ -739,6 +750,7 @@ int main(int argc, char** argv) {
           m_q1 += pp[phys::P_QH1] * (R[R_H1].on ? 1.0 : 0.0) * dt; m_q2 += pp[phys::P_QH2] * (R[R_H2].on ? 1.0 : 0.0) * dt;
         }
         phys::phys_step(s, u, pp, dt);
+        if (fan_wear) fan_wear->observe(now, dt, R[R_F1].on, R[R_F2].on);
         if (fan_events) {
           const int state = (R[R_F1].on ? 1 : 0) | (R[R_F2].on ? 2 : 0);
           const int sample = state | (scored ? 4 : 0);

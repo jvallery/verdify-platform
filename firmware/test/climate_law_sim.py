@@ -208,7 +208,8 @@ def build(work: Path) -> tuple[Path, Path, Path]:
     a, b = src.index(RELAY_BEGIN), src.index(RELAY_END)
     src = src[:a] + RELAY_PORT + src[b + len(RELAY_END) :]
     (port_dir / "closed_loop2.cpp").write_text(src)
-    (port_dir / "physics.h").write_text((SIM / "physics.h").read_text())
+    for header in ("physics.h", "fan_wear_experiment.h"):
+        (port_dir / header).write_text((SIM / header).read_text())
     (port_dir / "band_edge_controller.h").write_text(SHIM.format(reference=SIM / "band_edge_controller.h"))
     port = work / "closed_loop2_port"
     subprocess.run([*cxx, *flags, "-I", str(LIB), "-o", str(port), str(port_dir / "closed_loop2.cpp")], check=True)
