@@ -1,9 +1,8 @@
 # Derived Hermes agent image (#1458): the exact upstream nousresearch/hermes-agent digest
 # verdify-hermes-iris runs today, with Debian trixie's security updates applied. No newer
 # upstream build of this release exists (the digest is untagged upstream), and taking a
-# newer hermes-agent release would change planner behaviour. The application layers are
-# unchanged; only installed Debian packages move to their trixie/trixie-security
-# versions (perl 5.40.1-6+deb13u1 and the other fixable package advisories).
+# newer hermes-agent release would change planner behaviour. Apply security fixes
+# to the Debian packages and to the installed Hermes Python environment.
 #
 # Built by .github/workflows/build.yml (job hermes-agent) into
 # registry.vallery.net/verdifyconsultancy/verdify-hermes-agent. The image pin in
@@ -17,3 +16,15 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends upgrade \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge 5.40.1-6+deb13u1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Fix the three signed Critical Python findings in the existing Hermes venv.
+# Use verified PyPI wheels and leave the rest of the upstream lock installed.
+RUN printf '%s\n' \
+      'PyJWT==2.14.0 --hash=sha256:ad0cef71c756a56e74863c2919cf0985f72decbcfcb550ee2f422e7c62b5eedc' \
+      'anyio==4.14.2 --hash=sha256:9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494' \
+      'certifi==2026.10.18 --hash=sha256:73191c47aaa79da394e8fee2dbc2ec827432cab56311122c9e47abf79e390f62' \
+      > /tmp/hermes-security-requirements.txt \
+    && /usr/local/bin/uv --no-cache pip install --python /opt/hermes/.venv/bin/python \
+      --no-deps --only-binary :all: --require-hashes -r /tmp/hermes-security-requirements.txt \
+    && /usr/local/bin/uv --no-cache pip check --python /opt/hermes/.venv/bin/python \
+    && rm -f /tmp/hermes-security-requirements.txt
