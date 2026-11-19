@@ -56,12 +56,15 @@ else
   # G10: the closed-loop climate law simulation runs its full weather year here, asked for explicitly, and the
   # job fails unless the full run wrote its receipt.
   sim_full=0
+  unset CLIMATE_LAW_SHADOW_RESEARCH CLIMATE_LAW_WEAR_SHADOW_RECEIPT
   case "${VALIDATE_PART:-all}" in all | containment-firmware) sim_full=1 ;; esac
   if [ "$sim_full" = 1 ]; then
     export CLIMATE_LAW_SIM=full CLIMATE_LAW_SIM_RECEIPT="$impact/climate_law_sim.receipt"
-    # Observation only, enabled explicitly on the named qualification carrier.
-    if [ "${VALIDATE_PART:-}" = containment-firmware ] && [ "${CLIMATE_LAW_SHADOW_RESEARCH:-0}" = 1 ]; then
-      export CLIMATE_LAW_WEAR_SHADOW_RECEIPT="$impact/fan_wear_shadow.json"
+    # Observation-only selector for the reserved qualification PR.
+    if [ "${VALIDATE_PART:-}" = containment-firmware ] &&
+       [ "${GITHUB_EVENT_NAME:-}" = pull_request ] &&
+       [ "${GITHUB_HEAD_REF:-}" = verdify-backlog/vp1725-wear-shadow-qualification ]; then
+      export CLIMATE_LAW_SHADOW_RESEARCH=1 CLIMATE_LAW_WEAR_SHADOW_RECEIPT="$impact/fan_wear_shadow.json"
     fi
   fi
   bash scripts/ci-local.sh
@@ -71,6 +74,16 @@ else
     cat "$CLIMATE_LAW_SIM_RECEIPT"
     if [ -n "${CLIMATE_LAW_WEAR_SHADOW_RECEIPT:-}" ]; then
       test -s "$CLIMATE_LAW_WEAR_SHADOW_RECEIPT" || { echo "fan wear shadow: no receipt" >&2; exit 1; }
+      python3 - "$CLIMATE_LAW_WEAR_SHADOW_RECEIPT" <<'PYSHADOW'
+import json
+import sys
+
+with open(sys.argv[1]) as source:
+    receipt = json.load(source)
+scored = receipt.get("scored_onsets")
+if receipt.get("mode") != "fan-start-shadow" or type(scored) is not int or scored <= 0:
+    raise SystemExit("fan wear shadow: receipt must contain a positive scored onset count")
+PYSHADOW
       cat "$CLIMATE_LAW_WEAR_SHADOW_RECEIPT"
     fi
     if [ -n "${CLIMATE_LAW_WEAR_RECEIPT:-}" ]; then
