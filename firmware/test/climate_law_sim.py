@@ -237,7 +237,8 @@ def run(
     ]
     args += [f"{k}={v}" for k, v in kv.items()]
     if precise_fan_runtime:
-        args.append("precise_fan_runtime=true")
+        # The simulator reads booleans as numbers through cfgb/cfgd.
+        args.append("precise_fan_runtime=1")
     if trace is not None:
         args.append(f"trace={trace}")
     return subprocess.run(args, capture_output=True, text=True, check=True).stdout
