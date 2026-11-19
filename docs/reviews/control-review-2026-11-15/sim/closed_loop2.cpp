@@ -352,7 +352,7 @@ struct Acc {
   double pre_min = 0;                             // minutes with a pre-staging request active
 };
 
-static void emit(FILE* f, const char* scen, const char* key, const Acc& a) {
+static void emit(FILE* f, const char* scen, const char* key, const Acc& a, int fan_precision) {
   if (a.n <= 0) return;
   auto pct = [](double x, double n) { return n > 0 ? 100.0 * x / n : NAN; };
   const double h1 = a.on_min[R_H1] / 60, h2 = a.on_min[R_H2] / 60, fans = (a.on_min[R_F1] + a.on_min[R_F2]) / 60,
@@ -364,14 +364,15 @@ static void emit(FILE* f, const char* scen, const char* key, const Acc& a) {
   const double days = a.n / 1440.0;
   std::fprintf(f,
                "%s,%s,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.3f,%.4f,"
-               "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.3f,%.1f,%.2f,%.2f,%.2f,%.3f,%.3f,%.2f,"
+               "%.2f,%.2f,%.*f,%.*f,%.2f,%.2f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.3f,%.1f,%.2f,%.2f,%.2f,%.3f,%.3f,%.2f,"
                "%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.2f,%.1f,"
                "%.2f,%.3f,%.3f,%.2f,%.2f,%.2f,%.2f,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f\n",
                scen, key, days, pct(a.t_in, a.n), pct(a.t_lo, a.n), pct(a.t_hi, a.n), pct(a.v_in, a.n), pct(a.v_lo, a.n),
                pct(a.v_hi, a.n), pct(a.both, a.n), pct(a.t_in_d, a.n_day), pct(a.v_in_d, a.n_day), pct(a.both_d, a.n_day),
                pct(a.t_in_n, a.n_night), pct(a.v_in_n, a.n_night), pct(a.both_n, a.n_night), pct(a.v_lo_n, a.n_night),
                a.t_err / a.n, a.v_err / a.n,
-               h1 / days, h2 / days, a.on_min[R_F1] / 60 / days, a.on_min[R_F2] / 60 / days, vent / days, fog / days, mc / days,
+               h1 / days, h2 / days, fan_precision, a.on_min[R_F1] / 60 / days, fan_precision, a.on_min[R_F2] / 60 / days,
+               vent / days, fog / days, mc / days,
                a.starts[R_H1] / days, a.starts[R_H2] / days, a.starts[R_F1] / days, a.starts[R_VENT] / days,
                a.starts[R_FOG] / days, a.starts[R_MC] / days,
                kwh / days, therms / days, gal / days, a.tmin, a.tmax, a.sum_t / a.n, a.sum_v / a.n,
@@ -787,7 +788,8 @@ int main(int argc, char** argv) {
   FILE* out = stdout;
   if (CFG.count("out")) out = std::fopen(CFG["out"].c_str(), cfgb("append", false) ? "a" : "w");
   if (!cfgb("append", false) || cfgb("header", false)) std::fputs(HEADER, out);
-  for (auto& kv : acc) emit(out, scen.c_str(), kv.first.c_str(), kv.second);
+  const int fan_precision = cfgb("precise_fan_runtime", false) ? 8 : 2;
+  for (auto& kv : acc) emit(out, scen.c_str(), kv.first.c_str(), kv.second, fan_precision);
   if (out != stdout) std::fclose(out);
   return 0;
 }
