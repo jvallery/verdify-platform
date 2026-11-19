@@ -459,6 +459,44 @@ def test_a_first_run_writes_an_ok_row_from_content_only(monkeypatch, tmp_path):
     assert conn.executed[0][0] == job.RETENTION_SQL and conn.executed[0][1] == (AT - timedelta(days=30),)
 
 
+@pytest.mark.parametrize("connect_error", [httpx.ConnectTimeout, httpx.ConnectError])
+@pytest.mark.parametrize("recovers", [True, False])
+def test_a_first_connect_failure_gets_one_retry(monkeypatch, tmp_path, connect_error, recovers):
+    conn = FakeConn()
+    delays = []
+
+    async def sleep(seconds):
+        delays.append(seconds)
+
+    def respond(request):
+        assert request.extensions["timeout"]["connect"] == 5
+        if delays and recovers:
+            return completion("The greenhouse is at 78.0 °F, inside its band. One warning is open.")
+        raise connect_error("synthetic first-connect failure", request=request)
+
+    monkeypatch.setattr(job.asyncio, "sleep", sleep)
+    code, calls = run(monkeypatch, tmp_path, conn, respond)
+    assert code == 0 and len(calls) == 2
+    assert delays == [15]
+    assert len(conn.inserted) == 1
+    row = inserted(conn)
+    expected = ("ok", None) if recovers else ("error", f"transport: {connect_error.__name__}")
+    assert (row["status"], row["error"]) == expected
+
+
+@pytest.mark.parametrize("error", [httpx.ReadTimeout, httpx.WriteTimeout, httpx.RemoteProtocolError])
+def test_an_ambiguous_request_failure_is_never_retried(monkeypatch, tmp_path, error):
+    conn = FakeConn()
+
+    def respond(request):
+        raise error("synthetic ambiguous request failure", request=request)
+
+    code, calls = run(monkeypatch, tmp_path, conn, respond)
+    assert code == 0 and len(calls) == len(conn.inserted) == 1
+    row = inserted(conn)
+    assert (row["status"], row["error"]) == ("error", f"transport: {error.__name__}")
+
+
 def test_an_answer_with_a_number_not_in_the_facts_is_rejected_and_stored(monkeypatch, tmp_path):
     conn = FakeConn()
     code, _ = run(monkeypatch, tmp_path, conn, lambda request: completion("It is 91.5 °F. The band is in force."))
@@ -468,7 +506,8 @@ def test_an_answer_with_a_number_not_in_the_facts_is_rejected_and_stored(monkeyp
 
 def test_transport_failure_and_a_cut_answer_are_errors_or_rejections(monkeypatch, tmp_path):
     conn = FakeConn()
-    run(monkeypatch, tmp_path, conn, lambda request: httpx.Response(503))
+    _, calls = run(monkeypatch, tmp_path, conn, lambda request: httpx.Response(503))
+    assert len(calls) == 1
     assert (inserted(conn)["status"], inserted(conn)["error"]) == ("error", "HTTP 503")
     run(monkeypatch, tmp_path, conn, lambda request: completion("It is 78.0 °F and", finish="length"))
     assert (inserted(conn)["status"], inserted(conn)["error"]) == ("rejected", "cut at max_tokens")

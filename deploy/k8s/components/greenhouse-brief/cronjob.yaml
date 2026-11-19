@@ -22,7 +22,8 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      # One Cortex call (90 s deadline) plus the reads; a wedged run must not hold the next one under Forbid.
+      # One Cortex completion plus the reads. The client allows two 5 s connects with a 15 s retry delay
+      # and a 90 s read timeout. A wedged run must not hold the next one under Forbid.
       activeDeadlineSeconds: 240
       ttlSecondsAfterFinished: 3600
       template:
