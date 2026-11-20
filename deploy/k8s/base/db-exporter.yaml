@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgres-exporter
-          image: registry.vallery.net/jvallery/mirror-quay-io-prometheuscommunity-postgres-exporter:v0.19.1-e96064f87622@sha256:e96064f876226d94bb6ce48a4c4b3dd76edba91168ec1ab024e5c4b959310b0f
+          image: registry.vallery.net/jvallery/mirror-quay-io-prometheuscommunity-postgres-exporter:v0.21.1-a88794758ad4@sha256:a88794758ad461c75f3825b51cde4bde730bdff04b3b24d00efe14217e41f615
           imagePullPolicy: IfNotPresent
           env:
             - name: DATA_SOURCE_URI
