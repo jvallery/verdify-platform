@@ -90,15 +90,29 @@ spec:
         fsGroup: 101
         seccompProfile:
           type: RuntimeDefault
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchLabels:
-                  app.kubernetes.io/component: outbound
-              topologyKey: kubernetes.io/hostname
+      # STD-HA-08/STD-HA-16 (D-855): the preferred hostname anti-affinity let both
+      # replicas share node6 (one host, one circuit). Hard hostname spread (4
+      # schedulable workers >= 2 replicas, always satisfiable) plus a revision-scoped
+      # power-circuit preference, the same pair as verdify-mcp/verdify-traefik.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          nodeTaintsPolicy: Honor
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          matchLabelKeys:
+            - pod-template-hash
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: outbound
+        - maxSkew: 1
+          nodeTaintsPolicy: Honor
+          topologyKey: vallery.net/power-circuit
+          whenUnsatisfiable: ScheduleAnyway
+          matchLabelKeys:
+            - pod-template-hash
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: outbound
       containers:
       - name: relay
         image: registry.vallery.net/jvallery/mirror-docker-io-nginxinc-nginx-unprivileged:stable-alpine-slim-5d8bb9437d74@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6
