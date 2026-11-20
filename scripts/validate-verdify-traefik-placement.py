@@ -38,18 +38,24 @@ def placement_violations(deployment: dict) -> list[str]:
     ):
         violations.append("verdify-traefik must retain the two-replica zero-unavailable rollout")
 
-    expected_spread = [
-        {
-            "maxSkew": 1,
-            "nodeTaintsPolicy": "Honor",
-            "topologyKey": "kubernetes.io/hostname",
-            "whenUnsatisfiable": "DoNotSchedule",
-            "matchLabelKeys": ["pod-template-hash"],
-            "labelSelector": {"matchLabels": {"app.kubernetes.io/name": "verdify-traefik"}},
-        }
-    ]
-    if pod.get("topologySpreadConstraints") != expected_spread:
+    hostname_spread = {
+        "maxSkew": 1,
+        "nodeTaintsPolicy": "Honor",
+        "topologyKey": "kubernetes.io/hostname",
+        "whenUnsatisfiable": "DoNotSchedule",
+        "matchLabelKeys": ["pod-template-hash"],
+        "labelSelector": {"matchLabels": {"app.kubernetes.io/name": "verdify-traefik"}},
+    }
+    circuit_preference = {
+        **hostname_spread,
+        "topologyKey": "vallery.net/power-circuit",
+        "whenUnsatisfiable": "ScheduleAnyway",
+    }
+    spread = pod.get("topologySpreadConstraints") or []
+    if spread[:1] != [hostname_spread]:
         violations.append("verdify-traefik must retain hard hostname spread")
+    if spread[1:] != [circuit_preference]:
+        violations.append("verdify-traefik must use the revision-scoped circuit preference")
 
     if any(item.get("key") == "dedicated" for item in pod.get("tolerations", [])):
         violations.append("verdify-traefik must not tolerate a dedicated worker")

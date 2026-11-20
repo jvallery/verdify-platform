@@ -46,6 +46,8 @@ def test_source_contract_passes() -> None:
         ("hard_hostname", "exactly the non-control-plane worker selector"),
         ("soft_spread", "retain hard hostname spread"),
         ("ignore_taints", "retain hard hostname spread"),
+        ("missing_circuit", "revision-scoped circuit preference"),
+        ("hard_circuit", "revision-scoped circuit preference"),
         ("allow_unavailable", "two-replica zero-unavailable rollout"),
         ("pvc", "must remain stateless"),
         ("dedicated_toleration", "must not tolerate a dedicated worker"),
@@ -64,6 +66,10 @@ def test_negative_placement_contracts(tmp_path: Path, mutation: str, expected: s
         pod["topologySpreadConstraints"][0]["whenUnsatisfiable"] = "ScheduleAnyway"
     elif mutation == "ignore_taints":
         del pod["topologySpreadConstraints"][0]["nodeTaintsPolicy"]
+    elif mutation == "missing_circuit":
+        pod["topologySpreadConstraints"].pop()
+    elif mutation == "hard_circuit":
+        pod["topologySpreadConstraints"][1]["whenUnsatisfiable"] = "DoNotSchedule"
     elif mutation == "allow_unavailable":
         workload["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"] = 1
     elif mutation == "pvc":

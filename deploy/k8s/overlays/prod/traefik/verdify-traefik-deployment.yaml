@@ -78,6 +78,15 @@ spec:
           labelSelector:
             matchLabels:
               app.kubernetes.io/name: verdify-traefik
+        - maxSkew: 1
+          nodeTaintsPolicy: Honor
+          topologyKey: vallery.net/power-circuit
+          whenUnsatisfiable: ScheduleAnyway
+          matchLabelKeys:
+            - pod-template-hash
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: verdify-traefik
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
