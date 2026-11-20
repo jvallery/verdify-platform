@@ -97,7 +97,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: traefik
-          image: registry.vallery.net/jvallery/mirror-docker-io-library-traefik:v3.7.17-68ae5fe5b64c@sha256:68ae5fe5b64ca166704b746a9e8afcd385e36b3f569a5691401bf652d57b3748
+          image: registry.vallery.net/jvallery/mirror-docker-io-library-traefik:v3.7.19-a6c0194dda77@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4
           args:
             - "--global.checknewversion=false"
             - "--global.sendanonymoususage=false"
