@@ -5,7 +5,7 @@
 # artifacts with S3-compatible object storage and writes the live public tree to
 # the lab cache PVC mounted at /work/publisher/public.
 
-FROM node:22-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS final
+FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS final
 
 # apt-get upgrade picks up Debian security fixes the base tag predates
 # (libbrotli1 +deb12u1, CVE-2026-111497).
@@ -24,7 +24,9 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
       util-linux \
     && rm -rf /var/lib/apt/lists/*
 
+RUN npm install --global npm@11.21.3 && npm cache clean --force
 RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip 'setuptools>=78.1.1' \
     && /opt/venv/bin/pip install --no-cache-dir \
       'asyncpg>=0.29,<1' \
       'httpx>=0.27,<1' \
@@ -60,7 +62,8 @@ RUN cp -a /app/site/quartz /app/site/docs \
     && chown -R 1000:1000 /opt/verdify-site /app /srv/verdify /mnt/iris /work
 
 RUN npm test -- quartz/plugins/transformers/grafana-defer.test.ts \
-    && node --test quartz/components/contact-verification.test.mjs
+    && node --test quartz/components/contact-verification.test.mjs \
+    && node --input-type=module -e "import toml from 'toml'; import sharp from 'sharp'; if (toml.parse('a = 1').a !== 1) process.exit(1); const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#000000' } }).png().toBuffer(); if (png.length < 8) process.exit(1); console.log('toml and sharp load')"
 
 USER 1000:1000
 ENV HOME=/home/node \
