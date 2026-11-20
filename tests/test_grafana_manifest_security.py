@@ -10,9 +10,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "deploy/k8s/components/grafana/grafana.yaml"
 SECRET_CONTRACT = ROOT / "deploy/k8s/SECRETS.md"
+# Grafana 12.4.15 (newest 12.4 patch), linux/amd64 custody copy (storage-infra#2455).
+# Rollback: 12.4.14-ae509d9ae8c1@sha256:ae509d9ae8c1021ca32ec370a9ca975d40165eda9fccd1e1102d317ff8787cd7.
 GRAFANA_IMAGE = (
-    "registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana:12.4.14-ae509d9ae8c1"
-    "@sha256:ae509d9ae8c1021ca32ec370a9ca975d40165eda9fccd1e1102d317ff8787cd7"
+    "registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana:12.4.15-e8e2751f6d83"
+    "@sha256:e8e2751f6d838529b13c5f876791404d0e2c35171f9638ee3ae56835e34226a9"
 )
 # Official upstream renderer v5.12.11 (chromium 156.0.8078.79), zot custody copy.
 # Rollback: the derived verdify-grafana-image-renderer@sha256:c297463ecad5... (#1113).
