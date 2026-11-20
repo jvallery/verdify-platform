@@ -98,7 +98,7 @@ def test_render_cache_runtime_is_pinned_unprivileged_and_credential_free():
     assert disruption_budget["spec"]["unhealthyPodEvictionPolicy"] == "AlwaysAllow"
     assert "minAvailable" not in disruption_budget["spec"]
     assert container["image"].startswith(
-        "registry.vallery.net/jvallery/mirror-docker-io-nginxinc-nginx-unprivileged:stable-alpine-slim-5d8bb9437d74@sha256:"
+        "registry.vallery.net/jvallery/mirror-docker-io-library-nginx:1.30.7-alpine-slim-8c950211a641@sha256:"
     )
     assert container["securityContext"]["readOnlyRootFilesystem"] is True
     assert container["securityContext"]["allowPrivilegeEscalation"] is False
