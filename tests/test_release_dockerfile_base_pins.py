@@ -39,6 +39,7 @@ PIP_FREE_RUNTIME_DOCKERFILES = (
     "ingestor/Dockerfile",
     "mcp/Dockerfile",
     "scripts/Dockerfile.setpoint-server",
+    "scripts/Dockerfile.lab-publisher",
 )
 
 

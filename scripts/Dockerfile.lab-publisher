@@ -46,6 +46,10 @@ COPY firmware/ /app/firmware/
 COPY verdify_schemas/ /app/verdify_schemas/
 COPY verdify_public/ /app/verdify_public/
 RUN /opt/venv/bin/python -c "import sys; sys.path.insert(0, '/app'); import verdify_public.output_policy"
+# pip is build-time only (no runtime script calls it). Its vendored setuptools
+# 70.3.0 (pip/_vendor/vendor.txt) is the image's only fixable HIGH
+# (CVE-2025-47273) after #1861; same treatment as the other runtimes (#1458).
+RUN /opt/venv/bin/python -m pip uninstall -y pip
 
 RUN cp -a /app/site/quartz /app/site/docs \
       /app/site/package.json /app/site/package-lock.json \
