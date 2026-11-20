@@ -54,13 +54,13 @@
     "hast-util-to-jsx-runtime": "^2.3.6",
     "hast-util-to-string": "^3.0.1",
     "is-absolute-url": "^5.0.0",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^4.3.2",
     "lightningcss": "^1.31.1",
     "mdast-util-find-and-replace": "^3.0.2",
     "mdast-util-to-hast": "^13.2.1",
     "mdast-util-to-string": "^4.0.0",
     "micromorph": "^0.4.5",
-    "minimatch": "^10.1.1",
+    "minimatch": "^10.2.6",
     "pixi.js": "^8.15.0",
     "preact": "^10.28.2",
     "preact-render-to-string": "^6.6.5",
@@ -85,16 +85,16 @@
     "rfdc": "^1.4.1",
     "satori": "^0.19.1",
     "serve-handler": "^6.1.6",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "shiki": "^1.26.2",
     "source-map-support": "^0.5.21",
     "to-vfile": "^8.0.0",
-    "toml": "^3.0.0",
+    "toml": "^5.0.1",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
     "vfile": "^6.0.3",
     "workerpool": "^10.0.1",
-    "ws": "^8.19.0",
+    "ws": "^8.23.0",
     "yargs": "^18.0.0"
   },
   "devDependencies": {
@@ -110,5 +110,17 @@
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.8.15",
+    "@isaacs/brace-expansion": "5.0.1",
+    "brace-expansion@1": "1.1.22",
+    "brace-expansion@2": "2.1.8",
+    "picomatch@2": "2.3.2",
+    "picomatch@4": "4.0.7",
+    "js-yaml@3": "3.15.2",
+    "minimatch@3": "3.1.5",
+    "immutable@5": "5.2.1",
+    "source-map-js": "1.2.4"
   }
 }
