@@ -11,7 +11,7 @@
 # COPY --from=: ADD, any other flag, a dollar sign or a backslash in a COPY rebuilds every image.
 # tests/test_dashboard_dockerfile.py enforces this.
 
-FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS build
+FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS build
 RUN npm install --global pnpm@12.15.0
 WORKDIR /app
 COPY dashboard/package.json dashboard/pnpm-lock.yaml dashboard/.npmrc ./
@@ -21,7 +21,7 @@ RUN pnpm build && pnpm prune --prod --ignore-scripts
 
 # Runtime provenance, as api/Dockerfile bakes it: the 40-hex GIT_SHA build argument, else the detached .git/HEAD the
 # managed clone checks out (the root .dockerignore admits only .git/HEAD). Anything else fails the build.
-FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS source-metadata
+FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS source-metadata
 ARG GIT_SHA=unknown
 COPY .git /tmp/verdify-git-metadata
 RUN set -eu; \
@@ -35,7 +35,7 @@ RUN set -eu; \
     printf '%s\n' "$candidate" > /out/source-revision; \
     chmod 0444 /out/source-revision
 
-FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
+FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/build ./build
