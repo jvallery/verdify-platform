@@ -339,12 +339,12 @@ images:
   - name: ghcr.io/verdifyconsultancy/verdify-setpoint-server
     newName: registry.vallery.net/verdifyconsultancy/verdify-setpoint-server
     digest: sha256:66e0b8ab0a01350e309a4faa873adb1e1f5acb1064e0d2e8e82c8f4b1c02458c
-  # Lab publisher: source dc22cd7368a4 (#1861 security rebuild: base e9f565d3, npm 11.21.3,
-  # setuptools >= 78.1.1, site dependency bumps), GHA build run 44706691694.
-  # Rollback: 68b24a5f603c (source 7cdddc3fb3be, run 42336369914).
+  # Lab publisher: source 126576bfac3f (#1864 drops build-only pip on top of the #1861
+  # security rebuild), GHA build run 44786385176.
+  # Rollback: df35dd707943 (source dc22cd7368a4, run 44706691694).
   - name: ghcr.io/verdifyconsultancy/verdify-lab-publisher-k3s
     newName: registry.vallery.net/verdifyconsultancy/verdify-lab-publisher-k3s
-    digest: sha256:df35dd7079438f1930648f6d62db8a4ede89e7e58be055f6d79c36e4cb94b6cd
+    digest: sha256:c0d5a2a05a3a556e6b099dbcd85515950f5601ec24d382639de90912ef37d1ca
 
 # Release pins: the digests production runs for the four actuator-managed
 # images. kustomize applies `transformers:` after `images:`, so these replace
