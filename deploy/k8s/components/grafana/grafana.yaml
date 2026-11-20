@@ -78,7 +78,7 @@ spec:
         # at init while the rolling strategy retains the old ready pod. CSS lives in
         # verdify-grafana-canvas-css (iterate there + rollout restart).
         - name: inject-canvas-css
-          image: registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana:12.4.14-ae509d9ae8c1@sha256:ae509d9ae8c1021ca32ec370a9ca975d40165eda9fccd1e1102d317ff8787cd7
+          image: registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana:12.4.15-e8e2751f6d83@sha256:e8e2751f6d838529b13c5f876791404d0e2c35171f9638ee3ae56835e34226a9
           command:
             - sh
             - -c
@@ -108,7 +108,7 @@ spec:
               readOnly: true
       containers:
         - name: grafana
-          image: registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana:12.4.14-ae509d9ae8c1@sha256:ae509d9ae8c1021ca32ec370a9ca975d40165eda9fccd1e1102d317ff8787cd7
+          image: registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana:12.4.15-e8e2751f6d83@sha256:e8e2751f6d838529b13c5f876791404d0e2c35171f9638ee3ae56835e34226a9
           ports:
             - name: http
               containerPort: 3000
