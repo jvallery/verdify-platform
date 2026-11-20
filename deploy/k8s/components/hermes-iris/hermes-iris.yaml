@@ -113,7 +113,7 @@ spec:
         # reconciled here. The learned skill/history and credentials are
         # retained. Uses the SAME upstream image (no extra pull).
         - name: seed-config
-          image: registry.vallery.net/verdifyconsultancy/verdify-hermes-agent@sha256:1fa1f16e8e3463452b390ad6d16b41bc673c41921eb0c37bdb4e8d0ffd5f40a8
+          image: registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac
           command: ["sh", "-c", "python3 /etc/verdify/iris-inventory/seed-inventory.py && cp -f /etc/verdify/hermes-config/config.yaml /opt/data/config.yaml && echo 'seeded /opt/data/config.yaml from verdify-hermes-iris-config'"]
           securityContext:
             runAsNonRoot: true
@@ -138,7 +138,7 @@ spec:
         - name: hermes-iris
           # UPSTREAM image (zot custody copy), digest PRESERVED from compose:363
           # (NOT rewritten by the overlay images: transformer).
-          image: registry.vallery.net/verdifyconsultancy/verdify-hermes-agent@sha256:1fa1f16e8e3463452b390ad6d16b41bc673c41921eb0c37bdb4e8d0ffd5f40a8
+          image: registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac
           # MUST be `args:`, NOT `command:`. The image ENTRYPOINT is
           # `tini -g -- /opt/hermes/docker/entrypoint.sh` (verified on the live VM
           # container 2026-06-07), and that entrypoint script is what resolves the
