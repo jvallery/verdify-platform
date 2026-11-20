@@ -313,13 +313,15 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
         # Renderer sidecar — same pod, reached at localhost:8081. Powers the
-        # /render/d-solo PNG embeds on lab.verdify.ai. #1113: the derived renderer
-        # (grafana/Dockerfile.image-renderer: upstream v5.12.10 plus Debian chromium
-        # 156.0.8078.79-1~deb13u1), built by build.yml run 42346225331 from main
-        # 74a2272f; hand-pinned, not transformer-rewritten.
-        # Rollback: registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana-image-renderer:v5.12.9-24df1663f600@sha256:24df1663f600abc6daa8ef006a0749c1d8f532e43a4542baf55ba15c5a3eaeac
+        # /render/d-solo PNG embeds on lab.verdify.ai. Official upstream
+        # grafana/grafana-image-renderer v5.12.11 (index cfa6c8f6, chromium
+        # 156.0.8078.79), zot custody copy (storage-infra#2377). It meets the #1113
+        # retirement condition (upstream chromium >= 156.0.8078.73), so the derived
+        # re-base is no longer pinned (D-880: latest upstream, no forks).
+        # Hand-pinned, not transformer-rewritten.
+        # Rollback: the derived build registry.vallery.net/verdifyconsultancy/verdify-grafana-image-renderer@sha256:c297463ecad53cc67a6058791cab010bde83d45b9fc9069ea34156fedd69b2d9
         - name: renderer
-          image: registry.vallery.net/verdifyconsultancy/verdify-grafana-image-renderer@sha256:c297463ecad53cc67a6058791cab010bde83d45b9fc9069ea34156fedd69b2d9
+          image: registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana-image-renderer:v5.12.11-cfa6c8f63e6d@sha256:cfa6c8f63e6d626f90208f2880f15bd5facc279daec1b9bb642af07aa850d95e
           ports:
             - name: renderer
               containerPort: 8081
