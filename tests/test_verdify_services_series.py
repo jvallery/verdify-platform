@@ -781,7 +781,7 @@ def test_the_2026_11_01_band_reads_74_92_to_84_92_with_the_crop_band():
     def crop(steps):
         return [{"ts": t, "temp_low": 74.97, "temp_high": 84.97, "vpd_low": 0.8732, "vpd_high": 1.3032} for t in steps]
 
-    conn = FakeConnection([("DISTINCT ON (band_role)", []), ("fn_band_setpoints", crop), ("setpoint_snapshot", rows)])
+    conn = FakeConnection([("DISTINCT ON (band_role)", []), ("fn_solar_phase", crop), ("setpoint_snapshot", rows)])
     result = run(s.band(conn, from_, to, now=NOW))
     assert result.step_s == 300 and len(result.t) == 24
     index = result.t.index(int(bucket.timestamp()))
@@ -813,9 +813,10 @@ def test_band_parameters_are_the_names_emit_band_audit_writes():
 
 
 def test_the_house_needs_no_widths_and_a_zone_outside_the_list_is_refused():
-    conn = FakeConnection([("fn_band_setpoints", lambda steps: [])])
+    conn = FakeConnection([("fn_solar_phase", lambda steps: [])])
     run(s.band(conn, NOW - timedelta(hours=1), NOW, now=NOW))
-    assert not any("crop_band_anchors" in sql or "fn_zone_vpd_targets" in sql for sql, _ in conn.fetches)
+    # The crop band reads the house anchors' values (#1814), never a width or a zone target.
+    assert not any("width_" in sql or "fn_zone_vpd_targets" in sql for sql, _ in conn.fetches)
     assert code_of(s.band(conn, NOW - timedelta(hours=1), NOW, "north", now=NOW)) == ("invalid_request", 400)
     # Release C retired the zone bands: a zone that API-06 served before is refused like any other.
     assert code_of(s.band(conn, NOW - timedelta(hours=1), NOW, "south", now=NOW)) == ("invalid_request", 400)
@@ -823,11 +824,11 @@ def test_the_house_needs_no_widths_and_a_zone_outside_the_list_is_refused():
 
 def test_band_skips_the_rows_query_past_retention_and_still_reconstructs_the_crop_band():
     to = NOW - timedelta(days=100)
-    conn = FakeConnection([("fn_band_setpoints", lambda steps: [])])
+    conn = FakeConnection([("fn_solar_phase", lambda steps: [])])
     result = run(s.band(conn, to - timedelta(days=1), to, now=NOW))
     assert all(value is None for value in result.band.temp_low)
     assert [sql for sql, _ in conn.fetches if "time_bucket_gapfill" in sql] == []
-    assert any("fn_band_setpoints" in sql for sql, _ in conn.fetches)
+    assert any(sql == s.CROP_SQL for sql, _ in conn.fetches)
     assert code_of(s.band(conn, NOW - timedelta(days=401), NOW, now=NOW)) == ("window_too_large", 422)
 
 

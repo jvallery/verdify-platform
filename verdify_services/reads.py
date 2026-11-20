@@ -933,8 +933,10 @@ SELECT e.entity, s.value, s.ts
                       ORDER BY ts DESC LIMIT 1) AS s ON true
 """
 
-# API-21. Neither view has an inner time bound, so each statement filters by day and reads the whole ledger beneath
-# it: about 2 s and 1.5 s for 90 days on production's 15 months of rows (2026-11-02), inside the 10 s limit.
+# API-21. Neither view has an inner time bound, so a statement filtered by day reads the whole ledger beneath it.
+# The meter's day quality needs the materializer's watermark (water_meter_materializer_state), which the dashboard
+# login reads only through v_water_meter_daily, so this statement stays on the view: about 1.9 s for 30 days on
+# production's 15 months of rows (2026-11-17, #1814), inside the 10 s limit.
 _WATER_METER_SQL = """
 SELECT (day AT TIME ZONE 'America/Denver')::date AS date, quality, round(used_gal::numeric)::integer AS gal
   FROM v_water_meter_daily
@@ -943,10 +945,21 @@ SELECT (day AT TIME ZONE 'America/Denver')::date AS date, quality, round(used_ga
    AND day < ($3::date + 1)::timestamp AT TIME ZONE 'America/Denver'
 """
 
+# v_water_attribution_daily's manual_or_unattributed_gal (v_water_event_attribution's delta rows of good quality),
+# with the bound inside: one row per day of the window, 0 for a day with none, as the view coalesces it for every day
+# the meter view has. A day the meter view lacks is no_data and never reads this. The view filtered by day took
+# 0.74 s for 30 days; this takes about 2 ms (#1814).
 _WATER_NO_VALVE_SQL = """
-SELECT date, round(manual_or_unattributed_gal::numeric)::integer AS gal
-  FROM v_water_attribution_daily
- WHERE greenhouse_id = $1 AND date >= $2::date AND date <= $3::date
+SELECT d.date::date AS date,
+       round(COALESCE(round(sum(e.delta_gal) FILTER (
+           WHERE COALESCE(e.attribution_class, 'manual_or_unattributed') = 'manual_or_unattributed')::numeric,
+           3)::double precision, 0)::numeric)::integer AS gal
+  FROM generate_series($2::date, $3::date, interval '1 day') AS d(date)
+  LEFT JOIN water_meter_events AS e
+    ON e.greenhouse_id = $1 AND e.event_type = 'delta' AND e.quality_flag = 'ok'
+   AND e.ts >= d.date::date::timestamp AT TIME ZONE 'America/Denver'
+   AND e.ts < (d.date::date + 1)::timestamp AT TIME ZONE 'America/Denver'
+ GROUP BY d.date
 """
 
 # M4's reader for v_irrigation_minutes_daily's rows, with its equipment_state scan bounded by the days.
