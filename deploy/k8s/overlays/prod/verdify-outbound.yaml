@@ -101,7 +101,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: relay
-        image: registry.vallery.net/jvallery/mirror-docker-io-nginxinc-nginx-unprivileged:stable-alpine-slim-5d8bb9437d74@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6
+        image: registry.vallery.net/jvallery/mirror-docker-io-library-nginx:1.30.7-alpine-slim-8c950211a641@sha256:8c950211a641ec5b23f265450517001f6bcca533666120ebe36cb4cff3d00a55
         command:
         - nginx
         - -g
@@ -143,6 +143,8 @@ spec:
           mountPath: /tmp
         - name: cache
           mountPath: /var/cache/nginx
+        - name: run
+          mountPath: /run
       volumes:
       - name: config
         configMap:
@@ -153,6 +155,9 @@ spec:
       - name: cache
         emptyDir:
           sizeLimit: 16Mi
+      - name: run
+        emptyDir:
+          sizeLimit: 1Mi
 ---
 apiVersion: v1
 kind: Service

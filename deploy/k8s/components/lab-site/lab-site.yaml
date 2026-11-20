@@ -8,8 +8,9 @@
 #
 # RUNTIME / PORT (load-bearing): the Quartz output is plain static HTML served by
 # nginx. To preserve the non-root posture used across the web tier (runAsNonRoot,
-# readOnlyRootFilesystem, drop ALL caps) the image MUST run nginx-unprivileged and
-# LISTEN ON 8080 — NOT the privileged :80 the in-repo site/nginx.conf currently
+# readOnlyRootFilesystem, drop ALL caps) nginx runs as a non-root UID (the
+# official nginx 1.30.7 image; pid in an emptyDir /run, temp paths in
+# /var/cache/nginx) and must LISTEN ON 8080 — NOT the privileged :80 the in-repo site/nginx.conf currently
 # uses. The pinned generic nginx runtime is content-free; the ConfigMap below
 # owns the static-site location/try_files rules. The container :8080 + Service
 # targetPort + probe all stay in lockstep on 8080, the same contract Traefik's
@@ -155,7 +156,7 @@ spec:
           # Content-free runtime, pinned by digest. The validated cache and ConfigMap are
           # the only content/config authority; no Astro or baked Quartz payload
           # exists in this container to replace the published site accidentally.
-          image: registry.vallery.net/jvallery/mirror-docker-io-nginxinc-nginx-unprivileged:stable-alpine-slim-5d8bb9437d74@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6
+          image: registry.vallery.net/jvallery/mirror-docker-io-library-nginx:1.30.7-alpine-slim-8c950211a641@sha256:8c950211a641ec5b23f265450517001f6bcca533666120ebe36cb4cff3d00a55
           ports:
             - name: http
               containerPort: 8080
@@ -184,7 +185,7 @@ spec:
             - name: nginx-cache
               mountPath: /var/cache/nginx
             - name: nginx-run
-              mountPath: /var/run
+              mountPath: /run
             - name: nginx-config
               mountPath: /etc/nginx/conf.d/default.conf
               subPath: default.conf
