@@ -26,11 +26,14 @@ _MCP_STUB_MODULES = ("mcp", "mcp.server", "mcp.server.fastmcp")
 ACTIVE_PLANNER_MODEL_LABEL = "hermes-iris/custom:gpt-6-luna/xhigh"
 
 
-# #1363: the zot custody copy of the unchanged upstream digest.
+# #1458 (D-880): the zot custody copy of official upstream hermes-agent v0.23.3
+# (amd64 manifest of index 3e9fe4c6; storage-infra#2357), no derived re-base.
 HERMES_IMAGE = (
-    "registry.vallery.net/verdifyconsultancy/verdify-hermes-agent"
-    "@sha256:1fa1f16e8e3463452b390ad6d16b41bc673c41921eb0c37bdb4e8d0ffd5f40a8"
+    "registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent"
+    "@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac"
 )
+# v0.23.3's s6 /init and wrappers refuse UID 1000, so the pod exec's the venv binary.
+HERMES_COMMAND = ["/opt/hermes/.venv/bin/hermes"]
 
 
 def _install_fastmcp_test_stub() -> None:
@@ -1108,6 +1111,9 @@ def test_rendered_prod_hermes_supervision_preserves_singleton_exact_pin_and_both
     assert workload["spec"]["strategy"]["type"] == "Recreate"
     assert container["image"] == expected_digest
     assert init_by_name["seed-config"]["image"] == expected_digest
+    assert container["command"] == HERMES_COMMAND
+    assert container["args"] == ["gateway", "run"]
+    assert env_by_name["HOME"] == "/opt/data"
     assert readiness == {
         "exec": {"command": ["python3", "/etc/verdify/hermes-config/tool-readiness.py", "--mode", "readiness"]},
         "failureThreshold": 1,

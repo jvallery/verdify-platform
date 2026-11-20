@@ -7,13 +7,13 @@
 # in-cluster), but its run state + OpenAI key make it a prod-anchored gateway;
 # prod is its canonical home.
 #
-# IMAGE DIGEST PRESERVED (NOT transformer-rewritten): the image is
-# verdifyconsultancy/verdify-hermes-agent (hermes/Dockerfile.hermes-agent), the
-# upstream nousresearch/hermes-agent a7111ab1...aec72e plus Debian security
-# updates (#1458), built by build.yml run 42349735728. Rollback: the upstream
-# custody copy jvallery/mirror-docker-io-nousresearch-hermes-agent:pinned-a7111ab1cc43
-# @sha256:a7111ab1cc43b5a1bc76090a505d6462aa1af4b43f603f0113bf5eb121aec72e
-# (#1363; Hermes stays per Jason 2026-11-06). It is NOT a ghcr.io/verdifyconsultancy/* app image, so the overlay
+# IMAGE DIGEST PRESERVED (NOT transformer-rewritten): the image is the official
+# upstream nousresearch/hermes-agent v0.23.3 (amd64 41468459 of index 3e9fe4c6),
+# zot custody copy jvallery/mirror-docker-io-nousresearch-hermes-agent
+# (storage-infra#2357; D-880: latest upstream, no derived re-base, #1458).
+# Rollback: the previous derived build
+# verdifyconsultancy/verdify-hermes-agent@sha256:1fa1f16e8e34... (an exact sync of
+# this Deployment at d9c30b36). It is NOT a ghcr.io/verdifyconsultancy/* app image, so the overlay
 # images: transformer (which only matches the verdify-* names) leaves it
 # untouched. The digest is unchanged; the @sha256 decides what runs.
 #
@@ -113,7 +113,7 @@ spec:
         # reconciled here. The learned skill/history and credentials are
         # retained. Uses the SAME upstream image (no extra pull).
         - name: seed-config
-          image: registry.vallery.net/verdifyconsultancy/verdify-hermes-agent@sha256:1fa1f16e8e3463452b390ad6d16b41bc673c41921eb0c37bdb4e8d0ffd5f40a8
+          image: registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac
           command: ["sh", "-c", "python3 /etc/verdify/iris-inventory/seed-inventory.py && cp -f /etc/verdify/hermes-config/config.yaml /opt/data/config.yaml && echo 'seeded /opt/data/config.yaml from verdify-hermes-iris-config'"]
           securityContext:
             runAsNonRoot: true
@@ -138,16 +138,16 @@ spec:
         - name: hermes-iris
           # UPSTREAM image (zot custody copy), digest PRESERVED from compose:363
           # (NOT rewritten by the overlay images: transformer).
-          image: registry.vallery.net/verdifyconsultancy/verdify-hermes-agent@sha256:1fa1f16e8e3463452b390ad6d16b41bc673c41921eb0c37bdb4e8d0ffd5f40a8
-          # MUST be `args:`, NOT `command:`. The image ENTRYPOINT is
-          # `tini -g -- /opt/hermes/docker/entrypoint.sh` (verified on the live VM
-          # container 2026-06-07), and that entrypoint script is what resolves the
-          # `gateway` binary onto PATH. Setting k8s `command:` OVERRIDES the
-          # ENTRYPOINT, so the kubelet exec'd `gateway` directly and crashed with
-          # `exec: "gateway": executable file not found in $PATH`
-          # (CrashLoopBackOff, verified verdify-prod 2026-06-07). `args:` maps to
-          # Docker CMD (compose had Cmd=`gateway run`), preserving the entrypoint.
-          # Lane-3 fix — this is NOT a NetworkPolicy/DB issue (hermes has no DB dep).
+          image: registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac
+          # v0.23.3 ENTRYPOINT is /opt/hermes/docker/entrypoint-dispatch.sh, which
+          # exec's s6-overlay /init; its stage2-hook.sh and main-wrapper.sh exit 1
+          # unless the UID is 0 or the image's hermes user (10000). This pod runs
+          # as 1000 (the PVC owner) with a read-only root, so `command:` bypasses
+          # s6 and the wrappers and exec's the sealed venv binary by absolute path
+          # (the same final exec main-wrapper.sh does). HOME is set explicitly
+          # below because UID 1000 has no passwd entry in this image. Do not use
+          # a bare `gateway` command (2026-06-07 CrashLoop: not on PATH).
+          command: ["/opt/hermes/.venv/bin/hermes"]
           args: ["gateway", "run"]
           ports:
             - name: gateway
@@ -160,6 +160,11 @@ spec:
             - secretRef:
                 name: verdify-hermes
           env:
+            # main-wrapper.sh exports HOME=/opt/data before its exec; the explicit
+            # command above skips the wrapper, so set it here (UID 1000 has no
+            # passwd entry, and libraries resolve state paths from $HOME).
+            - name: HOME
+              value: /opt/data
             # Preserve the accepted in-cluster API listener explicitly. The
             # upstream fallback binds loopback when profile extra.host is absent.
             - name: API_SERVER_HOST
