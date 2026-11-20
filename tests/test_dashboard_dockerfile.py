@@ -112,6 +112,14 @@ def test_every_from_is_digest_pinned_or_names_an_earlier_stage():
     assert external == [NODE_BASE, NODE_BASE, NODE_BASE]
 
 
+def test_runtime_base_takes_security_updates_and_drops_npm():
+    stages = {stage["name"]: stage for stage in _stages(_text())}
+    runtime = " ".join(stages["runtime-base"]["lines"])
+    assert "apt-get -y upgrade" in runtime
+    assert "rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack" in runtime
+    assert _stages(_text())[-1]["base"] == "runtime-base"
+
+
 def test_final_stage_runs_as_a_numeric_non_root_user_from_build_outputs_only():
     final = _stages(_text())[-1]
     users = [line.split()[1] for line in final["lines"] if _keyword(line) == "USER"]

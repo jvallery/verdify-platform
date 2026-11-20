@@ -35,7 +35,20 @@ RUN set -eu; \
     printf '%s\n' "$candidate" > /out/source-revision; \
     chmod 0444 /out/source-revision
 
-FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c
+# Runtime base (R2, AMC campaign 2026-11-20): the Debian security updates the node image lags behind (apt 2.6.2 is
+# only in bookworm-security), and no npm or corepack: the server runs `node server.mjs` and never installs, so the
+# copies bundled with the node image (undici, brace-expansion) only carried findings.
+FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS runtime-base
+RUN set -eu; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get -y upgrade; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*; \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack; \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack; \
+    node --version
+
+FROM runtime-base
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/build ./build
