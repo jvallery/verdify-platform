@@ -13,6 +13,11 @@ data:
   default.conf: |
     # Fixed destinations only: incoming Host/URI cannot select an upstream host.
     access_log off;
+    # A missing upstream header time distinguishes failures before response headers.
+    log_format forecast_upstream escape=json
+      '{"status":"$status","upstream_status":"$upstream_status",'
+      '"upstream_connect_time":"$upstream_connect_time","upstream_header_time":"$upstream_header_time",'
+      '"upstream_response_time":"$upstream_response_time"}';
     error_log /dev/stderr crit;
     resolver 10.43.0.10 valid=30s ipv6=off;
     resolver_timeout 5s;
@@ -31,6 +36,7 @@ data:
       listen 8083;
       server_name _;
       location = /v1/forecast {
+        access_log /dev/stdout forecast_upstream;
         limit_except GET { deny all; }
         proxy_set_header Host api.open-meteo.com;
         proxy_set_header X-Forwarded-Host "";
@@ -76,7 +82,7 @@ spec:
         app.kubernetes.io/part-of: verdify
         app.kubernetes.io/component: outbound
       annotations:
-        verdify.ai/outbound-config-sha256: 52228f9991a93d6709af6362debebeac822cf599fc630bfa4f61ed3143cf33b1
+        verdify.ai/outbound-config-sha256: f81f86d3f8b74ce412cbeb2a36fde5e763515c407c46f07d8b31ba9fb04ea8e5
     spec:
       # #1363: the zot origin denies anonymous reads.
       imagePullSecrets:

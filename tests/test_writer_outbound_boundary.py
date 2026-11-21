@@ -3,7 +3,9 @@
 # Imported pytest fixture is intentionally reused by the tests below.
 # ruff: noqa: F811
 
+import hashlib
 import ipaddress
+import re
 
 import pytest
 from test_mcp_egress_boundary import allowed, rendered, selected  # noqa: F401
@@ -110,6 +112,24 @@ def test_relay_has_fixed_tls_destinations_and_never_logs_credentials(rendered):
     # The cross-signed Open-Meteo chain requires two intermediates.
     assert "proxy_ssl_verify_depth 3;" in conf
     assert "access_log off;" in conf and "error_log /dev/stderr crit;" in conf
+    # Keep request data out of relay logs and inherit access_log off everywhere else.
+    assert re.findall(r"\baccess_log\s+([^;]+);", conf) == ["off", "/dev/stdout forecast_upstream"]
+    assert re.search(r"location = /v1/forecast \{\s*access_log /dev/stdout forecast_upstream;", conf)
+    log_format = re.search(r"\blog_format forecast_upstream escape=json\s+([^;]+);", conf)
+    assert log_format is not None
+    assert set(re.findall(r"\$\{?(\w+)", log_format[1])) == {
+        "status",
+        "upstream_status",
+        "upstream_connect_time",
+        "upstream_header_time",
+        "upstream_response_time",
+    }
+    # The subPath mount picks up a new config only after the rollout.
+    deployment = next(
+        x for x in rendered if x and x["kind"] == "Deployment" and x["metadata"]["name"] == "verdify-outbound"
+    )
+    annotations = deployment["spec"]["template"]["metadata"]["annotations"]
+    assert annotations["verdify.ai/outbound-config-sha256"] == hashlib.sha256(conf.encode()).hexdigest()
     for host, path in [
         ("api.open-meteo.com", "/v1/forecast"),
     ]:
