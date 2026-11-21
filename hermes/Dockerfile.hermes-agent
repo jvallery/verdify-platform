@@ -1,13 +1,23 @@
 # Derived Hermes agent image (#1458): the exact upstream nousresearch/hermes-agent digest
 # verdify-hermes-iris runs today, with Debian trixie's security updates applied. No newer
 # upstream build of this release exists (the digest is untagged upstream), and taking a
-# newer hermes-agent release would change planner behaviour. The application layers are
-# unchanged; only installed Debian packages move to their trixie/trixie-security
-# versions (perl 5.40.1-6+deb13u1 and the other fixable package advisories).
+# newer hermes-agent release would change planner behaviour. Apply security fixes
+# to the Debian packages, runtime tools, and Python and Node dependencies.
 #
 # Built by .github/workflows/build.yml (job hermes-agent) into
 # registry.vallery.net/verdifyconsultancy/verdify-hermes-agent. The image pin in
 # deploy/k8s/components/hermes-iris/hermes-iris.yaml is a hand-edited digest.
+
+FROM docker.io/library/golang:1.27.4-trixie@sha256:f18c3d73a184fb0582828510722e723b63a93f7188d11dd223d9be6f6880e65d AS go-fix
+# Rebuild the two original releases so the JS esbuild API and gosu CLI stay compatible.
+ENV GOTOOLCHAIN=local CGO_ENABLED=0 GOBIN=/out GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
+RUN go install -trimpath github.com/tianon/gosu@v0.0.0-20250923190938-6456aaa0f3c8 \
+    && go install -trimpath github.com/evanw/esbuild/cmd/esbuild@v0.25.12 \
+    && go version -m /out/gosu | grep -Eq '^/out/gosu:[[:space:]]+go1[.]27[.]4$' \
+    && go version -m /out/esbuild | grep -Eq '^/out/esbuild:[[:space:]]+go1[.]27[.]4$'
+
+FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv-fix
+
 FROM nousresearch/hermes-agent@sha256:a7111ab1cc43b5a1bc76090a505d6462aa1af4b43f603f0113bf5eb121aec72e
 
 USER root
@@ -17,3 +27,51 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends upgrade \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge 5.40.1-6+deb13u1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Fix the three signed Critical Python findings in the existing Hermes venv.
+# Use verified PyPI wheels and leave the rest of the upstream lock installed.
+RUN printf '%s\n' \
+      'PyJWT==2.14.0 --hash=sha256:ad0cef71c756a56e74863c2919cf0985f72decbcfcb550ee2f422e7c62b5eedc' \
+      'anyio==4.14.2 --hash=sha256:9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494' \
+      'certifi==2026.10.18 --hash=sha256:73191c47aaa79da394e8fee2dbc2ec827432cab56311122c9e47abf79e390f62' \
+      > /tmp/hermes-security-requirements.txt \
+    && /usr/local/bin/uv --no-cache pip install --python /opt/hermes/.venv/bin/python \
+      --no-deps --only-binary :all: --require-hashes -r /tmp/hermes-security-requirements.txt \
+    && /usr/local/bin/uv --no-cache pip check --python /opt/hermes/.venv/bin/python \
+    && rm -f /tmp/hermes-security-requirements.txt
+
+# The uv 0.13.7 release removes the affected zip crate (CVE-2026-115905).
+COPY --from=uv-fix /uv /uvx /usr/local/bin/
+RUN uv --version | grep -Eq '^uv 0[.]13[.]7( |$)' \
+    && uvx --version | grep -Eq '^uvx 0[.]13[.]7( |$)' \
+    && uv --no-cache pip check --python /opt/hermes/.venv/bin/python
+
+# Update the npm trees that contain proxy-addr and sanitize-html, then rebuild
+# the static dashboard so it also contains the fixed sanitizer.
+COPY ci/patch-hermes-node-dependencies.cjs /tmp/patch-node-dependencies.cjs
+RUN node /tmp/patch-node-dependencies.cjs \
+    && chown -R hermes:hermes /opt/hermes/node_modules/proxy-addr \
+    && chown hermes:hermes /opt/hermes/package.json /opt/hermes/package-lock.json \
+        /opt/hermes/node_modules/.package-lock.json \
+        /opt/hermes/web/package.json /opt/hermes/web/package-lock.json \
+    && rm /tmp/patch-node-dependencies.cjs
+
+# Replace all three copies identified with CVE-2025-68121.
+COPY --from=go-fix /out/gosu /usr/local/bin/gosu
+COPY --from=go-fix /out/esbuild /tmp/hermes-esbuild
+RUN set -eu; \
+    modules=/opt/hermes/ui-tui/packages/hermes-ink/node_modules; \
+    platform="$modules/@esbuild/linux-$(node -p process.arch)/bin/esbuild"; \
+    wrapper="$modules/esbuild/bin/esbuild"; \
+    test -x "$platform"; \
+    test -x "$wrapper"; \
+    install -m 0755 -o hermes -g hermes /tmp/hermes-esbuild "$platform"; \
+    install -m 0755 -o hermes -g hermes /tmp/hermes-esbuild "$wrapper"; \
+    test "$("$platform" --version)" = 0.25.12; \
+    test "$("$wrapper" --version)" = 0.25.12; \
+    gosu --version | grep -Eq '^1[.]19 [(]go1[.]27[.]4 '; \
+    rm /tmp/hermes-esbuild
+
+# Qualification-only checks for the protected no-push build.
+COPY ci/hermes-buildcheck-smoke.sh /tmp/hermes-buildcheck-smoke.sh
+RUN sh /tmp/hermes-buildcheck-smoke.sh && rm /tmp/hermes-buildcheck-smoke.sh
