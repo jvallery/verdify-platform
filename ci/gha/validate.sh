@@ -59,11 +59,17 @@ else
   case "${VALIDATE_PART:-all}" in all | containment-firmware) sim_full=1 ;; esac
   if [ "$sim_full" = 1 ]; then
     export CLIMATE_LAW_SIM=full CLIMATE_LAW_SIM_RECEIPT="$impact/climate_law_sim.receipt"
+    # Qualification-only selector. Keep this line off the release and diagnostic branches.
+    if [ "${VALIDATE_PART:-}" = containment-firmware ]; then export CLIMATE_LAW_WEAR_RECEIPT="$impact/fan_wear.json"; fi
   fi
   bash scripts/ci-local.sh
   if [ "$sim_full" = 1 ]; then
     grep -q '^mode=full ' "$CLIMATE_LAW_SIM_RECEIPT" 2>/dev/null \
       || { echo "climate law simulation: the full-year run did not execute (no receipt)" >&2; exit 1; }
     cat "$CLIMATE_LAW_SIM_RECEIPT"
+    if [ -n "${CLIMATE_LAW_WEAR_RECEIPT:-}" ]; then
+      test -s "$CLIMATE_LAW_WEAR_RECEIPT" || { echo "fan wear qualification: no receipt" >&2; exit 1; }
+      cat "$CLIMATE_LAW_WEAR_RECEIPT"
+    fi
   fi
 fi
