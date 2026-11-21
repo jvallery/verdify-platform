@@ -48,6 +48,8 @@ DASHBOARD_LOGIN = "verdify_dashboard_runtime_login"
 ATTEST_SQL = "SELECT current_user = session_user AND verdify_dashboard_runtime.fn_attest_login()"
 DEFAULT_KEY_FILE = "/vcortex-brief/api_key.txt"
 DEADLINE_S = 90.0
+CONNECT_TIMEOUT_S = 5.0
+CONNECT_RETRY_DELAY_S = 15.0
 MAX_TOKENS = 300
 SEED = 1346
 FORECAST_HOURS = 12
@@ -401,14 +403,25 @@ class Answer:
 async def call_cortex(
     base_url: str, key: str, body: Mapping[str, Any], http: httpx.AsyncClient | None = None
 ) -> Answer:
-    client = http or httpx.AsyncClient(timeout=httpx.Timeout(DEADLINE_S, connect=10.0))
+    client = http or httpx.AsyncClient()
     started = time.monotonic()
     try:
-        response = await client.post(
-            f"{base_url.rstrip('/')}/chat/completions",
-            json=body,
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        )
+        for attempt in range(2):
+            try:
+                response = await client.post(
+                    f"{base_url.rstrip('/')}/chat/completions",
+                    json=body,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    timeout=httpx.Timeout(DEADLINE_S, connect=CONNECT_TIMEOUT_S),
+                )
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                if attempt == 1:
+                    raise
+                # HTTPX reports these before sending the request. The delay spans the 12 s pod-start dwell
+                # even if the first connect fails immediately.
+                LOG.info("retrying Cortex connect after %s", type(exc).__name__)
+                await asyncio.sleep(CONNECT_RETRY_DELAY_S)
     except httpx.HTTPError as exc:
         return Answer(None, int((time.monotonic() - started) * 1000), None, None, f"transport: {type(exc).__name__}")
     finally:
