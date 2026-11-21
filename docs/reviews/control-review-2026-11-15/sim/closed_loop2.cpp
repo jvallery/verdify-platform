@@ -23,6 +23,7 @@
 #include <cstring>
 #include <ctime>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@
 #include "greenhouse_solar.h"
 #include "greenhouse_logic.h"
 #include "band_edge_controller.h"
+#include "fan_wear_experiment.h"
 
 namespace phys {
 #include "physics.h"
@@ -352,7 +354,7 @@ struct Acc {
   double pre_min = 0;                             // minutes with a pre-staging request active
 };
 
-static void emit(FILE* f, const char* scen, const char* key, const Acc& a) {
+static void emit(FILE* f, const char* scen, const char* key, const Acc& a, int fan_precision) {
   if (a.n <= 0) return;
   auto pct = [](double x, double n) { return n > 0 ? 100.0 * x / n : NAN; };
   const double h1 = a.on_min[R_H1] / 60, h2 = a.on_min[R_H2] / 60, fans = (a.on_min[R_F1] + a.on_min[R_F2]) / 60,
@@ -364,14 +366,15 @@ static void emit(FILE* f, const char* scen, const char* key, const Acc& a) {
   const double days = a.n / 1440.0;
   std::fprintf(f,
                "%s,%s,%.1f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.3f,%.4f,"
-               "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.3f,%.1f,%.2f,%.2f,%.2f,%.3f,%.3f,%.2f,"
+               "%.2f,%.2f,%.*f,%.*f,%.2f,%.2f,%.2f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.3f,%.1f,%.2f,%.2f,%.2f,%.3f,%.3f,%.2f,"
                "%.2f,%.2f,%.2f,%.2f,%.2f,%.0f,%.2f,%.1f,"
                "%.2f,%.3f,%.3f,%.2f,%.2f,%.2f,%.2f,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f\n",
                scen, key, days, pct(a.t_in, a.n), pct(a.t_lo, a.n), pct(a.t_hi, a.n), pct(a.v_in, a.n), pct(a.v_lo, a.n),
                pct(a.v_hi, a.n), pct(a.both, a.n), pct(a.t_in_d, a.n_day), pct(a.v_in_d, a.n_day), pct(a.both_d, a.n_day),
                pct(a.t_in_n, a.n_night), pct(a.v_in_n, a.n_night), pct(a.both_n, a.n_night), pct(a.v_lo_n, a.n_night),
                a.t_err / a.n, a.v_err / a.n,
-               h1 / days, h2 / days, a.on_min[R_F1] / 60 / days, a.on_min[R_F2] / 60 / days, vent / days, fog / days, mc / days,
+               h1 / days, h2 / days, fan_precision, a.on_min[R_F1] / 60 / days, fan_precision, a.on_min[R_F2] / 60 / days,
+               vent / days, fog / days, mc / days,
                a.starts[R_H1] / days, a.starts[R_H2] / days, a.starts[R_F1] / days, a.starts[R_VENT] / days,
                a.starts[R_FOG] / days, a.starts[R_MC] / days,
                kwh / days, therms / days, gal / days, a.tmin, a.tmax, a.sum_t / a.n, a.sum_v / a.n,
@@ -470,6 +473,11 @@ int main(int argc, char** argv) {
   }
   if (!cfgb("edge.dry", true)) { E.k.d_on = -9.0; E.k.d_off = -8.9; E.k.d2_on = 99.0; }   // never dry with outdoor air (the reference for its cost)
   const int mist_zones = (int)cfgd("edge.mist_zones", 3);       // misters opted in for VPD control: 0, 1 (centre) or 3
+  const double fan_wear_window_s = cfgd("edge.fan_wear_window_s", 0);
+  if (!std::isfinite(fan_wear_window_s) || fan_wear_window_s < 0 || std::floor(fan_wear_window_s) != fan_wear_window_s) {
+    std::fprintf(stderr, "edge.fan_wear_window_s requires finite nonnegative whole seconds\n");
+    return 2;
+  }
   const bool lead_by_runtime = cfgb("edge.lead_by_runtime", true);   // true: the relay layer picks the lead (AB8 alternation); false: fan 1 always leads
   // ---- forecast pre-staging, perfect foresight (an upper bound): future outdoor extremes read from the forcing itself
   const double pre_heat_delta = cfgd("pre.heat_delta_f", NAN);  // pre-heat when min(low-edge anchors) - forecast min outdoor > this
@@ -528,6 +536,17 @@ int main(int argc, char** argv) {
   double water_today = 0; int last_day = -1;
   const bool is_fw = (ctrl == "fw"), is_edge = (ctrl == "edge");
   bool lead1 = true; int zone = 0;                 // edge relay layer: which fan leads; which mister zone pulses next
+  std::optional<FanWearExperiment> fan_wear;
+  if (fan_wear_window_s > 0 && is_edge && lead_by_runtime) fan_wear.emplace(fan_wear_window_s);
+  std::optional<FanWearExperiment> fan_start_shadow;
+  std::map<std::string, unsigned> fan_start_counts;
+  if (CFG.count("fan_start_shadow")) {
+    if (!is_edge || !lead_by_runtime || fan_wear || dt != 5.0) {
+      std::fprintf(stderr, "fan_start_shadow requires strict edge control and a 5-second step\n");
+      return 2;
+    }
+    fan_start_shadow.emplace(3600);
+  }
   bool led_once = false, last_led1 = true;         // AB8: which fan actually led the last fan episode
 
   std::map<std::string, Acc> acc;
@@ -537,10 +556,24 @@ int main(int argc, char** argv) {
     std::fprintf(trace, "epoch_s,temp_f,vpd,rh,w,mode,heat1,heat2,fan1,fan2,fog,vent,mister,tlo,thi,vlo,vhi,out_temp_f,night,scored\n");
   }
   const bool replay = (ctrl == "replay");
+  FILE* fan_events = nullptr;
+  if (CFG.count("fan_events")) {
+    if (replay || dt != 5.0) {
+      std::fprintf(stderr, "fan_events requires simulated relays and a 5-second step\n");
+      return 2;
+    }
+    fan_events = std::fopen(CFG["fan_events"].c_str(), "w");
+    if (!fan_events) { std::fprintf(stderr, "cannot open fan_events output\n"); return 2; }
+    std::fputs("epoch_s,state,scored\n", fan_events);
+  }
+  int last_fan_sample = -1;
+  double fan_events_end = t_start;
 
   for (int64_t i = 0; i < F.n; ++i) {
     const double ep = F.c[Forcing::EPOCH][i];
     if (ep < t_start || ep >= t_end) continue;
+    const bool scored = ep >= score_from && F.c[Forcing::WX_OK][i] > 0.5
+                        && (!replay || (F.c[Forcing::IN_OK][i] > 0.5 && F.c[Forcing::O_OK][i] > 0.5));
     const double To = F.c[Forcing::TO][i], wo = F.c[Forcing::WO][i], P = F.c[Forcing::P][i];
     if (!inited) {
       double T0 = F.c[Forcing::IN_OK][i] > 0.5 ? F.c[Forcing::TMEAS][i] : 18.0;
@@ -636,10 +669,13 @@ int main(int argc, char** argv) {
           // AB8: the lead alternates by episode (fewer run seconds only for the first one); m7: a fan in its minimum
           // off time hands its turn to the other, and the order continues from the fan that actually led
           const bool fans_off = !R[R_F1].on && !R[R_F2].on;
+          bool turn1 = false, m1 = false, m2 = false;
           if (fans_off) {
-            const bool turn1 = led_once ? !last_led1 : R[R_F1].on_s <= R[R_F2].on_s;
-            const bool m1 = R[R_F1].can_on(now), m2 = R[R_F2].can_on(now);
+            turn1 = led_once ? !last_led1 : R[R_F1].on_s <= R[R_F2].on_s;
+            m1 = R[R_F1].can_on(now); m2 = R[R_F2].can_on(now);
             lead1 = !lead_by_runtime || (m1 != m2 ? m1 : turn1);
+            // Opt-in reference experiment: both-off, one-fan demand only; keep the ordinary paired start.
+            if (fan_wear && e.fans == 1) lead1 = fan_wear->choose(now, turn1, m1, m2);
           }
           bool want_f1 = lead1 ? e.fans >= 1 : e.fans >= 2, want_f2 = lead1 ? e.fans >= 2 : e.fans >= 1;
           bool want_vent = e.vent;
@@ -649,7 +685,18 @@ int main(int argc, char** argv) {
           R[R_H2].set(now, e.heat2 && !air_on, false, hot);                           // the furnace waits for the vent to close
           R[R_F1].set(now, want_f1 && R[R_VENT].on, false, false);
           R[R_F2].set(now, want_f2 && R[R_VENT].on, false, false);
-          if (fans_off && (R[R_F1].on || R[R_F2].on)) { last_led1 = R[R_F1].on && R[R_F2].on ? lead1 : R[R_F1].on; led_once = true; }
+          if (fans_off && (R[R_F1].on || R[R_F2].on)) {
+            last_led1 = R[R_F1].on && R[R_F2].on ? lead1 : R[R_F1].on;
+            led_once = true;
+            if (fan_start_shadow) {
+              char key[128];
+              const int ready = (m1 ? 1 : 0) | (m2 ? 2 : 0);
+              const int first = (R[R_F1].on ? 1 : 0) | (R[R_F2].on ? 2 : 0);
+              std::snprintf(key, sizeof key, "%d,%d,%d,%s,%d,%d,%d", e.fans, turn1 ? 1 : 2, ready,
+                            fan_start_shadow->credit_status(now), first, last_led1 ? 1 : 2, scored ? 1 : 0);
+              ++fan_start_counts[key];
+            }
+          }
           R[R_VENT].set(now, want_vent || want_f1 || want_f2 || R[R_F1].on || R[R_F2].on, false, false);
           R[R_FOG].set(now, e.fog, false, false);
           static const int ZR[3] = {R_MC, R_MS, R_MW};                                // mister zones pulse in turn, one at a time
@@ -724,14 +771,23 @@ int main(int argc, char** argv) {
           m_q1 += pp[phys::P_QH1] * (R[R_H1].on ? 1.0 : 0.0) * dt; m_q2 += pp[phys::P_QH2] * (R[R_H2].on ? 1.0 : 0.0) * dt;
         }
         phys::phys_step(s, u, pp, dt);
+        if (fan_wear) fan_wear->observe(now, dt, R[R_F1].on, R[R_F2].on);
+        if (fan_start_shadow) fan_start_shadow->observe(now, dt, R[R_F1].on, R[R_F2].on);
+        if (fan_events) {
+          const int state = (R[R_F1].on ? 1 : 0) | (R[R_F2].on ? 2 : 0);
+          const int sample = state | (scored ? 4 : 0);
+          if (sample != last_fan_sample) {
+            std::fprintf(fan_events, "%.0f,%d,%d\n", now, state, scored ? 1 : 0);
+            last_fan_sample = sample;
+          }
+          fan_events_end = now + dt;
+        }
         for (int r = 0; r < R_N; ++r) { duty[r] += R[r].on ? 1.0 / ticks : 0.0; if (R[r].on) R[r].on_s += dt; }
         mode_ticks[(int)q.mode] += 1.0 / ticks;
         water_today += (R[R_FOG].on ? 0.58 : 0.0) * dt / 60.0 + (R[R_MC].on ? 1.12 : 0.0) * dt / 60.0;   // metered flow while fog/mister relays are on
       }
     }
     // ---- score this minute
-    const bool scored = ep >= score_from && F.c[Forcing::WX_OK][i] > 0.5
-                        && (!replay || (F.c[Forcing::IN_OK][i] > 0.5 && F.c[Forcing::O_OK][i] > 0.5));
     if (trace)
       std::fprintf(trace, "%.0f,%.2f,%.4f,%.1f,%.3f,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.4f,%.4f,%.1f,%d,%d\n", ep,
                    z.temp_f, z.vpd, z.rh, replay ? F.c[Forcing::WMEAS][i] : s.ws, replay ? -1 : (int)(std::max_element(mode_ticks, mode_ticks + 8) - mode_ticks),
@@ -784,10 +840,22 @@ int main(int argc, char** argv) {
     }
   }
   if (trace) std::fclose(trace);
+  if (fan_start_shadow) {
+    FILE* shadow = std::fopen(CFG["fan_start_shadow"].c_str(), "w");
+    if (!shadow) { std::fprintf(stderr, "cannot open fan_start_shadow output\n"); return 2; }
+    std::fputs("request_fans,due_fan,ready_mask,credit,first_on_mask,actual_lead,scored,count\n", shadow);
+    for (const auto& row : fan_start_counts) std::fprintf(shadow, "%s,%u\n", row.first.c_str(), row.second);
+    if (std::fclose(shadow) != 0) { std::fprintf(stderr, "cannot write fan_start_shadow output\n"); return 2; }
+  }
+  if (fan_events) {
+    std::fprintf(fan_events, "%.0f,-1,0\n", fan_events_end);  // End marker, not a relay transition.
+    if (std::fclose(fan_events) != 0) { std::fprintf(stderr, "cannot write fan_events output\n"); return 2; }
+  }
   FILE* out = stdout;
   if (CFG.count("out")) out = std::fopen(CFG["out"].c_str(), cfgb("append", false) ? "a" : "w");
   if (!cfgb("append", false) || cfgb("header", false)) std::fputs(HEADER, out);
-  for (auto& kv : acc) emit(out, scen.c_str(), kv.first.c_str(), kv.second);
+  const int fan_precision = cfgb("precise_fan_runtime", false) ? 8 : 2;
+  for (auto& kv : acc) emit(out, scen.c_str(), kv.first.c_str(), kv.second, fan_precision);
   if (out != stdout) std::fclose(out);
   return 0;
 }
