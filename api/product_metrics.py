@@ -216,6 +216,9 @@ FAMILIES: dict[str, Family] = {
     "verdify_controller_sample_age_seconds": Family(
         "gauge", "Seconds since the newest diagnostics row (15 min window)."
     ),
+    "verdify_controller_field_observed_timestamp_seconds": Family(
+        "gauge", "Unix timestamp of the diagnostics receipt for the reported controller field."
+    ),
     "verdify_controller_heap_free_bytes": Family(
         "gauge", "Controller free heap (diagnostics.heap_bytes, stored in KB)."
     ),
@@ -522,6 +525,12 @@ def _num(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _append_controller_field_timestamp(out: list[Sample], row: Mapping[str, Any], field: str) -> None:
+    observed_epoch = _num(row.get(f"{field}_observed_epoch"))
+    if observed_epoch is not None:
+        out.append(sample("verdify_controller_field_observed_timestamp_seconds", observed_epoch, field=field))
+
+
 def controller_samples(row: Mapping[str, Any] | None) -> list[Sample]:
     if row is None:
         return []
@@ -538,6 +547,8 @@ def controller_samples(row: Mapping[str, Any] | None) -> list[Sample]:
     put("verdify_controller_heap_largest_free_block_bytes", row["heap_largest_free_block_kb"], 1024.0)
     put("verdify_controller_wifi_rssi_dbm", row["wifi_rssi"])
     put("verdify_controller_uptime_seconds", row["uptime_s"])
+    if _num(row["uptime_s"]) is not None:
+        _append_controller_field_timestamp(out, row, "uptime_s")
     put("verdify_controller_sntp_valid", row["sntp_valid"])
     put("verdify_controller_sntp_sync_age_seconds", row["last_sntp_sync_age_s"])
     put("verdify_controller_sntp_misses", row["sntp_miss_count"])
@@ -546,6 +557,7 @@ def controller_samples(row: Mapping[str, Any] | None) -> list[Sample]:
         out.append(sample("verdify_controller_reset_reason", 1, reason=RESET_REASONS.get(row["reset_reason"], OTHER)))
     if row["firmware_version"]:
         out.append(sample("verdify_controller_firmware_info", 1, version=firmware_label(row["firmware_version"])))
+        _append_controller_field_timestamp(out, row, "firmware_version")
     if row["band_source"]:
         out.append(sample("verdify_controller_band_source", 1, source=bounded(row["band_source"], BAND_SOURCES)))
     return out
@@ -618,6 +630,9 @@ def health_samples(row: Mapping[str, Any] | None) -> list[Sample]:
     put("verdify_controller_heap_largest_free_block_window_bytes", row["heap_largest_block_minute_low_kb"], 1024.0)
     put("verdify_controller_loop_worst_seconds", row["loop_worst_ms"], 0.001)
     put("verdify_controller_restarts_total", row["restart_count"])
+    for source_field in ("heap_min_free_minute_kb", "heap_largest_block_minute_low_kb", "restart_count"):
+        if _num(row[source_field]) is not None:
+            _append_controller_field_timestamp(out, row, source_field)
     put("verdify_controller_nvs_entries", row["nvs_used_entries"], state="used")
     put("verdify_controller_nvs_entries", row["nvs_free_entries"], state="free")
     put("verdify_controller_nvs_write_worst_seconds", row["nvs_write_worst_ms"], 0.001)
