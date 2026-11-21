@@ -59,7 +59,7 @@ spec:
             name: verdify-traefik-routing
       # HA ha-1 / Lane A (#229): serving-tier priority so the tier-2 edge proxy
       # is preempted only after batch, and never starved under node pressure.
-      priorityClassName: verdify-serving
+      priorityClassName: estate-production  # vp#1546, D-328
       # Spread the 2 replicas across nodes so a single node loss can't take the
       # whole verdify edge tier down. Sprint ha-1 (#230): upgraded to HARD
       # (DoNotSchedule) — 4 schedulable workers >= 2 replicas => always

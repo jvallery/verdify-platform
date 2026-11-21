@@ -78,6 +78,24 @@ All rows below are delivered by `verdify-prod-dark` unless the row names another
 
 PreSync hook Jobs in `verdify-prod`, recreated by every full sync: `verdify-migrate` (the ledgered migrations), `verdify-runtime-role-bootstrap`, `verdify-mcp-runtime-role-bootstrap`, `verdify-six-runtime-role-bootstrap`, `verdify-maintenance-runtime-role-bootstrap` and `verdify-experiment-v2-credential-bootstrap` (it installs only the equipment-source collector login).
 
+### Priority classes and singletons (vp#1546, D-328, D-329, STD-HA-06/07)
+
+Every workload runs a ladder class. estate-production: verdify-api, -mcp, -lab, -lab-cache-origin, -traefik, -grafana, -mqtt, -ingestor, -setpoint-server and StatefulSet verdify-db. estate-app: verdify-db-exporter, -grafana-render-cache, -hermes-iris, -operator-api, -outbound, CronJobs verdify-db-backup and verdify-firmware-flasher, and verdify-dashboard-web. estate-batch: the other CronJobs and the descheduler. The verdify-* PriorityClasses stay declared until no pod template names them, then are deleted explicitly (prune is off). Multi-replica PDBs are maxUnavailable 1 with `unhealthyPodEvictionPolicy: AlwaysAllow`; verdify-outbound has one. The descheduler's priority ceiling (100001) now admits estate-app and below only.
+
+Single-replica verdify-prod workloads, singleton by design:
+
+| Workload | Reason |
+|---|---|
+| StatefulSet `verdify-db` | Single-writer database; the singleton record and measured host-loss RTO are vp#1545. |
+| `verdify-ingestor` | Only ESP32 writer, fenced by the writer Lease; two would double-write device state. |
+| `verdify-setpoint-server` | Device-affecting writer (Home Assistant grow lights); one actuator owner. |
+| `verdify-mqtt` | In-namespace broker with in-memory session state for the ESP32 clients; a second broker would split subscriptions. |
+| `verdify-hermes-iris` | Sole planner gateway with RWO run state (`verdify-hermes-iris-data-portable-20260801`). |
+| `verdify-grafana` | SQLite-backed Grafana state on an RWO claim; the replicated render cache serves public panels while it restarts. |
+| `verdify-operator-api` | Operator-only path behind the dashboard BFF; one pool attests the dashboard login. Restart is acceptable. |
+| `verdify-lab-cache-origin` | Origin for the two replicated `verdify-lab` servers on an RWO cache claim; the lab replicas serve during its restart. |
+| `verdify-db-exporter` | Metrics only; one scraper per database. |
+
 ### Other namespaces
 
 | Workload | Namespace | Application | Notes |

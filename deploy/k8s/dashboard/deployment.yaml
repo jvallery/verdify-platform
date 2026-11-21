@@ -31,6 +31,7 @@ spec:
         app.kubernetes.io/component: web
         app.kubernetes.io/part-of: verdify
     spec:
+      priorityClassName: estate-app  # vp#1546 (STD-HA-06, D-328): operator web tier
       serviceAccountName: verdify-dashboard-web
       automountServiceAccountToken: false
       enableServiceLinks: false

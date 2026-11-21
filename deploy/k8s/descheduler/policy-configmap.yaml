@@ -18,7 +18,7 @@
 #       This is the primary guard and is INDEPENDENT of priority.
 #
 #  L2 — PRIORITY CEILING (DefaultEvictor.priorityThreshold.value: 100001):
-#       Only pods with priority <= 100000 (verdify-serving) are candidates. The
+#       Only pods with priority <= 100000 (estate-app and below, vp#1546) are candidates. The
 #       armed ingestor runs at priorityClass `verdify-device-writer` (900000000)
 #       and data-critical (CNPG) at 800000000 — both far ABOVE the ceiling, so
 #       they are excluded by priority even if (impossibly) they were also labelled.
@@ -125,8 +125,8 @@ data:
               labelSelector:
                 matchLabels:
                   verdify.ai/rebalanceable: "true"
-              # L2 priority ceiling — never evict at/above verdify-serving+1; the
-              # device-writer (900000000) and data-critical (800000000) are excluded.
+              # L2 priority ceiling — never evict above estate-app (100000); every
+              # estate-production pod (device writers, database, serving) is excluded (vp#1546).
               priorityThreshold:
                 value: 100001
               # Only evict a pod if some other node can actually fit it (no churn

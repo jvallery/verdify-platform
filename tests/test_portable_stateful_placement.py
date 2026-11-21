@@ -32,7 +32,7 @@ def test_retained_state_has_worker_pool_eligibility_without_hostname(workloads, 
 
 def test_database_runs_on_data_tier_priority_sized_to_use(workloads):
     spec = workloads["StatefulSet", "verdify-db"]["spec"]["template"]["spec"]
-    assert spec["priorityClassName"] == "verdify-data-critical"
+    assert spec["priorityClassName"] == "estate-production"  # vp#1546, D-328
     assert spec["tolerations"] == []
     postgres = next(c for c in spec["containers"] if c["name"] == "postgres")
     assert postgres["resources"] == {
