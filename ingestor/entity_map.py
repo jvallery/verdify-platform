@@ -73,13 +73,10 @@ CLIMATE_MAP: dict[str, str] = {
     "water_used__gal_": "water_total_gal",
     # Mister
     "mister_water_today": "mister_water_today",
-    # SEN0604 South Wall (7) and West Wall (9). Keep existing channels'
-    # object IDs and accept buffered readings from the retired South 2 probe.
+    # SEN0604 South Wall (7) and West Wall (9), with existing channel IDs retained.
     "south_1_soil_moisture____": "soil_moisture_south_1",
     "south_1_soil_temp___f_": "soil_temp_south_1",
     "south_1_soil_ec___s_cm_": "soil_ec_south_1",
-    "south_2_soil_moisture____": "soil_moisture_south_2",
-    "south_2_soil_temp___f_": "soil_temp_south_2",
     "west_soil_moisture____": "soil_moisture_west",
     "west_soil_temp___f_": "soil_temp_west",
     "south_wall_soil_ph": "soil_ph_south_1",

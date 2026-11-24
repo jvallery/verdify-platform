@@ -6,7 +6,8 @@ TimescaleDB and hands it over in VERDIFY_ISOLATED_TEST_DSN; without one this fil
 owner, this file then adds what the new reads name, each from its own migration: daily_band_compliance (290, 305 and
 311), daily_record and daily_relay_record (310 and 317), planner_review (313), the energy meter columns and
 v_dashboard_energy with 312's grants (248 and 312), v_daily_scorecard with 285's grant (311), the gap ledger (314),
-migration 320's three projections, and v_relay_counter_reconciliation_daily with 315's grant (317). A grant one of
+migration 320's three projections, migration 322's soil channels, and v_relay_counter_reconciliation_daily with
+315's grant (317). A grant one of
 these reads needs and production lacks fails here.
 
 Each test seeds its rows inside one transaction, placed relative to that transaction's now() and shaped like the live
@@ -127,6 +128,7 @@ def owner_sql() -> str:
             _grant("285-daily-scorecard-view.sql", "v_daily_scorecard"),
             support.gap_ledger_sql(),
             body_320(),
+            *_alters("322-sen0604-wall-soil-telemetry.sql", "climate"),
             _quoted(RECORD_MIGRATION, "recon"),
             _grant("315-replayed-gaps-counter-check-and-health.sql", "v_relay_counter_reconciliation_daily"),
         )
