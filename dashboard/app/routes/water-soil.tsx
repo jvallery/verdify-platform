@@ -20,7 +20,7 @@ export const links = () => chartLinks();
 
 /**
  * Water → Soil (`/water/soil`, screens section 3.4, parity SO-01 to SO-03): is each zone's soil where I want it? One
- * panel per probe zone from the soil target rows (API-SOIL-01), each with its moisture, conductivity and temperature now,
+ * panel per probe zone from the soil target rows (API-SOIL-01), each with its current measurements,
  * a 7-day chart of moisture against its range, the range with Edit for an operator (API-SOIL-02) and when the probe last
  * answered, under the answer in words and one key for the zones' charts. The metric registry (API-03) says which of a
  * probe's measures exist, since API-04 refuses an unknown key. It
@@ -36,7 +36,7 @@ export default function WaterSoil() {
     if (before && before.state === report.state && before.relation.status === report.relation.status && before.relation.text === report.relation.text) return current;
     return { ...current, [report.zone]: report };
   }), []);
-  const zones = targets.data?.targets ?? null;
+  const zones = targets.data?.targets.filter((target) => target.probe !== null) ?? null;
   const known = zones ? zones.map((zone) => reports[zone.zone] ?? { zone: zone.zone, state: "unknown" as const, relation: { status: "neutral" as const, text: "" } }) : [];
   const summary = zones ? soilSummary(known) : null;
   const answer = soilAnswer(known);

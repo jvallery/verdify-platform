@@ -1412,6 +1412,31 @@ def sealed_sql_321():
     )
 
 
+SOIL_WALL_TELEMETRY_MIGRATION = (
+    322,
+    "322-sen0604-wall-soil-telemetry.sql",
+    "43c4b0cb059228e14a79d166e2569f5305060634fa8647eb70dd98f80fe7cbf4",
+)
+SUCCESSOR_322 = {
+    **SUCCESSOR_321,
+    "api": "100231c37c0caf37be0bfde62454b223e17df91fbf0e8b0279f3c2e28ab23f0e",
+    "ingestor": "5f507e44e0172534703829a626b47b7fff7576c0fbbc39d58516b986b8556a79",
+}
+
+
+def sealed_sql_322():
+    predecessor = sealed_sql_321()
+    current = seal_profile_sql(321, SUCCESSOR_321)
+    assert predecessor.count(current) == 1
+    return (
+        "("
+        + predecessor.replace(current, seal_profile_sql(322, SUCCESSOR_322), 1)
+        + " AND "
+        + ledger_row_sql(*SOIL_WALL_TELEMETRY_MIGRATION)
+        + ")"
+    )
+
+
 def sealed_sql():
     return (
         "("
@@ -1498,6 +1523,8 @@ def sealed_sql():
         + sealed_sql_320()
         + " OR "
         + sealed_sql_321()
+        + " OR "
+        + sealed_sql_322()
         + ")"
     )
 

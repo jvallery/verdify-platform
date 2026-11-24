@@ -554,6 +554,14 @@ SUCCESSOR_321_DIGESTS = {
     "verdify_ingestor_runtime_login": "b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42",
 }
 SUCCESSOR_321_MCP_DIGEST = "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+
+SUCCESSOR_322 = "322-sen0604-wall-soil-telemetry.sql"
+SUCCESSOR_322_SHA256 = "43c4b0cb059228e14a79d166e2569f5305060634fa8647eb70dd98f80fe7cbf4"
+SUCCESSOR_322_DIGESTS = {
+    "verdify_api_runtime_login": "100231c37c0caf37be0bfde62454b223e17df91fbf0e8b0279f3c2e28ab23f0e",
+    "verdify_ingestor_runtime_login": "5f507e44e0172534703829a626b47b7fff7576c0fbbc39d58516b986b8556a79",
+}
+SUCCESSOR_322_MCP_DIGEST = SUCCESSOR_321_MCP_DIGEST
 # Exact emergency hotfix predecessor: the 262 receipt was resealed to this
 # live digest while 263 was prepared. Only a pending 263 may admit either the
 # original reviewed 262 pair or this pair; mixed receipt/live values fail.
@@ -634,6 +642,7 @@ def reviewed_post_254(later, files=None):
         SUCCESSOR_319,
         SUCCESSOR_320,
         SUCCESSOR_321,
+        SUCCESSOR_322,
     )
     require(successors == list(reviewed[: len(successors)]), "unreviewed post-254 receipt successor")
     if successors:
@@ -703,6 +712,7 @@ def reviewed_post_254(later, files=None):
                 SUCCESSOR_319_SHA256,
                 SUCCESSOR_320_SHA256,
                 SUCCESSOR_321_SHA256,
+                SUCCESSOR_322_SHA256,
             ),
             strict=True,
         ):
@@ -1011,6 +1021,7 @@ COMMIT;"""
         (SUCCESSOR_319, SUCCESSOR_319_DIGESTS),
         (SUCCESSOR_320, SUCCESSOR_320_DIGESTS),
         (SUCCESSOR_321, SUCCESSOR_321_DIGESTS),
+        (SUCCESSOR_322, SUCCESSOR_322_DIGESTS),
     ):
         if name in later:
             expected["api"] = expected["api_receipt"] = digests["verdify_api_runtime_login"]
@@ -1154,6 +1165,8 @@ COMMIT;"""
             expected_mcp = SUCCESSOR_320_MCP_DIGEST
         if SUCCESSOR_321 in later:
             expected_mcp = SUCCESSOR_321_MCP_DIGEST
+        if SUCCESSOR_322 in later:
+            expected_mcp = SUCCESSOR_322_MCP_DIGEST
         if hotfix_predecessor_263:
             require(
                 mcp_state.get("mcp")

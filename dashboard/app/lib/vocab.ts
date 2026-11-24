@@ -75,8 +75,10 @@ export const PROBE_SENSORS = [
   "climate.temp_north", "climate.temp_south", "climate.temp_east", "climate.temp_west", "climate.temp_case", "climate.temp_intake",
   "climate.rh_north", "climate.rh_south", "climate.rh_east", "climate.rh_west", "climate.rh_case", "climate.intake_rh",
   "climate.outdoor_temp_f", "climate.outdoor_rh_pct", "climate.co2_ppm", "climate.lux",
-  "climate.soil_moisture_south_1", "climate.soil_moisture_south_2", "climate.soil_moisture_west",
-  "climate.soil_temp_south_1", "climate.soil_temp_south_2", "climate.soil_temp_west", "climate.soil_ec_south_1",
+  "climate.soil_moisture_south_1", "climate.soil_temp_south_1", "climate.soil_ec_south_1",
+  "climate.soil_ph_south_1", "climate.soil_salinity_south_1", "climate.soil_tds_south_1",
+  "climate.soil_moisture_west", "climate.soil_temp_west", "climate.soil_ec_west",
+  "climate.soil_ph_west", "climate.soil_salinity_west", "climate.soil_tds_west",
 ] as const;
 export type ProbeSensor = (typeof PROBE_SENSORS)[number];
 

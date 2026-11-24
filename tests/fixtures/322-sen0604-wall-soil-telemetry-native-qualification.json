@@ -1,0 +1,56 @@
+{
+  "migration": "322-sen0604-wall-soil-telemetry.sql",
+  "measured_at": "2026-11-24T21:54:04Z",
+  "before": {
+    "api": "6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c",
+    "ingestor": "b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  },
+  "qualified_successor": {
+    "api": "100231c37c0caf37be0bfde62454b223e17df91fbf0e8b0279f3c2e28ab23f0e",
+    "ingestor": "5f507e44e0172534703829a626b47b7fff7576c0fbbc39d58516b986b8556a79",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  },
+  "after_rollback": {
+    "api": "6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c",
+    "ingestor": "b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42",
+    "mcp": "aa26302d0e3a0931a5f91ce9f23c660a5a240cb59de1a4d5605f38638b534718"
+  },
+  "exact_final_migration_sha256": "43c4b0cb059228e14a79d166e2569f5305060634fa8647eb70dd98f80fe7cbf4",
+  "final_migration_qualification_pending": false,
+  "inside_transaction_receipts_match": true,
+  "final_migration_rollback_verified": true,
+  "native_probe_source_sha256": "819acaa8e6f8e38d4e66b4103921900c3ddf87db1f7693d916255cb6c8ac85fc",
+  "qualification_source_sha256": "71853f105b49510302890ada5dde8dfb3085d8f6abf4551e8a7ac6d4caaa2fdc",
+  "prelock": [
+    [
+      "public.climate",
+      "ACCESS EXCLUSIVE"
+    ],
+    [
+      "public.mcp_runtime_boundary_receipt",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.runtime_ordinary_login_attestation_receipts",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.schema_migrations",
+      "SHARE ROW EXCLUSIVE"
+    ],
+    [
+      "public.v_runtime_climate_write",
+      "ACCESS EXCLUSIVE"
+    ]
+  ],
+  "native_fixture": {
+    "checks": [
+      "ingestor_source_event_stores_all_twelve_values",
+      "dashboard_login_reads_all_twelve_values",
+      "two_active_soil_assignments"
+    ],
+    "all_passed": true
+  },
+  "native_fixture_sha256": "7dd9579710fcf64ec2830e942354e7547a03a7f747e0592143cb4f5d37bf4ab9"
+}

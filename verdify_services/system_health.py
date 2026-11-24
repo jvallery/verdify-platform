@@ -48,12 +48,17 @@ PROBES = (
     "co2_ppm",
     "lux",
     "soil_moisture_south_1",
-    "soil_moisture_south_2",
-    "soil_moisture_west",
     "soil_temp_south_1",
-    "soil_temp_south_2",
-    "soil_temp_west",
     "soil_ec_south_1",
+    "soil_ph_south_1",
+    "soil_salinity_south_1",
+    "soil_tds_south_1",
+    "soil_moisture_west",
+    "soil_temp_west",
+    "soil_ec_west",
+    "soil_ph_west",
+    "soil_salinity_west",
+    "soil_tds_west",
 )
 PROBE_WINDOW_S = 7200  # an age of 7200 means "not seen in the 2 h window"
 FLOW_TABLES = ("climate", "equipment_state", "system_state", "diagnostics", "setpoint_snapshot", "setpoint_changes")

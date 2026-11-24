@@ -73,11 +73,8 @@ CLIMATE_MAP: dict[str, str] = {
     "water_used__gal_": "water_total_gal",
     # Mister
     "mister_water_today": "mister_water_today",
-    # Soil sensors (DFRobot SEN0600/SEN0601, Modbus RTU)
-    # South 1 (addr 7, SEN0601): moisture + temp + EC
-    # South 2 (addr 8, SEN0600): moisture + temp
-    # West (addr 9, SEN0600): moisture + temp
-    # object_ids verified via esphome.helpers.sanitize()
+    # SEN0604 South Wall (7) and West Wall (9). Keep existing channels'
+    # object IDs and accept buffered readings from the retired South 2 probe.
     "south_1_soil_moisture____": "soil_moisture_south_1",
     "south_1_soil_temp___f_": "soil_temp_south_1",
     "south_1_soil_ec___s_cm_": "soil_ec_south_1",
@@ -85,6 +82,13 @@ CLIMATE_MAP: dict[str, str] = {
     "south_2_soil_temp___f_": "soil_temp_south_2",
     "west_soil_moisture____": "soil_moisture_west",
     "west_soil_temp___f_": "soil_temp_west",
+    "south_wall_soil_ph": "soil_ph_south_1",
+    "south_wall_soil_salinity": "soil_salinity_south_1",
+    "south_wall_soil_tds": "soil_tds_south_1",
+    "west_wall_soil_ec": "soil_ec_west",
+    "west_wall_soil_ph": "soil_ph_west",
+    "west_wall_soil_salinity": "soil_salinity_west",
+    "west_wall_soil_tds": "soil_tds_west",
     # Exterior intake (additional sensors beyond temp)
     "exterior_intake_rh____": "intake_rh",
     "exterior_intake_vpd__kpa_": "intake_vpd",
@@ -187,6 +191,13 @@ FEEDBACK_VALUE_RANGES: dict[str, tuple[float | None, float | None]] = {
     "soil_moisture_south_1": (0.0, 100.0),
     "soil_ec_south_1": (0.0, None),
     "soil_temp_south_1": (-40.0, 180.0),
+    "soil_ph_south_1": (3.0, 9.0),
+    "soil_salinity_south_1": (0.0, 65535.0),
+    "soil_tds_south_1": (0.0, 65535.0),
+    "soil_ec_west": (0.0, 20000.0),
+    "soil_ph_west": (3.0, 9.0),
+    "soil_salinity_west": (0.0, 65535.0),
+    "soil_tds_west": (0.0, 65535.0),
     "moisture_center": (0.0, 100.0),
     "ph_runoff_center": (0.0, 14.0),
     "ec_runoff_center": (0.0, None),

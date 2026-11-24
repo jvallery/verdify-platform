@@ -544,15 +544,14 @@ sensor:
       ${vpd_lambda}
 
   # --------------------------------------------------------------------------
-  # 2a. SOIL SENSORS (DFRobot SEN0600 / SEN0601)
-  # Modbus RTU 9600 8N1. Poll every 60s with 200ms throttle.
-  # timeout_filter: if no valid reading in 5 min, publish NaN (avoids stale data)
+  # 2a. SEN0604 soil sensors. Read 0x0000–0x0003 and 0x0007–0x0008.
+  # DFRobot documents salinity and TDS as reference outputs without units.
   # --------------------------------------------------------------------------
-  # South zone sensor 1 — SEN0601 (moisture + temp + EC), addr 7
+  # South Wall
   - platform: modbus_controller
     id: south_1_soil_moisture
     name: "South 1 Soil Moisture (%)"
-    modbus_controller_id: south_1_soil_probe
+    modbus_controller_id: south_wall_soil_probe
     register_type: holding
     address: 0x0000
     value_type: U_WORD
@@ -566,10 +565,10 @@ sensor:
   - platform: modbus_controller
     id: south_1_soil_temp
     name: "South 1 Soil Temp (°F)"
-    modbus_controller_id: south_1_soil_probe
+    modbus_controller_id: south_wall_soil_probe
     register_type: holding
     address: 0x0001
-    value_type: U_WORD
+    value_type: S_WORD
     device_class: temperature
     unit_of_measurement: "°F"
     state_class: measurement
@@ -580,7 +579,7 @@ sensor:
   - platform: modbus_controller
     id: south_1_soil_ec
     name: "South 1 Soil EC (µS⁄cm)"
-    modbus_controller_id: south_1_soil_probe
+    modbus_controller_id: south_wall_soil_probe
     register_type: holding
     address: 0x0002
     value_type: U_WORD
@@ -589,38 +588,43 @@ sensor:
     accuracy_decimals: 0
     filters:
       - timeout: 300s
-
-  # South zone sensor 2 — SEN0600 (moisture + temp), addr 8
   - platform: modbus_controller
-    id: south_2_soil_moisture
-    name: "South 2 Soil Moisture (%)"
-    modbus_controller_id: south_2_soil_probe
+    id: south_wall_soil_ph
+    name: "South Wall Soil pH"
+    modbus_controller_id: south_wall_soil_probe
     register_type: holding
-    address: 0x0000
+    address: 0x0003
     value_type: U_WORD
-    device_class: moisture
-    unit_of_measurement: "%"
+    unit_of_measurement: "pH"
     state_class: measurement
     accuracy_decimals: 1
     filters:
       - multiply: 0.1
       - timeout: 300s
   - platform: modbus_controller
-    id: south_2_soil_temp
-    name: "South 2 Soil Temp (°F)"
-    modbus_controller_id: south_2_soil_probe
+    id: south_wall_soil_salinity
+    name: "South Wall Soil Salinity"
+    modbus_controller_id: south_wall_soil_probe
     register_type: holding
-    address: 0x0001
+    address: 0x0007
     value_type: U_WORD
-    device_class: temperature
-    unit_of_measurement: "°F"
     state_class: measurement
-    accuracy_decimals: 1
+    accuracy_decimals: 0
     filters:
-      - lambda: ${modbus_temp_lambda}
+      - timeout: 300s
+  - platform: modbus_controller
+    id: south_wall_soil_tds
+    name: "South Wall Soil TDS"
+    modbus_controller_id: south_wall_soil_probe
+    register_type: holding
+    address: 0x0008
+    value_type: U_WORD
+    state_class: measurement
+    accuracy_decimals: 0
+    filters:
       - timeout: 300s
 
-  # West zone — SEN0600 (moisture + temp)
+  # West Wall
   - platform: modbus_controller
     id: west_soil_moisture
     name: "West Soil Moisture (%)"
@@ -641,13 +645,60 @@ sensor:
     modbus_controller_id: west_soil_probe
     register_type: holding
     address: 0x0001
-    value_type: U_WORD
+    value_type: S_WORD
     device_class: temperature
     unit_of_measurement: "°F"
     state_class: measurement
     accuracy_decimals: 1
     filters:
       - lambda: ${modbus_temp_lambda}
+      - timeout: 300s
+  - platform: modbus_controller
+    id: west_wall_soil_ec
+    name: "West Wall Soil EC"
+    modbus_controller_id: west_soil_probe
+    register_type: holding
+    address: 0x0002
+    value_type: U_WORD
+    unit_of_measurement: "µS/cm"
+    state_class: measurement
+    accuracy_decimals: 0
+    filters:
+      - timeout: 300s
+  - platform: modbus_controller
+    id: west_wall_soil_ph
+    name: "West Wall Soil pH"
+    modbus_controller_id: west_soil_probe
+    register_type: holding
+    address: 0x0003
+    value_type: U_WORD
+    unit_of_measurement: "pH"
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+      - timeout: 300s
+  - platform: modbus_controller
+    id: west_wall_soil_salinity
+    name: "West Wall Soil Salinity"
+    modbus_controller_id: west_soil_probe
+    register_type: holding
+    address: 0x0007
+    value_type: U_WORD
+    state_class: measurement
+    accuracy_decimals: 0
+    filters:
+      - timeout: 300s
+  - platform: modbus_controller
+    id: west_wall_soil_tds
+    name: "West Wall Soil TDS"
+    modbus_controller_id: west_soil_probe
+    register_type: holding
+    address: 0x0008
+    value_type: U_WORD
+    state_class: measurement
+    accuracy_decimals: 0
+    filters:
       - timeout: 300s
 
   # PAR quantum sensor at canopy height (#1184, par_probe at address 10):

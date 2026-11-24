@@ -157,8 +157,7 @@ if query MODBUS_ROWS "Modbus timeout query unavailable — bus health unknown" "
                 4) name="south_wall_probe" ;;
                 5) name="east_wall_probe" ;;
                 6) name="exterior_intake_probe" ;;
-                7) name="south_1_soil_probe" ;;
-                8) name="south_2_soil_probe" ;;
+                7) name="south_wall_soil_probe" ;;
                 9) name="west_soil_probe" ;;
                 *) name="unknown-addr-$addr" ;;
             esac

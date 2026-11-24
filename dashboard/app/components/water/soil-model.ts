@@ -15,10 +15,11 @@ export const SOIL_WINDOW_S = 7 * 86_400;
 /** The window the "now" values are read from, at minute resolution. */
 export const SOIL_NOW_S = 3 * 3600;
 
-export type SoilMeasure = "moisture" | "ec" | "temp";
+export type SoilMeasure = "moisture" | "ec" | "temp" | "ph" | "salinity" | "tds";
 /** Each measure's words, in the order a zone shows them. */
 export const SOIL_MEASURES: readonly { readonly measure: SoilMeasure; readonly label: string }[] = [
   { measure: "moisture", label: "Moisture" }, { measure: "ec", label: "Conductivity" }, { measure: "temp", label: "Temperature" },
+  { measure: "ph", label: "pH" }, { measure: "salinity", label: "Salinity (reference)" }, { measure: "tds", label: "TDS (reference)" },
 ];
 
 /** "South 1" from `south_1`: the zone as the probe names it, never a crop. */
@@ -34,10 +35,10 @@ export function soilKeys(target: Pick<SoilTarget, "probe">, registry: readonly P
   if (!probe || !probe.includes("moisture")) return {};
   const served = new Set(registry.map((metric) => metric.key));
   const keys: Partial<Record<SoilMeasure, string>> = {};
-  const candidates: Record<SoilMeasure, string> = {
-    moisture: `climate.${probe}`, ec: `climate.${probe.replace("moisture", "ec")}`, temp: `climate.${probe.replace("moisture", "temp")}`,
-  };
-  for (const measure of ["moisture", "ec", "temp"] as const) if (served.has(candidates[measure])) keys[measure] = candidates[measure];
+  for (const { measure } of SOIL_MEASURES) {
+    const key = `climate.${probe.replace("moisture", measure)}`;
+    if (served.has(key)) keys[measure] = key;
+  }
   return keys;
 }
 
@@ -55,6 +56,7 @@ export function newestReading(series: Series | null | undefined, key: string | u
 
 /** A reading in its unit; conductivity in whole µS/cm, never a decimal (design review C3). */
 export function soilValue(value: number, unit: string): string {
+  if (unit === "raw") return formatNumber(value, 0);
   return unit === "µS/cm" || unit === "uS/cm" ? `${formatNumber(value, 0)}\u00a0µS/cm` : formatValue(value, unit);
 }
 
