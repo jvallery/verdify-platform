@@ -105,7 +105,7 @@ test("probes silent for days are muted and named apart and do not warn; the one 
   const recent = probes.querySelectorAll(".sys-silent-line.is-recent");
   expect([...recent].map((line) => text(line))).toEqual([expect.stringMatching(/^Stopped today\s*West wall relative humidity: no answer since \d\d:\d\d$/)]);
   expect([...probes.querySelectorAll(".sys-silent-line.is-known")].map((line) => text(line))).toEqual([
-    expect.stringMatching(/3 soil probes: no answer since \d+ \w+$/), expect.stringMatching(/South 1 soil EC: no reading in 30 days$/),
+    expect.stringMatching(/3 soil probes: no answer since \d+ \w+$/), expect.stringMatching(/South Wall soil EC: no reading in 30 days$/),
   ]);
   // The stop within the day colours the panel; the long-silent ones alone would not.
   expect(probes.classList.contains("tone-warn")).toBe(true);

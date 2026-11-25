@@ -39,7 +39,7 @@ pytestmark = pytest.mark.skipif(
 SCHEMA = "vd72_alert_lifecycle"
 ROLE = "vd72_alert_lifecycle_ingestor"
 WEST = ("soil_moisture_west", "soil_temp_west")
-SOUTH_2 = ("soil_moisture_south_2", "soil_temp_south_2")
+SOUTH = ("soil_moisture_south_1", "soil_temp_south_1")
 SCHEMA_DDL = (
     ("CREATE FUNCTION public.update_updated_at_column() RETURNS trigger", "$$;\n"),
     ("CREATE TABLE public.alert_log (", ";\n"),
@@ -66,6 +66,9 @@ def schema_statements() -> list[str]:
         assert text.count(start) == 1, start
         begin = text.index(start)
         statements.append(text[begin : text.index(end, begin) + len(end)].replace("public.", f"{SCHEMA}."))
+    migration = (ROOT / "db/migrations/322-sen0604-wall-soil-telemetry.sql").read_text()
+    start = migration.index("ALTER TABLE public.climate")
+    statements.append(migration[start : migration.index(";", start) + 1].replace("public.", f"{SCHEMA}."))
     return statements
 
 
@@ -159,19 +162,19 @@ async def flap_replay(ns, conn) -> None:
 
 
 async def long_offline_and_return(ns, conn) -> None:
-    await soil_cycle(ns, conn, local(0, 8), silent=SOUTH_2)
+    await soil_cycle(ns, conn, local(0, 8), silent=SOUTH)
     for day in range(1, 8):
-        await soil_cycle(ns, conn, local(day, 8, 5), silent=SOUTH_2)
-    [row] = await rows(conn, "soil.south_2")
+        await soil_cycle(ns, conn, local(day, 8, 5), silent=SOUTH)
+    [row] = await rows(conn, "soil.south_1")
     assert row["resolution"] == "auto-resolved: probe offline longer than 7 days" and row["resolved_by"] == "system"
     assert row["details"]["long_offline"] is True and await conn.fetchval("SELECT count(*) FROM v_open_alerts") == 0
-    await soil_cycle(ns, conn, local(9, 8), silent=SOUTH_2)
-    assert await rows(conn, "soil.south_2") == [row]  # still offline: untouched
+    await soil_cycle(ns, conn, local(9, 8), silent=SOUTH)
+    assert await rows(conn, "soil.south_1") == [row]  # still offline: untouched
     await soil_cycle(ns, conn, local(10, 12))
-    [returned] = await rows(conn, "soil.south_2")
+    [returned] = await rows(conn, "soil.south_1")
     assert returned["details"]["long_offline"] is False and returned["resolved_at"] is not None
-    await soil_cycle(ns, conn, local(11, 12), silent=SOUTH_2)
-    [reopened] = await rows(conn, "soil.south_2")
+    await soil_cycle(ns, conn, local(11, 12), silent=SOUTH)
+    [reopened] = await rows(conn, "soil.south_1")
     assert reopened["id"] == row["id"] and reopened["ts"] == row["ts"] and reopened["zone"] == "south"
     assert reopened["resolved_at"] is None and reopened["resolved_by"] is None and reopened["resolution"] is None
     assert reopened["details"]["count"] == 2 and seen(reopened) == local(11, 12)
@@ -210,8 +213,8 @@ async def soil_read(ns, conn) -> None:
     )
     alerts, keep_open, unpotted = await as_ingestor(conn, ns["_soil_probe_offline_cycle"](conn, {"south", "west"}, 12))
     assert {a["sensor_id"]: a["details"]["columns"] for a in alerts} == {
-        "soil.south_2": list(SOUTH_2),
-        "soil.west": ["soil_temp_west"],
+        "soil.south_1": ["soil_ph_south_1", "soil_salinity_south_1", "soil_tds_south_1"],
+        "soil.west": ["soil_temp_west", "soil_ec_west", "soil_ph_west", "soil_salinity_west", "soil_tds_west"],
     }
     assert not keep_open and not unpotted
 

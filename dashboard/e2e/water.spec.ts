@@ -294,10 +294,10 @@ for (const viewport of [PHONE, { width: 820, height: 1180 }, DESKTOP]) {
       await page.emulateMedia({ colorScheme: scheme });
       await useScreensClock(page, request, "soil-west-unserved");
       await load(page, "/water/soil");
-      const south = page.getByRole("region", { name: "South 1" });
+      const south = page.getByRole("region", { name: "South Wall" });
       await expect(south.locator('.wat-soil-stat[data-measure="moisture"] .wat-soil-value')).toHaveText(/^\d+\.\d%$/);
       await expect(south.locator(".wat-soil-range-kv")).toContainText("Range");
-      const west = page.getByRole("region", { name: "West" });
+      const west = page.getByRole("region", { name: "West Wall" });
       await expect(west).toContainText("This probe has not reported in the last 7 days.");
       await expect(west.locator(".wat-soil-stat")).toHaveCount(0);
       await expectNoHorizontalScroll(page);
@@ -308,15 +308,15 @@ for (const viewport of [PHONE, { width: 820, height: 1180 }, DESKTOP]) {
 test("Soil: an operator edits a zone's moisture range in place and sends only what changed; a viewer sees no Edit", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
   await load(page, "/water/soil");
-  await page.getByRole("button", { name: "Edit West moisture range" }).click();
-  const form = page.getByRole("form", { name: "Edit West moisture range" });
+  await page.getByRole("button", { name: "Edit West Wall moisture range" }).click();
+  const form = page.getByRole("form", { name: "Edit West Wall moisture range" });
   await form.getByLabel("Low end of the range").fill("38");
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toHaveCount(0);
   expect((await fixtureWrites(request)).map((write) => [write.operationId, write.body])).toEqual([["API-SOIL-02", { min_pct: 38 }]]);
   await useScreensClock(page, request, ["in-band", "viewer-session"]);
   await load(page, "/water/soil");
-  await expect(page.getByRole("region", { name: "West" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "West Wall" })).toBeVisible();
   await expect(page.getByRole("button", { name: /moisture range/ })).toHaveCount(0);
 });
 

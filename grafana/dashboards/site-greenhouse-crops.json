@@ -1442,7 +1442,7 @@
             "uid": "verdify-tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT $__time(ts), soil_moisture_south_1 AS \"South 1\" FROM climate WHERE $__timeFilter(ts) AND soil_moisture_south_1 IS NOT NULL ORDER BY ts",
+          "rawSql": "SELECT $__time(ts), soil_moisture_south_1 AS \"South Wall\" FROM climate WHERE $__timeFilter(ts) AND soil_moisture_south_1 IS NOT NULL ORDER BY ts",
           "refId": "A"
         },
         {
@@ -1451,16 +1451,7 @@
             "uid": "verdify-tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT $__time(ts), soil_moisture_south_2 AS \"South 2\" FROM climate WHERE $__timeFilter(ts) AND soil_moisture_south_2 IS NOT NULL ORDER BY ts",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "verdify-tsdb"
-          },
-          "format": "time_series",
-          "rawSql": "SELECT $__time(ts), soil_moisture_west AS \"West\" FROM climate WHERE $__timeFilter(ts) AND soil_moisture_west IS NOT NULL ORDER BY ts",
+          "rawSql": "SELECT $__time(ts), soil_moisture_west AS \"West Wall\" FROM climate WHERE $__timeFilter(ts) AND soil_moisture_west IS NOT NULL ORDER BY ts",
           "refId": "C"
         }
       ],
@@ -1469,7 +1460,7 @@
       "transparent": true
     },
     {
-      "description": "Shows soil EC from the south-zone probe that includes conductivity sensing.",
+      "description": "Electrical conductivity measured by both wall soil probes.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1477,7 +1468,7 @@
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "showPoints": "never",
-            "spanNulls": true
+            "spanNulls": false
           },
           "thresholds": {
             "steps": [
@@ -1499,7 +1490,7 @@
               }
             ]
           },
-          "unit": "\u00b5S/cm"
+          "unit": "suffix: \u00b5S/cm"
         }
       },
       "gridPos": {
@@ -1527,11 +1518,13 @@
             "uid": "verdify-tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT $__time(ts), soil_ec_south_1 AS \"EC (\u00b5S/cm)\" FROM climate WHERE $__timeFilter(ts) AND soil_ec_south_1 IS NOT NULL ORDER BY ts",
-          "refId": "A"
+          "rawSql": "SELECT $__time(ts), soil_ec_south_1 AS \"South Wall\", soil_ec_west AS \"West Wall\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
-      "title": "Soil EC \u2014 South 1",
+      "title": "Soil EC by Wall",
       "type": "timeseries",
       "transparent": true
     },
@@ -1584,7 +1577,7 @@
           "rawSql": "SELECT ts AS time, soil_moisture_south_1 AS value FROM climate WHERE soil_moisture_south_1 IS NOT NULL AND ts > now() - interval '48 hours' ORDER BY ts DESC LIMIT 1"
         }
       ],
-      "title": "South 1 Moisture",
+      "title": "South Wall Soil Moisture",
       "type": "stat",
       "transparent": true
     },
@@ -1593,7 +1586,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
       },
-      "description": "Interior crop DLI in mol/m²/d from the canopy PAR quantum sensor, or Unavailable — <reason> without full PPFD coverage. No outdoor proxy or correction is presented as crop evidence.",
+      "description": "Interior crop DLI in mol/m\u00b2/d from the canopy PAR quantum sensor, or Unavailable \u2014 <reason> without full PPFD coverage. No outdoor proxy or correction is presented as crop evidence.",
       "fieldConfig": {
         "defaults": {
           "color": {

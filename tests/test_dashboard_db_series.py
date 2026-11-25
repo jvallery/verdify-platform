@@ -105,13 +105,15 @@ def band_compliance_sql() -> str:
 def climate_columns_sql() -> str:
     """The climate columns migrations added after the db/schema.sql dump, from each migration's own text.
 
-    307 (#1184) adds ppfd_umol_m2_s; its facade view and grant need roles and objects the dump lacks, so only the
-    ALTER TABLE runs here.
+    The 307 PPFD and 322 SEN0604 migrations extend the climate table. Extract their ALTER statements since this
+    fixture has its own permissions and does not need the runtime write facade.
     """
     migration = (ROOT / "db/migrations/307-climate-ppfd-column.sql").read_text()
     statements = re.findall(r"^ALTER TABLE public\.climate ADD COLUMN [^;]*;", migration, re.M)
     assert statements == ["ALTER TABLE public.climate ADD COLUMN ppfd_umol_m2_s double precision;"]
-    return "\n".join(statements)
+    soil = (ROOT / "db/migrations/322-sen0604-wall-soil-telemetry.sql").read_text()
+    (soil_columns,) = re.findall(r"^ALTER TABLE public\.climate\s+ADD COLUMN [^;]*;", soil, re.M)
+    return "\n".join([*statements, soil_columns])
 
 
 @dataclass(frozen=True)

@@ -407,6 +407,7 @@ def test_backfill_covers_repo_migrations_except_unapplied_with_correct_shas():
         "320-dashboard-projections.sql",
         # The ingestor grants, the replayed-gap mark and the water ledger fixes run forward only.
         "321-ingestor-gap-and-compliance-reads-water-reset-delta.sql",
+        "322-sen0604-wall-soil-telemetry.sql",
     }
     sql = BACKFILL_SQL.read_text()
     stamped = dict(

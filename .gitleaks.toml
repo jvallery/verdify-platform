@@ -139,4 +139,6 @@ regexes = [
   # Migration 321's native seals (api, ingestor; AR39), same files and shape as above.
   '''^6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c$''',
   '''^b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42$''',
+  # Migration 322's verified API catalog seal, a SHA-256 digest.
+  '''^100231c37c0caf37be0bfde62454b223e17df91fbf0e8b0279f3c2e28ab23f0e$''',
 ]

@@ -31,11 +31,11 @@ function useSoilSeries(keys: readonly string[], seconds: number) {
 }
 
 /** The unit each measure reads in: the registry's, else its usual one. */
-const unitOf = (metric: Pick<MetricDef, "unit"> | undefined, measure: SoilMeasure) => metric?.unit ?? (measure === "moisture" ? "%" : measure === "temp" ? "°F" : "µS/cm");
+const unitOf = (metric: Pick<MetricDef, "unit"> | undefined) => metric?.unit ?? "";
 
 /**
  * One probe zone on Water → Soil (screens section 3.4, parity SO-01 to SO-03): the answer first (where the moisture sits
- * against the range, as a badge), then moisture, conductivity and temperature now with their ages (API-04, a 3-hour
+ * against the range, as a badge), then the probe measurements with their ages (API-04, a 3-hour
  * window at minute resolution), a 7-day chart of moisture against the range's wilt, low and high lines, the range with
  * Edit for an operator (API-SOIL-01, API-SOIL-02), and when the probe last answered. A probe silent for 2 hours, or with
  * nothing in 7 days, says so and is not drawn; a measure the probe does not have is left out.
@@ -68,7 +68,7 @@ export function SoilZone({ target, registry, onReport }: { target: SoilTarget; r
     <dl className="wat-soil-now" data-probe={state}>
       {SOIL_MEASURES.filter(({ measure }) => keys[measure]).map(({ measure, label }) => {
         const reading = newest(measure);
-        const unit = unitOf(registry.find((metric) => metric.key === keys[measure]), measure);
+        const unit = unitOf(registry.find((metric) => metric.key === keys[measure]));
         return <div key={measure} className="wat-soil-stat" data-measure={measure}>
           <dt>{label}</dt>
           <dd>{silent && reading

@@ -152,6 +152,7 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_319_band_divergence_mode_delivery.py
     tests/test_320_dashboard_projections_delivery.py
     tests/test_321_ingestor_gap_reads_water_reset_delivery.py
+    tests/test_sen0604_wall_probes.py
     tests/test_metric_registry_completeness.py
     tests/test_par_meter.py
     tests/test_verdify_services_series.py

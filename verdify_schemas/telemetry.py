@@ -195,6 +195,13 @@ class ClimateRow(BaseModel):
     soil_temp_south_2: float | None = Field(default=None, ge=-40, le=160)
     soil_moisture_west: float | None = None
     soil_temp_west: float | None = None
+    soil_ph_south_1: float | None = Field(default=None, ge=3, le=9)
+    soil_salinity_south_1: float | None = Field(default=None, ge=0, le=65535)
+    soil_tds_south_1: float | None = Field(default=None, ge=0, le=65535)
+    soil_ec_west: float | None = Field(default=None, ge=0, le=20000)
+    soil_ph_west: float | None = Field(default=None, ge=3, le=9)
+    soil_salinity_west: float | None = Field(default=None, ge=0, le=65535)
+    soil_tds_west: float | None = Field(default=None, ge=0, le=65535)
 
     # Leaf telemetry
     leaf_temp_north: float | None = None

@@ -15,18 +15,23 @@ export const SOIL_WINDOW_S = 7 * 86_400;
 /** The window the "now" values are read from, at minute resolution. */
 export const SOIL_NOW_S = 3 * 3600;
 
-export type SoilMeasure = "moisture" | "ec" | "temp";
+export type SoilMeasure = "moisture" | "ec" | "temp" | "ph" | "salinity" | "tds";
 /** Each measure's words, in the order a zone shows them. */
 export const SOIL_MEASURES: readonly { readonly measure: SoilMeasure; readonly label: string }[] = [
   { measure: "moisture", label: "Moisture" }, { measure: "ec", label: "Conductivity" }, { measure: "temp", label: "Temperature" },
+  { measure: "ph", label: "pH" }, { measure: "salinity", label: "Salinity (reference)" }, { measure: "tds", label: "TDS (reference)" },
 ];
 
-/** "South 1" from `south_1`: the zone as the probe names it, never a crop. */
-export const zoneLabel = (zone: string): string => zone.split("_").map((part, index) => (index === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part)).join(" ");
+/** The wall names displayed for the two active probe identities. */
+export function zoneLabel(zone: string): string {
+  if (zone === "south_1") return "South Wall";
+  if (zone === "west") return "West Wall";
+  return zone.split("_").map((part, index) => (index === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part)).join(" ");
+}
 
 /**
  * The metric keys of a zone's probe, from its target row's probe column (`soil_moisture_south_1`): the moisture column and
- * its conductivity and temperature siblings, each kept only when the registry (API-03) serves it, since API-04 refuses a key
+ * its other measurement columns, each kept only when the registry (API-03) serves it, since API-04 refuses a key
  * it does not know. A measure the probe does not have is absent, not unknown.
  */
 export function soilKeys(target: Pick<SoilTarget, "probe">, registry: readonly Pick<MetricDef, "key">[]): Partial<Record<SoilMeasure, string>> {
@@ -34,10 +39,10 @@ export function soilKeys(target: Pick<SoilTarget, "probe">, registry: readonly P
   if (!probe || !probe.includes("moisture")) return {};
   const served = new Set(registry.map((metric) => metric.key));
   const keys: Partial<Record<SoilMeasure, string>> = {};
-  const candidates: Record<SoilMeasure, string> = {
-    moisture: `climate.${probe}`, ec: `climate.${probe.replace("moisture", "ec")}`, temp: `climate.${probe.replace("moisture", "temp")}`,
-  };
-  for (const measure of ["moisture", "ec", "temp"] as const) if (served.has(candidates[measure])) keys[measure] = candidates[measure];
+  for (const { measure } of SOIL_MEASURES) {
+    const key = `climate.${probe.replace("moisture", measure)}`;
+    if (served.has(key)) keys[measure] = key;
+  }
   return keys;
 }
 
@@ -55,6 +60,7 @@ export function newestReading(series: Series | null | undefined, key: string | u
 
 /** A reading in its unit; conductivity in whole µS/cm, never a decimal (design review C3). */
 export function soilValue(value: number, unit: string): string {
+  if (unit === "raw") return formatNumber(value, 0);
   return unit === "µS/cm" || unit === "uS/cm" ? `${formatNumber(value, 0)}\u00a0µS/cm` : formatValue(value, unit);
 }
 
@@ -115,7 +121,7 @@ const verb = (names: readonly string[], one: string, many: string) => `${andName
 
 /**
  * Soil's answer, its first block (design review A4): where each zone's moisture sits against its range, in one or two
- * sentences: "South 1, South 2 and West are below their moisture range.", "Every zone is in its range.", with a probe
+ * sentences: "South Wall and West Wall are below their moisture range.", "Every zone is in its range.", with a probe
  * that has gone silent or never reported said apart. Null until a zone has reported its state.
  */
 export function soilAnswer(zones: readonly { readonly zone: string; readonly state: ProbeState; readonly relation: RangeRelation }[]): string | null {

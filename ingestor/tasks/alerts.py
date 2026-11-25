@@ -415,9 +415,30 @@ def _band_target_alert(bdd: Mapping | None) -> dict | None:
 
 # VD-72: the soil probes and the climate columns each one reports (section 9).
 _SOIL_OFFLINE_PROBES = (
-    ("soil.south_1", "south", ("soil_moisture_south_1", "soil_temp_south_1", "soil_ec_south_1")),
-    ("soil.south_2", "south", ("soil_moisture_south_2", "soil_temp_south_2")),
-    ("soil.west", "west", ("soil_moisture_west", "soil_temp_west")),
+    (
+        "soil.south_1",
+        "south",
+        (
+            "soil_moisture_south_1",
+            "soil_temp_south_1",
+            "soil_ec_south_1",
+            "soil_ph_south_1",
+            "soil_salinity_south_1",
+            "soil_tds_south_1",
+        ),
+    ),
+    (
+        "soil.west",
+        "west",
+        (
+            "soil_moisture_west",
+            "soil_temp_west",
+            "soil_ec_west",
+            "soil_ph_west",
+            "soil_salinity_west",
+            "soil_tds_west",
+        ),
+    ),
 )
 
 # One sensor_offline row per silent device (#1664): every registry sensor whose id starts with a prefix here
@@ -429,7 +450,7 @@ _OFFLINE_DEVICES = (
 )
 _SOIL_SENSOR_IDS = frozenset(
     f"climate.{column}" for _probe, _zone, columns in _SOIL_OFFLINE_PROBES for column in columns
-)
+) | {"climate.soil_moisture_south_2", "climate.soil_temp_south_2"}
 _STALE_EXCLUDE = frozenset({"state.mister_state", "state.mister_zone"})  # legacy firmware entities
 # Change-only entities: a relay or state that does not change writes no row, so age is not silence (gap 10).
 # The controller's silence is the diagnostics device row and VerdifyControllerDark.

@@ -651,9 +651,11 @@
             "uid": "verdify-tsdb",
             "type": "grafana-postgresql-datasource"
           },
-          "rawSql": "SELECT ts AS time, soil_moisture_south_1 AS \"south 1\", soil_moisture_south_2 AS \"south 2\", soil_moisture_west AS \"west\", moisture_center AS \"center\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "rawSql": "SELECT ts AS time, soil_moisture_south_1 AS \"South Wall\", soil_moisture_west AS \"West Wall\", moisture_center AS \"center\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
           "format": "time_series",
-          "refId": "A"
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "fieldConfig": {
@@ -674,7 +676,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "south 1"
+              "options": "South Wall"
             },
             "properties": [
               {

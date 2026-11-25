@@ -336,15 +336,9 @@ modbus_controller:
     address: 6
     modbus_id: modbus_main
     update_interval: 10s
-  # ── Soil sensors (DFRobot SEN0600/SEN0601, Modbus RTU 9600 8N1) ──
-  # Addr 7: SEN0601 south-1 (moisture+temp+EC), Addr 8: SEN0600 south-2, Addr 9: SEN0600 west
-  - id: south_1_soil_probe
+  # SEN0604 soil probes on the shared Modbus RTU 9600 8N1 bus.
+  - id: south_wall_soil_probe
     address: 7
-    modbus_id: modbus_main
-    update_interval: 60s
-    command_throttle: 200ms
-  - id: south_2_soil_probe
-    address: 8
     modbus_id: modbus_main
     update_interval: 60s
     command_throttle: 200ms
