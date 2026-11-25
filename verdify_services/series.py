@@ -475,7 +475,7 @@ _REGISTRY: tuple[MetricBinding, ...] = (
         _LIGHT,
         "µmol/m²/s",
         zone="house",
-        note="PAR quantum sensor at canopy height (#1184); no rows until the meter is fitted",
+        note="DFRobot SEN0641 quantum sensor at canopy height (#1184)",
     ),
     # Daily light integral from that PPFD (migration 308): one value per completed America/Denver day, null with
     # v_dli_daily's reason until a whole day is covered.

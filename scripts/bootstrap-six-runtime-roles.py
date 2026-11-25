@@ -1415,7 +1415,7 @@ def sealed_sql_321():
 SOIL_WALL_TELEMETRY_MIGRATION = (
     322,
     "322-sen0604-wall-soil-telemetry.sql",
-    "43c4b0cb059228e14a79d166e2569f5305060634fa8647eb70dd98f80fe7cbf4",
+    "01763312b7a46a538698adcccd3667970a4d581e0fa7ade54023290589c94a97",
 )
 SUCCESSOR_322 = {
     **SUCCESSOR_321,

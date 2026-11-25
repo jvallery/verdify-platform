@@ -37,10 +37,10 @@ const panel = (name: string) => screen.getByRole("region", { name });
 test("Soil: one panel per probe zone; a probe the registry does not serve says it has not reported and draws nothing, never zero", async () => {
   open("/water/soil", { fixture: ["in-band", "soil-west-unserved"] });
   await load();
-  const south1 = panel("South 1");
+  const south1 = panel("South Wall");
   expect(text(south1.querySelector('[data-measure="moisture"] .wat-soil-value'))).toMatch(/^\d+\.\d%$/);
   expect(text(south1)).toMatch(/The probe last answered|Silent: the probe last answered/);
-  const west = panel("West");
+  const west = panel("West Wall");
   expect(west.querySelector(".wat-soil-stat")).toBeNull();
   expect(text(west)).toContain("This probe has not reported in the last 7 days.");
   expect(text(west)).toContain("No reading");
@@ -56,21 +56,21 @@ test("Soil: the answer first, conductivity in whole µS/cm, and a silent probe's
   // The answer first (design review A4); one key for the zones' charts (A3).
   expect(text(document.querySelector("[data-answer]"))).toMatch(/moisture range\.$/);
   expect(document.querySelectorAll(".wat-soil-group > .chart-key")).toHaveLength(1);
-  expect(text(panel("South 1").querySelector('[data-measure="ec"] .wat-soil-value'))).toMatch(/^[\d,]+ µS\/cm$/);
+  expect(text(panel("South Wall").querySelector('[data-measure="ec"] .wat-soil-value'))).toMatch(/^[\d,]+ µS\/cm$/);
   cleanup(); stopFixtureApi();
   // B10: south 1 silent for three days.
   open("/water/soil", { fixture: ["in-band", "soil-silent"] });
   await load();
-  const south1 = panel("South 1");
+  const south1 = panel("South Wall");
   expect([...south1.querySelectorAll(".wat-soil-value")].map((node) => text(node))).toEqual(["—", "—", "—"]);
-  expect(text(document.querySelector("[data-answer]"))).toContain("South 1 has not answered for over 2 hours.");
+  expect(text(document.querySelector("[data-answer]"))).toContain("South Wall has not answered for over 2 hours.");
 });
 
 test("Soil: an operator edits a zone's range in place and sends only what changed; a viewer sees no Edit", async () => {
   const api = open("/water/soil", { fixture: "in-band" });
   await load();
-  fireEvent.click(screen.getByRole("button", { name: "Edit West moisture range" }));
-  const form = within(screen.getByRole("form", { name: "Edit West moisture range" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit West Wall moisture range" }));
+  const form = within(screen.getByRole("form", { name: "Edit West Wall moisture range" }));
   fireEvent.change(form.getByLabelText("Low end of the range"), { target: { value: "38" } });
   fireEvent.click(form.getByRole("button", { name: "Save" }));
   await advance(0);

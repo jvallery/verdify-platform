@@ -17,7 +17,16 @@ test("a zone's keys come from its probe column and only the keys the registry se
   expect(soilKeys({ probe: "soil_moisture_south_1" }, registry)).toEqual({ moisture: "climate.soil_moisture_south_1", ec: "climate.soil_ec_south_1" });
   expect(soilKeys({ probe: "soil_moisture_west" }, registry)).toEqual({});
   expect(soilKeys({ probe: null }, registry)).toEqual({});
-  expect(zoneLabel("south_1")).toBe("South 1");
+  expect(zoneLabel("south_1")).toBe("South Wall");
+});
+
+test("each SEN0604 card can read all six channels and leaves a retired target unbound", () => {
+  const measures = ["moisture", "temp", "ec", "ph", "salinity", "tds"];
+  const keys = (zone: string) => Object.fromEntries(measures.map((measure) => [measure, `climate.soil_${measure}_${zone}`]));
+  const registry = [...Object.values(keys("south_1")), ...Object.values(keys("west"))].map((key) => ({ key }));
+  expect(soilKeys({ probe: "soil_moisture_south_1" }, registry)).toEqual(keys("south_1"));
+  expect(soilKeys({ probe: "soil_moisture_west" }, registry)).toEqual(keys("west"));
+  expect(soilKeys({ probe: null }, registry)).toEqual({});
 });
 
 test("the newest reading is the last measured bucket, ending no later than now; a gap is skipped, never zero", () => {
@@ -63,10 +72,10 @@ test("Soil's answer first (design review A4), conductivity in whole µS/cm, and 
   const below = { status: "warn" as const, text: "3.6% below the range" };
   const ok = { status: "ok" as const, text: "in range" };
   expect(soilAnswer([{ zone: "south_1", state: "reporting", relation: below }, { zone: "south_2", state: "reporting", relation: below }, { zone: "west", state: "reporting", relation: below }]))
-    .toBe("South 1, South 2 and West are below their moisture range.");
+    .toBe("South Wall, South 2 and West Wall are below their moisture range.");
   expect(soilAnswer([{ zone: "south_1", state: "reporting", relation: ok }, { zone: "west", state: "reporting", relation: ok }])).toBe("Every zone is in its moisture range.");
   expect(soilAnswer([{ zone: "south_1", state: "silent", relation: below }, { zone: "west", state: "reporting", relation: ok }]))
-    .toBe("West is in range. South 1 has not answered for over 2 hours.");
+    .toBe("West Wall is in range. South Wall has not answered for over 2 hours.");
   expect(soilAnswer([{ zone: "west", state: "unknown", relation: ok }])).toBeNull();
   expect(soilValue(853.4, "µS/cm")).toBe("853\u00a0µS/cm");
   expect(soilValue(1889.2, "µS/cm")).toBe("1,889\u00a0µS/cm");

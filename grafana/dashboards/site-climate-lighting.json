@@ -9,7 +9,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
       },
-      "description": "Interior crop DLI in mol/m²/d from the canopy PAR quantum sensor; it reads Unavailable — <reason> until PPFD covers the local day. Reason, provenance, and validity come from v_dli_current; qualified-light-minute control remains independent.",
+      "description": "Interior crop DLI in mol/m\u00b2/d from the canopy PAR quantum sensor; it reads Unavailable \u2014 <reason> until PPFD covers the local day. Reason, provenance, and validity come from v_dli_current; qualified-light-minute control remains independent.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -243,7 +243,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "verdify-tsdb"
       },
-      "description": "Interior DLI from the canopy PAR quantum sensor prints in mol/m²/d; without full PPFD coverage it is unavailable with its reason. Grow-light runtime and qualified minutes remain available separately.",
+      "description": "Interior DLI from the canopy PAR quantum sensor prints in mol/m\u00b2/d; without full PPFD coverage it is unavailable with its reason. Grow-light runtime and qualified minutes remain available separately.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1695,6 +1695,81 @@
         }
       ],
       "title": "Per-Circuit Lighting Forecast Bands",
+      "type": "timeseries",
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "verdify-tsdb"
+      },
+      "description": "Direct canopy-level PPFD from the DFRobot SEN0641 (400\u2013700 nm).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "pointSize": 5,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "suffix: \u00b5mol/m\u00b2/s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 24,
+        "h": 8
+      },
+      "id": 311,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "verdify-tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT $__time(ts), ppfd_umol_m2_s AS \"Canopy PPFD\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "title": "Canopy PPFD",
       "type": "timeseries",
       "transparent": true
     }

@@ -58,3 +58,17 @@ def test_native_qualification_is_bound_to_exact_migration():
     assert receipt["native_fixture"]["all_passed"]
     assert receipt["final_migration_rollback_verified"]
     assert receipt["before"] == receipt["after_rollback"]
+
+
+def test_grafana_has_both_walls_all_six_channels_and_direct_ppfd():
+    soil = ROOT / "grafana/provisioning/dashboards/json/greenhouse-soil.json"
+    soil_panels = json.loads(soil.read_text())["panels"]
+    trends = [p for p in soil_panels if p["type"] == "timeseries"]
+    queries = [target["rawSql"] for p in trends for target in p["targets"]]
+    for measure in ("moisture", "temp", "ec", "ph", "salinity", "tds"):
+        assert any(f"soil_{measure}_south_1 AS" in q and f"soil_{measure}_west AS" in q for q in queries)
+    assert not any("south_2" in q for p in soil_panels for q in (t["rawSql"] for t in p["targets"]))
+
+    lighting = ROOT / "grafana/dashboards/site-climate-lighting.json"
+    (par_panel,) = [p for p in json.loads(lighting.read_text())["panels"] if p["title"] == "Canopy PPFD"]
+    assert "ppfd_umol_m2_s" in par_panel["targets"][0]["rawSql"]

@@ -45,12 +45,12 @@
             "uid": "verdify-tsdb"
           },
           "format": "table",
-          "rawSql": "SELECT ts AS time, soil_moisture_south_1 AS value FROM climate WHERE soil_moisture_south_1 IS NOT NULL ORDER BY ts DESC LIMIT 1"
+          "rawSql": "SELECT ts AS time, soil_moisture_south_1 AS value FROM climate WHERE ts > now() - interval '5 minutes' AND soil_moisture_south_1 IS NOT NULL ORDER BY ts DESC LIMIT 1"
         }
       ],
-      "title": "South 1 Moisture",
+      "title": "South Wall Moisture",
       "type": "stat",
-      "description": "Shows soil moisture from the first south-zone probe.",
+      "description": "Latest South Wall SEN0604 moisture in the last five minutes.",
       "options": {
         "colorMode": "value",
         "graphMode": "none"
@@ -100,12 +100,12 @@
             "uid": "verdify-tsdb"
           },
           "format": "table",
-          "rawSql": "SELECT ts AS time, soil_temp_south_1 AS value FROM climate WHERE soil_temp_south_1 IS NOT NULL ORDER BY ts DESC LIMIT 1"
+          "rawSql": "SELECT ts AS time, soil_temp_south_1 AS value FROM climate WHERE ts > now() - interval '5 minutes' AND soil_temp_south_1 IS NOT NULL ORDER BY ts DESC LIMIT 1"
         }
       ],
-      "title": "South 1 Temp",
+      "title": "South Wall Temperature",
       "type": "stat",
-      "description": "Shows soil temperature from the first south-zone probe.",
+      "description": "Latest South Wall SEN0604 temperature in the last five minutes.",
       "options": {
         "colorMode": "value",
         "graphMode": "none"
@@ -115,27 +115,7 @@
     {
       "fieldConfig": {
         "defaults": {
-          "thresholds": {
-            "steps": [
-              {
-                "color": "#FF9800",
-                "value": null
-              },
-              {
-                "color": "#73BF69",
-                "value": 50
-              },
-              {
-                "color": "#FDD835",
-                "value": 300
-              },
-              {
-                "color": "#EF5350",
-                "value": 500
-              }
-            ]
-          },
-          "unit": "\u00b5S/cm",
+          "unit": "suffix: \u00b5S/cm",
           "color": {
             "mode": "fixed",
             "fixedColor": "#73BF69"
@@ -155,126 +135,14 @@
             "uid": "verdify-tsdb"
           },
           "format": "table",
-          "rawSql": "SELECT ts AS time, soil_ec_south_1 AS value FROM climate WHERE soil_ec_south_1 IS NOT NULL ORDER BY ts DESC LIMIT 1"
+          "rawSql": "SELECT ts AS time, soil_ec_south_1 AS value FROM climate WHERE ts > now() - interval '5 minutes' AND soil_ec_south_1 IS NOT NULL ORDER BY ts DESC LIMIT 1"
         }
       ],
-      "title": "South 1 EC",
+      "title": "South Wall EC",
       "type": "stat",
-      "description": "Shows soil electrical conductivity from the first south-zone EC probe.",
+      "description": "Latest South Wall SEN0604 ec in the last five minutes.",
       "options": {
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "transparent": true
-    },
-    {
-      "fieldConfig": {
-        "defaults": {
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "steps": [
-              {
-                "color": "#EF5350",
-                "value": null
-              },
-              {
-                "color": "#FF9800",
-                "value": 20
-              },
-              {
-                "color": "#73BF69",
-                "value": 40
-              },
-              {
-                "color": "#2196F3",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "percent",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#73BF69"
-          }
-        }
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 12,
-        "y": 0
-      },
-      "id": 4,
-      "targets": [
-        {
-          "datasource": {
-            "uid": "verdify-tsdb"
-          },
-          "format": "table",
-          "rawSql": "SELECT ts AS time, soil_moisture_south_2 AS value FROM climate WHERE soil_moisture_south_2 IS NOT NULL ORDER BY ts DESC LIMIT 1"
-        }
-      ],
-      "title": "South 2 Moisture",
-      "type": "stat",
-      "description": "Shows soil moisture from the second south-zone probe.",
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none"
-      },
-      "transparent": true
-    },
-    {
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "steps": [
-              {
-                "color": "#2196F3",
-                "value": null
-              },
-              {
-                "color": "#73BF69",
-                "value": 55
-              },
-              {
-                "color": "#FF9800",
-                "value": 80
-              },
-              {
-                "color": "#EF5350",
-                "value": 90
-              }
-            ]
-          },
-          "unit": "fahrenheit",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#73BF69"
-          }
-        }
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 0
-      },
-      "id": 5,
-      "targets": [
-        {
-          "datasource": {
-            "uid": "verdify-tsdb"
-          },
-          "format": "table",
-          "rawSql": "SELECT ts AS time, soil_temp_south_2 AS value FROM climate WHERE soil_temp_south_2 IS NOT NULL ORDER BY ts DESC LIMIT 1"
-        }
-      ],
-      "title": "South 2 Temp",
-      "type": "stat",
-      "description": "Shows soil temperature from the second south-zone probe.",
-      "options": {
-        "colorMode": "value",
+        "colorMode": "none",
         "graphMode": "none"
       },
       "transparent": true
@@ -314,7 +182,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 20,
+        "x": 12,
         "y": 0
       },
       "id": 6,
@@ -324,14 +192,106 @@
             "uid": "verdify-tsdb"
           },
           "format": "table",
-          "rawSql": "SELECT ts AS time, soil_moisture_west AS value FROM climate WHERE soil_moisture_west IS NOT NULL ORDER BY ts DESC LIMIT 1"
+          "rawSql": "SELECT ts AS time, soil_moisture_west AS value FROM climate WHERE ts > now() - interval '5 minutes' AND soil_moisture_west IS NOT NULL ORDER BY ts DESC LIMIT 1"
         }
       ],
-      "title": "West Moisture",
+      "title": "West Wall Moisture",
       "type": "stat",
-      "description": "Shows soil moisture from the west-zone probe.",
+      "description": "Latest West Wall SEN0604 moisture in the last five minutes.",
       "options": {
         "colorMode": "value",
+        "graphMode": "none"
+      },
+      "transparent": true
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "#2196F3",
+                "value": null
+              },
+              {
+                "color": "#73BF69",
+                "value": 55
+              },
+              {
+                "color": "#FF9800",
+                "value": 80
+              },
+              {
+                "color": "#EF5350",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "fahrenheit",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "id": 7,
+      "targets": [
+        {
+          "datasource": {
+            "uid": "verdify-tsdb"
+          },
+          "format": "table",
+          "rawSql": "SELECT ts AS time, soil_temp_west AS value FROM climate WHERE ts > now() - interval '5 minutes' AND soil_temp_west IS NOT NULL ORDER BY ts DESC LIMIT 1"
+        }
+      ],
+      "title": "West Wall Temperature",
+      "type": "stat",
+      "description": "Latest West Wall SEN0604 temperature in the last five minutes.",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "transparent": true
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: \u00b5S/cm",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "id": 8,
+      "targets": [
+        {
+          "datasource": {
+            "uid": "verdify-tsdb"
+          },
+          "format": "table",
+          "rawSql": "SELECT ts AS time, soil_ec_west AS value FROM climate WHERE ts > now() - interval '5 minutes' AND soil_ec_west IS NOT NULL ORDER BY ts DESC LIMIT 1"
+        }
+      ],
+      "title": "West Wall EC",
+      "type": "stat",
+      "description": "Latest West Wall SEN0604 ec in the last five minutes.",
+      "options": {
+        "colorMode": "none",
         "graphMode": "none"
       },
       "transparent": true
@@ -354,53 +314,7 @@
           "min": 0,
           "unit": "percent"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "West"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#26A69A",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "South 1 (Canna)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#73BF69",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "South 2 (Canna)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FDD835",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -412,15 +326,19 @@
       "targets": [
         {
           "datasource": {
+            "type": "grafana-postgresql-datasource",
             "uid": "verdify-tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT time_bucket('5 minutes', ts) AS time, avg(soil_moisture_south_1) AS \"South 1 (Canna)\", avg(soil_moisture_south_2) AS \"South 2 (Canna)\", avg(soil_moisture_west) AS \"West\" FROM climate WHERE $__timeFilter(ts) AND (soil_moisture_south_1 IS NOT NULL OR soil_moisture_south_2 IS NOT NULL OR soil_moisture_west IS NOT NULL) GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT $__time(ts), soil_moisture_south_1 AS \"South Wall\", soil_moisture_west AS \"West Wall\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
-      "title": "Soil Moisture \u2014 All Probes",
+      "title": "Soil Moisture",
       "type": "timeseries",
-      "description": "Shows soil moisture readings from the installed root-zone probes.",
+      "description": "South Wall and West Wall SEN0604 readings.",
       "options": {
         "legend": {
           "calcs": [],
@@ -452,53 +370,7 @@
           },
           "unit": "fahrenheit"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "West"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#26A69A",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "South 1"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#73BF69",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "South 2"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FDD835",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -510,15 +382,19 @@
       "targets": [
         {
           "datasource": {
+            "type": "grafana-postgresql-datasource",
             "uid": "verdify-tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT time_bucket('5 minutes', ts) AS time, avg(soil_temp_south_1) AS \"South 1\", avg(soil_temp_south_2) AS \"South 2\", avg(soil_temp_west) AS \"West\" FROM climate WHERE $__timeFilter(ts) AND (soil_temp_south_1 IS NOT NULL OR soil_temp_south_2 IS NOT NULL OR soil_temp_west IS NOT NULL) GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT $__time(ts), soil_temp_south_1 AS \"South Wall\", soil_temp_west AS \"West Wall\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
-      "title": "Soil Temperature \u2014 All Probes",
+      "title": "Soil Temperature",
       "type": "timeseries",
-      "description": "Shows soil temperature readings from the installed root-zone probes.",
+      "description": "South Wall and West Wall SEN0604 readings.",
       "options": {
         "legend": {
           "calcs": [],
@@ -547,25 +423,9 @@
             },
             "showPoints": "never"
           },
-          "unit": "\u00b5S/cm"
+          "unit": "suffix: \u00b5S/cm"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "EC (\u00b5S/cm)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#26A69A",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -577,15 +437,184 @@
       "targets": [
         {
           "datasource": {
+            "type": "grafana-postgresql-datasource",
             "uid": "verdify-tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT time_bucket('5 minutes', ts) AS time, avg(soil_ec_south_1) AS \"EC (\u00b5S/cm)\" FROM climate WHERE $__timeFilter(ts) AND soil_ec_south_1 IS NOT NULL GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT $__time(ts), soil_ec_south_1 AS \"South Wall\", soil_ec_west AS \"West Wall\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
-      "title": "Soil EC \u2014 South 1 (SEN0601)",
+      "title": "Soil Electrical Conductivity",
       "type": "timeseries",
-      "description": "Shows soil electrical conductivity from the EC-capable probe.",
+      "description": "South Wall and West Wall SEN0604 readings.",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transparent": true
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "spanNulls": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "showPoints": "never"
+          },
+          "unit": "suffix: pH"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 14,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "verdify-tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT $__time(ts), soil_ph_south_1 AS \"South Wall\", soil_ph_west AS \"West Wall\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "title": "Soil pH",
+      "type": "timeseries",
+      "description": "South Wall and West Wall SEN0604 readings.",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transparent": true
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "spanNulls": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "showPoints": "never"
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 15,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "verdify-tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT $__time(ts), soil_salinity_south_1 AS \"South Wall\", soil_salinity_west AS \"West Wall\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "title": "Soil Salinity (Reference)",
+      "type": "timeseries",
+      "description": "Raw SEN0604 reference values. DFRobot does not specify a reporting unit.",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transparent": true
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "spanNulls": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "showPoints": "never"
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 16,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "verdify-tsdb"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT $__time(ts), soil_tds_south_1 AS \"South Wall\", soil_tds_west AS \"West Wall\" FROM climate WHERE $__timeFilter(ts) ORDER BY ts",
+          "refId": "A",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "title": "Soil TDS (Reference)",
+      "type": "timeseries",
+      "description": "Raw SEN0604 reference values. DFRobot does not specify a reporting unit.",
       "options": {
         "legend": {
           "calcs": [],
@@ -633,7 +662,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "South 1 Moisture (%)"
+              "options": "South Wall Moisture (%)"
             },
             "properties": [
               {
@@ -676,9 +705,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 12
+        "w": 24,
+        "x": 0,
+        "y": 28
       },
       "id": 13,
       "targets": [
@@ -687,7 +716,7 @@
             "uid": "verdify-tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT time_bucket('15 minutes', ts) AS time, avg(soil_moisture_south_1) AS \"South 1 Moisture (%)\", avg(vpd_south) AS \"South Air VPD (kPa)\" FROM climate WHERE $__timeFilter(ts) AND soil_moisture_south_1 IS NOT NULL GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT time_bucket('15 minutes', ts) AS time, avg(soil_moisture_south_1) AS \"South Wall Moisture (%)\", avg(vpd_south) AS \"South Air VPD (kPa)\" FROM climate WHERE $__timeFilter(ts) AND soil_moisture_south_1 IS NOT NULL GROUP BY 1 ORDER BY 1"
         }
       ],
       "title": "Soil Moisture vs Air VPD",
