@@ -55,7 +55,7 @@ It dry-runs by default; a production apply requires its explicit apply flag and 
   dashboard-web digest. The candidates do not render: `overlays/prod/release-pins.yaml`, a `transformers:` entry
   applied after `images:`, holds the digests production runs, so `main` keeps rendering what is live (#808). A
   merge is a Git change only.
-- **Promote:** in one attended session, run `python3 scripts/promote-release-pins.py` (it copies the candidate
+- **Promote:** run `python3 scripts/promote-release-pins.py` (it copies the candidate
   digests into `release-pins.yaml`, all four by default: the migrate hook carries the schema the others expect),
   commit that digest-only change, merge it, then run the gated sync below. The setpoint-server and lab-publisher
   release pins are edited by hand in the `images:` block. Details: [`prod-promotion.md`](./prod-promotion.md).
@@ -123,8 +123,8 @@ its prelocks for 15 to 30 s on each run. Two things collide with it:
 
 The procedure:
 
-1. Scaling a Deployment to zero is a Lease-class write: ask the holder of the planned-maintenance Lease
-   (`kube-system/k3s-planned-maintenance`) first, and wait for the admit.
+1. Check live state before you scale a Deployment to zero: no sync operation is running on `verdify-prod-dark`,
+   and no node is being drained (`kubectl get nodes` shows no worker cordoned).
 2. Pre-check `pg_stat_activity`: no transaction open longer than 20 s and no lock wait. Start at least 15 minutes
    clear of the 02:29Z and 14:29Z compression jobs, off the ingestor's 5-minute view refresh and the :02/:32
    band-curve and daily-record refresh, outside 14:00-15:00Z (the daily review), outside 09:10-09:30Z (the nightly

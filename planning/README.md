@@ -1,6 +1,6 @@
 # Verdify planning records (history)
 
-**The backlog is GitHub issues in [jvallery/verdify-platform](https://github.com/jvallery/verdify-platform/issues)**, with the estate milestones `W1 Convergence foundations` through `W5 BCDR`, one `sprint:` label and one domain label (`conv`, `cicd`, `obs`, `sec`, `ha`, `dr`) each, and the issue contract in each body. Nothing in this repository writes issue bodies, metadata or dependency edges ([#1556](https://github.com/jvallery/verdify-platform/issues/1556)).
+**The backlog is GitHub issues in [jvallery/verdify-platform](https://github.com/jvallery/verdify-platform/issues).** Nothing in this repository writes issue bodies, metadata or dependency edges.
 
 This directory holds dated history and no code: the reviews, evidence, execution packets and proposals below. The repo-local backlog that was rendered and published from here until 2026-11-09 is kept as a [historical snapshot](archive/2026-11-09-backlog-snapshot/README.md) that nothing generates or reads. Counts and "current" claims in the reviews below are as of their dates.
 

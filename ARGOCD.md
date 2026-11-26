@@ -23,7 +23,7 @@ Verdify is single-env as of 2026-06-16.
 - Live ArgoCD app: `verdify-prod-dark`. The name is legacy and means production:
   it renders `overlays/prod`, the only overlay, and there is no dark or
   device-dark production shape. It is not renamed on its own; it takes a
-  production name only when the Application is re-homed (D-277).
+  production name only when the Application is re-homed.
 - Desired state: `deploy/k8s/overlays/prod`.
 - Sync model: manual, behind the device-write gate.
 - Canonical branch: `main`.
@@ -32,11 +32,11 @@ Verdify is single-env as of 2026-06-16.
 
 | App | Namespace | Source path | Sync policy | Notes |
 |---|---|---|---|---|
-| `verdify-prod-dark` | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual | Legacy name meaning production (D-277); the real production writer. Sync uses the release preflight and rollback checks. |
+| `verdify-prod-dark` | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual | Legacy name meaning production; the real production writer. Sync uses the release preflight and rollback checks. |
 | `verdify-dashboard` | `verdify-dashboard` | `deploy/k8s/dashboard` | Automated, self-heal, prune off | The dashboard web tier, declared in jvallery/estate-platform `gitops/applications/local-prod/` (adopted in jvallery/agents#5994). The web ships when its digest-pin PR to `deploy/k8s/dashboard/kustomization.yaml` merges, and the app never touches `verdify-prod`. Runbook: `docs/runbooks/dashboard.md`. |
-| `verdify-descheduler` | `verdify-descheduler` | `deploy/k8s/descheduler` | Manual, prune off, pinned to an exact commit | The hourly descheduler CronJob ([#802](https://github.com/jvallery/verdify-platform/issues/802)), declared in jvallery/estate-platform `gitops/applications/local-prod/` under `agent-fleet-local-prod-apps`. A source change here reaches the cluster only when that pin moves (in the consolidated pin PR in jvallery/estate-platform) and the app is synced. |
+| `verdify-descheduler` | `verdify-descheduler` | `deploy/k8s/descheduler` | Manual, prune off, pinned to an exact commit | The hourly descheduler CronJob ([#802](https://github.com/jvallery/verdify-platform/issues/802)), declared in jvallery/estate-platform `gitops/applications/local-prod/` under `agent-fleet-local-prod-apps`. A source change here reaches the cluster only when that pin moves in jvallery/estate-platform and the app is synced. |
 
-These are the three Applications that sync this repository's paths; all three read it through the in-cluster git mirror, so after a merge Argo may need a hard refresh before it compares against the new commit. `verdify-prod-secrets-local-prod` and `verdify-dashboard-secrets` (central KSOPS; their Secret sources stay in jvallery/agents `platform/gitops/secrets-ksops/`) and `verdify-tenant-bounds` also deliver into these namespaces; their declarations are in jvallery/estate-platform too.
+These are the three Applications that sync this repository's paths; all three read it through the in-cluster git mirror, so after a merge Argo may need a hard refresh before it compares against the new commit. `verdify-prod-secrets-local-prod` and `verdify-dashboard-secrets` (SOPS-encrypted bundles in jvallery/estate-platform `secrets/verdify-prod` and `secrets/verdify-dashboard`) and `verdify-tenant-bounds` also deliver into these namespaces; their declarations are in jvallery/estate-platform too.
 
 The live production Application declaration is owned by [jvallery/estate-platform](https://github.com/jvallery/estate-platform/blob/main/gitops/applications/local-prod/verdify-prod-dark.yaml) and reconciled by `agent-fleet-local-prod-apps`, whose source is `gitops/applications/local-prod` in that repository since the Application catalog moved from jvallery/agents on 2026-11-15 (the agents copy is frozen). Adoption preserved its UID, full spec, manual sync and storage ignores. Change its policy in that owner; this repo owns `deploy/k8s/overlays/prod` and its rendered resources.
 
