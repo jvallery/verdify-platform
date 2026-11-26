@@ -111,7 +111,7 @@ Where things are:
 
 **Checks.** `make ci` is the full gate; it is heavy, so let the pull request run it and use `make lint`, one focused test target, or `kustomize build deploy/k8s/overlays/prod` locally. The required checks are the `ci / …` jobs of `.github/workflows/ci.yml` (`docs/ci/ci-contexts.md` lists them). The branch does not have to be up to date, and every push restarts the run, so rebase a green pull request only when GitHub reports a conflict.
 
-**Images.** A merge to `main` runs `build.yml` for the images whose paths changed. Its `pin` job opens one pull request that moves the dashboard-web digest and records the api, mcp, ingestor and migrate digests in the `images:` block of `deploy/k8s/overlays/prod/kustomization.yaml`. Merge it when green. Those four entries are build candidates only: `release-pins.yaml`, applied after them, decides what production runs. Never edit the candidate entries by hand, because they race with the pin job.
+**Images.** A merge to `main` runs `build.yml` for the images whose paths changed. Its `pin` job opens one pull request that moves the dashboard-web digest and records the api, mcp, ingestor and migrate digests in the `images:` block of `deploy/k8s/overlays/prod/kustomization.yaml`. Merge it when green. Those four entries are build candidates only: `release-pins.yaml`, applied after them, decides what production runs. Never edit the candidate entries by hand, because they race with the pin job. The whole of `docs/` is copied into the ingestor image as its content corpus, so even a documentation change under `docs/` builds a new ingestor candidate and opens a pin pull request.
 
 Each part of the system is delivered differently.
 
