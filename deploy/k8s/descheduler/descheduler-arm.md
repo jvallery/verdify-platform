@@ -39,8 +39,8 @@ workloads or force an eviction to prove a change.
 jvallery/estate-platform declares the Application `verdify-descheduler`
 (`gitops/applications/local-prod/verdify-descheduler.yaml`), its AppProject
 (`gitops/projects/verdify-descheduler.yaml`) and the cluster-scoped ClusterRole and ClusterRoleBinding
-`verdify-descheduler`, because a product repository does not grant cluster RBAC. The Application is pinned to
-a commit of this repository, has no automatic sync and no resource-deletion finalizer. The AppProject allows
+`verdify-descheduler`, because a product repository does not grant cluster RBAC. The Application tracks `main`
+of this repository, has no automatic sync and no resource-deletion finalizer. The AppProject allows
 only the kinds above; Secret, Job, Pod and Deployment are outside it. `CreateNamespace=false` stays; the
 Namespace manifest carries `Prune=false,Delete=false` and keeps its labels.
 
@@ -51,9 +51,9 @@ Argo CD is the only writer of these objects. Do not use `kubectl apply -k` as a 
 1. Merge the change here. Render it (`kustomize build deploy/k8s/descheduler`) and require the nine objects
    above.
 2. Read the CronJob's suspend flag and its active Jobs, so that you know what state the change lands on.
-3. Move `targetRevision` of the Application to the merge commit in jvallery/estate-platform and merge that.
-4. Diff the Application, then sync the objects you changed at that revision with pruning off. Do not use
-   replace or force, and do not delete and recreate an object. No Job is part of the sync.
+3. Hard-refresh the Application so that it resolves the merge commit.
+4. Diff the Application, then sync the objects you changed at the revision it has resolved, with pruning off.
+   Do not use replace or force, and do not delete and recreate an object. No Job is part of the sync.
 5. Read back the changed objects: unchanged UIDs, the expected spec, the Namespace labels intact, and the
    Application `Synced` and `Healthy` at the new revision.
 6. Check the next hourly Job: its image and arguments, its log and what it evicted. An empty candidate set is
@@ -63,7 +63,7 @@ Argo CD is the only writer of these objects. Do not use `kubectl apply -k` as a 
 
 To pause, commit `spec.suspend: true` on the CronJob and deliver it as above. Suspending prevents new Jobs; it
 does not stop one that is already running. Resume the same way. If you pause it with kubectl in an emergency,
-put the same value in Git before the next sync, or an old `false` in the pinned revision resumes it. Do not
+put the same value in Git before the next sync, or the `false` still in Git resumes it. Do not
 change the enforce arguments as a way to pause.
 
 To hand the objects back without stopping the service, remove the Application and the AppProject from
