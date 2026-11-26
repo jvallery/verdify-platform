@@ -137,13 +137,13 @@ scripts/k3s-smoke.sh device-monitor
 
 To roll back, commit a digest-only `release-pins.yaml` change to the previous pins, keeping a `verdify-migrate` digest that contains every applied migration, then sync and smoke-test again.
 
-**Descheduler.** The Application `verdify-descheduler` is pinned to a commit of this repository and has no automatic sync. Move its pin in `gitops/applications/local-prod/verdify-descheduler.yaml` in jvallery/estate-platform, then sync it. Read `deploy/k8s/descheduler/descheduler-arm.md` first.
+**Descheduler.** The Application `verdify-descheduler` tracks `main` and has no automatic sync. After the merge, hard-refresh the Application and sync the objects you changed at the revision it has resolved, not at an older commit (the estate guide, "Sync named objects"). Read `deploy/k8s/descheduler/descheduler-arm.md` first.
 
 **Firmware.** Firmware reaches the controller only through the signed release Jobs (`scripts/firmware-release-job.py`, runbook `docs/runbooks/firmware-signed-artifacts.md`) or `make firmware-deploy`. Both run `scripts/firmware-deploy-preflight.sh`, which refuses to flash on an unresolved critical alert, stale telemetry or a missing rollback artifact. Verify the running version with the `diagnostics.firmware_version` query in `docs/runbooks/laptop-operator.md` section 3.
 
 **Lab content.** The CronJob `verdify-lab-publisher` publishes S3 content to the lab site every 30 minutes; see `docs/runbooks/lab-content-pipeline.md`.
 
-**Secrets.** The bundles are `secrets/verdify-prod` and `secrets/verdify-dashboard` in jvallery/estate-platform, each delivered by its own pinned Application. Add no SOPS file here.
+**Secrets.** The bundles are `secrets/verdify-prod` and `secrets/verdify-dashboard` in jvallery/estate-platform. Each is delivered by its own Application, which tracks `main` and syncs itself, so a changed Secret is one pull request there and deploys on merge. Add no SOPS file here.
 
 ## Hazards
 
