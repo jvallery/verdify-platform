@@ -8,12 +8,12 @@
 # prod is its canonical home.
 #
 # IMAGE DIGEST PRESERVED (NOT transformer-rewritten): the image is the official
-# upstream nousresearch/hermes-agent v0.23.3 (amd64 41468459 of index 3e9fe4c6),
+# upstream nousresearch/hermes-agent v0.23.4 (amd64 3bc37fd8 of index ef0650d5),
 # zot custody copy jvallery/mirror-docker-io-nousresearch-hermes-agent
-# (storage-infra#2357; D-880: latest upstream, no derived re-base, #1458).
-# Rollback: the previous derived build
-# verdifyconsultancy/verdify-hermes-agent@sha256:1fa1f16e8e34... (an exact sync of
-# this Deployment at d9c30b36). It is NOT a ghcr.io/verdifyconsultancy/* app image, so the overlay
+# (D-880: latest upstream, no derived re-base, #1458; D-889 newest release).
+# Rollback: v0.23.3 (amd64 41468459 of index 3e9fe4c6)
+# jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac
+# (an exact sync of this Deployment). It is NOT a ghcr.io/verdifyconsultancy/* app image, so the overlay
 # images: transformer (which only matches the verdify-* names) leaves it
 # untouched. The digest is unchanged; the @sha256 decides what runs.
 #
@@ -113,7 +113,7 @@ spec:
         # reconciled here. The learned skill/history and credentials are
         # retained. Uses the SAME upstream image (no extra pull).
         - name: seed-config
-          image: registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac
+          image: registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:3bc37fd8546e90fc41fe0d29511b4052840c281617cbcec6093bfe03d86a4ad9
           command: ["sh", "-c", "python3 /etc/verdify/iris-inventory/seed-inventory.py && cp -f /etc/verdify/hermes-config/config.yaml /opt/data/config.yaml && echo 'seeded /opt/data/config.yaml from verdify-hermes-iris-config'"]
           securityContext:
             runAsNonRoot: true
@@ -138,7 +138,7 @@ spec:
         - name: hermes-iris
           # UPSTREAM image (zot custody copy), digest PRESERVED from compose:363
           # (NOT rewritten by the overlay images: transformer).
-          image: registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac
+          image: registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:3bc37fd8546e90fc41fe0d29511b4052840c281617cbcec6093bfe03d86a4ad9
           # v0.23.3 ENTRYPOINT is /opt/hermes/docker/entrypoint-dispatch.sh, which
           # exec's s6-overlay /init; its stage2-hook.sh and main-wrapper.sh exit 1
           # unless the UID is 0 or the image's hermes user (10000). This pod runs

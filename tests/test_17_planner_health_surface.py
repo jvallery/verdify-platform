@@ -26,11 +26,11 @@ _MCP_STUB_MODULES = ("mcp", "mcp.server", "mcp.server.fastmcp")
 ACTIVE_PLANNER_MODEL_LABEL = "hermes-iris/custom:gpt-6-luna/xhigh"
 
 
-# #1458 (D-880): the zot custody copy of official upstream hermes-agent v0.23.3
-# (amd64 manifest of index 3e9fe4c6; storage-infra#2357), no derived re-base.
+# #1458 (D-880): the zot custody copy of official upstream hermes-agent v0.23.4
+# (amd64 manifest of index ef0650d5), no derived re-base.
 HERMES_IMAGE = (
     "registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent"
-    "@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac"
+    "@sha256:3bc37fd8546e90fc41fe0d29511b4052840c281617cbcec6093bfe03d86a4ad9"
 )
 # v0.23.3's s6 /init and wrappers refuse UID 1000, so the pod exec's the venv binary.
 HERMES_COMMAND = ["/opt/hermes/.venv/bin/hermes"]

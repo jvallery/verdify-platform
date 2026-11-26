@@ -314,14 +314,15 @@ spec:
             periodSeconds: 10
         # Renderer sidecar — same pod, reached at localhost:8081. Powers the
         # /render/d-solo PNG embeds on lab.verdify.ai. Official upstream
-        # grafana/grafana-image-renderer v5.12.11 (index cfa6c8f6, chromium
-        # 156.0.8078.79), zot custody copy (storage-infra#2377). It meets the #1113
-        # retirement condition (upstream chromium >= 156.0.8078.73), so the derived
-        # re-base is no longer pinned (D-880: latest upstream, no forks).
+        # grafana/grafana-image-renderer v5.12.12 (index 7ec15ea7), zot custody
+        # copy. It meets the #1113 retirement condition (upstream chromium >=
+        # 156.0.8078.73), so the derived re-base is no longer pinned (D-880: latest
+        # upstream, no forks). v5.12.12 clears the libzstd1 CVE-2026-124851 finding
+        # of v5.12.11 (D-889 newest upstream release).
         # Hand-pinned, not transformer-rewritten.
-        # Rollback: the derived build registry.vallery.net/verdifyconsultancy/verdify-grafana-image-renderer@sha256:c297463ecad53cc67a6058791cab010bde83d45b9fc9069ea34156fedd69b2d9
+        # Rollback: v5.12.11 registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana-image-renderer:v5.12.11-cfa6c8f63e6d@sha256:cfa6c8f63e6d626f90208f2880f15bd5facc279daec1b9bb642af07aa850d95e
         - name: renderer
-          image: registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana-image-renderer:v5.12.11-cfa6c8f63e6d@sha256:cfa6c8f63e6d626f90208f2880f15bd5facc279daec1b9bb642af07aa850d95e
+          image: registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana-image-renderer:v5.12.12-7ec15ea713a8@sha256:7ec15ea713a82d0cc16aaf1575b5416a6f8b178f475f4d1685e3322a5ce3fae3
           ports:
             - name: renderer
               containerPort: 8081
