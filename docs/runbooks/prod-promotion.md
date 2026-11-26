@@ -38,14 +38,13 @@ build path; add a `build.yml` profile before you promote it.
    `digest` output of that image's job in the merge's `build` run, or resolve its `gha-<sha12>` tag on the zot
    origin.
 4. Commit the digest-only change, let `ci` pass, and merge it.
-5. In the same attended session, run the gated full `verdify-prod-dark` sync (prune off, no `resources`). This is
-   the device-write gate; nothing in GitHub Actions syncs the cluster or restarts the controller's writer. The
+5. Run the full `verdify-prod-dark` sync (prune off, no `resources`) and stay with it through the checks below.
+   This sync is the only step that reaches the device writer; nothing in GitHub Actions syncs the cluster or restarts the controller's writer. The
    `verdify-migrate` PreSync hook applies the release's migrations in ledger order. The app reads an in-cluster Git
    mirror, which carries a merge within about 2 minutes; if Argo still compares against the old revision after
    that, a hard refresh makes it read the mirror again. When a migration in the release takes exclusive locks,
    pause MCP, the API and the operator API for the hook and recreate the planner pod afterwards, as
-   `laptop-operator.md` section 2 (Exclusive-lock windows) describes; the scale-to-zero needs the planned-maintenance
-   Lease holder's admit first.
+   `laptop-operator.md` section 2 (Exclusive-lock windows) describes.
 6. Delete, by kind and exact name, the live objects that the release's pull request lists as removed: the app
    syncs with prune off, so a removed manifest leaves its object behind.
 7. Restart what the pull request names in its `Post-merge restart:` line when the sync's pod-spec changes did not
