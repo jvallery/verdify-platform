@@ -76,7 +76,10 @@ export function SoilZone({ target, registry, onReport }: { target: SoilTarget; r
             // line above says when it last answered, so each reading is only a dash.
             ? <span className="wat-soil-value" title={`No reading since ${shortDateTime(new Date(reading.at * 1000).toISOString())}`}>—</span>
             : <><span className="wat-soil-value">{reading ? soilValue(reading.value, unit) : "—"}</span>
-              {reading ? readingOlder(reading.at, moisture?.at ?? null) && <span className="meta wat-soil-age">{agoDuration(Math.max(0, now - reading.at))}</span>
+              {reading && measure === "moisture" && reading.value === 100 && now - reading.at <= 300 &&
+                <span className="meta wat-soil-age">At the probe’s upper limit</span>}
+              {reading ? (now - reading.at > 300 || readingOlder(reading.at, moisture?.at ?? null)) &&
+                <span className="meta wat-soil-age">{agoDuration(Math.max(0, now - reading.at))}</span>
                 : <span className="meta wat-soil-age">not reported</span>}</>}</dd>
         </div>;
       })}

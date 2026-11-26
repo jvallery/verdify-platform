@@ -305,6 +305,31 @@ for (const viewport of [PHONE, { width: 820, height: 1180 }, DESKTOP]) {
   }
 }
 
+test("Soil trends compare all six readings, explain the upper limit, and keep the selected history on reload", async ({ page, request }) => {
+  await page.setViewportSize(PHONE);
+  await useScreensClock(page, request, "soil-wall-trends");
+  await load(page, "/water/soil");
+  const trends = page.getByRole("region", { name: "Probe trends" });
+  for (const measure of ["Moisture", "Conductivity", "Temperature", "pH", "Salinity (reference)", "TDS (reference)"]) {
+    const card = trends.getByRole("region", { name: measure, exact: true });
+    await card.getByText("Legend", { exact: true }).click();
+    await expect(card.getByRole("button", { name: "South Wall", exact: true })).toBeVisible();
+    await expect(card.getByRole("button", { name: "West Wall", exact: true })).toBeVisible();
+    await expect(card.getByRole("link", { name: "CSV of this window" })).toBeVisible();
+  }
+  await expect(page.getByRole("region", { name: "West Wall", exact: true })).toContainText("At the probe’s upper limit");
+  await trends.getByRole("link", { name: "7 days" }).click();
+  await expect(page).toHaveURL(/range=7d/);
+  await expect(trends.getByRole("link", { name: "Compare moisture with watering runs" }))
+    .toHaveAttribute("href", /range=7d.*soil_moisture_south_1.*soil_moisture_west.*events=runs/);
+  await page.reload();
+  await expect(trends.getByRole("link", { name: "7 days" })).toHaveAttribute("aria-current", "page");
+  const ph = trends.getByRole("region", { name: "pH", exact: true });
+  await ph.getByText("Legend", { exact: true }).click();
+  await expect(ph.getByRole("button", { name: "West Wall", exact: true })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+});
+
 test("Soil: an operator edits a zone's moisture range in place and sends only what changed; a viewer sees no Edit", async ({ page, request }) => {
   await useScreensClock(page, request, "in-band");
   await load(page, "/water/soil");
