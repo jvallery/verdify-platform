@@ -19,8 +19,8 @@ GRAFANA_IMAGE = (
 # Official upstream renderer v5.12.12 (index 7ec15ea7), zot custody copy.
 # Rollback: v5.12.11-cfa6c8f63e6d@sha256:cfa6c8f63e6d626f90208f2880f15bd5facc279daec1b9bb642af07aa850d95e.
 RENDERER_IMAGE = (
-    "registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana-image-renderer:v5.12.12-7ec15ea713a8"
-    "@sha256:7ec15ea713a82d0cc16aaf1575b5416a6f8b178f475f4d1685e3322a5ce3fae3"
+    "registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana-image-renderer:v5.12.12-ec64fccb9c4d"
+    "@sha256:ec64fccb9c4d30da782d63abc94714df02ae03637ab73a8eec7c7ff56229cd0c"
 )
 IMMUTABLE_IMAGE_RE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
