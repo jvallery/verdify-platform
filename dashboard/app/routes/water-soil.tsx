@@ -4,6 +4,7 @@ import { chartLinks } from "../charts/uplot-chart";
 import { EmptyState, Panel, PanelErrorBoundary } from "../components/panel";
 import { ChartGroup, type KeyItem } from "../charts/legend";
 import { soilAnswer, soilSummary } from "../components/water/soil-model";
+import { SoilTrends } from "../components/water/soil-trends";
 import { SoilZone, type ZoneReport } from "../components/water/soil-zone";
 import { READ_INTERVAL_MS, panelRead, useApiRead, useRegistryRead } from "../lib/queries";
 import { viewMeta } from "../lib/sections";
@@ -66,5 +67,6 @@ export default function WaterSoil() {
         </PanelErrorBoundary>)}
       </div>
     </ChartGroup>
+    <SoilTrends targets={zones} registry={metrics} />
   </div>;
 }

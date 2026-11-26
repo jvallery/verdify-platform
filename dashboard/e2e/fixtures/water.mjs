@@ -19,6 +19,23 @@ export const FIXTURES = {
   "soil-west-unserved": (world) => {
     world.metrics = world.metrics.filter((metric) => !String(metric.key).endsWith("_west") || !String(metric.key).startsWith("climate.soil_"));
   },
+  "soil-wall-trends": (world) => {
+    world.soilWaves = {
+      "climate.soil_ph_south_1": [3.7, 0.1], "climate.soil_ph_west": [4.2, 0.1],
+      "climate.soil_ec_west": [80, 3],
+      "climate.soil_salinity_south_1": [24, 2], "climate.soil_salinity_west": [44, 2],
+      "climate.soil_tds_south_1": [22, 2], "climate.soil_tds_west": [40, 2],
+      "climate.soil_moisture_west": [100, 0],
+    };
+    for (const key of Object.keys(world.soilWaves)) {
+      if (world.metrics.some((metric) => metric.key === key)) continue;
+      const zone = key.endsWith("_west") ? "west" : "south";
+      const base = world.metrics.find((metric) => metric.key === `climate.soil_moisture_${zone === "west" ? "west" : "south_1"}`);
+      const unit = key.includes("_ph_") ? "pH" : key.includes("_ec_") ? "µS/cm" : "raw";
+      world.metrics.push({ ...base, key, unit, label: key });
+    }
+    world.outages.push({ keys: ["climate.soil_ph_west"], from: world.now - 6 * DAY / 24, to: world.now - 5 * DAY / 24 });
+  },
   // Soil (design review B10): the south 1 probe silent for three days, as the production probes have been since Nov 14.
   // Its panel shows a dash and "no reading since …" for each measure, never its last number as if it were current.
   "soil-silent": (world) => {

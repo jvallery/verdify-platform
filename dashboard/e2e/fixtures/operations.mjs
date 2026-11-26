@@ -172,7 +172,7 @@ const WAVES = {
   "daily.alerts_critical": [0, 0], "daily.alerts_warning": [1, 0], "daily.alerts_info": [2, 0],
 };
 const round = (value, places = 2) => Number(value.toFixed(places));
-const wave = (key, ms) => { const [mean, amplitude] = WAVES[key]; return mean + amplitude * Math.sin((2 * Math.PI * (ms - 14 * HOUR)) / DAY); };
+const wave = (key, ms, [mean, amplitude] = WAVES[key]) => { return mean + amplitude * Math.sin((2 * Math.PI * (ms - 14 * HOUR)) / DAY); };
 /** The newest sample each metric has: indoor readings (the house, each zone and the on-chip targets), outdoor readings, the climate row or the diagnostics row. */
 function lastSample(world, key) {
   if (/^climate\.(temp|rh|vpd)_|^climate\.house_vpd_target$/.test(key)) return Date.parse(world.indoor.temp_f.observed_at);
@@ -246,8 +246,9 @@ function seriesBody(world, { query }) {
     for (const start of t) {
       const begin = start * 1000;
       const covered = begin <= last && (source !== "raw" || begin + bucket * 1000 > retainedFrom) && !outage(world, metric.key, begin, begin + bucket * 1000);
-      const value = covered ? wave(metric.key, begin + (bucket * 1000) / 2) : null;
-      const spread = Math.abs(WAVES[metric.key][1]) * 0.1;
+      const profile = world.soilWaves?.[metric.key] ?? WAVES[metric.key];
+      const value = covered ? wave(metric.key, begin + (bucket * 1000) / 2, profile) : null;
+      const spread = Math.abs(profile[1]) * 0.1;
       column.avg.push(value === null ? null : round(value));
       column.min.push(value === null ? null : round(value - spread));
       column.max.push(value === null ? null : round(value + spread));
