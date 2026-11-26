@@ -30,6 +30,8 @@ rule never acts. The published-figures check uses the simulator exactly as commi
 Heavy: about 80 simulated years (3 to 6 minutes of one core). CI asks for it explicitly (ci/gha/validate.sh sets
 CLIMATE_LAW_SIM=full for the validate-containment-firmware part and fails without the run's receipt); a workstation
 `make ci` runs it with --quick.
+Full-year runs also print per-fan runtime and imbalance for each firmware-port scenario.
+
 Usage: python3 firmware/test/climate_law_sim.py (--full [--receipt PATH] | --quick)
 """
 
@@ -217,6 +219,8 @@ def run(
     span: tuple[int, int, int],
     kv: dict,
     trace: Path | None = None,
+    *,
+    precise_fan_runtime: bool = False,
 ) -> str:
     start, end, score_from = span
     args = [
@@ -232,6 +236,8 @@ def run(
         "dryout_from=0",
     ]
     args += [f"{k}={v}" for k, v in kv.items()]
+    if precise_fan_runtime:
+        args.append("precise_fan_runtime=true")
     if trace is not None:
         args.append(f"trace={trace}")
     return subprocess.run(args, capture_output=True, text=True, check=True).stdout
@@ -248,6 +254,21 @@ def summary_problems(text: str) -> list[str]:
         if not (K.SAFETY_MIN_F < float(r["temp_min_f"]) and float(r["temp_max_f"]) < K.SAFETY_MAX_F):
             problems.append(f"reached a protection limit in {r['period']}: {r['temp_min_f']} to {r['temp_max_f']} F")
     return problems
+
+
+def fan_runtime_report(summary: str, name: str, set_name: str, season: str) -> str:
+    annual = next(row for row in csv.DictReader(io.StringIO(summary)) if row["period"] == "ALL")
+    days = float(annual["days"])
+    fan1_hours = float(annual["fan1_h_day"]) * days
+    fan2_hours = float(annual["fan2_h_day"]) * days
+    absolute_hours = abs(fan1_hours - fan2_hours)
+    mean_hours = (fan1_hours + fan2_hours) / 2
+    imbalance = f"{100 * absolute_hours / mean_hours:.3f}%" if mean_hours else "n/a (both fans idle)"
+    return (
+        f"fan runtime {name} set={set_name} parameters={season}: "
+        f"fan1={fan1_hours:.3f} h, fan2={fan2_hours:.3f} h, absolute difference={absolute_hours:.3f} h, "
+        f"difference / mean={imbalance}"
+    )
 
 
 def season_rows(text: str, season: str) -> list[dict]:
@@ -290,8 +311,8 @@ def main() -> int:
                     span = winter_span if season == "winter" else summer_span
                     ref_kv = {**REFERENCE_CONSTANTS, **kv}
                     ta, tb = work / "trace_ref.csv", work / "trace_port.csv"
-                    a = run(ref, forcing, name, params, canopy, span, ref_kv, ta)
-                    b = run(port, forcing, name, params, canopy, span, ref_kv, tb)
+                    a = run(ref, forcing, name, params, canopy, span, ref_kv, ta, precise_fan_runtime=args.full)
+                    b = run(port, forcing, name, params, canopy, span, ref_kv, tb, precise_fan_runtime=args.full)
                     compared += 1
                     problems = summary_problems(a)
                     trace_a, trace_b = ta.read_bytes(), tb.read_bytes()
@@ -309,6 +330,8 @@ def main() -> int:
                         print(f"FAIL {name} {set_name} {season}:")
                         for p in problems:
                             print(f"  {p}")
+                    if args.full and not problems:
+                        print(fan_runtime_report(b, name, set_name, season))
                     if a != b:
                         failures += 1
                         print(f"FAIL port != reference: {name} {set_name} {season}")
