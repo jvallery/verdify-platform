@@ -16,6 +16,7 @@ metadata:
     app.kubernetes.io/component: ingestor
 spec:
   maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow  # vp#1546, D-329
   selector:
     matchLabels:
       app.kubernetes.io/component: ingestor

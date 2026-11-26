@@ -40,7 +40,7 @@ metadata:
 spec:
   template:
     spec:
-      priorityClassName: verdify-device-writer
+      priorityClassName: estate-production  # vp#1546, D-328 (was verdify-device-writer)
       terminationGracePeriodSeconds: 15
       tolerations:
         - key: node.kubernetes.io/not-ready

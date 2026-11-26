@@ -280,6 +280,8 @@ patches:
   # Sched audit 2026-11-04: data/device-tier PriorityClasses on verdify-db and
   # setpoint-server, and the stale longhorn-recovery toleration off verdify-db.
   - path: data-tier-priority.patch.yaml
+  # vp#1546: ladder classes for the workloads that had none.
+  - path: ladder-priority.patch.yaml
   # Portable retained state; no device-writer placement or image change.
   - path: portable-stateful-placement.patch.yaml
     target:
