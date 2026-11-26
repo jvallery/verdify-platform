@@ -1,0 +1,6 @@
+# PostgreSQL 16 AST. PyPI CPython 3.13 wheels for glibc x86-64 and arm64, plus macOS arm64.
+# https://pypi.org/project/pglast/6.17/#files (GPL-3.0-or-later)
+pglast==6.17 \
+    --hash=sha256:f329a983d99446f55d75a25a49c9a2d0ba560ba0d71702783f30942ef0bffe85 \
+    --hash=sha256:13ff6d66bf8dd9adfde2c3b47a95a796b2f843e731e51496e994f8fa47c62284 \
+    --hash=sha256:2ecc0f4d14acb4744c744e48fbe0b939d883b5254fc9ed7e51743216dc256fce

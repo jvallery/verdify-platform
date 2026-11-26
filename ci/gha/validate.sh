@@ -60,6 +60,13 @@ else
   if [ "$sim_full" = 1 ]; then
     export CLIMATE_LAW_SIM=full CLIMATE_LAW_SIM_RECEIPT="$impact/climate_law_sim.receipt"
   fi
+  case "${VALIDATE_PART:-all}" in
+    all | rest)
+      .venv/bin/pip --disable-pip-version-check install --no-deps --only-binary=:all: --require-hashes \
+        -r ci/gha/grafana-sql-requirements.txt
+      .venv/bin/python -m pytest -q ci/gha/tests/test_grafana_dropped_relations.py
+      ;;
+  esac
   bash scripts/ci-local.sh
   if [ "$sim_full" = 1 ]; then
     grep -q '^mode=full ' "$CLIMATE_LAW_SIM_RECEIPT" 2>/dev/null \
