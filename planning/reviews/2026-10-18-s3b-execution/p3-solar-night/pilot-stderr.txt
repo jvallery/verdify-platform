@@ -1,2 +1,0 @@
-ERROR:  canceling statement due to statement timeout
-command terminated with exit code 3

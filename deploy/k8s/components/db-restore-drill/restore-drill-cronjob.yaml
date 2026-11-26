@@ -56,7 +56,7 @@ spec:
                 - name: RESTORE_SCRIPT
                   value: /scripts/restore-backup-pair.sh
                 # Targets (docs/runbooks/db-backup-pair-restore.md): RPO 24 h and
-                # RTO 24 h (storage-infra#996 app-database tier, D-193). The drill
+                # RTO 24 h (storage-infra#996 app-database tier). The drill
                 # fails when the restored pair is older than 26 h at start (24 h
                 # plus dump-schedule jitter) or restore-and-audit exceeds 1 h.
                 - name: DRILL_MAX_RPO_SECONDS

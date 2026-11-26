@@ -1,24 +1,16 @@
-# Attended convergence of verdify-prod-dark (one-time drift sync)
+# Converging verdify-prod-dark after drift (full sync and its fallback)
 
-Prepared 2026-08-15 for #605 / #317. **This is a prepared
-procedure for an ATTENDED operator run: nothing here is executed
-automatically.**
+Use this when `verdify-prod-dark` (source `deploy/k8s/overlays/prod`, production) has many
+resources OutOfSync and a full sync does not converge them. Nothing here runs automatically.
 
 ## Why this exists
 
-`verdify-prod-dark` (source `deploy/k8s/overlays/prod`, the REAL prod) last
-Argo-synced 2026-06-23; live state since then was maintained by server-side
-kubectl applies, leaving ~78 resources OutOfSync at main. Two broker
-plan/apply attempts on 2026-08-15 reproduced **#317**: the submitted full-sync
-operation is rewritten to a stale 2-resource selective scope
-({CronJob verdify-db-backup, NetworkPolicy allow-db-from-backup}): the
-PreSync migrate hook runs (proven no-op; migrations 207-213 already ledgered),
-the two stale-scope resources sync, everything else stays OutOfSync.
+In August 2026 a submitted full-sync operation was rewritten to a stale two-resource selective
+scope left by an earlier selective sync (#317): the PreSync migrate hook ran, the two
+stale-scope resources synced and everything else stayed OutOfSync. The fix is not a bigger
+timeout; it is clearing the stale selector and running one full sync.
 
-The unblock is **not** a bigger timeout; it is correcting the stale
-selective-scope behavior (#317) and running ONE attended convergence.
-
-## Preconditions (operator checks, in order)
+## Preconditions (in order)
 
 1. No in-flight operation on the Application
    (`kubectl -n argocd get app verdify-prod-dark -o jsonpath='{.status.operationState.phase}'`
@@ -61,8 +53,6 @@ list per `docs/runbooks/laptop-operator.md` section 2. Never include `--prune`.
   the SAME image digests).
 - PVC/Longhorn health: all PVCs Bound, no degraded Longhorn volumes.
 - Public behavior: lab site + API endpoints respond normally.
-- **Delayed stability proof**: +30 min re-probe of all of the above, plus one
-  natural-cadence pass of the periodic jobs (backup/watchdogs/backfill).
+- The next scheduled run of each periodic job (backup, watchdogs, backfill) succeeds.
 
-Record the evidence (exact revision, operation phase and result summary, the smoke output) on the
-release's issue.
+Note the revision, the operation result and the smoke output on the release's issue.

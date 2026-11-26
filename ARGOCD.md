@@ -62,7 +62,7 @@ lives in `overlays/prod` and ships with the `verdify-prod-dark` sync.
 - PreSync hooks of the prod sync: the ledgered `verdify-migrate` Job and the
   runtime-role bootstrap Jobs (`deploy/k8s/base`, `components/runtime-role-boundary`,
   `components/experiment-v2-credential-bootstrap`).
-- CNPG/migration runbooks and experimental manifests: `deploy/k8s/cnpg/`.
+- The TimescaleDB image for CloudNativePG, kept from the retired rehearsal: `deploy/k8s/cnpg/image/`.
 
 ## Out Of Scope
 

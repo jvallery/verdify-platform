@@ -93,7 +93,7 @@ Service -> Secret -> key wiring as authored in `deploy/k8s/{base,components,over
 | `verdify-firmware-wifi` | `wifi_ssid`, `wifi_password` | firmware-builder CronJob/Jobs `WIFI_SSID`/`WIFI_PASSWORD` (`secretKeyRef`, `components/firmware-builder`); compiled into the signed controller image |
 | `verdify-firmware-signing` | `cosign.key`, `password` | the build Pod's signer container only ([firmware signing](#firmware-artifact-signing-1009)) |
 | the runtime logins | `password` | [runtime database logins](#runtime-database-logins-643) |
-| `ghcr-jvallery-readonly` | `.dockerconfigjson` | none: retired in the central lane (jvallery/agents#7013) and absent live. Its name is still listed in the `imagePullSecrets` of `verdify-db`, which pulls from the zot origin through `zot-origin-cluster-pull` (reflected by the fleet, D-03); the name leaves with the next attended `verdify-timescaledb` release (#1543), because that hunk restarts the database. |
+| `ghcr-jvallery-readonly` | `.dockerconfigjson` | none: retired centrally (jvallery/agents#7013) and absent live. Its name is still listed in the `imagePullSecrets` of `verdify-db`, which pulls from the zot origin through `zot-origin-cluster-pull` (reflected into the namespace by jvallery/estate-platform); the name leaves with the next attended `verdify-timescaledb` release (#1543), because that hunk restarts the database. |
 
 Note 1: `HERMES_MCP_URL` must point at the in-cluster `verdify-mcp` Service on port 8000;
 it is set at seal time, never committed.

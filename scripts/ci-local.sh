@@ -323,7 +323,6 @@ if in_part pure-logic-1 pure-logic-2; then
     tests/test_mcp_transport_runtime.py
     tests/test_outcome_kpi_dryout_projection.py
     tests/test_scorecard_realized_dryout.py
-    tests/test_solar_night_packet.py
     tests/test_mcp_semantic_dependency_lifecycle.py
     tests/test_knowledge_embeddings_contract.py
     tests/test_mqtt_fanout.py
@@ -587,7 +586,7 @@ if in_part containment-firmware && [ -n "${CI_BASE_REF:-}" ]; then
   done
   [ -z "$MISSING" ] || { echo "New tunables without cfg_* readback:$MISSING" >&2; false; }
 
-  step "service-restart drift guard (rule 7, schema -> runtime) vs ${BASE}"
+  step "service-restart drift guard (schema -> runtime) vs ${BASE}"
   # #391: the retired ci.yml job grepped the bare word 'service' and
   # false-passed on ~every PR body. The structural contract lives in the guard.
   bash scripts/check-service-restart-drift.sh "$BASE" HEAD

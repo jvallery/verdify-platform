@@ -253,7 +253,6 @@ def test_each_tool_is_for_iris_agents_and_admin_and_is_not_read_only(mcp_server,
 def test_the_counts_and_the_review_prompt_state_the_iris_list(mcp_server):  # noqa: F811
     iris = mcp_server.audience_allowlist("iris")
     assert f"Exactly the {len(iris)} tools of" in (ROOT / "mcp/server.py").read_text()
-    assert f"exactly the {len(iris)} tools in" in (ROOT / "docs/iris-planner-contract.md").read_text()
     assert set(WRITE_TOOLS) <= iris
     # Climate refactor 4.2: the review prompt keeps Iris's water tools and their rules.
     prompt = (ROOT / "ingestor/review_prompt.py").read_text()

@@ -735,4 +735,4 @@ and all GitHub issues reflect deployed evidence.
 | #642 | Integrated release, shadow, canaries, A/A and separate randomized-day-1 approval. |
 
 The ready-to-run outer-loop prompt is
-[`docs/handoff/planner-experiment-codex-ultra-2026-08-23.md`](../handoff/planner-experiment-codex-ultra-2026-08-23.md).
+`docs/handoff/planner-experiment-codex-ultra-2026-08-23.md`.

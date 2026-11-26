@@ -4,7 +4,7 @@ The contract-2 SQL/API repair separates legacy binary reading fractions from
 graded controller credit. It does not repair the daily writer's missingness,
 cadence assumptions, moving sensor composition or historical target lineage.
 
-The frozen [synthetic receipt](../../planning/evidence/scorecard-writer-counterexamples-20260905.json)
+The frozen synthetic receipt
 executes the actual binary block selected from `ingestor/tasks/daily.py`, with
 graded accumulation stubbed and synthetic desired bands. The receipt binds the
 full source, executed AST and each fixture input with SHA-256. It deliberately

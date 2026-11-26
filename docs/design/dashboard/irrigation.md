@@ -18,7 +18,7 @@ Status: Draft v2 (2026-11-02), with Jason's Round 2 and 2b answers and the Q-01 
 
 Related: [README](README.md) · [Product](product.md) · [Screens](screens.md) ·
 [Architecture](architecture.md) · [Irrigation](irrigation.md) · [Design system](design-system.md) ·
-[Execution plan](execution-plan.md) · [OpenAPI](openapi/dashboard-api.v1.yaml) ·
+[OpenAPI](openapi/dashboard-api.v1.yaml) ·
 [ADR-0011](../../adr/0011-irrigation-scheduling-program.md) (amends ADR-0007)
 
 Evidence: paths are repo-relative at origin/main `0950a3bdb`; live facts (L01's last run, the occupancy
@@ -1116,7 +1116,7 @@ firmware".
 
 ## 10. Delivery
 
-The work items are the VD issues in the [execution plan](execution-plan.md) (lanes L4, L5 and L7); its
+The work items are the VD issues in the execution plan (lanes L4, L5 and L7); its
 §5 gives the order: the L01 bridge; the reads (minutes by zone work on today's relay edges); the engine
 release (platform before the OTA, inert until `irr_program_id` appears); the clean lines, L01 first;
 then the fertilizer lines, L02 with L03, then L08 and L10 (L05 and L06 stay reserved). PRs that touch

@@ -1,13 +1,12 @@
-# VP-01 (#802): the manual verdify-descheduler Argo Application owns exactly
-# these six existing objects, including namespace adoption under #995, plus the two
-# network-infra#839 egress NetworkPolicies (vendored management-set deny + kube-API allow),
-# and the namespace-wide ingress default-deny (STD-K8S-04).
-# The cluster-scoped ClusterRole/ClusterRoleBinding verdify-descheduler moved to
-# the fleet control plane (fleet control-plane #5794): a tenant repo may not
-# grant cluster RBAC.
-# Agents owns the exact Application pin and AppProject. Existing namespace
-# labels are preserved; STAGED-rebalanceable-labels-patch.yaml stays historical.
-# See descheduler-arm.md for adoption, verification and the non-cascading inverse.
+# The manual Argo CD Application verdify-descheduler renders these nine objects:
+# the adopted Namespace, the ServiceAccount, Role and RoleBinding, the policy
+# ConfigMap, the CronJob, the two egress NetworkPolicies (vendored
+# management-set deny plus the kube-API allow, network-infra#839) and the
+# namespace-wide ingress default-deny.
+# The cluster-scoped ClusterRole and ClusterRoleBinding verdify-descheduler are
+# declared in jvallery/estate-platform, which also declares the Application,
+# its pin and the AppProject. Existing namespace labels are preserved.
+# See descheduler-arm.md for delivery, verification, pause and the inverse.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

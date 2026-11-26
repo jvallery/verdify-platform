@@ -12,7 +12,7 @@ its stories.
 Status: Draft v2 (2026-11-01)
 
 [README](README.md) · **product** · [screens](screens.md) · [architecture](architecture.md) ·
-[irrigation](irrigation.md) · [design system](design-system.md) · [execution plan](execution-plan.md) ·
+[irrigation](irrigation.md) · [design system](design-system.md) ·
 [OpenAPI](openapi/dashboard-api.v1.yaml) · [decisions](decisions.md)
 
 ## 1. Scope at a glance
@@ -144,7 +144,7 @@ enables them (Round 2b E).
 
 - **Goals:** ship dashboard releases fast without the device-gated `verdify-prod-dark` sync; verify the live end
   state; keep the single device writer and the security posture; ship irrigation firmware when it is ready.
-- **Context:** Jason or fleet sessions (coding sessions, the coordinator, the independent verifier); verdify-platform has
+- **Context:** Jason or agent sessions; verdify-platform has
   no repo pod (jvallery/agents#4855). Desktop and CLI; Argo CD GitOps; in-cluster CI (Kaniko to `registry.vallery.net`,
   digest pins); cross-repo steps in jvallery/agents, jvallery/network-infra, jvallery/monitoring-stack and
   jvallery/homeassistant.
@@ -831,7 +831,7 @@ the audiences by [architecture](architecture.md) §5.6.
 *P4 · MVP · platform.* As the platform maintainer, I want a merge to become a verified live release, so that "deployed" means working, not merged.
 - `verdify-dashboard-web` is built in-cluster by the verdify-platform CI (Kaniko to `registry.vallery.net`), its Node checks and Playwright with axe run on every PR that touches `dashboard/**` or the OpenAPI file, and its digest is pinned in `deploy/k8s/dashboard/` by a pin PR; the web ships when that PR merges (the Deployment sits at 0 replicas until R1's pin PR sets the image and scales it to 1).
 - Done means the `verdify-dashboard` app is Synced and Healthy at a main revision that contains the pin commit, pods run the pinned digest, `/readyz` and the footer report the commit that image was built from, and `dashboard-smoke` passes (a viewer session created inside the web pod, live Now data through the BFF, the Origin check enforced, `https://api.verdify.ai/v1/me` 404); Jason checks a passkey sign-in once, at R1.
-- The Authentik application, the KSOPS-sealed Secrets and the Argo Application and AppProject ship as jvallery/agents PRs and count as done once the coordinator's consolidated pin PR has delivered them and they are Synced and Healthy.
+- The Authentik application, the KSOPS-sealed Secrets and the Argo Application and AppProject are declared in jvallery/estate-platform and count as done once delivered, Synced and Healthy.
 
 #### US-PLAT-09 · The dashboard is watched
 *P4 · MVP · platform.* As the platform maintainer, I want an external probe on the dashboard, so that we learn it is down before a person does.

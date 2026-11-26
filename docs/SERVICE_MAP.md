@@ -12,7 +12,7 @@ but may describe services or overlays that have since moved or been retired.
 
 | Environment | ArgoCD app | Namespace | Desired state | Sync model | Device posture |
 |---|---|---|---|---|---|
-| Prod | `verdify-prod-dark` (legacy name; it means production, D-277) | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual, behind device-write safeguards | One ESP32 native-API climate/setpoint writer (`verdify-ingestor`, `VERDIFY_DEVICE_WRITE_ENABLED=1`). Grow-light service calls have the separate HA route below. |
+| Prod | `verdify-prod-dark` (legacy name; it means production) | `verdify-prod` | `deploy/k8s/overlays/prod` | Manual, behind device-write safeguards | One ESP32 native-API climate/setpoint writer (`verdify-ingestor`, `VERDIFY_DEVICE_WRITE_ENABLED=1`). Grow-light service calls have the separate HA route below. |
 | Dev | Historical/deleted | `verdify-dev` | removed | n/a | Decommissioned/deleted 2026-06-16; do not add new work here. |
 | Staging | Historical/deleted | `verdify-staging` | removed | n/a | Decommissioned/deleted; do not add new work here. |
 

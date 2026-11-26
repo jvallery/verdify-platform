@@ -14,7 +14,7 @@ tokens are unchanged and no colour token was added.
 
 [README](README.md) · [product](product.md) · [screens](screens.md) · [redesign](redesign.md) ·
 [architecture](architecture.md) · [irrigation](irrigation.md) · [design system](design-system.md) ·
-[execution plan](execution-plan.md) · [OpenAPI](openapi/dashboard-api.v1.yaml)
+[OpenAPI](openapi/dashboard-api.v1.yaml)
 
 ## 1. The answer
 
@@ -581,7 +581,7 @@ components, chart tokens). When a third app wants this look, extract the tokens 
 ## 9. Where it is built
 
 VD-01 copies weather (§8, §2), VD-03 builds §4 to §4.2 (`AlertRow` included) and §4.5, VD-04 §3, VD-05 §4.3 and
-§4.4, VD-06 and VD-07 §5, and VD-08 the §7 checks ([execution plan](execution-plan.md)); the screen issues build the
+§4.4, VD-06 and VD-07 §5, and VD-08 the §7 checks (execution plan); the screen issues build the
 §4.6 composites. The [redesign](redesign.md) (§10, epic #1120) rebuilt them: WP0 the shell, the page and section
 headers, the card system, the micro-visualizations (§4.7) and the chart stack (§5.2); WP1 to WP4 the screens' composites
 (§4.6); WP5 one page rhythm across them, the removal of what nothing used and these docs.

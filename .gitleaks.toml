@@ -1,11 +1,10 @@
-title = "verdify-platform secret scanning (verdify-platform#1542, STD-EXP-13)"
+title = "verdify-platform secret scanning (verdify-platform#1542)"
 
 [extend]
 useDefault = true
 
-# Exact known-safe values only (estate-ci#126, COORD-W2 decision C,
-# 2026-11-17): one anchored value per line, never a shape, a path or a file
-# class. Each value was reviewed value-blind by its key context on 2026-11-17
+# Exact known-safe values only (estate-ci#126): one anchored value per line,
+# never a shape, a path or a file class. Each value was reviewed value-blind by its key context on 2026-11-17
 # (generic-api-key hits only). A new hit is a new review, not a wider pattern.
 [[allowlists]]
 description = "exact reviewed values"
@@ -133,10 +132,10 @@ regexes = [
   # scripts/c0-migration-delivery.py, scripts/bootstrap-six-runtime-roles.py and
   # tests/fixtures/31[789]-*-native-qualification.json (keys api, ingestor, mcp,
   # verdify_api_runtime_login). Content hashes, not credentials; the pre-#1765
-  # digest shape covered them. Reviewed value-blind 2026-11-17 (VERDIFY-COORD 13:00:19Z).
+  # digest shape covered them. Reviewed value-blind 2026-11-17.
   '''^956b9db1d8755c0c008dc16c5b4c287af021f19e63d9481ec42af14aca28d87d$''',
   '''^b227cdf249d50b28bd110be2e994aa58ef27b546dc508b56b912093d790e70fd$''',
-  # Migration 321's native seals (api, ingestor; AR39), same files and shape as above.
+  # Migration 321's native seals (api, ingestor), same files and shape as above.
   '''^6c25f8edeca86917bc4b0c8bb7aa960d6d6a280bfaf2e32b574701439d52f40c$''',
   '''^b37744a7416c1a79835f5876fd3357b1e18c1f3ca91b721005c740c1b6debf42$''',
   # Migration 322's verified API catalog seal, a SHA-256 digest.

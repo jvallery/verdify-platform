@@ -27,12 +27,10 @@ This source does not move the public tunnel row. Network-infra owns
 `deploy/networking/cloudflared/cloudflared-config.yaml`: only the exact
 `mcp.verdify.ai` row moves to
 `https://traefik-tunnel-client.traefik-apps.svc.cluster.local:443`, preserving the
-qualified TLS origin name, CA and original Host. The fleet control-plane owns
-the catalog declaration and its reviewed source pin at
-`platform/gitops/applications/local-staging/cloudflare-edge.yaml`. Its
-coordinator advances that child through the consolidated pin change; the
-SHA-pinned parent is never blanket- or prune-synced. Register the new routes
-and boundary in the central ownership record in the same delivery packet.
+qualified TLS origin name, CA and original Host. That change is
+delivered as jvallery/network-infra's own guidance describes; a pinned parent
+Application is never blanket- or prune-synced. Register the new routes and boundary in the central ownership
+record in the same piece of work.
 
 Post-merge restart: verdify-mcp, when its new image is explicitly promoted.
 The source and content-hashed routing changes also roll verdify-traefik with
@@ -79,8 +77,8 @@ before treating its canonical address as the original visitor address.
 
 ## Live verification and inverse
 
-Before an edge write, read current coordinator steer/inflight state and take
-the edge-write lock through delivery, probes and the applicable soak. Deliver
+Before an edge write, check that no other change to the same routes is in
+progress (open pull requests and the Application's running operation). Deliver
 the Verdify receiver first. Prove 8001 is rejected from an existing unauthorized
 Pod and LAN source, accepted from the exact tier-1 workload, and inaccessible
 through the ordinary public listener. Preserve the current internal MCP path

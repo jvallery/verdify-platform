@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run verdify-campaign-ci unchanged, optionally on one shard of its selection (D-55).
+"""Run verdify-campaign-ci unchanged, optionally on one shard of its selection.
 
 usage: campaign_shard.py /usr/local/bin/verdify-campaign-ci
 CAMPAIGN_SHARD=i/n keeps every n-th file (from i, 1-based) of the tool's sorted

@@ -260,7 +260,7 @@ spec:
 #
 # DELIBERATELY EXCLUDED from the WAN/k3s edge (unchanged from the prior model):
 #   mqtt.verdify.ai (greenhouse device lane, Jason-owned) and auth (own backend).
-#   analytics/logs/botauth/traefik.verdify.ai retired under D-16
+#   analytics/logs/botauth/traefik.verdify.ai are retired
 #   (network-infra#602, 2026-11-11); tier-1 now forwards them here and, with no
 #   rule below, they get 404 (#1582).
 # ===========================================================================

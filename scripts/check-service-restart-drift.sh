@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-service-restart-drift.sh — service-restart-drift-guard (AGENTS.md rule 7).
+# check-service-restart-drift.sh — service-restart-drift-guard (docs/agents/contracts.md).
 #
 # Observed need from the 2026-04-21 MCP staleness incident: MCP ran 40+ hours
 # with a stale schema because nobody restarted it post-merge. Any change that
@@ -42,7 +42,7 @@ fail_with_guidance() {
   cat >&2 <<'EOF'
 FAIL: change touches verdify_schemas/**, ingestor/entity_map.py, or
 mcp/server.py but the commit message / PR body does not document the
-post-merge service restart (AGENTS.md rule 7).
+post-merge service restart ("Name the restart" in docs/agents/contracts.md).
 
 Add one of:
   Post-merge restart: verdify-mcp, verdify-ingestor

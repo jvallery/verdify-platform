@@ -91,7 +91,7 @@ from `egress-local-only`, so nothing else opens egress for it). Scripts reach
 the pod through a generated ConfigMap from byte-identical copies in the
 component's `src/` (`tests/test_db_restore_drill.py` checks drift).
 
-Targets (storage-infra#996 app-database tier, D-193): **RPO 24 h, RTO 24 h**.
+Targets (storage-infra#996 app-database tier): **RPO 24 h, RTO 24 h**.
 The drill enforces the database share of them and fails when either is
 exceeded:
 

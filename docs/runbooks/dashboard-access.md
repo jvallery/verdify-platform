@@ -24,7 +24,7 @@ people only through Google, so a caretaker needs a `vallery.net` or `verdify.ai`
 3. **An invitation link.** While sign-in is Google-only, the link is `https://dashboard.verdify.ai/` itself: the
    normal flows offer no enrolment path that an Authentik invitation could use. Once jvallery/agents#5754 and
    jvallery/agents#5755 land, it is the one-use link from `issue_enrol_link.py --user <username>`
-   (jvallery/agents `platform/kubernetes/migration/auth/login-standard/`; the coordinator runs it at home).
+   (jvallery/agents `platform/kubernetes/migration/auth/login-standard/`).
 4. **First sign-in.** Google, then the member-tier flow has them enrol a second factor (a passkey on their own phone,
    or TOTP), then Now with their role pill in the header. There is no dashboard-side setup.
 
