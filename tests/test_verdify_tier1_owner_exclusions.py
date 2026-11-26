@@ -40,7 +40,7 @@ def test_product_and_unknown_single_label_hosts_keep_forwarding():
         return re.fullmatch(expression, host) is not None and host not in excluded
 
     assert all(forwards(name + ".verdify.ai") for name in ("api", "lab", "labs", "graphs", "mcp", "unclaimed"))
-    # Retired under D-16 (network-infra#602); no longer excluded (#1582).
+    # Retired (network-infra#602); no longer excluded (#1582).
     assert all(forwards(name + ".verdify.ai") for name in ("analytics", "logs", "botauth", "traefik"))
     assert not any(
         forwards(host)

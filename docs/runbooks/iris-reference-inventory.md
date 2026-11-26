@@ -19,8 +19,8 @@ The generated ConfigMap and complete inventory hash in the Deployment are checke
 by `tests/test_iris_inventory.py`. A hash change recreates the singleton Hermes
 pod; no device connection or NFS change is part of this operation. Ingestor prompt
 changes require its normal exact-SHA image promotion and Recreate rollout.
-Coordinate the full Argo diff and sync with the ROOT delivery coordinator; do not
-independently roll another component while a required cycle is in flight.
+Review the full Argo diff before the sync, and do not roll another component
+while a required cycle is in flight.
 
 ## Source and runtime qualification
 

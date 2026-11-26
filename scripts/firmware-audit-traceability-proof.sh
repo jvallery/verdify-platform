@@ -280,7 +280,7 @@ echo "active lessons page clean"
 
 section "static documentation and prompts"
 if rg -n 'increase bias|decrease bias|Use bias|bias_cool may|bias_cool \+|bias_heat \+|temp_high \+ bias_cool|band midpoint|raw temp-band midpoint|mister_water_budget_gal \| 200-500|fog_escalation_kpa \| 0\.2-0\.8|\[30, 900\]|\[60, 900\]' \
-  docs/planner docs/tunable-cascade.md docs/VPD-PRIMARY-ARCHITECTURE.md ingestor/review_prompt.py; then
+  docs/planner docs/VPD-PRIMARY-ARCHITECTURE.md ingestor/review_prompt.py; then
   fail "static docs or prompts contain stale firmware audit guidance"
 fi
 echo "static docs/prompts clean"

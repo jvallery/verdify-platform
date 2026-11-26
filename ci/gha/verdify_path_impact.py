@@ -125,7 +125,7 @@ LIGHT_PIN_PATHS = (
 # dashboard build).
 # docs/ as a whole is copied into the ingestor image as the site-content corpus:
 # content, not code, so the PR image build-check still builds the ingestor.
-LIGHT_DOC_ROOTS = ("docs/", "planning/", "research/")
+LIGHT_DOC_ROOTS = ("docs/", "research/")
 LIGHT_DOC_EXCLUDED = ("docs/planner/", "docs/design/dashboard/openapi/")
 REGULAR_FILE = "100644"
 LIGHT_DOC_REFERENCE_ROOTS = ("tests", "verdify_schemas/tests", "scripts", "ci", ".github", "Makefile")

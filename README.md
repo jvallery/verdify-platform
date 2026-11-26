@@ -4,49 +4,53 @@
 
 367 sq ft. Longmont, Colorado. 5,090 feet. 15% humidity. 95°F solar peaks. Mixed crops. One deterministic controller.
 
-About 172 ESPHome entities feed a firmware controller that evaluates conditions
-about once a second (a `dt_ms`-based loop invariant to tick rate — it was 5 s
-historically). The current controller replan is firmware-first,
-deterministic, crop-agnostic at the firmware layer, and AI-bounded: firmware
-owns sensors, relays, local target curves, safety rails, disconnected behavior,
-and climate/lighting/irrigation control; AI may tune bounded parameters over a
-72-hour horizon but must not own hard safety limits, emergency behavior, or core
-target calculation.
+The band is the policy: what the house should be at each point of the solar day.
+An ESP32 controller decides climate alone, every second, with one band-edge law
+(`firmware/lib/climate_law.h`) whose thresholds are fixed offsets from the band
+edges and whose constants are compiled from one file. The host serves the band
+and one price (the drying cost limit), stores telemetry, grades compliance and
+raises alerts. The AI reviewer (Iris) reads the record once a day and writes no
+climate value. [docs/CONTROL-ARCHITECTURE.md](docs/CONTROL-ARCHITECTURE.md) is
+the control document.
 
 **[verdify.ai](https://verdify.ai)**
 
 ## Architecture
 
 ```
-ESP32 Controller (greenhouse_logic.h, ~1s dt_ms-based loop)
-  ├── aioesphomeapi ──→ Ingestor ──→ TimescaleDB (2.5M+ rows)
-  ├── MQTT ──→ Mosquitto (state publishing + occupancy)
-  └── local deterministic control surfaces (climate, lighting, irrigation)
+crop_band_anchors (DB) + drying cost limit (DB) + operator switches, irrigation, lighting
+  └── Ingestor (the only device writer): pushes on change or readback mismatch,
+      confirms every pushed value by its readback, stores telemetry, grades, alerts
+        └── ESP32 controller: band curve from stored anchors and its clock,
+            the band-edge law every second, relay layer, irrigation engine,
+            lighting, gap log in flash
 
-TimescaleDB (telemetry, views, scorecards, lessons)
+TimescaleDB (telemetry, relay events, band, settings, compliance, daily record, alerts)
+  ├── Operator dashboard (dashboard.verdify.ai: band editor, settings, water, review)
   ├── Grafana (public and private dashboards)
-  ├── FastAPI (catalog/status + compatibility setpoint surfaces)
-  ├── MCP Server (typed tools for Iris)
-  └── Quartz (static site with embedded panels)
+  ├── FastAPI (public and operator APIs, product metrics)
+  ├── MCP server (typed read tools, irrigation tools, operator switches)
+  └── Quartz (static lab site with embedded panels)
 
-Planner (Hermes hermes-iris → OpenAI GPT-6 Luna / xhigh → MCP)
-  └── Event-driven + scheduled (incl. weekly deep review) 72h horizon
-      → MCP/tools → bounded tunables + decision ledger
+Reviewer (Iris: Hermes hermes-iris → OpenAI GPT-6 Luna / xhigh → MCP): once a day
+reads the daily record and writes one review row; it proposes band edits and
+writes no climate value.
 ```
 
-The greenhouse control core runs in the single prod k3s environment, with
-real-time relay control staying local on the ESP32. External APIs provide
-weather, optional heavyweight reasoning, and public delivery support.
+Everything runs in one production environment on k3s; relay control stays local on
+the ESP32, which keeps holding the band with no host, clock or network.
 
 ## Components
 
 | Directory | What |
 |-----------|------|
 | `ingestor/` | Python async service — ESP32 data capture, 15 periodic tasks, entity routing |
-| `api/` | FastAPI catalog/status surfaces + compatibility `/setpoints` export |
-| `firmware/` | ESPHome YAML + C++ headers — 8-state climate controller (greenhouse_logic.h) |
-| `mcp/` | FastMCP server — typed tools for Iris agent (climate, scorecard, set_tunable, etc.) |
-| `scripts/` | Operational scripts — planner, vision analysis, forecast sync, monitoring |
+| `api/` | FastAPI public API, the operator API behind the dashboard, and the product metrics |
+| `firmware/` | ESPHome YAML + C++ headers: the band-edge climate law (`lib/climate_law.h`), the irrigation engine and lighting |
+| `mcp/` | FastMCP server: typed read tools, irrigation tools and the operator switches for agents |
+| `dashboard/` | The operator web app for `dashboard.verdify.ai` |
+| `deploy/k8s/` | Kustomize sources for production, the dashboard and the descheduler |
+| `scripts/` | Operational scripts: release promotion, smoke checks, generators, site publishing |
 | `grafana/` | Grafana dashboard JSON + provisioning config (dashboards render into ConfigMaps under `deploy/k8s/components/grafana/`) |
 | `db/` | Schema, analytical views, functions, and migrations |
 | `templates/` | Jinja2 planner prompt + reference docs |
@@ -75,9 +79,9 @@ make test              # tests/, including live-stack smoke tests (needs kubectl
 make help              # List all targets
 ```
 
-**Tooling:** ruff (lint + format), pytest, pre-commit hooks, and in-cluster
-Argo Workflows/Kaniko CI. GitHub Actions publishing was removed; application
-images publish to Zot and are promoted by validated digest pins.
+**Tooling:** ruff (lint + format), pytest, pre-commit hooks, and GitHub Actions
+on in-cluster runners. Images are built with Kaniko, pushed to the estate
+registry and promoted by digest pins.
 **Config:** `pyproject.toml` is the single source of truth for deps, lint rules, and test config. `make setup` reads it directly; there is no checked-in duplicate requirements file for local tooling.
 
 ### Agents
@@ -86,26 +90,25 @@ Agent guidance lives in `AGENTS.md`, which Claude Code and Codex both read.
 
 ## The Greenhouse
 
-The control system has three layers:
+The control system has three parts:
 
-1. **Deterministic target band** — diurnal VPD/temperature curves tied to
-   location, solar phase, season, configured min/max values, hysteresis, and
-   mechanical limits.
-2. **AI planner** — bounded 72-hour tactical tuning over firmware-supported
-   parameters, with no authority over safety rails, emergency behavior, or core
-   target calculation.
-3. **ESP32 state machine** — local five-second control of climate, lighting,
-   and irrigation under hard safety rails and disconnected fallback behavior.
+1. **The band**: the owner's temperature and VPD edges across the solar day
+   (sunrise, solar noon, sunset, solar midnight), edited in the dashboard and
+   stored on the controller.
+2. **The controller**: the band-edge law, every second, on the ESP32. Inside the
+   band only the electric heater works steadily; every other action starts at an
+   edge. Protection limits (100°F and 40°F) hold whatever the host does.
+3. **The reviewer**: Iris reads the daily record once a day, writes a short
+   review and may propose band edits with their simulated price. Only the owner
+   changes the band.
 
-Firmware enforces the deterministic local contract. AI tunes bounded tactics.
-Telemetry, readbacks, dashboards, and the lab notebook prove what happened.
+Telemetry, readbacks, dashboards and the lab notebook show what happened.
 
 ## KPIs
 
-**Planner Score (0–100):** 80% band compliance + 20% cost efficiency.
-4 independent stress states tracked: heat, cold, VPD-high, VPD-low.
-Dew point margin monitored for condensation risk.
-Planner self-scores at every cycle and sets falsifiable performance targets.
+Band compliance (graded in five-minute buckets against the band the controller
+served), relay cycles and run time, energy and water use, and the drying meter,
+all in the daily record.
 
 ## License
 

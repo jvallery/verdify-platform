@@ -44,9 +44,9 @@ PITR used a frozen rehearsal baseline, not a live production change stream; its
 threeReady time does not include final production export/import, full native
 qualification, role custody, client rollout or smoke. Source data continued after
 the capture; switching to that old snapshot would lose newer production work.
-Native receipts: [full parity](../../handoffs/s2-2026-10-05/evidence/cnpg-current274-physical-full-parity.json),
-[timings](../../handoffs/s2-2026-10-05/evidence/cnpg-current274-recovery-timings.json),
-[failover](../../handoffs/s2-2026-10-05/evidence/cnpg-current274-primary-loss.json).
+Native receipts: full parity,
+timings,
+failover.
 
 ## Concrete handoff sequence
 

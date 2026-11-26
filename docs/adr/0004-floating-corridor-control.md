@@ -85,7 +85,7 @@ actuator-aware ID → MPC. Migration is sequenced lowest-risk-first; step 1 (`ba
 
 ## Amendment: the night dry-out is an energy-accepted floor (2026-11-05, Jason, #1365)
 
-Jason, 2026-11-05 (first-hand, recorded in `docs/design/dashboard/decisions.md`): "the overnight humidity needs to
+Jason, 2026-11-05 (recorded in `docs/design/dashboard/decisions.md`): "the overnight humidity needs to
 be dryer than perhaps the vanda guidance ... make sure we set a target that ensures the greenhouse drys out
 overnight", and "drier outdoor air is best, and then of course it's colder air so we have to heat that air, so it's
 still energy, but accepted." This amends Decision 3 (cost is a first-class driver) for night VPD only:

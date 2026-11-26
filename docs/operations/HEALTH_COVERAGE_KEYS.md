@@ -1,6 +1,6 @@
 # Verdify health coverage keys
 
-This is the producer handoff for [#1000](https://github.com/VerdifyConsultancy/verdify-platform/issues/1000), with alert delivery owned by [monitoring-stack #1032](https://github.com/jvallery/monitoring-stack/issues/1032). These are observed metric keys, not a claim that each alert is implemented. The October 20 [metric receipt](../../planning/execution/2026-10-20-followthrough/evidence/1000-observed-metric-keys.json) records exact queried series and values.
+This is the producer handoff for [#1000](https://github.com/VerdifyConsultancy/verdify-platform/issues/1000), with alert delivery owned by [monitoring-stack #1032](https://github.com/jvallery/monitoring-stack/issues/1032). These are observed metric keys, not a claim that each alert is implemented. The October 20 metric receipt records exact queried series and values.
 
 ## Workload availability
 

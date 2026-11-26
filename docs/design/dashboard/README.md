@@ -5,14 +5,14 @@ program that gets every connected clean and fertilizer line watering on schedule
 in the weather.vallery.net look on uPlot, control of every setting, what Iris plans, and setting, changing and
 monitoring irrigation) behind Authentik sign-in, through to production. Under Jason's charter of 2026-11-01 (an
 experimental greenhouse, forward progress first) it keeps only structural truths and cuts v1's holds, gates and
-ceremonies. The result: 93 stories, 9 screens, 31 API operations and 71 issues in 7 lanes and 4 waves, shipped as five
+ceremonies. The result: 93 stories, 9 screens and 31 API operations, shipped as five
 releases (R1 read-only dashboard, R1.1 water reads, R2 setting writes, R3 irrigation engine, R4 the Next screens).
 
 Status: Draft v2 (2026-11-01)
 
 **[README](README.md)** · [product](product.md) · [screens](screens.md) · [architecture](architecture.md) ·
-[irrigation](irrigation.md) · [design system](design-system.md) · [execution plan](execution-plan.md) ·
-[OpenAPI](openapi/dashboard-api.v1.yaml) · [decisions](decisions.md) · [audit](audit.md)
+[irrigation](irrigation.md) · [design system](design-system.md) ·
+[OpenAPI](openapi/dashboard-api.v1.yaml) · [decisions](decisions.md)
 
 ## 1. What we are building and why
 
@@ -86,11 +86,8 @@ the OpenAPI file wins on operation ids and paths.
 | [irrigation](irrigation.md) | D-IRP rules, current state, lines L01–L11, schedule model, firmware and platform changes, the L01 bridge, HA decommission, API-IRR and MCP tools, delivery | Touch water |
 | [band](band.md) | What the climate band is, how the four sun anchors make its curve, what each edge does, the guardrails and who may change what; the Control → Band editor, API-23 and API-24 (#1334) | Change the band |
 | [design system](design-system.md) | weather.vallery.net tokens, the Verdify lockup, the page and card grammar, badges, controls, edit drawer, micro-visualizations, the uPlot charts, responsive and accessibility rules; built by VD-01 and VD-03 to VD-08 and the redesign (§9) | Build components or charts |
-| [execution plan](execution-plan.md) | 7 lanes, 4 seams, 4 waves, 5 releases, critical paths, start-today list, dependency graph, the 71-issue table (VD-01 to VD-73) | Plan or pick up work |
-| [sprint W6](sprint-w6.md) | Sprint W6 (2026-11-06): Jason's decisions in force, the lanes A to H with their issues, migrations 303 to 305 in order, and what is out of scope | See what the sprint covers |
 | [OpenAPI](openapi/dashboard-api.v1.yaml) | The contract: 38 operationIds (API-08, API-18, API-IRR-09 and OPS-03 reserved), schemas and problem codes | Call or serve the API |
 | [decisions](decisions.md) | Direction, all 27 D-IRP answers, the Round 2 and 2b answers, Q-01 to Q-14 with their applied defaults | Get or record a ruling |
-| [audit](audit.md) | The adversarial audit: findings and resolutions, persona coverage, plan checks, readiness | See why a rule exists |
 | [ADR-0011](../../adr/0011-irrigation-scheduling-program.md), [ADR-0012](../../adr/0012-operator-dashboard-architecture.md) | The irrigation program (accepted; amends ADR-0007) and the dashboard architecture (accepted, Round 2 #11) | Cite the decision |
 
 ## 5. Screens
@@ -110,40 +107,7 @@ Viewers see every screen read-only; every write shows REQUESTED → CONFIRMED (o
 | SCR-08 | Plants | `/plants` | What grows where? | Later | none | none yet |
 | SCR-09 | Sign-in and errors | `/auth/login`, `/auth/callback`, error pages | Who are you, and what went wrong? | MVP | BFF-01 to BFF-03, API-01 | VD-04, VD-21 |
 
-## 6. Lanes and waves
-
-**Answer:** seven lanes own their files and run in parallel from day one, joined by four seams (OpenAPI and fixture
-API, program record and golden vectors, `desired_state`, `verdify_services` conventions). Waves are goals, not gates.
-
-| Lane | Builds | Issues | Agents |
-|---|---|---|---|
-| L1 Web app | `dashboard/`: shell, components, uPlot charts, typed client and fixture API, every screen | VD-01 to VD-20, VD-69 (21) | 3, then 4 |
-| L2 Delivery | BFF sign-in and proxy, `deploy/k8s/dashboard/`, the tier-1 exclusion, PRs in jvallery/agents, network-infra and monitoring-stack; R1, R1.1, R2 and R4 | VD-21 to VD-28, VD-68, VD-73 (10) | 1 |
-| L3 Control model | `desired_state`, `activity_log`, the dashboard login, `verdify_services`, the operator API, plain convergence, the dispatcher overlay and wake, the forecast-engine fix | VD-29 to VD-34, VD-62, VD-65 to VD-67 (10) | 3 in W1, then 1 |
-| L4 Irrigation platform | Program record and vectors, compiler, M3 and M4, the L01 bridge, run ledger and minutes, irrigation API, ingestor push | VD-36 to VD-42, VD-64 (8) | 2 |
-| L5 Firmware, bring-up and HA | Engine firmware, mist path, Home Assistant removal, the tunables drift test, the hydro reader, the light meter; R3; the lines online | VD-43 to VD-48, VD-50 to VD-53, VD-63, VD-70, VD-71 (13) | 2 |
-| L6 Read model | Now, plan, equipment, settings, alerts, activity and graph reads; the ingestor heartbeat; the alert cleanup | VD-54 to VD-57, VD-72 (5) | 1 |
-| L7 Agents | MCP `set_setting`, `settings`, `activity` and irrigation tools, named agent keys, Iris's MANUAL SETTINGS and irrigation context | VD-58 to VD-61 (4) | 1 |
-
-| Wave | Goal | Issues | Ends with |
-|---|---|---|---|
-| W1 Foundations | Contracts, scaffolds, M1 to M4, services, the operator API, plain convergence, the L01 bridge, cross-repo PRs, engine core, HA trim | 31 | The shell runs on fixtures in CI; the Authentik app, Secrets and Argo app are delivered; L01 runs from MCP |
-| W2 Read-only live | Every read screen and endpoint, irrigation and MCP reads, the dispatcher overlay, engine wiring | 20 | **R1** (VD-26) dashboard.verdify.ai live and read-only, and **R1.1** (VD-68) water and MCP irrigation reads |
-| W3 Writes and water | Setting writes, Water controls and the schedule editor, MCP writes, engine firmware, lines online, the HA side | 14 | **R2** (VD-28) setting writes and **R3** (VD-50) engine; L01, L04, L07 and L09 on dashboard schedules; L02, L08 and L10 feeding |
-| W4 Next | The 9 Next stories, the light meter included | 6 | **R4** (VD-73) Next stories live |
-
-- **Start today (13, every lane):** VD-01, VD-22, VD-23, VD-25, VD-29, VD-30, VD-62, VD-36, VD-39, VD-43, VD-48,
-  VD-56, VD-59. L01 goes first: the run-now bridge (VD-64) lands in W1.
-- **Critical paths** ([execution plan](execution-plan.md) §6 names each chain): R1 is VD-01 → VD-02 → VD-04 → VD-09 →
-  VD-26 (12 points); schedules from the dashboard running (VD-51, after R3) is 17 points.
-- **Ships:** web when its digest-pin PR merges (Argo app `verdify-dashboard`); `verdify-prod` by
-  `scripts/promote-release-pins.py` and the `verdify-prod-dark` full sync; firmware by `make firmware-deploy`.
-- **Jason's hands:** seal the Secrets and name the first agent (in the cluster) in VD-23; one sign-in at R1 (VD-26);
-  a look at the screens at R1.1 (VD-68) and R4 (VD-73); answer Q-11 (where firmware compiles) before the R3 and PAR
-  OTAs (VD-50, VD-71); the one-time checks in VD-51 and VD-52; confirm the YINMIK meter is online and seal its device
-  id and local key (VD-70); fit the PAR meter (VD-71).
-
-## 7. Key numbers
+## 6. Key numbers
 
 | What | Count |
 |---|---|
@@ -154,12 +118,9 @@ API, program record and golden vectors, `desired_state`, `verdify_services` conv
 | MCP tools for every agent | 8 irrigation tools (3 read, 5 write), plus `set_setting`, `settings` and `activity`; Iris's `set_plan` and `set_tunable` keep writing plans |
 | Migrations and images | 7 additive migrations (M1 `desired_state` and `activity_log`, M2 dashboard login and sessions, M2b the dashboard login's reads and writes, M3 irrigation tables, M4 minutes by zone, M5 lighting release, M6 daily scorecard), and later the light meter's; 1 new image, `verdify-dashboard-web` |
 | Irrigation | 11 lines (L01–L11): 9 schedulable (L05 and L06 reserved, no bring-up now), L03 opens with feeds, L11 fog stays climate only; 4 wet zones; at most 24 schedules on the controller |
-| Issues | 71 (VD-01 to VD-73; VD-35 and VD-49 retired) under one program epic (VD-E0), in 7 lanes, 4 waves and 5 releases |
 
-## 8. Status
+## 7. Status
 
 **Answer:** Draft v2, written to the charter with Jason's Round 2 and 2b answers applied. All 27 irrigation decisions
 are answered; ADR-0011 and ADR-0012 are accepted; the open decisions carry applied defaults
-([decisions](decisions.md) Q-01 to Q-14), which Jason may change. Filed on 2026-11-02: the program epic is [VerdifyConsultancy/verdify-platform#1120](https://github.com/VerdifyConsultancy/verdify-platform/issues/1120), with 71 issues whose design links point at the docs
-PR [#1119](https://github.com/VerdifyConsultancy/verdify-platform/pull/1119) head commit `af8fe5db0`; [execution plan](execution-plan.md) §10 links each one. Next: start the 13
-unblocked W1 issues. The PR merges once its CI is green.
+([decisions](decisions.md) Q-01 to Q-14), which Jason may change. The work was tracked under the program epic [#1120](https://github.com/jvallery/verdify-platform/issues/1120); the planning documents (execution plan, sprint plan and audit) are in Git history.

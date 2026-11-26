@@ -6,11 +6,9 @@ checklist with [the operating contract](../AGENTS.md),
 [service delivery](runbooks/laptop-operator.md#2-cicd-merge-builds-promotion-pins-the-gated-sync-deploys)
 and [signed firmware operations](runbooks/firmware-signed-artifacts.md).
 
-Apply only the sections relevant to the requested change and honor the active
-device, scheduling and writer-reconciliation holds. Release preparation or fresh
-telemetry does not settle a writer handoff or expand the requested device,
-credential or physical-action scope. The linked field/release worksheet records
-the current sprint's survey and release status.
+Apply only the sections relevant to the requested change. Release preparation or
+fresh telemetry does not settle a writer handoff or expand the requested device,
+credential or physical-action scope.
 
 ## A. Services and production configuration
 
@@ -86,9 +84,8 @@ the current sprint's survey and release status.
 
 - [ ] Select an exact reviewed source revision and intended configuration.
       Identify affected relay/topology, dwell, sensor validity and irrigation
-      contracts. Reuse prior receipts only within their original source and
-      test coverage; the shared [field/release worksheet](../planning/execution/2026-10-25-safe-followthrough/field-release-worksheet.md)
-      does not itself select or qualify a binary.
+      contracts. Reuse prior test results only within their original source and
+      test coverage.
 - [ ] Run the required native unit/invariant, causal and replay checks in the
       supported cluster lane. Bind the old and new source revisions and the
       corpus identity. For band-curve changes also retain the dedicated band
@@ -221,8 +218,8 @@ the current sprint's survey and release status.
 
 - [ ] Update the owning runbook and relevant issue with delivered behavior,
       exact source/build/runtime evidence and remaining limitations.
-- [ ] Track the work in the owning GitHub issue; `planning/` holds dated
-      history only. Update actual ownership records when ownership changes.
+- [ ] Track the work in the owning GitHub issue. Update the ownership record
+      when ownership changes.
 - [ ] Review the final diff and preserve unrelated files and recovery evidence.
       A documentation correction does not itself deploy, release a hold or
       satisfy physical acceptance.

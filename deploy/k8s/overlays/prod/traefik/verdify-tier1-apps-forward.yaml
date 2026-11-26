@@ -21,10 +21,10 @@
 # have their own non-verdify-prod backends or are deliberately off-edge
 # (www/www-dev/auth/mqtt/proposals-hello/dashboard) plus crm.verdify.ai, which is
 # reserved for the separate Verdify CRM/Twenty rollout. Apex and www are owned
-# by the standalone VerdifyConsultancy/verdify-www repo; www-dev is owned there too.
+# by the standalone jvallery/verdify-www repo; www-dev is owned there too.
 # dashboard.verdify.ai is served by its own IngressRoute in namespace verdify-dashboard
 # (deploy/k8s/dashboard/ingressroute.yaml), whose plain Host rule would lose to this priority-50 match.
-# analytics/logs/botauth/traefik.verdify.ai retired under D-16 (DNS, tunnel,
+# analytics/logs/botauth/traefik.verdify.ai are retired (DNS, tunnel,
 # CoreDNS and probes removed in jvallery/network-infra#602, 2026-11-11), so their
 # exclusions were dropped (#1582); they now reach tier-2, which has no route for
 # them and answers 404.
@@ -63,7 +63,7 @@ spec:
         && !Host(`mqtt.verdify.ai`)
         && !Host(`dashboard.verdify.ai`)
       priority: 50
-      # network-infra#1104 (COORD ruling 2026-11-16T16:44:59Z): every catch-all response,
+      # network-infra#1104: every catch-all response,
       # including verdify-traefik's 404 for hosts with no router (e.g. ingress.verdify.ai),
       # carries HSTS. HSTS only: no framing, CSP or Referrer-Policy change for these hosts.
       middlewares:

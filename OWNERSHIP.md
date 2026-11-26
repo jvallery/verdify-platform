@@ -1,193 +1,211 @@
 # OWNERSHIP: jvallery/verdify-platform
 
-Item-level detail for the **Verdify greenhouse product** lane: what this repository owns, where it runs, and how it is delivered, with health and dependencies for each item.
+Everything this repository owns, as listed in the estate ownership record in jvallery/estate-platform (`ownership/record/`). This file is a copy of the rendered page [docs/estate/inventory/jvallery__verdify-platform.md](https://github.com/jvallery/estate-platform/blob/main/docs/estate/inventory/jvallery__verdify-platform.md); the record is the authority.
 
-- **Central record:** the owner of record for every item is [ESTATE-INVENTORY.md](https://github.com/jvallery/estate-platform/blob/main/docs/estate/ESTATE-INVENTORY.md). It is rendered from `ownership/record/` in `jvallery/estate-platform`, and this repo's owner page is [inventory/jvallery__verdify-platform.md](https://github.com/jvallery/estate-platform/blob/main/docs/estate/inventory/jvallery__verdify-platform.md). Where this file and the central record disagree, the central record wins (R1). To add, move or retire an item, change the central entry and this file in the same change set.
-- **Basis of this version:** the rendered desired state of this repo after the climate refactor ([#1633](https://github.com/jvallery/verdify-platform/issues/1633)): Argo Applications, workloads, Secret names (never values), PVCs, routes, NetworkPolicies, RBAC and PriorityClasses, on the live read-only readbacks of 2026-11-09 and 2026-11-17 (Secret and workload names only) and the central owner page. Retired items and their records remain in this file's Git history.
-- **Linked, not copied (R22):** device IPs and VLANs are in [network-infra `ipam/allocation.md`](https://github.com/jvallery/network-infra/blob/main/ipam/allocation.md). Hardware rows are in [proxmox-infrastructure `inventory/`](https://github.com/jvallery/proxmox-infrastructure/tree/main/inventory). Secret key contracts are in [`deploy/k8s/SECRETS.md`](deploy/k8s/SECRETS.md), and the Application and sync model is in [`ARGOCD.md`](ARGOCD.md).
-- **Backlog:** GitHub issues in this repository ([#1556](https://github.com/jvallery/verdify-platform/issues/1556)).
+When an item is added, moved or retired, change its row in the record, run `python3 ownership/render.py` there, and copy the rendered tables here in the same piece of work. How each item is built, deployed and checked is in [AGENTS.md](AGENTS.md).
 
-## Argo CD Applications
+## argo-app
 
-The three Applications that sync this repository's paths are declared in jvallery/estate-platform `gitops/applications/local-prod/` (the catalog moved from jvallery/agents on 2026-11-15) and read this repository through the in-cluster git mirror.
+| Id | Name | Summary | Location | State | Status | Renders for |
+| --- | --- | --- | --- | --- | --- | --- |
+| `argo-app:argocd/verdify-db-rehearsal-cluster` | verdify-db-rehearsal-cluster | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k3s vallery ns argocd -> dest ns verdify-db-rehearsal | retired | `owned` | `jvallery/verdify-platform` |
+| `argo-app:argocd/verdify-db-rehearsal-namespace` | verdify-db-rehearsal-namespace | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k3s vallery ns argocd -> dest ns verdify-db-rehearsal | retired | `owned` | `jvallery/verdify-platform` |
 
-| Application | Destination | Source | Sync |
-|---|---|---|---|
-| `verdify-prod-dark` | `verdify-prod` | `deploy/k8s/overlays/prod` @ `main` (in-cluster git mirror) | manual, prune off; the sync is the device-write gate, so the app is OutOfSync between syncs by design |
-| `verdify-dashboard` | `verdify-dashboard` | `deploy/k8s/dashboard` @ `main` | automated, self-heal, prune off |
-| `verdify-descheduler` | `verdify-descheduler` | `deploy/k8s/descheduler` @ an exact commit (read the live `targetRevision`) | manual, prune off |
+## cluster-object
 
-Three other Applications deliver into these namespaces, not owned by this repo: `verdify-prod-secrets-local-prod` and `verdify-dashboard-secrets` (central KSOPS Secret values, sourced from jvallery/agents `platform/gitops/secrets-ksops/`), and `verdify-tenant-bounds` (quota and limits in `verdify-descheduler`). Their declarations are in jvallery/estate-platform as well.
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `cluster-object:priorityclass/verdify-batch` | verdify-batch | PriorityClass value 1000, globalDefault False. | k3s vallery (cluster-scoped) | running | `owned` |
+| `cluster-object:priorityclass/verdify-data-critical` | verdify-data-critical | PriorityClass value 800000000, globalDefault False. | k3s vallery (cluster-scoped) | running | `owned` |
+| `cluster-object:priorityclass/verdify-device-writer` | verdify-device-writer | PriorityClass value 900000000, globalDefault False. | k3s vallery (cluster-scoped) | running | `owned` |
+| `cluster-object:priorityclass/verdify-serving` | verdify-serving | PriorityClass value 100000, globalDefault False. | k3s vallery (cluster-scoped) | running | `owned` |
+| `cluster-object:rbac/live-verdify-agent` | ClusterRoles/Bindings: live:verdify-agent | verdify-agent-cluster-readonly role+binding (seen only in 2026-06-07 audit inventory). 2 objects: Cluster:verdify-agent-cluster-readonly, Cluster:verdify-agent… | k3s vallery (cluster-scoped RBAC) | retired | `owned` |
+| `cluster-object:verdify-db-rehearsal/barman-objectstore/verdify-cnpg-pitr-reader` | verdify-cnpg-pitr-reader | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k8s ns verdify-db-rehearsal (barmancloud.cnpg.io ObjectStore) | retired | `owned` |
+| `cluster-object:verdify-db-rehearsal/barman-objectstore/verdify-cnpg-rehearsal-backup` | verdify-cnpg-rehearsal-backup | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k8s ns verdify-db-rehearsal (barmancloud.cnpg.io ObjectStore) | retired | `owned` |
+| `cluster-object:verdify-db-rehearsal/networkpolicies-residue` | protected historical runtime policies in verdify-db-rehearsal (2) | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k8s ns verdify-db-rehearsal | retired | `owned` |
+| `cluster-object:verdify-prod/mcp-runtime-boundary` | verdify-mcp ServiceAccount and verdify-mcp-egress NetworkPolicy | Source-owned MCP tokenless identity and DNS/DB/public-IPv4-TLS boundary; no RBAC grant. Public TLS is not hostname enforcement; live acceptance tracked by #1011. | k8s ns verdify-prod | desired | `owned` |
+| `cluster-object:verdify-prod/networkpolicies-hand-applied` | hand-applied NetworkPolicies in verdify-prod (1) | Restore-to-DB ingress allow-db-from-restore adopted with identical live spec; preserves db-restore selector and TCP5432. | k8s ns verdify-prod | running | `owned` |
+| `cluster-object:verdify-prod/networkpolicies-residue` | hand-created qualification NetworkPolicies in verdify-prod (36) | All 36 exact inactive qualification policies were UID/version guarded and removed under Verdify #990; no active workload selector matched. | k8s ns verdify-prod | retired | `owned` |
+| `middleware:verdify-prod/aggregate` | verdify-prod trivial middlewares (1) | Traefik headers/redirect/rateLimit/ipAllowList middlewares: verdify-strip-identity-headers(headers) | k8s ns verdify-prod | running | `owned` |
 
-## Namespaces
+## cluster-scoped
 
-| Namespace | State | Source | Notes |
-|---|---|---|---|
-| `verdify-prod` | running | `deploy/k8s/overlays/prod` | The only product environment. `verdify-db` is the only database, and the ingestor is the only device writer. |
-| `verdify-dashboard` | running | `deploy/k8s/dashboard` | The dashboard web tier (BFF) behind `dashboard.verdify.ai`; Pod Security restricted. |
-| `verdify-descheduler` | running | `deploy/k8s/descheduler` | Hourly descheduler (#802). |
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `cluster:priorityclass/verdifyconsultancy/verdify-platform` | PriorityClass owned by jvallery/verdify-platform | 4 objects |  |  | `owned` |
 
-`verdify-db-rehearsal` is retired (#992); its bucket and keys are storage-infra custody. Namespace `verdify-platform` belongs to jvallery/agents.
+## configmap
 
-## Workloads
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `configmap:verdify-prod/verdify-outbound-config` | verdify-outbound-config | Fixed-host OpenAI embeddings, Slack postMessage and Open-Meteo relay; product issues 1011/1022. | k8s ns verdify-prod | running | `owned` |
 
-All rows below are delivered by `verdify-prod-dark` unless the row names another Application. Images come from `registry.vallery.net` and every container is pinned by digest. Release pins are in `deploy/k8s/overlays/prod/release-pins.yaml` and `kustomization.yaml`.
+## deployment
 
-### verdify-prod Deployments and StatefulSet
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `deployment:verdify-prod/verdify-outbound` | verdify-outbound | Fixed-host OpenAI embeddings, Slack postMessage and Open-Meteo relay; product issues 1011/1022. | k8s ns verdify-prod | running | `owned` |
 
-| Workload | Replicas | Image | Role and hazards |
-|---|---:|---|---|
-| StatefulSet `verdify-db` | 1 | verdify-timescaledb | The only database (TimescaleDB, PG16). Never prune it or its PVC. Repinning it restarts the database and is an attended release. |
-| `verdify-ingestor` | 1 | verdify-ingestor | **Only ESP32 writer**: `strategy: Recreate` and `VERDIFY_DEVICE_WRITE_ENABLED=1`. Holds the writer Lease (Role/RoleBinding `verdify-ingestor-writer-lease`). Pushes the band, the drying cost limit, the operator switches, lighting values and irrigation programs and confirms each by readback; stores telemetry, relay events and counters, the controller's health and its replayed gap log; writes the daily record; wakes the daily review. |
-| `verdify-setpoint-server` | 1 | verdify-setpoint-server | Second device-affecting writer (Home Assistant grow lights); prod-only and hand-pinned. |
-| `verdify-api` | 2 | verdify-api | Public and write API (`api.verdify.ai`). |
-| `verdify-operator-api` | 1 | verdify-api | Operator API for the dashboard BFF. Also the one product metrics exposure point, `/metrics`, refreshed on a timer and scraped by monitoring-stack job `verdify-operator-api` (NetworkPolicy `allow-operator-api-metrics-scrape`). |
-| `verdify-mcp` | 2 | verdify-mcp | MCP (`mcp.verdify.ai`). Uses the tokenless ServiceAccount `verdify-mcp` and NetworkPolicy `verdify-mcp-egress`. |
-| `verdify-hermes-iris` | 1 | verdify-hermes-agent | Iris, the daily reviewer: woken once a day by the ingestor and on an admin request; reads the daily record and writes one row to `planner_review`. No climate write; it keeps its irrigation tools. Hand-pinned. |
-| `verdify-grafana` | 1 | grafana 12.4.14 mirror + verdify-grafana-image-renderer | Product Grafana (`graphs.verdify.ai`); dashboards are generated from `grafana/dashboards/` (R13 product exception). Version policy (D-325): this instance pins its own Grafana version by digest and upgrades it here on its own schedule; no version parity with the estate Grafana applies. |
-| `verdify-grafana-render-cache` | 2 | nginx-unprivileged mirror | Render cache for public panels. |
-| `verdify-lab`, `verdify-lab-cache-origin` | 2, 1 | nginx-unprivileged mirror (+ lab-publisher-k3s) | `lab.verdify.ai`/`labs.verdify.ai`; serves the validated Quartz cache PVC. |
-| `verdify-outbound` | 2 | nginx-unprivileged mirror | Fixed-host egress relay (ConfigMap `verdify-outbound-config`). |
-| `verdify-traefik` | 2 | traefik v3.7.17 mirror | Tier-2 app Traefik, limited to `verdify-prod`. |
-| `verdify-mqtt` | 1 | eclipse-mosquitto 2 mirror | In-namespace MQTT. |
-| `verdify-db-exporter` | 1 | postgres-exporter v0.19.1 mirror (zot custody) | Store metrics for `verdify-db` (STD-OBS-27, [monitoring-stack#1597](https://github.com/jvallery/monitoring-stack/issues/1597)): a standalone Deployment (no DB restart) reading as user `verdify` with `verdify-app-secrets` by reference; Service `verdify-db-exporter:9187`, scraped by monitoring-stack job `app-postgres-exporter`. |
+## endpoint
 
-### Singleton record: `verdify-db` (STD-HA-10, D-333)
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `endpoint:api.verdify.ai` | api.verdify.ai | Hostname api.verdify.ai: backend owner jvallery/verdify-platform, route owner jvallery/verdify-platform, DNS owner jvallery/network-infra (… | verdify-prod/verdify-t2-api | running | `owned` |
+| `endpoint:dashboard.verdify.ai` | dashboard.verdify.ai | Hostname dashboard.verdify.ai: backend owner jvallery/verdify-platform, route owner jvallery/verdify-platform, DNS owner jvallery/network-infra. The operator dashboard web tier, behind Authentik native OIDC (application verdify-dashboard, verdify-platform#1143): IngressRoute verdify-dashboard/verdify-dashboard-web, public via the proxied *.verdify.ai wildcard (302 to /auth/login), LAN record on both Pi-holes (network-infra#933). | verdify-dashboard/verdify-dashboard-web | running | `owned` |
+| `endpoint:graphs.verdify.ai` | graphs.verdify.ai | Hostname graphs.verdify.ai: backend owner jvallery/verdify-platform, route owner jvallery/verdify-platform, DNS owner jvallery/network-infr… | verdify-prod/verdify-t2-graphs | running | `owned` |
+| `endpoint:lab.verdify.ai` | lab.verdify.ai | Hostname lab.verdify.ai: backend owner jvallery/verdify-platform, route owner jvallery/verdify-platform, DNS owner jvallery/network-infra (… | verdify-prod/verdify-t2-lab | running | `owned` |
+| `endpoint:labs.verdify.ai` | labs.verdify.ai | Hostname labs.verdify.ai: backend owner jvallery/verdify-platform, route owner jvallery/verdify-platform, DNS owner jvallery/network-infra … | verdify-prod/verdify-t2-lab | running | `owned` |
+| `endpoint:mcp.verdify.ai` | mcp.verdify.ai | Hostname mcp.verdify.ai: backend owner jvallery/verdify-platform, route owner jvallery/verdify-platform, DNS owner jvallery/network-infra (… | verdify-prod/verdify-t2-mcp | running | `owned` |
 
-- **Class:** single-writer database with a dated exception (D-333, COORD 2026-11-09: single-writer exception with an isolated host-loss drill; no standby or CNPG effort, which #992 retired). One replica of StatefulSet `verdify-db` (TimescaleDB, PG16) on RWO Longhorn `db-data-verdify-db-0`. A replica count alone is never claimed as failover. Longhorn replicas give the volume two copies, not a second PostgreSQL.
-- **Reason:** there is one TimescaleDB writer and one physical device-write path (`verdify-ingestor`, `verdify-setpoint-server`). There is no approved standby path.
-- **Release path:** planned, the pod reschedules after a Lease-held drain and the RWO volume re-attaches on another eligible worker (`docs/runbooks/portable-stateful-recovery.md`). Unplanned host loss is operator-bound: confirm fencing first through storage-infra#714's supported path (STD-HA-12), then release the volume. Never force a detach or infer automatic failover. If the volume is lost, restore the latest logical dump from `verdify-db-dumps` (`docs/runbooks/db-backup-pair-restore.md`).
-- **Recovery figures:**
-  - Planned relocation: 43.9 s between successful reads (#218). This is not an unplanned-host-loss figure.
-  - Unplanned host-loss RTO: **unmeasured** (2026-11-17). The isolated drill in #1545 step 2 measures it on a disposable fixture, scheduled with or right after storage-infra#714's D1 harness.
-  - Achieved RPO on host loss with the volume intact: **unmeasured**. The design target is 0 (synchronous local writes on a Longhorn volume with 2 replicas).
-  - RPO if the volume is lost: up to 24 h (daily `verdify-db-backup` dump at 02:17 UTC).
-- **Exception row:** STD-HA-10 row `verdify-db, verdify-ingestor, verdify-setpoint-server` in `jvallery/estate-platform` `docs/estate/STANDARDS.md` (review 2027-05-08). It reads "proposal, drift until accepted" until its authority names D-333 by estate-platform PR (#1545 acceptance 1).
+## k8s-workload
 
-### verdify-prod scheduled jobs
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `k8s-workload:verdify-dashboard/deployment/verdify-dashboard-web` | verdify-dashboard-web | Deployment verdify-dashboard-web in namespace verdify-dashboard, declared in deploy/k8s/dashboard/deployment.yaml. | namespace verdify-dashboard | running | `owned` |
+| `k8s-workload:verdify-db-rehearsal/cluster/verdify-cnpg-s2-integration` | verdify-cnpg-s2-integration | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k3s vallery / verdify-db-rehearsal | retired | `owned` |
+| `k8s-workload:verdify-db-rehearsal/deployment/verdify-s2-grafana-proof` | verdify-s2-grafana-proof | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k3s vallery / verdify-db-rehearsal | retired | `owned` |
+| `k8s-workload:verdify-db-rehearsal/job/adhoc-kubectl-jobs` | verdify-db-rehearsal ad-hoc kubectl Jobs (81) | Exact non-data targets removed under Verdify #991 after private evidence preservation, UID/version dry-runs and absent readback; all database/PVC objects retained. | k3s vallery / verdify-db-rehearsal | retired | `owned` |
+| `k8s-workload:verdify-db-rehearsal/pod/standalone-pods` | verdify-db-rehearsal standalone Pods (6) | Exact non-data targets removed under Verdify #991 after private evidence preservation, UID/version dry-runs and absent readback; all database/PVC objects retained. | k3s vallery / verdify-db-rehearsal | retired | `owned` |
+| `k8s-workload:verdify-descheduler/cronjob/descheduler` | descheduler | CronJob descheduler in verdify-descheduler running descheduler:v0.36.0. | k3s vallery / verdify-descheduler | running | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-band-curve-refresh` | verdify-band-curve-refresh | CronJob verdify-band-curve-refresh in verdify-prod running timescaledb:2.25.2-pg16. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-db-backup` | verdify-db-backup | Verdify production DB dump. Target: pv:verdify-db-dumps-prod (/volume2/verdify). | verdify-prod (17 2 * * *) | running | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-db-restore-drill` | verdify-db-restore-drill | CronJob verdify-db-restore-drill in verdify-prod (scheduled database restore drill), tracked by Argo app verdify-prod-dark. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-db-watchdog` | verdify-db-watchdog | Retired under Verdify #998 after both production Prometheus collectors verified writer/DB replacement alerts. Exact CronJob and dedicated SA/Role/Binding absent; completed Jobs, credentials and data retained. | k3s vallery / verdify-prod | retired | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-firmware-builder` | verdify-firmware-builder | Suspended exact-SHA firmware compile/archive/sign template; ESPHome build init has no device egress and only the separate signer container mounts the signing key. Non-Argo writer (verdify-platform#1537): scripts/firmware-release-job.py --submit creates one-shot fw-* Jobs from this template (manager kubectl-create), ttlSecondsAfterFinished 172800, never Argo-tracked; the release receipt keeps the audit record. | k3s vallery / verdify-prod | idle | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-firmware-flasher` | verdify-firmware-flasher | Suspended reviewed-artifact verifier/flasher. Default verifies only; pinned key and manifest digest required before optional attended OTA. Non-Argo writer (verdify-platform#1537): scripts/firmware-release-job.py --submit creates one-shot fw-* Jobs from this template (manager kubectl-create), ttlSecondsAfterFinished 172800, never Argo-tracked; the release receipt keeps the audit record. | k3s vallery / verdify-prod | idle | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-greenhouse-brief` | verdify-greenhouse-brief | CronJob verdify-greenhouse-brief in namespace verdify-prod, declared in deploy/k8s/components/greenhouse-brief/cronjob.yaml. | verdify-prod (3-59/5 * * * *) | running | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-knowledge-embed` | verdify-knowledge-embed | CronJob verdify-knowledge-embed in namespace verdify-prod, declared in deploy/k8s/components/knowledge-embed/knowledge-embed.yaml. | verdify-prod (17 10 * * *) | running | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-lab-publisher` | verdify-lab-publisher | CronJob verdify-lab-publisher in verdify-prod running verdify-lab-publisher-k3s. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-vision` | verdify-vision | CronJob verdify-vision in verdify-prod running verdify-ingestor. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/cronjob/verdify-writer-watchdog` | verdify-writer-watchdog | Retired under Verdify #998 after both production Prometheus collectors verified writer/DB replacement alerts. Exact CronJob and dedicated SA/Role/Binding absent; completed Jobs, credentials and data retained. | k3s vallery / verdify-prod | retired | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-api` | verdify-api | Verdify API and approved saved-public-panel adapter; renderer token only (no Grafana admin credential); source declared in platform PR 1018. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-db-backup-exporter` | verdify-db-backup-exporter (removed 2026-11-14, historical) | Retired Deployment verdify-db-backup-exporter (NFS-mounting backup freshness exporter) in verdify-prod; removed by verdify-platform#1590 (2026-11-14), NotFound live 2026-11-16; freshness now comes from kube-state-metrics CronJob records. Its scrape job was retired by monitoring-stack#1928. | k3s vallery / verdify-prod | retired | `retire` |
+| `k8s-workload:verdify-prod/deployment/verdify-db-exporter` | verdify-db-exporter | Deployment verdify-prod/verdify-db-exporter; replicas 1; images: quay.io/prometheuscommunity/postgres-exporter:v0.19.1 (zot origin custody copy). Store exporter for verdify-db, scraped by monitoring-stack job app-postgres-exporter (monitoring-stack#1597). | k3s vallery / verdify-prod | declared-not-deployed | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-grafana` | verdify-grafana | Deployment verdify-grafana in verdify-prod running grafana-image-renderer:v5.10.0, grafana:12.4.5. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-grafana-render-cache` | verdify-grafana-render-cache | Deployment verdify-grafana-render-cache in verdify-prod running nginx-unprivileged:1.29-alpine. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-hermes-iris` | verdify-hermes-iris | Deployment verdify-hermes-iris in verdify-prod running hermes-agent. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-ingestor` | verdify-ingestor | Deployment verdify-ingestor in verdify-prod running postgres:16, timescaledb:2.25.2-pg16, verdify-ingestor. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-lab` | verdify-lab | Two ready Lab serving pods on distinct nodes, each using a validated private emptyDir cache and tokenless refresh sidecar; sequential public-edge pod recovery verified under #1005. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-lab-cache-origin` | verdify-lab-cache-origin | Private tokenless read-only Lab origin deployed at f5214011 under #1005; public serving pods use independent validated caches on distinct nodes. Retained publisher RWO claim; no public route or credentials. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-mcp` | verdify-mcp | Deployment verdify-mcp in verdify-prod running verdify-mcp. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-mqtt` | verdify-mqtt | Deployment verdify-mqtt in verdify-prod running eclipse-mosquitto:2. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-operator-api` | verdify-operator-api | Verdify operator API behind the dashboard BFF (the verdify-api image, uvicorn operator_api:app on 8090, ClusterIP only, no IngressRoute); deploy/k8s/components/operator-api (verdify-platform#1148), wired into overlays/prod (verdify-platform#1143). | k3s vallery / verdify-prod | declared-not-deployed | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-setpoint-server` | verdify-setpoint-server | Deployment verdify-setpoint-server in verdify-prod running timescaledb:2.25.2-pg16, verdify-setpoint-server. | k3s vallery / verdify-prod | running | `owned` |
+| `k8s-workload:verdify-prod/deployment/verdify-traefik` | verdify-traefik | Tokenless two-replica app-scoped Traefik file provider. Git-generated HTTP routing via a content-hashed ConfigMap; no Kubernetes provider, API token or Role/Binding (#1006). | k8s ns verdify-prod (2 replicas) | running | `owned` |
+| `k8s-workload:verdify-prod/job/adhoc-kubectl-jobs` | verdify-prod ad-hoc kubectl Jobs (44) | All 44 exact inactive standalone Jobs were UID/version guarded and removed under Verdify #990; recovery retained privately, metadata-only receipt in source. | k3s vallery / verdify-prod | retired | `owned` |
+| `k8s-workload:verdify-prod/statefulset/verdify-db` | verdify-db | StatefulSet verdify-db in verdify-prod running timescaledb:2.25.2-pg16. | k3s vallery / verdify-prod | running | `owned` |
 
-| CronJob | Schedule (UTC) | Image | Notes |
-|---|---|---|---|
-| `verdify-db-backup` | `17 2 * * *` | verdify-timescaledb | Logical dumps to PVC `verdify-db-dumps`. Restore: `docs/runbooks/db-backup-pair-restore.md`. |
-| `verdify-band-curve-refresh` | `2,32 * * * *` | verdify-timescaledb | Materialized view refresh (`mv_band_curve`) and the daily record store for today and the two days before (`fn_refresh_daily_record`), as login `verdify_matview_refresh_runtime_login`. |
-| `verdify-greenhouse-brief` | `3-59/5 * * * *` | verdify-api | The dashboard's greenhouse snapshot. |
-| `verdify-lab-publisher` | `5,35 * * * *` | verdify-lab-publisher-k3s | Lab content pipeline (`docs/runbooks/lab-content-pipeline.md`). |
-| `verdify-vision` | `0 15,18,21,0 * * *` | verdify-ingestor | Plant vision. |
-| `verdify-knowledge-embed` | suspended | verdify-ingestor | |
-| `verdify-firmware-builder`, `verdify-firmware-flasher` | suspended (`0 0 31 2 *`) | cosign / ESPHome 2026.6.5 mirrors | Templates for the signed firmware path (`docs/runbooks/firmware-signed-artifacts.md`); run only as attended Jobs. |
+## namespace
 
-PreSync hook Jobs in `verdify-prod`, recreated by every full sync: `verdify-migrate` (the ledgered migrations), `verdify-runtime-role-bootstrap`, `verdify-mcp-runtime-role-bootstrap`, `verdify-six-runtime-role-bootstrap`, `verdify-maintenance-runtime-role-bootstrap` and `verdify-experiment-v2-credential-bootstrap` (it installs only the equipment-source collector login).
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `namespace:verdify-dashboard` | verdify-dashboard | dashboard.verdify.ai web tier (Deployment verdify-dashboard-web, the BFF); rendered with Pod Security restricted by deploy/k8s/dashboard and synced by Argo app verdify-dashboard. | k3s vallery | running | `owned` |
+| `namespace:verdify-db-rehearsal` | verdify-db-rehearsal | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k3s vallery | retired | `owned` |
+| `namespace:verdify-descheduler` | verdify-descheduler | Existing descheduler namespace adopted in place with unchanged labels and deletion protection; Verdify platform | k3s vallery | running | `owned` |
+| `namespace:verdify-prod` | verdify-prod | Kubernetes namespace verdify-prod. | k3s vallery | running | `owned` |
 
-### Other namespaces
+## networkpolicy
 
-| Workload | Namespace | Application | Notes |
-|---|---|---|---|
-| Deployment `verdify-dashboard-web` (1) | `verdify-dashboard` | `verdify-dashboard` | Web tier; digest pinned in `deploy/k8s/dashboard/kustomization.yaml`; runbook `docs/runbooks/dashboard.md`. |
-| CronJob `descheduler` (`15 * * * *`) | `verdify-descheduler` | `verdify-descheduler` | descheduler v0.36.0 mirror; Role/RoleBinding `descheduler`. The cluster-scoped ClusterRole/ClusterRoleBinding `verdify-descheduler` belong to the fleet control plane. |
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `networkpolicy:verdify-prod/verdify-outbound-boundary` | verdify-outbound-boundary | Fixed-host OpenAI embeddings, Slack postMessage and Open-Meteo relay; product issues 1011/1022. | k8s ns verdify-prod | running | `owned` |
 
-## Storage (verdify-prod PVCs)
+## other
 
-| PVC | Class | Size | Notes |
-|---|---|---:|---|
-| `db-data-verdify-db-0` | longhorn-v1-workspace-rwo | 50Gi | Database data. Never prune it. |
-| `verdify-db-dumps` | static NAS PV (storage-infra) | 100Gi | Dump custody: the nightly pairs and, under `archive/`, the archives of dropped history. Never prune it. |
-| `verdify-ingestor-state` | longhorn-v1-workspace-rwo | 2Gi | Ingestor spool and state. |
-| `verdify-grafana-data` | longhorn-v1-workspace-rwo | 1Gi | |
-| `verdify-hermes-iris-data-portable-20260801` | longhorn-v1-rebuildable-rwo | 5Gi | |
-| `verdify-lab-site-cache` | longhorn-v1-rebuildable-rwo | 5Gi | RWO cohort with the lab publisher (`docs/runbooks/portable-stateful-recovery.md`). |
-| `verdify-firmware-artifacts` | longhorn-v1-workspace-rwo | 5Gi | Signed firmware artifacts. |
-| `verdify-winter-feasibility-archive` | longhorn-v1-workspace-rwo | 10Gi | Day files of the winter feasibility study (#1634), last written 2026-11-14; no workload mounts it. Kept until the owner decides; `Prune=false,Delete=false`. |
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `dashcopy:verdify-platform/product-grafana` | Verdify product Grafana + dashboards | Customer-facing Verdify Grafana with ~25 site dashboards generated from verdify-platform grafana/ trees. | ns verdify-prod Deployment verdify-grafana (+render cache), ConfigMaps verdify-grafana-dashboards-0..3; graphs.verdify.ai | running | `owned` |
+| `other:verdify-product-grafana` | Verdify product Grafana (graphs.verdify.ai) | Product dashboards served to users. | ns verdify-prod | running | `owned` |
+| `residue:monitoring-stack/dashboards-staged-verdify` | monitoring-stack deploy/observability/grafana/dashboards/staged/verdify-prod-site/ (26 files) | All 26 unreferenced staged Verdify dashboard copies retired by monitoring-stack PR 1045; canonical product dashboards and 21 approved public shares preserved. | jvallery/monitoring-stack@origin/main:deploy/observability/grafana/dashboards/staged/verdify-prod-site/ (26 files) | retired-residue | `owned` |
+| `residue:verdify-platform/ns-verdify-platform-dashboard-cms` | verdify-platform/verdify-grafana-dashboards-0..3 ConfigMaps | Four untracked dashboard ConfigMaps in the agent-sessions namespace verdify-platform duplicating verdify-prod ones. | ns verdify-platform | retired | `owned` |
 
-StorageClasses, Longhorn, NAS shares and the static PV are owned by jvallery/storage-infra.
+## physical-device
 
-## Database records of the climate law (`verdify-db`)
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `physical-device:esphome/greenhouse` | ESPHome greenhouse | Espressif esp32dev — ESP32 greenhouse climate controller with Modbus air/soil probes. | IoT VLAN 10 (address in jvallery/network-infra ipam/allocation.md) | running | `owned` |
+| `physical-device:iot-aggregate/greenhouse-probes` | Greenhouse Modbus probes (9 declared) | Six air and three soil Modbus probes behind the greenhouse ESPHome controller. | property; IoT VLAN10 / Home VLAN40 / bridged | running | `owned` |
+| `physical-device:iot/ha-shelly-2b1c9427` | Shelly Pro EM 2b1c9427 | Shelly Pro EM energy meter measuring greenhouse circuits. | IoT VLAN 10 (address in jvallery/network-infra ipam/allocation.md); Greenhouse | running | `owned` |
+| `physical-device:iot/ha-shelly-b3a979c8` | Shelly Pro EM b3a979c8 | Shelly Pro EM energy meter measuring greenhouse circuits. | IoT VLAN 10 (address in jvallery/network-infra ipam/allocation.md); Greenhouse | running | `owned` |
 
-The climate refactor ([#1633](https://github.com/jvallery/verdify-platform/issues/1633)) moved climate decisions onto the controller. The host keeps these records of it; each is written by the ingestor unless the row says otherwise.
+## pvc
 
-| Record | Where | Written | Health and dependencies |
-|---|---|---|---|
-| Law state | `system_state` entity `climate_law_state` (compact JSON: the law's outputs and the band it used) | every receipt: a 60 s heartbeat and every change | Alert `law_state_stale` (no row while the controller is connected). Needs a law build on the controller and the ingestor connected. |
-| Drying meter | `system_state` entity `climate_drying_meter` (lifetime seconds, water, heat) | on change | Alert `drying_meter_fault`. |
-| Constants hash | `system_state` entity `climate_law_constants` | hourly | Alert `law_constants_mismatch` when it differs from the released `verdify_schemas/climate_law.yaml`. |
-| Relay counters | `system_state` entity `relay_counters` (lifetime starts and fan run seconds) | on change | A check only; the stored relay events stay the source. `v_relay_counter_reconciliation_daily` (migration 315) compares the two per day; alert `relay_counter_mismatch`. |
-| Daily record | `daily_record`, `daily_relay_record` (migration 310): cycles, run time, utilities, drying, compliance | `verdify-band-curve-refresh` CronJob (`fn_refresh_daily_record`) | Metric `verdify_daily_record_complete`. Read by the dashboard, the daily review and the product metrics. |
-| Gap replay ledger | `gap_replay_quarters` (migration 314) and view `v_data_gaps_unreplayed`; the gap readers `v_data_trust_ledger` and `v_irrigation_day_coverage` read the view (migration 315) | after each reconnect, from the controller's gap log | Metrics `verdify_controller_gap_log_armed`, `verdify_controller_gap_log_state`; monitoring-stack alert `VerdifyControllerGapLogNotArmed`. |
-| Controller health | `diagnostics` health columns: minute heap and largest-block lows, loop and NVS write worst times, NVS entries, restart count, degraded sensors and gap-log state (migration 314); loop stack high water, WiFi disconnects and API clients (migration 315) | each diagnostics row | monitoring-stack group `verdify.controller-health`. |
-| Daily review | `planner_review` (migration 313), one row per review | the ingestor requests it after 07:00 local; Iris writes it through MCP `review_write` | Alerts `daily_review_missed` and `reviewer_wrote_climate`. |
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `pvc:verdify-db-rehearsal/verdify-cnpg-s2-integration-1` | verdify-cnpg-s2-integration-1 | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | namespace verdify-db-rehearsal | retired | `owned` |
+| `pvc:verdify-db-rehearsal/verdify-cnpg-s2-integration-1-wal` | verdify-cnpg-s2-integration-1-wal | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | namespace verdify-db-rehearsal | retired | `owned` |
+| `pvc:verdify-db-rehearsal/verdify-cnpg-s2-integration-2` | verdify-cnpg-s2-integration-2 | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | namespace verdify-db-rehearsal | retired | `owned` |
+| `pvc:verdify-db-rehearsal/verdify-cnpg-s2-integration-2-wal` | verdify-cnpg-s2-integration-2-wal | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | namespace verdify-db-rehearsal | retired | `owned` |
+| `pvc:verdify-db-rehearsal/verdify-cnpg-s2-integration-3` | verdify-cnpg-s2-integration-3 | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | namespace verdify-db-rehearsal | retired | `owned` |
+| `pvc:verdify-db-rehearsal/verdify-cnpg-s2-integration-3-wal` | verdify-cnpg-s2-integration-3-wal | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | namespace verdify-db-rehearsal | retired | `owned` |
+| `pvc:verdify-db-rehearsal/verdify-s2-spool-382-7fa4f802` | verdify-s2-spool-382-7fa4f802 | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | namespace verdify-db-rehearsal | retired | `owned` |
+| `pvc:verdify-db-rehearsal/verdify-s2-spool-qualification` | verdify-s2-spool-qualification | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | namespace verdify-db-rehearsal | retired | `owned` |
+| `pvc:verdify-prod/db-data-verdify-db-0` | db-data-verdify-db-0 | Protected production data PVC (Prune=false,Delete=false; never prune or delete as rollback). PVC 50Gi class longhorn-v1-workspace-rwo Bound; Longhorn volume pvc-59fe138d-1cc4-4aac-bfcb-3d332f847411 (attached/healthy, replicas 3, recurring standard). | namespace verdify-prod | running | `owned` |
+| `pvc:verdify-prod/verdify-db-dumps` | verdify-db-dumps | PVC 100Gi class (static binding) Bound; csi-nfs PV verdify-db-dumps-prod on the NAS share /volume2/verdify/. | namespace verdify-prod | running | `owned` |
+| `pvc:verdify-prod/verdify-firmware-artifacts` | verdify-firmware-artifacts | PVC 5Gi class longhorn-v1-workspace-rwo Bound; Longhorn volume pvc-a19dc6b1-ecd2-413d-a89d-692fd113fa94 (detached/unknown, replicas 2, recurring standard). | namespace verdify-prod | idle | `owned` |
+| `pvc:verdify-prod/verdify-grafana-data` | verdify-grafana-data | PVC 1Gi class longhorn-v1-workspace-rwo Bound; Longhorn volume pvc-acad919d-b6d2-4824-b7c7-a2b2ab460103 (attached/healthy, replicas 2, recurring standard). | namespace verdify-prod | running | `owned` |
+| `pvc:verdify-prod/verdify-hermes-iris-data-portable-20260801` | verdify-hermes-iris-data-portable-20260801 | PVC 5Gi class longhorn-v1-rebuildable-rwo Bound; Longhorn volume pvc-6b6b2f30-c414-4325-a803-87b19010851f (attached/healthy, replicas 2, recurring backup-only,… | namespace verdify-prod | running | `owned` |
+| `pvc:verdify-prod/verdify-ingestor-state` | verdify-ingestor-state | PVC 2Gi class longhorn-v1-workspace-rwo Bound; Longhorn volume pvc-68cb2b6c-dac9-494a-9fec-92b800762b5b (attached/healthy, replicas 2, recurring standard). | namespace verdify-prod | running | `owned` |
+| `pvc:verdify-prod/verdify-lab-site-cache` | verdify-lab-site-cache | PVC 5Gi class longhorn-v1-rebuildable-rwo Bound; Longhorn volume pvc-1bd6ffec-7246-4e15-b080-287a9cf37418 (attached/healthy, replicas 2, recurring backup-only,… | namespace verdify-prod | running | `owned` |
+| `pvc:verdify-prod/verdify-winter-feasibility-archive` | verdify-winter-feasibility-archive | PVC 10Gi class longhorn-v1-workspace-rwo Bound; Longhorn volume pvc-da430cd3-7469-4e36-8ef6-741fa281b753 (detached/unknown, replicas 2, recurring standard). | namespace verdify-prod | idle | `owned` |
 
-Retired by the program: the plan cycle (Iris no longer writes plans; every `setpoint_plan` row is inactive), the settings cascade and the tunables the law replaced. Migration 309 (the one-band change) dropped the GPU power, OpenClaw and zone-band grading objects; migration 316 dropped the confirmed-component experiment v2 (40 tables, its views, 113 functions and 11 roles), the policy twin (three empty hypertables and two read roles), the planner graph and memory tables, `planner_pack` and `forecast_deviation_thresholds`, and revoked the MCP write on `setpoint_plan`. Each drop is archived first (below). The 48-slot policy wire layout stays frozen with 43 reserved slots until the next firmware change.
+## repo
 
-### Archive of dropped history
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `repo:verdifyconsultancy/verdify-agent-context` | VerdifyConsultancy/verdify-agent-context | Private Verdify agent context, runbooks, operational handoffs, and sanitized project context. | github.com/VerdifyConsultancy/verdify-agent-context (archived, private) | retired-residue | `retire` |
+| `repo:verdifyconsultancy/verdify-gravity` | VerdifyConsultancy/verdify-gravity | Archived repository (no description). | github.com/VerdifyConsultancy/verdify-gravity (archived, private) | retired-residue | `retire` |
+| `repo:verdifyconsultancy/verdify-planner` | VerdifyConsultancy/verdify-planner | Verdify planner service and planner_graph package source. | github.com/VerdifyConsultancy/verdify-planner (archived, private) | retired-residue | `retire` |
+| `repo:verdifyconsultancy/verdify-platform` | jvallery/verdify-platform | Verdify greenhouse platform: API, DB, firmware, ingestor, web/SaaS; ns verdify-prod, verdify-descheduler. | github.com/jvallery/verdify-platform | running | `owned` |
 
-Before each drop migration a one-shot Job, `verdify-phase4-archive-<migration>` (attended, not in the render; the image and pod settings of `verdify-db-backup`), writes every dropped table, view, function and role definition to PVC `verdify-db-dumps` under `archive/phase4-drops-<migration>-<UTC date>/` with `counts.tsv` and `MANIFEST.sha256`; a second Job verifies it, and the drop migration refuses unless the live row counts still equal the archived ones. The nightly prune does not touch that subdirectory. Retention (two years) and the offsite copy are jvallery/storage-infra's ([jvallery/storage-infra#1935](https://github.com/jvallery/storage-infra/issues/1935)). Restore: schema then data from the archive, by a new numbered migration or a recorded hand restore; the nightly backup pair is the second copy.
+## route
 
-## Alerts and metrics
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `endpoint:tier1.verdify.ai-hostregexp` | tier1.verdify.ai-hostregexp | Hostname tier1.verdify.ai-hostregexp: backend owner jvallery/verdify-platform, route owner jvallery/verdify-platform, DNS owner jvallery/ne… | verdify-prod/verdify-tier1-forward (analytics, botauth, logs, mqtt, traefik .verdify.ai) | running | `owned` |
+| `route:verdify-prod/verdify-mcp-tunnel-forward` | verdify-mcp-tunnel-forward | Traefik IngressRoute (tunnelclient only) twin of verdify-tier1-forward for mcp.verdify.ai /mcp -> verdify-prod/verdify-traefik:81 (isolated tier-2 verdify-tunnel listener); external client attribution by CF-Ray/transport-peer join, no forwarded header trusted (verdify-platform#1010) | k8s ns verdify-prod (traefik-apps, Service traefik-apps/traefik-tunnel-client, cloudflared-only) | running | `owned` |
+| `route:verdify-prod/verdify-t2-api` | verdify-t2-api | Traefik IngressRoute (verdify-web) for api.verdify.ai -> verdify-prod/verdify-api:8080 [ClusterIP ready=2]; TLS none (HTTP or tunnel-terminated) | k8s ns verdify-prod (verdify-traefik (verdify-prod)) | running | `owned` |
+| `route:verdify-prod/verdify-t2-graphs` | verdify-t2-graphs | graphs.verdify.ai uses tokenless file routing; native Grafana queries, bounded PNG cache, and approved public metadata adapter (platform PR 1018). | k8s ns verdify-prod (verdify-traefik (verdify-prod)) | running | `owned` |
+| `route:verdify-prod/verdify-t2-lab` | verdify-t2-lab | Traefik IngressRoute (verdify-web) for lab.verdify.ai, labs.verdify.ai -> verdify-prod/verdify-lab:8080 [ClusterIP ready=2]; TLS none (HTTP or tunnel-terminate… | k8s ns verdify-prod (verdify-traefik (verdify-prod)) | running | `owned` |
+| `route:verdify-prod/verdify-t2-mcp` | verdify-t2-mcp | Traefik IngressRoute (verdify-web) for mcp.verdify.ai -> verdify-prod/verdify-mcp:8000 [ClusterIP ready=2]; TLS none (HTTP or tunnel-terminated) | k8s ns verdify-prod (verdify-traefik (verdify-prod)) | running | `owned` |
+| `route:verdify-prod/verdify-t2-mcp-tunnel` | verdify-t2-mcp-tunnel | Traefik IngressRoute (verdify-tunnel :8001, admitted only from the traefik-apps workload) for mcp.verdify.ai -> verdify-prod/verdify-mcp:8000; JSON access log keeps only the CF-Connecting-Ip/CF-Ray join fields (verdify-platform#1010) | k8s ns verdify-prod (verdify-traefik (verdify-prod)) | running | `owned` |
+| `route:verdify-prod/verdify-tier1-forward` | verdify-tier1-forward | Traefik IngressRoute (websecure,web) for analytics.verdify.ai, auth.verdify.ai, botauth.verdify.ai, crm.verdify.ai, logs.verdify.ai, mqtt.verdify.ai, proposals… | k8s ns verdify-prod (traefik-apps) | running | `owned` |
 
-- The ingestor's alert monitor (`ingestor/tasks/alerts.py`, `ingestor/tasks/coverage_alerts.py`) raises `alert_log` rows: the law and record alerts above, plus `sensor_fault`, `clock_unconfirmed`, `heat_no_power`, `setpoint_delivery_stuck`, `payload_rejected` and the irrigation and sensor alerts. The dashboard shows them; critical rows page through monitoring-stack `VerdifyGreenhouseAlertOpen` (group `verdify.greenhouse-alerts`, which also holds `VerdifyAlertFeedDown`).
-- The product metrics are exposed at one point, the operator API's `/metrics` (`api/product_metrics.py`; controller health, law state, relays, utilities, meters, the daily record, table freshness and the refresh itself), scraped by monitoring-stack job `verdify-operator-api`. Rule group `verdify.controller-health` (monitoring-stack) alerts on them, including `VerdifyIngestorRestarted`, `VerdifyIngestorRowsRejected` and `VerdifyProductMetricsStale`.
-- Writer and database liveness: monitoring-stack `verdify.writer-ownership`; store metrics: `verdify-db-exporter`.
+## scheduled-job
 
-## Hostnames and routes
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `alert-path:verdify-writer-watchdog` | verdify-prod writer/db watchdog CronJobs | Product DB/writer watchdog path retired under #998 after independently verified monitoring-stack writer/DB alerts; exact two CronJobs and six dedicated grants removed, data retained. | ns verdify-prod CronJobs verdify-writer-watchdog (*/5) and verdify-db-watchdog (1-59/5) | retired | `owned` |
 
-DNS, the Cloudflare tunnel and `traefik-apps` are owned by jvallery/network-infra (R2). The routes and backends below are this repo's (R3).
+## secret
 
-| Route (namespace) | Hosts | Backend |
-|---|---|---|
-| `verdify-tier1-forward` (verdify-prod, on traefik-apps) | every single-label `*.verdify.ai` host except the excluded ones (www, www-dev, proposals-hello, dashboard and others listed in the route); api, lab, labs and mcp take the shared `network-infra/baseline-headers-app-csp` (HSTS) on a priority-60 rule | `verdify-traefik` (tier 2) |
-| `verdify-t2-api` | `api.verdify.ai` (camera paths rate-limited) | `verdify-api` |
-| `verdify-t2-api-tunnel`, `verdify-api-tunnel-forward` (tunnelclient, on traefik-apps) | `api.verdify.ai` from the Cloudflare tunnel, rate-limited per `Cf-Connecting-Ip` | `verdify-api` |
-| `verdify-t2-graphs` | `graphs.verdify.ai` | `verdify-grafana-render-cache`, `verdify-grafana` |
-| `verdify-t2-lab` | `lab.verdify.ai`, `labs.verdify.ai` | `verdify-lab` |
-| `verdify-t2-mcp`, `verdify-t2-mcp-tunnel`, `verdify-mcp-tunnel-forward` | `mcp.verdify.ai` `/mcp` | `verdify-mcp` |
-| `verdify-dashboard-web` (verdify-dashboard, on traefik-apps) | `dashboard.verdify.ai` | `verdify-dashboard-web` |
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `secret:verdify-db-rehearsal/controller-generated` | verdify-db-rehearsal: controller-generated Secrets (5) | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k3s vallery / verdify-db-rehearsal | retired | `owned` |
+| `secret:verdify-db-rehearsal/operator-generated/cnpg` | cnpg-generated secrets in verdify-db-rehearsal (5) | Retired in attended #992 sequence 2026-10-21; namespace, delivery authority and legacy Garage bucket/keys absent. Private encrypted recovery and eight native B2 backups retained. | k8s ns verdify-db-rehearsal | retired | `owned` |
 
-The middlewares in `verdify-prod` are `verdify-api-inflight`, `verdify-api-rate-limit`, `verdify-api-rate-limit-tunnel`, `verdify-camera-rate-limit`, `verdify-camera-rate-limit-tunnel`, `verdify-strip-client-headers` and `verdify-strip-identity-headers`.
+## service
 
-## Policy, RBAC and cluster-scoped objects
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `service:verdify-prod/verdify-outbound` | verdify-outbound | Fixed-host OpenAI embeddings, Slack postMessage and Open-Meteo relay; product issues 1011/1022. | k8s ns verdify-prod | running | `owned` |
 
-- NetworkPolicies: 40 in `verdify-prod`, 4 in `verdify-dashboard` and 3 in `verdify-descheduler`, each delivered by that namespace's Application.
-- PodDisruptionBudgets in `verdify-prod`: `verdify-api`, `verdify-grafana`, `verdify-grafana-render-cache`, `verdify-ingestor`, `verdify-lab`, `verdify-mcp` and `verdify-traefik`.
-- ServiceAccounts: `verdify-ingestor`, `verdify-mcp`, `verdify-outbound`, `verdify-traefik`, `verdify-dashboard-web` and `descheduler`. The Role and RoleBinding `verdify-ingestor-writer-lease` and the Role and RoleBinding `descheduler` are this repo's. The `kepler-estate-operations` Role and RoleBinding in each namespace belong to jvallery/kepler.
-- PriorityClasses `verdify-batch` (1000), `verdify-serving` (100000), `verdify-data-critical` (800000000) and `verdify-device-writer` (900000000). They are cluster-scoped and owned here.
+## serviceaccount
 
-## Registered writers outside Argo (#1537, STD-IAC-01, README R21)
+| Id | Name | Summary | Location | State | Status |
+| --- | --- | --- | --- | --- | --- |
+| `serviceaccount:verdify-prod/verdify-outbound` | verdify-outbound | Fixed-host OpenAI embeddings, Slack postMessage and Open-Meteo relay; product issues 1011/1022. | k8s ns verdify-prod | running | `owned` |
 
-Argo (`verdify-prod-dark`, `verdify-dashboard`, `verdify-descheduler`) is the only writer of declared state in `verdify-prod`, `verdify-dashboard` and `verdify-descheduler`. Two writes are intended and registered here; managedFields on Argo-tracked objects may name only `argocd-controller`, cluster controllers (`k3s`, `kube-controller-manager`) and these two managers.
+## Applications rendered for this repo
 
-| Writer | Manager | What it writes | Source | Bound | Drift check |
-|---|---|---|---|---|---|
-| Firmware release Jobs (exception class) | `kubectl-create` | One-shot Jobs `fw-build-*`, `fw-verify-*`, `fw-flash-*` and the read-only `inspect` Pod, rendered from the Git-declared suspended CronJob templates `verdify-firmware-builder` and `verdify-firmware-flasher` (labels `app.kubernetes.io/component: firmware-builder` or `firmware-artifact-verifier`). They have no controller owner and are never Argo-tracked, because a sync must not re-apply a flash Job. | `scripts/firmware-release-job.py --submit` (procedure `docs/runbooks/firmware-signed-artifacts.md`) | `ttlSecondsAfterFinished: 172800` (48 h) from the templates; the release receipt keeps the audit record after the Job expires. A retained Job keeps its generated `verdify-firmware-release-tools-<hash>` ConfigMap mounted until it expires (#1536). | `kubectl -n verdify-prod get jobs -o name` shows no `fw-*` Job older than 48 h after completion. |
-| Attended writer restarts | `kubectl-rollout` | Only `spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]` on `verdify-prod` Deployments, by `kubectl rollout restart` in an attended session (never on shared controllers). Git does not declare that field. | `docs/runbooks/k3s-operations.md` | One field per Deployment | managedFields entries for `kubectl-rollout` own no field other than that annotation. |
+Declared by another repo: the declaring repo owns the Application object, and this repo owns what it renders.
 
-Every other manager found on these objects at T0 (`codex-ssa`, `kubectl`, `kubectl-client-side-apply`, `kubectl-patch`, `kubectl-annotate`, `kubectl-label`, `kubectl-create` on PVCs, `laptop-root`, `agent-verdify-hermes-cortex-mitigation`) is a stale past write, not a writer. #1537 removes each by exact target after confirming its fields match Git. `agent-fleet-sops-reconciler` on Secrets belongs to the central KSOPS lane that delivers those Secrets, not to this repo.
-
-## Secrets (names only)
-
-The values come from the central KSOPS lane in jvallery/agents (planned for jvallery/estate-platform). This repo owns the names and the key contract in [`deploy/k8s/SECRETS.md`](deploy/k8s/SECRETS.md), and never the values. Every Secret below is read by a workload or hook in this repo's render.
-
-| Namespace | Secret | Delivered by |
-|---|---|---|
-| verdify-prod | `verdify-app-secrets`, `verdify-contact-turnstile`, `verdify-dashboard-runtime-db`, `verdify-embedding-cortex`, `verdify-firmware-ota`, `verdify-firmware-signing`, `verdify-firmware-wifi`, `verdify-frigate-vision-auth`, `verdify-grafana-oauth`, `verdify-grafana-runtime-db`, `verdify-grafana-secrets`, `verdify-ha-token`, `verdify-hermes`, `verdify-hydro-probe` (optional mount), `verdify-lab-publisher-runtime-db`, `verdify-lab-publisher-s3`, `verdify-matview-refresh-runtime-db`, `verdify-mcp-agents`, `verdify-mcp-observer`, `verdify-mcp-runtime-db`, `verdify-operator-api`, `verdify-planner-cortex`, `verdify-planner-runtime-db`, `verdify-setpoint-server-runtime-db`, `verdify-vision-cortex`, `verdify-vision-runtime-db` | `verdify-prod-secrets-local-prod` (central KSOPS) |
-| verdify-prod, verdify-dashboard, verdify-descheduler | `zot-origin-cluster-pull` | reflector copy of the cluster pull credential (D-03) |
-| verdify-dashboard | `verdify-dashboard-web` | `verdify-dashboard-secrets` (central KSOPS) |
-
-## Devices and repositories
-
-- The greenhouse ESP32 controller (ESPHome, `firmware/greenhouse.yaml`), its Modbus air and soil probes, and the two greenhouse Shelly Pro EM meters are used by this product. Their device-authority rows belong to jvallery/homeassistant (D-06), the hardware rows to jvallery/proxmox-infrastructure, and the IPs to network-infra IPAM. Firmware reaches the controller only through the signed path or `make firmware-deploy` (AGENTS.md).
-- This repository is `jvallery/verdify-platform`. It moved from `VerdifyConsultancy/verdify-platform` on 2026-11-06, and older issue links under that name refer to this repository. `VerdifyConsultancy/verdify-agent-context`, `verdify-gravity` and `verdify-planner` are archived history.
-
-## Open actions
-
-Each action is tracked as a GitHub issue; the issue is canonical.
-
-- `ghcr-jvallery-readonly` and `verdify-vision-key` were retired in the central lane (jvallery/agents#7013) and are absent live. `ghcr-jvallery-readonly` is still named in the `imagePullSecrets` of StatefulSet `verdify-db` (every image is pulled from the zot origin); the hunk that removes it restarts the database, so it ships with the next attended `verdify-timescaledb` release ([#1543](https://github.com/jvallery/verdify-platform/issues/1543)).
-- Live Secrets with no reader in the render: `verdify-agent-secrets`, `verdify-experiment-v2-outcome-freezer-db`, `verdify-experiment-v2-randomizer-db` and `verdify-experiment-v2-shadow-scheduler-db`. Retire them in the central lane and the central record. `verdify-ha-backfill-runtime-db` and `verdify-writer-watchdog-runtime-db` lost their last reader with train H3 (0b9b614a); their central-lane sources are removed by jvallery/agents#7070 and the live Secrets go by UID-precondition delete after it is delivered ([#1543](https://github.com/jvallery/verdify-platform/issues/1543)). The logins behind them keep LOGIN until the drops release ([#1633](https://github.com/jvallery/verdify-platform/issues/1633)).
-- After the release 4 sync, delete the ConfigMaps `verdify-ingestor-gather-script` and `verdify-release-pins-hdhgg58gc4` by exact name (prune is off; never the fixed-name `verdify-release-pins`).
-- `verdify-planner-runtime-db` is read only by the six-runtime-role bootstrap, which installs the planner login. It goes with the drop of the planner roles (drop package 4.5, group 1B, [#1695](https://github.com/jvallery/verdify-platform/issues/1695)), whose release edits the bootstrap; the central lane retires the Secret after that sync.
-- The drop group 1C (the experiment tables behind embedded panels of the public site, about 3.1 GB) waits for the site sprint, as do the plan and forecast tables plan section 8.10 holds back.
-- PVC `verdify-winter-feasibility-archive` is kept until the owner decides on the day files.
-- Keep this file in step with the central record and a fresh live readback whenever an Application, workload, Secret or route is added or retired.
-
-## Whole-host loss posture (proxmox-infrastructure#465)
-
-**Whole-host loss: operator-bound RTO.** These single-replica workloads write to RWO volumes: `verdify-prod/Deployment/verdify-grafana`, `verdify-prod/Deployment/verdify-hermes-iris`, `verdify-prod/Deployment/verdify-ingestor`, `verdify-prod/Deployment/verdify-lab-cache-origin`, `verdify-prod/StatefulSet/verdify-db`. If the Proxmox host under their node is lost, nothing releases the volume until a person confirms at the chassis that the host is powered off. The stated RTO is operator response plus about 10 min: a 75 min target when attended, unbounded when not. The decision record, the power-off runbook and what does not count as power-off proof are in [jvallery/proxmox-infrastructure `docs/host-loss-fencing-decision.md`](https://github.com/jvallery/proxmox-infrastructure/blob/main/docs/host-loss-fencing-decision.md). The page is `K3sNodeNotReadyHostUnreachable` (jvallery/monitoring-stack#2008). This list was regenerated from live state on 2026-11-17 (Deployments and StatefulSets at 1 replica that mount an RWO PVC).
+| Id | Name | Declaring owner | State | Status |
+| --- | --- | --- | --- | --- |
+| `argo-app:argocd/verdify-dashboard` | verdify-dashboard | `jvallery/estate-platform` | running | `owned` |
+| `argo-app:argocd/verdify-dashboard-secrets` | verdify-dashboard-secrets | `jvallery/estate-platform` | declared-not-deployed | `owned` |
+| `argo-app:argocd/verdify-db-rehearsal-secrets` | verdify-db-rehearsal-secrets | `jvallery/agents` | retired | `owned` |
+| `argo-app:argocd/verdify-descheduler` | verdify-descheduler | `jvallery/estate-platform` | running | `owned` |
+| `argo-app:argocd/verdify-prod-dark` | verdify-prod-dark | `jvallery/estate-platform` | running | `owned` |
+| `argo-app:argocd/verdify-prod-secrets-local-prod` | verdify-prod-secrets-local-prod | `jvallery/estate-platform` | running | `owned` |
+| `argo-app:argocd/verdify-tenant-bounds` | verdify-tenant-bounds | `jvallery/estate-platform` | declared-not-deployed | `owned` |

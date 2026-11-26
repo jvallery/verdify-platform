@@ -71,7 +71,6 @@ def repo(tmp_path: Path):
         "docs/planner/playbook.md": "# Playbook\n",
         "docs/design/dashboard/openapi/notes.md": "# API\n",
         "research/notes.md": "# Research\n",
-        "planning/notes.md": "# Plan\n",
         "README.md": "# Repo\n",
         "cortex_planner/static/system.md": "# Prompt\n",
         "firmware/DESIGN.md": "# Design\n",
@@ -153,7 +152,7 @@ def test_markdown_a_test_reads_runs_everything(repo):
 
 @pytest.mark.parametrize(
     "path",
-    ["README.md", "planning/notes.md", "research/notes.md", "docs/notes/new.md", "planning/new/deep.md"],
+    ["README.md", "research/notes.md", "docs/notes/new.md", "research/new/deep.md"],
 )
 def test_documentation_roots_and_top_level_markdown_are_the_docs_class(repo, path):
     assert repo({path: "# Changed\n"})["light"] == "docs"

@@ -162,15 +162,13 @@ and a `secrets.yaml` reconstructed outside the repo (mode 0600, from the `verdif
    and verify and flash. The builder needs an exact full source revision, cannot contact the controller and cannot
    promote last-good. The independent flasher needs the reviewed manifest hash and the pinned signature key;
    verification is its default action. No firmware is rebuilt during flashing.
-2. **Secrets:** this repository keeps Secret names and keys only (`deploy/k8s/SECRETS.md`). Values are delivered by
-   the central KSOPS lane; the age key lives in the fleet secret store. Add no SOPS file here.
+2. **Secrets:** this repository keeps Secret names and keys only (`deploy/k8s/SECRETS.md`). Values are delivered from
+   the Secret bundles in jvallery/estate-platform. Add no SOPS file here.
 3. **Lab static publishing:** Quartz is the sole generator. The S3-backed `verdify-lab-publisher` builds and
    validates content every 30 minutes, then atomically updates the Longhorn cache served by content-free nginx. See
    [`docs/site-publishing-pipeline.md`](../site-publishing-pipeline.md). Do not add a `/mnt/iris` dependency or a
    second static-site generator.
-4. **Stale VM-era docs:** `docs/SYSTEM-ARCHITECTURE.md` and `docs/FOLDER-HIERARCHY.md` describe the retired
-   docker-compose and NFS stack and are history only (#322, #339).
-5. **Durable context:** operational knowledge belongs in this runbook and the focused `docs/` set, and the backlog
+4. **Durable context:** operational knowledge belongs in this runbook and the focused `docs/` set, and the backlog
    in GitHub issues, rather than in workstation-local notes.
 
 ---

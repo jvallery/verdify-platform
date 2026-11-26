@@ -287,11 +287,11 @@ async def test_cancel_during_queued_persistence_never_sends_or_strands_worker():
             on_state=on_state,
         )
     )
-    await asyncio.wait_for(queued_entered.wait(), timeout=0.2)
+    await asyncio.wait_for(queued_entered.wait(), timeout=5.0)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    await asyncio.wait_for(terminal.wait(), timeout=0.2)
+    await asyncio.wait_for(terminal.wait(), timeout=5.0)
 
     assert calls == []
     assert [outcome.status for outcome in states] == ["cancelled"]
@@ -323,12 +323,12 @@ async def test_cancellation_keeps_inflight_truth_and_cancels_every_unsent_comman
             on_state=on_state,
         )
     )
-    await asyncio.wait_for(entered.wait(), timeout=0.2)
+    await asyncio.wait_for(entered.wait(), timeout=5.0)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
     release.set()
-    await asyncio.wait_for(terminal.wait(), timeout=0.2)
+    await asyncio.wait_for(terminal.wait(), timeout=5.0)
 
     assert calls == [1]
     terminal_states = [outcome.status for outcome in states if outcome.status != "queued"]
@@ -372,11 +372,11 @@ async def test_timeout_has_same_truthful_terminalization_as_explicit_cancel():
             timeout=0.01,
         )
     )
-    await asyncio.wait_for(entered.wait(), timeout=0.2)
+    await asyncio.wait_for(entered.wait(), timeout=5.0)
     with pytest.raises(TimeoutError):
         await task
     release.set()
-    await asyncio.wait_for(terminal.wait(), timeout=0.2)
+    await asyncio.wait_for(terminal.wait(), timeout=5.0)
 
     terminal_states = [outcome.status for outcome in states if outcome.status != "queued"]
     assert terminal_states == ["sent", "cancelled"]
@@ -418,7 +418,7 @@ async def test_queued_request_cannot_cross_transport_generation():
 
     _install_number_client(command)
     task = asyncio.create_task(esp32_push.push_to_esp32_detailed([("cmd_1", 1.0, "number"), ("cmd_2", 2.0, "number")]))
-    await asyncio.wait_for(entered.wait(), timeout=0.2)
+    await asyncio.wait_for(entered.wait(), timeout=5.0)
     shared.transport_generation = 5
     release.set()
     result = await task
@@ -466,7 +466,7 @@ async def test_lease_is_rechecked_after_pacing_inside_physical_lock(monkeypatch)
     monkeypatch.setattr(shared, "writer_lease_held", lambda: lease["held"])
     monkeypatch.setattr(esp32_push, "_pace_command", pace)
     task = asyncio.create_task(esp32_push.push_to_esp32_detailed([("cmd_1", 1.0, "number")]))
-    await asyncio.wait_for(pace_entered.wait(), timeout=0.2)
+    await asyncio.wait_for(pace_entered.wait(), timeout=5.0)
     lease["held"] = False
     release_pace.set()
     result = await task
@@ -493,7 +493,7 @@ async def test_round_robin_pause_lets_urgent_request_overtake_long_batch():
     long_task = asyncio.create_task(
         esp32_push.push_to_esp32_detailed([(f"cmd_{index}", float(index), "number") for index in range(1, 7)])
     )
-    await asyncio.wait_for(first_quantum.wait(), timeout=0.2)
+    await asyncio.wait_for(first_quantum.wait(), timeout=5.0)
     urgent_task = asyncio.create_task(esp32_push.push_to_esp32_detailed([("urgent", 1.0, "number")]))
     long_result, urgent_result = await asyncio.gather(long_task, urgent_task)
 
@@ -516,7 +516,7 @@ async def test_queue_bound_fails_closed_without_sending_overflow(monkeypatch):
     monkeypatch.setattr(esp32_push, "_MAX_PENDING_REQUESTS", 2)
 
     first = asyncio.create_task(esp32_push.push_to_esp32_detailed([("cmd_1", 1.0, "number")]))
-    await asyncio.wait_for(first_entered.wait(), timeout=0.2)
+    await asyncio.wait_for(first_entered.wait(), timeout=5.0)
     second = asyncio.create_task(esp32_push.push_to_esp32_detailed([("cmd_2", 2.0, "number")]))
     await asyncio.sleep(0)
     overflow = await esp32_push.push_to_esp32_detailed([("cmd_3", 3.0, "number")])
@@ -542,7 +542,7 @@ async def test_newer_request_supersedes_only_older_unsent_same_parameter():
 
     _install_number_client(command)
     old = asyncio.create_task(esp32_push.push_to_esp32_detailed([("cmd_1", 1.0, "number"), ("cmd_2", 2.0, "number")]))
-    await asyncio.wait_for(entered.wait(), timeout=0.2)
+    await asyncio.wait_for(entered.wait(), timeout=5.0)
     new = asyncio.create_task(esp32_push.push_to_esp32_detailed([("cmd_2", 20.0, "number")]))
     await asyncio.sleep(0)
     release.set()

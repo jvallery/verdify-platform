@@ -1,6 +1,6 @@
 # Rehearsal retirement under DR-49 (#992)
 
-> Live retirement completed 2026-10-21. Namespace, Cluster, eight claims, three Applications, two AppProjects, legacy Garage bucket and both scoped keys are absent. Eight original Retain PVs, detached Longhorn volumes, snapshots and native B2 backups remain preserved. Final source/ownership closeout is tracked in the owning PRs before issue closure. See [terminal receipts](../../planning/execution/2026-10-20-followthrough/evidence/992-final/README.md).
+> Live retirement completed 2026-10-21. Namespace, Cluster, eight claims, three Applications, two AppProjects, legacy Garage bucket and both scoped keys are absent. Eight original Retain PVs, detached Longhorn volumes, snapshots and native B2 backups remain preserved. Final source/ownership closeout is tracked in the owning PRs before issue closure. See terminal receipts.
 
 The experiment ended on October 20, 2026. No CNPG production cutover or automatic replacement namespace is planned. This source change moves historical profiles from `deploy/k8s/cnpg/rehearsal` into offline test fixtures, preserving regression coverage and leaving the complete production render byte-identical. It does not itself delete live data or trigger Argo pruning.
 

@@ -17,7 +17,7 @@ rather than repeats. Behaviour, data, honesty, role and write rules are unchange
 Q-14 applied).
 
 [README](README.md) · [product](product.md) · **screens** · [redesign](redesign.md) · [architecture](architecture.md) ·
-[irrigation](irrigation.md) · [design system](design-system.md) · [execution plan](execution-plan.md) ·
+[irrigation](irrigation.md) · [design system](design-system.md) ·
 [OpenAPI](openapi/dashboard-api.v1.yaml)
 
 Operation ids (API-NN, API-IRR-NN, BFF-NN, INT-NN, OPS-NN) are the [OpenAPI](openapi/dashboard-api.v1.yaml) file's,
@@ -842,7 +842,7 @@ US-EQP-04 (controller and sensor health) and US-PLT-01 to US-PLT-03 (SCR-08).
 
 ## 12. Who builds each screen
 
-The issues in the [execution plan](execution-plan.md) build this doc against the committed OpenAPI and the fixture
+The issues in the execution plan build this doc against the committed OpenAPI and the fixture
 API, so a screen can start before its endpoints land; its live check waits for them.
 
 - **VD-03:** the content components, badges and states ([design system](design-system.md) §9), among them `AlertRow`,

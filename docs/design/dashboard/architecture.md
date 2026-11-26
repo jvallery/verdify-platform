@@ -15,11 +15,11 @@ kill-switch matrices; one `DASHBOARD_WRITES_ENABLED` flag is the rollback switch
 Status: Draft v2 (2026-11-02; Round 2, 2b and Q-01 to Q-14 applied)
 
 [README](README.md) · [product](product.md) · [screens](screens.md) · [architecture](architecture.md) ·
-[irrigation](irrigation.md) · [design system](design-system.md) · [execution plan](execution-plan.md) ·
+[irrigation](irrigation.md) · [design system](design-system.md) ·
 [OpenAPI](openapi/dashboard-api.v1.yaml) · [ADR-0012](../../adr/0012-operator-dashboard-architecture.md)
 
 Evidence is cited as repo-relative paths at origin/main `0950a3bdb`. Work is tracked as the VD issues in the
-[execution plan](execution-plan.md); "Round 2 #n" cites Jason's answers in [decisions](decisions.md).
+execution plan; "Round 2 #n" cites Jason's answers in [decisions](decisions.md).
 
 ## 1. Context and goals
 
@@ -761,8 +761,9 @@ telemetry tables.
 ## 10. Delivery
 
 **Answer:** the web tier is its own auto-synced Argo app. The operator API, migrations and tier-1 exclusion ride
-the release pins and the gated `verdify-prod-dark` full sync. jvallery/agents takes two PRs (live once the
-coordinator's train and consolidated pin PR deliver them); network-infra and monitoring-stack take one each.
+the release pins and the manual `verdify-prod-dark` full sync. The Application, AppProject and Secret declarations
+are in jvallery/estate-platform (live once their pin has moved and the new objects are synced); network-infra and
+monitoring-stack take one pull request each.
 
 | Piece | Where | Ships via |
 |---|---|---|
@@ -796,7 +797,7 @@ Values live in the agents KSOPS lanes and are sealed by Jason.
 |---|---|
 | jvallery/agents PR 1 (VD-23) | Identity: provider and application `verdify-dashboard` (§4) and the two groups from a `prepare-verdify-dashboard.py` helper (preview by default, `--apply`); the slug in the application-MFA contract and app conformance (class A). KSOPS: `secrets-ksops/verdify-dashboard/` with a Secret-only AppProject and Application `verdify-dashboard-secrets` (`CreateNamespace=false`), and the three `verdify-prod` Secrets with the governs annotation. No dependency on platform code |
 | jvallery/agents PR 2 (VD-24) | CI: a `dashboard-web` path-impact profile and its test; the build step; and, in `verdify-platform-pr-ci`, a `dashboard` check step (a digest-pinned Node 24 and Playwright 1.64.1 image: `pnpm install --frozen-lockfile`, lint, typecheck, vitest, the client drift check, Playwright with axe) and a `campaign` step that runs `tests/test_dashboard_db_*.py` on a private TimescaleDB, either of which fails `Verdify Platform / Argo PR CI`. GitOps: AppProject `verdify-dashboard` (source verdify-platform; destination `verdify-dashboard` only; cluster-scoped Namespace `verdify-dashboard`; Deployment, Service, ServiceAccount, ConfigMap, NetworkPolicy and IngressRoute; Secret denied) and Application `verdify-dashboard`; the reflector regex for `zot-origin-cluster-pull`; estate-ownership rows |
-| Both agents PRs | Done when the coordinator's consolidated pin PR has moved the roots that deliver them, an exact-target sync of the new children has run, and both apps are Synced and Healthy |
+| The declaration PRs | Done when the pin that delivers them has moved, a sync of the new objects by name has run, and both apps are Synced and Healthy |
 | jvallery/network-infra | An exact zone row for `dashboard.verdify.ai` in the verdify.ai zone (internal A 192.168.7.10, auth mode native OIDC), applied through network-infra's own path. The public answer stays the proxied `*.verdify.ai` wildcard, whose tunnel rule already covers the host, so no Cloudflare record and no cloudflared change |
 | jvallery/monitoring-stack | One target in the `blackbox-route-coverage` job: `https://dashboard.verdify.ai/`, with a new module, `verdify_dashboard_login` (302 with a `Location` check for `/auth/login?returnTo=%2F`, modeled on `verdify_grafana_login`), instead of `edge_redirect302`, which accepts any 302 and which the endpoint-matrix renderer files as Authentik forward-auth. Its existing `RouteCoverageProbeDown` alert covers failures. Added after the host answers |
 

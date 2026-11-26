@@ -96,10 +96,6 @@ aggregate Argo health and retain old failures. A recovered provider and successf
 scheduled Job require no whole-application sync. Any explicit prohibition on a
 whole-application sync continues to apply.
 
-[October 18/19 recurrence and natural recovery](../../../planning/reviews/2026-10-18-vision-recovery/README.md)
-records the owning provider repair, two genuine analyses, six linked observations
-and the unchanged source/image contract.
-
 ## Cortex route (#1021)
 
 The image-input probe on Cortex #375 accepted fresh synthetic one/ten-image requests through `https://cortex.vallery.net/v1` / `llm.primary.longctx.mm`. Vision now uses the OpenAI-compatible client, one image/request, no automatic retries or cloud fallback, 90-second timeout and configured 4,096-token cap with thinking disabled. Truncated, empty or malformed JSON fails the run instead of inserting an accepted observation. The historical `observations.source=gemini-vision` remains the migration-268 SQL duty identifier and daily-plan selector; `image_observations.model` records the actual local route. This avoids silently broadening the runtime DB role. The old Gemini Secret is neither mounted nor deleted/revoked.

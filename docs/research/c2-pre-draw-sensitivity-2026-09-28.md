@@ -18,7 +18,7 @@ draw, arm, or authorize day 1. Actual target, selector, equipment, paired
 three-endpoint, and source-faithful power inputs remain outstanding before
 Gate P. The November–December winter observer remains a separate passive study.
 
-The redacted [artifact](../../planning/evidence/c2-predraw-sensitivity-20260928.json)
+The redacted artifact
 is a reproducible audit of the accepted exploratory 30-adjacent-pair,
 60-local-day design. It does not lock a date or design, replay a selector,
 estimate treatment effects, or authorize a draw. Its calculation source is

@@ -105,7 +105,6 @@ Where things are:
 - `firmware/` is the controller (`firmware/lib/climate_law.h` is the climate law). `ingestor/`, `api/`, `mcp/`, `hermes/` (Iris), `dashboard/`, `grafana/` and `site/` are the services. `db/migrations/` and `verdify_schemas/` are the data contract.
 - `deploy/k8s/base`, `components/*` and `overlays/prod` render production; `deploy/k8s/dashboard/` and `deploy/k8s/descheduler/` render the other two namespaces.
 - [ARGOCD.md](ARGOCD.md) describes the Applications. [docs/agents/contracts.md](docs/agents/contracts.md) has the control model, the cross-layer contracts, the generated files and the focused commands: read it before changing firmware, schemas, migrations or settings. A code comment or check message that cites "AGENTS.md rule 6" or "rule 7" means the readback rule and the restart rule in that file. `docs/CONTROL-ARCHITECTURE.md` and `docs/firmware-control-contract.md` explain the design. Runbooks are in `docs/runbooks/`.
-- `planning/`, `HISTORY.md`, `docs/RUNBOOK.md`, `docs/SYSTEM-ARCHITECTURE.md`, `docs/verdify-migration.md`, `docs/BCDR-AND-OPERATIONS.md`, `docs/tunable-cascade.md` and `docs/iris-planner-contract.md` are history: they describe a decommissioned VM deployment and designs that have been replaced.
 
 ## Build, test, deploy, verify
 
