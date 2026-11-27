@@ -11,7 +11,7 @@
 # COPY --from=: ADD, any other flag, a dollar sign or a backslash in a COPY rebuilds every image.
 # tests/test_dashboard_dockerfile.py enforces this.
 
-FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS build
+FROM docker.io/library/node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS build
 RUN npm install --global pnpm@12.15.0
 WORKDIR /app
 COPY dashboard/package.json dashboard/pnpm-lock.yaml dashboard/.npmrc ./
@@ -21,7 +21,7 @@ RUN pnpm build && pnpm prune --prod --ignore-scripts
 
 # Runtime provenance, as api/Dockerfile bakes it: the 40-hex GIT_SHA build argument, else the detached .git/HEAD the
 # managed clone checks out (the root .dockerignore admits only .git/HEAD). Anything else fails the build.
-FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS source-metadata
+FROM docker.io/library/node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS source-metadata
 ARG GIT_SHA=unknown
 COPY .git /tmp/verdify-git-metadata
 RUN set -eu; \
@@ -35,10 +35,11 @@ RUN set -eu; \
     printf '%s\n' "$candidate" > /out/source-revision; \
     chmod 0444 /out/source-revision
 
-# Runtime base (R2, AMC campaign 2026-11-20): the Debian security updates the node image lags behind (apt 2.6.2 is
-# only in bookworm-security), and no npm or corepack: the server runs `node server.mjs` and never installs, so the
+# Runtime base (R2, AMC campaign 2026-11-20): Debian 13 trixie (bookworm's zlib 1.2.13 carries the Critical
+# CVE-2023-45853, which Debian fixes only from trixie; estate-platform#1477), the Debian security updates the node
+# image lags behind, and no npm or corepack: the server runs `node server.mjs` and never installs, so the
 # copies bundled with the node image (undici, brace-expansion) only carried findings.
-FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS runtime-base
+FROM docker.io/library/node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS runtime-base
 RUN set -eu; \
     apt-get update; \
     DEBIAN_FRONTEND=noninteractive apt-get -y upgrade; \

@@ -70,7 +70,7 @@ these from weather's `web/` at the same commit, under the same MIT licence:
 ## Not copied
 
 - `Dockerfile.web` is the model for `dashboard/Dockerfile`, which is new: it builds on the upstream image weather's
-  node base imports (`docker.io/library/node:24.22.1-bookworm-slim` pinned by digest, as weather's
+  node base imports (`docker.io/library/node:24.22.1-trixie-slim` pinned by digest, as weather's
   `images/upstream-imports/node/Dockerfile` names it) instead of `registry.vallery.net/jvallery/weather-node-base`,
   has no previous-image asset retention (`retain-web-assets.mjs`), no metrics port and no `LICENSE` copy, and adds
   the `source-metadata` stage of verdify-platform's `api/Dockerfile`.
