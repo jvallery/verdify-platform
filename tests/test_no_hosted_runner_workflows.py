@@ -14,7 +14,6 @@ own scale sets and never on GitHub-hosted compute:
 
 `estate-ci lint --strict` (the `ci / lint` check) enforces the same rules from
 the estate side; this test keeps them in the repository's own gate.
-Ledger: docs/ci/zero-paid-runner-ledger.md.
 """
 
 from __future__ import annotations
