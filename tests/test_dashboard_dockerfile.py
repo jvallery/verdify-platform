@@ -1,6 +1,6 @@
 """dashboard/Dockerfile contract (VD-01, #1121): what path impact can read and what the image runs as.
 
-jvallery/agents ``verdify_path_impact.py`` reads Dockerfiles as data. It joins continuation lines, skips
+``ci/gha/verdify_path_impact.py`` reads Dockerfiles as data. It joins continuation lines, skips
 ``COPY --from=``, and turns ``ADD``, any other flag, a dollar sign or a backslash in a ``COPY`` into a rebuild of
 every image. ``_path_impact_sources`` applies the same reading to ``dashboard/Dockerfile``.
 """

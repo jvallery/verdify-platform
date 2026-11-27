@@ -1,6 +1,6 @@
 """VD-61 (#1174) on a private PostgreSQL: the five irrigation write tools as the MCP login.
 
-jvallery/agents#5994's campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback PostgreSQL
+The CI campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback PostgreSQL
 and hands it over in ``VERDIFY_ISOLATED_TEST_DSN``; without one this module skips. The database, its seed and its grants
 are tests/test_dashboard_db_irrigation_writes.py's: M3's lines and three vanda-degraded schedules, ``irr_engine`` false,
 ``irrig_wall_duration_min`` 12. The tools run through mcp/server.py under the FastMCP stub, each on a connection as the

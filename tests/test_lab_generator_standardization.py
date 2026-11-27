@@ -32,8 +32,7 @@ def test_quartz_is_the_only_lab_generator_source_and_deployment_path():
 
 
 def test_image_builds_have_no_retired_lab_image():
-    # #1397 step 5: .github/workflows/build.yml is the only image list (the generated
-    # .agent-fleet/ci.yaml is gone). Every job builds with the repository root as context.
+    # #1397 step 5: .github/workflows/build.yml is the only image list. Every job builds with the repository root as context.
     build = yaml.safe_load((REPO_ROOT / ".github/workflows/build.yml").read_text())
     images = {job["with"]["image"]: job["with"] for job in build["jobs"].values() if "image" in job.get("with", {})}
     assert "verdifyconsultancy/verdify-lab-astro" not in images

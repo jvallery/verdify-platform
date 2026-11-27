@@ -25,7 +25,7 @@
 # the surface is ClusterIP + NetworkPolicy (never an LB, never WAN) — same posture
 # as the loopback bind it replaces.
 #
-# MCP-URL GATE (migration doc R7): the MCP URL hermes calls lives in the
+# MCP URL: the MCP URL hermes calls lives in the
 # out-of-band /etc/verdify/hermes-iris.env (verdify-hermes Secret), NOT in this
 # repo. It MUST be repointed to verdify-mcp.<ns>.svc:8000 in that sealed env
 # BEFORE the systemd MCP is stopped, or hermes fails at tool-call time (not
@@ -156,7 +156,7 @@ spec:
             # The OpenAI key + any HERMES_* runtime env (compose env_file
             # /etc/verdify/hermes-iris.env) come from this Secret. Provided
             # out-of-band by the SOPS backend; referenced BY NAME only. The MCP
-            # URL inside it MUST point at verdify-mcp.<ns>.svc:8000 (R7 gate).
+            # URL inside it MUST point at verdify-mcp.<ns>.svc:8000.
             - secretRef:
                 name: verdify-hermes
           env:

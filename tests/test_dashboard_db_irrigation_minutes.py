@@ -1,6 +1,6 @@
 """Migration M4 (VD-39, #1154): minutes by zone and day coverage, on a private database.
 
-jvallery/agents#5994's campaign step runs each ``tests/test_dashboard_db_*.py``
+The CI campaign step runs each ``tests/test_dashboard_db_*.py``
 file against a fresh loopback PostgreSQL with TimescaleDB and hands it over in
 ``VERDIFY_ISOLATED_TEST_DSN``. Without one the module skips, and a skip fails
 campaign qualification. The migration chain cannot replay there (254 and later

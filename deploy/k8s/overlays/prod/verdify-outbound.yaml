@@ -90,7 +90,7 @@ spec:
         fsGroup: 101
         seccompProfile:
           type: RuntimeDefault
-      # STD-HA-08/STD-HA-16 (D-855): the preferred hostname anti-affinity let both
+      # The preferred hostname anti-affinity let both
       # replicas share node6 (one host, one circuit). Hard hostname spread (4
       # schedulable workers >= 2 replicas, always satisfiable) plus a revision-scoped
       # power-circuit preference, the same pair as verdify-mcp/verdify-traefik.

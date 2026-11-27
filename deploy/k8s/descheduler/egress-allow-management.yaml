@@ -1,4 +1,4 @@
-# network-infra#839 (STD-EXP-03): declared management consumer beside the vendored
+# network-infra#839: declared management consumer beside the vendored
 # egress-deny-management policy. The descheduler lists nodes and pods and posts evictions
 # through kubernetes.default (10.43.0.1:443), which kube-router sees after the DNAT to the
 # control plane on 6443. It has no other client: its policy is a mounted ConfigMap.

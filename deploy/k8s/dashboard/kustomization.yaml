@@ -2,13 +2,13 @@
 #
 # Argo app verdify-dashboard syncs this directory: automated with self-heal, prune off,
 # CreateNamespace=false and ServerSideApply=true. The Application and its AppProject are declared in
-# jvallery/agents#5994; this repository owns what renders here. It never touches verdify-prod or
+# jvallery/estate-platform; this repository owns what renders here. It never touches verdify-prod or
 # the ingestor; the one dashboard line in overlays/prod is the tier-1 exclusion in
 # traefik/verdify-tier1-apps-forward.yaml, which rides the verdify-prod-dark sync.
 #
 # The AppProject admits Namespace verdify-dashboard, Deployment, Service, ServiceAccount, ConfigMap,
-# NetworkPolicy and IngressRoute, and denies Secret. Secret verdify-dashboard-web comes from the
-# jvallery/agents KSOPS Application verdify-dashboard-secrets (jvallery/agents#5993), and
+# NetworkPolicy and IngressRoute, and denies Secret. Secret verdify-dashboard-web comes from
+# secrets/verdify-dashboard in jvallery/estate-platform (Application verdify-dashboard-secrets), and
 # deploy/k8s/SECRETS.md names its keys. tests/test_dashboard_manifests.py checks this render, and
 # docs/runbooks/dashboard.md covers operations.
 apiVersion: kustomize.config.k8s.io/v1beta1

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# GHA validate: the native `validate` step (jvallery/agents WorkflowTemplate
-# verdify-platform-ci, template validate) on the exact checkout. Same image
+# GHA validate: the `validate` step on the exact checkout. Same image
 # (python:3.13-bookworm, the job image of the verdify-platform-ci set), same
 # dependency bootstrap, same gate: scripts/ci-local.sh with CI_BASE_REF set, so
 # the diff gates (rules 6 and 7, firmware replay diff) run. VALIDATE_PART (set

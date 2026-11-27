@@ -1,6 +1,6 @@
 """VD-55 on a private PostgreSQL: the settings, history, alerts and activity reads' acceptance fixtures.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. It builds, in that fresh database's public schema (the
 activity service names public.activity_log), db/schema.sql's own DDL for every table, view and function these
 reads touch, migration 280's desired_state, v_desired_state_current and activity_log, and migration 259's

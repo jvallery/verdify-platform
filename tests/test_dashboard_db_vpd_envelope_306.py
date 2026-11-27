@@ -1,6 +1,6 @@
 """Migration 306 (#1433) on a private PostgreSQL: the SQL mirror of verdify_schemas.vpd_envelope, bit for bit.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The test runs the statements between 306's $predecessor$ and
 $successor$ blocks (the private server has no ledger or runtime receipts), then compares every function with its
 Python twin over representative inputs: rounding ties, the Tetens pair, fits on noisy and exact training sets (with

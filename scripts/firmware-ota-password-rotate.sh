@@ -3,10 +3,10 @@
 #
 # The Secret verdify-prod/verdify-firmware-ota is delivered by Argo app
 # verdify-prod-secrets-local-prod (automated selfHeal, server-side apply) from the
-# KSOPS file platform/gitops/secrets-ksops/verdify-prod/secret-verdify-firmware-ota.enc.yaml
-# in jvallery/agents. A live patch is reverted within seconds: on 2026-11-07 a
+# SOPS file secrets/verdify-prod/secret-verdify-firmware-ota.enc.yaml
+# in jvallery/estate-platform. A live patch is reverted within seconds: on 2026-11-07 a
 # promote was undone 9 s later, leaving the old values and an orphan
-# ota_password_previous key. So a rotation is a change to that KSOPS file, made by
+# ota_password_previous key. So a rotation is a change to that SOPS file, made by
 # a value-blind helper (a sops edit that never prints a value), merged and synced:
 #
 #   stage    add key ota_password_next with the new password. The device still
@@ -44,8 +44,8 @@ set -euo pipefail
 CONTEXT="${KUBE_CONTEXT:-vallery}"
 NS=verdify-prod
 SECRET=verdify-firmware-ota
-KSOPS_REPO=jvallery/agents
-KSOPS_FILE=platform/gitops/secrets-ksops/verdify-prod/secret-verdify-firmware-ota.enc.yaml
+KSOPS_REPO=jvallery/estate-platform
+KSOPS_FILE=secrets/verdify-prod/secret-verdify-firmware-ota.enc.yaml
 ARGO_APP=verdify-prod-secrets-local-prod
 k() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
 

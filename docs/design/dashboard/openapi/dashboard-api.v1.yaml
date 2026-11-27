@@ -6,7 +6,7 @@
 #
 # Status: Draft v2 (2026-11-02, decisions Q-01 to Q-14 applied)
 # Docs: ../README.md · ../product.md · ../screens.md · ../architecture.md · ../irrigation.md ·
-#       ../design-system.md · ../execution-plan.md · dashboard-api.v1.yaml (this file)
+#       ../design-system.md · dashboard-api.v1.yaml (this file)
 openapi: 3.1.0
 info:
   title: Verdify operator dashboard API
@@ -23,7 +23,7 @@ info:
     (R1): new operations land here first, every FastAPI route sets `operation_id` to its id, and a test checks each
     served method, path, operationId and schema against this file (committed operations not yet served are allowed). Docs:
     [README](../README.md) · [product](../product.md) · [screens](../screens.md) · [architecture](../architecture.md) ·
-    [irrigation](../irrigation.md) · [design system](../design-system.md) · [execution plan](../execution-plan.md).
+    [irrigation](../irrigation.md) · [design system](../design-system.md).
 
     | Topic | Rule |
     |---|---|

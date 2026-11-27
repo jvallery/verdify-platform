@@ -1,6 +1,6 @@
 """VD-42 (#1157) on a private PostgreSQL: the compile's read, irrigation_push, the ledger's golden replay and the alerts.
 
-jvallery/agents#5994's campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback PostgreSQL
+The CI campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback PostgreSQL
 and hands it over in ``VERDIFY_ISOLATED_TEST_DSN``; without one this module skips. ``irrigation_db_support`` builds M4,
 the dashboard login (282) and M3 (283); this file adds migration 280's statements (``v_desired_state_current``) and
 stand-ins for what production grants the ingestor login outside these migrations: SELECT on ``system_state``,

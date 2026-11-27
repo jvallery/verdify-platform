@@ -1,4 +1,4 @@
-# Sprint ha-1 / LANE B (#230) — STATELESS MULTI-REPLICA + HARD HOSTNAME SPREAD.
+# #230: STATELESS MULTI-REPLICA + HARD HOSTNAME SPREAD.
 #
 # Why a prod-overlay patch (not a base/component edit): base (api/mcp) renders
 # into retired staging/dev overlays, and the www/lab components were optional, so

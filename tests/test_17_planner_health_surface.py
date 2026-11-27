@@ -1165,8 +1165,7 @@ def test_prod_source_cannot_recreate_retired_hermes_claim():
     assert "verdify-hermes-iris-data-portable-20260801" in pvc_names
     assert "verdify-hermes-iris-data" not in pvc_names
 
-    # Application storage-ignore regression coverage belongs to jvallery/agents
-    # control-plane/agent-fleet-control/scripts/test_render_sync_classification.py with the owned declaration.
+    # The Application's storage ignores are tested where the Application is declared (jvallery/estate-platform).
 
 
 def _schema_max_length(schema: dict[str, object]) -> int:

@@ -133,7 +133,8 @@ def test_write_modes_refuse_an_argo_managed_secret_from_metadata_alone(tmp_path)
         result = run(tmp_path, mode, stdin=f"{NEW}\n{NEW}\n")
         assert result.returncode == 3, (mode, result.stderr)
         assert "refused: Argo manages" in result.stderr and swap in result.stderr
-        assert "platform/gitops/secrets-ksops/verdify-prod/secret-verdify-firmware-ota.enc.yaml" in result.stderr
+        assert "secrets/verdify-prod/secret-verdify-firmware-ota.enc.yaml" in result.stderr
+        assert "jvallery/estate-platform" in result.stderr
         assert "value-blind helper" in result.stderr
         assert "managedFields manager argocd-controller" in result.stderr
         # Only the metadata read ran: no full get, no patch.

@@ -1,6 +1,6 @@
 """API-10, API-11, API-15 and API-16 as the dashboard login on a private TimescaleDB (#1150).
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The database is prepared as tests/test_dashboard_db_282.py
 prepares it (db/schema.sql, the runtime logins, migrations 280 and 282), with fn_mcp_armed_assignment_context() from
 259's own text over the columns it reads. M2b (VD-74, #1233) has not merged, so ``M2B_GRANTS`` stands in for what these

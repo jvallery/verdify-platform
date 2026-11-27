@@ -1,6 +1,6 @@
 """MCP set_setting and API-10 store the same rows on a private TimescaleDB (#1150, #1171).
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The database and the operator API are
 tests/test_dashboard_db_writes.py's. The tool runs through mcp/server.py under the FastMCP stub, as in
 tests/test_dashboard_db_mcp_settings.py, on an owner connection: those two files hold each surface to its production

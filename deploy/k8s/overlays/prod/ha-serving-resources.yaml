@@ -1,4 +1,4 @@
-# HA Sprint ha-1 / Lane A (#226/#227/#229) — strategic-merge patches that add
+# Serving-tier resources (#226/#227/#229): strategic-merge patches that add
 # verdify-serving priorityClass + a CPU LIMIT (burst containment, NOT a tight
 # throttle) to the STATELESS verdify-prod surfaces. PROD-OVERLAY ONLY — staging
 # and dev never reference this file, and base/components are untouched.

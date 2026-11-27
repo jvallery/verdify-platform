@@ -1,4 +1,4 @@
-# network-infra#839 (STD-EXP-03): declared management consumers beside the vendored
+# network-infra#839: declared management consumers beside the vendored
 # egress-deny-management policy (egress-deny-management.yaml). docs/SERVICE_MAP.md lists
 # the Home Assistant consumers: the ingestor (already bounded by
 # allow-ingestor-device-egress, so not selected by the deny) and the setpoint server.

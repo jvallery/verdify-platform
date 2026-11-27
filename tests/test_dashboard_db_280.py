@@ -1,6 +1,6 @@
 """Migration 280 (VD-30) on a private TimescaleDB: grants, the wake and idempotency, as each login.
 
-jvallery/agents#5994's campaign step starts a fresh server for each
+The CI campaign step starts a fresh server for each
 tests/test_dashboard_db_*.py file and sets VERDIFY_ISOLATED_TEST_DSN; without
 it this file skips, and a skip fails campaign qualification. The test loads
 db/schema.sql, creates the ingestor and MCP duties and logins with migration

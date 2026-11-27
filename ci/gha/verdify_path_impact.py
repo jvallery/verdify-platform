@@ -23,7 +23,7 @@ PROFILES = {
     "migrate": "db/Dockerfile.migrate",
     "setpoint-server": "scripts/Dockerfile.setpoint-server",
     "lab-publisher": "scripts/Dockerfile.lab-publisher",
-    # jvallery/agents#5994: the dashboard.verdify.ai web tier. Its Dockerfile copies only
+    # The dashboard.verdify.ai web tier. Its Dockerfile copies only
     # dashboard/ paths, and no Python image copies dashboard/.
     "dashboard-web": "dashboard/Dockerfile",
     # #1113: the derived renderer (upstream image plus Debian's chromium fix). It copies
@@ -86,7 +86,7 @@ DASHBOARD_FIXTURE_INPUTS = (
     "verdify_schemas/vault.py",
     "verdify_schemas/views.py",
 )
-# jvallery/agents#5994: check flags beside the profile flags. They select the PR
+# Check flags beside the profile flags. They select the PR
 # checks that run on the exact checkout, not image builds; every fallback sets both.
 CHECKS = {
     # The dashboard package, its contract and the sources its words table reads.
@@ -106,6 +106,20 @@ CHECKS = {
         ".github/workflows/**",
     ),
 }
+# Carried inputs: files an image copies but never runs. A main push whose only
+# changes to an image are carried inputs publishes no candidate for it, so a
+# documentation or test merge opens no pin pull request; the next build of that
+# image for any other cause ships them, because every build copies the whole
+# checkout. The pull request build-check still builds on them, and a manual
+# dispatch of build.yml publishes them (--include-carried).
+#   docs/**                  the ingestor's site-content corpus, indexed as text.
+#                            docs/planner/** is not carried: it is the planner
+#                            playbook, which changes what the planner is told.
+#   verdify_schemas/tests/** the schema package's tests; no image has pytest.
+# tests/test_gha_build_carried_inputs.py checks both directions on the real
+# Dockerfiles: these changes select nothing, a source change still selects.
+CARRIED_INPUTS = ("docs/**", "verdify_schemas/tests/**")
+CARRIED_EXCEPT = ("docs/planner/**",)
 PIN_PATH = "deploy/k8s/overlays/prod/kustomization.yaml"
 # Light paths (CI audit 2026-11-16): a PR or push whose every changed path is in
 # one of these classes runs only the checks that prove that class; every other
@@ -124,7 +138,8 @@ LIGHT_PIN_PATHS = (
 # site-content playbook root) and the dashboard OpenAPI folder (schema tests, the
 # dashboard build).
 # docs/ as a whole is copied into the ingestor image as the site-content corpus:
-# content, not code, so the PR image build-check still builds the ingestor.
+# content, not code, so the PR image build-check still builds the ingestor, and a
+# main push publishes no ingestor candidate for it (CARRIED_INPUTS).
 LIGHT_DOC_ROOTS = ("docs/", "research/")
 LIGHT_DOC_EXCLUDED = ("docs/planner/", "docs/design/dashboard/openapi/")
 REGULAR_FILE = "100644"
@@ -222,6 +237,13 @@ def matches(path, source):
     # Directory COPY/glob inputs include descendants of each selected directory.
     candidates = [path] + [str(p) for p in PurePosixPath(path).parents if str(p) != "."]
     return any(glob_match(candidate, source) for candidate in candidates)
+
+
+def carried(path):
+    """True for an input an image copies but never runs (CARRIED_INPUTS)."""
+    return any(glob_match(path, pattern) for pattern in CARRIED_INPUTS) and not any(
+        glob_match(path, pattern) for pattern in CARRIED_EXCEPT
+    )
 
 
 def checks_for(paths):
@@ -337,7 +359,9 @@ def light_class(root, base, head, paths):
     return "none"
 
 
-def classify(root, base, head):
+def classify(root, base, head, publish=False):
+    """Classify base..head. publish=True (a main push that publishes candidates)
+    selects an image only when a changed input is more than a carried input."""
     if not SHA.fullmatch(head):
         raise ValueError("source must be exact lowercase SHA")
     if git(root, "rev-parse", "HEAD").decode().strip() != head:
@@ -373,6 +397,7 @@ def classify(root, base, head):
             )
             return result
         selected = {}
+        held = {}
         for name, dockerfile in PROFILES.items():
             causes = set()
             for revision in (base, head):
@@ -390,8 +415,13 @@ def classify(root, base, head):
                         not ignored(path, ignore) and any(matches(path, source) for source in inputs)
                     ):
                         causes.add(path)
+            if publish and causes and all(carried(path) for path in causes):
+                held[name] = len(causes)
+                continue
             if causes:
                 selected[name] = sorted(causes)
+        if held:
+            result["carried"] = held
         result.update(
             mode="build" if selected else "validate",
             profiles=list(selected),
@@ -410,8 +440,8 @@ def classify(root, base, head):
     return result
 
 
-def classify_push(root, base, head):
-    original = classify(root, base, head)
+def classify_push(root, base, head, include_carried=False):
+    original = classify(root, base, head, publish=not include_carried)
     # A genuine candidate publication must never recurse into recovery builds.
     if original["mode"] == "skip" or base != RECOVERY_EVENT_BASE:
         return original
@@ -575,6 +605,11 @@ def main():
     p.add_argument("--head")
     p.add_argument("--output", type=Path)
     p.add_argument("--push", action="store_true")
+    p.add_argument(
+        "--include-carried",
+        action="store_true",
+        help="with --push: also publish images whose only changes are carried inputs",
+    )
     args = p.parse_args()
     if args.workflow:
         print(
@@ -587,7 +622,10 @@ def main():
         return
     if not args.root or not args.head or not args.output:
         p.error("classification requires --root, --head and --output")
-    receipt = (classify_push if args.push else classify)(args.root, args.base, args.head)
+    if args.push:
+        receipt = classify_push(args.root, args.base, args.head, include_carried=args.include_carried)
+    else:
+        receipt = classify(args.root, args.base, args.head)
     # PR validation always runs its gates, including pin-only changes.
     if not args.push and receipt["mode"] == "skip":
         receipt["mode"] = "validate"

@@ -1,6 +1,6 @@
 """Migration 286 (VD-33) on a private TimescaleDB: the lighting policies ignore manual rows.
 
-jvallery/agents#5994's campaign step starts a fresh server for each
+The CI campaign step starts a fresh server for each
 tests/test_dashboard_db_*.py file and sets VERDIFY_ISOLATED_TEST_DSN; without
 it this file skips, and a skip fails campaign qualification. The test loads
 db/schema.sql (whose two lighting policy functions are byte-identical to

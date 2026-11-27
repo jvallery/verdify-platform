@@ -2,7 +2,7 @@
 
 ``tests/test_dashboard_db_irrigation_minutes.py`` (M4) and
 ``tests/test_dashboard_db_irrigation_tables.py`` (M3) use them on the private
-PostgreSQL that jvallery/agents#5994's campaign step starts; the irrigation
+PostgreSQL that the CI campaign step starts; the irrigation
 reads (#1155) reuse the schema subset, the role setup, M3's setup and the
 production-sized generators for their own timing cases.
 

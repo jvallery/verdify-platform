@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# GHA registry steps: two of the five validation steps that came from the native
-# repo-validate profile in the jvallery/agents registry record, one per job.
-# Since #1397 step 5 removed .agent-fleet/ci.yaml and gated the native record,
-# this script is the only source of these commands. The other three
+# GHA registry steps: two validation steps, one per job. This script is the
+# only source of these commands (#1397). The other three
 # (platform-static, platform-tests, firmware-logic) duplicated the validate parts;
 # since the CI audit (C2, #1716) their contexts aggregate the validate parts.
 #
@@ -29,7 +27,7 @@ case "$step" in
     export CI_TEST_REPORT="${CI_TEST_REPORT:-$HOME/ci-test-report.json}"
     # The tool's default qualification selection (never the campaign job's
     # dashboard-db one), optionally one CAMPAIGN_SHARD=i/n of it: the workflow's
-    # campaign-qualification-shard matrix (#1535, STD-CI-03) runs every n-th file
+    # campaign-qualification-shard matrix (#1535) runs every n-th file
     # from i, so the n shards together run every file exactly once.
     unset VERDIFY_CAMPAIGN_SELECT
     export PYTHONPATH="$PWD" && uv sync --python 3.12 --extra dev --extra api --extra planner && uv pip install --python .venv/bin/python -r ingestor/requirements-image.txt && python3 ci/gha/campaign_shard.py /usr/local/bin/verdify-campaign-ci

@@ -1,6 +1,6 @@
 """The Next screens' reads and the grow-light row as the dashboard login (VD-57, #1170), on a private database.
 
-jvallery/agents#5994's campaign step runs each tests/test_dashboard_db_*.py file against a fresh loopback PostgreSQL with
+The CI campaign step runs each tests/test_dashboard_db_*.py file against a fresh loopback PostgreSQL with
 TimescaleDB and hands it over in VERDIFY_ISOLATED_TEST_DSN; without one this file skips. test_dashboard_db_284's
 ``install`` builds the database and runs migration 284's body, so every read below runs as
 ``verdify_dashboard_runtime_login`` under exactly M2's grants, and a grant these reads need and M2 lacks fails here.

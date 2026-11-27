@@ -1,6 +1,6 @@
 """The MCP set_setting, settings, activity and alerts tools on a private PostgreSQL (VD-58, #1171).
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. As tests/test_dashboard_db_settings_reads.py does, it builds in
 that fresh database db/schema.sql's own DDL for the tables, views, keys and triggers these tools touch and migration
 280's desired_state and activity_log. The tools run through mcp/server.py under the FastMCP stub, on connections holding

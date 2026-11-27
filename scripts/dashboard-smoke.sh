@@ -1268,11 +1268,11 @@ run_parity() {
 run_agent_leg() {
   local secret_names image conditions started_at logs line writing=0 waited=0 ended=0
   if ! secret_names="$(kubectl -n verdify-prod describe secret verdify-mcp-agents 2>/dev/null)"; then
-    fail "agent key: Secret verdify-prod/verdify-mcp-agents is absent or unreadable, so no Job ran and nothing was written (jvallery/agents#6017)"
+    fail "agent key: Secret verdify-prod/verdify-mcp-agents is absent or unreadable, so no Job ran and nothing was written (it is delivered from secrets/verdify-prod in jvallery/estate-platform)"
     return
   fi
   if ! awk -v key="${AGENT}:" 'seen && $1 == key { found = 1 } /^====/ { seen = 1 } END { exit !found }' <<< "${secret_names}"; then
-    fail "agent key: Secret verdify-prod/verdify-mcp-agents has no key ${AGENT}, so no Job ran and nothing was written: Jason seals it in jvallery/agents (#6017)"
+    fail "agent key: Secret verdify-prod/verdify-mcp-agents has no key ${AGENT}, so no Job ran and nothing was written: add the key to secrets/verdify-prod in jvallery/estate-platform"
     return
   fi
   pass "agent key ${AGENT} is in Secret verdify-prod/verdify-mcp-agents"

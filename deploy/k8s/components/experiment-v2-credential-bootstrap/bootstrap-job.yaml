@@ -32,6 +32,36 @@ spec:
         runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+          # A new pod's first connection can go unanswered for a few seconds, until the
+          # network path that admits it is programmed. backoffLimit is 0, so that one
+          # miss would fail the whole sync. Wait here until the database answers; this
+          # container holds no credential.
+        - name: wait-for-db
+          image: ghcr.io/verdifyconsultancy/verdify-migrate
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              attempt=0
+              until pg_isready -q -t 3 -h "${DB_HOST}" -p "${DB_PORT}"; do
+                attempt=$((attempt + 1))
+                [ "${attempt}" -lt 20 ] || { echo "[wait-for-db] the database did not answer" >&2; exit 1; }
+                sleep 2
+              done
+          env:
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef: {name: verdify-config, key: DB_HOST}
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef: {name: verdify-config, key: DB_PORT}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: "25m", memory: "32Mi"}
+            limits: {cpu: "250m", memory: "128Mi"}
       containers:
         - name: bootstrap-and-attest
           # Logical transformer key. Production pins this to the same exact Zot

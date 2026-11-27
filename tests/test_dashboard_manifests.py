@@ -26,7 +26,7 @@ WEB_LABELS = {
     "app.kubernetes.io/part-of": "verdify",
 }
 TRAEFIK_APPS = {"app.kubernetes.io/name": "traefik", "app.kubernetes.io/instance": "traefik-apps-traefik-apps"}
-# What jvallery/agents#5994's AppProject verdify-dashboard admits; it denies Secret.
+# What the AppProject verdify-dashboard admits; it denies Secret.
 APPPROJECT_KINDS = {
     ("v1", "Namespace"),
     ("apps/v1", "Deployment"),

@@ -1311,8 +1311,8 @@ def test_deployed_cache_layout_is_unique_restricted_and_preserves_time_budget():
         assert "nodeSelector" not in pod_spec
         assert not pod_spec.get("tolerations")
 
-    # The central owner tests Application storage ignores in jvallery/agents
-    # control-plane/agent-fleet-control/scripts/test_render_sync_classification.py; product PVC shape stays here.
+    # The Application's storage ignores are tested where the Application is declared (jvallery/estate-platform);
+    # the product PVC shape stays here.
     cache_pvc = _resource(publisher_docs, "PersistentVolumeClaim", "verdify-lab-site-cache")
     assert cache_pvc["spec"]["accessModes"] == ["ReadWriteOnce"]
     assert [item["name"] for item in publisher_spec["initContainers"]] == ["prepare-private-work-root"]

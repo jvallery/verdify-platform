@@ -1,7 +1,6 @@
 """ci/validate.Dockerfile contract: the validate CI image with PostgreSQL 16 preinstalled.
 
-jvallery/agents pins this image in WorkflowTemplate agent-fleet-ci/verdify-platform-ci, template ``validate``,
-which runs scripts/ci-local.sh. It is the python image that template ran before, plus the PGDG PostgreSQL 16
+It is the python image the validate jobs run scripts/ci-local.sh in, plus the PGDG PostgreSQL 16
 toolchain. With the toolchain installed, ``postgres_bin()`` in scripts/qualify-component-containment.py no longer
 downloads it on every run. Kaniko reads ci/validate.Dockerfile.dockerignore in place of the root .dockerignore,
 so the ignore file must admit exactly the Dockerfile's COPY inputs.

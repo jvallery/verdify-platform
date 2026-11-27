@@ -2,9 +2,8 @@
 # verdify-ci-validate: the in-cluster validate step's image, with PostgreSQL 16
 # preinstalled.
 #
-# Pinned by jvallery/agents, not here: WorkflowTemplate
-# agent-fleet-ci/verdify-platform-ci, template `validate`, runs
-# scripts/ci-local.sh in this image once the coordinator pins its digest there.
+# No workflow builds or runs it today: the validate jobs in ci.yml run
+# scripts/ci-local.sh in python:3.13-bookworm.
 # Why: postgres_bin() in scripts/qualify-component-containment.py uses an
 # installed /usr/lib/postgresql/16 toolchain when one is present. Otherwise it
 # downloads and unpacks the PGDG packages on every validate run, which takes

@@ -1,6 +1,6 @@
 """VD-64 (#1177) on a private PostgreSQL: run and stop as the dashboard and MCP logins, and the ingestor's updates.
 
-jvallery/agents#5994's campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback
+The CI campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback
 PostgreSQL with TimescaleDB and hands it over in ``VERDIFY_ISOLATED_TEST_DSN``; without one this module skips.
 ``irrigation_db_support.prepare_irrigation_tables`` builds M4, the dashboard login (282) and M3 (283) as
 #1153's test does. This file adds migration 280's statements (``activity_log``, verbatim), the two tables of

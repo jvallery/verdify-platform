@@ -15,7 +15,7 @@
 #
 # Identity: the owner DB login (verdify-app-secrets), because it writes a table no
 # runtime role may write and reads the five source tables; the embed.main-only Cortex
-# key (verdify-embedding-cortex, key api_key.txt; KSOPS adoption jvallery/agents#6079).
+# key (verdify-embedding-cortex, key api_key.txt; delivered from secrets/verdify-prod in jvallery/estate-platform).
 # Egress: DNS, verdify-db:5432 and traefik-apps (cortex.vallery.net: VIP 192.168.7.10:443, DNAT'd
 # to the traefik pods' websecure 8443)
 # only; it is excluded from egress-deny-management in overlays/prod.

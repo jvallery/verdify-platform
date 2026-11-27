@@ -4,7 +4,7 @@ The suspended `verdify-firmware-builder` compiles and archives one exact Git
 revision. It cannot reach the controller. Its build initContainer has the
 existing compile-time Wi-Fi/API/OTA settings, but no signing key. A separate
 cosign container signs the archived `release.json`; only that container mounts
-`verdify-firmware-signing`, whose encrypted custody belongs to agents KSOPS.
+`verdify-firmware-signing`, whose encrypted file is in `secrets/verdify-prod` in jvallery/estate-platform.
 The public key is pinned in this product's `cosign.pub` ConfigMap input.
 
 The independent suspended `verdify-firmware-flasher` has no Git, Wi-Fi, API or
@@ -273,9 +273,9 @@ A rotation rides an ordinary release: the candidate is built with a new OTA
 password while the flash authenticates with the one the controller runs. Secret
 `verdify-prod/verdify-firmware-ota` carries the keys. Argo app
 `verdify-prod-secrets-local-prod` delivers it (automated selfHeal, server-side
-apply) from the KSOPS file
-`platform/gitops/secrets-ksops/verdify-prod/secret-verdify-firmware-ota.enc.yaml`
-in `jvallery/agents`, so every key change is a change to that file: a live patch
+apply) from the SOPS file
+`secrets/verdify-prod/secret-verdify-firmware-ota.enc.yaml`
+in `jvallery/estate-platform`, so every key change is a change to that file: a live patch
 is reverted within seconds. On 2026-11-07 a live `promote` was undone 9 s later,
 leaving the pre-promote values and an orphan `ota_password_previous` key. A
 value-blind helper does each sops edit (no value printed, logged or committed in

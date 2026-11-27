@@ -26,7 +26,7 @@ metadata:
     app.kubernetes.io/component: edge-traefik
 spec:
   replicas: 2
-  # Sprint ha-1 (#230): zero-downtime rollout — never drop a ready edge replica
+  # #230: zero-downtime rollout — never drop a ready edge replica
   # below the running count during a rollout (the default 25% maxUnavailable
   # could briefly take the 2-replica tier to 1).
   strategy:
@@ -110,7 +110,7 @@ spec:
             - "--entryPoints.verdify-tunnel.asDefault=false"
             - "--entryPoints.traefik.address=:8080/tcp"
             # #1540: request metrics on a dedicated in-cluster entryPoint, scraped by
-            # the monitoring-stack job verdify-traefik (STD-OBS-26: no prometheus.io
+            # the monitoring-stack job verdify-traefik (no prometheus.io
             # annotation). NetworkPolicy allow-verdify-traefik-metrics-scrape admits
             # only the observability namespace to :9100; no route attaches here.
             - "--entryPoints.metrics.address=:9100/tcp"
@@ -183,7 +183,7 @@ spec:
               cpu: 50m
               memory: 64Mi
             limits:
-              # HA ha-1 / Lane A (#226/#227): cap pathological burst on the
+              # #226/#227: cap pathological burst on the
               # tier-2 proxy. 1 core is ~500x steady (~2m) and far above any
               # realistic tier-2 load, so CFS throttling never engages in
               # practice (the design doc's keepalive concern is about TIGHT caps
