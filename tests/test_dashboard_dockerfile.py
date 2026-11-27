@@ -16,8 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = REPO_ROOT / "dashboard"
 DOCKERFILE = DASHBOARD / "Dockerfile"
 NODE_BASE = (
-    "docker.io/library/node:24.22.1-trixie-slim"
-    "@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a"
+    "docker.io/library/node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a"
 )
 DIGEST_PINNED = re.compile(r"@sha256:[0-9a-f]{64}$")
 SOURCE_REVISION_COPY = "COPY --from=source-metadata /out/source-revision /etc/verdify/source-revision"
