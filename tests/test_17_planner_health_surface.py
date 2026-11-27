@@ -26,7 +26,7 @@ _MCP_STUB_MODULES = ("mcp", "mcp.server", "mcp.server.fastmcp")
 ACTIVE_PLANNER_MODEL_LABEL = "hermes-iris/custom:gpt-6-luna/xhigh"
 
 
-# #1458 (D-880): the zot custody copy of official upstream hermes-agent v0.23.4
+# #1458: the zot custody copy of official upstream hermes-agent v0.23.4
 # (amd64 manifest of index ef0650d5), no derived re-base.
 HERMES_IMAGE = (
     "registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent"

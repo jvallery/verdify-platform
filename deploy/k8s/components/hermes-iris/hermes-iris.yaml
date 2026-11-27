@@ -10,7 +10,7 @@
 # IMAGE DIGEST PRESERVED (NOT transformer-rewritten): the image is the official
 # upstream nousresearch/hermes-agent v0.23.4 (amd64 3bc37fd8 of index ef0650d5),
 # zot custody copy jvallery/mirror-docker-io-nousresearch-hermes-agent
-# (D-880: latest upstream, no derived re-base, #1458; D-889 newest release).
+# (storage-infra#2552; latest upstream, no derived re-base, #1458).
 # Rollback: v0.23.3 (amd64 41468459 of index 3e9fe4c6)
 # jvallery/mirror-docker-io-nousresearch-hermes-agent@sha256:41468459379a943cf0a25a55589e230d244bd9f95b83cff5eca789470c892fac
 # (an exact sync of this Deployment). It is NOT a ghcr.io/verdifyconsultancy/* app image, so the overlay
