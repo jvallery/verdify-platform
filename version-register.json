@@ -167,18 +167,18 @@
     {
       "component": "verdify-grafana-image-renderer",
       "kind": "service",
-      "notes": "First-party rebuild of grafana/grafana-image-renderer v5.12.10.",
+      "notes": "Official upstream grafana/grafana-image-renderer, linux/amd64 child of the release index, from the zot custody copy jvallery/mirror-docker-io-grafana-grafana-image-renderer (no derived re-base).",
       "installed": {
-        "version": "v5.12.10",
-        "digest": "sha256:c297463ecad53cc67a6058791cab010bde83d45b9fc9069ea34156fedd69b2d9",
-        "image": "registry.vallery.net/verdifyconsultancy/verdify-grafana-image-renderer",
-        "source": "deploy/k8s/components/grafana/grafana.yaml (verdify-grafana pod); built from grafana/Dockerfile.image-renderer",
-        "read_at": "2026-11-18"
+        "version": "v5.12.12",
+        "digest": "sha256:ec64fccb9c4d30da782d63abc94714df02ae03637ab73a8eec7c7ff56229cd0c",
+        "image": "registry.vallery.net/jvallery/mirror-docker-io-grafana-grafana-image-renderer",
+        "source": "deploy/k8s/components/grafana/grafana.yaml (verdify-grafana pod, container renderer; hand-pinned)",
+        "read_at": "2026-11-27"
       },
       "upstream": {
         "project": "https://github.com/grafana/grafana-image-renderer/releases",
-        "latest": "v5.12.11",
-        "checked": "2026-11-18"
+        "latest": "v5.12.12",
+        "checked": "2026-11-27"
       },
       "support": {
         "policy": "rolling",
@@ -188,18 +188,18 @@
     {
       "component": "verdify-hermes-agent",
       "kind": "service",
-      "notes": "Upstream base is nousresearch/hermes-agent@sha256:a7111ab1cc43b5a1bc76090a505d6462aa1af4b43f603f0113bf5eb121aec72e, which upstream never tagged, so the installed release number cannot be read from the repo. Moving to a newer release changes planner behaviour (Dockerfile comment).",
+      "notes": "Official upstream nousresearch/hermes-agent, linux/amd64 child of the release index, from the zot custody copy jvallery/mirror-docker-io-nousresearch-hermes-agent (no derived re-base). A newer release can change planner behaviour; read the release notes before bumping.",
       "installed": {
-        "version": "untagged upstream digest a7111ab1cc43 plus Debian trixie security updates",
-        "digest": "sha256:1fa1f16e8e3463452b390ad6d16b41bc673c41921eb0c37bdb4e8d0ffd5f40a8",
-        "image": "registry.vallery.net/verdifyconsultancy/verdify-hermes-agent",
-        "source": "deploy/k8s/components/hermes-iris/hermes-iris.yaml (hand-edited digest); built from hermes/Dockerfile.hermes-agent",
-        "read_at": "2026-11-18"
+        "version": "v0.23.4",
+        "digest": "sha256:3bc37fd8546e90fc41fe0d29511b4052840c281617cbcec6093bfe03d86a4ad9",
+        "image": "registry.vallery.net/jvallery/mirror-docker-io-nousresearch-hermes-agent",
+        "source": "deploy/k8s/components/hermes-iris/hermes-iris.yaml (hand-pinned; container hermes-iris and initContainer seed-config)",
+        "read_at": "2026-11-27"
       },
       "upstream": {
         "project": "https://github.com/NousResearch/hermes-agent/releases",
-        "latest": "v0.23.2",
-        "checked": "2026-11-18"
+        "latest": "v0.23.4",
+        "checked": "2026-11-27"
       },
       "support": {
         "policy": "rolling",
