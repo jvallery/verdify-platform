@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# GHA path-impact: run the native classifier on the exact checkout.
+# GHA path-impact: run the classifier on the exact checkout.
 #
 #   ci/gha/path-impact.sh          PR/dispatch classification (check flags)
-#   ci/gha/path-impact.sh --push   main-push classification (build profiles, pin-only skip)
+#   ci/gha/path-impact.sh --push   main-push classification (build profiles, pin-only skip;
+#                                  carried inputs alone publish nothing)
+#   ci/gha/path-impact.sh --push --include-carried   the same for a manual dispatch,
+#                                  which also publishes carried inputs
 #
 # ci.yml (CI audit C1, #1716): every run logs VERDIFY_TESTED_TREE=<tree of the
 # checkout>. With VERDIFY_VERIFY_ON_PR=true on a push to main, a full-class commit
@@ -11,9 +14,7 @@
 # campaign shard, firmware compile or dashboard check runs again. A scheduled run
 # (one per night) has no base, so it is always full.
 #
-# ci/gha/verdify_path_impact.py started as a copy of the native pipeline's
-# impact.py (jvallery/agents 2f2ea19bad7c436aa6bc5460d9ecc9b1cb845a57). The native
-# pipeline is retired (#1397), so this repository's copy is the only one.
+# ci/gha/verdify_path_impact.py is the only classifier (#1397).
 #
 # Prints VERDIFY_PATH_IMPACT=<receipt>. When GITHUB_OUTPUT is set, appends mode,
 # every profile flag, every check flag and the light-path outputs (light,

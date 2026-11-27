@@ -1,6 +1,6 @@
 """Migration 305 (#1365) on a private TimescaleDB: the nightly dry-out flag in the 290 rollup.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The test builds 290 as test_dashboard_db_band_compliance does
 (db/schema.sql, the matview-refresh duty, 290's body), writes two nights of 20 s house readings with band_house_*
 audit rows every 300 s, stores both days with 290's store, then runs the statements between 305's $predecessor$ and

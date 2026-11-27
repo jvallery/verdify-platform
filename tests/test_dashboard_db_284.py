@@ -1,6 +1,6 @@
 """Migration 284 (VD-74, M2b) on a private database: the dashboard login's reads and writes on existing objects.
 
-jvallery/agents#5994's campaign step runs each tests/test_dashboard_db_*.py file against a fresh loopback
+The CI campaign step runs each tests/test_dashboard_db_*.py file against a fresh loopback
 PostgreSQL with TimescaleDB and hands it over in VERDIFY_ISOLATED_TEST_DSN. Without one the module skips, and
 a skip fails campaign qualification. The migration chain cannot replay there (254 and later check production
 digest literals), so irrigation_db_support.prepare_irrigation_tables creates the roles and runs the bodies of

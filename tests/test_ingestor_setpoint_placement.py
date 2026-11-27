@@ -4,7 +4,7 @@ import subprocess
 
 import yaml
 
-# The ingestor is pinned to node4/node5 by hostname, not by node class (D-127):
+# The ingestor is pinned to node4/node5 by hostname, not by node class:
 # its ESP32/Shelly egress source set is the node4/node5 SNAT addresses (staged
 # gateway rule GAP #11). The setpoint
 # server's only off-cluster peer is Home Assistant on the services VLAN, so it

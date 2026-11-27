@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 /**
  * The guard in front of the browser suite (weather's web/e2e/verify-browser-tools.mjs): `pnpm test:browser` runs it
- * first, so the suite runs only on the in-cluster dashboard step's image (jvallery/agents#5994), never on the Mac.
+ * first, so the suite runs only on the in-cluster dashboard step's image, never on the Mac.
  * Weather's copy also checks WEATHER_CI_IN_CLUSTER; this one does not, because the Playwright config, not the CI step,
  * sets DASHBOARD_CI_IN_CLUSTER for the three servers.
  */

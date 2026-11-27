@@ -1,6 +1,6 @@
 """Migration 290 (#1358) on a private TimescaleDB: time in band graded against the band the controller served.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The test loads db/schema.sql, creates the matview-refresh duty
 and login with migration 276's shape, then runs the statements between 290's $predecessor$ and $successor$ blocks
 (those compare production digest literals; the rolled-back native qualification proves them). It writes one

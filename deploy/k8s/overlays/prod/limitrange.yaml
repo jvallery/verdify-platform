@@ -1,4 +1,4 @@
-# HA Sprint ha-1 / Lane A (#226) — conservative namespace LimitRange for
+# #226: a conservative namespace LimitRange for
 # verdify-prod so FUTURE pods are not created completely unbounded.
 #
 # SAFETY DESIGN (why this cannot break or throttle an existing pod):

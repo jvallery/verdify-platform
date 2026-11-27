@@ -1,6 +1,6 @@
 """The irrigation reads (VD-40, #1155) on a private PostgreSQL, read as the dashboard and the MCP logins.
 
-jvallery/agents#5994's campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback
+The CI campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback
 PostgreSQL with TimescaleDB and hands it over in ``VERDIFY_ISOLATED_TEST_DSN``. Without one the module skips, and a
 skip fails campaign qualification. ``irrigation_db_support.prepare_irrigation_tables`` loads what M4 and M3 read and
 their bodies; this file adds what the reads also touch from ``db/schema.sql`` and M1's body. The MCP login gets only

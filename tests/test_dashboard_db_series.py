@@ -1,7 +1,7 @@
 """Graph reads on a production-sized fixture (VD-56): API-04 to API-06 and v_daily_scorecard.
 
-Runs in the in-cluster campaign step on a private TimescaleDB (``VERDIFY_ISOLATED_TEST_DSN``,
-jvallery/agents#5994), never on the Mac. It loads ``db/schema.sql``, runs migration 290's body
+Runs in the in-cluster campaign step on a private TimescaleDB (``VERDIFY_ISOLATED_TEST_DSN``),
+never on the Mac. It loads ``db/schema.sql``, runs migration 290's body
 (daily_band_compliance and the scorecard view that reads it) from the migration's own text,
 then writes 31 days of climate and diagnostics at 60 s, equipment rows, band rows, a recorded
 outage, 30 scorecard days with their time in band and a week of daily summaries 380 days back.

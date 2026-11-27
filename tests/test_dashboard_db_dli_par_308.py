@@ -1,6 +1,6 @@
 """Migration 308 (#1184) on a private TimescaleDB: interior DLI from canopy PPFD.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The chain after db/schema.sql cannot replay here, so the test
 loads db/schema.sql (195's ledger and views), creates the dashboard duty and login with 282's attributes, adds 307's
 climate column from that migration's own text, and runs the statements between 308's $predecessor$ and $successor$

@@ -1,7 +1,7 @@
 """#1327 and #1328 on a private PostgreSQL: the planting writes as the dashboard login (the service) and as the MCP
 login (the tools).
 
-jvallery/agents#5994's campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback PostgreSQL
+The CI campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback PostgreSQL
 and hands it over in ``VERDIFY_ISOLATED_TEST_DSN``; without one this module skips. The database starts from
 tests/test_dashboard_db_irrigation_writes.py's (M4, 282's dashboard login, 283's lines, 280's activity log and its
 stand-in grants). This file adds the crop tables and their triggers from db/schema.sql, 255's assignment-revision

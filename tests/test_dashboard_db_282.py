@@ -1,6 +1,6 @@
 """Migration 282 (VD-66) on a private TimescaleDB: the dashboard login, its guardrails and sessions.
 
-jvallery/agents#5994's campaign step starts a fresh server for each
+The CI campaign step starts a fresh server for each
 tests/test_dashboard_db_*.py file and sets VERDIFY_ISOLATED_TEST_DSN; without
 it this file skips, and a skip fails campaign qualification. The test loads
 db/schema.sql, creates the ingestor and MCP duties as test_dashboard_db_280

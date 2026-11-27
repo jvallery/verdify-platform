@@ -2,9 +2,9 @@
 #
 # The in-ingestor alert engine self-silences when the writer dies — proven
 # twice (2026-06-17 storage incident ~1h dark; 2026-07-11 DB/Longhorn outage
-# 7h09m dark, zero alerts). docs/handoff/monitoring-writer-absent-alert.md
-# asked monitoring-stack for a PrometheusRule on 2026-06-17 and it was never
-# delivered; this CronJob closes the gap from INSIDE this repo's lane, fully
+# 7h09m dark, zero alerts). A PrometheusRule asked of monitoring-stack on
+# 2026-06-17 was never delivered; this CronJob closes the gap from inside this
+# repository, fully
 # independent of the ingestor process:
 #
 #   * writer presence — age of the coordination.k8s.io Lease

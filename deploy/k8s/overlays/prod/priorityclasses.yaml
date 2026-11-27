@@ -1,4 +1,4 @@
-# HA Sprint ha-1 / Lane A (#229) — 4-tier PriorityClasses for the verdify stack.
+# #229: 4-tier PriorityClasses for the verdify stack.
 #
 # All four are BELOW system-cluster-critical (2000000000) and
 # system-node-critical (2000001000) so kubelet/CNI/CSI/coredns are NEVER

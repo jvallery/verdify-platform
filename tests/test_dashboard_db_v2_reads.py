@@ -1,6 +1,6 @@
 """Release A's dashboard reads as the dashboard login, on a private database.
 
-jvallery/agents#5994's campaign step runs each tests/test_dashboard_db_*.py file against a fresh loopback PostgreSQL with
+The CI campaign step runs each tests/test_dashboard_db_*.py file against a fresh loopback PostgreSQL with
 TimescaleDB and hands it over in VERDIFY_ISOLATED_TEST_DSN; without one this file skips. test_dashboard_db_284's
 ``install`` builds the database, adds the diagnostics columns of 314 and 315 and runs migration 284's body. As the
 owner, this file then adds what the new reads name, each from its own migration: daily_band_compliance (290, 305 and

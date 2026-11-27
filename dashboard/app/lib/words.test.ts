@@ -2,7 +2,7 @@
 // The one words table is complete: every code the OpenAPI file, the alert schema, the activity schema and the
 // controller's published reasons define has words, so a PR that adds a ProblemCode, a StateReason or line-state code,
 // an alert type or category, an activity action or a law, record, review or system enum value fails here until it adds
-// them. Each alert type has a title and one sentence. jvallery/agents#5994's dashboard step runs this file when any of
+// them. Each alert type has a title and one sentence. The CI dashboard step runs this file when any of
 // those sources change.
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";

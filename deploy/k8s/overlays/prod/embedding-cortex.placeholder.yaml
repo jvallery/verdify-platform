@@ -2,7 +2,7 @@
 # config.kubernetes.io/local-config ANNOTATION keeps it out of `kustomize build`, so
 # overlays/prod renders zero Secrets (see secrets.placeholder.yaml for the invariant).
 # The real verdify-embedding-cortex Secret (key api_key.txt: a Cortex identity limited
-# to embed.main) is live in verdify-prod; its KSOPS adoption is jvallery/agents#6079.
+# to embed.main) is delivered from secrets/verdify-prod in jvallery/estate-platform.
 apiVersion: v1
 kind: Secret
 metadata:

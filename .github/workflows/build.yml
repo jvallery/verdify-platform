@@ -1,7 +1,7 @@
 # verdify-platform image builds and the digest pin PR on the estate's ARC
-# runners (#1397). This workflow is the only image build and pin path: the native
-# in-cluster pipeline is retired, and the repository variable VERDIFY_GHA_BUILD
-# (true since 2026-11-06) gates the push trigger and the pin job. A manual
+# runners (#1397). This workflow is the only image build and pin path. The
+# repository variable VERDIFY_GHA_BUILD (true since 2026-11-06) gates the push
+# trigger and the pin job. A manual
 # dispatch from main builds the impacted images and pushes them by digest
 # (tag gha-<sha12>); it opens a pin PR only while VERDIFY_GHA_BUILD is true.
 #
@@ -9,7 +9,13 @@
 # Dockerfile inputs changed since the last main commit whose push build
 # succeeded (#1534), so the changes of a build GitHub displaced while it was
 # pending, or of a build that failed, are built by the next one; a digest-only
-# pin push builds nothing. The dispatch input `base` overrides the base.
+# pin push builds nothing. A push whose only changes to an image are carried
+# inputs (files it copies but never runs: the docs/ corpus of the ingestor, the
+# schema package's tests) builds nothing either, so a documentation or test
+# merge opens no pin PR; the next build of that image ships them. To publish
+# them on their own, dispatch this workflow with `base` set to a commit before
+# the change: a dispatch counts carried inputs. The dispatch input `base`
+# overrides the base.
 # Builds run on verdify-platform-build (Kaniko sidecar plus the repository's zot
 # writer; default-branch push/dispatch only). PRs build the same images without
 # push on verdify-platform-buildcheck (ci.yml, "ci / buildcheck").
@@ -75,7 +81,12 @@ jobs:
           VERDIFY_IMPACT_BASE: ${{ github.event_name == 'workflow_dispatch' && inputs.base || '' }}
           VERDIFY_BASE_LAST_BUILT: "true"
           GITHUB_TOKEN: ${{ github.token }}
-        run: ci/gha/path-impact.sh --push
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = workflow_dispatch ]; then
+            ci/gha/path-impact.sh --push --include-carried
+          else
+            ci/gha/path-impact.sh --push
+          fi
 
   api:
     needs: [impact]
@@ -188,7 +199,7 @@ jobs:
 
   pin:
     needs: [impact, api, mcp, ingestor, migrate, setpoint-server, lab-publisher, dashboard-web]
-    # Native pin-digests pins whatever built; a failed build leaves its line empty.
+    # The pin job pins whatever built; a failed build leaves its line empty.
     if: ${{ !cancelled() && vars.VERDIFY_GHA_BUILD == 'true' && needs.impact.outputs.mode == 'build' }}
     permissions:
       contents: write

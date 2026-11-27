@@ -3,7 +3,7 @@
 # Every job is the estate-ci reusable checks workflow (checkout + one repository
 # script) on a jvallery/verdify-platform scale set; the scripts in ci/gha/ are
 # the only copy of these checks (the native in-cluster pipeline is retired).
-# Required and advisory contexts, and STD-CI-03 exceptions: docs/ci/ci-contexts.md.
+# Required and advisory contexts, and their exceptions: docs/ci/ci-contexts.md.
 # Every caller job is named "ci", so each check context is "ci / <check>" (for
 # example "ci / validate"). No required context is skipped by an `if:` (a skipped
 # reusable-workflow caller reports no "ci / <check>" context and would block the
@@ -58,7 +58,7 @@ permissions:
   contents: read
 
 # One group per PR (a new push supersedes the PR's older run) and one group per
-# commit on main (#1535, STD-CI-03). cancel-in-progress: false alone does not
+# commit on main (#1535). cancel-in-progress: false alone does not
 # protect main: GitHub keeps one pending run per group and replaces it with the
 # next one, so a shared main group left most main commits with no CI run.
 concurrency:
@@ -171,7 +171,7 @@ jobs:
 
   # campaign-qualification runs the tool's default selection (38 files, among them
   # every tests/test_dashboard_db_*.py, about 40 min serially) as four parallel
-  # shards (CAMPAIGN_SHARD, #1535, STD-CI-03). Two required contexts aggregate the
+  # shards (CAMPAIGN_SHARD, #1535). Two required contexts aggregate the
   # same shards: "ci / campaign-qualification" and "ci / campaign" (the old campaign
   # job ran the dashboard-db subset of this selection a second time; CI audit
   # 2026-11-16). A light (docs or pins) change runs no shard.
@@ -215,7 +215,7 @@ jobs:
       timeout-minutes: 5
 
   # The two firmware targets compile as two parallel shards on the baked
-  # verdify-esphome-ci image (FIRMWARE_TARGET, #1535, STD-CI-03); the greenhouse
+  # verdify-esphome-ci image (FIRMWARE_TARGET, #1535); the greenhouse
   # shard also runs the generated-cpp negative. "ci / firmware-secretless-compile"
   # is the aggregate. Only a change to the firmware tree or the CI plumbing
   # (path impact firmware-check) compiles.
@@ -272,7 +272,7 @@ jobs:
       runner: verdify-platform-ci-gate
       timeout-minutes: 5
 
-  # PR image build-check (#1534, STD-CI-12): every image whose Dockerfile inputs
+  # PR image build-check (#1534): every image whose Dockerfile inputs
   # the PR changes is built without push on verdify-platform-buildcheck (Kaniko,
   # no registry write credential), so a broken Dockerfile fails before merge.
   # Off until the repository variable VERDIFY_BUILDCHECK is "true", which is set

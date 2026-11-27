@@ -1,6 +1,6 @@
 """VD-60 (#1173) on a private PostgreSQL: section 11 as the ingestor login, against the MCP tools as the MCP login.
 
-jvallery/agents#5994's campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback PostgreSQL
+The CI campaign step runs each ``tests/test_dashboard_db_*.py`` file against a fresh loopback PostgreSQL
 and hands it over in ``VERDIFY_ISOLATED_TEST_DSN``; without one this module skips. The database and its fixture rows are
 tests/test_dashboard_db_irrigation_reads.py's. The ingestor login gets M3's and M4's grants from their bodies and the
 three relations below from 217's gather read inventory (checked), so a missing M3 grant fails here.

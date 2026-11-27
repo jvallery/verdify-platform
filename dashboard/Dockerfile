@@ -7,7 +7,7 @@
 #   docker build -f dashboard/Dockerfile --build-arg GIT_SHA=<40-hex commit> .
 # The image builds in-cluster (Kaniko through repo-build), like the other Verdify images.
 #
-# Path impact (verdify_path_impact.py in jvallery/agents) reads the COPY lines as data. Keep every COPY plain or
+# Path impact (ci/gha/verdify_path_impact.py) reads the COPY lines as data. Keep every COPY plain or
 # COPY --from=: ADD, any other flag, a dollar sign or a backslash in a COPY rebuilds every image.
 # tests/test_dashboard_dockerfile.py enforces this.
 

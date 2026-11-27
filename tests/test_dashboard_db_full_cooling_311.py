@@ -1,6 +1,6 @@
 """Migration 311 (#1667) on a private TimescaleDB: capacity-limited heat beside the grade, and the scorecard.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The test builds 290 and 305 as
 test_dashboard_db_band_dryout_305 does, writes one day (2026-11-04, 07:00Z to 07:00Z) at 80 F against a 60-70 F
 band, so every 5-minute bucket is above the band, stores it with 305's store, then runs the statements between

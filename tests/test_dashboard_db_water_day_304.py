@@ -1,6 +1,6 @@
 """Migration 304 (#1283) on a private TimescaleDB: a water day ends at the next America/Denver midnight.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The test loads db/schema.sql, whose v_water_meter_daily is the
 view 304 replaces, writes 5-minute meter samples for four local days and reads them in a UTC session, as production
 runs: first through the old view, to show the defect, then through the statements between 304's $predecessor$ and

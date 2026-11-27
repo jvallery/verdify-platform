@@ -1,4 +1,4 @@
-"""VD-72 on a private PostgreSQL: the campaign step (jvallery/agents#5994).
+"""VD-72 on a private PostgreSQL: the campaign step.
 
 Replays the 30-day soil-probe flap fixture, a long-offline probe and its
 return, the per-column rows from before the change and the leak lifecycle

@@ -1,6 +1,6 @@
 """verdify_services on a private TimescaleDB (VD-31, #1147): replay, request_id_reused and the experiment stamp.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and
 sets VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The database is prepared exactly as
 tests/test_dashboard_db_280.py prepares it (its install(): db/schema.sql, the ingestor and MCP logins, then
 migration 280's statements). db/schema.sql predates control_experiments and control_assignments (migration

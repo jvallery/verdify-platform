@@ -93,7 +93,7 @@ spec:
           volumeMounts:
             - name: db-data
               mountPath: /var/lib/postgresql/data
-          # verdify-platform#1547 (STD-HA-06/10): crash recovery of the sole
+          # verdify-platform#1547: crash recovery of the sole
           # production writer must not be killed by liveness. The startupProbe
           # holds liveness off for up to 30 min (10 s x 180) while WAL replays;
           # a 1 s timeout killed a healthy Postgres 5 times in 3 h elsewhere

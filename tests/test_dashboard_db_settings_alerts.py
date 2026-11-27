@@ -1,6 +1,6 @@
 """verdify_services.settings and .alerts on a private TimescaleDB (VD-67, #1180), as the MCP login.
 
-jvallery/agents#5994's campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
+The CI campaign step starts a fresh server for each tests/test_dashboard_db_*.py file and sets
 VERDIFY_ISOLATED_TEST_DSN; without it this file skips. The database is prepared as
 tests/test_dashboard_db_services.py prepares it (db/schema.sql, the ingestor and MCP logins, migration 280,
 then fn_mcp_armed_assignment_context() from 259's own text). The MCP login then gets exactly the 259 and 261

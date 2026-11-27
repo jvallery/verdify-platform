@@ -3,7 +3,7 @@ kind: Kustomization
 
 # Instance: verdify-prod — the one production k3s Verdify APP instance and the
 # only overlay. Argo CD Application verdify-prod-dark (a legacy name that means
-# production, D-277) renders this directory. Its ingestor is the ONE live writer
+# production) renders this directory. Its ingestor is the ONE live writer
 # to the ESP32: the device-write path is enabled here
 # (VERDIFY_DEVICE_WRITE_ENABLED=1 + the allow-ingestor-device-egress
 # NetworkPolicy), and every sync is the attended device-write gate. There is no
@@ -27,7 +27,7 @@ resources:
   # device-affecting HA token is never emitted). Real verdify-ha-token via SOPS.
   - ha-token.placeholder.yaml
   # #1351: verdify-embedding-cortex (embed.main-only Cortex key) is live; this local-config
-  # placeholder only completes the render and never applies (KSOPS adoption jvallery/agents#6079).
+  # placeholder only completes the render and never applies (the Secret comes from secrets/verdify-prod in jvallery/estate-platform).
   - embedding-cortex.placeholder.yaml
   # PLACEHOLDER hermes gateway Secret for local build ONLY (#119 hermes-iris).
   # hermes-iris references verdify-hermes via envFrom.secretRef; this completes
@@ -41,7 +41,7 @@ resources:
   # DEVICE WRITE PATH: the SINGLE egress allow letting the prod ingestor reach the
   # live device VLAN. See allow-ingestor-device-egress.yaml.
   - allow-ingestor-device-egress.yaml
-  # network-infra#839 (STD-EXP-03): deny egress to the estate management set for every
+  # network-infra#839: deny egress to the estate management set for every
   # component without its own egress allowlist, plus the declared Home Assistant consumers.
   - egress-deny-management.yaml
   - egress-allow-management.yaml
@@ -79,12 +79,12 @@ resources:
   # the older direct www/lab IngressRoutes were retired with the .150 route cleanup.
   # See traefik/ for the full set.
   - traefik
-  # HA Sprint ha-1 / LANE B (#230): PodDisruptionBudgets giving every 2-replica
+  # #230: PodDisruptionBudgets giving every 2-replica
   # stateless surface (www/lab/api/mcp) + tier-2 verdify-traefik a disruption
   # floor (maxUnavailable:1 with AlwaysAllow on 2 replicas), and grafana a drain-safe maxUnavailable:1 (RWO PVC
   # singleton). The incident had ZERO PDBs in verdify-prod. See pdb.yaml.
   - pdb.yaml
-  # HA Sprint ha-1 / Lane A — resource governance (#226/#227/#229).
+  # Resource governance (#226/#227/#229).
   # 4-tier PriorityClasses (cluster-scoped; additive — see priorityclasses.yaml).
   # The device-writer class is CREATED but NOT assigned to the ingestor here
   # (that is gated ha-3); verdify-serving IS assigned to the stateless surfaces
@@ -132,7 +132,7 @@ components:
   # suspended-CronJob build/flash template + durable artifacts PVC (the
   # rollback floor lives HERE now, not on the laptop). The builder keeps its
   # toolchain in a per-Job emptyDir; the unused toolchain-cache PVC was
-  # retired on 2026-11-04 (Jason R10).
+  # retired on 2026-11-04.
   - ../../components/firmware-builder
   - ../../components/mqtt-broker
   # #118 verdify-setpoint-server — the grow-light writer + setpoint diagnostics.
@@ -150,7 +150,7 @@ components:
   # Protocol-only MCP observer. The credential is owned by the agents KSOPS
   # lane and was reconciled before this workload reference.
   - ../../components/mcp-observer
-  # verdify-operator-api (#1148, wired by R1, #1143): the dashboard's private API, a
+  # verdify-operator-api (#1148, #1143): the dashboard's private API, a
   # second Deployment of the verdify-api image at its release digest, on ClusterIP
   # :8090 with no route. Only the dashboard BFF reaches it, and egress-local-only
   # covers it. Its Secrets, verdify-operator-api and verdify-dashboard-runtime-db, live
@@ -245,7 +245,7 @@ patches:
   - path: shelly-source-clock.patch.yaml
   # VD-70: direct read-only YINMIK hydro meter reader; optional Secret mount.
   - path: hydro-probe.patch.yaml
-  # HA Sprint ha-1 / Lane A (#226/#227/#229): add verdify-serving priorityClass +
+  # #226/#227/#229: add verdify-serving priorityClass +
   # a CPU LIMIT (burst containment, NOT a tight throttle) + tuned mem to the
   # STATELESS surfaces (www/lab/api/mcp/planner/grafana). Strategic-merge by
   # name -> only these deployments + named containers are touched; the device
@@ -254,7 +254,7 @@ patches:
   - path: ha-serving-resources.yaml
   # ingestor keeps the base replicas:1 + Recreate (single-writer invariant); no
   # replicas:0 pin here (that is staging's two-writer safety pin).
-  # HA Sprint ha-1 / LANE B (#230): scale www/lab/api/mcp 1->2, hard hostname
+  # #230: scale www/lab/api/mcp 1->2, hard hostname
   # spread (DoNotSchedule + matchLabelKeys), zero-downtime rollout. Scoped to
   # overlays/prod so base (api/mcp -> staging) + the www/lab components (-> dev)
   # stay at replicas:1. ingestor/setpoint-server are NOT in this patch.

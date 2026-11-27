@@ -1,6 +1,6 @@
 """Migration M3 (VD-38, #1153): irrigation tables, seeds, grants and the redefined minutes, on a private database.
 
-jvallery/agents#5994's campaign step runs each ``tests/test_dashboard_db_*.py`` file against a
+The CI campaign step runs each ``tests/test_dashboard_db_*.py`` file against a
 fresh loopback PostgreSQL with TimescaleDB and hands it over in ``VERDIFY_ISOLATED_TEST_DSN``.
 Without one the module skips, and a skip fails campaign qualification. The migration chain
 cannot replay there (254 and later check production digest literals), so

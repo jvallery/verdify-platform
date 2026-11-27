@@ -1,4 +1,4 @@
-# verdify-db store exporter (jvallery/monitoring-stack#1597, STD-OBS-27).
+# verdify-db store exporter (jvallery/monitoring-stack#1597).
 #
 # A standalone postgres_exporter Deployment, not a sidecar, so verdify-db does not
 # restart. It reads verdify-db over its headless Service as the existing verdify
@@ -6,8 +6,8 @@
 # (POSTGRES_PASSWORD) by reference: no new role, Secret or value (a dedicated
 # pg_monitor role is a later hardening). monitoring-stack job app-postgres-exporter
 # scrapes pod port `metrics` (9187), selected by namespace and
-# app.kubernetes.io/name; there are no prometheus.io annotations (STD-OBS-26:
-# producers do not decide collection). NetworkPolicies: networkpolicy.yaml
+# app.kubernetes.io/name; there are no prometheus.io annotations
+# (producers do not decide collection). NetworkPolicies: networkpolicy.yaml
 # (allow-db-from-db-exporter, allow-db-exporter-metrics-from-observability). Egress
 # falls under the overlay's egress-local-only (private ranges only), which covers
 # the DB and cluster DNS.

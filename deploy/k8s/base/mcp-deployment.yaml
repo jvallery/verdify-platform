@@ -167,8 +167,8 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
-        # Secret verdify-mcp-agents is sealed by Jason in the jvallery/agents
-        # KSOPS lane (jvallery/agents#5993). Optional: until it exists the
+        # Secret verdify-mcp-agents is delivered from secrets/verdify-prod in
+        # jvallery/estate-platform. Optional: until it exists the
         # directory is empty, no agent is admitted and MCP runs unchanged.
         # 0440 with the pod's fsGroup 1000 lets the non-root server read it.
         - name: mcp-agents
@@ -177,7 +177,7 @@ spec:
             optional: true
             defaultMode: 0440
         # verdify-embedding-cortex: a Cortex identity limited to embed.main (key
-        # api_key.txt), live in verdify-prod; KSOPS adoption is jvallery/agents#6079.
+        # api_key.txt), delivered from secrets/verdify-prod in jvallery/estate-platform.
         # Optional so a missing key fails the two semantic tools closed
         # (embedding_credential_missing) instead of blocking every MCP tool.
         - name: embedding-key

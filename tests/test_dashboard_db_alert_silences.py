@@ -1,4 +1,4 @@
-"""Migration 289's alert silences on a private PostgreSQL: the campaign step (jvallery/agents#5994).
+"""Migration 289's alert silences on a private PostgreSQL: the campaign step.
 
 alert_silence, its seeds and its one grant come from 289's own statements between its seal
 blocks; alert_log, its sequence, trg_alert_log_updated_at, v_open_alerts, climate and

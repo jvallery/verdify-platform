@@ -1230,8 +1230,7 @@ class TestStepLabelUnitDriftGuard:
 #
 # name: (kind, min, max, step, default, esp_object_id, cfg_readback_object_id,
 #        push_owner, control_class). Bounds equal the fw_clamp pair. The ids are
-# what the device reports (the native-API capture under
-# docs/handoffs/s1-2026-10-05/evidence/424-source81/ lists the five live ones).
+# what the device reports over the native API.
 _VD63_ROWS: dict[str, tuple] = {
     "mister_hysteresis_kpa": (
         "numeric",

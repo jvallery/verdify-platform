@@ -3,8 +3,7 @@
 The Home Assistant copy of the Tempest data is gone: the ingestor's ``tempest_sync``
 task, its ``_TEMPEST_MAP`` and the legacy ``scripts/tempest-sync.py``. The ESP32
 listens for the Tempest's UDP broadcasts on port 50222 and the ingestor maps the
-``tempest_*`` entities from the native API. This file keeps its name because the
-generated ``platform-tests`` check in ``.agent-fleet/ci.yaml`` lists it.
+``tempest_*`` entities from the native API. The file name is historical.
 """
 
 from __future__ import annotations

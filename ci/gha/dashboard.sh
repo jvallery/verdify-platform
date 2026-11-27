@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GHA dashboard: the native `dashboard` check (jvallery/agents#5994) on the exact
+# GHA dashboard: the `dashboard` check on the exact
 # checkout, in the dashboard toolchain image (job image of the
 # verdify-platform-ci-dashboard set; natively jvallery/weather-ci). Runs only when
 # path impact sets dashboard-check; otherwise it passes as "not impacted", so the

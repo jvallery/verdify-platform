@@ -2,11 +2,11 @@
 
 Owner: this repository owns the CONTRACT (Secret names, key names, which workload
 reads which key, the two invariants, the placeholder shape). The VALUES and their
-delivery belong to the central KSOPS lane in `jvallery/agents` (planned for
-`jvallery/estate-platform`): SOPS+age sealing, and the KSOPS Applications
+delivery belong to `jvallery/estate-platform`: SOPS-encrypted files in
+`secrets/verdify-prod` and `secrets/verdify-dashboard`, delivered by the Applications
 `verdify-prod-secrets-local-prod` (namespace `verdify-prod`) and
-`verdify-dashboard-secrets` (namespace `verdify-dashboard`). There is no
-out-of-band apply. History: the secrets-out-of-.env umbrella #30 and the named
+`verdify-dashboard-secrets` (namespace `verdify-dashboard`), which track `main`
+and sync themselves. There is no out-of-band apply. History: the secrets-out-of-.env umbrella #30 and the named
 prod inventory #66.
 
 This file is the single source of truth for **which Secret carries which key and
@@ -93,7 +93,7 @@ Service -> Secret -> key wiring as authored in `deploy/k8s/{base,components,over
 | `verdify-firmware-wifi` | `wifi_ssid`, `wifi_password` | firmware-builder CronJob/Jobs `WIFI_SSID`/`WIFI_PASSWORD` (`secretKeyRef`, `components/firmware-builder`); compiled into the signed controller image |
 | `verdify-firmware-signing` | `cosign.key`, `password` | the build Pod's signer container only ([firmware signing](#firmware-artifact-signing-1009)) |
 | the runtime logins | `password` | [runtime database logins](#runtime-database-logins-643) |
-| `ghcr-jvallery-readonly` | `.dockerconfigjson` | none: retired centrally (jvallery/agents#7013) and absent live. Its name is still listed in the `imagePullSecrets` of `verdify-db`, which pulls from the zot origin through `zot-origin-cluster-pull` (reflected into the namespace by jvallery/estate-platform); the name leaves with the next attended `verdify-timescaledb` release (#1543), because that hunk restarts the database. |
+| `ghcr-jvallery-readonly` | `.dockerconfigjson` | none: retired and absent live. Its name is still listed in the `imagePullSecrets` of `verdify-db`, which pulls from the zot origin through `zot-origin-cluster-pull` (reflected into the namespace by jvallery/estate-platform); the name leaves with the next attended `verdify-timescaledb` release (#1543), because that hunk restarts the database. |
 
 Note 1: `HERMES_MCP_URL` must point at the in-cluster `verdify-mcp` Service on port 8000;
 it is set at seal time, never committed.
@@ -136,14 +136,14 @@ but its rollout cannot complete.
 Grafana's admin SSO requires `GRAFANA_OAUTH_CLIENT_SECRET` in a separate
 immutable `verdify-grafana-oauth` Secret, matching the dedicated Authentik confidential client
 `verdify-grafana`. The public client ID is source-owned; the secret value stays
-in the owning KSOPS lane in `jvallery/agents`. Read back the exact
+in `secrets/verdify-prod` in jvallery/estate-platform. Read back the exact
 provider/callback/group boundary before changing this configuration. Never
 print the provider secret or store it in this repository.
 
 ## Named MCP agents (VD-59)
 
-`verdify-mcp-agents` lives in the jvallery/agents KSOPS lane for `verdify-prod`
-(jvallery/agents#5993), and only Jason seals its values. Each key is one agent's
+`verdify-mcp-agents` lives in `secrets/verdify-prod` in jvallery/estate-platform.
+Each key is one agent's
 name (`^[a-z0-9][a-z0-9_-]{0,62}$`, never `admin`) and its value is that agent's
 bearer token: an RFC 6750 token distinct from every other agent's and from every
 `VERDIFY_MCP_TOKEN_*` value. MCP mounts the Secret as an optional read-only
@@ -155,35 +155,33 @@ nothing and never makes MCP not ready. Values never appear in logs, errors,
 `set_setting` reaches only the operator switches, and the band and the drying
 cost limit are written only from the dashboard under the owner's sign-in.
 
-- **Onboard:** Jason names the agent and seals key `<name>` into the
-  jvallery/agents KSOPS lane for `verdify-prod`; once delivered, MCP admits
+- **Onboard:** add key `<name>` to the Secret's SOPS file in
+  `secrets/verdify-prod` and merge; once delivered, MCP admits
   `agent:<name>` within 3 min with no restart, and the agent's pod carries the
   label `verdify.ai/mcp-agent: "true"` and reads its own key (a pod in
   `verdify-prod` mounts only that key, with `items`, never the whole Secret).
 - **Revoke:** delete the key the same way; MCP refuses the agent within 3 min of
   the Secret syncing.
-- **Rotate:** Jason replaces the value; within 3 min MCP accepts only the new
+- **Rotate:** replace the value the same way; within 3 min MCP accepts only the new
   value, with no restart; the agent picks it up from its mounted key file, or on
   restart if it reads the key from an environment variable.
 
-## Protected secret-source ownership (the central lane delivers; this repo specifies)
+## Secret-source ownership (jvallery/estate-platform delivers; this repository specifies)
 
-The current fleet-owned source and delivery entry point are:
+The source and delivery are:
 
 ```
-jvallery/agents/
-├── platform/gitops/secrets-ksops/verdify-prod/
-└── .github/workflows/local-k8s-secret-sync.yml
+jvallery/estate-platform/
+├── secrets/verdify-prod/        Application verdify-prod-secrets-local-prod
+└── secrets/verdify-dashboard/   Application verdify-dashboard-secrets
 ```
 
-This contract intentionally records only the owning directory, workflow, Secret
-names, and required key names. It does not assert an encrypted filename,
-ciphertext contents, or reconciliation state. The central lane resolves the exact protected
-artifact in the owning repository and verifies only target metadata and key
-names before running the bounded sync workflow.
+This contract records only the owning directories, Secret names and required key
+names. It does not assert ciphertext contents or reconciliation state. A changed
+Secret is one pull request in jvallery/estate-platform and deploys on merge.
 
 The in-repo placeholder resources remain local-config-only and never render into
-an Argo application. Runtime delivery is exclusively through the central lane;
+an Argo application. Runtime delivery is only through those two Applications;
 an Argo application sync of this repo's paths is not a substitute for Secret
 reconciliation.
 
@@ -231,8 +229,8 @@ The gated `argocd app sync` is run by an operator session outside CI.
 
 ## Runtime database logins (#643)
 
-Each runtime has its own immutable, password-only Secret, owned exclusively by
-`jvallery/agents` central KSOPS. The PreSync bootstrap hooks install each login
+Each runtime has its own immutable, password-only Secret, delivered only from
+`secrets/verdify-prod` in jvallery/estate-platform. The PreSync bootstrap hooks install each login
 from its Secret and never change an existing password. URL-composed DSNs
 require the owner's established URL-safe password generation.
 
@@ -252,7 +250,7 @@ existing password. Runtime callers receive only their matching key.
 
 ### Hydroponic probe (VD-70, #1183)
 
-`verdify-hydro-probe` is owned by the agents KSOPS lane. It carries the YINMIK
+`verdify-hydro-probe` is delivered from `secrets/verdify-prod` in jvallery/estate-platform. It carries the YINMIK
 meter's Tuya `device-id` and `local-key`. The single ingestor mounts it
 read-only and optionally at `/etc/verdify/hydro-probe`; `hydro_probe_sync`
 reads both files on every poll and, while either is absent, logs one
@@ -276,11 +274,11 @@ protocol version goes in `VERDIFY_HYDRO_PROBE_TUYA_VERSION`
 
 ## Greenhouse snapshot (#1346)
 
-CronJob `verdify-greenhouse-brief` (`components/greenhouse-brief`) is the only reader of `verdify-planner-cortex` (the name is historical), key `api_key.txt`: an inference-only Cortex identity limited to the text routes `llm.primary.longctx` and `llm.qwen38u.longctx` (any image request belongs to `llm.primary.longctx.mm` under its own identity). Its adoption into agents KSOPS is jvallery/agents#6079. It is mounted `optional` at `/vcortex-brief/api_key.txt`: without it the job calls nothing, records one `error` row (`FAIL CLOSED`) per run and exits 2. Its database login is the dashboard login (`verdify-dashboard-runtime-db` / `password`). Placeholder: `overlays/prod/planner-cortex-secret.placeholder.yaml`. A separate `verdify-brief-cortex` identity, so the snapshot's Cortex use can be attributed and revoked on its own, is a follow-up in jvallery/cortex-ai-compute and the agents KSOPS lane.
+CronJob `verdify-greenhouse-brief` (`components/greenhouse-brief`) is the only reader of `verdify-planner-cortex` (the name is historical), key `api_key.txt`: an inference-only Cortex identity limited to the text routes `llm.primary.longctx` and `llm.qwen38u.longctx` (any image request belongs to `llm.primary.longctx.mm` under its own identity). It is delivered from `secrets/verdify-prod` in jvallery/estate-platform. It is mounted `optional` at `/vcortex-brief/api_key.txt`: without it the job calls nothing, records one `error` row (`FAIL CLOSED`) per run and exits 2. Its database login is the dashboard login (`verdify-dashboard-runtime-db` / `password`). Placeholder: `overlays/prod/planner-cortex-secret.placeholder.yaml`. A separate `verdify-brief-cortex` identity, so the snapshot's Cortex use can be attributed and revoked on its own, is a follow-up in jvallery/cortex-ai-compute and the agents KSOPS lane.
 
 ## Verdify knowledge embeddings (#1351)
 
-`verdify-embedding-cortex` must contain `api_key.txt`, a dedicated Cortex identity (73) limited to `embed.main`, with no expiry. Its KSOPS adoption into the agents lane is jvallery/agents#6079. `verdify-mcp` mounts it at `/vembed/api_key.txt` (optional: if it is absent, `lessons_search` and `knowledge_search` fail closed with `embedding_credential_missing`), and so does the suspended `verdify-knowledge-embed` CronJob. `overlays/prod/embedding-cortex.placeholder.yaml` is local-config only, so the render emits no Secret.
+`verdify-embedding-cortex` must contain `api_key.txt`, a dedicated Cortex identity (73) limited to `embed.main`, with no expiry. It is delivered from `secrets/verdify-prod` in jvallery/estate-platform. `verdify-mcp` mounts it at `/vembed/api_key.txt` (optional: if it is absent, `lessons_search` and `knowledge_search` fail closed with `embedding_credential_missing`), and so does the suspended `verdify-knowledge-embed` CronJob. `overlays/prod/embedding-cortex.placeholder.yaml` is local-config only, so the render emits no Secret.
 
 ## Firmware artifact signing (#1009)
 
@@ -295,8 +293,8 @@ connection. See [signed-artifact operations](../../docs/runbooks/firmware-signed
 
 ## Dashboard web (`verdify-dashboard`) (#1142)
 
-The dashboard BFF reads one Secret, delivered by the jvallery/agents KSOPS Application
-`verdify-dashboard-secrets` (jvallery/agents#5993, `CreateNamespace=false`, so it syncs once Argo app
+The dashboard BFF reads one Secret, delivered by the Application
+`verdify-dashboard-secrets` from `secrets/verdify-dashboard` in jvallery/estate-platform (`CreateNamespace=false`, so it syncs once Argo app
 `verdify-dashboard` has created the namespace). The `verdify-dashboard` AppProject denies Secret, and
 `kustomize build deploy/k8s/dashboard` emits none; there is no placeholder. Its target namespace is
 `verdify-dashboard`, the same string as the kustomization's `namespace:`, the Namespace object and the
@@ -304,25 +302,24 @@ Application destination (invariant 2).
 
 | Secret | Keys | Consumed by | Rotate |
 |---|---|---|---|
-| `verdify-dashboard-web` | `oidc-client-secret`, `cookie-secret`, `operator-api-token` | the BFF, Deployment `verdify-dashboard-web` (`secretKeyRef`, required: `OIDC_CLIENT_SECRET`, `COOKIE_SECRET`, `OPERATOR_API_TOKEN`) | Jason re-seals in the jvallery/agents KSOPS lane; `operator-api-token` changes together with `verdify-operator-api` in `verdify-prod`, in one agents PR. Once synced, delete the web pod, and the operator API pod for the token, so each restarts with the new value. A new `cookie-secret` voids only sign-ins in progress; sessions survive. |
+| `verdify-dashboard-web` | `oidc-client-secret`, `cookie-secret`, `operator-api-token` | the BFF, Deployment `verdify-dashboard-web` (`secretKeyRef`, required: `OIDC_CLIENT_SECRET`, `COOKIE_SECRET`, `OPERATOR_API_TOKEN`) | Re-encrypt it in `secrets/verdify-dashboard` in jvallery/estate-platform; `operator-api-token` changes together with `verdify-operator-api` in `secrets/verdify-prod`, in one pull request. Once synced, delete the web pod, and the operator API pod for the token, so each restarts with the new value. A new `cookie-secret` voids only sign-ins in progress; sessions survive. |
 
 A missing Secret or key leaves a new web pod in `CreateContainerConfigError`. Read it back by key name only:
 `kubectl -n verdify-dashboard describe secret verdify-dashboard-web`. The image-pull Secret
-`zot-origin-cluster-pull` is reflected into the namespace by jvallery/agents#5994. Operations:
+`zot-origin-cluster-pull` is reflected into the namespace by jvallery/estate-platform. Operations:
 [dashboard runbook](../../docs/runbooks/dashboard.md).
 
 ## Operator API (`verdify-operator-api`) (#1148)
 
 The operator API, Deployment `verdify-operator-api` in `verdify-prod` (`deploy/k8s/components/operator-api`), reads
-two Secrets from the jvallery/agents KSOPS lane for `verdify-prod` (jvallery/agents#5993); only Jason seals their
-values. Neither has a placeholder, and `kustomize build deploy/k8s/components/operator-api` emits no Secret. The pod
+two Secrets from `secrets/verdify-prod` in jvallery/estate-platform. Neither has a placeholder, and `kustomize build deploy/k8s/components/operator-api` emits no Secret. The pod
 refuses to start unless `OPERATOR_API_TOKEN` has at least 32 printable characters (the BFF's rule) and `DB_USER`
 (ConfigMap `verdify-operator-api`) is `verdify_dashboard_runtime_login`. Its `/metrics` (the product metrics) needs
 no Secret: it is unauthenticated and reachable only through NetworkPolicy `allow-operator-api-metrics-scrape`.
 
 | Secret | Keys | Consumed by | Rotate |
 |---|---|---|---|
-| `verdify-operator-api` | `operator-api-token` | Deployment `verdify-operator-api` (`secretKeyRef`, required: `OPERATOR_API_TOKEN`), the bearer the BFF presents; the same value as `verdify-dashboard-web`'s `operator-api-token` | Jason reseals both copies in one jvallery/agents PR. Once both have synced, delete the web pod and the operator API pod so each restarts with the new value; until both have, the BFF's calls get 401. |
+| `verdify-operator-api` | `operator-api-token` | Deployment `verdify-operator-api` (`secretKeyRef`, required: `OPERATOR_API_TOKEN`), the bearer the BFF presents; the same value as `verdify-dashboard-web`'s `operator-api-token` | Re-encrypt both copies in one jvallery/estate-platform pull request. Once both have synced, delete the web pod and the operator API pod so each restarts with the new value; until both have, the BFF's calls get 401. |
 | `verdify-dashboard-runtime-db` | `password` | Deployment `verdify-operator-api` (`secretKeyRef`, required: `DB_PASS`, user `verdify_dashboard_runtime_login`), CronJob `verdify-greenhouse-brief` (`secretKeyRef`, required: `DB_PASS`, the same login; #1346) and Job `verdify-maintenance-runtime-role-bootstrap` (`secretKeyRef`, optional: `DASHBOARD_DB_PASSWORD`). A missing or empty value skips that login's duty; any other value must be 64 characters of `[A-Za-z0-9_-]`, or the PreSync hook fails closed and stops the sync. | An owner-run `ALTER ROLE verdify_dashboard_runtime_login PASSWORD …` sets the new value, then Jason reseals it in the KSOPS lane; once synced, restart `verdify-operator-api` (`kubectl -n verdify-prod delete pod -l app.kubernetes.io/component=operator-api`). The role bootstrap never rotates a password. |
 
 A missing Secret or key leaves a new operator API pod in `CreateContainerConfigError`. Read both back by key name

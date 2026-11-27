@@ -1,12 +1,12 @@
 # Verdify TimescaleDB copy-not-move DATA restore Job.
 #
-# PURPOSE (handoff §3.6): load a READ-ONLY pg_dump -Fc snapshot of the LIVE VM
+# PURPOSE: load a READ-ONLY pg_dump -Fc snapshot of the LIVE VM
 # TimescaleDB into the IN-CLUSTER verdify-db StatefulSet, WITHOUT ever stopping
 # or writing the live VM DB. The live VM DB remains the system of record until a
 # separate, preflight-validated cutover switch. This Job is the DATA half of the
 # copy; the SCHEMA half (db/Dockerfile.migrate + migration-job.yaml, an ArgoCD
 # PreSync hook) must have run FIRST and built the empty, hypertable-registered
-# schema. See docs/runbooks/db-copy-not-move.md for the full gated sequence.
+# schema.
 #
 # THIS IS NOT WIRED INTO ARGOCD. It carries NO argocd.argoproj.io/hook annotation
 # on purpose — it is a directly executed, one-shot, explicit one-shot Job that laptop-root applies by

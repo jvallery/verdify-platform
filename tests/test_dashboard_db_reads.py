@@ -1,6 +1,6 @@
 """VD-54 on a private PostgreSQL: the Now, plan and equipment reads' acceptance fixtures.
 
-jvallery/agents#5994's campaign step starts a fresh server for each
+The CI campaign step starts a fresh server for each
 tests/test_dashboard_db_*.py file and sets VERDIFY_ISOLATED_TEST_DSN; without
 it this file skips. It builds a private schema from db/schema.sql's own DDL
 for every table and view the reads touch, migration 280's desired_state and

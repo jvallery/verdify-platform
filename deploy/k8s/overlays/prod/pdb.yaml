@@ -1,4 +1,4 @@
-# Sprint ha-1 / LANE B (#230) — PodDisruptionBudgets for the verdify-prod
+# #230: PodDisruptionBudgets for the verdify-prod
 # stateless surfaces + tier-2 edge.
 #
 # The incident had ZERO PDBs in verdify-prod, so a drain/upgrade/TaintManager
@@ -9,8 +9,8 @@
 #
 #   - lab / api / mcp / planner / verdify-traefik: maxUnavailable: 1 with
 #     unhealthyPodEvictionPolicy AlwaysAllow (2-replica surfaces; planner added in
-#     ha-5 / #230). Same floor of one Ready replica as minAvailable: 1, and a
-#     crash-looping pod never blocks a drain (STD-HA-06, jvallery/estate-platform#115).
+#     #230). Same floor of one Ready replica as minAvailable: 1, and a
+#     crash-looping pod never blocks a drain (jvallery/estate-platform#115).
 #   - grafana: maxUnavailable: 1 (RWO iSCSI PVC singleton, stays replicas:1).
 #     minAvailable:1 on a 1-replica object would block EVERY node drain forever;
 #     maxUnavailable:1 lets the drain proceed (its HA is fast PVC-reattach
