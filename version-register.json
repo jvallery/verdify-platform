@@ -436,11 +436,11 @@
       "component": "nodejs-24",
       "kind": "runtime",
       "installed": {
-        "version": "24.22.1-bookworm-slim",
-        "digest": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "version": "24.22.1-trixie-slim",
+        "digest": "sha256:c8c4a7483bb04544293c82a3eecc3081c37ff5dfedcaf819d60e6e4aaad35b12",
         "image": "docker.io/library/node",
-        "source": "dashboard/Dockerfile (FROM node:24.22.1-bookworm-slim); dashboard/package.json engines 24.22.1",
-        "read_at": "2026-11-18"
+        "source": "dashboard/Dockerfile (FROM node:24.22.1-trixie-slim); dashboard/package.json engines 24.22.1",
+        "read_at": "2026-11-27"
       },
       "upstream": {
         "project": "https://nodejs.org/en/about/previous-releases",
