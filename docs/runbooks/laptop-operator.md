@@ -31,6 +31,12 @@ it; `--tunnel` prints the kubectl one-liner to export `PGPASSWORD` yourself). ku
 API-server channel, so the in-cluster default-deny NetworkPolicies do not apply. There is no second database: heavy
 analysis uses a dump or an explicitly provisioned disposable copy, not the live writer database.
 
+Start every ad-hoc session with `SET statement_timeout = '5s'; SET default_transaction_read_only = on;`. Run
+`EXPLAIN` on any query that is not a copy of one the API already runs, and filter the hypertables (`system_state`,
+`climate`, `setpoint_changes`) by an exact indexed key with `ORDER BY ts DESC LIMIT n`, never by `ILIKE '%…%'` or
+an unbounded `DISTINCT`. Killing the local `kubectl exec` does not stop the query on the server: find its pid in
+`pg_stat_activity` and call `pg_cancel_backend`.
+
 Reads worth knowing:
 
 ```bash

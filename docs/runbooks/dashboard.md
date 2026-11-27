@@ -226,6 +226,12 @@ kubectl -n verdify-dashboard exec deploy/verdify-dashboard-web -- node -e \
   (`kubectl -n verdify-dashboard delete pod -l app.kubernetes.io/name=verdify-dashboard-web` and
   `kubectl -n verdify-prod delete pod -l app.kubernetes.io/component=operator-api`).
 
+## Release order across web and API
+
+The web and the operator API ship separately (the web on its pin merge, the API with the `verdify-prod-dark` sync).
+When a release retires or changes an operator API field, roll the web first, built to parse both the old and the
+new API, then the API; roll back in the reverse order, API before web.
+
 ## Pin revert
 
 The web ships only through the digest pin in `deploy/k8s/dashboard/kustomization.yaml` (`images:`), so a bad web
