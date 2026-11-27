@@ -45,8 +45,20 @@ The following remain secret inputs and are never created by this manifest:
 
 ## Operations
 
-The schedule is live (`suspend: false` since the 2026-07-11 recovery canary:
-53 s run, both cameras captured, two fresh `image_observations` rows).
+The schedule is suspended (`suspend: true` since 2026-11-27, #1885). The model
+behind `llm.primary.longctx.mm` has been paused in jvallery/cortex-ai-compute
+since 2026-11-18, when a GPU on its host failed, and the repair is physical
+work. While it is paused the route answers HTTP 503 to every analysis call, so
+each scheduled run failed and the Application read Degraded. The last successful
+run was 2026-11-18T07:00:56Z. The scoped Cortex key, the camera token and the
+database role are unchanged.
+
+To resume once the route serves again: set `suspend: false`, deliver it with a
+production sync, run the one-shot canary below and apply the acceptance rules
+in "Connection refusals and recovery acceptance". A suspended CronJob reads
+Healthy in Argo CD and is left out of the estate's stale-CronJob alert, so
+nothing pages for the missing observations; #1885 stays open until the canary
+passes.
 
 Known wedge (`concurrencyPolicy: Forbid`): a Job that goes active with no pod
 (observed live: `verdify-vision-29730060`, active since 2026-07-11T21:00Z with

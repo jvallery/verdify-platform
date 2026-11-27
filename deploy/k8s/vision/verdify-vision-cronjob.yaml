@@ -7,10 +7,14 @@ metadata:
     app.kubernetes.io/component: vision
 spec:
   schedule: "0 15,18,21,0 * * *"
-  # Recovery canary 2026-07-11: the repaired digest/pull-auth shape completed
-  # in 53s, captured both greenhouse cameras, finished analysis, and persisted
-  # two fresh image_observations. Resume the normal four-times-daily cadence.
-  suspend: false
+  # Suspended 2026-11-27 (#1885): the model behind the Cortex route
+  # `llm.primary.longctx.mm` has been paused by its owner (jvallery/cortex-ai-compute)
+  # since 2026-11-18, when a GPU on its host failed; the repair is physical work.
+  # Until the model serves again every analysis call returns HTTP 503, so each
+  # run fails and marks the Application Degraded. There is no second image route
+  # and no cloud fallback (#1351). Set this back to false in the change that
+  # follows the model's return, then run one canary (README, "Operations").
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   # Keep bounded incident evidence across repeated provider failures. Individual
