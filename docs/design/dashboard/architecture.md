@@ -49,7 +49,7 @@ the dashboard adds no protections.
 | The bounded writer halted on 2026-10-19 waiting for manual custody and pushed nothing until it was cleared on 2026-11-01 at 22:07Z | `ingestor/tasks/bounded_reconcile.py`; Round 2 #1 |
 | The forecast action engine writes `setpoint_plan` rows (source `preemptive`) and pushes them through the `setpoint_changes` fast path, unattributed | `scripts/forecast-action-engine.py:340-349`; task `forecast_actions`, `ingestor/ingestor.py:4505` |
 | `api.verdify.ai` forwards every path to the public app on `:8080`, so private routes cannot live there | `deploy/k8s/overlays/prod/traefik/verdify-traefik-routes.yaml:118` |
-| Everything in `verdify-prod` ships only through the attended full sync, which runs migrations and can Recreate the ingestor | AGENTS.md "Deliver and verify"; `ARGOCD.md` |
+| Everything in `verdify-prod` ships only through the attended full sync, which runs migrations and can Recreate the ingestor | AGENTS.md "Build, test, deploy, verify" |
 
 Non-goals: OTA, Argo syncs, migrations or releases from the UI; planner run-now from the UI (MCP `plan_run`
 stays admin-only); replacing graphs.verdify.ai; any Home Assistant path beyond occupancy, the hydro probe until

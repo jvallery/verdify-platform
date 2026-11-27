@@ -1,7 +1,7 @@
 # Prod Promotion Runbook
 
-The model is in `ARGOCD.md` (Promotion Model). The sync mechanics are in `docs/runbooks/laptop-operator.md` section 2, and
-the delivery rules are in `AGENTS.md` (Deliver and verify).
+The delivery paths are in `AGENTS.md` (Build, test, deploy, verify). The sync mechanics are in
+`docs/runbooks/laptop-operator.md` section 2. This page has the image set, the promotion steps, the checks and rollback.
 
 ## How images are built
 
@@ -27,13 +27,10 @@ build path; add a `build.yml` profile before you promote it.
 1. Merge the candidate pin PR. This changes Git only.
 2. Copy the candidate digests into `deploy/k8s/overlays/prod/release-pins.yaml`, the digests production runs, with
    `scripts/promote-release-pins.py` (#808). It copies all four by default, because the migrate hook carries the
-   schema that the others expect. For an immutable source-only receipt, run it from clean tracked source:
-   `python3 scripts/promote-release-pins.py --receipt <new receipt path outside the repository>`.
-   The helper refuses an existing receipt path or a malformed candidate digest before it changes any release pin.
-   The receipt records the exact promotion-input Git SHA, the candidate file hash, the release-pin hashes before
-   and after, the selected changes and all four rollback pins. Keep the receipt with the release. Its Git SHA
-   identifies the pin inputs, not the images' build source. CI, build provenance and the final Argo and runtime
-   adoption need their own receipts. The command does no cluster, secret or device operation.
+   schema that the others expect. It refuses a malformed candidate digest before it changes any release pin, and
+   does no cluster, secret or device operation. `--receipt <path outside the repository>` also writes a JSON
+   summary (input Git SHA, candidate file hash, release-pin hashes before and after, the four rollback pins) to
+   scratch; the previous pins are also in the Git history of `release-pins.yaml`.
 3. The setpoint-server and lab-publisher-k3s release pins are edited by hand in `kustomization.yaml`: take the
    `digest` output of that image's job in the merge's `build` run, or resolve its `gha-<sha12>` tag on the zot
    origin.
@@ -55,7 +52,7 @@ build path; add a `build.yml` profile before you promote it.
 ## Operator checks
 
 Before you sync, check that the promotion PR's `ci` checks passed (`gh pr checks <n>`) and diff the render against
-live (`AGENTS.md`, Deliver and verify).
+live (`AGENTS.md`, Build, test, deploy, verify).
 
 After the prod Argo CD app is green, run the read-only smoke checks from a host with a scoped kubeconfig:
 
@@ -65,7 +62,7 @@ KUBECONFIG=/path/to/verdify-agent.config scripts/k3s-smoke.sh smoke \
 KUBECONFIG=/path/to/verdify-agent.config scripts/k3s-smoke.sh device-monitor
 ```
 
-Set `API_BUILD_SHA` and `API_DIGEST` from the reviewed API build and the Git pin receipt before you run smoke.
+Set `API_BUILD_SHA` and `API_DIGEST` from the API build and the promoted `release-pins.yaml` before you run smoke.
 Smoke checks the exact API source and running digest; the controller-decision proof (the law's
 `climate_law_state` record under 120 s old, or the action log on a build without the law); fresh readbacks, judged
 by the `setpoint_snapshot_pass` marker because readbacks are stored on change; that every MCP replica authenticates
@@ -82,6 +79,6 @@ scripts/verdify-db.sh prod -c "SELECT max(seq) FROM schema_migrations WHERE sour
 
 ## Rollback
 
-Commit a digest-only `release-pins.yaml` change to the promotion receipt's rollback pins, keeping a
+Commit a digest-only `release-pins.yaml` change back to the previous pins (the file's Git history), keeping a
 `verdify-migrate` digest that contains every applied migration (migrations run forward only), then run the full
 sync and `scripts/k3s-smoke.sh smoke` against the rolled-back API digest.

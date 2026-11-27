@@ -27,7 +27,7 @@ python3 scripts/firmware-release-job.py build --revision FULL_SHA --name JOB_NAM
 python3 scripts/firmware-release-job.py verify --revision FULL_SHA --expected MANIFEST_SHA256 --name JOB_NAME
 ```
 
-Add `--submit` for an approved run. The helper binds the same full revision in
+Without `--submit` the helper creates nothing; add `--submit` to run the Job. The helper binds the same full revision in
 both build containers. Archives use the full source revision as their directory
 name and cannot overwrite an existing directory. A failed partial archive stays
 preserved for diagnosis; do not remove or overwrite it to manufacture a receipt.
@@ -41,9 +41,8 @@ signature. Private builds use an empty signing-service configuration: nothing
 is uploaded to a public transparency log or timestamp service. The trusted key
 comes independently from Git, never from the bundle.
 
-Only a separately authorized attended firmware release may select action
-`flash`. Complete the existing firmware preflight and retain rollback
-evidence first. The flasher uploads the verified private binary without
+Select action `flash` only for a release whose build and verify Jobs passed.
+Complete the firmware preflight and keep the rollback artifact first. The flasher uploads the verified private binary without
 recompiling; the operator then performs the existing database-backed version
 and sensor-health checks. A software signature is not device-side enforcement:
 signed-app verification/Secure Boot remains deferred under DR-48. The existing

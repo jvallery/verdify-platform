@@ -3,7 +3,7 @@
 This runbook records the k3s operating model, the development loop runnable from any kubectl-equipped host, the
 repository sources of truth, firmware delivery, infrastructure dependencies and durable operational gotchas.
 
-Use it with `README.md`, `ARGOCD.md` and the focused runbooks linked below. The control design is the
+Use it with `README.md`, `AGENTS.md` and the focused runbooks linked below. The control design is the
 [climate refactor plan](../design/climate-refactor-plan-2026-11-15.md): the controller decides climate alone with
 the band-edge law and compiled constants, and the planner is a daily reviewer with no climate writes.
 
@@ -83,7 +83,7 @@ the band-edge law and compiled constants, and the planner is a daily reviewer wi
 | Grafana dashboards | `grafana/dashboards/*.json`, rendered into generated ConfigMaps | **UI edits do not sync back: always edit the JSON** |
 | DB migrations | `db/migrations/` (sequential, ledgered) | applied by the `verdify-migrate` PreSync hook; CI `migration-rollback-safety` check |
 | Firmware (source) | `firmware/**`; law constants in `verdify_schemas/climate_law.yaml` | `diagnostics.firmware_version` equals the intended build (section 4); `climate_law_constants` equals the released hash |
-| Secrets | names and keys only, in `deploy/k8s/SECRETS.md`; values are SOPS/KSOPS-encrypted in the central KSOPS lane | the repo holds no SOPS files |
+| Secrets | names and keys only, in `deploy/k8s/SECRETS.md`; values are SOPS-encrypted outside this repository | the repo holds no SOPS files |
 
 **Verify "live == main" end to end:** the working tree is clean and pushed; live pod digests equal the rendered
 `overlays/prod`; `verdify-prod-dark` is Synced and Healthy; no open critical `alert_log` row;
@@ -150,9 +150,9 @@ and a `secrets.yaml` reconstructed outside the repo (mode 0600, from the `verdif
   revision and manifest. Every rollback target runs the law: a build from before the law would run on its boot
   values, because the host no longer pushes the old climate settings (plan decision 21). A fix to the law is a new
   law build.
-- Firmware logic changes run the offline gates in `AGENTS.md` (Working here, focused commands: `make
-  test-firmware`, `make firmware-invariants`, the replay diff, `make firmware-check`); deploy gates are in
-  `AGENTS.md` (Deliver and verify).
+- Firmware logic changes run the offline gates in `docs/agents/contracts.md` (Focused commands: `make
+  test-firmware`, `make firmware-invariants`, the replay diff, `make firmware-check`); delivery is in
+  `AGENTS.md` (Build, test, deploy, verify).
 
 ---
 
@@ -215,7 +215,7 @@ and a `secrets.yaml` reconstructed outside the repo (mode 0600, from the `verdif
 
 ## 7. Authoritative doc map
 
-- **This runbook**, `README.md` and `ARGOCD.md`: start here.
+- `AGENTS.md`, `README.md` and this runbook: start here.
 - Control design: [the climate refactor plan](../design/climate-refactor-plan-2026-11-15.md) (the law, section 4;
   the reviewer, section 7; the daily record, section 10) and the generated constants table
   [`docs/climate-law-constants.md`](../climate-law-constants.md).
