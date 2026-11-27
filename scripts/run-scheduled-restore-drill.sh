@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scheduled isolated restore drill (#1549). Selects the newest
+# Scheduled isolated restore drill (#1549, STD-DR-04). Selects the newest
 # committed backup pair (its .sha256 marker exists), restores it with
 # restore-backup-pair.sh into a socket-only PostgreSQL in emptyDir, and emits
 # one receipt line with the achieved RPO and measured RTO. Never connects to
