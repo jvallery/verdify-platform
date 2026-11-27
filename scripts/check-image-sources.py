@@ -12,7 +12,7 @@ Three checks:
    name a kustomize `images:` entry or ImageTagTransformer rewrites, or the activation placeholder.
 3. Builds: every external `FROM` in a tracked Dockerfile (an earlier stage name excepted, `ARG`
    defaults resolved) is pinned by `@sha256:<64 hex>`. Routing base pulls through the estate cache
-   is jvallery/agents#5374 (Kaniko `--registry-mirror`), not a source rewrite here.
+   is the CI build's job (Kaniko `--registry-mirror`), not a source rewrite here.
 
 PENDING lists refs that may still render with the issue that removes them; UNRENDERED lists
 files no Argo source renders. Both only shrink.
