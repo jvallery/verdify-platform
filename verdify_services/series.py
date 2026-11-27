@@ -1385,18 +1385,50 @@ BAND_SEED_SQL: dict[str, str] = {
     zone: f"SELECT DISTINCT ON (band_role) band_role, value, ts {_band_rows_clause(zone)} ORDER BY band_role, ts DESC"
     for zone in BAND_ZONES
 }
-# fn_band_timeline's crop columns: fn_band_setpoints evaluates the same house curves of
-# fn_crop_band_value, without the timeline's per-step telemetry joins.
-CROP_SQL = (
-    "SELECT step.ts, crop.temp_low, crop.temp_high, crop.vpd_low, crop.vpd_high "
-    "FROM unnest($1::timestamptz[]) AS step(ts) CROSS JOIN LATERAL public.fn_band_setpoints(step.ts) AS crop"
-)
+
+
+# fn_band_timeline's crop columns: the house curves of public.fn_band_setpoints, evaluated once per window (#1814).
+# fn_band_setpoints calls the plpgsql fn_crop_band_value once per series and step, and each call reads the anchors and
+# the solar phase again: six anchor reads and six solar phases per step, about 350 ms for 48 h of 5-min steps. This
+# resolves each series' anchors once, takes each step's fn_solar_phase once, and applies fn_crop_band_value's
+# harmonic with its own expressions, so every value is the function's to the bit: the current season's anchor, else
+# 'all''s, the 'default' growth stage, and null for a series missing an anchor.
+def _crop_curve_sql(series_names: Sequence[str], *, with_phase: bool) -> str:
+    """Every name comes from the constants here, never from a request."""
+    names = ", ".join(f"'{name}'" for name in series_names)
+    return (
+        "WITH resolved AS ("
+        " SELECT p.series,"
+        " max(r.value) FILTER (WHERE r.anchor = 'sr') AS v_sr, max(r.value) FILTER (WHERE r.anchor = 'sm') AS v_sm,"
+        " max(r.value) FILTER (WHERE r.anchor = 'ss') AS v_ss, max(r.value) FILTER (WHERE r.anchor = 'mid') AS v_mid"
+        f" FROM unnest(ARRAY[{names}]::text[]) AS p(series)"
+        " LEFT JOIN LATERAL (SELECT DISTINCT ON (anchor) anchor, value FROM public.crop_band_anchors"
+        " WHERE crop_type = 'house' AND series = p.series AND greenhouse_id = 'vallery'"
+        " AND growth_stage = 'default' AND season IN (public.fn_current_season(), 'all')"
+        " ORDER BY anchor, (season = public.fn_current_season()) DESC) AS r ON true"
+        " GROUP BY p.series"
+        "), coefficients AS ("
+        " SELECT series, (v_sr + v_sm + v_ss + v_mid) / 4.0 AS c0, (v_sr - v_ss) / 2.0 AS c1,"
+        " (v_sm - v_mid) / 2.0 AS s1, (v_sr - v_sm + v_ss - v_mid) / 4.0 AS c2"
+        " FROM resolved WHERE v_sr IS NOT NULL AND v_sm IS NOT NULL AND v_ss IS NOT NULL AND v_mid IS NOT NULL"
+        "), steps AS MATERIALIZED ("
+        " SELECT step.ts, public.fn_solar_phase(step.ts) AS phase FROM unnest($1::timestamptz[]) AS step(ts)"
+        ") SELECT s.ts, "
+        + ", ".join(f"max(v.value) FILTER (WHERE v.series = '{name}') AS {name}" for name in series_names)
+        + (", s.phase" if with_phase else "")
+        + " FROM steps AS s"
+        " CROSS JOIN LATERAL (SELECT pi() * s.phase / 2.0 AS theta) AS t"
+        " LEFT JOIN LATERAL (SELECT c.series,"
+        " c.c0 + c.c1 * cos(t.theta) + c.s1 * sin(t.theta) + c.c2 * cos(2.0 * t.theta) AS value"
+        " FROM coefficients AS c) AS v ON true"
+        " GROUP BY s.ts, s.phase"
+    )
+
+
+CROP_SQL = _crop_curve_sql(BAND_ROLES, with_phase=False)
 # The same with each step's temperature target and solar phase, for the achievable band (#1433).
-CROP_ACHIEVABLE_SQL = (
-    "SELECT step.ts, crop.temp_low, crop.temp_high, crop.vpd_low, crop.vpd_high, crop.temp_target, "
-    "public.fn_solar_phase(step.ts) AS phase "
-    "FROM unnest($1::timestamptz[]) AS step(ts) CROSS JOIN LATERAL public.fn_band_setpoints(step.ts) AS crop"
-)
+CROP_ACHIEVABLE_SQL = _crop_curve_sql((*BAND_ROLES, "temp_target"), with_phase=True)
+
 # The rows fn_crop_band_value reads for one crop: growth stage default, the current season or all.
 ANCHOR_ROWS_SQL = (
     "SELECT series, anchor, season, value, width_below, width_above, public.fn_current_season() AS current_season "

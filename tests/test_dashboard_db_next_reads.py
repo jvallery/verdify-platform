@@ -5,9 +5,9 @@ TimescaleDB and hands it over in VERDIFY_ISOLATED_TEST_DSN; without one this fil
 ``install`` builds the database and runs migration 284's body, so every read below runs as
 ``verdify_dashboard_runtime_login`` under exactly M2's grants, and a grant these reads need and M2 lacks fails here.
 
-Covers what needs PostgreSQL: API-06 with ``zone=south``, API-19's ``current`` against ``fn_crop_band_value`` at every
-step, API-21's no-valve gallons and its gaps, the forecast's newest issue and ``issued_at``, API-13's reasons, and
-API-20's activity row. The fixture replaces 284's sample rows with its own, placed relative to the server's now().
+Covers what needs PostgreSQL: API-06 with ``zone=south`` and its crop band against ``fn_band_setpoints`` at every
+step, API-19's ``current`` against ``fn_crop_band_value`` at every step, API-21's no-valve gallons and its gaps, the
+forecast's newest issue and ``issued_at``, API-13's reasons, and API-20's activity row. The fixture replaces 284's sample rows with its own, placed relative to the server's now().
 """
 
 from __future__ import annotations
@@ -244,6 +244,27 @@ def test_the_house_band_is_the_one_band_served(world):
     house = as_login(work)
     assert house.step_s == 300 and len(house.t) >= 12
     assert {value for value in house.band.temp_low if value is not None} == {70.0}
+
+
+# fn_band_setpoints per step, as API-06 read its crop band before #1814.
+FUNCTION_CROP_SQL = """
+SELECT step.ts, crop.temp_low, crop.temp_high, crop.vpd_low, crop.vpd_high, crop.temp_target,
+       public.fn_solar_phase(step.ts) AS phase
+  FROM unnest($1::timestamptz[]) AS step(ts) CROSS JOIN LATERAL public.fn_band_setpoints(step.ts) AS crop
+"""
+
+
+def test_the_crop_band_equals_fn_band_setpoints_to_the_bit_at_every_step(world):
+    # 48 h of 5-min steps over anchors that resolve past another season, another stage and 'all' (_fill_anchors).
+    axis = s.aligned_starts(world.now - timedelta(hours=48), world.now, 300)
+
+    async def work(conn):
+        return [await conn.fetch(sql, axis) for sql in (FUNCTION_CROP_SQL, s.CROP_ACHIEVABLE_SQL, s.CROP_SQL)]
+
+    function, achievable, plain = ({row["ts"]: dict(row) for row in rows} for rows in as_login(work))
+    assert len(function) == len(axis) and all(row["temp_low"] is not None for row in function.values())
+    assert achievable == function  # every value and phase exactly, not approximately
+    assert plain == {ts: {k: row[k] for k in ("ts", *s.BAND_ROLES)} for ts, row in function.items()}
 
 
 # ── API-19: current against fn_crop_band_value at every step ────────────────

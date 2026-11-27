@@ -20,6 +20,10 @@ Rules for every read below:
   hypertable (`ts > now() - interval ...`), within the role's 10 s statement timeout. No read calls
   `fn_relay_run_intervals`, `fn_band_compliance_5m`, `v_sensor_staleness`, the lighting status views or any other
   object the discovery reports measured in seconds.
+- Latency budget (#1814): every read answers within 500 ms at the 95th percentile on the live database, measured
+  through the BFF as the dashboard calls it, and API-02 `GET /v1/now`, which every page polls, within 300 ms.
+  `scripts/dashboard-smoke.sh --sweep` prints each read's time and marks one over its budget. A view with no inner
+  time bound is not read filtered by day: bound the rows inside the statement, as API-21's no-valve gallons do.
 - `diagnostics` rows are sparse: read the newest non-null value per column over the last 15 minutes, never the newest row.
 - `system_state` JSON entities are decoded in SQL and compressed to change intervals before they leave the database.
 - Null is honest. A value the controller has not reported is `null`, never 0, and each block carries the time it was
