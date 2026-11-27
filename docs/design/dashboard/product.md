@@ -865,7 +865,7 @@ the audiences by [architecture](architecture.md) §5.6.
 *P4 · MVP · platform.* As the platform maintainer, I want a known way to back out a bad release, so that a broken release costs minutes, not a day.
 - Web: a PR reverting the offending commit, or the pin commit, merges; within one Argo refresh `verdify-dashboard` runs the previous digest and `/readyz` reports the previous source revision.
 - `verdify-prod`: api, mcp and ingestor (and the orchestrator if needed) return to the promotion receipt's rollback pins in a digest-only `release-pins.yaml` commit, `verdify-migrate` keeps a digest whose image contains every applied migration, the full sync completes and `scripts/k3s-smoke.sh smoke` passes against the rolled-back API digest.
-- Firmware rolls back as in US-PLAT-12; the procedure is written into AGENTS.md "Deliver and verify", and ARGOCD.md lists the `verdify-dashboard` Application.
+- Firmware rolls back as in US-PLAT-12; the procedure is in AGENTS.md "Build, test, deploy, verify", which also describes the `verdify-dashboard` Application.
 
 ## 7. Persona coverage matrix
 

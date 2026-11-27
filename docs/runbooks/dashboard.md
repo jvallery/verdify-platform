@@ -1,8 +1,8 @@
 # Dashboard runbook (dashboard.verdify.ai)
 
 The dashboard's web tier, `verdify-dashboard-web` (the BFF), runs in namespace `verdify-dashboard` and ships
-through its own Argo app `verdify-dashboard`: automated, self-heal, prune off, declared in the estate's Argo catalog
-(`ARGOCD.md`). It never rides the `verdify-prod-dark` sync. The BFF calls the private operator API, `verdify-operator-api` in
+through its own Argo app `verdify-dashboard`: automated, self-heal, prune off, declared outside this repository
+(`AGENTS.md`, Dashboard web). It never rides the `verdify-prod-dark` sync. The BFF calls the private operator API, `verdify-operator-api` in
 `verdify-prod` (ClusterIP :8090, no route), which reads and writes `verdify-db`. Manifests:
 `deploy/k8s/dashboard/`. Secret names and keys: `deploy/k8s/SECRETS.md`. Design:
 `docs/design/dashboard/architecture.md` sections 2, 4, 5.7, 10 and 11.
@@ -136,8 +136,8 @@ kubectl -n verdify-dashboard exec deploy/verdify-dashboard-web -- node -e \
      .then(r => console.log(r.status), e => { console.log(e.cause?.code ?? e.name); process.exitCode = 1 })'
 ```
 
-- A 404 means Authentik has no provider or application with the slug `verdify-dashboard` (the estate identity
-  lane). A timeout or `ENOTFOUND` is the network path: the issuer's host resolves to the shared traefik-apps
+- A 404 means Authentik has no provider or application with the slug `verdify-dashboard` (the identity
+  provider). A timeout or `ENOTFOUND` is the network path: the issuer's host resolves to the shared traefik-apps
   ingress, which lies outside the management set that `egress-deny-management` refuses, and DNS goes through
   kube-dns. Check `kubectl -n verdify-dashboard get networkpolicy` against `deploy/k8s/dashboard/`.
 - Redirect URI: Authentik matches it strictly (estate rule L8). The provider must list exactly
@@ -145,8 +145,8 @@ kubectl -n verdify-dashboard exec deploy/verdify-dashboard-web -- node -e \
   The BFF builds both from `PUBLIC_ORIGIN` in the generated ConfigMap, which must be exactly
   `https://dashboard.verdify.ai`.
 - Client secret: a secret regenerated in Authentik but not re-sealed fails every code exchange. Confirm the key is
-  present with `kubectl -n verdify-dashboard describe secret verdify-dashboard-web`; the owner re-seals it in the
-  central KSOPS lane, and once that has synced, delete the web pod
+  present with `kubectl -n verdify-dashboard describe secret verdify-dashboard-web`; the owner re-seals it where the
+  Secret values are kept, and once that has synced, delete the web pod
   (`kubectl -n verdify-dashboard delete pod -l app.kubernetes.io/name=verdify-dashboard-web`) so it restarts with
   the new value. A new `cookie-secret` voids only sign-ins in progress; sessions survive.
 - No access: membership of `verdify-dashboard-operators` (operator) or `verdify-dashboard-viewers` (viewer) in
@@ -244,6 +244,4 @@ writes flag instead.
    ```
 
 `verdify-prod` (the operator API, migrations and the tier-1 route) rolls back separately, through a digest-only
-`release-pins.yaml` commit to the promotion receipt's rollback pins and the gated full sync
-(`docs/runbooks/prod-promotion.md`; AGENTS.md "Rollback" says what an API pin from before #1148 does to the operator
-API).
+`release-pins.yaml` commit back to the previous pins and the full sync (`docs/runbooks/prod-promotion.md`, Rollback).

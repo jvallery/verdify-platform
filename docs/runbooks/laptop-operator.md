@@ -97,7 +97,7 @@ It dry-runs by default; a production apply requires its explicit apply flag and 
 
   Immediately verify that a **new** operation started and that `.status.operationState.operation.sync.resources`
   is absent or empty. Inspect the migration and bootstrap hook Pod UIDs, start times and image digests against the
-  promotion receipt, then the running workload image IDs. Require the ledger and readiness hooks and the smoke
+  promoted `release-pins.yaml`, then the running workload image IDs. Require the ledger and readiness hooks and the smoke
   checks (`prod-promotion.md`, Operator checks); do not accept cached hook results, Succeeded or Synced/Healthy as
   a substitute. If selectors, stale hook provenance, old running digests or too few resources appear, stop and
   preserve the outcome before a documented fix-forward operation.
@@ -192,8 +192,9 @@ Edge path: the Cloudflare tunnel (jvallery/network-infra) to the shared apps Tra
 
 ## 5. Where things are
 
-- Argo CD Application declarations: in the estate's Argo catalog, not in this repository; `ARGOCD.md` says which
-  three sync this repository's paths.
+- Argo CD Application declarations: kept outside this repository. Three Applications sync its paths:
+  `verdify-prod-dark` (`deploy/k8s/overlays/prod`), `verdify-dashboard` (`deploy/k8s/dashboard`) and
+  `verdify-descheduler` (`deploy/k8s/descheduler`); `AGENTS.md` says how each is delivered.
 - Database dumps: NAS share `verdify`, subdirectory `db-dumps/prod`, through the static PV `verdify-db-dumps-prod`
   (RWX). jvallery/storage-infra declares the PV (storage-infra#574); this repository declares only the PVC
   `verdify-prod/verdify-db-dumps`.

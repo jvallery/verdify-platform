@@ -1,13 +1,11 @@
 # Portable stateful recovery (#218)
 
-> **Node holds are not run from this lane.** Never cordon, drain or restart k3s on a
-> node from this runbook, drills included (AGENTS.md hazards; estate rule R25,
-> STD-HA-13). Any step below that needs a node made unschedulable is requested from
-> the `jvallery/proxmox-infrastructure` maintenance queue and runs there under the
-> `kube-system/k3s-planned-maintenance` Lease (`scripts/k3s-planned-maintenance.py`
-> `lease-*`/`hold-*`, [runbook](https://github.com/jvallery/proxmox-infrastructure/blob/main/config/k3s-planned-maintenance/README.md)),
-> one node at a time and CNPG-aware. This lane does only the pod-scope steps
-> while that hold is in place: Pod replacement, rollout and verification.
+> **No node operations from this runbook.** Never cordon, drain or restart k3s on a
+> node from here, drills included. A step below that needs a node made unschedulable
+> is done with the cluster's own planned-maintenance tool (outside this repository),
+> one node at a time and CNPG-aware, which holds the
+> `kube-system/k3s-planned-maintenance` Lease while it works. This runbook covers only the
+> pod-scope steps: Pod replacement, rollout and verification.
 
 Production keeps one TimescaleDB writer and existing Longhorn claims. DB,
 Grafana and Hermes can schedule on any Linux non-control-plane worker

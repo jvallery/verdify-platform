@@ -1,9 +1,9 @@
-# Agent: `web`
+# Lab site and public web: what to check
 
-The web lane owns the FastAPI public catalog, vault/content writers, page
-generators, and the single Quartz site published at `lab.verdify.ai`.
+The FastAPI public catalog, the vault and content writers, the page generators
+and the single Quartz site published at `lab.verdify.ai`.
 
-## Owns
+## Files
 
 - `api/` public web endpoints and response models.
 - `scripts/generate-*.py`, public export generators, and vault writers.
@@ -17,7 +17,7 @@ The alternate Astro generator, its stage/candidate workloads, and occurrence
 release runtime were retired on 2026-08-30. Do not reintroduce a second Lab
 generator or content-bearing serving image.
 
-## Required checks
+## Checks for a change here
 
 - Preserve existing frontmatter keys and ordering when changing vault writers.
 - Declare FastAPI `response_model=` contracts.
