@@ -14,7 +14,10 @@ experiment platform is retired. Sources read for "detected by":
 **Paging.** Prometheus `VerdifyGreenhouseAlertOpen` pages any open **critical** `alert_log` row after 2 min, through
 Alertmanager receiver `ha-local-push` (Home Assistant Companion Local Push, one push per `alert_type`). Warning and info
 rows never page: they stay on the dashboard (Activity on dashboard.verdify.ai). Slack was decommissioned on
-2026-11-17, so Home Assistant push is the only alert path. A few monitoring-stack rules over the product metrics push
+2026-11-17, so Home Assistant push is the only path to the phone today. It is interim (decision of 2026-11-27): every
+alert goes to Alertmanager only, alerts are read on the Grafana alert dashboard, and critical alerts go to the owner's
+phone by Telegram. That is not built yet (jvallery/monitoring-stack#2099); until it is, the Home Assistant push
+receivers stay, and nothing new is built on them. A few monitoring-stack rules over the product metrics push
 a warning to Home Assistant on purpose (`VerdifyFurnaceSaturated`); others, such as `VerdifyControllerWifiWeak`,
 follow the Alertmanager severity tree as warnings. So "pages" means a critical row or a critical Prometheus rule.
 

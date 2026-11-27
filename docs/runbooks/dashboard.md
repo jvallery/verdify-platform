@@ -98,7 +98,8 @@ asks. Each moves a setting by one grid step at most, and they keep these rules:
   again. Its first call goes through `allow-setpoint-from-operator-api`, so when a sync adds that policy, hold the
   edge-write lock through this leg (#1186).
 - `--agent-write` without the key fails with that message and creates nothing. The owner seals the key in the
-  central KSOPS lane (jvallery/agents#6017), and MCP admits it within 3 minutes. The host reads the Secret's key names
+  bundle `secrets/verdify-prod` in jvallery/estate-platform (`secret-verdify-mcp-agents.enc.yaml`), and MCP admits it
+  within 3 minutes. The host reads the Secret's key names
   only, with `kubectl describe secret`. The Job prints the state `set_setting` answers (`requested`) and waits for no
   readback. An agent reaches only the operator switches: any other setting answers `forbidden`.
 
