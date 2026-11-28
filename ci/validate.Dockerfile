@@ -1,8 +1,8 @@
 # ============================================================================
 # verdify-ci-validate: the job image of the verdify-platform-ci ARC set
 # (jvallery/estate-ci runners.yaml), where the validate parts run
-# ci/gha/validate.sh and scripts/ci-local.sh. PostgreSQL 16 and kustomize are
-# preinstalled and the base's Debian packages are upgraded at build time.
+# ci/gha/validate.sh and scripts/ci-local.sh. PostgreSQL 16 is preinstalled
+# and the base's Debian packages are upgraded at build time.
 #
 # Why: postgres_bin() in scripts/qualify-component-containment.py uses an
 # installed /usr/lib/postgresql/16 toolchain when one is present. Otherwise it
@@ -72,16 +72,9 @@ RUN set -eux; \
     /usr/lib/postgresql/16/bin/postgres --version; \
     test -z "$(pg_lsclusters --no-header)"
 
-# kustomize v5.4.3 is the release the validate template downloads, without a
-# checksum, on every run (ci-local.sh renders the prod overlay with it). This
-# copy is checked against the release's published SHA-256. The template's
-# download step can be removed once this image is pinned.
-RUN set -eux; \
-    curl -fsSL --retry 3 -o /tmp/kustomize.tar.gz 'https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz'; \
-    echo '3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7  /tmp/kustomize.tar.gz' | sha256sum -c -; \
-    tar -xzf /tmp/kustomize.tar.gz --no-same-owner -C /usr/local/bin kustomize; \
-    rm /tmp/kustomize.tar.gz; \
-    kustomize version
+# No kustomize here: the estate-ci runner image provides kustomize on PATH
+# (ci_require_runner_tools in ci/gha/lib.sh), built with a current Go. The
+# upstream release binary carried a fixable Go standard-library CVE.
 
 COPY --from=source-metadata /out/source-revision /etc/verdify/source-revision
 
