@@ -1,6 +1,6 @@
 # CI contexts: required checks and light paths
 
-The `main` branch rule requires the twelve `ci / …` contexts of `.github/workflows/ci.yml`
+The `main` branch rule requires the thirteen `ci / …` contexts of `.github/workflows/ci.yml`
 (`strict` false: a branch need not be up to date). Change this file in the same pull request
 that changes `ci.yml` or the branch rule. Required contexts are written as the whole
 `required_status_checks.checks` list, each bound to the GitHub Actions app (STD-CI-01), never
@@ -20,6 +20,7 @@ through `POST .../contexts`; rolling back is writing the previous list back.
 | `ci / firmware-secretless-compile` | aggregate of the two compile shards (`-greenhouse`, `-greenhouse-recovery`) |
 | `ci / campaign-qualification` | aggregate of the four campaign-qualification shards |
 | `ci / buildcheck` | builds the impacted images without pushing; on push it reports the skipped impact as a pass |
+| `ci / secret-scan` | gitleaks over the checked-out tree (`ci/gha/gitleaks.sh`, `.gitleaks.toml`); runs on every event, no path filter |
 
 Shard contexts are not required themselves; their aggregate is. Every job and shard should finish
 within 15 minutes (STD-CI-03); `validate-pure-logic-2` and `ci / dashboard` (when it runs) sit near
