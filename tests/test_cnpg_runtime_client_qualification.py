@@ -301,7 +301,17 @@ def test_probe_pool_startup_and_identity_fail_closed_without_secret_output(monke
     import hashlib
     import importlib.abc
     import json
+    import pathlib
     import types
+
+    # The probe also reads the api image's baked /etc/verdify/source-revision. Hide the host's copy so the fixture
+    # binding alone decides the source revision: a CI job image may carry its own build revision at that path.
+    real_is_file = pathlib.Path.is_file
+    monkeypatch.setattr(
+        pathlib.Path,
+        "is_file",
+        lambda self, *a, **k: False if str(self) == "/etc/verdify/source-revision" else real_is_file(self, *a, **k),
+    )
 
     secret = "synthetic-fixture-password"
     calls = []
