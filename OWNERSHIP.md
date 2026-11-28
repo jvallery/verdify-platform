@@ -204,7 +204,6 @@ Declared by another repo: the declaring repo owns the Application object, and th
 | --- | --- | --- | --- | --- |
 | `argo-app:argocd/verdify-dashboard` | verdify-dashboard | `jvallery/estate-platform` | running | `owned` |
 | `argo-app:argocd/verdify-dashboard-secrets` | verdify-dashboard-secrets | `jvallery/estate-platform` | declared-not-deployed | `owned` |
-| `argo-app:argocd/verdify-db-rehearsal-secrets` | verdify-db-rehearsal-secrets | `jvallery/agents` | retired | `owned` |
 | `argo-app:argocd/verdify-descheduler` | verdify-descheduler | `jvallery/estate-platform` | running | `owned` |
 | `argo-app:argocd/verdify-prod-dark` | verdify-prod-dark | `jvallery/estate-platform` | running | `owned` |
 | `argo-app:argocd/verdify-prod-secrets-local-prod` | verdify-prod-secrets-local-prod | `jvallery/estate-platform` | running | `owned` |
