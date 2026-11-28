@@ -38,6 +38,9 @@ PROFILES = {
     # #1535: the firmware-secretless-compile job image (the ESPHome mirror plus the
     # PlatformIO platform and toolchain baked in). It copies nothing from the repository.
     "esphome-ci": "ci/esphome-ci.Dockerfile",
+    # The verdify-platform-ci job image (python:3.13-bookworm, upgraded, plus PostgreSQL 16
+    # and kustomize). It copies only .git/HEAD and the vendored PGDG key.
+    "ci-validate": "ci/validate.Dockerfile",
 }
 # The dashboard tests (vitest and the browser shards) render e2e/fixtures/settings.json at
 # test time with scripts/gen-dashboard-settings-fixture.py, so every repository file that

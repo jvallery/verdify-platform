@@ -29,6 +29,7 @@ IMAGES = {
     "hermes-agent": ("verdifyconsultancy/verdify-hermes-agent", False),
     "timescaledb": ("verdifyconsultancy/verdify-timescaledb", False),
     "esphome-ci": ("verdifyconsultancy/verdify-esphome-ci", False),
+    "ci-validate": ("verdifyconsultancy/verdify-ci-validate", True),
 }
 
 

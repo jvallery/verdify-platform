@@ -31,7 +31,8 @@
 # platform tests, the firmware logic and replay suites) runs inside the parts.
 #
 # Scale sets (estate-ci runners.yaml, repository jvallery/verdify-platform):
-#   verdify-platform-ci            job image python:3.13-bookworm (native validate image)
+#   verdify-platform-ci            job image verdify-ci-validate (python:3.13-bookworm plus
+#                                  PostgreSQL 16, ci/validate.Dockerfile)
 #   verdify-platform-ci-tools      job image agents-ci-tools (uv, verdify-campaign-ci)
 #   verdify-platform-ci-esphome    job image ESPHome 2026.6.5; next verdify-esphome-ci, the
 #                                  same plus the PlatformIO toolchain (ci/esphome-ci.Dockerfile)
