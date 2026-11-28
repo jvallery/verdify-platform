@@ -37,7 +37,7 @@
   "dependencies": {
     "@clack/prompts": "^0.11.0",
     "@floating-ui/dom": "^1.7.4",
-    "@myriaddreamin/rehype-typst": "^0.6.0",
+    "@myriaddreamin/rehype-typst": "^0.7.0",
     "@napi-rs/simple-git": "0.1.22",
     "@tweenjs/tween.js": "^25.0.0",
     "ansi-truncate": "^1.4.0",
@@ -83,7 +83,7 @@
     "remark-rehype": "^11.1.2",
     "remark-smartypants": "^3.0.2",
     "rfdc": "^1.4.1",
-    "satori": "^0.19.1",
+    "satori": "^0.63.0",
     "serve-handler": "^6.1.6",
     "sharp": "^0.35.5",
     "shiki": "^1.26.2",
@@ -106,13 +106,13 @@
     "@types/source-map-support": "^0.5.10",
     "@types/ws": "^8.18.1",
     "@types/yargs": "^17.0.35",
-    "esbuild": "^0.27.2",
+    "esbuild": "^0.28.0",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "overrides": {
-    "@xmldom/xmldom": "0.8.15",
+    "@xmldom/xmldom": "0.9.12",
     "@isaacs/brace-expansion": "5.0.1",
     "brace-expansion@1": "1.1.22",
     "brace-expansion@2": "2.1.8",
