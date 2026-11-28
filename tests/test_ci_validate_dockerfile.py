@@ -26,7 +26,6 @@ BASE_IMAGE = (
 PGDG_KEY = "db/qualification/pgdg-ACCC4CF8.asc"
 KEYRING = "/etc/apt/keyrings/pgdg-ACCC4CF8.asc"
 PGCRYPTO = "/usr/share/postgresql/16/extension/pgcrypto.control"
-KUSTOMIZE_SHA256 = "3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7"
 
 
 def _text() -> str:
@@ -170,11 +169,10 @@ def test_packages_only_no_cluster_or_server_and_apt_lists_are_cleaned():
     assert not re.search(r"\b(pg_createcluster|pg_ctlcluster|pg_ctl|systemctl|service postgresql)\b", _text())
 
 
-def test_kustomize_is_checked_against_its_published_hash_before_extraction():
-    fetch = _final_run("kustomize")
-    assert "/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz'" in fetch
-    check = f"echo '{KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz' | sha256sum -c -"
-    assert fetch.index(check) < fetch.index("tar -xzf /tmp/kustomize.tar.gz")
+def test_no_go_tool_binaries_are_baked():
+    # kustomize comes from the runner image (ci_require_runner_tools); an upstream release binary here carried a
+    # fixable Go standard-library CVE into the image and blocked the CVE gate.
+    assert "kustomize" not in "\n".join(_stages(_text())[-1]["lines"])
 
 
 def test_source_revision_is_baked_from_git_sha():
