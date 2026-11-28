@@ -24,6 +24,7 @@
 # by the standalone jvallery/verdify-www repo; www-dev is owned there too.
 # dashboard.verdify.ai is served by its own IngressRoute in namespace verdify-dashboard
 # (deploy/k8s/dashboard/ingressroute.yaml), whose plain Host rule would lose to this priority-50 match.
+# mta-sts.verdify.ai serves the shared MTA-STS policy (RFC 8461) from an edge route outside verdify-prod.
 # analytics/logs/botauth/traefik.verdify.ai are retired (DNS, tunnel,
 # CoreDNS and probes removed in jvallery/network-infra#602, 2026-11-11), so their
 # exclusions were dropped (#1582); they now reach tier-2, which has no route for
@@ -62,6 +63,7 @@ spec:
         && !Host(`crm.verdify.ai`)
         && !Host(`mqtt.verdify.ai`)
         && !Host(`dashboard.verdify.ai`)
+        && !Host(`mta-sts.verdify.ai`)
       priority: 50
       # network-infra#1104: every catch-all response,
       # including verdify-traefik's 404 for hosts with no router (e.g. ingress.verdify.ai),

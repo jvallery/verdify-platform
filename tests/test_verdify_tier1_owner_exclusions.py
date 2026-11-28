@@ -23,6 +23,7 @@ def test_outside_owner_exclusions_preserve_existing_forwarder_contract():
             "crm",
             "mqtt",
             "dashboard",
+            "mta-sts",
         )
     }
     assert spec["entryPoints"] == ["websecure", "web"]
