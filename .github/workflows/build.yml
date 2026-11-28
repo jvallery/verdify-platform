@@ -71,6 +71,7 @@ jobs:
       hermes-agent: ${{ steps.impact.outputs.hermes-agent }}
       timescaledb: ${{ steps.impact.outputs.timescaledb }}
       esphome-ci: ${{ steps.impact.outputs.esphome-ci }}
+      ci-validate: ${{ steps.impact.outputs.ci-validate }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -196,6 +197,18 @@ jobs:
       image: verdifyconsultancy/verdify-esphome-ci
       dockerfile: ci/esphome-ci.Dockerfile
       push: true
+
+  # estate-ci#229: the verdify-platform-ci job image (ci/validate.Dockerfile). Not in
+  # the pin job; the ci job_image digest lives in jvallery/estate-ci runners.yaml.
+  ci-validate:
+    needs: [impact]
+    if: ${{ needs.impact.outputs.ci-validate == 'true' }}
+    uses: jvallery/estate-ci/.github/workflows/image-build.yml@6c3b7227e9e256391f8b88179c24caeb4e4b86a3
+    with:
+      image: verdifyconsultancy/verdify-ci-validate
+      dockerfile: ci/validate.Dockerfile
+      push: true
+      build-args: GIT_SHA=${{ github.sha }}
 
   pin:
     needs: [impact, api, mcp, ingestor, migrate, setpoint-server, lab-publisher, dashboard-web]

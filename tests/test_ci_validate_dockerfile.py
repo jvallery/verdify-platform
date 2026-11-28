@@ -1,7 +1,7 @@
 """ci/validate.Dockerfile contract: the validate CI image with PostgreSQL 16 preinstalled.
 
-It is the python image the validate jobs run scripts/ci-local.sh in, plus the PGDG PostgreSQL 16
-toolchain. With the toolchain installed, ``postgres_bin()`` in scripts/qualify-component-containment.py no longer
+It is the verdify-platform-ci job image (verdify-ci-validate): python:3.13-bookworm with its Debian packages
+upgraded, plus the PGDG PostgreSQL 16 toolchain. With the toolchain installed, ``postgres_bin()`` in scripts/qualify-component-containment.py no longer
 downloads it on every run. Kaniko reads ci/validate.Dockerfile.dockerignore in place of the root .dockerignore,
 so the ignore file must admit exactly the Dockerfile's COPY inputs.
 """
@@ -17,10 +17,11 @@ from pathlib import Path, PurePosixPath
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = REPO_ROOT / "ci/validate.Dockerfile"
 DOCKERIGNORE = REPO_ROOT / "ci/validate.Dockerfile.dockerignore"
-# The validate template's container image, read from the live template on 2026-11-02 (python:3.13-bookworm). This
-# image builds on it, so the validate environment stays that image plus PostgreSQL 16. Bump the two together.
-VALIDATE_TEMPLATE_IMAGE = (
-    "mirror.gcr.io/library/python@sha256:353cf2106d143e1d28f5d7c10c5f5c0387085bba22ef0f7f7e52c2c330fb1779"
+# python:3.13-bookworm from the estate registry (the jvallery/estate-ci mirrors.txt copy of the index the
+# verdify-platform-ci set ran before this image became its job image). Bump it together with that mirror.
+BASE_IMAGE = (
+    "registry.vallery.net/jvallery/estate-ci/mirror/docker.io/library/python"
+    "@sha256:cc55e4ded9c95f6ce2133b3d096db43f214d280c2a8af65d83e246c8fa7d168c"
 )
 PGDG_KEY = "db/qualification/pgdg-ACCC4CF8.asc"
 KEYRING = "/etc/apt/keyrings/pgdg-ACCC4CF8.asc"
@@ -92,12 +93,24 @@ def _kaniko_excludes(path: str, rules: list[str]) -> bool:
     return matched
 
 
-def test_every_from_is_the_python_image_the_validate_template_runs():
+def test_every_from_is_the_estate_registry_python_mirror():
     stages = _stages(_text())
     assert [(stage["base"], stage["name"]) for stage in stages] == [
-        (VALIDATE_TEMPLATE_IMAGE, "source-metadata"),
-        (VALIDATE_TEMPLATE_IMAGE, None),
+        (BASE_IMAGE, "source-metadata"),
+        (BASE_IMAGE, None),
     ]
+
+
+def test_base_packages_are_upgraded_before_postgresql_is_installed():
+    # The upgrade carries the bookworm-security fixes the upstream index lacks, so the image passes the CVE gate.
+    install = _final_run("postgresql-16")
+    order = [
+        "apt-get update",
+        "apt-get -y upgrade",
+        "apt-get install -y --no-install-recommends postgresql-common",
+        "rm -rf /var/lib/apt/lists/*",
+    ]
+    assert [install.index(step) for step in order] == sorted(install.index(step) for step in order)
 
 
 def test_no_forbidden_instructions():

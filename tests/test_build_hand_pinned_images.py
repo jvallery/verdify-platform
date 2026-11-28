@@ -14,6 +14,7 @@ HAND_PINNED = {
     "grafana-image-renderer": "verdify-grafana-image-renderer",
     "hermes-agent": "verdify-hermes-agent",
     "timescaledb": "verdify-timescaledb",
+    "ci-validate": "verdify-ci-validate",
 }
 
 
@@ -48,3 +49,20 @@ def test_hand_pinned_images_stay_out_of_the_pin_job():
     for job, image in HAND_PINNED.items():
         assert job not in pin["needs"]
         assert image not in pin["with"]["pins"]
+
+
+def test_ci_validate_builds_on_path_impact_from_its_dockerfile():
+    # estate-ci#229: the verdify-platform-ci job image; its digest is pinned in estate-ci runners.yaml.
+    jobs = _jobs()
+    job = jobs["ci-validate"]
+    assert job["needs"] == ["impact"]
+    assert job["if"] == "${{ needs.impact.outputs.ci-validate == 'true' }}"
+    assert job["with"] == {
+        "image": "verdifyconsultancy/verdify-ci-validate",
+        "dockerfile": "ci/validate.Dockerfile",
+        "push": True,
+        "build-args": "GIT_SHA=${{ github.sha }}",
+    }
+    assert job["uses"] == jobs["timescaledb"]["uses"]
+    assert jobs["impact"]["outputs"]["ci-validate"] == "${{ steps.impact.outputs.ci-validate }}"
+    assert _profiles()["ci-validate"] == "ci/validate.Dockerfile"

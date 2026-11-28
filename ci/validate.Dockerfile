@@ -1,24 +1,25 @@
 # ============================================================================
-# verdify-ci-validate: the in-cluster validate step's image, with PostgreSQL 16
-# preinstalled.
+# verdify-ci-validate: the job image of the verdify-platform-ci ARC set
+# (jvallery/estate-ci runners.yaml), where the validate parts run
+# ci/gha/validate.sh and scripts/ci-local.sh. PostgreSQL 16 and kustomize are
+# preinstalled and the base's Debian packages are upgraded at build time.
 #
-# No workflow builds or runs it today: the validate jobs in ci.yml run
-# scripts/ci-local.sh in python:3.13-bookworm.
 # Why: postgres_bin() in scripts/qualify-component-containment.py uses an
 # installed /usr/lib/postgresql/16 toolchain when one is present. Otherwise it
 # downloads and unpacks the PGDG packages on every validate run, which takes
-# about 170 s per PR.
+# about 170 s per PR. The upgrade picks up bookworm-security fixes that the
+# upstream python:3.13-bookworm index has not been rebuilt with yet, so the
+# image passes the CVE gate without an exception row.
 #
-# Base: the exact python:3.13-bookworm index the validate template ran before
-# this image (Debian 12 bookworm; it already ships g++, make, git, curl and
-# tar). Change it only together with that template;
-# tests/test_ci_validate_dockerfile.py keeps the two in step.
+# Base: python:3.13-bookworm (Debian 12 bookworm; it already ships g++, make,
+# git, curl and tar), the estate-ci mirrors.txt copy of the same index digest
+# the set ran before this image. tests/test_ci_validate_dockerfile.py pins it.
 #
-# Build: this image is not in .github/workflows/build.yml, so a merge does not build
-# it, and the in-cluster Workflow that built it is retired (#1397). Add a build.yml
-# profile before rebuilding it; see docs/runbooks/prod-promotion.md. Kaniko and BuildKit read
-# ci/validate.Dockerfile.dockerignore in place of the root .dockerignore, so
-# the build context holds only the two COPY inputs below.
+# Build: build.yml builds verdifyconsultancy/verdify-ci-validate (path impact,
+# profile ci-validate) on a merge that changes this file; repin the ci set's
+# job_image in estate-ci runners.yaml with the new digest. Kaniko and BuildKit
+# read ci/validate.Dockerfile.dockerignore in place of the root .dockerignore,
+# so the build context holds only the two COPY inputs below.
 #
 # Keep COPY lines plain: no ADD, no flag other than --from=<earlier stage>, and
 # no $ in a COPY line. The in-cluster Kaniko path rebuilds every image on those.
@@ -27,7 +28,7 @@
 # Runtime provenance, as in api/Dockerfile: repo-build passes the exact 40-hex
 # revision as GIT_SHA. A build without it falls back to the detached
 # checkout's .git/HEAD (from a linked worktree, pass GIT_SHA).
-FROM mirror.gcr.io/library/python@sha256:353cf2106d143e1d28f5d7c10c5f5c0387085bba22ef0f7f7e52c2c330fb1779 AS source-metadata
+FROM registry.vallery.net/jvallery/estate-ci/mirror/docker.io/library/python@sha256:cc55e4ded9c95f6ce2133b3d096db43f214d280c2a8af65d83e246c8fa7d168c AS source-metadata
 ARG GIT_SHA=unknown
 COPY .git /tmp/verdify-git-metadata
 RUN set -eu; \
@@ -41,15 +42,16 @@ RUN set -eu; \
     printf '%s\n' "$candidate" > /out/source-revision; \
     chmod 0444 /out/source-revision
 
-FROM mirror.gcr.io/library/python@sha256:353cf2106d143e1d28f5d7c10c5f5c0387085bba22ef0f7f7e52c2c330fb1779
+FROM registry.vallery.net/jvallery/estate-ci/mirror/docker.io/library/python@sha256:cc55e4ded9c95f6ce2133b3d096db43f214d280c2a8af65d83e246c8fa7d168c
 
 # The PGDG signing key is the vendored copy that the qualifier also reads. The
 # build checks it against the qualifier's pinned SHA-256 (PGDG_KEY_SHA256)
 # before apt uses it, and signed-by limits its trust to the PGDG source.
 COPY db/qualification/pgdg-ACCC4CF8.asc /etc/apt/keyrings/pgdg-ACCC4CF8.asc
 
-# Install the PostgreSQL 16 server and client at the paths postgres_bin()
-# checks. These are packages only: with create_main_cluster = false the package
+# Upgrade the base's Debian packages (bookworm-security fixes the upstream
+# index lacks), then install the PostgreSQL 16 server and client at the paths
+# postgres_bin() checks. These are packages only: with create_main_cluster = false the package
 # scripts create no cluster, so no server can start. The containment fixture
 # initialises its own private cluster at test time.
 RUN set -eux; \
@@ -59,6 +61,7 @@ RUN set -eux; \
     grep -qx 'VERSION_CODENAME=bookworm' /etc/os-release; \
     echo 'deb [signed-by=/etc/apt/keyrings/pgdg-ACCC4CF8.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main' > /etc/apt/sources.list.d/pgdg.list; \
     apt-get update; \
+    apt-get -y upgrade; \
     apt-get install -y --no-install-recommends postgresql-common; \
     sed -ri 's/#(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf; \
     grep -qx 'create_main_cluster = false' /etc/postgresql-common/createcluster.conf; \
