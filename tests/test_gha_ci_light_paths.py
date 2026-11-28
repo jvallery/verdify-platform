@@ -36,6 +36,7 @@ REQUIRED = {
     "ci / firmware-secretless-compile",
     "ci / campaign-qualification",
     "ci / buildcheck",
+    "ci / secret-scan",
 }
 D1, D2 = "sha256:" + "1" * 64, "sha256:" + "2" * 64
 KUSTOMIZATION = f"""# pins
