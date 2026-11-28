@@ -331,14 +331,14 @@ images:
   - name: ghcr.io/verdifyconsultancy/verdify-migrate
     newName: registry.vallery.net/verdifyconsultancy/verdify-migrate
     digest: sha256:43c6a8ea5e87284c59f747e45b425061979f41c103eaf57557234cab61ce78f4
-  # Hand-pinned grow-light writer: source 5ebe309308d5 (W7 release 8: #1494 relay_physical, #1495 per-setting
-  # write lock), GHA build run 42415895024. Rollback: 0f40c6514b21 (source 130a954e0ce7, build run 42294583580). The #399 HA call allowlist confines
+  # Hand-pinned grow-light writer: source 20ca3ea5e2d8 (#1904 security rebuild: libzstd1 deb13u1 for
+  # CVE-2026-124851, #1458), GHA build run 46110047225. Rollback: 66e0b8ab0a01. The #399 HA call allowlist confines
   # this prod-only writer to the declared main/grow light switches.
   # hermes-agent is deliberately ABSENT from this transformer — its upstream
   # @sha256 (zot custody copy, #1363) is pinned inline in the component.
   - name: ghcr.io/verdifyconsultancy/verdify-setpoint-server
     newName: registry.vallery.net/verdifyconsultancy/verdify-setpoint-server
-    digest: sha256:66e0b8ab0a01350e309a4faa873adb1e1f5acb1064e0d2e8e82c8f4b1c02458c
+    digest: sha256:b04a7050ba5e9359a9029437b2ac0346e4b7ce433cddbd2f200c6aa99b4d01c2
   # Lab publisher: source 126576bfac3f (#1864 drops build-only pip on top of the #1861
   # security rebuild), GHA build run 44786385176.
   # Rollback: df35dd707943 (source dc22cd7368a4, run 44706691694).
